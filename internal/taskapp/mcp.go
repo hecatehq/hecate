@@ -8,7 +8,7 @@ import (
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
-// normalizeMCPServerConfigs converts the command shape into the internal
+// NormalizeMCPServerConfigs converts the command shape into the internal
 // types.MCPServerConfig slice used by the orchestrator. Trims whitespace
 // on string fields, enforces non-empty Name, rejects duplicate names,
 // validates that exactly one of command or url is set per entry, and
@@ -30,7 +30,7 @@ import (
 //
 // Returns nil for an empty input (the agent loop skips MCP-host
 // startup when MCPServers is nil/empty).
-func normalizeMCPServerConfigs(items []MCPServerCommand, cipher secrets.Cipher, maxEntries int) ([]types.MCPServerConfig, error) {
+func NormalizeMCPServerConfigs(items []MCPServerCommand, cipher secrets.Cipher, maxEntries int) ([]types.MCPServerConfig, error) {
 	if len(items) == 0 {
 		return nil, nil
 	}

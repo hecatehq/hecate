@@ -13,6 +13,7 @@ import (
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/chatcontext"
 	"github.com/hecatehq/hecate/internal/modelcaps"
+	"github.com/hecatehq/hecate/internal/taskapp"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/pkg/types"
@@ -75,6 +76,12 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	mcpServers, err := taskapp.NormalizeMCPServerConfigs(taskMCPServerCommandsFromRequest(req.MCPServers), h.secretCipher, h.config.Server.TaskMaxMCPServersPerTask)
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+		return
+	}
+
 	if busy, runStatus := h.hecateAgentSessionBusy(r.Context(), session); busy {
 		writeHecateAgentBusy(w, session, runStatus)
 		return
@@ -101,7 +108,7 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 	defer cancel()
 
 	userID := newChatID("msg")
-	forceNewTask := shouldStartNewHecateAgentSegment(session, session.Provider, session.Model)
+	forceNewTask := shouldStartNewHecateAgentSegment(session, session.Provider, session.Model) || len(mcpServers) > 0
 	segmentID := hecateAgentSegmentID(session)
 	messageSnapshotSession := session
 	if forceNewTask {
@@ -178,6 +185,7 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 		Prompt:        content,
 		SystemPrompt:  taskSystemPrompt,
 		ForceNewTask:  forceNewTask,
+		MCPServers:    mcpServers,
 		ContextPacket: contextPacket,
 	})
 	if err != nil {

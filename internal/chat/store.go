@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -100,9 +101,23 @@ type Activity struct {
 	// ArtifactPreview carries a capped text preview for stdout/stderr-like
 	// artifacts so chat diagnostics can explain a failed tool without forcing
 	// the operator to leave the transcript.
-	ArtifactPreview string `json:"artifact_preview,omitempty"`
-	ApprovalID      string `json:"approval_id,omitempty"`
-	NeedsAction     bool   `json:"needs_action,omitempty"`
+	ArtifactPreview string  `json:"artifact_preview,omitempty"`
+	ApprovalID      string  `json:"approval_id,omitempty"`
+	NeedsAction     bool    `json:"needs_action,omitempty"`
+	MCPApp          *MCPApp `json:"mcp_app,omitempty"`
+}
+
+type MCPApp struct {
+	ResourceURI   string          `json:"resource_uri,omitempty"`
+	MIMEType      string          `json:"mime_type,omitempty"`
+	HTML          string          `json:"html,omitempty"`
+	HTMLTruncated bool            `json:"html_truncated,omitempty"`
+	ToolName      string          `json:"tool_name,omitempty"`
+	ToolInput     json.RawMessage `json:"tool_input,omitempty"`
+	ToolResult    json.RawMessage `json:"tool_result,omitempty"`
+	ResourceMeta  json.RawMessage `json:"resource_meta,omitempty"`
+	ToolMeta      json.RawMessage `json:"tool_meta,omitempty"`
+	Error         string          `json:"error,omitempty"`
 }
 
 type ContextPacket struct {
@@ -420,10 +435,25 @@ func cloneSession(session Session) Session {
 	session.Messages = append([]Message(nil), session.Messages...)
 	for i := range session.Messages {
 		session.Messages[i].Activities = append([]Activity(nil), session.Messages[i].Activities...)
+		for j := range session.Messages[i].Activities {
+			session.Messages[i].Activities[j].MCPApp = cloneMCPApp(session.Messages[i].Activities[j].MCPApp)
+		}
 		session.Messages[i].Context.Sources = append([]ContextSource(nil), session.Messages[i].Context.Sources...)
 		session.Messages[i].Context.Items = append([]ContextItem(nil), session.Messages[i].Context.Items...)
 	}
 	return session
+}
+
+func cloneMCPApp(app *MCPApp) *MCPApp {
+	if app == nil {
+		return nil
+	}
+	clone := *app
+	clone.ToolInput = append(json.RawMessage(nil), app.ToolInput...)
+	clone.ToolResult = append(json.RawMessage(nil), app.ToolResult...)
+	clone.ResourceMeta = append(json.RawMessage(nil), app.ResourceMeta...)
+	clone.ToolMeta = append(json.RawMessage(nil), app.ToolMeta...)
+	return &clone
 }
 
 func cloneConfigOptions(options []agentcontrols.ConfigOption) []agentcontrols.ConfigOption {

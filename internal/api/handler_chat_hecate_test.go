@@ -922,6 +922,52 @@ func TestChatActivityFromTaskActivityCarriesArtifactMetadata(t *testing.T) {
 	}
 }
 
+func TestChatActivityFromTaskActivityCarriesMCPApp(t *testing.T) {
+	item := TaskActivityItem{
+		ID:       "step:step_weather",
+		Type:     "tool_call",
+		Status:   "completed",
+		Title:    "mcp__weather__get_weather (completed)",
+		ToolName: "mcp__weather__get_weather",
+		Kind:     "tool",
+		Summary: map[string]any{
+			"mcp_app": map[string]any{
+				"resource_uri":   "ui://weather/dashboard",
+				"mime_type":      "text/html;profile=mcp-app",
+				"html":           "<!doctype html><html><body>weather app</body></html>",
+				"tool_name":      "mcp__weather__get_weather",
+				"tool_input":     map[string]any{"city": "Lisbon"},
+				"tool_result":    map[string]any{"content": []any{map[string]any{"type": "text", "text": "72F"}}},
+				"resource_meta":  map[string]any{"ui": map[string]any{"prefersBorder": true}},
+				"html_truncated": false,
+			},
+		},
+		OccurredAt: "2026-05-03T10:00:00Z",
+	}
+
+	activity := agentChatActivityFromTaskActivity(item)
+	rendered := renderAgentChatActivities([]chat.Activity{activity})
+	if len(rendered) != 1 {
+		t.Fatalf("rendered activities = %d, want 1", len(rendered))
+	}
+	app := rendered[0].MCPApp
+	if app == nil {
+		t.Fatal("MCPApp = nil")
+	}
+	if app.ResourceURI != "ui://weather/dashboard" || !strings.Contains(app.HTML, "weather app") {
+		t.Fatalf("app = %+v, want weather dashboard HTML", app)
+	}
+	if !strings.Contains(string(app.ToolInput), `"city":"Lisbon"`) {
+		t.Fatalf("tool_input = %s, want city", app.ToolInput)
+	}
+	if !strings.Contains(string(app.ToolResult), `"72F"`) {
+		t.Fatalf("tool_result = %s, want result content", app.ToolResult)
+	}
+	if !strings.Contains(string(app.ResourceMeta), `"prefersBorder":true`) {
+		t.Fatalf("resource_meta = %s, want prefersBorder", app.ResourceMeta)
+	}
+}
+
 func TestMergeChatActivityClearsApprovalNeedsAction(t *testing.T) {
 	items := []chat.Activity{{
 		ID:          "task:approval:appr_123",
@@ -1232,6 +1278,33 @@ func TestHecateChatRejectsUnknownExecutionMode(t *testing.T) {
 	}
 	if payload.Error.UserMessage == "" || payload.Error.OperatorAction == "" {
 		t.Fatalf("error missing operator metadata: %+v", payload.Error)
+	}
+}
+
+func TestHecateAgentChatRejectsInvalidMCPServers(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	provider := &fakeProvider{name: "openai"}
+	handler := newTestHTTPHandlerWithSettings(logger, []providers.Provider{provider}, config.Config{}, controlplane.NewMemoryStore())
+	client := newTaskTestClient(t, handler)
+	workspace := t.TempDir()
+
+	session := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions",
+		fmt.Sprintf(`{"agent_id":"hecate","workspace":%q,"provider":"openai","model":"gpt-4o-mini"}`, workspace))
+	recorder := client.mustRequestStatus(http.StatusBadRequest, http.MethodPost, "/hecate/v1/chat/sessions/"+session.Data.ID+"/messages",
+		`{"execution_mode":"hecate_task","content":"show app","mcp_servers":[{"name":"weather","command":"node","url":"https://example.invalid/mcp"}]}`)
+	payload := decodeRecorder[struct {
+		Error struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}](t, recorder)
+	if payload.Error.Type != errCodeInvalidRequest {
+		t.Fatalf("error type = %q, want %s", payload.Error.Type, errCodeInvalidRequest)
+	}
+	if !strings.Contains(payload.Error.Message, "command and url are mutually exclusive") {
+		t.Fatalf("error message = %q, want MCP validation detail", payload.Error.Message)
 	}
 }
 

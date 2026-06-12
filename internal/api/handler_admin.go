@@ -334,9 +334,13 @@ func renderMCPProbeTools(tools []mcpclient.NamespacedTool) []MCPProbeToolDescrip
 	out := make([]MCPProbeToolDescriptor, 0, len(tools))
 	for _, t := range tools {
 		out = append(out, MCPProbeToolDescriptor{
-			Name:        t.Name,
-			Description: t.Description,
-			InputSchema: t.Schema,
+			Name:          t.Name,
+			Description:   t.Description,
+			InputSchema:   t.Schema,
+			Meta:          t.Meta,
+			UIResourceURI: t.UIResourceURI,
+			UIVisibility:  append([]string(nil), t.UIVisibility...),
+			ModelVisible:  t.ModelVisible,
 		})
 	}
 	return out

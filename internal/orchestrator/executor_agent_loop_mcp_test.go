@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/hecatehq/hecate/internal/mcp"
+	mcpclient "github.com/hecatehq/hecate/internal/mcp/client"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -19,6 +21,7 @@ import (
 type fakeMCPHost struct {
 	tools    []types.Tool
 	handlers map[string]func(args json.RawMessage) (text string, isError bool, err error)
+	detailed map[string]func(args json.RawMessage) (mcpclient.ToolCallResult, error)
 
 	mu     sync.Mutex
 	calls  []fakeMCPCall
@@ -43,6 +46,26 @@ func (h *fakeMCPHost) Call(_ context.Context, name string, args json.RawMessage)
 	return fn(args)
 }
 
+func (h *fakeMCPHost) CallDetailed(ctx context.Context, name string, args json.RawMessage) (mcpclient.ToolCallResult, error) {
+	if h.detailed != nil {
+		if fn, ok := h.detailed[name]; ok {
+			h.mu.Lock()
+			h.calls = append(h.calls, fakeMCPCall{Name: name, Args: append(json.RawMessage(nil), args...)})
+			h.mu.Unlock()
+			return fn(args)
+		}
+	}
+	text, isError, err := h.Call(ctx, name, args)
+	if err != nil {
+		return mcpclient.ToolCallResult{}, err
+	}
+	return mcpclient.ToolCallResult{
+		Text:    text,
+		IsError: isError,
+		Result:  mcp.CallToolResult{Content: mcp.TextContent(text), IsError: isError},
+	}, nil
+}
+
 func (h *fakeMCPHost) Close() error {
 	h.closed.Add(1)
 	return nil
@@ -56,6 +79,87 @@ func mcpTool(name, description string) types.Tool {
 			Description: description,
 			Parameters:  json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}`),
 		},
+	}
+}
+
+func TestAgentLoop_MCPAppTool_CapturesAppSummary(t *testing.T) {
+	t.Parallel()
+	host := &fakeMCPHost{
+		tools: []types.Tool{mcpTool("mcp__weather__get_weather", "Get weather")},
+		detailed: map[string]func(json.RawMessage) (mcpclient.ToolCallResult, error){
+			"mcp__weather__get_weather": func(args json.RawMessage) (mcpclient.ToolCallResult, error) {
+				return mcpclient.ToolCallResult{
+					Text: "72F and clear",
+					Result: mcp.CallToolResult{
+						Content:           mcp.TextContent("72F and clear"),
+						StructuredContent: json.RawMessage(`{"temperature":72}`),
+					},
+					Tool: mcpclient.NamespacedTool{
+						Name:          "mcp__weather__get_weather",
+						UIResourceURI: "ui://weather/dashboard",
+						Meta:          json.RawMessage(`{"ui":{"resourceUri":"ui://weather/dashboard"}}`),
+					},
+					App: &mcpclient.ToolCallAppResource{
+						URI:      "ui://weather/dashboard",
+						MIMEType: mcp.AppsResourceMIMEType,
+						HTML:     "<!doctype html><html><body>weather app</body></html>",
+						Meta:     json.RawMessage(`{"ui":{"prefersBorder":true}}`),
+					},
+				}, nil
+			},
+		},
+	}
+	llm := &scriptedLLM{
+		responses: []*types.ChatResponse{
+			makeChatResp(makeAssistantMsg("",
+				types.ToolCall{
+					ID:   "call-1",
+					Type: "function",
+					Function: types.ToolCallFunction{
+						Name:      "mcp__weather__get_weather",
+						Arguments: `{"city":"Lisbon"}`,
+					},
+				},
+			)),
+			makeChatResp(makeAssistantMsg("The weather app is ready.")),
+		},
+	}
+	executor := NewAgentLoopExecutor(llm, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 4, nil, HTTPRequestPolicy{})
+	executor.SetMCPHostFactory(func(_ context.Context, _ []types.MCPServerConfig) (AgentMCPHost, error) {
+		return host, nil
+	})
+
+	spec := newAgentLoopSpec(t)
+	spec.Task.MCPServers = []types.MCPServerConfig{{Name: "weather", Command: "fake"}}
+
+	result, err := executor.Execute(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if result.Status != "completed" {
+		t.Fatalf("status = %q, want completed; lastError=%q", result.Status, result.LastError)
+	}
+
+	var app map[string]any
+	for _, step := range result.Steps {
+		if step.ToolName != "mcp__weather__get_weather" {
+			continue
+		}
+		app, _ = step.OutputSummary["mcp_app"].(map[string]any)
+		break
+	}
+	if len(app) == 0 {
+		t.Fatalf("mcp_app summary missing from steps: %+v", result.Steps)
+	}
+	if got := app["resource_uri"]; got != "ui://weather/dashboard" {
+		t.Fatalf("resource_uri = %v", got)
+	}
+	if html, _ := app["html"].(string); !strings.Contains(html, "weather app") {
+		t.Fatalf("html = %q, want weather app", html)
+	}
+	toolInput, _ := app["tool_input"].(map[string]any)
+	if toolInput["city"] != "Lisbon" {
+		t.Fatalf("tool_input = %#v, want city", toolInput)
 	}
 }
 

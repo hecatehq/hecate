@@ -27,6 +27,8 @@ type agentLoopToolDispatchResult struct {
 	Artifacts []types.TaskArtifact
 }
 
+const mcpAppHTMLMaxBytes = 1 << 20
+
 func (d *agentLoopToolDispatcher) SetMetrics(m *telemetry.OrchestratorMetrics) {
 	d.metrics = m
 }
@@ -239,7 +241,21 @@ func (d *agentLoopToolDispatcher) dispatchMCPToolCall(ctx context.Context, spec 
 		return agentLoopToolDispatchResult{Text: text, Step: &step}, nil
 	}
 
-	text, isError, err := host.Call(ctx, call.Function.Name, args)
+	var detailed *mcpclient.ToolCallResult
+	var text string
+	var isError bool
+	var err error
+	if detailHost, ok := host.(AgentMCPDetailedHost); ok {
+		detail, detailErr := detailHost.CallDetailed(ctx, call.Function.Name, args)
+		text = detail.Text
+		isError = detail.IsError
+		err = detailErr
+		if detailErr == nil {
+			detailed = &detail
+		}
+	} else {
+		text, isError, err = host.Call(ctx, call.Function.Name, args)
+	}
 	finishedAt := time.Now().UTC()
 	durationMS := finishedAt.Sub(startedAt).Milliseconds()
 
@@ -284,12 +300,68 @@ func (d *agentLoopToolDispatcher) dispatchMCPToolCall(ctx context.Context, spec 
 		RequestID:  spec.RequestID,
 		TraceID:    spec.TraceID,
 	}
-	step.OutputSummary = map[string]any{
+	summary := map[string]any{
 		"is_error":  isError || err != nil,
 		"text_size": len(text),
 	}
+	if detailed != nil {
+		if appSummary := mcpAppOutputSummary(call.Function.Name, args, *detailed); len(appSummary) > 0 {
+			summary["mcp_app"] = appSummary
+		}
+	}
+	step.OutputSummary = summary
 	d.recordMCPCallTelemetry(ctx, spec, call.ID, call.Function.Name, server, toolLeaf, callResult, durationMS, stepError)
 	return agentLoopToolDispatchResult{Text: text, Step: &step}, nil
+}
+
+func mcpAppOutputSummary(toolName string, args json.RawMessage, result mcpclient.ToolCallResult) map[string]any {
+	if result.App == nil && result.AppError == "" {
+		return nil
+	}
+	out := map[string]any{
+		"tool_name":   toolName,
+		"tool_input":  rawJSONSummaryValue(args),
+		"tool_result": result.Result,
+	}
+	if result.Tool.UIResourceURI != "" {
+		out["resource_uri"] = result.Tool.UIResourceURI
+	}
+	if len(result.Tool.Meta) > 0 {
+		out["tool_meta"] = rawJSONSummaryValue(result.Tool.Meta)
+	}
+	if result.AppError != "" {
+		out["error"] = result.AppError
+	}
+	if result.App == nil {
+		return out
+	}
+	if result.App.URI != "" {
+		out["resource_uri"] = result.App.URI
+	}
+	if result.App.MIMEType != "" {
+		out["mime_type"] = result.App.MIMEType
+	}
+	if len(result.App.Meta) > 0 {
+		out["resource_meta"] = rawJSONSummaryValue(result.App.Meta)
+	}
+	if len([]byte(result.App.HTML)) > mcpAppHTMLMaxBytes {
+		out["html_truncated"] = true
+		out["error"] = fmt.Sprintf("mcp app HTML resource exceeded %d byte capture limit", mcpAppHTMLMaxBytes)
+		return out
+	}
+	out["html"] = result.App.HTML
+	return out
+}
+
+func rawJSONSummaryValue(raw json.RawMessage) any {
+	if len(raw) == 0 {
+		return map[string]any{}
+	}
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return string(raw)
+	}
+	return value
 }
 
 func (d *agentLoopToolDispatcher) runSubExecutor(ctx context.Context, spec ExecutionSpec, exec Executor, task types.Task, stepIndex int, startedAt time.Time, toolCallID, toolName string) (agentLoopToolDispatchResult, error) {

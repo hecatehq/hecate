@@ -28,6 +28,10 @@ type poolHarness struct {
 }
 
 func newPoolHarness(t *testing.T, serverTools map[string][]mcp.Tool, callHandlers map[string]map[string]func(json.RawMessage) (mcp.CallToolResult, *mcp.RPCError)) *poolHarness {
+	return newPoolHarnessWithResources(t, serverTools, callHandlers, nil)
+}
+
+func newPoolHarnessWithResources(t *testing.T, serverTools map[string][]mcp.Tool, callHandlers map[string]map[string]func(json.RawMessage) (mcp.CallToolResult, *mcp.RPCError), resources map[string]map[string]mcp.ResourceContents) *poolHarness {
 	t.Helper()
 	h := &poolHarness{t: t}
 	pool := &Pool{
@@ -67,6 +71,18 @@ func newPoolHarness(t *testing.T, serverTools map[string][]mcp.Tool, callHandler
 			}
 			return res, nil
 		})
+		resourcesForServer := resources[name]
+		server.handle("resources/read", func(req mcp.Request) (any, *mcp.RPCError) {
+			var params mcp.ReadResourceParams
+			if err := json.Unmarshal(req.Params, &params); err != nil {
+				return nil, mcp.NewError(mcp.ErrCodeInvalidParams, err.Error())
+			}
+			content, ok := resourcesForServer[params.URI]
+			if !ok {
+				return nil, mcp.NewError(mcp.ErrCodeInvalidParams, "unknown resource: "+params.URI)
+			}
+			return mcp.ReadResourceResult{Contents: []mcp.ResourceContents{content}}, nil
+		})
 		server.start()
 		h.stops = append(h.stops, server.stop)
 
@@ -80,18 +96,19 @@ func newPoolHarness(t *testing.T, serverTools map[string][]mcp.Tool, callHandler
 		}
 		pool.clients[name] = &pooledClient{client: client}
 		for _, tt := range serverTools {
-			ns := NamespacedToolName(name, tt.Name)
-			pool.bind[ns] = namespacedToolBinding{serverName: name, toolName: tt.Name}
-			pool.tools = append(pool.tools, NamespacedTool{
-				Name:        ns,
-				Description: tt.Description,
-				Schema:      tt.InputSchema,
-			})
+			nt := namespacedToolFromMCP(name, tt)
+			pool.allTools = append(pool.allTools, nt)
+			if !nt.ModelVisible {
+				continue
+			}
+			pool.bind[nt.Name] = namespacedToolBinding{serverName: name, toolName: tt.Name, tool: nt}
+			pool.tools = append(pool.tools, nt)
 		}
 	}
 	// Sort once after all servers are loaded — same invariant
 	// production NewPool maintains.
 	sortNamespacedTools(pool.tools)
+	sortNamespacedTools(pool.allTools)
 	h.pool = pool
 	t.Cleanup(func() {
 		_ = pool.Close()
@@ -212,6 +229,148 @@ func TestPool_TwoServersDistinctTools(t *testing.T) {
 	}
 	if !strings.Contains(text, "issue #1") {
 		t.Errorf("create_issue text = %q, want contains 'issue #1'", text)
+	}
+}
+
+func TestPool_MCPAppsVisibilityHidesAppOnlyToolsFromModel(t *testing.T) {
+	t.Parallel()
+	h := newPoolHarness(t,
+		map[string][]mcp.Tool{
+			"weather": {
+				{
+					Name:        "get_weather",
+					InputSchema: json.RawMessage(`{"type":"object"}`),
+					Meta:        json.RawMessage(`{"ui":{"resourceUri":"ui://weather/dashboard","visibility":["model","app"]}}`),
+				},
+				{
+					Name:        "refresh_dashboard",
+					InputSchema: json.RawMessage(`{"type":"object"}`),
+					Meta:        json.RawMessage(`{"ui":{"resourceUri":"ui://weather/dashboard","visibility":["app"]}}`),
+				},
+			},
+		},
+		map[string]map[string]func(json.RawMessage) (mcp.CallToolResult, *mcp.RPCError){
+			"weather": {
+				"get_weather": func(json.RawMessage) (mcp.CallToolResult, *mcp.RPCError) {
+					return mcp.CallToolResult{Content: mcp.TextContent("weather")}, nil
+				},
+				"refresh_dashboard": func(json.RawMessage) (mcp.CallToolResult, *mcp.RPCError) {
+					return mcp.CallToolResult{Content: mcp.TextContent("refreshed")}, nil
+				},
+			},
+		},
+	)
+
+	modelTools := h.pool.Tools()
+	if len(modelTools) != 1 || modelTools[0].Name != "mcp__weather__get_weather" {
+		t.Fatalf("model tools = %+v, want only get_weather", modelTools)
+	}
+	if !modelTools[0].ModelVisible {
+		t.Fatalf("get_weather ModelVisible = false, want true")
+	}
+	if modelTools[0].UIResourceURI != "ui://weather/dashboard" {
+		t.Fatalf("UIResourceURI = %q", modelTools[0].UIResourceURI)
+	}
+
+	allTools := h.pool.AllTools()
+	if len(allTools) != 2 {
+		t.Fatalf("all tools len = %d, want 2", len(allTools))
+	}
+	var appOnly NamespacedTool
+	for _, tt := range allTools {
+		if tt.Name == "mcp__weather__refresh_dashboard" {
+			appOnly = tt
+			break
+		}
+	}
+	if appOnly.Name == "" {
+		t.Fatalf("missing app-only tool in all tools: %+v", allTools)
+	}
+	if appOnly.ModelVisible {
+		t.Fatalf("app-only ModelVisible = true, want false")
+	}
+	if len(appOnly.UIVisibility) != 1 || appOnly.UIVisibility[0] != "app" {
+		t.Fatalf("app-only UIVisibility = %#v, want [app]", appOnly.UIVisibility)
+	}
+
+	_, _, err := h.pool.Call(context.Background(), "mcp__weather__refresh_dashboard", json.RawMessage(`{}`))
+	if err == nil {
+		t.Fatal("app-only tool call from model path succeeded; want unknown tool error")
+	}
+	if !strings.Contains(err.Error(), "unknown tool") {
+		t.Fatalf("err = %v, want unknown tool", err)
+	}
+}
+
+func TestPool_MCPAppsLegacyResourceURI(t *testing.T) {
+	t.Parallel()
+	tool := namespacedToolFromMCP("legacy", mcp.Tool{
+		Name:        "render",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+		Meta:        json.RawMessage(`{"ui/resourceUri":"ui://legacy/view"}`),
+	})
+	if tool.UIResourceURI != "ui://legacy/view" {
+		t.Fatalf("UIResourceURI = %q, want legacy URI", tool.UIResourceURI)
+	}
+	if !tool.ModelVisible {
+		t.Fatal("legacy tool without visibility should default to model-visible")
+	}
+}
+
+func TestPool_CallDetailedReadsMCPAppResource(t *testing.T) {
+	t.Parallel()
+	h := newPoolHarnessWithResources(t,
+		map[string][]mcp.Tool{
+			"weather": {{
+				Name:        "get_weather",
+				InputSchema: json.RawMessage(`{"type":"object"}`),
+				Meta:        json.RawMessage(`{"ui":{"resourceUri":"ui://weather/dashboard","visibility":["model","app"]}}`),
+			}},
+		},
+		map[string]map[string]func(json.RawMessage) (mcp.CallToolResult, *mcp.RPCError){
+			"weather": {
+				"get_weather": func(json.RawMessage) (mcp.CallToolResult, *mcp.RPCError) {
+					return mcp.CallToolResult{
+						Content:           mcp.TextContent("72F and clear"),
+						StructuredContent: json.RawMessage(`{"temperature":72}`),
+						Meta:              json.RawMessage(`{"source":"fake"}`),
+					}, nil
+				},
+			},
+		},
+		map[string]map[string]mcp.ResourceContents{
+			"weather": {
+				"ui://weather/dashboard": {
+					URI:      "ui://weather/dashboard",
+					MIMEType: mcp.AppsResourceMIMEType,
+					Text:     "<!doctype html><html><body>weather app</body></html>",
+					Meta:     json.RawMessage(`{"ui":{"csp":{"resourceDomains":["https://cdn.example.com"]},"prefersBorder":true}}`),
+				},
+			},
+		},
+	)
+
+	result, err := h.pool.CallDetailed(context.Background(), "mcp__weather__get_weather", json.RawMessage(`{"city":"Lisbon"}`))
+	if err != nil {
+		t.Fatalf("CallDetailed: %v", err)
+	}
+	if result.Text != "72F and clear" || result.IsError {
+		t.Fatalf("result text/isError = %q/%v", result.Text, result.IsError)
+	}
+	if result.Tool.UIResourceURI != "ui://weather/dashboard" {
+		t.Fatalf("tool UIResourceURI = %q", result.Tool.UIResourceURI)
+	}
+	if result.App == nil {
+		t.Fatal("App = nil, want HTML resource")
+	}
+	if result.App.URI != "ui://weather/dashboard" || result.App.MIMEType != mcp.AppsResourceMIMEType {
+		t.Fatalf("app URI/MIME = %q/%q", result.App.URI, result.App.MIMEType)
+	}
+	if !strings.Contains(result.App.HTML, "weather app") {
+		t.Fatalf("app HTML = %q, want weather app", result.App.HTML)
+	}
+	if !strings.Contains(string(result.App.Meta), "resourceDomains") {
+		t.Fatalf("app meta = %s, want resource CSP", result.App.Meta)
 	}
 }
 

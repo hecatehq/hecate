@@ -29,9 +29,28 @@ func renderAgentChatActivities(items []chat.Activity) []ChatActivityItem {
 			ArtifactPreview:   item.ArtifactPreview,
 			ApprovalID:        item.ApprovalID,
 			NeedsAction:       item.NeedsAction,
+			MCPApp:            renderChatMCPApp(item.MCPApp),
 		})
 	}
 	return out
+}
+
+func renderChatMCPApp(app *chat.MCPApp) *ChatMCPAppItem {
+	if app == nil {
+		return nil
+	}
+	return &ChatMCPAppItem{
+		ResourceURI:   app.ResourceURI,
+		MIMEType:      app.MIMEType,
+		HTML:          app.HTML,
+		HTMLTruncated: app.HTMLTruncated,
+		ToolName:      app.ToolName,
+		ToolInput:     cloneRawJSON(app.ToolInput),
+		ToolResult:    cloneRawJSON(app.ToolResult),
+		ResourceMeta:  cloneRawJSON(app.ResourceMeta),
+		ToolMeta:      cloneRawJSON(app.ToolMeta),
+		Error:         app.Error,
+	}
 }
 
 func newChatActivity(kind, status, title, detail string) chat.Activity {
@@ -87,7 +106,117 @@ func agentChatActivityFromTaskActivity(item TaskActivityItem) chat.Activity {
 		ArtifactPreview:   agentChatTaskArtifactPreview(item),
 		ApprovalID:        strings.TrimSpace(item.ApprovalID),
 		NeedsAction:       item.NeedsAction,
+		MCPApp:            agentChatTaskMCPApp(item),
 	}
+}
+
+func agentChatTaskMCPApp(item TaskActivityItem) *chat.MCPApp {
+	if item.Summary == nil {
+		return nil
+	}
+	rawApp, ok := item.Summary["mcp_app"]
+	if !ok {
+		return nil
+	}
+	appMap, ok := mapStringAny(rawApp)
+	if !ok {
+		return nil
+	}
+	app := &chat.MCPApp{
+		ResourceURI:   strings.TrimSpace(stringFromMap(appMap, "resource_uri")),
+		MIMEType:      strings.TrimSpace(stringFromMap(appMap, "mime_type")),
+		HTML:          stringFromMap(appMap, "html"),
+		HTMLTruncated: boolFromMap(appMap, "html_truncated"),
+		ToolName:      strings.TrimSpace(stringFromMap(appMap, "tool_name")),
+		ToolInput:     rawJSONFromMap(appMap, "tool_input"),
+		ToolResult:    rawJSONFromMap(appMap, "tool_result"),
+		ResourceMeta:  rawJSONFromMap(appMap, "resource_meta"),
+		ToolMeta:      rawJSONFromMap(appMap, "tool_meta"),
+		Error:         strings.TrimSpace(stringFromMap(appMap, "error")),
+	}
+	if app.ResourceURI == "" && app.HTML == "" && app.Error == "" {
+		return nil
+	}
+	return app
+}
+
+func mapStringAny(value any) (map[string]any, bool) {
+	switch typed := value.(type) {
+	case map[string]any:
+		return typed, true
+	case json.RawMessage:
+		var out map[string]any
+		if err := json.Unmarshal(typed, &out); err == nil {
+			return out, true
+		}
+	case []byte:
+		var out map[string]any
+		if err := json.Unmarshal(typed, &out); err == nil {
+			return out, true
+		}
+	}
+	return nil, false
+}
+
+func stringFromMap(values map[string]any, key string) string {
+	value, ok := values[key]
+	if !ok {
+		return ""
+	}
+	switch typed := value.(type) {
+	case string:
+		return typed
+	case json.RawMessage:
+		var out string
+		if err := json.Unmarshal(typed, &out); err == nil {
+			return out
+		}
+	}
+	return ""
+}
+
+func boolFromMap(values map[string]any, key string) bool {
+	value, ok := values[key]
+	if !ok {
+		return false
+	}
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		return typed == "true"
+	case json.RawMessage:
+		var out bool
+		if err := json.Unmarshal(typed, &out); err == nil {
+			return out
+		}
+	}
+	return false
+}
+
+func rawJSONFromMap(values map[string]any, key string) json.RawMessage {
+	value, ok := values[key]
+	if !ok || value == nil {
+		return nil
+	}
+	switch typed := value.(type) {
+	case json.RawMessage:
+		return cloneRawJSON(typed)
+	case []byte:
+		return cloneRawJSON(typed)
+	}
+	data, err := json.Marshal(value)
+	if err != nil || len(data) == 0 || string(data) == "null" {
+		return nil
+	}
+	return data
+}
+
+func cloneRawJSON(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return nil
+	}
+	return append(json.RawMessage(nil), raw...)
 }
 
 func agentChatTaskArtifactSize(item TaskActivityItem) int64 {
@@ -221,6 +350,9 @@ func mergeChatActivity(items []chat.Activity, next chat.Activity) []chat.Activit
 				if next.ArtifactPreview != "" {
 					items[i].ArtifactPreview = next.ArtifactPreview
 				}
+				if next.MCPApp != nil {
+					items[i].MCPApp = cloneChatMCPApp(next.MCPApp)
+				}
 				items[i].NeedsAction = next.NeedsAction
 				items[i].CreatedAt = next.CreatedAt
 				return items
@@ -231,6 +363,18 @@ func mergeChatActivity(items []chat.Activity, next chat.Activity) []chat.Activit
 		return items
 	}
 	return append(items, next)
+}
+
+func cloneChatMCPApp(app *chat.MCPApp) *chat.MCPApp {
+	if app == nil {
+		return nil
+	}
+	clone := *app
+	clone.ToolInput = cloneRawJSON(app.ToolInput)
+	clone.ToolResult = cloneRawJSON(app.ToolResult)
+	clone.ResourceMeta = cloneRawJSON(app.ResourceMeta)
+	clone.ToolMeta = cloneRawJSON(app.ToolMeta)
+	return &clone
 }
 
 func finalChatActivityTitle(status string) string {

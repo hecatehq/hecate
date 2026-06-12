@@ -3929,6 +3929,106 @@ func TestMCPProbeRejectsNonLoopbackClientsBeforeCommandHandling(t *testing.T) {
 	}
 }
 
+func TestMCPRegistryServersDiscoversCustomRegistry(t *testing.T) {
+	t.Parallel()
+
+	registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v0.1/servers" {
+			t.Errorf("registry path = %q, want /v0.1/servers", r.URL.Path)
+			http.Error(w, "wrong path", http.StatusNotFound)
+			return
+		}
+		if got := r.URL.Query().Get("search"); got != "weather" {
+			t.Errorf("registry search = %q, want weather", got)
+			http.Error(w, "wrong search", http.StatusBadRequest)
+			return
+		}
+		if got := r.URL.Query().Get("limit"); got != "10" {
+			t.Errorf("registry limit = %q, want 10", got)
+			http.Error(w, "wrong limit", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"servers":[{
+				"server":{
+					"name":"io.github/example/weather",
+					"title":"Weather",
+					"description":"Forecasts",
+					"version":"1.0.0",
+					"remotes":[{"type":"streamable-http","url":"https://weather.example/mcp","headers":[{"name":"Authorization","isRequired":true,"isSecret":true}]}],
+					"packages":[{"registryType":"npm","identifier":"@example/weather","runtimeHint":"npx","transport":{"type":"stdio"}}],
+					"_meta":{"publisher":"example"}
+				},
+				"_meta":{"rank":1}
+			}],
+			"metadata":{"nextCursor":"next","count":1}
+		}`))
+	}))
+	defer registry.Close()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	server := NewServer(logger, NewHandler(config.Config{}, logger, nil, nil, nil, nil))
+	client := newAPITestClient(t, server)
+
+	path := "/hecate/v1/mcp/registry/servers?registry_url=" + url.QueryEscape(registry.URL) + "&search=weather&limit=10"
+	res := mustRequestJSON[MCPRegistryServersResponse](client, http.MethodGet, path, "")
+	if res.Object != "mcp_registry_servers" {
+		t.Fatalf("object = %q, want mcp_registry_servers", res.Object)
+	}
+	if res.Data.RegistryURL != registry.URL {
+		t.Fatalf("registry_url = %q, want %q", res.Data.RegistryURL, registry.URL)
+	}
+	if res.Data.NextCursor != "next" || res.Data.Count != 1 {
+		t.Fatalf("metadata = next_cursor:%q count:%d", res.Data.NextCursor, res.Data.Count)
+	}
+	if len(res.Data.Servers) != 1 {
+		t.Fatalf("servers len = %d, want 1", len(res.Data.Servers))
+	}
+	item := res.Data.Servers[0]
+	if item.Server.Name != "io.github/example/weather" {
+		t.Fatalf("server name = %q", item.Server.Name)
+	}
+	if string(item.Server.Meta) != `{"publisher":"example"}` {
+		t.Fatalf("server _meta = %s", item.Server.Meta)
+	}
+	if string(item.Meta) != `{"rank":1}` {
+		t.Fatalf("item _meta = %s", item.Meta)
+	}
+	if len(item.InstallHints) != 2 {
+		t.Fatalf("install_hints len = %d, want 2", len(item.InstallHints))
+	}
+	remote := item.InstallHints[0]
+	if !remote.Supported || remote.HecateConfig == nil {
+		t.Fatalf("remote hint = %#v", remote)
+	}
+	if remote.HecateConfig.URL != "https://weather.example/mcp" {
+		t.Fatalf("hecate_config.url = %q", remote.HecateConfig.URL)
+	}
+	if remote.HecateConfig.Headers["Authorization"] != "$MCP_AUTHORIZATION" {
+		t.Fatalf("Authorization header = %q", remote.HecateConfig.Headers["Authorization"])
+	}
+	if item.InstallHints[1].Supported {
+		t.Fatalf("package hint supported = true, want false")
+	}
+}
+
+func TestMCPRegistryServersRejectsNonLoopbackClients(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	h := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	server := NewServer(logger, h)
+
+	req := httptest.NewRequest(http.MethodGet, "/hecate/v1/mcp/registry/servers?search=weather", nil)
+	req.RemoteAddr = "203.0.113.10:1234"
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403, body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
 // TestSystemShutdownTriggersQuitFunc asserts the wired path: the
 // endpoint responds 202 and then invokes quitFunc asynchronously. Both
 // are important — the 202 lets the desktop app know the request was

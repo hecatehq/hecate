@@ -251,6 +251,15 @@ export function activityDisplay(activity: ChatActivityRecord): { title: string; 
     return { title, detail };
   }
   if (activity.type === "tool_call") {
+    if (activity.mcp_app) {
+      return {
+        title: "Rendered app",
+        detail:
+          activity.mcp_app.tool_name ||
+          activity.mcp_app.resource_uri ||
+          cleanActivityDetail(activity),
+      };
+    }
     const title = toolActivityTitle(activity);
     return { title, detail: toolActivityDetail(activity, title) };
   }

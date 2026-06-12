@@ -206,6 +206,7 @@ func registerHecateOperationsRoutes(mux *http.ServeMux, handler *Handler) {
 	mux.HandleFunc("GET /hecate/v1/system/mcp/cache", handler.HandleMCPCacheStats)
 	mux.HandleFunc("POST /hecate/v1/system/reset-data", handler.HandleSystemResetData)
 	mux.HandleFunc("POST /hecate/v1/system/shutdown", handler.HandleSystemShutdown)
+	mux.HandleFunc("GET /hecate/v1/mcp/registry/servers", handler.HandleMCPRegistryServers)
 	mux.HandleFunc("POST /hecate/v1/mcp/probe", handler.HandleMCPProbe)
 	mux.HandleFunc("GET /hecate/v1/usage/events", handler.HandleUsageEvents)
 	mux.HandleFunc("GET /hecate/v1/usage/summary", handler.HandleUsageSummary)

@@ -71,7 +71,7 @@ func TestNormalizeMCPServerConfigs_Validation(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, err := normalizeMCPServerConfigs(tc.items, nil, 0)
+			_, err := NormalizeMCPServerConfigs(tc.items, nil, 0)
 			if err == nil {
 				t.Fatal("expected error, got nil")
 			}
@@ -88,7 +88,7 @@ func TestNormalizeMCPServerConfigs_RefPassesThrough(t *testing.T) {
 		items := []MCPServerCommand{
 			{Name: "gh", Command: "npx", Env: map[string]string{"TOKEN": "$GITHUB_TOKEN"}},
 		}
-		out, err := normalizeMCPServerConfigs(items, cipher, 0)
+		out, err := NormalizeMCPServerConfigs(items, cipher, 0)
 		if err != nil {
 			t.Fatalf("normalize: %v", err)
 		}
@@ -103,7 +103,7 @@ func TestNormalizeMCPServerConfigs_NoCipherLiteralStoredAsIs(t *testing.T) {
 	items := []MCPServerCommand{
 		{Name: "gh", Command: "npx", Env: map[string]string{"TOKEN": "plaintext-secret"}},
 	}
-	out, err := normalizeMCPServerConfigs(items, nil, 0)
+	out, err := NormalizeMCPServerConfigs(items, nil, 0)
 	if err != nil {
 		t.Fatalf("normalize: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestNormalizeMCPServerConfigs_CipherEncryptsLiteral(t *testing.T) {
 	items := []MCPServerCommand{
 		{Name: "gh", Command: "npx", Env: map[string]string{"TOKEN": "my-plaintext-token"}},
 	}
-	out, err := normalizeMCPServerConfigs(items, cipher, 0)
+	out, err := NormalizeMCPServerConfigs(items, cipher, 0)
 	if err != nil {
 		t.Fatalf("normalize: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestNormalizeMCPServerConfigs_AlreadyEncryptedPassesThrough(t *testing.T) {
 	items := []MCPServerCommand{
 		{Name: "gh", Command: "npx", Env: map[string]string{"TOKEN": already}},
 	}
-	out, err := normalizeMCPServerConfigs(items, cipher, 0)
+	out, err := NormalizeMCPServerConfigs(items, cipher, 0)
 	if err != nil {
 		t.Fatalf("normalize: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestNormalizeMCPServerConfigs_ApprovalPolicyAccepted(t *testing.T) {
 			items := []MCPServerCommand{
 				{Name: "gh", Command: "npx", ApprovalPolicy: policy},
 			}
-			out, err := normalizeMCPServerConfigs(items, nil, 0)
+			out, err := NormalizeMCPServerConfigs(items, nil, 0)
 			if err != nil {
 				t.Fatalf("normalize: %v", err)
 			}
@@ -186,7 +186,7 @@ func makeMCPItems(n int) []MCPServerCommand {
 func TestNormalizeMCPServerConfigs_CapAcceptsAtBoundary(t *testing.T) {
 	t.Parallel()
 	const max = 4
-	out, err := normalizeMCPServerConfigs(makeMCPItems(max), nil, max)
+	out, err := NormalizeMCPServerConfigs(makeMCPItems(max), nil, max)
 	if err != nil {
 		t.Fatalf("at-boundary normalize: %v", err)
 	}
@@ -198,7 +198,7 @@ func TestNormalizeMCPServerConfigs_CapAcceptsAtBoundary(t *testing.T) {
 func TestNormalizeMCPServerConfigs_CapRejectsOverLimit(t *testing.T) {
 	t.Parallel()
 	const max = 4
-	_, err := normalizeMCPServerConfigs(makeMCPItems(max+1), nil, max)
+	_, err := NormalizeMCPServerConfigs(makeMCPItems(max+1), nil, max)
 	if err == nil {
 		t.Fatal("expected error for over-cap entries, got nil")
 	}
@@ -212,7 +212,7 @@ func TestNormalizeMCPServerConfigs_CapRejectsOverLimit(t *testing.T) {
 
 func TestNormalizeMCPServerConfigs_CapDisabledByZero(t *testing.T) {
 	t.Parallel()
-	out, err := normalizeMCPServerConfigs(makeMCPItems(50), nil, 0)
+	out, err := NormalizeMCPServerConfigs(makeMCPItems(50), nil, 0)
 	if err != nil {
 		t.Fatalf("normalize with cap=0 should not enforce: %v", err)
 	}
