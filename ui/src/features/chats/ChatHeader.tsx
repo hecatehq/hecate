@@ -18,6 +18,8 @@ type Props = {
   // Right-side actions.
   isAgentChat: boolean;
   isExternalAgentChat: boolean;
+  linkedProjectName?: string;
+  onOpenProject?: () => void;
   showWorkspaceButton: boolean;
   workspacePath: string;
   workspaceDialogOpen: boolean;
@@ -43,6 +45,8 @@ export function ChatHeader(props: Props) {
     sublineHoverTitle,
     isAgentChat,
     isExternalAgentChat,
+    linkedProjectName,
+    onOpenProject,
     showWorkspaceButton,
     workspacePath,
     workspaceDialogOpen,
@@ -152,6 +156,29 @@ export function ChatHeader(props: Props) {
             flexShrink: 0,
           }}
         >
+          {onOpenProject && (
+            <button
+              className="btn btn-ghost btn-sm chat-header-action"
+              onClick={onOpenProject}
+              title={
+                linkedProjectName ? `Open project: ${linkedProjectName}` : "Open linked project"
+              }
+              aria-label={
+                linkedProjectName ? `Open project: ${linkedProjectName}` : "Open linked project"
+              }
+              type="button"
+              style={{
+                width: 30,
+                height: 30,
+                padding: 0,
+                justifyContent: "center",
+                color: "var(--t2)",
+                boxShadow: "none",
+              }}
+            >
+              <Icon d={Icons.projects} size={13} />
+            </button>
+          )}
           {showWorkspaceButton && (
             <button
               className="btn btn-ghost btn-sm chat-header-action"

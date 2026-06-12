@@ -76,7 +76,7 @@ type Props = {
 
   // Cross-region navigation. onOpenTask / onOpenTrace fall back to
   // onNavigate when the parent doesn't wire them.
-  onNavigate?: (workspace: "connections" | "runs" | "overview" | "settings") => void;
+  onNavigate?: (workspace: "connections" | "runs" | "overview" | "settings" | "projects") => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
   onOpenTrace?: (requestID: string) => void;
   onOpenWorkspaceChanges?: () => void;

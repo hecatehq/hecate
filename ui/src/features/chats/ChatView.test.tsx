@@ -5354,6 +5354,55 @@ describe("ChatView session title", () => {
     expect(screen.getByText("Hello world")).toBeTruthy();
   });
 
+  it("opens the linked project from the chat header", async () => {
+    const selectProject = vi.fn(async () => undefined);
+    const onNavigate = vi.fn();
+    const project: ProjectRecord = {
+      id: "proj_1",
+      name: "Hecate",
+      roots: [],
+      created_at: "2026-05-29T00:00:00Z",
+      updated_at: "2026-05-29T00:00:00Z",
+    };
+    const { state, actions } = setup(
+      {
+        chatTarget: "agent",
+        projects: [project],
+        activeChatSession: {
+          id: "s1",
+          agent_id: "hecate",
+          title: "Project chat",
+          project_id: "proj_1",
+          messages: [],
+          provider_calls: [],
+        } as any,
+      },
+      { selectProject },
+    );
+    render(withRuntimeConsole(<ChatView onNavigate={onNavigate} />, { state, actions }));
+
+    await userEvent.click(screen.getByRole("button", { name: "Open project: Hecate" }));
+
+    expect(selectProject).toHaveBeenCalledWith("proj_1");
+    expect(onNavigate).toHaveBeenCalledWith("projects");
+  });
+
+  it("does not show the project shortcut for unprojected chats", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      activeChatSession: {
+        id: "s1",
+        agent_id: "hecate",
+        title: "Unprojected chat",
+        messages: [],
+        provider_calls: [],
+      } as any,
+    });
+    render(withRuntimeConsole(<ChatView onNavigate={() => undefined} />, { state, actions }));
+
+    expect(screen.queryByRole("button", { name: /Open project/i })).toBeNull();
+  });
+
   it("shows the active chat runtime identity below the title", () => {
     const { state, actions } = setup({
       chatTarget: "agent",
