@@ -55,13 +55,17 @@ func (h *Handler) projectWorkApplication() *projectworkapp.Application {
 		return projectworkapp.New(projectworkapp.Options{})
 	}
 	return projectworkapp.New(projectworkapp.Options{
-		Store:          h.projectWork,
-		TaskStore:      h.taskStore,
-		Runner:         h.taskRunner,
-		ChatStore:      h.agentChat,
-		AgentRunner:    h.agentChatRunner,
-		PrepareTimeout: agentChatPrepareTimeout,
-		IDGenerator:    newOpaqueTaskResourceID,
+		Store:               h.projectWork,
+		TaskStore:           h.taskStore,
+		Runner:              h.taskRunner,
+		ChatStore:           h.agentChat,
+		AgentRunner:         h.agentChatRunner,
+		ProfileStore:        h.agentProfiles,
+		MemoryStore:         h.memory,
+		SkillStore:          h.projectSkills,
+		PrepareTimeout:      agentChatPrepareTimeout,
+		RuntimeDefaultModel: h.config.Router.DefaultModel,
+		IDGenerator:         newOpaqueTaskResourceID,
 	})
 }
 

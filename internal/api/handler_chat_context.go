@@ -13,6 +13,7 @@ import (
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
+	"github.com/hecatehq/hecate/internal/projectworkapp"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -365,7 +366,7 @@ func (h *Handler) externalAgentContextPacket(ctx context.Context, session chat.S
 	return packet
 }
 
-func (h *Handler) projectAssignmentContextPacket(ctx context.Context, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile, workingDirectory, provider, model, executionProfile string, profile resolvedAgentProfile, skills resolvedProjectSkills, promptContext projectAssignmentPromptContext) chat.ContextPacket {
+func (h *Handler) projectAssignmentContextPacket(ctx context.Context, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile, workingDirectory, provider, model, executionProfile string, profile projectworkapp.ResolvedAgentProfile, skills projectworkapp.ResolvedProjectSkills, promptContext projectworkapp.AssignmentPromptContext) chat.ContextPacket {
 	packet := baseChatContextPacket(chat.ExecutionModeHecateTask, provider, model, workingDirectory)
 	driverKind := firstNonEmptyString(strings.TrimSpace(assignment.DriverKind), projectwork.AssignmentDriverHecateTask)
 	includedReason := "Included in the native project assignment launch context"
@@ -374,7 +375,7 @@ func (h *Handler) projectAssignmentContextPacket(ctx context.Context, project pr
 	}
 	packet.ID = newChatID("ctx")
 	packet.ExecutionProfile = strings.TrimSpace(executionProfile)
-	packet.SystemPromptIncluded = strings.TrimSpace(projectAssignmentSystemPrompt(project, role, profile, promptContext)) != ""
+	packet.SystemPromptIncluded = strings.TrimSpace(projectworkapp.AssignmentSystemPrompt(project, role, profile, promptContext)) != ""
 	ref := projectwork.NormalizeAssignmentExecutionRef(assignment.ExecutionRef)
 	packet.Refs = &chat.ContextRefs{
 		TaskID:       strings.TrimSpace(ref.TaskID),
@@ -614,7 +615,7 @@ func appendProjectMemory(packet *chat.ContextPacket, entries []memory.Entry) {
 	appendProjectMemoryWithInclusion(packet, entries, true, "Enabled project memory entry")
 }
 
-func appendProjectMemoryForProfilePolicy(packet *chat.ContextPacket, entries []memory.Entry, profile resolvedAgentProfile) {
+func appendProjectMemoryForProfilePolicy(packet *chat.ContextPacket, entries []memory.Entry, profile projectworkapp.ResolvedAgentProfile) {
 	policy := effectiveProjectMemoryPolicy(profile.ProjectMemoryPolicy)
 	switch policy {
 	case agentprofiles.MemoryExclude:
@@ -657,7 +658,7 @@ func appendProjectContextSources(packet *chat.ContextPacket, sources []chat.Cont
 	appendProjectContextSourcesWithInclusion(packet, sources, true, "Enabled project context source metadata")
 }
 
-func appendProjectContextSourcesForProfilePolicy(packet *chat.ContextPacket, sources []chat.ContextSource, profile resolvedAgentProfile) {
+func appendProjectContextSourcesForProfilePolicy(packet *chat.ContextPacket, sources []chat.ContextSource, profile projectworkapp.ResolvedAgentProfile) {
 	policy := effectiveContextSourcePolicy(profile.ContextSourcePolicy)
 	switch policy {
 	case agentprofiles.ContextExclude:
@@ -710,7 +711,7 @@ func effectiveContextSourcePolicy(policy string) string {
 	}
 }
 
-func appendResolvedAgentProfile(packet *chat.ContextPacket, profile resolvedAgentProfile) {
+func appendResolvedAgentProfile(packet *chat.ContextPacket, profile projectworkapp.ResolvedAgentProfile) {
 	if strings.TrimSpace(profile.ID) == "" {
 		return
 	}
@@ -773,61 +774,7 @@ func appendResolvedAgentProfile(packet *chat.ContextPacket, profile resolvedAgen
 	}
 }
 
-type resolvedProjectSkills struct {
-	Requested []string
-	Resolved  []projectskills.Skill
-	Skipped   []resolvedProjectSkillSkip
-	Warnings  []string
-}
-
-type resolvedProjectSkillSkip struct {
-	ID     string
-	Reason string
-	Status string
-}
-
-func (h *Handler) resolveProjectAssignmentSkills(ctx context.Context, projectID string, role projectwork.AgentRoleProfile, profile resolvedAgentProfile) resolvedProjectSkills {
-	requested := normalizeContextStringList(append(append([]string(nil), role.SkillIDs...), profile.SkillIDs...))
-	result := resolvedProjectSkills{Requested: requested}
-	if len(requested) == 0 {
-		return result
-	}
-	if h == nil || h.projectSkills == nil {
-		result.Warnings = []string{"Project skills store is not configured; skill references were not resolved."}
-		for _, id := range requested {
-			result.Skipped = append(result.Skipped, resolvedProjectSkillSkip{ID: id, Reason: "store_unavailable"})
-		}
-		return result
-	}
-	items, err := h.projectSkills.List(ctx, projectID)
-	if err != nil {
-		result.Warnings = []string{"Project skills could not be loaded; skill references were not resolved."}
-		for _, id := range requested {
-			result.Skipped = append(result.Skipped, resolvedProjectSkillSkip{ID: id, Reason: "store_error"})
-		}
-		return result
-	}
-	byID := make(map[string]projectskills.Skill, len(items))
-	for _, item := range items {
-		byID[item.ID] = item
-	}
-	for _, id := range requested {
-		item, ok := byID[id]
-		switch {
-		case !ok:
-			result.Skipped = append(result.Skipped, resolvedProjectSkillSkip{ID: id, Reason: "missing", Status: projectskills.StatusMissing})
-		case !item.Enabled:
-			result.Skipped = append(result.Skipped, resolvedProjectSkillSkip{ID: id, Reason: "disabled", Status: item.Status})
-		case item.Status != projectskills.StatusAvailable:
-			result.Skipped = append(result.Skipped, resolvedProjectSkillSkip{ID: id, Reason: item.Status, Status: item.Status})
-		default:
-			result.Resolved = append(result.Resolved, item)
-		}
-	}
-	return result
-}
-
-func appendResolvedProjectSkills(packet *chat.ContextPacket, skills resolvedProjectSkills) {
+func appendResolvedProjectSkills(packet *chat.ContextPacket, skills projectworkapp.ResolvedProjectSkills) {
 	if len(skills.Requested) == 0 {
 		return
 	}
@@ -869,7 +816,7 @@ func appendResolvedProjectSkills(packet *chat.ContextPacket, skills resolvedProj
 	})
 }
 
-func appendProjectAssignmentPromptContext(packet *chat.ContextPacket, promptContext projectAssignmentPromptContext) {
+func appendProjectAssignmentPromptContext(packet *chat.ContextPacket, promptContext projectworkapp.AssignmentPromptContext) {
 	if len(promptContext.Sections) == 0 && len(promptContext.Warnings) == 0 {
 		return
 	}
@@ -902,23 +849,6 @@ func boolLabel(v bool) string {
 		return "true"
 	}
 	return "false"
-}
-
-func normalizeContextStringList(values []string) []string {
-	if len(values) == 0 {
-		return nil
-	}
-	seen := make(map[string]bool, len(values))
-	out := make([]string, 0, len(values))
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value == "" || seen[value] {
-			continue
-		}
-		seen[value] = true
-		out = append(out, value)
-	}
-	return out
 }
 
 func appendProjectAssignmentHandoffs(packet *chat.ContextPacket, items []projectwork.Handoff, included bool, reason string) {

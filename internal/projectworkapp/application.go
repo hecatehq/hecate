@@ -47,25 +47,33 @@ type ChatSessionStore interface {
 }
 
 type Application struct {
-	store          projectwork.Store
-	taskStore      TaskStore
-	runner         TaskRunner
-	chatStore      ChatSessionStore
-	agentRunner    AgentRunner
-	prepareTimeout time.Duration
-	idgen          func(string) string
-	now            func() time.Time
+	store               projectwork.Store
+	taskStore           TaskStore
+	runner              TaskRunner
+	chatStore           ChatSessionStore
+	agentRunner         AgentRunner
+	profileStore        AgentProfileStore
+	memoryStore         ProjectMemoryStore
+	skillStore          ProjectSkillStore
+	prepareTimeout      time.Duration
+	runtimeDefaultModel string
+	idgen               func(string) string
+	now                 func() time.Time
 }
 
 type Options struct {
-	Store          projectwork.Store
-	TaskStore      TaskStore
-	Runner         TaskRunner
-	ChatStore      ChatSessionStore
-	AgentRunner    AgentRunner
-	PrepareTimeout time.Duration
-	IDGenerator    func(string) string
-	Now            func() time.Time
+	Store               projectwork.Store
+	TaskStore           TaskStore
+	Runner              TaskRunner
+	ChatStore           ChatSessionStore
+	AgentRunner         AgentRunner
+	ProfileStore        AgentProfileStore
+	MemoryStore         ProjectMemoryStore
+	SkillStore          ProjectSkillStore
+	PrepareTimeout      time.Duration
+	RuntimeDefaultModel string
+	IDGenerator         func(string) string
+	Now                 func() time.Time
 }
 
 type CreateRoleCommand struct {
@@ -177,14 +185,18 @@ func (e ExternalAgentPrepareError) Unwrap() error {
 
 func New(opts Options) *Application {
 	app := &Application{
-		store:          opts.Store,
-		taskStore:      opts.TaskStore,
-		runner:         opts.Runner,
-		chatStore:      opts.ChatStore,
-		agentRunner:    opts.AgentRunner,
-		prepareTimeout: opts.PrepareTimeout,
-		idgen:          opts.IDGenerator,
-		now:            opts.Now,
+		store:               opts.Store,
+		taskStore:           opts.TaskStore,
+		runner:              opts.Runner,
+		chatStore:           opts.ChatStore,
+		agentRunner:         opts.AgentRunner,
+		profileStore:        opts.ProfileStore,
+		memoryStore:         opts.MemoryStore,
+		skillStore:          opts.SkillStore,
+		prepareTimeout:      opts.PrepareTimeout,
+		runtimeDefaultModel: strings.TrimSpace(opts.RuntimeDefaultModel),
+		idgen:               opts.IDGenerator,
+		now:                 opts.Now,
 	}
 	if app.idgen == nil {
 		app.idgen = func(prefix string) string { return strings.TrimSpace(prefix) }
