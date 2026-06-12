@@ -2758,12 +2758,22 @@ the user message and assistant output.
   Hecate Chat segments. Existing task-backed segments continue with their
   saved model snapshot until the operator turns tools off or starts a new
   task-backed segment.
-- `system_prompt` — applied to tools-off turns.
+- `system_prompt` — applied to tools-off turns and new task-backed Hecate Chat
+  segments. When the chat is linked to a project, Hecate prepends hidden
+  project workflow guidance and bounded project context before the operator
+  prompt. That guidance keeps Chat conversational while telling the model to
+  treat project-planning intent as proposal-only Project Assistant work; it
+  does not grant direct project mutation rights. If the selected model routes
+  to a cloud provider, the bounded project prompt context is sent through the
+  normal model gateway route like any other chat prompt.
 - `workspace` — required when starting a task-backed Hecate Chat turn
   (`tools_enabled=true`) on a session that does not already have a workspace.
 
 For `tools_enabled=false` on a Hecate Chat session, Hecate calls the normal
 gateway path and stores the user/assistant messages without creating a Task.
+Project-linked direct model turns receive the same project workflow guidance
+in their system prompt, but they still cannot run tools or mutate project
+state.
 For `execution_mode="external_agent"`, Hecate sends the prompt to the
 session's native ACP session. For `tools_enabled=true` on a Hecate Chat
 session, the first tool-enabled prompt creates a visible `agent_loop` task and

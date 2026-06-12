@@ -920,8 +920,9 @@ func (h *Handler) handleDirectModelTurn(w http.ResponseWriter, r *http.Request, 
 	}
 	h.agentChatLive.publishSession(updated)
 
-	history := agentChatModelHistory(session, strings.TrimSpace(req.SystemPrompt), content)
-	contextPacket := h.directModelContextPacket(r.Context(), session, provider, model, strings.TrimSpace(req.SystemPrompt))
+	effectiveSystemPrompt := h.hecateChatEffectiveSystemPrompt(r.Context(), session, req.SystemPrompt)
+	history := agentChatModelHistory(session, effectiveSystemPrompt, content)
+	contextPacket := h.directModelContextPacket(r.Context(), session, provider, model, effectiveSystemPrompt)
 	contextPacket.ID = newChatID("ctx")
 	contextPacket = chatcontext.Normalize(contextPacket, chatcontext.MergeRefs(
 		chatcontext.ChatMessageRefs(session.ID, assistantID, session.ProjectID),

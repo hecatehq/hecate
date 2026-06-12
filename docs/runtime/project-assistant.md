@@ -477,8 +477,17 @@ V0 uses a composer-style request box that drafts typed proposals from the
 selected project/work item. The `Rules` draft option uses deterministic server
 logic; `Bootstrap` proposes project setup records from guidance and skill
 registry metadata; the `Assistant` draft option asks the project default model
-to author the same typed proposal shape. Later Hecate Chat can call the same
-proposal API, but durable mutations should still stop at the same explicit
+to author the same typed proposal shape.
+
+Hecate Chat stays visually simple. Project-linked Hecate Chat turns receive
+hidden project workflow guidance and bounded project context so the model can
+infer when an operator is asking for planning, assignment, handoff, or memory
+work. That guidance tells the model to treat durable project changes as
+Project Assistant proposal intent, not as permission to mutate project stores
+through generic tools or direct API calls. If the selected chat model routes to
+a cloud provider, that bounded project prompt context follows the normal model
+gateway route. A future chat-side proposal tool can call the same Project
+Assistant APIs, but durable mutations must still stop at the explicit
 review/apply card.
 Applying a proposal always calls `/project-assistant/apply` with `confirm: true`
 after the operator reviews the action rows. A successful apply refreshes the

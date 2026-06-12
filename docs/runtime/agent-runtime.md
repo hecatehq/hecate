@@ -18,6 +18,14 @@ streams assistant text into the conversation artifact during the model turn so
 Chats can show the answer before the task run reaches a terminal state.
 Providers without streaming fall back to the normal non-streaming chat call.
 
+When a Hecate Chat session is linked to a project, Hecate keeps the Chat UI
+simple and injects project workflow guidance into the effective system prompt
+for project-linked turns. The prompt includes bounded project identity, role,
+and accepted-memory hints, and tells the model to treat planning/assignment/
+handoff/memory requests as proposal-only Project Assistant intent. It does not
+grant Chat or the agent loop direct authority to create/start project records,
+tasks, runs, chats, external-agent sessions, or promoted memory.
+
 **Invariant: one chat, many segments, one active task-backed loop.** A single
 Hecate Chat session can carry an arbitrary history of segments — alternating
 tools-on and tools-off — in one continuous transcript. Within that transcript
