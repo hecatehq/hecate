@@ -120,6 +120,26 @@ API handler app-wiring helpers (`taskApplication`, `chatApplication`,
 `internal/api/applications.go`. Keep constructors there instead of scattering
 dependency wiring through feature handlers.
 
+### Do not regress cleaned-up runtime seams
+
+Recent refactors deliberately removed handler-owned lifecycle logic and alpha
+compatibility glue. Do not reintroduce it as a defensive fallback.
+
+- HTTP handlers parse, map, and render. They should not directly own task,
+  chat, provider, project-work, queue, approval, or event lifecycle decisions
+  once an app/runtime seam exists.
+- Extend `taskapp`, `chatapp`, `providerapp`, `projectworkapp`, or
+  `runtimeevents` before adding parallel store/runner/event code in
+  `internal/api` or `internal/orchestrator`.
+- New non-terminal run-event writes go through `internal/runtimeevents`.
+  Terminal run transitions stay in `taskstate.ApplyRunTerminalTransition`
+  because the event write must be atomic with state mutation.
+- Project assignment runtime links are canonical through `execution_ref` and
+  project activity projections. Do not restore raw `task_id` / `run_id` /
+  `chat_session_id` fallback contracts.
+- Assignment preflight is inspect-only. `POST /start` remains authoritative and
+  must keep its own conflict/state checks even when the UI preflights first.
+
 ### Change project work APIs
 
 Project Work HTTP handlers follow the same app-layer rule. Role, work-item,

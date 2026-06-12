@@ -197,6 +197,10 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   evidence separate from the full Context Inspector: the row summarizes
   canonical refs and warnings, while the inspector renders the persisted packet
   sections the agent actually saw.
+- Do not add UI "compatibility" fallback chains for contracts that the backend
+  has already made canonical. If a current feature appears to need old raw
+  fields or inferred state, update the view model / API contract deliberately
+  instead of rebuilding the removed fallback in a component.
 - Project assignment launch controls must review
   `/assignments/{assignment_id}/preflight` before dispatch. Use the shared
   Context Inspector panel for the launch packet, then call start only from the

@@ -9,6 +9,7 @@ The default operating loop, when to stop and plan, and how to propose commits.
 3. **Read the neighboring test first.** The test shows the exact interface shape, available helpers, and expected assertion style. Writing tests without reading them first is the most common wasted iteration.
 4. **Don't re-read what's already in context.** Check your context before issuing a Read. Re-reads burn context budget without adding information.
 5. **Build after each logical step, not at the end.** Type errors in adjacent files surface immediately; catching them at the end costs multiple round-trips.
+6. **Do not restore removed compatibility paths.** Hecate is alpha, and recent cleanup intentionally removes ambiguous contracts. When touching a refactored area, use the current seams and canonical fields from the area skill. Do not add legacy fallbacks, duplicate orchestration, or "just in case" inference unless the operator explicitly asks for backwards compatibility.
 
 ## Default loop
 
@@ -42,6 +43,7 @@ Ask once, concisely, and proceed. Do not stall on questions that can be answered
 - The task is narrow and a refactor would inflate the diff.
 - Behavior changes are mixed in — refactor and behavior change must not share a commit.
 - The area being changed has no test coverage to pin behavior across the refactor.
+- The refactor would bypass a recently extracted seam. Extend the seam instead of routing around it, or call out why the seam is wrong before changing direction.
 
 If a refactor is the right move, split it into its own change first and rebuild the feature on top.
 
