@@ -2911,6 +2911,100 @@ describe("ChatView input", () => {
     expect(setMessage).toHaveBeenCalledWith("h");
   });
 
+  it("suggests external-agent slash commands and inserts the selected command", async () => {
+    const setMessage = vi.fn();
+    const { state, actions } = setup(
+      {
+        chatTarget: "external_agent",
+        agentAdapterID: "claude_code",
+        message: "/",
+        activeChatSession: {
+          id: "chat_commands",
+          title: "Agent commands",
+          agent_id: "claude_code",
+          driver_kind: "acp",
+          execution_mode: "external_agent",
+          status: "idle",
+          workspace: "/tmp/hecate",
+          available_commands: [
+            { name: "web", description: "Search the web", input_hint: "query" },
+            { name: "plan", description: "Create a plan" },
+          ],
+          messages: [],
+        },
+      },
+      { setMessage },
+    );
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const commands = screen.getByLabelText("External agent commands");
+    expect(within(commands).getByRole("button", { name: "Insert /web command" })).toHaveTextContent(
+      "/web",
+    );
+    expect(within(commands).getByText("Search the web")).toBeTruthy();
+
+    const user = userEvent.setup();
+    await user.click(within(commands).getByRole("button", { name: "Insert /web command" }));
+
+    expect(setMessage).toHaveBeenLastCalledWith("/web ");
+  });
+
+  it("selects external-agent slash commands with Enter without sending", () => {
+    const setMessage = vi.fn();
+    const submitChat = vi.fn(async () => undefined);
+    const { state, actions } = setup(
+      {
+        chatTarget: "external_agent",
+        agentAdapterID: "claude_code",
+        message: "/",
+        activeChatSession: {
+          id: "chat_commands",
+          title: "Agent commands",
+          agent_id: "claude_code",
+          driver_kind: "acp",
+          execution_mode: "external_agent",
+          status: "idle",
+          workspace: "/tmp/hecate",
+          available_commands: [
+            { name: "web", description: "Search the web" },
+            { name: "plan", description: "Create a plan" },
+          ],
+          messages: [],
+        },
+      },
+      { setMessage, submitChat },
+    );
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const textarea = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+    fireEvent.keyDown(textarea, { key: "ArrowDown" });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    expect(setMessage).toHaveBeenLastCalledWith("/plan ");
+    expect(submitChat).not.toHaveBeenCalled();
+  });
+
+  it("does not show slash command suggestions for Hecate Chat", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      defaultChatToolsEnabled: false,
+      message: "/",
+      activeChatSession: {
+        id: "chat_hecate",
+        title: "Hecate",
+        agent_id: "hecate",
+        execution_mode: "hecate_task",
+        status: "idle",
+        workspace: "/tmp/hecate",
+        available_commands: [{ name: "plan", description: "Create a plan" }],
+        messages: [],
+      },
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(screen.queryByLabelText("External agent commands")).toBeNull();
+  });
+
   it("browses previous user messages with ArrowUp and ArrowDown", () => {
     const setMessage = vi.fn();
     const { state, actions } = setup(

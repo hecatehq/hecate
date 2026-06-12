@@ -311,6 +311,10 @@ test("New chat creates an external-agent session with controls before the first 
               ],
             },
           ],
+          available_commands: [
+            { name: "web", description: "Search the web", input_hint: "query" },
+            { name: "plan", description: "Create a plan" },
+          ],
           messages: [],
         },
       }),
@@ -334,6 +338,14 @@ test("New chat creates an external-agent session with controls before the first 
       workspace: "/tmp/hecate-e2e",
     });
   await expect(page.getByRole("button", { name: "Model", exact: true })).toContainText("Fast");
+  const composer = page.getByRole("textbox", { name: "Message" });
+  await composer.fill("/");
+  const commands = page.getByRole("group", { name: "External agent commands" });
+  await expect(commands.getByRole("button", { name: "Insert /web command" })).toBeVisible();
+  await expect(commands).toContainText("Search the web");
+  await commands.getByRole("button", { name: "Insert /web command" }).click();
+  await expect(composer).toHaveValue("/web ");
+
   await page.getByRole("button", { name: "Choose agent for new chat" }).click();
   await expect(page.getByRole("option", { name: /Codex/ })).toHaveAttribute(
     "aria-selected",
