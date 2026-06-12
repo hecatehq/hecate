@@ -15,6 +15,8 @@ import (
 	"github.com/hecatehq/hecate/internal/chatcontext"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projects"
+	"github.com/hecatehq/hecate/internal/projectskills"
+	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/internal/storage"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/pkg/types"
@@ -199,6 +201,110 @@ func TestChatContextPacketsIncludeEnabledProjectMemory(t *testing.T) {
 			}
 			if findContextItemByOrigin(tc.packet, "mem_disabled") != nil {
 				t.Fatalf("disabled memory was included: %+v", tc.packet.Items)
+			}
+		})
+	}
+}
+
+func TestChatContextPacketsIncludeProjectSkillAndWorkMetadata(t *testing.T) {
+	ctx := context.Background()
+	skillStore := projectskills.NewMemoryStore()
+	if _, err := skillStore.UpsertDiscovered(ctx, "proj_1", []projectskills.Skill{
+		{
+			ID:          "backend",
+			ProjectID:   "proj_1",
+			Title:       "Backend Skill",
+			Description: "Build backend changes.",
+			Path:        ".hecate/skills/backend/SKILL.md",
+			Enabled:     true,
+		},
+		{
+			ID:          "disabled",
+			ProjectID:   "proj_1",
+			Title:       "Disabled Skill",
+			Description: "Do not include.",
+			Path:        ".hecate/skills/disabled/SKILL.md",
+			Enabled:     false,
+		},
+	}); err != nil {
+		t.Fatalf("UpsertDiscovered skills: %v", err)
+	}
+	workStore := projectwork.NewMemoryStore()
+	if _, err := workStore.CreateWorkItem(ctx, projectwork.WorkItem{
+		ID:          "work_chat",
+		ProjectID:   "proj_1",
+		Title:       "Project chat context",
+		Brief:       "Make linked chat aware of project work state.",
+		Status:      projectwork.WorkItemStatusReady,
+		Priority:    "high",
+		OwnerRoleID: "architect",
+	}); err != nil {
+		t.Fatalf("CreateWorkItem: %v", err)
+	}
+	if _, err := workStore.CreateAssignment(ctx, projectwork.Assignment{
+		ID:         "asgn_chat",
+		ProjectID:  "proj_1",
+		WorkItemID: "work_chat",
+		RoleID:     "architect",
+		DriverKind: projectwork.AssignmentDriverHecateTask,
+		Status:     projectwork.AssignmentStatusQueued,
+	}); err != nil {
+		t.Fatalf("CreateAssignment: %v", err)
+	}
+	handler := &Handler{projectSkills: skillStore, projectWork: workStore}
+	session := chat.Session{
+		ID:        "chat_1",
+		ProjectID: "proj_1",
+		Workspace: "/tmp/hecate",
+		Messages:  []chat.Message{{ID: "u1", Role: "user", Content: "first"}},
+	}
+
+	packets := []struct {
+		name   string
+		packet chat.ContextPacket
+	}{
+		{
+			name:   "direct model",
+			packet: handler.directModelContextPacket(ctx, session, "ollama", "llama3.1:8b", ""),
+		},
+		{
+			name:   "hecate task",
+			packet: handler.hecateTaskContextPacket(ctx, session, "ollama", "llama3.1:8b", "", false),
+		},
+	}
+
+	for _, tc := range packets {
+		t.Run(tc.name, func(t *testing.T) {
+			skills := findContextItem(tc.packet, "project_skills")
+			if skills == nil {
+				t.Fatalf("project skills item not found: %+v", tc.packet.Items)
+			}
+			if skills.TrustLevel != projectskills.TrustWorkspaceSkill || !skills.Included {
+				t.Fatalf("project skills item = %+v, want included workspace skill metadata", *skills)
+			}
+			if !strings.Contains(skills.Body, "Backend Skill (backend): Build backend changes. Path: .hecate/skills/backend/SKILL.md") {
+				t.Fatalf("project skills body = %q, want backend metadata", skills.Body)
+			}
+			if strings.Contains(skills.Body, "Disabled Skill") {
+				t.Fatalf("project skills body included disabled skill: %q", skills.Body)
+			}
+
+			work := findContextItem(tc.packet, "project_work")
+			if work == nil {
+				t.Fatalf("project work item not found: %+v", tc.packet.Items)
+			}
+			if work.TrustLevel != contextTrustProject || !work.Included {
+				t.Fatalf("project work item = %+v, want included project work metadata", *work)
+			}
+			for _, want := range []string{
+				"Work item status counts: ready=1",
+				"Work item Project chat context (work_chat): status=ready, priority=high, owner_role=architect",
+				"Brief: Make linked chat aware of project work state.",
+				"Assignment asgn_chat: work_item=work_chat, role=architect, status=queued, driver=hecate_task",
+			} {
+				if !strings.Contains(work.Body, want) {
+					t.Fatalf("project work body missing %q:\n%s", want, work.Body)
+				}
 			}
 		})
 	}

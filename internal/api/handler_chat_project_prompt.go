@@ -10,13 +10,19 @@ import (
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projects"
+	"github.com/hecatehq/hecate/internal/projectskills"
+	"github.com/hecatehq/hecate/internal/projectwork"
 )
 
 const (
-	projectChatPromptMaxBytes       = 6 * 1024
-	projectChatPromptMemoryMaxItems = 4
-	projectChatPromptMemoryMaxBytes = 1024
-	projectChatPromptRoleMaxItems   = 8
+	projectChatPromptMaxBytes           = 6 * 1024
+	projectChatPromptMemoryMaxItems     = 4
+	projectChatPromptMemoryMaxBytes     = 1024
+	projectChatPromptRoleMaxItems       = 8
+	projectChatPromptSkillMaxItems      = 6
+	projectChatPromptWorkMaxItems       = 6
+	projectChatPromptAssignmentMaxItems = 8
+	projectChatPromptInlineMaxRunes     = 220
 )
 
 func (h *Handler) hecateChatEffectiveSystemPrompt(ctx context.Context, session chat.Session, operatorPrompt string) string {
@@ -53,6 +59,12 @@ func (h *Handler) projectChatWorkflowSystemPrompt(ctx context.Context, session c
 	sections := []string{projectChatWorkflowBoundary(*project)}
 	if roles := h.projectChatRoleHints(ctx, project.ID); roles != "" {
 		sections = append(sections, roles)
+	}
+	if skills := h.projectChatSkillHints(ctx, project.ID); skills != "" {
+		sections = append(sections, skills)
+	}
+	if work := h.projectChatWorkHints(ctx, project.ID); work != "" {
+		sections = append(sections, work)
 	}
 	if memoryText := h.projectChatMemoryPrompt(ctx, project.ID); memoryText != "" {
 		sections = append(sections, memoryText)
@@ -105,6 +117,22 @@ func (h *Handler) projectChatRoleHints(ctx context.Context, projectID string) st
 	return strings.Join(lines, "\n")
 }
 
+func (h *Handler) projectChatSkillHints(ctx context.Context, projectID string) string {
+	skills := h.projectChatEnabledSkills(ctx, projectID)
+	if len(skills) == 0 {
+		return ""
+	}
+	return projectChatSkillHintText(skills, projectChatPromptSkillMaxItems)
+}
+
+func (h *Handler) projectChatWorkHints(ctx context.Context, projectID string) string {
+	snapshot := h.projectChatWorkSnapshot(ctx, projectID)
+	if len(snapshot.WorkItems) == 0 && len(snapshot.Assignments) == 0 {
+		return ""
+	}
+	return projectChatWorkHintText(snapshot, projectChatPromptWorkMaxItems, projectChatPromptAssignmentMaxItems)
+}
+
 func (h *Handler) projectChatMemoryPrompt(ctx context.Context, projectID string) string {
 	entries := h.enabledProjectMemoryEntries(ctx, projectID)
 	if len(entries) == 0 {
@@ -143,6 +171,177 @@ func projectChatMemorySection(entry memory.Entry, remaining *int) (string, bool)
 		return "", false
 	}
 	return section, true
+}
+
+type projectChatWorkSnapshot struct {
+	WorkItems   []projectwork.WorkItem
+	Assignments []projectwork.Assignment
+}
+
+func (h *Handler) projectChatEnabledSkills(ctx context.Context, projectID string) []projectskills.Skill {
+	if h == nil || h.projectSkills == nil || strings.TrimSpace(projectID) == "" {
+		return nil
+	}
+	items, err := h.projectSkills.List(ctx, strings.TrimSpace(projectID))
+	if err != nil {
+		return nil
+	}
+	out := make([]projectskills.Skill, 0, len(items))
+	for _, item := range items {
+		if !item.Enabled {
+			continue
+		}
+		status := strings.TrimSpace(item.Status)
+		if status != "" && status != projectskills.StatusAvailable {
+			continue
+		}
+		out = append(out, item)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		left := firstNonEmptyString(strings.TrimSpace(out[i].Title), strings.TrimSpace(out[i].ID))
+		right := firstNonEmptyString(strings.TrimSpace(out[j].Title), strings.TrimSpace(out[j].ID))
+		if left != right {
+			return left < right
+		}
+		return strings.TrimSpace(out[i].ID) < strings.TrimSpace(out[j].ID)
+	})
+	return out
+}
+
+func (h *Handler) projectChatWorkSnapshot(ctx context.Context, projectID string) projectChatWorkSnapshot {
+	if h == nil || h.projectWork == nil || strings.TrimSpace(projectID) == "" {
+		return projectChatWorkSnapshot{}
+	}
+	projectID = strings.TrimSpace(projectID)
+	workItems, err := h.projectWork.ListWorkItems(ctx, projectID)
+	if err != nil {
+		workItems = nil
+	}
+	assignments, err := h.projectWork.ListAssignments(ctx, projectwork.AssignmentFilter{ProjectID: projectID})
+	if err != nil {
+		assignments = nil
+	}
+	return projectChatWorkSnapshot{WorkItems: workItems, Assignments: assignments}
+}
+
+func projectChatSkillHintText(skills []projectskills.Skill, maxItems int) string {
+	if len(skills) == 0 {
+		return ""
+	}
+	lines := []string{"Project skills (metadata only; skill bodies are not loaded):"}
+	for i, skill := range skills {
+		if i >= maxItems {
+			lines = append(lines, fmt.Sprintf("- %d additional enabled skills omitted.", len(skills)-i))
+			break
+		}
+		line := "- " + labelWithID(skill.Title, skill.ID)
+		details := make([]string, 0, 2)
+		if description := compactProjectChatInline(skill.Description); description != "" {
+			details = append(details, description)
+		}
+		if path := strings.TrimSpace(skill.Path); path != "" {
+			details = append(details, "Path: "+path)
+		}
+		if len(details) > 0 {
+			line += ": " + strings.Join(details, " ")
+		}
+		lines = append(lines, line)
+	}
+	lines = append(lines, "Use skills as procedures/guidance, not as role assignments.")
+	return strings.Join(lines, "\n")
+}
+
+func projectChatWorkHintText(snapshot projectChatWorkSnapshot, maxWorkItems, maxAssignments int) string {
+	if len(snapshot.WorkItems) == 0 && len(snapshot.Assignments) == 0 {
+		return ""
+	}
+	lines := []string{"Project work snapshot:"}
+	if len(snapshot.WorkItems) > 0 {
+		lines = append(lines, "Work item status counts: "+projectChatWorkStatusCounts(snapshot.WorkItems))
+		included := 0
+		for _, item := range snapshot.WorkItems {
+			if included >= maxWorkItems {
+				lines = append(lines, fmt.Sprintf("- %d additional work items omitted.", len(snapshot.WorkItems)-included))
+				break
+			}
+			line := "- Work item " + labelWithID(item.Title, item.ID) + ": status=" + firstNonEmptyString(strings.TrimSpace(item.Status), projectwork.WorkItemStatusBacklog)
+			if priority := strings.TrimSpace(item.Priority); priority != "" {
+				line += ", priority=" + priority
+			}
+			if owner := strings.TrimSpace(item.OwnerRoleID); owner != "" {
+				line += ", owner_role=" + owner
+			}
+			if brief := compactProjectChatInline(item.Brief); brief != "" {
+				line += "\n  Brief: " + brief
+			}
+			lines = append(lines, line)
+			included++
+		}
+	}
+	if len(snapshot.Assignments) > 0 {
+		lines = append(lines, "Assignments:")
+		included := 0
+		for _, assignment := range snapshot.Assignments {
+			if included >= maxAssignments {
+				lines = append(lines, fmt.Sprintf("- %d additional assignments omitted.", len(snapshot.Assignments)-included))
+				break
+			}
+			line := "- Assignment " + firstNonEmptyString(strings.TrimSpace(assignment.ID), "assignment") +
+				": work_item=" + strings.TrimSpace(assignment.WorkItemID) +
+				", role=" + strings.TrimSpace(assignment.RoleID) +
+				", status=" + firstNonEmptyString(strings.TrimSpace(assignment.Status), projectwork.AssignmentStatusQueued) +
+				", driver=" + firstNonEmptyString(strings.TrimSpace(assignment.DriverKind), projectwork.AssignmentDriverHecateTask)
+			lines = append(lines, line)
+			included++
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func projectChatWorkStatusCounts(items []projectwork.WorkItem) string {
+	if len(items) == 0 {
+		return "none"
+	}
+	counts := make(map[string]int)
+	for _, item := range items {
+		status := firstNonEmptyString(strings.TrimSpace(item.Status), projectwork.WorkItemStatusBacklog)
+		counts[status]++
+	}
+	order := []string{
+		projectwork.WorkItemStatusBacklog,
+		projectwork.WorkItemStatusReady,
+		projectwork.WorkItemStatusRunning,
+		projectwork.WorkItemStatusReview,
+		projectwork.WorkItemStatusBlocked,
+		projectwork.WorkItemStatusDone,
+		projectwork.WorkItemStatusCancelled,
+	}
+	parts := make([]string, 0, len(counts))
+	for _, status := range order {
+		if count := counts[status]; count > 0 {
+			parts = append(parts, fmt.Sprintf("%s=%d", status, count))
+			delete(counts, status)
+		}
+	}
+	var extra []string
+	for status, count := range counts {
+		extra = append(extra, fmt.Sprintf("%s=%d", status, count))
+	}
+	sort.Strings(extra)
+	parts = append(parts, extra...)
+	return strings.Join(parts, ", ")
+}
+
+func compactProjectChatInline(value string) string {
+	value = strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+	if value == "" {
+		return ""
+	}
+	runes := []rune(value)
+	if len(runes) <= projectChatPromptInlineMaxRunes {
+		return value
+	}
+	return strings.TrimSpace(string(runes[:projectChatPromptInlineMaxRunes])) + " [truncated]"
 }
 
 func boundedPromptContextSection(header, body string, itemMaxBytes int, remaining *int) (string, bool) {

@@ -18,6 +18,7 @@ import (
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/modelcaps"
 	"github.com/hecatehq/hecate/internal/projects"
+	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/internal/providers"
 	"github.com/hecatehq/hecate/internal/taskstate"
@@ -189,6 +190,39 @@ func TestHecateAgentChatProjectSessionInjectsProposalGuidance(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Create role: %v", err)
 	}
+	if _, err := apiHandler.projectSkills.UpsertDiscovered(context.Background(), project.ID, []projectskills.Skill{
+		{
+			ID:          "backend",
+			ProjectID:   project.ID,
+			Title:       "Backend Skill",
+			Description: "Backend changes.",
+			Path:        ".hecate/skills/backend/SKILL.md",
+			Enabled:     true,
+		},
+	}); err != nil {
+		t.Fatalf("UpsertDiscovered skills: %v", err)
+	}
+	if _, err := apiHandler.projectWork.CreateWorkItem(context.Background(), projectwork.WorkItem{
+		ID:          "work_chat_context",
+		ProjectID:   project.ID,
+		Title:       "Implement chat context",
+		Brief:       "Teach linked chat about project skills and work state.",
+		Status:      projectwork.WorkItemStatusReady,
+		Priority:    "high",
+		OwnerRoleID: "architect",
+	}); err != nil {
+		t.Fatalf("Create work item: %v", err)
+	}
+	if _, err := apiHandler.projectWork.CreateAssignment(context.Background(), projectwork.Assignment{
+		ID:         "asgn_plan",
+		ProjectID:  project.ID,
+		WorkItemID: "work_chat_context",
+		RoleID:     "architect",
+		DriverKind: projectwork.AssignmentDriverHecateTask,
+		Status:     projectwork.AssignmentStatusQueued,
+	}); err != nil {
+		t.Fatalf("Create assignment: %v", err)
+	}
 	if _, err := apiHandler.memory.Create(context.Background(), memory.Entry{
 		ID:         "mem_boundary",
 		Scope:      memory.ScopeProject,
@@ -225,6 +259,15 @@ func TestHecateAgentChatProjectSessionInjectsProposalGuidance(t *testing.T) {
 		"Assignments proposed from chat must stay queued and unstarted.",
 		"Role hints:",
 		"A Project Planner (role_planner): Shapes reviewable project work.",
+		"Project skills (metadata only; skill bodies are not loaded):",
+		"Backend Skill (backend): Backend changes. Path: .hecate/skills/backend/SKILL.md",
+		"Use skills as procedures/guidance, not as role assignments.",
+		"Project work snapshot:",
+		"Work item status counts: ready=1",
+		"- Work item Implement chat context (work_chat_context): status=ready, priority=high, owner_role=architect",
+		"Brief: Teach linked chat about project skills and work state.",
+		"Assignments:",
+		"- Assignment asgn_plan: work_item=work_chat_context, role=architect, status=queued, driver=hecate_task",
 		"Accepted project memory:",
 		"Project memory: Project Assistant boundary\nID: mem_boundary\nTrust: operator_memory",
 		"Project changes should be drafted as typed proposals and applied only after operator review.",
