@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject, type SyntheticEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject, type SyntheticEvent } from "react";
 
 import { useChat } from "../../app/state/chat";
 import { useProvidersAndModels } from "../../app/state/providersAndModels";
@@ -13,7 +13,7 @@ import { describeGatewayError, formatErrorCode } from "../../lib/error-diagnosti
 import { usePersistedState } from "../../lib/persistedState";
 import type { SelectedModelIssue } from "../../lib/provider-issues";
 import { providerDisplayName } from "../../lib/provider-utils";
-import type { ChatConfigOptionRecord } from "../../types/chat";
+import type { ChatAvailableCommandRecord, ChatConfigOptionRecord } from "../../types/chat";
 import type { ModelRecord } from "../../types/model";
 import type {
   ConfiguredProviderRecord,
@@ -33,6 +33,7 @@ import { mergeAgentConfigOptions } from "./agentConfigOptions";
 
 const COMPOSER_TEXTAREA_MAX_LINES = 10;
 const COMPOSER_TEXTAREA_MIN_HEIGHT = 42;
+const COMMAND_SUGGESTION_LIMIT = 6;
 type ComposerTextareaNumericStyle =
   | "paddingTop"
   | "paddingBottom"
@@ -218,6 +219,34 @@ export function ChatComposer(props: ChatComposerProps) {
   const formRef = useRef<HTMLFormElement>(null);
   const messageHistoryCursorRef = useRef<number | null>(null);
   const messageHistoryPendingTextRef = useRef("");
+  const [commandPickerDismissed, setCommandPickerDismissed] = useState(false);
+  const [activeCommandIndex, setActiveCommandIndex] = useState(0);
+  const commandQuery = externalAgentCommandQuery(message);
+  const commandSuggestions = useMemo(() => {
+    if (!isExternalAgentChat || commandQuery === null) return [];
+    const commands = activeChatSession?.available_commands ?? [];
+    const query = commandQuery.toLowerCase();
+    return commands
+      .filter((command) => externalAgentCommandName(command) !== "")
+      .filter((command) => externalAgentCommandName(command).toLowerCase().startsWith(query))
+      .slice(0, COMMAND_SUGGESTION_LIMIT);
+  }, [activeChatSession?.available_commands, commandQuery, isExternalAgentChat]);
+  const commandPickerVisible =
+    composerVisible &&
+    isExternalAgentChat &&
+    !commandPickerDismissed &&
+    commandSuggestions.length > 0;
+
+  useEffect(() => {
+    setCommandPickerDismissed(false);
+    setActiveCommandIndex(0);
+  }, [activeSessionID, commandQuery]);
+
+  useEffect(() => {
+    setActiveCommandIndex((current) =>
+      commandSuggestions.length === 0 ? 0 : Math.min(current, commandSuggestions.length - 1),
+    );
+  }, [commandSuggestions.length]);
 
   // Reset history navigation on session change. Scroll-side reset
   // lives in ChatView since it concerns the transcript surface.
@@ -295,7 +324,46 @@ export function ChatComposer(props: ChatComposerProps) {
     return true;
   }
 
+  function selectCommandSuggestion(command: ChatAvailableCommandRecord) {
+    const nextMessage = externalAgentCommandInsertion(command);
+    if (!nextMessage) return;
+    messageHistoryCursorRef.current = null;
+    messageHistoryPendingTextRef.current = nextMessage;
+    setCommandPickerDismissed(true);
+    setComposerText(nextMessage, true);
+  }
+
+  function handleCommandPickerKey(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (!commandPickerVisible) return false;
+    if (e.key === "Escape") {
+      e.preventDefault();
+      setCommandPickerDismissed(true);
+      return true;
+    }
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveCommandIndex((current) => (current + 1) % commandSuggestions.length);
+      return true;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveCommandIndex(
+        (current) => (current - 1 + commandSuggestions.length) % commandSuggestions.length,
+      );
+      return true;
+    }
+    if (e.key === "Enter" || e.key === "Tab") {
+      const command = commandSuggestions[activeCommandIndex];
+      if (!command) return false;
+      e.preventDefault();
+      selectCommandSuggestion(command);
+      return true;
+    }
+    return false;
+  }
+
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (handleCommandPickerKey(e)) return;
     if (handleMessageHistoryKey(e)) return;
     if (e.key !== "Enter") return;
     const modPressed = isMac ? e.metaKey : e.ctrlKey;
@@ -529,6 +597,81 @@ export function ChatComposer(props: ChatComposerProps) {
               position: "relative",
             }}
           >
+            {commandPickerVisible && (
+              <div
+                role="group"
+                aria-label="External agent commands"
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  right: 44,
+                  bottom: "calc(100% + 6px)",
+                  zIndex: 5,
+                  border: "1px solid var(--border)",
+                  borderRadius: "var(--radius-sm)",
+                  background: "var(--bg2)",
+                  boxShadow: "0 10px 28px rgba(0, 0, 0, 0.28)",
+                  padding: 4,
+                  display: "grid",
+                  gap: 2,
+                }}
+              >
+                {commandSuggestions.map((command, index) => {
+                  const commandText = externalAgentCommandInsertion(command).trim();
+                  const selected = index === activeCommandIndex;
+                  return (
+                    <button
+                      key={`${externalAgentCommandName(command)}:${index}`}
+                      type="button"
+                      aria-label={`Insert ${commandText} command`}
+                      aria-current={selected ? "true" : undefined}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => selectCommandSuggestion(command)}
+                      style={{
+                        width: "100%",
+                        border: "none",
+                        borderRadius: "var(--radius-sm)",
+                        background: selected ? "var(--bg4)" : "transparent",
+                        color: "var(--t0)",
+                        cursor: "pointer",
+                        display: "grid",
+                        gridTemplateColumns: "minmax(84px, auto) minmax(0, 1fr)",
+                        alignItems: "center",
+                        gap: 10,
+                        padding: "7px 8px",
+                        textAlign: "left",
+                      }}
+                    >
+                      <span
+                        style={{
+                          color: selected ? "var(--teal)" : "var(--t1)",
+                          fontFamily: "var(--font-mono)",
+                          fontSize: 12,
+                          minWidth: 0,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {commandText}
+                      </span>
+                      <span
+                        style={{
+                          color: "var(--t3)",
+                          fontSize: 12,
+                          minWidth: 0,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {externalAgentCommandDetail(command)}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             <textarea
               ref={textareaRef}
               aria-label="Message"
@@ -777,6 +920,28 @@ function composerTextareaMaxHeight(textarea: HTMLTextAreaElement) {
 
 function numericStyleValue(element: HTMLElement, property: ComposerTextareaNumericStyle) {
   return Number.parseFloat(window.getComputedStyle(element)[property]) || 0;
+}
+
+function externalAgentCommandQuery(message: string): string | null {
+  if (!message.startsWith("/")) return null;
+  const query = message.slice(1);
+  if (/\s/.test(query)) return null;
+  return query;
+}
+
+function externalAgentCommandName(command: ChatAvailableCommandRecord) {
+  return command.name.trim().replace(/^\/+/, "");
+}
+
+function externalAgentCommandInsertion(command: ChatAvailableCommandRecord) {
+  const name = externalAgentCommandName(command);
+  return name ? `/${name} ` : "";
+}
+
+function externalAgentCommandDetail(command: ChatAvailableCommandRecord) {
+  const description = command.description?.trim();
+  if (description) return description;
+  return command.input_hint?.trim() ?? "";
 }
 
 export function ChatErrorPanel({

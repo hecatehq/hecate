@@ -101,7 +101,8 @@ skills, or work records later does not rewrite old message packets.
 External Agent sessions may expose ACP-advertised `available_commands` on the
 session snapshot. These are agent-native slash command hints, not Hecate
 project commands; selecting one still sends ordinary prompt text to the
-external agent.
+external agent. The operator UI may show these hints while the composer starts
+with `/`; choosing a hint only inserts the slash command text.
 
 Hecate Chat settings also own the **Tools** toggle and the optional **Compact
 command output** toggle. Tools decides whether future turns stay as direct

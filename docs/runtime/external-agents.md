@@ -95,10 +95,12 @@ ACP agents may also advertise **available slash commands** with
 metadata on the chat session as `available_commands` so clients can render
 agent-native command hints. Commands are still submitted as normal
 `session/prompt` text such as `/web agent client protocol`; ACP does not define
-a separate execute-command RPC. These are external-agent-native commands, not
-Hecate-owned project mutations. Future Hecate Chat shortcuts such as `/plan` or
-`/remember` should remain intent hints that go through the usual proposal,
-validation, and operator-apply boundaries.
+a separate execute-command RPC. The operator UI can surface the advertised list
+when the composer starts with `/`, but choosing an item only inserts the command
+text. These are external-agent-native commands, not Hecate-owned project
+mutations. Future Hecate Chat shortcuts such as `/plan` or `/remember` should
+remain intent hints that go through the usual proposal, validation, and
+operator-apply boundaries.
 
 Check discovery:
 
