@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -12,8 +14,9 @@ import (
 )
 
 var (
-	ErrNotFound = errors.New("project not found")
-	ErrInvalid  = errors.New("invalid project")
+	ErrNotFound      = errors.New("project not found")
+	ErrInvalid       = errors.New("invalid project")
+	ErrAlreadyExists = errors.New("project already exists")
 )
 
 type Project struct {
@@ -90,6 +93,12 @@ func (s *MemoryStore) Create(_ context.Context, project Project) (Project, error
 	if err := validateProject(project); err != nil {
 		return Project{}, err
 	}
+	if _, exists := s.projects[project.ID]; exists {
+		return Project{}, fmt.Errorf("%w: project id %q already exists", ErrAlreadyExists, project.ID)
+	}
+	if err := s.ensureProjectUnique(project, project.ID); err != nil {
+		return Project{}, err
+	}
 	s.projects[project.ID] = cloneProject(project)
 	return cloneProject(project), nil
 }
@@ -144,8 +153,29 @@ func (s *MemoryStore) Update(_ context.Context, id string, update func(*Project)
 	if err := validateProject(project); err != nil {
 		return Project{}, err
 	}
+	if err := s.ensureProjectUnique(project, originalID); err != nil {
+		return Project{}, err
+	}
 	s.projects[id] = cloneProject(project)
 	return cloneProject(project), nil
+}
+
+func (s *MemoryStore) ensureProjectUnique(project Project, currentID string) error {
+	currentID = strings.TrimSpace(currentID)
+	nameKey := projectNameKey(project.Name)
+	rootPathKeys := projectRootPathKeys(project.Roots)
+	for _, existing := range s.projects {
+		if strings.TrimSpace(existing.ID) == currentID {
+			continue
+		}
+		if projectNameKey(existing.Name) == nameKey {
+			return fmt.Errorf("%w: project name %q already exists", ErrAlreadyExists, project.Name)
+		}
+		if conflictPath, ok := firstConflictingRootPath(rootPathKeys, existing.Roots); ok {
+			return fmt.Errorf("%w: project root path %q already belongs to project %q", ErrAlreadyExists, conflictPath, existing.ID)
+		}
+	}
+	return nil
 }
 
 func (s *MemoryStore) Delete(_ context.Context, id string) error {
@@ -361,6 +391,7 @@ func validateProject(project Project) error {
 		return fmt.Errorf("%w: project name is required", ErrInvalid)
 	}
 	rootIDs := make(map[string]struct{}, len(project.Roots))
+	rootPaths := make(map[string]string, len(project.Roots))
 	for _, root := range project.Roots {
 		if root.ID == "" {
 			return fmt.Errorf("%w: project root id is required", ErrInvalid)
@@ -372,6 +403,11 @@ func validateProject(project Project) error {
 			return fmt.Errorf("%w: duplicate project root id %q", ErrInvalid, root.ID)
 		}
 		rootIDs[root.ID] = struct{}{}
+		pathKey := projectRootPathKey(root.Path)
+		if previous, exists := rootPaths[pathKey]; exists {
+			return fmt.Errorf("%w: duplicate project root path %q", ErrInvalid, previous)
+		}
+		rootPaths[pathKey] = root.Path
 	}
 	sourceIDs := make(map[string]struct{}, len(project.ContextSources))
 	for _, source := range project.ContextSources {
@@ -392,6 +428,56 @@ func validateProject(project Project) error {
 		}
 	}
 	return nil
+}
+
+func projectNameKey(name string) string {
+	return strings.ToLower(strings.TrimSpace(name))
+}
+
+func projectRootPathKeys(roots []Root) map[string]string {
+	if len(roots) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(roots))
+	for _, root := range roots {
+		key := projectRootPathKey(root.Path)
+		if key == "" {
+			continue
+		}
+		if _, exists := out[key]; !exists {
+			out[key] = strings.TrimSpace(root.Path)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func firstConflictingRootPath(rootPathKeys map[string]string, roots []Root) (string, bool) {
+	if len(rootPathKeys) == 0 || len(roots) == 0 {
+		return "", false
+	}
+	for _, root := range roots {
+		if path, ok := rootPathKeys[projectRootPathKey(root.Path)]; ok {
+			return path, true
+		}
+	}
+	return "", false
+}
+
+func projectRootPathKey(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	// Keep project-root identity lexical so not-yet-created paths stay valid;
+	// this deliberately does not resolve symlinks or other mount aliases.
+	path = filepath.Clean(path)
+	if runtime.GOOS == "windows" {
+		path = strings.ToLower(path)
+	}
+	return path
 }
 
 func hasRootID(roots []Root, id string) bool {

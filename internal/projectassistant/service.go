@@ -1234,6 +1234,8 @@ func mapProjectErr(err error) error {
 		return fmt.Errorf("%w: %v", ErrNotFound, err)
 	case errors.Is(err, projects.ErrInvalid):
 		return fmt.Errorf("%w: %v", ErrInvalid, err)
+	case errors.Is(err, projects.ErrAlreadyExists):
+		return fmt.Errorf("%w: %v", ErrConflict, err)
 	default:
 		return err
 	}

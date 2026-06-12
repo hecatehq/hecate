@@ -1214,6 +1214,9 @@ empty and at least one root is supplied, the first root becomes the default.
 When supplied, `default_root_id` must match one of the supplied roots.
 Context source `id` values are optional; Hecate generates `ctxsrc_...` IDs for
 sources that omit them. Context sources are metadata only in this release.
+Project names are unique across the local project catalog, and root/workspace
+paths are unique across all projects. Duplicate project names or root paths
+return `409 conflict`.
 
 Projects may be created without a workspace by omitting both `workspace_path`
 and `roots`. For the common one-workspace case, send `workspace_path` and
@@ -1275,7 +1278,9 @@ until narrower root endpoints exist.
 When `context_sources` is present, it replaces the full source-metadata list;
 use this for add/remove/reorder until narrower context-source endpoints exist.
 When `default_root_id` is supplied, it must match the replacement root list or,
-if `roots` is omitted, one of the existing roots.
+if `roots` is omitted, one of the existing roots. Renames and root replacements
+preserve the same catalog uniqueness rules as creation: duplicate project names
+or root paths return `409 conflict`.
 
 ```json
 PATCH /hecate/v1/projects/proj_...

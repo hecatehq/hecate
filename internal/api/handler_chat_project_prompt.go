@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/memory"
@@ -142,4 +143,48 @@ func projectChatMemorySection(entry memory.Entry, remaining *int) (string, bool)
 		return "", false
 	}
 	return section, true
+}
+
+func boundedPromptContextSection(header, body string, itemMaxBytes int, remaining *int) (string, bool) {
+	if remaining == nil || *remaining <= 0 {
+		return "", false
+	}
+	header = strings.TrimSpace(header)
+	body = strings.TrimSpace(body)
+	if header == "" || body == "" {
+		return "", false
+	}
+	limit := itemMaxBytes
+	if *remaining < limit {
+		limit = *remaining
+	}
+	text := header + "\n" + body
+	text, truncated := truncatePromptContextText(text, limit)
+	if text == "" {
+		return "", truncated
+	}
+	*remaining -= len(text)
+	return text, truncated
+}
+
+func truncatePromptContextText(text string, maxBytes int) (string, bool) {
+	text = strings.TrimSpace(text)
+	if maxBytes <= 0 {
+		return "", text != ""
+	}
+	if len(text) <= maxBytes {
+		return text, false
+	}
+	if maxBytes <= len("\n[truncated]") {
+		return "", true
+	}
+	cut := maxBytes - len("\n[truncated]")
+	raw := []byte(text)
+	for cut > 0 && !utf8.Valid(raw[:cut]) {
+		cut--
+	}
+	if cut <= 0 {
+		return "", true
+	}
+	return strings.TrimSpace(string(raw[:cut])) + "\n[truncated]", true
 }

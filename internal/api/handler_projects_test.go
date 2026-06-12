@@ -166,6 +166,69 @@ func TestProjectsAPI_CreateWithWorkspacePathDefaultsRoot(t *testing.T) {
 	}
 }
 
+func TestProjectsAPI_RejectsDuplicateProjectIdentity(t *testing.T) {
+	t.Parallel()
+	server := newProjectsTestServer()
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects", bytes.NewReader([]byte(`{
+		"name":"Hecate",
+		"workspace_path":"/tmp/hecate",
+		"workspace_kind":"git"
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects", bytes.NewReader([]byte(`{
+		"name":" hecate ",
+		"workspace_path":"/tmp/other",
+		"workspace_kind":"git"
+	}`))))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("duplicate name status = %d body=%s, want 409", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "project name") {
+		t.Fatalf("duplicate name body = %s, want project name conflict", rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects", bytes.NewReader([]byte(`{
+		"name":"Runtime",
+		"workspace_path":"/tmp/hecate/",
+		"workspace_kind":"git"
+	}`))))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("duplicate root status = %d body=%s, want 409", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "project root path") {
+		t.Fatalf("duplicate root body = %s, want root path conflict", rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects", bytes.NewReader([]byte(`{"name":"Other"}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create other status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	var other ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &other); err != nil {
+		t.Fatalf("decode other response: %v", err)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+other.Data.ID, bytes.NewReader([]byte(`{"name":"HECATE"}`))))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("duplicate rename status = %d body=%s, want 409", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+other.Data.ID, bytes.NewReader([]byte(`{"roots":[{"path":"/tmp/hecate/"}]}`))))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("duplicate root patch status = %d body=%s, want 409", rec.Code, rec.Body.String())
+	}
+}
+
 func TestProjectsAPI_CreateWithoutWorkspace(t *testing.T) {
 	t.Parallel()
 	server := newProjectsTestServer()

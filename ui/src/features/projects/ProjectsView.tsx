@@ -1498,6 +1498,18 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
 
   const hasWorkItemDetail =
     Boolean(selectedWorkItemID) || detailLoadState === "loading" || Boolean(detailError);
+  const projectNeedsOnboarding =
+    Boolean(selectedProject) &&
+    workLoadState === "loaded" &&
+    workItems.length === 0 &&
+    !assistantProposal &&
+    !assistantApplyResult;
+  const projectEmptyTitle =
+    projects.state.projects.length === 0 ? "Add a project to begin" : "Select a project";
+  const projectEmptyDetail =
+    projects.state.projects.length === 0
+      ? "Choose a workspace folder from the project list to create the first durable project record."
+      : "Choose a project from the list to view its work, memory, skills, and settings.";
 
   return (
     <div style={shellStyle}>
@@ -1601,203 +1613,234 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
         <div style={projectMainBodyStyle}>
           <section style={detailStyle} aria-label="Selected work item">
             <div className="project-cockpit-workspace" style={cockpitWorkspaceStyle}>
-              <section style={domainSectionStyle} aria-label="Project workspace">
-                <ProjectAssistantPanel
-                  applyResult={assistantApplyResult}
-                  bootstrapPending={assistantBootstrapPending}
-                  context={assistantContext}
-                  contextError={assistantContextError}
-                  contextStatus={assistantContextStatus}
-                  error={assistantError}
-                  onApply={() => void handleProjectAssistantApply()}
-                  onBootstrap={() => void handleProjectAssistantBootstrap()}
-                  onInspectContext={(form) => void handleProjectAssistantContext(form)}
-                  onDismiss={dismissProjectAssistantProposal}
-                  onPropose={(form) => void handleProjectAssistantPropose(form)}
-                  project={selectedProject}
-                  proposal={assistantProposal}
-                  roles={roles}
-                  status={assistantStatus}
-                  workItem={selectedWorkItem}
-                />
-                <ProjectWorkspaceTabs
-                  activeTab={workspaceTab}
-                  memoryCandidateCount={memoryCandidates.length}
-                  memoryEntryCount={memoryEntries.length}
-                  onChange={setWorkspaceTab}
-                  projectSkillCount={projectSkills.length}
-                  workItemCount={workItems.length}
-                />
-                {workspaceTab === "work" && (
-                  <section style={projectTabPanelStyle} aria-label="Work coordination">
-                    <section aria-label="Work activity" style={workActivityPanelStyle}>
-                      <SectionHeader
-                        title="Work Queue"
-                        detail={
-                          workLoadState === "loading" && workItems.length === 0
-                            ? "Loading project work..."
-                            : undefined
-                        }
-                        actions={
-                          <button
-                            className="btn btn-primary btn-sm"
-                            type="button"
-                            onClick={() => {
-                              setNewWorkError("");
-                              setNewWorkModalOpen(true);
-                            }}
-                            disabled={!selectedProject}
-                          >
-                            <Icon d={Icons.plus} size={13} />
-                            Work
-                          </button>
-                        }
+              {selectedProject ? (
+                <section style={domainSectionStyle} aria-label="Project workspace">
+                  {projectNeedsOnboarding ? (
+                    <ProjectOnboardingPanel
+                      bootstrapPending={assistantBootstrapPending}
+                      contextSourceCount={
+                        (selectedProject.context_sources ?? []).filter((source) => source.enabled)
+                          .length
+                      }
+                      onBootstrap={() => void handleProjectAssistantBootstrap()}
+                      onCreateWork={() => {
+                        setNewWorkError("");
+                        setNewWorkModalOpen(true);
+                      }}
+                      onOpenSettings={() => {
+                        setDefaultsError("");
+                        setSettingsPanelOpen(true);
+                      }}
+                      project={selectedProject}
+                      roleCount={roles.length}
+                      skillCount={projectSkills.length}
+                    />
+                  ) : (
+                    <>
+                      <ProjectAssistantPanel
+                        applyResult={assistantApplyResult}
+                        bootstrapPending={assistantBootstrapPending}
+                        context={assistantContext}
+                        contextError={assistantContextError}
+                        contextStatus={assistantContextStatus}
+                        error={assistantError}
+                        onApply={() => void handleProjectAssistantApply()}
+                        onBootstrap={() => void handleProjectAssistantBootstrap()}
+                        onInspectContext={(form) => void handleProjectAssistantContext(form)}
+                        onDismiss={dismissProjectAssistantProposal}
+                        onPropose={(form) => void handleProjectAssistantPropose(form)}
+                        project={selectedProject}
+                        proposal={assistantProposal}
+                        roles={roles}
+                        status={assistantStatus}
+                        workItem={selectedWorkItem}
                       />
-                      <ProjectActivityBucketTabs
-                        activity={activity}
-                        bucket={activityBucket}
-                        onBucketChange={setActivityBucket}
+                      <ProjectWorkspaceTabs
+                        activeTab={workspaceTab}
+                        memoryCandidateCount={memoryCandidates.length}
+                        memoryEntryCount={memoryEntries.length}
+                        onChange={setWorkspaceTab}
+                        projectSkillCount={projectSkills.length}
                         workItemCount={workItems.length}
                       />
-                    </section>
-                    {workError && <InlineError message={workError} />}
-                    <div
-                      className="project-work-coordination-grid"
-                      style={workCoordinationGridStyle}
-                    >
-                      <ProjectActivityInbox
-                        activity={activity}
-                        bucket={activityBucket}
-                        loading={workLoadState === "loading"}
-                        onSelectWorkItem={setSelectedWorkItemID}
-                        project={selectedProject}
-                        roleByID={roleByID}
-                        selectedWorkItemID={selectedWorkItemID}
-                        workItemSummaries={workItemSummaries}
-                        workItems={workItems}
-                      />
-                      <div style={workDetailColumnStyle}>
-                        {hasWorkItemDetail ? (
-                          <WorkItemDetail
-                            assignments={assignments}
-                            artifacts={artifacts}
-                            handoffActionID={handoffActionID}
-                            handoffError={handoffError}
-                            handoffs={handoffs}
-                            assignmentErrors={assignmentErrors}
-                            detailError={detailError}
-                            loading={detailLoadState === "loading"}
-                            onOpenTask={onOpenTask}
-                            onRefresh={refreshSelectedWorkItem}
-                            onCreateAssignmentFromHandoff={handleCreateAssignmentFromHandoff}
-                            activityByAssignmentID={activityByAssignmentID}
-                            onDeleteHandoff={(handoff) => void handleDeleteHandoff(handoff)}
-                            onDeleteWorkItem={(item) => setDeleteWorkItem(item)}
-                            onEditHandoff={(handoff) => {
-                              setHandoffError("");
-                              setNewHandoffDraft(null);
-                              setEditingHandoff(handoff);
-                            }}
-                            onEditAssignment={(assignment) => {
-                              setEditAssignmentError("");
-                              setEditingAssignment(assignment);
-                            }}
-                            onEditWorkItem={(item) => {
-                              setEditWorkError("");
-                              setEditingWorkItem(item);
-                            }}
-                            onDeleteAssignment={(assignment) => setDeleteAssignment(assignment)}
-                            onOpenChat={onOpenChat}
-                            onStartAssignment={handleStartAssignment}
-                            onStartHandoff={(handoff) => void handleStartHandoff(handoff)}
-                            onSetHandoffStatus={(handoff, status) =>
-                              void handleSetHandoffStatus(handoff, status)
-                            }
-                            project={selectedProject}
-                            roleByID={roleByID}
-                            startingAssignmentID={startingAssignmentID}
-                            workItem={selectedWorkItem}
-                            onAddAssignment={() => {
-                              setNewAssignmentError("");
-                              setNewAssignmentModalOpen(true);
-                            }}
-                            onAddHandoff={() => {
-                              setHandoffError("");
-                              setNewHandoffDraft(null);
-                              setEditingHandoff("new");
-                            }}
-                            onAddHandoffFromAssignment={(assignment, activityItem) => {
-                              setHandoffError("");
-                              setNewHandoffDraft(
-                                handoffFormFromAssignment(
-                                  assignment,
-                                  roleByID.get(assignment.role_id) ?? null,
-                                  activityItem,
-                                ),
-                              );
-                              setEditingHandoff("new");
-                            }}
-                          />
-                        ) : (
-                          <EmptyBlock
-                            title={
-                              workLoadState === "loading" ? "Loading detail..." : "No work selected"
-                            }
-                            detail="Create or select a work item to manage assignments and collaboration artifacts."
-                          />
-                        )}
+                    </>
+                  )}
+                  {!projectNeedsOnboarding && workspaceTab === "work" && (
+                    <section style={projectTabPanelStyle} aria-label="Work coordination">
+                      <section aria-label="Work activity" style={workActivityPanelStyle}>
+                        <SectionHeader
+                          title="Work Queue"
+                          detail={
+                            workLoadState === "loading" && workItems.length === 0
+                              ? "Loading project work..."
+                              : undefined
+                          }
+                          actions={
+                            <button
+                              className="btn btn-primary btn-sm"
+                              type="button"
+                              onClick={() => {
+                                setNewWorkError("");
+                                setNewWorkModalOpen(true);
+                              }}
+                            >
+                              <Icon d={Icons.plus} size={13} />
+                              Work
+                            </button>
+                          }
+                        />
+                        <ProjectActivityBucketTabs
+                          activity={activity}
+                          bucket={activityBucket}
+                          onBucketChange={setActivityBucket}
+                          workItemCount={workItems.length}
+                        />
+                      </section>
+                      {workError && <InlineError message={workError} />}
+                      <div
+                        className="project-work-coordination-grid"
+                        style={workCoordinationGridStyle}
+                      >
+                        <ProjectActivityInbox
+                          activity={activity}
+                          bucket={activityBucket}
+                          loading={workLoadState === "loading"}
+                          onSelectWorkItem={setSelectedWorkItemID}
+                          project={selectedProject}
+                          roleByID={roleByID}
+                          selectedWorkItemID={selectedWorkItemID}
+                          workItemSummaries={workItemSummaries}
+                          workItems={workItems}
+                        />
+                        <div style={workDetailColumnStyle}>
+                          {hasWorkItemDetail ? (
+                            <WorkItemDetail
+                              assignments={assignments}
+                              artifacts={artifacts}
+                              handoffActionID={handoffActionID}
+                              handoffError={handoffError}
+                              handoffs={handoffs}
+                              assignmentErrors={assignmentErrors}
+                              detailError={detailError}
+                              loading={detailLoadState === "loading"}
+                              onOpenTask={onOpenTask}
+                              onRefresh={refreshSelectedWorkItem}
+                              onCreateAssignmentFromHandoff={handleCreateAssignmentFromHandoff}
+                              activityByAssignmentID={activityByAssignmentID}
+                              onDeleteHandoff={(handoff) => void handleDeleteHandoff(handoff)}
+                              onDeleteWorkItem={(item) => setDeleteWorkItem(item)}
+                              onEditHandoff={(handoff) => {
+                                setHandoffError("");
+                                setNewHandoffDraft(null);
+                                setEditingHandoff(handoff);
+                              }}
+                              onEditAssignment={(assignment) => {
+                                setEditAssignmentError("");
+                                setEditingAssignment(assignment);
+                              }}
+                              onEditWorkItem={(item) => {
+                                setEditWorkError("");
+                                setEditingWorkItem(item);
+                              }}
+                              onDeleteAssignment={(assignment) => setDeleteAssignment(assignment)}
+                              onOpenChat={onOpenChat}
+                              onStartAssignment={handleStartAssignment}
+                              onStartHandoff={(handoff) => void handleStartHandoff(handoff)}
+                              onSetHandoffStatus={(handoff, status) =>
+                                void handleSetHandoffStatus(handoff, status)
+                              }
+                              project={selectedProject}
+                              roleByID={roleByID}
+                              startingAssignmentID={startingAssignmentID}
+                              workItem={selectedWorkItem}
+                              onAddAssignment={() => {
+                                setNewAssignmentError("");
+                                setNewAssignmentModalOpen(true);
+                              }}
+                              onAddHandoff={() => {
+                                setHandoffError("");
+                                setNewHandoffDraft(null);
+                                setEditingHandoff("new");
+                              }}
+                              onAddHandoffFromAssignment={(assignment, activityItem) => {
+                                setHandoffError("");
+                                setNewHandoffDraft(
+                                  handoffFormFromAssignment(
+                                    assignment,
+                                    roleByID.get(assignment.role_id) ?? null,
+                                    activityItem,
+                                  ),
+                                );
+                                setEditingHandoff("new");
+                              }}
+                            />
+                          ) : (
+                            <EmptyBlock
+                              title={
+                                workLoadState === "loading"
+                                  ? "Loading detail..."
+                                  : "No work selected"
+                              }
+                              detail="Create or select a work item to manage assignments and collaboration artifacts."
+                            />
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  </section>
-                )}
-                {workspaceTab === "timeline" && (
-                  <ProjectTimelinePanel
-                    activity={activity}
-                    artifacts={artifacts}
-                    handoffs={handoffs}
-                    memoryCandidates={memoryCandidates}
-                    memoryEntries={memoryEntries}
-                    onEditMemory={setEditingMemory}
-                    onOpenChat={onOpenChat}
-                    onOpenTask={onOpenTask}
-                    onSelectWorkItem={setSelectedWorkItemID}
-                    project={selectedProject}
-                    roles={roles}
-                    workItems={workItems}
-                  />
-                )}
-                {workspaceTab === "memory" && (
-                  <ProjectMemoryPanel
-                    candidates={memoryCandidates}
-                    discoveringContext={discoveringContext}
-                    entries={memoryEntries}
-                    error={memoryError}
-                    loading={memoryLoadState === "loading"}
-                    onDiscoverContextSources={handleDiscoverContextSources}
-                    onPromoteCandidate={setPromotingCandidate}
-                    onRejectCandidate={handleRejectCandidate}
-                    onDelete={setDeleteMemory}
-                    onEdit={setEditingMemory}
-                    onNew={() => setEditingMemory("new")}
-                    onRefresh={() => void loadProjectMemory(selectedProjectID)}
-                    project={selectedProject}
-                    rejectingCandidateID={rejectingCandidateID}
-                  />
-                )}
-                {workspaceTab === "skills" && (
-                  <ProjectSkillsPanel
-                    discovering={discoveringSkills}
-                    error={skillsError}
-                    loading={skillsLoadState === "loading"}
-                    onDiscover={handleDiscoverProjectSkills}
-                    onRefresh={() => void loadProjectSkills(selectedProjectID)}
-                    onUpdate={(skill, patch) => void handleUpdateProjectSkill(skill, patch)}
-                    project={selectedProject}
-                    skills={projectSkills}
-                    updatingSkillID={updatingSkillID}
-                  />
-                )}
-              </section>
+                    </section>
+                  )}
+                  {!projectNeedsOnboarding && workspaceTab === "timeline" && (
+                    <ProjectTimelinePanel
+                      activity={activity}
+                      artifacts={artifacts}
+                      handoffs={handoffs}
+                      memoryCandidates={memoryCandidates}
+                      memoryEntries={memoryEntries}
+                      onEditMemory={setEditingMemory}
+                      onOpenChat={onOpenChat}
+                      onOpenTask={onOpenTask}
+                      onSelectWorkItem={setSelectedWorkItemID}
+                      project={selectedProject}
+                      roles={roles}
+                      workItems={workItems}
+                    />
+                  )}
+                  {!projectNeedsOnboarding && workspaceTab === "memory" && (
+                    <ProjectMemoryPanel
+                      candidates={memoryCandidates}
+                      discoveringContext={discoveringContext}
+                      entries={memoryEntries}
+                      error={memoryError}
+                      loading={memoryLoadState === "loading"}
+                      onDiscoverContextSources={handleDiscoverContextSources}
+                      onPromoteCandidate={setPromotingCandidate}
+                      onRejectCandidate={handleRejectCandidate}
+                      onDelete={setDeleteMemory}
+                      onEdit={setEditingMemory}
+                      onNew={() => setEditingMemory("new")}
+                      onRefresh={() => void loadProjectMemory(selectedProjectID)}
+                      project={selectedProject}
+                      rejectingCandidateID={rejectingCandidateID}
+                    />
+                  )}
+                  {!projectNeedsOnboarding && workspaceTab === "skills" && (
+                    <ProjectSkillsPanel
+                      discovering={discoveringSkills}
+                      error={skillsError}
+                      loading={skillsLoadState === "loading"}
+                      onDiscover={handleDiscoverProjectSkills}
+                      onRefresh={() => void loadProjectSkills(selectedProjectID)}
+                      onUpdate={(skill, patch) => void handleUpdateProjectSkill(skill, patch)}
+                      project={selectedProject}
+                      skills={projectSkills}
+                      updatingSkillID={updatingSkillID}
+                    />
+                  )}
+                </section>
+              ) : (
+                <section aria-label="Project empty state" style={projectEmptyStateStyle}>
+                  <EmptyBlock title={projectEmptyTitle} detail={projectEmptyDetail} />
+                </section>
+              )}
             </div>
           </section>
 
@@ -2247,121 +2290,125 @@ function ProjectHeader({
           </div>
         )}
       </div>
-      <div aria-label="Project header actions" style={projectHeaderActionsStyle}>
-        <div ref={attentionMenu.wrapRef} style={projectAttentionMenuStyle}>
+      {project && (
+        <div aria-label="Project header actions" style={projectHeaderActionsStyle}>
+          <div ref={attentionMenu.wrapRef} style={projectAttentionMenuStyle}>
+            <button
+              ref={attentionMenu.triggerRef}
+              className="btn btn-ghost btn-sm"
+              type="button"
+              aria-expanded={attentionMenu.open}
+              aria-label={`Project attention${attentionCount > 0 ? `: ${attentionCount}` : ""}`}
+              title="Project attention"
+              onClick={attentionMenu.toggle}
+              disabled={!project}
+              style={{
+                ...projectHeaderActionButtonStyle,
+                color: attentionCount > 0 ? "var(--amber)" : "var(--t2)",
+              }}
+            >
+              <Icon d={Icons.warning} size={13} />
+              {attentionCount > 0 && (
+                <span style={projectAttentionCountStyle}>{attentionCount}</span>
+              )}
+            </button>
+            {attentionMenu.open && project && (
+              <div
+                ref={attentionMenu.menuRef}
+                role="menu"
+                aria-label="Project attention"
+                style={projectAttentionPopoverStyle}
+              >
+                <div style={projectAttentionPopoverHeaderStyle}>
+                  <div style={sectionLabelStyle}>Needs Attention</div>
+                  <span className="badge badge-muted">{attentionCount}</span>
+                </div>
+                {attentionItems.length === 0 ? (
+                  <div style={subtleTextStyle}>No project attention items detected.</div>
+                ) : (
+                  <div style={{ display: "grid", gap: 8 }}>
+                    {attentionItems.map((item) => (
+                      <ProjectHealthAttentionRow
+                        key={item.id}
+                        item={item}
+                        onActivate={() => handleAttentionAction(item)}
+                        onBucketChange={(bucket) => {
+                          onAttentionBucket(bucket);
+                          attentionMenu.close();
+                        }}
+                        onOpenTask={(taskID, runID) => {
+                          onAttentionTask?.(taskID, runID);
+                          attentionMenu.close();
+                        }}
+                        onReviewCandidate={(candidate) => {
+                          onAttentionReviewCandidate(candidate);
+                          attentionMenu.close();
+                        }}
+                        onSelectWorkItem={(workItemID) => {
+                          onAttentionWorkItem(workItemID);
+                          attentionMenu.close();
+                        }}
+                        reviewCandidate={memoryCandidates.find(
+                          (candidate) => candidate.id === item.candidateID,
+                        )}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
           <button
-            ref={attentionMenu.triggerRef}
             className="btn btn-ghost btn-sm"
             type="button"
-            aria-expanded={attentionMenu.open}
-            aria-label={`Project attention${attentionCount > 0 ? `: ${attentionCount}` : ""}`}
-            title="Project attention"
-            onClick={attentionMenu.toggle}
+            aria-label="Roles"
+            title="Project roles"
+            onClick={onManageRoles}
+            disabled={!project}
+            style={projectHeaderActionButtonStyle}
+          >
+            <Icon d={Icons.user} size={13} />
+          </button>
+          <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            aria-label="Agent profiles"
+            title="Agent profiles"
+            onClick={onManageProfiles}
+            disabled={!project}
+            style={projectHeaderActionButtonStyle}
+          >
+            <Icon d={Icons.model} size={13} />
+          </button>
+          <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            aria-expanded={settingsOpen}
+            aria-label="Project settings"
+            title="Project settings"
+            onClick={onEditDefaults}
             disabled={!project}
             style={{
               ...projectHeaderActionButtonStyle,
-              color: attentionCount > 0 ? "var(--amber)" : "var(--t2)",
+              background: settingsOpen ? "var(--teal-bg)" : "transparent",
+              color: settingsOpen ? "var(--teal)" : "var(--t2)",
             }}
           >
-            <Icon d={Icons.warning} size={13} />
-            {attentionCount > 0 && <span style={projectAttentionCountStyle}>{attentionCount}</span>}
+            <Icon d={Icons.settings} size={13} />
           </button>
-          {attentionMenu.open && project && (
-            <div
-              ref={attentionMenu.menuRef}
-              role="menu"
-              aria-label="Project attention"
-              style={projectAttentionPopoverStyle}
-            >
-              <div style={projectAttentionPopoverHeaderStyle}>
-                <div style={sectionLabelStyle}>Needs Attention</div>
-                <span className="badge badge-muted">{attentionCount}</span>
-              </div>
-              {attentionItems.length === 0 ? (
-                <div style={subtleTextStyle}>No project attention items detected.</div>
-              ) : (
-                <div style={{ display: "grid", gap: 8 }}>
-                  {attentionItems.map((item) => (
-                    <ProjectHealthAttentionRow
-                      key={item.id}
-                      item={item}
-                      onActivate={() => handleAttentionAction(item)}
-                      onBucketChange={(bucket) => {
-                        onAttentionBucket(bucket);
-                        attentionMenu.close();
-                      }}
-                      onOpenTask={(taskID, runID) => {
-                        onAttentionTask?.(taskID, runID);
-                        attentionMenu.close();
-                      }}
-                      onReviewCandidate={(candidate) => {
-                        onAttentionReviewCandidate(candidate);
-                        attentionMenu.close();
-                      }}
-                      onSelectWorkItem={(workItemID) => {
-                        onAttentionWorkItem(workItemID);
-                        attentionMenu.close();
-                      }}
-                      reviewCandidate={memoryCandidates.find(
-                        (candidate) => candidate.id === item.candidateID,
-                      )}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+          <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            aria-label="Refresh project work"
+            title="Refresh"
+            onClick={onRefresh}
+            disabled={!project}
+            style={projectHeaderActionButtonStyle}
+          >
+            <Icon d={Icons.refresh} size={13} />
+          </button>
         </div>
-        <button
-          className="btn btn-ghost btn-sm"
-          type="button"
-          aria-label="Roles"
-          title="Project roles"
-          onClick={onManageRoles}
-          disabled={!project}
-          style={projectHeaderActionButtonStyle}
-        >
-          <Icon d={Icons.user} size={13} />
-        </button>
-        <button
-          className="btn btn-ghost btn-sm"
-          type="button"
-          aria-label="Agent profiles"
-          title="Agent profiles"
-          onClick={onManageProfiles}
-          disabled={!project}
-          style={projectHeaderActionButtonStyle}
-        >
-          <Icon d={Icons.model} size={13} />
-        </button>
-        <button
-          className="btn btn-ghost btn-sm"
-          type="button"
-          aria-expanded={settingsOpen}
-          aria-label="Project settings"
-          title="Project settings"
-          onClick={onEditDefaults}
-          disabled={!project}
-          style={{
-            ...projectHeaderActionButtonStyle,
-            background: settingsOpen ? "var(--teal-bg)" : "transparent",
-            color: settingsOpen ? "var(--teal)" : "var(--t2)",
-          }}
-        >
-          <Icon d={Icons.settings} size={13} />
-        </button>
-        <button
-          className="btn btn-ghost btn-sm"
-          type="button"
-          aria-label="Refresh project work"
-          title="Refresh"
-          onClick={onRefresh}
-          disabled={!project}
-          style={projectHeaderActionButtonStyle}
-        >
-          <Icon d={Icons.refresh} size={13} />
-        </button>
-      </div>
+      )}
     </div>
   );
 }
@@ -2436,6 +2483,101 @@ function SectionHeader({
       </div>
       {actions && <div style={domainHeaderActionsStyle}>{actions}</div>}
     </div>
+  );
+}
+
+function ProjectOnboardingPanel({
+  bootstrapPending,
+  contextSourceCount,
+  onBootstrap,
+  onCreateWork,
+  onOpenSettings,
+  project,
+  roleCount,
+  skillCount,
+}: {
+  bootstrapPending: boolean;
+  contextSourceCount: number;
+  onBootstrap: () => void;
+  onCreateWork: () => void;
+  onOpenSettings: () => void;
+  project: ProjectRecord;
+  roleCount: number;
+  skillCount: number;
+}) {
+  const hasRoot = project.roots.some((root) => root.active !== false && root.path);
+  const hasDefaults = Boolean(project.default_provider && project.default_model);
+  const hasGuidance = contextSourceCount > 0 || skillCount > 0;
+  const checks = [
+    {
+      label: "Workspace root",
+      detail: hasRoot ? projectDefaultWorkspace(project) || "Ready" : "Missing",
+      done: hasRoot,
+    },
+    {
+      label: "Provider and model",
+      detail: hasDefaults ? `${project.default_provider} / ${project.default_model}` : "Not set",
+      done: hasDefaults,
+    },
+    {
+      label: "Guidance and skills",
+      detail: `${contextSourceCount} sources · ${skillCount} skills`,
+      done: hasGuidance,
+    },
+    {
+      label: "Roles and first work",
+      detail: `${roleCount} roles · no work items`,
+      done: false,
+    },
+  ];
+  return (
+    <section aria-label="Project onboarding" style={projectOnboardingStyle}>
+      <div style={projectOnboardingCopyStyle}>
+        <div>
+          <div style={sectionLabelStyle}>Project Onboarding</div>
+          <div style={projectOnboardingTitleStyle}>Set up {project.name}</div>
+        </div>
+        <div style={projectOnboardingDetailStyle}>
+          Create reviewable setup actions from this workspace: roles, guidance, skills, and first
+          work.
+        </div>
+        <div style={projectOnboardingActionsStyle}>
+          <button
+            className="btn btn-primary btn-sm"
+            type="button"
+            disabled={bootstrapPending}
+            onClick={onBootstrap}
+          >
+            <Icon d={Icons.refresh} size={13} />
+            {bootstrapPending ? "Bootstrapping..." : "Bootstrap project"}
+          </button>
+          <button className="btn btn-ghost btn-sm" type="button" onClick={onCreateWork}>
+            <Icon d={Icons.plus} size={13} />
+            Create work
+          </button>
+          <button className="btn btn-ghost btn-sm" type="button" onClick={onOpenSettings}>
+            <Icon d={Icons.settings} size={13} />
+            Project settings
+          </button>
+        </div>
+      </div>
+      <div style={projectOnboardingChecklistStyle}>
+        {checks.map((check) => (
+          <div key={check.label} style={projectOnboardingCheckStyle}>
+            <span
+              className={check.done ? "badge badge-green" : "badge badge-muted"}
+              style={projectOnboardingCheckBadgeStyle}
+            >
+              {check.done ? "ready" : "todo"}
+            </span>
+            <div style={{ minWidth: 0 }}>
+              <div style={titleStyle}>{check.label}</div>
+              <div style={subtleTextStyle}>{check.detail}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -7344,6 +7486,75 @@ const cockpitWorkspaceStyle: CSSProperties = {
   alignItems: "start",
   minWidth: 0,
   padding: 14,
+};
+
+const projectEmptyStateStyle: CSSProperties = {
+  alignItems: "center",
+  display: "grid",
+  minHeight: "min(520px, calc(100vh - 160px))",
+  placeItems: "center",
+};
+
+const projectOnboardingStyle: CSSProperties = {
+  ...panelStyle,
+  alignItems: "start",
+  display: "grid",
+  gap: 18,
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))",
+  minHeight: "min(420px, calc(100vh - 180px))",
+  padding: 20,
+};
+
+const projectOnboardingCopyStyle: CSSProperties = {
+  alignContent: "center",
+  display: "grid",
+  gap: 16,
+  minHeight: 260,
+  minWidth: 0,
+};
+
+const projectOnboardingTitleStyle: CSSProperties = {
+  color: "var(--t0)",
+  fontSize: 20,
+  fontWeight: 650,
+  lineHeight: 1.2,
+  marginTop: 8,
+};
+
+const projectOnboardingDetailStyle: CSSProperties = {
+  color: "var(--t2)",
+  fontSize: 13,
+  lineHeight: 1.45,
+  maxWidth: 520,
+};
+
+const projectOnboardingActionsStyle: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 8,
+};
+
+const projectOnboardingChecklistStyle: CSSProperties = {
+  display: "grid",
+  gap: 8,
+  minWidth: 0,
+};
+
+const projectOnboardingCheckStyle: CSSProperties = {
+  alignItems: "center",
+  background: "var(--bg0)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-sm)",
+  display: "grid",
+  gap: 10,
+  gridTemplateColumns: "auto minmax(0, 1fr)",
+  minWidth: 0,
+  padding: 10,
+};
+
+const projectOnboardingCheckBadgeStyle: CSSProperties = {
+  justifySelf: "start",
+  textTransform: "uppercase",
 };
 
 const projectWorkspaceTabsStyle: CSSProperties = {

@@ -112,6 +112,10 @@ func (h *Handler) HandleCreateProject(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 		return
 	}
+	if errors.Is(err, projects.ErrAlreadyExists) {
+		WriteError(w, http.StatusConflict, errCodeConflict, err.Error())
+		return
+	}
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
@@ -255,6 +259,10 @@ func (h *Handler) HandleUpdateProject(w http.ResponseWriter, r *http.Request) {
 	}
 	if errors.Is(err, projects.ErrInvalid) {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+		return
+	}
+	if errors.Is(err, projects.ErrAlreadyExists) {
+		WriteError(w, http.StatusConflict, errCodeConflict, err.Error())
 		return
 	}
 	if err != nil {

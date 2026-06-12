@@ -3,6 +3,7 @@ package projects
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -166,6 +167,74 @@ func TestMemoryStore_UpdateRejectsProjectIDChange(t *testing.T) {
 	}
 }
 
+func TestMemoryStore_RejectsDuplicateProjectIdentity(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := NewMemoryStore()
+	root := t.TempDir()
+	if _, err := store.Create(ctx, Project{
+		ID:   "proj_alpha",
+		Name: "Alpha",
+		Roots: []Root{{
+			ID:     "root_alpha",
+			Path:   root,
+			Active: true,
+		}},
+	}); err != nil {
+		t.Fatalf("Create alpha: %v", err)
+	}
+
+	cases := []struct {
+		name    string
+		project Project
+	}{
+		{
+			name:    "same id",
+			project: Project{ID: "proj_alpha", Name: "Beta"},
+		},
+		{
+			name:    "same name",
+			project: Project{ID: "proj_beta", Name: " alpha "},
+		},
+		{
+			name: "same root path",
+			project: Project{
+				ID:   "proj_beta",
+				Name: "Beta",
+				Roots: []Root{{
+					ID:     "root_beta",
+					Path:   root + string(filepath.Separator),
+					Active: true,
+				}},
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := store.Create(ctx, tc.project)
+			if !errors.Is(err, ErrAlreadyExists) {
+				t.Fatalf("Create duplicate error = %v, want ErrAlreadyExists", err)
+			}
+		})
+	}
+
+	if _, err := store.Create(ctx, Project{ID: "proj_gamma", Name: "Gamma"}); err != nil {
+		t.Fatalf("Create gamma: %v", err)
+	}
+	_, err := store.Update(ctx, "proj_gamma", func(item *Project) {
+		item.Name = "ALPHA"
+	})
+	if !errors.Is(err, ErrAlreadyExists) {
+		t.Fatalf("Update duplicate name error = %v, want ErrAlreadyExists", err)
+	}
+	_, err = store.Update(ctx, "proj_gamma", func(item *Project) {
+		item.Roots = []Root{{ID: "root_gamma", Path: root + string(filepath.Separator), Active: true}}
+	})
+	if !errors.Is(err, ErrAlreadyExists) {
+		t.Fatalf("Update duplicate root path error = %v, want ErrAlreadyExists", err)
+	}
+}
+
 func TestMemoryStore_UpdatePreservesCreatedAt(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -324,6 +393,19 @@ func TestMemoryStore_RejectsInvalidProject(t *testing.T) {
 	})
 	if !errors.Is(err, ErrInvalid) {
 		t.Fatalf("Create duplicate context source error = %v, want ErrInvalid", err)
+	}
+
+	root := t.TempDir()
+	_, err = store.Create(ctx, Project{
+		ID:   "proj_gamma",
+		Name: "Gamma",
+		Roots: []Root{
+			{ID: "root_one", Path: root, Active: true},
+			{ID: "root_two", Path: root + string(filepath.Separator), Active: true},
+		},
+	})
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Create duplicate root path error = %v, want ErrInvalid", err)
 	}
 }
 
