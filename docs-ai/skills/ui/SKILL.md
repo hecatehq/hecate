@@ -177,8 +177,11 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   `ProjectWorkspaceView`, and project defaults/root editing lives in
   `ProjectSettingsPanel` plus `CreateProjectWorktreeModal`. Agent profile and
   project role editing lives in `ProfilesModal` and `RolesModal`, with shared
-  profile/role form mapping in `projectProfilesRoles.ts`; keep project state
-  loading and mutations in the parent page.
+  profile/role form mapping in `projectProfilesRoles.ts`. Work item,
+  assignment, and handoff editing lives in `ProjectWorkItemModals`,
+  `ProjectAssignmentModals`, and `ProjectHandoffModal`, with payload/ref shaping
+  in `projectWorkForms.ts`; keep project state loading and mutations in the
+  parent page.
 - External Agent readiness belongs in Connections and in the picker
   diagnostics: distinguish missing binaries, auth/billing problems, unsupported
   versions, and managed-launcher issues without sending users to raw logs first.
