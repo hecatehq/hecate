@@ -10,6 +10,7 @@ import type {
 import {
   assignmentStatusFromValue,
   assignmentUpdatePayloadFromForm,
+  evidenceLinkPayloadFromForm,
   handoffFormFromAssignment,
   handoffFormFromReviewArtifact,
   handoffPayloadFromForm,
@@ -302,6 +303,30 @@ describe("projectWorkForms", () => {
         "Follow-up:",
         "Fix empty state copy.",
       ].join("\n"),
+    });
+  });
+
+  it("builds evidence link payloads with neutral metadata", () => {
+    expect(
+      evidenceLinkPayloadFromForm({
+        assignmentID: "",
+        title: "Research source",
+        sourceKind: " source_document ",
+        url: " https://example.invalid/research ",
+        externalID: " DOC-42 ",
+        provider: " docs ",
+        trustLabel: "",
+        summary: " Source used to validate this work. ",
+      }),
+    ).toEqual({
+      kind: "evidence_link",
+      title: "Research source",
+      body: "Source used to validate this work.",
+      evidence_source_kind: "source_document",
+      evidence_url: "https://example.invalid/research",
+      evidence_external_id: "DOC-42",
+      evidence_provider: "docs",
+      evidence_trust_label: "operator_provided",
     });
   });
 

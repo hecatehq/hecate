@@ -87,6 +87,11 @@ type createProjectWorkArtifactRequest struct {
 	Title                  string `json:"title,omitempty"`
 	Body                   string `json:"body"`
 	AuthorRoleID           string `json:"author_role_id,omitempty"`
+	EvidenceSourceKind     string `json:"evidence_source_kind,omitempty"`
+	EvidenceURL            string `json:"evidence_url,omitempty"`
+	EvidenceExternalID     string `json:"evidence_external_id,omitempty"`
+	EvidenceProvider       string `json:"evidence_provider,omitempty"`
+	EvidenceTrustLabel     string `json:"evidence_trust_label,omitempty"`
 	ReviewedAssignmentID   string `json:"reviewed_assignment_id,omitempty"`
 	ReviewVerdict          string `json:"review_verdict,omitempty"`
 	ReviewRisk             string `json:"review_risk,omitempty"`
@@ -266,6 +271,11 @@ type ProjectWorkArtifactResponse struct {
 	Title                  string `json:"title,omitempty"`
 	Body                   string `json:"body"`
 	AuthorRoleID           string `json:"author_role_id,omitempty"`
+	EvidenceSourceKind     string `json:"evidence_source_kind,omitempty"`
+	EvidenceURL            string `json:"evidence_url,omitempty"`
+	EvidenceExternalID     string `json:"evidence_external_id,omitempty"`
+	EvidenceProvider       string `json:"evidence_provider,omitempty"`
+	EvidenceTrustLabel     string `json:"evidence_trust_label,omitempty"`
 	ReviewedAssignmentID   string `json:"reviewed_assignment_id,omitempty"`
 	ReviewVerdict          string `json:"review_verdict,omitempty"`
 	ReviewRisk             string `json:"review_risk,omitempty"`
@@ -756,6 +766,11 @@ func (h *Handler) HandleCreateProjectWorkArtifact(w http.ResponseWriter, r *http
 		Title:                  req.Title,
 		Body:                   req.Body,
 		AuthorRoleID:           req.AuthorRoleID,
+		EvidenceSourceKind:     req.EvidenceSourceKind,
+		EvidenceURL:            req.EvidenceURL,
+		EvidenceExternalID:     req.EvidenceExternalID,
+		EvidenceProvider:       req.EvidenceProvider,
+		EvidenceTrustLabel:     req.EvidenceTrustLabel,
 		ReviewedAssignmentID:   req.ReviewedAssignmentID,
 		ReviewVerdict:          req.ReviewVerdict,
 		ReviewRisk:             req.ReviewRisk,
@@ -1257,6 +1272,11 @@ func renderProjectWorkArtifact(item projectwork.CollaborationArtifact) ProjectWo
 		Title:                  item.Title,
 		Body:                   item.Body,
 		AuthorRoleID:           item.AuthorRoleID,
+		EvidenceSourceKind:     item.EvidenceSourceKind,
+		EvidenceURL:            item.EvidenceURL,
+		EvidenceExternalID:     item.EvidenceExternalID,
+		EvidenceProvider:       item.EvidenceProvider,
+		EvidenceTrustLabel:     item.EvidenceTrustLabel,
 		ReviewedAssignmentID:   item.ReviewedAssignmentID,
 		ReviewVerdict:          item.ReviewVerdict,
 		ReviewRisk:             item.ReviewRisk,

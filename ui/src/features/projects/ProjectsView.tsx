@@ -95,6 +95,7 @@ import type {
 import type { AgentProfileRecord } from "../../types/agent-profile";
 import { ConfirmModal, Icon, Icons, InlineError, type ProviderOption } from "../shared/ui";
 import { ProjectSettingsPanel } from "./ProjectSettingsPanel";
+import { ProjectEvidenceLinkModal } from "./ProjectEvidenceLinkModal";
 import { type CreateWorktreeForm, type ProjectDefaultsForm } from "./projectSettings";
 import {
   profileCreatePayloadFromForm,
@@ -107,6 +108,7 @@ import {
 import {
   assignmentCreatePayloadFromForm,
   assignmentUpdatePayloadFromForm,
+  evidenceLinkPayloadFromForm,
   handoffFormFromAssignment,
   handoffFormFromReviewArtifact,
   handoffPayloadFromForm,
@@ -115,6 +117,7 @@ import {
   reviewHandoffFormFromAssignment,
   type EditAssignmentForm,
   type EditWorkItemForm,
+  type EvidenceLinkForm,
   type HandoffForm,
   type NewAssignmentForm,
   type NewWorkItemForm,
@@ -227,6 +230,9 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
   const [handoffError, setHandoffError] = useState("");
   const [handoffActionID, setHandoffActionID] = useState("");
   const [artifactActionID, setArtifactActionID] = useState("");
+  const [evidenceLinkModalOpen, setEvidenceLinkModalOpen] = useState(false);
+  const [evidenceLinkPending, setEvidenceLinkPending] = useState(false);
+  const [evidenceLinkError, setEvidenceLinkError] = useState("");
   const [reviewArtifactDraft, setReviewArtifactDraft] = useState<ReviewArtifactForm | null>(null);
   const [reviewArtifactPending, setReviewArtifactPending] = useState(false);
   const [reviewArtifactError, setReviewArtifactError] = useState("");
@@ -1081,6 +1087,30 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     }
   }
 
+  async function handleSaveEvidenceLink(form: EvidenceLinkForm) {
+    if (!selectedProjectID || !selectedWorkItemID) return;
+    const payload = evidenceLinkPayloadFromForm(form);
+    if (!payload.title?.trim() || !payload.body.trim()) return;
+    if (!payload.evidence_url?.trim() && !payload.evidence_external_id?.trim()) return;
+    setEvidenceLinkPending(true);
+    setEvidenceLinkError("");
+    try {
+      const res = await createProjectCollaborationArtifact(
+        selectedProjectID,
+        selectedWorkItemID,
+        payload,
+      );
+      setArtifacts((current) => upsertArtifact(current, res.data));
+      setEvidenceLinkModalOpen(false);
+      await loadWorkItemDetail(selectedProjectID, selectedWorkItemID);
+      await loadWorkForProject(selectedProjectID, selectedWorkItemID);
+    } catch (error) {
+      setEvidenceLinkError(errorMessage(error, "Failed to record evidence."));
+    } finally {
+      setEvidenceLinkPending(false);
+    }
+  }
+
   async function handleSetHandoffStatus(handoff: ProjectHandoffRecord, status: string) {
     if (!selectedProjectID || !selectedWorkItemID) return;
     setHandoffActionID(handoff.id);
@@ -1386,6 +1416,10 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
               setNewAssignmentError("");
               setNewAssignmentModalOpen(true);
             }}
+            onAddEvidenceLink={() => {
+              setEvidenceLinkError("");
+              setEvidenceLinkModalOpen(true);
+            }}
             onAddHandoff={() => {
               setHandoffError("");
               setNewHandoffDraft(null);
@@ -1677,6 +1711,19 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
               setReviewArtifactError("");
             }}
             onSave={handleSaveReviewArtifact}
+          />
+        )}
+
+        {evidenceLinkModalOpen && selectedWorkItem && (
+          <ProjectEvidenceLinkModal
+            assignments={assignments}
+            error={evidenceLinkError}
+            pending={evidenceLinkPending}
+            onClose={() => {
+              setEvidenceLinkModalOpen(false);
+              setEvidenceLinkError("");
+            }}
+            onSave={handleSaveEvidenceLink}
           />
         )}
 

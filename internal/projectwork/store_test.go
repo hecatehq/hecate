@@ -207,6 +207,11 @@ func TestStoreConformance_ProjectWorkLifecycle(t *testing.T) {
 				Kind:                   ArtifactKindBrief,
 				Title:                  "Implementation note",
 				Body:                   "This is not a review.",
+				EvidenceSourceKind:     "pull_request",
+				EvidenceURL:            "https://example.invalid/pr/1",
+				EvidenceExternalID:     "PR 1",
+				EvidenceProvider:       "github",
+				EvidenceTrustLabel:     "operator_provided",
 				ReviewedAssignmentID:   "asgn_impl",
 				ReviewVerdict:          ReviewVerdictBlocked,
 				ReviewRisk:             ReviewRiskHigh,
@@ -218,11 +223,36 @@ func TestStoreConformance_ProjectWorkLifecycle(t *testing.T) {
 			if briefArtifact.ReviewedAssignmentID != "" || briefArtifact.ReviewVerdict != "" || briefArtifact.ReviewRisk != "" || briefArtifact.ReviewFollowUpRequired {
 				t.Fatalf("non-review artifact = %+v, want review fields cleared", briefArtifact)
 			}
+			if briefArtifact.EvidenceSourceKind != "" || briefArtifact.EvidenceURL != "" || briefArtifact.EvidenceExternalID != "" || briefArtifact.EvidenceProvider != "" || briefArtifact.EvidenceTrustLabel != "" {
+				t.Fatalf("non-evidence artifact = %+v, want evidence fields cleared", briefArtifact)
+			}
+			evidenceArtifact, err := store.CreateArtifact(ctx, CollaborationArtifact{
+				ID:                 "art_evidence",
+				ProjectID:          "proj_alpha",
+				WorkItemID:         "work_api",
+				AssignmentID:       "asgn_impl",
+				Kind:               ArtifactKindEvidenceLink,
+				Title:              "Implementation PR",
+				Body:               "Implementation evidence for the project work item.",
+				EvidenceSourceKind: "pull_request",
+				EvidenceURL:        "https://example.invalid/hecate/pull/399",
+				EvidenceExternalID: "PR 399",
+				EvidenceProvider:   "github",
+			})
+			if err != nil {
+				t.Fatalf("CreateArtifact evidence: %v", err)
+			}
+			if evidenceArtifact.EvidenceSourceKind != "pull_request" || evidenceArtifact.EvidenceURL == "" || evidenceArtifact.EvidenceExternalID != "PR 399" || evidenceArtifact.EvidenceProvider != "github" || evidenceArtifact.EvidenceTrustLabel != EvidenceTrustOperatorProvided {
+				t.Fatalf("evidence artifact = %+v, want normalized evidence metadata", evidenceArtifact)
+			}
 			if _, err := store.CreateArtifact(ctx, CollaborationArtifact{ID: "art_bad_verdict", ProjectID: "proj_alpha", WorkItemID: "work_api", AssignmentID: "asgn_impl", Kind: ArtifactKindReview, Body: "Invalid verdict.", ReviewVerdict: "ship_it"}); !errors.Is(err, ErrInvalid) {
 				t.Fatalf("CreateArtifact invalid review_verdict error = %v, want ErrInvalid", err)
 			}
 			if _, err := store.CreateArtifact(ctx, CollaborationArtifact{ID: "art_bad_risk", ProjectID: "proj_alpha", WorkItemID: "work_api", AssignmentID: "asgn_impl", Kind: ArtifactKindReview, Body: "Invalid risk.", ReviewRisk: "spicy"}); !errors.Is(err, ErrInvalid) {
 				t.Fatalf("CreateArtifact invalid review_risk error = %v, want ErrInvalid", err)
+			}
+			if _, err := store.CreateArtifact(ctx, CollaborationArtifact{ID: "art_bad_evidence", ProjectID: "proj_alpha", WorkItemID: "work_api", AssignmentID: "asgn_impl", Kind: ArtifactKindEvidenceLink, Body: "Missing link target."}); !errors.Is(err, ErrInvalid) {
+				t.Fatalf("CreateArtifact invalid evidence link error = %v, want ErrInvalid", err)
 			}
 			if _, err := store.CreateArtifact(ctx, CollaborationArtifact{ID: "art_missing_reviewed", ProjectID: "proj_alpha", WorkItemID: "work_api", AssignmentID: "asgn_impl", Kind: ArtifactKindReview, Body: "Missing reviewed assignment.", ReviewedAssignmentID: "asgn_missing"}); !errors.Is(err, ErrNotFound) {
 				t.Fatalf("CreateArtifact missing reviewed_assignment_id error = %v, want ErrNotFound", err)
@@ -303,14 +333,33 @@ func TestStoreConformance_ProjectWorkLifecycle(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ListArtifacts: %v", err)
 			}
-			if len(artifacts) != 2 || artifacts[0].ID != "art_brief" || artifacts[1].ID != "art_note" {
-				t.Fatalf("artifacts = %+v, want created review and note artifacts", artifacts)
+			if len(artifacts) != 3 {
+				t.Fatalf("artifacts = %+v, want created review, note, and evidence artifacts", artifacts)
 			}
-			if artifacts[0].ReviewVerdict != ReviewVerdictChangesRequested || artifacts[0].ReviewRisk != ReviewRiskMedium || !artifacts[0].ReviewFollowUpRequired {
-				t.Fatalf("listed review artifact = %+v, want structured review fields", artifacts[0])
+			artifactsByID := make(map[string]CollaborationArtifact, len(artifacts))
+			for _, artifact := range artifacts {
+				artifactsByID[artifact.ID] = artifact
 			}
-			if artifacts[1].ReviewedAssignmentID != "" || artifacts[1].ReviewVerdict != "" || artifacts[1].ReviewRisk != "" || artifacts[1].ReviewFollowUpRequired {
-				t.Fatalf("listed non-review artifact = %+v, want review fields cleared", artifacts[1])
+			reviewArtifact, ok := artifactsByID["art_brief"]
+			if !ok {
+				t.Fatalf("artifacts = %+v, want review artifact", artifacts)
+			}
+			noteArtifact, ok := artifactsByID["art_note"]
+			if !ok {
+				t.Fatalf("artifacts = %+v, want note artifact", artifacts)
+			}
+			listedEvidenceArtifact, ok := artifactsByID["art_evidence"]
+			if !ok {
+				t.Fatalf("artifacts = %+v, want evidence artifact", artifacts)
+			}
+			if reviewArtifact.ReviewVerdict != ReviewVerdictChangesRequested || reviewArtifact.ReviewRisk != ReviewRiskMedium || !reviewArtifact.ReviewFollowUpRequired {
+				t.Fatalf("listed review artifact = %+v, want structured review fields", reviewArtifact)
+			}
+			if noteArtifact.ReviewedAssignmentID != "" || noteArtifact.ReviewVerdict != "" || noteArtifact.ReviewRisk != "" || noteArtifact.ReviewFollowUpRequired {
+				t.Fatalf("listed non-review artifact = %+v, want review fields cleared", noteArtifact)
+			}
+			if listedEvidenceArtifact.EvidenceSourceKind != "pull_request" || listedEvidenceArtifact.EvidenceExternalID != "PR 399" || listedEvidenceArtifact.EvidenceTrustLabel != EvidenceTrustOperatorProvided {
+				t.Fatalf("listed evidence artifact = %+v, want evidence metadata", listedEvidenceArtifact)
 			}
 			handoffs, err := store.ListHandoffs(ctx, HandoffFilter{ProjectID: "proj_alpha", WorkItemID: "work_api"})
 			if err != nil {
@@ -570,6 +619,64 @@ INSERT INTO `+assignmentsTbl+` (
 	}
 	if assignments[0].ExecutionRef.TaskID != "task_legacy" || assignments[0].ExecutionRef.RunID != "run_legacy" || assignments[0].ExecutionRef.ContextSnapshotID != "ctx_legacy" {
 		t.Fatalf("assignment execution_ref = %+v, want legacy columns folded into canonical ref", assignments[0].ExecutionRef)
+	}
+}
+
+func TestSQLiteStore_AddsArtifactEvidenceColumnsToExistingTable(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	client, err := storage.NewSQLiteClient(ctx, storage.SQLiteConfig{
+		Path:        filepath.Join(t.TempDir(), "projectwork.db"),
+		TablePrefix: "test",
+	})
+	if err != nil {
+		t.Fatalf("NewSQLiteClient: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	artifactsTbl := client.QualifiedTable("project_work_artifacts")
+	if _, err := client.DB().ExecContext(ctx, `
+CREATE TABLE `+artifactsTbl+` (
+	id TEXT NOT NULL,
+	project_id TEXT NOT NULL,
+	work_item_id TEXT NOT NULL,
+	assignment_id TEXT NOT NULL DEFAULT '',
+	kind TEXT NOT NULL,
+	title TEXT NOT NULL DEFAULT '',
+	body TEXT NOT NULL,
+	author_role_id TEXT NOT NULL DEFAULT '',
+	reviewed_assignment_id TEXT NOT NULL DEFAULT '',
+	review_verdict TEXT NOT NULL DEFAULT '',
+	review_risk TEXT NOT NULL DEFAULT '',
+	review_follow_up_required INTEGER NOT NULL DEFAULT 0,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL,
+	PRIMARY KEY(project_id, id)
+)`); err != nil {
+		t.Fatalf("create legacy artifacts table: %v", err)
+	}
+	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC).Format(time.RFC3339Nano)
+	if _, err := client.DB().ExecContext(ctx, `
+INSERT INTO `+artifactsTbl+` (
+	id, project_id, work_item_id, kind, title, body, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		"art_legacy", "proj_alpha", "work_alpha", ArtifactKindDecisionNote, "Legacy note", "Older schema.", now, now,
+	); err != nil {
+		t.Fatalf("insert legacy artifact: %v", err)
+	}
+
+	store, err := NewSQLiteStore(ctx, client)
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	artifacts, err := store.ListArtifacts(ctx, ArtifactFilter{ProjectID: "proj_alpha"})
+	if err != nil {
+		t.Fatalf("ListArtifacts: %v", err)
+	}
+	if len(artifacts) != 1 || artifacts[0].ID != "art_legacy" {
+		t.Fatalf("artifacts = %+v, want legacy artifact", artifacts)
+	}
+	if artifacts[0].EvidenceSourceKind != "" || artifacts[0].EvidenceURL != "" || artifacts[0].EvidenceExternalID != "" || artifacts[0].EvidenceProvider != "" || artifacts[0].EvidenceTrustLabel != "" {
+		t.Fatalf("legacy artifact evidence fields = %+v, want empty backfill", artifacts[0])
 	}
 }
 

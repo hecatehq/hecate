@@ -37,6 +37,7 @@ const (
 	ArtifactKindHandoff      = "handoff"
 	ArtifactKindReview       = "review"
 	ArtifactKindDecisionNote = "decision_note"
+	ArtifactKindEvidenceLink = "evidence_link"
 
 	// Keep review enum values in sync with the Projects UI REVIEW_VERDICTS /
 	// REVIEW_RISKS lists; the API rejects values outside this server set.
@@ -49,6 +50,8 @@ const (
 	ReviewRiskMedium  = "medium"
 	ReviewRiskHigh    = "high"
 	ReviewRiskUnknown = "unknown"
+
+	EvidenceTrustOperatorProvided = "operator_provided"
 
 	HandoffStatusPending    = "pending"
 	HandoffStatusAccepted   = "accepted"
@@ -132,6 +135,11 @@ type CollaborationArtifact struct {
 	Title                  string
 	Body                   string
 	AuthorRoleID           string
+	EvidenceSourceKind     string
+	EvidenceURL            string
+	EvidenceExternalID     string
+	EvidenceProvider       string
+	EvidenceTrustLabel     string
 	ReviewedAssignmentID   string
 	ReviewVerdict          string
 	ReviewRisk             string
@@ -898,6 +906,25 @@ func normalizeArtifact(item CollaborationArtifact, now time.Time) CollaborationA
 	item.Title = strings.TrimSpace(item.Title)
 	item.Body = strings.TrimSpace(item.Body)
 	item.AuthorRoleID = strings.TrimSpace(item.AuthorRoleID)
+	item.EvidenceSourceKind = strings.TrimSpace(item.EvidenceSourceKind)
+	item.EvidenceURL = strings.TrimSpace(item.EvidenceURL)
+	item.EvidenceExternalID = strings.TrimSpace(item.EvidenceExternalID)
+	item.EvidenceProvider = strings.TrimSpace(item.EvidenceProvider)
+	item.EvidenceTrustLabel = strings.TrimSpace(item.EvidenceTrustLabel)
+	if item.Kind != ArtifactKindEvidenceLink {
+		item.EvidenceSourceKind = ""
+		item.EvidenceURL = ""
+		item.EvidenceExternalID = ""
+		item.EvidenceProvider = ""
+		item.EvidenceTrustLabel = ""
+	} else {
+		if item.EvidenceSourceKind == "" {
+			item.EvidenceSourceKind = "external"
+		}
+		if item.EvidenceTrustLabel == "" {
+			item.EvidenceTrustLabel = EvidenceTrustOperatorProvided
+		}
+	}
 	item.ReviewedAssignmentID = strings.TrimSpace(item.ReviewedAssignmentID)
 	item.ReviewVerdict = strings.TrimSpace(item.ReviewVerdict)
 	item.ReviewRisk = strings.TrimSpace(item.ReviewRisk)
@@ -1046,6 +1073,9 @@ func validateArtifact(item CollaborationArtifact) error {
 	if item.Body == "" {
 		return fmt.Errorf("%w: artifact body is required", ErrInvalid)
 	}
+	if item.Kind == ArtifactKindEvidenceLink && item.EvidenceURL == "" && item.EvidenceExternalID == "" {
+		return fmt.Errorf("%w: evidence_url or evidence_external_id is required for evidence links", ErrInvalid)
+	}
 	if item.ReviewVerdict != "" && !validReviewVerdict(item.ReviewVerdict) {
 		return fmt.Errorf("%w: unsupported review_verdict %q", ErrInvalid, item.ReviewVerdict)
 	}
@@ -1118,7 +1148,7 @@ func validAssignmentStatus(status string) bool {
 
 func validArtifactKind(kind string) bool {
 	switch kind {
-	case ArtifactKindBrief, ArtifactKindHandoff, ArtifactKindReview, ArtifactKindDecisionNote:
+	case ArtifactKindBrief, ArtifactKindHandoff, ArtifactKindReview, ArtifactKindDecisionNote, ArtifactKindEvidenceLink:
 		return true
 	default:
 		return false

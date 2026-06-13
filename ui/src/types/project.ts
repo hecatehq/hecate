@@ -597,7 +597,12 @@ export type CreateProjectAssignmentPayload = {
 
 export type UpdateProjectAssignmentPayload = Partial<CreateProjectAssignmentPayload>;
 
-export type ProjectCollaborationArtifactKind = "brief" | "handoff" | "review" | "decision_note";
+export type ProjectCollaborationArtifactKind =
+  | "brief"
+  | "handoff"
+  | "review"
+  | "decision_note"
+  | "evidence_link";
 
 export type ProjectCollaborationArtifactRecord = {
   id: string;
@@ -608,6 +613,11 @@ export type ProjectCollaborationArtifactRecord = {
   title?: string;
   body: string;
   author_role_id?: string;
+  evidence_source_kind?: string;
+  evidence_url?: string;
+  evidence_external_id?: string;
+  evidence_provider?: string;
+  evidence_trust_label?: string;
   reviewed_assignment_id?: string;
   review_verdict?: string;
   review_risk?: string;
@@ -623,6 +633,11 @@ export type CreateProjectCollaborationArtifactPayload = {
   title?: string;
   body: string;
   author_role_id?: string;
+  evidence_source_kind?: string;
+  evidence_url?: string;
+  evidence_external_id?: string;
+  evidence_provider?: string;
+  evidence_trust_label?: string;
   reviewed_assignment_id?: string;
   review_verdict?: string;
   review_risk?: string;

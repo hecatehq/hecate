@@ -442,6 +442,22 @@ func TestProjectWorkAPI_CRUD(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_backend/artifacts", bytes.NewReader([]byte(`{
+		"id":"art_evidence",
+		"kind":"evidence_link",
+		"title":"Operator source document",
+		"body":"Source document used to validate the work item outcome.",
+		"evidence_source_kind":"source_document",
+		"evidence_url":"https://example.invalid/docs/hecate-work",
+		"evidence_external_id":"DOC-42",
+		"evidence_provider":"docs",
+		"evidence_trust_label":"operator_provided"
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create evidence artifact status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_backend/artifacts", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list artifacts status = %d body=%s, want 200", rec.Code, rec.Body.String())
@@ -450,8 +466,11 @@ func TestProjectWorkAPI_CRUD(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &artifacts); err != nil {
 		t.Fatalf("decode artifacts: %v", err)
 	}
-	if len(artifacts.Data) != 1 || artifacts.Data[0].ID != "art_handoff" {
-		t.Fatalf("artifacts = %+v, want created artifact", artifacts.Data)
+	if len(artifacts.Data) != 2 || artifacts.Data[0].ID != "art_handoff" || artifacts.Data[1].ID != "art_evidence" {
+		t.Fatalf("artifacts = %+v, want handoff and evidence artifacts", artifacts.Data)
+	}
+	if artifacts.Data[1].Kind != projectwork.ArtifactKindEvidenceLink || artifacts.Data[1].EvidenceURL == "" || artifacts.Data[1].EvidenceExternalID != "DOC-42" || artifacts.Data[1].EvidenceProvider != "docs" {
+		t.Fatalf("evidence artifact = %+v, want evidence metadata", artifacts.Data[1])
 	}
 
 	rec = httptest.NewRecorder()

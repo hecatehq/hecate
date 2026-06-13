@@ -110,6 +110,17 @@ export type ReviewArtifactForm = {
   followUp: string;
 };
 
+export type EvidenceLinkForm = {
+  assignmentID: string;
+  title: string;
+  sourceKind: string;
+  url: string;
+  externalID: string;
+  provider: string;
+  trustLabel: string;
+  summary: string;
+};
+
 export function defaultDriverForRole(role: ProjectWorkRoleRecord | null): string {
   return role?.default_driver_kind || "hecate_task";
 }
@@ -348,6 +359,22 @@ export function reviewArtifactPayloadFromForm(
     review_verdict: form.verdict,
     review_risk: form.risk,
     review_follow_up_required: reviewFollowUpRequired(form),
+  };
+}
+
+export function evidenceLinkPayloadFromForm(
+  form: EvidenceLinkForm,
+): CreateProjectCollaborationArtifactPayload {
+  return {
+    assignment_id: form.assignmentID.trim() || undefined,
+    kind: "evidence_link",
+    title: form.title.trim() || "Evidence link",
+    body: form.summary.trim(),
+    evidence_source_kind: form.sourceKind.trim() || "external",
+    evidence_url: form.url.trim() || undefined,
+    evidence_external_id: form.externalID.trim() || undefined,
+    evidence_provider: form.provider.trim() || undefined,
+    evidence_trust_label: form.trustLabel.trim() || "operator_provided",
   };
 }
 

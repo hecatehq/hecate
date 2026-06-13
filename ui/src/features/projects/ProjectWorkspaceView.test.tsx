@@ -82,6 +82,7 @@ function renderWorkspace(overrides: Partial<ProjectWorkspaceViewProps> = {}) {
   const handlers = {
     onActivityBucketChange: vi.fn(),
     onAddAssignment: vi.fn(),
+    onAddEvidenceLink: vi.fn(),
     onAddHandoff: vi.fn(),
     onAddHandoffFromAssignment: vi.fn(),
     onAddHandoffFromReviewArtifact: vi.fn(),
