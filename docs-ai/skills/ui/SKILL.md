@@ -237,11 +237,12 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   starting it remain separate operator actions.
 - Review outcomes are `kind="review"` collaboration artifacts. The V1 cockpit
   entry point is an assignment whose role appears in the work item's
-  `reviewer_role_ids`; work without configured reviewer roles has no generic
-  record-review button yet. Keep the record action separate from follow-up
-  handoff creation; review artifacts may offer an explicit follow-up assignment
-  action, but it must create/link the handoff first and leave execution start as
-  a separate operator action. Review artifacts can carry structured
+  `reviewer_role_ids`; work without configured reviewer roles should surface
+  setup guidance instead of a generic record-review button. Keep the record
+  action separate from follow-up handoff creation; review artifacts may offer an
+  explicit follow-up assignment action, but it must create/link the handoff
+  first and leave execution start as a separate operator action. Review
+  artifacts can carry structured
   `review_verdict`, `review_risk`, `review_follow_up_required`, and
   `reviewed_assignment_id` fields for triage, but the UI must not mark work
   done, blocked, or dispatched from those fields without an explicit operator

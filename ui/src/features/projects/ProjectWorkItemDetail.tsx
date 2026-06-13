@@ -219,6 +219,12 @@ export function ProjectWorkItemDetail({
               </span>
             )}
           </div>
+          <ReviewerSetupNotice
+            onEditWorkItem={() => onEditWorkItem(workItem)}
+            onManageRoles={onManageRoles}
+            roleByID={roleByID}
+            workItem={workItem}
+          />
         </section>
         <section style={workItemCardSectionStyle}>
           <div style={workItemSectionHeaderStyle}>
@@ -462,6 +468,51 @@ export function ProjectWorkItemDetail({
           )}
         </section>
       </article>
+    </div>
+  );
+}
+
+function ReviewerSetupNotice({
+  onEditWorkItem,
+  onManageRoles,
+  roleByID,
+  workItem,
+}: {
+  onEditWorkItem: () => void;
+  onManageRoles: () => void;
+  roleByID: Map<string, ProjectWorkRoleRecord>;
+  workItem: ProjectWorkItemRecord;
+}) {
+  const reviewerRoleIDs = (workItem.reviewer_role_ids ?? [])
+    .map((roleID) => roleID.trim())
+    .filter(Boolean);
+  const missingRoleIDs = reviewerRoleIDs.filter((roleID) => !roleByID.has(roleID));
+  if (reviewerRoleIDs.length > 0 && missingRoleIDs.length === 0) return null;
+  const missingReviewerRoles = missingRoleIDs.length > 0;
+  return (
+    <div style={reviewerSetupNoticeStyle}>
+      <div style={{ minWidth: 0 }}>
+        <div style={titleStyle}>
+          {missingReviewerRoles
+            ? "Reviewer role reference missing"
+            : "No reviewer roles configured"}
+        </div>
+        <div style={subtleTextStyle}>
+          {missingReviewerRoles
+            ? `Review recording needs these roles to exist: ${missingRoleIDs.join(", ")}.`
+            : "Add at least one reviewer role to enable review requests and review artifact recording for this work item."}
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button className="btn btn-ghost btn-sm" type="button" onClick={onEditWorkItem}>
+          <Icon d={Icons.edit} size={12} />
+          Edit reviewers
+        </button>
+        <button className="btn btn-ghost btn-sm" type="button" onClick={onManageRoles}>
+          <Icon d={Icons.user} size={12} />
+          Manage roles
+        </button>
+      </div>
     </div>
   );
 }
@@ -1478,6 +1529,20 @@ const workItemBriefTextStyle: CSSProperties = {
   margin: "8px 0 0",
   maxWidth: 860,
   overflowWrap: "anywhere",
+};
+
+const reviewerSetupNoticeStyle: CSSProperties = {
+  alignItems: "center",
+  background: "var(--bg1)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-sm)",
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 10,
+  justifyContent: "space-between",
+  marginTop: 10,
+  minWidth: 0,
+  padding: "9px 10px",
 };
 
 const workItemCardSectionStyle: CSSProperties = {
