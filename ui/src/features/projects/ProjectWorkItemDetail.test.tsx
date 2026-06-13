@@ -358,6 +358,16 @@ describe("ProjectWorkItemDetail", () => {
     expect(handlers.onCloseWorkItem).toHaveBeenCalledWith(item);
   });
 
+  it("shows already-done closeout state without a mark-done action", () => {
+    renderDetail({
+      assignments: [assignment({ status: "failed", execution_ref: { kind: "none" } })],
+      workItem: workItem({ status: "done" }),
+    });
+
+    expect(screen.getByText("Work item is done")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Mark done" })).toBeNull();
+  });
+
   it("loads launch preflight before starting an assignment", async () => {
     const { handlers } = renderDetail();
 
