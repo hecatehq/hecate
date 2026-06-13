@@ -1901,7 +1901,9 @@ items. That action uses the normal work-item `PATCH` path with `status="done"`
 after showing readiness derived from assignments, handoffs, and review
 artifacts. Readiness is advisory UI state: Hecate does not auto-mutate the
 stored work-item status from review verdicts, handoffs, or assignment rollups
-without an explicit operator update.
+without an explicit operator update. The guided closeout action is disabled
+while blockers remain; operators can still make an intentional manual override
+through the normal work-item edit flow.
 
 #### `GET /hecate/v1/projects/{id}/activity`
 

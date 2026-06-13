@@ -250,7 +250,9 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
 - Work closeout is explicit operator state. The Projects UI may compute and
   display closeout readiness from completed assignments, pending handoffs, and
   review follow-up artifacts, but marking a work item `done` must stay a
-  deliberate operator action through the work-item update path.
+  deliberate operator action through the work-item update path. The guided
+  closeout button should stay disabled while blockers remain; the existing
+  edit-work-item status field is the manual override path.
 - **Stable provider ordering.** Do not sort provider lists by health, blocked state, or availability unless explicitly asked. Fixed alphabetical/preset order within each section.
 - Runtime metadata first-class, not tucked in debug crumbs.
 - Trace and failure details readable without scanning raw JSON first.

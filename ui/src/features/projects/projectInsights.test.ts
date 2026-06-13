@@ -296,6 +296,37 @@ describe("projectInsights", () => {
     expect(readiness.blockers).toEqual(["1 assignment is not complete"]);
   });
 
+  it("blocks guided work closeout on failed and cancelled assignments", () => {
+    const readiness = buildProjectWorkCloseoutReadiness({
+      workItem: workItemRecord(),
+      assignments: [
+        assignmentRecord({ id: "asgn_failed", status: "failed" }),
+        assignmentRecord({ id: "asgn_cancelled", status: "cancelled" }),
+      ],
+      artifacts: [],
+      handoffs: [],
+    });
+
+    expect(readiness.ready).toBe(false);
+    expect(readiness.blockers).toEqual(["1 assignment failed", "1 assignment was cancelled"]);
+  });
+
+  it("shows already-done work as closed without requiring readiness", () => {
+    const readiness = buildProjectWorkCloseoutReadiness({
+      workItem: workItemRecord({ status: "done" }),
+      assignments: [assignmentRecord({ status: "failed" })],
+      artifacts: [],
+      handoffs: [],
+    });
+
+    expect(readiness).toMatchObject({
+      ready: false,
+      status: "done",
+      title: "Work item is done",
+      blockers: [],
+    });
+  });
+
   it("blocks review follow-up until a linked follow-up assignment is complete", () => {
     const review = reviewArtifact({
       id: "art_review_required",
