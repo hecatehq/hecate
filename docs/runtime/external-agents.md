@@ -304,7 +304,10 @@ transcript. When the External Agent turn settles, Hecate also best-effort
 reconciles the linked assignment row to the chat outcome, including the
 assistant `message_id` and terminal status. Handoffs created from these
 assignments can carry the source assignment, chat session, message, run, and
-context refs for provenance.
+context refs for provenance. If the work item declares reviewer roles, the
+Projects cockpit can prefill a review handoff from the External Agent
+assignment, but accepting the handoff, creating the follow-up assignment, and
+starting that assignment remain operator-controlled.
 
 Hecate validates the workspace before creating a session, sanitizes the
 environment passed to the ACP agent process, applies timeout/cancel behavior,

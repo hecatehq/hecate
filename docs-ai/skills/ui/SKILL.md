@@ -224,6 +224,10 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   Context Inspector panel for the launch packet, then call start only from the
   operator's confirm action. This applies to normal assignment rows and
   handoff-linked starts.
+- Reviewer follow-through stays handoff-based. A request-review action may
+  prefill a handoff to a work item's `reviewer_role_ids` and carry source
+  assignment/run/chat/context refs, but creating the follow-up assignment and
+  starting it remain separate operator actions.
 - **Stable provider ordering.** Do not sort provider lists by health, blocked state, or availability unless explicitly asked. Fixed alphabetical/preset order within each section.
 - Runtime metadata first-class, not tucked in debug crumbs.
 - Trace and failure details readable without scanning raw JSON first.

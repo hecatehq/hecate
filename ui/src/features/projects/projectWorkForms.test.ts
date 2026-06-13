@@ -1,12 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import type { ProjectActivityItemRecord, ProjectAssignmentRecord } from "../../types/project";
+import type {
+  ProjectActivityItemRecord,
+  ProjectAssignmentRecord,
+  ProjectWorkItemRecord,
+  ProjectWorkRoleRecord,
+} from "../../types/project";
 import {
   assignmentStatusFromValue,
   assignmentUpdatePayloadFromForm,
   handoffFormFromAssignment,
   handoffPayloadFromForm,
   handoffStatusFromValue,
+  reviewHandoffFormFromAssignment,
   workItemCreatePayloadFromForm,
   workItemPriorityFromValue,
   workItemStatusFromValue,
@@ -159,6 +165,61 @@ describe("projectWorkForms", () => {
       title: "Developer handoff",
       contextRefs: "ctx_1, task_1, run_1, msg_1",
       status: "pending",
+    });
+  });
+
+  it("drafts reviewer handoffs with target role and source evidence", () => {
+    const assignment: ProjectAssignmentRecord = {
+      id: "assign_1234567890",
+      project_id: "proj_1",
+      work_item_id: "work_1",
+      role_id: "developer",
+      driver_kind: "hecate_task",
+      status: "completed",
+      execution_ref: {
+        kind: "task_run",
+        task_id: "task_1",
+        run_id: "run_1",
+        context_snapshot_id: "ctx_1",
+      },
+      created_at: "2026-06-12T00:00:00Z",
+      updated_at: "2026-06-12T00:00:00Z",
+    };
+    const sourceRole: ProjectWorkRoleRecord = {
+      id: "developer",
+      project_id: "proj_1",
+      name: "Developer",
+      built_in: false,
+    };
+    const reviewRole: ProjectWorkRoleRecord = {
+      id: "reviewer_qa",
+      project_id: "proj_1",
+      name: "QA reviewer",
+      built_in: false,
+    };
+    const workItem: ProjectWorkItemRecord = {
+      id: "work_1",
+      project_id: "proj_1",
+      title: "Build cockpit",
+      status: "review",
+      priority: "normal",
+      reviewer_role_ids: ["reviewer_qa"],
+      created_at: "2026-06-12T00:00:00Z",
+      updated_at: "2026-06-12T00:00:00Z",
+    };
+
+    expect(
+      reviewHandoffFormFromAssignment(assignment, sourceRole, reviewRole, workItem),
+    ).toMatchObject({
+      sourceAssignmentID: "assign_1234567890",
+      sourceRunID: "run_1",
+      targetRoleID: "reviewer_qa",
+      title: "QA reviewer review request",
+      summary: 'Review Developer\'s assignment for "Build cockpit".',
+      contextRefs: "ctx_1, task_1, run_1",
+      status: "pending",
+      provenanceKind: "operator",
+      trustLabel: "operator_reviewed",
     });
   });
 });

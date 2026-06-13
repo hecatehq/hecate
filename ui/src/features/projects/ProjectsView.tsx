@@ -134,6 +134,7 @@ import {
   assignmentUpdatePayloadFromForm,
   handoffFormFromAssignment,
   handoffPayloadFromForm,
+  reviewHandoffFormFromAssignment,
   type EditAssignmentForm,
   type EditWorkItemForm,
   type HandoffForm,
@@ -1389,6 +1390,20 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
               );
               setEditingHandoff("new");
             }}
+            onAddReviewHandoffFromAssignment={(assignment, reviewRole, activityItem) => {
+              if (!selectedWorkItem) return;
+              setHandoffError("");
+              setNewHandoffDraft(
+                reviewHandoffFormFromAssignment(
+                  assignment,
+                  roleByID.get(assignment.role_id) ?? null,
+                  reviewRole,
+                  selectedWorkItem,
+                  activityItem,
+                ),
+              );
+              setEditingHandoff("new");
+            }}
             onCreateAssignmentFromHandoff={handleCreateAssignmentFromHandoff}
             onCreateWork={() => {
               setNewWorkError("");
@@ -1720,6 +1735,11 @@ type ProjectWorkspaceViewProps = {
     assignment: ProjectAssignmentRecord,
     activityItem?: ProjectActivityItemRecord,
   ) => void;
+  onAddReviewHandoffFromAssignment: (
+    assignment: ProjectAssignmentRecord,
+    reviewRole: ProjectWorkRoleRecord,
+    activityItem?: ProjectActivityItemRecord,
+  ) => void;
   onCreateAssignmentFromHandoff: (handoff: ProjectHandoffRecord) => void;
   onCreateWork: () => void;
   onDeleteAssignment: (assignment: ProjectAssignmentRecord) => void;
@@ -1795,6 +1815,7 @@ function ProjectWorkspaceView({
   onAddAssignment,
   onAddHandoff,
   onAddHandoffFromAssignment,
+  onAddReviewHandoffFromAssignment,
   onCreateAssignmentFromHandoff,
   onCreateWork,
   onDeleteAssignment,
@@ -1970,6 +1991,7 @@ function ProjectWorkspaceView({
                         onAddAssignment={onAddAssignment}
                         onAddHandoff={onAddHandoff}
                         onAddHandoffFromAssignment={onAddHandoffFromAssignment}
+                        onAddReviewHandoffFromAssignment={onAddReviewHandoffFromAssignment}
                       />
                     ) : (
                       <EmptyBlock
@@ -3125,6 +3147,7 @@ function WorkItemDetail({
   onAddAssignment,
   onAddHandoff,
   onAddHandoffFromAssignment,
+  onAddReviewHandoffFromAssignment,
   onCreateAssignmentFromHandoff,
   onDeleteAssignment,
   onDeleteHandoff,
@@ -3160,6 +3183,11 @@ function WorkItemDetail({
   onAddHandoff: () => void;
   onAddHandoffFromAssignment: (
     assignment: ProjectAssignmentRecord,
+    activityItem?: ProjectActivityItemRecord,
+  ) => void;
+  onAddReviewHandoffFromAssignment: (
+    assignment: ProjectAssignmentRecord,
+    reviewRole: ProjectWorkRoleRecord,
     activityItem?: ProjectActivityItemRecord,
   ) => void;
   onCreateAssignmentFromHandoff: (handoff: ProjectHandoffRecord) => void;
@@ -3272,83 +3300,88 @@ function WorkItemDetail({
             <div style={subtleTextStyle}>No assignments recorded yet.</div>
           ) : (
             <div style={{ display: "grid", gap: 10 }}>
-              {assignments.map((assignment) => (
-                <AssignmentRow
-                  key={assignment.id}
-                  activityItem={activityByAssignmentID.get(assignment.id)}
-                  assignment={assignment}
-                  chatModel={
-                    assignment.execution?.model ||
-                    roleByID.get(assignment.role_id)?.default_model ||
-                    project?.default_model ||
-                    ""
-                  }
-                  error={assignmentErrors[assignment.id] ?? ""}
-                  onDelete={() => onDeleteAssignment(assignment)}
-                  onEdit={() => onEditAssignment(assignment)}
-                  onOpenChat={
-                    project
-                      ? () => {
-                          const executionRef = toProjectAssignmentExecutionViewModel(assignment);
-                          onOpenChat?.(
-                            executionRef.chatSessionID
-                              ? {
-                                  projectID: project.id,
-                                  chatSessionID: executionRef.chatSessionID,
-                                }
-                              : buildProjectAssignmentChatLaunchRequest({
-                                  project,
-                                  workItem,
-                                  assignment,
-                                  role: roleByID.get(assignment.role_id) ?? null,
-                                }),
-                          );
-                        }
-                      : undefined
-                  }
-                  onOpenTask={onOpenTask}
-                  onStart={() => onStartAssignment(assignment)}
-                  onCreateHandoff={() =>
-                    onAddHandoffFromAssignment(
-                      assignment,
-                      activityByAssignmentID.get(assignment.id),
-                    )
-                  }
-                  project={project}
-                  repairActions={{
-                    onManageProfiles,
-                    onManageRoles,
-                    onOpenConnections,
-                    onOpenProjectSettings: onOpenSettings,
-                  }}
-                  role={roleByID.get(assignment.role_id)}
-                  starting={startingAssignmentID === assignment.id}
-                  loadContext={
-                    project
-                      ? async () =>
-                          (
-                            await getProjectAssignmentContext(
-                              project.id,
-                              workItem.id,
-                              assignment.id,
-                            )
-                          ).data
-                      : null
-                  }
-                  loadPreflight={
-                    project
-                      ? async () =>
-                          (
-                            await getProjectAssignmentPreflight(
-                              project.id,
-                              workItem.id,
-                              assignment.id,
-                            )
-                          ).data
-                      : null
-                  }
-                />
-              ))}
+              {assignments.map((assignment) => {
+                const reviewRole = reviewerRoleForAssignment(workItem, assignment, roleByID);
+                const activityItem = activityByAssignmentID.get(assignment.id);
+                return (
+                  <AssignmentRow
+                    key={assignment.id}
+                    activityItem={activityItem}
+                    assignment={assignment}
+                    chatModel={
+                      assignment.execution?.model ||
+                      roleByID.get(assignment.role_id)?.default_model ||
+                      project?.default_model ||
+                      ""
+                    }
+                    error={assignmentErrors[assignment.id] ?? ""}
+                    onDelete={() => onDeleteAssignment(assignment)}
+                    onEdit={() => onEditAssignment(assignment)}
+                    onOpenChat={
+                      project
+                        ? () => {
+                            const executionRef = toProjectAssignmentExecutionViewModel(assignment);
+                            onOpenChat?.(
+                              executionRef.chatSessionID
+                                ? {
+                                    projectID: project.id,
+                                    chatSessionID: executionRef.chatSessionID,
+                                  }
+                                : buildProjectAssignmentChatLaunchRequest({
+                                    project,
+                                    workItem,
+                                    assignment,
+                                    role: roleByID.get(assignment.role_id) ?? null,
+                                  }),
+                            );
+                          }
+                        : undefined
+                    }
+                    onOpenTask={onOpenTask}
+                    onStart={() => onStartAssignment(assignment)}
+                    onCreateHandoff={() => onAddHandoffFromAssignment(assignment, activityItem)}
+                    onCreateReviewHandoff={
+                      reviewRole
+                        ? () =>
+                            onAddReviewHandoffFromAssignment(assignment, reviewRole, activityItem)
+                        : undefined
+                    }
+                    project={project}
+                    repairActions={{
+                      onManageProfiles,
+                      onManageRoles,
+                      onOpenConnections,
+                      onOpenProjectSettings: onOpenSettings,
+                    }}
+                    role={roleByID.get(assignment.role_id)}
+                    starting={startingAssignmentID === assignment.id}
+                    loadContext={
+                      project
+                        ? async () =>
+                            (
+                              await getProjectAssignmentContext(
+                                project.id,
+                                workItem.id,
+                                assignment.id,
+                              )
+                            ).data
+                        : null
+                    }
+                    loadPreflight={
+                      project
+                        ? async () =>
+                            (
+                              await getProjectAssignmentPreflight(
+                                project.id,
+                                workItem.id,
+                                assignment.id,
+                              )
+                            ).data
+                        : null
+                    }
+                  />
+                );
+              })}
             </div>
           )}
         </section>
@@ -3448,6 +3481,7 @@ function AssignmentRow({
   loadContext,
   loadPreflight,
   onCreateHandoff,
+  onCreateReviewHandoff,
   onDelete,
   onEdit,
   onOpenChat,
@@ -3465,6 +3499,7 @@ function AssignmentRow({
   loadContext?: (() => Promise<ContextPacketRecord>) | null;
   loadPreflight?: (() => Promise<ContextPacketRecord>) | null;
   onCreateHandoff: () => void;
+  onCreateReviewHandoff?: () => void;
   onDelete: () => void;
   onEdit: () => void;
   onOpenChat?: () => void;
@@ -3654,6 +3689,17 @@ function AssignmentRow({
           >
             <Icon d={Icons.plus} size={12} />
             Handoff
+          </button>
+        )}
+        {executionRef.hasAnyLink && onCreateReviewHandoff && (
+          <button
+            aria-label={`Request review for assignment ${assignment.id}`}
+            className="btn btn-ghost btn-sm"
+            type="button"
+            onClick={onCreateReviewHandoff}
+          >
+            <Icon d={Icons.check} size={12} />
+            Request review
           </button>
         )}
       </div>
@@ -4148,6 +4194,20 @@ function handoffSourceRefs(handoff: ProjectHandoffRecord): string[] {
     }
   }
   return refs;
+}
+
+function reviewerRoleForAssignment(
+  workItem: ProjectWorkItemRecord,
+  assignment: ProjectAssignmentRecord,
+  roleByID: Map<string, ProjectWorkRoleRecord>,
+): ProjectWorkRoleRecord | null {
+  for (const rawRoleID of workItem.reviewer_role_ids ?? []) {
+    const roleID = rawRoleID.trim();
+    if (!roleID || roleID === assignment.role_id) continue;
+    const role = roleByID.get(roleID);
+    if (role) return role;
+  }
+  return null;
 }
 
 function buildProjectAssignmentChatLaunchRequest({
