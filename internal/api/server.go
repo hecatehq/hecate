@@ -141,6 +141,7 @@ func registerHecateAgentRoutes(mux *http.ServeMux, handler *Handler) {
 	mux.HandleFunc("PATCH /hecate/v1/chat/sessions/{id}/settings", handler.HandleSetAgentChatSettings)
 	mux.HandleFunc("POST /hecate/v1/chat/sessions/{id}/config-options/{config_id}", handler.HandleSetAgentChatConfigOption)
 	mux.HandleFunc("POST /hecate/v1/chat/sessions/{id}/messages", handler.HandleCreateChatMessage)
+	mux.HandleFunc("POST /hecate/v1/chat/sessions/{id}/project-assistant/draft", handler.HandleChatProjectAssistantDraft)
 	mux.HandleFunc("GET /hecate/v1/chat/sessions/{id}/workspace-diff", handler.HandleChatWorkspaceDiff)
 	mux.HandleFunc("GET /hecate/v1/chat/sessions/{id}/workspace-files", handler.HandleChatWorkspaceFiles)
 	mux.HandleFunc("GET /hecate/v1/chat/sessions/{id}/workspace-diff/files/{path...}", handler.HandleChatWorkspaceFileDiff)

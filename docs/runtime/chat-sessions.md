@@ -19,7 +19,11 @@ project is selected in the Chats sidebar, new Hecate and External Agent chat
 sessions are created with that `project_id`, and the chat list shows only chats
 for the active project. When an open chat is linked to a project, the chat
 header exposes a compact project shortcut that selects that project and opens
-the Projects workspace. Deleting a project also deletes its project-scoped chat
+the Projects workspace. Project-linked Hecate Chat also exposes a compact
+composer action that drafts a Project Assistant proposal from the current
+message and hands it to the Projects review surface. That handoff is proposal
+data only; it does not send a chat message, create project records, or apply
+the proposal. Deleting a project also deletes its project-scoped chat
 transcripts. Unprojected chats and chats in other projects stay untouched.
 
 Hecate Chat treats model/provider readiness as part of composition, not a

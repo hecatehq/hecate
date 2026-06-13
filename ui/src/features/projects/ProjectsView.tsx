@@ -47,6 +47,10 @@ import {
   updateProjectWorkItem,
 } from "../../lib/api";
 import { projectDefaultWorkspace } from "../../lib/project-workspace";
+import {
+  clearProjectAssistantChatHandoff,
+  readProjectAssistantChatHandoff,
+} from "../../lib/project-assistant-chat-handoff";
 import { providerDisplayName } from "../../lib/provider-utils";
 import { ChatRightPanel } from "../chats/ChatRightPanel";
 import {
@@ -538,6 +542,16 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
   useEffect(() => {
     assistant.dismiss();
   }, [assistant.dismiss, selectedProjectID, selectedWorkItemID]);
+
+  useEffect(() => {
+    if (!selectedProjectID) return;
+    if (workLoadState !== "loaded" && workLoadState !== "error") return;
+    const handoff = readProjectAssistantChatHandoff();
+    if (!handoff || handoff.project_id !== selectedProjectID) return;
+    assistant.loadProposal(handoff.proposal);
+    setWorkspaceTab("work");
+    clearProjectAssistantChatHandoff();
+  }, [assistant.loadProposal, selectedProjectID, selectedWorkItemID, workLoadState]);
 
   function startRename(project: ProjectRecord) {
     setRenamingProjectID(project.id);
