@@ -171,24 +171,31 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   `ui/src/lib/chat-setup-readiness.ts`. Keep the empty state, composer notice,
   and disabled-send copy aligned there instead of adding one-off branches to
   `ChatView`.
-- Projects UI keeps Project Assistant orchestration in
-  `useProjectAssistantController`; do not put propose/apply/bootstrap request
-  state back into `ProjectsView`. The workspace rendering branches live behind
-  `ProjectWorkspaceView`, and project defaults/root editing lives in
-  `ProjectSettingsPanel` plus `CreateProjectWorktreeModal`. Agent profile and
-  project role editing lives in `ProfilesModal` and `RolesModal`, with shared
-  profile/role form mapping in `projectProfilesRoles.ts`. Work item,
-  assignment, and handoff editing lives in `ProjectWorkItemModals`,
-  `ProjectAssignmentModals`, and `ProjectHandoffModal`, with payload/ref shaping
-  in `projectWorkForms.ts`; keep project state loading and mutations in the
-  parent page. Changes to these extracted modal seams need focused tests for the
-  component and shared form helpers, plus parent-page tests only when loading or
-  mutation orchestration changes. Shared project UI string/id helpers live in
-  `projectUtils.ts`; status option lists and form-safe status normalization live
-  in `projectWorkForms.ts`. Project memory/context review UI lives in
-  `ProjectMemoryPanel`, and project skill registry UI lives in
-  `ProjectSkillsPanel`; keep their rendering and form tests colocated with those
-  modules.
+- Projects UI keeps top-level data loading, selected-project orchestration, and
+  mutation dispatch in `ProjectsView`; do not add large rendering branches back
+  to that parent. Project selection and persisted right-panel width live in
+  `useProjectViewController`, and Project Assistant orchestration lives in
+  `useProjectAssistantController`.
+- Project workspace UI is split by surface. The selected-project shell,
+  onboarding, workspace tabs, work inbox, and empty blocks live behind
+  `ProjectWorkspaceView`. Work item detail, assignment rows, handoff-linked
+  start controls, launch preflight state, and chat-draft shaping live in
+  `ProjectWorkItemDetail`. Timeline/decision-log rows live in
+  `ProjectTimelinePanel`; attention/health popovers live in
+  `ProjectHealthPanel`; project memory/context review lives in
+  `ProjectMemoryPanel`; project skill registry UI lives in `ProjectSkillsPanel`.
+  Keep rendering and form tests colocated with the component that owns the
+  surface, and add parent-page tests only when loading, controller wiring, or
+  mutation orchestration changes.
+- Project defaults/root editing lives in `ProjectSettingsPanel` plus
+  `CreateProjectWorktreeModal`. Agent profile and project role editing lives in
+  `ProfilesModal` and `RolesModal`, with shared profile/role form mapping in
+  `projectProfilesRoles.ts`. Work item, assignment, and handoff editing lives in
+  `ProjectWorkItemModals`, `ProjectAssignmentModals`, and `ProjectHandoffModal`,
+  with payload/ref shaping in `projectWorkForms.ts`; keep project state loading
+  and mutations in the parent page. Shared project UI string/id helpers live in
+  `projectUtils.ts`; display-label helpers live in `projectDisplay.ts`; status
+  option lists and form-safe status normalization live in `projectWorkForms.ts`.
 - External Agent readiness belongs in Connections and in the picker
   diagnostics: distinguish missing binaries, auth/billing problems, unsupported
   versions, and managed-launcher issues without sending users to raw logs first.
