@@ -21,6 +21,10 @@ import {
   type ProjectAssignmentEvidenceViewModel,
 } from "./projectAssignmentViewModels";
 import {
+  buildProjectWorkCloseoutReadiness,
+  type ProjectWorkCloseoutReadiness,
+} from "./projectInsights";
+import {
   assignmentStatusLabel,
   formatProjectRowRelativeTime,
   handoffStatusLabel,
@@ -91,6 +95,7 @@ export type ProjectWorkItemDetailProps = {
   onDeleteAssignment: (assignment: ProjectAssignmentRecord) => void;
   onDeleteHandoff: (handoff: ProjectHandoffRecord) => void;
   onDeleteWorkItem: (item: ProjectWorkItemRecord) => void;
+  onCloseWorkItem: (item: ProjectWorkItemRecord) => void;
   onEditAssignment: (assignment: ProjectAssignmentRecord) => void;
   onEditHandoff: (handoff: ProjectHandoffRecord) => void;
   onEditWorkItem: (item: ProjectWorkItemRecord) => void;
@@ -106,6 +111,7 @@ export type ProjectWorkItemDetailProps = {
   onSetHandoffStatus: (handoff: ProjectHandoffRecord, status: string) => void;
   project: ProjectRecord | null;
   roleByID: Map<string, ProjectWorkRoleRecord>;
+  closingWorkItemID: string;
   startingAssignmentID: string;
   workItem: ProjectWorkItemRecord | null;
 };
@@ -132,6 +138,7 @@ export function ProjectWorkItemDetail({
   onDeleteAssignment,
   onDeleteHandoff,
   onDeleteWorkItem,
+  onCloseWorkItem,
   onEditAssignment,
   onEditHandoff,
   onEditWorkItem,
@@ -147,6 +154,7 @@ export function ProjectWorkItemDetail({
   onSetHandoffStatus,
   project,
   roleByID,
+  closingWorkItemID,
   startingAssignmentID,
   workItem,
 }: ProjectWorkItemDetailProps) {
@@ -158,6 +166,12 @@ export function ProjectWorkItemDetail({
       />
     );
   }
+  const closeout = buildProjectWorkCloseoutReadiness({
+    assignments,
+    artifacts,
+    handoffs,
+    workItem,
+  });
   return (
     <div style={workItemDetailStyle}>
       <article style={workItemCardStyle} aria-label={`${workItem.title} work item`}>
@@ -226,6 +240,11 @@ export function ProjectWorkItemDetail({
             workItem={workItem}
           />
         </section>
+        <WorkItemCloseoutPanel
+          closeout={closeout}
+          pending={closingWorkItemID === workItem.id}
+          onClose={() => onCloseWorkItem(workItem)}
+        />
         <section style={workItemCardSectionStyle}>
           <div style={workItemSectionHeaderStyle}>
             <div style={sectionLabelStyle}>Assignments</div>
@@ -469,6 +488,58 @@ export function ProjectWorkItemDetail({
         </section>
       </article>
     </div>
+  );
+}
+
+function WorkItemCloseoutPanel({
+  closeout,
+  onClose,
+  pending,
+}: {
+  closeout: ProjectWorkCloseoutReadiness;
+  onClose: () => void;
+  pending: boolean;
+}) {
+  const status =
+    closeout.status === "ready" || closeout.status === "done" ? "completed" : "blocked";
+  return (
+    <section style={workItemCardSectionStyle} aria-label="Work closeout">
+      <div style={workItemSectionHeaderStyle}>
+        <div style={sectionLabelStyle}>Closeout</div>
+        <Badge status={status} label={closeout.status === "done" ? "done" : closeout.status} />
+        <span className="badge badge-muted">
+          {closeout.completedAssignments}/{closeout.assignmentCount} assignments complete
+        </span>
+        {closeout.status !== "done" && (
+          <button
+            className="btn btn-primary btn-sm"
+            type="button"
+            onClick={onClose}
+            disabled={!closeout.ready || pending}
+            style={{ marginLeft: "auto" }}
+          >
+            <Icon d={Icons.check} size={12} />
+            {pending ? "Marking..." : "Mark done"}
+          </button>
+        )}
+      </div>
+      <div style={titleStyle}>{closeout.title}</div>
+      <div style={{ ...subtleTextStyle, marginTop: 4 }}>{closeout.detail}</div>
+      {closeout.blockers.length > 0 && (
+        <ul style={closeoutListStyle}>
+          {closeout.blockers.map((blocker) => (
+            <li key={blocker}>{blocker}</li>
+          ))}
+        </ul>
+      )}
+      {closeout.warnings.length > 0 && (
+        <div style={{ ...subtleTextStyle, marginTop: 8 }}>
+          {closeout.warnings.map((warning) => (
+            <div key={warning}>{warning}</div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -1550,6 +1621,14 @@ const workItemCardSectionStyle: CSSProperties = {
   marginTop: 12,
   minWidth: 0,
   paddingTop: 12,
+};
+
+const closeoutListStyle: CSSProperties = {
+  color: "var(--t2)",
+  fontSize: 12,
+  lineHeight: 1.45,
+  margin: "8px 0 0",
+  paddingLeft: 18,
 };
 
 const workItemSectionHeaderStyle: CSSProperties = {

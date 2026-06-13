@@ -1896,6 +1896,13 @@ assignments `completed` makes it `done`; all assignments `cancelled` makes it
 non-cancelled assignment, makes it `blocked`. Otherwise the stored work-item
 status is returned.
 
+The Projects UI also exposes an operator closeout action for selected work
+items. That action uses the normal work-item `PATCH` path with `status="done"`
+after showing readiness derived from assignments, handoffs, and review
+artifacts. Readiness is advisory UI state: Hecate does not auto-mutate the
+stored work-item status from review verdicts, handoffs, or assignment rollups
+without an explicit operator update.
+
 #### `GET /hecate/v1/projects/{id}/activity`
 
 Returns a read-only project activity inbox for the operator cockpit. The

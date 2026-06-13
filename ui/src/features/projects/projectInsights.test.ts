@@ -1,14 +1,20 @@
 import { describe, expect, it } from "vitest";
 
-import { buildProjectHealthSummary, projectHealthMetrics } from "./projectInsights";
+import {
+  buildProjectHealthSummary,
+  buildProjectWorkCloseoutReadiness,
+  projectHealthMetrics,
+} from "./projectInsights";
 import type { AgentProfileRecord } from "../../types/agent-profile";
 import type {
   ProjectActivityData,
   ProjectActivityItemRecord,
+  ProjectAssignmentRecord,
   ProjectCollaborationArtifactRecord,
   ProjectHandoffRecord,
   ProjectRecord,
   ProjectSkillRecord,
+  ProjectWorkItemRecord,
   ProjectWorkRoleRecord,
 } from "../../types/project";
 
@@ -248,6 +254,83 @@ describe("projectInsights", () => {
     expect(attention?.chatID).toBe("chat_failed");
     expect(attention?.actionLabel).toBe("View blocked");
   });
+
+  it("marks work closeout ready when assignments and follow-up are complete", () => {
+    const readiness = buildProjectWorkCloseoutReadiness({
+      workItem: workItemRecord(),
+      assignments: [assignmentRecord({ status: "completed" })],
+      artifacts: [],
+      handoffs: [],
+    });
+
+    expect(readiness).toMatchObject({
+      ready: true,
+      status: "ready",
+      completedAssignments: 1,
+      assignmentCount: 1,
+      blockers: [],
+    });
+  });
+
+  it("blocks work closeout on active assignments and pending handoffs", () => {
+    const readiness = buildProjectWorkCloseoutReadiness({
+      workItem: workItemRecord(),
+      assignments: [assignmentRecord({ status: "running" })],
+      artifacts: [],
+      handoffs: [handoff("handoff_pending", "pending")],
+    });
+
+    expect(readiness.ready).toBe(false);
+    expect(readiness.blockers).toEqual(["1 assignment is still active", "1 handoff is pending"]);
+  });
+
+  it("blocks work closeout on unknown assignment states", () => {
+    const readiness = buildProjectWorkCloseoutReadiness({
+      workItem: workItemRecord(),
+      assignments: [assignmentRecord({ status: "stale_unknown" })],
+      artifacts: [],
+      handoffs: [],
+    });
+
+    expect(readiness.ready).toBe(false);
+    expect(readiness.blockers).toEqual(["1 assignment is not complete"]);
+  });
+
+  it("blocks review follow-up until a linked follow-up assignment is complete", () => {
+    const review = reviewArtifact({
+      id: "art_review_required",
+      review_verdict: "changes_requested",
+      review_follow_up_required: true,
+    });
+    const blocked = buildProjectWorkCloseoutReadiness({
+      workItem: workItemRecord(),
+      assignments: [assignmentRecord({ id: "asgn_impl", status: "completed" })],
+      artifacts: [review],
+      handoffs: [],
+    });
+
+    expect(blocked.ready).toBe(false);
+    expect(blocked.blockers).toContain('Review follow-up "Review" is not triaged');
+
+    const ready = buildProjectWorkCloseoutReadiness({
+      workItem: workItemRecord(),
+      assignments: [
+        assignmentRecord({ id: "asgn_impl", status: "completed" }),
+        assignmentRecord({ id: "asgn_followup", status: "completed" }),
+      ],
+      artifacts: [review],
+      handoffs: [
+        {
+          ...handoff("handoff_review", "accepted"),
+          linked_artifact_ids: [review.id],
+          target_assignment_id: "asgn_followup",
+        },
+      ],
+    });
+
+    expect(ready.ready).toBe(true);
+    expect(ready.blockers).toEqual([]);
+  });
 });
 
 function readyProject(): ProjectRecord {
@@ -327,6 +410,33 @@ function reviewArtifact(
     title: "Review",
     body: "Verdict: Changes requested",
     author_role_id: "reviewer_qa",
+    created_at: "2026-06-04T10:00:00Z",
+    updated_at: "2026-06-04T10:00:00Z",
+    ...patch,
+  };
+}
+
+function workItemRecord(patch: Partial<ProjectWorkItemRecord> = {}): ProjectWorkItemRecord {
+  return {
+    id: "work_1",
+    project_id: "proj_ready",
+    title: "Coordinate release",
+    status: "review",
+    priority: "normal",
+    created_at: "2026-06-04T10:00:00Z",
+    updated_at: "2026-06-04T10:00:00Z",
+    ...patch,
+  };
+}
+
+function assignmentRecord(patch: Partial<ProjectAssignmentRecord> = {}): ProjectAssignmentRecord {
+  return {
+    id: "asgn_1",
+    project_id: "proj_ready",
+    work_item_id: "work_1",
+    role_id: "role_1",
+    status: "queued",
+    driver_kind: "hecate_task",
     created_at: "2026-06-04T10:00:00Z",
     updated_at: "2026-06-04T10:00:00Z",
     ...patch,

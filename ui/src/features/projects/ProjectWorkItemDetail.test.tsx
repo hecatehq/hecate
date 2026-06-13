@@ -186,6 +186,7 @@ function renderDetail(overrides: Partial<ProjectWorkItemDetailProps> = {}) {
     onDeleteAssignment: vi.fn(),
     onDeleteHandoff: vi.fn(),
     onDeleteWorkItem: vi.fn(),
+    onCloseWorkItem: vi.fn(),
     onEditAssignment: vi.fn(),
     onEditHandoff: vi.fn(),
     onEditWorkItem: vi.fn(),
@@ -213,6 +214,7 @@ function renderDetail(overrides: Partial<ProjectWorkItemDetailProps> = {}) {
     loading: false,
     project: record,
     roleByID,
+    closingWorkItemID: "",
     startingAssignmentID: "",
     workItem: workItem(),
     ...handlers,
@@ -331,6 +333,29 @@ describe("ProjectWorkItemDetail", () => {
 
     expect(screen.getByText("Reviewer role reference missing")).toBeTruthy();
     expect(screen.getByText(/missing_reviewer/)).toBeTruthy();
+  });
+
+  it("shows closeout blockers while assignments are active", () => {
+    renderDetail({
+      assignments: [assignment({ status: "running", execution_ref: { kind: "none" } })],
+    });
+
+    expect(screen.getByText("Closeout is blocked")).toBeTruthy();
+    expect(screen.getByText("1 assignment is still active")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Mark done" })).toBeDisabled();
+  });
+
+  it("delegates mark-done when closeout is ready", async () => {
+    const item = workItem();
+    const { handlers } = renderDetail({
+      assignments: [assignment({ status: "completed", execution_ref: { kind: "none" } })],
+      workItem: item,
+    });
+
+    expect(screen.getByText("Ready to mark done")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Mark done" }));
+
+    expect(handlers.onCloseWorkItem).toHaveBeenCalledWith(item);
   });
 
   it("loads launch preflight before starting an assignment", async () => {
