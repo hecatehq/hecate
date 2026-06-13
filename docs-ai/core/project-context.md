@@ -154,7 +154,10 @@ These earn extra scrutiny; changes here are not drive-by territory.
   is processed as the operator. The gateway binds to `127.0.0.1` by default;
   bind elsewhere only behind a reverse proxy or firewall. Cloud runtime mode
   trusts Hecate Cloud identity headers only after the internal runtime secret is
-  validated.
+  validated. Cloud runtime mode disables local model providers unless
+  `HECATE_CLOUD_ALLOW_LOCAL_PROVIDERS=1` is set for an intentionally isolated
+  sidecar deployment. The provider gate is based on `kind=local`, not URL
+  destination inspection.
 
 ## Which doc answers which question
 

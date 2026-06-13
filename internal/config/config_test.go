@@ -161,6 +161,33 @@ func TestLoadFromEnvCloudRuntimeMode(t *testing.T) {
 	}
 }
 
+func TestLoadFromEnvCloudRuntimeDisablesLocalProvidersByDefault(t *testing.T) {
+	t.Setenv("HECATE_CLOUD_RUNTIME_MODE", "true")
+	t.Setenv("HECATE_CLOUD_RUNTIME_SECRET", "cloud-runtime-secret-123456")
+
+	cfg := LoadFromEnv()
+	if cfg.LocalProvidersAllowed() {
+		t.Fatal("LocalProvidersAllowed() = true, want false in cloud runtime mode by default")
+	}
+	if !reflect.DeepEqual(cfg.Governor.AllowedProviderKinds, []string{"cloud"}) {
+		t.Fatalf("AllowedProviderKinds = %#v, want [cloud]", cfg.Governor.AllowedProviderKinds)
+	}
+}
+
+func TestLoadFromEnvCloudRuntimeCanOptIntoLocalProviders(t *testing.T) {
+	t.Setenv("HECATE_CLOUD_RUNTIME_MODE", "true")
+	t.Setenv("HECATE_CLOUD_RUNTIME_SECRET", "cloud-runtime-secret-123456")
+	t.Setenv("HECATE_CLOUD_ALLOW_LOCAL_PROVIDERS", "true")
+
+	cfg := LoadFromEnv()
+	if !cfg.LocalProvidersAllowed() {
+		t.Fatal("LocalProvidersAllowed() = false, want true with explicit cloud opt-in")
+	}
+	if len(cfg.Governor.AllowedProviderKinds) != 0 {
+		t.Fatalf("AllowedProviderKinds = %#v, want unset when local providers are explicitly allowed", cfg.Governor.AllowedProviderKinds)
+	}
+}
+
 func TestListenAddressIsLoopback(t *testing.T) {
 	t.Parallel()
 
@@ -438,6 +465,22 @@ func TestValidateAllowsCloudRuntimeSecretOnlyWhenCloudModeDisabled(t *testing.T)
 
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v, want nil when cloud runtime mode is disabled", err)
+	}
+}
+
+func TestValidateRejectsLocalProviderKindInCloudRuntimeWithoutOptIn(t *testing.T) {
+	cfg := LoadFromEnv()
+	cfg.Server.CloudRuntimeMode = true
+	cfg.Server.CloudRuntimeSecret = "cloud-runtime-secret-123456"
+	cfg.Server.CloudAllowLocalProviders = false
+	cfg.Governor.AllowedProviderKinds = []string{"local"}
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() error = nil, want local-provider cloud opt-in error")
+	}
+	if !strings.Contains(err.Error(), "HECATE_CLOUD_ALLOW_LOCAL_PROVIDERS") {
+		t.Fatalf("Validate() error = %q, want HECATE_CLOUD_ALLOW_LOCAL_PROVIDERS", err)
 	}
 }
 

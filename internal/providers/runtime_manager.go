@@ -18,10 +18,11 @@ type ControlPlaneRuntimeManager struct {
 	cipher                 secrets.Cipher
 	registry               *MutableRegistry
 	anthropicCacheDisabled bool
+	localProvidersAllowed  bool
 }
 
 func NewControlPlaneRuntimeManager(logger *slog.Logger, baseConfigs []config.OpenAICompatibleProviderConfig, store controlplane.Store, cipher secrets.Cipher) *ControlPlaneRuntimeManager {
-	items := buildProviders(baseConfigs, logger)
+	items := buildProviders(filterLocalProviderConfigs(baseConfigs), logger)
 	return &ControlPlaneRuntimeManager{
 		logger:      logger,
 		baseConfigs: append([]config.OpenAICompatibleProviderConfig(nil), baseConfigs...),
@@ -41,6 +42,10 @@ func NewControlPlaneRuntimeManager(logger *slog.Logger, baseConfigs []config.Ope
 // default (false → caching enabled) untouched.
 func (m *ControlPlaneRuntimeManager) SetGlobalAnthropicCacheDisabled(disabled bool) {
 	m.anthropicCacheDisabled = disabled
+}
+
+func (m *ControlPlaneRuntimeManager) SetLocalProvidersAllowed(allowed bool) {
+	m.localProvidersAllowed = allowed
 }
 
 func (m *ControlPlaneRuntimeManager) Registry() Registry {
@@ -91,6 +96,9 @@ func (m *ControlPlaneRuntimeManager) Upsert(ctx context.Context, provider contro
 	}
 	if provider.Protocol == "" {
 		provider.Protocol = "openai"
+	}
+	if !m.localProvidersAllowed && providerKind(provider) == string(KindLocal) {
+		return controlplane.Provider{}, fmt.Errorf("local providers are disabled in cloud runtime mode")
 	}
 	if provider.Kind == string(KindCloud) && encryptedSecret == nil {
 		existing := findControlPlaneProvider(state.Providers, provider.ID, provider.Name)
@@ -150,6 +158,9 @@ func (m *ControlPlaneRuntimeManager) Delete(ctx context.Context, id string) erro
 
 func (m *ControlPlaneRuntimeManager) resolvedConfigs(ctx context.Context) ([]config.OpenAICompatibleProviderConfig, error) {
 	configs := append([]config.OpenAICompatibleProviderConfig(nil), m.baseConfigs...)
+	if !m.localProvidersAllowed {
+		configs = filterLocalProviderConfigs(configs)
+	}
 	if m.store == nil {
 		return configs, nil
 	}
@@ -168,6 +179,15 @@ func (m *ControlPlaneRuntimeManager) resolvedConfigs(ctx context.Context) ([]con
 	}
 
 	for _, item := range state.Providers {
+		item = hydrateControlPlaneProviderDefaults(item)
+		if !m.localProvidersAllowed && providerKind(item) == string(KindLocal) {
+			providerName := strings.TrimSpace(item.Name)
+			if providerName == "" {
+				providerName = item.ID
+			}
+			m.logger.Info("skipping local provider because cloud runtime local providers are disabled", slog.String("provider", providerName))
+			continue
+		}
 		if !item.Enabled {
 			// Mark matching env-configured provider as disabled rather than removing it,
 			// so it stays in the registry and reports status "disabled" in health checks.
@@ -185,7 +205,6 @@ func (m *ControlPlaneRuntimeManager) resolvedConfigs(ctx context.Context) ([]con
 			}
 			continue
 		}
-		item = hydrateControlPlaneProviderDefaults(item)
 		if strings.TrimSpace(item.Name) == "" {
 			m.logger.Warn("skipping control-plane provider with empty name", slog.String("provider_id", item.ID))
 			continue
@@ -316,6 +335,30 @@ func builtInForControlPlaneProvider(provider controlplane.Provider) (config.Buil
 		}
 	}
 	return config.BuiltInProvider{}, false
+}
+
+func providerConfigKind(provider config.OpenAICompatibleProviderConfig) string {
+	return strings.ToLower(strings.TrimSpace(provider.Kind))
+}
+
+func filterLocalProviderConfigs(configs []config.OpenAICompatibleProviderConfig) []config.OpenAICompatibleProviderConfig {
+	out := make([]config.OpenAICompatibleProviderConfig, 0, len(configs))
+	for _, cfg := range configs {
+		if providerConfigKind(cfg) != string(KindLocal) {
+			out = append(out, cfg)
+		}
+	}
+	return out
+}
+
+func providerKind(provider controlplane.Provider) string {
+	if strings.TrimSpace(provider.Kind) != "" {
+		return strings.ToLower(strings.TrimSpace(provider.Kind))
+	}
+	if builtIn, ok := builtInForControlPlaneProvider(provider); ok {
+		return strings.ToLower(strings.TrimSpace(builtIn.Kind))
+	}
+	return string(KindCloud)
 }
 
 func normalizeFieldNames(fields []string) []string {

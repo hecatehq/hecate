@@ -195,7 +195,8 @@ Every UI action maps to a Hecate-native settings endpoint:
 - `POST /hecate/v1/settings/providers` — add a provider. Body `{name, kind, protocol, base_url?, api_key?, custom_name?, preset_id?}`.
 - `GET /hecate/v1/settings/providers/local-discovery` — probe local presets
   for command presence and default endpoint availability. Used by the Add
-  provider modal before a provider is created.
+  provider modal before a provider is created. Cloud runtime mode blocks this
+  endpoint and hides local presets by default.
 - `DELETE /hecate/v1/settings/providers/{id}` — remove it.
 - `PATCH /hecate/v1/settings/providers/{id}` — partial update; accepts `base_url`, `name`, and `custom_name`.
 - `PUT /hecate/v1/settings/providers/{id}/api-key` — set the API key (empty `key` clears it).
@@ -306,3 +307,14 @@ inspect raw provider JSON.
 If configured local providers appear in the empty-chat state but no routable
 model is available, treat it as a discovery freshness issue first: start the
 local provider app, pull or load a model there, then refresh Connections.
+
+Hosted/cloud runtimes disable local model providers by default. Local discovery
+returns `403`, local presets are hidden, `kind=local` creates/updates are
+rejected, env-preconfigured local providers are skipped, and existing local
+provider rows do not enter the runtime registry. Only private deployments that
+intentionally attach a local model server inside the runtime isolation boundary
+should set `HECATE_CLOUD_ALLOW_LOCAL_PROVIDERS=1`.
+This is a provider-kind policy, not destination inspection: custom providers
+marked `kind=cloud` are not blocked merely because their `base_url` points at a
+private or loopback address. Use the surrounding deployment or control plane for
+network egress restrictions when destination-level enforcement is required.

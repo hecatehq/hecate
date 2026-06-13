@@ -167,11 +167,12 @@ func runServe() {
 
 	providerRuntime := providers.NewControlPlaneRuntimeManager(logger, cfg.Providers.OpenAICompatible, controlPlaneStore, secretCipher)
 	providerRuntime.SetGlobalAnthropicCacheDisabled(cfg.Providers.AnthropicCacheDisabled)
+	providerRuntime.SetLocalProvidersAllowed(cfg.LocalProvidersAllowed())
 	if err := providerRuntime.Reload(context.Background()); err != nil {
 		logger.Error("provider runtime reload failed", slog.Any("error", err))
 		os.Exit(1)
 	}
-	if err := controlplane.AutoImportEnvProviders(context.Background(), logger, controlPlaneStore, cfg.Providers.OpenAICompatible); err != nil {
+	if err := controlplane.AutoImportEnvProviders(context.Background(), logger, controlPlaneStore, cfg.Providers.OpenAICompatible, cfg.LocalProvidersAllowed()); err != nil {
 		logger.Warn("auto-import of env-preconfigured providers failed", slog.Any("error", err))
 	}
 	providerRegistry := providerRuntime.Registry()

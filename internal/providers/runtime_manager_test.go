@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/hecatehq/hecate/internal/config"
@@ -106,6 +107,137 @@ func TestControlPlaneRuntimeManagerHydratesBuiltInProviderDefaults(t *testing.T)
 	}
 }
 
+func TestControlPlaneRuntimeManagerRejectsLocalProvidersWhenDisabled(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewTextHandler(testWriter{t}, nil))
+	store := controlplane.NewMemoryStore()
+	manager := NewControlPlaneRuntimeManager(logger, nil, store, nil)
+	manager.SetLocalProvidersAllowed(false)
+
+	_, err := manager.Upsert(context.Background(), controlplane.Provider{
+		ID:       "ollama",
+		Name:     "Ollama",
+		PresetID: "ollama",
+		Kind:     "local",
+		Protocol: "openai",
+		BaseURL:  "http://127.0.0.1:11434/v1",
+		Enabled:  true,
+	}, "")
+	if err == nil {
+		t.Fatal("Upsert(local provider) error = nil, want disabled-local-provider error")
+	}
+	if !strings.Contains(err.Error(), "local providers are disabled") {
+		t.Fatalf("Upsert(local provider) error = %v, want local providers disabled", err)
+	}
+}
+
+func TestControlPlaneRuntimeManagerSkipsExistingLocalProvidersWhenDisabled(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewTextHandler(testWriter{t}, nil))
+	store := controlplane.NewMemoryStore()
+	if _, err := store.UpsertProvider(context.Background(), controlplane.Provider{
+		ID:       "ollama",
+		Name:     "ollama",
+		PresetID: "ollama",
+		Kind:     "local",
+		Protocol: "openai",
+		BaseURL:  "http://127.0.0.1:11434/v1",
+		Enabled:  true,
+	}, nil); err != nil {
+		t.Fatalf("UpsertProvider(local): %v", err)
+	}
+	key := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef0123456789abcdef"))
+	cipher, err := secrets.NewAESGCMCipher(key)
+	if err != nil {
+		t.Fatalf("NewAESGCMCipher() error = %v", err)
+	}
+	if _, err := store.UpsertProvider(context.Background(), controlplane.Provider{
+		ID:       "anthropic",
+		Name:     "anthropic",
+		PresetID: "anthropic",
+		Kind:     "cloud",
+		Protocol: "anthropic",
+		BaseURL:  "https://api.anthropic.com",
+		Enabled:  true,
+	}, &controlplane.ProviderSecret{ProviderID: "anthropic", APIKeyEncrypted: mustEncryptForTest(t, cipher, "anthropic-secret")}); err != nil {
+		t.Fatalf("UpsertProvider(cloud): %v", err)
+	}
+
+	manager := NewControlPlaneRuntimeManager(logger, nil, store, cipher)
+	manager.SetLocalProvidersAllowed(false)
+	if err := manager.Reload(context.Background()); err != nil {
+		t.Fatalf("Reload() error = %v", err)
+	}
+
+	registry := manager.Registry()
+	if _, ok := registry.Get("ollama"); ok {
+		t.Fatal("registry contains ollama, want local provider skipped")
+	}
+	if _, ok := registry.Get("anthropic"); !ok {
+		t.Fatal("registry missing anthropic cloud provider")
+	}
+}
+
+func TestControlPlaneRuntimeManagerSkipsBaseLocalProvidersWhenDisabled(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewTextHandler(testWriter{t}, nil))
+	manager := NewControlPlaneRuntimeManager(logger, []config.OpenAICompatibleProviderConfig{
+		{Name: "ollama", Kind: "local", Protocol: "openai", BaseURL: "http://127.0.0.1:11434/v1"},
+		{Name: "openai", Kind: "cloud", Protocol: "openai", BaseURL: "https://api.openai.com/v1", APIKey: "sk-openai"},
+	}, nil, nil)
+	manager.SetLocalProvidersAllowed(false)
+	if err := manager.Reload(context.Background()); err != nil {
+		t.Fatalf("Reload() error = %v", err)
+	}
+
+	registry := manager.Registry()
+	if _, ok := registry.Get("ollama"); ok {
+		t.Fatal("registry contains ollama, want base local provider skipped")
+	}
+	if _, ok := registry.Get("openai"); !ok {
+		t.Fatal("registry missing openai cloud provider")
+	}
+}
+
+func TestControlPlaneRuntimeManagerDefaultsToSkippingLocalProviders(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewTextHandler(testWriter{t}, nil))
+	store := controlplane.NewMemoryStore()
+	if _, err := store.UpsertProvider(context.Background(), controlplane.Provider{
+		ID:       "ollama-cp",
+		Name:     "ollama-cp",
+		Kind:     "local",
+		Protocol: "openai",
+		BaseURL:  "http://127.0.0.1:11434/v1",
+		Enabled:  true,
+	}, nil); err != nil {
+		t.Fatalf("UpsertProvider(local): %v", err)
+	}
+
+	manager := NewControlPlaneRuntimeManager(logger, []config.OpenAICompatibleProviderConfig{
+		{Name: "ollama", Kind: "local", Protocol: "openai", BaseURL: "http://127.0.0.1:11434/v1"},
+		{Name: "openai", Kind: "cloud", Protocol: "openai", BaseURL: "https://api.openai.com/v1", APIKey: "sk-openai"},
+	}, store, nil)
+	if err := manager.Reload(context.Background()); err != nil {
+		t.Fatalf("Reload() error = %v", err)
+	}
+
+	registry := manager.Registry()
+	if _, ok := registry.Get("ollama"); ok {
+		t.Fatal("registry contains base local provider, want default skip")
+	}
+	if _, ok := registry.Get("ollama-cp"); ok {
+		t.Fatal("registry contains control-plane local provider, want default skip")
+	}
+	if _, ok := registry.Get("openai"); !ok {
+		t.Fatal("registry missing openai cloud provider")
+	}
+}
+
 func TestControlPlaneRuntimeManagerHydratesPresetEndpointPaths(t *testing.T) {
 	t.Parallel()
 
@@ -203,6 +335,7 @@ func TestControlPlaneRuntimeManagerNormalizesPresetNameCasing(t *testing.T) {
 	store := controlplane.NewMemoryStore()
 
 	manager := NewControlPlaneRuntimeManager(logger, nil, store, nil)
+	manager.SetLocalProvidersAllowed(true)
 	// Mimic what the UI form sends when the operator picks the Ollama
 	// preset: name = preset.Name ("Ollama"), kind = "local", no
 	// secret. cp.ID is slugified to "ollama" inside the create
@@ -295,6 +428,15 @@ func TestControlPlaneRuntimeManagerAppliesAnthropicCacheToggleByProtocol(t *test
 	if openaiProvider.config.AnthropicCacheDisabled {
 		t.Fatal("non-Anthropic provider should NOT inherit AnthropicCacheDisabled")
 	}
+}
+
+func mustEncryptForTest(t *testing.T, cipher secrets.Cipher, value string) string {
+	t.Helper()
+	encrypted, err := cipher.Encrypt(value)
+	if err != nil {
+		t.Fatalf("Encrypt() error = %v", err)
+	}
+	return encrypted
 }
 
 type testWriter struct {

@@ -52,6 +52,17 @@ and MCP registry discovery. Hecate-native `/hecate/v1/*` routes are explicitly
 classified for cloud mode, and route coverage tests fail when a new registered
 route is not marked cloud-safe or local-only.
 
+Cloud mode disables local model providers by default. In that default posture,
+local presets are omitted, `kind=local` provider creates/updates are rejected,
+env-preconfigured local providers are skipped, and existing local provider rows
+are not loaded into the runtime provider registry. Set
+`HECATE_CLOUD_ALLOW_LOCAL_PROVIDERS=1` only for a private hosted runtime whose
+local model server is intentionally inside that runtime's isolation boundary.
+This provider policy is kind-based: Hecate blocks providers marked
+`kind=local`, but does not URL-filter custom `kind=cloud` `base_url`
+destinations. Cloud operators should enforce egress and private-endpoint policy
+outside the runtime when they need destination-level controls.
+
 Legacy Hecate-native `/v1/*` and `/admin/*` paths are intentionally not kept as
 compatibility shims in this alpha branch. Unknown API-shaped paths return 404
 rather than falling through to the embedded UI shell.
@@ -857,6 +868,10 @@ The gateway checks whether the expected provider command is on `PATH` and
 probes each unique default local endpoint once. Shared endpoints, such as the
 `llama.cpp` / `LocalAI` default `127.0.0.1:8080/v1`, are only called once and
 then reused for every matching preset card.
+
+This endpoint is local-only and returns `403` in cloud runtime mode. Hosted
+runtimes also disable local provider presets and `kind=local` providers unless
+launched with `HECATE_CLOUD_ALLOW_LOCAL_PROVIDERS=1`.
 
 ```json
 GET /hecate/v1/settings/providers/local-discovery

@@ -18,7 +18,7 @@ import (
 // Called once at startup from cmd/hecate/main.go after the provider runtime
 // reload. Logs each upsert at info level and tolerates per-row failures
 // (logs at warn) so a single bad config can't keep the gateway from booting.
-func AutoImportEnvProviders(ctx context.Context, logger *slog.Logger, store Store, configs []config.OpenAICompatibleProviderConfig) error {
+func AutoImportEnvProviders(ctx context.Context, logger *slog.Logger, store Store, configs []config.OpenAICompatibleProviderConfig, localProvidersAllowed bool) error {
 	if store == nil || len(configs) == 0 {
 		return nil
 	}
@@ -37,6 +37,9 @@ func AutoImportEnvProviders(ctx context.Context, logger *slog.Logger, store Stor
 	}
 	importCtx := WithActor(ctx, "system:env-import")
 	for _, c := range configs {
+		if !localProvidersAllowed && strings.EqualFold(strings.TrimSpace(c.Kind), "local") {
+			continue
+		}
 		id := strings.TrimSpace(c.Name)
 		if id == "" {
 			continue

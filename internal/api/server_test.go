@@ -1037,6 +1037,57 @@ func TestProviderPresetsReturnsCatalog(t *testing.T) {
 	}
 }
 
+func TestProviderPresetsHideLocalProvidersInCloudRuntimeByDefault(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	handler := NewHandler(config.Config{Server: config.ServerConfig{CloudRuntimeMode: true}}, logger, nil, nil, nil, nil)
+	response := requestProviderPresetsDirect(t, handler)
+	if response.Object != "provider_presets" {
+		t.Fatalf("object = %q, want provider_presets", response.Object)
+	}
+	for _, item := range response.Data {
+		if item.Kind == "local" {
+			t.Fatalf("cloud runtime preset list contains local provider: %+v", item)
+		}
+	}
+}
+
+func TestProviderPresetsAllowLocalProvidersInCloudRuntimeWithOptIn(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	handler := NewHandler(config.Config{Server: config.ServerConfig{
+		CloudRuntimeMode:         true,
+		CloudAllowLocalProviders: true,
+	}}, logger, nil, nil, nil, nil)
+	response := requestProviderPresetsDirect(t, handler)
+	foundOllama := false
+	for _, item := range response.Data {
+		if item.ID == "ollama" && item.Kind == "local" {
+			foundOllama = true
+		}
+	}
+	if !foundOllama {
+		t.Fatalf("missing ollama preset with cloud local-provider opt-in: %#v", response.Data)
+	}
+}
+
+func requestProviderPresetsDirect(t *testing.T, handler *Handler) ProviderPresetResponse {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/hecate/v1/providers/presets", nil)
+	handler.HandleProviderPresets(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("provider presets status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	var response ProviderPresetResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode provider presets: %v", err)
+	}
+	return response
+}
+
 func TestAgentAdaptersReturnsBuiltIns(t *testing.T) {
 	t.Parallel()
 

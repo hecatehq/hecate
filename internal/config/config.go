@@ -40,6 +40,7 @@ type ServerConfig struct {
 	InferenceToken             string
 	CloudRuntimeMode           bool
 	CloudRuntimeSecret         string
+	CloudAllowLocalProviders   bool
 	PublicURL                  string
 	DataDir                    string
 	BootstrapFile              string
@@ -183,6 +184,10 @@ type RateLimitConfig struct {
 	// BurstSize is the maximum number of tokens that can accumulate (default equals
 	// RequestsPerMinute).
 	BurstSize int64
+}
+
+func (c Config) LocalProvidersAllowed() bool {
+	return !c.Server.CloudRuntimeMode || c.Server.CloudAllowLocalProviders
 }
 
 type RouterConfig struct {
@@ -361,6 +366,12 @@ type OpenAICompatibleProviderConfig struct {
 func LoadFromEnv() Config {
 	storageBackend := strings.ToLower(strings.TrimSpace(getEnv("HECATE_BACKEND", "memory")))
 	providersCfg := loadProvidersFromEnv()
+	cloudRuntimeMode := getEnvBool("HECATE_CLOUD_RUNTIME_MODE", false)
+	cloudAllowLocalProviders := getEnvBool("HECATE_CLOUD_ALLOW_LOCAL_PROVIDERS", false)
+	allowedProviderKinds := splitCSV(getEnv("HECATE_ALLOWED_PROVIDER_KINDS", ""))
+	if cloudRuntimeMode && !cloudAllowLocalProviders && len(allowedProviderKinds) == 0 {
+		allowedProviderKinds = []string{"cloud"}
+	}
 	return Config{
 		Server: ServerConfig{
 			Address:              getEnv("HECATE_ADDRESS", "127.0.0.1:8765"),
@@ -368,8 +379,11 @@ func LoadFromEnv() Config {
 			AllowedOrigins:       splitCSV(getEnv("HECATE_ALLOWED_ORIGINS", "")),
 			RuntimeToken:         getEnv("HECATE_RUNTIME_TOKEN", ""),
 			InferenceToken:       getEnv("HECATE_INFERENCE_TOKEN", ""),
-			CloudRuntimeMode:     getEnvBool("HECATE_CLOUD_RUNTIME_MODE", false),
+			CloudRuntimeMode:     cloudRuntimeMode,
 			CloudRuntimeSecret:   getEnv("HECATE_CLOUD_RUNTIME_SECRET", ""),
+			// Hosted runtimes deny local model servers by default. Operators
+			// running an isolated sidecar can opt in explicitly.
+			CloudAllowLocalProviders: cloudAllowLocalProviders,
 			// PublicURL is written to hecate.runtime.json for local
 			// diagnostics. Empty means derive from Address.
 			PublicURL: getEnv("HECATE_PUBLIC_URL", ""),
@@ -448,7 +462,7 @@ func LoadFromEnv() Config {
 			DeniedProviders:      splitCSV(getEnv("HECATE_DENIED_PROVIDERS", "")),
 			AllowedModels:        splitCSV(getEnv("HECATE_ALLOWED_MODELS", "")),
 			DeniedModels:         splitCSV(getEnv("HECATE_DENIED_MODELS", "")),
-			AllowedProviderKinds: splitCSV(getEnv("HECATE_ALLOWED_PROVIDER_KINDS", "")),
+			AllowedProviderKinds: allowedProviderKinds,
 			UsageHistoryLimit:    getEnvInt("HECATE_USAGE_HISTORY_LIMIT", 20),
 		},
 		Retention: RetentionConfig{
@@ -540,6 +554,9 @@ func (c Config) Validate() error {
 	if c.Server.CloudRuntimeMode {
 		if secret := strings.TrimSpace(c.Server.CloudRuntimeSecret); len(secret) < 24 {
 			errs = append(errs, errors.New("HECATE_CLOUD_RUNTIME_SECRET must be at least 24 characters when HECATE_CLOUD_RUNTIME_MODE is enabled"))
+		}
+		if !c.Server.CloudAllowLocalProviders && stringSliceContainsFold(c.Governor.AllowedProviderKinds, "local") {
+			errs = append(errs, errors.New("HECATE_CLOUD_ALLOW_LOCAL_PROVIDERS=1 is required before allowing local provider kind in cloud runtime mode"))
 		}
 	}
 
@@ -1092,6 +1109,15 @@ func normalizeValues(values []string) []string {
 		}
 	}
 	return out
+}
+
+func stringSliceContainsFold(values []string, needle string) bool {
+	for _, value := range values {
+		if strings.EqualFold(strings.TrimSpace(value), needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func parseEnvCSVInts(value string) []int {

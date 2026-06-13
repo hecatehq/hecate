@@ -23,7 +23,7 @@ type providerPreset struct {
 }
 
 func (h *Handler) HandleProviderPresets(w http.ResponseWriter, r *http.Request) {
-	items := providerPresets()
+	items := providerPresets(h.config)
 	data := make([]ProviderPresetResponseItem, 0, len(items))
 	for _, item := range items {
 		data = append(data, ProviderPresetResponseItem{
@@ -47,10 +47,13 @@ func (h *Handler) HandleProviderPresets(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-func providerPresets() []providerPreset {
+func providerPresets(cfg config.Config) []providerPreset {
 	items := config.BuiltInProviders()
 	out := make([]providerPreset, 0, len(items))
 	for _, item := range items {
+		if !cfg.LocalProvidersAllowed() && strings.EqualFold(item.Kind, "local") {
+			continue
+		}
 		out = append(out, newProviderPreset(
 			item.ID,
 			item.Name,

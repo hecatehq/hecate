@@ -15,6 +15,7 @@ import (
 var (
 	ErrControlPlaneNotConfigured = errors.New("control plane is not configured")
 	ErrRuntimeNotConfigured      = errors.New("dynamic provider runtime is not configured")
+	ErrLocalProvidersDisabled    = errors.New("local providers are disabled in cloud runtime mode")
 )
 
 type ValidationError = apperrors.ValidationError
@@ -169,6 +170,9 @@ func (app *Application) UpdateProvider(ctx context.Context, cmd UpdateProviderCo
 	if existing == nil {
 		return nil, Validation(fmt.Errorf("provider %q not found", cmd.ID))
 	}
+	if !app.localProvidersAllowed() && providerKind(*existing) == "local" {
+		return nil, Validation(ErrLocalProvidersDisabled)
+	}
 	updated := *existing
 	if cmd.BaseURL != nil {
 		trimmed := strings.TrimSpace(*cmd.BaseURL)
@@ -264,6 +268,9 @@ func (app *Application) CreateProvider(ctx context.Context, cmd CreateProviderCo
 	if kind == "" {
 		kind = "cloud"
 	}
+	if !app.localProvidersAllowed() && createProviderKind(cmd, id, kind) == "local" {
+		return nil, Validation(ErrLocalProvidersDisabled)
+	}
 	protocol := cmd.Protocol
 	if protocol == "" {
 		protocol = "openai"
@@ -283,6 +290,13 @@ func (app *Application) CreateProvider(ctx context.Context, cmd CreateProviderCo
 	}
 	state, _ = app.controlPlane.Snapshot(ctx)
 	return &ProviderResult{Provider: provider, State: state}, nil
+}
+
+func (app *Application) localProvidersAllowed() bool {
+	if app == nil {
+		return false
+	}
+	return app.config.LocalProvidersAllowed()
 }
 
 func (app *Application) DeleteProvider(ctx context.Context, id string) error {
@@ -356,6 +370,9 @@ func buildProviderRecords(cfg config.Config, state controlplane.State) []Provide
 
 	records := make([]ProviderRecord, 0, len(state.Providers))
 	for _, cp := range state.Providers {
+		if !cfg.LocalProvidersAllowed() && providerKind(cp) == "local" {
+			continue
+		}
 		preset, hasPreset := presetByID[cp.ID]
 		record := ProviderRecord{
 			ID:             cp.ID,
@@ -403,6 +420,34 @@ func buildProviderRecords(cfg config.Config, state controlplane.State) []Provide
 	}
 
 	return records
+}
+
+func createProviderKind(cmd CreateProviderCommand, id, fallback string) string {
+	if strings.TrimSpace(cmd.Kind) != "" {
+		return normalizeProviderKind(cmd.Kind)
+	}
+	for _, candidate := range []string{cmd.PresetID, id, cmd.Name} {
+		if builtIn, ok := config.BuiltInProviderByID(candidate); ok {
+			return normalizeProviderKind(builtIn.Kind)
+		}
+	}
+	return normalizeProviderKind(fallback)
+}
+
+func providerKind(provider controlplane.Provider) string {
+	if strings.TrimSpace(provider.Kind) != "" {
+		return normalizeProviderKind(provider.Kind)
+	}
+	for _, candidate := range []string{provider.PresetID, provider.ID, provider.Name} {
+		if builtIn, ok := config.BuiltInProviderByID(candidate); ok {
+			return normalizeProviderKind(builtIn.Kind)
+		}
+	}
+	return normalizeProviderKind("cloud")
+}
+
+func normalizeProviderKind(kind string) string {
+	return strings.ToLower(strings.TrimSpace(kind))
 }
 
 func slugify(name string) string {

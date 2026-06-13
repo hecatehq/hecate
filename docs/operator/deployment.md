@@ -65,6 +65,21 @@ registered route is not explicitly marked cloud-safe or local-only. Keep the
 runtime network-private even with this mode enabled; the header secret is the
 internal proxy contract, not a public internet authentication system.
 
+Cloud mode also disables local model providers by default. Local presets are
+hidden, `kind=local` provider creates/updates are rejected, env-preconfigured
+local providers are skipped, and pre-existing local provider rows are not loaded
+into the runtime registry. Leave this default for Hecate Cloud SaaS runtimes.
+Private deployments that deliberately attach an isolated Ollama/vLLM-compatible
+sidecar can opt in with:
+
+```bash
+HECATE_CLOUD_ALLOW_LOCAL_PROVIDERS=1
+```
+
+The local-provider switch is based on Hecate provider `kind`, not URL
+classification. A custom `kind=cloud` provider keeps its configured `base_url`;
+network destination policy belongs in the cloud deployment boundary.
+
 External Agent sessions in cloud mode use a fail-closed credential policy.
 Hecate will not treat local CLI browser-login files or copied personal auth
 tokens as hosted credentials. Codex, Claude Code, Cursor Agent, and Grok Build
