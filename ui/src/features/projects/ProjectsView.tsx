@@ -201,6 +201,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
   const [editWorkError, setEditWorkError] = useState("");
   const [deleteWorkItem, setDeleteWorkItem] = useState<ProjectWorkItemRecord | null>(null);
   const [deleteWorkPending, setDeleteWorkPending] = useState(false);
+  const [closingWorkItemID, setClosingWorkItemID] = useState("");
   const [newAssignmentModalOpen, setNewAssignmentModalOpen] = useState(false);
   const [newAssignmentPending, setNewAssignmentPending] = useState(false);
   const [newAssignmentError, setNewAssignmentError] = useState("");
@@ -943,6 +944,25 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     }
   }
 
+  async function handleCloseWorkItem(item: ProjectWorkItemRecord) {
+    if (!selectedProjectID || closingWorkItemID) return;
+    setClosingWorkItemID(item.id);
+    setDetailError("");
+    try {
+      const payload = await updateProjectWorkItem(selectedProjectID, item.id, { status: "done" });
+      setWorkItems((current) => upsertWorkItem(current, payload.data));
+      if (selectedWorkItemID === item.id) {
+        setSelectedWorkItem(payload.data);
+      }
+      await loadWorkForProject(selectedProjectID, item.id);
+      await loadWorkItemDetail(selectedProjectID, item.id);
+    } catch (error) {
+      setDetailError(errorMessage(error, "Failed to mark work item done."));
+    } finally {
+      setClosingWorkItemID("");
+    }
+  }
+
   async function confirmDeleteWorkItem() {
     if (!selectedProjectID || !deleteWorkItem) return;
     setDeleteWorkPending(true);
@@ -1356,6 +1376,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
             handoffError={handoffError}
             handoffs={handoffs}
             hasWorkItemDetail={hasWorkItemDetail}
+            closingWorkItemID={closingWorkItemID}
             memoryCandidates={memoryCandidates}
             memoryEntries={memoryEntries}
             memoryError={memoryError}
@@ -1421,6 +1442,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
               setNewWorkError("");
               setNewWorkModalOpen(true);
             }}
+            onCloseWorkItem={(item) => void handleCloseWorkItem(item)}
             onDeleteAssignment={setDeleteAssignment}
             onDeleteHandoff={(handoff) => void handleDeleteHandoff(handoff)}
             onDeleteMemory={setDeleteMemory}

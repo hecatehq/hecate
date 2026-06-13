@@ -4358,6 +4358,55 @@ describe("ProjectsView cockpit", () => {
     expect(deleteProjectWorkItem).toHaveBeenCalledWith(project.id, workItem.id);
   });
 
+  it("marks a closeout-ready work item done from the selected detail", async () => {
+    resetProjectWorkMocks();
+    const completedAssignment: ProjectAssignmentRecord = {
+      ...hecateAssignment,
+      status: "completed",
+      execution_ref: {
+        kind: "task_run",
+        task_id: "task_1",
+        run_id: "run_1",
+        status: "completed",
+      },
+      execution: {
+        ...hecateAssignment.execution,
+        status: "completed",
+        task_status: "completed",
+        run_status: "completed",
+        pending_approval_count: 0,
+      },
+      completed_at: "2026-06-02T12:00:00Z",
+      updated_at: "2026-06-02T12:00:00Z",
+    };
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [{ ...workItem, assignments: [completedAssignment] }],
+    });
+    vi.mocked(getProjectAssignments).mockResolvedValue({
+      object: "project_assignments",
+      data: [completedAssignment],
+    });
+    vi.mocked(updateProjectWorkItem).mockResolvedValue({
+      object: "project_work_item",
+      data: { ...workItem, status: "done", updated_at: "2026-06-02T12:30:00Z" },
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    const detail = screen.getByLabelText("Selected work item");
+    await within(detail).findByText("Ready to mark done");
+    await userEvent.click(within(detail).getByRole("button", { name: "Mark done" }));
+
+    expect(updateProjectWorkItem).toHaveBeenCalledWith(project.id, workItem.id, {
+      status: "done",
+    });
+  });
+
   it("adds assignments from the selected work item", async () => {
     resetProjectWorkMocks();
     window.localStorage.setItem("hecate.project", project.id);

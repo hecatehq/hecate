@@ -81,6 +81,7 @@ export type ProjectWorkspaceViewProps = {
   onCreateAssignmentFromReviewArtifact: (artifact: ProjectCollaborationArtifactRecord) => void;
   onCreateAssignmentFromHandoff: (handoff: ProjectHandoffRecord) => void;
   onCreateWork: () => void;
+  onCloseWorkItem: (item: ProjectWorkItemRecord) => void;
   onDeleteAssignment: (assignment: ProjectAssignmentRecord) => void;
   onDeleteHandoff: (handoff: ProjectHandoffRecord) => void;
   onDeleteMemory: (entry: ProjectMemoryRecord) => void;
@@ -119,6 +120,7 @@ export type ProjectWorkspaceViewProps = {
   roles: ProjectWorkRoleRecord[];
   selectedWorkItem: ProjectWorkItemRecord | null;
   selectedWorkItemID: string;
+  closingWorkItemID: string;
   skillsError: string;
   skillsLoadState: LoadState;
   startingAssignmentID: string;
@@ -161,6 +163,7 @@ export function ProjectWorkspaceView({
   onCreateAssignmentFromReviewArtifact,
   onCreateAssignmentFromHandoff,
   onCreateWork,
+  onCloseWorkItem,
   onDeleteAssignment,
   onDeleteHandoff,
   onDeleteMemory,
@@ -199,6 +202,7 @@ export function ProjectWorkspaceView({
   roles,
   selectedWorkItem,
   selectedWorkItemID,
+  closingWorkItemID,
   skillsError,
   skillsLoadState,
   startingAssignmentID,
@@ -326,6 +330,7 @@ export function ProjectWorkspaceView({
                         activityByAssignmentID={activityByAssignmentID}
                         onDeleteHandoff={onDeleteHandoff}
                         onDeleteWorkItem={onDeleteWorkItem}
+                        onCloseWorkItem={onCloseWorkItem}
                         onEditHandoff={onEditHandoff}
                         onEditAssignment={onEditAssignment}
                         onEditWorkItem={onEditWorkItem}
@@ -340,6 +345,7 @@ export function ProjectWorkspaceView({
                         onSetHandoffStatus={onSetHandoffStatus}
                         project={project}
                         roleByID={roleByID}
+                        closingWorkItemID={closingWorkItemID}
                         startingAssignmentID={startingAssignmentID}
                         workItem={selectedWorkItem}
                         onAddAssignment={onAddAssignment}
