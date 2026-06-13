@@ -1401,6 +1401,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
                   assignment,
                   roleByID.get(assignment.role_id) ?? null,
                   selectedWorkItem,
+                  handoffs,
                 ),
               );
             }}

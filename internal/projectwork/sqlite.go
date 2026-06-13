@@ -120,6 +120,10 @@ CREATE TABLE IF NOT EXISTS %s (
 	title TEXT NOT NULL DEFAULT '',
 	body TEXT NOT NULL,
 	author_role_id TEXT NOT NULL DEFAULT '',
+	reviewed_assignment_id TEXT NOT NULL DEFAULT '',
+	review_verdict TEXT NOT NULL DEFAULT '',
+	review_risk TEXT NOT NULL DEFAULT '',
+	review_follow_up_required INTEGER NOT NULL DEFAULT 0,
 	created_at TEXT NOT NULL,
 	updated_at TEXT NOT NULL,
 	PRIMARY KEY(project_id, id)
@@ -169,6 +173,19 @@ CREATE TABLE IF NOT EXISTS %s (
 	}
 	if err := s.ensureColumn(ctx, s.assignmentsTbl, "execution_ref", `TEXT NOT NULL DEFAULT '{}'`); err != nil {
 		return err
+	}
+	for _, column := range []struct {
+		name       string
+		definition string
+	}{
+		{name: "reviewed_assignment_id", definition: `TEXT NOT NULL DEFAULT ''`},
+		{name: "review_verdict", definition: `TEXT NOT NULL DEFAULT ''`},
+		{name: "review_risk", definition: `TEXT NOT NULL DEFAULT ''`},
+		{name: "review_follow_up_required", definition: `INTEGER NOT NULL DEFAULT 0`},
+	} {
+		if err := s.ensureColumn(ctx, s.artifactsTbl, column.name, column.definition); err != nil {
+			return err
+		}
 	}
 	if err := s.migrateAssignmentExecutionRefs(ctx); err != nil {
 		return err
@@ -753,7 +770,7 @@ func (s *SQLiteStore) ListArtifacts(ctx context.Context, filter ArtifactFilter) 
 	filter.WorkItemID = strings.TrimSpace(filter.WorkItemID)
 	filter.AssignmentID = strings.TrimSpace(filter.AssignmentID)
 	query := fmt.Sprintf(`
-SELECT id, project_id, work_item_id, assignment_id, kind, title, body, author_role_id, created_at, updated_at
+SELECT id, project_id, work_item_id, assignment_id, kind, title, body, author_role_id, reviewed_assignment_id, review_verdict, review_risk, review_follow_up_required, created_at, updated_at
 FROM %s
 WHERE project_id = ?`, s.artifactsTbl)
 	args := []any{filter.ProjectID}
@@ -806,12 +823,25 @@ func (s *SQLiteStore) CreateArtifact(ctx context.Context, artifact Collaboration
 			return CollaborationArtifact{}, fmt.Errorf("%w: assignment not found", ErrNotFound)
 		}
 	}
+	if artifact.ReviewedAssignmentID != "" {
+		assignment, err := s.getRequiredAssignment(ctx, artifact.ProjectID, artifact.ReviewedAssignmentID)
+		if errors.Is(err, ErrNotFound) {
+			return CollaborationArtifact{}, fmt.Errorf("%w: reviewed assignment not found", err)
+		}
+		if err != nil {
+			return CollaborationArtifact{}, err
+		}
+		if assignment.WorkItemID != artifact.WorkItemID {
+			return CollaborationArtifact{}, fmt.Errorf("%w: reviewed assignment not found", ErrNotFound)
+		}
+	}
 	_, err := s.db.ExecContext(ctx, fmt.Sprintf(`
 INSERT INTO %s (
-	id, project_id, work_item_id, assignment_id, kind, title, body, author_role_id, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, s.artifactsTbl),
+	id, project_id, work_item_id, assignment_id, kind, title, body, author_role_id, reviewed_assignment_id, review_verdict, review_risk, review_follow_up_required, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, s.artifactsTbl),
 		artifact.ID, artifact.ProjectID, artifact.WorkItemID, artifact.AssignmentID,
 		artifact.Kind, artifact.Title, artifact.Body, artifact.AuthorRoleID,
+		artifact.ReviewedAssignmentID, artifact.ReviewVerdict, artifact.ReviewRisk, boolToDB(artifact.ReviewFollowUpRequired),
 		formatTime(artifact.CreatedAt), formatTime(artifact.UpdatedAt),
 	)
 	if err != nil {
@@ -1142,7 +1172,7 @@ WHERE project_id = ? AND id = ?`, s.assignmentsTbl), strings.TrimSpace(projectID
 
 func (s *SQLiteStore) getRequiredArtifact(ctx context.Context, projectID, id string) (CollaborationArtifact, error) {
 	row := s.db.QueryRowContext(ctx, fmt.Sprintf(`
-SELECT id, project_id, work_item_id, assignment_id, kind, title, body, author_role_id, created_at, updated_at
+SELECT id, project_id, work_item_id, assignment_id, kind, title, body, author_role_id, reviewed_assignment_id, review_verdict, review_risk, review_follow_up_required, created_at, updated_at
 FROM %s
 WHERE project_id = ? AND id = ?`, s.artifactsTbl), strings.TrimSpace(projectID), strings.TrimSpace(id))
 	item, err := scanArtifact(row)
@@ -1277,9 +1307,11 @@ func scanAssignment(row scanner) (Assignment, error) {
 func scanArtifact(row scanner) (CollaborationArtifact, error) {
 	var item CollaborationArtifact
 	var createdAt, updatedAt string
-	if err := row.Scan(&item.ID, &item.ProjectID, &item.WorkItemID, &item.AssignmentID, &item.Kind, &item.Title, &item.Body, &item.AuthorRoleID, &createdAt, &updatedAt); err != nil {
+	var reviewFollowUpRequired int
+	if err := row.Scan(&item.ID, &item.ProjectID, &item.WorkItemID, &item.AssignmentID, &item.Kind, &item.Title, &item.Body, &item.AuthorRoleID, &item.ReviewedAssignmentID, &item.ReviewVerdict, &item.ReviewRisk, &reviewFollowUpRequired, &createdAt, &updatedAt); err != nil {
 		return CollaborationArtifact{}, err
 	}
+	item.ReviewFollowUpRequired = reviewFollowUpRequired != 0
 	var err error
 	if item.CreatedAt, err = parseTime(createdAt); err != nil {
 		return CollaborationArtifact{}, err
@@ -1288,6 +1320,13 @@ func scanArtifact(row scanner) (CollaborationArtifact, error) {
 		return CollaborationArtifact{}, err
 	}
 	return item, nil
+}
+
+func boolToDB(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func scanHandoff(row scanner) (Handoff, error) {

@@ -2729,6 +2729,27 @@ describe("ProjectsView cockpit", () => {
       object: "project_assignments",
       data: [reviewAssignment],
     });
+    vi.mocked(getProjectHandoffs).mockResolvedValue({
+      object: "project_handoffs",
+      data: [
+        {
+          id: "handoff_review",
+          project_id: project.id,
+          work_item_id: workItem.id,
+          source_assignment_id: hecateAssignment.id,
+          target_assignment_id: reviewAssignment.id,
+          title: "QA reviewer review request",
+          summary: "Review the implementation.",
+          recommended_next_action: "Record findings as a review artifact.",
+          status: "accepted",
+          provenance_kind: "operator",
+          trust_label: "operator_reviewed",
+          created_at: "2026-06-02T11:00:00Z",
+          updated_at: "2026-06-02T11:05:00Z",
+          status_changed_at: "2026-06-02T11:05:00Z",
+        },
+      ],
+    });
     window.localStorage.setItem("hecate.project", project.id);
     const state = createRuntimeConsoleFixture({
       projects: [project],
@@ -2772,6 +2793,10 @@ describe("ProjectsView cockpit", () => {
           assignment_id: "asgn_review",
           author_role_id: "reviewer_qa",
           kind: "review",
+          reviewed_assignment_id: hecateAssignment.id,
+          review_follow_up_required: true,
+          review_risk: "medium",
+          review_verdict: "changes_requested",
           title: "QA reviewer review",
           body: expect.stringContaining("Verdict: Changes requested"),
         }),

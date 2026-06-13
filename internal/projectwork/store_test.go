@@ -180,20 +180,64 @@ func TestStoreConformance_ProjectWorkLifecycle(t *testing.T) {
 			}
 
 			artifact, err := store.CreateArtifact(ctx, CollaborationArtifact{
-				ID:           "art_brief",
-				ProjectID:    "proj_alpha",
-				WorkItemID:   "work_api",
-				AssignmentID: "asgn_impl",
-				Kind:         ArtifactKindBrief,
-				Title:        "Implementation brief",
-				Body:         "Build the backend substrate only.",
-				AuthorRoleID: "product_manager",
+				ID:                     "art_brief",
+				ProjectID:              "proj_alpha",
+				WorkItemID:             "work_api",
+				AssignmentID:           "asgn_impl",
+				Kind:                   ArtifactKindReview,
+				Title:                  "Implementation review",
+				Body:                   "Changes requested.",
+				AuthorRoleID:           "reviewer_qa",
+				ReviewedAssignmentID:   "asgn_impl",
+				ReviewVerdict:          ReviewVerdictChangesRequested,
+				ReviewRisk:             ReviewRiskMedium,
+				ReviewFollowUpRequired: true,
 			})
 			if err != nil {
 				t.Fatalf("CreateArtifact: %v", err)
 			}
-			if artifact.Kind != ArtifactKindBrief || artifact.Body == "" {
-				t.Fatalf("artifact = %+v, want brief artifact", artifact)
+			if artifact.Kind != ArtifactKindReview || artifact.ReviewedAssignmentID != "asgn_impl" || artifact.ReviewVerdict != ReviewVerdictChangesRequested || artifact.ReviewRisk != ReviewRiskMedium || !artifact.ReviewFollowUpRequired {
+				t.Fatalf("artifact = %+v, want structured review artifact", artifact)
+			}
+			briefArtifact, err := store.CreateArtifact(ctx, CollaborationArtifact{
+				ID:                     "art_note",
+				ProjectID:              "proj_alpha",
+				WorkItemID:             "work_api",
+				AssignmentID:           "asgn_impl",
+				Kind:                   ArtifactKindBrief,
+				Title:                  "Implementation note",
+				Body:                   "This is not a review.",
+				ReviewedAssignmentID:   "asgn_impl",
+				ReviewVerdict:          ReviewVerdictBlocked,
+				ReviewRisk:             ReviewRiskHigh,
+				ReviewFollowUpRequired: true,
+			})
+			if err != nil {
+				t.Fatalf("CreateArtifact non-review with review fields: %v", err)
+			}
+			if briefArtifact.ReviewedAssignmentID != "" || briefArtifact.ReviewVerdict != "" || briefArtifact.ReviewRisk != "" || briefArtifact.ReviewFollowUpRequired {
+				t.Fatalf("non-review artifact = %+v, want review fields cleared", briefArtifact)
+			}
+			if _, err := store.CreateArtifact(ctx, CollaborationArtifact{ID: "art_bad_verdict", ProjectID: "proj_alpha", WorkItemID: "work_api", AssignmentID: "asgn_impl", Kind: ArtifactKindReview, Body: "Invalid verdict.", ReviewVerdict: "ship_it"}); !errors.Is(err, ErrInvalid) {
+				t.Fatalf("CreateArtifact invalid review_verdict error = %v, want ErrInvalid", err)
+			}
+			if _, err := store.CreateArtifact(ctx, CollaborationArtifact{ID: "art_bad_risk", ProjectID: "proj_alpha", WorkItemID: "work_api", AssignmentID: "asgn_impl", Kind: ArtifactKindReview, Body: "Invalid risk.", ReviewRisk: "spicy"}); !errors.Is(err, ErrInvalid) {
+				t.Fatalf("CreateArtifact invalid review_risk error = %v, want ErrInvalid", err)
+			}
+			if _, err := store.CreateArtifact(ctx, CollaborationArtifact{ID: "art_missing_reviewed", ProjectID: "proj_alpha", WorkItemID: "work_api", AssignmentID: "asgn_impl", Kind: ArtifactKindReview, Body: "Missing reviewed assignment.", ReviewedAssignmentID: "asgn_missing"}); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("CreateArtifact missing reviewed_assignment_id error = %v, want ErrNotFound", err)
+			}
+			if _, err := store.CreateWorkItem(ctx, WorkItem{ID: "work_other", ProjectID: "proj_alpha", Title: "Other work"}); err != nil {
+				t.Fatalf("CreateWorkItem other: %v", err)
+			}
+			if _, err := store.CreateAssignment(ctx, Assignment{ID: "asgn_other", ProjectID: "proj_alpha", WorkItemID: "work_other", RoleID: "software_developer"}); err != nil {
+				t.Fatalf("CreateAssignment other: %v", err)
+			}
+			if _, err := store.CreateArtifact(ctx, CollaborationArtifact{ID: "art_cross_reviewed", ProjectID: "proj_alpha", WorkItemID: "work_api", AssignmentID: "asgn_impl", Kind: ArtifactKindReview, Body: "Cross-work reviewed assignment.", ReviewedAssignmentID: "asgn_other"}); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("CreateArtifact cross-work reviewed_assignment_id error = %v, want ErrNotFound", err)
+			}
+			if err := store.DeleteWorkItem(ctx, "proj_alpha", "work_other"); err != nil {
+				t.Fatalf("DeleteWorkItem other: %v", err)
 			}
 
 			handoff, err := store.CreateHandoff(ctx, Handoff{
@@ -259,8 +303,14 @@ func TestStoreConformance_ProjectWorkLifecycle(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ListArtifacts: %v", err)
 			}
-			if len(artifacts) != 1 || artifacts[0].ID != "art_brief" {
-				t.Fatalf("artifacts = %+v, want created artifact", artifacts)
+			if len(artifacts) != 2 || artifacts[0].ID != "art_brief" || artifacts[1].ID != "art_note" {
+				t.Fatalf("artifacts = %+v, want created review and note artifacts", artifacts)
+			}
+			if artifacts[0].ReviewVerdict != ReviewVerdictChangesRequested || artifacts[0].ReviewRisk != ReviewRiskMedium || !artifacts[0].ReviewFollowUpRequired {
+				t.Fatalf("listed review artifact = %+v, want structured review fields", artifacts[0])
+			}
+			if artifacts[1].ReviewedAssignmentID != "" || artifacts[1].ReviewVerdict != "" || artifacts[1].ReviewRisk != "" || artifacts[1].ReviewFollowUpRequired {
+				t.Fatalf("listed non-review artifact = %+v, want review fields cleared", artifacts[1])
 			}
 			handoffs, err := store.ListHandoffs(ctx, HandoffFilter{ProjectID: "proj_alpha", WorkItemID: "work_api"})
 			if err != nil {

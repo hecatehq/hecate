@@ -41,6 +41,8 @@ export type AssignmentStatus = (typeof ASSIGNMENT_STATUSES)[number];
 export const HANDOFF_STATUSES = ["pending", "accepted", "superseded", "dismissed"] as const;
 export type HandoffStatus = (typeof HANDOFF_STATUSES)[number];
 
+// Keep these values in sync with internal/projectwork review constants; the
+// server rejects review artifacts that use values outside its enum set.
 export const REVIEW_VERDICTS = ["approved", "changes_requested", "blocked", "risk"] as const;
 export type ReviewVerdict = (typeof REVIEW_VERDICTS)[number];
 
@@ -98,6 +100,7 @@ export type HandoffForm = {
 
 export type ReviewArtifactForm = {
   assignmentID: string;
+  reviewedAssignmentID: string;
   authorRoleID: string;
   title: string;
   verdict: ReviewVerdict;
@@ -316,10 +319,12 @@ export function reviewArtifactFormFromAssignment(
   assignment: ProjectAssignmentRecord,
   role: ProjectWorkRoleRecord | null,
   workItem: ProjectWorkItemRecord,
+  handoffs: ProjectHandoffRecord[] = [],
 ): ReviewArtifactForm {
   const roleName = role?.name || assignment.role_id;
   return {
     assignmentID: assignment.id,
+    reviewedAssignmentID: reviewedAssignmentIDForReviewAssignment(assignment, handoffs),
     authorRoleID: assignment.role_id,
     title: `${roleName} review`,
     verdict: "approved",
@@ -339,6 +344,10 @@ export function reviewArtifactPayloadFromForm(
     kind: "review",
     title: form.title.trim() || "Review",
     body: reviewArtifactBodyFromForm(form),
+    reviewed_assignment_id: form.reviewedAssignmentID.trim() || undefined,
+    review_verdict: form.verdict,
+    review_risk: form.risk,
+    review_follow_up_required: reviewFollowUpRequired(form),
   };
 }
 
@@ -383,7 +392,22 @@ function reviewArtifactBodyFromForm(form: ReviewArtifactForm): string {
   ].join("\n");
 }
 
-function reviewVerdictLabel(verdict: ReviewVerdict): string {
+function reviewedAssignmentIDForReviewAssignment(
+  assignment: ProjectAssignmentRecord,
+  handoffs: ProjectHandoffRecord[],
+): string {
+  const handoff = handoffs.find(
+    (item) => item.target_assignment_id === assignment.id && item.source_assignment_id,
+  );
+  return handoff?.source_assignment_id ?? "";
+}
+
+export function reviewFollowUpRequired(form: ReviewArtifactForm): boolean {
+  if (form.verdict === "changes_requested" || form.verdict === "blocked") return true;
+  return form.followUp.trim().length > 0;
+}
+
+export function reviewVerdictLabel(verdict: ReviewVerdict): string {
   switch (verdict) {
     case "changes_requested":
       return "Changes requested";
@@ -396,7 +420,7 @@ function reviewVerdictLabel(verdict: ReviewVerdict): string {
   }
 }
 
-function reviewRiskLabel(risk: ReviewRisk): string {
+export function reviewRiskLabel(risk: ReviewRisk): string {
   switch (risk) {
     case "low":
       return "Low";
