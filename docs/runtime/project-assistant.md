@@ -6,9 +6,10 @@ reviewable project proposal or submit typed actions directly, Hecate validates
 the proposal, the operator inspects the exact change set, and apply revalidates
 current server state before any durable mutation.
 
-It is not a broad chat persona in v0. Hecate Chat can call the same proposal and
-apply API later, but the action system lives in core so every surface follows
-the same validation, confirmation, and audit rules.
+It is not a broad chat persona in v0. Project-linked Hecate Chat can draft a
+Project Assistant proposal from the current composer text, but review and apply
+stay in the Projects workspace. The action system lives in core so every
+surface follows the same validation, confirmation, and audit rules.
 
 ## Current decisions
 
@@ -37,6 +38,13 @@ selected work item, the draft queues an assignment for that work. Without a
 selected work item, the draft creates a new project work item. In both cases
 `Draft proposal` creates reviewable data only; it does not create a chat, task,
 run, assignment, or agent session.
+
+Project-linked Hecate Chat has a compact `Draft proposal` composer action for
+turning the current draft message into the same Project Assistant proposal
+shape. That chat-session route derives `project_id` from the linked session
+instead of accepting it from the request body, drafts proposal data only, and
+hands the proposal to the Projects workspace for review. It does not append a
+chat message, create work records, or apply the proposal.
 
 ## Authority boundary
 
@@ -494,9 +502,9 @@ not load or inject `SKILL.md` bodies. It tells the model to treat durable
 project changes as Project Assistant proposal intent, not as permission to
 mutate project stores through generic tools or direct API calls. If the selected
 chat model routes to a cloud provider, that bounded project prompt context
-follows the normal model gateway route. A future chat-side proposal tool or
-slash-command shortcut can call the same Project Assistant APIs, but durable
-mutations must still stop at the explicit review/apply card.
+follows the normal model gateway route. Chat-side proposal drafting calls the
+Project Assistant draft API only; durable mutations must still stop at the
+explicit Projects review/apply card.
 Applying a proposal always calls `/project-assistant/apply` with `confirm: true`
 after the operator reviews the action rows. A successful apply refreshes the
 project list, project work, selected work-item detail, and project memory.

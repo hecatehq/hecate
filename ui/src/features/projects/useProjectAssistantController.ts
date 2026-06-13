@@ -134,6 +134,16 @@ export function useProjectAssistantController(options: Options) {
     [options.project, options.selectedWorkItem],
   );
 
+  const loadProposal = useCallback((nextProposal: ProjectAssistantProposal) => {
+    setProposal(nextProposal);
+    setApplyResult(null);
+    setContext(null);
+    setContextError("");
+    setContextStatus("idle");
+    setError("");
+    setStatus("idle");
+  }, []);
+
   const apply = useCallback(async () => {
     if (!options.selectedProjectID || !proposal) return;
     const currentProposal = proposal;
@@ -191,6 +201,7 @@ export function useProjectAssistantController(options: Options) {
     dismiss,
     error,
     inspectContext,
+    loadProposal,
     proposal,
     propose,
     status,

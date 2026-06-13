@@ -18,7 +18,8 @@ import {
   useWiredSettingsActions,
   useWiredDashboardActions,
 } from "../../app/state/coordinators/wired";
-import { discoverLocalProviders } from "../../lib/api";
+import { discoverLocalProviders, draftChatProjectAssistant } from "../../lib/api";
+import { writeProjectAssistantChatHandoff } from "../../lib/project-assistant-chat-handoff";
 import {
   modelSelectionHasNoToolCalling,
   resolveChatSetupRepairState,
@@ -171,6 +172,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const [quickLocalProviders, setQuickLocalProviders] = useState<LocalProviderDiscoveryRecord[]>(
     [],
   );
+  const [projectProposalDrafting, setProjectProposalDrafting] = useState(false);
 
   function updateRightPanelWidth(width: number) {
     setRightPanelWidth(width);
@@ -528,6 +530,13 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
       isHecateAgentChat &&
       (!hecateChatModelReady ||
         (!hecateAgentToolsDisabledForModel && !state.agentWorkspace.trim())));
+  const projectProposalAvailable =
+    selectedChatReady &&
+    isHecateChat &&
+    !agentBusy &&
+    Boolean(activeSessionProjectID) &&
+    Boolean(onNavigate) &&
+    Boolean(state.message.trim());
 
   function openAgentSetup(adapterID = activeAgentAdapterID) {
     try {
@@ -546,6 +555,48 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     if (!projectID) return;
     void projects.actions.selectProject(projectID);
     onNavigate?.("projects");
+  }
+
+  async function draftProjectProposalFromChat() {
+    const sessionID = activeSessionID.trim();
+    const projectID = activeSessionProjectID.trim();
+    const request = state.message.trim();
+    if (!sessionID || !projectID || !request || projectProposalDrafting) return;
+    setProjectProposalDrafting(true);
+    try {
+      const payload = await draftChatProjectAssistant(sessionID, {
+        request,
+        draft_mode: "deterministic",
+      });
+      const handoffWritten = writeProjectAssistantChatHandoff({
+        project_id: projectID,
+        proposal: payload.data,
+        request,
+        source_session_id: sessionID,
+        created_at: new Date().toISOString(),
+      });
+      if (!handoffWritten) {
+        settingsActions.setNoticeMessage(
+          "error",
+          "Failed to hand off the proposal to Projects. Try drafting again.",
+        );
+        return;
+      }
+      runtime.actions.setMessage("");
+      void projects.actions.selectProject(projectID);
+      onNavigate?.("projects");
+      settingsActions.setNoticeMessage(
+        "success",
+        "Project Assistant proposal drafted. Review it in Projects.",
+      );
+    } catch (error) {
+      settingsActions.setNoticeMessage(
+        "error",
+        error instanceof Error ? error.message : "Failed to draft Project Assistant proposal.",
+      );
+    } finally {
+      setProjectProposalDrafting(false);
+    }
   }
 
   useEffect(() => {
@@ -980,7 +1031,10 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
                 activeHecateTaskID={activeHecateTaskID}
                 activeHecateRunID={activeHecateRunID}
                 activeQueuedChatMessages={activeQueuedChatMessages}
+                projectProposalAvailable={projectProposalAvailable}
+                projectProposalDrafting={projectProposalDrafting}
                 messageHistory={messageHistory}
+                onDraftProjectProposal={() => void draftProjectProposalFromChat()}
                 onNavigate={onNavigate}
                 onOpenTask={onOpenTask}
                 onOpenTrace={onOpenTrace}

@@ -3,7 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ChatView } from "./ChatView";
-import { discoverLocalProviders } from "../../lib/api";
+import { discoverLocalProviders, draftChatProjectAssistant } from "../../lib/api";
+import { readProjectAssistantChatHandoff } from "../../lib/project-assistant-chat-handoff";
 import {
   createRuntimeConsoleActions,
   createRuntimeConsoleFixture,
@@ -21,11 +22,28 @@ vi.mock("../../lib/api", async (importOriginal) => {
   return {
     ...actual,
     discoverLocalProviders: vi.fn(async () => ({ object: "local_provider_discovery", data: [] })),
+    draftChatProjectAssistant: vi.fn(async () => ({
+      object: "project_assistant.proposal",
+      data: {
+        id: "pa_chat",
+        title: "Plan next project work",
+        summary: "Create a work item from chat.",
+        actions: [
+          {
+            kind: "create_work_item",
+            target: { project_id: "proj_1" },
+            patch: { project_id: "proj_1", title: "Plan next project work" },
+          },
+        ],
+        requires_confirmation: true,
+      },
+    })),
   };
 });
 
 afterEach(() => {
   localStorage.removeItem("hecate.chat.rightPanelWidth");
+  sessionStorage.removeItem("hecate.projectAssistant.chatDraft");
   if (originalNavigatorClipboardDescriptor) {
     Object.defineProperty(navigator, "clipboard", originalNavigatorClipboardDescriptor);
   } else {
@@ -35,6 +53,23 @@ afterEach(() => {
   vi.mocked(discoverLocalProviders).mockResolvedValue({
     object: "local_provider_discovery",
     data: [],
+  });
+  vi.mocked(draftChatProjectAssistant).mockReset();
+  vi.mocked(draftChatProjectAssistant).mockResolvedValue({
+    object: "project_assistant.proposal",
+    data: {
+      id: "pa_chat",
+      title: "Plan next project work",
+      summary: "Create a work item from chat.",
+      actions: [
+        {
+          kind: "create_work_item",
+          target: { project_id: "proj_1" },
+          patch: { project_id: "proj_1", title: "Plan next project work" },
+        },
+      ],
+      requires_confirmation: true,
+    },
   });
 });
 
@@ -5560,6 +5595,62 @@ describe("ChatView session title", () => {
 
     expect(selectProject).toHaveBeenCalledWith("proj_1");
     expect(onNavigate).toHaveBeenCalledWith("projects");
+  });
+
+  it("drafts a Project Assistant proposal from a project-linked Hecate chat message", async () => {
+    const selectProject = vi.fn(async () => undefined);
+    const setMessage = vi.fn();
+    const onNavigate = vi.fn();
+    const project: ProjectRecord = {
+      id: "proj_1",
+      name: "Hecate",
+      roots: [],
+      created_at: "2026-05-29T00:00:00Z",
+      updated_at: "2026-05-29T00:00:00Z",
+    };
+    const { state, actions } = setup(
+      {
+        chatTarget: "agent",
+        message: "Plan next project work",
+        projects: [project],
+        activeChatSessionID: "s1",
+        activeChatSession: {
+          id: "s1",
+          agent_id: "hecate",
+          title: "Project chat",
+          project_id: "proj_1",
+          provider: "openai",
+          model: "gpt-4o-mini",
+          status: "idle",
+          workspace: "/tmp/hecate",
+          messages: [],
+          provider_calls: [],
+        } as any,
+      },
+      { selectProject, setMessage },
+    );
+    render(withRuntimeConsole(<ChatView onNavigate={onNavigate} />, { state, actions }));
+
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByRole("button", { name: "Draft Project Assistant proposal from message" }),
+    );
+
+    await waitFor(() => {
+      expect(draftChatProjectAssistant).toHaveBeenCalledWith("s1", {
+        request: "Plan next project work",
+        draft_mode: "deterministic",
+      });
+    });
+    expect(selectProject).toHaveBeenCalledWith("proj_1");
+    expect(onNavigate).toHaveBeenCalledWith("projects");
+    expect(setMessage).toHaveBeenCalledWith("");
+    expect(readProjectAssistantChatHandoff()).toMatchObject({
+      project_id: "proj_1",
+      request: "Plan next project work",
+      source_session_id: "s1",
+      proposal: { id: "pa_chat" },
+    });
   });
 
   it("does not show the project shortcut for unprojected chats", () => {

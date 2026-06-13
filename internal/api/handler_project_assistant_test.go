@@ -233,6 +233,114 @@ func TestProjectAssistantAPI_DraftCreatesAssignmentProposal(t *testing.T) {
 	}
 }
 
+func TestProjectAssistantAPI_ChatDraftDerivesProjectFromSession(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectAssistantTestHandler()
+	project, err := handler.projects.Create(t.Context(), projects.Project{ID: "proj_chat_draft", Name: "Chat Draft Project"})
+	if err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	session, err := handler.agentChat.Create(t.Context(), chat.Session{
+		ID:        "chat_pa_draft",
+		Title:     "Project chat",
+		ProjectID: project.ID,
+		AgentID:   chat.DefaultAgentID,
+		Provider:  "ollama",
+		Model:     "qwen2.5-coder",
+		Status:    "idle",
+	})
+	if err != nil {
+		t.Fatalf("Create chat: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/chat/sessions/"+session.ID+"/project-assistant/draft", bytes.NewReader([]byte(`{
+		"request":"Plan next project work\nCapture a reviewable task."
+	}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("chat draft status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var proposed projectAssistantProposalResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &proposed); err != nil {
+		t.Fatalf("decode chat draft response: %v", err)
+	}
+	if proposed.Object != "project_assistant.proposal" || len(proposed.Data.Actions) != 1 {
+		t.Fatalf("chat draft response = %+v, want one proposal action", proposed)
+	}
+	if proposed.Data.Actions[0].Kind != projectassistant.ActionCreateWorkItem {
+		t.Fatalf("action kind = %q, want create_work_item", proposed.Data.Actions[0].Kind)
+	}
+	var patch map[string]any
+	if err := json.Unmarshal(proposed.Data.Actions[0].Patch, &patch); err != nil {
+		t.Fatalf("decode patch: %v", err)
+	}
+	if patch["project_id"] != project.ID || patch["title"] != "Plan next project work" {
+		t.Fatalf("patch = %+v, want linked project and request-derived title", patch)
+	}
+	updatedSession, ok, err := handler.agentChat.Get(t.Context(), session.ID)
+	if err != nil || !ok {
+		t.Fatalf("Get chat = ok %v err %v", ok, err)
+	}
+	if len(updatedSession.Messages) != 0 {
+		t.Fatalf("chat messages = %+v, want draft route not to append messages", updatedSession.Messages)
+	}
+	workItems, err := handler.projectWork.ListWorkItems(t.Context(), project.ID)
+	if err != nil {
+		t.Fatalf("ListWorkItems: %v", err)
+	}
+	if len(workItems) != 0 {
+		t.Fatalf("work items = %+v, want draft route not to mutate project work", workItems)
+	}
+}
+
+func TestProjectAssistantAPI_ChatDraftRequiresLinkedHecateSession(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectAssistantTestHandler()
+	if _, err := handler.agentChat.Create(t.Context(), chat.Session{
+		ID:      "chat_unlinked",
+		Title:   "No project",
+		AgentID: chat.DefaultAgentID,
+		Status:  "idle",
+	}); err != nil {
+		t.Fatalf("Create unlinked chat: %v", err)
+	}
+	if _, err := handler.agentChat.Create(t.Context(), chat.Session{
+		ID:        "chat_external",
+		Title:     "External",
+		ProjectID: "proj_unused",
+		AgentID:   "claude_code",
+		Status:    "idle",
+	}); err != nil {
+		t.Fatalf("Create external chat: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/chat/sessions/chat_unlinked/project-assistant/draft", strings.NewReader(`{"request":"Plan work"}`)))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("unlinked status = %d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+	var unlinked projectAssistantErrorResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &unlinked); err != nil {
+		t.Fatalf("decode unlinked error: %v", err)
+	}
+	if unlinked.Error.Type != errCodeInvalidRequest {
+		t.Fatalf("unlinked error type = %q, want %s", unlinked.Error.Type, errCodeInvalidRequest)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/chat/sessions/chat_external/project-assistant/draft", strings.NewReader(`{"request":"Plan work"}`)))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("external status = %d body=%s, want 409", rec.Code, rec.Body.String())
+	}
+	var external projectAssistantErrorResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &external); err != nil {
+		t.Fatalf("decode external error: %v", err)
+	}
+	if external.Error.Type != errCodeRuntimeMismatch {
+		t.Fatalf("external error type = %q, want %s", external.Error.Type, errCodeRuntimeMismatch)
+	}
+}
+
 func TestProjectAssistantAPI_DraftBootstrapProposal(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectAssistantTestHandler()

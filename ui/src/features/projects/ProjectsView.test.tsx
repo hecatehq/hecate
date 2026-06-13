@@ -58,6 +58,10 @@ import {
   createRuntimeConsoleActions,
   createRuntimeConsoleFixture,
 } from "../../test/runtime-console-fixture";
+import {
+  readProjectAssistantChatHandoff,
+  writeProjectAssistantChatHandoff,
+} from "../../lib/project-assistant-chat-handoff";
 import launchContextContractRaw from "../../test/fixtures/launch-context-v1-contract.json";
 import { withRuntimeConsole } from "../../test/runtime-console-render";
 import type {
@@ -998,6 +1002,7 @@ function expectLaunchContextContract(text: string) {
 
 afterEach(() => {
   window.localStorage.clear();
+  window.sessionStorage.clear();
   vi.mocked(getProjectActivity).mockReset();
   vi.mocked(getProjectWorkRoles).mockReset();
   vi.mocked(getProjectWorkItems).mockReset();
@@ -1354,6 +1359,47 @@ describe("ProjectsView cockpit", () => {
     expect(await within(assistant).findByText("Applied 1 action from pa_test.")).toBeTruthy();
     expect(getProjectWorkItems).toHaveBeenLastCalledWith(project.id);
     expect(getProjectAssignments).toHaveBeenLastCalledWith(project.id, workItem.id);
+  });
+
+  it("loads a chat-drafted Project Assistant proposal into the review panel", async () => {
+    resetProjectWorkMocks();
+    window.localStorage.setItem("hecate.project", project.id);
+    writeProjectAssistantChatHandoff({
+      project_id: project.id,
+      request: "Plan next project work",
+      source_session_id: "chat_1",
+      proposal: {
+        id: "pa_chat",
+        title: "Plan next project work",
+        summary: "Create a work item from chat.",
+        requires_confirmation: true,
+        actions: [
+          {
+            kind: "create_work_item",
+            target: { project_id: project.id },
+            patch: {
+              project_id: project.id,
+              title: "Plan next project work",
+              brief: "Capture a reviewable task from chat.",
+              status: "ready",
+            },
+          },
+        ],
+      },
+    });
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    const assistant = await screen.findByRole("region", { name: "Project Assistant" });
+    expect(
+      (await within(assistant).findAllByText("Plan next project work")).length,
+    ).toBeGreaterThan(0);
+    expect(within(assistant).getByText("Create work item")).toBeTruthy();
+    expect(draftProjectAssistant).not.toHaveBeenCalled();
+    expect(readProjectAssistantChatHandoff()).toBeNull();
   });
 
   it("can request model-backed Project Assistant drafts", async () => {

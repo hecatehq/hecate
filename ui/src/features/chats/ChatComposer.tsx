@@ -99,6 +99,8 @@ export type ChatComposerProps = {
   activeHecateRunID: string;
   // Filtered to the active session — ChatView already does the filter.
   activeQueuedChatMessages: QueuedChatMessage[];
+  projectProposalAvailable?: boolean;
+  projectProposalDrafting?: boolean;
 
   // User-message history feeds the arrow-key recall, derived in
   // ChatView from visibleMessages.
@@ -108,6 +110,7 @@ export type ChatComposerProps = {
   onNavigate?: (workspace: "connections" | "runs" | "overview" | "settings" | "projects") => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
   onOpenTrace?: (requestID: string) => void;
+  onDraftProjectProposal?: () => void;
 };
 
 export function ChatComposer(props: ChatComposerProps) {
@@ -173,10 +176,13 @@ export function ChatComposer(props: ChatComposerProps) {
     activeHecateTaskID,
     activeHecateRunID,
     activeQueuedChatMessages,
+    projectProposalAvailable = false,
+    projectProposalDrafting = false,
     messageHistory,
     onNavigate,
     onOpenTask,
     onOpenTrace,
+    onDraftProjectProposal,
   } = props;
   const activeExternalAgentID =
     activeChatSession?.agent_id && activeChatSession.agent_id !== "hecate"
@@ -885,6 +891,26 @@ export function ChatComposer(props: ChatComposerProps) {
                   }}
                 >
                   Stop
+                </button>
+              )}
+              {projectProposalAvailable && onDraftProjectProposal && (
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  aria-label="Draft Project Assistant proposal from message"
+                  disabled={projectProposalDrafting}
+                  title="Draft a Project Assistant proposal from this message"
+                  onClick={onDraftProjectProposal}
+                  style={{
+                    flexShrink: 0,
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 10,
+                    padding: "2px 6px",
+                    color: "var(--teal)",
+                  }}
+                >
+                  <Icon d={Icons.projects} size={12} />
+                  {projectProposalDrafting ? "Drafting..." : "Draft proposal"}
                 </button>
               )}
             </span>

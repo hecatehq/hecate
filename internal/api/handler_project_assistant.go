@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/hecatehq/hecate/internal/projectassistant"
 	"github.com/hecatehq/hecate/internal/projectassistantapp"
@@ -19,6 +20,16 @@ type projectAssistantProposeRequest struct {
 
 type projectAssistantDraftRequest struct {
 	ProjectID  string `json:"project_id"`
+	WorkItemID string `json:"work_item_id,omitempty"`
+	Request    string `json:"request"`
+	RoleID     string `json:"role_id,omitempty"`
+	DriverKind string `json:"driver_kind,omitempty"`
+	DraftMode  string `json:"draft_mode,omitempty"`
+	Provider   string `json:"provider,omitempty"`
+	Model      string `json:"model,omitempty"`
+}
+
+type chatProjectAssistantDraftRequest struct {
 	WorkItemID string `json:"work_item_id,omitempty"`
 	Request    string `json:"request"`
 	RoleID     string `json:"role_id,omitempty"`
@@ -79,6 +90,57 @@ func (h *Handler) HandleProjectAssistantDraft(w http.ResponseWriter, r *http.Req
 		DraftMode:  req.DraftMode,
 		Provider:   req.Provider,
 		Model:      req.Model,
+		RequestID:  RequestIDFromContext(r.Context()),
+		TraceID:    requestTraceID(r),
+	})
+	if err != nil {
+		writeProjectAssistantError(w, err)
+		return
+	}
+	WriteJSON(w, http.StatusOK, map[string]any{
+		"object": "project_assistant.proposal",
+		"data":   proposal,
+	})
+}
+
+func (h *Handler) HandleChatProjectAssistantDraft(w http.ResponseWriter, r *http.Request) {
+	result, err := h.chatApplication().GetSession(r.Context(), r.PathValue("id"))
+	if err != nil {
+		if writeChatAppError(w, err) {
+			return
+		}
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	session := result.Session
+	if isExternalChatSession(session) {
+		WriteError(w, http.StatusConflict, errCodeRuntimeMismatch, "Project Assistant chat drafts are available for Hecate Chat sessions")
+		return
+	}
+	projectID := strings.TrimSpace(session.ProjectID)
+	if projectID == "" {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "Project Assistant chat drafts require a project-linked chat session")
+		return
+	}
+	var req chatProjectAssistantDraftRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "invalid chat project assistant draft request")
+		return
+	}
+	req.Request = strings.TrimSpace(req.Request)
+	if req.Request == "" {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "request is required")
+		return
+	}
+	proposal, err := h.projectAssistantApplication().Draft(r.Context(), projectassistantapp.DraftCommand{
+		ProjectID:  projectID,
+		WorkItemID: req.WorkItemID,
+		Request:    req.Request,
+		RoleID:     req.RoleID,
+		DriverKind: req.DriverKind,
+		DraftMode:  req.DraftMode,
+		Provider:   firstNonEmpty(req.Provider, session.Provider),
+		Model:      firstNonEmpty(req.Model, session.Model),
 		RequestID:  RequestIDFromContext(r.Context()),
 		TraceID:    requestTraceID(r),
 	})

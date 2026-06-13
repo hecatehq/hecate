@@ -66,6 +66,7 @@ import type {
   CreateProjectWorkItemPayload,
   ProjectAssistantApplyPayload,
   ProjectAssistantApplyResponse,
+  ProjectAssistantChatDraftPayload,
   ProjectAssistantContextPayload,
   ProjectAssistantContextResponse,
   ProjectAssistantDraftPayload,
@@ -425,6 +426,19 @@ export async function draftProjectAssistant(
     method: "POST",
     body: payload,
   });
+}
+
+export async function draftChatProjectAssistant(
+  sessionID: string,
+  payload: ProjectAssistantChatDraftPayload,
+): Promise<ProjectAssistantProposalResponse> {
+  return fetchJSON<ProjectAssistantProposalResponse>(
+    `${HECATE_API}/chat/sessions/${encodeURIComponent(sessionID)}/project-assistant/draft`,
+    {
+      method: "POST",
+      body: payload,
+    },
+  );
 }
 
 export async function applyProjectAssistant(
