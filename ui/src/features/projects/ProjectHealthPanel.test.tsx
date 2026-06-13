@@ -45,6 +45,7 @@ function renderPanel(overrides: Partial<Parameters<typeof ProjectHealthPanel>[0]
       detail: "Open the work item.",
       status: "running",
       workItemID: "work_1",
+      actionLabel: "Open review",
     },
     {
       id: "task_1:item",
@@ -111,7 +112,8 @@ describe("ProjectHealthPanel", () => {
     expect(handlers.onAttentionDefaults).not.toHaveBeenCalled();
 
     await openMenu();
-    await userEvent.click(screen.getByRole("button", { name: "Open attention details" }));
+    expect(screen.getByText("Open review")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Open review" }));
     expect(handlers.onAttentionWorkItem).toHaveBeenCalledWith("work_1");
 
     await openMenu();

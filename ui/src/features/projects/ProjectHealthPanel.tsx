@@ -190,13 +190,17 @@ function ProjectHealthAttentionRow({
           <button
             className="btn btn-ghost btn-sm project-attention-item-action"
             type="button"
-            aria-label="Open attention details"
+            aria-label={
+              item.bucket
+                ? "Open attention details"
+                : (item.actionLabel ?? "Open attention details")
+            }
             onClick={(event) => {
               event.stopPropagation();
               onSelectWorkItem(item.workItemID!);
             }}
           >
-            Details
+            {item.bucket ? "Details" : (item.actionLabel ?? "Details")}
           </button>
         )}
         {item.taskID && (
