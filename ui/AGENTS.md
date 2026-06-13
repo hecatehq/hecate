@@ -19,6 +19,8 @@ ui/src/
     overview/             ConnectYourClient, ObservabilityView
     connections/          ConnectionsPanel — providers, model capabilities, external agents
     providers/            provider catalog/editor components used by Connections
+    projects/             ProjectsView top-level orchestration plus extracted
+                          workspace/detail/timeline/health/memory/skills panels
     settings/             SettingsView — local data cleanup / retention controls
     usage/                UsageView
     shared/               primitives, pickers, overlays; ui.tsx is a compatibility barrel
@@ -49,6 +51,27 @@ work, run `bun run typecheck` and `bun run test`.
 - UI gotchas (dropdown clipping, `bun test` vs `bun run test`, stale task IDs, snapshot churn) — [`../docs-ai/skills/ui/SKILL.md`](../docs-ai/skills/ui/SKILL.md).
 - Recipes (SSE-driven state field, paired pickers, snapshot refresh) — [`../docs-ai/skills/ui/SKILL.md`](../docs-ai/skills/ui/SKILL.md).
 - Project-wide rules (Conventional Commits, `chore(...)` for agent-doc updates, no emojis, no plan labels) — [`../docs-ai/core/workflow.md`](../docs-ai/core/workflow.md), [`../docs-ai/core/engineering-standards.md`](../docs-ai/core/engineering-standards.md).
+
+## Projects UI map
+
+Keep `ProjectsView.tsx` as the parent page for data loading, selected-project
+controller wiring, and mutation dispatch. Add project rendering to the extracted
+surface that owns it:
+
+- `ProjectWorkspaceView.tsx` — selected-project shell, onboarding, workspace
+  tabs, work inbox, and empty blocks.
+- `ProjectWorkItemDetail.tsx` — work item detail, assignment rows,
+  handoff-linked starts, launch preflight, and chat-draft request shaping.
+- `ProjectTimelinePanel.tsx` — timeline and decision-log rows.
+- `ProjectHealthPanel.tsx` — attention and health popovers.
+- `ProjectMemoryPanel.tsx` / `ProjectSkillsPanel.tsx` — memory/context review
+  and project skill registry surfaces.
+- `useProjectViewController.ts` / `useProjectAssistantController.ts` —
+  selected-project shell state and Project Assistant request orchestration.
+
+New project UI code needs focused tests next to the component/helper it changes.
+Update `ProjectsView.test.tsx` when parent loading, controller wiring, or
+mutation orchestration changes.
 
 ## Canonical product docs (UI-relevant)
 
