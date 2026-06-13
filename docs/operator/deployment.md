@@ -240,13 +240,16 @@ database; if they diverge, the env value wins on the next startup.
 Hecate keeps the storage model intentionally boring: one process-wide backend
 selector controls all Hecate-owned durable state.
 
-| Env var          | `memory`                         | `sqlite`                                         | `postgres`                                           |
-| ---------------- | -------------------------------- | ------------------------------------------------ | ---------------------------------------------------- |
+| Env var          | `memory`                         | `sqlite`                                         | `postgres`                                              |
+| ---------------- | -------------------------------- | ------------------------------------------------ | ------------------------------------------------------- |
 | `HECATE_BACKEND` | local default; resets on restart | Docker default; persists to `HECATE_SQLITE_PATH` | Cloud/runtime option; persists to `HECATE_POSTGRES_URL` |
 
 The backend covers settings, encrypted provider credentials, audit events,
 provider health history, usage events, retention history, projects, chat
 sessions, external-agent approvals/grants, tasks, and the task queue.
+The project backend also carries project memory, project work, project skills,
+and agent profiles. The chat backend also carries external-agent approval rows
+and durable grants so transcripts and approval history move together.
 
 Deployment-specific notes:
 
@@ -261,6 +264,10 @@ Deployment-specific notes:
   `HECATE_POSTGRES_URL=postgres://...` (or `DATABASE_URL`). Optional knobs:
   `HECATE_POSTGRES_TABLE_PREFIX`, `HECATE_POSTGRES_MAX_OPEN_CONNS`, and
   `HECATE_POSTGRES_MAX_IDLE_CONNS`.
+- Postgres coverage is intentionally checked in two layers: unit tests pin the
+  config fan-out, SQL-client requirement, and telemetry labels; the opt-in
+  `HECATE_POSTGRES_TEST_URL=... go test ./cmd/hecate -run TestPostgresStoresMigrateWhenDatabaseURLProvided`
+  smoke exercises every Postgres-backed store against a real database.
 - Projects are the durable identity foundation for project-scoped history,
   defaults, memory, profiles, skills, context sources, and project work. Chat
   sessions and tasks can carry `project_id` for UI grouping and runtime

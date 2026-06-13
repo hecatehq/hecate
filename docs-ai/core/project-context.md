@@ -117,6 +117,12 @@ the operator explicitly scopes the change differently. Add a `<thing>_test.go`
 that runs against memory and SQLite, and add or extend the opt-in Postgres
 smoke when real Postgres behavior matters.
 
+When adding or moving a backend selector, also update the two selector guards:
+`internal/config/config_test.go` for validation/DSN fan-out and
+`cmd/hecate/banner_test.go` for runtime SQL-client requirements. If the task
+queue backend changes, update the closed telemetry label set and metric test so
+Postgres remains observable as `hecate.queue.backend=postgres`.
+
 ## Toolchain pins
 
 - **Go**: see `go.mod` for the exact pinned version. CGO is not used; `modernc.org/sqlite` is the pure-Go sqlite driver.

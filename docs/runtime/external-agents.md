@@ -16,12 +16,12 @@ Hecate starts a fresh native session and keeps the Hecate transcript.
 
 ## Supported External Agents
 
-| External agent | How Hecate starts it                                                                                                      | Local auth mode                                                    | Cloud-safe auth mode                               |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | -------------------------------------------------- |
-| Codex          | Hecate-managed launcher for `@zed-industries/codex-acp` via local `npx`; direct `codex-acp` also works                    | Operator-owned Codex CLI auth visible to the adapter               | `OPENAI_API_KEY` or `CODEX_API_KEY`                |
-| Claude Code    | Hecate-managed launcher for `@agentclientprotocol/claude-agent-acp` via local `npx`; direct `claude-agent-acp` also works | Operator-owned Claude Code login visible to Claude Code            | `ANTHROPIC_API_KEY`                                |
-| Cursor Agent   | `cursor-agent acp`                                                                                                        | Operator-owned Cursor Agent auth visible to `cursor-agent`         | `CURSOR_API_KEY`                                   |
-| Grok Build     | `grok agent ... stdio`                                                                                                    | Operator-owned Grok login visible to `grok`                        | `XAI_API_KEY` or Hecate's `PROVIDER_XAI_API_KEY`   |
+| External agent | How Hecate starts it                                                                                                      | Local auth mode                                            | Cloud-safe auth mode                             |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------ |
+| Codex          | Hecate-managed launcher for `@zed-industries/codex-acp` via local `npx`; direct `codex-acp` also works                    | Operator-owned Codex CLI auth visible to the adapter       | `OPENAI_API_KEY` or `CODEX_API_KEY`              |
+| Claude Code    | Hecate-managed launcher for `@agentclientprotocol/claude-agent-acp` via local `npx`; direct `claude-agent-acp` also works | Operator-owned Claude Code login visible to Claude Code    | `ANTHROPIC_API_KEY`                              |
+| Cursor Agent   | `cursor-agent acp`                                                                                                        | Operator-owned Cursor Agent auth visible to `cursor-agent` | `CURSOR_API_KEY`                                 |
+| Grok Build     | `grok agent ... stdio`                                                                                                    | Operator-owned Grok login visible to `grok`                | `XAI_API_KEY` or Hecate's `PROVIDER_XAI_API_KEY` |
 
 ## Credential and account boundaries
 
