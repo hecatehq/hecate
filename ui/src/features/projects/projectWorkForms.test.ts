@@ -251,6 +251,24 @@ describe("projectWorkForms", () => {
       assignment,
       { id: "reviewer_qa", project_id: "proj_1", name: "QA reviewer", built_in: false },
       workItem,
+      [
+        {
+          id: "handoff_review",
+          project_id: "proj_1",
+          work_item_id: "work_1",
+          source_assignment_id: "assign_impl",
+          target_assignment_id: "assign_review",
+          title: "Review request",
+          summary: "Review implementation.",
+          recommended_next_action: "Record review.",
+          status: "accepted",
+          provenance_kind: "operator",
+          trust_label: "operator_reviewed",
+          created_at: "2026-06-12T00:00:00Z",
+          updated_at: "2026-06-12T00:00:00Z",
+          status_changed_at: "2026-06-12T00:00:00Z",
+        },
+      ],
     );
 
     expect(
@@ -266,6 +284,10 @@ describe("projectWorkForms", () => {
       assignment_id: "assign_review",
       author_role_id: "reviewer_qa",
       kind: "review",
+      reviewed_assignment_id: "assign_impl",
+      review_follow_up_required: true,
+      review_risk: "medium",
+      review_verdict: "changes_requested",
       title: "QA reviewer review",
       body: [
         "Verdict: Changes requested",

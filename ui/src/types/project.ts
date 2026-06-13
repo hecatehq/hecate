@@ -608,6 +608,10 @@ export type ProjectCollaborationArtifactRecord = {
   title?: string;
   body: string;
   author_role_id?: string;
+  reviewed_assignment_id?: string;
+  review_verdict?: string;
+  review_risk?: string;
+  review_follow_up_required?: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -619,6 +623,10 @@ export type CreateProjectCollaborationArtifactPayload = {
   title?: string;
   body: string;
   author_role_id?: string;
+  reviewed_assignment_id?: string;
+  review_verdict?: string;
+  review_risk?: string;
+  review_follow_up_required?: boolean;
 };
 
 export type ProjectHandoffStatus = "pending" | "accepted" | "superseded" | "dismissed";

@@ -358,6 +358,23 @@ describe("ProjectWorkItemDetail", () => {
     expect(handlers.onCreateAssignmentFromReviewArtifact).toHaveBeenCalledWith(reviewArtifact);
   });
 
+  it("renders structured review artifact outcome badges", () => {
+    renderDetail({
+      assignments: [],
+      artifacts: [
+        artifact({
+          review_verdict: "changes_requested",
+          review_risk: "medium",
+          review_follow_up_required: true,
+        }),
+      ],
+    });
+
+    expect(screen.getByText("Changes requested")).toBeTruthy();
+    expect(screen.getByText("risk Medium")).toBeTruthy();
+    expect(screen.getByText("follow-up required")).toBeTruthy();
+  });
+
   it("disables review artifact follow-up actions while an assignment shortcut is pending", () => {
     renderDetail({
       assignments: [],

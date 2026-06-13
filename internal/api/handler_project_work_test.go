@@ -254,6 +254,29 @@ func TestProjectWorkAPI_CRUD(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_backend/artifacts", bytes.NewReader([]byte(`{
+		"id":"art_review",
+		"assignment_id":"asgn_backend",
+		"reviewed_assignment_id":"asgn_backend",
+		"kind":"review",
+		"title":"Backend review",
+		"body":"Verdict: Changes requested",
+		"author_role_id":"reviewer_qa",
+		"review_verdict":"changes_requested",
+		"review_risk":"medium",
+		"review_follow_up_required":true
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create review artifact status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &artifact); err != nil {
+		t.Fatalf("decode review artifact: %v", err)
+	}
+	if artifact.Data.ReviewedAssignmentID != "asgn_backend" || artifact.Data.ReviewVerdict != "changes_requested" || artifact.Data.ReviewRisk != "medium" || !artifact.Data.ReviewFollowUpRequired {
+		t.Fatalf("review artifact = %+v, want structured review fields", artifact.Data)
+	}
+
+	rec = httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_backend/handoffs", bytes.NewReader([]byte(`{
 		"id":"handoff_backend",
 		"source_assignment_id":"asgn_backend",

@@ -38,6 +38,18 @@ const (
 	ArtifactKindReview       = "review"
 	ArtifactKindDecisionNote = "decision_note"
 
+	// Keep review enum values in sync with the Projects UI REVIEW_VERDICTS /
+	// REVIEW_RISKS lists; the API rejects values outside this server set.
+	ReviewVerdictApproved         = "approved"
+	ReviewVerdictChangesRequested = "changes_requested"
+	ReviewVerdictBlocked          = "blocked"
+	ReviewVerdictRisk             = "risk"
+
+	ReviewRiskLow     = "low"
+	ReviewRiskMedium  = "medium"
+	ReviewRiskHigh    = "high"
+	ReviewRiskUnknown = "unknown"
+
 	HandoffStatusPending    = "pending"
 	HandoffStatusAccepted   = "accepted"
 	HandoffStatusSuperseded = "superseded"
@@ -112,16 +124,20 @@ type AssignmentExecutionRef struct {
 }
 
 type CollaborationArtifact struct {
-	ID           string
-	ProjectID    string
-	WorkItemID   string
-	AssignmentID string
-	Kind         string
-	Title        string
-	Body         string
-	AuthorRoleID string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID                     string
+	ProjectID              string
+	WorkItemID             string
+	AssignmentID           string
+	Kind                   string
+	Title                  string
+	Body                   string
+	AuthorRoleID           string
+	ReviewedAssignmentID   string
+	ReviewVerdict          string
+	ReviewRisk             string
+	ReviewFollowUpRequired bool
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
 }
 
 type Handoff struct {
@@ -581,6 +597,12 @@ func (s *MemoryStore) CreateArtifact(_ context.Context, artifact CollaborationAr
 			return CollaborationArtifact{}, fmt.Errorf("%w: assignment not found", ErrNotFound)
 		}
 	}
+	if artifact.ReviewedAssignmentID != "" {
+		assignment, ok := s.assignments[assignmentKey(artifact.ProjectID, artifact.ReviewedAssignmentID)]
+		if !ok || assignment.WorkItemID != artifact.WorkItemID {
+			return CollaborationArtifact{}, fmt.Errorf("%w: reviewed assignment not found", ErrNotFound)
+		}
+	}
 	key := artifactKey(artifact.ProjectID, artifact.ID)
 	if _, exists := s.artifacts[key]; exists {
 		return CollaborationArtifact{}, ErrDuplicate
@@ -876,6 +898,15 @@ func normalizeArtifact(item CollaborationArtifact, now time.Time) CollaborationA
 	item.Title = strings.TrimSpace(item.Title)
 	item.Body = strings.TrimSpace(item.Body)
 	item.AuthorRoleID = strings.TrimSpace(item.AuthorRoleID)
+	item.ReviewedAssignmentID = strings.TrimSpace(item.ReviewedAssignmentID)
+	item.ReviewVerdict = strings.TrimSpace(item.ReviewVerdict)
+	item.ReviewRisk = strings.TrimSpace(item.ReviewRisk)
+	if item.Kind != ArtifactKindReview {
+		item.ReviewedAssignmentID = ""
+		item.ReviewVerdict = ""
+		item.ReviewRisk = ""
+		item.ReviewFollowUpRequired = false
+	}
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
@@ -1015,7 +1046,31 @@ func validateArtifact(item CollaborationArtifact) error {
 	if item.Body == "" {
 		return fmt.Errorf("%w: artifact body is required", ErrInvalid)
 	}
+	if item.ReviewVerdict != "" && !validReviewVerdict(item.ReviewVerdict) {
+		return fmt.Errorf("%w: unsupported review_verdict %q", ErrInvalid, item.ReviewVerdict)
+	}
+	if item.ReviewRisk != "" && !validReviewRisk(item.ReviewRisk) {
+		return fmt.Errorf("%w: unsupported review_risk %q", ErrInvalid, item.ReviewRisk)
+	}
 	return nil
+}
+
+func validReviewVerdict(verdict string) bool {
+	switch verdict {
+	case ReviewVerdictApproved, ReviewVerdictChangesRequested, ReviewVerdictBlocked, ReviewVerdictRisk:
+		return true
+	default:
+		return false
+	}
+}
+
+func validReviewRisk(risk string) bool {
+	switch risk {
+	case ReviewRiskLow, ReviewRiskMedium, ReviewRiskHigh, ReviewRiskUnknown:
+		return true
+	default:
+		return false
+	}
 }
 
 func validateHandoff(item Handoff) error {

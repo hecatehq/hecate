@@ -29,6 +29,12 @@ import {
   projectRootTitle,
   workStatusLabel,
 } from "./projectDisplay";
+import {
+  reviewRiskFromValue,
+  reviewRiskLabel,
+  reviewVerdictFromValue,
+  reviewVerdictLabel,
+} from "./projectWorkForms";
 import { firstNonEmpty, shortID } from "./projectUtils";
 
 export type ProjectAssignmentChatLaunchRequest = {
@@ -342,6 +348,19 @@ export function ProjectWorkItemDetail({
                   <div key={artifact.id} style={artifactStyle}>
                     <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                       <span className="badge badge-muted">{artifact.kind}</span>
+                      {artifact.kind === "review" && artifact.review_verdict && (
+                        <span className="badge badge-muted">
+                          {reviewVerdictLabel(reviewVerdictFromValue(artifact.review_verdict))}
+                        </span>
+                      )}
+                      {artifact.kind === "review" && artifact.review_risk && (
+                        <span className="badge badge-muted">
+                          risk {reviewRiskLabel(reviewRiskFromValue(artifact.review_risk))}
+                        </span>
+                      )}
+                      {artifact.kind === "review" && artifact.review_follow_up_required && (
+                        <span className="badge badge-amber">follow-up required</span>
+                      )}
                       <span style={{ ...titleStyle, flex: 1, minWidth: 0 }}>
                         {artifact.title || artifact.id}
                       </span>

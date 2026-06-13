@@ -81,12 +81,16 @@ type startProjectWorkAssignmentRequest struct {
 }
 
 type createProjectWorkArtifactRequest struct {
-	ID           string `json:"id,omitempty"`
-	AssignmentID string `json:"assignment_id,omitempty"`
-	Kind         string `json:"kind"`
-	Title        string `json:"title,omitempty"`
-	Body         string `json:"body"`
-	AuthorRoleID string `json:"author_role_id,omitempty"`
+	ID                     string `json:"id,omitempty"`
+	AssignmentID           string `json:"assignment_id,omitempty"`
+	Kind                   string `json:"kind"`
+	Title                  string `json:"title,omitempty"`
+	Body                   string `json:"body"`
+	AuthorRoleID           string `json:"author_role_id,omitempty"`
+	ReviewedAssignmentID   string `json:"reviewed_assignment_id,omitempty"`
+	ReviewVerdict          string `json:"review_verdict,omitempty"`
+	ReviewRisk             string `json:"review_risk,omitempty"`
+	ReviewFollowUpRequired bool   `json:"review_follow_up_required,omitempty"`
 }
 
 type createProjectHandoffRequest struct {
@@ -254,16 +258,20 @@ type ProjectWorkArtifactEnvelope struct {
 }
 
 type ProjectWorkArtifactResponse struct {
-	ID           string `json:"id"`
-	ProjectID    string `json:"project_id"`
-	WorkItemID   string `json:"work_item_id"`
-	AssignmentID string `json:"assignment_id,omitempty"`
-	Kind         string `json:"kind"`
-	Title        string `json:"title,omitempty"`
-	Body         string `json:"body"`
-	AuthorRoleID string `json:"author_role_id,omitempty"`
-	CreatedAt    string `json:"created_at"`
-	UpdatedAt    string `json:"updated_at"`
+	ID                     string `json:"id"`
+	ProjectID              string `json:"project_id"`
+	WorkItemID             string `json:"work_item_id"`
+	AssignmentID           string `json:"assignment_id,omitempty"`
+	Kind                   string `json:"kind"`
+	Title                  string `json:"title,omitempty"`
+	Body                   string `json:"body"`
+	AuthorRoleID           string `json:"author_role_id,omitempty"`
+	ReviewedAssignmentID   string `json:"reviewed_assignment_id,omitempty"`
+	ReviewVerdict          string `json:"review_verdict,omitempty"`
+	ReviewRisk             string `json:"review_risk,omitempty"`
+	ReviewFollowUpRequired bool   `json:"review_follow_up_required,omitempty"`
+	CreatedAt              string `json:"created_at"`
+	UpdatedAt              string `json:"updated_at"`
 }
 
 type ProjectHandoffsResponse struct {
@@ -740,14 +748,18 @@ func (h *Handler) HandleCreateProjectWorkArtifact(w http.ResponseWriter, r *http
 		id = newOpaqueTaskResourceID("art")
 	}
 	item, err := h.projectWork.CreateArtifact(r.Context(), projectwork.CollaborationArtifact{
-		ID:           id,
-		ProjectID:    projectID,
-		WorkItemID:   workItemID,
-		AssignmentID: req.AssignmentID,
-		Kind:         req.Kind,
-		Title:        req.Title,
-		Body:         req.Body,
-		AuthorRoleID: req.AuthorRoleID,
+		ID:                     id,
+		ProjectID:              projectID,
+		WorkItemID:             workItemID,
+		AssignmentID:           req.AssignmentID,
+		Kind:                   req.Kind,
+		Title:                  req.Title,
+		Body:                   req.Body,
+		AuthorRoleID:           req.AuthorRoleID,
+		ReviewedAssignmentID:   req.ReviewedAssignmentID,
+		ReviewVerdict:          req.ReviewVerdict,
+		ReviewRisk:             req.ReviewRisk,
+		ReviewFollowUpRequired: req.ReviewFollowUpRequired,
 	})
 	if !writeProjectWorkError(w, err) {
 		return
@@ -1237,16 +1249,20 @@ func renderProjectWorkAssignmentExecutionRef(ref *projectworkapp.AssignmentExecu
 
 func renderProjectWorkArtifact(item projectwork.CollaborationArtifact) ProjectWorkArtifactResponse {
 	return ProjectWorkArtifactResponse{
-		ID:           item.ID,
-		ProjectID:    item.ProjectID,
-		WorkItemID:   item.WorkItemID,
-		AssignmentID: item.AssignmentID,
-		Kind:         item.Kind,
-		Title:        item.Title,
-		Body:         item.Body,
-		AuthorRoleID: item.AuthorRoleID,
-		CreatedAt:    formatOptionalTime(item.CreatedAt),
-		UpdatedAt:    formatOptionalTime(item.UpdatedAt),
+		ID:                     item.ID,
+		ProjectID:              item.ProjectID,
+		WorkItemID:             item.WorkItemID,
+		AssignmentID:           item.AssignmentID,
+		Kind:                   item.Kind,
+		Title:                  item.Title,
+		Body:                   item.Body,
+		AuthorRoleID:           item.AuthorRoleID,
+		ReviewedAssignmentID:   item.ReviewedAssignmentID,
+		ReviewVerdict:          item.ReviewVerdict,
+		ReviewRisk:             item.ReviewRisk,
+		ReviewFollowUpRequired: item.ReviewFollowUpRequired,
+		CreatedAt:              formatOptionalTime(item.CreatedAt),
+		UpdatedAt:              formatOptionalTime(item.UpdatedAt),
 	}
 }
 

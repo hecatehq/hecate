@@ -408,6 +408,10 @@ describe("api client", () => {
       title: "QA review",
       body: "Verdict: Approved",
       author_role_id: "reviewer_qa",
+      reviewed_assignment_id: "asgn/source",
+      review_verdict: "approved",
+      review_risk: "low",
+      review_follow_up_required: false,
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -420,6 +424,10 @@ describe("api client", () => {
           title: "QA review",
           body: "Verdict: Approved",
           author_role_id: "reviewer_qa",
+          reviewed_assignment_id: "asgn/source",
+          review_verdict: "approved",
+          review_risk: "low",
+          review_follow_up_required: false,
         }),
       }),
     );
