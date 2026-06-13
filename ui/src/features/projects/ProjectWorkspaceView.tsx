@@ -66,6 +66,7 @@ export type ProjectWorkspaceViewProps = {
   memoryLoadState: LoadState;
   onActivityBucketChange: (bucket: ProjectActivityBucketKey) => void;
   onAddAssignment: () => void;
+  onAddEvidenceLink: () => void;
   onAddHandoff: () => void;
   onAddHandoffFromAssignment: (
     assignment: ProjectAssignmentRecord,
@@ -155,6 +156,7 @@ export function ProjectWorkspaceView({
   memoryLoadState,
   onActivityBucketChange,
   onAddAssignment,
+  onAddEvidenceLink,
   onAddHandoff,
   onAddHandoffFromAssignment,
   onAddReviewHandoffFromAssignment,
@@ -349,6 +351,7 @@ export function ProjectWorkspaceView({
                         startingAssignmentID={startingAssignmentID}
                         workItem={selectedWorkItem}
                         onAddAssignment={onAddAssignment}
+                        onAddEvidenceLink={onAddEvidenceLink}
                         onAddHandoff={onAddHandoff}
                         onAddHandoffFromAssignment={onAddHandoffFromAssignment}
                         onAddReviewHandoffFromAssignment={onAddReviewHandoffFromAssignment}

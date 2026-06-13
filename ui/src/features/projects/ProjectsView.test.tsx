@@ -2811,6 +2811,70 @@ describe("ProjectsView cockpit", () => {
     );
   });
 
+  it("records neutral evidence links from the selected work item", async () => {
+    resetProjectWorkMocks();
+    vi.mocked(createProjectCollaborationArtifact).mockResolvedValue({
+      object: "project_collaboration_artifact",
+      data: {
+        id: "art_evidence_new",
+        project_id: project.id,
+        work_item_id: workItem.id,
+        kind: "evidence_link",
+        title: "Research source",
+        body: "Source document used to validate this work.",
+        evidence_source_kind: "source_document",
+        evidence_url: "https://example.invalid/research",
+        evidence_external_id: "DOC-42",
+        evidence_provider: "docs",
+        evidence_trust_label: "operator_provided",
+        created_at: "2026-06-02T12:10:00Z",
+        updated_at: "2026-06-02T12:10:00Z",
+      },
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    expect(await screen.findByText("Expose project work and native starts.")).toBeTruthy();
+    const detail = await screen.findByRole("region", { name: "Selected work item" });
+    await userEvent.click(within(detail).getByRole("button", { name: "Evidence" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Record evidence" });
+    fireEvent.change(within(dialog).getByLabelText("Title"), {
+      target: { value: "Research source" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Source kind"), {
+      target: { value: "source_document" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Provider"), {
+      target: { value: "docs" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("URL"), {
+      target: { value: "https://example.invalid/research" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("External id"), {
+      target: { value: "DOC-42" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Summary"), {
+      target: { value: "Source document used to validate this work." },
+    });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Record evidence" }));
+
+    expect(createProjectCollaborationArtifact).toHaveBeenCalledWith(project.id, workItem.id, {
+      kind: "evidence_link",
+      title: "Research source",
+      body: "Source document used to validate this work.",
+      evidence_source_kind: "source_document",
+      evidence_url: "https://example.invalid/research",
+      evidence_external_id: "DOC-42",
+      evidence_provider: "docs",
+      evidence_trust_label: "operator_provided",
+    });
+  });
+
   it("drafts follow-up handoffs from review artifacts", async () => {
     resetProjectWorkMocks();
     const reviewAssignment: ProjectAssignmentRecord = {

@@ -176,6 +176,7 @@ function renderDetail(overrides: Partial<ProjectWorkItemDetailProps> = {}) {
   const assign = assignment();
   const handlers = {
     onAddAssignment: vi.fn(),
+    onAddEvidenceLink: vi.fn(),
     onAddHandoff: vi.fn(),
     onAddHandoffFromAssignment: vi.fn(),
     onAddHandoffFromReviewArtifact: vi.fn(),
@@ -433,6 +434,34 @@ describe("ProjectWorkItemDetail", () => {
     expect(screen.getByText("Changes requested")).toBeTruthy();
     expect(screen.getByText("risk Medium")).toBeTruthy();
     expect(screen.getByText("follow-up required")).toBeTruthy();
+  });
+
+  it("renders evidence link metadata and delegates evidence creation", async () => {
+    const { handlers } = renderDetail({
+      assignments: [],
+      artifacts: [
+        artifact({
+          id: "art_evidence",
+          kind: "evidence_link",
+          title: "Source document",
+          body: "Research source for this work.",
+          evidence_source_kind: "source_document",
+          evidence_url: "https://example.invalid/source",
+          evidence_external_id: "DOC-42",
+          evidence_provider: "docs",
+          evidence_trust_label: "operator_provided",
+        }),
+      ],
+    });
+
+    expect(screen.getByText("source_document")).toBeTruthy();
+    expect(screen.getByText("operator_provided")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "https://example.invalid/source" })).toBeTruthy();
+    expect(screen.getByText("provider docs · external DOC-42")).toBeTruthy();
+
+    await userEvent.click(screen.getByRole("button", { name: "Evidence" }));
+
+    expect(handlers.onAddEvidenceLink).toHaveBeenCalledTimes(1);
   });
 
   it("disables review artifact follow-up actions while an assignment shortcut is pending", () => {

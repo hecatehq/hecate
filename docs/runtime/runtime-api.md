@@ -1834,8 +1834,8 @@ root. Launch workspace resolution uses assignment `root_id`, then work-item
 Work items may also carry `reviewer_role_ids`; these identify roles that are
 appropriate targets for review handoffs and do not grant permissions, enforce
 policy, or auto-dispatch review work.
-Supported collaboration artifact kinds are `brief`, `handoff`, `review`, and
-`decision_note`.
+Supported collaboration artifact kinds are `brief`, `handoff`, `review`,
+`decision_note`, and `evidence_link`.
 Supported structured handoff statuses are `pending`, `accepted`, `superseded`,
 and `dismissed`.
 
@@ -2666,6 +2666,28 @@ Operators can create a separate handoff from the review artifact when follow-up
 is needed. The UI may also offer a shortcut that creates the handoff and queued
 follow-up assignment together, but it still records the handoff first and does
 not start the assignment automatically.
+
+The Projects cockpit uses `kind="evidence_link"` artifacts to attach generic
+external or local evidence to a work item. Evidence links are intentionally not
+GitHub- or code-specific: a link can point at a source document, research
+artifact, ticket, deployment, pull request, design file, meeting note, or any
+other operator-provided reference. Evidence link metadata is stored only as
+project provenance; Hecate does not fetch the URL, grant access to the external
+system, or treat the provider as policy authority. Evidence links may carry:
+
+- `evidence_source_kind` — free-form source category such as `source_document`,
+  `pull_request`, `ticket`, `deployment`, `design_file`, or `meeting_note`.
+- `evidence_url` — optional URL or locator string.
+- `evidence_external_id` — optional external identifier when a URL is not the
+  best reference.
+- `evidence_provider` — optional source system label such as `github`, `figma`,
+  `jira`, `docs`, or `local`.
+- `evidence_trust_label` — provenance/trust label, defaulting to
+  `operator_provided`.
+
+An evidence link requires `body` plus either `evidence_url` or
+`evidence_external_id`. Non-evidence artifacts clear these evidence fields on
+write.
 
 ```json
 {

@@ -79,6 +79,7 @@ export type ProjectWorkItemDetailProps = {
   loading: boolean;
   onAddAssignment: () => void;
   onAddHandoff: () => void;
+  onAddEvidenceLink: () => void;
   onAddHandoffFromAssignment: (
     assignment: ProjectAssignmentRecord,
     activityItem?: ProjectActivityItemRecord,
@@ -128,6 +129,7 @@ export function ProjectWorkItemDetail({
   detailError,
   loading,
   onAddAssignment,
+  onAddEvidenceLink,
   onAddHandoff,
   onAddHandoffFromAssignment,
   onAddReviewHandoffFromAssignment,
@@ -362,6 +364,15 @@ export function ProjectWorkItemDetail({
           <div style={workItemSectionHeaderStyle}>
             <div style={sectionLabelStyle}>Collaboration Artifacts</div>
             <span className="badge badge-muted">{artifacts.length}</span>
+            <button
+              className="btn btn-primary btn-sm"
+              type="button"
+              onClick={onAddEvidenceLink}
+              style={{ marginLeft: "auto" }}
+            >
+              <Icon d={Icons.plus} size={12} />
+              Evidence
+            </button>
           </div>
           {artifacts.length === 0 ? (
             <div style={subtleTextStyle}>No collaboration artifacts recorded yet.</div>
@@ -385,6 +396,12 @@ export function ProjectWorkItemDetail({
                       )}
                       {artifact.kind === "review" && artifact.review_follow_up_required && (
                         <span className="badge badge-amber">follow-up required</span>
+                      )}
+                      {artifact.kind === "evidence_link" && artifact.evidence_source_kind && (
+                        <span className="badge badge-muted">{artifact.evidence_source_kind}</span>
+                      )}
+                      {artifact.kind === "evidence_link" && artifact.evidence_trust_label && (
+                        <span className="badge badge-muted">{artifact.evidence_trust_label}</span>
                       )}
                       <span style={{ ...titleStyle, flex: 1, minWidth: 0 }}>
                         {artifact.title || artifact.id}
@@ -420,6 +437,9 @@ export function ProjectWorkItemDetail({
                     >
                       {artifact.body}
                     </div>
+                    {artifact.kind === "evidence_link" && (
+                      <EvidenceArtifactMetadata artifact={artifact} />
+                    )}
                   </div>
                 );
               })}
@@ -489,6 +509,30 @@ export function ProjectWorkItemDetail({
       </article>
     </div>
   );
+}
+
+function EvidenceArtifactMetadata({ artifact }: { artifact: ProjectCollaborationArtifactRecord }) {
+  const details = [
+    artifact.evidence_provider ? `provider ${artifact.evidence_provider}` : "",
+    artifact.evidence_external_id ? `external ${artifact.evidence_external_id}` : "",
+  ].filter(Boolean);
+  return (
+    <div style={evidenceArtifactMetadataStyle}>
+      {artifact.evidence_url && isLinkableEvidenceURL(artifact.evidence_url) && (
+        <a href={artifact.evidence_url} target="_blank" rel="noreferrer">
+          {artifact.evidence_url}
+        </a>
+      )}
+      {artifact.evidence_url && !isLinkableEvidenceURL(artifact.evidence_url) && (
+        <span>{artifact.evidence_url}</span>
+      )}
+      {details.length > 0 && <span>{details.join(" · ")}</span>}
+    </div>
+  );
+}
+
+function isLinkableEvidenceURL(value: string): boolean {
+  return /^https?:\/\//i.test(value.trim());
 }
 
 function WorkItemCloseoutPanel({
@@ -1629,6 +1673,17 @@ const closeoutListStyle: CSSProperties = {
   lineHeight: 1.45,
   margin: "8px 0 0",
   paddingLeft: 18,
+};
+
+const evidenceArtifactMetadataStyle: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 8,
+  marginTop: 8,
+  color: "var(--t3)",
+  fontSize: 12,
+  lineHeight: 1.4,
+  overflowWrap: "anywhere",
 };
 
 const workItemSectionHeaderStyle: CSSProperties = {

@@ -133,6 +133,11 @@ CREATE TABLE IF NOT EXISTS %s (
 	title TEXT NOT NULL DEFAULT '',
 	body TEXT NOT NULL,
 	author_role_id TEXT NOT NULL DEFAULT '',
+	evidence_source_kind TEXT NOT NULL DEFAULT '',
+	evidence_url TEXT NOT NULL DEFAULT '',
+	evidence_external_id TEXT NOT NULL DEFAULT '',
+	evidence_provider TEXT NOT NULL DEFAULT '',
+	evidence_trust_label TEXT NOT NULL DEFAULT '',
 	reviewed_assignment_id TEXT NOT NULL DEFAULT '',
 	review_verdict TEXT NOT NULL DEFAULT '',
 	review_risk TEXT NOT NULL DEFAULT '',
@@ -191,6 +196,11 @@ CREATE TABLE IF NOT EXISTS %s (
 		name       string
 		definition string
 	}{
+		{name: "evidence_source_kind", definition: `TEXT NOT NULL DEFAULT ''`},
+		{name: "evidence_url", definition: `TEXT NOT NULL DEFAULT ''`},
+		{name: "evidence_external_id", definition: `TEXT NOT NULL DEFAULT ''`},
+		{name: "evidence_provider", definition: `TEXT NOT NULL DEFAULT ''`},
+		{name: "evidence_trust_label", definition: `TEXT NOT NULL DEFAULT ''`},
 		{name: "reviewed_assignment_id", definition: `TEXT NOT NULL DEFAULT ''`},
 		{name: "review_verdict", definition: `TEXT NOT NULL DEFAULT ''`},
 		{name: "review_risk", definition: `TEXT NOT NULL DEFAULT ''`},
@@ -761,7 +771,7 @@ func (s *SQLiteStore) ListArtifacts(ctx context.Context, filter ArtifactFilter) 
 	filter.WorkItemID = strings.TrimSpace(filter.WorkItemID)
 	filter.AssignmentID = strings.TrimSpace(filter.AssignmentID)
 	query := fmt.Sprintf(`
-SELECT id, project_id, work_item_id, assignment_id, kind, title, body, author_role_id, reviewed_assignment_id, review_verdict, review_risk, review_follow_up_required, created_at, updated_at
+SELECT id, project_id, work_item_id, assignment_id, kind, title, body, author_role_id, evidence_source_kind, evidence_url, evidence_external_id, evidence_provider, evidence_trust_label, reviewed_assignment_id, review_verdict, review_risk, review_follow_up_required, created_at, updated_at
 FROM %s
 WHERE project_id = ?`, s.artifactsTbl)
 	args := []any{filter.ProjectID}
@@ -828,10 +838,11 @@ func (s *SQLiteStore) CreateArtifact(ctx context.Context, artifact Collaboration
 	}
 	_, err := s.db.ExecContext(ctx, fmt.Sprintf(`
 INSERT INTO %s (
-	id, project_id, work_item_id, assignment_id, kind, title, body, author_role_id, reviewed_assignment_id, review_verdict, review_risk, review_follow_up_required, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, s.artifactsTbl),
+	id, project_id, work_item_id, assignment_id, kind, title, body, author_role_id, evidence_source_kind, evidence_url, evidence_external_id, evidence_provider, evidence_trust_label, reviewed_assignment_id, review_verdict, review_risk, review_follow_up_required, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, s.artifactsTbl),
 		artifact.ID, artifact.ProjectID, artifact.WorkItemID, artifact.AssignmentID,
 		artifact.Kind, artifact.Title, artifact.Body, artifact.AuthorRoleID,
+		artifact.EvidenceSourceKind, artifact.EvidenceURL, artifact.EvidenceExternalID, artifact.EvidenceProvider, artifact.EvidenceTrustLabel,
 		artifact.ReviewedAssignmentID, artifact.ReviewVerdict, artifact.ReviewRisk, boolToDB(artifact.ReviewFollowUpRequired),
 		formatTime(artifact.CreatedAt), formatTime(artifact.UpdatedAt),
 	)
@@ -1163,7 +1174,7 @@ WHERE project_id = ? AND id = ?`, s.assignmentsTbl), strings.TrimSpace(projectID
 
 func (s *SQLiteStore) getRequiredArtifact(ctx context.Context, projectID, id string) (CollaborationArtifact, error) {
 	row := s.db.QueryRowContext(ctx, fmt.Sprintf(`
-SELECT id, project_id, work_item_id, assignment_id, kind, title, body, author_role_id, reviewed_assignment_id, review_verdict, review_risk, review_follow_up_required, created_at, updated_at
+SELECT id, project_id, work_item_id, assignment_id, kind, title, body, author_role_id, evidence_source_kind, evidence_url, evidence_external_id, evidence_provider, evidence_trust_label, reviewed_assignment_id, review_verdict, review_risk, review_follow_up_required, created_at, updated_at
 FROM %s
 WHERE project_id = ? AND id = ?`, s.artifactsTbl), strings.TrimSpace(projectID), strings.TrimSpace(id))
 	item, err := scanArtifact(row)
@@ -1299,7 +1310,7 @@ func scanArtifact(row scanner) (CollaborationArtifact, error) {
 	var item CollaborationArtifact
 	var createdAt, updatedAt string
 	var reviewFollowUpRequired int
-	if err := row.Scan(&item.ID, &item.ProjectID, &item.WorkItemID, &item.AssignmentID, &item.Kind, &item.Title, &item.Body, &item.AuthorRoleID, &item.ReviewedAssignmentID, &item.ReviewVerdict, &item.ReviewRisk, &reviewFollowUpRequired, &createdAt, &updatedAt); err != nil {
+	if err := row.Scan(&item.ID, &item.ProjectID, &item.WorkItemID, &item.AssignmentID, &item.Kind, &item.Title, &item.Body, &item.AuthorRoleID, &item.EvidenceSourceKind, &item.EvidenceURL, &item.EvidenceExternalID, &item.EvidenceProvider, &item.EvidenceTrustLabel, &item.ReviewedAssignmentID, &item.ReviewVerdict, &item.ReviewRisk, &reviewFollowUpRequired, &createdAt, &updatedAt); err != nil {
 		return CollaborationArtifact{}, err
 	}
 	item.ReviewFollowUpRequired = reviewFollowUpRequired != 0
