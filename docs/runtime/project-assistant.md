@@ -47,6 +47,12 @@ drafting, and hands the proposal to the Projects workspace for review. It does
 not append a chat message, call the model-backed draft path, create work
 records, or apply the proposal.
 
+When Projects consumes a chat-drafted proposal handoff, the review card shows
+the source as `drafted from chat`, preserves the originating request text and
+chat session id, and offers an `Open source chat` action. That source context is
+transient UI handoff metadata; applying the proposal still sends only the typed
+proposal through the normal explicit apply path.
+
 ## Authority boundary
 
 Project Assistant is a proposal author, not the project orchestrator. It can

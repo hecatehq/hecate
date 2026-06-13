@@ -2670,7 +2670,9 @@ endpoint always uses deterministic drafting and returns
 `project_assistant.proposal` data only. It does not call the model-backed draft
 path, append chat messages, create project records, or apply the proposal; UI
 clients should hand the response to the Projects Project Assistant review/apply
-surface.
+surface. Clients may carry local source metadata, such as the request text and
+chat session id, for review UI navigation; that metadata is not part of the
+proposal apply payload.
 
 ## Chat session endpoints
 

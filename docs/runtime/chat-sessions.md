@@ -26,6 +26,8 @@ is proposal data only; it does not send a chat message, create project records,
 call the model-backed draft path, or apply the proposal. Deleting a project also
 deletes its project-scoped chat
 transcripts. Unprojected chats and chats in other projects stay untouched.
+The Projects review card preserves the originating request and chat session id
+for operator inspection and exposes an **Open source chat** action.
 
 Hecate Chat treats model/provider readiness as part of composition, not a
 send-time surprise. If no configured provider has routable models, the empty

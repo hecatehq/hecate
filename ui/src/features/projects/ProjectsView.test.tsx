@@ -1363,11 +1363,14 @@ describe("ProjectsView cockpit", () => {
 
   it("loads a chat-drafted Project Assistant proposal into the review panel", async () => {
     resetProjectWorkMocks();
+    const user = userEvent.setup();
+    const onOpenChat = vi.fn();
     window.localStorage.setItem("hecate.project", project.id);
     writeProjectAssistantChatHandoff({
       project_id: project.id,
       request: "Plan next project work",
       source_session_id: "chat_1",
+      created_at: "2026-06-13T00:00:00Z",
       proposal: {
         id: "pa_chat",
         title: "Plan next project work",
@@ -1391,9 +1394,22 @@ describe("ProjectsView cockpit", () => {
       projects: [project],
       activeProjectID: project.id,
     });
-    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+    render(
+      withRuntimeConsole(<ProjectsView onOpenChat={onOpenChat} />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
+    );
 
     const assistant = await screen.findByRole("region", { name: "Project Assistant" });
+    const source = await within(assistant).findByLabelText("Proposal source");
+    expect(within(source).getByText("drafted from chat")).toBeTruthy();
+    expect(within(source).getByText("Plan next project work")).toBeTruthy();
+    await user.click(within(source).getByRole("button", { name: "Open source chat" }));
+    expect(onOpenChat).toHaveBeenCalledWith({
+      projectID: project.id,
+      chatSessionID: "chat_1",
+    });
     expect(
       (await within(assistant).findAllByText("Plan next project work")).length,
     ).toBeGreaterThan(0);

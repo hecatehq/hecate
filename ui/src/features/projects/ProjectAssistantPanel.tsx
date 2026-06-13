@@ -8,6 +8,7 @@ import type {
   ProjectWorkItemRecord,
   ProjectWorkRoleRecord,
 } from "../../types/project";
+import { formatAbsoluteTime } from "../../lib/format";
 import { CopyableID, Icon, Icons, InlineError } from "../shared/ui";
 
 export const PROJECT_ASSISTANT_AUTO = "__auto__";
@@ -24,6 +25,7 @@ export type ProjectAssistantContextStatus = "idle" | "loading" | "loaded" | "err
 
 type Props = {
   applyResult: ProjectAssistantApplyResult | null;
+  chatDraftSource?: ProjectAssistantChatDraftSource | null;
   context: ProjectAssistantContextRecord | null;
   contextError: string;
   contextStatus: ProjectAssistantContextStatus;
@@ -32,6 +34,7 @@ type Props = {
   onBootstrap: () => void;
   onDismiss: () => void;
   onInspectContext: (form: ProjectAssistantDraftForm) => void;
+  onOpenSourceChat?: () => void;
   onPropose: (form: ProjectAssistantDraftForm) => void;
   project: ProjectRecord | null;
   proposal: ProjectAssistantProposal | null;
@@ -41,8 +44,15 @@ type Props = {
   workItem: ProjectWorkItemRecord | null;
 };
 
+export type ProjectAssistantChatDraftSource = {
+  request?: string;
+  sourceSessionID?: string;
+  createdAt?: string;
+};
+
 export function ProjectAssistantPanel({
   applyResult,
+  chatDraftSource,
   context,
   contextError,
   contextStatus,
@@ -51,6 +61,7 @@ export function ProjectAssistantPanel({
   onBootstrap,
   onDismiss,
   onInspectContext,
+  onOpenSourceChat,
   onPropose,
   project,
   proposal,
@@ -253,6 +264,12 @@ export function ProjectAssistantPanel({
               <CopyableID text={proposal.trace_id} compact />
             </div>
           )}
+          {chatDraftSource && (
+            <ProjectAssistantChatDraftSourcePanel
+              source={chatDraftSource}
+              onOpenChat={onOpenSourceChat}
+            />
+          )}
           {proposal.warnings && proposal.warnings.length > 0 && (
             <div style={assistantWarningsStyle}>
               {proposal.warnings.map((warning) => (
@@ -292,6 +309,37 @@ export function ProjectAssistantPanel({
         </div>
       )}
     </section>
+  );
+}
+
+function ProjectAssistantChatDraftSourcePanel({
+  onOpenChat,
+  source,
+}: {
+  onOpenChat?: () => void;
+  source: ProjectAssistantChatDraftSource;
+}) {
+  const createdAt = formatAbsoluteTime(source.createdAt);
+  return (
+    <div style={assistantSourceStyle} aria-label="Proposal source">
+      <div style={assistantSourceHeaderStyle}>
+        <span className="badge badge-muted">drafted from chat</span>
+        {createdAt && <span style={subtleTextStyle}>{createdAt}</span>}
+        {source.sourceSessionID && onOpenChat && (
+          <button className="btn btn-ghost btn-sm" type="button" onClick={onOpenChat}>
+            <Icon d={Icons.chat} size={12} />
+            Open source chat
+          </button>
+        )}
+      </div>
+      {source.request && <div style={assistantSourceRequestStyle}>{source.request}</div>}
+      {source.sourceSessionID && (
+        <div style={metaLineStyle}>
+          <span>Chat</span>
+          <CopyableID text={source.sourceSessionID} compact />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -701,6 +749,33 @@ const assistantWarningsStyle: CSSProperties = {
   fontSize: 12,
   gap: 4,
   padding: "8px 9px",
+};
+
+const assistantSourceStyle: CSSProperties = {
+  background: "var(--bg1)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-sm)",
+  display: "grid",
+  gap: 7,
+  minWidth: 0,
+  padding: "8px 9px",
+};
+
+const assistantSourceHeaderStyle: CSSProperties = {
+  alignItems: "center",
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 8,
+  justifyContent: "space-between",
+  minWidth: 0,
+};
+
+const assistantSourceRequestStyle: CSSProperties = {
+  color: "var(--t1)",
+  fontSize: 12,
+  lineHeight: 1.45,
+  overflowWrap: "anywhere",
+  whiteSpace: "pre-wrap",
 };
 
 const assistantActionListStyle: CSSProperties = {
