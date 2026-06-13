@@ -58,7 +58,7 @@ type CoordinatorHooks struct {
 // Waiters are intentionally not persisted: a Hecate restart cannot
 // resurrect an in-flight ACP RequestPermission, so any pending row
 // found in storage on startup is invalid as far as live blocking
-// goes — the SQLite backend's startup reconcile pass marks such rows
+// goes — the SQL backend startup reconcile pass marks such rows
 // as `timed_out`.
 type ApprovalCoordinator struct {
 	opts CoordinatorOptions
@@ -224,7 +224,7 @@ func (c *ApprovalCoordinator) RequestPermission(ctx context.Context, recCtx Reco
 		// configured timeout fires, or the request context is
 		// cancelled. The waiter is process-local; on Hecate restart
 		// any pending row in storage is unrecoverable for live
-		// blocking — the SQLite backend marks them timed_out at startup.
+		// blocking — SQL-backed stores mark them timed_out at startup.
 		w := c.registerWaiter(created.ID)
 		defer c.unregisterWaiter(created.ID)
 		if c.opts.Hooks.OnRequested != nil {

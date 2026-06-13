@@ -64,8 +64,9 @@ var knownApprovalDecisions = map[string]struct{}{
 }
 
 var knownQueueBackends = map[string]struct{}{
-	"memory": {},
-	"sqlite": {},
+	"memory":   {},
+	"sqlite":   {},
+	"postgres": {},
 }
 
 var knownAgentDriverKinds = map[string]struct{}{
