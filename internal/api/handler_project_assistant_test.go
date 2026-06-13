@@ -255,7 +255,10 @@ func TestProjectAssistantAPI_ChatDraftDerivesProjectFromSession(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/chat/sessions/"+session.ID+"/project-assistant/draft", bytes.NewReader([]byte(`{
-		"request":"Plan next project work\nCapture a reviewable task."
+		"request":"Plan next project work\nCapture a reviewable task.",
+		"draft_mode":"model",
+		"provider":"openai",
+		"model":"gpt-test"
 	}`))))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("chat draft status = %d body=%s, want 200", rec.Code, rec.Body.String())
