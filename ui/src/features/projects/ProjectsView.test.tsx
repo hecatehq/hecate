@@ -2738,6 +2738,127 @@ describe("ProjectsView cockpit", () => {
     });
   });
 
+  it("creates queued follow-up assignments directly from review artifacts", async () => {
+    resetProjectWorkMocks();
+    vi.mocked(getProjectCollaborationArtifacts).mockResolvedValue({
+      object: "project_collaboration_artifacts",
+      data: [
+        {
+          id: "art_review",
+          project_id: project.id,
+          work_item_id: workItem.id,
+          assignment_id: "asgn_review",
+          kind: "review",
+          title: "QA reviewer review",
+          body: "Verdict: Changes requested\n\nFollow-up:\nUpdate empty-state spacing.",
+          author_role_id: "reviewer_qa",
+          created_at: "2026-06-02T12:10:00Z",
+          updated_at: "2026-06-02T12:10:00Z",
+        },
+      ],
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    const detail = await screen.findByRole("region", { name: "Selected work item" });
+    await waitFor(() => {
+      expect(within(detail).getByText("QA reviewer review")).toBeTruthy();
+    });
+    await userEvent.click(
+      within(detail).getByRole("button", {
+        name: "Create follow-up assignment from review artifact art_review",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(createProjectHandoff).toHaveBeenCalledWith(
+        project.id,
+        workItem.id,
+        expect.objectContaining({
+          source_assignment_id: "asgn_review",
+          target_role_id: "software_developer",
+          linked_artifact_ids: ["art_review"],
+          title: "QA reviewer review follow-up",
+        }),
+      );
+    });
+    expect(createProjectAssignment).toHaveBeenCalledWith(project.id, workItem.id, {
+      role_id: "software_developer",
+      driver_kind: "hecate_task",
+    });
+    expect(updateProjectHandoff).toHaveBeenCalledWith(
+      project.id,
+      workItem.id,
+      "handoff_new",
+      expect.objectContaining({
+        target_assignment_id: "asgn_new",
+        target_role_id: "software_developer",
+        status: "accepted",
+      }),
+    );
+    expect(startProjectAssignment).not.toHaveBeenCalled();
+  });
+
+  it("keeps created review follow-up handoffs recoverable when assignment creation fails", async () => {
+    resetProjectWorkMocks();
+    vi.mocked(getProjectCollaborationArtifacts).mockResolvedValue({
+      object: "project_collaboration_artifacts",
+      data: [
+        {
+          id: "art_review",
+          project_id: project.id,
+          work_item_id: workItem.id,
+          assignment_id: "asgn_review",
+          kind: "review",
+          title: "QA reviewer review",
+          body: "Verdict: Changes requested\n\nFollow-up:\nUpdate empty-state spacing.",
+          author_role_id: "reviewer_qa",
+          created_at: "2026-06-02T12:10:00Z",
+          updated_at: "2026-06-02T12:10:00Z",
+        },
+      ],
+    });
+    vi.mocked(createProjectAssignment).mockRejectedValueOnce(new Error("assignment store down"));
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    const detail = await screen.findByRole("region", { name: "Selected work item" });
+    await waitFor(() => {
+      expect(within(detail).getByText("QA reviewer review")).toBeTruthy();
+    });
+    await userEvent.click(
+      within(detail).getByRole("button", {
+        name: "Create follow-up assignment from review artifact art_review",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(createProjectHandoff).toHaveBeenCalledWith(
+        project.id,
+        workItem.id,
+        expect.objectContaining({
+          linked_artifact_ids: ["art_review"],
+          title: "QA reviewer review follow-up",
+        }),
+      );
+    });
+    await screen.findByText(/Created the follow-up handoff, but failed to create its assignment/);
+    expect(createProjectAssignment).toHaveBeenCalledWith(project.id, workItem.id, {
+      role_id: "software_developer",
+      driver_kind: "hecate_task",
+    });
+    expect(updateProjectHandoff).not.toHaveBeenCalled();
+    expect(startProjectAssignment).not.toHaveBeenCalled();
+  });
+
   it("renders a project timeline from activity, decisions, artifacts, and memory", async () => {
     resetProjectWorkMocks();
     const onOpenTask = vi.fn();

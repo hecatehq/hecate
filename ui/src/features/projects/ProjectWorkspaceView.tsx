@@ -48,6 +48,7 @@ export type ProjectWorkspaceViewProps = {
   activityBucket: ProjectActivityBucketKey;
   activityByAssignmentID: Map<string, ProjectActivityItemRecord>;
   artifacts: ProjectCollaborationArtifactRecord[];
+  artifactActionID: string;
   assignmentErrors: Record<string, string>;
   assignments: ProjectAssignmentRecord[];
   assistant: ReturnType<typeof useProjectAssistantController>;
@@ -77,6 +78,7 @@ export type ProjectWorkspaceViewProps = {
   ) => void;
   onAddReviewArtifactFromAssignment: (assignment: ProjectAssignmentRecord) => void;
   onAddHandoffFromReviewArtifact: (artifact: ProjectCollaborationArtifactRecord) => void;
+  onCreateAssignmentFromReviewArtifact: (artifact: ProjectCollaborationArtifactRecord) => void;
   onCreateAssignmentFromHandoff: (handoff: ProjectHandoffRecord) => void;
   onCreateWork: () => void;
   onDeleteAssignment: (assignment: ProjectAssignmentRecord) => void;
@@ -133,6 +135,7 @@ export function ProjectWorkspaceView({
   activityBucket,
   activityByAssignmentID,
   artifacts,
+  artifactActionID,
   assignmentErrors,
   assignments,
   assistant,
@@ -155,6 +158,7 @@ export function ProjectWorkspaceView({
   onAddReviewHandoffFromAssignment,
   onAddReviewArtifactFromAssignment,
   onAddHandoffFromReviewArtifact,
+  onCreateAssignmentFromReviewArtifact,
   onCreateAssignmentFromHandoff,
   onCreateWork,
   onDeleteAssignment,
@@ -299,6 +303,7 @@ export function ProjectWorkspaceView({
                       <ProjectWorkItemDetail
                         assignments={assignments}
                         artifacts={artifacts}
+                        artifactActionID={artifactActionID}
                         handoffActionID={handoffActionID}
                         handoffError={handoffError}
                         handoffs={handoffs}
@@ -333,6 +338,7 @@ export function ProjectWorkspaceView({
                         onAddReviewHandoffFromAssignment={onAddReviewHandoffFromAssignment}
                         onAddReviewArtifactFromAssignment={onAddReviewArtifactFromAssignment}
                         onAddHandoffFromReviewArtifact={onAddHandoffFromReviewArtifact}
+                        onCreateAssignmentFromReviewArtifact={onCreateAssignmentFromReviewArtifact}
                       />
                     ) : (
                       <ProjectEmptyBlock
