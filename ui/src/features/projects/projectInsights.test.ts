@@ -5,6 +5,7 @@ import type { AgentProfileRecord } from "../../types/agent-profile";
 import type {
   ProjectActivityData,
   ProjectActivityItemRecord,
+  ProjectCollaborationArtifactRecord,
   ProjectHandoffRecord,
   ProjectRecord,
   ProjectSkillRecord,
@@ -145,12 +146,54 @@ describe("projectInsights", () => {
       "defaults",
       "context",
       "memory_candidates",
+      "reviews",
       "handoffs",
       "stale",
     ]);
     expect(metric?.label).toBe("Recent handoffs");
     expect(metric?.value).toBe(1);
     expect(metric?.detail).toBe("1 recent accepted, 1 superseded, 1 dismissed");
+  });
+
+  it("surfaces structured review follow-up artifacts in health", () => {
+    const project = readyProject();
+    const work = {
+      id: "work_review",
+      project_id: project.id,
+      title: "Review cockpit flow",
+      status: "review",
+      priority: "normal",
+      created_at: "2026-06-04T10:00:00Z",
+      updated_at: "2026-06-04T10:00:00Z",
+    };
+    const health = buildProjectHealthSummary(project, null, [work], [], [], {
+      artifacts: [
+        reviewArtifact({
+          id: "art_review_1",
+          work_item_id: work.id,
+          title: "QA review",
+          reviewed_assignment_id: "asgn_impl",
+          review_verdict: "changes_requested",
+          review_risk: "medium",
+          review_follow_up_required: true,
+        }),
+      ],
+    });
+    const reviewMetric = projectHealthMetrics(health).find((item) => item.key === "reviews");
+
+    expect(health.reviews).toMatchObject({
+      total: 1,
+      followUpRequired: 1,
+      changesRequested: 1,
+    });
+    expect(reviewMetric?.value).toBe(1);
+    expect(health.attention).toContainEqual(
+      expect.objectContaining({
+        title: "Review follow-up: Review cockpit flow",
+        detail: expect.stringContaining("changes requested"),
+        workItemID: work.id,
+      }),
+    );
   });
 
   it("surfaces blocked external-agent assignments with chat refs", () => {
@@ -266,6 +309,24 @@ function projectSkill(patch: Partial<ProjectSkillRecord> = {}): ProjectSkillReco
     source_context_source_ids: ["ctx_1"],
     warnings: [],
     discovered_at: "2026-06-04T10:00:00Z",
+    created_at: "2026-06-04T10:00:00Z",
+    updated_at: "2026-06-04T10:00:00Z",
+    ...patch,
+  };
+}
+
+function reviewArtifact(
+  patch: Partial<ProjectCollaborationArtifactRecord> = {},
+): ProjectCollaborationArtifactRecord {
+  return {
+    id: "art_review",
+    project_id: "proj_ready",
+    work_item_id: "work_1",
+    assignment_id: "asgn_review",
+    kind: "review",
+    title: "Review",
+    body: "Verdict: Changes requested",
+    author_role_id: "reviewer_qa",
     created_at: "2026-06-04T10:00:00Z",
     updated_at: "2026-06-04T10:00:00Z",
     ...patch,

@@ -55,6 +55,7 @@ export type ProjectHealthMetric = {
     | "stale"
     | "defaults"
     | "context"
+    | "reviews"
     | "handoffs"
     | "memory_candidates";
   label: string;
@@ -97,11 +98,18 @@ export type ProjectHealthSummary = {
     superseded: number;
     dismissed: number;
   };
+  reviews: {
+    total: number;
+    followUpRequired: number;
+    blocked: number;
+    changesRequested: number;
+  };
   attention: ProjectHealthAttention[];
 };
 
 export type ProjectHealthSummaryOptions = {
   agentProfiles?: AgentProfileRecord[];
+  artifacts?: ProjectCollaborationArtifactRecord[];
   roles?: ProjectWorkRoleRecord[];
   skills?: ProjectSkillRecord[];
 };
@@ -225,6 +233,7 @@ export function buildProjectHealthSummary(
   ).length;
   const memoryCandidateSummary = summarizeProjectMemoryCandidates(memoryCandidates);
   const handoffSummary = summarizeProjectHandoffs(activityItems);
+  const reviewSummary = summarizeReviewArtifacts(options.artifacts ?? []);
   const missingDefaults = Boolean(project && (!project.default_provider || !project.default_model));
   const missingProjectRoot = Boolean(
     project &&
@@ -290,6 +299,10 @@ export function buildProjectHealthSummary(
       actionLabel: "View recent",
     });
   }
+  const firstReviewFollowUp = reviewFollowUpAttentionItem(options.artifacts ?? [], workItems);
+  if (firstReviewFollowUp) {
+    attention.push(firstReviewFollowUp);
+  }
   const firstStale = staleItems[0];
   if (firstStale) {
     attention.push(
@@ -343,6 +356,7 @@ export function buildProjectHealthSummary(
     enabledContextSources,
     memoryCandidates: memoryCandidateSummary,
     handoffs: handoffSummary,
+    reviews: reviewSummary,
     attention: uniqueAttention(attention).slice(0, 5),
   };
 }
@@ -370,6 +384,13 @@ export function projectHealthMetrics(health: ProjectHealthSummary): ProjectHealt
       value: health.memoryCandidates.pending,
       status: health.memoryCandidates.pending > 0 ? "awaiting_approval" : "completed",
       detail: `${health.memoryCandidates.promoted} promoted, ${health.memoryCandidates.rejected} rejected`,
+    },
+    {
+      key: "reviews",
+      label: "Review follow-up",
+      value: health.reviews.followUpRequired,
+      status: health.reviews.followUpRequired > 0 ? "awaiting_approval" : "completed",
+      detail: `${health.reviews.blocked} blocked, ${health.reviews.changesRequested} changes requested`,
     },
     {
       key: "handoffs",
@@ -483,6 +504,54 @@ function summarizeProjectHandoffs(
       return summary;
     },
     { total: 0, pending: 0, accepted: 0, superseded: 0, dismissed: 0 },
+  );
+}
+
+function summarizeReviewArtifacts(
+  artifacts: ProjectCollaborationArtifactRecord[],
+): ProjectHealthSummary["reviews"] {
+  return artifacts.reduce<ProjectHealthSummary["reviews"]>(
+    (summary, artifact) => {
+      if (artifact.kind !== "review") return summary;
+      summary.total += 1;
+      if (reviewArtifactRequiresFollowUp(artifact)) summary.followUpRequired += 1;
+      if (artifact.review_verdict === "blocked") summary.blocked += 1;
+      if (artifact.review_verdict === "changes_requested") summary.changesRequested += 1;
+      return summary;
+    },
+    { total: 0, followUpRequired: 0, blocked: 0, changesRequested: 0 },
+  );
+}
+
+function reviewFollowUpAttentionItem(
+  artifacts: ProjectCollaborationArtifactRecord[],
+  workItems: ProjectWorkItemRecord[],
+): ProjectHealthAttention | null {
+  const workByID = new Map(workItems.map((item) => [item.id, item]));
+  const artifact = artifacts.find(reviewArtifactRequiresFollowUp);
+  if (!artifact) return null;
+  const workItem = workByID.get(artifact.work_item_id);
+  const verdict = artifact.review_verdict ? artifact.review_verdict.replaceAll("_", " ") : "review";
+  const risk = artifact.review_risk ? `risk ${artifact.review_risk}` : "";
+  const reviewed = artifact.reviewed_assignment_id
+    ? `reviewed ${artifact.reviewed_assignment_id}`
+    : "";
+  return {
+    id: `${artifact.id}:review-follow-up`,
+    title: `Review follow-up: ${workItem?.title ?? artifact.title ?? artifact.id}`,
+    detail: [artifact.title || artifact.id, verdict, risk, reviewed].filter(Boolean).join(" · "),
+    status: artifact.review_verdict === "blocked" ? "blocked" : "awaiting_approval",
+    workItemID: artifact.work_item_id,
+    actionLabel: "Open review",
+  };
+}
+
+function reviewArtifactRequiresFollowUp(artifact: ProjectCollaborationArtifactRecord): boolean {
+  return (
+    artifact.kind === "review" &&
+    (artifact.review_follow_up_required === true ||
+      artifact.review_verdict === "blocked" ||
+      artifact.review_verdict === "changes_requested")
   );
 }
 

@@ -309,6 +309,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
         memoryCandidates,
         {
           agentProfiles,
+          artifacts,
           roles,
           skills: projectSkills,
         },
@@ -316,6 +317,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     [
       activity,
       agentProfiles,
+      artifacts,
       memoryCandidates,
       memoryEntries,
       projectSkills,
