@@ -464,6 +464,25 @@ describe("ProjectWorkItemDetail", () => {
     expect(handlers.onAddEvidenceLink).toHaveBeenCalledTimes(1);
   });
 
+  it("renders unsafe evidence locators as text instead of links", () => {
+    renderDetail({
+      assignments: [],
+      artifacts: [
+        artifact({
+          id: "art_unsafe_evidence",
+          kind: "evidence_link",
+          title: "Operator locator",
+          body: "Operator-provided locator.",
+          evidence_source_kind: "source_document",
+          evidence_url: "javascript:alert(1)",
+        }),
+      ],
+    });
+
+    expect(screen.getByText("javascript:alert(1)")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "javascript:alert(1)" })).toBeNull();
+  });
+
   it("disables review artifact follow-up actions while an assignment shortcut is pending", () => {
     renderDetail({
       assignments: [],
