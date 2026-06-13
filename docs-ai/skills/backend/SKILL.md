@@ -352,6 +352,12 @@ For errors that should surface before a run is created (bad config, missing requ
   does not accept empty-string timestamps; SQL stores that pass `time.Time`
   values should use the shared `storage.TimestampColumn*` helpers instead of
   ad-hoc TEXT columns.
+- **Storage selector coverage** — when adding a persisted surface or moving a
+  surface between backend selectors, update `internal/config/config_test.go`,
+  `cmd/hecate/banner_test.go`, and the opt-in `cmd/hecate/postgres_smoke_test.go`.
+  Queue backend changes must also update `internal/telemetry/metric_labels.go`
+  and `internal/telemetry/metrics_test.go` so hosted Postgres stays visible in
+  OTel instead of collapsing to `other`.
 - **Capability cache seeding** for provider tests — see [`../providers/SKILL.md`](../providers/SKILL.md) for the snippet. Without it the discovery path panics on a nil request body.
 - **Synthetic local providers** — use `PROVIDER_FAKE_KIND=local` for e2e scenarios that should not require a real cloud provider.
 - **Env-PRECONFIGURED gate for e2e providers** — env-supplied provider credentials (`PROVIDER_<NAME>_API_KEY` / `_BASE_URL`) only auto-import into the settings store when `PROVIDER_<NAME>_PRECONFIGURED=1` is also set. Both e2e spawn helpers funnel through `autoPreconfiguredEnv` so tests don't have to repeat it. New e2e helpers that bypass `hecateServer` / `startHecateProcess` need the same call; otherwise routed requests 400 with `no provider supports model …`.

@@ -742,29 +742,36 @@ func TestOrchestratorMetricsApprovalAttributeDimensions(t *testing.T) {
 func TestOrchestratorMetricsQueueWaitAttributeDimension(t *testing.T) {
 	t.Parallel()
 
-	reader := sdkmetric.NewManualReader()
-	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
-	om, err := NewOrchestratorMetricsWithMeterProvider(provider)
-	if err != nil {
-		t.Fatalf("NewOrchestratorMetricsWithMeterProvider() error = %v", err)
-	}
+	cases := []string{"sqlite", "postgres"}
+	for _, backend := range cases {
+		t.Run(backend, func(t *testing.T) {
+			t.Parallel()
 
-	om.RecordQueueWait(context.Background(), QueueWaitRecord{
-		QueueBackend: "sqlite",
-		WaitMS:       250,
-	})
+			reader := sdkmetric.NewManualReader()
+			provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+			om, err := NewOrchestratorMetricsWithMeterProvider(provider)
+			if err != nil {
+				t.Fatalf("NewOrchestratorMetricsWithMeterProvider() error = %v", err)
+			}
 
-	collected := collectMetrics(t, reader)
+			om.RecordQueueWait(context.Background(), QueueWaitRecord{
+				QueueBackend: backend,
+				WaitMS:       250,
+			})
 
-	wait := findMetric[metricdata.Histogram[int64]](t, collected, MetricOrchestratorQueueWaitDuration)
-	if len(wait.DataPoints) != 1 {
-		t.Fatalf("queue wait data points = %d, want 1", len(wait.DataPoints))
-	}
-	if wait.DataPoints[0].Sum != 250 {
-		t.Errorf("queue wait sum = %d, want 250", wait.DataPoints[0].Sum)
-	}
-	if got := attrValue(wait.DataPoints[0].Attributes, AttrHecateQueueBackend); got != "sqlite" {
-		t.Errorf("%s = %q, want sqlite", AttrHecateQueueBackend, got)
+			collected := collectMetrics(t, reader)
+
+			wait := findMetric[metricdata.Histogram[int64]](t, collected, MetricOrchestratorQueueWaitDuration)
+			if len(wait.DataPoints) != 1 {
+				t.Fatalf("queue wait data points = %d, want 1", len(wait.DataPoints))
+			}
+			if wait.DataPoints[0].Sum != 250 {
+				t.Errorf("queue wait sum = %d, want 250", wait.DataPoints[0].Sum)
+			}
+			if got := attrValue(wait.DataPoints[0].Attributes, AttrHecateQueueBackend); got != backend {
+				t.Errorf("%s = %q, want %s", AttrHecateQueueBackend, got, backend)
+			}
+		})
 	}
 }
 
