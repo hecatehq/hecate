@@ -187,15 +187,21 @@ Three runtime invariants worth pinning (full mechanics in [`agent-runtime.md`](.
 
 ## Storage tiers
 
-Two tiers — `memory` and `sqlite` — selected globally with `HECATE_BACKEND`.
-The bare binary defaults to `memory`; the docker image defaults to `sqlite`
-so the container survives restarts. One `HECATE_SQLITE_PATH` configures the
-shared SQLite client for Hecate-owned durable state.
+Three tiers — `memory`, `sqlite`, and `postgres` — selected globally with
+`HECATE_BACKEND`. The bare binary defaults to `memory`; the docker image
+defaults to `sqlite` so the container survives restarts. `HECATE_SQLITE_PATH`
+configures the shared SQLite client for local durable state, while
+`HECATE_POSTGRES_URL` / `DATABASE_URL` configures the shared Postgres client for
+hosted/cloud-runtime durable state.
 
 The full storage reference lives in [`docs/operator/deployment.md`](../operator/deployment.md#storage-backend). Implementation notes worth pinning here:
 
 - SQLite uses the pure-Go `modernc.org/sqlite` driver — no CGO, no native extensions.
-- The task queue uses `BEGIN IMMEDIATE` plus `UPDATE … RETURNING` for atomic claim under WAL. Race-tested.
+- Postgres uses `pgx` through `database/sql`; shared SQL stores keep `?`
+  placeholders and the storage layer rebinds them to `$N`.
+- The SQLite task queue uses `BEGIN IMMEDIATE` plus `UPDATE … RETURNING` for
+  atomic claim under WAL. The Postgres queue uses `FOR UPDATE SKIP LOCKED`.
+  Both are race-tested; the opt-in Postgres smoke covers real dialect behavior.
 
 ## Why two flows share one gateway
 

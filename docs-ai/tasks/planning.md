@@ -5,7 +5,7 @@ How to write a plan when [`../core/workflow.md`](../core/workflow.md) says "stop
 ## When a plan is required
 
 - Cross-package wire-field changes (the seven-step chain — see [`../skills/providers/SKILL.md`](../skills/providers/SKILL.md)).
-- New persisted things — must mirror memory + sqlite tiers.
+- New persisted things — must mirror memory + SQLite + Postgres tiers.
 - New HTTP endpoints (provider-compatible `/v1/...` or Hecate-native `/hecate/v1/...`).
 - New approval policies or new sandbox capabilities.
 - New persistent UI surfaces (inspector, side rail, dashboard block, summary panel).

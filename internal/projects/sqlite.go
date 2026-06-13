@@ -13,22 +13,36 @@ import (
 )
 
 type SQLiteStore struct {
-	mu          sync.Mutex
-	db          *sql.DB
-	projectsTbl string
-	rootsTbl    string
-	sourcesTbl  string
+	mu               sync.Mutex
+	db               storage.DB
+	client           storage.SQLClient
+	backend          string
+	projectsTbl      string
+	rootsTbl         string
+	sourcesTbl       string
+	sourcesTableName string
 }
 
 func NewSQLiteStore(ctx context.Context, client *storage.SQLiteClient) (*SQLiteStore, error) {
+	return newSQLStore(ctx, client)
+}
+
+func NewPostgresStore(ctx context.Context, client *storage.PostgresClient) (*SQLiteStore, error) {
+	return newSQLStore(ctx, client)
+}
+
+func newSQLStore(ctx context.Context, client storage.SQLClient) (*SQLiteStore, error) {
 	if client == nil || client.DB() == nil {
-		return nil, fmt.Errorf("sqlite client is required")
+		return nil, fmt.Errorf("sql client is required")
 	}
 	store := &SQLiteStore{
-		db:          client.DB(),
-		projectsTbl: client.QualifiedTable("projects"),
-		rootsTbl:    client.QualifiedTable("project_roots"),
-		sourcesTbl:  client.QualifiedTable("project_context_sources"),
+		db:               client.DB(),
+		client:           client,
+		backend:          client.Backend(),
+		projectsTbl:      client.QualifiedTable("projects"),
+		rootsTbl:         client.QualifiedTable("project_roots"),
+		sourcesTbl:       client.QualifiedTable("project_context_sources"),
+		sourcesTableName: client.TableName("project_context_sources"),
 	}
 	if err := store.migrate(ctx); err != nil {
 		return nil, err
@@ -37,7 +51,7 @@ func NewSQLiteStore(ctx context.Context, client *storage.SQLiteClient) (*SQLiteS
 }
 
 func (s *SQLiteStore) Backend() string {
-	return "sqlite"
+	return s.backend
 }
 
 func (s *SQLiteStore) migrate(ctx context.Context) error {
@@ -106,7 +120,7 @@ CREATE TABLE IF NOT EXISTS %s (
 		{"source_category", "TEXT NOT NULL DEFAULT ''"},
 		{"metadata", "TEXT NOT NULL DEFAULT '{}'"},
 	} {
-		if err := s.addColumnIfMissing(ctx, s.sourcesTbl, column.name, column.ddl); err != nil {
+		if err := s.addColumnIfMissing(ctx, s.sourcesTbl, s.sourcesTableName, column.name, column.ddl); err != nil {
 			return fmt.Errorf("migrate project context source column %s: %w", column.name, err)
 		}
 	}
@@ -121,27 +135,13 @@ CREATE TABLE IF NOT EXISTS %s (
 	return nil
 }
 
-func (s *SQLiteStore) addColumnIfMissing(ctx context.Context, table, column, ddl string) error {
-	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`PRAGMA table_info(%s)`, table))
+func (s *SQLiteStore) addColumnIfMissing(ctx context.Context, table, tableName, column, ddl string) error {
+	exists, err := storage.ColumnExists(ctx, s.client, tableName, column)
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var cid int
-		var name, typ string
-		var notNull int
-		var defaultValue any
-		var pk int
-		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
-			return err
-		}
-		if name == column {
-			return rows.Err()
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return err
+	if exists {
+		return nil
 	}
 	_, err = s.db.ExecContext(ctx, fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`, table, column, ddl))
 	return err
@@ -397,7 +397,7 @@ func (s *SQLiteStore) ensureProjectUniqueWith(ctx context.Context, q sqliteQueri
 	return rows.Err()
 }
 
-func (s *SQLiteStore) upsertProject(ctx context.Context, tx *sql.Tx, project Project) error {
+func (s *SQLiteStore) upsertProject(ctx context.Context, tx storage.Tx, project Project) error {
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
 INSERT INTO %s (
 	id, name, description, default_root_id, default_provider, default_model,
@@ -441,7 +441,7 @@ ON CONFLICT(id) DO UPDATE SET
 	return s.upsertProjectContextSources(ctx, tx, project)
 }
 
-func (s *SQLiteStore) upsertProjectRoots(ctx context.Context, tx *sql.Tx, project Project) error {
+func (s *SQLiteStore) upsertProjectRoots(ctx context.Context, tx storage.Tx, project Project) error {
 	if len(project.Roots) == 0 {
 		_, err := tx.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s WHERE project_id = ?`, s.rootsTbl), project.ID)
 		return err
@@ -468,7 +468,7 @@ ON CONFLICT(project_id, id) DO UPDATE SET
 			root.Kind,
 			root.GitRemote,
 			root.GitBranch,
-			root.Active,
+			boolToDB(root.Active),
 			formatTime(root.CreatedAt),
 			formatTime(root.UpdatedAt),
 		); err != nil {
@@ -485,7 +485,7 @@ ON CONFLICT(project_id, id) DO UPDATE SET
 	return err
 }
 
-func (s *SQLiteStore) upsertProjectContextSources(ctx context.Context, tx *sql.Tx, project Project) error {
+func (s *SQLiteStore) upsertProjectContextSources(ctx context.Context, tx storage.Tx, project Project) error {
 	if len(project.ContextSources) == 0 {
 		_, err := tx.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s WHERE project_id = ?`, s.sourcesTbl), project.ID)
 		return err

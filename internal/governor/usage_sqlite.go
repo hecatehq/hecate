@@ -32,18 +32,28 @@ const maxUsageEventListLimit = 1_000
 //     serializes writes via its file lock, so a single statement on a
 //     row is atomic without needing an explicit transaction.
 type SQLiteUsageStore struct {
-	db          *sql.DB
+	db          storage.DB
+	client      storage.SQLClient
 	table       string
 	eventsTable string
 }
 
 func NewSQLiteUsageStore(ctx context.Context, client *storage.SQLiteClient) (*SQLiteUsageStore, error) {
+	return newSQLUsageStore(ctx, client)
+}
+
+func NewPostgresUsageStore(ctx context.Context, client *storage.PostgresClient) (*SQLiteUsageStore, error) {
+	return newSQLUsageStore(ctx, client)
+}
+
+func newSQLUsageStore(ctx context.Context, client storage.SQLClient) (*SQLiteUsageStore, error) {
 	if client == nil || client.DB() == nil {
-		return nil, fmt.Errorf("sqlite client is required")
+		return nil, fmt.Errorf("sql client is required")
 	}
 
 	store := &SQLiteUsageStore{
 		db:          client.DB(),
+		client:      client,
 		table:       client.QualifiedTable("usage"),
 		eventsTable: client.QualifiedTable("usage_events"),
 	}
@@ -73,15 +83,19 @@ func (s *SQLiteUsageStore) RecordUsage(ctx context.Context, event UsageEvent) (U
 	// Single-statement upsert: the WHERE-less arithmetic on the
 	// existing row is atomic under SQLite's writer lock, so concurrent
 	// usage records don't lose updates the way a read-modify-write would.
+	usedMicrosRef := "used_micros_usd"
+	if s.client != nil && s.client.Dialect() == storage.DialectPostgres {
+		usedMicrosRef = s.table + ".used_micros_usd"
+	}
 	_, err := s.db.ExecContext(ctx,
 		fmt.Sprintf(`
 			INSERT INTO %s (usage_key, used_micros_usd, updated_at)
 			VALUES (?, ?, ?)
 			ON CONFLICT (usage_key)
 			DO UPDATE SET
-				used_micros_usd = used_micros_usd + excluded.used_micros_usd,
+				used_micros_usd = %s + excluded.used_micros_usd,
 				updated_at = excluded.updated_at
-		`, s.table),
+		`, s.table, usedMicrosRef),
 		event.UsageKey,
 		event.CostMicros,
 		now,
@@ -300,16 +314,16 @@ func (s *SQLiteUsageStore) migrate(ctx context.Context) error {
 		CREATE TABLE IF NOT EXISTS %s (
 			usage_key TEXT PRIMARY KEY,
 			used_micros_usd INTEGER NOT NULL DEFAULT 0,
-			updated_at TIMESTAMP NOT NULL
+			updated_at `+storage.TimestampColumn(s.client)+` NOT NULL
 		)
 	`, s.table))
 	if err != nil {
-		return fmt.Errorf("migrate sqlite usage store: %w", err)
+		return fmt.Errorf("migrate %s usage store: %w", s.client.Backend(), err)
 	}
 
 	_, err = s.db.ExecContext(ctx, fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			id `+storage.AutoIDColumn(s.client)+`,
 			usage_key TEXT NOT NULL,
 			event_type TEXT NOT NULL,
 			scope TEXT NOT NULL DEFAULT '',
@@ -323,11 +337,11 @@ func (s *SQLiteUsageStore) migrate(ctx context.Context) error {
 			prompt_tokens INTEGER NOT NULL DEFAULT 0,
 			completion_tokens INTEGER NOT NULL DEFAULT 0,
 			total_tokens INTEGER NOT NULL DEFAULT 0,
-			occurred_at TIMESTAMP NOT NULL
+			occurred_at `+storage.TimestampColumn(s.client)+` NOT NULL
 		)
 	`, s.eventsTable))
 	if err != nil {
-		return fmt.Errorf("migrate sqlite usage events: %w", err)
+		return fmt.Errorf("migrate %s usage events: %w", s.client.Backend(), err)
 	}
 
 	// Index name uses the unquoted table identifier (matches the
@@ -338,7 +352,7 @@ func (s *SQLiteUsageStore) migrate(ctx context.Context) error {
 		ON %s (usage_key, occurred_at DESC)
 	`, indexName, s.eventsTable))
 	if err != nil {
-		return fmt.Errorf("migrate sqlite usage events index: %w", err)
+		return fmt.Errorf("migrate %s usage events index: %w", s.client.Backend(), err)
 	}
 	return nil
 }

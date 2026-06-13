@@ -4,10 +4,11 @@ Open-source local AI operations console for supervised agent work. Hecate
 combines a model gateway, Hecate Chat, queued `agent_loop` tasks, External Agent
 supervision, projects, memory, approvals, artifacts, usage, and OpenTelemetry
 traces into one operator surface. Local-first here means the runtime and UI run
-on the operator's machine, Hecate-owned state is local (memory / sqlite), and
-the gateway binds to 127.0.0.1 by default; Hecate can still route to cloud
-providers and supervise external coding-agent CLIs with their own accounts. The
-React operator UI is embedded via `//go:embed ui/dist`.
+on the operator's machine by default, Hecate-owned state is local in local
+deployments (`memory` / `sqlite`) and can use Postgres for hosted/cloud-runtime
+deployments, and the gateway binds to 127.0.0.1 by default; Hecate can still
+route to cloud providers and supervise external coding-agent CLIs with their own
+accounts. The React operator UI is embedded via `//go:embed ui/dist`.
 
 This file is the orientation entry — the codebase map, the runtime
 invariants, and the gotchas that bite often. It is what an agent
@@ -76,18 +77,18 @@ internal/
   taskstate/            task / run / step / artifact / approval persistence
   agentadapters/        ACP/process adapters for Codex, Claude Code, Cursor
   eventprotocol/        agent-runtime event protocol v1 envelopes (API-facing shape)
-  chat/                 chat transcript persistence (memory / sqlite)
+  chat/                 chat transcript persistence (memory / sqlite / postgres)
   chatapp/              chat-session application layer used by API handlers:
                           create, external-agent prepare, native session cleanup,
                           session reads/rename, config option writes, Hecate
                           Chat settings, message admission/dispatch planning
   chatcontext/          pure context-packet lookup/decode/normalize helpers and
                           canonical ref builders shared by API context endpoints
-  projects/             durable project identity store (memory / sqlite)
+  projects/             durable project identity store (memory / sqlite / postgres)
   projectskills/        project-scoped SKILL.md metadata registry
-                          (memory / sqlite; no body injection or execution)
+                          (memory / sqlite / postgres; no body injection or execution)
   projectwork/          project roles, work items, assignments, handoffs, and
-                          collaboration artifact storage (memory / sqlite)
+                          collaboration artifact storage (memory / sqlite / postgres)
   projectworkapp/       project work application layer used by API handlers:
                           command shaping, id defaults, driver defaults,
                           store error boundaries, execution refs, activity
@@ -101,7 +102,7 @@ internal/
   providerapp/          settings provider application layer used by API handlers:
                           settings status, policy rules, provider
                           create/update/delete, API key rotate/clear
-  storage/              sqlite client wrappers
+  storage/              SQLite/Postgres SQL clients + dialect helpers
   retention/            retention worker (subsystems: traces, usage_events, audit, provider_history, turn_events, agent_chat_approvals)
   mcp/                  stdio MCP server (read tools + write tools)
   controlplane/         providers, secrets, settings state
@@ -124,9 +125,11 @@ pkg/types/  ←  internal/api/  ←  internal/providers/
 
 The api↔providers parallel-struct duplication (`OpenAIChatMessage` ↔ `openAIChatMessage`) is intentional — it keeps `internal/providers/` free of `internal/api/` imports. Full rationale: [`docs-ai/skills/providers/SKILL.md`](docs-ai/skills/providers/SKILL.md).
 
-**Storage tier rule**: every backend-bound concern mirrors two tiers —
-memory (default) and sqlite (`modernc.org/sqlite`, no CGO).
-When adding a new persisted thing, mirror both.
+**Storage tier rule**: every backend-bound concern mirrors the configured
+storage tiers — `memory` (fast/default), `sqlite` (`modernc.org/sqlite`, no
+CGO, local durable), and `postgres` (`pgx`, hosted/cloud durable). When adding
+a new persisted thing, mirror memory plus both SQL backends unless the operator
+explicitly scopes the work differently.
 
 ## Runtime invariants
 
@@ -187,7 +190,11 @@ Full ladder: [`docs-ai/core/verification.md`](docs-ai/core/verification.md).
 ## Gotchas
 
 - **`bun run test` ≠ `bun test`.** The latter skips the testing-library DOM setup and panics with `document[isPrepared]`. Always `bun run test` (which dispatches to vitest).
-- **modernc/sqlite TIME-as-text format**: the driver writes `time.Time` using Go's default `time.Time.String()` format, which doesn't lex-compare with RFC3339Nano cutoffs and silently breaks the retention sweep. Always write timestamps as `t.UTC().Format(time.RFC3339Nano)` when the column is TEXT (see `internal/taskstate/sqlite.go` `AppendRunEvent`).
+- **SQL timestamp storage**: SQLite TEXT timestamps must be written as
+  `t.UTC().Format(time.RFC3339Nano)` when lexical ordering matters. Postgres
+  does not accept empty-string timestamps; SQL stores that pass `time.Time`
+  values should use the shared `storage.TimestampColumn*` helpers instead of
+  ad-hoc TEXT columns.
 - **OpenAI/openAI parallel structs are intentional**: don't unify. Mirror fields when adding on either side.
 - **Streaming `wireReq` plumbing**: when adding a passthrough field, plumb it into BOTH `Chat` and `ChatStream` `wireReq` constructions in `internal/providers/openai.go`. Forgetting one is the most common provider bug — non-stream tests pass; the field silently drops in production for any client using `stream: true`.
 - **Capability-cache seeding** for provider tests: seed `cachedCaps` and `capsExpiry` to skip the discovery path. Snippet in [`docs-ai/skills/providers/SKILL.md`](docs-ai/skills/providers/SKILL.md).

@@ -10,7 +10,8 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
 ## API And Schema Stability
 
 - Public APIs are designed to be stable, but pre-1.0 changes are still possible.
-- Persisted SQLite schemas are young. Back up data before upgrading.
+- Persisted SQLite and Postgres schemas are young. Back up data before
+  upgrading.
 - There is not yet a dedicated migration CLI or rollback workflow.
 - The gateway defaults to `127.0.0.1:8765` and enforces same-origin browser
   requests, but same-origin is not a network security boundary. If you bind it
@@ -135,6 +136,8 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
 
 - Docker, bare-binary, and desktop deployments are the supported paths.
 - SQLite is the durable default in Docker.
+- Postgres is supported for hosted/cloud-runtime state, but schema migration
+  tooling is still alpha.
 - Multi-node / clustered deployment is out of scope.
 - Kubernetes, Helm, Nomad, and hosted deployment matrices are not release
   targets.

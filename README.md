@@ -111,8 +111,9 @@ flowchart LR
 ```
 
 The runtime is deliberately boring in the good way: request handling, routing,
-task execution, approvals, artifacts, and telemetry are all ordinary local
-subsystems with memory and SQLite storage parity where persistence matters.
+task execution, approvals, artifacts, and telemetry are all ordinary
+subsystems with memory, SQLite, and Postgres storage parity where persistence
+matters.
 
 ## Current Capabilities
 

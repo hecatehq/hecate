@@ -247,7 +247,7 @@ agentadapters           # external coding-agent adapter framework (Codex, Claude
 api                     # HTTP handlers — chat, messages, tasks, settings, telemetry
 bootstrap               # first-run secret-key generation and persistence
 catalog                 # provider/model discovery and registration
-chat                    # chat session storage and replay (memory / sqlite)
+chat                    # chat session storage and replay (memory / sqlite / postgres)
 config                  # env-driven config loading
 controlplane            # persisted providers, secrets, and policy settings
 eventprotocol           # typed agent-event envelope + emitter (see docs/event-protocol-v1.md)
@@ -265,7 +265,7 @@ retention               # retention worker + history store
 router                  # provider/model routing engine (rules, failover)
 sandbox                 # sandbox-policy types used by orchestrator
 secrets                 # AES-GCM provider-credential encryption
-storage                 # shared SQLite client connector
+storage                 # shared SQLite/Postgres clients and SQL dialect helpers
 taskstate               # task / run / step / artifact / approval persistence
 telemetry               # OTel attribute keys, metrics, structured logging
 version                 # build-time version metadata

@@ -110,6 +110,18 @@ func TestStorageSummary(t *testing.T) {
 			"sqlite",
 		},
 		{
+			"uniform postgres",
+			config.Config{
+				Server: config.ServerConfig{
+					ControlPlaneBackend: "postgres",
+					TasksBackend:        "postgres",
+					TaskQueueBackend:    "postgres",
+				},
+				Provider: config.ProviderConfig{HistoryBackend: "postgres"},
+			},
+			"postgres",
+		},
+		{
 			"mixed control-plane=memory but tasks=sqlite",
 			config.Config{
 				Server: config.ServerConfig{

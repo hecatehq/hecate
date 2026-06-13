@@ -2,6 +2,7 @@ package agentadapters
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 )
 
@@ -30,6 +31,9 @@ func NormalizeError(adapterName string, err error) string {
 	raw := strings.TrimSpace(err.Error())
 	if raw == "" {
 		return ""
+	}
+	if errors.Is(err, ErrCloudCredentialRequired) {
+		return raw
 	}
 	if adapterName == "Claude Code" && isAuthErrorText(raw) {
 		return claudeCodeAuthErrorMessage()

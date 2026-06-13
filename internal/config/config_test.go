@@ -35,7 +35,9 @@ func TestDefaultProviderTimeoutBranchesOnKind(t *testing.T) {
 }
 
 func TestLoadFromEnvBackendFansOutToDurableStores(t *testing.T) {
-	t.Setenv("HECATE_BACKEND", " SQLite ")
+	t.Setenv("HECATE_BACKEND", " Postgres ")
+	t.Setenv("HECATE_POSTGRES_URL", "postgres://hecate:hecate@localhost:5432/hecate?sslmode=disable")
+	t.Setenv("HECATE_POSTGRES_TABLE_PREFIX", "dogfood")
 
 	cfg := LoadFromEnv()
 	got := []string{
@@ -49,9 +51,15 @@ func TestLoadFromEnvBackendFansOutToDurableStores(t *testing.T) {
 		cfg.Retention.HistoryBackend,
 	}
 	for _, backend := range got {
-		if backend != "sqlite" {
-			t.Fatalf("backend fanout = %#v, want all sqlite", got)
+		if backend != "postgres" {
+			t.Fatalf("backend fanout = %#v, want all postgres", got)
 		}
+	}
+	if cfg.Postgres.DatabaseURL != "postgres://hecate:hecate@localhost:5432/hecate?sslmode=disable" {
+		t.Fatalf("Postgres.DatabaseURL = %q, want configured URL", cfg.Postgres.DatabaseURL)
+	}
+	if cfg.Postgres.TablePrefix != "dogfood" {
+		t.Fatalf("Postgres.TablePrefix = %q, want dogfood", cfg.Postgres.TablePrefix)
 	}
 }
 
@@ -105,6 +113,19 @@ func TestLoadFromEnvInferenceToken(t *testing.T) {
 	cfg := LoadFromEnv()
 	if cfg.Server.InferenceToken != "local-inference-token-123456" {
 		t.Fatalf("InferenceToken = %q, want configured token", cfg.Server.InferenceToken)
+	}
+}
+
+func TestLoadFromEnvCloudRuntimeMode(t *testing.T) {
+	t.Setenv("HECATE_CLOUD_RUNTIME_MODE", "true")
+	t.Setenv("HECATE_CLOUD_RUNTIME_SECRET", "cloud-runtime-secret-123456")
+
+	cfg := LoadFromEnv()
+	if !cfg.Server.CloudRuntimeMode {
+		t.Fatal("CloudRuntimeMode = false, want true")
+	}
+	if cfg.Server.CloudRuntimeSecret != "cloud-runtime-secret-123456" {
+		t.Fatalf("CloudRuntimeSecret = %q, want configured secret", cfg.Server.CloudRuntimeSecret)
 	}
 }
 
@@ -287,7 +308,7 @@ func TestValidateRejectsInvalidTraceBodyMode(t *testing.T) {
 func TestValidateRejectsInvalidBackendNames(t *testing.T) {
 	cfg := LoadFromEnv()
 	cfg.Server.ControlPlaneBackend = "redis"
-	cfg.Projects.Backend = "postgres"
+	cfg.Projects.Backend = "sqlite"
 
 	err := cfg.Validate()
 	if err == nil {
@@ -295,6 +316,20 @@ func TestValidateRejectsInvalidBackendNames(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "HECATE_BACKEND") {
 		t.Fatalf("Validate() error = %q, want HECATE_BACKEND", err)
+	}
+}
+
+func TestValidateRejectsPostgresBackendWithoutDatabaseURL(t *testing.T) {
+	cfg := LoadFromEnv()
+	cfg.Server.ControlPlaneBackend = "postgres"
+	cfg.Postgres.DatabaseURL = ""
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() error = nil, want missing postgres URL error")
+	}
+	if !strings.Contains(err.Error(), "HECATE_POSTGRES_URL") {
+		t.Fatalf("Validate() error = %q, want HECATE_POSTGRES_URL", err)
 	}
 }
 
@@ -347,6 +382,30 @@ func TestValidateRejectsShortInferenceToken(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "HECATE_INFERENCE_TOKEN") {
 		t.Fatalf("Validate() error = %q, want HECATE_INFERENCE_TOKEN", err)
+	}
+}
+
+func TestValidateRejectsCloudRuntimeModeWithoutStrongSecret(t *testing.T) {
+	cfg := LoadFromEnv()
+	cfg.Server.CloudRuntimeMode = true
+	cfg.Server.CloudRuntimeSecret = "short"
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() error = nil, want invalid cloud runtime secret error")
+	}
+	if !strings.Contains(err.Error(), "HECATE_CLOUD_RUNTIME_SECRET") {
+		t.Fatalf("Validate() error = %q, want HECATE_CLOUD_RUNTIME_SECRET", err)
+	}
+}
+
+func TestValidateAllowsCloudRuntimeSecretOnlyWhenCloudModeDisabled(t *testing.T) {
+	cfg := LoadFromEnv()
+	cfg.Server.CloudRuntimeMode = false
+	cfg.Server.CloudRuntimeSecret = "short"
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v, want nil when cloud runtime mode is disabled", err)
 	}
 }
 

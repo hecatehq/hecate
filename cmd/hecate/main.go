@@ -145,8 +145,16 @@ func runServe() {
 			}
 		}()
 	}
+	postgresClient := buildPostgresClient(cfg, logger)
+	if postgresClient != nil {
+		defer func() {
+			if err := postgresClient.Close(); err != nil {
+				logger.Warn("postgres close failed", slog.Any("error", err))
+			}
+		}()
+	}
 
-	controlPlaneStore := buildControlPlaneStore(cfg, logger, sqliteClient)
+	controlPlaneStore := buildControlPlaneStore(cfg, logger, sqliteClient, postgresClient)
 	var secretCipher secrets.Cipher
 	if strings.TrimSpace(cfg.Server.ControlPlaneSecretKey) != "" {
 		cipherImpl, err := secrets.NewAESGCMCipher(cfg.Server.ControlPlaneSecretKey)
@@ -167,7 +175,7 @@ func runServe() {
 		logger.Warn("auto-import of env-preconfigured providers failed", slog.Any("error", err))
 	}
 	providerRegistry := providerRuntime.Registry()
-	providerHistoryStore := buildProviderHistoryStore(cfg, logger, sqliteClient)
+	providerHistoryStore := buildProviderHistoryStore(cfg, logger, sqliteClient, postgresClient)
 	healthTracker := providers.NewMemoryHealthTrackerWithHistory(
 		cfg.Provider.HealthThreshold,
 		cfg.Provider.HealthCooldown,
@@ -197,20 +205,20 @@ func runServe() {
 		}
 	}()
 	tracer := profiler.NewInMemoryTracer(profiler.NewOTelTracer(otelProvider))
-	usageStore := buildUsageStore(cfg, logger, sqliteClient)
-	agentChatStore := buildAgentChatStore(cfg, logger, sqliteClient)
-	projectStore := buildProjectStore(cfg, logger, sqliteClient)
-	memoryStore := buildMemoryStore(cfg, logger, sqliteClient)
-	projectWorkStore := buildProjectWorkStore(cfg, logger, sqliteClient)
-	projectSkillStore := buildProjectSkillStore(cfg, logger, sqliteClient)
-	agentProfileStore := buildAgentProfileStore(cfg, logger, sqliteClient)
+	usageStore := buildUsageStore(cfg, logger, sqliteClient, postgresClient)
+	agentChatStore := buildAgentChatStore(cfg, logger, sqliteClient, postgresClient)
+	projectStore := buildProjectStore(cfg, logger, sqliteClient, postgresClient)
+	memoryStore := buildMemoryStore(cfg, logger, sqliteClient, postgresClient)
+	projectWorkStore := buildProjectWorkStore(cfg, logger, sqliteClient, postgresClient)
+	projectSkillStore := buildProjectSkillStore(cfg, logger, sqliteClient, postgresClient)
+	agentProfileStore := buildAgentProfileStore(cfg, logger, sqliteClient, postgresClient)
 	// Approval state follows HECATE_BACKEND so chat transcripts, grants,
 	// and pending approval rows move together across memory/sqlite modes.
 	// Startup reconcile fires before the gateway accepts any request:
 	// pending rows from a prior process can't be resurrected
 	// (process-local waiters are lost), so they're marked timed_out with
 	// path=startup_reconcile up front.
-	approvalStore := buildApprovalStore(cfg, logger, sqliteClient)
+	approvalStore := buildApprovalStore(cfg, logger, sqliteClient, postgresClient)
 	if rec, ok := approvalStore.(agentadapters.ApprovalRetentionStore); ok {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		reconciled, err := rec.ReconcilePending(ctx, time.Now().UTC())
@@ -226,10 +234,10 @@ func runServe() {
 			)
 		}
 	}
-	retentionHistoryStore := buildRetentionHistoryStore(cfg, logger, sqliteClient)
+	retentionHistoryStore := buildRetentionHistoryStore(cfg, logger, sqliteClient, postgresClient)
 	// Build the task-state store before the retention manager so the
 	// turn-events sweep can target its events table directly.
-	taskStore := buildTaskStore(cfg, logger, sqliteClient)
+	taskStore := buildTaskStore(cfg, logger, sqliteClient, postgresClient)
 	retentionManager := retention.NewManager(
 		logger,
 		cfg.Retention,
@@ -267,7 +275,7 @@ func runServe() {
 	defer retentionCancel()
 	go retentionManager.RunLoop(retentionCtx)
 
-	taskQueue := buildTaskQueue(cfg, logger, sqliteClient)
+	taskQueue := buildTaskQueue(cfg, logger, sqliteClient, postgresClient)
 
 	handler := api.NewHandler(cfg, logger, service, controlPlaneStore, taskStore, taskQueue, providerRuntime)
 	handler.SetAgentChatStore(agentChatStore)
@@ -277,7 +285,11 @@ func runServe() {
 	handler.SetProjectSkillStore(projectSkillStore)
 	handler.SetAgentProfileStore(agentProfileStore)
 	handler.SetAgentApprovalStore(approvalStore)
-	handler.SetStateCleaner(sqliteClient)
+	if postgresClient != nil {
+		handler.SetStateCleaner(postgresClient)
+	} else {
+		handler.SetStateCleaner(sqliteClient)
+	}
 	// Wire the cipher into the handler and its underlying runner so MCP
 	// server env values are encrypted at task-creation time and decrypted
 	// at subprocess spawn time. SetSecretCipher is a no-op when cipher
@@ -589,7 +601,7 @@ func approvalRetentionPruner(store agentadapters.ApprovalStore) retention.Pruner
 	return pruner
 }
 
-func buildControlPlaneStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient) controlplane.Store {
+func buildControlPlaneStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient, postgresClient *storage.PostgresClient) controlplane.Store {
 	// "memory" (the documented default) and any unrecognized value fall
 	// through to the default branch and produce a MemoryStore — same
 	// lenient shape every other backend selector uses today.
@@ -601,15 +613,29 @@ func buildControlPlaneStore(cfg config.Config, logger *slog.Logger, sqliteClient
 			os.Exit(1)
 		}
 		return store
+	case "postgres":
+		store, err := controlplane.NewPostgresStore(context.Background(), postgresClient, cfg.Server.ControlPlaneKey)
+		if err != nil {
+			logger.Error("control plane store init failed", slog.Any("error", err))
+			os.Exit(1)
+		}
+		return store
 	default:
 		return controlplane.NewMemoryStore()
 	}
 }
 
-func buildRetentionHistoryStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient) retention.HistoryStore {
+func buildRetentionHistoryStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient, postgresClient *storage.PostgresClient) retention.HistoryStore {
 	switch strings.ToLower(strings.TrimSpace(cfg.Retention.HistoryBackend)) {
 	case "sqlite":
 		store, err := retention.NewSQLiteHistoryStore(context.Background(), sqliteClient, "retention_runs")
+		if err != nil {
+			logger.Error("retention history store init failed", slog.Any("error", err))
+			os.Exit(1)
+		}
+		return store
+	case "postgres":
+		store, err := retention.NewPostgresHistoryStore(context.Background(), postgresClient, "retention_runs")
 		if err != nil {
 			logger.Error("retention history store init failed", slog.Any("error", err))
 			os.Exit(1)
@@ -620,10 +646,17 @@ func buildRetentionHistoryStore(cfg config.Config, logger *slog.Logger, sqliteCl
 	}
 }
 
-func buildProviderHistoryStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient) providers.HealthHistoryStore {
+func buildProviderHistoryStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient, postgresClient *storage.PostgresClient) providers.HealthHistoryStore {
 	switch strings.ToLower(strings.TrimSpace(cfg.Provider.HistoryBackend)) {
 	case "sqlite":
 		store, err := providers.NewSQLiteHealthHistoryStore(context.Background(), sqliteClient, "provider_health_history")
+		if err != nil {
+			logger.Error("provider health history store init failed", slog.Any("error", err))
+			os.Exit(1)
+		}
+		return store
+	case "postgres":
+		store, err := providers.NewPostgresHealthHistoryStore(context.Background(), postgresClient, "provider_health_history")
 		if err != nil {
 			logger.Error("provider health history store init failed", slog.Any("error", err))
 			os.Exit(1)
@@ -643,7 +676,7 @@ func findProviderConfig(cfg config.ProvidersConfig, name string) (config.OpenAIC
 	return config.OpenAICompatibleProviderConfig{}, false
 }
 
-func buildTaskStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient) taskstate.Store {
+func buildTaskStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient, postgresClient *storage.PostgresClient) taskstate.Store {
 	switch strings.ToLower(strings.TrimSpace(cfg.Server.TasksBackend)) {
 	case "sqlite":
 		store, err := taskstate.NewSQLiteStore(context.Background(), sqliteClient)
@@ -654,12 +687,19 @@ func buildTaskStore(cfg config.Config, logger *slog.Logger, sqliteClient *storag
 			os.Exit(1)
 		}
 		return store
+	case "postgres":
+		store, err := taskstate.NewPostgresStore(context.Background(), postgresClient)
+		if err != nil {
+			logger.Error("task store init failed", slog.Any("error", err))
+			os.Exit(1)
+		}
+		return store
 	default:
 		return taskstate.NewMemoryStore()
 	}
 }
 
-func buildTaskQueue(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient) orchestrator.RunQueue {
+func buildTaskQueue(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient, postgresClient *storage.PostgresClient) orchestrator.RunQueue {
 	lease := time.Duration(cfg.Server.TaskQueueLeaseSeconds) * time.Second
 	if lease <= 0 {
 		lease = 30 * time.Second
@@ -672,21 +712,37 @@ func buildTaskQueue(cfg config.Config, logger *slog.Logger, sqliteClient *storag
 			os.Exit(1)
 		}
 		return queue
+	case "postgres":
+		queue, err := orchestrator.NewPostgresRunQueue(context.Background(), postgresClient, lease)
+		if err != nil {
+			logger.Error("task queue init failed", slog.Any("error", err))
+			os.Exit(1)
+		}
+		return queue
 	default:
 		return orchestrator.NewMemoryRunQueue(cfg.Server.TaskQueueBuffer, lease)
 	}
 }
 
-func buildUsageStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient) governor.UsageRepository {
-	if cfg.Governor.UsageBackend == "sqlite" {
+func buildUsageStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient, postgresClient *storage.PostgresClient) governor.UsageRepository {
+	switch cfg.Governor.UsageBackend {
+	case "sqlite":
 		store, err := governor.NewSQLiteUsageStore(context.Background(), sqliteClient)
 		if err != nil {
 			logger.Error("usage store init failed", slog.Any("error", err))
 			os.Exit(1)
 		}
 		return store
+	case "postgres":
+		store, err := governor.NewPostgresUsageStore(context.Background(), postgresClient)
+		if err != nil {
+			logger.Error("usage store init failed", slog.Any("error", err))
+			os.Exit(1)
+		}
+		return store
+	default:
+		return governor.NewMemoryUsageStore()
 	}
-	return governor.NewMemoryUsageStore()
 }
 
 func buildSQLiteClient(cfg config.Config, logger *slog.Logger) *storage.SQLiteClient {
@@ -706,6 +762,24 @@ func buildSQLiteClient(cfg config.Config, logger *slog.Logger) *storage.SQLiteCl
 	return client
 }
 
+func buildPostgresClient(cfg config.Config, logger *slog.Logger) *storage.PostgresClient {
+	if !postgresRequired(cfg) {
+		return nil
+	}
+
+	client, err := storage.NewPostgresClient(context.Background(), storage.PostgresConfig{
+		DatabaseURL:  cfg.Postgres.DatabaseURL,
+		TablePrefix:  cfg.Postgres.TablePrefix,
+		MaxOpenConns: cfg.Postgres.MaxOpenConns,
+		MaxIdleConns: cfg.Postgres.MaxIdleConns,
+	})
+	if err != nil {
+		logger.Error("postgres init failed", slog.Any("error", err))
+		os.Exit(1)
+	}
+	return client
+}
+
 func sqliteRequired(cfg config.Config) bool {
 	return cfg.Governor.UsageBackend == "sqlite" ||
 		cfg.Server.ControlPlaneBackend == "sqlite" ||
@@ -713,13 +787,32 @@ func sqliteRequired(cfg config.Config) bool {
 		cfg.Projects.Backend == "sqlite" ||
 		cfg.Server.TasksBackend == "sqlite" ||
 		cfg.Server.TaskQueueBackend == "sqlite" ||
-		cfg.Retention.HistoryBackend == "sqlite"
+		cfg.Retention.HistoryBackend == "sqlite" ||
+		cfg.Provider.HistoryBackend == "sqlite"
 }
 
-func buildProjectStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient) projects.Store {
+func postgresRequired(cfg config.Config) bool {
+	return cfg.Governor.UsageBackend == "postgres" ||
+		cfg.Server.ControlPlaneBackend == "postgres" ||
+		cfg.Chat.SessionsBackend == "postgres" ||
+		cfg.Projects.Backend == "postgres" ||
+		cfg.Server.TasksBackend == "postgres" ||
+		cfg.Server.TaskQueueBackend == "postgres" ||
+		cfg.Retention.HistoryBackend == "postgres" ||
+		cfg.Provider.HistoryBackend == "postgres"
+}
+
+func buildProjectStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient, postgresClient *storage.PostgresClient) projects.Store {
 	switch cfg.Projects.Backend {
 	case "sqlite":
 		store, err := projects.NewSQLiteStore(context.Background(), sqliteClient)
+		if err != nil {
+			logger.Error("project store init failed", slog.Any("error", err))
+			os.Exit(1)
+		}
+		return store
+	case "postgres":
+		store, err := projects.NewPostgresStore(context.Background(), postgresClient)
 		if err != nil {
 			logger.Error("project store init failed", slog.Any("error", err))
 			os.Exit(1)
@@ -730,10 +823,17 @@ func buildProjectStore(cfg config.Config, logger *slog.Logger, sqliteClient *sto
 	}
 }
 
-func buildMemoryStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient) memory.Store {
+func buildMemoryStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient, postgresClient *storage.PostgresClient) memory.Store {
 	switch cfg.Projects.Backend {
 	case "sqlite":
 		store, err := memory.NewSQLiteStore(context.Background(), sqliteClient)
+		if err != nil {
+			logger.Error("memory store init failed", slog.Any("error", err))
+			os.Exit(1)
+		}
+		return store
+	case "postgres":
+		store, err := memory.NewPostgresStore(context.Background(), postgresClient)
 		if err != nil {
 			logger.Error("memory store init failed", slog.Any("error", err))
 			os.Exit(1)
@@ -744,10 +844,17 @@ func buildMemoryStore(cfg config.Config, logger *slog.Logger, sqliteClient *stor
 	}
 }
 
-func buildProjectWorkStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient) projectwork.Store {
+func buildProjectWorkStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient, postgresClient *storage.PostgresClient) projectwork.Store {
 	switch cfg.Projects.Backend {
 	case "sqlite":
 		store, err := projectwork.NewSQLiteStore(context.Background(), sqliteClient)
+		if err != nil {
+			logger.Error("project work store init failed", slog.Any("error", err))
+			os.Exit(1)
+		}
+		return store
+	case "postgres":
+		store, err := projectwork.NewPostgresStore(context.Background(), postgresClient)
 		if err != nil {
 			logger.Error("project work store init failed", slog.Any("error", err))
 			os.Exit(1)
@@ -758,10 +865,17 @@ func buildProjectWorkStore(cfg config.Config, logger *slog.Logger, sqliteClient 
 	}
 }
 
-func buildProjectSkillStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient) projectskills.Store {
+func buildProjectSkillStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient, postgresClient *storage.PostgresClient) projectskills.Store {
 	switch cfg.Projects.Backend {
 	case "sqlite":
 		store, err := projectskills.NewSQLiteStore(context.Background(), sqliteClient)
+		if err != nil {
+			logger.Error("project skills store init failed", slog.Any("error", err))
+			os.Exit(1)
+		}
+		return store
+	case "postgres":
+		store, err := projectskills.NewPostgresStore(context.Background(), postgresClient)
 		if err != nil {
 			logger.Error("project skills store init failed", slog.Any("error", err))
 			os.Exit(1)
@@ -772,10 +886,17 @@ func buildProjectSkillStore(cfg config.Config, logger *slog.Logger, sqliteClient
 	}
 }
 
-func buildAgentProfileStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient) agentprofiles.Store {
+func buildAgentProfileStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient, postgresClient *storage.PostgresClient) agentprofiles.Store {
 	switch cfg.Projects.Backend {
 	case "sqlite":
 		store, err := agentprofiles.NewSQLiteStore(context.Background(), sqliteClient)
+		if err != nil {
+			logger.Error("agent profile store init failed", slog.Any("error", err))
+			os.Exit(1)
+		}
+		return store
+	case "postgres":
+		store, err := agentprofiles.NewPostgresStore(context.Background(), postgresClient)
 		if err != nil {
 			logger.Error("agent profile store init failed", slog.Any("error", err))
 			os.Exit(1)
@@ -786,10 +907,17 @@ func buildAgentProfileStore(cfg config.Config, logger *slog.Logger, sqliteClient
 	}
 }
 
-func buildAgentChatStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient) chat.Store {
+func buildAgentChatStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient, postgresClient *storage.PostgresClient) chat.Store {
 	switch cfg.Chat.SessionsBackend {
 	case "sqlite":
 		store, err := chat.NewSQLiteStore(context.Background(), sqliteClient)
+		if err != nil {
+			logger.Error("agent chat store init failed", slog.Any("error", err))
+			os.Exit(1)
+		}
+		return store
+	case "postgres":
+		store, err := chat.NewPostgresStore(context.Background(), postgresClient)
 		if err != nil {
 			logger.Error("agent chat store init failed", slog.Any("error", err))
 			os.Exit(1)
@@ -803,10 +931,17 @@ func buildAgentChatStore(cfg config.Config, logger *slog.Logger, sqliteClient *s
 // buildApprovalStore picks memory or sqlite for the approval coordinator.
 // It follows HECATE_BACKEND, like the chat session/message stores, so the
 // whole chat state bundle moves together.
-func buildApprovalStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient) agentadapters.ApprovalStore {
+func buildApprovalStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient, postgresClient *storage.PostgresClient) agentadapters.ApprovalStore {
 	switch cfg.Chat.SessionsBackend {
 	case "sqlite":
 		store, err := agentadapters.NewSQLiteApprovalStore(context.Background(), sqliteClient)
+		if err != nil {
+			logger.Error("approval store init failed", slog.Any("error", err))
+			os.Exit(1)
+		}
+		return store
+	case "postgres":
+		store, err := agentadapters.NewPostgresApprovalStore(context.Background(), postgresClient)
 		if err != nil {
 			logger.Error("approval store init failed", slog.Any("error", err))
 			os.Exit(1)

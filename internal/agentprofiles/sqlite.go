@@ -12,17 +12,27 @@ import (
 )
 
 type SQLiteStore struct {
-	client *storage.SQLiteClient
-	table  string
+	client  storage.SQLClient
+	backend string
+	table   string
 }
 
 func NewSQLiteStore(ctx context.Context, client *storage.SQLiteClient) (*SQLiteStore, error) {
+	return newSQLStore(ctx, client)
+}
+
+func NewPostgresStore(ctx context.Context, client *storage.PostgresClient) (*SQLiteStore, error) {
+	return newSQLStore(ctx, client)
+}
+
+func newSQLStore(ctx context.Context, client storage.SQLClient) (*SQLiteStore, error) {
 	if client == nil {
-		return nil, errors.New("sqlite client is required")
+		return nil, errors.New("sql client is required")
 	}
 	store := &SQLiteStore{
-		client: client,
-		table:  client.QualifiedTable("agent_profiles"),
+		client:  client,
+		backend: client.Backend(),
+		table:   client.QualifiedTable("agent_profiles"),
 	}
 	if err := store.migrate(ctx); err != nil {
 		return nil, err
@@ -30,9 +40,10 @@ func NewSQLiteStore(ctx context.Context, client *storage.SQLiteClient) (*SQLiteS
 	return store, nil
 }
 
-func (s *SQLiteStore) Backend() string { return "sqlite" }
+func (s *SQLiteStore) Backend() string { return s.backend }
 
 func (s *SQLiteStore) migrate(ctx context.Context) error {
+	timestampColumn := storage.TimestampColumnDefaultZero(s.client)
 	_, err := s.client.DB().ExecContext(ctx, `
 CREATE TABLE IF NOT EXISTS `+s.table+` (
     id TEXT PRIMARY KEY,
@@ -52,8 +63,8 @@ CREATE TABLE IF NOT EXISTS `+s.table+` (
     skill_ids TEXT NOT NULL DEFAULT '[]',
     external_agent_kind TEXT NOT NULL DEFAULT '',
     external_agent_options TEXT NOT NULL DEFAULT '{}',
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    created_at `+timestampColumn+`,
+    updated_at `+timestampColumn+`
 )`)
 	return err
 }

@@ -18,6 +18,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	semconv "go.opentelemetry.io/otel/semconv/v1.34.0"
 
+	"github.com/hecatehq/hecate/internal/cloudruntime"
 	"github.com/hecatehq/hecate/internal/telemetry"
 )
 
@@ -86,6 +87,14 @@ func OTelHTTPSpanMiddleware(next http.Handler) http.Handler {
 		span.SetAttributes(semconv.HTTPRequestMethodKey.String(r.Method))
 		if requestID := telemetry.RequestIDFromContext(ctx); requestID != "" {
 			span.SetAttributes(attribute.String("hecate.request_id", requestID))
+		}
+		if identity, ok := cloudruntime.FromContext(ctx); ok {
+			span.SetAttributes(
+				attribute.String("hecate.cloud.actor_id", identity.ActorID),
+				attribute.String("hecate.cloud.org_id", identity.OrgID),
+				attribute.String("hecate.cloud.project_id", identity.ProjectID),
+				attribute.String("hecate.cloud.runtime_id", identity.RuntimeID),
+			)
 		}
 
 		rw := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
@@ -166,11 +175,51 @@ func RuntimeTokenMiddleware(token string) middleware {
 			return next
 		}
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !isHecateAPIPath(r.URL.Path) || runtimeTokenMatches(r.Header.Get(runtimeTokenHeader), token) {
+			if _, ok := cloudruntime.FromContext(r.Context()); ok || !isHecateAPIPath(r.URL.Path) || runtimeTokenMatches(r.Header.Get(runtimeTokenHeader), token) {
 				next.ServeHTTP(w, r)
 				return
 			}
 			WriteError(w, http.StatusUnauthorized, errCodeUnauthorized, "runtime token is required")
+		})
+	}
+}
+
+func CloudRuntimeIdentityMiddleware(enabled bool, secret string) middleware {
+	secret = strings.TrimSpace(secret)
+	return func(next http.Handler) http.Handler {
+		if !enabled {
+			return next
+		}
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/healthz" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if !tokenMatches(r.Header.Get(cloudruntime.HeaderRuntimeSecret), secret) {
+				WriteError(w, http.StatusUnauthorized, errCodeUnauthorized, "cloud runtime identity is required")
+				return
+			}
+			identity, err := cloudruntime.FromHeaders(r.Header)
+			if err != nil {
+				WriteError(w, http.StatusUnauthorized, errCodeUnauthorized, "cloud runtime identity headers are required")
+				return
+			}
+			next.ServeHTTP(w, r.WithContext(cloudruntime.WithIdentity(r.Context(), identity)))
+		})
+	}
+}
+
+func CloudRuntimeLocalEndpointGuardMiddleware(enabled bool) middleware {
+	return func(next http.Handler) http.Handler {
+		if !enabled {
+			return next
+		}
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if cloudRuntimeBlocksLocalEndpoint(r.Method, r.URL.Path) {
+				WriteError(w, http.StatusForbidden, errCodeForbidden, "local-only endpoint is disabled in cloud runtime mode")
+				return
+			}
+			next.ServeHTTP(w, r)
 		})
 	}
 }
@@ -182,7 +231,7 @@ func InferenceTokenMiddleware(token string) middleware {
 			return next
 		}
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !isProviderInferenceRoute(r.Method, r.URL.Path) || inferenceTokenMatches(r, token) {
+			if _, ok := cloudruntime.FromContext(r.Context()); ok || !isProviderInferenceRoute(r.Method, r.URL.Path) || inferenceTokenMatches(r, token) {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -230,6 +279,22 @@ func isProviderInferenceRoute(method, path string) bool {
 	case http.MethodGet + " /v1/models",
 		http.MethodPost + " /v1/chat/completions",
 		http.MethodPost + " /v1/messages":
+		return true
+	default:
+		return false
+	}
+}
+
+func cloudRuntimeBlocksLocalEndpoint(method, path string) bool {
+	if method != http.MethodPost {
+		return false
+	}
+	switch path {
+	case "/hecate/v1/workspace-dialog",
+		"/hecate/v1/workspace-open",
+		"/hecate/v1/system/reset-data",
+		"/hecate/v1/system/shutdown",
+		"/hecate/v1/mcp/probe":
 		return true
 	default:
 		return false

@@ -37,4 +37,6 @@ Run the relevant verification ladder ([`../core/verification.md`](../core/verifi
 
 The api↔providers parallel-struct rule is not a target for unification. The duplication is the contract — see [`../skills/providers/SKILL.md`](../skills/providers/SKILL.md). When mirroring fields across the boundary, mirror; don't share. If a refactor proposal includes "let's unify these," that's the point at which to stop and plan, not push through.
 
-Likewise the storage tier rule: refactors that compress memory + sqlite into a single backend lose the fast-test + durable-local story. Don't.
+Likewise the storage tier rule: refactors that compress memory + SQLite +
+Postgres into a single backend lose the fast-test, durable-local, and
+hosted-runtime stories. Don't.

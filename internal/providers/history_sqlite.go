@@ -2,7 +2,6 @@ package providers
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strings"
 	"time"
@@ -11,21 +10,33 @@ import (
 )
 
 type SQLiteHealthHistoryStore struct {
-	db    *sql.DB
-	table string
+	db        storage.DB
+	client    storage.SQLClient
+	table     string
+	tableName string
 }
 
 func NewSQLiteHealthHistoryStore(ctx context.Context, client *storage.SQLiteClient, tableName string) (*SQLiteHealthHistoryStore, error) {
+	return newSQLHealthHistoryStore(ctx, client, tableName)
+}
+
+func NewPostgresHealthHistoryStore(ctx context.Context, client *storage.PostgresClient, tableName string) (*SQLiteHealthHistoryStore, error) {
+	return newSQLHealthHistoryStore(ctx, client, tableName)
+}
+
+func newSQLHealthHistoryStore(ctx context.Context, client storage.SQLClient, tableName string) (*SQLiteHealthHistoryStore, error) {
 	if client == nil || client.DB() == nil {
-		return nil, fmt.Errorf("sqlite client is required")
+		return nil, fmt.Errorf("sql client is required")
 	}
 	tableName = strings.TrimSpace(tableName)
 	if tableName == "" {
 		tableName = "provider_health_history"
 	}
 	store := &SQLiteHealthHistoryStore{
-		db:    client.DB(),
-		table: client.QualifiedTable(tableName),
+		db:        client.DB(),
+		client:    client,
+		table:     client.QualifiedTable(tableName),
+		tableName: client.TableName(tableName),
 	}
 	if err := store.migrate(ctx); err != nil {
 		return nil, err
@@ -171,7 +182,7 @@ func (s *SQLiteHealthHistoryStore) List(ctx context.Context, filter HealthHistor
 func (s *SQLiteHealthHistoryStore) migrate(ctx context.Context) error {
 	_, err := s.db.ExecContext(ctx, fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			id `+storage.AutoIDColumn(s.client)+`,
 			provider TEXT NOT NULL,
 			model TEXT NOT NULL DEFAULT '',
 			event TEXT NOT NULL,
@@ -202,7 +213,7 @@ func (s *SQLiteHealthHistoryStore) migrate(ctx context.Context) error {
 		)
 	`, s.table))
 	if err != nil {
-		return fmt.Errorf("migrate sqlite provider health history store: %w", err)
+		return fmt.Errorf("migrate %s provider health history store: %w", s.client.Backend(), err)
 	}
 	for _, column := range []struct {
 		name       string
@@ -217,13 +228,13 @@ func (s *SQLiteHealthHistoryStore) migrate(ctx context.Context) error {
 	} {
 		exists, err := s.columnExists(ctx, column.name)
 		if err != nil {
-			return fmt.Errorf("inspect sqlite provider health history columns: %w", err)
+			return fmt.Errorf("inspect %s provider health history columns: %w", s.client.Backend(), err)
 		}
 		if exists {
 			continue
 		}
 		if _, err := s.db.ExecContext(ctx, fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`, s.table, column.name, column.definition)); err != nil {
-			return fmt.Errorf("migrate sqlite provider health history %s: %w", column.name, err)
+			return fmt.Errorf("migrate %s provider health history %s: %w", s.client.Backend(), column.name, err)
 		}
 	}
 	indexName := strings.Trim(s.table, `"`) + "_provider_timestamp_idx"
@@ -232,34 +243,13 @@ func (s *SQLiteHealthHistoryStore) migrate(ctx context.Context) error {
 		ON %s (provider, timestamp_utc DESC, id DESC)
 	`, indexName, s.table))
 	if err != nil {
-		return fmt.Errorf("migrate sqlite provider health history index: %w", err)
+		return fmt.Errorf("migrate %s provider health history index: %w", s.client.Backend(), err)
 	}
 	return nil
 }
 
 func (s *SQLiteHealthHistoryStore) columnExists(ctx context.Context, column string) (bool, error) {
-	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`PRAGMA table_info(%s)`, s.table))
-	if err != nil {
-		return false, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var (
-			cid        int
-			name       string
-			typ        string
-			notNull    int
-			defaultVal sql.NullString
-			pk         int
-		)
-		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultVal, &pk); err != nil {
-			return false, err
-		}
-		if strings.EqualFold(name, column) {
-			return true, nil
-		}
-	}
-	return false, rows.Err()
+	return storage.ColumnExists(ctx, s.client, s.tableName, column)
 }
 
 func (s *SQLiteHealthHistoryStore) Prune(ctx context.Context, maxAge time.Duration, maxCount int) (int, error) {

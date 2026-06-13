@@ -18,7 +18,7 @@ is released in alpha tags only after it merges.
 | Routing explainability   | Route reports persist and expose selected route, skipped candidates, skip reasons, failover path, cache path, policy decision, provider latency/error state, and final error.                                                                                         |
 | Task runtime hardening   | Queue, lease, running, awaiting approval, approved/rejected, cancelled, failed, completed, retry, resume, stale worker recovery, and shutdown behavior are audited and tested.                                                                                        |
 | Project orchestration    | Projects provide the operator cockpit for project-scoped agent teams: roles, work items, assignments, native task launches, structured handoffs, activity health, memory candidates, and context readiness stay linked without replacing Tasks or Chats.              |
-| Storage and retention    | Memory/SQLite parity is verified for providers, chats, tasks, approvals, grants, retention pruning, startup reconcile, and schema migration safety.                                                                                                                   |
+| Storage and retention    | Memory/SQLite/Postgres parity is verified for providers, chats, tasks, approvals, grants, retention pruning, startup reconcile, and schema migration safety.                                                                                                          |
 | OpenTelemetry            | Route choice/skip, provider failure, cache hit/miss, task lifecycle, approval lifecycle, chat segment lifecycle, external adapter behavior, retention, rate limits, and readiness probes emit useful spans, metrics, or logs.                                         |
 | Endpoint stability       | Hecate-native endpoints stay under `/hecate/v1/*`; provider-compatible endpoints stay under `/v1/*`; tests and docs checks prevent old `/admin/*` and accidental Hecate-native `/v1/*` routes from returning.                                                         |
 
@@ -94,7 +94,7 @@ true:
   diff inspect/revert, and trusted-subprocess warnings.
 - Task runtime lifecycle is tested for approval, cancel, retry/resume, stale
   worker recovery, and shutdown.
-- Memory/SQLite persistence and retention boundaries are tested and documented.
+- Memory/SQLite/Postgres persistence and retention boundaries are tested and documented.
 - OTel covers the important runtime decisions.
 - UI polish passes are complete for Chats, Connections, Projects, Tasks,
   Observability, and Settings.

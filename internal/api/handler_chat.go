@@ -436,6 +436,13 @@ func writeAgentChatPrepareError(w http.ResponseWriter, adapterName string, err e
 		})
 		return
 	}
+	if errors.Is(err, agentadapters.ErrCloudCredentialRequired) {
+		WriteErrorDetails(w, http.StatusForbidden, errCodeForbidden, err.Error(), ErrorDetails{
+			UserMessage:    "This hosted runtime needs cloud-safe credentials for the selected external agent.",
+			OperatorAction: "Set a scoped API key or enterprise token for this runtime instead of using local CLI login files.",
+		})
+		return
+	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		WriteErrorDetails(w, http.StatusGatewayTimeout, errCodeAgentAdapterUnavailable, err.Error(), ErrorDetails{
 			UserMessage:    "The external agent did not respond while starting the session.",

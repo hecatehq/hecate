@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/hecatehq/hecate/internal/cloudruntime"
 )
 
 func TestBuiltInsIncludeInitialExternalAgents(t *testing.T) {
@@ -48,6 +50,126 @@ func TestBuiltInsIncludeInitialExternalAgents(t *testing.T) {
 	}
 	if got := found["grok_build"]; len(got.LaunchOptions) != 0 {
 		t.Fatalf("grok_build launch options = %#v, want ACP-owned controls only", got.LaunchOptions)
+	}
+	for _, tc := range []struct {
+		id      string
+		envKeys []string
+	}{
+		{id: "codex", envKeys: []string{"OPENAI_API_KEY", "CODEX_API_KEY"}},
+		{id: "claude_code", envKeys: []string{"ANTHROPIC_API_KEY"}},
+		{id: "cursor_agent", envKeys: []string{"CURSOR_API_KEY"}},
+		{id: "grok_build", envKeys: []string{"XAI_API_KEY", "PROVIDER_XAI_API_KEY"}},
+	} {
+		adapter := found[tc.id]
+		if !hasCredentialMode(adapter, CredentialModeAPIKey, true, tc.envKeys...) {
+			t.Fatalf("%s credential modes = %#v, want cloud API key mode with %v", tc.id, adapter.CredentialModes, tc.envKeys)
+		}
+		if cloudRuntimeBuild {
+			if hasCredentialMode(adapter, CredentialModeLocalLogin, false) {
+				t.Fatalf("%s credential modes = %#v, want hecate_cloud build to omit local login", tc.id, adapter.CredentialModes)
+			}
+		} else if !hasCredentialMode(adapter, CredentialModeLocalLogin, false) {
+			t.Fatalf("%s credential modes = %#v, want local login mode in default build", tc.id, adapter.CredentialModes)
+		}
+	}
+}
+
+func TestCloudRuntimeCredentialsRejectLocalLoginFiles(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("CODEX_API_KEY", "")
+	authPath := filepath.Join(home, ".codex", "auth.json")
+	if err := os.MkdirAll(filepath.Dir(authPath), 0o755); err != nil {
+		t.Fatalf("mkdir codex auth dir: %v", err)
+	}
+	if err := os.WriteFile(authPath, []byte(`{"token":"local"}`), 0o600); err != nil {
+		t.Fatalf("write codex auth file: %v", err)
+	}
+
+	adapter, ok := BuiltInByID("codex")
+	if !ok {
+		t.Fatalf("missing codex adapter")
+	}
+	if _, err := validateCloudCredentialForRequest(cloudIdentityContext(), adapter); !errors.Is(err, ErrCloudCredentialRequired) {
+		t.Fatalf("validateCloudCredentialForRequest error = %v, want ErrCloudCredentialRequired", err)
+	}
+
+	t.Setenv("OPENAI_API_KEY", "sk-cloud")
+	mode, err := validateCloudCredentialForRequest(cloudIdentityContext(), adapter)
+	if err != nil {
+		t.Fatalf("validateCloudCredentialForRequest with API key: %v", err)
+	}
+	if mode.ID != CredentialModeAPIKey {
+		t.Fatalf("credential mode = %#v, want API key", mode)
+	}
+}
+
+func TestCloudRuntimeCredentialsAllowCursorAndGrokAPIKeys(t *testing.T) {
+	t.Setenv("CURSOR_API_KEY", "")
+	t.Setenv("XAI_API_KEY", "")
+	t.Setenv("PROVIDER_XAI_API_KEY", "")
+	ctx := cloudIdentityContext()
+
+	cursor, ok := BuiltInByID("cursor_agent")
+	if !ok {
+		t.Fatalf("missing cursor_agent adapter")
+	}
+	if _, err := validateCloudCredentialForRequest(ctx, cursor); !errors.Is(err, ErrCloudCredentialRequired) {
+		t.Fatalf("cursor cloud credential error = %v, want ErrCloudCredentialRequired", err)
+	}
+	t.Setenv("CURSOR_API_KEY", "cursor-cloud")
+	mode, err := validateCloudCredentialForRequest(ctx, cursor)
+	if err != nil {
+		t.Fatalf("cursor cloud credential with API key: %v", err)
+	}
+	if mode.ID != CredentialModeAPIKey {
+		t.Fatalf("cursor credential mode = %#v, want API key", mode)
+	}
+
+	grok, ok := BuiltInByID("grok_build")
+	if !ok {
+		t.Fatalf("missing grok_build adapter")
+	}
+	if _, err := validateCloudCredentialForRequest(ctx, grok); !errors.Is(err, ErrCloudCredentialRequired) {
+		t.Fatalf("grok cloud credential error = %v, want ErrCloudCredentialRequired", err)
+	}
+	t.Setenv("PROVIDER_XAI_API_KEY", "xai-provider-cloud")
+	mode, err = validateCloudCredentialForRequest(ctx, grok)
+	if err != nil {
+		t.Fatalf("grok cloud credential with provider API key: %v", err)
+	}
+	if mode.ID != CredentialModeAPIKey {
+		t.Fatalf("grok credential mode = %#v, want API key", mode)
+	}
+}
+
+func TestCloudRuntimeStatusRequiresCloudCredentialBeforeDiscoveryOverrides(t *testing.T) {
+	t.Setenv(adapterDevOverrideEnv, "cursor_agent=ready")
+	t.Setenv("CURSOR_API_KEY", "")
+
+	status, ok := StatusForAdapter(cloudIdentityContext(), "cursor_agent", func(file string) (string, error) {
+		return "/usr/local/bin/" + file, nil
+	})
+	if !ok {
+		t.Fatalf("StatusForAdapter(cursor_agent) ok = false")
+	}
+	if status.Available || status.Status != StatusMissing {
+		t.Fatalf("status = %#v, want cloud credential gate to keep adapter unavailable", status)
+	}
+	if status.AuthStatus != AuthStatusUnauthenticated || !strings.Contains(status.AuthError, "CURSOR_API_KEY") {
+		t.Fatalf("auth status/error = %q/%q, want cloud credential hint", status.AuthStatus, status.AuthError)
+	}
+
+	t.Setenv("CURSOR_API_KEY", "cursor-cloud")
+	status, ok = StatusForAdapter(cloudIdentityContext(), "cursor_agent", func(file string) (string, error) {
+		return "/usr/local/bin/" + file, nil
+	})
+	if !ok {
+		t.Fatalf("StatusForAdapter(cursor_agent) ok = false")
+	}
+	if !status.Available || status.CloudCredentialMode != CredentialModeAPIKey || !status.CloudCredentialOK {
+		t.Fatalf("status = %#v, want cloud credential ready status", status)
 	}
 }
 
@@ -1016,4 +1138,35 @@ func TestNormalizeErrorExtractsJSONRPCStringData(t *testing.T) {
 	if strings.Contains(got, `{"code"`) {
 		t.Fatalf("NormalizeError = %q, want parsed message instead of raw JSON", got)
 	}
+}
+
+func hasCredentialMode(adapter Adapter, id string, cloudAllowed bool, envKeys ...string) bool {
+	for _, mode := range adapter.CredentialModes {
+		if mode.ID != id || mode.CloudAllowed != cloudAllowed {
+			continue
+		}
+		for _, envKey := range envKeys {
+			found := false
+			for _, got := range mode.EnvKeys {
+				if got == envKey {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+func cloudIdentityContext() context.Context {
+	return cloudruntime.WithIdentity(context.Background(), cloudruntime.Identity{
+		ActorID:   "actor_test",
+		OrgID:     "org_test",
+		ProjectID: "project_test",
+		RuntimeID: "runtime_test",
+	})
 }

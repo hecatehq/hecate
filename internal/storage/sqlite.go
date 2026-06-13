@@ -20,7 +20,7 @@ import (
 )
 
 // identifierPattern matches characters that aren't allowed in a
-// SQLite identifier we'll splice into a CREATE TABLE statement.
+// SQL identifier we'll splice into a CREATE TABLE statement.
 // We never substitute callers' identifiers via parameter binding —
 // SQL doesn't allow that — so the only safe move is to scrub them
 // to a known-good charset before formatting.
@@ -58,6 +58,7 @@ type SQLiteConfig struct {
 // just returns the prefixed table name with no schema namespace.
 type SQLiteClient struct {
 	db          *sql.DB
+	wrapped     DB
 	tablePrefix string
 }
 
@@ -141,6 +142,7 @@ func NewSQLiteClient(ctx context.Context, cfg SQLiteConfig) (*SQLiteClient, erro
 
 	return &SQLiteClient{
 		db:          db,
+		wrapped:     &rebindingDB{db: db, dialect: DialectSQLite},
 		tablePrefix: sanitizeIdentifier(cfg.TablePrefix, "hecate"),
 	}, nil
 }
@@ -181,11 +183,26 @@ func (c *SQLiteClient) Close() error {
 	return c.db.Close()
 }
 
-func (c *SQLiteClient) DB() *sql.DB {
+func (c *SQLiteClient) DB() DB {
+	if c == nil {
+		return nil
+	}
+	return c.wrapped
+}
+
+func (c *SQLiteClient) RawDB() *sql.DB {
 	if c == nil {
 		return nil
 	}
 	return c.db
+}
+
+func (c *SQLiteClient) Dialect() Dialect {
+	return DialectSQLite
+}
+
+func (c *SQLiteClient) Backend() string {
+	return "sqlite"
 }
 
 // QualifiedTable returns the fully-qualified table name. SQLite has no

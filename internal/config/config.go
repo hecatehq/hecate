@@ -27,6 +27,7 @@ type Config struct {
 	// actually needs it. See storage.SQLiteClient for the pragmas applied per
 	// connection.
 	SQLite    SQLiteConfig
+	Postgres  PostgresConfig
 	Providers ProvidersConfig
 	LogLevel  string
 }
@@ -37,6 +38,8 @@ type ServerConfig struct {
 	AllowedOrigins             []string
 	RuntimeToken               string
 	InferenceToken             string
+	CloudRuntimeMode           bool
+	CloudRuntimeSecret         string
 	PublicURL                  string
 	DataDir                    string
 	BootstrapFile              string
@@ -295,6 +298,13 @@ type SQLiteConfig struct {
 	BusyTimeout time.Duration
 }
 
+type PostgresConfig struct {
+	DatabaseURL  string
+	TablePrefix  string
+	MaxOpenConns int
+	MaxIdleConns int
+}
+
 type ProvidersConfig struct {
 	OpenAICompatible []OpenAICompatibleProviderConfig
 	// AnthropicCacheDisabled is the gateway-wide value of
@@ -358,6 +368,8 @@ func LoadFromEnv() Config {
 			AllowedOrigins:       splitCSV(getEnv("HECATE_ALLOWED_ORIGINS", "")),
 			RuntimeToken:         getEnv("HECATE_RUNTIME_TOKEN", ""),
 			InferenceToken:       getEnv("HECATE_INFERENCE_TOKEN", ""),
+			CloudRuntimeMode:     getEnvBool("HECATE_CLOUD_RUNTIME_MODE", false),
+			CloudRuntimeSecret:   getEnv("HECATE_CLOUD_RUNTIME_SECRET", ""),
 			// PublicURL is written to hecate.runtime.json for local
 			// diagnostics. Empty means derive from Address.
 			PublicURL: getEnv("HECATE_PUBLIC_URL", ""),
@@ -461,6 +473,12 @@ func LoadFromEnv() Config {
 			TablePrefix: getEnv("HECATE_SQLITE_TABLE_PREFIX", "hecate"),
 			BusyTimeout: getEnvDuration("HECATE_SQLITE_BUSY_TIMEOUT", 5*time.Second),
 		},
+		Postgres: PostgresConfig{
+			DatabaseURL:  firstNonEmpty(getEnv("HECATE_POSTGRES_URL", ""), getEnv("DATABASE_URL", "")),
+			TablePrefix:  getEnv("HECATE_POSTGRES_TABLE_PREFIX", "hecate"),
+			MaxOpenConns: getEnvInt("HECATE_POSTGRES_MAX_OPEN_CONNS", 10),
+			MaxIdleConns: getEnvInt("HECATE_POSTGRES_MAX_IDLE_CONNS", 5),
+		},
 		Providers: providersCfg,
 		LogLevel:  getEnv("LOG_LEVEL", "INFO"),
 	}
@@ -493,7 +511,10 @@ func (c Config) Validate() error {
 		c.Retention.HistoryBackend,
 		c.Provider.HistoryBackend,
 	} {
-		validateBackend("HECATE_BACKEND", backend, "memory", "sqlite")
+		validateBackend("HECATE_BACKEND", backend, "memory", "sqlite", "postgres")
+	}
+	if postgresRequired(c) && strings.TrimSpace(c.Postgres.DatabaseURL) == "" {
+		errs = append(errs, errors.New("HECATE_POSTGRES_URL or DATABASE_URL is required when HECATE_BACKEND=postgres"))
 	}
 	if publicURL := strings.TrimSpace(c.Server.PublicURL); publicURL != "" {
 		u, err := url.ParseRequestURI(publicURL)
@@ -511,6 +532,11 @@ func (c Config) Validate() error {
 	}
 	if token := strings.TrimSpace(c.Server.InferenceToken); token != "" && len(token) < 24 {
 		errs = append(errs, errors.New("HECATE_INFERENCE_TOKEN must be at least 24 characters when set"))
+	}
+	if c.Server.CloudRuntimeMode {
+		if secret := strings.TrimSpace(c.Server.CloudRuntimeSecret); len(secret) < 24 {
+			errs = append(errs, errors.New("HECATE_CLOUD_RUNTIME_SECRET must be at least 24 characters when HECATE_CLOUD_RUNTIME_MODE is enabled"))
+		}
 	}
 
 	validPolicies := map[string]struct{}{
@@ -611,6 +637,17 @@ func (c Config) Validate() error {
 	}
 
 	return errors.Join(errs...)
+}
+
+func postgresRequired(c Config) bool {
+	return c.Governor.UsageBackend == "postgres" ||
+		c.Server.ControlPlaneBackend == "postgres" ||
+		c.Chat.SessionsBackend == "postgres" ||
+		c.Projects.Backend == "postgres" ||
+		c.Server.TasksBackend == "postgres" ||
+		c.Server.TaskQueueBackend == "postgres" ||
+		c.Retention.HistoryBackend == "postgres" ||
+		c.Provider.HistoryBackend == "postgres"
 }
 
 func durationEnvKeys() []string {
@@ -1033,6 +1070,15 @@ func splitCSV(value string) []string {
 		return nil
 	}
 	return normalizeValues(strings.Split(value, ","))
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func normalizeValues(values []string) []string {
