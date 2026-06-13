@@ -1276,14 +1276,18 @@ files into prompts yet. Projects also have a project-scoped skills registry
 for local `SKILL.md` metadata discovered from `.agents/skills`,
 `.hecate/skills`, and enabled guidance-linked local skill roots. The registry
 stores ids, title/description metadata, path, root, status, trust label, and
-warnings; it does not store or return skill bodies. Project work-coordination endpoints can
-persist roles, work items, assignments, and collaboration artifacts under a
-project. Assignments may record links to existing task runs or chat messages,
-but creating an assignment does not start a task, open a chat, inject context,
-or dispatch any agent. Project handoffs are structured project-scoped records
-for passing context and a recommended next action from one assignment/run/chat
-to another role or assignment. They can link artifacts, memory entries, and
-context references, but they do not launch follow-up work by themselves.
+warnings; it does not store or return skill bodies. Project work-coordination
+endpoints can persist roles, work items, assignments, and collaboration
+artifacts under a project. Assignments may record links to existing task runs
+or chat messages, but creating an assignment does not start a task, open a
+chat, inject context, or dispatch any agent. Project handoffs are structured
+project-scoped records for passing context and a recommended next action from
+one assignment/run/chat to another role or assignment. They can link artifacts,
+memory entries, and context references, but they do not launch follow-up work
+by themselves. Work-item `reviewer_role_ids` are follow-through hints for
+review handoffs: the Projects cockpit can prefill a request-review handoff to a
+reviewer role, but creating the target assignment and starting it remain
+explicit operator actions.
 Project memory entries are structured project-scoped records with
 Markdown-compatible `body` text; they are not Markdown files, and they are
 written only through explicit operator API/UI actions. Enabled project memory
@@ -1786,6 +1790,9 @@ chat sessions.
 Work items and assignments may carry `root_id` to select a concrete project
 root. Launch workspace resolution uses assignment `root_id`, then work-item
 `root_id`, then project `default_root_id`, then the first active project root.
+Work items may also carry `reviewer_role_ids`; these identify roles that are
+appropriate targets for review handoffs and do not grant permissions, enforce
+policy, or auto-dispatch review work.
 Supported collaboration artifact kinds are `brief`, `handoff`, `review`, and
 `decision_note`.
 Supported structured handoff statuses are `pending`, `accepted`, `superseded`,

@@ -4,6 +4,7 @@ import type {
   ProjectAssignmentExecutionRefRecord,
   ProjectAssignmentRecord,
   ProjectHandoffRecord,
+  ProjectWorkItemRecord,
   ProjectWorkRoleRecord,
   UpdateProjectAssignmentPayload,
   UpdateProjectWorkItemPayload,
@@ -260,6 +261,27 @@ export function handoffFormFromAssignment(
     status: "pending",
     provenanceKind: "operator",
     trustLabel: "operator_reviewed",
+  };
+}
+
+export function reviewHandoffFormFromAssignment(
+  assignment: ProjectAssignmentRecord,
+  sourceRole: ProjectWorkRoleRecord | null,
+  targetRole: ProjectWorkRoleRecord,
+  workItem: ProjectWorkItemRecord,
+  activityItem?: ProjectActivityItemRecord,
+): HandoffForm {
+  const draft = handoffFormFromAssignment(assignment, sourceRole, activityItem);
+  const sourceRoleName = sourceRole?.name || assignment.role_id;
+  const targetRoleName = targetRole.name || targetRole.id;
+  const workTitle = workItem.title || workItem.id;
+  return {
+    ...draft,
+    targetRoleID: targetRole.id,
+    title: `${targetRoleName} review request`,
+    summary: `Review ${sourceRoleName}'s assignment for "${workTitle}".`,
+    recommendedNextAction:
+      "Create and start the linked review assignment, then record findings as a review artifact or follow-up handoff.",
   };
 }
 

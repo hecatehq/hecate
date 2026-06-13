@@ -2489,6 +2489,69 @@ describe("ProjectsView cockpit", () => {
     );
   });
 
+  it("drafts reviewer handoffs from work item reviewer roles", async () => {
+    resetProjectWorkMocks();
+    const reviewRole: ProjectWorkRoleRecord = {
+      id: "reviewer_qa",
+      project_id: project.id,
+      name: "QA reviewer",
+      description: "Reviews behavior, regressions, and verification gaps.",
+      default_driver_kind: "hecate_task",
+      built_in: false,
+    };
+    vi.mocked(getProjectWorkRoles).mockResolvedValue({
+      object: "project_roles",
+      data: [role, reviewRole],
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Open work item Build cockpit UI" }),
+    );
+    const detail = await screen.findByRole("region", { name: "Selected work item" });
+    await userEvent.click(
+      within(detail).getByRole("button", {
+        name: `Request review for assignment ${hecateAssignment.id}`,
+      }),
+    );
+
+    const dialog = await screen.findByRole("dialog", { name: "New handoff" });
+    expect(within(dialog).getByLabelText("Target role")).toHaveValue("reviewer_qa");
+    expect(within(dialog).getByLabelText("Title")).toHaveValue("QA reviewer review request");
+    expect(within(dialog).getByLabelText("Summary")).toHaveValue(
+      'Review Software developer\'s assignment for "Build cockpit UI".',
+    );
+    expect(within(dialog).getByLabelText("Source assignment")).toHaveValue(hecateAssignment.id);
+    expect(within(dialog).getByLabelText("Source run")).toHaveValue("run_1");
+    expect(within(dialog).getByLabelText("Context refs")).toHaveValue(
+      "ctx_assignment_1, task_1, run_1",
+    );
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save handoff" }));
+
+    await waitFor(() => {
+      expect(createProjectHandoff).toHaveBeenCalledWith(
+        project.id,
+        workItem.id,
+        expect.objectContaining({
+          source_assignment_id: hecateAssignment.id,
+          source_run_id: "run_1",
+          target_role_id: "reviewer_qa",
+          title: "QA reviewer review request",
+          status: "pending",
+          provenance_kind: "operator",
+          trust_label: "operator_reviewed",
+          context_refs: ["ctx_assignment_1", "task_1", "run_1"],
+        }),
+      );
+    });
+  });
+
   it("renders a project timeline from activity, decisions, artifacts, and memory", async () => {
     resetProjectWorkMocks();
     const onOpenTask = vi.fn();
