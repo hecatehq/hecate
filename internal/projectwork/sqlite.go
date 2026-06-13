@@ -15,7 +15,9 @@ import (
 
 type SQLiteStore struct {
 	mu             sync.Mutex
-	db             *sql.DB
+	db             storage.DB
+	client         storage.SQLClient
+	backend        string
 	rolesTbl       string
 	workItemsTbl   string
 	reviewersTbl   string
@@ -25,11 +27,21 @@ type SQLiteStore struct {
 }
 
 func NewSQLiteStore(ctx context.Context, client *storage.SQLiteClient) (*SQLiteStore, error) {
+	return newSQLStore(ctx, client)
+}
+
+func NewPostgresStore(ctx context.Context, client *storage.PostgresClient) (*SQLiteStore, error) {
+	return newSQLStore(ctx, client)
+}
+
+func newSQLStore(ctx context.Context, client storage.SQLClient) (*SQLiteStore, error) {
 	if client == nil || client.DB() == nil {
-		return nil, fmt.Errorf("sqlite client is required")
+		return nil, fmt.Errorf("sql client is required")
 	}
 	store := &SQLiteStore{
 		db:             client.DB(),
+		client:         client,
+		backend:        client.Backend(),
 		rolesTbl:       client.QualifiedTable("project_work_roles"),
 		workItemsTbl:   client.QualifiedTable("project_work_items"),
 		reviewersTbl:   client.QualifiedTable("project_work_item_reviewers"),
@@ -44,10 +56,11 @@ func NewSQLiteStore(ctx context.Context, client *storage.SQLiteClient) (*SQLiteS
 }
 
 func (s *SQLiteStore) Backend() string {
-	return "sqlite"
+	return s.backend
 }
 
 func (s *SQLiteStore) migrate(ctx context.Context) error {
+	timestampColumn := storage.TimestampColumnDefaultZero(s.client)
 	if _, err := s.db.ExecContext(ctx, fmt.Sprintf(`
 CREATE TABLE IF NOT EXISTS %s (
 	id TEXT NOT NULL,
@@ -60,10 +73,10 @@ CREATE TABLE IF NOT EXISTS %s (
 	default_model TEXT NOT NULL DEFAULT '',
 	default_agent_profile TEXT NOT NULL DEFAULT '',
 	skill_ids TEXT NOT NULL DEFAULT '[]',
-	created_at TEXT NOT NULL,
-	updated_at TEXT NOT NULL,
+	created_at %s,
+	updated_at %s,
 	PRIMARY KEY(project_id, id)
-)`, s.rolesTbl)); err != nil {
+)`, s.rolesTbl, timestampColumn, timestampColumn)); err != nil {
 		return fmt.Errorf("create project work roles table: %w", err)
 	}
 	if _, err := s.db.ExecContext(ctx, fmt.Sprintf(`
@@ -76,10 +89,10 @@ CREATE TABLE IF NOT EXISTS %s (
 	priority TEXT NOT NULL,
 	owner_role_id TEXT NOT NULL DEFAULT '',
 	root_id TEXT NOT NULL DEFAULT '',
-	created_at TEXT NOT NULL,
-	updated_at TEXT NOT NULL,
+	created_at %s,
+	updated_at %s,
 	PRIMARY KEY(project_id, id)
-)`, s.workItemsTbl)); err != nil {
+)`, s.workItemsTbl, timestampColumn, timestampColumn)); err != nil {
 		return fmt.Errorf("create project work items table: %w", err)
 	}
 	if _, err := s.db.ExecContext(ctx, fmt.Sprintf(`
@@ -102,12 +115,12 @@ CREATE TABLE IF NOT EXISTS %s (
 	status TEXT NOT NULL,
 	execution_ref TEXT NOT NULL DEFAULT '{}',
 	context_packet TEXT NOT NULL DEFAULT '',
-	created_at TEXT NOT NULL,
-	updated_at TEXT NOT NULL,
-	started_at TEXT NOT NULL DEFAULT '',
-	completed_at TEXT NOT NULL DEFAULT '',
+	created_at %s,
+	updated_at %s,
+	started_at %s,
+	completed_at %s,
 	PRIMARY KEY(project_id, id)
-)`, s.assignmentsTbl)); err != nil {
+)`, s.assignmentsTbl, timestampColumn, timestampColumn, timestampColumn, timestampColumn)); err != nil {
 		return fmt.Errorf("create project work assignments table: %w", err)
 	}
 	if _, err := s.db.ExecContext(ctx, fmt.Sprintf(`
@@ -124,10 +137,10 @@ CREATE TABLE IF NOT EXISTS %s (
 	review_verdict TEXT NOT NULL DEFAULT '',
 	review_risk TEXT NOT NULL DEFAULT '',
 	review_follow_up_required INTEGER NOT NULL DEFAULT 0,
-	created_at TEXT NOT NULL,
-	updated_at TEXT NOT NULL,
+	created_at %s,
+	updated_at %s,
 	PRIMARY KEY(project_id, id)
-)`, s.artifactsTbl)); err != nil {
+)`, s.artifactsTbl, timestampColumn, timestampColumn)); err != nil {
 		return fmt.Errorf("create project work artifacts table: %w", err)
 	}
 	if _, err := s.db.ExecContext(ctx, fmt.Sprintf(`
@@ -152,11 +165,11 @@ CREATE TABLE IF NOT EXISTS %s (
 	provenance_kind TEXT NOT NULL DEFAULT '',
 	trust_label TEXT NOT NULL DEFAULT '',
 	created_by_role_id TEXT NOT NULL DEFAULT '',
-	created_at TEXT NOT NULL,
-	updated_at TEXT NOT NULL,
-	status_changed_at TEXT NOT NULL,
+	created_at %s,
+	updated_at %s,
+	status_changed_at %s,
 	PRIMARY KEY(project_id, id)
-)`, s.handoffsTbl)); err != nil {
+)`, s.handoffsTbl, timestampColumn, timestampColumn, timestampColumn)); err != nil {
 		return fmt.Errorf("create project handoffs table: %w", err)
 	}
 	if err := s.ensureColumn(ctx, s.assignmentsTbl, "driver_kind", `TEXT NOT NULL DEFAULT 'hecate_task'`); err != nil {
@@ -283,41 +296,19 @@ FROM %s`, s.assignmentsTbl))
 func (s *SQLiteStore) ensureColumn(ctx context.Context, quotedTable, column, definition string) error {
 	exists, err := s.columnExists(ctx, quotedTable, column)
 	if err != nil {
-		return fmt.Errorf("inspect sqlite project work columns: %w", err)
+		return fmt.Errorf("inspect %s project work columns: %w", s.backend, err)
 	}
 	if exists {
 		return nil
 	}
 	if _, err := s.db.ExecContext(ctx, fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`, quotedTable, column, definition)); err != nil {
-		return fmt.Errorf("migrate sqlite project work %s: %w", column, err)
+		return fmt.Errorf("migrate %s project work %s: %w", s.backend, column, err)
 	}
 	return nil
 }
 
 func (s *SQLiteStore) columnExists(ctx context.Context, quotedTable, column string) (bool, error) {
-	bare := strings.Trim(quotedTable, `"`)
-	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`PRAGMA table_info("%s")`, bare))
-	if err != nil {
-		return false, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var (
-			cid          int
-			name         string
-			columnType   string
-			notNull      int
-			defaultValue sql.NullString
-			pk           int
-		)
-		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &pk); err != nil {
-			return false, err
-		}
-		if name == column {
-			return true, nil
-		}
-	}
-	return false, rows.Err()
+	return storage.ColumnExists(ctx, s.client, strings.Trim(quotedTable, `"`), column)
 }
 
 func (s *SQLiteStore) ListRoles(ctx context.Context, projectID string) ([]AgentRoleProfile, error) {
@@ -1076,7 +1067,7 @@ func (s *SQLiteStore) deleteWhereProject(ctx context.Context, projectID string) 
 	return deleted, nil
 }
 
-func (s *SQLiteStore) insertWorkItem(ctx context.Context, tx *sql.Tx, item WorkItem) error {
+func (s *SQLiteStore) insertWorkItem(ctx context.Context, tx storage.Tx, item WorkItem) error {
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
 INSERT INTO %s (id, project_id, title, brief, status, priority, owner_role_id, root_id, created_at, updated_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, s.workItemsTbl),
@@ -1091,7 +1082,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, s.workItemsTbl),
 	return s.replaceReviewers(ctx, tx, item)
 }
 
-func (s *SQLiteStore) replaceReviewers(ctx context.Context, tx *sql.Tx, item WorkItem) error {
+func (s *SQLiteStore) replaceReviewers(ctx context.Context, tx storage.Tx, item WorkItem) error {
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s WHERE project_id = ? AND work_item_id = ?`, s.reviewersTbl), item.ProjectID, item.ID); err != nil {
 		return err
 	}

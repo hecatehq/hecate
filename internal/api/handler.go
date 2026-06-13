@@ -15,6 +15,7 @@ import (
 	"github.com/hecatehq/hecate/internal/agentadapters"
 	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/cloudruntime"
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/controlplane"
 	"github.com/hecatehq/hecate/internal/gateway"
@@ -577,9 +578,18 @@ func (h *Handler) HandleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleSession(w http.ResponseWriter, r *http.Request) {
+	item := SessionResponseItem{Role: "operator"}
+	if identity, ok := cloudruntime.FromContext(r.Context()); ok {
+		item.CloudIdentity = &CloudIdentityResponseItem{
+			ActorID:   identity.ActorID,
+			OrgID:     identity.OrgID,
+			ProjectID: identity.ProjectID,
+			RuntimeID: identity.RuntimeID,
+		}
+	}
 	WriteJSON(w, http.StatusOK, SessionResponse{
 		Object: "session",
-		Data:   SessionResponseItem{Role: "operator"},
+		Data:   item,
 	})
 }
 
@@ -664,10 +674,10 @@ func (h *Handler) settingsState(ctx context.Context) (controlplane.State, error)
 func settingsActor(r *http.Request) string {
 	actor := "operator"
 	requestID := strings.TrimSpace(RequestIDFromContext(r.Context()))
-	if requestID == "" {
-		return actor
+	if requestID != "" {
+		actor += ":" + requestID
 	}
-	return actor + ":" + requestID
+	return cloudruntime.ActorForAudit(r.Context(), actor)
 }
 
 // decodeJSON decodes the request body into v and writes a 400 on failure.

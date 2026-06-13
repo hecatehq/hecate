@@ -62,6 +62,13 @@ func TestDetectAuthStatusGrokBuild(t *testing.T) {
 	}
 
 	t.Setenv("XAI_API_KEY", "")
+	t.Setenv("PROVIDER_XAI_API_KEY", "provider-xai-test-key")
+	status, hint = DetectAuthStatus(Adapter{ID: "grok_build"})
+	if status != AuthStatusOK || hint != "" {
+		t.Fatalf("status/hint with provider env = %q/%q, want ok/empty", status, hint)
+	}
+
+	t.Setenv("PROVIDER_XAI_API_KEY", "")
 	if err := os.MkdirAll(filepath.Join(home, ".grok"), 0o700); err != nil {
 		t.Fatalf("mkdir grok config: %v", err)
 	}
@@ -172,6 +179,7 @@ func isolatedAuthHome(t *testing.T) string {
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
 	t.Setenv("CURSOR_API_KEY", "")
 	t.Setenv("XAI_API_KEY", "")
+	t.Setenv("PROVIDER_XAI_API_KEY", "")
 	return home
 }
 

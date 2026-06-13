@@ -39,6 +39,16 @@ paths such as `/v1/traces`, `/v1/metrics`, and `/v1/logs`. The operator UI
 sends it to local provider-compatible paths when `hecate.inferenceToken` is
 present in `sessionStorage` or `localStorage`.
 
+When `HECATE_CLOUD_RUNTIME_MODE=1`, `/healthz` remains the unauthenticated
+liveness probe and every other path requires trusted Cloud proxy headers:
+`X-Hecate-Cloud-Runtime-Secret`, `X-Hecate-Cloud-Actor-ID`,
+`X-Hecate-Cloud-Org-ID`, `X-Hecate-Cloud-Project-ID`, and
+`X-Hecate-Cloud-Runtime-ID`. Valid Cloud identity is attached to request
+context, exposed from `GET /hecate/v1/whoami` as `data.cloud_identity`, added to
+the top-level HTTP span attributes, and accepted in place of the local
+runtime/inference shared tokens. Cloud mode rejects local-only POST endpoints
+for workspace picker/open, reset-data, shutdown, and MCP probe.
+
 Legacy Hecate-native `/v1/*` and `/admin/*` paths are intentionally not kept as
 compatibility shims in this alpha branch. Unknown API-shaped paths return 404
 rather than falling through to the embedded UI shell.
@@ -426,9 +436,13 @@ sequenceDiagram
 
 ## Runtime backend and queue configuration
 
-- `HECATE_BACKEND=memory|sqlite` controls all Hecate-owned durable state,
+- `HECATE_BACKEND=memory|sqlite|postgres` controls all Hecate-owned durable state,
   including tasks, the task queue, projects, project memory, chats, usage
   events, and settings.
+- `HECATE_POSTGRES_URL=postgres://...` or `DATABASE_URL=postgres://...` is
+  required when `HECATE_BACKEND=postgres`. Optional Postgres knobs:
+  `HECATE_POSTGRES_TABLE_PREFIX`, `HECATE_POSTGRES_MAX_OPEN_CONNS`, and
+  `HECATE_POSTGRES_MAX_IDLE_CONNS`.
 - `HECATE_TASK_QUEUE_WORKERS=<int>`
 - `HECATE_TASK_QUEUE_BUFFER=<int>`
 - `HECATE_TASK_QUEUE_LEASE_SECONDS=<int>`
@@ -439,10 +453,11 @@ sequenceDiagram
 - `HECATE_TASK_MCP_CLIENT_CACHE_PING_INTERVAL=<duration>` (default `60s`; how often the cache pings each idle cached upstream to detect wedged subprocesses; `0` disables the proactive health check, leaving only reactive eviction in `Pool.Call`)
 - `HECATE_TASK_MCP_CLIENT_CACHE_PING_TIMEOUT=<duration>` (default `5s`; per-ping deadline; failure or timeout evicts the entry)
 
-When `HECATE_BACKEND=sqlite`, tasks/runs/steps/approvals/artifacts/run-events
-are persisted and the stream replay cursor is durable across restarts. Workers
-claim queue items with renewable leases, so pending runs survive process
-restarts and can be recovered when a lease expires.
+When `HECATE_BACKEND=sqlite` or `postgres`,
+tasks/runs/steps/approvals/artifacts/run-events are persisted and the stream
+replay cursor is durable across restarts. Workers claim queue items with
+renewable leases, so pending runs survive process restarts and can be recovered
+when a lease expires.
 
 For `agent_loop`-specific knobs (max turns, system-prompt layers, HTTP policy for the `http_request` tool), see [`agent-runtime.md`](agent-runtime.md#configuration-knobs).
 
@@ -587,7 +602,7 @@ POST /hecate/v1/mcp/probe
 
 Tool names come back un-namespaced — the operator wants to see what the upstream itself calls them, not the gateway's runtime alias. MCP Apps metadata is preserved when present: `_meta` is the raw upstream object, `ui_resource_uri` and `ui_visibility` are derived convenience fields, and `model_visible: false` means the tool is app-only and will not be shown to the agent-loop model. Bounded by a 10-second deadline; a stuck upstream surfaces as a 400 with the diagnostic rather than wedging the request.
 
-`POST /hecate/v1/system/reset-data` resets local operator state without restarting the gateway. It deletes chat sessions, projects, project memory entries and candidates, project work-coordination rows, agent profiles, tasks, configured providers, policy rules, and saved external-agent approval grants. Chat sessions are deleted through the normal chat-delete path first, so live external-agent sessions are closed before their rows disappear. When SQLite is configured, it then clears remaining Hecate-prefixed database table rows while preserving schemas. Workspace files and external CLI auth files are not touched. The endpoint is local-only: non-loopback sockets and forwarded-client headers are rejected.
+`POST /hecate/v1/system/reset-data` resets local operator state without restarting the gateway. It deletes chat sessions, projects, project memory entries and candidates, project work-coordination rows, agent profiles, tasks, configured providers, policy rules, and saved external-agent approval grants. Chat sessions are deleted through the normal chat-delete path first, so live external-agent sessions are closed before their rows disappear. When SQLite or Postgres is configured, it then clears remaining Hecate-prefixed database table rows while preserving schemas. Workspace files and external CLI auth files are not touched. The endpoint is local-only and blocked in cloud runtime mode: non-loopback sockets and forwarded-client headers are rejected.
 
 ```json
 → 200
@@ -969,7 +984,20 @@ GET /hecate/v1/agent-adapters
       "agent_version": "0.48.0",
       "supported_range": ">=0.1.0",
       "version_outside_range": false,
-      "auth_status": "ok"
+      "auth_status": "ok",
+      "credential_modes": [
+        {
+          "id": "local_login",
+          "name": "Local CLI login",
+          "cloud_allowed": false
+        },
+        {
+          "id": "api_key",
+          "name": "API key",
+          "cloud_allowed": true,
+          "env_keys": ["OPENAI_API_KEY", "CODEX_API_KEY"]
+        }
+      ]
     },
     {
       "id": "grok_build",
@@ -1035,6 +1063,15 @@ that case.
 `ok`, `unauthenticated`, `billing`, or `unknown`. It is derived from known env
 vars and login files without spawning the agent. Use `POST
 /hecate/v1/agent-adapters/{id}/probe` for the full ACP handshake.
+
+`credential_modes` describes how the adapter can authenticate. `local_login`
+means operator-local CLI/browser login files and is never sufficient for hosted
+cloud runtime requests. Cloud mode accepts only rows where `cloud_allowed=true`
+and one listed `env_keys` value is present in the runtime environment. In cloud
+runtime mode, catalog rows include `cloud_credential_mode`,
+`cloud_credential_ok`, and `cloud_credential_hint` when applicable; adapters
+without cloud-safe credentials are reported as `available=false`,
+`auth_status="unauthenticated"` before Hecate attempts command discovery.
 
 These are **external agents**, not model providers. They run ACP-compatible
 coding agents under Hecate supervision; cost is reported as `external`
@@ -1263,7 +1300,7 @@ compact command-output preference, and trusted context-source metadata.
 
 The project catalog implementation is intentionally lightweight:
 `GET`/`POST`/`PATCH`/`DELETE /hecate/v1/projects` work, and
-`HECATE_BACKEND=sqlite` persists them. Chat sessions can carry an optional
+`HECATE_BACKEND=sqlite` or `postgres` persists them. Chat sessions can carry an optional
 `project_id` so the operator UI can group history by project. Opening chat from
 a project-work assignment creates a project-scoped Hecate Chat session and
 pre-fills the editable composer with a concise launch-context draft; the draft
@@ -2710,7 +2747,7 @@ chooses the chat owner:
   Hecate supervises lifecycle, transcript, diagnostics, and external-agent
   approvals. Turns use `execution_mode="external_agent"`.
 
-`HECATE_BACKEND=sqlite` persists the entire chat state bundle: sessions,
+`HECATE_BACKEND=sqlite` or `postgres` persists the entire chat state bundle: sessions,
 messages, **and** the operator-facing
 approval rows + grants documented under
 `/hecate/v1/chat/sessions/{id}/approvals` and `/hecate/v1/chat/grants`. They all

@@ -15,17 +15,27 @@ import (
 )
 
 type SQLiteStore struct {
-	client        *storage.SQLiteClient
+	client        storage.SQLClient
+	backend       string
 	sessionsTable string
 	messagesTable string
 }
 
 func NewSQLiteStore(ctx context.Context, client *storage.SQLiteClient) (*SQLiteStore, error) {
+	return newSQLStore(ctx, client)
+}
+
+func NewPostgresStore(ctx context.Context, client *storage.PostgresClient) (*SQLiteStore, error) {
+	return newSQLStore(ctx, client)
+}
+
+func newSQLStore(ctx context.Context, client storage.SQLClient) (*SQLiteStore, error) {
 	if client == nil || client.DB() == nil {
-		return nil, fmt.Errorf("sqlite client is required")
+		return nil, fmt.Errorf("sql client is required")
 	}
 	store := &SQLiteStore{
 		client:        client,
+		backend:       client.Backend(),
 		sessionsTable: client.QualifiedTable("chat_sessions"),
 		messagesTable: client.QualifiedTable("chat_messages"),
 	}
@@ -36,7 +46,7 @@ func NewSQLiteStore(ctx context.Context, client *storage.SQLiteClient) (*SQLiteS
 }
 
 func (s *SQLiteStore) Backend() string {
-	return "sqlite"
+	return s.backend
 }
 
 func (s *SQLiteStore) Create(ctx context.Context, session Session) (Session, error) {
@@ -96,7 +106,7 @@ func (s *SQLiteStore) Create(ctx context.Context, session Session) (Session, err
 		marshalModelCapabilities(session.Capabilities),
 		marshalConfigOptions(session.ConfigOptions),
 		marshalCommands(session.AvailableCommands),
-		session.RTKEnabled,
+		boolToSQLiteInt(session.RTKEnabled),
 		session.TurnsUsed,
 		session.CreatedAt.UTC(),
 		session.UpdatedAt.UTC(),
@@ -146,6 +156,7 @@ func (s *SQLiteStore) List(ctx context.Context) ([]Session, error) {
 		var capabilities string
 		var configOptions string
 		var availableCommands string
+		var rtkEnabled int
 		if err := rows.Scan(
 			&session.ID,
 			&session.Title,
@@ -163,7 +174,7 @@ func (s *SQLiteStore) List(ctx context.Context) ([]Session, error) {
 			&capabilities,
 			&configOptions,
 			&availableCommands,
-			&session.RTKEnabled,
+			&rtkEnabled,
 			&session.TurnsUsed,
 			&session.CreatedAt,
 			&session.UpdatedAt,
@@ -174,6 +185,7 @@ func (s *SQLiteStore) List(ctx context.Context) ([]Session, error) {
 		session.Capabilities = unmarshalModelCapabilities(capabilities)
 		session.ConfigOptions = unmarshalConfigOptions(configOptions)
 		session.AvailableCommands = unmarshalCommands(availableCommands)
+		session.RTKEnabled = rtkEnabled != 0
 		if session.AgentID == "" {
 			session.AgentID = DefaultAgentID
 		}
@@ -260,7 +272,7 @@ func (s *SQLiteStore) UpdateSession(ctx context.Context, id string, update func(
 		marshalModelCapabilities(session.Capabilities),
 		marshalConfigOptions(session.ConfigOptions),
 		marshalCommands(session.AvailableCommands),
-		session.RTKEnabled,
+		boolToSQLiteInt(session.RTKEnabled),
 		session.TurnsUsed,
 		session.UpdatedAt.UTC(),
 		id,
@@ -593,6 +605,7 @@ func (s *SQLiteStore) loadSession(ctx context.Context, id string) (Session, erro
 	var capabilities string
 	var configOptions string
 	var availableCommands string
+	var rtkEnabled int
 	err := s.client.DB().QueryRowContext(
 		ctx,
 		fmt.Sprintf(
@@ -619,7 +632,7 @@ func (s *SQLiteStore) loadSession(ctx context.Context, id string) (Session, erro
 		&capabilities,
 		&configOptions,
 		&availableCommands,
-		&session.RTKEnabled,
+		&rtkEnabled,
 		&session.TurnsUsed,
 		&session.CreatedAt,
 		&session.UpdatedAt,
@@ -636,6 +649,7 @@ func (s *SQLiteStore) loadSession(ctx context.Context, id string) (Session, erro
 	session.Capabilities = unmarshalModelCapabilities(capabilities)
 	session.ConfigOptions = unmarshalConfigOptions(configOptions)
 	session.AvailableCommands = unmarshalCommands(availableCommands)
+	session.RTKEnabled = rtkEnabled != 0
 	messages, err := s.loadMessages(ctx, id)
 	if err != nil {
 		return Session{}, err
@@ -746,13 +760,13 @@ func boolToSQLiteInt(b bool) int64 {
 func (s *SQLiteStore) ensureMessageColumn(ctx context.Context, column, definition string) error {
 	exists, err := s.columnExists(ctx, s.messagesTable, column)
 	if err != nil {
-		return fmt.Errorf("inspect sqlite agent chat messages columns: %w", err)
+		return fmt.Errorf("inspect %s agent chat messages columns: %w", s.backend, err)
 	}
 	if exists {
 		return nil
 	}
 	if _, err := s.client.DB().ExecContext(ctx, fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`, s.messagesTable, column, definition)); err != nil {
-		return fmt.Errorf("migrate sqlite agent chat messages %s: %w", column, err)
+		return fmt.Errorf("migrate %s agent chat messages %s: %w", s.backend, column, err)
 	}
 	return nil
 }
@@ -760,45 +774,19 @@ func (s *SQLiteStore) ensureMessageColumn(ctx context.Context, column, definitio
 func (s *SQLiteStore) ensureSessionColumn(ctx context.Context, column, definition string) error {
 	exists, err := s.columnExists(ctx, s.sessionsTable, column)
 	if err != nil {
-		return fmt.Errorf("inspect sqlite agent chat sessions columns: %w", err)
+		return fmt.Errorf("inspect %s agent chat sessions columns: %w", s.backend, err)
 	}
 	if exists {
 		return nil
 	}
 	if _, err := s.client.DB().ExecContext(ctx, fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`, s.sessionsTable, column, definition)); err != nil {
-		return fmt.Errorf("migrate sqlite agent chat sessions %s: %w", column, err)
+		return fmt.Errorf("migrate %s agent chat sessions %s: %w", s.backend, column, err)
 	}
 	return nil
 }
 
 func (s *SQLiteStore) columnExists(ctx context.Context, quotedTable, column string) (bool, error) {
-	bare := strings.Trim(quotedTable, `"`)
-	rows, err := s.client.DB().QueryContext(ctx, fmt.Sprintf(`PRAGMA table_info("%s")`, bare))
-	if err != nil {
-		return false, err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var (
-			cid       int
-			name      string
-			ctype     string
-			notnull   int
-			dfltValue sql.NullString
-			pk        int
-		)
-		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err != nil {
-			return false, err
-		}
-		if name == column {
-			return true, nil
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return false, err
-	}
-	return false, nil
+	return storage.ColumnExists(ctx, s.client, strings.Trim(quotedTable, `"`), column)
 }
 
 type txRunner interface {

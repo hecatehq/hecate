@@ -12,7 +12,7 @@ Delivery-readiness review. Surfaces risk explicitly.
 Anything with a CI/CD, environment, deploy, or migration footprint:
 
 - New env vars or changed defaults.
-- Schema changes across storage tiers (memory + sqlite).
+- Schema changes across storage tiers (memory + SQLite + Postgres).
 - CI/CD workflow changes.
 - New public HTTP endpoints (downstream SDKs depend on them).
 - Retention worker changes (new subsystem, changed cadence, retention windows).
@@ -27,7 +27,11 @@ Anything with a CI/CD, environment, deploy, or migration footprint:
   page — same change, not as a follow-up. Stale env-var docs cause more
   on-call pages than missing features.
 - **Config compatibility.** Does an old config still boot? If not, that's a breaking change — needs a migration note in the commit body.
-- **Schema migrations.** Which storage tiers are affected? Memory is rebuilt on boot (fine). SQLite needs a forward-compatible migration and roll-forward considerations. The retention worker subsystems (`traces`, `usage_events`, `audit`, `provider_history`, `turn_events`, `chat_approvals`) must keep mirroring.
+- **Schema migrations.** Which storage tiers are affected? Memory is rebuilt on
+  boot (fine). SQLite and Postgres need forward-compatible migrations and
+  roll-forward considerations. The retention worker subsystems (`traces`,
+  `usage_events`, `audit`, `provider_history`, `turn_events`,
+  `chat_approvals`) must keep mirroring.
 - **Deploy and release risk.** Is this safe to roll out behind a flag? Does it need a flag at all? What's the blast radius if it misbehaves?
 - **Rollback.** Can this change be reverted cleanly? If a schema change is involved, is the rollback path documented?
 - **Observability.** New code paths get OTel spans, not just log lines. Stable error codes for new failure modes (see `internal/api/error_mapping.go`). Trace IDs surfaced.

@@ -98,6 +98,9 @@ func (m *SessionManager) PrepareSession(ctx context.Context, req PrepareSessionR
 	if !ok {
 		return PrepareSessionResult{}, fmt.Errorf("agent adapter %q not found", req.AdapterID)
 	}
+	if _, err := validateCloudCredentialForRequest(ctx, adapter); err != nil {
+		return PrepareSessionResult{}, err
+	}
 	if err := validateLaunchConfig(adapter, req.ConfigOptions); err != nil {
 		return PrepareSessionResult{}, err
 	}
@@ -142,6 +145,9 @@ func (m *SessionManager) Run(ctx context.Context, req RunRequest) (RunResult, er
 	adapter, ok := BuiltInByID(req.AdapterID)
 	if !ok {
 		return RunResult{}, fmt.Errorf("agent adapter %q not found", req.AdapterID)
+	}
+	if _, err := validateCloudCredentialForRequest(ctx, adapter); err != nil {
+		return RunResult{}, err
 	}
 	if err := validateLaunchConfig(adapter, req.ConfigOptions); err != nil {
 		return RunResult{}, err

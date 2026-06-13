@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hecatehq/hecate/internal/cloudruntime"
 	"github.com/hecatehq/hecate/internal/config"
 
 	"go.opentelemetry.io/otel"
@@ -340,6 +341,21 @@ func TestRuntimeTokenMiddleware(t *testing.T) {
 	}
 }
 
+func TestRuntimeTokenMiddlewareAllowsCloudIdentity(t *testing.T) {
+	handler := RuntimeTokenMiddleware("local-runtime-token-123456")(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/hecate/v1/whoami", nil)
+	req = req.WithContext(cloudruntime.WithIdentity(req.Context(), cloudruntime.Identity{ActorID: "actor_1"}))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+}
+
 func TestInferenceTokenMiddleware(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -451,6 +467,140 @@ func TestInferenceTokenMiddleware(t *testing.T) {
 				t.Fatalf("body = %s, want substring %s", rec.Body.String(), tt.wantBody)
 			}
 		})
+	}
+}
+
+func TestInferenceTokenMiddlewareAllowsCloudIdentity(t *testing.T) {
+	handler := InferenceTokenMiddleware("local-inference-token-123456")(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	req = req.WithContext(cloudruntime.WithIdentity(req.Context(), cloudruntime.Identity{ActorID: "actor_1"}))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusNoContent, rec.Body.String())
+	}
+}
+
+func TestCloudRuntimeIdentityMiddleware(t *testing.T) {
+	const secret = "cloud-runtime-secret-123456"
+	tests := []struct {
+		name        string
+		path        string
+		secret      string
+		setIdentity bool
+		want        int
+	}{
+		{name: "disabled allows request", path: "/hecate/v1/whoami", want: http.StatusNoContent},
+		{name: "healthz bypasses cloud identity", path: "/healthz", want: http.StatusNoContent},
+		{name: "enabled requires secret", path: "/hecate/v1/whoami", want: http.StatusUnauthorized},
+		{name: "enabled requires identity", path: "/hecate/v1/whoami", secret: secret, want: http.StatusUnauthorized},
+		{name: "enabled accepts complete identity", path: "/hecate/v1/whoami", secret: secret, setIdentity: true, want: http.StatusNoContent},
+		{name: "enabled protects static ui too", path: "/", want: http.StatusUnauthorized},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			enabled := tt.name != "disabled allows request"
+			handler := CloudRuntimeIdentityMiddleware(enabled, secret)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if tt.setIdentity {
+					identity, ok := cloudruntime.FromContext(r.Context())
+					if !ok {
+						t.Fatal("cloud identity missing from context")
+					}
+					if identity.ActorID != "actor_1" || identity.OrgID != "org_1" || identity.ProjectID != "proj_1" || identity.RuntimeID != "rt_1" {
+						t.Fatalf("identity = %+v", identity)
+					}
+				}
+				w.WriteHeader(http.StatusNoContent)
+			}))
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			if tt.secret != "" {
+				req.Header.Set(cloudruntime.HeaderRuntimeSecret, tt.secret)
+			}
+			if tt.setIdentity {
+				req.Header.Set(cloudruntime.HeaderActorID, "actor_1")
+				req.Header.Set(cloudruntime.HeaderOrgID, "org_1")
+				req.Header.Set(cloudruntime.HeaderProjectID, "proj_1")
+				req.Header.Set(cloudruntime.HeaderRuntimeID, "rt_1")
+			}
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != tt.want {
+				t.Fatalf("status = %d, want %d, body=%s", rec.Code, tt.want, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestCloudRuntimeLocalEndpointGuardMiddleware(t *testing.T) {
+	tests := []struct {
+		name    string
+		enabled bool
+		method  string
+		path    string
+		want    int
+	}{
+		{name: "disabled allows local endpoint", method: http.MethodPost, path: "/hecate/v1/system/shutdown", want: http.StatusNoContent},
+		{name: "blocks workspace dialog", enabled: true, method: http.MethodPost, path: "/hecate/v1/workspace-dialog", want: http.StatusForbidden},
+		{name: "blocks workspace open", enabled: true, method: http.MethodPost, path: "/hecate/v1/workspace-open", want: http.StatusForbidden},
+		{name: "blocks reset data", enabled: true, method: http.MethodPost, path: "/hecate/v1/system/reset-data", want: http.StatusForbidden},
+		{name: "blocks shutdown", enabled: true, method: http.MethodPost, path: "/hecate/v1/system/shutdown", want: http.StatusForbidden},
+		{name: "blocks mcp probe", enabled: true, method: http.MethodPost, path: "/hecate/v1/mcp/probe", want: http.StatusForbidden},
+		{name: "allows normal endpoint", enabled: true, method: http.MethodGet, path: "/hecate/v1/whoami", want: http.StatusNoContent},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler := CloudRuntimeLocalEndpointGuardMiddleware(tt.enabled)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusNoContent)
+			}))
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != tt.want {
+				t.Fatalf("status = %d, want %d, body=%s", rec.Code, tt.want, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestNewServerWiresCloudRuntimeIdentity(t *testing.T) {
+	const secret = "cloud-runtime-secret-123456"
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	handler := NewServer(logger, NewHandler(config.Config{
+		Server: config.ServerConfig{
+			CloudRuntimeMode:   true,
+			CloudRuntimeSecret: secret,
+			RuntimeToken:       "local-runtime-token-123456",
+		},
+	}, logger, nil, nil, nil, nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/hecate/v1/whoami", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status without cloud identity = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/hecate/v1/whoami", nil)
+	req.Header.Set(cloudruntime.HeaderRuntimeSecret, secret)
+	req.Header.Set(cloudruntime.HeaderActorID, "actor_1")
+	req.Header.Set(cloudruntime.HeaderOrgID, "org_1")
+	req.Header.Set(cloudruntime.HeaderProjectID, "proj_1")
+	req.Header.Set(cloudruntime.HeaderRuntimeID, "rt_1")
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status with cloud identity = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"cloud_identity"`) || !strings.Contains(rec.Body.String(), `"actor_id":"actor_1"`) {
+		t.Fatalf("whoami body = %s, want cloud identity", rec.Body.String())
 	}
 }
 

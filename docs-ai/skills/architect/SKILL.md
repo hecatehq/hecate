@@ -12,7 +12,7 @@ Plan-shaped responses for substantial changes. The skill produces a plan, not co
 Any change that triggers a planning event in [`../../core/workflow.md`](../../core/workflow.md):
 
 - Cross-package wire-field changes (the seven-step chain — see [`../providers/SKILL.md`](../providers/SKILL.md)).
-- New persisted things — must mirror memory + sqlite tiers.
+- New persisted things — must mirror memory + SQLite + Postgres tiers.
 - New HTTP endpoints (provider-compatible `/v1/...` or Hecate-native `/hecate/v1/...`).
 - New approval policies or sandbox capabilities.
 - New persistent UI surfaces (inspector, side rail, dashboard block, summary panel).

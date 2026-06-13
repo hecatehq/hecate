@@ -40,7 +40,7 @@ func DetectAuthStatus(adapter Adapter) (string, string) {
 		}
 		return AuthStatusUnauthenticated, "Run cursor-agent login, or set CURSOR_API_KEY for the adapter environment."
 	case "grok_build":
-		if envAny("XAI_API_KEY") || fileAny("${HOME}/.grok") {
+		if envAny("XAI_API_KEY", "PROVIDER_XAI_API_KEY") || fileAny("${HOME}/.grok") {
 			return AuthStatusOK, ""
 		}
 		return AuthStatusUnauthenticated, "Run grok login, or set XAI_API_KEY for the adapter environment."

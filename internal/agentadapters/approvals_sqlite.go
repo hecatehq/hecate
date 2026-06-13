@@ -31,7 +31,8 @@ import (
 // requests) sweeps any pending rows from a prior process and marks
 // them status=timed_out, path=startup_reconcile.
 type SQLiteApprovalStore struct {
-	client        *storage.SQLiteClient
+	client        storage.SQLClient
+	backend       string
 	approvals     string // qualified (quoted) for SQL refs
 	grants        string
 	approvalsBase string // unquoted, for index names
@@ -41,11 +42,20 @@ type SQLiteApprovalStore struct {
 // NewSQLiteApprovalStore opens the store and runs migrations. Returns
 // the store ready for use.
 func NewSQLiteApprovalStore(ctx context.Context, client *storage.SQLiteClient) (*SQLiteApprovalStore, error) {
+	return newSQLApprovalStore(ctx, client)
+}
+
+func NewPostgresApprovalStore(ctx context.Context, client *storage.PostgresClient) (*SQLiteApprovalStore, error) {
+	return newSQLApprovalStore(ctx, client)
+}
+
+func newSQLApprovalStore(ctx context.Context, client storage.SQLClient) (*SQLiteApprovalStore, error) {
 	if client == nil || client.DB() == nil {
-		return nil, fmt.Errorf("sqlite client is required")
+		return nil, fmt.Errorf("sql client is required")
 	}
 	store := &SQLiteApprovalStore{
 		client:        client,
+		backend:       client.Backend(),
 		approvals:     client.QualifiedTable("chat_approvals"),
 		grants:        client.QualifiedTable("chat_approval_grants"),
 		approvalsBase: client.TableName("chat_approvals"),
@@ -58,7 +68,7 @@ func NewSQLiteApprovalStore(ctx context.Context, client *storage.SQLiteClient) (
 }
 
 // Backend identifies the backend choice for diagnostics + tests.
-func (s *SQLiteApprovalStore) Backend() string { return "sqlite" }
+func (s *SQLiteApprovalStore) Backend() string { return s.backend }
 
 // ─── ApprovalStore ───────────────────────────────────────────────────────────
 
@@ -446,13 +456,17 @@ func (s *SQLiteApprovalStore) PruneApprovals(ctx context.Context, now time.Time,
 	}
 	if maxCount > 0 {
 		// Keep newest maxCount resolved rows; drop the rest.
+		limitOffset := "LIMIT -1 OFFSET ?"
+		if s.client != nil && s.client.Dialect() == storage.DialectPostgres {
+			limitOffset = "OFFSET ?"
+		}
 		res, err := s.client.DB().ExecContext(
 			ctx,
 			fmt.Sprintf(
 				`DELETE FROM %s WHERE status != 'pending' AND id IN (
 					SELECT id FROM %s WHERE status != 'pending'
 					ORDER BY created_at DESC, id DESC
-					LIMIT -1 OFFSET ?
+					`+limitOffset+`
 				)`,
 				s.approvals, s.approvals,
 			),
@@ -568,6 +582,8 @@ func nullableTime(t *time.Time) any {
 }
 
 func (s *SQLiteApprovalStore) migrate(ctx context.Context) error {
+	binaryColumn := storage.BinaryColumn(s.client)
+	timestampColumn := storage.TimestampColumn(s.client)
 	if _, err := s.client.DB().ExecContext(
 		ctx,
 		fmt.Sprintf(
@@ -579,19 +595,25 @@ func (s *SQLiteApprovalStore) migrate(ctx context.Context) error {
 				tool_kind TEXT NOT NULL DEFAULT '',
 				tool_name TEXT NOT NULL DEFAULT '',
 				status TEXT NOT NULL,
-				acp_payload BLOB,
-				acp_options BLOB NOT NULL,
-				scope_choices BLOB NOT NULL,
+				acp_payload %s,
+				acp_options %s NOT NULL,
+				scope_choices %s NOT NULL,
 				selected_option TEXT NOT NULL DEFAULT '',
 				scope TEXT NOT NULL DEFAULT '',
 				decision TEXT NOT NULL DEFAULT '',
 				path TEXT NOT NULL DEFAULT '',
 				decision_note TEXT NOT NULL DEFAULT '',
-				created_at TIMESTAMP NOT NULL,
-				resolved_at TIMESTAMP,
-				expires_at TIMESTAMP NOT NULL
+				created_at %s NOT NULL,
+				resolved_at %s,
+				expires_at %s NOT NULL
 			)`,
 			s.approvals,
+			binaryColumn,
+			binaryColumn,
+			binaryColumn,
+			timestampColumn,
+			timestampColumn,
+			timestampColumn,
 		),
 	); err != nil {
 		return fmt.Errorf("migrate sqlite chat_approvals: %w", err)
@@ -626,10 +648,12 @@ func (s *SQLiteApprovalStore) migrate(ctx context.Context) error {
 				session_id TEXT NOT NULL DEFAULT '',
 				decision TEXT NOT NULL,
 				granted_by TEXT NOT NULL DEFAULT '',
-				granted_at TIMESTAMP NOT NULL,
-				expires_at TIMESTAMP
+				granted_at %s NOT NULL,
+				expires_at %s
 			)`,
 			s.grants,
+			timestampColumn,
+			timestampColumn,
 		),
 	); err != nil {
 		return fmt.Errorf("migrate sqlite chat_approval_grants: %w", err)

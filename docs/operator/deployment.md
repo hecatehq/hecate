@@ -29,6 +29,7 @@ private to the host, load balancer, or orchestrator health check.
 ## Contents
 
 - [Image pinning](#image-pinning)
+- [Cloud runtime mode](#cloud-runtime-mode)
 - [Binary install](#binary-install)
 - [Desktop app](#desktop-app)
 - [Resetting state](#resetting-state)
@@ -36,6 +37,39 @@ private to the host, load balancer, or orchestrator health check.
 - [Storage backend](#storage-backend)
 - [External-agent startup knobs](#external-agent-startup-knobs)
 - [Rate limiting](#rate-limiting)
+
+## Cloud runtime mode
+
+Hosted Hecate Cloud runtimes use a different posture from a self-managed
+exposed gateway. Start the runtime with:
+
+```bash
+HECATE_CLOUD_RUNTIME_MODE=1
+HECATE_CLOUD_RUNTIME_SECRET=replace-with-at-least-24-random-characters
+```
+
+In this mode every non-`/healthz` request must arrive through the trusted Cloud
+control-plane proxy. The proxy sends `X-Hecate-Cloud-Runtime-Secret` plus
+`X-Hecate-Cloud-Actor-ID`, `X-Hecate-Cloud-Org-ID`,
+`X-Hecate-Cloud-Project-ID`, and `X-Hecate-Cloud-Runtime-ID`; Hecate records the
+actor identity on supported audit and telemetry paths. The legacy
+`HECATE_RUNTIME_TOKEN` and `HECATE_INFERENCE_TOKEN` guards are bypassed once a
+request has valid Cloud identity, so the Cloud proxy is the authentication
+boundary for hosted runtimes.
+
+Cloud mode also blocks local-only operations over the remote surface:
+workspace picker/open-in-editor, reset-data, shutdown, and MCP probe. Keep the
+runtime network-private even with this mode enabled; the header secret is the
+internal proxy contract, not a public internet authentication system.
+
+External Agent sessions in cloud mode use a fail-closed credential policy.
+Hecate will not treat local CLI browser-login files or copied personal auth
+tokens as hosted credentials. Codex, Claude Code, Cursor Agent, and Grok Build
+can still run in hosted runtimes when the runtime receives vendor-supported
+cloud-safe credentials: `OPENAI_API_KEY` / `CODEX_API_KEY`, `ANTHROPIC_API_KEY`,
+`CURSOR_API_KEY`, or `XAI_API_KEY` respectively. The adapter catalog reports
+the declared credential modes and marks an adapter unauthenticated until one of
+its cloud-safe env keys is present.
 
 ## Image pinning
 
@@ -178,7 +212,8 @@ For local (non-Docker) development resets, see [`development.md`](../contributor
 Encrypted local credentials depend on two pieces of state:
 
 - the settings database, usually `hecate.db` when the relevant storage backend
-  is `sqlite`;
+  is `sqlite`, or the configured Postgres database when the backend is
+  `postgres`;
 - the bootstrap control-plane key, loaded from
   `HECATE_CONTROL_PLANE_SECRET_KEY`, `HECATE_BOOTSTRAP_FILE`, or
   `hecate.bootstrap.json` in the data directory.
@@ -190,10 +225,12 @@ undecryptable; restore the old key or re-enter the credentials from the
 operator UI.
 
 Docker's default `/data` volume stores both `/data/hecate.db` and the default
-bootstrap file, so backing up the volume is enough for the default path. If you
-override `HECATE_CONTROL_PLANE_SECRET_KEY`, treat the env var as the source
-that seeds the bootstrap key, not as env-only storage: Hecate persists that key
-to `HECATE_BOOTSTRAP_FILE` or the default bootstrap file on startup, overwriting
+bootstrap file, so backing up the volume is enough for the default SQLite path.
+For Postgres, back up the database and the bootstrap file or
+`HECATE_CONTROL_PLANE_SECRET_KEY` secret together. If you override
+`HECATE_CONTROL_PLANE_SECRET_KEY`, treat the env var as the source that seeds
+the bootstrap key, not as env-only storage: Hecate persists that key to
+`HECATE_BOOTSTRAP_FILE` or the default bootstrap file on startup, overwriting
 any existing bootstrap key, and the bootstrap path must be writable. Back up the
 env/secret-manager value and the bootstrap file with the same care as the
 database; if they diverge, the env value wins on the next startup.
@@ -203,9 +240,9 @@ database; if they diverge, the env value wins on the next startup.
 Hecate keeps the storage model intentionally boring: one process-wide backend
 selector controls all Hecate-owned durable state.
 
-| Env var          | `memory`                         | `sqlite`                                         |
-| ---------------- | -------------------------------- | ------------------------------------------------ |
-| `HECATE_BACKEND` | local default; resets on restart | Docker default; persists to `HECATE_SQLITE_PATH` |
+| Env var          | `memory`                         | `sqlite`                                         | `postgres`                                           |
+| ---------------- | -------------------------------- | ------------------------------------------------ | ---------------------------------------------------- |
+| `HECATE_BACKEND` | local default; resets on restart | Docker default; persists to `HECATE_SQLITE_PATH` | Cloud/runtime option; persists to `HECATE_POSTGRES_URL` |
 
 The backend covers settings, encrypted provider credentials, audit events,
 provider health history, usage events, retention history, projects, chat
@@ -220,6 +257,10 @@ Deployment-specific notes:
   across restarts with no extra config.
 - To make Docker ephemeral, override the backend via `.env` or compose env:
   `HECATE_BACKEND=memory`.
+- Hosted runtimes can use Postgres with `HECATE_BACKEND=postgres` and
+  `HECATE_POSTGRES_URL=postgres://...` (or `DATABASE_URL`). Optional knobs:
+  `HECATE_POSTGRES_TABLE_PREFIX`, `HECATE_POSTGRES_MAX_OPEN_CONNS`, and
+  `HECATE_POSTGRES_MAX_IDLE_CONNS`.
 - Projects are the durable identity foundation for project-scoped history,
   defaults, memory, profiles, skills, context sources, and project work. Chat
   sessions and tasks can carry `project_id` for UI grouping and runtime
@@ -227,8 +268,8 @@ Deployment-specific notes:
   decisions. Native project assignments can include bounded project memory and
   portable `AGENTS.md` prompt context when the resolved profile asks for it;
   broader chat/external-agent source-content policy remains follow-up work.
-- When `HECATE_BACKEND=sqlite`, Hecate runs a startup reconcile pass that flips
-  any pending external-agent approvals from a prior process to
+- When `HECATE_BACKEND=sqlite` or `postgres`, Hecate runs a startup reconcile
+  pass that flips any pending external-agent approvals from a prior process to
   `status=timed_out`, `path=startup_reconcile` before serving requests, so an
   orphaned waiter never appears actionable in the operator UI. See
   [`runtime-api.md`](../runtime/runtime-api.md) for the wire shape.

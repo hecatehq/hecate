@@ -20,13 +20,22 @@ const maxHistoryListLimit = 1_000
 // monotonic id (INTEGER PRIMARY KEY AUTOINCREMENT), a TEXT column
 // for the JSON payload, and a TEXT timestamp.
 type SQLiteHistoryStore struct {
-	db    *sql.DB
-	table string
+	db     storage.DB
+	client storage.SQLClient
+	table  string
 }
 
 func NewSQLiteHistoryStore(ctx context.Context, client *storage.SQLiteClient, tableName string) (*SQLiteHistoryStore, error) {
+	return newSQLHistoryStore(ctx, client, tableName)
+}
+
+func NewPostgresHistoryStore(ctx context.Context, client *storage.PostgresClient, tableName string) (*SQLiteHistoryStore, error) {
+	return newSQLHistoryStore(ctx, client, tableName)
+}
+
+func newSQLHistoryStore(ctx context.Context, client storage.SQLClient, tableName string) (*SQLiteHistoryStore, error) {
 	if client == nil || client.DB() == nil {
-		return nil, fmt.Errorf("sqlite client is required")
+		return nil, fmt.Errorf("sql client is required")
 	}
 	tableName = strings.TrimSpace(tableName)
 	if tableName == "" {
@@ -34,8 +43,9 @@ func NewSQLiteHistoryStore(ctx context.Context, client *storage.SQLiteClient, ta
 	}
 
 	store := &SQLiteHistoryStore{
-		db:    client.DB(),
-		table: client.QualifiedTable(tableName),
+		db:     client.DB(),
+		client: client,
+		table:  client.QualifiedTable(tableName),
 	}
 	if err := store.migrate(ctx); err != nil {
 		return nil, err
@@ -122,7 +132,7 @@ func (s *SQLiteHistoryStore) ListRuns(ctx context.Context, limit int) ([]History
 func (s *SQLiteHistoryStore) migrate(ctx context.Context) error {
 	_, err := s.db.ExecContext(ctx, fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			id `+storage.AutoIDColumn(s.client)+`,
 			started_at TEXT NOT NULL,
 			finished_at TEXT NOT NULL,
 			trigger TEXT NOT NULL,
@@ -132,7 +142,7 @@ func (s *SQLiteHistoryStore) migrate(ctx context.Context) error {
 		)
 	`, s.table))
 	if err != nil {
-		return fmt.Errorf("migrate sqlite retention history store: %w", err)
+		return fmt.Errorf("migrate %s retention history store: %w", s.client.Backend(), err)
 	}
 
 	// Index name uses the unquoted table identifier (SQLite tolerates
@@ -145,7 +155,7 @@ func (s *SQLiteHistoryStore) migrate(ctx context.Context) error {
 		ON %s (finished_at DESC, id DESC)
 	`, indexName, s.table))
 	if err != nil {
-		return fmt.Errorf("migrate sqlite retention history index: %w", err)
+		return fmt.Errorf("migrate %s retention history index: %w", s.client.Backend(), err)
 	}
 	return nil
 }

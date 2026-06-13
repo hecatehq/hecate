@@ -10,23 +10,37 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/hecatehq/hecate/internal/storage"
 	modernsqlite "modernc.org/sqlite"
 )
 
 type SQLiteStore struct {
 	mu         sync.Mutex
-	db         *sql.DB
+	db         storage.DB
+	client     storage.SQLClient
+	backend    string
 	entries    string
 	candidates string
 }
 
 func NewSQLiteStore(ctx context.Context, client *storage.SQLiteClient) (*SQLiteStore, error) {
+	return newSQLStore(ctx, client)
+}
+
+func NewPostgresStore(ctx context.Context, client *storage.PostgresClient) (*SQLiteStore, error) {
+	return newSQLStore(ctx, client)
+}
+
+func newSQLStore(ctx context.Context, client storage.SQLClient) (*SQLiteStore, error) {
 	if client == nil || client.DB() == nil {
-		return nil, fmt.Errorf("sqlite client is required")
+		return nil, fmt.Errorf("sql client is required")
 	}
 	store := &SQLiteStore{
 		db:         client.DB(),
+		client:     client,
+		backend:    client.Backend(),
 		entries:    client.QualifiedTable("memory_entries"),
 		candidates: client.QualifiedTable("memory_candidates"),
 	}
@@ -37,10 +51,11 @@ func NewSQLiteStore(ctx context.Context, client *storage.SQLiteClient) (*SQLiteS
 }
 
 func (s *SQLiteStore) Backend() string {
-	return "sqlite"
+	return s.backend
 }
 
 func (s *SQLiteStore) migrate(ctx context.Context) error {
+	timestampColumn := storage.TimestampColumnDefaultZero(s.client)
 	if _, err := s.db.ExecContext(ctx, fmt.Sprintf(`
 CREATE TABLE IF NOT EXISTS %s (
 	id TEXT PRIMARY KEY,
@@ -52,9 +67,9 @@ CREATE TABLE IF NOT EXISTS %s (
 	source_kind TEXT NOT NULL,
 	source_id TEXT NOT NULL DEFAULT '',
 	enabled INTEGER NOT NULL DEFAULT 1,
-	created_at TEXT NOT NULL,
-	updated_at TEXT NOT NULL
-)`, s.entries)); err != nil {
+	created_at %s,
+	updated_at %s
+)`, s.entries, timestampColumn, timestampColumn)); err != nil {
 		return fmt.Errorf("create memory entries table: %w", err)
 	}
 	indexName := strings.Trim(s.entries, `"`) + "_scope_idx"
@@ -75,9 +90,9 @@ CREATE TABLE IF NOT EXISTS %s (
 	status TEXT NOT NULL,
 	status_reason TEXT NOT NULL DEFAULT '',
 	promoted_memory_id TEXT NOT NULL DEFAULT '',
-	created_at TEXT NOT NULL,
-	updated_at TEXT NOT NULL
-)`, s.candidates)); err != nil {
+	created_at %s,
+	updated_at %s
+)`, s.candidates, timestampColumn, timestampColumn)); err != nil {
 		return fmt.Errorf("create memory candidates table: %w", err)
 	}
 	candidateIndex := strings.Trim(s.candidates, `"`) + "_project_status_idx"
@@ -648,10 +663,11 @@ func scanCandidate(scanner entryScanner) (Candidate, error) {
 
 func isSQLiteConstraintError(err error) bool {
 	var sqliteErr *modernsqlite.Error
-	if !errors.As(err, &sqliteErr) {
-		return false
+	if errors.As(err, &sqliteErr) {
+		return sqliteErr.Code()&0xff == 19
 	}
-	return sqliteErr.Code()&0xff == 19
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
 func encodeSourceRefs(refs []CandidateSourceRef) (string, error) {

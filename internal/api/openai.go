@@ -237,11 +237,19 @@ type SessionResponse struct {
 	Data   SessionResponseItem `json:"data"`
 }
 
-// SessionResponseItem reports who is calling. In single-user mode this
-// always describes the anonymous local operator — auth was removed and
-// the gateway treats every caller as fully privileged.
+// SessionResponseItem reports who is calling. Local single-user mode reports
+// the anonymous operator; cloud runtime mode includes the trusted control-plane
+// actor propagated by the proxy.
 type SessionResponseItem struct {
-	Role string `json:"role"`
+	Role          string                     `json:"role"`
+	CloudIdentity *CloudIdentityResponseItem `json:"cloud_identity,omitempty"`
+}
+
+type CloudIdentityResponseItem struct {
+	ActorID   string `json:"actor_id"`
+	OrgID     string `json:"org_id"`
+	ProjectID string `json:"project_id"`
+	RuntimeID string `json:"runtime_id"`
 }
 
 type OpenAIModelData struct {
@@ -736,8 +744,20 @@ type AgentAdapterResponseItem struct {
 	VersionOutsideRange bool                                `json:"version_outside_range,omitempty"`
 	AuthStatus          string                              `json:"auth_status,omitempty"`
 	AuthError           string                              `json:"auth_error,omitempty"`
+	CredentialModes     []AgentAdapterCredentialModeItem    `json:"credential_modes,omitempty"`
+	CloudCredentialMode string                              `json:"cloud_credential_mode,omitempty"`
+	CloudCredentialOK   *bool                               `json:"cloud_credential_ok,omitempty"`
+	CloudCredentialHint string                              `json:"cloud_credential_hint,omitempty"`
 	ConfigOptions       []agentcontrols.ConfigOption        `json:"config_options,omitempty"`
 	ClaudeCodeCLI       *AgentAdapterSetupCommandStatusItem `json:"claude_code_cli,omitempty"`
+}
+
+type AgentAdapterCredentialModeItem struct {
+	ID           string   `json:"id"`
+	Name         string   `json:"name,omitempty"`
+	Description  string   `json:"description,omitempty"`
+	CloudAllowed bool     `json:"cloud_allowed"`
+	EnvKeys      []string `json:"env_keys,omitempty"`
 }
 
 type AgentAdapterSetupCommandStatusItem struct {

@@ -8,12 +8,13 @@ to upstream LLM providers, runs Hecate Chat tools-on turns through visible
 roles, assignments, handoffs, context, memory candidates, approvals, artifacts,
 usage, and emits OpenTelemetry traces for everything it does. Hecate is
 local-first in the operational sense: the runtime and UI run on the operator's
-machine, Hecate-owned state is local (memory / sqlite), and the gateway binds to
-127.0.0.1 by default. It is not local-only; it can route to cloud providers and
-supervise external coding-agent CLIs with their own accounts. Every endpoint,
-config knob, and error message exists to answer five operator questions: what
-did Hecate just decide, why, what did it cost, what happens on the next failure,
-and where is the trace.
+machine by default, Hecate-owned state is local in local deployments
+(`memory` / `sqlite`) and can use Postgres for hosted/cloud-runtime
+deployments, and the gateway binds to 127.0.0.1 by default. It is not
+local-only; it can route to cloud providers and supervise external coding-agent
+CLIs with their own accounts. Every endpoint, config knob, and error message
+exists to answer five operator questions: what did Hecate just decide, why,
+what did it cost, what happens on the next failure, and where is the trace.
 
 Hecate's own boundary is the runtime/control plane: projects, chats, tasks,
 providers, supervised external agents, approvals, tool policy, storage, and
@@ -72,7 +73,7 @@ internal/sandbox/          policy validation + OS isolation wrapper for tool
                              subprocesses; shell uses ProcessRunner, broad git_exec
                              still runs through this executor
 internal/taskstate/        task / run / step / artifact / approval persistence
-internal/storage/          sqlite client wrappers
+internal/storage/          SQLite/Postgres SQL clients + dialect helpers
 internal/retention/        retention worker (subsystems: traces, usage_events, audit,
                              provider_history, turn_events,
                              chat_approvals)
@@ -104,12 +105,17 @@ The api↔providers parallel-struct duplication (`OpenAIChatMessage` ↔ `openAI
 
 ## Storage tier rule
 
-Every backend-bound concern (taskstate, chat, approvals, governor, retention history) ships with two tiers, mirrored exactly:
+Every backend-bound concern (taskstate, chat, approvals, governor, retention
+history) ships with mirrored tiers:
 
 - `memory` — in-process, default, perfect for `go test` and `just dev`.
-- `sqlite` — single-file persistence via `modernc.org/sqlite` (no CGO).
+- `sqlite` — single-file local persistence via `modernc.org/sqlite` (no CGO).
+- `postgres` — hosted/cloud-runtime persistence via `pgx`.
 
-When adding a new persisted thing, mirror both. Add a `<thing>_test.go` that runs against memory and sqlite.
+When adding a new persisted thing, mirror memory and both SQL backends unless
+the operator explicitly scopes the change differently. Add a `<thing>_test.go`
+that runs against memory and SQLite, and add or extend the opt-in Postgres
+smoke when real Postgres behavior matters.
 
 ## Toolchain pins
 
@@ -132,7 +138,11 @@ These earn extra scrutiny; changes here are not drive-by territory.
 - **Approval lifecycle** (`internal/taskstate`, `awaiting_approval`) — pre-execution and mid-loop approvals halt the run. New gates use the same `TaskApproval` shape.
 - **Retention worker** (`internal/retention`) — high-cardinality history sweep. Subsystems: `trace_snapshots`, `usage_events`, `audit_events`, `provider_history`, `turn_events`, `chat_approvals`. Persisted things must mirror.
 - **Usage/cost fields** — money fields are `int64` micro-USD (`1_000_000` = `$1`) when present. Never `float64`; Hecate records usage events for visibility, not spend enforcement.
-- **No auth layer.** Every request is processed as the operator. The gateway binds to `127.0.0.1` by default; bind elsewhere only behind a reverse proxy or firewall.
+- **No built-in multi-user auth layer in local mode.** Every local-mode request
+  is processed as the operator. The gateway binds to `127.0.0.1` by default;
+  bind elsewhere only behind a reverse proxy or firewall. Cloud runtime mode
+  trusts Hecate Cloud identity headers only after the internal runtime secret is
+  validated.
 
 ## Which doc answers which question
 

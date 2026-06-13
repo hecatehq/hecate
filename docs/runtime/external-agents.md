@@ -9,19 +9,19 @@ prompts over ACP, records transcript/diagnostics, handles approvals, and shows
 Git diffs. The model gateway path is not involved; `/v1` provider routing and
 Hecate model credentials stay separate.
 
-With `HECATE_BACKEND=sqlite`, Hecate keeps the transcript and the
-agent's native ACP session id. After restart, the next prompt asks the agent
-to `session/load` that native session when supported. If the adapter cannot load
-it, Hecate starts a fresh native session and keeps the Hecate transcript.
+With `HECATE_BACKEND=sqlite` or `postgres`, Hecate keeps the transcript and the
+agent's native ACP session id. After restart, the next prompt asks the agent to
+`session/load` that native session when supported. If the adapter cannot load it,
+Hecate starts a fresh native session and keeps the Hecate transcript.
 
 ## Supported External Agents
 
-| External agent | How Hecate starts it                                                                                                      | Auth expected by the underlying agent                              |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| Codex          | Hecate-managed launcher for `@zed-industries/codex-acp` via local `npx`; direct `codex-acp` also works                    | Operator-owned Codex auth visible to the adapter                   |
-| Claude Code    | Hecate-managed launcher for `@agentclientprotocol/claude-agent-acp` via local `npx`; direct `claude-agent-acp` also works | Operator-owned Claude Code / Anthropic auth visible to Claude Code |
-| Cursor Agent   | `cursor-agent acp`                                                                                                        | Operator-owned Cursor Agent auth visible to `cursor-agent`         |
-| Grok Build     | `grok agent ... stdio`                                                                                                    | Operator-owned Grok auth or `XAI_API_KEY` visible to `grok`        |
+| External agent | How Hecate starts it                                                                                                      | Local auth mode                                                    | Cloud-safe auth mode                               |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | -------------------------------------------------- |
+| Codex          | Hecate-managed launcher for `@zed-industries/codex-acp` via local `npx`; direct `codex-acp` also works                    | Operator-owned Codex CLI auth visible to the adapter               | `OPENAI_API_KEY` or `CODEX_API_KEY`                |
+| Claude Code    | Hecate-managed launcher for `@agentclientprotocol/claude-agent-acp` via local `npx`; direct `claude-agent-acp` also works | Operator-owned Claude Code login visible to Claude Code            | `ANTHROPIC_API_KEY`                                |
+| Cursor Agent   | `cursor-agent acp`                                                                                                        | Operator-owned Cursor Agent auth visible to `cursor-agent`         | `CURSOR_API_KEY`                                   |
+| Grok Build     | `grok agent ... stdio`                                                                                                    | Operator-owned Grok login visible to `grok`                        | `XAI_API_KEY` or Hecate's `PROVIDER_XAI_API_KEY`   |
 
 ## Credential and account boundaries
 
@@ -35,9 +35,20 @@ The selected external agent owns its model/runtime/account relationship:
   operator's local CLI login files and environment.
 - Local CLI login files remain owned by the upstream CLI. Do not copy them
   between users or machines.
-- Hosted or multi-user Hecate deployments must not collect or share personal
-  subscription tokens. Use vendor-supported team/project/API-key controls for
-  shared automation.
+- Hosted or multi-user Hecate deployments must not collect, copy, or share
+  personal subscription tokens or browser-login files. Use vendor-supported
+  team/project/API-key controls for shared automation.
+
+When `HECATE_CLOUD_RUNTIME_MODE=1`, External Agent launches fail closed unless
+the selected adapter has a declared cloud-safe credential mode and the matching
+environment variable is present. Local CLI login files such as Codex, Claude
+Code, Cursor, or Grok browser-auth caches are ignored for this decision. The
+runtime accepts API-key style credentials for Codex (`OPENAI_API_KEY` /
+`CODEX_API_KEY`), Claude Code (`ANTHROPIC_API_KEY`), Cursor
+(`CURSOR_API_KEY`), and Grok Build (`XAI_API_KEY`, or
+`PROVIDER_XAI_API_KEY` bridged to `XAI_API_KEY` only for Grok). Auth-token env
+vars that represent local CLI login state, such as `CODEX_AUTH_TOKEN` or
+`ANTHROPIC_AUTH_TOKEN`, are local-only for this policy.
 
 This is the same practical boundary used by ACP-capable editors such as
 [Zed](https://zed.dev/docs/ai/external-agents): the client supervises a local
@@ -223,9 +234,11 @@ command -v grok
 grok login
 ```
 
-Headless environments can authenticate through vendor-supported API keys:
+Headless and hosted environments can authenticate through vendor-supported API keys:
 
 ```sh
+export OPENAI_API_KEY=...
+export ANTHROPIC_API_KEY=...
 export CURSOR_API_KEY=...
 export XAI_API_KEY=...
 ```
@@ -337,9 +350,9 @@ short-circuit, mode default, or prompt-mode wait) and carries
 `agent_adapter.approval.resolve` wraps the operator's decision-application
 path with `decision` and `scope` attributes.
 
-Durable approval grants are part of the chat-session SQLite bundle. When
-`HECATE_BACKEND=sqlite`, grants survive Hecate server restarts and are listed
-from `GET /hecate/v1/chat/grants`; the operator can revoke them from
+Durable approval grants are part of the chat-session storage bundle. When
+`HECATE_BACKEND=sqlite` or `postgres`, grants survive Hecate server restarts and
+are listed from `GET /hecate/v1/chat/grants`; the operator can revoke them from
 Connections. Pending approvals from a dead process are not
 replayed as actionable prompts — startup reconcile marks them `timed_out` with
 `path=startup_reconcile` before Hecate accepts traffic.

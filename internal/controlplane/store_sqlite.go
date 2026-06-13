@@ -21,19 +21,28 @@ import (
 //     Go regardless, so the on-disk type is moot).
 //   - placeholders are `?` rather than `$N`.
 //   - the upsert uses ON CONFLICT (store_key) DO UPDATE.
-//   - updated_at is stored as TEXT in RFC3339; SQLite has no native
-//     timestamptz type and the column is informational (we never read it
-//     back), so a plain ISO string is enough.
+//   - updated_at is informational (we never read it back); it exists so
+//     operators can inspect the backing store directly.
 type SQLiteStore struct {
-	db    *sql.DB
-	table string
-	key   string
-	mu    sync.Mutex
+	db      storage.DB
+	client  storage.SQLClient
+	table   string
+	key     string
+	backend string
+	mu      sync.Mutex
 }
 
 func NewSQLiteStore(ctx context.Context, client *storage.SQLiteClient, key string) (*SQLiteStore, error) {
+	return newSQLStore(ctx, client, key)
+}
+
+func NewPostgresStore(ctx context.Context, client *storage.PostgresClient, key string) (*SQLiteStore, error) {
+	return newSQLStore(ctx, client, key)
+}
+
+func newSQLStore(ctx context.Context, client storage.SQLClient, key string) (*SQLiteStore, error) {
 	if client == nil || client.DB() == nil {
-		return nil, fmt.Errorf("sqlite client is required")
+		return nil, fmt.Errorf("sql client is required")
 	}
 	key = strings.TrimSpace(key)
 	if key == "" {
@@ -41,9 +50,11 @@ func NewSQLiteStore(ctx context.Context, client *storage.SQLiteClient, key strin
 	}
 
 	store := &SQLiteStore{
-		db:    client.DB(),
-		table: client.QualifiedTable("control_plane"),
-		key:   key,
+		db:      client.DB(),
+		client:  client,
+		table:   client.QualifiedTable("control_plane"),
+		key:     key,
+		backend: client.Backend(),
 	}
 	if err := store.migrate(ctx); err != nil {
 		return nil, err
@@ -55,7 +66,7 @@ func NewSQLiteStore(ctx context.Context, client *storage.SQLiteClient, key strin
 }
 
 func (s *SQLiteStore) Backend() string {
-	return "sqlite"
+	return s.backend
 }
 
 func (s *SQLiteStore) Snapshot(ctx context.Context) (State, error) {
@@ -194,15 +205,15 @@ func (s *SQLiteStore) Prune(ctx context.Context, maxAge time.Duration, maxCount 
 }
 
 func (s *SQLiteStore) migrate(ctx context.Context) error {
-	// state is TEXT (no JSONB in SQLite). updated_at is also TEXT in RFC3339;
-	// we never read it back, so the lighter-touch type is fine.
+	// state is TEXT (no JSONB in SQLite). updated_at is written with
+	// CURRENT_TIMESTAMP and never read back by application logic.
 	_, err := s.db.ExecContext(ctx, fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			store_key TEXT PRIMARY KEY,
 			state TEXT NOT NULL,
-			updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+			updated_at %s NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)
-	`, s.table))
+	`, s.table, storage.TimestampColumn(s.client)))
 	if err != nil {
 		return fmt.Errorf("migrate sqlite control plane store: %w", err)
 	}

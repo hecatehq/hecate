@@ -29,7 +29,10 @@ import (
 //     first write and can deadlock when two readers both try to
 //     upgrade).
 type SQLiteRunQueue struct {
-	db           *sql.DB
+	db           storage.DB
+	client       storage.SQLClient
+	rawDB        *sql.DB
+	backend      string
 	table        string
 	leaseFor     time.Duration
 	pollInterval time.Duration
@@ -42,14 +45,29 @@ func formatSQLiteRunQueueTime(t time.Time) string {
 }
 
 func NewSQLiteRunQueue(ctx context.Context, client *storage.SQLiteClient, leaseFor time.Duration) (*SQLiteRunQueue, error) {
+	var rawDB *sql.DB
+	if client != nil {
+		rawDB = client.RawDB()
+	}
+	return newSQLRunQueue(ctx, client, rawDB, leaseFor)
+}
+
+func NewPostgresRunQueue(ctx context.Context, client *storage.PostgresClient, leaseFor time.Duration) (*SQLiteRunQueue, error) {
+	return newSQLRunQueue(ctx, client, nil, leaseFor)
+}
+
+func newSQLRunQueue(ctx context.Context, client storage.SQLClient, rawDB *sql.DB, leaseFor time.Duration) (*SQLiteRunQueue, error) {
 	if client == nil || client.DB() == nil {
-		return nil, fmt.Errorf("sqlite client is required")
+		return nil, fmt.Errorf("sql client is required")
 	}
 	if leaseFor <= 0 {
 		leaseFor = 30 * time.Second
 	}
 	queue := &SQLiteRunQueue{
 		db:           client.DB(),
+		client:       client,
+		rawDB:        rawDB,
+		backend:      client.Backend(),
 		table:        client.QualifiedTable("task_run_queue"),
 		leaseFor:     leaseFor,
 		pollInterval: 100 * time.Millisecond,
@@ -60,7 +78,7 @@ func NewSQLiteRunQueue(ctx context.Context, client *storage.SQLiteClient, leaseF
 	return queue, nil
 }
 
-func (q *SQLiteRunQueue) Backend() string { return "sqlite" }
+func (q *SQLiteRunQueue) Backend() string { return q.backend }
 
 func (q *SQLiteRunQueue) Enqueue(ctx context.Context, job QueueJob) error {
 	now := formatSQLiteRunQueueTime(time.Now())
@@ -95,6 +113,9 @@ func (q *SQLiteRunQueue) Claim(ctx context.Context, workerID string, waitFor tim
 }
 
 func (q *SQLiteRunQueue) claimOnce(ctx context.Context, workerID string) (QueueClaim, bool, error) {
+	if q.client != nil && q.client.Dialect() == storage.DialectPostgres {
+		return q.claimOncePostgres(ctx, workerID)
+	}
 	// SQLite's writer lock serializes writes at the database-file level,
 	// so the lease-claim semantics fall out naturally: two concurrent
 	// claimers funnel through one writer at a time, and the loser's
@@ -109,7 +130,7 @@ func (q *SQLiteRunQueue) claimOnce(ctx context.Context, workerID string) (QueueC
 	// blocks at BEGIN until the first commits, by which point the row
 	// it would have picked has flipped to 'leased' and its SELECT
 	// matches nothing.
-	conn, err := q.db.Conn(ctx)
+	conn, err := q.rawDB.Conn(ctx)
 	if err != nil {
 		return QueueClaim{}, false, err
 	}
@@ -176,6 +197,59 @@ func (q *SQLiteRunQueue) claimOnce(ctx context.Context, workerID string) (QueueC
 	}, true, nil
 }
 
+func (q *SQLiteRunQueue) claimOncePostgres(ctx context.Context, workerID string) (QueueClaim, bool, error) {
+	tx, err := q.db.BeginTx(ctx, nil)
+	if err != nil {
+		return QueueClaim{}, false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	now := time.Now().UTC()
+	nowStr := formatSQLiteRunQueueTime(now)
+	leaseUntil := now.Add(q.leaseFor)
+	leaseStr := formatSQLiteRunQueueTime(leaseUntil)
+
+	var (
+		id     int64
+		taskID string
+		runID  string
+	)
+	err = tx.QueryRowContext(ctx, fmt.Sprintf(`
+		UPDATE %s
+		SET status = 'leased',
+		    lease_owner = ?,
+		    lease_until = ?,
+		    attempts = attempts + 1,
+		    updated_at = ?
+		WHERE id = (
+			SELECT id FROM %s
+			WHERE (status = 'pending' AND available_at <= ?)
+			   OR (status = 'leased' AND lease_until IS NOT NULL AND lease_until < ?)
+			ORDER BY id ASC
+			FOR UPDATE SKIP LOCKED
+			LIMIT 1
+		)
+		RETURNING id, task_id, run_id
+	`, q.table, q.table), workerID, leaseStr, nowStr, nowStr, nowStr).Scan(&id, &taskID, &runID)
+	if err == sql.ErrNoRows {
+		if cerr := tx.Commit(); cerr != nil {
+			return QueueClaim{}, false, cerr
+		}
+		return QueueClaim{}, false, nil
+	}
+	if err != nil {
+		return QueueClaim{}, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return QueueClaim{}, false, err
+	}
+	return QueueClaim{
+		ClaimID:    fmt.Sprintf("%d", id),
+		Job:        QueueJob{TaskID: taskID, RunID: runID},
+		LeaseUntil: leaseUntil,
+	}, true, nil
+}
+
 func (q *SQLiteRunQueue) Ack(ctx context.Context, claimID string) error {
 	_, err := q.db.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s WHERE id = ?`, q.table), claimID)
 	return err
@@ -232,7 +306,7 @@ func (q *SQLiteRunQueue) Capacity() int {
 func (q *SQLiteRunQueue) migrate(ctx context.Context) error {
 	_, err := q.db.ExecContext(ctx, fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			id `+storage.AutoIDColumn(q.client)+`,
 			task_id TEXT NOT NULL,
 			run_id TEXT NOT NULL UNIQUE,
 			status TEXT NOT NULL DEFAULT 'pending',
@@ -245,7 +319,7 @@ func (q *SQLiteRunQueue) migrate(ctx context.Context) error {
 		)
 	`, q.table))
 	if err != nil {
-		return fmt.Errorf("migrate sqlite run queue: %w", err)
+		return fmt.Errorf("migrate %s run queue: %w", q.backend, err)
 	}
 	// Index name is unquoted by convention (see history_sqlite.go for
 	// the rationale on quoting). The target table stays quoted.

@@ -234,7 +234,7 @@ Failover rows now also capture:
 
 Provider history follows the global Hecate storage backend:
 
-- `HECATE_BACKEND` — `memory` or `sqlite`
+- `HECATE_BACKEND` — `memory`, `sqlite`, or `postgres`
 - `HECATE_PROVIDER_HISTORY_LIMIT` — default page size for `/hecate/v1/providers/history`
 
 The Connections view shows the current state on each card:

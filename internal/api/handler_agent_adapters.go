@@ -100,7 +100,14 @@ func renderAgentAdapterItem(ctx context.Context, item agentadapters.Status) Agen
 		VersionOutsideRange: item.VersionOutsideRange,
 		AuthStatus:          item.AuthStatus,
 		AuthError:           item.AuthError,
+		CredentialModes:     renderAgentAdapterCredentialModes(item.CredentialModes),
+		CloudCredentialMode: item.CloudCredentialMode,
+		CloudCredentialHint: item.CloudCredentialHint,
 		ConfigOptions:       agentadapters.LaunchConfigOptions(ctx, item),
+	}
+	if item.CloudCredentialHint != "" || item.CloudCredentialMode != "" {
+		cloudCredentialOK := item.CloudCredentialOK
+		rendered.CloudCredentialOK = &cloudCredentialOK
 	}
 	if item.ID == "claude_code" {
 		rendered.ClaudeCodeCLI = &AgentAdapterSetupCommandStatusItem{
@@ -110,6 +117,23 @@ func renderAgentAdapterItem(ctx context.Context, item agentadapters.Status) Agen
 		}
 	}
 	return rendered
+}
+
+func renderAgentAdapterCredentialModes(modes []agentadapters.CredentialMode) []AgentAdapterCredentialModeItem {
+	if len(modes) == 0 {
+		return nil
+	}
+	out := make([]AgentAdapterCredentialModeItem, 0, len(modes))
+	for _, mode := range modes {
+		out = append(out, AgentAdapterCredentialModeItem{
+			ID:           mode.ID,
+			Name:         mode.Name,
+			Description:  mode.Description,
+			CloudAllowed: mode.CloudAllowed,
+			EnvKeys:      append([]string(nil), mode.EnvKeys...),
+		})
+	}
+	return out
 }
 
 func authStatusFromProbe(result agentadapters.ProbeResult, fallbackStatus, fallbackError string) (string, string) {

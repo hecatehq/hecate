@@ -26,7 +26,9 @@ import (
 //     lacks array params.
 type SQLiteStore struct {
 	runEventBus
-	db             *sql.DB
+	db             storage.DB
+	client         storage.SQLClient
+	backend        string
 	tasksTable     string
 	runsTable      string
 	stepsTable     string
@@ -36,11 +38,21 @@ type SQLiteStore struct {
 }
 
 func NewSQLiteStore(ctx context.Context, client *storage.SQLiteClient) (*SQLiteStore, error) {
+	return newSQLStore(ctx, client)
+}
+
+func NewPostgresStore(ctx context.Context, client *storage.PostgresClient) (*SQLiteStore, error) {
+	return newSQLStore(ctx, client)
+}
+
+func newSQLStore(ctx context.Context, client storage.SQLClient) (*SQLiteStore, error) {
 	if client == nil || client.DB() == nil {
-		return nil, fmt.Errorf("sqlite client is required")
+		return nil, fmt.Errorf("sql client is required")
 	}
 	store := &SQLiteStore{
 		db:             client.DB(),
+		client:         client,
+		backend:        client.Backend(),
 		tasksTable:     client.QualifiedTable("task_state_tasks"),
 		runsTable:      client.QualifiedTable("task_state_runs"),
 		stepsTable:     client.QualifiedTable("task_state_steps"),
@@ -54,7 +66,7 @@ func NewSQLiteStore(ctx context.Context, client *storage.SQLiteClient) (*SQLiteS
 	return store, nil
 }
 
-func (s *SQLiteStore) Backend() string { return "sqlite" }
+func (s *SQLiteStore) Backend() string { return s.backend }
 
 func (s *SQLiteStore) CreateTask(ctx context.Context, task types.Task) (types.Task, error) {
 	if strings.TrimSpace(task.ID) == "" {
@@ -107,10 +119,10 @@ func (s *SQLiteStore) ListTasks(ctx context.Context, filter TaskFilter) ([]types
 	}
 	if filter.ProjectID != nil {
 		if *filter.ProjectID == "" {
-			where = append(where, "json_extract(payload, '$.ProjectID') IS NULL OR json_extract(payload, '$.ProjectID') = ''")
+			where = append(where, s.projectIDWhereEmpty())
 		} else {
 			args = append(args, *filter.ProjectID)
-			where = append(where, "json_extract(payload, '$.ProjectID') = ?")
+			where = append(where, s.projectIDWhereEquals())
 		}
 	}
 	limitSQL := ""
@@ -142,6 +154,20 @@ func (s *SQLiteStore) ListTasks(ctx context.Context, filter TaskFilter) ([]types
 		items = append(items, task)
 	}
 	return items, rows.Err()
+}
+
+func (s *SQLiteStore) projectIDWhereEmpty() string {
+	if s.client != nil && s.client.Dialect() == storage.DialectPostgres {
+		return "((payload::jsonb ->> 'ProjectID') IS NULL OR (payload::jsonb ->> 'ProjectID') = '')"
+	}
+	return "(json_extract(payload, '$.ProjectID') IS NULL OR json_extract(payload, '$.ProjectID') = '')"
+}
+
+func (s *SQLiteStore) projectIDWhereEquals() string {
+	if s.client != nil && s.client.Dialect() == storage.DialectPostgres {
+		return "(payload::jsonb ->> 'ProjectID') = ?"
+	}
+	return "json_extract(payload, '$.ProjectID') = ?"
 }
 
 func (s *SQLiteStore) UpdateTask(ctx context.Context, task types.Task) (types.Task, error) {
@@ -886,6 +912,10 @@ func (s *SQLiteStore) Prune(ctx context.Context, maxAge time.Duration, maxCount 
 		// Mirrors the cache_sqlite trick: keep the most-recent N rows
 		// of this event type and delete the rest. LIMIT -1 OFFSET ?
 		// returns "all rows starting at index maxCount" — the tail.
+		limitOffset := "LIMIT -1 OFFSET ?"
+		if s.client != nil && s.client.Dialect() == storage.DialectPostgres {
+			limitOffset = "OFFSET ?"
+		}
 		result, err := s.db.ExecContext(ctx, fmt.Sprintf(`
 			DELETE FROM %s
 			WHERE event_type = 'turn.completed'
@@ -894,11 +924,11 @@ func (s *SQLiteStore) Prune(ctx context.Context, maxAge time.Duration, maxCount 
 			    FROM %s
 			    WHERE event_type = 'turn.completed'
 			    ORDER BY sequence DESC
-			    LIMIT -1 OFFSET ?
+			    `+limitOffset+`
 			  )
 		`, s.eventsTable, s.eventsTable), maxCount)
 		if err != nil {
-			return 0, fmt.Errorf("enforce sqlite turn-event max count: %w", err)
+			return 0, fmt.Errorf("enforce %s turn-event max count: %w", s.backend, err)
 		}
 		count, _ := result.RowsAffected()
 		deleted += count
@@ -907,7 +937,7 @@ func (s *SQLiteStore) Prune(ctx context.Context, maxAge time.Duration, maxCount 
 	return int(deleted), nil
 }
 
-func sqliteRequireRow(ctx context.Context, tx *sql.Tx, query string, args ...any) error {
+func sqliteRequireRow(ctx context.Context, tx storage.Tx, query string, args ...any) error {
 	var found int
 	err := tx.QueryRowContext(ctx, query, args...).Scan(&found)
 	if err == sql.ErrNoRows {
@@ -916,7 +946,7 @@ func sqliteRequireRow(ctx context.Context, tx *sql.Tx, query string, args ...any
 	return err
 }
 
-func (s *SQLiteStore) sqliteUpdateTaskTx(ctx context.Context, tx *sql.Tx, task types.Task) error {
+func (s *SQLiteStore) sqliteUpdateTaskTx(ctx context.Context, tx storage.Tx, task types.Task) error {
 	payload, err := json.Marshal(task)
 	if err != nil {
 		return err
@@ -932,7 +962,7 @@ func (s *SQLiteStore) sqliteUpdateTaskTx(ctx context.Context, tx *sql.Tx, task t
 	return sqliteRequireRowsAffected(res, "task", task.ID)
 }
 
-func (s *SQLiteStore) sqliteUpdateRunTx(ctx context.Context, tx *sql.Tx, run types.TaskRun) error {
+func (s *SQLiteStore) sqliteUpdateRunTx(ctx context.Context, tx storage.Tx, run types.TaskRun) error {
 	payload, err := json.Marshal(run)
 	if err != nil {
 		return err
@@ -948,7 +978,7 @@ func (s *SQLiteStore) sqliteUpdateRunTx(ctx context.Context, tx *sql.Tx, run typ
 	return sqliteRequireRowsAffected(res, "run", run.ID)
 }
 
-func (s *SQLiteStore) sqliteUpdateStepTx(ctx context.Context, tx *sql.Tx, step types.TaskStep) error {
+func (s *SQLiteStore) sqliteUpdateStepTx(ctx context.Context, tx storage.Tx, step types.TaskStep) error {
 	payload, err := json.Marshal(step)
 	if err != nil {
 		return err
@@ -964,7 +994,7 @@ func (s *SQLiteStore) sqliteUpdateStepTx(ctx context.Context, tx *sql.Tx, step t
 	return sqliteRequireRowsAffected(res, "step", step.ID)
 }
 
-func (s *SQLiteStore) sqliteUpdateApprovalTx(ctx context.Context, tx *sql.Tx, approval types.TaskApproval) error {
+func (s *SQLiteStore) sqliteUpdateApprovalTx(ctx context.Context, tx storage.Tx, approval types.TaskApproval) error {
 	payload, err := json.Marshal(approval)
 	if err != nil {
 		return err
@@ -980,7 +1010,7 @@ func (s *SQLiteStore) sqliteUpdateApprovalTx(ctx context.Context, tx *sql.Tx, ap
 	return sqliteRequireRowsAffected(res, "approval", approval.ID)
 }
 
-func (s *SQLiteStore) sqliteUpdateArtifactTx(ctx context.Context, tx *sql.Tx, artifact types.TaskArtifact) error {
+func (s *SQLiteStore) sqliteUpdateArtifactTx(ctx context.Context, tx storage.Tx, artifact types.TaskArtifact) error {
 	payload, err := json.Marshal(artifact)
 	if err != nil {
 		return err
@@ -1007,7 +1037,7 @@ func sqliteRequireRowsAffected(res sql.Result, kind, id string) error {
 	return nil
 }
 
-func (s *SQLiteStore) sqliteListApprovalsTx(ctx context.Context, tx *sql.Tx, taskID, runID, status string) ([]types.TaskApproval, error) {
+func (s *SQLiteStore) sqliteListApprovalsTx(ctx context.Context, tx storage.Tx, taskID, runID, status string) ([]types.TaskApproval, error) {
 	args := []any{taskID, runID}
 	query := fmt.Sprintf(`
 		SELECT payload
@@ -1039,7 +1069,7 @@ func (s *SQLiteStore) sqliteListApprovalsTx(ctx context.Context, tx *sql.Tx, tas
 	return items, rows.Err()
 }
 
-func (s *SQLiteStore) sqliteListActiveStepsTx(ctx context.Context, tx *sql.Tx, runID string) ([]types.TaskStep, error) {
+func (s *SQLiteStore) sqliteListActiveStepsTx(ctx context.Context, tx storage.Tx, runID string) ([]types.TaskStep, error) {
 	rows, err := tx.QueryContext(ctx, fmt.Sprintf(`
 		SELECT payload
 		FROM %s
@@ -1053,7 +1083,7 @@ func (s *SQLiteStore) sqliteListActiveStepsTx(ctx context.Context, tx *sql.Tx, r
 	return scanSQLiteSteps(rows)
 }
 
-func (s *SQLiteStore) sqliteListStepsTx(ctx context.Context, tx *sql.Tx, runID string) ([]types.TaskStep, error) {
+func (s *SQLiteStore) sqliteListStepsTx(ctx context.Context, tx storage.Tx, runID string) ([]types.TaskStep, error) {
 	rows, err := tx.QueryContext(ctx, fmt.Sprintf(`
 		SELECT payload
 		FROM %s
@@ -1083,7 +1113,7 @@ func scanSQLiteSteps(rows *sql.Rows) ([]types.TaskStep, error) {
 	return items, rows.Err()
 }
 
-func (s *SQLiteStore) sqliteListArtifactsTx(ctx context.Context, tx *sql.Tx, filter ArtifactFilter, status string) ([]types.TaskArtifact, error) {
+func (s *SQLiteStore) sqliteListArtifactsTx(ctx context.Context, tx storage.Tx, filter ArtifactFilter, status string) ([]types.TaskArtifact, error) {
 	args := []any{}
 	where := []string{"1=1"}
 	if filter.TaskID != "" {
@@ -1131,7 +1161,7 @@ func (s *SQLiteStore) sqliteListArtifactsTx(ctx context.Context, tx *sql.Tx, fil
 	return items, rows.Err()
 }
 
-func (s *SQLiteStore) sqliteInsertRunEventTx(ctx context.Context, tx *sql.Tx, event types.TaskRunEvent) (types.TaskRunEvent, error) {
+func (s *SQLiteStore) sqliteInsertRunEventTx(ctx context.Context, tx storage.Tx, event types.TaskRunEvent) (types.TaskRunEvent, error) {
 	if event.CreatedAt.IsZero() {
 		event.CreatedAt = time.Now().UTC()
 	}
@@ -1197,25 +1227,26 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 	approvalsUnquoted := strings.Trim(s.approvalsTable, `"`)
 	artifactsUnquoted := strings.Trim(s.artifactsTable, `"`)
 	eventsUnquoted := strings.Trim(s.eventsTable, `"`)
+	timestampColumn := storage.TimestampColumnDefaultZero(s.client)
 
 	statements := []string{
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT '', payload TEXT NOT NULL)`, s.tasksTable),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT '', updated_at %s, payload TEXT NOT NULL)`, s.tasksTable, timestampColumn),
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s_status_updated_idx" ON %s (status, updated_at DESC)`, tasksUnquoted, s.tasksTable),
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, number INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT '', started_at TEXT NOT NULL DEFAULT '', payload TEXT NOT NULL)`, s.runsTable),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, number INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT '', started_at %s, payload TEXT NOT NULL)`, s.runsTable, timestampColumn),
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s_task_number_started_idx" ON %s (task_id, number DESC, started_at DESC)`, runsUnquoted, s.runsTable),
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s_status_started_idx" ON %s (status, started_at DESC)`, runsUnquoted, s.runsTable),
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, run_id TEXT NOT NULL, step_index INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT '', started_at TEXT NOT NULL DEFAULT '', payload TEXT NOT NULL)`, s.stepsTable),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, run_id TEXT NOT NULL, step_index INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT '', started_at %s, payload TEXT NOT NULL)`, s.stepsTable, timestampColumn),
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s_run_idx_idx" ON %s (run_id, step_index ASC, id ASC)`, stepsUnquoted, s.stepsTable),
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, run_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT '', payload TEXT NOT NULL)`, s.approvalsTable),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, run_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT '', created_at %s, payload TEXT NOT NULL)`, s.approvalsTable, timestampColumn),
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s_task_created_idx" ON %s (task_id, created_at DESC, id DESC)`, approvalsUnquoted, s.approvalsTable),
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, run_id TEXT NOT NULL, step_id TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT '', payload TEXT NOT NULL)`, s.artifactsTable),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, run_id TEXT NOT NULL, step_id TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT '', created_at %s, payload TEXT NOT NULL)`, s.artifactsTable, timestampColumn),
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s_task_run_created_idx" ON %s (task_id, run_id, created_at DESC, id DESC)`, artifactsUnquoted, s.artifactsTable),
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (sequence INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, run_id TEXT NOT NULL, event_type TEXT NOT NULL DEFAULT '', event_data TEXT NOT NULL DEFAULT '{}', request_id TEXT NOT NULL DEFAULT '', trace_id TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT '')`, s.eventsTable),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (sequence %s, task_id TEXT NOT NULL, run_id TEXT NOT NULL, event_type TEXT NOT NULL DEFAULT '', event_data TEXT NOT NULL DEFAULT '{}', request_id TEXT NOT NULL DEFAULT '', trace_id TEXT NOT NULL DEFAULT '', created_at %s)`, s.eventsTable, storage.AutoIDColumn(s.client), timestampColumn),
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s_run_sequence_idx" ON %s (run_id, sequence ASC)`, eventsUnquoted, s.eventsTable),
 	}
 	for _, statement := range statements {
 		if _, err := s.db.ExecContext(ctx, statement); err != nil {
-			return fmt.Errorf("migrate sqlite task store: %w", err)
+			return fmt.Errorf("migrate %s task store: %w", s.backend, err)
 		}
 	}
 	return nil

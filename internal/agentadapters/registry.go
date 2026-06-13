@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/hecatehq/hecate/internal/agentcontrols"
+	"github.com/hecatehq/hecate/internal/cloudruntime"
 	"github.com/hecatehq/hecate/internal/gitrunner"
 )
 
@@ -25,6 +26,10 @@ const (
 // ErrLaunchModelRequired means Hecate owns the model launch flag for an
 // adapter and the operator has not selected a concrete model yet.
 var ErrLaunchModelRequired = errors.New("launch model required")
+
+// ErrCloudCredentialRequired means a hosted/cloud request tried to start an
+// external agent without a vendor-supported cloud-safe credential mode.
+var ErrCloudCredentialRequired = errors.New("cloud-safe external-agent credential required")
 
 // adapterDiscoveryOverrideEnv is intentionally narrower than
 // adapterDevOverrideEnv: keep it for backend tests that only need catalog
@@ -50,6 +55,13 @@ const (
 	AuthStatusUnknown         = "unknown"
 )
 
+const (
+	CredentialModeLocalLogin      = "local_login"
+	CredentialModeAPIKey          = "api_key"
+	CredentialModeEnterpriseToken = "enterprise_token"
+	CredentialModeVendorHosted    = "vendor_hosted"
+)
+
 type Adapter struct {
 	ID               string
 	Name             string
@@ -66,6 +78,15 @@ type Adapter struct {
 	CostMode         string
 	DocsURL          string
 	SupportedRange   string
+	CredentialModes  []CredentialMode
+}
+
+type CredentialMode struct {
+	ID           string
+	Name         string
+	Description  string
+	CloudAllowed bool
+	EnvKeys      []string
 }
 
 type VersionProbe struct {
@@ -129,6 +150,9 @@ type Status struct {
 	VersionOutsideRange bool
 	AuthStatus          string
 	AuthError           string
+	CloudCredentialMode string
+	CloudCredentialOK   bool
+	CloudCredentialHint string
 	ClaudeCodeCLI       SetupCommandStatus
 }
 
@@ -222,7 +246,7 @@ func (u Usage) Empty() bool {
 }
 
 func BuiltIns() []Adapter {
-	return []Adapter{
+	return adaptersForBuild([]Adapter{
 		{
 			ID:      "codex",
 			Name:    "Codex",
@@ -253,6 +277,20 @@ func BuiltIns() []Adapter {
 			CostMode:       "external",
 			DocsURL:        "https://github.com/zed-industries/codex-acp",
 			SupportedRange: ">=0.1.0",
+			CredentialModes: []CredentialMode{
+				{
+					ID:          CredentialModeLocalLogin,
+					Name:        "Local CLI login",
+					Description: "Uses the operator's local Codex CLI login files. Local Hecate only.",
+				},
+				{
+					ID:           CredentialModeAPIKey,
+					Name:         "API key",
+					Description:  "Uses a scoped OpenAI/Codex API key supplied to the adapter environment.",
+					CloudAllowed: true,
+					EnvKeys:      []string{"OPENAI_API_KEY", "CODEX_API_KEY"},
+				},
+			},
 		},
 		{
 			ID:      "claude_code",
@@ -284,6 +322,20 @@ func BuiltIns() []Adapter {
 			CostMode:       "external",
 			DocsURL:        "https://github.com/agentclientprotocol/claude-agent-acp",
 			SupportedRange: ">=0.1.0",
+			CredentialModes: []CredentialMode{
+				{
+					ID:          CredentialModeLocalLogin,
+					Name:        "Local CLI login",
+					Description: "Uses the operator's local Claude Code login. Local Hecate only.",
+				},
+				{
+					ID:           CredentialModeAPIKey,
+					Name:         "API key",
+					Description:  "Uses a scoped Anthropic API key supplied to the adapter environment.",
+					CloudAllowed: true,
+					EnvKeys:      []string{"ANTHROPIC_API_KEY"},
+				},
+			},
 		},
 		{
 			ID:      "cursor_agent",
@@ -300,6 +352,20 @@ func BuiltIns() []Adapter {
 			CostMode:       "external",
 			DocsURL:        "https://cursor.com/cli",
 			SupportedRange: ">=0.1.0",
+			CredentialModes: []CredentialMode{
+				{
+					ID:          CredentialModeLocalLogin,
+					Name:        "Local CLI login",
+					Description: "Uses the operator's local Cursor Agent login. Local Hecate only.",
+				},
+				{
+					ID:           CredentialModeAPIKey,
+					Name:         "API key",
+					Description:  "Uses a scoped Cursor API key supplied to the adapter environment.",
+					CloudAllowed: true,
+					EnvKeys:      []string{"CURSOR_API_KEY"},
+				},
+			},
 		},
 		{
 			ID:      "grok_build",
@@ -316,8 +382,113 @@ func BuiltIns() []Adapter {
 			CostMode:       "external",
 			DocsURL:        "https://docs.x.ai/build/cli/headless-scripting#acp",
 			SupportedRange: ">=0.1.0",
+			CredentialModes: []CredentialMode{
+				{
+					ID:          CredentialModeLocalLogin,
+					Name:        "Local CLI login",
+					Description: "Uses the operator's local Grok Build login. Local Hecate only.",
+				},
+				{
+					ID:           CredentialModeAPIKey,
+					Name:         "API key",
+					Description:  "Uses a scoped xAI API key supplied to the adapter environment.",
+					CloudAllowed: true,
+					EnvKeys:      []string{"XAI_API_KEY", "PROVIDER_XAI_API_KEY"},
+				},
+			},
 		},
+	})
+}
+
+func adaptersForBuild(items []Adapter) []Adapter {
+	if !cloudRuntimeBuild {
+		return items
 	}
+	filtered := make([]Adapter, 0, len(items))
+	for _, item := range items {
+		item.CredentialModes = cloudAllowedCredentialModes(item)
+		if len(item.CredentialModes) == 0 {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	return filtered
+}
+
+func cloudAllowedCredentialModes(adapter Adapter) []CredentialMode {
+	modes := make([]CredentialMode, 0, len(adapter.CredentialModes))
+	for _, mode := range adapter.CredentialModes {
+		if mode.CloudAllowed {
+			modes = append(modes, mode)
+		}
+	}
+	return modes
+}
+
+func cloudCredentialStatus(adapter Adapter, getenv func(string) string) (CredentialMode, bool, string) {
+	if getenv == nil {
+		getenv = os.Getenv
+	}
+	modes := cloudAllowedCredentialModes(adapter)
+	if len(modes) == 0 {
+		return CredentialMode{}, false, fmt.Sprintf("%s does not declare a cloud-safe credential mode", adapter.Name)
+	}
+	var envKeys []string
+	for _, mode := range modes {
+		envKeys = append(envKeys, mode.EnvKeys...)
+		if credentialModeConfigured(mode, getenv) {
+			return mode, true, ""
+		}
+	}
+	return CredentialMode{}, false, fmt.Sprintf("%s requires one cloud-safe credential environment variable: %s", adapter.Name, strings.Join(uniqueStrings(envKeys), ", "))
+}
+
+func credentialModeConfigured(mode CredentialMode, getenv func(string) string) bool {
+	if len(mode.EnvKeys) == 0 {
+		return true
+	}
+	for _, key := range mode.EnvKeys {
+		if strings.TrimSpace(getenv(key)) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func validateCloudCredentialForRequest(ctx context.Context, adapter Adapter) (CredentialMode, error) {
+	if _, ok := cloudruntime.FromContext(ctx); !ok {
+		return CredentialMode{}, nil
+	}
+	mode, ok, hint := cloudCredentialStatus(adapter, os.Getenv)
+	if ok {
+		return mode, nil
+	}
+	return CredentialMode{}, fmt.Errorf("%w: %s", ErrCloudCredentialRequired, hint)
+}
+
+func cloudCredentialHint(adapter Adapter) string {
+	_, ok, hint := cloudCredentialStatus(adapter, os.Getenv)
+	if ok {
+		return ""
+	}
+	return hint
+}
+
+func uniqueStrings(values []string) []string {
+	out := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
 }
 
 // FindAdapter returns the built-in adapter matching id (exact match,
@@ -387,6 +558,19 @@ func statusForAdapter(ctx context.Context, item Adapter, lookup LookupFunc, opts
 	if err := ctx.Err(); err != nil {
 		status.Error = err.Error()
 		return status
+	}
+	if _, ok := cloudruntime.FromContext(ctx); ok {
+		mode, ready, hint := cloudCredentialStatus(item, os.Getenv)
+		status.CloudCredentialOK = ready
+		status.CloudCredentialHint = hint
+		if ready {
+			status.CloudCredentialMode = mode.ID
+		} else {
+			status.Error = hint
+			status.AuthStatus = AuthStatusUnauthenticated
+			status.AuthError = hint
+			return status
+		}
 	}
 	if override, ok := adapterDevOverride(item.ID); ok {
 		return applyAdapterDevOverride(status, override)
