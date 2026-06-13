@@ -2677,7 +2677,9 @@ system, or treat the provider as policy authority. Evidence links may carry:
 
 - `evidence_source_kind` — free-form source category such as `source_document`,
   `pull_request`, `ticket`, `deployment`, `design_file`, or `meeting_note`.
-- `evidence_url` — optional URL or locator string.
+- `evidence_url` — optional URL or locator string. Hecate stores this
+  operator-provided value as-is; clients must validate the scheme before
+  rendering it as a clickable link.
 - `evidence_external_id` — optional external identifier when a URL is not the
   best reference.
 - `evidence_provider` — optional source system label such as `github`, `figma`,
