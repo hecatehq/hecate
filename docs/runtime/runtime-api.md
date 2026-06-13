@@ -2599,7 +2599,9 @@ V1 body is Markdown-compatible text with verdict, risk, summary, verification,
 and follow-up sections. Hecate stores verdict/risk as body text, not structured
 artifact fields, and does not interpret the verdict, mutate work-item status, or
 auto-dispatch follow-up work. Operators can create a separate handoff from the
-review artifact when follow-up is needed.
+review artifact when follow-up is needed. The UI may also offer a shortcut that
+creates the handoff and queued follow-up assignment together, but it still
+records the handoff first and does not start the assignment automatically.
 
 ```json
 {

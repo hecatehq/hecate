@@ -239,9 +239,11 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   entry point is an assignment whose role appears in the work item's
   `reviewer_role_ids`; work without configured reviewer roles has no generic
   record-review button yet. Keep the record action separate from follow-up
-  handoff creation; verdict/risk are body text, not structured query fields, and
-  the UI must not mark work done, blocked, or dispatched from the artifact body
-  without an explicit operator action.
+  handoff creation; review artifacts may offer an explicit follow-up assignment
+  action, but it must create/link the handoff first and leave execution start as
+  a separate operator action. Verdict/risk are body text, not structured query
+  fields, and the UI must not mark work done, blocked, or dispatched from the
+  artifact body without an explicit operator action.
 - **Stable provider ordering.** Do not sort provider lists by health, blocked state, or availability unless explicitly asked. Fixed alphabetical/preset order within each section.
 - Runtime metadata first-class, not tucked in debug crumbs.
 - Trace and failure details readable without scanning raw JSON first.

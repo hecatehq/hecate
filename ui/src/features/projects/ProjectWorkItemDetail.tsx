@@ -60,6 +60,7 @@ export type ProjectWorkItemDetailProps = {
   activityByAssignmentID: Map<string, ProjectActivityItemRecord>;
   assignments: ProjectAssignmentRecord[];
   artifacts: ProjectCollaborationArtifactRecord[];
+  artifactActionID: string;
   handoffActionID: string;
   handoffError: string;
   handoffs: ProjectHandoffRecord[];
@@ -79,6 +80,7 @@ export type ProjectWorkItemDetailProps = {
   ) => void;
   onAddReviewArtifactFromAssignment: (assignment: ProjectAssignmentRecord) => void;
   onAddHandoffFromReviewArtifact: (artifact: ProjectCollaborationArtifactRecord) => void;
+  onCreateAssignmentFromReviewArtifact: (artifact: ProjectCollaborationArtifactRecord) => void;
   onCreateAssignmentFromHandoff: (handoff: ProjectHandoffRecord) => void;
   onDeleteAssignment: (assignment: ProjectAssignmentRecord) => void;
   onDeleteHandoff: (handoff: ProjectHandoffRecord) => void;
@@ -106,6 +108,7 @@ export function ProjectWorkItemDetail({
   activityByAssignmentID,
   assignments,
   artifacts,
+  artifactActionID,
   handoffActionID,
   handoffError,
   handoffs,
@@ -118,6 +121,7 @@ export function ProjectWorkItemDetail({
   onAddReviewHandoffFromAssignment,
   onAddReviewArtifactFromAssignment,
   onAddHandoffFromReviewArtifact,
+  onCreateAssignmentFromReviewArtifact,
   onCreateAssignmentFromHandoff,
   onDeleteAssignment,
   onDeleteHandoff,
@@ -332,30 +336,49 @@ export function ProjectWorkItemDetail({
             <div style={subtleTextStyle}>No collaboration artifacts recorded yet.</div>
           ) : (
             <div style={{ display: "grid", gap: 8 }}>
-              {artifacts.map((artifact) => (
-                <div key={artifact.id} style={artifactStyle}>
-                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                    <span className="badge badge-muted">{artifact.kind}</span>
-                    <span style={{ ...titleStyle, flex: 1, minWidth: 0 }}>
-                      {artifact.title || artifact.id}
-                    </span>
-                    {artifact.kind === "review" && (
-                      <button
-                        aria-label={`Create follow-up from review artifact ${artifact.id}`}
-                        className="btn btn-ghost btn-sm"
-                        type="button"
-                        onClick={() => onAddHandoffFromReviewArtifact(artifact)}
-                      >
-                        <Icon d={Icons.plus} size={12} />
-                        Follow-up
-                      </button>
-                    )}
+              {artifacts.map((artifact) => {
+                const artifactActionPending = artifactActionID === artifact.id;
+                return (
+                  <div key={artifact.id} style={artifactStyle}>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <span className="badge badge-muted">{artifact.kind}</span>
+                      <span style={{ ...titleStyle, flex: 1, minWidth: 0 }}>
+                        {artifact.title || artifact.id}
+                      </span>
+                      {artifact.kind === "review" && (
+                        <>
+                          <button
+                            aria-label={`Create follow-up from review artifact ${artifact.id}`}
+                            className="btn btn-ghost btn-sm"
+                            type="button"
+                            onClick={() => onAddHandoffFromReviewArtifact(artifact)}
+                            disabled={artifactActionPending}
+                          >
+                            <Icon d={Icons.plus} size={12} />
+                            Follow-up
+                          </button>
+                          <button
+                            aria-label={`Create follow-up assignment from review artifact ${artifact.id}`}
+                            className="btn btn-ghost btn-sm"
+                            type="button"
+                            onClick={() => onCreateAssignmentFromReviewArtifact(artifact)}
+                            disabled={artifactActionPending}
+                            title="Create a handoff and queued follow-up assignment from this review."
+                          >
+                            <Icon d={Icons.tasks} size={12} />
+                            Assignment
+                          </button>
+                        </>
+                      )}
+                    </div>
+                    <div
+                      style={{ marginTop: 6, fontSize: 12, color: "var(--t2)", lineHeight: 1.45 }}
+                    >
+                      {artifact.body}
+                    </div>
                   </div>
-                  <div style={{ marginTop: 6, fontSize: 12, color: "var(--t2)", lineHeight: 1.45 }}>
-                    {artifact.body}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </section>

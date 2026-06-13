@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ContextPacketRecord } from "../../types/context";
 import type {
   ProjectAssignmentRecord,
+  ProjectCollaborationArtifactRecord,
   ProjectHandoffRecord,
   ProjectRecord,
   ProjectWorkItemRecord,
@@ -134,6 +135,24 @@ function handoff(overrides: Partial<ProjectHandoffRecord> = {}): ProjectHandoffR
   };
 }
 
+function artifact(
+  overrides: Partial<ProjectCollaborationArtifactRecord> = {},
+): ProjectCollaborationArtifactRecord {
+  return {
+    id: "art_review",
+    project_id: "proj_1",
+    work_item_id: "work_1",
+    assignment_id: "assign_1",
+    kind: "review",
+    title: "Architect review",
+    body: "Verdict: Changes requested",
+    author_role_id: "architect",
+    created_at: "2026-06-12T00:00:00Z",
+    updated_at: "2026-06-12T00:00:00Z",
+    ...overrides,
+  };
+}
+
 function preflightPacket(): ContextPacketRecord {
   return {
     id: "ctx_preflight",
@@ -162,6 +181,7 @@ function renderDetail(overrides: Partial<ProjectWorkItemDetailProps> = {}) {
     onAddHandoffFromReviewArtifact: vi.fn(),
     onAddReviewArtifactFromAssignment: vi.fn(),
     onAddReviewHandoffFromAssignment: vi.fn(),
+    onCreateAssignmentFromReviewArtifact: vi.fn(),
     onCreateAssignmentFromHandoff: vi.fn(),
     onDeleteAssignment: vi.fn(),
     onDeleteHandoff: vi.fn(),
@@ -184,6 +204,7 @@ function renderDetail(overrides: Partial<ProjectWorkItemDetailProps> = {}) {
     activityByAssignmentID: new Map(),
     assignments: [assign],
     artifacts: [],
+    artifactActionID: "",
     handoffActionID: "",
     handoffError: "",
     handoffs: [],
@@ -319,5 +340,38 @@ describe("ProjectWorkItemDetail", () => {
     expect(handlers.onSetHandoffStatus).toHaveBeenNthCalledWith(2, pendingHandoff, "dismissed");
     expect(handlers.onSetHandoffStatus).toHaveBeenNthCalledWith(3, pendingHandoff, "superseded");
     expect(handlers.onCreateAssignmentFromHandoff).toHaveBeenCalledWith(pendingHandoff);
+  });
+
+  it("delegates direct follow-up assignment creation from review artifacts", async () => {
+    const reviewArtifact = artifact();
+    const { handlers } = renderDetail({
+      assignments: [],
+      artifacts: [reviewArtifact],
+    });
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Create follow-up assignment from review artifact art_review",
+      }),
+    );
+
+    expect(handlers.onCreateAssignmentFromReviewArtifact).toHaveBeenCalledWith(reviewArtifact);
+  });
+
+  it("disables review artifact follow-up actions while an assignment shortcut is pending", () => {
+    renderDetail({
+      assignments: [],
+      artifacts: [artifact()],
+      artifactActionID: "art_review",
+    });
+
+    expect(
+      screen.getByRole("button", { name: "Create follow-up from review artifact art_review" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", {
+        name: "Create follow-up assignment from review artifact art_review",
+      }),
+    ).toBeDisabled();
   });
 });

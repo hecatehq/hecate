@@ -225,6 +225,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
   const [handoffPending, setHandoffPending] = useState(false);
   const [handoffError, setHandoffError] = useState("");
   const [handoffActionID, setHandoffActionID] = useState("");
+  const [artifactActionID, setArtifactActionID] = useState("");
   const [reviewArtifactDraft, setReviewArtifactDraft] = useState<ReviewArtifactForm | null>(null);
   const [reviewArtifactPending, setReviewArtifactPending] = useState(false);
   const [reviewArtifactError, setReviewArtifactError] = useState("");
@@ -1087,7 +1088,10 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     }
   }
 
-  async function handleCreateAssignmentFromHandoff(handoff: ProjectHandoffRecord) {
+  async function handleCreateAssignmentFromHandoff(
+    handoff: ProjectHandoffRecord,
+    options: { failureMessage?: string; prefixFailureMessage?: boolean } = {},
+  ) {
     if (!selectedProjectID || !selectedWorkItemID) return;
     const roleID = (handoff.target_role_id || "software_developer").trim();
     if (!roleID) return;
@@ -1119,9 +1123,39 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
       await loadWorkItemDetail(selectedProjectID, selectedWorkItemID);
       await loadWorkForProject(selectedProjectID, selectedWorkItemID);
     } catch (error) {
-      setHandoffError(errorMessage(error, "Failed to create target assignment."));
+      const failureMessage = options.failureMessage || "Failed to create target assignment.";
+      const detail = errorMessage(error, failureMessage);
+      setHandoffError(
+        options.prefixFailureMessage && detail !== failureMessage
+          ? `${failureMessage} ${detail}`
+          : detail,
+      );
     } finally {
       setHandoffActionID("");
+    }
+  }
+
+  async function handleCreateAssignmentFromReviewArtifact(
+    artifact: ProjectCollaborationArtifactRecord,
+  ) {
+    if (!selectedProjectID || !selectedWorkItemID || !selectedWorkItem) return;
+    const payload = handoffPayloadFromForm(
+      handoffFormFromReviewArtifact(artifact, selectedWorkItem),
+    );
+    setArtifactActionID(artifact.id);
+    setHandoffError("");
+    try {
+      const handoff = await createProjectHandoff(selectedProjectID, selectedWorkItemID, payload);
+      setHandoffs((current) => upsertHandoff(current, handoff.data));
+      await handleCreateAssignmentFromHandoff(handoff.data, {
+        failureMessage:
+          "Created the follow-up handoff, but failed to create its assignment. Finish it from the handoff card to avoid duplicating the handoff.",
+        prefixFailureMessage: true,
+      });
+    } catch (error) {
+      setHandoffError(errorMessage(error, "Failed to create follow-up handoff."));
+    } finally {
+      setArtifactActionID("");
     }
   }
 
@@ -1302,6 +1336,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
             activityBucket={activityBucket}
             activityByAssignmentID={activityByAssignmentID}
             artifacts={artifacts}
+            artifactActionID={artifactActionID}
             assignmentErrors={assignmentErrors}
             assignments={assignments}
             assistant={assistant}
@@ -1369,6 +1404,9 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
               setNewHandoffDraft(handoffFormFromReviewArtifact(artifact, selectedWorkItem));
               setEditingHandoff("new");
             }}
+            onCreateAssignmentFromReviewArtifact={(artifact) =>
+              void handleCreateAssignmentFromReviewArtifact(artifact)
+            }
             onCreateAssignmentFromHandoff={handleCreateAssignmentFromHandoff}
             onCreateWork={() => {
               setNewWorkError("");
