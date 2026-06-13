@@ -308,6 +308,31 @@ describe("ProjectWorkItemDetail", () => {
     expect(handlers.onAddReviewArtifactFromAssignment).toHaveBeenCalledWith(reviewerAssignment);
   });
 
+  it("guides setup when a work item has no reviewer roles", async () => {
+    const item = workItem({ reviewer_role_ids: [] });
+    const { handlers } = renderDetail({
+      workItem: item,
+    });
+
+    expect(screen.getByText("No reviewer roles configured")).toBeTruthy();
+    expect(screen.getByText(/Add at least one reviewer role/)).toBeTruthy();
+
+    await userEvent.click(screen.getByRole("button", { name: "Edit reviewers" }));
+    await userEvent.click(screen.getByRole("button", { name: "Manage roles" }));
+
+    expect(handlers.onEditWorkItem).toHaveBeenCalledWith(item);
+    expect(handlers.onManageRoles).toHaveBeenCalledTimes(1);
+  });
+
+  it("guides setup when configured reviewer roles are missing", () => {
+    renderDetail({
+      workItem: workItem({ reviewer_role_ids: ["missing_reviewer"] }),
+    });
+
+    expect(screen.getByText("Reviewer role reference missing")).toBeTruthy();
+    expect(screen.getByText(/missing_reviewer/)).toBeTruthy();
+  });
+
   it("loads launch preflight before starting an assignment", async () => {
     const { handlers } = renderDetail();
 
