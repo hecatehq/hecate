@@ -511,5 +511,7 @@ jobs:
     with:
       # Desktop PR validation runs after the cheaper test matrix so failing
       # unit/e2e checks don't burn macOS/Windows/Linux packaging minutes.
-      # Tagged release builds still upload signed bundles via release.yml.
+      # macOS PR validation builds the .app bundle; tagged release builds and
+      # manual desktop rebuilds still use the full app,dmg matrix.
       uploadArtifacts: false
+      unsignedMacosBundles: app
