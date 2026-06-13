@@ -2661,10 +2661,12 @@ safety model.
 
 `POST /hecate/v1/chat/sessions/{id}/project-assistant/draft` is the Chat
 handoff variant for project-linked Hecate Chat sessions. The request body
-matches `/project-assistant/draft` except it omits `project_id`; Hecate derives
-the project from the chat session and rejects unprojected or external-agent
-sessions. The endpoint returns `project_assistant.proposal` data only. It does
-not append chat messages, create project records, or apply the proposal; UI
+accepts the deterministic draft fields `request`, optional `work_item_id`,
+optional `role_id`, and optional `driver_kind`; Hecate derives the project from
+the chat session and rejects unprojected or external-agent sessions. The
+endpoint always uses deterministic drafting and returns
+`project_assistant.proposal` data only. It does not call the model-backed draft
+path, append chat messages, create project records, or apply the proposal; UI
 clients should hand the response to the Projects Project Assistant review/apply
 surface.
 

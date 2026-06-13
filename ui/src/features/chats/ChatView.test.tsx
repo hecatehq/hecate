@@ -5639,7 +5639,6 @@ describe("ChatView session title", () => {
     await waitFor(() => {
       expect(draftChatProjectAssistant).toHaveBeenCalledWith("s1", {
         request: "Plan next project work",
-        draft_mode: "deterministic",
       });
     });
     expect(selectProject).toHaveBeenCalledWith("proj_1");

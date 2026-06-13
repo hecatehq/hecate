@@ -42,9 +42,10 @@ run, assignment, or agent session.
 Project-linked Hecate Chat has a compact `Draft proposal` composer action for
 turning the current draft message into the same Project Assistant proposal
 shape. That chat-session route derives `project_id` from the linked session
-instead of accepting it from the request body, drafts proposal data only, and
-hands the proposal to the Projects workspace for review. It does not append a
-chat message, create work records, or apply the proposal.
+instead of accepting it from the request body, always uses deterministic
+drafting, and hands the proposal to the Projects workspace for review. It does
+not append a chat message, call the model-backed draft path, create work
+records, or apply the proposal.
 
 ## Authority boundary
 
@@ -503,8 +504,8 @@ project changes as Project Assistant proposal intent, not as permission to
 mutate project stores through generic tools or direct API calls. If the selected
 chat model routes to a cloud provider, that bounded project prompt context
 follows the normal model gateway route. Chat-side proposal drafting calls the
-Project Assistant draft API only; durable mutations must still stop at the
-explicit Projects review/apply card.
+deterministic Project Assistant draft path only; durable mutations must still
+stop at the explicit Projects review/apply card.
 Applying a proposal always calls `/project-assistant/apply` with `confirm: true`
 after the operator reviews the action rows. A successful apply refreshes the
 project list, project work, selected work-item detail, and project memory.

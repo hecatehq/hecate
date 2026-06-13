@@ -34,9 +34,6 @@ type chatProjectAssistantDraftRequest struct {
 	Request    string `json:"request"`
 	RoleID     string `json:"role_id,omitempty"`
 	DriverKind string `json:"driver_kind,omitempty"`
-	DraftMode  string `json:"draft_mode,omitempty"`
-	Provider   string `json:"provider,omitempty"`
-	Model      string `json:"model,omitempty"`
 }
 
 type projectAssistantContextRequest struct {
@@ -138,9 +135,7 @@ func (h *Handler) HandleChatProjectAssistantDraft(w http.ResponseWriter, r *http
 		Request:    req.Request,
 		RoleID:     req.RoleID,
 		DriverKind: req.DriverKind,
-		DraftMode:  req.DraftMode,
-		Provider:   firstNonEmpty(req.Provider, session.Provider),
-		Model:      firstNonEmpty(req.Model, session.Model),
+		DraftMode:  projectassistant.DraftModeDeterministic,
 		RequestID:  RequestIDFromContext(r.Context()),
 		TraceID:    requestTraceID(r),
 	})

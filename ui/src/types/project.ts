@@ -283,7 +283,7 @@ export type ProjectAssistantDraftPayload = ProjectAssistantContextPayload & {
   model?: string;
 };
 
-export type ProjectAssistantChatDraftPayload = Omit<ProjectAssistantDraftPayload, "project_id">;
+export type ProjectAssistantChatDraftPayload = Omit<ProjectAssistantContextPayload, "project_id">;
 
 export type ProjectAssistantApplyPayload = {
   proposal: ProjectAssistantProposal;

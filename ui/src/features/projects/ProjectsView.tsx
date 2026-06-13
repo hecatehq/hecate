@@ -551,7 +551,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     assistant.loadProposal(handoff.proposal);
     setWorkspaceTab("work");
     clearProjectAssistantChatHandoff();
-  }, [assistant.loadProposal, selectedProjectID, selectedWorkItemID, workLoadState]);
+  }, [assistant.loadProposal, selectedProjectID, workLoadState]);
 
   function startRename(project: ProjectRecord) {
     setRenamingProjectID(project.id);

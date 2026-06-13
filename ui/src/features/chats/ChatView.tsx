@@ -566,7 +566,6 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     try {
       const payload = await draftChatProjectAssistant(sessionID, {
         request,
-        draft_mode: "deterministic",
       });
       const handoffWritten = writeProjectAssistantChatHandoff({
         project_id: projectID,
