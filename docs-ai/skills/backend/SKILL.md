@@ -164,10 +164,11 @@ launch planning or start orchestration back to the broad
 or External Agent adapter/options separately for preview and dispatch.
 
 Project activity is a read/projection surface with split ownership:
-`internal/projectworkapp` owns assignment execution refs, task/run projection,
-blocking signals, bucket/status summaries, stale/missing detection, and
-canonical linked runtime ids. `internal/api/handler_project_activity.go` owns
-HTTP response DTOs, linked-chat loading/rendering, and artifact/handoff grouping.
+`internal/projectworkapp` owns assignment execution refs, task/run and
+chat-session projection, External Agent assignment reconciliation, blocking
+signals, bucket/status summaries, stale/missing detection, and canonical linked
+runtime ids. `internal/api/handler_project_activity.go` owns HTTP response DTOs,
+linked-chat loading/rendering, and artifact/handoff grouping.
 Do not rebuild assignment activity decisions in UI or handlers from raw
 `task_id`/`run_id`/`chat_session_id`; use the `execution_ref` / projection seams.
 

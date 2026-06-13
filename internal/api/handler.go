@@ -468,6 +468,7 @@ func (h *Handler) reconcileAgentChatStore(ctx context.Context) {
 	}
 	if count > 0 {
 		telemetry.Info(h.logger, ctx, "agent chat reconciliation completed", slog.Int("interrupted_runs", count))
+		h.reconcileProjectAssignmentsForAllChats(ctx)
 	}
 }
 

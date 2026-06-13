@@ -831,6 +831,7 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 	} else {
 		h.logger.WarnContext(r.Context(), "chat.turn_counter_increment_failed", "session_id", session.ID, "error", incErr)
 	}
+	h.reconcileProjectAssignmentsForChat(r.Context(), updated)
 	h.agentChatLive.publishSession(updated)
 	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(updated, h.agentChatSnapshotConfig())})
 }
