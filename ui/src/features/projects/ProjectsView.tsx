@@ -116,15 +116,16 @@ import {
   formatProjectRowRelativeTime,
   projectErrorMessage as errorMessage,
 } from "./projectDisplay";
+import {
+  useProjectSelectionController,
+  useStoredRightPanelWidth,
+} from "./useProjectViewController";
 
 type Props = {
   onOpenChat?: (request: ProjectAssignmentChatLaunchRequest) => void;
   onOpenConnections?: () => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
 };
-
-const RIGHT_PANEL_WIDTH_KEY = "hecate.chat.rightPanelWidth";
-const DEFAULT_RIGHT_PANEL_WIDTH = 380;
 
 const PROJECTS_LIST_PANEL_WIDTH = 220;
 
@@ -166,14 +167,13 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
   const projects = useProjects();
   const providersAndModels = useProvidersAndModels();
   const settings = useSettings();
-  const [selectedProjectID, setSelectedProjectID] = useState(projects.activeProjectID);
   const [renamingProjectID, setRenamingProjectID] = useState("");
   const [renameValue, setRenameValue] = useState("");
   const [hoveredProjectID, setHoveredProjectID] = useState("");
   const [deleteProjectID, setDeleteProjectID] = useState("");
   const [deletePending, setDeletePending] = useState(false);
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
-  const [rightPanelWidth, setRightPanelWidth] = useState(() => readStoredRightPanelWidth());
+  const { rightPanelWidth, setRightPanelWidth } = useStoredRightPanelWidth();
   const [defaultsPending, setDefaultsPending] = useState(false);
   const [defaultsError, setDefaultsError] = useState("");
   const [discoveringRoots, setDiscoveringRoots] = useState(false);
@@ -222,11 +222,6 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
   const [assignmentErrors, setAssignmentErrors] = useState<Record<string, string>>({});
   const [startingAssignmentID, setStartingAssignmentID] = useState("");
   const startingAssignmentIDsRef = useRef<Set<string>>(new Set());
-
-  function updateRightPanelWidth(width: number) {
-    setRightPanelWidth(width);
-    rememberRightPanelWidth(width);
-  }
   const [memoryEntries, setMemoryEntries] = useState<ProjectMemoryRecord[]>([]);
   const [memoryCandidates, setMemoryCandidates] = useState<ProjectMemoryCandidateRecord[]>([]);
   const [projectSkills, setProjectSkills] = useState<ProjectSkillRecord[]>([]);
@@ -250,11 +245,13 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
   const [memoryPending, setMemoryPending] = useState(false);
   const [deleteMemory, setDeleteMemory] = useState<ProjectMemoryRecord | null>(null);
   const [deleteMemoryPending, setDeleteMemoryPending] = useState(false);
-
-  const selectedProject = useMemo(
-    () => projects.state.projects.find((project) => project.id === selectedProjectID) ?? null,
-    [projects.state.projects, selectedProjectID],
-  );
+  const { clearSelectedProject, openProject, selectedProject, selectedProjectID } =
+    useProjectSelectionController({
+      activeProjectID: projects.activeProjectID,
+      onProjectChange: () => setSelectedWorkItemID(""),
+      projects: projects.state.projects,
+      selectProject: projects.actions.selectProject,
+    });
 
   const loadAgentProfiles = useCallback(async (cancelled?: () => boolean) => {
     try {
@@ -356,22 +353,6 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
         };
       });
   }, [providerPresets, providersAndModels.state.providers, settings.state.config?.providers]);
-
-  useEffect(() => {
-    if (projects.state.projects.length === 0) {
-      setSelectedProjectID("");
-      return;
-    }
-    if (projects.activeProjectID) {
-      setSelectedProjectID(projects.activeProjectID);
-      return;
-    }
-    setSelectedProjectID((current) =>
-      current && projects.state.projects.some((project) => project.id === current)
-        ? current
-        : projects.state.projects[0]?.id || "",
-    );
-  }, [projects.activeProjectID, projects.state.projects]);
 
   const loadWorkForProject = useCallback(async (projectID: string, preferredWorkItemID = "") => {
     setWorkError("");
@@ -549,14 +530,6 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     assistant.dismiss();
   }, [assistant.dismiss, selectedProjectID, selectedWorkItemID]);
 
-  function openProject(projectID: string) {
-    if (projectID !== selectedProjectID) {
-      setSelectedWorkItemID("");
-    }
-    setSelectedProjectID(projectID);
-    void projects.actions.selectProject(projectID);
-  }
-
   function startRename(project: ProjectRecord) {
     setRenamingProjectID(project.id);
     setRenameValue(project.name);
@@ -577,7 +550,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
       if (deleted) {
         setDeleteProjectID("");
         if (selectedProjectID === pendingDeleteProject.id) {
-          setSelectedProjectID("");
+          clearSelectedProject();
         }
       }
     } finally {
@@ -1410,7 +1383,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
             <ChatRightPanel
               ariaLabel="Project settings panel"
               width={rightPanelWidth}
-              onWidthChange={updateRightPanelWidth}
+              onWidthChange={setRightPanelWidth}
             >
               <ProjectSettingsPanel
                 agentProfiles={agentProfiles}
@@ -1984,23 +1957,6 @@ function upsertHandoff(items: ProjectHandoffRecord[], item: ProjectHandoffRecord
     );
     return byTime || left.id.localeCompare(right.id);
   });
-}
-
-function readStoredRightPanelWidth(): number {
-  try {
-    const value = Number.parseInt(localStorage.getItem(RIGHT_PANEL_WIDTH_KEY) ?? "", 10);
-    return Number.isFinite(value) && value > 0 ? value : DEFAULT_RIGHT_PANEL_WIDTH;
-  } catch {
-    return DEFAULT_RIGHT_PANEL_WIDTH;
-  }
-}
-
-function rememberRightPanelWidth(width: number) {
-  try {
-    localStorage.setItem(RIGHT_PANEL_WIDTH_KEY, String(width));
-  } catch {
-    // Best-effort preference only.
-  }
 }
 
 const topbarStyle: CSSProperties = {
