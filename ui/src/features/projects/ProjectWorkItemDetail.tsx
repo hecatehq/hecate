@@ -77,6 +77,8 @@ export type ProjectWorkItemDetailProps = {
     reviewRole: ProjectWorkRoleRecord,
     activityItem?: ProjectActivityItemRecord,
   ) => void;
+  onAddReviewArtifactFromAssignment: (assignment: ProjectAssignmentRecord) => void;
+  onAddHandoffFromReviewArtifact: (artifact: ProjectCollaborationArtifactRecord) => void;
   onCreateAssignmentFromHandoff: (handoff: ProjectHandoffRecord) => void;
   onDeleteAssignment: (assignment: ProjectAssignmentRecord) => void;
   onDeleteHandoff: (handoff: ProjectHandoffRecord) => void;
@@ -114,6 +116,8 @@ export function ProjectWorkItemDetail({
   onAddHandoff,
   onAddHandoffFromAssignment,
   onAddReviewHandoffFromAssignment,
+  onAddReviewArtifactFromAssignment,
+  onAddHandoffFromReviewArtifact,
   onCreateAssignmentFromHandoff,
   onDeleteAssignment,
   onDeleteHandoff,
@@ -227,6 +231,11 @@ export function ProjectWorkItemDetail({
               {assignments.map((assignment) => {
                 const activityItem = activityByAssignmentID.get(assignment.id);
                 const reviewRole = reviewerRoleForAssignment(workItem, assignment, roleByID);
+                const reviewAuthorRole = reviewAuthorRoleForAssignment(
+                  workItem,
+                  assignment,
+                  roleByID,
+                );
                 return (
                   <AssignmentRow
                     key={assignment.id}
@@ -268,6 +277,11 @@ export function ProjectWorkItemDetail({
                       reviewRole
                         ? () =>
                             onAddReviewHandoffFromAssignment(assignment, reviewRole, activityItem)
+                        : undefined
+                    }
+                    onCreateReviewArtifact={
+                      reviewAuthorRole
+                        ? () => onAddReviewArtifactFromAssignment(assignment)
                         : undefined
                     }
                     project={project}
@@ -322,7 +336,20 @@ export function ProjectWorkItemDetail({
                 <div key={artifact.id} style={artifactStyle}>
                   <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                     <span className="badge badge-muted">{artifact.kind}</span>
-                    <span style={titleStyle}>{artifact.title || artifact.id}</span>
+                    <span style={{ ...titleStyle, flex: 1, minWidth: 0 }}>
+                      {artifact.title || artifact.id}
+                    </span>
+                    {artifact.kind === "review" && (
+                      <button
+                        aria-label={`Create follow-up from review artifact ${artifact.id}`}
+                        className="btn btn-ghost btn-sm"
+                        type="button"
+                        onClick={() => onAddHandoffFromReviewArtifact(artifact)}
+                      >
+                        <Icon d={Icons.plus} size={12} />
+                        Follow-up
+                      </button>
+                    )}
                   </div>
                   <div style={{ marginTop: 6, fontSize: 12, color: "var(--t2)", lineHeight: 1.45 }}>
                     {artifact.body}
@@ -406,6 +433,7 @@ function AssignmentRow({
   loadPreflight,
   onCreateHandoff,
   onCreateReviewHandoff,
+  onCreateReviewArtifact,
   onDelete,
   onEdit,
   onOpenChat,
@@ -424,6 +452,7 @@ function AssignmentRow({
   loadPreflight?: (() => Promise<ContextPacketRecord>) | null;
   onCreateHandoff: () => void;
   onCreateReviewHandoff?: () => void;
+  onCreateReviewArtifact?: () => void;
   onDelete: () => void;
   onEdit: () => void;
   onOpenChat?: () => void;
@@ -624,6 +653,17 @@ function AssignmentRow({
           >
             <Icon d={Icons.check} size={12} />
             Request review
+          </button>
+        )}
+        {onCreateReviewArtifact && (
+          <button
+            aria-label={`Record review for assignment ${assignment.id}`}
+            className="btn btn-ghost btn-sm"
+            type="button"
+            onClick={onCreateReviewArtifact}
+          >
+            <Icon d={Icons.check} size={12} />
+            Record review
           </button>
         )}
       </div>
@@ -1116,6 +1156,16 @@ function reviewerRoleForAssignment(
     if (role) return role;
   }
   return null;
+}
+
+function reviewAuthorRoleForAssignment(
+  workItem: ProjectWorkItemRecord,
+  assignment: ProjectAssignmentRecord,
+  roleByID: Map<string, ProjectWorkRoleRecord>,
+): ProjectWorkRoleRecord | null {
+  const reviewerIDs = new Set((workItem.reviewer_role_ids ?? []).map((roleID) => roleID.trim()));
+  if (!reviewerIDs.has(assignment.role_id)) return null;
+  return roleByID.get(assignment.role_id) ?? null;
 }
 
 export function buildProjectAssignmentChatLaunchRequest({

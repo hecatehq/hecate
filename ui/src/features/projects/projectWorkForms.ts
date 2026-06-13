@@ -1,7 +1,9 @@
 import type {
+  CreateProjectCollaborationArtifactPayload,
   CreateProjectHandoffPayload,
   ProjectActivityItemRecord,
   ProjectAssignmentExecutionRefRecord,
+  ProjectCollaborationArtifactRecord,
   ProjectAssignmentRecord,
   ProjectHandoffRecord,
   ProjectWorkItemRecord,
@@ -38,6 +40,12 @@ export type AssignmentStatus = (typeof ASSIGNMENT_STATUSES)[number];
 
 export const HANDOFF_STATUSES = ["pending", "accepted", "superseded", "dismissed"] as const;
 export type HandoffStatus = (typeof HANDOFF_STATUSES)[number];
+
+export const REVIEW_VERDICTS = ["approved", "changes_requested", "blocked", "risk"] as const;
+export type ReviewVerdict = (typeof REVIEW_VERDICTS)[number];
+
+export const REVIEW_RISKS = ["low", "medium", "high", "unknown"] as const;
+export type ReviewRisk = (typeof REVIEW_RISKS)[number];
 
 export type NewWorkItemForm = {
   title: string;
@@ -88,6 +96,17 @@ export type HandoffForm = {
   trustLabel: string;
 };
 
+export type ReviewArtifactForm = {
+  assignmentID: string;
+  authorRoleID: string;
+  title: string;
+  verdict: ReviewVerdict;
+  risk: ReviewRisk;
+  summary: string;
+  verification: string;
+  followUp: string;
+};
+
 export function defaultDriverForRole(role: ProjectWorkRoleRecord | null): string {
   return role?.default_driver_kind || "hecate_task";
 }
@@ -106,6 +125,14 @@ export function assignmentStatusFromValue(value: string | undefined | null): Ass
 
 export function handoffStatusFromValue(value: string | undefined | null): HandoffStatus {
   return choiceFromValue(HANDOFF_STATUSES, value, "pending");
+}
+
+export function reviewVerdictFromValue(value: string | undefined | null): ReviewVerdict {
+  return choiceFromValue(REVIEW_VERDICTS, value, "approved");
+}
+
+export function reviewRiskFromValue(value: string | undefined | null): ReviewRisk {
+  return choiceFromValue(REVIEW_RISKS, value, "unknown");
 }
 
 export function projectAssignmentExecutionKindFromForm(form: EditAssignmentForm) {
@@ -283,6 +310,103 @@ export function reviewHandoffFormFromAssignment(
     recommendedNextAction:
       "Create and start the linked review assignment, then record findings as a review artifact or follow-up handoff.",
   };
+}
+
+export function reviewArtifactFormFromAssignment(
+  assignment: ProjectAssignmentRecord,
+  role: ProjectWorkRoleRecord | null,
+  workItem: ProjectWorkItemRecord,
+): ReviewArtifactForm {
+  const roleName = role?.name || assignment.role_id;
+  return {
+    assignmentID: assignment.id,
+    authorRoleID: assignment.role_id,
+    title: `${roleName} review`,
+    verdict: "approved",
+    risk: "unknown",
+    summary: `Review outcome for "${workItem.title || workItem.id}".`,
+    verification: "",
+    followUp: "",
+  };
+}
+
+export function reviewArtifactPayloadFromForm(
+  form: ReviewArtifactForm,
+): CreateProjectCollaborationArtifactPayload {
+  return {
+    assignment_id: form.assignmentID.trim(),
+    author_role_id: form.authorRoleID.trim(),
+    kind: "review",
+    title: form.title.trim() || "Review",
+    body: reviewArtifactBodyFromForm(form),
+  };
+}
+
+export function handoffFormFromReviewArtifact(
+  artifact: ProjectCollaborationArtifactRecord,
+  workItem: ProjectWorkItemRecord,
+): HandoffForm {
+  return {
+    id: "",
+    sourceAssignmentID: artifact.assignment_id ?? "",
+    sourceRunID: "",
+    sourceChatSessionID: "",
+    sourceMessageID: "",
+    targetRoleID: workItem.owner_role_id ?? "",
+    targetAssignmentID: "",
+    title: `${artifact.title || "Review"} follow-up`,
+    summary: `Follow up on review artifact ${artifact.title || artifact.id}.`,
+    recommendedNextAction:
+      "Create a follow-up assignment for requested changes, or dismiss this handoff if no follow-up is needed.",
+    linkedArtifactIDs: artifact.id,
+    linkedMemoryIDs: "",
+    contextRefs: "",
+    status: "pending",
+    provenanceKind: "operator",
+    trustLabel: "operator_reviewed",
+  };
+}
+
+function reviewArtifactBodyFromForm(form: ReviewArtifactForm): string {
+  return [
+    `Verdict: ${reviewVerdictLabel(form.verdict)}`,
+    `Risk: ${reviewRiskLabel(form.risk)}`,
+    "",
+    "Summary:",
+    form.summary.trim() || "No summary recorded.",
+    "",
+    "Verification:",
+    form.verification.trim() || "Not recorded.",
+    "",
+    "Follow-up:",
+    form.followUp.trim() || "None recorded.",
+  ].join("\n");
+}
+
+function reviewVerdictLabel(verdict: ReviewVerdict): string {
+  switch (verdict) {
+    case "changes_requested":
+      return "Changes requested";
+    case "blocked":
+      return "Blocked";
+    case "risk":
+      return "Risk noted";
+    case "approved":
+      return "Approved";
+  }
+}
+
+function reviewRiskLabel(risk: ReviewRisk): string {
+  switch (risk) {
+    case "low":
+      return "Low";
+    case "medium":
+      return "Medium";
+    case "high":
+      return "High";
+    case "unknown":
+      return "Unknown";
+  }
 }
 
 function choiceFromValue<T extends readonly string[]>(

@@ -56,6 +56,7 @@ import type { UsageEventsResponse, UsageSummaryResponse } from "../types/usage";
 import type { RetentionRunResponse, RetentionRunsResponse } from "../types/retention";
 import type {
   CreateProjectPayload,
+  CreateProjectCollaborationArtifactPayload,
   CreateProjectWorktreeRootPayload,
   CreateProjectMemoryCandidatePayload,
   CreateProjectMemoryPayload,
@@ -73,6 +74,7 @@ import type {
   ProjectAssignmentResponse,
   ProjectAssignmentsResponse,
   ProjectActivityResponse,
+  ProjectCollaborationArtifactResponse,
   ProjectCollaborationArtifactsResponse,
   ProjectHandoffResponse,
   ProjectHandoffsResponse,
@@ -738,6 +740,17 @@ export async function getProjectCollaborationArtifacts(
 ): Promise<ProjectCollaborationArtifactsResponse> {
   return fetchJSON<ProjectCollaborationArtifactsResponse>(
     `${HECATE_API}/projects/${encodeURIComponent(projectID)}/work-items/${encodeURIComponent(workItemID)}/artifacts`,
+  );
+}
+
+export async function createProjectCollaborationArtifact(
+  projectID: string,
+  workItemID: string,
+  payload: CreateProjectCollaborationArtifactPayload,
+): Promise<ProjectCollaborationArtifactResponse> {
+  return fetchJSON<ProjectCollaborationArtifactResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/work-items/${encodeURIComponent(workItemID)}/artifacts`,
+    { method: "POST", body: payload },
   );
 }
 

@@ -75,6 +75,8 @@ export type ProjectWorkspaceViewProps = {
     reviewRole: ProjectWorkRoleRecord,
     activityItem?: ProjectActivityItemRecord,
   ) => void;
+  onAddReviewArtifactFromAssignment: (assignment: ProjectAssignmentRecord) => void;
+  onAddHandoffFromReviewArtifact: (artifact: ProjectCollaborationArtifactRecord) => void;
   onCreateAssignmentFromHandoff: (handoff: ProjectHandoffRecord) => void;
   onCreateWork: () => void;
   onDeleteAssignment: (assignment: ProjectAssignmentRecord) => void;
@@ -151,6 +153,8 @@ export function ProjectWorkspaceView({
   onAddHandoff,
   onAddHandoffFromAssignment,
   onAddReviewHandoffFromAssignment,
+  onAddReviewArtifactFromAssignment,
+  onAddHandoffFromReviewArtifact,
   onCreateAssignmentFromHandoff,
   onCreateWork,
   onDeleteAssignment,
@@ -327,6 +331,8 @@ export function ProjectWorkspaceView({
                         onAddHandoff={onAddHandoff}
                         onAddHandoffFromAssignment={onAddHandoffFromAssignment}
                         onAddReviewHandoffFromAssignment={onAddReviewHandoffFromAssignment}
+                        onAddReviewArtifactFromAssignment={onAddReviewArtifactFromAssignment}
+                        onAddHandoffFromReviewArtifact={onAddHandoffFromReviewArtifact}
                       />
                     ) : (
                       <ProjectEmptyBlock

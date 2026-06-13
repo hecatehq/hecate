@@ -84,6 +84,8 @@ function renderWorkspace(overrides: Partial<ProjectWorkspaceViewProps> = {}) {
     onAddAssignment: vi.fn(),
     onAddHandoff: vi.fn(),
     onAddHandoffFromAssignment: vi.fn(),
+    onAddHandoffFromReviewArtifact: vi.fn(),
+    onAddReviewArtifactFromAssignment: vi.fn(),
     onAddReviewHandoffFromAssignment: vi.fn(),
     onCreateAssignmentFromHandoff: vi.fn(),
     onCreateWork: vi.fn(),

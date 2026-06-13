@@ -4,6 +4,7 @@ import {
   buildRequestOptions,
   cancelChatApproval,
   chatCompletions,
+  createProjectCollaborationArtifact,
   createProjectAssignment,
   createProjectHandoff,
   createProjectMemory,
@@ -392,6 +393,35 @@ describe("api client", () => {
       4,
       "/hecate/v1/projects/proj%2F1/work-items/work%2F1/handoffs/handoff%2F1",
       expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
+  it("creates project collaboration artifacts", async () => {
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ object: "project_collaboration_artifact", data: { id: "art/1" } }),
+    );
+
+    await createProjectCollaborationArtifact("proj/1", "work/1", {
+      kind: "review",
+      assignment_id: "asgn/1",
+      title: "QA review",
+      body: "Verdict: Approved",
+      author_role_id: "reviewer_qa",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/hecate/v1/projects/proj%2F1/work-items/work%2F1/artifacts",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          kind: "review",
+          assignment_id: "asgn/1",
+          title: "QA review",
+          body: "Verdict: Approved",
+          author_role_id: "reviewer_qa",
+        }),
+      }),
     );
   });
 
