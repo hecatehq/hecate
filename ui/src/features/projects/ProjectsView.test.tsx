@@ -1366,29 +1366,30 @@ describe("ProjectsView cockpit", () => {
     const user = userEvent.setup();
     const onOpenChat = vi.fn();
     window.localStorage.setItem("hecate.project", project.id);
+    const chatProposal = {
+      id: "pa_chat",
+      title: "Plan next project work",
+      summary: "Create a work item from chat.",
+      requires_confirmation: true,
+      actions: [
+        {
+          kind: "create_work_item",
+          target: { project_id: project.id },
+          patch: {
+            project_id: project.id,
+            title: "Plan next project work",
+            brief: "Capture a reviewable task from chat.",
+            status: "ready",
+          },
+        },
+      ],
+    };
     writeProjectAssistantChatHandoff({
       project_id: project.id,
       request: "Plan next project work",
       source_session_id: "chat_1",
       created_at: "2026-06-13T00:00:00Z",
-      proposal: {
-        id: "pa_chat",
-        title: "Plan next project work",
-        summary: "Create a work item from chat.",
-        requires_confirmation: true,
-        actions: [
-          {
-            kind: "create_work_item",
-            target: { project_id: project.id },
-            patch: {
-              project_id: project.id,
-              title: "Plan next project work",
-              brief: "Capture a reviewable task from chat.",
-              status: "ready",
-            },
-          },
-        ],
-      },
+      proposal: chatProposal,
     });
     const state = createRuntimeConsoleFixture({
       projects: [project],
@@ -1416,6 +1417,59 @@ describe("ProjectsView cockpit", () => {
     expect(within(assistant).getByText("Create work item")).toBeTruthy();
     expect(draftProjectAssistant).not.toHaveBeenCalled();
     expect(readProjectAssistantChatHandoff()).toBeNull();
+
+    await user.click(within(assistant).getByRole("button", { name: "Apply proposal" }));
+
+    await waitFor(() => {
+      expect(applyProjectAssistant).toHaveBeenCalledWith({
+        proposal: chatProposal,
+        confirm: true,
+      });
+    });
+  });
+
+  it("clears chat source metadata when a fresh Project Assistant draft replaces the proposal", async () => {
+    resetProjectWorkMocks();
+    const user = userEvent.setup();
+    window.localStorage.setItem("hecate.project", project.id);
+    writeProjectAssistantChatHandoff({
+      project_id: project.id,
+      request: "Plan next project work",
+      source_session_id: "chat_1",
+      proposal: {
+        id: "pa_chat",
+        title: "Plan next project work",
+        summary: "Create a work item from chat.",
+        requires_confirmation: true,
+        actions: [
+          {
+            kind: "create_work_item",
+            target: { project_id: project.id },
+            patch: { project_id: project.id, title: "Plan next project work" },
+          },
+        ],
+      },
+    });
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    const assistant = await screen.findByRole("region", { name: "Project Assistant" });
+    expect(await within(assistant).findByLabelText("Proposal source")).toBeTruthy();
+
+    await user.click(within(assistant).getByRole("button", { name: "Draft proposal" }));
+
+    await waitFor(() => {
+      expect(draftProjectAssistant).toHaveBeenCalledWith({
+        project_id: project.id,
+        work_item_id: workItem.id,
+        request: "Queue Software developer for Build cockpit UI",
+      });
+    });
+    expect(await within(assistant).findByText("Create assignment")).toBeTruthy();
+    expect(within(assistant).queryByLabelText("Proposal source")).toBeNull();
   });
 
   it("can request model-backed Project Assistant drafts", async () => {
