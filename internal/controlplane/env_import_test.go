@@ -23,7 +23,7 @@ func TestAutoImportEnvProviders_AddsMissing(t *testing.T) {
 		APIKey:       "sk-test",
 		DefaultModel: "gpt-4o-mini",
 	}}
-	if err := AutoImportEnvProviders(context.Background(), newImportTestLogger(), store, cfgs); err != nil {
+	if err := AutoImportEnvProviders(context.Background(), newImportTestLogger(), store, cfgs, true); err != nil {
 		t.Fatalf("AutoImportEnvProviders: %v", err)
 	}
 	state, err := store.Snapshot(context.Background())
@@ -53,7 +53,7 @@ func TestAutoImportEnvProviders_PreservesExisting(t *testing.T) {
 		Kind:    "cloud",
 		BaseURL: "https://api.openai.com/v1",
 	}}
-	if err := AutoImportEnvProviders(ctx, newImportTestLogger(), store, cfgs); err != nil {
+	if err := AutoImportEnvProviders(ctx, newImportTestLogger(), store, cfgs, true); err != nil {
 		t.Fatalf("AutoImportEnvProviders: %v", err)
 	}
 	state, _ := store.Snapshot(ctx)
@@ -65,8 +65,37 @@ func TestAutoImportEnvProviders_PreservesExisting(t *testing.T) {
 	}
 }
 
+func TestAutoImportEnvProviders_SkipsLocalProvidersWhenDisabled(t *testing.T) {
+	store := NewMemoryStore()
+	cfgs := []config.OpenAICompatibleProviderConfig{
+		{
+			Name:     "ollama",
+			Kind:     "local",
+			Protocol: "openai",
+			BaseURL:  "http://127.0.0.1:11434/v1",
+		},
+		{
+			Name:     "openai",
+			Kind:     "cloud",
+			Protocol: "openai",
+			BaseURL:  "https://api.openai.com/v1",
+			APIKey:   "sk-test",
+		},
+	}
+	if err := AutoImportEnvProviders(context.Background(), newImportTestLogger(), store, cfgs, false); err != nil {
+		t.Fatalf("AutoImportEnvProviders: %v", err)
+	}
+	state, err := store.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	if len(state.Providers) != 1 || state.Providers[0].ID != "openai" {
+		t.Fatalf("providers = %+v, want only openai", state.Providers)
+	}
+}
+
 func TestAutoImportEnvProviders_NilStoreNoop(t *testing.T) {
-	if err := AutoImportEnvProviders(context.Background(), newImportTestLogger(), nil, []config.OpenAICompatibleProviderConfig{{Name: "x"}}); err != nil {
+	if err := AutoImportEnvProviders(context.Background(), newImportTestLogger(), nil, []config.OpenAICompatibleProviderConfig{{Name: "x"}}, true); err != nil {
 		t.Fatalf("nil store should noop, got %v", err)
 	}
 }

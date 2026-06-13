@@ -87,6 +87,73 @@ func TestApplication_CreateProviderBuildsRuntimeProvider(t *testing.T) {
 	}
 }
 
+func TestApplication_CreateProviderRejectsLocalProviderInCloudRuntimeByDefault(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := controlplane.NewMemoryStore()
+	runtime := &recordingRuntime{}
+	app := New(Options{
+		ControlPlane: store,
+		Runtime:      runtime,
+		Config: config.Config{Server: config.ServerConfig{
+			CloudRuntimeMode: true,
+		}},
+	})
+
+	_, err := app.CreateProvider(ctx, CreateProviderCommand{
+		Name:     "Ollama",
+		PresetID: "ollama",
+		Kind:     "local",
+		Protocol: "openai",
+		BaseURL:  "http://127.0.0.1:11434/v1",
+	})
+	if !errors.Is(err, ErrLocalProvidersDisabled) {
+		t.Fatalf("CreateProvider(local cloud) error = %v, want ErrLocalProvidersDisabled", err)
+	}
+	if len(runtime.upsertCalls) != 0 {
+		t.Fatalf("upsert calls = %d, want 0", len(runtime.upsertCalls))
+	}
+}
+
+func TestApplication_CreateProviderAllowsLocalProviderInCloudRuntimeWithOptIn(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := controlplane.NewMemoryStore()
+	runtime := &recordingRuntime{}
+	app := New(Options{
+		ControlPlane: store,
+		Runtime:      runtime,
+		Config: config.Config{Server: config.ServerConfig{
+			CloudRuntimeMode:         true,
+			CloudAllowLocalProviders: true,
+		}},
+	})
+
+	if _, err := app.CreateProvider(ctx, CreateProviderCommand{
+		Name:     "Ollama",
+		PresetID: "ollama",
+		Kind:     "local",
+		Protocol: "openai",
+		BaseURL:  "http://127.0.0.1:11434/v1",
+	}); err != nil {
+		t.Fatalf("CreateProvider(local opt-in) error = %v", err)
+	}
+	if len(runtime.upsertCalls) != 1 {
+		t.Fatalf("upsert calls = %d, want 1", len(runtime.upsertCalls))
+	}
+}
+
+func TestApplication_LocalProvidersAllowedFailsClosedForNilApp(t *testing.T) {
+	t.Parallel()
+
+	var app *Application
+	if app.localProvidersAllowed() {
+		t.Fatal("nil Application localProvidersAllowed() = true, want false")
+	}
+}
+
 func TestApplication_StatusBuildsProviderRecordsAndPolicyRules(t *testing.T) {
 	t.Parallel()
 
@@ -293,6 +360,84 @@ func TestApplication_DeleteProviderDispatchesRuntime(t *testing.T) {
 	}
 	if len(runtime.deleteCalls) != 1 || runtime.deleteCalls[0] != "anthropic" {
 		t.Fatalf("delete calls = %+v, want trimmed id", runtime.deleteCalls)
+	}
+}
+
+func TestApplication_StatusFiltersLocalProvidersInCloudRuntimeByDefault(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := controlplane.NewMemoryStore()
+	if _, err := store.UpsertProvider(ctx, controlplane.Provider{
+		ID:       "ollama",
+		Name:     "ollama",
+		PresetID: "ollama",
+		Kind:     "local",
+		Protocol: "openai",
+		BaseURL:  "http://127.0.0.1:11434/v1",
+		Enabled:  true,
+	}, nil); err != nil {
+		t.Fatalf("UpsertProvider(local): %v", err)
+	}
+	if _, err := store.UpsertProvider(ctx, controlplane.Provider{
+		ID:       "anthropic",
+		Name:     "Anthropic",
+		PresetID: "anthropic",
+		Kind:     "cloud",
+		Protocol: "openai",
+		BaseURL:  "https://api.anthropic.com",
+		Enabled:  true,
+	}, nil); err != nil {
+		t.Fatalf("UpsertProvider(cloud): %v", err)
+	}
+	app := New(Options{
+		ControlPlane: store,
+		Config: config.Config{Server: config.ServerConfig{
+			CloudRuntimeMode: true,
+		}},
+	})
+
+	result, err := app.Status(ctx)
+	if err != nil {
+		t.Fatalf("Status() error = %v", err)
+	}
+	if len(result.Providers) != 1 || result.Providers[0].ID != "anthropic" {
+		t.Fatalf("providers = %#v, want only anthropic", result.Providers)
+	}
+}
+
+func TestApplication_UpdateProviderRejectsLocalProviderInCloudRuntimeByDefault(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := controlplane.NewMemoryStore()
+	if _, err := store.UpsertProvider(ctx, controlplane.Provider{
+		ID:       "ollama",
+		Name:     "ollama",
+		PresetID: "ollama",
+		Kind:     "local",
+		Protocol: "openai",
+		BaseURL:  "http://127.0.0.1:11434/v1",
+		Enabled:  true,
+	}, nil); err != nil {
+		t.Fatalf("UpsertProvider(local): %v", err)
+	}
+	runtime := &recordingRuntime{}
+	baseURL := "http://127.0.0.1:11435/v1"
+	app := New(Options{
+		ControlPlane: store,
+		Runtime:      runtime,
+		Config: config.Config{Server: config.ServerConfig{
+			CloudRuntimeMode: true,
+		}},
+	})
+
+	_, err := app.UpdateProvider(ctx, UpdateProviderCommand{ID: "ollama", BaseURL: &baseURL})
+	if !errors.Is(err, ErrLocalProvidersDisabled) {
+		t.Fatalf("UpdateProvider(local cloud) error = %v, want ErrLocalProvidersDisabled", err)
+	}
+	if len(runtime.upsertCalls) != 0 {
+		t.Fatalf("upsert calls = %d, want 0", len(runtime.upsertCalls))
 	}
 }
 

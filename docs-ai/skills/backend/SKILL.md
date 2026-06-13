@@ -367,6 +367,11 @@ For errors that should surface before a run is created (bad config, missing requ
   cloud-identified requests must go through `prepareAdapterProcessEnv`, not
   direct `os.Environ()` filtering. Cloud mode uses an ephemeral home and only
   the declared cloud-safe credential keys plus runtime essentials.
+- **Cloud local-provider policy** — cloud runtime mode disables `kind=local`
+  providers by default. Keep preset filtering, settings validation, env import,
+  and runtime-manager reload in sync; `HECATE_CLOUD_ALLOW_LOCAL_PROVIDERS=1` is
+  the explicit sidecar opt-in. This is a provider-kind policy, not URL
+  destination filtering; egress restrictions belong in the deployment boundary.
 - **Capability cache seeding** for provider tests — see [`../providers/SKILL.md`](../providers/SKILL.md) for the snippet. Without it the discovery path panics on a nil request body.
 - **Synthetic local providers** — use `PROVIDER_FAKE_KIND=local` for e2e scenarios that should not require a real cloud provider.
 - **Env-PRECONFIGURED gate for e2e providers** — env-supplied provider credentials (`PROVIDER_<NAME>_API_KEY` / `_BASE_URL`) only auto-import into the settings store when `PROVIDER_<NAME>_PRECONFIGURED=1` is also set. Both e2e spawn helpers funnel through `autoPreconfiguredEnv` so tests don't have to repeat it. New e2e helpers that bypass `hecateServer` / `startHecateProcess` need the same call; otherwise routed requests 400 with `no provider supports model …`.
