@@ -297,11 +297,14 @@ linked External Agent chat session, records assignment/profile/workspace context
 and stores the session link on the assignment. It does not append a visible chat
 message, create a `message_id`, or send the assignment prompt automatically; the
 operator stays in control of the first turn from the linked chat. Project
-activity rows project the linked chat's session status, latest message status,
-adapter identity, and missing-session diagnostics so the Projects cockpit can
-show follow-through state without embedding the full chat transcript. Handoffs
-created from these assignments can carry the source assignment, chat session,
-message, run, and context refs for provenance.
+assignment and activity rows project the linked chat's latest assistant-message
+status, session status, adapter identity, and missing-session diagnostics so the
+Projects cockpit can show follow-through state without embedding the full chat
+transcript. When the External Agent turn settles, Hecate also best-effort
+reconciles the linked assignment row to the chat outcome, including the
+assistant `message_id` and terminal status. Handoffs created from these
+assignments can carry the source assignment, chat session, message, run, and
+context refs for provenance.
 
 Hecate validates the workspace before creating a session, sanitizes the
 environment passed to the ACP agent process, applies timeout/cancel behavior,

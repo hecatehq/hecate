@@ -1796,8 +1796,8 @@ Assignment responses are projected from linked canonical task/run state when
 `execution_ref.run_id` point at a Hecate task run. If
 `execution_ref.task_id` is present and `execution_ref.run_id` is empty, Hecate
 uses that task's `latest_run_id` when available. The stored assignment row is
-coordination metadata; reads do not mutate the task, run, or assignment rows.
-Run statuses map directly into assignment statuses:
+coordination metadata; task/run reads do not mutate the task, run, or
+assignment rows. Run statuses map directly into assignment statuses:
 
 | Task/run status     | Project assignment status |
 | ------------------- | ------------------------- |
@@ -1815,6 +1815,24 @@ explicit project-work terminal status instead of being overwritten by stale
 runtime state. The `execution` summary may include `task_status`, `run_status`,
 projected `status`, pending approval count, step/approval/artifact counts,
 model/provider, last error, run timestamps, and trace ID.
+
+External Agent assignments use the linked project-scoped chat session as their
+canonical execution state when `execution_ref.kind="chat_session"` and
+`execution_ref.chat_session_id` points at a Chat in the same project.
+Assignment reads project the latest assistant-message status first, then the
+session status, so a stale session summary cannot keep a completed assistant
+turn in the active bucket. Chat-backed projections update
+`execution_ref.status`, `execution_ref.message_id`, `execution_ref.trace_id`,
+and assignment `completed_at` when available; they do not include a task-run
+`execution` summary. Missing chats, chat-store lookup errors, or cross-project
+chat links are treated as missing execution refs instead of exposing foreign
+chat metadata.
+
+When an External Agent chat turn reaches `completed`, `failed`, or
+`cancelled`, Hecate also performs a best-effort reconciliation pass that
+updates linked project assignment rows. This makes the durable assignment
+status catch up with the chat outcome without making the chat response fail if
+project metadata reconciliation is temporarily unavailable.
 
 Assignments include `execution_ref`, the canonical compact execution link for
 UI clients and API callers. It prefers projected execution data when available

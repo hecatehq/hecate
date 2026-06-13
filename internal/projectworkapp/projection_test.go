@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/pkg/types"
@@ -109,6 +110,42 @@ func TestAssignmentExecutionRefFor_RawChatAndContextLinks(t *testing.T) {
 	}, nil, projectwork.AssignmentStatusQueued)
 	if contextRef == nil || contextRef.Kind != AssignmentExecutionKindContextSnapshot || contextRef.ContextSnapshotID != "ctx_1" {
 		t.Fatalf("context ref = %+v, want context-snapshot ref", contextRef)
+	}
+}
+
+func TestProjectAssignmentChatExecution_UsesLatestAssistantTerminalStatus(t *testing.T) {
+	t.Parallel()
+
+	base := time.Date(2026, 6, 13, 10, 0, 0, 0, time.UTC)
+	assignment := projectwork.Assignment{
+		ID:     "asgn_chat",
+		Status: projectwork.AssignmentStatusRunning,
+		ExecutionRef: projectwork.AssignmentExecutionRef{
+			Kind:          projectwork.AssignmentExecutionKindChatSession,
+			ChatSessionID: "chat_1",
+		},
+		UpdatedAt: base,
+	}
+	session := chat.Session{
+		ID:        "chat_1",
+		Status:    "running",
+		UpdatedAt: base.Add(time.Minute),
+		Messages: []chat.Message{
+			{ID: "msg_user", Role: "user", Status: "completed", CreatedAt: base.Add(time.Second)},
+			{ID: "msg_assistant", Role: "assistant", Status: "completed", TraceID: "trace_chat", StartedAt: base.Add(2 * time.Second), CompletedAt: base.Add(3 * time.Second)},
+		},
+	}
+
+	projection := ProjectAssignmentChatExecution(assignment, session)
+	if projection == nil {
+		t.Fatal("ProjectAssignmentChatExecution() = nil, want chat projection")
+	}
+	if projection.Status != projectwork.AssignmentStatusCompleted || projection.MessageID != "msg_assistant" || projection.TraceID != "trace_chat" {
+		t.Fatalf("projection = %+v, want completed latest assistant metadata", projection)
+	}
+	ref := AssignmentExecutionRefForChat(assignment, projection, projection.Status)
+	if ref == nil || ref.Kind != AssignmentExecutionKindChatSession || ref.ChatSessionID != "chat_1" || ref.MessageID != "msg_assistant" || ref.Status != projectwork.AssignmentStatusCompleted || ref.TraceID != "trace_chat" {
+		t.Fatalf("chat execution ref = %+v, want completed chat ref", ref)
 	}
 }
 

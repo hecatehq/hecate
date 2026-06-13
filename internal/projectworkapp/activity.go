@@ -142,6 +142,9 @@ func ProjectActivityStatusSummary(input ActivityAssignmentInput, signal string) 
 		if input.ArtifactCount > 0 {
 			return fmt.Sprintf("completed with %d artifact%s", input.ArtifactCount, pluralSuffix(input.ArtifactCount))
 		}
+		if input.LinkedChat != nil {
+			return ProjectActivityLinkedChatSummary(input.LinkedChat)
+		}
 		return "completed"
 	default:
 		if input.LinkedChat != nil && input.LinkedChat.Missing {
@@ -156,14 +159,17 @@ func ProjectActivityProjectedStatus(input ActivityAssignmentInput) string {
 		if input.LinkedChat.Missing {
 			return "stale_unknown"
 		}
-		if status := strings.TrimSpace(input.LinkedChat.Status); status != "" && status != "idle" {
+		if status := AssignmentStatusFromChatStatus(input.LinkedChat.LatestStatus); AssignmentIsTerminal(status) {
 			return status
 		}
-		if status := strings.TrimSpace(input.LinkedChat.LatestStatus); status != "" {
+		if status := AssignmentStatusFromChatStatus(input.LinkedChat.Status); status != "" {
 			return status
 		}
 		if strings.TrimSpace(input.LinkedChat.Status) == "idle" {
 			return firstNonEmpty(activityExecutionStatus(input), input.Status, projectwork.AssignmentStatusRunning)
+		}
+		if status := AssignmentStatusFromChatStatus(input.LinkedChat.LatestStatus); status != "" {
+			return status
 		}
 	}
 	return firstNonEmpty(activityExecutionStatus(input), input.Status)

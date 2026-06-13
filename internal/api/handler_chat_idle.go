@@ -72,6 +72,10 @@ func (h *Handler) closeIdleChatSessions(ctx context.Context, timeout time.Durati
 			continue
 		}
 		h.annotateChatIdleTimeout(ctx, session.ID, timeout, now)
+		if latest, ok, getErr := h.agentChat.Get(ctx, session.ID); getErr == nil && ok {
+			updated = latest
+		}
+		h.reconcileProjectAssignmentsForChat(ctx, updated)
 		h.agentChatLive.publishSession(updated)
 	}
 }

@@ -108,6 +108,55 @@ func TestApplication_UpdateAssignmentAppliesOptionalFields(t *testing.T) {
 	}
 }
 
+func TestApplication_ReconcileChatSessionAssignmentsUpdatesLinkedExternalAssignment(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := projectwork.NewMemoryStore()
+	app := newTestApplication(store)
+	base := time.Date(2026, 6, 13, 10, 0, 0, 0, time.UTC)
+	if _, err := app.CreateWorkItem(ctx, "proj_1", CreateWorkItemCommand{ID: "work_1", Title: "Build"}); err != nil {
+		t.Fatalf("CreateWorkItem() error = %v", err)
+	}
+	if _, err := app.CreateAssignment(ctx, "proj_1", "work_1", CreateAssignmentCommand{
+		ID:         "asgn_1",
+		RoleID:     "software_developer",
+		DriverKind: projectwork.AssignmentDriverExternalAgent,
+		Status:     projectwork.AssignmentStatusRunning,
+		ExecutionRef: projectwork.AssignmentExecutionRef{
+			Kind:          projectwork.AssignmentExecutionKindChatSession,
+			ChatSessionID: "chat_1",
+			Status:        projectwork.AssignmentStatusRunning,
+		},
+		StartedAt: base,
+	}); err != nil {
+		t.Fatalf("CreateAssignment() error = %v", err)
+	}
+
+	result, err := app.ReconcileChatSessionAssignments(ctx, chat.Session{
+		ID:        "chat_1",
+		ProjectID: "proj_1",
+		Status:    "running",
+		UpdatedAt: base.Add(2 * time.Minute),
+		Messages: []chat.Message{
+			{ID: "msg_done", Role: "assistant", Status: "completed", TraceID: "trace_chat", StartedAt: base.Add(time.Minute), CompletedAt: base.Add(2 * time.Minute)},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ReconcileChatSessionAssignments() error = %v", err)
+	}
+	if len(result.Updated) != 1 {
+		t.Fatalf("updated assignments = %d, want 1", len(result.Updated))
+	}
+	updated := result.Updated[0]
+	if updated.Status != projectwork.AssignmentStatusCompleted || updated.ExecutionRef.MessageID != "msg_done" || updated.ExecutionRef.Status != projectwork.AssignmentStatusCompleted {
+		t.Fatalf("updated assignment = %+v, want completed chat linkage", updated)
+	}
+	if updated.CompletedAt.IsZero() {
+		t.Fatalf("updated assignment completed_at is zero, want chat completion timestamp")
+	}
+}
+
 func TestApplication_NilStore(t *testing.T) {
 	t.Parallel()
 

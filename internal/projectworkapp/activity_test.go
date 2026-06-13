@@ -81,8 +81,8 @@ func TestProjectActivityAssignmentState_LinkedChatAndCompletedSummaries(t *testi
 			MessageCount: 2,
 		},
 	})
-	if chatState.BlockingSignal != "running" || chatState.StatusSummary != "linked chat · running · assistant completed · 2 messages" || chatState.Bucket != "active" {
-		t.Fatalf("chat state = %+v, want active linked-chat summary", chatState)
+	if chatState.BlockingSignal != "completed" || chatState.StatusSummary != "linked chat · running · assistant completed · 2 messages" || chatState.Bucket != "completed" {
+		t.Fatalf("chat state = %+v, want completed linked-chat summary", chatState)
 	}
 
 	completed := ProjectActivityAssignmentState(ActivityAssignmentInput{

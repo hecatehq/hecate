@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"strings"
 
 	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/internal/projectworkapp"
@@ -45,21 +46,57 @@ func (h *Handler) renderProjectedProjectWorkAssignment(ctx context.Context, item
 	if err != nil {
 		return ProjectWorkAssignmentResponse{}, err
 	}
-	if projection == nil {
+	if projection != nil {
+		response.Execution = renderProjectWorkAssignmentExecution(projection.Execution)
+		if projection.Status != "" {
+			response.Status = projection.Status
+		}
+		if response.StartedAt == "" && !projection.StartedAt.IsZero() {
+			response.StartedAt = formatOptionalTime(projection.StartedAt)
+		}
+		if response.CompletedAt == "" && !projection.CompletedAt.IsZero() {
+			response.CompletedAt = formatOptionalTime(projection.CompletedAt)
+		}
+		response.ExecutionRef = renderProjectWorkAssignmentExecutionRef(projectworkapp.AssignmentExecutionRefFor(item, &projection.Execution, response.Status))
 		return response, nil
 	}
-	response.Execution = renderProjectWorkAssignmentExecution(projection.Execution)
-	if projection.Status != "" {
-		response.Status = projection.Status
+
+	chatProjection := h.projectAssignmentChatProjection(ctx, item)
+	if chatProjection == nil {
+		return response, nil
 	}
-	if response.StartedAt == "" && !projection.StartedAt.IsZero() {
-		response.StartedAt = formatOptionalTime(projection.StartedAt)
+	if chatProjection.Status != "" {
+		response.Status = chatProjection.Status
 	}
-	if response.CompletedAt == "" && !projection.CompletedAt.IsZero() {
-		response.CompletedAt = formatOptionalTime(projection.CompletedAt)
+	if response.StartedAt == "" && !chatProjection.StartedAt.IsZero() {
+		response.StartedAt = formatOptionalTime(chatProjection.StartedAt)
 	}
-	response.ExecutionRef = renderProjectWorkAssignmentExecutionRef(projectworkapp.AssignmentExecutionRefFor(item, &projection.Execution, response.Status))
+	if response.CompletedAt == "" && !chatProjection.CompletedAt.IsZero() {
+		response.CompletedAt = formatOptionalTime(chatProjection.CompletedAt)
+	}
+	response.ExecutionRef = renderProjectWorkAssignmentExecutionRef(projectworkapp.AssignmentExecutionRefForChat(item, chatProjection, response.Status))
 	return response, nil
+}
+
+func (h *Handler) projectAssignmentChatProjection(ctx context.Context, item projectwork.Assignment) *projectworkapp.AssignmentChatProjection {
+	ref := projectwork.NormalizeAssignmentExecutionRef(item.ExecutionRef)
+	chatSessionID := strings.TrimSpace(ref.ChatSessionID)
+	if chatSessionID == "" {
+		return nil
+	}
+	missing := &projectworkapp.AssignmentChatProjection{
+		ChatSessionID: chatSessionID,
+		Status:        item.Status,
+		Missing:       true,
+	}
+	if h == nil || h.agentChat == nil {
+		return missing
+	}
+	session, ok, err := h.agentChat.Get(ctx, chatSessionID)
+	if err != nil || !ok || strings.TrimSpace(session.ProjectID) != strings.TrimSpace(item.ProjectID) {
+		return missing
+	}
+	return projectworkapp.ProjectAssignmentChatExecution(item, session)
 }
 
 func renderProjectWorkAssignmentExecution(execution projectworkapp.AssignmentExecutionSummary) *ProjectWorkAssignmentExecutionResponse {

@@ -1631,6 +1631,74 @@ func TestProjectWorkAPI_StartExternalAgentAssignmentPreparesLinkedSession(t *tes
 	}
 }
 
+func TestProjectWorkAPI_ExternalAgentChatTurnReconcilesAssignmentStatus(t *testing.T) {
+	t.Parallel()
+
+	handler, server := newProjectWorkTestServer()
+	handler.SetAgentChatRunner(&fakeAgentChatRunner{output: "implementation complete"})
+	ctx := t.Context()
+	workspace := t.TempDir()
+	if _, err := handler.projects.Create(ctx, projects.Project{ID: "proj_chat_reconcile", Name: "Chat reconcile"}); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	if _, err := handler.projectWork.CreateRole(ctx, projectwork.AgentRoleProfile{ID: "role_chat_reconcile", ProjectID: "proj_chat_reconcile", Name: "External implementer"}); err != nil {
+		t.Fatalf("CreateRole: %v", err)
+	}
+	if _, err := handler.projectWork.CreateWorkItem(ctx, projectwork.WorkItem{ID: "work_chat_reconcile", ProjectID: "proj_chat_reconcile", Title: "Reconcile chat"}); err != nil {
+		t.Fatalf("CreateWorkItem: %v", err)
+	}
+	if _, err := handler.agentChat.Create(ctx, chat.Session{
+		ID:              "chat_project_reconcile",
+		ProjectID:       "proj_chat_reconcile",
+		AgentID:         "codex",
+		DriverKind:      agentadapters.DriverKindACP,
+		NativeSessionID: "native_project_reconcile",
+		Workspace:       workspace,
+		Status:          "idle",
+	}); err != nil {
+		t.Fatalf("Create chat session: %v", err)
+	}
+	if _, err := handler.projectWork.CreateAssignment(ctx, projectwork.Assignment{
+		ID:         "asgn_chat_reconcile",
+		ProjectID:  "proj_chat_reconcile",
+		WorkItemID: "work_chat_reconcile",
+		RoleID:     "role_chat_reconcile",
+		DriverKind: projectwork.AssignmentDriverExternalAgent,
+		Status:     projectwork.AssignmentStatusRunning,
+		ExecutionRef: projectwork.AssignmentExecutionRef{
+			Kind:          projectwork.AssignmentExecutionKindChatSession,
+			ChatSessionID: "chat_project_reconcile",
+			Status:        projectwork.AssignmentStatusRunning,
+		},
+	}); err != nil {
+		t.Fatalf("CreateAssignment: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/chat/sessions/chat_project_reconcile/messages", strings.NewReader(`{"content":"finish the assignment"}`)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create chat message status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var chatResp ChatSessionResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &chatResp); err != nil {
+		t.Fatalf("decode chat response: %v", err)
+	}
+	if chatResp.Data.Status != "completed" {
+		t.Fatalf("chat status = %q, want completed", chatResp.Data.Status)
+	}
+
+	assignments, err := handler.projectWork.ListAssignments(ctx, projectwork.AssignmentFilter{ProjectID: "proj_chat_reconcile", WorkItemID: "work_chat_reconcile"})
+	if err != nil {
+		t.Fatalf("ListAssignments: %v", err)
+	}
+	if len(assignments) != 1 {
+		t.Fatalf("assignments = %+v, want one linked assignment", assignments)
+	}
+	if assignments[0].Status != projectwork.AssignmentStatusCompleted || assignments[0].ExecutionRef.MessageID == "" || assignments[0].ExecutionRef.Status != projectwork.AssignmentStatusCompleted {
+		t.Fatalf("stored assignment = %+v, want reconciled completed chat assignment", assignments[0])
+	}
+}
+
 func TestProjectWorkAPI_PreflightExternalAgentAssignmentShowsSessionTargetWithoutPreparing(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectWorkTestServer()
@@ -2592,6 +2660,15 @@ func TestProjectWorkAPI_AssignmentExecutionProjection(t *testing.T) {
 			}
 			assertProjectWorkStatusForTest(t, server, "work_manual_terminal", projectwork.WorkItemStatusBlocked)
 
+			external := getProjectWorkAssignmentForTest(t, server, "work_external_chat", "asgn_external_chat")
+			externalRef := assignmentExecutionRefForTest(t, external)
+			if external.Status != projectwork.AssignmentStatusCompleted || external.CompletedAt == "" || external.Execution != nil {
+				t.Fatalf("external chat assignment = %+v, want projected completed chat without task execution summary", external)
+			}
+			if externalRef.Kind != projectwork.AssignmentExecutionKindChatSession || externalRef.ChatSessionID != "chat_external_projection" || externalRef.MessageID != "msg_external_done" || externalRef.Status != projectwork.AssignmentStatusCompleted {
+				t.Fatalf("external chat execution_ref = %+v, want completed linked chat ref", externalRef)
+			}
+
 			assertProjectWorkStatusForTest(t, server, "work_mixed", projectwork.WorkItemStatusBlocked)
 			assertProjectWorkListStatusForTest(t, server, "work_mixed", projectwork.WorkItemStatusBlocked)
 		})
@@ -2683,8 +2760,8 @@ func TestProjectWorkAPI_ProjectActivity(t *testing.T) {
 			if external.Assignment.ExecutionRef == nil || external.Assignment.ExecutionRef.Kind != "chat_session" || external.LinkedChatID != external.Assignment.ExecutionRef.ChatSessionID {
 				t.Fatalf("external execution_ref = %+v linked_chat=%q, want chat-session ref", external.Assignment.ExecutionRef, external.LinkedChatID)
 			}
-			if external.BlockingSignal != "running" || external.StatusSummary != "linked chat · running · assistant completed · 2 messages" {
-				t.Fatalf("external activity = %+v, want linked chat running summary", external)
+			if external.BlockingSignal != "completed" || external.StatusSummary != "linked chat · running · assistant completed · 2 messages" {
+				t.Fatalf("external activity = %+v, want linked chat completed summary", external)
 			}
 
 			missingChat := findProjectActivityItemForTest(t, allProjectActivityItemsForTest(response.Data), "asgn_missing_chat")
