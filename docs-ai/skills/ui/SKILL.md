@@ -185,7 +185,10 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   component and shared form helpers, plus parent-page tests only when loading or
   mutation orchestration changes. Shared project UI string/id helpers live in
   `projectUtils.ts`; status option lists and form-safe status normalization live
-  in `projectWorkForms.ts`.
+  in `projectWorkForms.ts`. Project memory/context review UI lives in
+  `ProjectMemoryPanel`, and project skill registry UI lives in
+  `ProjectSkillsPanel`; keep their rendering and form tests colocated with those
+  modules.
 - External Agent readiness belongs in Connections and in the picker
   diagnostics: distinguish missing binaries, auth/billing problems, unsupported
   versions, and managed-launcher issues without sending users to raw logs first.
