@@ -235,6 +235,13 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   prefill a handoff to a work item's `reviewer_role_ids` and carry source
   assignment/run/chat/context refs, but creating the follow-up assignment and
   starting it remain separate operator actions.
+- Review outcomes are `kind="review"` collaboration artifacts. The V1 cockpit
+  entry point is an assignment whose role appears in the work item's
+  `reviewer_role_ids`; work without configured reviewer roles has no generic
+  record-review button yet. Keep the record action separate from follow-up
+  handoff creation; verdict/risk are body text, not structured query fields, and
+  the UI must not mark work done, blocked, or dispatched from the artifact body
+  without an explicit operator action.
 - **Stable provider ordering.** Do not sort provider lists by health, blocked state, or availability unless explicitly asked. Fixed alphabetical/preset order within each section.
 - Runtime metadata first-class, not tucked in debug crumbs.
 - Trace and failure details readable without scanning raw JSON first.

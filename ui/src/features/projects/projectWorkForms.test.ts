@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type {
   ProjectActivityItemRecord,
   ProjectAssignmentRecord,
+  ProjectCollaborationArtifactRecord,
   ProjectWorkItemRecord,
   ProjectWorkRoleRecord,
 } from "../../types/project";
@@ -10,9 +11,12 @@ import {
   assignmentStatusFromValue,
   assignmentUpdatePayloadFromForm,
   handoffFormFromAssignment,
+  handoffFormFromReviewArtifact,
   handoffPayloadFromForm,
   handoffStatusFromValue,
   reviewHandoffFormFromAssignment,
+  reviewArtifactFormFromAssignment,
+  reviewArtifactPayloadFromForm,
   workItemCreatePayloadFromForm,
   workItemPriorityFromValue,
   workItemStatusFromValue,
@@ -220,6 +224,95 @@ describe("projectWorkForms", () => {
       status: "pending",
       provenanceKind: "operator",
       trustLabel: "operator_reviewed",
+    });
+  });
+
+  it("builds review artifact payloads with a consistent body template", () => {
+    const assignment: ProjectAssignmentRecord = {
+      id: "assign_review",
+      project_id: "proj_1",
+      work_item_id: "work_1",
+      role_id: "reviewer_qa",
+      driver_kind: "hecate_task",
+      status: "completed",
+      created_at: "2026-06-12T00:00:00Z",
+      updated_at: "2026-06-12T00:00:00Z",
+    };
+    const workItem: ProjectWorkItemRecord = {
+      id: "work_1",
+      project_id: "proj_1",
+      title: "Build cockpit",
+      status: "review",
+      priority: "normal",
+      created_at: "2026-06-12T00:00:00Z",
+      updated_at: "2026-06-12T00:00:00Z",
+    };
+    const form = reviewArtifactFormFromAssignment(
+      assignment,
+      { id: "reviewer_qa", project_id: "proj_1", name: "QA reviewer", built_in: false },
+      workItem,
+    );
+
+    expect(
+      reviewArtifactPayloadFromForm({
+        ...form,
+        verdict: "changes_requested",
+        risk: "medium",
+        summary: "Behavior is mostly correct, but empty state needs polish.",
+        verification: "Ran focused UI tests.",
+        followUp: "Fix empty state copy.",
+      }),
+    ).toEqual({
+      assignment_id: "assign_review",
+      author_role_id: "reviewer_qa",
+      kind: "review",
+      title: "QA reviewer review",
+      body: [
+        "Verdict: Changes requested",
+        "Risk: Medium",
+        "",
+        "Summary:",
+        "Behavior is mostly correct, but empty state needs polish.",
+        "",
+        "Verification:",
+        "Ran focused UI tests.",
+        "",
+        "Follow-up:",
+        "Fix empty state copy.",
+      ].join("\n"),
+    });
+  });
+
+  it("drafts follow-up handoffs from review artifacts", () => {
+    const artifact: ProjectCollaborationArtifactRecord = {
+      id: "art_review",
+      project_id: "proj_1",
+      work_item_id: "work_1",
+      assignment_id: "assign_review",
+      kind: "review",
+      title: "QA reviewer review",
+      body: "Verdict: Changes requested",
+      author_role_id: "reviewer_qa",
+      created_at: "2026-06-12T00:00:00Z",
+      updated_at: "2026-06-12T00:00:00Z",
+    };
+    const workItem: ProjectWorkItemRecord = {
+      id: "work_1",
+      project_id: "proj_1",
+      title: "Build cockpit",
+      status: "review",
+      priority: "normal",
+      owner_role_id: "software_developer",
+      created_at: "2026-06-12T00:00:00Z",
+      updated_at: "2026-06-12T00:00:00Z",
+    };
+
+    expect(handoffFormFromReviewArtifact(artifact, workItem)).toMatchObject({
+      sourceAssignmentID: "assign_review",
+      targetRoleID: "software_developer",
+      title: "QA reviewer review follow-up",
+      linkedArtifactIDs: "art_review",
+      status: "pending",
     });
   });
 });

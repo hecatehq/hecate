@@ -2591,6 +2591,16 @@ Creates a collaboration artifact. `kind` and `body` are required.
 `assignment_id` is optional; when supplied it must refer to an assignment on
 the same work item.
 
+The Projects cockpit uses `kind="review"` artifacts to record reviewer outcomes
+after a review assignment. In V1 the cockpit exposes this action only for
+assignments whose role appears in the work item's `reviewer_role_ids`; callers
+can still create any collaboration artifact through this endpoint. The current
+V1 body is Markdown-compatible text with verdict, risk, summary, verification,
+and follow-up sections. Hecate stores verdict/risk as body text, not structured
+artifact fields, and does not interpret the verdict, mutate work-item status, or
+auto-dispatch follow-up work. Operators can create a separate handoff from the
+review artifact when follow-up is needed.
+
 ```json
 {
   "kind": "handoff",

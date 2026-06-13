@@ -610,6 +610,15 @@ export type ProjectCollaborationArtifactRecord = {
   updated_at: string;
 };
 
+export type CreateProjectCollaborationArtifactPayload = {
+  id?: string;
+  assignment_id?: string;
+  kind: ProjectCollaborationArtifactKind | string;
+  title?: string;
+  body: string;
+  author_role_id?: string;
+};
+
 export type ProjectHandoffStatus = "pending" | "accepted" | "superseded" | "dismissed";
 
 export type ProjectHandoffRecord = {
@@ -807,6 +816,11 @@ export type ProjectAssignmentResponse = {
 export type ProjectCollaborationArtifactsResponse = {
   object: string;
   data: ProjectCollaborationArtifactRecord[];
+};
+
+export type ProjectCollaborationArtifactResponse = {
+  object: string;
+  data: ProjectCollaborationArtifactRecord;
 };
 
 export type ProjectHandoffsResponse = {

@@ -7,6 +7,7 @@ import {
   ApiError,
   createAgentProfile,
   createProjectAssignment,
+  createProjectCollaborationArtifact,
   createProjectHandoff,
   discoverProjectContextSources,
   discoverProjectRoots,
@@ -58,6 +59,7 @@ import { CreateProjectWorktreeModal } from "./CreateProjectWorktreeModal";
 import { ProjectHandoffModal } from "./ProjectHandoffModal";
 import { ProjectHealthPanel } from "./ProjectHealthPanel";
 import { ProjectMemoryModal, type MemoryForm } from "./ProjectMemoryPanel";
+import { ProjectReviewArtifactModal } from "./ProjectReviewArtifactModal";
 import { type ProjectAssignmentChatLaunchRequest } from "./ProjectWorkItemDetail";
 import {
   ProjectEmptyBlock,
@@ -102,13 +104,17 @@ import {
   assignmentCreatePayloadFromForm,
   assignmentUpdatePayloadFromForm,
   handoffFormFromAssignment,
+  handoffFormFromReviewArtifact,
   handoffPayloadFromForm,
+  reviewArtifactFormFromAssignment,
+  reviewArtifactPayloadFromForm,
   reviewHandoffFormFromAssignment,
   type EditAssignmentForm,
   type EditWorkItemForm,
   type HandoffForm,
   type NewAssignmentForm,
   type NewWorkItemForm,
+  type ReviewArtifactForm,
   workItemCreatePayloadFromForm,
   workItemUpdatePayloadFromForm,
 } from "./projectWorkForms";
@@ -215,6 +221,9 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
   const [handoffPending, setHandoffPending] = useState(false);
   const [handoffError, setHandoffError] = useState("");
   const [handoffActionID, setHandoffActionID] = useState("");
+  const [reviewArtifactDraft, setReviewArtifactDraft] = useState<ReviewArtifactForm | null>(null);
+  const [reviewArtifactPending, setReviewArtifactPending] = useState(false);
+  const [reviewArtifactError, setReviewArtifactError] = useState("");
   const [workLoadState, setWorkLoadState] = useState<LoadState>("idle");
   const [detailLoadState, setDetailLoadState] = useState<LoadState>("idle");
   const [workError, setWorkError] = useState("");
@@ -1006,6 +1015,29 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     }
   }
 
+  async function handleSaveReviewArtifact(form: ReviewArtifactForm) {
+    if (!selectedProjectID || !selectedWorkItemID) return;
+    const payload = reviewArtifactPayloadFromForm(form);
+    if (!payload.title?.trim() || !payload.body.trim()) return;
+    setReviewArtifactPending(true);
+    setReviewArtifactError("");
+    try {
+      const res = await createProjectCollaborationArtifact(
+        selectedProjectID,
+        selectedWorkItemID,
+        payload,
+      );
+      setArtifacts((current) => upsertArtifact(current, res.data));
+      setReviewArtifactDraft(null);
+      await loadWorkItemDetail(selectedProjectID, selectedWorkItemID);
+      await loadWorkForProject(selectedProjectID, selectedWorkItemID);
+    } catch (error) {
+      setReviewArtifactError(errorMessage(error, "Failed to save review artifact."));
+    } finally {
+      setReviewArtifactPending(false);
+    }
+  }
+
   async function handleSetHandoffStatus(handoff: ProjectHandoffRecord, status: string) {
     if (!selectedProjectID || !selectedWorkItemID) return;
     setHandoffActionID(handoff.id);
@@ -1306,6 +1338,23 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
               );
               setEditingHandoff("new");
             }}
+            onAddReviewArtifactFromAssignment={(assignment) => {
+              if (!selectedWorkItem) return;
+              setReviewArtifactError("");
+              setReviewArtifactDraft(
+                reviewArtifactFormFromAssignment(
+                  assignment,
+                  roleByID.get(assignment.role_id) ?? null,
+                  selectedWorkItem,
+                ),
+              );
+            }}
+            onAddHandoffFromReviewArtifact={(artifact) => {
+              if (!selectedWorkItem) return;
+              setHandoffError("");
+              setNewHandoffDraft(handoffFormFromReviewArtifact(artifact, selectedWorkItem));
+              setEditingHandoff("new");
+            }}
             onCreateAssignmentFromHandoff={handleCreateAssignmentFromHandoff}
             onCreateWork={() => {
               setNewWorkError("");
@@ -1529,6 +1578,22 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
               setNewHandoffDraft(null);
             }}
             onSave={handleSaveHandoff}
+          />
+        )}
+
+        {reviewArtifactDraft && selectedWorkItem && (
+          <ProjectReviewArtifactModal
+            key={`${reviewArtifactDraft.assignmentID}:${reviewArtifactDraft.authorRoleID}`}
+            assignments={assignments}
+            draft={reviewArtifactDraft}
+            error={reviewArtifactError}
+            pending={reviewArtifactPending}
+            roles={roles}
+            onClose={() => {
+              setReviewArtifactDraft(null);
+              setReviewArtifactError("");
+            }}
+            onSave={handleSaveReviewArtifact}
           />
         )}
 
@@ -1943,6 +2008,23 @@ function upsertAssignment(items: ProjectAssignmentRecord[], item: ProjectAssignm
   const next = items.slice();
   next[index] = item;
   return next;
+}
+
+function upsertArtifact(
+  items: ProjectCollaborationArtifactRecord[],
+  item: ProjectCollaborationArtifactRecord,
+) {
+  const index = items.findIndex((current) => current.id === item.id);
+  const next = index === -1 ? [item, ...items] : items.slice();
+  if (index !== -1) {
+    next[index] = item;
+  }
+  return next.sort((left, right) => {
+    const byTime = (right.updated_at || right.created_at).localeCompare(
+      left.updated_at || left.created_at,
+    );
+    return byTime || left.id.localeCompare(right.id);
+  });
 }
 
 function upsertHandoff(items: ProjectHandoffRecord[], item: ProjectHandoffRecord) {

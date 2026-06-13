@@ -10,6 +10,7 @@ import {
   ApiError,
   applyProjectAssistant,
   createAgentProfile,
+  createProjectCollaborationArtifact,
   createProjectAssignment,
   createProjectHandoff,
   createProjectMemory,
@@ -241,6 +242,10 @@ vi.mock("../../lib/api", async (importOriginal) => {
       },
     })),
     createProjectHandoff: vi.fn(async () => ({ object: "project_handoff", data: null })),
+    createProjectCollaborationArtifact: vi.fn(async () => ({
+      object: "project_collaboration_artifact",
+      data: null,
+    })),
     updateProjectHandoff: vi.fn(async () => ({ object: "project_handoff", data: null })),
     updateProjectHandoffStatus: vi.fn(async () => ({ object: "project_handoff", data: null })),
     deleteProjectHandoff: vi.fn(async () => undefined),
@@ -833,6 +838,21 @@ function resetProjectWorkMocks() {
       status_changed_at: "2026-06-02T12:00:00Z",
     },
   });
+  vi.mocked(createProjectCollaborationArtifact).mockResolvedValue({
+    object: "project_collaboration_artifact",
+    data: {
+      id: "art_review_new",
+      project_id: project.id,
+      work_item_id: workItem.id,
+      assignment_id: "asgn_review",
+      kind: "review",
+      title: "QA reviewer review",
+      body: "Verdict: Approved",
+      author_role_id: "reviewer_qa",
+      created_at: "2026-06-02T12:10:00Z",
+      updated_at: "2026-06-02T12:10:00Z",
+    },
+  });
   vi.mocked(updateProjectHandoff).mockResolvedValue({
     object: "project_handoff",
     data: {
@@ -998,6 +1018,7 @@ afterEach(() => {
   vi.mocked(draftProjectAssistant).mockReset();
   vi.mocked(applyProjectAssistant).mockReset();
   vi.mocked(createProjectHandoff).mockReset();
+  vi.mocked(createProjectCollaborationArtifact).mockReset();
   vi.mocked(updateProjectHandoff).mockReset();
   vi.mocked(updateProjectHandoffStatus).mockReset();
   vi.mocked(deleteProjectHandoff).mockReset();
@@ -2547,6 +2568,171 @@ describe("ProjectsView cockpit", () => {
           provenance_kind: "operator",
           trust_label: "operator_reviewed",
           context_refs: ["ctx_assignment_1", "task_1", "run_1"],
+        }),
+      );
+    });
+  });
+
+  it("records review artifacts from reviewer assignments", async () => {
+    resetProjectWorkMocks();
+    const reviewRole: ProjectWorkRoleRecord = {
+      id: "reviewer_qa",
+      project_id: project.id,
+      name: "QA reviewer",
+      description: "Reviews behavior, regressions, and verification gaps.",
+      default_driver_kind: "hecate_task",
+      built_in: false,
+    };
+    const reviewAssignment: ProjectAssignmentRecord = {
+      ...hecateAssignment,
+      id: "asgn_review",
+      role_id: "reviewer_qa",
+      status: "completed",
+      execution_ref: {
+        kind: "task_run",
+        task_id: "task_review",
+        run_id: "run_review",
+        status: "completed",
+      },
+      execution: undefined,
+      completed_at: "2026-06-02T12:00:00Z",
+    };
+    vi.mocked(getProjectWorkRoles).mockResolvedValue({
+      object: "project_roles",
+      data: [role, reviewRole],
+    });
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [{ ...workItem, status: "review", assignments: [reviewAssignment] }],
+    });
+    vi.mocked(getProjectWorkItem).mockResolvedValue({
+      object: "project_work_item",
+      data: { ...workItem, status: "review", assignments: [reviewAssignment] },
+    });
+    vi.mocked(getProjectAssignments).mockResolvedValue({
+      object: "project_assignments",
+      data: [reviewAssignment],
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Open work item Build cockpit UI" }),
+    );
+    const detail = await screen.findByRole("region", { name: "Selected work item" });
+    await userEvent.click(
+      within(detail).getByRole("button", {
+        name: `Record review for assignment ${reviewAssignment.id}`,
+      }),
+    );
+
+    const dialog = await screen.findByRole("dialog", { name: "Record review" });
+    expect(within(dialog).getByLabelText("Assignment")).toHaveValue("asgn_review");
+    expect(within(dialog).getByLabelText("Author role")).toHaveValue("reviewer_qa");
+    fireEvent.change(within(dialog).getByLabelText("Verdict"), {
+      target: { value: "changes_requested" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Risk"), { target: { value: "medium" } });
+    fireEvent.change(within(dialog).getByLabelText("Summary"), {
+      target: { value: "Empty-state layout needs one more pass." },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Verification"), {
+      target: { value: "Ran project UI tests." },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Follow-up"), {
+      target: { value: "Update the empty-state spacing." },
+    });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save review" }));
+
+    await waitFor(() => {
+      expect(createProjectCollaborationArtifact).toHaveBeenCalledWith(
+        project.id,
+        workItem.id,
+        expect.objectContaining({
+          assignment_id: "asgn_review",
+          author_role_id: "reviewer_qa",
+          kind: "review",
+          title: "QA reviewer review",
+          body: expect.stringContaining("Verdict: Changes requested"),
+        }),
+      );
+    });
+    expect(createProjectCollaborationArtifact).toHaveBeenCalledWith(
+      project.id,
+      workItem.id,
+      expect.objectContaining({
+        body: expect.stringContaining("Follow-up:\nUpdate the empty-state spacing."),
+      }),
+    );
+  });
+
+  it("drafts follow-up handoffs from review artifacts", async () => {
+    resetProjectWorkMocks();
+    const reviewAssignment: ProjectAssignmentRecord = {
+      ...hecateAssignment,
+      id: "asgn_review",
+      role_id: "reviewer_qa",
+      status: "completed",
+      execution_ref: undefined,
+      execution: undefined,
+    };
+    vi.mocked(getProjectAssignments).mockResolvedValue({
+      object: "project_assignments",
+      data: [hecateAssignment, reviewAssignment],
+    });
+    vi.mocked(getProjectCollaborationArtifacts).mockResolvedValue({
+      object: "project_collaboration_artifacts",
+      data: [
+        {
+          id: "art_review",
+          project_id: project.id,
+          work_item_id: workItem.id,
+          assignment_id: "asgn_review",
+          kind: "review",
+          title: "QA reviewer review",
+          body: "Verdict: Changes requested\n\nFollow-up:\nUpdate empty-state spacing.",
+          author_role_id: "reviewer_qa",
+          created_at: "2026-06-02T12:10:00Z",
+          updated_at: "2026-06-02T12:10:00Z",
+        },
+      ],
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    const detail = await screen.findByRole("region", { name: "Selected work item" });
+    await waitFor(() => {
+      expect(within(detail).getByText("QA reviewer review")).toBeTruthy();
+    });
+    await userEvent.click(
+      within(detail).getByRole("button", {
+        name: "Create follow-up from review artifact art_review",
+      }),
+    );
+
+    const dialog = await screen.findByRole("dialog", { name: "New handoff" });
+    expect(within(dialog).getByLabelText("Source assignment")).toHaveValue("asgn_review");
+    expect(within(dialog).getByLabelText("Target role")).toHaveValue("software_developer");
+    expect(within(dialog).getByLabelText("Artifact IDs")).toHaveValue("art_review");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save handoff" }));
+
+    await waitFor(() => {
+      expect(createProjectHandoff).toHaveBeenCalledWith(
+        project.id,
+        workItem.id,
+        expect.objectContaining({
+          source_assignment_id: "asgn_review",
+          target_role_id: "software_developer",
+          linked_artifact_ids: ["art_review"],
+          title: "QA reviewer review follow-up",
         }),
       );
     });

@@ -159,6 +159,8 @@ function renderDetail(overrides: Partial<ProjectWorkItemDetailProps> = {}) {
     onAddAssignment: vi.fn(),
     onAddHandoff: vi.fn(),
     onAddHandoffFromAssignment: vi.fn(),
+    onAddHandoffFromReviewArtifact: vi.fn(),
+    onAddReviewArtifactFromAssignment: vi.fn(),
     onAddReviewHandoffFromAssignment: vi.fn(),
     onCreateAssignmentFromHandoff: vi.fn(),
     onDeleteAssignment: vi.fn(),
@@ -259,6 +261,30 @@ describe("ProjectWorkItemDetail", () => {
       reviewer,
       undefined,
     );
+  });
+
+  it("only exposes review recording for assignments owned by reviewer roles", async () => {
+    const developer = role();
+    const reviewer = role({ id: "architect", name: "Architect reviewer" });
+    const developerAssignment = assignment({ id: "assign_dev", role_id: "developer" });
+    const reviewerAssignment = assignment({ id: "assign_review", role_id: "architect" });
+    const { handlers } = renderDetail({
+      assignments: [developerAssignment, reviewerAssignment],
+      roleByID: new Map([
+        [developer.id, developer],
+        [reviewer.id, reviewer],
+      ]),
+      workItem: workItem({ reviewer_role_ids: ["architect"] }),
+    });
+
+    expect(
+      screen.queryByRole("button", { name: "Record review for assignment assign_dev" }),
+    ).toBeNull();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Record review for assignment assign_review" }),
+    );
+
+    expect(handlers.onAddReviewArtifactFromAssignment).toHaveBeenCalledWith(reviewerAssignment);
   });
 
   it("loads launch preflight before starting an assignment", async () => {
