@@ -18,7 +18,11 @@ import type {
   ProjectSkillRecord,
   ProjectWorkItemRecord,
 } from "../../types/project";
-import { PROJECT_ASSISTANT_AUTO, type ProjectAssistantDraftForm } from "./ProjectAssistantPanel";
+import {
+  PROJECT_ASSISTANT_AUTO,
+  type ProjectAssistantChatDraftSource,
+  type ProjectAssistantDraftForm,
+} from "./ProjectAssistantPanel";
 
 type LoadState = "idle" | "loading" | "loaded" | "error";
 type ProjectAssistantStatus = "idle" | "proposing" | "applying" | "applied";
@@ -43,6 +47,9 @@ type Options = {
 
 export function useProjectAssistantController(options: Options) {
   const [proposal, setProposal] = useState<ProjectAssistantProposal | null>(null);
+  const [chatDraftSource, setChatDraftSource] = useState<ProjectAssistantChatDraftSource | null>(
+    null,
+  );
   const [applyResult, setApplyResult] = useState<ProjectAssistantApplyResult | null>(null);
   const [context, setContext] = useState<ProjectAssistantContextRecord | null>(null);
   const [contextStatus, setContextStatus] = useState<LoadState>("idle");
@@ -62,6 +69,7 @@ export function useProjectAssistantController(options: Options) {
           projectAssistantDraftPayload(form, options.project.id, options.selectedWorkItem?.id),
         );
         setProposal(payload.data);
+        setChatDraftSource(null);
         setStatus("idle");
       } catch (err) {
         setStatus("idle");
@@ -78,6 +86,7 @@ export function useProjectAssistantController(options: Options) {
     setStatus("proposing");
     setError("");
     setProposal(null);
+    setChatDraftSource(null);
     setApplyResult(null);
     options.onMemoryError("");
     options.onSkillsError("");
@@ -101,6 +110,7 @@ export function useProjectAssistantController(options: Options) {
         ),
       );
       setProposal(payload.data);
+      setChatDraftSource(null);
       setContext(null);
       setContextError("");
       setContextStatus("idle");
@@ -134,15 +144,22 @@ export function useProjectAssistantController(options: Options) {
     [options.project, options.selectedWorkItem],
   );
 
-  const loadProposal = useCallback((nextProposal: ProjectAssistantProposal) => {
-    setProposal(nextProposal);
-    setApplyResult(null);
-    setContext(null);
-    setContextError("");
-    setContextStatus("idle");
-    setError("");
-    setStatus("idle");
-  }, []);
+  const loadProposal = useCallback(
+    (
+      nextProposal: ProjectAssistantProposal,
+      sourceOptions?: { chatDraftSource?: ProjectAssistantChatDraftSource | null },
+    ) => {
+      setProposal(nextProposal);
+      setChatDraftSource(sourceOptions?.chatDraftSource ?? null);
+      setApplyResult(null);
+      setContext(null);
+      setContextError("");
+      setContextStatus("idle");
+      setError("");
+      setStatus("idle");
+    },
+    [],
+  );
 
   const apply = useCallback(async () => {
     if (!options.selectedProjectID || !proposal) return;
@@ -153,6 +170,7 @@ export function useProjectAssistantController(options: Options) {
       const payload = await applyProjectAssistant({ proposal: currentProposal, confirm: true });
       setApplyResult(payload.data);
       setProposal(null);
+      setChatDraftSource(null);
       setStatus("applied");
       await options.refreshProjects();
       const preferredWorkItemID =
@@ -182,6 +200,7 @@ export function useProjectAssistantController(options: Options) {
 
   const dismiss = useCallback(() => {
     setProposal(null);
+    setChatDraftSource(null);
     setApplyResult(null);
     setContext(null);
     setContextError("");
@@ -195,6 +214,7 @@ export function useProjectAssistantController(options: Options) {
     applyResult,
     bootstrap,
     bootstrapPending,
+    chatDraftSource,
     context,
     contextError,
     contextStatus,

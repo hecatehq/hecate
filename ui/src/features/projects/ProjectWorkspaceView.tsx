@@ -232,6 +232,7 @@ export function ProjectWorkspaceView({
                 <ProjectAssistantPanel
                   applyResult={assistant.applyResult}
                   bootstrapPending={assistant.bootstrapPending}
+                  chatDraftSource={assistant.chatDraftSource}
                   context={assistant.context}
                   contextError={assistant.contextError}
                   contextStatus={assistant.contextStatus}
@@ -240,6 +241,15 @@ export function ProjectWorkspaceView({
                   onBootstrap={() => void assistant.bootstrap()}
                   onInspectContext={(form) => void assistant.inspectContext(form)}
                   onDismiss={assistant.dismiss}
+                  onOpenSourceChat={
+                    assistant.chatDraftSource?.sourceSessionID && onOpenChat
+                      ? () =>
+                          onOpenChat({
+                            projectID: project.id,
+                            chatSessionID: assistant.chatDraftSource?.sourceSessionID,
+                          })
+                      : undefined
+                  }
                   onPropose={(form) => void assistant.propose(form)}
                   project={project}
                   proposal={assistant.proposal}

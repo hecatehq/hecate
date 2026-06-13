@@ -549,7 +549,13 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     if (workLoadState !== "loaded" && workLoadState !== "error") return;
     const handoff = readProjectAssistantChatHandoff();
     if (!handoff || handoff.project_id !== selectedProjectID) return;
-    assistant.loadProposal(handoff.proposal);
+    assistant.loadProposal(handoff.proposal, {
+      chatDraftSource: {
+        request: handoff.request,
+        sourceSessionID: handoff.source_session_id,
+        createdAt: handoff.created_at,
+      },
+    });
     setWorkspaceTab("work");
     clearProjectAssistantChatHandoff();
   }, [assistant.loadProposal, selectedProjectID, workLoadState]);
