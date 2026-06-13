@@ -213,7 +213,7 @@ func runServe() {
 	projectSkillStore := buildProjectSkillStore(cfg, logger, sqliteClient, postgresClient)
 	agentProfileStore := buildAgentProfileStore(cfg, logger, sqliteClient, postgresClient)
 	// Approval state follows HECATE_BACKEND so chat transcripts, grants,
-	// and pending approval rows move together across memory/sqlite modes.
+	// and pending approval rows move together across memory/sqlite/postgres modes.
 	// Startup reconcile fires before the gateway accepts any request:
 	// pending rows from a prior process can't be resurrected
 	// (process-local waiters are lost), so they're marked timed_out with
@@ -496,9 +496,10 @@ func otelSummary(o config.OTelConfig) string {
 }
 
 // storageSummary collapses Hecate's per-subsystem backend choices into
-// one short hint. Hecate has ~12 independent storage subsystems (control
-// plane, tasks, sessions, etc.) — most deployments are uniformly memory
-// (local dev) or sqlite (Docker, native binary). The hint reflects the
+// one short hint. Hecate has several storage selectors (control plane, tasks,
+// sessions, projects, usage, retention, etc.) — most deployments are uniformly
+// memory (local dev), sqlite (Docker, native binary), or postgres (hosted
+// runtime). The hint reflects the
 // control-plane backend by default — that's the "primary" backend an
 // operator identifies with — and appends "(mixed)" when a peer subsystem
 // disagrees, signaling to look at `docs/operator/deployment.md`.
@@ -507,17 +508,26 @@ func storageSummary(cfg config.Config) string {
 	if primary == "" {
 		primary = "memory"
 	}
-	peers := []string{
-		cfg.Server.TasksBackend,
-		cfg.Server.TaskQueueBackend,
-		cfg.Provider.HistoryBackend,
-	}
-	for _, peer := range peers {
+	backends := configuredStorageBackends(cfg)
+	for _, peer := range backends[1:] {
 		if peer = strings.TrimSpace(peer); peer != "" && peer != primary {
 			return primary + " (mixed)"
 		}
 	}
 	return primary
+}
+
+func configuredStorageBackends(cfg config.Config) []string {
+	return []string{
+		cfg.Server.ControlPlaneBackend,
+		cfg.Server.TasksBackend,
+		cfg.Server.TaskQueueBackend,
+		cfg.Chat.SessionsBackend,
+		cfg.Projects.Backend,
+		cfg.Governor.UsageBackend,
+		cfg.Retention.HistoryBackend,
+		cfg.Provider.HistoryBackend,
+	}
 }
 
 func firstNonEmpty(values ...string) string {
@@ -593,7 +603,7 @@ func pruneableProviderHistory(store providers.HealthHistoryStore) retention.Prun
 }
 
 // approvalRetentionPruner exposes the Pruner surface when the
-// configured approval store implements it. Memory and SQLite both do;
+// configured approval store implements it. Memory and SQL stores both do;
 // tests that swap in a stub may not — returning nil is harmless
 // because the retention worker skips subsystems with a nil pruner.
 func approvalRetentionPruner(store agentadapters.ApprovalStore) retention.Pruner {
@@ -781,25 +791,21 @@ func buildPostgresClient(cfg config.Config, logger *slog.Logger) *storage.Postgr
 }
 
 func sqliteRequired(cfg config.Config) bool {
-	return cfg.Governor.UsageBackend == "sqlite" ||
-		cfg.Server.ControlPlaneBackend == "sqlite" ||
-		cfg.Chat.SessionsBackend == "sqlite" ||
-		cfg.Projects.Backend == "sqlite" ||
-		cfg.Server.TasksBackend == "sqlite" ||
-		cfg.Server.TaskQueueBackend == "sqlite" ||
-		cfg.Retention.HistoryBackend == "sqlite" ||
-		cfg.Provider.HistoryBackend == "sqlite"
+	for _, backend := range configuredStorageBackends(cfg) {
+		if backend == "sqlite" {
+			return true
+		}
+	}
+	return false
 }
 
 func postgresRequired(cfg config.Config) bool {
-	return cfg.Governor.UsageBackend == "postgres" ||
-		cfg.Server.ControlPlaneBackend == "postgres" ||
-		cfg.Chat.SessionsBackend == "postgres" ||
-		cfg.Projects.Backend == "postgres" ||
-		cfg.Server.TasksBackend == "postgres" ||
-		cfg.Server.TaskQueueBackend == "postgres" ||
-		cfg.Retention.HistoryBackend == "postgres" ||
-		cfg.Provider.HistoryBackend == "postgres"
+	for _, backend := range configuredStorageBackends(cfg) {
+		if backend == "postgres" {
+			return true
+		}
+	}
+	return false
 }
 
 func buildProjectStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient, postgresClient *storage.PostgresClient) projects.Store {

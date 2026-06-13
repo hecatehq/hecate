@@ -201,7 +201,7 @@ func (s *MemoryApprovalStore) DeleteGrant(_ context.Context, id string) error {
 }
 
 // PruneApprovals deletes resolved approval rows older than maxAge or
-// beyond maxCount. Mirrors the SQLite store's behavior so the
+// beyond maxCount. Mirrors the SQL store's behavior so the
 // retention worker can dispatch through ApprovalRetentionStore
 // without caring which backend is wired. Pending rows are never
 // auto-pruned.

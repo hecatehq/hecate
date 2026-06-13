@@ -3,8 +3,8 @@
 // adapter approval system. The coordinator implementation lives in
 // approvals_coordinator.go; the operator-facing Resolve/Cancel/list
 // API lives in approvals_resolve.go; ID helpers live in approvals_ids.go;
-// the in-memory store lives in approvals_memory.go; the SQLite-backed
-// store lives in approvals_sqlite.go.
+// the in-memory store lives in approvals_memory.go; the SQL-backed store
+// lives in approvals_sqlite.go.
 package agentadapters
 
 import (
@@ -130,8 +130,8 @@ type Approval struct {
 	ExpiresAt      time.Time              `json:"expires_at"`
 }
 
-// Grant is a persisted "always" decision. Memory and SQLite backends
-// both implement it.
+// Grant is a persisted "always" decision. Memory and SQL backends both
+// implement it.
 type Grant struct {
 	ID        string           `json:"id"`
 	Scope     ApprovalScope    `json:"scope"`
@@ -152,7 +152,7 @@ type GrantFilter struct {
 	ToolKind  string
 }
 
-// ApprovalStore is the persistence interface. Memory and SQLite backends both
+// ApprovalStore is the persistence interface. Memory and SQL backends both
 // implement it. Backend selection follows HECATE_BACKEND in cmd/hecate.
 type ApprovalStore interface {
 	// CreateApproval persists a pending approval and returns the row
@@ -193,7 +193,7 @@ type ApprovalStore interface {
 }
 
 // ApprovalRetentionStore extends ApprovalStore with maintenance
-// operations the retention worker calls. Memory and SQLite both
+// operations the retention worker calls. Memory and SQL stores both
 // satisfy it; the type assertion in the worker keeps the smaller
 // ApprovalStore interface clean for the coordinator.
 type ApprovalRetentionStore interface {

@@ -484,6 +484,19 @@ func LoadFromEnv() Config {
 	}
 }
 
+func (c Config) storageBackends() []string {
+	return []string{
+		c.Server.ControlPlaneBackend,
+		c.Server.TasksBackend,
+		c.Server.TaskQueueBackend,
+		c.Chat.SessionsBackend,
+		c.Projects.Backend,
+		c.Governor.UsageBackend,
+		c.Retention.HistoryBackend,
+		c.Provider.HistoryBackend,
+	}
+}
+
 // Validate checks configuration combinations that would otherwise fail later
 // with confusing store/provider errors. It is intentionally strict for alpha:
 // unsupported backend names, impossible retention policies, and missing shared
@@ -501,16 +514,7 @@ func (c Config) Validate() error {
 		errs = append(errs, fmt.Errorf("%s must be one of %s (got %q)", label, strings.Join(allowed, ", "), value))
 	}
 
-	for _, backend := range []string{
-		c.Server.ControlPlaneBackend,
-		c.Server.TasksBackend,
-		c.Server.TaskQueueBackend,
-		c.Chat.SessionsBackend,
-		c.Projects.Backend,
-		c.Governor.UsageBackend,
-		c.Retention.HistoryBackend,
-		c.Provider.HistoryBackend,
-	} {
+	for _, backend := range c.storageBackends() {
 		validateBackend("HECATE_BACKEND", backend, "memory", "sqlite", "postgres")
 	}
 	if postgresRequired(c) && strings.TrimSpace(c.Postgres.DatabaseURL) == "" {
@@ -640,14 +644,12 @@ func (c Config) Validate() error {
 }
 
 func postgresRequired(c Config) bool {
-	return c.Governor.UsageBackend == "postgres" ||
-		c.Server.ControlPlaneBackend == "postgres" ||
-		c.Chat.SessionsBackend == "postgres" ||
-		c.Projects.Backend == "postgres" ||
-		c.Server.TasksBackend == "postgres" ||
-		c.Server.TaskQueueBackend == "postgres" ||
-		c.Retention.HistoryBackend == "postgres" ||
-		c.Provider.HistoryBackend == "postgres"
+	for _, backend := range c.storageBackends() {
+		if backend == "postgres" {
+			return true
+		}
+	}
+	return false
 }
 
 func durationEnvKeys() []string {

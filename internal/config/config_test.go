@@ -63,6 +63,38 @@ func TestLoadFromEnvBackendFansOutToDurableStores(t *testing.T) {
 	}
 }
 
+func TestValidateRequiresPostgresURLForEveryBackendSelector(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(*Config)
+	}{
+		{"control plane", func(c *Config) { c.Server.ControlPlaneBackend = "postgres" }},
+		{"tasks", func(c *Config) { c.Server.TasksBackend = "postgres" }},
+		{"task queue", func(c *Config) { c.Server.TaskQueueBackend = "postgres" }},
+		{"chat sessions", func(c *Config) { c.Chat.SessionsBackend = "postgres" }},
+		{"projects bundle", func(c *Config) { c.Projects.Backend = "postgres" }},
+		{"usage", func(c *Config) { c.Governor.UsageBackend = "postgres" }},
+		{"retention history", func(c *Config) { c.Retention.HistoryBackend = "postgres" }},
+		{"provider history", func(c *Config) { c.Provider.HistoryBackend = "postgres" }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HECATE_BACKEND", "memory")
+			t.Setenv("HECATE_POSTGRES_URL", "")
+			t.Setenv("DATABASE_URL", "")
+
+			cfg := LoadFromEnv()
+			cfg.Postgres.DatabaseURL = ""
+			tc.mutate(&cfg)
+
+			err := cfg.Validate()
+			if err == nil || !strings.Contains(err.Error(), "HECATE_POSTGRES_URL or DATABASE_URL") {
+				t.Fatalf("Validate() error = %v, want missing Postgres URL", err)
+			}
+		})
+	}
+}
+
 func TestLoadFromEnvTraceBodyModeDefaultsToMetadata(t *testing.T) {
 	cfg := LoadFromEnv()
 	if cfg.Server.TraceBodyMode != "metadata" {

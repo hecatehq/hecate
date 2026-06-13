@@ -105,7 +105,11 @@ func TestStorageSummary(t *testing.T) {
 					TasksBackend:        "sqlite",
 					TaskQueueBackend:    "sqlite",
 				},
-				Provider: config.ProviderConfig{HistoryBackend: "sqlite"},
+				Chat:      config.ChatConfig{SessionsBackend: "sqlite"},
+				Projects:  config.ProjectsConfig{Backend: "sqlite"},
+				Governor:  config.GovernorConfig{UsageBackend: "sqlite"},
+				Retention: config.RetentionConfig{HistoryBackend: "sqlite"},
+				Provider:  config.ProviderConfig{HistoryBackend: "sqlite"},
 			},
 			"sqlite",
 		},
@@ -117,7 +121,11 @@ func TestStorageSummary(t *testing.T) {
 					TasksBackend:        "postgres",
 					TaskQueueBackend:    "postgres",
 				},
-				Provider: config.ProviderConfig{HistoryBackend: "postgres"},
+				Chat:      config.ChatConfig{SessionsBackend: "postgres"},
+				Projects:  config.ProjectsConfig{Backend: "postgres"},
+				Governor:  config.GovernorConfig{UsageBackend: "postgres"},
+				Retention: config.RetentionConfig{HistoryBackend: "postgres"},
+				Provider:  config.ProviderConfig{HistoryBackend: "postgres"},
 			},
 			"postgres",
 		},
@@ -131,12 +139,67 @@ func TestStorageSummary(t *testing.T) {
 			},
 			"memory (mixed)",
 		},
+		{
+			"mixed when chat backend differs",
+			config.Config{
+				Server: config.ServerConfig{
+					ControlPlaneBackend: "postgres",
+					TasksBackend:        "postgres",
+					TaskQueueBackend:    "postgres",
+				},
+				Chat:      config.ChatConfig{SessionsBackend: "sqlite"},
+				Projects:  config.ProjectsConfig{Backend: "postgres"},
+				Governor:  config.GovernorConfig{UsageBackend: "postgres"},
+				Retention: config.RetentionConfig{HistoryBackend: "postgres"},
+				Provider:  config.ProviderConfig{HistoryBackend: "postgres"},
+			},
+			"postgres (mixed)",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			if got := storageSummary(tc.cfg); got != tc.want {
 				t.Fatalf("storageSummary = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSQLClientRequirementCoversEveryStorageSelector(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(*config.Config, string)
+	}{
+		{"control plane", func(c *config.Config, backend string) { c.Server.ControlPlaneBackend = backend }},
+		{"tasks", func(c *config.Config, backend string) { c.Server.TasksBackend = backend }},
+		{"task queue", func(c *config.Config, backend string) { c.Server.TaskQueueBackend = backend }},
+		{"chat sessions", func(c *config.Config, backend string) { c.Chat.SessionsBackend = backend }},
+		{"projects bundle", func(c *config.Config, backend string) { c.Projects.Backend = backend }},
+		{"usage", func(c *config.Config, backend string) { c.Governor.UsageBackend = backend }},
+		{"retention history", func(c *config.Config, backend string) { c.Retention.HistoryBackend = backend }},
+		{"provider history", func(c *config.Config, backend string) { c.Provider.HistoryBackend = backend }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var cfg config.Config
+			tc.mutate(&cfg, "sqlite")
+			if !sqliteRequired(cfg) {
+				t.Fatal("sqliteRequired = false, want true")
+			}
+			if postgresRequired(cfg) {
+				t.Fatal("postgresRequired = true for sqlite selector, want false")
+			}
+
+			cfg = config.Config{}
+			tc.mutate(&cfg, "postgres")
+			if !postgresRequired(cfg) {
+				t.Fatal("postgresRequired = false, want true")
+			}
+			if sqliteRequired(cfg) {
+				t.Fatal("sqliteRequired = true for postgres selector, want false")
 			}
 		})
 	}
