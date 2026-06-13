@@ -1092,6 +1092,140 @@ func sanitizedEnv(env []string) []string {
 	return sanitizedEnvForAdapter("", env)
 }
 
+type adapterProcessEnv struct {
+	values  []string
+	cleanup func()
+}
+
+func prepareAdapterProcessEnv(ctx context.Context, adapter Adapter, env []string) (adapterProcessEnv, error) {
+	mode, err := validateCloudCredentialForRequest(ctx, adapter)
+	if err != nil {
+		return adapterProcessEnv{}, err
+	}
+	if _, ok := cloudruntime.FromContext(ctx); !ok {
+		return adapterProcessEnv{values: sanitizedEnvForAdapter(adapter.ID, env)}, nil
+	}
+	home, err := os.MkdirTemp("", "hecate-cloud-agent-home-*")
+	if err != nil {
+		return adapterProcessEnv{}, fmt.Errorf("create cloud adapter home: %w", err)
+	}
+	return adapterProcessEnv{
+		values: cloudRuntimeAdapterEnv(adapter, mode, env, home),
+		cleanup: func() {
+			_ = os.RemoveAll(home)
+		},
+	}, nil
+}
+
+func prepareGenericProcessEnv(ctx context.Context, env []string) (adapterProcessEnv, error) {
+	if _, ok := cloudruntime.FromContext(ctx); !ok {
+		return adapterProcessEnv{values: sanitizedEnv(env)}, nil
+	}
+	home, err := os.MkdirTemp("", "hecate-cloud-agent-home-*")
+	if err != nil {
+		return adapterProcessEnv{}, fmt.Errorf("create cloud adapter home: %w", err)
+	}
+	return adapterProcessEnv{
+		values: cloudRuntimeBaseEnv(env, home, nil),
+		cleanup: func() {
+			_ = os.RemoveAll(home)
+		},
+	}, nil
+}
+
+func cloudRuntimeAdapterEnv(adapter Adapter, mode CredentialMode, env []string, home string) []string {
+	allowedKeys := make(map[string]struct{}, len(mode.EnvKeys))
+	for _, key := range mode.EnvKeys {
+		key = strings.TrimSpace(key)
+		if key != "" {
+			allowedKeys[key] = struct{}{}
+		}
+	}
+	out := cloudRuntimeBaseEnv(env, home, allowedKeys)
+	if strings.EqualFold(strings.TrimSpace(adapter.ID), "grok_build") && !envContainsKey(out, "XAI_API_KEY") {
+		if providerKey := envValue(env, "PROVIDER_XAI_API_KEY"); strings.TrimSpace(providerKey) != "" {
+			out = append(out, "XAI_API_KEY="+providerKey)
+		}
+	}
+	return out
+}
+
+func cloudRuntimeBaseEnv(env []string, home string, allowedKeys map[string]struct{}) []string {
+	allowedPrefixes := []string{
+		"PATH=",
+		"Path=",
+		"TMPDIR=",
+		"TEMP=",
+		"TMP=",
+		"LANG=",
+		"LC_",
+		"SSL_CERT_FILE=",
+		"SSL_CERT_DIR=",
+		"NODE_EXTRA_CA_CERTS=",
+		"SystemRoot=",
+		"WINDIR=",
+		"ComSpec=",
+	}
+	out := make([]string, 0, len(env))
+	if strings.TrimSpace(home) != "" {
+		out = append(out,
+			"HOME="+home,
+			"USERPROFILE="+home,
+			"XDG_CONFIG_HOME="+filepath.Join(home, ".config"),
+			"XDG_CACHE_HOME="+filepath.Join(home, ".cache"),
+			"XDG_DATA_HOME="+filepath.Join(home, ".local", "share"),
+		)
+	}
+	for _, entry := range env {
+		name, value, ok := strings.Cut(entry, "=")
+		if !ok || cloudRuntimeEnvNameIsEphemeral(name) {
+			continue
+		}
+		if _, ok := allowedKeys[name]; ok && name != "PROVIDER_XAI_API_KEY" {
+			if strings.TrimSpace(value) != "" {
+				out = append(out, entry)
+			}
+			continue
+		}
+		for _, prefix := range allowedPrefixes {
+			if strings.HasPrefix(entry, prefix) {
+				out = append(out, entry)
+				break
+			}
+		}
+	}
+	return out
+}
+
+func cloudRuntimeEnvNameIsEphemeral(name string) bool {
+	switch name {
+	case "HOME", "USERPROFILE", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME":
+		return true
+	default:
+		return false
+	}
+}
+
+func envContainsKey(env []string, key string) bool {
+	prefix := key + "="
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func envValue(env []string, key string) string {
+	prefix := key + "="
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			return strings.TrimPrefix(entry, prefix)
+		}
+	}
+	return ""
+}
+
 func sanitizedEnvForAdapter(adapterID string, env []string) []string {
 	allowedPrefixes := []string{
 		"PATH=",

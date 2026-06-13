@@ -356,10 +356,13 @@ func runStoreApprovalRoundTrip(t *testing.T, store Store) {
 		Kind:        "shell",
 		Status:      "pending",
 		RequestedBy: "agent",
-		CreatedAt:   time.Now().UTC(),
 	}
-	if _, err := store.CreateApproval(ctx, approval); err != nil {
+	created, err := store.CreateApproval(ctx, approval)
+	if err != nil {
 		t.Fatalf("CreateApproval: %v", err)
+	}
+	if created.CreatedAt.IsZero() {
+		t.Fatal("CreateApproval CreatedAt is zero, want store timestamp")
 	}
 
 	got, ok, err := store.GetApproval(ctx, "task-ap", "ap-1")
@@ -368,6 +371,9 @@ func runStoreApprovalRoundTrip(t *testing.T, store Store) {
 	}
 	if got.Status != "pending" || got.Kind != "shell" {
 		t.Fatalf("GetApproval round-trip mismatch: %+v", got)
+	}
+	if got.CreatedAt.IsZero() {
+		t.Fatal("GetApproval CreatedAt is zero, want persisted store timestamp")
 	}
 
 	// Resolve.

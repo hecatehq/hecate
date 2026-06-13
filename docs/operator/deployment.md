@@ -58,7 +58,10 @@ request has valid Cloud identity, so the Cloud proxy is the authentication
 boundary for hosted runtimes.
 
 Cloud mode also blocks local-only operations over the remote surface:
-workspace picker/open-in-editor, reset-data, shutdown, and MCP probe. Keep the
+workspace picker/open-in-editor, reset-data, shutdown, MCP probe, and local
+provider discovery and MCP registry discovery. Hecate-native `/hecate/v1/*`
+routes are classified for cloud mode, and route coverage tests fail when a new
+registered route is not explicitly marked cloud-safe or local-only. Keep the
 runtime network-private even with this mode enabled; the header secret is the
 internal proxy contract, not a public internet authentication system.
 
@@ -69,7 +72,10 @@ can still run in hosted runtimes when the runtime receives vendor-supported
 cloud-safe credentials: `OPENAI_API_KEY` / `CODEX_API_KEY`, `ANTHROPIC_API_KEY`,
 `CURSOR_API_KEY`, or `XAI_API_KEY` respectively. The adapter catalog reports
 the declared credential modes and marks an adapter unauthenticated until one of
-its cloud-safe env keys is present.
+its cloud-safe env keys is present. When Hecate starts an External Agent for a
+cloud request, the child process receives only runtime essentials, the matching
+cloud-safe credential family, and an ephemeral `HOME` / XDG config directory;
+local CLI login homes and broad auth-token env vars are not inherited.
 
 ## Image pinning
 

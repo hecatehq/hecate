@@ -17,7 +17,7 @@ Hecate assumes the operator trusts their own machine, local user account, and se
   `X-Hecate-Cloud-*` identity headers plus the internal runtime secret, and
   local-only endpoints remain blocked. The runtime secret is not public auth;
   keep the runtime network-private.
-- Do not put local-only endpoints such as workspace folder selection, "open in editor", MCP probe, reset-data, or shutdown behind a forwarding proxy. Those endpoints reject non-loopback sockets and `X-Forwarded-For` / `X-Real-IP` headers because they can open local OS UI, spawn diagnostic subprocesses, or mutate local operator state.
+- Do not put local-only endpoints such as workspace folder selection, "open in editor", local provider discovery, MCP registry discovery, MCP probe, reset-data, or shutdown behind a forwarding proxy. Those endpoints reject non-loopback sockets and `X-Forwarded-For` / `X-Real-IP` headers because they can inspect host-local state, open local OS UI, spawn diagnostic subprocesses, or mutate local operator state.
 - Do not run Hecate on a shared host where untrusted local users can access the gateway port or data directory.
 
 ## Runtime boundaries

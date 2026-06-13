@@ -358,6 +358,15 @@ For errors that should surface before a run is created (bad config, missing requ
   Queue backend changes must also update `internal/telemetry/metric_labels.go`
   and `internal/telemetry/metrics_test.go` so hosted Postgres stays visible in
   OTel instead of collapsing to `other`.
+- **Cloud runtime endpoint policy** — every new `/hecate/v1/*` route must be
+  classified in `internal/api/cloud_runtime_policy.go` as cloud-safe or
+  local-only. Unknown Hecate-native paths fail closed in cloud mode, and
+  `TestCloudRuntimeEndpointPolicyCoversRegisteredHecateRoutes` guards the
+  registered route list.
+- **Cloud external-agent env** — adapter subprocesses started from
+  cloud-identified requests must go through `prepareAdapterProcessEnv`, not
+  direct `os.Environ()` filtering. Cloud mode uses an ephemeral home and only
+  the declared cloud-safe credential keys plus runtime essentials.
 - **Capability cache seeding** for provider tests — see [`../providers/SKILL.md`](../providers/SKILL.md) for the snippet. Without it the discovery path panics on a nil request body.
 - **Synthetic local providers** — use `PROVIDER_FAKE_KIND=local` for e2e scenarios that should not require a real cloud provider.
 - **Env-PRECONFIGURED gate for e2e providers** — env-supplied provider credentials (`PROVIDER_<NAME>_API_KEY` / `_BASE_URL`) only auto-import into the settings store when `PROVIDER_<NAME>_PRECONFIGURED=1` is also set. Both e2e spawn helpers funnel through `autoPreconfiguredEnv` so tests don't have to repeat it. New e2e helpers that bypass `hecateServer` / `startHecateProcess` need the same call; otherwise routed requests 400 with `no provider supports model …`.

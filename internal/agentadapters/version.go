@@ -2,6 +2,7 @@ package agentadapters
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -72,7 +73,15 @@ func detectVersionCommand(ctx context.Context, command string, args ...string) s
 	ctx, cancel := context.WithTimeout(ctx, detectVersionTimeout)
 	defer cancel()
 
+	processEnv, err := prepareGenericProcessEnv(ctx, os.Environ())
+	if err != nil {
+		return ""
+	}
+	if processEnv.cleanup != nil {
+		defer processEnv.cleanup()
+	}
 	cmd := exec.CommandContext(ctx, command, args...)
+	cmd.Env = processEnv.values
 	out, _ := cmd.CombinedOutput()
 	// Some CLI adapters print version text before exiting non-zero, so prefer
 	// any captured semver token before treating the command as unusable.

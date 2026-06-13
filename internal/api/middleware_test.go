@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -551,7 +553,12 @@ func TestCloudRuntimeLocalEndpointGuardMiddleware(t *testing.T) {
 		{name: "blocks reset data", enabled: true, method: http.MethodPost, path: "/hecate/v1/system/reset-data", want: http.StatusForbidden},
 		{name: "blocks shutdown", enabled: true, method: http.MethodPost, path: "/hecate/v1/system/shutdown", want: http.StatusForbidden},
 		{name: "blocks mcp probe", enabled: true, method: http.MethodPost, path: "/hecate/v1/mcp/probe", want: http.StatusForbidden},
+		{name: "blocks mcp registry discovery", enabled: true, method: http.MethodGet, path: "/hecate/v1/mcp/registry/servers", want: http.StatusForbidden},
+		{name: "blocks local provider discovery", enabled: true, method: http.MethodGet, path: "/hecate/v1/settings/providers/local-discovery", want: http.StatusForbidden},
+		{name: "blocks unclassified hecate endpoint", enabled: true, method: http.MethodPost, path: "/hecate/v1/future-local-only", want: http.StatusForbidden},
 		{name: "allows normal endpoint", enabled: true, method: http.MethodGet, path: "/hecate/v1/whoami", want: http.StatusNoContent},
+		{name: "allows static ui", enabled: true, method: http.MethodGet, path: "/", want: http.StatusNoContent},
+		{name: "allows provider-compatible endpoint", enabled: true, method: http.MethodPost, path: "/v1/chat/completions", want: http.StatusNoContent},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -567,6 +574,31 @@ func TestCloudRuntimeLocalEndpointGuardMiddleware(t *testing.T) {
 				t.Fatalf("status = %d, want %d, body=%s", rec.Code, tt.want, rec.Body.String())
 			}
 		})
+	}
+}
+
+func TestCloudRuntimeEndpointPolicyCoversRegisteredHecateRoutes(t *testing.T) {
+	source, err := os.ReadFile("server.go")
+	if err != nil {
+		t.Fatalf("read server.go: %v", err)
+	}
+	matches := regexp.MustCompile(`mux\.HandleFunc\("([^"]+)"`).FindAllStringSubmatch(string(source), -1)
+	if len(matches) == 0 {
+		t.Fatal("no mux.HandleFunc route patterns found")
+	}
+	var missing []string
+	for _, match := range matches {
+		pattern := match[1]
+		_, path, ok := splitRoutePattern(pattern)
+		if !ok || !isHecateAPIPath(path) {
+			continue
+		}
+		if !cloudRuntimeRoutePatternKnown(pattern) {
+			missing = append(missing, pattern)
+		}
+	}
+	if len(missing) > 0 {
+		t.Fatalf("cloud runtime route policy missing classifications: %s", strings.Join(missing, ", "))
 	}
 }
 

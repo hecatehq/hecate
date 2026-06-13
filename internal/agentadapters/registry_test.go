@@ -1051,6 +1051,88 @@ func TestSanitizedEnvMapsProviderXAIKeyOnlyForGrokBuild(t *testing.T) {
 	}
 }
 
+func TestCloudRuntimeAdapterEnvUsesOnlyCloudCredentialKeysAndEphemeralHome(t *testing.T) {
+	t.Parallel()
+
+	adapter, ok := BuiltInByID("codex")
+	if !ok {
+		t.Fatal("missing codex adapter")
+	}
+	mode := CredentialMode{ID: CredentialModeAPIKey, EnvKeys: []string{"OPENAI_API_KEY", "CODEX_API_KEY"}}
+	env := cloudRuntimeAdapterEnv(adapter, mode, []string{
+		"PATH=/bin",
+		"HOME=/Users/alice",
+		"XDG_CONFIG_HOME=/Users/alice/.config",
+		"LANG=en_US.UTF-8",
+		"OPENAI_API_KEY=sk-openai",
+		"CODEX_API_KEY=sk-codex",
+		"CODEX_AUTH_TOKEN=local-token",
+		"CODEX_HOME=/Users/alice/.codex",
+		"ANTHROPIC_API_KEY=sk-anthropic",
+		"CLAUDE_CONFIG_DIR=/Users/alice/.claude",
+		"HECATE_RUNTIME_TOKEN=runtime-token",
+	}, "/tmp/hecate-cloud-home")
+
+	got := map[string]bool{}
+	for _, item := range env {
+		got[item] = true
+	}
+	for _, want := range []string{
+		"HOME=/tmp/hecate-cloud-home",
+		"USERPROFILE=/tmp/hecate-cloud-home",
+		"XDG_CONFIG_HOME=" + filepath.Join("/tmp/hecate-cloud-home", ".config"),
+		"XDG_CACHE_HOME=" + filepath.Join("/tmp/hecate-cloud-home", ".cache"),
+		"XDG_DATA_HOME=" + filepath.Join("/tmp/hecate-cloud-home", ".local", "share"),
+		"PATH=/bin",
+		"LANG=en_US.UTF-8",
+		"OPENAI_API_KEY=sk-openai",
+		"CODEX_API_KEY=sk-codex",
+	} {
+		if !got[want] {
+			t.Fatalf("missing cloud env %q in %#v", want, env)
+		}
+	}
+	for _, blocked := range []string{
+		"HOME=/Users/alice",
+		"XDG_CONFIG_HOME=/Users/alice/.config",
+		"CODEX_AUTH_TOKEN=local-token",
+		"CODEX_HOME=/Users/alice/.codex",
+		"ANTHROPIC_API_KEY=sk-anthropic",
+		"CLAUDE_CONFIG_DIR=/Users/alice/.claude",
+		"HECATE_RUNTIME_TOKEN=runtime-token",
+	} {
+		if got[blocked] {
+			t.Fatalf("blocked cloud env %q leaked into %#v", blocked, env)
+		}
+	}
+}
+
+func TestCloudRuntimeAdapterEnvMapsProviderXAIKeyWithoutLeakingBridge(t *testing.T) {
+	t.Parallel()
+
+	adapter, ok := BuiltInByID("grok_build")
+	if !ok {
+		t.Fatal("missing grok_build adapter")
+	}
+	mode := CredentialMode{ID: CredentialModeAPIKey, EnvKeys: []string{"XAI_API_KEY", "PROVIDER_XAI_API_KEY"}}
+	env := cloudRuntimeAdapterEnv(adapter, mode, []string{
+		"PATH=/bin",
+		"XAI_API_KEY=",
+		"PROVIDER_XAI_API_KEY=provider-xai-test",
+	}, "/tmp/hecate-cloud-home")
+
+	got := map[string]bool{}
+	for _, item := range env {
+		got[item] = true
+	}
+	if !got["XAI_API_KEY=provider-xai-test"] {
+		t.Fatalf("missing XAI_API_KEY bridge in %#v", env)
+	}
+	if got["PROVIDER_XAI_API_KEY=provider-xai-test"] {
+		t.Fatalf("provider-scoped key leaked into cloud adapter env: %#v", env)
+	}
+}
+
 func TestNormalizeOutputPreservesPlainText(t *testing.T) {
 	t.Parallel()
 

@@ -274,6 +274,9 @@ func (s *MemoryStore) CreateApproval(_ context.Context, approval types.TaskAppro
 	if approval.ID == "" {
 		return types.TaskApproval{}, fmt.Errorf("approval id is required")
 	}
+	if approval.CreatedAt.IsZero() {
+		approval.CreatedAt = time.Now().UTC()
+	}
 	s.approvals[approval.ID] = approval
 	s.signalRun(approval.RunID)
 	return approval, nil

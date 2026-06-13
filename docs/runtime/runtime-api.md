@@ -46,8 +46,11 @@ liveness probe and every other path requires trusted Cloud proxy headers:
 `X-Hecate-Cloud-Runtime-ID`. Valid Cloud identity is attached to request
 context, exposed from `GET /hecate/v1/whoami` as `data.cloud_identity`, added to
 the top-level HTTP span attributes, and accepted in place of the local
-runtime/inference shared tokens. Cloud mode rejects local-only POST endpoints
-for workspace picker/open, reset-data, shutdown, and MCP probe.
+runtime/inference shared tokens. Cloud mode rejects local-only endpoints for
+workspace picker/open, reset-data, shutdown, MCP probe, and local provider
+and MCP registry discovery. Hecate-native `/hecate/v1/*` routes are explicitly
+classified for cloud mode, and route coverage tests fail when a new registered
+route is not marked cloud-safe or local-only.
 
 Legacy Hecate-native `/v1/*` and `/admin/*` paths are intentionally not kept as
 compatibility shims in this alpha branch. Unknown API-shaped paths return 404
@@ -886,8 +889,9 @@ GET /hecate/v1/settings/providers/local-discovery
 - `not_detected` — neither the command nor the default HTTP endpoint was found.
 
 This endpoint does not create or mutate provider records. It is a UX helper for
-the picker; routing readiness still comes from `GET /hecate/v1/providers/status` after the
-operator adds a provider.
+the picker and is local-only: non-loopback sockets, forwarded-client headers,
+and cloud runtime mode are rejected. Routing readiness still comes from
+`GET /hecate/v1/providers/status` after the operator adds a provider.
 
 ### `GET /v1/models`
 

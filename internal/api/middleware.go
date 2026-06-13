@@ -215,8 +215,8 @@ func CloudRuntimeLocalEndpointGuardMiddleware(enabled bool) middleware {
 			return next
 		}
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if cloudRuntimeBlocksLocalEndpoint(r.Method, r.URL.Path) {
-				WriteError(w, http.StatusForbidden, errCodeForbidden, "local-only endpoint is disabled in cloud runtime mode")
+			if reason := cloudRuntimeEndpointBlockReason(r.Method, r.URL.Path); reason != "" {
+				WriteError(w, http.StatusForbidden, errCodeForbidden, reason)
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -279,22 +279,6 @@ func isProviderInferenceRoute(method, path string) bool {
 	case http.MethodGet + " /v1/models",
 		http.MethodPost + " /v1/chat/completions",
 		http.MethodPost + " /v1/messages":
-		return true
-	default:
-		return false
-	}
-}
-
-func cloudRuntimeBlocksLocalEndpoint(method, path string) bool {
-	if method != http.MethodPost {
-		return false
-	}
-	switch path {
-	case "/hecate/v1/workspace-dialog",
-		"/hecate/v1/workspace-open",
-		"/hecate/v1/system/reset-data",
-		"/hecate/v1/system/shutdown",
-		"/hecate/v1/mcp/probe":
 		return true
 	default:
 		return false

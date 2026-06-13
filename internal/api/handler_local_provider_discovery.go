@@ -55,6 +55,9 @@ type localHTTPProbeTask struct {
 }
 
 func (h *Handler) HandleLocalProviderDiscovery(w http.ResponseWriter, r *http.Request) {
+	if !requireLoopbackClient(w, r, "local provider discovery") {
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), localProviderDiscoveryTimeout)
 	defer cancel()
 

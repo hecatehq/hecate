@@ -49,6 +49,12 @@ Model-backed assistant turns should carry a small context-inspector packet:
 execution mode, route/workspace metadata, source provenance, and visible
 transcript counts. Do not store full prompt bodies, raw transcript text, file
 contents, or adapter-private prompt packing in that packet.
+Hosted/cloud-runtime work keeps the local architecture but changes the request
+boundary. New Hecate-native HTTP routes must be classified in
+`internal/api/cloud_runtime_policy.go` as cloud-safe or local-only; the route
+coverage test guards the registration list. External Agent subprocesses
+launched from a cloud-identified request must use the cloud process-env helper
+so personal CLI login homes and broad local auth-token envs are not inherited.
 
 ## Repository layout
 

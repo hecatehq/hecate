@@ -329,8 +329,16 @@ func discoverLaunchHelp(ctx context.Context, command string, adapter Adapter) st
 	}
 	discoverCtx, cancel := context.WithTimeout(ctx, launchHelpDiscoveryTimeout)
 	defer cancel()
+	processEnv, err := prepareAdapterProcessEnv(discoverCtx, adapter, os.Environ())
+	if err != nil {
+		storeLaunchDiscoveryCache(key, launchDiscoveryCacheEntry{})
+		return ""
+	}
+	if processEnv.cleanup != nil {
+		defer processEnv.cleanup()
+	}
 	cmd := exec.CommandContext(discoverCtx, command, args...)
-	cmd.Env = sanitizedEnvForAdapter(adapter.ID, os.Environ())
+	cmd.Env = processEnv.values
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		storeLaunchDiscoveryCache(key, launchDiscoveryCacheEntry{})
@@ -364,8 +372,16 @@ func discoverLaunchModels(ctx context.Context, command string, adapter Adapter) 
 	}
 	discoverCtx, cancel := context.WithTimeout(ctx, launchModelDiscoveryTimeout)
 	defer cancel()
+	processEnv, err := prepareAdapterProcessEnv(discoverCtx, adapter, os.Environ())
+	if err != nil {
+		storeLaunchDiscoveryCache(key, launchDiscoveryCacheEntry{})
+		return nil
+	}
+	if processEnv.cleanup != nil {
+		defer processEnv.cleanup()
+	}
 	cmd := exec.CommandContext(discoverCtx, command, adapter.LaunchModel.ListArgs...)
-	cmd.Env = sanitizedEnvForAdapter(adapter.ID, os.Environ())
+	cmd.Env = processEnv.values
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		storeLaunchDiscoveryCache(key, launchDiscoveryCacheEntry{})
