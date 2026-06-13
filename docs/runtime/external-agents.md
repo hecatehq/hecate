@@ -48,7 +48,10 @@ runtime accepts API-key style credentials for Codex (`OPENAI_API_KEY` /
 (`CURSOR_API_KEY`), and Grok Build (`XAI_API_KEY`, or
 `PROVIDER_XAI_API_KEY` bridged to `XAI_API_KEY` only for Grok). Auth-token env
 vars that represent local CLI login state, such as `CODEX_AUTH_TOKEN` or
-`ANTHROPIC_AUTH_TOKEN`, are local-only for this policy.
+`ANTHROPIC_AUTH_TOKEN`, are local-only for this policy. Cloud-mode adapter
+processes also get an ephemeral `HOME` / XDG config directory instead of the
+runtime process home, so copied browser-login files are not discovered through
+normal CLI lookup paths.
 
 This is the same practical boundary used by ACP-capable editors such as
 [Zed](https://zed.dev/docs/ai/external-agents): the client supervises a local
@@ -243,10 +246,12 @@ export CURSOR_API_KEY=...
 export XAI_API_KEY=...
 ```
 
-Hecate passes only the matching credential family to each adapter process:
-Codex receives `CODEX_` / `OPENAI_`, Claude Code receives `CLAUDE_` /
+In local mode, Hecate passes only the matching credential family to each adapter
+process: Codex receives `CODEX_` / `OPENAI_`, Claude Code receives `CLAUDE_` /
 `ANTHROPIC_`, Cursor Agent receives `CURSOR_`, and Grok Build receives `XAI_`.
-Provider or gateway-scoped secrets are not shared across adapters.
+Provider or gateway-scoped secrets are not shared across adapters. In cloud
+runtime mode this narrows further to the declared cloud-safe env keys plus
+runtime essentials such as `PATH`, locale, temp, and certificate variables.
 
 If discovery cannot find a direct CLI adapter, install the vendor CLI and
 restart Hecate from an environment where the command is on `PATH`. If a run

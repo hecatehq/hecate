@@ -366,6 +366,9 @@ func (s *SQLiteStore) CreateApproval(ctx context.Context, approval types.TaskApp
 	if strings.TrimSpace(approval.ID) == "" {
 		return types.TaskApproval{}, fmt.Errorf("approval id is required")
 	}
+	if approval.CreatedAt.IsZero() {
+		approval.CreatedAt = time.Now().UTC()
+	}
 	payload, err := json.Marshal(approval)
 	if err != nil {
 		return types.TaskApproval{}, err

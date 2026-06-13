@@ -151,10 +151,22 @@ func Probe(ctx context.Context, adapterID string) (res ProbeResult) {
 	defer func() { _ = os.RemoveAll(workspace) }()
 
 	args := append([]string(nil), adapter.Args...)
+	processEnv, err := prepareAdapterProcessEnv(ctx, adapter, os.Environ())
+	if err != nil {
+		res.Stage = ProbeStageSpawn
+		res.Status = ProbeStatusAuthRequired
+		res.Error = err.Error()
+		res.Hint = cloudCredentialHint(adapter)
+		res.DurationMS = elapsedMS(start)
+		return res
+	}
+	if processEnv.cleanup != nil {
+		defer processEnv.cleanup()
+	}
 	cmd := exec.CommandContext(context.Background(), path, args...)
 	configureCommandProcessGroup(cmd)
 	cmd.Dir = workspace
-	cmd.Env = sanitizedEnvForAdapter(adapter.ID, os.Environ())
+	cmd.Env = processEnv.values
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

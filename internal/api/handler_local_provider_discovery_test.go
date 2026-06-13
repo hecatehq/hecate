@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -64,6 +65,37 @@ func TestDiscoverLocalProvidersDedupesSharedHTTPProbe(t *testing.T) {
 		if item.Status != "running" || !item.HTTPAvailable || item.ModelCount != 1 {
 			t.Fatalf("item = %+v, want running with one model", item)
 		}
+	}
+}
+
+func TestLocalProviderDiscoveryRejectsRemoteClients(t *testing.T) {
+	t.Parallel()
+
+	handler := &Handler{}
+	tests := []struct {
+		name       string
+		remoteAddr string
+		header     string
+	}{
+		{name: "non loopback", remoteAddr: "203.0.113.7:3456"},
+		{name: "forwarded loopback", remoteAddr: "127.0.0.1:3456", header: "203.0.113.7"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			req := httptest.NewRequest(http.MethodGet, "/hecate/v1/settings/providers/local-discovery", nil)
+			req.RemoteAddr = tt.remoteAddr
+			if tt.header != "" {
+				req.Header.Set("X-Forwarded-For", tt.header)
+			}
+			rec := httptest.NewRecorder()
+
+			handler.HandleLocalProviderDiscovery(rec, req)
+
+			if rec.Code != http.StatusForbidden {
+				t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusForbidden, rec.Body.String())
+			}
+		})
 	}
 }
 

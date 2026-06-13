@@ -23,13 +23,14 @@ const (
 )
 
 type acpSession struct {
-	adapter   Adapter
-	workspace string
-	cmd       *exec.Cmd
-	conn      *acp.ClientSideConnection
-	client    *acpChatClient
-	nativeID  string
-	logger    *slog.Logger
+	adapter    Adapter
+	workspace  string
+	cmd        *exec.Cmd
+	conn       *acp.ClientSideConnection
+	client     *acpChatClient
+	nativeID   string
+	logger     *slog.Logger
+	envCleanup func()
 
 	configMu      sync.Mutex
 	configOptions []agentcontrols.ConfigOption
@@ -66,10 +67,21 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 			slog.Bool("resume_requested", strings.TrimSpace(previousNativeSessionID) != ""),
 		)
 	}
+	processEnv, err := prepareAdapterProcessEnv(ctx, adapter, os.Environ())
+	if err != nil {
+		return nil, false, "", err
+	}
+	cleanupEnvOnError := true
+	defer func() {
+		if cleanupEnvOnError && processEnv.cleanup != nil {
+			processEnv.cleanup()
+		}
+	}()
+
 	cmd := exec.CommandContext(context.Background(), command, args...)
 	configureCommandProcessGroup(cmd)
 	cmd.Dir = workspace
-	cmd.Env = sanitizedEnvForAdapter(adapter.ID, os.Environ())
+	cmd.Env = processEnv.values
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -99,12 +111,13 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 	}
 	conn := acp.NewClientSideConnection(client, stdin, stdout)
 	session := &acpSession{
-		adapter:   adapter,
-		workspace: workspace,
-		cmd:       cmd,
-		conn:      conn,
-		client:    client,
-		logger:    sessionLogger,
+		adapter:    adapter,
+		workspace:  workspace,
+		cmd:        cmd,
+		conn:       conn,
+		client:     client,
+		logger:     sessionLogger,
+		envCleanup: processEnv.cleanup,
 	}
 	client.onAvailableCommands = session.setAvailableCommands
 	if logger != nil {
@@ -238,6 +251,7 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 	session.nativeID = nativeID
 	session.configOptions = configOptions
 	session.managedConfig = managedConfig
+	cleanupEnvOnError = false
 	return session, resumed, recovery, nil
 }
 
@@ -637,6 +651,10 @@ func (s *acpSession) Close(ctx context.Context) error {
 		if s.logger != nil {
 			s.logger.Info("ACP adapter process terminated", slog.String("native_session_id", s.nativeID))
 		}
+	}
+	if s.envCleanup != nil {
+		s.envCleanup()
+		s.envCleanup = nil
 	}
 	return nil
 }
