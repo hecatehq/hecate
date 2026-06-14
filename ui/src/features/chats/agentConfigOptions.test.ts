@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import type { ChatConfigOptionRecord } from "../../types/chat";
 import {
   agentConfigOptionKind,
   agentConfigOptionLabel,
   externalAgentRequiresModelSelection,
   prioritizeAgentConfigOptions,
 } from "./agentConfigOptions";
+import type { ChatConfigOptionRecord } from "../../types/chat";
 
 function option(overrides: Partial<ChatConfigOptionRecord>): ChatConfigOptionRecord {
   return {
@@ -70,5 +70,89 @@ describe("agent config option helpers", () => {
       "approval_mode",
       "verbosity",
     ]);
+  });
+
+  it("prefers the exact model picker over earlier model-named decoys", () => {
+    const options: ChatConfigOptionRecord[] = [
+      option({
+        id: "model_info",
+        name: "Model info",
+        current_value: "metadata",
+      }),
+      option({
+        id: "model",
+        name: "Model",
+        category: "model",
+        current_value: "__hecate_no_model_selected",
+      }),
+    ];
+
+    expect(externalAgentRequiresModelSelection(options)).toBe(true);
+  });
+
+  it("ignores model-named decoys when the exact model picker is configured", () => {
+    const options: ChatConfigOptionRecord[] = [
+      option({
+        id: "default_model_mode",
+        name: "Default model mode",
+        current_value: "",
+      }),
+      option({
+        id: "model",
+        name: "Model",
+        category: "model",
+        current_value: "smart",
+      }),
+    ];
+
+    expect(externalAgentRequiresModelSelection(options)).toBe(false);
+  });
+
+  it("falls back to all heuristic model selects when no exact picker exists", () => {
+    const options: ChatConfigOptionRecord[] = [
+      option({
+        id: "preferred_model",
+        name: "Preferred model",
+        current_value: "fast",
+      }),
+      option({
+        id: "fallback_model",
+        name: "Fallback model",
+        current_value: "",
+      }),
+    ];
+
+    expect(externalAgentRequiresModelSelection(options)).toBe(true);
+  });
+
+  it("classifies config options by tokens instead of incidental substrings", () => {
+    expect(
+      agentConfigOptionKind(option({ id: "remodeling", name: "Remodeling", category: "" })),
+    ).toBe("other");
+    expect(agentConfigOptionKind(option({ id: "commode", name: "Commode", category: "" }))).toBe(
+      "other",
+    );
+    expect(
+      agentConfigOptionKind(option({ id: "reasoning", name: "Reasoning", category: "" })),
+    ).toBe("thought_level");
+    expect(
+      agentConfigOptionKind(
+        option({
+          id: "system_prompt",
+          name: "System prompt",
+          category: "",
+          type: "text",
+        }),
+      ),
+    ).toBe("instructions");
+  });
+
+  it("keeps model controls before mode controls", () => {
+    const sorted = prioritizeAgentConfigOptions([
+      option({ id: "auto_approve", name: "Mode", category: "mode", type: "boolean" }),
+      option({ id: "model", name: "Model", category: "model" }),
+    ]);
+
+    expect(sorted.map((option) => option.id)).toEqual(["model", "auto_approve"]);
   });
 });

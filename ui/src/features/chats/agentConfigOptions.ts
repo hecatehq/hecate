@@ -54,17 +54,18 @@ export function agentConfigOptionKind(option: ChatConfigOptionRecord): AgentConf
   if (category === "model" || category === "thought_level" || category === "mode") {
     return category;
   }
-  const key = agentConfigOptionKey(option);
-  if (key.includes("model")) return "model";
+  const tokens = agentConfigOptionTokens(option);
+  // Keep model before mode: some agent model pickers include mode-shaped
+  // labels, and the send gate depends on model pickers staying classified.
+  if (tokens.includes("model")) return "model";
   if (
-    key.includes("thought_level") ||
-    key.includes("thought level") ||
-    key.includes("thinking") ||
-    key.includes("reasoning")
+    hasTokenSequence(tokens, ["thought", "level"]) ||
+    tokens.includes("thinking") ||
+    tokens.includes("reasoning")
   ) {
     return "thought_level";
   }
-  if (key.includes("mode")) return "mode";
+  if (tokens.includes("mode")) return "mode";
   return "other";
 }
 
@@ -80,13 +81,11 @@ export function agentConfigOptionIsText(option: ChatConfigOptionRecord): boolean
 }
 
 export function agentConfigOptionIsInstructions(option: ChatConfigOptionRecord): boolean {
-  const key = agentConfigOptionKey(option);
+  const tokens = agentConfigOptionTokens(option);
   return (
-    key.includes("system_prompt") ||
-    key.includes("system prompt") ||
-    key.includes("agent_instructions") ||
-    key.includes("agent instructions") ||
-    key.includes("instructions")
+    hasTokenSequence(tokens, ["system", "prompt"]) ||
+    hasTokenSequence(tokens, ["agent", "instructions"]) ||
+    tokens.includes("instructions")
   );
 }
 
@@ -108,14 +107,34 @@ export function agentConfigOptionLabel(option: ChatConfigOptionRecord): string {
 export function externalAgentRequiresModelSelection(
   configOptions: ChatConfigOptionRecord[],
 ): boolean {
-  const option = configOptions.find(
+  const modelOptions = configOptions.filter(
     (item) => item.type === "select" && agentConfigOptionKind(item) === "model",
   );
-  if (!option) return false;
-  const value = (option.current_value ?? "").trim();
-  return value === "" || value.startsWith("__hecate_no_");
+  const exactModelOptions = modelOptions.filter(isExactModelPicker);
+  const candidates = exactModelOptions.length > 0 ? exactModelOptions : modelOptions;
+  return candidates.some((option) => {
+    const value = (option.current_value ?? "").trim();
+    return value === "" || value.startsWith("__hecate_no_");
+  });
 }
 
 function agentConfigOptionKey(option: ChatConfigOptionRecord): string {
   return `${option.id} ${option.name} ${option.category ?? ""}`.toLowerCase();
+}
+
+function agentConfigOptionTokens(option: ChatConfigOptionRecord): string[] {
+  return agentConfigOptionKey(option)
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+}
+
+function hasTokenSequence(tokens: string[], sequence: string[]): boolean {
+  if (sequence.length === 0 || tokens.length < sequence.length) return false;
+  return tokens.some((_, index) =>
+    sequence.every((token, sequenceIndex) => tokens[index + sequenceIndex] === token),
+  );
+}
+
+function isExactModelPicker(option: ChatConfigOptionRecord): boolean {
+  return option.id.toLowerCase() === "model" || (option.category ?? "").toLowerCase() === "model";
 }
