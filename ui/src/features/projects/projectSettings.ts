@@ -1,4 +1,16 @@
-import type { ProjectRecord, ProjectRootPayload, ProjectRootRecord } from "../../types/project";
+import type {
+  CreateProjectPayload,
+  ProjectRecord,
+  ProjectRootPayload,
+  ProjectRootRecord,
+} from "../../types/project";
+
+export type CreateProjectForm = {
+  name: string;
+  description: string;
+  rootPath: string;
+  rootGitBranch: string;
+};
 
 export type ProjectDefaultsForm = {
   provider: string;
@@ -17,6 +29,26 @@ export type CreateWorktreeForm = {
   active: boolean;
   setDefault: boolean;
 };
+
+export function createProjectPayloadFromForm(form: CreateProjectForm): CreateProjectPayload {
+  const rootPath = form.rootPath.trim();
+  const payload: CreateProjectPayload = {
+    name: form.name.trim(),
+  };
+  const description = form.description.trim();
+  if (description) payload.description = description;
+  if (rootPath) {
+    payload.roots = [
+      {
+        path: rootPath,
+        kind: "local",
+        git_branch: form.rootGitBranch.trim() || undefined,
+        active: true,
+      },
+    ];
+  }
+  return payload;
+}
 
 export function projectDefaultsFormFromProject(project: ProjectRecord): ProjectDefaultsForm {
   return {

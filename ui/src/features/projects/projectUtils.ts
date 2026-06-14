@@ -21,3 +21,9 @@ export function firstNonEmpty(...values: Array<string | undefined | null>): stri
   }
   return "";
 }
+
+export function projectNameFromPath(path: string): string {
+  const trimmed = path.trim().replace(/[/\\]+$/, "");
+  const segments = trimmed.split(/[/\\]/).filter(Boolean);
+  return segments.at(-1) || "Untitled project";
+}

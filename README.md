@@ -260,8 +260,10 @@ for the deeper contracts.
 ## Project, Context, And Memory Flow
 
 The newer Hecate shape starts with projects. A project is the durable local
-identity for a codebase or work area. A workspace is the concrete filesystem
-root used by a chat, task, or external-agent session.
+identity for a work area: code, research, writing, design, ops, planning, or
+support. A project can start without a workspace; a workspace is the concrete
+filesystem root used later by a chat, task, or external-agent session when local
+files matter.
 
 ```mermaid
 flowchart LR

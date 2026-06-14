@@ -1245,6 +1245,7 @@ describe("ProjectsView index", () => {
     });
     expect(screen.getByText("No projects yet")).toBeTruthy();
     expect(screen.getByText("Add a project to begin")).toBeTruthy();
+    expect(screen.getByText(/Create a project for any durable work area/)).toBeTruthy();
     expect(screen.queryByRole("tablist", { name: "Project workspace views" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Project settings" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Work" })).toBeNull();
@@ -1267,7 +1268,7 @@ describe("ProjectsView index", () => {
     const user = userEvent.setup();
     const actions = {
       ...createRuntimeConsoleActions(),
-      createProjectFromFolder: vi.fn(async () => project),
+      createProject: vi.fn(async () => project),
       renameProject: vi.fn(async () => undefined),
       deleteProject: vi.fn(async () => true),
       selectProject: vi.fn(async () => undefined),
@@ -1279,7 +1280,20 @@ describe("ProjectsView index", () => {
     render(withRuntimeConsole(<ProjectsView />, { state, actions }));
 
     await user.click(screen.getByRole("button", { name: "Add" }));
-    expect(actions.createProjectFromFolder).toHaveBeenCalled();
+    const createDialog = await screen.findByRole("dialog", { name: "Create project" });
+    fireEvent.change(within(createDialog).getByLabelText("Name"), {
+      target: { value: "Research notebook" },
+    });
+    fireEvent.change(within(createDialog).getByLabelText("Purpose"), {
+      target: { value: "Coordinate research sources." },
+    });
+    await user.click(within(createDialog).getByRole("button", { name: "Create project" }));
+    expect(actions.createProject).toHaveBeenCalledWith({
+      name: "Research notebook",
+      description: "Coordinate research sources.",
+    });
+    expect(actions.selectProject).toHaveBeenCalledWith(project.id);
+    actions.selectProject.mockClear();
 
     await user.click(screen.getByRole("button", { name: "Rename project Hecate" }));
     const renameInput = screen.getByLabelText("Rename Hecate");

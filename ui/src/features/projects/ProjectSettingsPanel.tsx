@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 
+import { chooseWorkspaceDirectory } from "../../lib/api";
 import { projectDefaultWorkspaceFromRoots } from "../../lib/project-workspace";
 import type { AgentProfileRecord } from "../../types/agent-profile";
 import type { ModelRecord } from "../../types/model";
@@ -51,6 +52,7 @@ export function ProjectSettingsPanel({
   const [form, setForm] = useState<ProjectDefaultsForm>(() =>
     projectDefaultsFormFromProject(project),
   );
+  const [rootChooseError, setRootChooseError] = useState("");
   useEffect(() => {
     setForm(projectDefaultsFormFromProject(project));
   }, [project]);
@@ -94,6 +96,30 @@ export function ProjectSettingsPanel({
       defaultRootID: !active && current.defaultRootID === rootID ? "" : current.defaultRootID,
       roots: current.roots.map((root) => (root.id === rootID ? { ...root, active } : root)),
     }));
+  }
+  async function handleChooseRoot() {
+    setRootChooseError("");
+    try {
+      const workspace = await chooseWorkspaceDirectory();
+      const path = workspace.data.path.trim();
+      if (!path) return;
+      setForm((current) => {
+        if (current.roots.some((root) => root.path.trim() === path)) return current;
+        const nextRoot = {
+          path,
+          kind: "local",
+          git_branch: workspace.data.branch || undefined,
+          active: true,
+        };
+        return {
+          ...current,
+          defaultRootID: current.defaultRootID,
+          roots: [...current.roots, nextRoot],
+        };
+      });
+    } catch (err) {
+      setRootChooseError(err instanceof Error ? err.message : "Failed to choose workspace folder.");
+    }
   }
   const submitForm = () => onSave(form);
 
@@ -145,6 +171,7 @@ export function ProjectSettingsPanel({
           style={{ display: "grid", gap: 14 }}
         >
           {error && <InlineError message={error} />}
+          {rootChooseError && <InlineError message={rootChooseError} />}
           {agentProfilesError && <InlineError message={agentProfilesError} />}
           <ProjectSettingsSection title="Assignment defaults">
             <div style={{ ...subtleTextStyle, marginBottom: 12 }}>
@@ -248,8 +275,8 @@ export function ProjectSettingsPanel({
           </ProjectSettingsSection>
           <ProjectSettingsSection title="Project context">
             <div style={{ ...subtleTextStyle, marginBottom: 12 }}>
-              Project roots are concrete checkouts. Linked worktrees discovered from Git stay
-              inactive until enabled here.
+              Project roots are optional local folders or checkouts. Use them when this project
+              needs local files, code, or workspace guidance.
             </div>
             <div style={{ display: "grid", gap: 12, marginBottom: 14 }}>
               <div style={fieldStyle}>
@@ -273,6 +300,14 @@ export function ProjectSettingsPanel({
                 <button
                   className="btn btn-primary btn-sm"
                   type="button"
+                  onClick={() => void handleChooseRoot()}
+                >
+                  Add folder
+                </button>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  type="button"
+                  disabled={rootCount === 0}
                   onClick={onOpenCreateWorktree}
                 >
                   Create worktree
@@ -280,7 +315,7 @@ export function ProjectSettingsPanel({
                 <button
                   className="btn btn-ghost btn-sm"
                   type="button"
-                  disabled={rootsPending}
+                  disabled={rootsPending || rootCount === 0}
                   onClick={() => void onDiscoverRoots()}
                 >
                   {rootsPending ? "Discovering…" : "Discover worktrees"}

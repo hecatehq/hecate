@@ -522,13 +522,23 @@ function ProjectOnboardingPanel({
   skillCount: number;
 }) {
   const hasRoot = project.roots.some((root) => root.active !== false && root.path);
+  const workspace = projectDefaultWorkspace(project);
+  const hasPurpose = Boolean(project.description?.trim());
   const hasDefaults = Boolean(project.default_provider && project.default_model);
   const hasGuidance = contextSourceCount > 0 || skillCount > 0;
   const checks = [
     {
-      label: "Workspace root",
-      detail: hasRoot ? projectDefaultWorkspace(project) || "Ready" : "Missing",
-      done: hasRoot,
+      label: "Project purpose",
+      detail: hasPurpose ? project.description?.trim() || "Ready" : "Add a short purpose.",
+      done: hasPurpose,
+    },
+    {
+      label: "Workspace source",
+      detail: hasRoot
+        ? workspace || "Ready"
+        : "Optional; attach files when this project needs them.",
+      done: true,
+      optional: !hasRoot,
     },
     {
       label: "Provider and model",
@@ -536,13 +546,18 @@ function ProjectOnboardingPanel({
       done: hasDefaults,
     },
     {
-      label: "Guidance and skills",
+      label: "Sources and memory",
       detail: `${contextSourceCount} sources · ${skillCount} skills`,
       done: hasGuidance,
     },
     {
-      label: "Roles and first work",
-      detail: `${roleCount} roles · no work items`,
+      label: "Roles",
+      detail: roleCount > 0 ? `${roleCount} roles` : "Bootstrap or add roles.",
+      done: roleCount > 0,
+    },
+    {
+      label: "First work item",
+      detail: "No work items yet",
       done: false,
     },
   ];
@@ -554,8 +569,8 @@ function ProjectOnboardingPanel({
           <div style={projectOnboardingTitleStyle}>Set up {project.name}</div>
         </div>
         <div style={projectOnboardingDetailStyle}>
-          Create reviewable setup actions from this workspace: roles, guidance, skills, and first
-          work.
+          Create a durable coordination space for planning, evidence, roles, and reviewable work.
+          Attach local files only when this project needs a workspace.
         </div>
         <div style={projectOnboardingActionsStyle}>
           <button
@@ -584,7 +599,7 @@ function ProjectOnboardingPanel({
               className={check.done ? "badge badge-green" : "badge badge-muted"}
               style={projectOnboardingCheckBadgeStyle}
             >
-              {check.done ? "ready" : "todo"}
+              {check.optional ? "optional" : check.done ? "ready" : "todo"}
             </span>
             <div style={{ minWidth: 0 }}>
               <div style={titleStyle}>{check.label}</div>

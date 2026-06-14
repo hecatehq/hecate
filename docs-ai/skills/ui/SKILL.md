@@ -258,6 +258,10 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   design files, deployments, PRs, meeting notes, local references, or other
   operator-provided proof. UI copy should say "evidence" or "source", not
   "GitHub" or "code", unless the specific artifact metadata says so.
+- Projects are durable work areas, not necessarily repos. Creation and
+  onboarding should allow a name/purpose without a workspace root; root, Git,
+  worktree, `AGENTS.md`, and skills affordances are code/file-backed options,
+  not prerequisites for every project.
 - **Stable provider ordering.** Do not sort provider lists by health, blocked state, or availability unless explicitly asked. Fixed alphabetical/preset order within each section.
 - Runtime metadata first-class, not tucked in debug crumbs.
 - Trace and failure details readable without scanning raw JSON first.
