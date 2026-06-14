@@ -113,8 +113,10 @@ a separate execute-command RPC. The operator UI can surface the advertised list
 when the composer starts with `/`, but choosing an item only inserts the command
 text. These are external-agent-native commands, not Hecate-owned project
 mutations. Hecate Chat shortcuts such as `/proposal` are separate local UI
-commands, not ACP commands; they should remain intent hints that go through the
-usual proposal, validation, and operator-apply boundaries.
+commands, not ACP commands. Project-shaping shortcuts such as `/plan`, `/work`,
+`/handoff`, and `/review` should remain intent hints that go through the usual
+proposal, validation, and operator-apply boundaries instead of directly
+mutating project records.
 
 Check discovery:
 

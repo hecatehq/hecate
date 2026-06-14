@@ -3147,7 +3147,7 @@ describe("ChatView input", () => {
     expect(submitChat).not.toHaveBeenCalled();
   });
 
-  it("does not show slash command suggestions for Hecate Chat", () => {
+  it("suggests Hecate utility slash commands for Hecate Chat", () => {
     const { state, actions } = setup({
       chatTarget: "agent",
       defaultChatToolsEnabled: false,
@@ -3163,9 +3163,18 @@ describe("ChatView input", () => {
         messages: [],
       },
     });
-    render(withRuntimeConsole(<ChatView />, { state, actions }));
+    render(withRuntimeConsole(<ChatView onNavigate={() => undefined} />, { state, actions }));
 
-    expect(screen.queryByRole("listbox", { name: "Message commands" })).toBeNull();
+    const commands = screen.getByRole("listbox", { name: "Message commands" });
+    expect(within(commands).getByRole("option", { name: "Insert /diff command" })).toBeTruthy();
+    expect(within(commands).getByRole("option", { name: "Insert /model command" })).toBeTruthy();
+    expect(within(commands).getByRole("option", { name: "Insert /settings command" })).toBeTruthy();
+    expect(within(commands).getByRole("option", { name: "Insert /status command" })).toBeTruthy();
+    expect(within(commands).getByRole("option", { name: "Insert /task command" })).toBeTruthy();
+    expect(
+      within(commands).getByRole("option", { name: "Insert /connections command" }),
+    ).toBeTruthy();
+    expect(within(commands).queryByRole("option", { name: "Insert /proposal command" })).toBeNull();
   });
 
   it("suggests the project proposal slash command for project-linked Hecate chats", async () => {
@@ -3272,6 +3281,217 @@ describe("ChatView input", () => {
       source_session_id: "s1",
       proposal: { id: "pa_chat" },
     });
+  });
+
+  it("drafts a Project Assistant proposal with /plan without sending chat", async () => {
+    const selectProject = vi.fn(async () => undefined);
+    const submitChat = vi.fn(async () => undefined);
+    const onNavigate = vi.fn();
+    const { state, actions } = setup(
+      {
+        chatTarget: "agent",
+        defaultChatToolsEnabled: false,
+        message: "/plan Split the project assistant work",
+        activeChatSessionID: "s1",
+        activeChatSession: {
+          id: "s1",
+          agent_id: "hecate",
+          title: "Project chat",
+          execution_mode: "hecate_task",
+          project_id: "proj_1",
+          provider: "openai",
+          model: "gpt-4o-mini",
+          status: "idle",
+          workspace: "/tmp/hecate",
+          messages: [],
+        },
+      },
+      { selectProject, submitChat },
+    );
+    render(withRuntimeConsole(<ChatView onNavigate={onNavigate} />, { state, actions }));
+
+    fireEvent.submit(screen.getByRole("textbox", { name: "Message" }).closest("form")!);
+
+    await waitFor(() => {
+      expect(draftChatProjectAssistant).toHaveBeenCalledWith("s1", {
+        request: "Split the project assistant work",
+      });
+    });
+    expect(submitChat).not.toHaveBeenCalled();
+    expect(selectProject).toHaveBeenCalledWith("proj_1");
+    expect(onNavigate).toHaveBeenCalledWith("projects");
+  });
+
+  it("routes /work through the Project Assistant proposal boundary", async () => {
+    const submitChat = vi.fn(async () => undefined);
+    const { state, actions } = setup(
+      {
+        chatTarget: "agent",
+        defaultChatToolsEnabled: false,
+        message: "/work Add a nightly maintenance check",
+        activeChatSessionID: "s1",
+        activeChatSession: {
+          id: "s1",
+          agent_id: "hecate",
+          title: "Project chat",
+          execution_mode: "hecate_task",
+          project_id: "proj_1",
+          provider: "openai",
+          model: "gpt-4o-mini",
+          status: "idle",
+          workspace: "/tmp/hecate",
+          messages: [],
+        },
+      },
+      { submitChat },
+    );
+    render(withRuntimeConsole(<ChatView onNavigate={() => undefined} />, { state, actions }));
+
+    fireEvent.submit(screen.getByRole("textbox", { name: "Message" }).closest("form")!);
+
+    await waitFor(() => {
+      expect(draftChatProjectAssistant).toHaveBeenCalledWith("s1", {
+        request: "Create project work from this chat request:\n\nAdd a nightly maintenance check",
+      });
+    });
+    expect(submitChat).not.toHaveBeenCalled();
+  });
+
+  it("opens workspace changes with /diff without sending chat", () => {
+    const setMessage = vi.fn();
+    const submitChat = vi.fn(async () => undefined);
+    const { state, actions } = setup(
+      {
+        chatTarget: "agent",
+        defaultChatToolsEnabled: false,
+        message: "/diff",
+        activeChatSessionID: "s1",
+        activeChatSession: {
+          id: "s1",
+          agent_id: "hecate",
+          title: "Project chat",
+          execution_mode: "hecate_task",
+          provider: "openai",
+          model: "gpt-4o-mini",
+          status: "idle",
+          workspace: "/tmp/hecate",
+          messages: [],
+        },
+      },
+      { setMessage, submitChat },
+    );
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    fireEvent.submit(screen.getByRole("textbox", { name: "Message" }).closest("form")!);
+
+    expect(screen.getByLabelText("Workspace changes panel")).toBeTruthy();
+    expect(setMessage).toHaveBeenCalledWith("");
+    expect(submitChat).not.toHaveBeenCalled();
+  });
+
+  it("opens chat settings with /model without sending chat", () => {
+    const setMessage = vi.fn();
+    const submitChat = vi.fn(async () => undefined);
+    const { state, actions } = setup(
+      {
+        chatTarget: "agent",
+        defaultChatToolsEnabled: false,
+        message: "/model",
+        activeChatSessionID: "s1",
+        activeChatSession: {
+          id: "s1",
+          agent_id: "hecate",
+          title: "Project chat",
+          execution_mode: "hecate_task",
+          provider: "openai",
+          model: "gpt-4o-mini",
+          status: "idle",
+          workspace: "/tmp/hecate",
+          messages: [],
+        },
+      },
+      { setMessage, submitChat },
+    );
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    fireEvent.submit(screen.getByRole("textbox", { name: "Message" }).closest("form")!);
+
+    expect(screen.getByLabelText("Chat settings panel")).toBeTruthy();
+    expect(setMessage).toHaveBeenCalledWith("");
+    expect(submitChat).not.toHaveBeenCalled();
+  });
+
+  it("opens the active Hecate task with /task", () => {
+    const onOpenTask = vi.fn();
+    const setMessage = vi.fn();
+    const submitChat = vi.fn(async () => undefined);
+    const { state, actions } = setup(
+      {
+        chatTarget: "agent",
+        defaultChatToolsEnabled: true,
+        message: "/task",
+        activeChatSessionID: "s1",
+        activeChatSession: {
+          id: "s1",
+          agent_id: "hecate",
+          title: "Project chat",
+          execution_mode: "hecate_task",
+          provider: "openai",
+          model: "gpt-4o-mini",
+          status: "running",
+          workspace: "/tmp/hecate",
+          segments: [
+            {
+              id: "task:task_1",
+              turn_kind: "hecate_task",
+              execution_mode: "hecate_task",
+              task_id: "task_1",
+              latest_run_id: "run_1",
+              status: "running",
+              message_count: 1,
+            },
+          ],
+          messages: [],
+        },
+      },
+      { setMessage, submitChat },
+    );
+    render(withRuntimeConsole(<ChatView onOpenTask={onOpenTask} />, { state, actions }));
+
+    fireEvent.submit(screen.getByRole("textbox", { name: "Message" }).closest("form")!);
+
+    expect(onOpenTask).toHaveBeenCalledWith("task_1", "run_1");
+    expect(setMessage).toHaveBeenCalledWith("");
+    expect(submitChat).not.toHaveBeenCalled();
+  });
+
+  it("submits external-agent slash commands as ordinary prompt text", () => {
+    const submitChat = vi.fn(async () => undefined);
+    const { state, actions } = setup(
+      {
+        chatTarget: "external_agent",
+        agentAdapterID: "claude_code",
+        message: "/plan keep this in Claude",
+        activeChatSession: {
+          id: "chat_commands",
+          title: "Agent commands",
+          agent_id: "claude_code",
+          driver_kind: "acp",
+          execution_mode: "external_agent",
+          status: "idle",
+          workspace: "/tmp/hecate",
+          available_commands: [{ name: "plan", description: "Create a plan" }],
+          messages: [],
+        },
+      },
+      { submitChat },
+    );
+    render(withRuntimeConsole(<ChatView onNavigate={() => undefined} />, { state, actions }));
+
+    fireEvent.submit(screen.getByRole("textbox", { name: "Message" }).closest("form")!);
+
+    expect(submitChat).toHaveBeenCalled();
+    expect(draftChatProjectAssistant).not.toHaveBeenCalled();
   });
 
   it("requires text after the /proposal command", () => {

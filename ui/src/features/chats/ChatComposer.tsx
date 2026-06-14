@@ -46,6 +46,70 @@ const PROJECT_PROPOSAL_COMMAND = {
   description: "Draft a Project Assistant proposal",
   inputHint: "request",
 };
+const HECATE_MESSAGE_COMMANDS: Record<
+  HecateMessageCommandName,
+  { description: string; inputHint?: string }
+> = {
+  proposal: PROJECT_PROPOSAL_COMMAND,
+  plan: {
+    description: "Draft a Project Assistant plan",
+    inputHint: "request",
+  },
+  work: {
+    description: "Draft project work from this chat",
+    inputHint: "title or request",
+  },
+  handoff: {
+    description: "Draft a project handoff proposal",
+    inputHint: "role and request",
+  },
+  review: {
+    description: "Draft a project review proposal",
+    inputHint: "target",
+  },
+  diff: {
+    description: "Open workspace changes",
+  },
+  model: {
+    description: "Open chat model controls",
+  },
+  settings: {
+    description: "Open chat settings",
+  },
+  status: {
+    description: "Open chat status details",
+  },
+  task: {
+    description: "Open the active task or Tasks",
+  },
+  project: {
+    description: "Open the linked project",
+  },
+  connections: {
+    description: "Open Connections",
+  },
+};
+const HECATE_PROJECT_COMMAND_NAMES = new Set<string>([
+  "proposal",
+  "plan",
+  "work",
+  "handoff",
+  "review",
+]);
+
+type HecateMessageCommandName =
+  | "proposal"
+  | "plan"
+  | "work"
+  | "handoff"
+  | "review"
+  | "diff"
+  | "model"
+  | "settings"
+  | "status"
+  | "task"
+  | "project"
+  | "connections";
 type ComposerTextareaNumericStyle =
   | "paddingTop"
   | "paddingBottom"
@@ -62,10 +126,11 @@ type HecateProviderOption = {
 };
 
 type MessageCommandSuggestion = {
-  kind: "external_agent" | "project_proposal";
+  kind: "external_agent" | "hecate";
   name: string;
   description?: string;
   inputHint?: string;
+  sourceLabel?: string;
 };
 
 export type ChatComposerProps = {
@@ -112,6 +177,7 @@ export type ChatComposerProps = {
   activeQueuedChatMessages: QueuedChatMessage[];
   projectProposalAvailable?: boolean;
   projectProposalDrafting?: boolean;
+  workspaceChangesAvailable?: boolean;
 
   // User-message history feeds the arrow-key recall, derived in
   // ChatView from visibleMessages.
@@ -122,6 +188,9 @@ export type ChatComposerProps = {
   onOpenTask?: (taskID: string, runID?: string) => void;
   onOpenTrace?: (requestID: string) => void;
   onDraftProjectProposal?: (request?: string) => void;
+  onOpenWorkspaceChanges?: () => void;
+  onOpenChatSettings?: () => void;
+  onOpenLinkedProject?: () => void;
 };
 
 export function ChatComposer(props: ChatComposerProps) {
@@ -189,11 +258,15 @@ export function ChatComposer(props: ChatComposerProps) {
     activeQueuedChatMessages,
     projectProposalAvailable = false,
     projectProposalDrafting = false,
+    workspaceChangesAvailable = false,
     messageHistory,
     onNavigate,
     onOpenTask,
     onOpenTrace,
     onDraftProjectProposal,
+    onOpenWorkspaceChanges,
+    onOpenChatSettings,
+    onOpenLinkedProject,
   } = props;
   const activeExternalAgentID =
     activeChatSession?.agent_id && activeChatSession.agent_id !== "hecate"
@@ -253,8 +326,25 @@ export function ChatComposer(props: ChatComposerProps) {
     const query = commandQuery.toLowerCase();
     const suggestions: MessageCommandSuggestion[] = [];
 
-    if (projectProposalAvailable && PROJECT_PROPOSAL_COMMAND.name.startsWith(query)) {
-      suggestions.push({ ...PROJECT_PROPOSAL_COMMAND, kind: "project_proposal" });
+    if (isHecateChat) {
+      for (const command of availableHecateMessageCommands({
+        projectProposalAvailable:
+          projectProposalAvailable && !projectProposalDrafting && Boolean(onDraftProjectProposal),
+        workspaceChangesAvailable: workspaceChangesAvailable && Boolean(onOpenWorkspaceChanges),
+        chatSettingsAvailable: Boolean(onOpenChatSettings),
+        taskAvailable: Boolean(onOpenTask && activeHecateTaskID) || Boolean(onNavigate),
+        projectAvailable: Boolean(onOpenLinkedProject),
+        connectionsAvailable: Boolean(onNavigate),
+      })) {
+        if (!command.name.startsWith(query)) continue;
+        suggestions.push({
+          kind: "hecate",
+          name: command.name,
+          description: command.description,
+          inputHint: command.inputHint,
+          sourceLabel: "Hecate",
+        });
+      }
     }
 
     if (isExternalAgentChat) {
@@ -266,6 +356,7 @@ export function ChatComposer(props: ChatComposerProps) {
             name: externalAgentCommandName(command),
             description: command.description,
             inputHint: command.input_hint,
+            sourceLabel: selectedActiveAgent?.name || "Agent",
           }))
           .filter((command) => command.name !== "")
           .filter((command) => command.name.toLowerCase().startsWith(query)),
@@ -275,9 +366,20 @@ export function ChatComposer(props: ChatComposerProps) {
     return suggestions;
   }, [
     activeChatSession?.available_commands,
+    activeHecateTaskID,
     commandQuery,
     isExternalAgentChat,
+    isHecateChat,
+    onDraftProjectProposal,
+    onNavigate,
+    onOpenChatSettings,
+    onOpenLinkedProject,
+    onOpenTask,
+    onOpenWorkspaceChanges,
     projectProposalAvailable,
+    projectProposalDrafting,
+    selectedActiveAgent?.name,
+    workspaceChangesAvailable,
   ]);
   const commandPickerVisible =
     composerVisible && !commandPickerDismissed && commandSuggestions.length > 0;
@@ -430,14 +532,10 @@ export function ChatComposer(props: ChatComposerProps) {
   }
 
   function handleSubmit(e: SyntheticEvent<HTMLFormElement>) {
-    const proposalRequest = projectProposalCommandRequest(message);
-    if (proposalRequest !== null && projectProposalAvailable && onDraftProjectProposal) {
+    const hecateCommand = parseHecateMessageCommand(message);
+    if (hecateCommand && isHecateChat && hecateCommandDefinition(hecateCommand.name)) {
       e.preventDefault();
-      if (!proposalRequest) {
-        settingsActions.setNoticeMessage("error", "Add a request after /proposal.");
-        return;
-      }
-      onDraftProjectProposal(proposalRequest);
+      handleHecateMessageCommand(hecateCommand);
       if (textareaRef.current) {
         textareaRef.current.style.height = "auto";
       }
@@ -446,6 +544,81 @@ export function ChatComposer(props: ChatComposerProps) {
     void chatActions.submitChat(e);
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
+    }
+  }
+
+  function clearLocalCommandMessage() {
+    messageHistoryCursorRef.current = null;
+    messageHistoryPendingTextRef.current = "";
+    runtime.actions.setMessage("");
+  }
+
+  function handleHecateMessageCommand(command: ParsedHecateMessageCommand) {
+    const name = command.name;
+    if (HECATE_PROJECT_COMMAND_NAMES.has(name)) {
+      if (!projectProposalAvailable || projectProposalDrafting || !onDraftProjectProposal) {
+        settingsActions.setNoticeMessage(
+          "error",
+          "This command needs an idle Hecate chat linked to a project.",
+        );
+        return;
+      }
+      if (!command.args) {
+        settingsActions.setNoticeMessage("error", `Add a request after /${name}.`);
+        return;
+      }
+      onDraftProjectProposal(projectAssistantRequestForHecateCommand(name, command.args));
+      return;
+    }
+
+    switch (name) {
+      case "diff":
+        if (!workspaceChangesAvailable || !onOpenWorkspaceChanges) {
+          settingsActions.setNoticeMessage("error", "Choose a workspace before using /diff.");
+          return;
+        }
+        onOpenWorkspaceChanges();
+        clearLocalCommandMessage();
+        return;
+      case "model":
+      case "settings":
+      case "status":
+        if (!onOpenChatSettings) {
+          settingsActions.setNoticeMessage("error", "Chat settings are not available here.");
+          return;
+        }
+        onOpenChatSettings();
+        clearLocalCommandMessage();
+        return;
+      case "task":
+        if (activeHecateTaskID && onOpenTask) {
+          onOpenTask(activeHecateTaskID, activeHecateRunID);
+          clearLocalCommandMessage();
+          return;
+        }
+        if (onNavigate) {
+          onNavigate("runs");
+          clearLocalCommandMessage();
+          return;
+        }
+        settingsActions.setNoticeMessage("error", "Tasks are not available here.");
+        return;
+      case "project":
+        if (!onOpenLinkedProject) {
+          settingsActions.setNoticeMessage("error", "This command needs a linked project chat.");
+          return;
+        }
+        onOpenLinkedProject();
+        clearLocalCommandMessage();
+        return;
+      case "connections":
+        if (!onNavigate) {
+          settingsActions.setNoticeMessage("error", "Connections are not available here.");
+          return;
+        }
+        onNavigate("connections");
+        clearLocalCommandMessage();
+        return;
     }
   }
 
@@ -707,7 +880,7 @@ export function ChatComposer(props: ChatComposerProps) {
                         color: "var(--t0)",
                         cursor: "pointer",
                         display: "grid",
-                        gridTemplateColumns: "minmax(84px, auto) minmax(0, 1fr)",
+                        gridTemplateColumns: "minmax(84px, auto) minmax(0, 1fr) auto",
                         alignItems: "center",
                         gap: 10,
                         padding: "7px 8px",
@@ -739,6 +912,23 @@ export function ChatComposer(props: ChatComposerProps) {
                       >
                         {messageCommandDetail(command)}
                       </span>
+                      {command.sourceLabel && (
+                        <span
+                          style={{
+                            color: "var(--t3)",
+                            fontFamily: "var(--font-mono)",
+                            fontSize: 10,
+                            textTransform: "uppercase",
+                            letterSpacing: "0.06em",
+                            minWidth: 0,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {command.sourceLabel}
+                        </span>
+                      )}
                     </div>
                   );
                 })}
@@ -1030,6 +1220,41 @@ function externalAgentCommandName(command: ChatAvailableCommandRecord) {
   return command.name.trim().replace(/^\/+/, "");
 }
 
+type HecateMessageCommandAvailability = {
+  projectProposalAvailable: boolean;
+  workspaceChangesAvailable: boolean;
+  chatSettingsAvailable: boolean;
+  taskAvailable: boolean;
+  projectAvailable: boolean;
+  connectionsAvailable: boolean;
+};
+
+function availableHecateMessageCommands(availability: HecateMessageCommandAvailability) {
+  const out: Array<{ name: HecateMessageCommandName; description: string; inputHint?: string }> =
+    [];
+  const push = (name: HecateMessageCommandName) =>
+    out.push({ name, ...HECATE_MESSAGE_COMMANDS[name] });
+
+  if (availability.projectProposalAvailable) {
+    push("proposal");
+    push("plan");
+    push("work");
+    push("handoff");
+    push("review");
+  }
+  if (availability.workspaceChangesAvailable) push("diff");
+  if (availability.chatSettingsAvailable) {
+    push("model");
+    push("settings");
+    push("status");
+  }
+  if (availability.taskAvailable) push("task");
+  if (availability.projectAvailable) push("project");
+  if (availability.connectionsAvailable) push("connections");
+
+  return out;
+}
+
 function messageCommandInsertion(command: MessageCommandSuggestion) {
   const name = command.name;
   return name ? `/${name} ` : "";
@@ -1041,11 +1266,36 @@ function messageCommandDetail(command: MessageCommandSuggestion) {
   return command.inputHint?.trim() ?? "";
 }
 
-function projectProposalCommandRequest(message: string): string | null {
+type ParsedHecateMessageCommand = {
+  name: string;
+  args: string;
+};
+
+function parseHecateMessageCommand(message: string): ParsedHecateMessageCommand | null {
   if (!message.startsWith("/")) return null;
-  const match = message.match(/^\/proposal(?:\s+([\s\S]*))?$/i);
+  const match = message.match(/^\/([A-Za-z][\w-]*)(?:\s+([\s\S]*))?$/);
   if (!match) return null;
-  return (match[1] ?? "").trim();
+  return {
+    name: match[1].toLowerCase(),
+    args: (match[2] ?? "").trim(),
+  };
+}
+
+function hecateCommandDefinition(name: string) {
+  return HECATE_MESSAGE_COMMANDS[name as HecateMessageCommandName];
+}
+
+function projectAssistantRequestForHecateCommand(name: string, request: string) {
+  switch (name) {
+    case "work":
+      return `Create project work from this chat request:\n\n${request}`;
+    case "handoff":
+      return `Draft a project handoff from this chat request:\n\n${request}`;
+    case "review":
+      return `Draft a project review request from this chat request:\n\n${request}`;
+    default:
+      return request;
+  }
 }
 
 export function ChatErrorPanel({
