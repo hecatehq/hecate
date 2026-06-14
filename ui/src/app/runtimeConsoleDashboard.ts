@@ -10,6 +10,7 @@ import {
   getRuntimeStats,
   getSession,
 } from "../lib/api";
+import { isCloudRuntimeSession } from "../lib/runtime-utils";
 import type { HealthResponse, RuntimeStatsResponse, SessionResponse } from "../types/runtime";
 import type { ModelResponse } from "../types/model";
 import type { ConfiguredStateResponse, ProviderStatusResponse } from "../types/provider";
@@ -133,8 +134,8 @@ export async function resolveDashboardSnapshot(args: {
   };
 }
 
-export function deriveSessionState(_sessionInfo: SessionResponse["data"] | null): SessionState {
-  return { label: "Local" };
+export function deriveSessionState(sessionInfo: SessionResponse["data"] | null): SessionState {
+  return { label: isCloudRuntimeSession(sessionInfo) ? "Hosted" : "Local" };
 }
 
 async function loadDashboardResults(opts: {

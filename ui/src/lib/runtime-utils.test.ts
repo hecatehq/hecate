@@ -20,6 +20,7 @@ import {
   formatTraceAttributeValue,
   findProvider,
   healthStatusTone,
+  isCloudRuntimeSession,
   parseCSV,
   providerStatusTone,
   routeOutcomeTone,
@@ -81,6 +82,22 @@ describe("runtime-utils", () => {
   it("filters models by provider", () => {
     expect(filterModelsByProvider(models, "ollama")).toEqual([models[1]]);
     expect(filterModelsByProvider(models, "auto")).toEqual(models);
+  });
+
+  it("detects cloud runtime sessions from cloud identity", () => {
+    expect(isCloudRuntimeSession(null)).toBe(false);
+    expect(isCloudRuntimeSession({ role: "operator" })).toBe(false);
+    expect(
+      isCloudRuntimeSession({
+        role: "operator",
+        cloud_identity: {
+          actor_id: "actor-1",
+          org_id: "org-1",
+          project_id: "project-1",
+          runtime_id: "runtime-1",
+        },
+      }),
+    ).toBe(true);
   });
 
   it("builds a trace timeline with derived phases", () => {

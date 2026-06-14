@@ -10,6 +10,12 @@ export type SessionResponse = {
   object: string;
   data: {
     role: string;
+    cloud_identity?: {
+      actor_id: string;
+      org_id: string;
+      project_id: string;
+      runtime_id: string;
+    };
   };
 };
 

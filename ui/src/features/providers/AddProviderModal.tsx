@@ -3,10 +3,12 @@ import {
   useEnsureProviderPresetsLoaded,
   useProvidersAndModels,
 } from "../../app/state/providersAndModels";
+import { useRuntime } from "../../app/state/runtime";
 import { useSettings } from "../../app/state/settings";
 import { useWiredProviderActions } from "../../app/state/coordinators/wired";
 import { discoverLocalProviders } from "../../lib/api";
 import { resolvedBaseURL } from "../../lib/provider-utils";
+import { isCloudRuntimeSession } from "../../lib/runtime-utils";
 import type { LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/provider";
 import { BrandAvatar, Icon, Icons, InlineError, Modal } from "../shared/ui";
 
@@ -27,10 +29,12 @@ type AddFormState = {
 export function AddProviderModal({ open, onClose }: Props) {
   useEnsureProviderPresetsLoaded(open);
   const settings = useSettings();
+  const runtime = useRuntime();
   const providersAndModels = useProvidersAndModels();
   const providerActions = useWiredProviderActions();
   const providerPresets = providersAndModels.state.providerPresets;
   const settingsConfig = settings.state.config;
+  const localProvidersAllowed = !isCloudRuntimeSession(runtime.state.sessionInfo);
   const [step, setStep] = useState<"pick" | "form">("pick");
   const [pickTab, setPickTab] = useState<"cloud" | "local">("local");
   const [preset, setPreset] = useState<ProviderPresetRecord | null>(null);
@@ -48,21 +52,22 @@ export function AddProviderModal({ open, onClose }: Props) {
   useEffect(() => {
     localDiscoveryRequestRef.current++;
     if (!open) return;
+    const nextTab = localProvidersAllowed ? "local" : "cloud";
     setStep("pick");
-    setPickTab("local");
+    setPickTab(nextTab);
     setPreset(null);
-    setForm(emptyAddForm("local"));
+    setForm(emptyAddForm(nextTab));
     setError("");
     setLocalDiscovery([]);
     setLocalDiscoveryLoading(false);
     setLocalDiscoveryError("");
-  }, [open]);
+  }, [localProvidersAllowed, open]);
 
   useEffect(() => {
-    if (!open || step !== "pick" || pickTab !== "local") return;
+    if (!open || step !== "pick" || pickTab !== "local" || !localProvidersAllowed) return;
     void refreshLocalDiscovery();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, step, pickTab]);
+  }, [localProvidersAllowed, open, step, pickTab]);
 
   useEffect(() => {
     if (!open || step !== "form") return;
@@ -89,6 +94,12 @@ export function AddProviderModal({ open, onClose }: Props) {
   }
 
   async function refreshLocalDiscovery() {
+    if (!localProvidersAllowed) {
+      setLocalDiscovery([]);
+      setLocalDiscoveryLoading(false);
+      setLocalDiscoveryError("");
+      return;
+    }
     const requestID = ++localDiscoveryRequestRef.current;
     setLocalDiscoveryLoading(true);
     setLocalDiscoveryError("");
@@ -143,14 +154,17 @@ export function AddProviderModal({ open, onClose }: Props) {
 
   function pickCustom(kind: "cloud" | "local") {
     setPreset(null);
-    setForm(emptyAddForm(kind));
+    setForm(emptyAddForm(localProvidersAllowed ? kind : "cloud"));
     setStep("form");
   }
 
   function renderPickStep() {
-    const presets = pickTab === "cloud" ? cloudPresets : localPresets;
+    const effectivePickTab = localProvidersAllowed ? pickTab : "cloud";
+    const presets = effectivePickTab === "cloud" ? cloudPresets : localPresets;
     const cardsPerRow = 3;
-    const maxItemCount = Math.max(cloudPresets.length, localPresets.length) + 1;
+    const maxItemCount = localProvidersAllowed
+      ? Math.max(cloudPresets.length, localPresets.length) + 1
+      : cloudPresets.length + 1;
     const maxRows = Math.ceil(maxItemCount / cardsPerRow);
     const rowHeight = 78;
     const rowGap = 8;
@@ -169,16 +183,18 @@ export function AddProviderModal({ open, onClose }: Props) {
           <TabButton
             id="cloud"
             label="Cloud"
-            active={pickTab === "cloud"}
+            active={effectivePickTab === "cloud"}
             onClick={() => setPickTab("cloud")}
           />
-          <TabButton
-            id="local"
-            label="Local"
-            active={pickTab === "local"}
-            onClick={() => setPickTab("local")}
-          />
-          {pickTab === "local" && (
+          {localProvidersAllowed && (
+            <TabButton
+              id="local"
+              label="Local"
+              active={effectivePickTab === "local"}
+              onClick={() => setPickTab("local")}
+            />
+          )}
+          {localProvidersAllowed && effectivePickTab === "local" && (
             <button
               type="button"
               className="btn btn-ghost btn-sm"
@@ -190,7 +206,7 @@ export function AddProviderModal({ open, onClose }: Props) {
             </button>
           )}
         </div>
-        {pickTab === "local" && (
+        {localProvidersAllowed && effectivePickTab === "local" && (
           <div
             style={{
               fontSize: 11,
@@ -225,7 +241,7 @@ export function AddProviderModal({ open, onClose }: Props) {
               onClick={() => pickPreset(p)}
             />
           ))}
-          <CustomButton onClick={() => pickCustom(pickTab)} />
+          <CustomButton onClick={() => pickCustom(effectivePickTab)} />
         </div>
       </div>
     );

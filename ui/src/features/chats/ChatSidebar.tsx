@@ -40,9 +40,15 @@ type Props = {
   onSelectSession: (sessionID: string) => void;
   // New-chat creation. Gated on agent readiness inside the sidebar.
   onCreateChat: (agentID: ChatAgentOptionID, projectID: string) => void;
+  onOpenAgentSetup: (adapterID: string) => void;
 };
 
-export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Props) {
+export function ChatSidebar({
+  isAgentChat,
+  onSelectSession,
+  onCreateChat,
+  onOpenAgentSetup,
+}: Props) {
   const chat = useChat();
   const providersAndModels = useProvidersAndModels();
   const projects = useProjects();
@@ -182,6 +188,7 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
                 : undefined
             }
             onChange={(agentID) => chatActions.setNewChatAgent(agentID)}
+            onSetupAgent={onOpenAgentSetup}
             onCreate={(agentID) => {
               if (workspaceRequiredForNewChat) return;
               if (!statusForAgent(agentID).ready) return;

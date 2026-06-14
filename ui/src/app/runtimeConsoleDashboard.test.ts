@@ -57,9 +57,23 @@ afterEach(() => {
 });
 
 describe("deriveSessionState", () => {
-  it("returns the local label regardless of input", () => {
+  it("returns the local label without cloud identity", () => {
     expect(deriveSessionState(null)).toEqual({ label: "Local" });
     expect(deriveSessionState({ role: "operator" })).toEqual({ label: "Local" });
+  });
+
+  it("returns the hosted label with cloud identity", () => {
+    expect(
+      deriveSessionState({
+        role: "operator",
+        cloud_identity: {
+          actor_id: "actor_1",
+          org_id: "org_1",
+          project_id: "proj_1",
+          runtime_id: "rt_1",
+        },
+      }),
+    ).toEqual({ label: "Hosted" });
   });
 });
 

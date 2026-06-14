@@ -12,6 +12,7 @@ type Props = {
   isAgentChat: boolean;
   isHecateChat: boolean;
   isExternalAgentChat: boolean;
+  isCloudRuntime: boolean;
   setupRepair: ChatSetupRepairState | null;
   modelRouteUnavailable: boolean;
   selectedModelIssue: SelectedModelIssue | null;
@@ -44,6 +45,7 @@ export function ChatEmptyState({
   isAgentChat,
   isHecateChat,
   isExternalAgentChat,
+  isCloudRuntime,
   setupRepair,
   modelRouteUnavailable,
   selectedModelIssue,
@@ -75,6 +77,7 @@ export function ChatEmptyState({
     isHecateChat && (modelRouteUnavailable || Boolean(selectedModelIssue));
   const hasQuickLocalProviderCandidates =
     isHecateChat &&
+    !isCloudRuntime &&
     modelRouteUnavailable &&
     !hasConfiguredProviders &&
     quickLocalProviders.some((discovery) => discovery.preset_id != null);
@@ -226,18 +229,23 @@ export function ChatEmptyState({
           )}
         </div>
       )}
-      {isHecateChat && modelRouteUnavailable && !hasConfiguredProviders && (
-        <QuickLocalProviderAdd
-          discoveries={quickLocalProviders}
-          error={quickLocalError}
-          loading={quickLocalLoading}
-          presets={providerPresets}
-          adding={quickAddingProviders}
-          onOpenProviders={onOpenProviders}
-          onAdd={onQuickAddLocalProviders}
-          onRefresh={onRefreshQuickLocalProviders}
-        />
-      )}
+      {isHecateChat &&
+        modelRouteUnavailable &&
+        !hasConfiguredProviders &&
+        (isCloudRuntime ? (
+          <HostedRuntimeProviderSetup />
+        ) : (
+          <QuickLocalProviderAdd
+            discoveries={quickLocalProviders}
+            error={quickLocalError}
+            loading={quickLocalLoading}
+            presets={providerPresets}
+            adding={quickAddingProviders}
+            onOpenProviders={onOpenProviders}
+            onAdd={onQuickAddLocalProviders}
+            onRefresh={onRefreshQuickLocalProviders}
+          />
+        ))}
     </div>
   );
 }
@@ -536,6 +544,38 @@ function RTKOnboardingHint({ path, onEnable }: { path: string; onEnable: () => v
         >
           Turn on
         </button>
+      </div>
+    </div>
+  );
+}
+
+function HostedRuntimeProviderSetup() {
+  return (
+    <div
+      style={{
+        margin: "14px auto 0",
+        maxWidth: 640,
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius)",
+        background: "var(--bg2)",
+        padding: 12,
+        textAlign: "left",
+      }}
+    >
+      <div
+        style={{
+          fontSize: 11,
+          color: "var(--t2)",
+          fontFamily: "var(--font-mono)",
+          textTransform: "uppercase",
+          letterSpacing: "0.04em",
+        }}
+      >
+        Hosted runtime
+      </div>
+      <div style={{ fontSize: 12, color: "var(--t3)", lineHeight: 1.45, marginTop: 3 }}>
+        Add an API-key provider or agent credential in Connections. This hosted runtime does not
+        scan the server for local model apps.
       </div>
     </div>
   );

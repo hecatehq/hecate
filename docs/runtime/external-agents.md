@@ -1,7 +1,8 @@
 # External Agents
 
 Hecate can supervise external coding-agent CLIs from **Chats**. Today that means
-Codex, Claude Code, Cursor Agent, and Grok Build through local ACP sessions.
+Codex, Claude Code, Cursor Agent, and Grok Build through ACP sessions launched
+next to the Hecate runtime.
 
 External agents are not Hecate model providers and they are not inside the
 `hecate` process. Hecate starts the agent bridge as the operator's OS user, sends
@@ -23,6 +24,12 @@ Hecate starts a fresh native session and keeps the Hecate transcript.
 | Cursor Agent   | `cursor-agent acp`                                                                                                        | Operator-owned Cursor Agent auth visible to `cursor-agent` | `CURSOR_API_KEY`                                 |
 | Grok Build     | `grok agent ... stdio`                                                                                                    | Operator-owned Grok login visible to `grok`                | `XAI_API_KEY` or Hecate's `PROVIDER_XAI_API_KEY` |
 
+The Docker runtime image includes the supported agent CLIs and ACP adapters so
+local/self-host Docker deployments can use External Agents without installing
+those binaries into the container at runtime. Bare binary and desktop
+deployments still use whatever agent CLIs are installed on the operator's
+machine, plus Hecate's managed `npx` launcher where available.
+
 ## Credential and account boundaries
 
 The selected external agent owns its model/runtime/account relationship:
@@ -41,17 +48,17 @@ The selected external agent owns its model/runtime/account relationship:
 
 When `HECATE_CLOUD_RUNTIME_MODE=1`, External Agent launches fail closed unless
 the selected adapter has a declared cloud-safe credential mode and the matching
-environment variable is present. Local CLI login files such as Codex, Claude
-Code, Cursor, or Grok browser-auth caches are ignored for this decision. The
-runtime accepts API-key style credentials for Codex (`OPENAI_API_KEY` /
-`CODEX_API_KEY`), Claude Code (`ANTHROPIC_API_KEY`), Cursor
-(`CURSOR_API_KEY`), and Grok Build (`XAI_API_KEY`, or
-`PROVIDER_XAI_API_KEY` bridged to `XAI_API_KEY` only for Grok). Auth-token env
-vars that represent local CLI login state, such as `CODEX_AUTH_TOKEN` or
-`ANTHROPIC_AUTH_TOKEN`, are local-only for this policy. Cloud-mode adapter
-processes also get an ephemeral `HOME` / XDG config directory instead of the
-runtime process home, so copied browser-login files are not discovered through
-normal CLI lookup paths.
+environment variable is present. The bundled CLIs do not make personal
+subscription/browser logins valid for hosted mode. Local CLI login files such as
+Codex, Claude Code, Cursor, or Grok browser-auth caches are ignored for this
+decision. The runtime accepts API-key style credentials for Codex
+(`OPENAI_API_KEY` / `CODEX_API_KEY`), Claude Code (`ANTHROPIC_API_KEY`), Cursor
+(`CURSOR_API_KEY`), and Grok Build (`XAI_API_KEY`, or `PROVIDER_XAI_API_KEY`
+bridged to `XAI_API_KEY` only for Grok). Auth-token env vars that represent
+local CLI login state, such as `CODEX_AUTH_TOKEN` or `ANTHROPIC_AUTH_TOKEN`,
+are local-only for this policy. Cloud-mode adapter processes also get an
+ephemeral `HOME` / XDG config directory instead of the runtime process home, so
+copied browser-login files are not discovered through normal CLI lookup paths.
 
 This is the same practical boundary used by ACP-capable editors such as
 [Zed](https://zed.dev/docs/ai/external-agents): the client supervises a local

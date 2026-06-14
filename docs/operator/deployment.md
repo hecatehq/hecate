@@ -40,8 +40,11 @@ private to the host, load balancer, or orchestrator health check.
 
 ## Cloud runtime mode
 
-Hosted Hecate Cloud runtimes use a different posture from a self-managed
-exposed gateway. Start the runtime with:
+The Docker runtime image is shared by local/self-host deployments and hosted
+Hecate Cloud runtimes. It includes the Hecate binary, embedded UI, git/ssh, and
+the supported External Agent CLIs/ACP adapters. The image defaults to
+local/self-host mode; hosted deployments opt into the cloud security posture
+with runtime env. Start the runtime with:
 
 ```bash
 HECATE_CLOUD_RUNTIME_MODE=1
@@ -65,6 +68,13 @@ registered route is not explicitly marked cloud-safe or local-only. Keep the
 runtime network-private even with this mode enabled; the header secret is the
 internal proxy contract, not a public internet authentication system.
 
+Remote deployments using the published image must supply container- or
+VM-level isolation around each instance. The image intentionally includes a
+POSIX shell, git/ssh, and External Agent CLIs, and it does not install
+`bwrap` by default; Hecate still applies its process policy, env sanitisation,
+and approval gates, but filesystem/network isolation inside the container is
+normally reported as `none`.
+
 Cloud mode also disables local model providers by default. Local presets are
 hidden, `kind=local` provider creates/updates are rejected, env-preconfigured
 local providers are skipped, and pre-existing local provider rows are not loaded
@@ -80,21 +90,28 @@ The local-provider switch is based on Hecate provider `kind`, not URL
 classification. A custom `kind=cloud` provider keeps its configured `base_url`;
 network destination policy belongs in the cloud deployment boundary.
 
-External Agent sessions in cloud mode use a fail-closed credential policy.
-Hecate will not treat local CLI browser-login files or copied personal auth
-tokens as hosted credentials. Codex, Claude Code, Cursor Agent, and Grok Build
-can still run in hosted runtimes when the runtime receives vendor-supported
-cloud-safe credentials: `OPENAI_API_KEY` / `CODEX_API_KEY`, `ANTHROPIC_API_KEY`,
-`CURSOR_API_KEY`, or `XAI_API_KEY` respectively. The adapter catalog reports
-the declared credential modes and marks an adapter unauthenticated until one of
-its cloud-safe env keys is present. When Hecate starts an External Agent for a
-cloud request, the child process receives only runtime essentials, the matching
-cloud-safe credential family, and an ephemeral `HOME` / XDG config directory;
-local CLI login homes and broad auth-token env vars are not inherited.
+External Agent sessions in cloud mode use a fail-closed credential policy even
+though the image contains the agent CLIs. Hecate will not treat local CLI
+browser-login files or copied personal auth tokens as hosted credentials. Codex,
+Claude Code, Cursor Agent, and Grok Build can still run in hosted runtimes when
+the runtime receives vendor-supported cloud-safe credentials: `OPENAI_API_KEY` /
+`CODEX_API_KEY`, `ANTHROPIC_API_KEY`, `CURSOR_API_KEY`, or `XAI_API_KEY`
+respectively. The adapter catalog reports the declared credential modes and
+marks an adapter unauthenticated until one of its cloud-safe env keys is
+present. When Hecate starts an External Agent for a cloud request, the child
+process receives only runtime essentials, the matching cloud-safe credential
+family, and an ephemeral `HOME` / XDG config directory; local CLI login homes
+and broad auth-token env vars are not inherited.
 
 ## Image pinning
 
-`docker-compose.yml` references `ghcr.io/hecatehq/hecate:latest`, a multi-arch (`linux/amd64`, `linux/arm64`) image published from this repo on every `v*` tag. A fresh host can `docker compose pull` and start without a build step.
+`docker-compose.yml` references `ghcr.io/hecatehq/hecate:latest`, a multi-arch
+(`linux/amd64`, `linux/arm64`) runtime image published from this repo on every
+`v*` tag. A fresh host can `docker compose pull` and start without a build step.
+The published image has the same runtime posture as local source builds from
+`Dockerfile`: Hecate plus git/ssh and the supported External Agent CLIs/ACP
+adapters. Local/self-host behavior remains the default unless
+`HECATE_CLOUD_RUNTIME_MODE=1` is set.
 
 To pin to a specific release, replace `:latest` with the published tag (no `v` prefix — goreleaser uses the bare semver as the docker tag). Example for the current alpha:
 
@@ -105,7 +122,10 @@ image: ghcr.io/hecatehq/hecate:0.1.0-alpha.45
 
 Pinning is recommended for any deployment beyond local experimentation — `:latest` floats over alpha increments that may include schema or config changes.
 
-When the working tree is a checkout of the source, `docker compose up` rebuilds locally from the bundled `Dockerfile` instead of pulling. Useful for testing changes; remove the `image:` line or run `docker compose build` first if you want the local build to be the canonical artifact.
+When the working tree is a checkout of the source, `docker compose up` rebuilds
+locally from the bundled `Dockerfile` instead of pulling. Useful for testing
+changes; remove the `image:` line or run `docker compose build` first if you
+want the local build to be the canonical artifact.
 
 The Docker image starts `hecate` by default. The container sets
 `HECATE_PUBLIC_URL=http://127.0.0.1:8765`, which is the host URL users normally
@@ -114,6 +134,12 @@ reach through `-p 8765:8765` or `docker compose`. The image also sets
 `0.0.0.0` for the published port to work. Treat the host-side published port as
 the exposed surface and protect it with host firewall rules or a reverse proxy
 when it is reachable beyond your own machine.
+
+The bundled External Agent CLIs are pinned by Docker build args so a Hecate
+release does not silently move to a newer top-level agent package. The Cursor
+Agent installer is fetched from Cursor's official install URL and checked
+against a pinned SHA-256 before it runs; update the checksum only after
+reviewing the new installer contents.
 
 If a `docker run` (or `docker compose up`) errors with `bind: address already in use` on `:8765`, a previous `just dev` / `just run` / `./hecate` is still listening from another shell. Free the port with `just stop` and retry; `just dev`, `just run`, and `just serve` also auto-run `stop` before starting so successive launches don't pile up.
 

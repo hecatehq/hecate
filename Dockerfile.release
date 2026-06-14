@@ -1,28 +1,62 @@
 # syntax=docker/dockerfile:1.7
 #
-# Release image used by goreleaser. The dev Dockerfile (./Dockerfile)
-# builds Go from source in-image; this one is a pure copy job — it
-# expects goreleaser to have cross-compiled the static `hecate` binary on the
-# host and staged it into the buildx context under ${TARGETPLATFORM}/hecate.
+# Release image used by goreleaser. The dev Dockerfile builds Go from source
+# in-image; this one is a pure copy job that expects goreleaser to have
+# cross-compiled the static `hecate` binary on the host and staged it into the
+# buildx context under ${TARGETPLATFORM}/hecate.
 #
-# Final image is byte-identical in shape to the dev Dockerfile's runtime
-# stage (distroless static, nonroot, /data volume, port 8765), so users
-# get the same artifact whichever path they go through.
-#
-# The alpine prep stage exists only so we can chown an empty /data dir
-# to nonroot's uid (65532) before copying it into distroless. Distroless
-# has no shell, so we can't `RUN mkdir && chown` directly there; without
-# the pre-chown, a docker named volume mounted on /data inherits root
-# ownership and the nonroot binary can't persist its bootstrap file.
+# Keep this runtime stage aligned with ./Dockerfile so local builds and
+# published ghcr.io/hecatehq/hecate images expose the same Hecate runtime:
+# embedded UI, git/ssh, supported External Agent CLIs/ACP adapters, /data
+# persistence, and /workspace as the default work root.
 
-FROM alpine:3.20 AS prep
-RUN mkdir -p /data && chown 65532:65532 /data
+ARG NODE_VERSION=24
 
-FROM gcr.io/distroless/static-debian12:nonroot
+FROM node:${NODE_VERSION}-bookworm-slim
 
 ARG TARGETPLATFORM
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+      bash \
+      ca-certificates \
+      curl \
+      git \
+      openssh-client \
+      tini \
+    && rm -rf /var/lib/apt/lists/*
+
+ARG OPENAI_CODEX_VERSION=0.139.0
+ARG CODEX_ACP_VERSION=0.16.0
+ARG CLAUDE_CODE_VERSION=2.1.177
+ARG CLAUDE_AGENT_ACP_VERSION=0.44.0
+ARG GROK_VERSION=0.2.51
+ARG CURSOR_INSTALL_SHA256=84b1d5128198bbe60a29047d643a679ce15af5e0fc695fd298dce9bf8ef24274
+ARG CURSOR_INSTALL_URL=https://cursor.com/install
+
+RUN npm install -g \
+      @openai/codex@${OPENAI_CODEX_VERSION} \
+      @zed-industries/codex-acp@${CODEX_ACP_VERSION} \
+      @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} \
+      @agentclientprotocol/claude-agent-acp@${CLAUDE_AGENT_ACP_VERSION} \
+      @xai-official/grok@${GROK_VERSION} \
+    && npm cache clean --force
+
+RUN mkdir -p /opt/cursor-agent \
+    && curl -fsSL "${CURSOR_INSTALL_URL}" -o /tmp/cursor-install.sh \
+    && printf '%s  %s\n' "${CURSOR_INSTALL_SHA256}" /tmp/cursor-install.sh | sha256sum -c - \
+    && HOME=/opt/cursor-agent PATH=/opt/cursor-agent/.local/bin:$PATH \
+      bash /tmp/cursor-install.sh \
+    && rm -f /tmp/cursor-install.sh \
+    && ln -sf /opt/cursor-agent/.local/bin/cursor-agent /usr/local/bin/cursor-agent \
+    && ln -sf /opt/cursor-agent/.local/bin/agent /usr/local/bin/agent
+
+RUN groupadd --system --gid 65532 hecate \
+    && useradd --system --uid 65532 --gid hecate --home-dir /home/hecate --create-home hecate \
+    && mkdir -p /data /workspace \
+    && chown -R hecate:hecate /data /workspace /home/hecate
+
 COPY ${TARGETPLATFORM}/hecate /usr/local/bin/hecate
-COPY --from=prep --chown=65532:65532 /data /data
 
 ENV HECATE_ADDRESS=0.0.0.0:8765 \
     HECATE_ALLOW_NON_LOOPBACK_BIND=1 \
@@ -30,13 +64,17 @@ ENV HECATE_ADDRESS=0.0.0.0:8765 \
     HECATE_DATA_DIR=/data \
     HECATE_SQLITE_PATH=/data/hecate.db \
     HECATE_BACKEND=sqlite \
+    HECATE_AGENT_ADAPTERS_DIR=/data/agent-adapters \
+    NPM_CONFIG_CACHE=/data/npm-cache \
+    TINI_SUBREAPER=1 \
     PROVIDER_OLLAMA_BASE_URL=http://host.docker.internal:11434/v1 \
     PROVIDER_LMSTUDIO_BASE_URL=http://host.docker.internal:1234/v1 \
     PROVIDER_LLAMACPP_BASE_URL=http://host.docker.internal:8080/v1 \
     PROVIDER_LOCALAI_BASE_URL=http://host.docker.internal:8080/v1
 
-VOLUME ["/data"]
+VOLUME ["/data", "/workspace"]
+WORKDIR /workspace
 EXPOSE 8765
-USER nonroot:nonroot
-ENTRYPOINT ["/usr/local/bin/hecate"]
+USER hecate:hecate
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/hecate"]
 CMD ["serve"]
