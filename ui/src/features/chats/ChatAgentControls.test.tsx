@@ -287,4 +287,74 @@ describe("ExternalAgentConfigControls", () => {
 
     expect(onChange).toHaveBeenCalledWith("a1", "model", "model-a");
   });
+
+  it("keeps Grok Build ACP model and thinking controls prominent when categories are missing", () => {
+    render(
+      <ExternalAgentConfigControls
+        placement="composer"
+        session={{
+          id: "grok_chat",
+          agent_id: "grok_build",
+          config_options: [
+            {
+              id: "web_search",
+              name: "Web search",
+              type: "select",
+              current_value: "auto",
+              options: [
+                { value: "off", name: "Off" },
+                { value: "auto", name: "Auto" },
+              ],
+            },
+            {
+              id: "verbosity",
+              name: "Verbosity",
+              type: "select",
+              current_value: "normal",
+              options: [
+                { value: "normal", name: "Normal" },
+                { value: "detailed", name: "Detailed" },
+              ],
+            },
+            {
+              id: "model",
+              name: "Model",
+              type: "select",
+              current_value: "grok-code-fast-1",
+              options: [
+                { value: "grok-code-fast-1", name: "Grok Code Fast 1" },
+                { value: "grok-code-pro-1", name: "Grok Code Pro 1" },
+              ],
+            },
+            {
+              id: "thinking_level",
+              name: "Level of thinking",
+              type: "select",
+              current_value: "medium",
+              options: [
+                { value: "low", name: "Low" },
+                { value: "medium", name: "Medium" },
+                { value: "high", name: "High" },
+              ],
+            },
+            {
+              id: "approval_mode",
+              name: "Approval mode",
+              type: "select",
+              current_value: "ask",
+              options: [
+                { value: "ask", name: "Ask" },
+                { value: "auto", name: "Auto" },
+              ],
+            },
+          ],
+        }}
+        onChange={async () => true}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("Grok Code Fast 1");
+    expect(screen.getByRole("button", { name: "Level of thinking" })).toHaveTextContent("Medium");
+    expect(screen.queryByRole("button", { name: "Verbosity" })).toBeNull();
+  });
 });

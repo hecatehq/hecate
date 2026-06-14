@@ -973,8 +973,9 @@ function ExternalAgentTextConfigControl({
 
 function prioritizeAgentConfigOptions(options: ChatConfigOptionRecord[]): ChatConfigOptionRecord[] {
   const priority = (option: ChatConfigOptionRecord) => {
-    if (agentConfigOptionIsInstructions(option)) return -1;
-    switch (option.category) {
+    switch (agentConfigOptionKind(option)) {
+      case "instructions":
+        return -1;
       case "model":
         return 0;
       case "thought_level":
@@ -986,6 +987,28 @@ function prioritizeAgentConfigOptions(options: ChatConfigOptionRecord[]): ChatCo
     }
   };
   return [...options].sort((a, b) => priority(a) - priority(b) || a.name.localeCompare(b.name));
+}
+
+type AgentConfigOptionKind = "instructions" | "model" | "thought_level" | "mode" | "other";
+
+function agentConfigOptionKind(option: ChatConfigOptionRecord): AgentConfigOptionKind {
+  if (agentConfigOptionIsInstructions(option)) return "instructions";
+  const category = (option.category ?? "").toLowerCase();
+  if (category === "model" || category === "thought_level" || category === "mode") {
+    return category;
+  }
+  const key = agentConfigOptionKey(option);
+  if (key.includes("model")) return "model";
+  if (
+    key.includes("thought_level") ||
+    key.includes("thought level") ||
+    key.includes("thinking") ||
+    key.includes("reasoning")
+  ) {
+    return "thought_level";
+  }
+  if (key.includes("mode")) return "mode";
+  return "other";
 }
 
 function agentConfigOptionIsText(option: ChatConfigOptionRecord): boolean {
@@ -1000,7 +1023,7 @@ function agentConfigOptionIsText(option: ChatConfigOptionRecord): boolean {
 }
 
 function agentConfigOptionIsInstructions(option: ChatConfigOptionRecord): boolean {
-  const key = `${option.id} ${option.name} ${option.category ?? ""}`.toLowerCase();
+  const key = agentConfigOptionKey(option);
   return (
     key.includes("system_prompt") ||
     key.includes("system prompt") ||
@@ -1011,8 +1034,9 @@ function agentConfigOptionIsInstructions(option: ChatConfigOptionRecord): boolea
 }
 
 function agentConfigOptionLabel(option: ChatConfigOptionRecord): string {
-  if (agentConfigOptionIsInstructions(option)) return "instructions";
-  switch (option.category) {
+  switch (agentConfigOptionKind(option)) {
+    case "instructions":
+      return "instructions";
     case "model":
       return "model";
     case "thought_level":
@@ -1022,6 +1046,10 @@ function agentConfigOptionLabel(option: ChatConfigOptionRecord): string {
     default:
       return option.name || option.id;
   }
+}
+
+function agentConfigOptionKey(option: ChatConfigOptionRecord): string {
+  return `${option.id} ${option.name} ${option.category ?? ""}`.toLowerCase();
 }
 
 export function LockedHecateModelSnapshot({
