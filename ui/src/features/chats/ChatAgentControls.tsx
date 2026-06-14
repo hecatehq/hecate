@@ -9,6 +9,12 @@ import type { DropdownPickerOption, ProviderOption } from "../shared/ui";
 import { focusDropdownItem, focusInitialDropdownItem } from "../shared/dropdownKeyboard";
 import { useFloatingDropdownStyle } from "../shared/useFloatingDropdownStyle";
 import { useFloatingMenu } from "../shared/useFloatingMenu";
+import {
+  agentConfigOptionIsInstructions,
+  agentConfigOptionIsText,
+  agentConfigOptionLabel,
+  prioritizeAgentConfigOptions,
+} from "./agentConfigOptions";
 
 const HECATE_CHAT_AGENT_OPTION = { id: "hecate", label: "Hecate" } as const;
 
@@ -969,87 +975,6 @@ function ExternalAgentTextConfigControl({
       </button>
     </div>
   );
-}
-
-function prioritizeAgentConfigOptions(options: ChatConfigOptionRecord[]): ChatConfigOptionRecord[] {
-  const priority = (option: ChatConfigOptionRecord) => {
-    switch (agentConfigOptionKind(option)) {
-      case "instructions":
-        return -1;
-      case "model":
-        return 0;
-      case "thought_level":
-        return 1;
-      case "mode":
-        return 2;
-      default:
-        return 3;
-    }
-  };
-  return [...options].sort((a, b) => priority(a) - priority(b) || a.name.localeCompare(b.name));
-}
-
-type AgentConfigOptionKind = "instructions" | "model" | "thought_level" | "mode" | "other";
-
-function agentConfigOptionKind(option: ChatConfigOptionRecord): AgentConfigOptionKind {
-  if (agentConfigOptionIsInstructions(option)) return "instructions";
-  const category = (option.category ?? "").toLowerCase();
-  if (category === "model" || category === "thought_level" || category === "mode") {
-    return category;
-  }
-  const key = agentConfigOptionKey(option);
-  if (key.includes("model")) return "model";
-  if (
-    key.includes("thought_level") ||
-    key.includes("thought level") ||
-    key.includes("thinking") ||
-    key.includes("reasoning")
-  ) {
-    return "thought_level";
-  }
-  if (key.includes("mode")) return "mode";
-  return "other";
-}
-
-function agentConfigOptionIsText(option: ChatConfigOptionRecord): boolean {
-  const type = option.type.toLowerCase();
-  return (
-    type === "text" ||
-    type === "textarea" ||
-    type === "string" ||
-    type === "prompt" ||
-    type === "multiline"
-  );
-}
-
-function agentConfigOptionIsInstructions(option: ChatConfigOptionRecord): boolean {
-  const key = agentConfigOptionKey(option);
-  return (
-    key.includes("system_prompt") ||
-    key.includes("system prompt") ||
-    key.includes("agent_instructions") ||
-    key.includes("agent instructions") ||
-    key.includes("instructions")
-  );
-}
-
-function agentConfigOptionLabel(option: ChatConfigOptionRecord): string {
-  switch (agentConfigOptionKind(option)) {
-    case "instructions":
-      return "instructions";
-    case "model":
-      return "model";
-    case "thought_level":
-      return "reasoning";
-    case "mode":
-      return "mode";
-    default:
-      return option.name || option.id;
-  }
-}
-
-function agentConfigOptionKey(option: ChatConfigOptionRecord): string {
-  return `${option.id} ${option.name} ${option.category ?? ""}`.toLowerCase();
 }
 
 export function LockedHecateModelSnapshot({
