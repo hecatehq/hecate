@@ -1015,6 +1015,8 @@ function numericStyleValue(element: HTMLElement, property: ComposerTextareaNumer
   return Number.parseFloat(window.getComputedStyle(element)[property]) || 0;
 }
 
+// Picker parsing and submit routing are intentionally separate: the picker
+// reads an in-progress command token, while submit routing needs full args.
 function messageCommandQuery(message: string): string | null {
   if (!message.startsWith("/")) return null;
   const query = message.slice(1);
