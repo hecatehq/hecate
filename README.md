@@ -142,11 +142,11 @@ Design direction that is not yet a runtime contract:
 
 Choose the path that matches how you want to run Hecate.
 
-| Path                        | Best for                                                                                           |
-| --------------------------- | -------------------------------------------------------------------------------------------------- |
-| [Desktop app](#desktop-app) | macOS personal use on your laptop. No terminal, no Docker. Linux/Windows bundles are experimental. |
-| [Docker](#docker)           | Local container, scripted local deploys, and the safer Linux/Windows alpha path today.             |
-| [From source](#from-source) | Contributors and local development.                                                                |
+| Path                        | Best for                                                                                                                                |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| [Desktop app](#desktop-app) | macOS personal use on your laptop with embedded workspace terminal support. No Docker required. Linux/Windows bundles are experimental. |
+| [Docker](#docker)           | Local container, scripted local deploys, and the safer Linux/Windows alpha path today.                                                  |
+| [From source](#from-source) | Contributors and local development.                                                                                                     |
 
 ### Desktop app
 

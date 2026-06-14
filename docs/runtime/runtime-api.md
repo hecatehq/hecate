@@ -3809,6 +3809,47 @@ canonicalizes `path`, requires it to be a directory, and returns `403` for
 non-local callers so a remotely hosted Hecate cannot unexpectedly launch apps
 on the server machine.
 
+### `GET /hecate/v1/terminal`
+
+Opens an embedded PTY-backed terminal over WebSocket for a validated local
+workspace. This endpoint is intentionally local-runtime-only: it accepts only
+loopback clients, rejects forwarded-client headers, canonicalizes `workspace`,
+and is blocked in cloud runtime mode.
+
+```text
+GET /hecate/v1/terminal?workspace=/Users/alice/project&cols=100&rows=30
+Upgrade: websocket
+```
+
+Query parameters:
+
+| Parameter   | Type   | Meaning                                              |
+| ----------- | ------ | ---------------------------------------------------- |
+| `workspace` | string | Required local directory where the shell starts.     |
+| `cols`      | int    | Optional initial terminal columns. Defaults to `80`. |
+| `rows`      | int    | Optional initial terminal rows. Defaults to `24`.    |
+
+Client → server messages:
+
+```json
+{ "type": "input", "data": "echo hello\r" }
+{ "type": "resize", "cols": 120, "rows": 40 }
+{ "type": "close" }
+```
+
+Server → client messages:
+
+```json
+{ "type": "output", "data": "hello\r\n" }
+{ "type": "error", "message": "terminal read failed" }
+{ "type": "exit", "code": 0 }
+```
+
+The terminal starts the host shell as the same local OS user (`$SHELL` on
+macOS/Linux, PowerShell/cmd fallbacks on Windows). It is operator-controlled
+convenience UI, not a task-runtime sandbox: commands run directly in the
+workspace and are not approval-gated by Hecate.
+
 ## Rate-limit headers on chat / messages
 
 Every response from `POST /v1/chat/completions` and `POST /v1/messages` carries three rate-limit headers, regardless of whether rate limiting is enabled (the headers are zero-value when off):
