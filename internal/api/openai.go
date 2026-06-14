@@ -243,6 +243,11 @@ type SessionResponse struct {
 type SessionResponseItem struct {
 	Role          string                     `json:"role"`
 	CloudIdentity *CloudIdentityResponseItem `json:"cloud_identity,omitempty"`
+	Capabilities  SessionCapabilitiesItem    `json:"capabilities,omitempty"`
+}
+
+type SessionCapabilitiesItem struct {
+	EmbeddedTerminal bool `json:"embedded_terminal,omitempty"`
 }
 
 type CloudIdentityResponseItem struct {
