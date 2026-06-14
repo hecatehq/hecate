@@ -20,13 +20,15 @@ Providers without streaming fall back to the normal non-streaming chat call.
 
 When a Hecate Chat session is linked to a project, Hecate keeps the Chat UI
 simple and injects project workflow guidance into the effective system prompt
-for project-linked turns. The prompt uses the same project, role, skill,
-active-work, and accepted-memory vocabulary as project assignment launch
-context, and tells the model to treat planning/assignment/handoff/memory
-requests as proposal-only Project Assistant intent. Skill entries are metadata
-only; `SKILL.md` bodies are not injected by the simple chat path. The guidance
-does not grant Chat or the agent loop direct authority to create/start project
-records, tasks, runs, chats, external-agent sessions, or promoted memory.
+for project-linked Hecate-owned turns. The prompt includes bounded project-root
+metadata plus role, skill, active-work, and accepted-memory vocabulary, and
+tells the model to treat planning/assignment/handoff/memory requests as
+proposal-only Project Assistant intent. Project roots and skill entries are
+metadata only; root files and `SKILL.md` bodies are not injected by the simple
+chat path. The guidance does not grant Chat or the agent loop direct authority
+to create/start project records, tasks, runs, chats, external-agent sessions,
+or promoted memory. External Agent sessions linked to a project keep their
+agent-owned prompt and receive no Hecate project workflow prompt layer.
 
 **Invariant: one chat, many segments, one active task-backed loop.** A single
 Hecate Chat session can carry an arbitrary history of segments — alternating
