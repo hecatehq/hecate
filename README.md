@@ -265,6 +265,8 @@ support. A project can start without a workspace; a workspace is the concrete
 filesystem root used later by a chat, task, or external-agent session when local
 files matter.
 
+![Projects workspace showing work queue, closeout checks, assignment evidence, and pending review](docs/screenshots/projects.png)
+
 ```mermaid
 flowchart LR
     Project["Project<br/>stable local identity"] --> Roots["Workspace roots"]

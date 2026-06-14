@@ -59,7 +59,7 @@ async function snap(page: Page, name: string) {
 
 async function openWorkspace(
   page: Page,
-  id: "overview" | "runs" | "chats" | "connections" | "usage" | "settings",
+  id: "overview" | "runs" | "chats" | "connections" | "projects" | "usage" | "settings",
 ) {
   await page.evaluate(
     ({ key, workspace }) => {
@@ -182,6 +182,16 @@ const docsHecateChatSessionID = "chat-docs-hecate";
 const docsHecateToolsFallbackSessionID = "chat-docs-hecate-tools-fallback";
 const docsTaskID = "task_docs_git_status";
 const docsRunID = "run_docs_git_status";
+const docsProjectID = "proj_docs_alpha_release";
+const docsProjectRootID = "root_docs_main";
+const docsProjectWorkItemID = "work_docs_readme_screenshots";
+const docsProjectImplementAssignmentID = "assign_docs_readme_refresh";
+const docsProjectReviewAssignmentID = "assign_docs_review";
+const docsProjectHandoffID = "handoff_docs_review";
+const docsProjectArtifactID = "artifact_docs_review_notes";
+const docsProjectEvidenceID = "artifact_docs_screenshot_evidence";
+const docsProjectMemoryID = "memory_docs_release_baseline";
+const docsProjectCandidateID = "candidate_docs_onboarding_gap";
 
 const docsWorkspaceDiffFiles = [
   {
@@ -1072,6 +1082,554 @@ async function unrouteHecateToolsFallbackDocsFixture(page: Page) {
   );
 }
 
+function docsProject() {
+  return {
+    id: docsProjectID,
+    name: "Hecate alpha release",
+    description:
+      "Coordinate README evidence, screenshot refreshes, and agent-review handoffs for the local runtime console.",
+    roots: [
+      {
+        id: docsProjectRootID,
+        path: "/Users/alice/dev/hecate",
+        kind: "workspace",
+        git_remote: "git@github.com:hecatehq/hecate.git",
+        git_branch: "master",
+        active: true,
+        created_at: docsTimestamp(-180),
+        updated_at: docsTimestamp(-5),
+      },
+    ],
+    context_sources: [
+      {
+        id: "ctx_docs_agents",
+        kind: "repo_guidance",
+        title: "Agent guidance",
+        path: "AGENTS.md",
+        enabled: true,
+        format: "markdown",
+        scope: "repo",
+        trust_label: "operator_approved",
+        source_category: "guidance",
+        metadata: { discovered_by: "project_context_scan" },
+        created_at: docsTimestamp(-120),
+        updated_at: docsTimestamp(-12),
+      },
+      {
+        id: "ctx_docs_runtime",
+        kind: "runtime_doc",
+        title: "Runtime API",
+        path: "docs/runtime/runtime-api.md",
+        enabled: true,
+        format: "markdown",
+        scope: "project",
+        trust_label: "repo",
+        source_category: "reference",
+        created_at: docsTimestamp(-118),
+        updated_at: docsTimestamp(-8),
+      },
+    ],
+    default_root_id: docsProjectRootID,
+    default_provider: "ollama",
+    default_model: "ministral-3:latest",
+    default_agent_profile: "default",
+    default_tools_enabled: true,
+    default_workspace_mode: "existing",
+    default_compact_tool_output: true,
+    created_at: docsTimestamp(-180),
+    updated_at: docsTimestamp(-4),
+    last_opened_at: docsTimestamp(-1),
+  };
+}
+
+function docsProjectRoles() {
+  return [
+    {
+      id: "role_docs_impl",
+      project_id: docsProjectID,
+      name: "Implementation",
+      description: "Make the code and documentation changes, then leave a concise evidence trail.",
+      instructions: "Prefer app seams, keep UI fixtures deterministic, and run related checks.",
+      default_driver_kind: "hecate_task",
+      default_provider: "ollama",
+      default_model: "ministral-3:latest",
+      default_agent_profile: "default",
+      skill_ids: ["skill_docs_backend", "skill_docs_ui"],
+      built_in: false,
+      created_at: docsTimestamp(-90),
+      updated_at: docsTimestamp(-8),
+    },
+    {
+      id: "role_docs_review",
+      project_id: docsProjectID,
+      name: "Reviewer",
+      description: "Review the artifact evidence and call out release-risk follow-ups.",
+      instructions: "Focus on screenshots, stale docs, and test evidence before approval.",
+      default_driver_kind: "external_agent",
+      default_agent_profile: "codex",
+      skill_ids: ["skill_docs_ui"],
+      built_in: false,
+      created_at: docsTimestamp(-88),
+      updated_at: docsTimestamp(-6),
+    },
+  ];
+}
+
+function docsProjectAssignments() {
+  return [
+    {
+      id: docsProjectImplementAssignmentID,
+      project_id: docsProjectID,
+      work_item_id: docsProjectWorkItemID,
+      role_id: "role_docs_impl",
+      root_id: docsProjectRootID,
+      driver_kind: "hecate_task",
+      status: "completed",
+      execution_ref: {
+        kind: "task_run",
+        task_id: "task_docs_readme",
+        run_id: "run_docs_readme_1",
+        status: "completed",
+        trace_id: "trace_docs_project",
+      },
+      execution: {
+        task_id: "task_docs_readme",
+        run_id: "run_docs_readme_1",
+        task_status: "completed",
+        run_status: "completed",
+        status: "completed",
+        step_count: 6,
+        artifact_count: 3,
+        approval_count: 0,
+        provider: "ollama",
+        model: "ministral-3:latest",
+        started_at: docsTimestamp(-28),
+        finished_at: docsTimestamp(-11),
+        trace_id: "trace_docs_project",
+      },
+      created_at: docsTimestamp(-30),
+      updated_at: docsTimestamp(-11),
+      started_at: docsTimestamp(-28),
+      completed_at: docsTimestamp(-11),
+    },
+    {
+      id: docsProjectReviewAssignmentID,
+      project_id: docsProjectID,
+      work_item_id: docsProjectWorkItemID,
+      role_id: "role_docs_review",
+      root_id: docsProjectRootID,
+      driver_kind: "external_agent",
+      status: "awaiting_approval",
+      execution_ref: {
+        kind: "chat_session",
+        chat_session_id: "chat_docs_review",
+        message_id: "msg_docs_review_latest",
+        status: "awaiting_approval",
+        pending_approval_count: 1,
+        trace_id: "trace_docs_review",
+      },
+      execution: {
+        status: "awaiting_approval",
+        pending_approval_count: 1,
+        artifact_count: 1,
+        model: "codex",
+        provider: "external_agent",
+        started_at: docsTimestamp(-10),
+        trace_id: "trace_docs_review",
+      },
+      created_at: docsTimestamp(-20),
+      updated_at: docsTimestamp(-2),
+      started_at: docsTimestamp(-10),
+    },
+  ];
+}
+
+function docsProjectWorkItem(assignments = docsProjectAssignments()) {
+  return {
+    id: docsProjectWorkItemID,
+    project_id: docsProjectID,
+    title: "Refresh README and screenshots",
+    brief:
+      "Update the public README to show Projects, promoted memory, handoffs, and workspace evidence after the latest alpha UI cleanup.",
+    status: "review",
+    priority: "high",
+    owner_role_id: "role_docs_impl",
+    root_id: docsProjectRootID,
+    reviewer_role_ids: ["role_docs_review"],
+    assignments,
+    created_at: docsTimestamp(-42),
+    updated_at: docsTimestamp(-2),
+  };
+}
+
+function docsProjectArtifacts() {
+  return [
+    {
+      id: docsProjectEvidenceID,
+      project_id: docsProjectID,
+      work_item_id: docsProjectWorkItemID,
+      assignment_id: docsProjectImplementAssignmentID,
+      kind: "evidence_link",
+      title: "Generated README screenshots",
+      body: "Captured chat, task diagnostics, provider settings, Projects, approvals, and usage screenshots from the docs fixture runner.",
+      author_role_id: "role_docs_impl",
+      evidence_source_kind: "screenshot",
+      evidence_url: "docs/screenshots/projects.png",
+      evidence_external_id: "projects.png",
+      evidence_provider: "local",
+      evidence_trust_label: "operator_verified",
+      created_at: docsTimestamp(-9),
+      updated_at: docsTimestamp(-9),
+    },
+    {
+      id: docsProjectArtifactID,
+      project_id: docsProjectID,
+      work_item_id: docsProjectWorkItemID,
+      assignment_id: docsProjectReviewAssignmentID,
+      kind: "review",
+      title: "Screenshot QA notes",
+      body: "Projects view now shows work queue, assignment evidence, handoff state, and promoted memory without relying on legacy fallback fields.",
+      author_role_id: "role_docs_review",
+      reviewed_assignment_id: docsProjectImplementAssignmentID,
+      review_verdict: "needs_follow_up",
+      review_risk: "low",
+      review_follow_up_required: true,
+      created_at: docsTimestamp(-3),
+      updated_at: docsTimestamp(-3),
+    },
+  ];
+}
+
+function docsProjectHandoffs() {
+  return [
+    {
+      id: docsProjectHandoffID,
+      project_id: docsProjectID,
+      work_item_id: docsProjectWorkItemID,
+      source_assignment_id: docsProjectImplementAssignmentID,
+      source_run_id: "run_docs_readme_1",
+      target_role_id: "role_docs_review",
+      target_assignment_id: docsProjectReviewAssignmentID,
+      title: "Review release evidence",
+      summary:
+        "README screenshot refresh is implemented; reviewer should validate layout and stale-doc risk.",
+      recommended_next_action:
+        "Check the new Projects screenshot and approve the pending review if the README narrative matches the UI.",
+      linked_artifact_ids: [docsProjectEvidenceID],
+      linked_memory_ids: [docsProjectMemoryID],
+      context_refs: ["ctx_docs_agents", "ctx_docs_runtime", "run_docs_readme_1"],
+      status: "accepted",
+      provenance_kind: "agent_handoff",
+      trust_label: "operator_visible",
+      created_by_role_id: "role_docs_impl",
+      created_at: docsTimestamp(-8),
+      updated_at: docsTimestamp(-4),
+      status_changed_at: docsTimestamp(-4),
+    },
+  ];
+}
+
+function docsProjectMemoryEntries() {
+  return [
+    {
+      id: docsProjectMemoryID,
+      scope: "project",
+      project_id: docsProjectID,
+      title: "Release screenshot baseline",
+      body: "README evidence should include Projects, Hecate Chat, tool fallback, task diagnostics, approvals, usage, and provider configuration screenshots.",
+      trust_label: "operator_approved",
+      source_kind: "artifact",
+      source_id: docsProjectEvidenceID,
+      enabled: true,
+      created_at: docsTimestamp(-7),
+      updated_at: docsTimestamp(-7),
+    },
+  ];
+}
+
+function docsProjectMemoryCandidates() {
+  return [
+    {
+      id: docsProjectCandidateID,
+      project_id: docsProjectID,
+      title: "Document project onboarding gap",
+      body: "Operators may need a short note explaining that project memory candidates stay pending until explicitly promoted.",
+      suggested_kind: "follow_up",
+      suggested_trust_label: "operator_review",
+      suggested_source_kind: "review",
+      suggested_source_id: docsProjectArtifactID,
+      source_refs: [
+        {
+          kind: "artifact",
+          id: docsProjectArtifactID,
+          title: "Screenshot QA notes",
+        },
+      ],
+      status: "pending",
+      created_at: docsTimestamp(-2),
+      updated_at: docsTimestamp(-2),
+    },
+  ];
+}
+
+function docsProjectSkills() {
+  return [
+    {
+      id: "skill_docs_backend",
+      project_id: docsProjectID,
+      title: "Backend",
+      description: "Runtime, API, task state, event protocol, and app-layer guidance.",
+      path: "docs-ai/skills/backend/SKILL.md",
+      root_id: docsProjectRootID,
+      format: "markdown",
+      enabled: true,
+      status: "available",
+      trust_label: "repo",
+      source_context_source_ids: ["ctx_docs_agents"],
+      warnings: [],
+      discovered_at: docsTimestamp(-14),
+      created_at: docsTimestamp(-14),
+      updated_at: docsTimestamp(-6),
+    },
+    {
+      id: "skill_docs_ui",
+      project_id: docsProjectID,
+      title: "UI",
+      description: "React operator UI conventions, screenshot fixtures, and project view models.",
+      path: "docs-ai/skills/ui/SKILL.md",
+      root_id: docsProjectRootID,
+      format: "markdown",
+      enabled: true,
+      status: "available",
+      trust_label: "repo",
+      source_context_source_ids: ["ctx_docs_agents"],
+      warnings: [],
+      discovered_at: docsTimestamp(-14),
+      created_at: docsTimestamp(-14),
+      updated_at: docsTimestamp(-6),
+    },
+  ];
+}
+
+function docsProjectActivity(
+  roles = docsProjectRoles(),
+  assignments = docsProjectAssignments(),
+  artifacts = docsProjectArtifacts(),
+  handoffs = docsProjectHandoffs(),
+) {
+  const workItem = docsProjectWorkItem(assignments);
+  const roleByID = new Map(roles.map((role) => [role.id, role]));
+  const implementAssignment = assignments[0];
+  const reviewAssignment = assignments[1];
+  const evidence = artifacts[0];
+  const review = artifacts[1];
+  const handoff = handoffs[0];
+  const completed = {
+    id: `${docsProjectImplementAssignmentID}:activity`,
+    project_id: docsProjectID,
+    work_item: {
+      id: workItem.id,
+      title: workItem.title,
+      status: workItem.status,
+      priority: workItem.priority,
+    },
+    assignment: implementAssignment,
+    role: roleByID.get("role_docs_impl"),
+    status: "completed",
+    blocking_signal: "completed",
+    status_summary: "Task run completed with screenshot evidence",
+    linked_task_id: "task_docs_readme",
+    linked_run_id: "run_docs_readme_1",
+    recent_artifacts: [evidence],
+    artifact_summary: {
+      count: 1,
+      latest_kind: evidence.kind,
+      latest_title: evidence.title,
+      latest_at: evidence.updated_at,
+      assignment_id: docsProjectImplementAssignmentID,
+    },
+    recent_handoffs: [handoff],
+    handoff_summary: {
+      count: 1,
+      accepted_count: 1,
+      latest_status: "accepted",
+      latest_title: handoff.title,
+      latest_at: handoff.updated_at,
+      assignment_id: docsProjectImplementAssignmentID,
+      target_role_id: "role_docs_review",
+    },
+    updated_at: implementAssignment.updated_at,
+  };
+  const blocked = {
+    id: `${docsProjectReviewAssignmentID}:activity`,
+    project_id: docsProjectID,
+    work_item: {
+      id: workItem.id,
+      title: workItem.title,
+      status: workItem.status,
+      priority: workItem.priority,
+    },
+    assignment: reviewAssignment,
+    role: roleByID.get("role_docs_review"),
+    status: "awaiting_approval",
+    blocking_signal: "awaiting_approval",
+    status_summary: "External agent review is waiting for operator approval",
+    linked_chat_id: "chat_docs_review",
+    linked_message_id: "msg_docs_review_latest",
+    linked_chat: {
+      id: "chat_docs_review",
+      title: "README screenshot review",
+      agent_id: "codex",
+      driver_kind: "external_agent",
+      native_session_id: "codex-docs-review-42",
+      status: "awaiting_approval",
+      latest_message_id: "msg_docs_review_latest",
+      latest_role: "assistant",
+      latest_status: "awaiting_approval",
+      message_count: 5,
+      created_at: docsTimestamp(-10),
+      updated_at: docsTimestamp(-2),
+    },
+    recent_artifacts: [review],
+    artifact_summary: {
+      count: 1,
+      latest_kind: review.kind,
+      latest_title: review.title,
+      latest_at: review.updated_at,
+      assignment_id: docsProjectReviewAssignmentID,
+    },
+    recent_handoffs: [handoff],
+    handoff_summary: {
+      count: 1,
+      accepted_count: 1,
+      latest_status: "accepted",
+      latest_title: handoff.title,
+      latest_at: handoff.updated_at,
+      assignment_id: docsProjectImplementAssignmentID,
+      target_role_id: "role_docs_review",
+    },
+    updated_at: reviewAssignment.updated_at,
+  };
+
+  return {
+    project_id: docsProjectID,
+    summary: {
+      work_item_count: 1,
+      assignment_count: 2,
+      active_count: 1,
+      blocked_count: 1,
+      completed_count: 1,
+      recent_count: 2,
+    },
+    buckets: {
+      active: [blocked],
+      blocked: [blocked],
+      completed: [completed],
+      recent: [blocked, completed],
+    },
+    recent: [blocked, completed],
+  };
+}
+
+async function routeProjectDocsFixture(page: Page) {
+  let project = docsProject();
+  const roles = docsProjectRoles();
+  const assignments = docsProjectAssignments();
+  const workItem = docsProjectWorkItem(assignments);
+  const artifacts = docsProjectArtifacts();
+  const handoffs = docsProjectHandoffs();
+  const memory = docsProjectMemoryEntries();
+  const candidates = docsProjectMemoryCandidates();
+  const skills = docsProjectSkills();
+  const activity = docsProjectActivity(roles, assignments, artifacts, handoffs);
+
+  await page.route(`${HECATE_API}/projects`, (route) => {
+    fulfillJSON(route, { object: "projects", data: [project] });
+  });
+  await page.route(`${HECATE_API}/projects/${docsProjectID}`, async (route) => {
+    if (route.request().method() === "PATCH") {
+      const body = JSON.parse(route.request().postData() || "{}") as { last_opened_at?: string };
+      project = {
+        ...project,
+        last_opened_at: body.last_opened_at || project.last_opened_at,
+        updated_at: docsTimestamp(),
+      };
+    }
+    fulfillJSON(route, { object: "project", data: project });
+  });
+  await page.route(`${HECATE_API}/projects/${docsProjectID}/activity`, (route) => {
+    fulfillJSON(route, { object: "project_activity", data: activity });
+  });
+  await page.route(`${HECATE_API}/projects/${docsProjectID}/roles`, (route) => {
+    fulfillJSON(route, { object: "project_work_roles", data: roles });
+  });
+  await page.route(`${HECATE_API}/projects/${docsProjectID}/work-items`, (route) => {
+    fulfillJSON(route, { object: "project_work_items", data: [workItem] });
+  });
+  await page.route(
+    `${HECATE_API}/projects/${docsProjectID}/work-items/${docsProjectWorkItemID}`,
+    (route) => {
+      fulfillJSON(route, { object: "project_work_item", data: workItem });
+    },
+  );
+  await page.route(
+    `${HECATE_API}/projects/${docsProjectID}/work-items/${docsProjectWorkItemID}/assignments`,
+    (route) => {
+      fulfillJSON(route, { object: "project_assignments", data: assignments });
+    },
+  );
+  await page.route(
+    `${HECATE_API}/projects/${docsProjectID}/work-items/${docsProjectWorkItemID}/artifacts`,
+    (route) => {
+      fulfillJSON(route, { object: "project_collaboration_artifacts", data: artifacts });
+    },
+  );
+  await page.route(
+    `${HECATE_API}/projects/${docsProjectID}/work-items/${docsProjectWorkItemID}/handoffs`,
+    (route) => {
+      fulfillJSON(route, { object: "project_handoffs", data: handoffs });
+    },
+  );
+  await page.route(
+    `${HECATE_API}/projects/${docsProjectID}/memory?include_disabled=true`,
+    (route) => {
+      fulfillJSON(route, { object: "project_memory", data: memory });
+    },
+  );
+  await page.route(
+    `${HECATE_API}/projects/${docsProjectID}/memory/candidates?include_resolved=true`,
+    (route) => {
+      fulfillJSON(route, { object: "project_memory_candidates", data: candidates });
+    },
+  );
+  await page.route(`${HECATE_API}/projects/${docsProjectID}/skills`, (route) => {
+    fulfillJSON(route, { object: "project_skills", data: skills });
+  });
+}
+
+async function unrouteProjectDocsFixture(page: Page) {
+  await page.unroute(`${HECATE_API}/projects`);
+  await page.unroute(`${HECATE_API}/projects/${docsProjectID}`);
+  await page.unroute(`${HECATE_API}/projects/${docsProjectID}/activity`);
+  await page.unroute(`${HECATE_API}/projects/${docsProjectID}/roles`);
+  await page.unroute(`${HECATE_API}/projects/${docsProjectID}/work-items`);
+  await page.unroute(`${HECATE_API}/projects/${docsProjectID}/work-items/${docsProjectWorkItemID}`);
+  await page.unroute(
+    `${HECATE_API}/projects/${docsProjectID}/work-items/${docsProjectWorkItemID}/assignments`,
+  );
+  await page.unroute(
+    `${HECATE_API}/projects/${docsProjectID}/work-items/${docsProjectWorkItemID}/artifacts`,
+  );
+  await page.unroute(
+    `${HECATE_API}/projects/${docsProjectID}/work-items/${docsProjectWorkItemID}/handoffs`,
+  );
+  await page.unroute(`${HECATE_API}/projects/${docsProjectID}/memory?include_disabled=true`);
+  await page.unroute(
+    `${HECATE_API}/projects/${docsProjectID}/memory/candidates?include_resolved=true`,
+  );
+  await page.unroute(`${HECATE_API}/projects/${docsProjectID}/skills`);
+}
+
 async function routeTaskDiagnosticsDocsFixture(page: Page) {
   const task = {
     id: docsTaskID,
@@ -1309,7 +1867,7 @@ async function routeTaskDiagnosticsDocsFixture(page: Page) {
   const fulfillJSON = (route: Route, data: unknown) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(data) });
 
-  await page.route(`${HECATE_API}/tasks?limit=30`, (route) =>
+  await page.route(`${HECATE_API}/tasks?*`, (route) =>
     fulfillJSON(route, { object: "tasks", data: [task] }),
   );
   await page.route(`${HECATE_API}/tasks/${docsTaskID}/runs`, (route) =>
@@ -1340,7 +1898,7 @@ async function routeTaskDiagnosticsDocsFixture(page: Page) {
 }
 
 async function unrouteTaskDiagnosticsDocsFixture(page: Page) {
-  await page.unroute(`${HECATE_API}/tasks?limit=30`);
+  await page.unroute(`${HECATE_API}/tasks?*`);
   await page.unroute(`${HECATE_API}/tasks/${docsTaskID}/runs`);
   await page.unroute(`${HECATE_API}/tasks/${docsTaskID}/approvals`);
   await page.unroute(`${HECATE_API}/tasks/${docsTaskID}/runs/${docsRunID}/steps`);
@@ -1835,7 +2393,7 @@ async function main() {
   await page.getByRole("button", { name: "Workspace changes" }).click();
   await page.getByRole("region", { name: "Workspace review" }).waitFor({ timeout: 5_000 });
   await page.getByLabel("Search changed files").fill("runtime");
-  await page.getByLabel("Changed files").waitFor({ timeout: 5_000 });
+  await page.getByLabel("Changed files", { exact: true }).waitFor({ timeout: 5_000 });
   await page.getByRole("button", { name: "Copy complete workspace patch" }).waitFor({
     timeout: 5_000,
   });
@@ -1894,7 +2452,30 @@ async function main() {
   await snap(page, "tasks");
   await unrouteTaskDiagnosticsDocsFixture(page);
 
-  // ── 10. Observability — pick a trace first ──────────────────────────────────
+  // ── 10. Projects ───────────────────────────────────────────────────────────
+  console.log("→ projects (work, memory, and handoff fixture)");
+  await routeProjectDocsFixture(page);
+  await clearAndNavigate(page);
+  await page.evaluate(
+    ({ projectID, workspaceKey }) => {
+      window.localStorage.setItem(workspaceKey, "projects");
+      window.localStorage.setItem("hecate.project", projectID);
+    },
+    { projectID: docsProjectID, workspaceKey: WORKSPACE_KEY },
+  );
+  await page.reload();
+  await page.waitForSelector(".hecate-activitybar", { timeout: 10_000 });
+  await openWorkspace(page, "projects");
+  await page.waitForSelector("text=Refresh README and screenshots", { timeout: 5_000 });
+  await page.waitForSelector("text=Project Assistant", { timeout: 5_000 });
+  await page.waitForSelector("text=Assignments", { timeout: 5_000 });
+  await page.waitForSelector("text=approval pending", { timeout: 5_000 });
+  await page.getByRole("button", { name: "Open task" }).first().scrollIntoViewIfNeeded();
+  await page.waitForTimeout(700);
+  await snap(page, "projects");
+  await unrouteProjectDocsFixture(page);
+
+  // ── 11. Observability — pick a trace first ──────────────────────────────────
   console.log("→ observe (trace selected)");
   await routeObservabilityDocsFixture(page);
   await openWorkspace(page, "overview");
@@ -1914,7 +2495,7 @@ async function main() {
   await snap(page, "observe");
   await unrouteObservabilityDocsFixture(page);
 
-  // ── 11. Usage workspace ────────────────────────────────────────────
+  // ── 12. Usage workspace ────────────────────────────────────────────
   console.log("→ usage");
   await page.route(`${HECATE_API}/usage/summary`, (route) =>
     fulfillJSON(route, {
@@ -1966,14 +2547,14 @@ async function main() {
   await page.waitForTimeout(500);
   await snap(page, "usage");
 
-  // ── 12. Settings — Retention ───────────────────────────────────────
+  // ── 13. Settings — Retention ───────────────────────────────────────
   console.log("→ settings / retention");
   await openWorkspace(page, "settings");
   await page.waitForTimeout(500);
   await page.waitForTimeout(500);
   await snap(page, "settings");
 
-  // ── 13. New external-agent surfaces ────────────────────────────────────────
+  // ── 14. New external-agent surfaces ────────────────────────────────────────
   // Mock these endpoints so the documentation shots stay deterministic:
   // screenshots should show the intended UI shape, not whatever agent CLIs
   // and auth state happen to exist on the capture machine.
