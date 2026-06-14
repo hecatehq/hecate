@@ -76,6 +76,7 @@ export type ProjectWorkItemDetailProps = {
   handoffs: ProjectHandoffRecord[];
   assignmentErrors: Record<string, string>;
   detailError: string;
+  creatingDefaultAssignment: boolean;
   loading: boolean;
   onAddAssignment: () => void;
   onAddHandoff: () => void;
@@ -91,6 +92,7 @@ export type ProjectWorkItemDetailProps = {
   ) => void;
   onAddReviewArtifactFromAssignment: (assignment: ProjectAssignmentRecord) => void;
   onAddHandoffFromReviewArtifact: (artifact: ProjectCollaborationArtifactRecord) => void;
+  onCreateDefaultAssignment: (item: ProjectWorkItemRecord) => void;
   onCreateAssignmentFromReviewArtifact: (artifact: ProjectCollaborationArtifactRecord) => void;
   onCreateAssignmentFromHandoff: (handoff: ProjectHandoffRecord) => void;
   onDeleteAssignment: (assignment: ProjectAssignmentRecord) => void;
@@ -127,6 +129,7 @@ export function ProjectWorkItemDetail({
   handoffs,
   assignmentErrors,
   detailError,
+  creatingDefaultAssignment,
   loading,
   onAddAssignment,
   onAddEvidenceLink,
@@ -135,6 +138,7 @@ export function ProjectWorkItemDetail({
   onAddReviewHandoffFromAssignment,
   onAddReviewArtifactFromAssignment,
   onAddHandoffFromReviewArtifact,
+  onCreateDefaultAssignment,
   onCreateAssignmentFromReviewArtifact,
   onCreateAssignmentFromHandoff,
   onDeleteAssignment,
@@ -174,6 +178,12 @@ export function ProjectWorkItemDetail({
     handoffs,
     workItem,
   });
+  const emptyWorkItem =
+    assignments.length === 0 &&
+    artifacts.length === 0 &&
+    handoffs.length === 0 &&
+    workItem.status !== "done";
+  const suggestedAssignmentRole = assignmentRoleForWorkItem(workItem, roleByID);
   return (
     <div style={workItemDetailStyle}>
       <article style={workItemCardStyle} aria-label={`${workItem.title} work item`}>
@@ -235,280 +245,378 @@ export function ProjectWorkItemDetail({
               </span>
             )}
           </div>
-          <ReviewerSetupNotice
-            onEditWorkItem={() => onEditWorkItem(workItem)}
+          {!emptyWorkItem && (
+            <ReviewerSetupNotice
+              onEditWorkItem={() => onEditWorkItem(workItem)}
+              onManageRoles={onManageRoles}
+              roleByID={roleByID}
+              workItem={workItem}
+            />
+          )}
+        </section>
+        {emptyWorkItem ? (
+          <WorkItemStartPanel
+            creating={creatingDefaultAssignment}
+            onAddAssignment={onAddAssignment}
+            onAddEvidenceLink={onAddEvidenceLink}
+            onAddHandoff={onAddHandoff}
+            onCreateDefaultAssignment={() => onCreateDefaultAssignment(workItem)}
             onManageRoles={onManageRoles}
-            roleByID={roleByID}
-            workItem={workItem}
+            role={suggestedAssignmentRole}
           />
-        </section>
-        <WorkItemCloseoutPanel
-          closeout={closeout}
-          pending={closingWorkItemID === workItem.id}
-          onClose={() => onCloseWorkItem(workItem)}
-        />
-        <section style={workItemCardSectionStyle}>
-          <div style={workItemSectionHeaderStyle}>
-            <div style={sectionLabelStyle}>Assignments</div>
-            <span className="badge badge-muted">{assignments.length}</span>
-            <button
-              className="btn btn-primary btn-sm"
-              type="button"
-              onClick={onAddAssignment}
-              style={{ marginLeft: "auto" }}
-            >
-              <Icon d={Icons.plus} size={12} />
-              Assignment
-            </button>
-          </div>
-          {assignments.length === 0 ? (
-            <div style={subtleTextStyle}>No assignments recorded yet.</div>
-          ) : (
-            <div style={{ display: "grid", gap: 10 }}>
-              {assignments.map((assignment) => {
-                const activityItem = activityByAssignmentID.get(assignment.id);
-                const reviewRole = reviewerRoleForAssignment(workItem, assignment, roleByID);
-                const reviewAuthorRole = reviewAuthorRoleForAssignment(
-                  workItem,
-                  assignment,
-                  roleByID,
-                );
-                return (
-                  <AssignmentRow
-                    key={assignment.id}
-                    activityItem={activityItem}
-                    assignment={assignment}
-                    chatModel={
-                      assignment.execution?.model ||
-                      roleByID.get(assignment.role_id)?.default_model ||
-                      project?.default_model ||
-                      ""
-                    }
-                    error={assignmentErrors[assignment.id] ?? ""}
-                    onDelete={() => onDeleteAssignment(assignment)}
-                    onEdit={() => onEditAssignment(assignment)}
-                    onOpenChat={
-                      project
-                        ? () => {
-                            const executionRef = toProjectAssignmentExecutionViewModel(assignment);
-                            onOpenChat?.(
-                              executionRef.chatSessionID
-                                ? {
-                                    projectID: project.id,
-                                    chatSessionID: executionRef.chatSessionID,
-                                  }
-                                : buildProjectAssignmentChatLaunchRequest({
-                                    project,
-                                    workItem,
-                                    assignment,
-                                    role: roleByID.get(assignment.role_id) ?? null,
-                                  }),
-                            );
-                          }
-                        : undefined
-                    }
-                    onOpenTask={onOpenTask}
-                    onStart={() => onStartAssignment(assignment)}
-                    onCreateHandoff={() => onAddHandoffFromAssignment(assignment, activityItem)}
-                    onCreateReviewHandoff={
-                      reviewRole
-                        ? () =>
-                            onAddReviewHandoffFromAssignment(assignment, reviewRole, activityItem)
-                        : undefined
-                    }
-                    onCreateReviewArtifact={
-                      reviewAuthorRole
-                        ? () => onAddReviewArtifactFromAssignment(assignment)
-                        : undefined
-                    }
-                    project={project}
-                    repairActions={{
-                      onManageProfiles,
-                      onManageRoles,
-                      onOpenConnections,
-                      onOpenProjectSettings: onOpenSettings,
-                    }}
-                    role={roleByID.get(assignment.role_id)}
-                    starting={startingAssignmentID === assignment.id}
-                    loadContext={
-                      project
-                        ? async () =>
-                            (
-                              await getProjectAssignmentContext(
-                                project.id,
-                                workItem.id,
-                                assignment.id,
-                              )
-                            ).data
-                        : null
-                    }
-                    loadPreflight={
-                      project
-                        ? async () =>
-                            (
-                              await getProjectAssignmentPreflight(
-                                project.id,
-                                workItem.id,
-                                assignment.id,
-                              )
-                            ).data
-                        : null
-                    }
-                  />
-                );
-              })}
+        ) : (
+          <WorkItemCloseoutPanel
+            closeout={closeout}
+            pending={closingWorkItemID === workItem.id}
+            onClose={() => onCloseWorkItem(workItem)}
+          />
+        )}
+        {(!emptyWorkItem || assignments.length > 0) && (
+          <section style={workItemCardSectionStyle}>
+            <div style={workItemSectionHeaderStyle}>
+              <div style={sectionLabelStyle}>Assignments</div>
+              <span className="badge badge-muted">{assignments.length}</span>
+              <button
+                className="btn btn-primary btn-sm"
+                type="button"
+                onClick={onAddAssignment}
+                style={{ marginLeft: "auto" }}
+              >
+                <Icon d={Icons.plus} size={12} />
+                Assignment
+              </button>
             </div>
-          )}
-        </section>
-        <section style={workItemCardSectionStyle}>
-          <div style={workItemSectionHeaderStyle}>
-            <div style={sectionLabelStyle}>Collaboration Artifacts</div>
-            <span className="badge badge-muted">{artifacts.length}</span>
-            <button
-              className="btn btn-primary btn-sm"
-              type="button"
-              onClick={onAddEvidenceLink}
-              style={{ marginLeft: "auto" }}
-            >
-              <Icon d={Icons.plus} size={12} />
-              Evidence
-            </button>
-          </div>
-          {artifacts.length === 0 ? (
-            <div style={subtleTextStyle}>No collaboration artifacts recorded yet.</div>
-          ) : (
-            <div style={{ display: "grid", gap: 8 }}>
-              {artifacts.map((artifact) => {
-                const artifactActionPending = artifactActionID === artifact.id;
-                return (
-                  <div key={artifact.id} style={artifactStyle}>
-                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                      <span className="badge badge-muted">{artifact.kind}</span>
-                      {artifact.kind === "review" && artifact.review_verdict && (
-                        <span className="badge badge-muted">
-                          {reviewVerdictLabel(reviewVerdictFromValue(artifact.review_verdict))}
+            {assignments.length === 0 ? (
+              <div style={subtleTextStyle}>No assignments recorded yet.</div>
+            ) : (
+              <div style={{ display: "grid", gap: 10 }}>
+                {assignments.map((assignment) => {
+                  const activityItem = activityByAssignmentID.get(assignment.id);
+                  const reviewRole = reviewerRoleForAssignment(workItem, assignment, roleByID);
+                  const reviewAuthorRole = reviewAuthorRoleForAssignment(
+                    workItem,
+                    assignment,
+                    roleByID,
+                  );
+                  return (
+                    <AssignmentRow
+                      key={assignment.id}
+                      activityItem={activityItem}
+                      assignment={assignment}
+                      chatModel={
+                        assignment.execution?.model ||
+                        roleByID.get(assignment.role_id)?.default_model ||
+                        project?.default_model ||
+                        ""
+                      }
+                      error={assignmentErrors[assignment.id] ?? ""}
+                      onDelete={() => onDeleteAssignment(assignment)}
+                      onEdit={() => onEditAssignment(assignment)}
+                      onOpenChat={
+                        project
+                          ? () => {
+                              const executionRef =
+                                toProjectAssignmentExecutionViewModel(assignment);
+                              onOpenChat?.(
+                                executionRef.chatSessionID
+                                  ? {
+                                      projectID: project.id,
+                                      chatSessionID: executionRef.chatSessionID,
+                                    }
+                                  : buildProjectAssignmentChatLaunchRequest({
+                                      project,
+                                      workItem,
+                                      assignment,
+                                      role: roleByID.get(assignment.role_id) ?? null,
+                                    }),
+                              );
+                            }
+                          : undefined
+                      }
+                      onOpenTask={onOpenTask}
+                      onStart={() => onStartAssignment(assignment)}
+                      onCreateHandoff={() => onAddHandoffFromAssignment(assignment, activityItem)}
+                      onCreateReviewHandoff={
+                        reviewRole
+                          ? () =>
+                              onAddReviewHandoffFromAssignment(assignment, reviewRole, activityItem)
+                          : undefined
+                      }
+                      onCreateReviewArtifact={
+                        reviewAuthorRole
+                          ? () => onAddReviewArtifactFromAssignment(assignment)
+                          : undefined
+                      }
+                      project={project}
+                      repairActions={{
+                        onManageProfiles,
+                        onManageRoles,
+                        onOpenConnections,
+                        onOpenProjectSettings: onOpenSettings,
+                      }}
+                      role={roleByID.get(assignment.role_id)}
+                      starting={startingAssignmentID === assignment.id}
+                      loadContext={
+                        project
+                          ? async () =>
+                              (
+                                await getProjectAssignmentContext(
+                                  project.id,
+                                  workItem.id,
+                                  assignment.id,
+                                )
+                              ).data
+                          : null
+                      }
+                      loadPreflight={
+                        project
+                          ? async () =>
+                              (
+                                await getProjectAssignmentPreflight(
+                                  project.id,
+                                  workItem.id,
+                                  assignment.id,
+                                )
+                              ).data
+                          : null
+                      }
+                    />
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        )}
+        {(!emptyWorkItem || artifacts.length > 0) && (
+          <section style={workItemCardSectionStyle}>
+            <div style={workItemSectionHeaderStyle}>
+              <div style={sectionLabelStyle}>Collaboration Artifacts</div>
+              <span className="badge badge-muted">{artifacts.length}</span>
+              <button
+                className="btn btn-primary btn-sm"
+                type="button"
+                onClick={onAddEvidenceLink}
+                style={{ marginLeft: "auto" }}
+              >
+                <Icon d={Icons.plus} size={12} />
+                Evidence
+              </button>
+            </div>
+            {artifacts.length === 0 ? (
+              <div style={subtleTextStyle}>No collaboration artifacts recorded yet.</div>
+            ) : (
+              <div style={{ display: "grid", gap: 8 }}>
+                {artifacts.map((artifact) => {
+                  const artifactActionPending = artifactActionID === artifact.id;
+                  return (
+                    <div key={artifact.id} style={artifactStyle}>
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        <span className="badge badge-muted">{artifact.kind}</span>
+                        {artifact.kind === "review" && artifact.review_verdict && (
+                          <span className="badge badge-muted">
+                            {reviewVerdictLabel(reviewVerdictFromValue(artifact.review_verdict))}
+                          </span>
+                        )}
+                        {artifact.kind === "review" && artifact.review_risk && (
+                          <span className="badge badge-muted">
+                            risk {reviewRiskLabel(reviewRiskFromValue(artifact.review_risk))}
+                          </span>
+                        )}
+                        {artifact.kind === "review" && artifact.review_follow_up_required && (
+                          <span className="badge badge-amber">follow-up required</span>
+                        )}
+                        {artifact.kind === "evidence_link" && artifact.evidence_source_kind && (
+                          <span className="badge badge-muted">{artifact.evidence_source_kind}</span>
+                        )}
+                        {artifact.kind === "evidence_link" && artifact.evidence_trust_label && (
+                          <span className="badge badge-muted">{artifact.evidence_trust_label}</span>
+                        )}
+                        <span style={{ ...titleStyle, flex: 1, minWidth: 0 }}>
+                          {artifact.title || artifact.id}
                         </span>
-                      )}
-                      {artifact.kind === "review" && artifact.review_risk && (
-                        <span className="badge badge-muted">
-                          risk {reviewRiskLabel(reviewRiskFromValue(artifact.review_risk))}
-                        </span>
-                      )}
-                      {artifact.kind === "review" && artifact.review_follow_up_required && (
-                        <span className="badge badge-amber">follow-up required</span>
-                      )}
-                      {artifact.kind === "evidence_link" && artifact.evidence_source_kind && (
-                        <span className="badge badge-muted">{artifact.evidence_source_kind}</span>
-                      )}
-                      {artifact.kind === "evidence_link" && artifact.evidence_trust_label && (
-                        <span className="badge badge-muted">{artifact.evidence_trust_label}</span>
-                      )}
-                      <span style={{ ...titleStyle, flex: 1, minWidth: 0 }}>
-                        {artifact.title || artifact.id}
-                      </span>
-                      {artifact.kind === "review" && (
-                        <>
-                          <button
-                            aria-label={`Create follow-up from review artifact ${artifact.id}`}
-                            className="btn btn-ghost btn-sm"
-                            type="button"
-                            onClick={() => onAddHandoffFromReviewArtifact(artifact)}
-                            disabled={artifactActionPending}
-                          >
-                            <Icon d={Icons.plus} size={12} />
-                            Follow-up
-                          </button>
-                          <button
-                            aria-label={`Create follow-up assignment from review artifact ${artifact.id}`}
-                            className="btn btn-ghost btn-sm"
-                            type="button"
-                            onClick={() => onCreateAssignmentFromReviewArtifact(artifact)}
-                            disabled={artifactActionPending}
-                            title="Create a handoff and queued follow-up assignment from this review."
-                          >
-                            <Icon d={Icons.tasks} size={12} />
-                            Assignment
-                          </button>
-                        </>
+                        {artifact.kind === "review" && (
+                          <>
+                            <button
+                              aria-label={`Create follow-up from review artifact ${artifact.id}`}
+                              className="btn btn-ghost btn-sm"
+                              type="button"
+                              onClick={() => onAddHandoffFromReviewArtifact(artifact)}
+                              disabled={artifactActionPending}
+                            >
+                              <Icon d={Icons.plus} size={12} />
+                              Follow-up
+                            </button>
+                            <button
+                              aria-label={`Create follow-up assignment from review artifact ${artifact.id}`}
+                              className="btn btn-ghost btn-sm"
+                              type="button"
+                              onClick={() => onCreateAssignmentFromReviewArtifact(artifact)}
+                              disabled={artifactActionPending}
+                              title="Create a handoff and queued follow-up assignment from this review."
+                            >
+                              <Icon d={Icons.tasks} size={12} />
+                              Assignment
+                            </button>
+                          </>
+                        )}
+                      </div>
+                      <div
+                        style={{ marginTop: 6, fontSize: 12, color: "var(--t2)", lineHeight: 1.45 }}
+                      >
+                        {artifact.body}
+                      </div>
+                      {artifact.kind === "evidence_link" && (
+                        <EvidenceArtifactMetadata artifact={artifact} />
                       )}
                     </div>
-                    <div
-                      style={{ marginTop: 6, fontSize: 12, color: "var(--t2)", lineHeight: 1.45 }}
-                    >
-                      {artifact.body}
-                    </div>
-                    {artifact.kind === "evidence_link" && (
-                      <EvidenceArtifactMetadata artifact={artifact} />
-                    )}
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        )}
+        {(!emptyWorkItem || handoffs.length > 0) && (
+          <section style={workItemCardSectionStyle}>
+            <div style={workItemSectionHeaderStyle}>
+              <div style={sectionLabelStyle}>Handoffs</div>
+              <span className="badge badge-muted">{handoffs.length}</span>
+              <button
+                className="btn btn-primary btn-sm"
+                type="button"
+                onClick={onAddHandoff}
+                style={{ marginLeft: "auto" }}
+              >
+                <Icon d={Icons.plus} size={12} />
+                Handoff
+              </button>
             </div>
-          )}
-        </section>
-        <section style={workItemCardSectionStyle}>
-          <div style={workItemSectionHeaderStyle}>
-            <div style={sectionLabelStyle}>Handoffs</div>
-            <span className="badge badge-muted">{handoffs.length}</span>
-            <button
-              className="btn btn-primary btn-sm"
-              type="button"
-              onClick={onAddHandoff}
-              style={{ marginLeft: "auto" }}
-            >
-              <Icon d={Icons.plus} size={12} />
-              Handoff
-            </button>
-          </div>
-          {handoffError && <InlineError message={handoffError} />}
-          {handoffs.length === 0 ? (
-            <div style={subtleTextStyle}>No structured handoffs recorded yet.</div>
-          ) : (
-            <div style={{ display: "grid", gap: 8 }}>
-              {handoffs.map((handoff) => {
-                const targetAssignment = assignments.find(
-                  (item) => item.id === handoff.target_assignment_id,
-                );
-                return (
-                  <ProjectHandoffRow
-                    key={handoff.id}
-                    actionPending={handoffActionID === handoff.id}
-                    assignment={targetAssignment}
-                    handoff={handoff}
-                    onCreateAssignment={() => onCreateAssignmentFromHandoff(handoff)}
-                    onDelete={() => onDeleteHandoff(handoff)}
-                    onEdit={() => onEditHandoff(handoff)}
-                    onSetStatus={(status) => onSetHandoffStatus(handoff, status)}
-                    onStart={() => onStartHandoff(handoff)}
-                    repairActions={{
-                      onManageProfiles,
-                      onManageRoles,
-                      onOpenConnections,
-                      onOpenProjectSettings: onOpenSettings,
-                    }}
-                    role={handoff.target_role_id ? roleByID.get(handoff.target_role_id) : undefined}
-                    starting={startingAssignmentID === handoff.target_assignment_id}
-                    loadPreflight={
-                      project && targetAssignment
-                        ? async () =>
-                            (
-                              await getProjectAssignmentPreflight(
-                                project.id,
-                                workItem.id,
-                                targetAssignment.id,
-                              )
-                            ).data
-                        : null
-                    }
-                  />
-                );
-              })}
-            </div>
-          )}
-        </section>
+            {handoffError && <InlineError message={handoffError} />}
+            {handoffs.length === 0 ? (
+              <div style={subtleTextStyle}>No structured handoffs recorded yet.</div>
+            ) : (
+              <div style={{ display: "grid", gap: 8 }}>
+                {handoffs.map((handoff) => {
+                  const targetAssignment = assignments.find(
+                    (item) => item.id === handoff.target_assignment_id,
+                  );
+                  return (
+                    <ProjectHandoffRow
+                      key={handoff.id}
+                      actionPending={handoffActionID === handoff.id}
+                      assignment={targetAssignment}
+                      handoff={handoff}
+                      onCreateAssignment={() => onCreateAssignmentFromHandoff(handoff)}
+                      onDelete={() => onDeleteHandoff(handoff)}
+                      onEdit={() => onEditHandoff(handoff)}
+                      onSetStatus={(status) => onSetHandoffStatus(handoff, status)}
+                      onStart={() => onStartHandoff(handoff)}
+                      repairActions={{
+                        onManageProfiles,
+                        onManageRoles,
+                        onOpenConnections,
+                        onOpenProjectSettings: onOpenSettings,
+                      }}
+                      role={
+                        handoff.target_role_id ? roleByID.get(handoff.target_role_id) : undefined
+                      }
+                      starting={startingAssignmentID === handoff.target_assignment_id}
+                      loadPreflight={
+                        project && targetAssignment
+                          ? async () =>
+                              (
+                                await getProjectAssignmentPreflight(
+                                  project.id,
+                                  workItem.id,
+                                  targetAssignment.id,
+                                )
+                              ).data
+                          : null
+                      }
+                    />
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        )}
       </article>
     </div>
   );
+}
+
+function WorkItemStartPanel({
+  creating,
+  onAddAssignment,
+  onAddEvidenceLink,
+  onAddHandoff,
+  onCreateDefaultAssignment,
+  onManageRoles,
+  role,
+}: {
+  creating: boolean;
+  onAddAssignment: () => void;
+  onAddEvidenceLink: () => void;
+  onAddHandoff: () => void;
+  onCreateDefaultAssignment: () => void;
+  onManageRoles: () => void;
+  role: ProjectWorkRoleRecord | null;
+}) {
+  return (
+    <section style={startPanelStyle} aria-label="Start work">
+      <div style={startPanelCopyStyle}>
+        <div style={sectionLabelStyle}>Next step</div>
+        <div style={titleStyle}>
+          {role ? "Ready to queue the first assignment" : "Add a role before assigning work"}
+        </div>
+        <div style={{ ...subtleTextStyle, marginTop: 5 }}>
+          {role
+            ? `Hecate can use ${role.name || role.id} and inherited project defaults. You will review launch context before anything runs.`
+            : "Create or select a project role so Hecate can prepare this work from defaults."}
+        </div>
+      </div>
+      <div style={startPanelActionsStyle}>
+        {role ? (
+          <button
+            className="btn btn-primary btn-sm"
+            type="button"
+            onClick={onCreateDefaultAssignment}
+            disabled={creating}
+          >
+            <Icon d={Icons.tasks} size={13} />
+            {creating ? "Queueing..." : `Queue ${role.name || role.id}`}
+          </button>
+        ) : (
+          <button className="btn btn-primary btn-sm" type="button" onClick={onManageRoles}>
+            <Icon d={Icons.user} size={13} />
+            Manage roles
+          </button>
+        )}
+        <button className="btn btn-ghost btn-sm" type="button" onClick={onAddAssignment}>
+          <Icon d={Icons.plus} size={12} />
+          Manual assignment
+        </button>
+        <button className="btn btn-ghost btn-sm" type="button" onClick={onAddEvidenceLink}>
+          <Icon d={Icons.plus} size={12} />
+          Evidence
+        </button>
+        <button className="btn btn-ghost btn-sm" type="button" onClick={onAddHandoff}>
+          <Icon d={Icons.plus} size={12} />
+          Handoff
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function assignmentRoleForWorkItem(
+  workItem: ProjectWorkItemRecord,
+  roleByID: Map<string, ProjectWorkRoleRecord>,
+): ProjectWorkRoleRecord | null {
+  if (workItem.owner_role_id) {
+    const ownerRole = roleByID.get(workItem.owner_role_id);
+    if (ownerRole) return ownerRole;
+  }
+  return Array.from(roleByID.values())[0] ?? null;
 }
 
 function EvidenceArtifactMetadata({ artifact }: { artifact: ProjectCollaborationArtifactRecord }) {
@@ -1665,6 +1773,31 @@ const workItemCardSectionStyle: CSSProperties = {
   marginTop: 12,
   minWidth: 0,
   paddingTop: 12,
+};
+
+const startPanelStyle: CSSProperties = {
+  alignItems: "center",
+  borderTop: "1px solid var(--border)",
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 12,
+  justifyContent: "space-between",
+  marginTop: 12,
+  minWidth: 0,
+  paddingTop: 14,
+};
+
+const startPanelCopyStyle: CSSProperties = {
+  flex: "1 1 320px",
+  minWidth: 0,
+};
+
+const startPanelActionsStyle: CSSProperties = {
+  alignItems: "center",
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 8,
+  justifyContent: "flex-end",
 };
 
 const closeoutListStyle: CSSProperties = {

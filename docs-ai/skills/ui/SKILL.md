@@ -196,6 +196,12 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   and mutations in the parent page. Shared project UI string/id helpers live in
   `projectUtils.ts`; display-label helpers live in `projectDisplay.ts`; status
   option lists and form-safe status normalization live in `projectWorkForms.ts`.
+- Project sources are `context_sources`: operator-managed provenance metadata
+  for URLs, local paths, notes, external references, and discovered workspace
+  guidance. Source add/edit/delete form mapping lives in `projectSources.ts`.
+  Render only `http`/`https` locators as links; show every other locator as
+  plain escaped text. Source notes are metadata, not project memory, until the
+  operator promotes or rewrites them as memory.
 - External Agent readiness belongs in Connections and in the picker
   diagnostics: distinguish missing binaries, auth/billing problems, unsupported
   versions, and managed-launcher issues without sending users to raw logs first.

@@ -182,6 +182,7 @@ function renderDetail(overrides: Partial<ProjectWorkItemDetailProps> = {}) {
     onAddHandoffFromReviewArtifact: vi.fn(),
     onAddReviewArtifactFromAssignment: vi.fn(),
     onAddReviewHandoffFromAssignment: vi.fn(),
+    onCreateDefaultAssignment: vi.fn(),
     onCreateAssignmentFromReviewArtifact: vi.fn(),
     onCreateAssignmentFromHandoff: vi.fn(),
     onDeleteAssignment: vi.fn(),
@@ -212,6 +213,7 @@ function renderDetail(overrides: Partial<ProjectWorkItemDetailProps> = {}) {
     handoffs: [],
     assignmentErrors: {},
     detailError: "",
+    creatingDefaultAssignment: false,
     loading: false,
     project: record,
     roleByID,
@@ -324,6 +326,50 @@ describe("ProjectWorkItemDetail", () => {
     await userEvent.click(screen.getByRole("button", { name: "Manage roles" }));
 
     expect(handlers.onEditWorkItem).toHaveBeenCalledWith(item);
+    expect(handlers.onManageRoles).toHaveBeenCalledTimes(1);
+  });
+
+  it("guides pristine work items through default assignment creation", async () => {
+    const architect = role({ id: "architect", name: "Architect" });
+    const item = workItem({ owner_role_id: "architect", reviewer_role_ids: [] });
+    const { handlers } = renderDetail({
+      assignments: [],
+      artifacts: [],
+      handoffs: [],
+      roleByID: new Map([[architect.id, architect]]),
+      workItem: item,
+    });
+
+    expect(screen.getByRole("region", { name: "Start work" })).toBeTruthy();
+    expect(screen.getByText("Ready to queue the first assignment")).toBeTruthy();
+    expect(screen.queryByText("No reviewer roles configured")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Mark done" })).toBeNull();
+    expect(screen.queryByText("No assignments recorded yet.")).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Queue Architect" }));
+    await userEvent.click(screen.getByRole("button", { name: "Manual assignment" }));
+    await userEvent.click(screen.getByRole("button", { name: "Evidence" }));
+    await userEvent.click(screen.getByRole("button", { name: "Handoff" }));
+
+    expect(handlers.onCreateDefaultAssignment).toHaveBeenCalledWith(item);
+    expect(handlers.onAddAssignment).toHaveBeenCalledTimes(1);
+    expect(handlers.onAddEvidenceLink).toHaveBeenCalledTimes(1);
+    expect(handlers.onAddHandoff).toHaveBeenCalledTimes(1);
+  });
+
+  it("routes pristine work items without roles to role setup", async () => {
+    const { handlers } = renderDetail({
+      assignments: [],
+      artifacts: [],
+      handoffs: [],
+      roleByID: new Map(),
+      workItem: workItem({ owner_role_id: "", reviewer_role_ids: [] }),
+    });
+
+    expect(screen.getByText("Add a role before assigning work")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Manage roles" }));
+
+    expect(screen.queryByRole("button", { name: /Queue/ })).toBeNull();
     expect(handlers.onManageRoles).toHaveBeenCalledTimes(1);
   });
 

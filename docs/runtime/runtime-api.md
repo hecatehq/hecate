@@ -1418,7 +1418,18 @@ generates `root_...` IDs for roots that omit them. If `default_root_id` is
 empty and at least one root is supplied, the first root becomes the default.
 When supplied, `default_root_id` must match one of the supplied roots.
 Context source `id` values are optional; Hecate generates `ctxsrc_...` IDs for
-sources that omit them. Context sources are metadata only in this release.
+sources that omit them. Context sources are project source metadata:
+workspace guidance discovered from roots, operator-added URLs, local paths,
+notes, tickets, design files, source docs, or other external references.
+Their `path` field is the source locator. For note-style sources, clients may
+use a stable locator such as `note:research-goals` and store the note text in
+`metadata.note`. Source metadata is visible to Project Assistant and context
+inspectors, but Hecate does not fetch URLs, execute sources, or blindly inject
+source bodies into prompts. Assignment prompt inclusion is still governed by
+profile context-source policy and currently only includes bounded portable
+workspace guidance (`kind: "workspace_instruction"`, `format: "agents_md"`).
+Clients that render `path` as a link must validate the scheme first; Hecate
+stores operator-provided locators as-is.
 Project names are unique across the local project catalog, and root/workspace
 paths are unique across all projects. Duplicate project names or root paths
 return `409 conflict`.
@@ -1441,11 +1452,24 @@ POST /hecate/v1/projects
   "workspace_kind": "git",
   "context_sources": [
     {
-      "kind": "doc",
-      "title": "README",
-      "path": "README.md",
+      "kind": "url",
+      "title": "Design brief",
+      "path": "https://example.invalid/design",
       "enabled": true,
-      "metadata": {}
+      "format": "url",
+      "trust_label": "operator_source",
+      "source_category": "operator_source",
+      "metadata": { "note": "Reviewed by the operator." }
+    },
+    {
+      "kind": "note",
+      "title": "Research goals",
+      "path": "note:research-goals",
+      "enabled": true,
+      "format": "text",
+      "trust_label": "operator_source",
+      "source_category": "operator_source",
+      "metadata": { "note": "Prioritize sources with concrete user evidence." }
     }
   ],
   "default_provider": "ollama",

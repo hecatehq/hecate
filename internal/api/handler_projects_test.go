@@ -166,6 +166,71 @@ func TestProjectsAPI_CreateWithWorkspacePathDefaultsRoot(t *testing.T) {
 	}
 }
 
+func TestProjectsAPI_ContextSourcesSupportRootlessOperatorSources(t *testing.T) {
+	t.Parallel()
+	server := newProjectsTestServer()
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects", bytes.NewReader([]byte(`{
+		"name":"Research plan",
+		"context_sources":[
+			{
+				"kind":"url",
+				"title":"Design brief",
+				"path":"https://example.invalid/design",
+				"enabled":true,
+				"format":"url",
+				"trust_label":"operator_source",
+				"source_category":"operator_source",
+				"metadata":{"note":"Reviewed by the operator"}
+			},
+			{
+				"kind":"note",
+				"title":"Research goals",
+				"path":"note:research-goals",
+				"format":"text",
+				"metadata":{"note":"Keep this source as provenance metadata."}
+			},
+			{
+				"kind":"external_ref",
+				"title":"Ticket",
+				"path":"OPS-123",
+				"enabled":false,
+				"format":"reference"
+			}
+		]
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	var created ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	if len(created.Data.Roots) != 0 {
+		t.Fatalf("roots = %+v, want rootless project", created.Data.Roots)
+	}
+	if len(created.Data.ContextSources) != 3 {
+		t.Fatalf("context sources = %+v, want three operator sources", created.Data.ContextSources)
+	}
+	byTitle := make(map[string]ProjectContextSourceResponseItem)
+	for _, source := range created.Data.ContextSources {
+		if source.ID == "" {
+			t.Fatalf("source missing generated id: %+v", source)
+		}
+		byTitle[source.Title] = source
+	}
+	if got := byTitle["Design brief"]; got.Kind != "url" || got.Path != "https://example.invalid/design" || got.Metadata["note"] != "Reviewed by the operator" {
+		t.Fatalf("url source = %+v, want preserved url metadata", got)
+	}
+	if got := byTitle["Research goals"]; got.Kind != "note" || got.Format != "text" || got.Metadata["note"] == "" || !got.Enabled {
+		t.Fatalf("note source = %+v, want enabled note metadata source", got)
+	}
+	if got := byTitle["Ticket"]; got.Kind != "external_ref" || got.Enabled {
+		t.Fatalf("external ref source = %+v, want disabled external reference", got)
+	}
+}
+
 func TestProjectsAPI_RejectsDuplicateProjectIdentity(t *testing.T) {
 	t.Parallel()
 	server := newProjectsTestServer()

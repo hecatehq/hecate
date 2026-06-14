@@ -64,7 +64,7 @@ import { CreateProjectModal } from "./CreateProjectModal";
 import { CreateProjectWorktreeModal } from "./CreateProjectWorktreeModal";
 import { ProjectHandoffModal } from "./ProjectHandoffModal";
 import { ProjectHealthPanel } from "./ProjectHealthPanel";
-import { ProjectMemoryModal, type MemoryForm } from "./ProjectMemoryPanel";
+import { ProjectMemoryModal, ProjectSourceModal, type MemoryForm } from "./ProjectMemoryPanel";
 import { ProjectReviewArtifactModal } from "./ProjectReviewArtifactModal";
 import { type ProjectAssignmentChatLaunchRequest } from "./ProjectWorkItemDetail";
 import {
@@ -87,6 +87,7 @@ import type {
   CreateProjectWorktreeRootPayload,
   ProjectHandoffRecord,
   ProjectMemoryRecord,
+  ProjectContextSourceRecord,
   ProjectSkillRecord,
   ProjectRecord,
   ProjectWorkItemRecord,
@@ -113,8 +114,14 @@ import {
   type RoleForm,
 } from "./projectProfilesRoles";
 import {
+  projectContextSourcesWithSavedSource,
+  projectContextSourcesWithoutSource,
+  type ProjectSourceForm,
+} from "./projectSources";
+import {
   assignmentCreatePayloadFromForm,
   assignmentUpdatePayloadFromForm,
+  defaultDriverForRole,
   evidenceLinkPayloadFromForm,
   handoffFormFromAssignment,
   handoffFormFromReviewArtifact,
@@ -269,6 +276,13 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
   const [memoryLoadState, setMemoryLoadState] = useState<LoadState>("idle");
   const [memoryError, setMemoryError] = useState("");
   const [editingMemory, setEditingMemory] = useState<ProjectMemoryRecord | "new" | null>(null);
+  const [editingSource, setEditingSource] = useState<ProjectContextSourceRecord | "new" | null>(
+    null,
+  );
+  const [sourcePending, setSourcePending] = useState(false);
+  const [sourceError, setSourceError] = useState("");
+  const [deleteSource, setDeleteSource] = useState<ProjectContextSourceRecord | null>(null);
+  const [deleteSourcePending, setDeleteSourcePending] = useState(false);
   const [promotingCandidate, setPromotingCandidate] = useState<ProjectMemoryCandidateRecord | null>(
     null,
   );
@@ -816,6 +830,58 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     }
   }
 
+  async function handleSaveSource(form: ProjectSourceForm) {
+    if (!selectedProject || !editingSource) return;
+    const title = form.title.trim();
+    if (!title) {
+      setSourceError("Source title is required.");
+      return;
+    }
+    if (!form.locator.trim() && (form.kind.trim() !== "note" || !form.note.trim())) {
+      setSourceError(
+        form.kind.trim() === "note"
+          ? "Source locator or note is required."
+          : "Source locator is required.",
+      );
+      return;
+    }
+    setSourcePending(true);
+    setSourceError("");
+    try {
+      const contextSources = projectContextSourcesWithSavedSource(
+        selectedProject.context_sources ?? [],
+        editingSource,
+        form,
+      );
+      const payload = await updateProject(selectedProject.id, { context_sources: contextSources });
+      projects.actions.setProjects((current) => upsertProject(current, payload.data));
+      setEditingSource(null);
+    } catch (error) {
+      setSourceError(errorMessage(error, "Failed to save project source."));
+    } finally {
+      setSourcePending(false);
+    }
+  }
+
+  async function confirmDeleteSource() {
+    if (!selectedProject || !deleteSource) return;
+    setDeleteSourcePending(true);
+    setSourceError("");
+    try {
+      const contextSources = projectContextSourcesWithoutSource(
+        selectedProject.context_sources ?? [],
+        deleteSource.id,
+      );
+      const payload = await updateProject(selectedProject.id, { context_sources: contextSources });
+      projects.actions.setProjects((current) => upsertProject(current, payload.data));
+      setDeleteSource(null);
+    } catch (error) {
+      setSourceError(errorMessage(error, "Failed to delete project source."));
+    } finally {
+      setDeleteSourcePending(false);
+    }
+  }
+
   async function confirmDeleteMemory() {
     if (!selectedProjectID || !deleteMemory) return;
     setDeleteMemoryPending(true);
@@ -1034,6 +1100,33 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
       await loadWorkItemDetail(selectedProjectID, selectedWorkItemID);
     } catch (error) {
       setNewAssignmentError(errorMessage(error, "Failed to create assignment."));
+    } finally {
+      setNewAssignmentPending(false);
+    }
+  }
+
+  async function handleCreateDefaultAssignment(item: ProjectWorkItemRecord) {
+    if (!selectedProjectID) return;
+    const role = (item.owner_role_id ? roleByID.get(item.owner_role_id) : null) ?? roles[0] ?? null;
+    if (!role) {
+      setDetailError("Add a project role before creating an assignment.");
+      return;
+    }
+    setNewAssignmentPending(true);
+    setDetailError("");
+    try {
+      const payload = await createProjectAssignment(selectedProjectID, item.id, {
+        role_id: role.id,
+        driver_kind: defaultDriverForRole(role),
+        ...(item.root_id ? { root_id: item.root_id } : {}),
+      });
+      if (selectedWorkItemID === item.id) {
+        setAssignments((current) => upsertAssignment(current, payload.data));
+      }
+      await loadWorkForProject(selectedProjectID, item.id);
+      await loadWorkItemDetail(selectedProjectID, item.id);
+    } catch (error) {
+      setDetailError(errorMessage(error, "Failed to queue assignment."));
     } finally {
       setNewAssignmentPending(false);
     }
@@ -1309,10 +1402,19 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
 
   const hasWorkItemDetail =
     Boolean(selectedWorkItemID) || detailLoadState === "loading" || Boolean(detailError);
+  const selectedProjectEnabledSourceCount =
+    selectedProject?.context_sources?.filter((source) => source.enabled).length ?? 0;
+  const projectHasSetupState =
+    selectedProjectEnabledSourceCount > 0 ||
+    roles.length > 0 ||
+    projectSkills.length > 0 ||
+    memoryEntries.length > 0 ||
+    memoryCandidates.length > 0;
   const projectNeedsOnboarding =
     Boolean(selectedProject) &&
     workLoadState === "loaded" &&
     workItems.length === 0 &&
+    !projectHasSetupState &&
     !assistant.proposal &&
     !assistant.applyResult;
   const projectEmptyTitle =
@@ -1438,6 +1540,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
             assignmentErrors={assignmentErrors}
             assignments={assignments}
             assistant={assistant}
+            creatingDefaultAssignment={newAssignmentPending}
             detailError={detailError}
             detailLoadState={detailLoadState}
             discoveringContext={discoveringContext}
@@ -1508,6 +1611,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
               setNewHandoffDraft(handoffFormFromReviewArtifact(artifact, selectedWorkItem));
               setEditingHandoff("new");
             }}
+            onCreateDefaultAssignment={(item) => void handleCreateDefaultAssignment(item)}
             onCreateAssignmentFromReviewArtifact={(artifact) =>
               void handleCreateAssignmentFromReviewArtifact(artifact)
             }
@@ -1520,6 +1624,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
             onDeleteAssignment={setDeleteAssignment}
             onDeleteHandoff={(handoff) => void handleDeleteHandoff(handoff)}
             onDeleteMemory={setDeleteMemory}
+            onDeleteSource={setDeleteSource}
             onDeleteWorkItem={setDeleteWorkItem}
             onDiscoverContextSources={handleDiscoverContextSources}
             onDiscoverProjectSkills={handleDiscoverProjectSkills}
@@ -1533,11 +1638,19 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
               setEditingHandoff(handoff);
             }}
             onEditMemory={setEditingMemory}
+            onEditSource={(source) => {
+              setSourceError("");
+              setEditingSource(source);
+            }}
             onEditWorkItem={(item) => {
               setEditWorkError("");
               setEditingWorkItem(item);
             }}
             onNewMemory={() => setEditingMemory("new")}
+            onNewSource={() => {
+              setSourceError("");
+              setEditingSource("new");
+            }}
             onOpenChat={onOpenChat}
             onOpenConnections={onOpenConnections}
             onManageProfiles={() => {
@@ -1722,6 +1835,19 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
             onSave={handleSaveMemory}
           />
         )}
+        {editingSource && (
+          <ProjectSourceModal
+            key={editingSource === "new" ? "new" : editingSource.id}
+            source={editingSource === "new" ? null : editingSource}
+            error={sourceError}
+            pending={sourcePending}
+            onClose={() => {
+              setEditingSource(null);
+              setSourceError("");
+            }}
+            onSave={handleSaveSource}
+          />
+        )}
         {promotingCandidate && (
           <ProjectMemoryModal
             key={promotingCandidate.id}
@@ -1849,6 +1975,23 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
               <>
                 Delete <strong>{deleteMemory.title}</strong>. Historical context packets that
                 already captured this memory stay unchanged.
+              </>
+            }
+          />
+        )}
+
+        {deleteSource && (
+          <ConfirmModal
+            title="Delete project source"
+            danger
+            pending={deleteSourcePending}
+            confirmLabel="Delete source"
+            onClose={() => setDeleteSource(null)}
+            onConfirm={confirmDeleteSource}
+            message={
+              <>
+                Delete <strong>{deleteSource.title || deleteSource.path}</strong>. Historical
+                context packets that already captured this source stay unchanged.
               </>
             }
           />

@@ -95,6 +95,11 @@ permission model.
   with generated provenance: `suggested_trust_label: "generated_summary"` and
   `suggested_source_kind: "generated"` when provided; operator-authored trust or
   source labels require later operator promotion or editing.
+- Project sources are provenance metadata unless another operator-approved
+  surface promotes or includes their content. Assistant context can see source
+  ids, kinds, locators, trust labels, categories, and metadata notes, but it
+  must not fetch source URLs, read local paths, execute source references, or
+  treat source metadata as durable memory.
 - Bootstrap drafts may create memory candidates from project context-source
   metadata, using `suggested_source_kind: "context_source"` and source refs back
   to the discovered source. Those candidates record provenance only; operators
