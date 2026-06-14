@@ -41,7 +41,6 @@ import { mergeAgentConfigOptions } from "./agentConfigOptions";
 
 const COMPOSER_TEXTAREA_MAX_LINES = 10;
 const COMPOSER_TEXTAREA_MIN_HEIGHT = 42;
-const COMMAND_SUGGESTION_LIMIT = 6;
 const PROJECT_PROPOSAL_COMMAND = {
   name: "proposal",
   description: "Draft a Project Assistant proposal",
@@ -273,7 +272,7 @@ export function ChatComposer(props: ChatComposerProps) {
       );
     }
 
-    return suggestions.slice(0, COMMAND_SUGGESTION_LIMIT);
+    return suggestions;
   }, [
     activeChatSession?.available_commands,
     commandQuery,
@@ -679,6 +678,9 @@ export function ChatComposer(props: ChatComposerProps) {
                   borderRadius: "var(--radius-sm)",
                   background: "var(--bg2)",
                   boxShadow: "0 10px 28px rgba(0, 0, 0, 0.28)",
+                  maxHeight: "min(40vh, 320px)",
+                  overflowY: "auto",
+                  overscrollBehavior: "contain",
                   padding: 4,
                   display: "grid",
                   gap: 2,

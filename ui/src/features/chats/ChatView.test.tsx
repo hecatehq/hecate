@@ -3041,6 +3041,36 @@ describe("ChatView input", () => {
     expect(within(commands).queryByRole("option", { name: "Insert /plan command" })).toBeNull();
   });
 
+  it("renders every matching external-agent slash command in a scrollable picker", () => {
+    const availableCommands = Array.from({ length: 9 }, (_, index) => ({
+      name: `cmd${index + 1}`,
+      description: `Command ${index + 1}`,
+    }));
+    const { state, actions } = setup({
+      chatTarget: "external_agent",
+      agentAdapterID: "claude_code",
+      message: "/",
+      activeChatSession: {
+        id: "chat_commands",
+        title: "Agent commands",
+        agent_id: "claude_code",
+        driver_kind: "acp",
+        execution_mode: "external_agent",
+        status: "idle",
+        workspace: "/tmp/hecate",
+        available_commands: availableCommands,
+        messages: [],
+      },
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const commands = screen.getByRole("listbox", { name: "Message commands" });
+    expect(within(commands).getAllByRole("option")).toHaveLength(availableCommands.length);
+    expect(within(commands).getByRole("option", { name: "Insert /cmd9 command" })).toBeTruthy();
+    expect(commands).toHaveStyle({ overflowY: "auto" });
+    expect(commands.getAttribute("style")).toContain("max-height:");
+  });
+
   it("dismisses external-agent slash command suggestions with Escape", () => {
     const { state, actions } = setup({
       chatTarget: "external_agent",
