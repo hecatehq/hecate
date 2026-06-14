@@ -70,10 +70,12 @@ internal proxy contract, not a public internet authentication system.
 
 Remote deployments using the published image must supply container- or
 VM-level isolation around each instance. The image intentionally includes a
-POSIX shell, git/ssh, and External Agent CLIs, and it does not install
-`bwrap` by default; Hecate still applies its process policy, env sanitisation,
-and approval gates, but filesystem/network isolation inside the container is
-normally reported as `none`.
+POSIX shell, git/ssh, common project-dependency tools (`build-essential`,
+Python/pip/venv, `pkg-config`, `ripgrep`, `jq`, and archive/process helpers),
+and External Agent CLIs. It does not install `bwrap` by default; Hecate still
+applies its process policy, env sanitisation, and approval gates, but
+filesystem/network isolation inside the container is normally reported as
+`none`.
 
 Cloud mode also disables local model providers by default. Local presets are
 hidden, `kind=local` provider creates/updates are rejected, env-preconfigured
@@ -109,9 +111,9 @@ and broad auth-token env vars are not inherited.
 (`linux/amd64`, `linux/arm64`) runtime image published from this repo on every
 `v*` tag. A fresh host can `docker compose pull` and start without a build step.
 The published image has the same runtime posture as local source builds from
-`Dockerfile`: Hecate plus git/ssh and the supported External Agent CLIs/ACP
-adapters. Local/self-host behavior remains the default unless
-`HECATE_CLOUD_RUNTIME_MODE=1` is set.
+`Dockerfile`: Hecate plus a shell, git/ssh, common dependency-install tooling,
+and the supported External Agent CLIs/ACP adapters. Local/self-host behavior
+remains the default unless `HECATE_CLOUD_RUNTIME_MODE=1` is set.
 
 To pin to a specific release, replace `:latest` with the published tag (no `v` prefix — goreleaser uses the bare semver as the docker tag). Example for the current alpha:
 
@@ -134,6 +136,16 @@ reach through `-p 8765:8765` or `docker compose`. The image also sets
 `0.0.0.0` for the published port to work. Treat the host-side published port as
 the exposed surface and protect it with host firewall rules or a reverse proxy
 when it is reachable beyond your own machine.
+
+The runtime stage defaults to `node:24-trixie-slim` through the `NODE_IMAGE`
+build arg so the image has a maintained Debian userspace for shell, npm, and
+project dependency workflows.
+
+The embedded workspace terminal can launch inside this image because `/bin/sh`,
+`bash`, and a PTY-capable userspace are present. The terminal endpoint remains a
+local-only operator endpoint in Hecate core: hosted Cloud terminal access should
+be exposed through a Cloud-authorized, audited control path rather than by
+forwarding the local-only route directly.
 
 The bundled External Agent CLIs are pinned by Docker build args so a Hecate
 release does not silently move to a newer top-level agent package. The Cursor

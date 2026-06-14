@@ -14,7 +14,7 @@
 
 ARG GO_VERSION=1.26.2
 ARG BUN_VERSION=1.3.13
-ARG NODE_VERSION=24
+ARG NODE_IMAGE=node:24-trixie-slim
 
 # ── 1. UI build ─────────────────────────────────────────────────────────────
 
@@ -51,16 +51,27 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 
 # ── 3. Runtime ──────────────────────────────────────────────────────────────
 
-FROM node:${NODE_VERSION}-bookworm-slim AS runtime
+FROM ${NODE_IMAGE} AS runtime
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
       bash \
+      build-essential \
       ca-certificates \
       curl \
       git \
+      jq \
+      less \
       openssh-client \
+      pkg-config \
+      procps \
+      python3 \
+      python3-pip \
+      python3-venv \
+      ripgrep \
       tini \
+      unzip \
+      xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
 ARG OPENAI_CODEX_VERSION=0.139.0
