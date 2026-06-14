@@ -1420,7 +1420,8 @@ describe("ProjectsView cockpit", () => {
         confirm: true,
       });
     });
-    expect(await within(assistant).findByText("Applied 1 action from pa_test.")).toBeTruthy();
+    expect(await within(assistant).findByText("Applied 1 action")).toBeTruthy();
+    expect(within(assistant).getByText("Proposal pa_test is applied.")).toBeTruthy();
     expect(getProjectWorkItems).toHaveBeenLastCalledWith(project.id);
     expect(getProjectAssignments).toHaveBeenLastCalledWith(project.id, workItem.id);
   });
