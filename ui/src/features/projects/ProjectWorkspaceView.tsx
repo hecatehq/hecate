@@ -579,17 +579,21 @@ function ProjectOnboardingPanel({
     },
     {
       label: "Sources and memory",
-      detail: `${contextSourceCount} sources · ${skillCount} skills`,
+      detail: hasGuidance
+        ? `${contextSourceCount} sources · ${skillCount} skills`
+        : hasRoot
+          ? "Setup can discover workspace guidance and local skills."
+          : "Add sources manually, or attach a workspace when files matter.",
       done: hasGuidance,
     },
     {
       label: "Roles",
-      detail: roleCount > 0 ? `${roleCount} roles` : "Bootstrap or add roles.",
+      detail: roleCount > 0 ? `${roleCount} roles` : "Setup can suggest roles from skills.",
       done: roleCount > 0,
     },
     {
       label: "First work item",
-      detail: "No work items yet",
+      detail: "Create the first reviewable task after setup.",
       done: false,
     },
   ];
@@ -601,8 +605,8 @@ function ProjectOnboardingPanel({
           <div style={projectOnboardingTitleStyle}>Set up {project.name}</div>
         </div>
         <div style={projectOnboardingDetailStyle}>
-          Create a durable coordination space for planning, evidence, roles, and reviewable work.
-          Attach local files only when this project needs a workspace.
+          Let Hecate discover safe project metadata, suggest roles, and prepare setup actions for
+          review. Attach local files only when this project needs a workspace.
         </div>
         <div style={projectOnboardingActionsStyle}>
           <button
@@ -612,7 +616,7 @@ function ProjectOnboardingPanel({
             onClick={onBootstrap}
           >
             <Icon d={Icons.refresh} size={13} />
-            {bootstrapPending ? "Bootstrapping..." : "Bootstrap project"}
+            {bootstrapPending ? "Setting up..." : "Set up project"}
           </button>
           <button className="btn btn-ghost btn-sm" type="button" onClick={onCreateWork}>
             <Icon d={Icons.plus} size={13} />

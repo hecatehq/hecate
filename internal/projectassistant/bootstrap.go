@@ -23,14 +23,14 @@ func (s *Service) draftBootstrap(ctx context.Context, input DraftInput, draftCon
 	actions = append(actions, skillActions...)
 	warnings = append(warnings, skillWarnings...)
 	if draftContext.SelectedWork != nil {
-		warnings = append(warnings, "Bootstrap drafts are project-scoped; selected work context was ignored.")
+		warnings = append(warnings, "Project setup proposals are project-scoped; selected work context was ignored.")
 	}
 	if len(actions) == 0 {
-		return Proposal{}, fmt.Errorf("%w: no enabled guidance sources or local skill files found for bootstrap", ErrInvalid)
+		return Proposal{}, fmt.Errorf("%w: no enabled guidance sources or local skill files found for project setup", ErrInvalid)
 	}
 
 	proposal, err := s.Propose(ctx, ProposalInput{
-		Title:   fmt.Sprintf("Bootstrap %s guidance", firstNonEmpty(draftContext.Project.Name, projectID)),
+		Title:   fmt.Sprintf("Set up %s guidance", firstNonEmpty(draftContext.Project.Name, projectID)),
 		Summary: "Create reviewable memory candidates from discovered guidance metadata and suggest project roles from local skill files.",
 		Actions: actions,
 		TraceID: strings.TrimSpace(input.TraceID),
@@ -58,7 +58,7 @@ func bootstrapGuidanceActions(projectID string, draftContext DraftContext) ([]Ac
 			continue
 		}
 		if len(actions) >= bootstrapGuidanceActionLimit {
-			warnings = append(warnings, fmt.Sprintf("Skipped additional guidance sources after %d bootstrap memory candidates.", bootstrapGuidanceActionLimit))
+			warnings = append(warnings, fmt.Sprintf("Skipped additional guidance sources after %d setup memory candidates.", bootstrapGuidanceActionLimit))
 			break
 		}
 		actions = append(actions, bootstrapGuidanceAction(projectID, source))
@@ -150,7 +150,7 @@ func bootstrapSkillRoleActions(projectID string, draftContext DraftContext) ([]A
 	var actions []Action
 	var warnings []string
 	if len(draftContext.Skills) == 0 {
-		warnings = append(warnings, "No project skills are registered yet; run project skill discovery before Bootstrap can suggest skill roles.")
+		warnings = append(warnings, "No project skills are registered yet; run project skill discovery before setup can suggest skill roles.")
 		return actions, warnings
 	}
 	for _, skill := range draftContext.Skills {

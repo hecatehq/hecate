@@ -1093,7 +1093,7 @@ describe("ProjectsView index", () => {
 
     expect(await screen.findByRole("region", { name: "Project onboarding" })).toBeTruthy();
     expect(screen.getByText("Set up Hecate")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Bootstrap project" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Set up project" })).toBeTruthy();
     expect(screen.getByRole("region", { name: "Projects" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Open project Hecate" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Collapse projects panel" })).toBeNull();
@@ -1104,16 +1104,16 @@ describe("ProjectsView index", () => {
     expect(screen.queryByRole("region", { name: "Work coordination" })).toBeNull();
     expect(screen.queryByText("No work items for this project.")).toBeNull();
 
-    await user.click(screen.getByRole("button", { name: "Bootstrap project" }));
+    await user.click(screen.getByRole("button", { name: "Set up project" }));
     await waitFor(() => {
       expect(draftProjectAssistant).toHaveBeenCalledWith({
         project_id: project.id,
-        request: "Bootstrap project guidance",
+        request: "Set up project guidance",
         draft_mode: "bootstrap",
       });
     });
     const assistant = await screen.findByRole("region", { name: "Project Assistant" });
-    expect(within(assistant).queryByRole("button", { name: "Bootstrap project" })).toBeNull();
+    expect(within(assistant).queryByRole("button", { name: "Set up project" })).toBeNull();
     expect(within(assistant).getByRole("button", { name: "Dismiss proposal" })).toBeTruthy();
     expect(within(assistant).queryByLabelText("Request")).toBeNull();
     expect(within(assistant).queryByRole("button", { name: "Draft proposal" })).toBeNull();
@@ -1157,7 +1157,7 @@ describe("ProjectsView index", () => {
     expect(screen.getByRole("tablist", { name: "Project workspace views" })).toBeTruthy();
     expect(screen.getByRole("region", { name: "Work coordination" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Work" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Bootstrap project" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Set up project" })).toBeNull();
     expect(screen.getByRole("button", { name: "Inspect context" })).toBeTruthy();
     expect(screen.queryByLabelText("Request")).toBeNull();
     expect(screen.queryByRole("button", { name: "Draft proposal" })).toBeNull();
@@ -1574,7 +1574,7 @@ describe("ProjectsView cockpit", () => {
     const assistant = await screen.findByRole("region", { name: "Project Assistant" });
 
     expect(within(assistant).queryByText("Project onboarding")).toBeNull();
-    expect(within(assistant).queryByRole("button", { name: "Bootstrap project" })).toBeNull();
+    expect(within(assistant).queryByRole("button", { name: "Set up project" })).toBeNull();
     expect(within(assistant).queryByRole("option", { name: "Bootstrap" })).toBeNull();
   });
 
@@ -1594,7 +1594,7 @@ describe("ProjectsView cockpit", () => {
     expect(within(assistant).getByText("Selected work: Build cockpit UI")).toBeTruthy();
     expect(within(assistant).getByLabelText("Request")).toBeTruthy();
     expect(within(assistant).queryByText("Project setup")).toBeNull();
-    expect(within(assistant).queryByRole("button", { name: "Bootstrap project" })).toBeNull();
+    expect(within(assistant).queryByRole("button", { name: "Set up project" })).toBeNull();
   });
 
   it("discovers guidance and skills before drafting project bootstrap proposals", async () => {
@@ -1641,14 +1641,14 @@ describe("ProjectsView cockpit", () => {
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
     const onboarding = await screen.findByRole("region", { name: "Project onboarding" });
-    await user.click(within(onboarding).getByRole("button", { name: "Bootstrap project" }));
+    await user.click(within(onboarding).getByRole("button", { name: "Set up project" }));
 
     await waitFor(() => {
       expect(discoverProjectContextSources).toHaveBeenCalledWith(project.id);
       expect(discoverProjectSkills).toHaveBeenCalledWith(project.id);
       expect(draftProjectAssistant).toHaveBeenCalledWith({
         project_id: project.id,
-        request: "Bootstrap project guidance",
+        request: "Set up project guidance",
         draft_mode: "bootstrap",
       });
     });
@@ -1810,12 +1810,12 @@ describe("ProjectsView cockpit", () => {
     expect(within(onboarding).getByText("Set up Hecate")).toBeTruthy();
     expect(screen.queryByRole("region", { name: "Project Assistant" })).toBeNull();
     expect(screen.queryByText("No work items for this project.")).toBeNull();
-    await user.click(within(onboarding).getByRole("button", { name: "Bootstrap project" }));
+    await user.click(within(onboarding).getByRole("button", { name: "Set up project" }));
 
     await waitFor(() => {
       expect(draftProjectAssistant).toHaveBeenCalledWith({
         project_id: project.id,
-        request: "Bootstrap project guidance",
+        request: "Set up project guidance",
         draft_mode: "bootstrap",
       });
     });
