@@ -192,7 +192,7 @@ function buildOverrides(actions: RuntimeConsoleFixtureActions): CoordinatorOverr
     projectsSlice: {
       setActiveProjectID: actions.setActiveProjectID,
       loadProjects: actions.loadProjects,
-      createProjectFromFolder: actions.createProjectFromFolder,
+      createProject: actions.createProject,
       selectProject: actions.selectProject,
       renameProject: actions.renameProject,
       deleteProject: actions.deleteProject,

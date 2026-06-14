@@ -14,10 +14,10 @@ enters the native agent task runtime. Codex, Claude Code, Cursor Agent, and Grok
 the same picker create **External Agent** sessions.
 
 Chats may also belong to a **Project**. Projects are optional durable identities
-for a codebase or work area; **No project** remains a valid chat scope. When a
-project is selected in the Chats sidebar, new Hecate and External Agent chat
-sessions are created with that `project_id`, and the chat list shows only chats
-for the active project. When an open chat is linked to a project, the chat
+for a work area, not only a codebase; **No project** remains a valid chat scope.
+When a project is selected in the Chats sidebar, new Hecate and External Agent
+chat sessions are created with that `project_id`, and the chat list shows only
+chats for the active project. When an open chat is linked to a project, the chat
 header exposes a compact project shortcut that selects that project and opens
 the Projects workspace. Project-linked Hecate Chat also exposes a compact
 composer action that deterministically drafts a Project Assistant proposal from

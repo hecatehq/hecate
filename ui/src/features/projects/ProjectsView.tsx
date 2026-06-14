@@ -5,6 +5,7 @@ import { useProvidersAndModels } from "../../app/state/providersAndModels";
 import { useSettings } from "../../app/state/settings";
 import {
   ApiError,
+  chooseWorkspaceDirectory,
   createAgentProfile,
   createProjectAssignment,
   createProjectCollaborationArtifact,
@@ -59,6 +60,7 @@ import {
   type ProjectHealthAttention,
 } from "./projectInsights";
 import { EditAssignmentModal, NewAssignmentModal } from "./ProjectAssignmentModals";
+import { CreateProjectModal } from "./CreateProjectModal";
 import { CreateProjectWorktreeModal } from "./CreateProjectWorktreeModal";
 import { ProjectHandoffModal } from "./ProjectHandoffModal";
 import { ProjectHealthPanel } from "./ProjectHealthPanel";
@@ -96,7 +98,12 @@ import type { AgentProfileRecord } from "../../types/agent-profile";
 import { ConfirmModal, Icon, Icons, InlineError, type ProviderOption } from "../shared/ui";
 import { ProjectSettingsPanel } from "./ProjectSettingsPanel";
 import { ProjectEvidenceLinkModal } from "./ProjectEvidenceLinkModal";
-import { type CreateWorktreeForm, type ProjectDefaultsForm } from "./projectSettings";
+import {
+  createProjectPayloadFromForm,
+  type CreateProjectForm,
+  type CreateWorktreeForm,
+  type ProjectDefaultsForm,
+} from "./projectSettings";
 import {
   profileCreatePayloadFromForm,
   profileUpdatePayloadFromForm,
@@ -185,6 +192,9 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
   const [hoveredProjectID, setHoveredProjectID] = useState("");
   const [deleteProjectID, setDeleteProjectID] = useState("");
   const [deletePending, setDeletePending] = useState(false);
+  const [createProjectOpen, setCreateProjectOpen] = useState(false);
+  const [createProjectPending, setCreateProjectPending] = useState(false);
+  const [createProjectError, setCreateProjectError] = useState("");
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
   const { rightPanelWidth, setRightPanelWidth } = useStoredRightPanelWidth();
   const [defaultsPending, setDefaultsPending] = useState(false);
@@ -657,6 +667,32 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     } finally {
       setCreateWorktreePending(false);
     }
+  }
+
+  async function handleCreateProject(form: CreateProjectForm) {
+    const payload = createProjectPayloadFromForm(form);
+    if (!payload.name) {
+      setCreateProjectError("Project name is required.");
+      return;
+    }
+    setCreateProjectPending(true);
+    setCreateProjectError("");
+    try {
+      const created = await projects.actions.createProject(payload);
+      if (!created) return;
+      setCreateProjectOpen(false);
+      openProject(created.id);
+    } finally {
+      setCreateProjectPending(false);
+    }
+  }
+
+  async function handleChooseProjectWorkspace() {
+    const workspace = await chooseWorkspaceDirectory();
+    return {
+      path: workspace.data.path,
+      branch: workspace.data.branch || undefined,
+    };
   }
 
   async function handleDiscoverContextSources() {
@@ -1283,7 +1319,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     projects.state.projects.length === 0 ? "Add a project to begin" : "Select a project";
   const projectEmptyDetail =
     projects.state.projects.length === 0
-      ? "Choose a workspace folder from the project list to create the first durable project record."
+      ? "Create a project from a name and purpose. A local folder is optional and can be attached now or later."
       : "Choose a project from the list to view its work, memory, skills, and settings.";
 
   return (
@@ -1298,7 +1334,11 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
             <button
               className="btn btn-primary btn-sm"
               type="button"
-              onClick={() => void projects.actions.createProjectFromFolder()}
+              onClick={() => {
+                setCreateProjectError("");
+                projects.actions.setError("");
+                setCreateProjectOpen(true);
+              }}
             >
               <Icon d={Icons.folder} size={13} />
               Add
@@ -1320,7 +1360,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
           {!projects.state.loading && projects.state.projects.length === 0 && (
             <ProjectEmptyBlock
               title="No projects yet"
-              detail="Add a workspace folder to create the first durable project record."
+              detail="Create a project for any durable work area. Add a folder only when the project needs local files or code."
             />
           )}
           {projects.state.projects.map((project) => (
@@ -1656,6 +1696,19 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
             project={selectedProject}
             onClose={() => setCreateWorktreeOpen(false)}
             onCreate={handleCreateWorktreeRoot}
+          />
+        )}
+
+        {createProjectOpen && (
+          <CreateProjectModal
+            error={createProjectError || projects.state.error}
+            pending={createProjectPending}
+            onChooseWorkspace={handleChooseProjectWorkspace}
+            onClose={() => {
+              setCreateProjectOpen(false);
+              setCreateProjectError("");
+            }}
+            onSave={handleCreateProject}
           />
         )}
 

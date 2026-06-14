@@ -244,9 +244,11 @@ tasks, or launch agents.
 
 In the operator UI, **Bootstrap project** is the project onboarding action, not a
 regular draft mode. It refreshes workspace guidance context sources, refreshes
-the project skills registry, then requests a project-scoped Bootstrap draft. The
-Projects with a workspace root but no work items use Bootstrap as their primary
-onboarding action before showing the full work cockpit.
+the project skills registry, then requests a project-scoped Bootstrap draft.
+Rootless projects skip workspace discovery naturally and can still use Bootstrap
+to propose roles, first work, and memory candidates from existing project
+metadata. Projects with no work items use Bootstrap as their primary onboarding
+action before showing the full work cockpit.
 The resulting proposal is still review/apply gated and does not attach to the
 currently selected work item.
 

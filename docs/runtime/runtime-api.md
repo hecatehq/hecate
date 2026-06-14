@@ -1312,10 +1312,12 @@ bodies are sent to that provider as normal task prompt content.
 
 ## Project endpoints
 
-Projects are the durable Hecate identity for a codebase or work area. A project
-can remember one or more concrete workspace roots and future defaults such as
-provider, model, agent profile, tools posture, workspace mode, system prompt,
-compact command-output preference, and trusted context-source metadata.
+Projects are the durable Hecate identity for a work area: code, research,
+writing, design, ops, planning, support, or any other operator-coordinated
+effort. A project can exist without a workspace root. When local files or code
+matter, it can remember one or more concrete workspace roots and future defaults
+such as provider, model, agent profile, tools posture, workspace mode, system
+prompt, compact command-output preference, and trusted context-source metadata.
 
 The project catalog implementation is intentionally lightweight:
 `GET`/`POST`/`PATCH`/`DELETE /hecate/v1/projects` work, and
@@ -1422,9 +1424,11 @@ paths are unique across all projects. Duplicate project names or root paths
 return `409 conflict`.
 
 Projects may be created without a workspace by omitting both `workspace_path`
-and `roots`. For the common one-workspace case, send `workspace_path` and
-optionally `workspace_kind`; Hecate creates one active root and makes it the
-default root. For advanced multi-root setup, send `roots` directly.
+and `roots`; this is the normal shape for planning, research, writing, ops, or
+design projects that do not start from local files. For the common
+one-workspace case, send `workspace_path` and optionally `workspace_kind`;
+Hecate creates one active root and makes it the default root. For advanced
+multi-root setup, send `roots` directly.
 `workspace_path` cannot be combined with `roots` or an explicit
 `default_root_id`.
 

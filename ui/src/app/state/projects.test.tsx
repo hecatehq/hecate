@@ -3,17 +3,10 @@ import { type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ProjectsProvider, useProjects } from "./projects";
-import {
-  chooseWorkspaceDirectory,
-  createProject,
-  deleteProject,
-  getProjects,
-  updateProject,
-} from "../../lib/api";
+import { createProject, deleteProject, getProjects, updateProject } from "../../lib/api";
 import type { ProjectRecord } from "../../types/project";
 
 vi.mock("../../lib/api", () => ({
-  chooseWorkspaceDirectory: vi.fn(),
   createProject: vi.fn(),
   deleteProject: vi.fn(),
   getProjects: vi.fn(),
@@ -44,7 +37,6 @@ function wrapper({ children }: { children: ReactNode }) {
 describe("ProjectsProvider", () => {
   beforeEach(() => {
     window.localStorage.clear();
-    vi.mocked(chooseWorkspaceDirectory).mockReset();
     vi.mocked(createProject).mockReset();
     vi.mocked(deleteProject).mockReset();
     vi.mocked(getProjects).mockReset();
@@ -110,6 +102,27 @@ describe("ProjectsProvider", () => {
     await waitFor(() => {
       expect(window.localStorage.getItem("hecate.project")).toBe(project.id);
     });
+  });
+
+  it("creates a rootless project and selects it", async () => {
+    const created = { ...project, id: "proj_research", name: "Research", roots: [] };
+    vi.mocked(createProject).mockResolvedValue({ object: "project", data: created });
+    const { result } = renderHook(() => useProjects(), { wrapper });
+
+    await act(async () => {
+      await result.current.actions.createProject({
+        name: " Research ",
+        description: " Durable research workspace. ",
+      });
+    });
+
+    expect(createProject).toHaveBeenCalledWith({
+      name: "Research",
+      description: "Durable research workspace.",
+    });
+    expect(result.current.state.projects).toEqual([created]);
+    expect(result.current.activeProjectID).toBe("proj_research");
+    expect(window.localStorage.getItem("hecate.project")).toBe("proj_research");
   });
 
   it("renames a project and upserts the returned record", async () => {

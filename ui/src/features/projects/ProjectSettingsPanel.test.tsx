@@ -1,9 +1,14 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ProjectRecord, ProjectRootRecord } from "../../types/project";
 import { ProjectSettingsPanel } from "./ProjectSettingsPanel";
+import { chooseWorkspaceDirectory } from "../../lib/api";
+
+vi.mock("../../lib/api", () => ({
+  chooseWorkspaceDirectory: vi.fn(),
+}));
 
 function root(overrides: Partial<ProjectRootRecord>): ProjectRootRecord {
   return {
@@ -39,6 +44,10 @@ function project(overrides: Partial<ProjectRecord> = {}): ProjectRecord {
 }
 
 describe("ProjectSettingsPanel", () => {
+  beforeEach(() => {
+    vi.mocked(chooseWorkspaceDirectory).mockReset();
+  });
+
   it("saves editable defaults and updates the workspace preview from form roots", async () => {
     const onSave = vi.fn();
 
@@ -73,6 +82,51 @@ describe("ProjectSettingsPanel", () => {
         roots: expect.arrayContaining([
           expect.objectContaining({ id: "root_feature", active: true }),
         ]),
+      }),
+    );
+  });
+
+  it("adds an optional folder root to rootless projects", async () => {
+    const onSave = vi.fn();
+    vi.mocked(chooseWorkspaceDirectory).mockResolvedValue({
+      object: "workspace_dialog",
+      data: { path: "/workspace/research", branch: "" },
+    });
+
+    render(
+      <ProjectSettingsPanel
+        agentProfiles={[]}
+        agentProfilesError=""
+        error=""
+        models={[]}
+        pending={false}
+        providerOptions={[]}
+        providerPresets={[]}
+        project={project({ roots: [], default_root_id: "" })}
+        rootsPending={false}
+        onDiscoverRoots={vi.fn()}
+        onOpenCreateWorktree={vi.fn()}
+        onSave={onSave}
+      />,
+    );
+
+    expect(screen.getByText("No roots configured.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Create worktree" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Discover worktrees" })).toBeDisabled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Add folder" }));
+    expect(await screen.findAllByText("/workspace/research")).toHaveLength(2);
+    await userEvent.click(screen.getByRole("button", { name: "Save defaults" }));
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        roots: [
+          expect.objectContaining({
+            path: "/workspace/research",
+            kind: "local",
+            active: true,
+          }),
+        ],
       }),
     );
   });

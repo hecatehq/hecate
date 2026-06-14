@@ -29,7 +29,7 @@ import type {
   ProviderPresetRecord,
   ProviderRecord,
 } from "../types/provider";
-import type { ProjectRecord } from "../types/project";
+import type { CreateProjectPayload, ProjectRecord } from "../types/project";
 import type { RetentionRunData } from "../types/retention";
 import type { HealthResponse, RuntimeHeaders } from "../types/runtime";
 import type { UsageEventRecord, UsageSummaryResponse } from "../types/usage";
@@ -243,7 +243,7 @@ export type RuntimeConsoleFixtureActions = {
   setActiveProjectID: (id: string) => void;
   loadProjects: () => Promise<void>;
   selectProject: (id: string) => Promise<void>;
-  createProjectFromFolder: () => Promise<ProjectRecord | null>;
+  createProject: (payload: CreateProjectPayload) => Promise<ProjectRecord | null>;
   renameProject: (id: string, name: string) => Promise<void>;
   deleteProject: (id: string) => Promise<boolean>;
   getChatApproval: (sessionID: string, approvalID: string) => Promise<unknown>;
@@ -318,7 +318,7 @@ export function createRuntimeConsoleActions(): RuntimeConsoleFixtureActions {
     setActiveProjectID: () => undefined,
     loadProjects: async () => undefined,
     selectProject: async () => undefined,
-    createProjectFromFolder: async () => null,
+    createProject: async () => null,
     renameProject: async () => undefined,
     deleteProject: async () => true,
     getChatApproval: async () => null,

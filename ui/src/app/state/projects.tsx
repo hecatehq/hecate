@@ -7,14 +7,13 @@ import { createContext, useCallback, useContext, useMemo, useReducer, type React
 
 import { applyOverride, CoordinatorOverridesContext } from "./coordinators/overrides";
 import {
-  chooseWorkspaceDirectory,
   createProject as createProjectRequest,
   deleteProject as deleteProjectRequest,
   getProjects as getProjectsRequest,
   updateProject as updateProjectRequest,
 } from "../../lib/api";
 import { parseStoredString, usePersistedState } from "../../lib/persistedState";
-import type { ProjectRecord } from "../../types/project";
+import type { CreateProjectPayload, ProjectRecord } from "../../types/project";
 
 const ACTIVE_PROJECT_STORAGE_KEY = "hecate.project";
 
@@ -33,7 +32,7 @@ export type ProjectsActions = {
   setActiveProjectID: (id: string) => void;
   loadProjects: () => Promise<void>;
   selectProject: (id: string) => Promise<void>;
-  createProjectFromFolder: () => Promise<ProjectRecord | null>;
+  createProject: (payload: CreateProjectPayload) => Promise<ProjectRecord | null>;
   renameProject: (id: string, name: string) => Promise<void>;
   deleteProject: (id: string) => Promise<boolean>;
 };
@@ -150,34 +149,30 @@ export function ProjectsProvider({
     [setActiveProjectIDState],
   );
 
-  const createProjectFromFolder = useCallback(async (): Promise<ProjectRecord | null> => {
-    dispatch({ type: "error/set", value: "" });
-    try {
-      const workspace = await chooseWorkspaceDirectory();
-      const root = workspace.data.path.trim();
-      if (!root) return null;
-      const payload = await createProjectRequest({
-        name: projectNameFromPath(root),
-        roots: [
-          {
-            path: root,
-            kind: "local",
-            git_branch: workspace.data.branch || undefined,
-            active: true,
-          },
-        ],
-      });
-      dispatch({ type: "projects/set", next: (current) => upsertProject(current, payload.data) });
-      setActiveProjectIDState(payload.data.id);
-      return payload.data;
-    } catch (error) {
-      dispatch({
-        type: "error/set",
-        value: error instanceof Error ? error.message : "Failed to create project.",
-      });
-      return null;
-    }
-  }, [setActiveProjectIDState]);
+  const createProject = useCallback(
+    async (payload: CreateProjectPayload): Promise<ProjectRecord | null> => {
+      const name = payload.name.trim();
+      if (!name) return null;
+      dispatch({ type: "error/set", value: "" });
+      try {
+        const created = await createProjectRequest({
+          ...payload,
+          name,
+          description: payload.description?.trim() || undefined,
+        });
+        dispatch({ type: "projects/set", next: (current) => upsertProject(current, created.data) });
+        setActiveProjectIDState(created.data.id);
+        return created.data;
+      } catch (error) {
+        dispatch({
+          type: "error/set",
+          value: error instanceof Error ? error.message : "Failed to create project.",
+        });
+        return null;
+      }
+    },
+    [setActiveProjectIDState],
+  );
 
   const renameProject = useCallback(async (id: string, name: string) => {
     const projectID = id.trim();
@@ -229,7 +224,7 @@ export function ProjectsProvider({
       setActiveProjectID,
       loadProjects,
       selectProject,
-      createProjectFromFolder,
+      createProject,
       renameProject,
       deleteProject,
     }),
@@ -240,7 +235,7 @@ export function ProjectsProvider({
       setActiveProjectID,
       loadProjects,
       selectProject,
-      createProjectFromFolder,
+      createProject,
       renameProject,
       deleteProject,
     ],
@@ -279,10 +274,4 @@ function upsertProject(projects: ProjectRecord[], project: ProjectRecord): Proje
   const next = projects.slice();
   next[index] = project;
   return next;
-}
-
-function projectNameFromPath(path: string): string {
-  const trimmed = path.replace(/\/+$/, "");
-  const segments = trimmed.split("/").filter(Boolean);
-  return segments.at(-1) || "Untitled project";
 }

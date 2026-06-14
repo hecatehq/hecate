@@ -1,9 +1,12 @@
 import { useState, type CSSProperties, type ReactNode } from "react";
 
 import { useProjects } from "../../app/state/projects";
+import { chooseWorkspaceDirectory } from "../../lib/api";
 import { projectDefaultWorkspace } from "../../lib/project-workspace";
 import type { ProjectRecord } from "../../types/project";
 import { ConfirmModal, Icon, Icons } from "../shared/ui";
+import { CreateProjectModal } from "./CreateProjectModal";
+import { createProjectPayloadFromForm, type CreateProjectForm } from "./projectSettings";
 
 type ProjectScopePanelProps = {
   noProjectDetail: string;
@@ -38,6 +41,9 @@ export function ProjectScopePanel({
   const [projectRenameValue, setProjectRenameValue] = useState("");
   const [hoveredProjectID, setHoveredProjectID] = useState<string | null>(null);
   const [deleteProjectID, setDeleteProjectID] = useState<string | null>(null);
+  const [createProjectOpen, setCreateProjectOpen] = useState(false);
+  const [createProjectPending, setCreateProjectPending] = useState(false);
+  const [createProjectError, setCreateProjectError] = useState("");
   const activeProject =
     projects.activeProjectID === ""
       ? null
@@ -68,6 +74,33 @@ export function ProjectScopePanel({
     onProjectSelected?.(projectID, project);
   }
 
+  async function handleCreateProject(form: CreateProjectForm) {
+    const payload = createProjectPayloadFromForm(form);
+    if (!payload.name) {
+      setCreateProjectError("Project name is required.");
+      return;
+    }
+    setCreateProjectPending(true);
+    setCreateProjectError("");
+    try {
+      const created = await projects.actions.createProject(payload);
+      if (!created) return;
+      setCreateProjectOpen(false);
+      setProjectsExpanded(false);
+      onProjectSelected?.(created.id, created);
+    } finally {
+      setCreateProjectPending(false);
+    }
+  }
+
+  async function handleChooseWorkspace() {
+    const workspace = await chooseWorkspaceDirectory();
+    return {
+      path: workspace.data.path,
+      branch: workspace.data.branch || undefined,
+    };
+  }
+
   return (
     <>
       <div style={{ padding: "8px 8px 6px", borderBottom: "1px solid var(--border)" }}>
@@ -76,7 +109,9 @@ export function ProjectScopePanel({
           expanded={projectsExpanded}
           label="Projects"
           onAction={() => {
-            void projects.actions.createProjectFromFolder();
+            setCreateProjectError("");
+            projects.actions.setError("");
+            setCreateProjectOpen(true);
           }}
           onToggle={() => setProjectsExpanded((value) => !value)}
         />
@@ -135,6 +170,18 @@ export function ProjectScopePanel({
           </div>
         )}
       </div>
+      {createProjectOpen && (
+        <CreateProjectModal
+          error={createProjectError || projects.state.error}
+          pending={createProjectPending}
+          onChooseWorkspace={handleChooseWorkspace}
+          onClose={() => {
+            setCreateProjectOpen(false);
+            setCreateProjectError("");
+          }}
+          onSave={handleCreateProject}
+        />
+      )}
       {pendingDeleteProject && (
         <ConfirmModal
           danger

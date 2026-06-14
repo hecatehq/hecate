@@ -180,8 +180,9 @@ describe("ProjectWorkspaceView", () => {
     });
 
     expect(screen.getByText("Set up Console")).toBeTruthy();
-    expect(screen.getByText("Workspace root")).toBeTruthy();
-    expect(screen.getByText("Missing")).toBeTruthy();
+    expect(screen.getByText("Workspace source")).toBeTruthy();
+    expect(screen.getByText("Optional; attach files when this project needs them.")).toBeTruthy();
+    expect(screen.getByText("optional")).toBeTruthy();
 
     await userEvent.click(screen.getByRole("button", { name: "Bootstrap project" }));
     await userEvent.click(screen.getByRole("button", { name: "Create work" }));
