@@ -19,7 +19,7 @@ Hecate assumes the operator trusts their own machine, local user account, and se
   unless the runtime is explicitly launched with
   `HECATE_CLOUD_ALLOW_LOCAL_PROVIDERS=1` for an isolated sidecar deployment.
   The runtime secret is not public auth; keep the runtime network-private.
-- Do not put local-only endpoints such as workspace folder selection, "open in editor", local provider discovery, MCP registry discovery, MCP probe, reset-data, or shutdown behind a forwarding proxy. Those endpoints reject non-loopback sockets and `X-Forwarded-For` / `X-Real-IP` headers because they can inspect host-local state, open local OS UI, spawn diagnostic subprocesses, or mutate local operator state.
+- Do not put local-only endpoints such as workspace folder selection, "open in editor", the embedded workspace terminal, local provider discovery, MCP registry discovery, MCP probe, reset-data, or shutdown behind a forwarding proxy. Those endpoints reject non-loopback sockets and `X-Forwarded-For` / `X-Real-IP` headers because they can inspect host-local state, open local OS UI, spawn diagnostic subprocesses, launch local shells, or mutate local operator state.
 - Do not run Hecate on a shared host where untrusted local users can access the gateway port or data directory.
 
 ## Runtime boundaries
@@ -30,6 +30,7 @@ Hecate has two different execution surfaces with different trust levels.
 | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Hecate Chat with tools on / native `agent_loop` tasks | Hecate owns the task loop. Tool calls use WorkspaceFS, ProcessRunner, or GitRunner as appropriate, with env sanitisation, output caps, timeouts, policy checks, approvals, and `bwrap` / `sandbox-exec` wrappers where available. This is not a VM or container boundary. |
 | External Agents                                       | Codex, Claude Code, Cursor Agent, Grok Build, and similar integrations run as trusted local subprocesses in the selected workspace. Hecate supervises lifecycle, approvals, diagnostics, and Git diffs, but it does not sandbox the agent's internal runtime.             |
+| Embedded workspace terminal                           | The operator-controlled terminal starts the host shell in the selected workspace and runs as the local OS user. It is local-only and observable as ordinary workspace changes, but it is intentionally not approval-gated or sandboxed like task-runtime tool calls.      |
 
 If you need a hard isolation boundary, run Hecate and its workspaces inside a VM, container, or dedicated OS user that you are comfortable letting tools modify.
 

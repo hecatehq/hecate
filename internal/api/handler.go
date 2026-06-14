@@ -33,6 +33,7 @@ import (
 	"github.com/hecatehq/hecate/internal/secrets"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/internal/telemetry"
+	"github.com/hecatehq/hecate/internal/terminal"
 	"github.com/hecatehq/hecate/internal/version"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -89,6 +90,7 @@ type Handler struct {
 	// spawning real ACP binaries.
 	agentAdapterProbe AgentAdapterProbe
 	stateCleaner      StateCleaner
+	terminalLauncher  terminal.Launcher
 	// quitFunc is wired by main.go to request an orderly process
 	// shutdown — used by HandleSystemShutdown when the desktop app's
 	// close-window confirmation flow asks the gateway to quit. nil in
@@ -332,9 +334,24 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		orchestratorMetrics: orchestratorMetrics,
 		agentChatMetrics:    agentChatMetrics,
 		approvalConfig:      approvalCfg,
+		terminalLauncher:    terminal.NewPTYLauncher(logger),
 	}
 	h.startAgentChatIdleSweeper()
 	return h
+}
+
+func (h *Handler) SetTerminalLauncher(launcher terminal.Launcher) {
+	if launcher == nil {
+		return
+	}
+	h.terminalLauncher = launcher
+}
+
+func (h *Handler) getTerminalLauncher() terminal.Launcher {
+	if h.terminalLauncher != nil {
+		return h.terminalLauncher
+	}
+	return terminal.NewPTYLauncher(h.logger)
 }
 
 // SetAgentApprovalStore swaps in a durable approval store and rebuilds

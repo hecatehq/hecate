@@ -93,7 +93,7 @@ export default defineConfig(({ mode }) => {
         ? undefined
         : {
             "/healthz": apiProxyTarget,
-            "/hecate": apiProxyTarget,
+            "/hecate": { target: apiProxyTarget, ws: true },
             "/v1": apiProxyTarget,
           },
     },

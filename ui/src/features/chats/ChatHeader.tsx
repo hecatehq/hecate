@@ -24,9 +24,11 @@ type Props = {
   workspacePath: string;
   workspaceDialogOpen: boolean;
   workspaceChangesOpen: boolean;
+  terminalOpen: boolean;
   chatSettingsOpen: boolean;
   onChooseWorkspace: () => void;
   onToggleWorkspaceChanges: () => void;
+  onToggleTerminal: () => void;
   onToggleChatSettings: () => void;
 
   // External-agent turn budget pill — only renders when the active
@@ -51,9 +53,11 @@ export function ChatHeader(props: Props) {
     workspacePath,
     workspaceDialogOpen,
     workspaceChangesOpen,
+    terminalOpen,
     chatSettingsOpen,
     onChooseWorkspace,
     onToggleWorkspaceChanges,
+    onToggleTerminal,
     onToggleChatSettings,
     activeChatSession,
   } = props;
@@ -206,6 +210,27 @@ export function ChatHeader(props: Props) {
             </button>
           )}
           <WorkspaceOpenMenu workspacePath={workspacePath} />
+          {workspacePath.trim() && (
+            <button
+              className="btn btn-ghost btn-sm chat-header-action"
+              type="button"
+              aria-expanded={terminalOpen}
+              aria-label="Terminal"
+              onClick={onToggleTerminal}
+              title="Open embedded terminal"
+              style={{
+                width: 30,
+                height: 30,
+                padding: 0,
+                justifyContent: "center",
+                color: terminalOpen ? "var(--teal)" : "var(--t2)",
+                background: terminalOpen ? "var(--teal-bg)" : "transparent",
+                boxShadow: "none",
+              }}
+            >
+              <Icon d={Icons.terminal} size={13} />
+            </button>
+          )}
           {workspacePath.trim() && (
             <button
               className="btn btn-ghost btn-sm chat-header-action"

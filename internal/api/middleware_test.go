@@ -1,8 +1,10 @@
 package api
 
 import (
+	"bufio"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -21,6 +23,45 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	oteltrace "go.opentelemetry.io/otel/trace"
 )
+
+func TestStatusRecorderForwardsHijacker(t *testing.T) {
+	recorder := &hijackableResponseWriter{header: http.Header{}}
+	wrapped := &statusRecorder{ResponseWriter: recorder, status: http.StatusOK}
+
+	conn, _, err := wrapped.Hijack()
+	if err != nil {
+		t.Fatalf("Hijack returned error: %v", err)
+	}
+	if conn == nil {
+		t.Fatal("Hijack returned nil connection")
+	}
+	_ = conn.Close()
+	if !recorder.hijacked {
+		t.Fatal("wrapped response writer was not hijacked")
+	}
+}
+
+type hijackableResponseWriter struct {
+	header   http.Header
+	hijacked bool
+}
+
+func (w *hijackableResponseWriter) Header() http.Header {
+	return w.header
+}
+
+func (w *hijackableResponseWriter) Write(p []byte) (int, error) {
+	return len(p), nil
+}
+
+func (w *hijackableResponseWriter) WriteHeader(int) {}
+
+func (w *hijackableResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	client, server := net.Pipe()
+	_ = client.Close()
+	w.hijacked = true
+	return server, bufio.NewReadWriter(bufio.NewReader(server), bufio.NewWriter(server)), nil
+}
 
 func registerW3CPropagator() {
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
