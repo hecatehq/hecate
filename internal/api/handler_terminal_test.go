@@ -1,7 +1,9 @@
 package api
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -24,7 +26,7 @@ import (
 func TestTerminalRejectsNonLoopbackClient(t *testing.T) {
 	t.Parallel()
 
-	handler := newTestHTTPHandlerWithConfig(slog.New(slog.NewJSONHandler(io.Discard, nil)), &fakeProvider{name: "openai"}, terminalEnabledTestConfig())
+	handler := newTestHTTPHandler(slog.New(slog.NewJSONHandler(io.Discard, nil)), &fakeProvider{name: "openai"})
 	req := httptest.NewRequest(http.MethodGet, "/hecate/v1/terminal?workspace=/tmp", nil)
 	req.RemoteAddr = "203.0.113.12:4321"
 	recorder := httptest.NewRecorder()
@@ -39,7 +41,7 @@ func TestTerminalRejectsNonLoopbackClient(t *testing.T) {
 func TestTerminalRejectsForwardedClientHeaders(t *testing.T) {
 	t.Parallel()
 
-	handler := newTestHTTPHandlerWithConfig(slog.New(slog.NewJSONHandler(io.Discard, nil)), &fakeProvider{name: "openai"}, terminalEnabledTestConfig())
+	handler := newTestHTTPHandler(slog.New(slog.NewJSONHandler(io.Discard, nil)), &fakeProvider{name: "openai"})
 	for _, header := range []string{"X-Forwarded-For", "X-Real-IP"} {
 		req := httptest.NewRequest(http.MethodGet, "/hecate/v1/terminal?workspace=/tmp", nil)
 		req.RemoteAddr = "127.0.0.1:4321"
@@ -57,7 +59,7 @@ func TestTerminalRejectsForwardedClientHeaders(t *testing.T) {
 func TestTerminalRejectsInvalidWorkspaceBeforeUpgrade(t *testing.T) {
 	t.Parallel()
 
-	handler := newTestHTTPHandlerWithConfig(slog.New(slog.NewJSONHandler(io.Discard, nil)), &fakeProvider{name: "openai"}, terminalEnabledTestConfig())
+	handler := newTestHTTPHandler(slog.New(slog.NewJSONHandler(io.Discard, nil)), &fakeProvider{name: "openai"})
 	req := httptest.NewRequest(http.MethodGet, "/hecate/v1/terminal", nil)
 	req.RemoteAddr = "127.0.0.1:4321"
 	recorder := httptest.NewRecorder()
@@ -73,7 +75,7 @@ func TestTerminalWebSocketBridgesSession(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{name: "openai"}}, terminalEnabledTestConfig(), nil)
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{name: "openai"}}, config.Config{}, nil)
 	session := newFakeTerminalSession()
 	launcher := &fakeTerminalLauncher{session: session}
 	apiHandler.SetTerminalLauncher(launcher)
@@ -81,7 +83,8 @@ func TestTerminalWebSocketBridgesSession(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	workspace := t.TempDir()
-	wsURL := "ws" + server.URL[len("http"):] + "/hecate/v1/terminal?workspace=" + url.QueryEscape(workspace) + "&cols=100&rows=30"
+	ticket := createTerminalSessionForTest(t, server, workspace)
+	wsURL := "ws" + server.URL[len("http"):] + "/hecate/v1/terminal?workspace=" + url.QueryEscape(ticket.Data.Workspace) + "&token=" + url.QueryEscape(ticket.Data.Token) + "&cols=100&rows=30"
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	t.Cleanup(cancel)
 	conn, _, err := websocket.Dial(ctx, wsURL, nil)
@@ -136,30 +139,116 @@ func TestTerminalWebSocketBridgesSession(t *testing.T) {
 	}
 }
 
-func TestTerminalDisabledByDefault(t *testing.T) {
+func TestTerminalRejectsMissingTicket(t *testing.T) {
 	t.Parallel()
 
-	handler := newTestHTTPHandlerWithConfig(slog.New(slog.NewJSONHandler(io.Discard, nil)), &fakeProvider{name: "openai"}, config.Config{})
-	req := httptest.NewRequest(http.MethodGet, "/hecate/v1/terminal?workspace=/tmp", nil)
+	workspace := t.TempDir()
+	handler := newTestHTTPHandler(slog.New(slog.NewJSONHandler(io.Discard, nil)), &fakeProvider{name: "openai"})
+	req := httptest.NewRequest(http.MethodGet, "/hecate/v1/terminal?workspace="+url.QueryEscape(workspace), nil)
 	req.RemoteAddr = "127.0.0.1:4321"
 	recorder := httptest.NewRecorder()
 
 	handler.ServeHTTP(recorder, req)
 
-	if recorder.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d, body=%s", recorder.Code, http.StatusForbidden, recorder.Body.String())
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d, body=%s", recorder.Code, http.StatusUnauthorized, recorder.Body.String())
 	}
-	if !strings.Contains(recorder.Body.String(), "embedded terminal is disabled") {
-		t.Fatalf("body = %q, want disabled terminal message", recorder.Body.String())
+	if !strings.Contains(recorder.Body.String(), "terminal session token is required") {
+		t.Fatalf("body = %q, want missing token message", recorder.Body.String())
 	}
 }
 
-func terminalEnabledTestConfig() config.Config {
-	return config.Config{
-		Server: config.ServerConfig{
-			UnsafeEnableEmbeddedTerminal: true,
-		},
+func TestCreateTerminalSessionReturnsWorkspaceBoundTicket(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{name: "openai"}}, config.Config{}, nil)
+	server := httptest.NewServer(NewServer(logger, apiHandler))
+	t.Cleanup(server.Close)
+
+	workspace := t.TempDir()
+	session := createTerminalSessionForTest(t, server, workspace)
+	wantWorkspace, err := filepath.EvalSymlinks(workspace)
+	if err != nil {
+		t.Fatalf("canonicalize temp workspace: %v", err)
 	}
+	if session.Object != "terminal_session" {
+		t.Fatalf("object = %q, want terminal_session", session.Object)
+	}
+	if session.Data.Token == "" {
+		t.Fatal("terminal session token is empty")
+	}
+	if session.Data.Workspace != wantWorkspace {
+		t.Fatalf("workspace = %q, want %q", session.Data.Workspace, wantWorkspace)
+	}
+	if !session.Data.ExpiresAt.After(time.Now().UTC()) {
+		t.Fatalf("expires_at = %s, want future timestamp", session.Data.ExpiresAt)
+	}
+}
+
+func TestTerminalTicketIsWorkspaceBoundAndOneUse(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	otherWorkspace := t.TempDir()
+	handler := newTestAPIHandlerWithSettings(slog.New(slog.NewJSONHandler(io.Discard, nil)), []providers.Provider{&fakeProvider{name: "openai"}}, config.Config{}, nil)
+	canonicalWorkspace, err := filepath.EvalSymlinks(workspace)
+	if err != nil {
+		t.Fatalf("canonicalize workspace: %v", err)
+	}
+	canonicalOther, err := filepath.EvalSymlinks(otherWorkspace)
+	if err != nil {
+		t.Fatalf("canonicalize other workspace: %v", err)
+	}
+
+	handler.storeTerminalTicket("mismatch", terminalTicket{
+		Workspace: canonicalWorkspace,
+		ExpiresAt: time.Now().UTC().Add(time.Minute),
+	})
+	if err := handler.consumeTerminalTicket("mismatch", canonicalOther, time.Now().UTC()); err == nil {
+		t.Fatal("consume mismatched terminal ticket returned nil error")
+	}
+	if err := handler.consumeTerminalTicket("mismatch", canonicalWorkspace, time.Now().UTC()); err == nil {
+		t.Fatal("mismatched ticket was not consumed")
+	}
+
+	handler.storeTerminalTicket("one-use", terminalTicket{
+		Workspace: canonicalWorkspace,
+		ExpiresAt: time.Now().UTC().Add(time.Minute),
+	})
+	if err := handler.consumeTerminalTicket("one-use", canonicalWorkspace, time.Now().UTC()); err != nil {
+		t.Fatalf("consume valid terminal ticket: %v", err)
+	}
+	if err := handler.consumeTerminalTicket("one-use", canonicalWorkspace, time.Now().UTC()); err == nil {
+		t.Fatal("second terminal ticket consume returned nil error")
+	}
+}
+
+func createTerminalSessionForTest(t *testing.T, server *httptest.Server, workspace string) terminalSessionResponse {
+	t.Helper()
+	body, err := json.Marshal(createTerminalSessionRequest{Workspace: workspace})
+	if err != nil {
+		t.Fatalf("marshal terminal session request: %v", err)
+	}
+	req, err := http.NewRequest(http.MethodPost, server.URL+"/hecate/v1/terminal/sessions", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("create terminal session request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := server.Client().Do(req)
+	if err != nil {
+		t.Fatalf("create terminal session: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		payload, _ := io.ReadAll(resp.Body)
+		t.Fatalf("create terminal session status = %d body=%s, want 200", resp.StatusCode, payload)
+	}
+	var session terminalSessionResponse
+	if err := json.NewDecoder(resp.Body).Decode(&session); err != nil {
+		t.Fatalf("decode terminal session response: %v", err)
+	}
+	return session
 }
 
 type fakeTerminalLauncher struct {

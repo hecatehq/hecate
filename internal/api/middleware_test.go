@@ -320,24 +320,28 @@ func TestSameOriginMiddlewareWithAllowedOriginsRejectsCrossOriginBrowserRequest(
 func TestRuntimeTokenMiddleware(t *testing.T) {
 	tests := []struct {
 		name   string
+		method string
 		path   string
 		token  string
 		header string
 		want   int
 	}{
 		{
-			name: "disabled allows hecate api",
-			path: "/hecate/v1/whoami",
-			want: http.StatusNoContent,
+			name:   "disabled allows hecate api",
+			method: http.MethodGet,
+			path:   "/hecate/v1/whoami",
+			want:   http.StatusNoContent,
 		},
 		{
-			name:  "requires token for hecate api",
-			path:  "/hecate/v1/whoami",
-			token: "local-runtime-token-123456",
-			want:  http.StatusUnauthorized,
+			name:   "requires token for hecate api",
+			method: http.MethodGet,
+			path:   "/hecate/v1/whoami",
+			token:  "local-runtime-token-123456",
+			want:   http.StatusUnauthorized,
 		},
 		{
 			name:   "allows matching token",
+			method: http.MethodGet,
 			path:   "/hecate/v1/whoami",
 			token:  "local-runtime-token-123456",
 			header: "local-runtime-token-123456",
@@ -345,22 +349,39 @@ func TestRuntimeTokenMiddleware(t *testing.T) {
 		},
 		{
 			name:   "rejects wrong token",
+			method: http.MethodGet,
 			path:   "/hecate/v1/whoami",
 			token:  "local-runtime-token-123456",
 			header: "local-runtime-token-abcdef",
 			want:   http.StatusUnauthorized,
 		},
 		{
-			name:  "leaves provider compatible api alone",
-			path:  "/v1/models",
-			token: "local-runtime-token-123456",
-			want:  http.StatusNoContent,
+			name:   "leaves provider compatible api alone",
+			method: http.MethodGet,
+			path:   "/v1/models",
+			token:  "local-runtime-token-123456",
+			want:   http.StatusNoContent,
 		},
 		{
-			name:  "leaves healthz alone",
-			path:  "/healthz",
-			token: "local-runtime-token-123456",
-			want:  http.StatusNoContent,
+			name:   "leaves healthz alone",
+			method: http.MethodGet,
+			path:   "/healthz",
+			token:  "local-runtime-token-123456",
+			want:   http.StatusNoContent,
+		},
+		{
+			name:   "terminal websocket consumes ticket instead of runtime header",
+			method: http.MethodGet,
+			path:   "/hecate/v1/terminal?workspace=/tmp&token=ticket",
+			token:  "local-runtime-token-123456",
+			want:   http.StatusNoContent,
+		},
+		{
+			name:   "terminal ticket creation remains runtime-token protected",
+			method: http.MethodPost,
+			path:   "/hecate/v1/terminal/sessions",
+			token:  "local-runtime-token-123456",
+			want:   http.StatusUnauthorized,
 		},
 	}
 
@@ -369,7 +390,7 @@ func TestRuntimeTokenMiddleware(t *testing.T) {
 			handler := RuntimeTokenMiddleware(tt.token)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusNoContent)
 			}))
-			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			req := httptest.NewRequest(tt.method, tt.path, nil)
 			if tt.header != "" {
 				req.Header.Set(runtimeTokenHeader, tt.header)
 			}
@@ -591,6 +612,7 @@ func TestCloudRuntimeLocalEndpointGuardMiddleware(t *testing.T) {
 		{name: "disabled allows local endpoint", method: http.MethodPost, path: "/hecate/v1/system/shutdown", want: http.StatusNoContent},
 		{name: "blocks workspace dialog", enabled: true, method: http.MethodPost, path: "/hecate/v1/workspace-dialog", want: http.StatusForbidden},
 		{name: "blocks workspace open", enabled: true, method: http.MethodPost, path: "/hecate/v1/workspace-open", want: http.StatusForbidden},
+		{name: "blocks terminal session tickets", enabled: true, method: http.MethodPost, path: "/hecate/v1/terminal/sessions", want: http.StatusForbidden},
 		{name: "blocks terminal", enabled: true, method: http.MethodGet, path: "/hecate/v1/terminal?workspace=/tmp", want: http.StatusForbidden},
 		{name: "blocks reset data", enabled: true, method: http.MethodPost, path: "/hecate/v1/system/reset-data", want: http.StatusForbidden},
 		{name: "blocks shutdown", enabled: true, method: http.MethodPost, path: "/hecate/v1/system/shutdown", want: http.StatusForbidden},
@@ -679,6 +701,8 @@ func TestNewServerWiresCloudRuntimeIdentity(t *testing.T) {
 }
 
 func TestSessionAdvertisesEmbeddedTerminalCapability(t *testing.T) {
+	const secret = "cloud-runtime-secret-123456"
+
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	handler := NewServer(logger, NewHandler(config.Config{}, logger, nil, nil, nil, nil))
 
@@ -686,23 +710,31 @@ func TestSessionAdvertisesEmbeddedTerminalCapability(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("status without terminal capability = %d, want %d", rec.Code, http.StatusOK)
+		t.Fatalf("local status = %d, want %d", rec.Code, http.StatusOK)
 	}
-	if strings.Contains(rec.Body.String(), `"embedded_terminal":true`) {
-		t.Fatalf("whoami body = %s, want terminal disabled by default", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), `"embedded_terminal":true`) {
+		t.Fatalf("local whoami body = %s, want embedded terminal capability", rec.Body.String())
 	}
 
 	handler = NewServer(logger, NewHandler(config.Config{
-		Server: config.ServerConfig{UnsafeEnableEmbeddedTerminal: true},
+		Server: config.ServerConfig{
+			CloudRuntimeMode:   true,
+			CloudRuntimeSecret: secret,
+		},
 	}, logger, nil, nil, nil, nil))
 	req = httptest.NewRequest(http.MethodGet, "/hecate/v1/whoami", nil)
+	req.Header.Set(cloudruntime.HeaderRuntimeSecret, secret)
+	req.Header.Set(cloudruntime.HeaderActorID, "actor_1")
+	req.Header.Set(cloudruntime.HeaderOrgID, "org_1")
+	req.Header.Set(cloudruntime.HeaderProjectID, "proj_1")
+	req.Header.Set(cloudruntime.HeaderRuntimeID, "rt_1")
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("status with terminal capability = %d, want %d", rec.Code, http.StatusOK)
+		t.Fatalf("cloud status = %d, want %d", rec.Code, http.StatusOK)
 	}
-	if !strings.Contains(rec.Body.String(), `"embedded_terminal":true`) {
-		t.Fatalf("whoami body = %s, want embedded terminal capability", rec.Body.String())
+	if strings.Contains(rec.Body.String(), `"embedded_terminal":true`) {
+		t.Fatalf("cloud whoami body = %s, want terminal hidden in cloud runtime", rec.Body.String())
 	}
 }
 

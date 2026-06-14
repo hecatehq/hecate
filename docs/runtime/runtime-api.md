@@ -3809,16 +3809,43 @@ canonicalizes `path`, requires it to be a directory, and returns `403` for
 non-local callers so a remotely hosted Hecate cannot unexpectedly launch apps
 on the server machine.
 
+### `POST /hecate/v1/terminal/sessions`
+
+Creates a short-lived, one-use terminal ticket for the embedded workspace
+terminal. The route uses the normal protected Hecate API path, accepts only
+loopback clients, rejects forwarded-client headers, canonicalizes `workspace`,
+and is blocked in cloud runtime mode.
+
+```http
+POST /hecate/v1/terminal/sessions
+Content-Type: application/json
+
+{
+  "workspace": "/Users/alice/project"
+}
+
+→ 200
+{
+  "object": "terminal_session",
+  "data": {
+    "token": "...",
+    "workspace": "/Users/alice/project",
+    "expires_at": "2026-06-14T12:00:30Z"
+  }
+}
+```
+
 ### `GET /hecate/v1/terminal`
 
 Opens an embedded PTY-backed terminal over WebSocket for a validated local
-workspace. This endpoint is disabled by default; launch Hecate with
-`HECATE_UNSAFE_ENABLE_EMBEDDED_TERMINAL=1` to expose it. It is intentionally
-local-runtime-only: it accepts only loopback clients, rejects forwarded-client
-headers, canonicalizes `workspace`, and is blocked in cloud runtime mode.
+workspace. Browsers cannot attach custom runtime-token headers to a WebSocket
+upgrade, so this route consumes the one-use ticket from
+`POST /hecate/v1/terminal/sessions` instead. It remains local-runtime-only:
+loopback clients only, no forwarded-client headers, canonicalized workspace,
+and blocked in cloud runtime mode.
 
 ```text
-GET /hecate/v1/terminal?workspace=/Users/alice/project&cols=100&rows=30
+GET /hecate/v1/terminal?workspace=/Users/alice/project&token=...&cols=100&rows=30
 Upgrade: websocket
 ```
 
@@ -3827,6 +3854,7 @@ Query parameters:
 | Parameter   | Type   | Meaning                                              |
 | ----------- | ------ | ---------------------------------------------------- |
 | `workspace` | string | Required local directory where the shell starts.     |
+| `token`     | string | Required one-use ticket from `/terminal/sessions`.   |
 | `cols`      | int    | Optional initial terminal columns. Defaults to `80`. |
 | `rows`      | int    | Optional initial terminal rows. Defaults to `24`.    |
 
@@ -3849,8 +3877,9 @@ Server → client messages:
 The terminal starts the host shell as the same local OS user (`$SHELL` on
 macOS/Linux, PowerShell/cmd fallbacks on Windows). It is operator-controlled
 convenience UI, not a task-runtime sandbox: commands run directly in the
-workspace and are not approval-gated by Hecate. Treat the opt-in flag as a local
-power-user mode, not something to enable in hosted or shared environments.
+workspace and are not approval-gated by Hecate. It is not exposed in cloud
+runtime mode. Agents must not receive or reuse terminal session tickets; agent
+command execution belongs in governed task-runtime tools instead.
 
 ## Rate-limit headers on chat / messages
 

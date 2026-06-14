@@ -73,13 +73,13 @@ What works:
   desktop app it launches common local editors, Finder/folder, or a terminal via
   Tauri commands; in the browser UI the local gateway handles the same action
   for loopback clients.
-- The embedded terminal is disabled by default. If the gateway sidecar is
-  launched with `HECATE_UNSAFE_ENABLE_EMBEDDED_TERMINAL=1`, chats with a
-  workspace show a terminal button in the header. It opens a PTY-backed shell in
-  the selected workspace inside the chat view: `$SHELL` on macOS/Linux, then
-  PowerShell/cmd fallbacks on Windows. The terminal is for operator convenience
-  and runs as the same local OS user; it is not a Hecate task sandbox and does
-  not add extra process isolation.
+- Chats with a workspace show a terminal button in the header. It opens a
+  PTY-backed shell in a bottom drawer for the selected workspace: `$SHELL` on
+  macOS/Linux, then PowerShell/cmd fallbacks on Windows. The UI mints a
+  short-lived, one-use terminal ticket through the protected local API before
+  opening the WebSocket. The terminal is for operator convenience and runs as
+  the same local OS user; it is not a Hecate task sandbox and does not add extra
+  process isolation.
 - Startup splash fonts are vendored for offline startup; their OFL license
   texts live next to the font files under `tauri/splash/fonts/`.
 - Window size and position persistence across launches.

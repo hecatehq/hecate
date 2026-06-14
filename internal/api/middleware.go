@@ -177,6 +177,13 @@ func RuntimeTokenMiddleware(token string) middleware {
 			return next
 		}
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Browsers cannot attach custom headers during a WebSocket upgrade.
+			// The protected POST /terminal/sessions route mints a short-lived,
+			// one-use ticket; the GET upgrade only consumes that ticket.
+			if isTerminalWebSocketTicketRoute(r.Method, r.URL.Path) {
+				next.ServeHTTP(w, r)
+				return
+			}
 			if _, ok := cloudruntime.FromContext(r.Context()); ok || !isHecateAPIPath(r.URL.Path) || runtimeTokenMatches(r.Header.Get(runtimeTokenHeader), token) {
 				next.ServeHTTP(w, r)
 				return
@@ -184,6 +191,10 @@ func RuntimeTokenMiddleware(token string) middleware {
 			WriteError(w, http.StatusUnauthorized, errCodeUnauthorized, "runtime token is required")
 		})
 	}
+}
+
+func isTerminalWebSocketTicketRoute(method, path string) bool {
+	return method == http.MethodGet && path == "/hecate/v1/terminal"
 }
 
 func CloudRuntimeIdentityMiddleware(enabled bool, secret string) middleware {

@@ -12,6 +12,7 @@ import {
   createProjectWorktreeRoot,
   createProjectWorkRole,
   createProjectWorkItem,
+  createTerminalSession,
   deleteChatGrant,
   deletePolicyRule,
   deleteProjectAssignment,
@@ -136,6 +137,30 @@ describe("api client", () => {
         body: JSON.stringify({ path: "/Users/alice/dev/hecate", target: "zed" }),
       }),
     );
+  });
+
+  it("creates an embedded terminal session ticket", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        object: "terminal_session",
+        data: {
+          token: "terminal-ticket",
+          workspace: "/Users/alice/dev/hecate",
+          expires_at: "2026-06-14T12:00:00Z",
+        },
+      }),
+    );
+
+    const result = await createTerminalSession("/Users/alice/dev/hecate");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/hecate/v1/terminal/sessions",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ workspace: "/Users/alice/dev/hecate" }),
+      }),
+    );
+    expect(result.data.token).toBe("terminal-ticket");
   });
 
   it("surfaces text error bodies when the local gateway lacks an endpoint", async () => {

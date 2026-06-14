@@ -22,6 +22,15 @@ export type SessionResponse = {
   };
 };
 
+export type TerminalSessionResponse = {
+  object: "terminal_session";
+  data: {
+    token: string;
+    workspace: string;
+    expires_at: string;
+  };
+};
+
 export type RuntimeStatsResponse = {
   object: string;
   data: {

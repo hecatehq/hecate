@@ -120,22 +120,6 @@ func TestLoadFromEnvNonLoopbackBindAcknowledgementZeroStaysFalse(t *testing.T) {
 	}
 }
 
-func TestLoadFromEnvUnsafeEmbeddedTerminalOptIn(t *testing.T) {
-	t.Setenv("HECATE_UNSAFE_ENABLE_EMBEDDED_TERMINAL", "")
-
-	cfg := LoadFromEnv()
-	if cfg.Server.UnsafeEnableEmbeddedTerminal {
-		t.Fatal("UnsafeEnableEmbeddedTerminal = true by default, want false")
-	}
-
-	t.Setenv("HECATE_UNSAFE_ENABLE_EMBEDDED_TERMINAL", "true")
-
-	cfg = LoadFromEnv()
-	if !cfg.Server.UnsafeEnableEmbeddedTerminal {
-		t.Fatal("UnsafeEnableEmbeddedTerminal = false with opt-in env, want true")
-	}
-}
-
 func TestLoadFromEnvAllowedOrigins(t *testing.T) {
 	t.Setenv("HECATE_ALLOWED_ORIGINS", "http://127.0.0.1:5173, http://localhost:5173")
 

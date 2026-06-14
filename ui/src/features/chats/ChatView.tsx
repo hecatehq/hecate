@@ -1024,13 +1024,6 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
               }
             />
 
-            {terminalPanelOpen && (
-              <ChatTerminalPanel
-                workspace={activeWorkspacePath}
-                onClose={() => setTerminalOpen(false)}
-              />
-            )}
-
             {composerShellVisible && (
               <ChatComposer
                 isAgentChat={isAgentChat}
@@ -1080,6 +1073,13 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
                 onOpenLinkedProject={
                   activeSessionProjectID && onNavigate ? () => openLinkedProject() : undefined
                 }
+              />
+            )}
+
+            {terminalPanelOpen && (
+              <ChatTerminalPanel
+                workspace={activeWorkspacePath}
+                onClose={() => setTerminalOpen(false)}
               />
             )}
           </div>
