@@ -204,51 +204,37 @@ describe("ChatView input", () => {
     ]);
   }, 10_000);
 
-  it("shows Grok Build model controls before the first external-agent session exists", async () => {
-    const { state, actions } = setup({
-      chatTarget: "external_agent",
-      agentAdapterID: "grok_build",
-      newChatAgentID: "grok_build",
-      agentWorkspace: "/tmp/hecate",
-      activeChatSessionID: "",
-      activeChatSession: null,
-      agentAdapters: [
-        {
-          id: "grok_build",
-          name: "Grok Build",
-          kind: "acp",
-          command: "grok",
-          available: true,
-          status: "available",
-          cost_mode: "external",
-          config_options: [
-            {
-              id: "model",
-              name: "Model",
-              category: "model",
-              type: "select",
-              current_value: "__hecate_no_model_selected__",
-              options: [
-                { value: "__hecate_no_model_selected__", name: "Pick a model" },
-                { value: "model-a", name: "Model A" },
-              ],
-            },
-          ],
-        },
-      ],
-    });
+  it("waits for a Grok Build ACP session before showing session config controls", async () => {
+    const createChatSession = vi.fn(async () => undefined);
+    const { state, actions } = setup(
+      {
+        chatTarget: "external_agent",
+        agentAdapterID: "grok_build",
+        newChatAgentID: "grok_build",
+        agentWorkspace: "/tmp/hecate",
+        activeChatSessionID: "",
+        activeChatSession: null,
+        agentAdapters: [
+          {
+            id: "grok_build",
+            name: "Grok Build",
+            kind: "acp",
+            command: "grok",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+          },
+        ],
+      },
+      { createChatSession },
+    );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /New Grok Build chat/i }));
 
-    const modelPicker = await screen.findByRole("button", { name: "Model" });
-    expect(modelPicker).toHaveTextContent("Pick a model");
-
-    await user.click(modelPicker);
-    await user.click(screen.getByRole("option", { name: /Model A/ }));
-
-    expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("Model A");
+    expect(createChatSession).toHaveBeenCalledWith({ agentID: "grok_build", projectID: "" });
+    expect(screen.queryByRole("button", { name: "Model" })).toBeNull();
   });
 
   it("creates a Grok Build chat before the launch model is selected", async () => {
@@ -421,7 +407,7 @@ describe("ChatView input", () => {
     expect(createChatSession).toHaveBeenCalledWith({ agentID: "hecate", projectID: "" });
   });
 
-  it("shows Grok Build model controls for an existing session without persisted config options", async () => {
+  it("shows Grok Build session-owned model and thinking controls", async () => {
     const { state, actions } = setup({
       chatTarget: "external_agent",
       agentAdapterID: "codex",
@@ -432,7 +418,59 @@ describe("ChatView input", () => {
         title: "Grok work",
         workspace: "/tmp/hecate",
         status: "idle",
-        config_options: [],
+        config_options: [
+          {
+            id: "web_search",
+            name: "Web search",
+            type: "select",
+            current_value: "auto",
+            options: [
+              { value: "off", name: "Off" },
+              { value: "auto", name: "Auto" },
+            ],
+          },
+          {
+            id: "verbosity",
+            name: "Verbosity",
+            type: "select",
+            current_value: "normal",
+            options: [
+              { value: "normal", name: "Normal" },
+              { value: "detailed", name: "Detailed" },
+            ],
+          },
+          {
+            id: "model",
+            name: "Model",
+            type: "select",
+            current_value: "grok-code-fast-1",
+            options: [
+              { value: "grok-code-fast-1", name: "Grok Code Fast 1" },
+              { value: "grok-code-pro-1", name: "Grok Code Pro 1" },
+            ],
+          },
+          {
+            id: "thinking_level",
+            name: "Level of thinking",
+            type: "select",
+            current_value: "medium",
+            options: [
+              { value: "low", name: "Low" },
+              { value: "medium", name: "Medium" },
+              { value: "high", name: "High" },
+            ],
+          },
+          {
+            id: "approval_mode",
+            name: "Approval mode",
+            type: "select",
+            current_value: "ask",
+            options: [
+              { value: "ask", name: "Ask" },
+              { value: "auto", name: "Auto" },
+            ],
+          },
+        ],
         messages: [],
       } as any,
       agentAdapters: [
@@ -444,37 +482,16 @@ describe("ChatView input", () => {
           available: true,
           status: "available",
           cost_mode: "external",
-          config_options: [
-            {
-              id: "model",
-              name: "Model",
-              category: "model",
-              type: "select",
-              current_value: "__hecate_no_model_selected__",
-              options: [
-                { value: "__hecate_no_model_selected__", name: "Pick a model" },
-                { value: "grok-latest", name: "Grok Latest" },
-              ],
-            },
-            {
-              id: "reasoning_effort",
-              name: "Reasoning",
-              category: "thought_level",
-              type: "select",
-              current_value: "__hecate_no_reasoning_selected__",
-              options: [
-                { value: "__hecate_no_reasoning_selected__", name: "Pick reasoning" },
-                { value: "high", name: "High" },
-              ],
-            },
-          ],
         },
       ],
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
-    expect(await screen.findByRole("button", { name: "Model" })).toHaveTextContent("Pick a model");
-    expect(screen.getByRole("button", { name: "Reasoning" })).toHaveTextContent("Pick reasoning");
+    expect(await screen.findByRole("button", { name: "Model" })).toHaveTextContent(
+      "Grok Code Fast 1",
+    );
+    expect(screen.getByRole("button", { name: "Level of thinking" })).toHaveTextContent("Medium");
+    expect(screen.queryByRole("button", { name: "Verbosity" })).toBeNull();
     expect(screen.getByRole("textbox", { name: "Message" })).toBeTruthy();
   });
 
