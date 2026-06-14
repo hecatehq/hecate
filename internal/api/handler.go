@@ -91,6 +91,8 @@ type Handler struct {
 	agentAdapterProbe AgentAdapterProbe
 	stateCleaner      StateCleaner
 	terminalLauncher  terminal.Launcher
+	terminalTicketsMu sync.Mutex
+	terminalTickets   map[string]terminalTicket
 	// quitFunc is wired by main.go to request an orderly process
 	// shutdown — used by HandleSystemShutdown when the desktop app's
 	// close-window confirmation flow asks the gateway to quit. nil in
@@ -335,6 +337,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		agentChatMetrics:    agentChatMetrics,
 		approvalConfig:      approvalCfg,
 		terminalLauncher:    terminal.NewPTYLauncher(logger),
+		terminalTickets:     make(map[string]terminalTicket),
 	}
 	h.startAgentChatIdleSweeper()
 	return h
@@ -598,7 +601,7 @@ func (h *Handler) HandleSession(w http.ResponseWriter, r *http.Request) {
 	item := SessionResponseItem{
 		Role: "operator",
 		Capabilities: SessionCapabilitiesItem{
-			EmbeddedTerminal: h.config.Server.UnsafeEnableEmbeddedTerminal,
+			EmbeddedTerminal: !h.config.Server.CloudRuntimeMode,
 		},
 	}
 	if identity, ok := cloudruntime.FromContext(r.Context()); ok {

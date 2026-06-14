@@ -2,6 +2,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { useEffect, useRef, useState } from "react";
+import { createTerminalSession } from "../../lib/api";
 import { terminalWebSocketURL } from "../../lib/terminal";
 import { Icon, Icons } from "../shared/ui";
 
@@ -30,11 +31,11 @@ export function ChatTerminalPanel({
     if (!container || !workspace.trim()) return;
 
     const terminal = new Terminal({
-      cursorBlink: true,
+      cursorBlink: false,
       convertEol: true,
       fontFamily: "var(--font-mono)",
-      fontSize: 12,
-      lineHeight: 1.2,
+      fontSize: 13,
+      lineHeight: 1.25,
       scrollback: 5000,
       theme: terminalTheme(),
     });
@@ -45,12 +46,12 @@ export function ChatTerminalPanel({
     terminalRef.current = terminal;
     fitRef.current = fit;
 
-    const socket = new WebSocket(terminalWebSocketURL(workspace, terminal.cols, terminal.rows));
-    socketRef.current = socket;
+    let disposed = false;
+    let socket: WebSocket | null = null;
     setStatus("connecting");
 
     const sendResize = () => {
-      if (socket.readyState !== WebSocket.OPEN) return;
+      if (!socket || socket.readyState !== WebSocket.OPEN) return;
       socket.send(JSON.stringify({ type: "resize", cols: terminal.cols, rows: terminal.rows }));
     };
 
@@ -61,38 +62,57 @@ export function ChatTerminalPanel({
     resizeObserver.observe(container);
 
     const dataDisposable = terminal.onData((data) => {
-      if (socket.readyState === WebSocket.OPEN) {
+      if (socket?.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ type: "input", data }));
       }
     });
 
-    socket.addEventListener("open", () => {
-      setStatus("connected");
-      fit.fit();
-      sendResize();
-      terminal.focus();
-    });
-    socket.addEventListener("message", (event) => {
-      const message = parseTerminalMessage(event.data);
-      if (!message) return;
-      switch (message.type) {
-        case "output":
-          terminal.write(message.data ?? "");
-          break;
-        case "error":
-          setStatus("error");
-          terminal.writeln(`\r\n\x1b[31m${message.message || "Terminal error"}\x1b[0m`);
-          break;
-        case "exit":
-          setStatus("closed");
-          terminal.writeln(`\r\n\x1b[90mTerminal exited (${message.code ?? 0}).\x1b[0m`);
-          break;
-      }
-    });
-    socket.addEventListener("close", () =>
-      setStatus((current) => (current === "error" ? current : "closed")),
-    );
-    socket.addEventListener("error", () => setStatus("error"));
+    void createTerminalSession(workspace)
+      .then((response) => {
+        if (disposed) return;
+        socket = new WebSocket(
+          terminalWebSocketURL(
+            response.data.workspace,
+            response.data.token,
+            terminal.cols,
+            terminal.rows,
+          ),
+        );
+        socketRef.current = socket;
+        socket.addEventListener("open", () => {
+          setStatus("connected");
+          fit.fit();
+          sendResize();
+          terminal.focus();
+        });
+        socket.addEventListener("message", (event) => {
+          const message = parseTerminalMessage(event.data);
+          if (!message) return;
+          switch (message.type) {
+            case "output":
+              terminal.write(message.data ?? "");
+              break;
+            case "error":
+              setStatus("error");
+              terminal.writeln(`\r\n\x1b[31m${message.message || "Terminal error"}\x1b[0m`);
+              break;
+            case "exit":
+              setStatus("closed");
+              terminal.writeln(`\r\n\x1b[90mTerminal exited (${message.code ?? 0}).\x1b[0m`);
+              break;
+          }
+        });
+        socket.addEventListener("close", () =>
+          setStatus((current) => (current === "error" ? current : "closed")),
+        );
+        socket.addEventListener("error", () => setStatus("error"));
+      })
+      .catch((error: unknown) => {
+        if (disposed) return;
+        setStatus("error");
+        const message = error instanceof Error ? error.message : "Failed to start terminal";
+        terminal.writeln(`\r\n\x1b[31m${message}\x1b[0m`);
+      });
 
     const themeObserver = new MutationObserver(() => {
       terminal.options.theme = terminalTheme();
@@ -103,13 +123,14 @@ export function ChatTerminalPanel({
     });
 
     return () => {
+      disposed = true;
       themeObserver.disconnect();
       dataDisposable.dispose();
       resizeObserver.disconnect();
-      if (socket.readyState === WebSocket.OPEN) {
+      if (socket?.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ type: "close" }));
       }
-      socket.close();
+      socket?.close();
       terminal.dispose();
       terminalRef.current = null;
       socketRef.current = null;
@@ -122,41 +143,57 @@ export function ChatTerminalPanel({
       aria-label="Embedded terminal"
       style={{
         borderTop: "1px solid var(--border)",
-        background: "var(--bg0)",
-        flex: "0 0 clamp(190px, 32vh, 380px)",
-        minHeight: 190,
+        background: "color-mix(in srgb, var(--bg0) 94%, var(--bg2))",
+        flex: "0 0 clamp(220px, 34vh, 420px)",
+        minHeight: 220,
         display: "flex",
         flexDirection: "column",
+        padding: "10px 12px 12px",
       }}
     >
       <div
         style={{
-          height: 34,
-          borderBottom: "1px solid var(--border)",
           display: "flex",
           alignItems: "center",
-          gap: 8,
-          padding: "0 12px",
+          gap: 10,
+          marginBottom: 8,
           flexShrink: 0,
         }}
       >
-        <Icon d={Icons.terminal} size={13} />
-        <strong style={{ fontSize: 12, color: "var(--t0)" }}>Terminal</strong>
-        <span
-          title={workspace}
+        <div
           style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
             minWidth: 0,
-            flex: 1,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-            color: "var(--t3)",
-            fontFamily: "var(--font-mono)",
-            fontSize: 10,
+            maxWidth: "min(42vw, 360px)",
+            border: "1px solid var(--border)",
+            borderRadius: 13,
+            background: "var(--bg2)",
+            padding: "8px 12px",
+            boxShadow: "0 1px 0 color-mix(in srgb, var(--t0) 8%, transparent) inset",
           }}
         >
-          {workspace}
-        </span>
+          <Icon d={Icons.terminal} size={14} />
+          <strong
+            title={workspace}
+            style={{
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              fontSize: 13,
+              color: "var(--t0)",
+            }}
+          >
+            {terminalTitle(workspace)}
+          </strong>
+        </div>
+        <span
+          style={{
+            flex: 1,
+          }}
+        />
         <span
           style={{
             color: terminalStatusColor(status),
@@ -178,9 +215,26 @@ export function ChatTerminalPanel({
           <Icon d={Icons.x} size={12} />
         </button>
       </div>
-      <div ref={containerRef} style={{ flex: 1, minHeight: 0, padding: "8px 10px" }} />
+      <div
+        ref={containerRef}
+        style={{
+          flex: 1,
+          minHeight: 0,
+          border: "1px solid color-mix(in srgb, var(--border) 72%, transparent)",
+          borderRadius: 16,
+          background: "var(--terminal-bg, #171717)",
+          padding: "12px 14px",
+          overflow: "hidden",
+        }}
+      />
     </section>
   );
+}
+
+function terminalTitle(workspace: string): string {
+  const clean = workspace.trim().replace(/\/+$/, "");
+  const name = clean.split("/").filter(Boolean).at(-1) || "workspace";
+  return `${name}`;
 }
 
 function parseTerminalMessage(value: unknown): TerminalMessage | null {

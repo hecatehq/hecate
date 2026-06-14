@@ -13,6 +13,7 @@ type cloudRuntimeRoutePattern struct {
 var cloudRuntimeLocalOnlyRoutes = []cloudRuntimeRoutePattern{
 	{method: http.MethodPost, path: "/hecate/v1/workspace-dialog"},
 	{method: http.MethodPost, path: "/hecate/v1/workspace-open"},
+	{method: http.MethodPost, path: "/hecate/v1/terminal/sessions"},
 	{method: http.MethodGet, path: "/hecate/v1/terminal"},
 	{method: http.MethodPost, path: "/hecate/v1/system/reset-data"},
 	{method: http.MethodPost, path: "/hecate/v1/system/shutdown"},

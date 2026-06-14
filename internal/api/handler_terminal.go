@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
@@ -30,17 +33,71 @@ type terminalServerMessage struct {
 	Code    int    `json:"code,omitempty"`
 }
 
-func (h *Handler) HandleTerminal(w http.ResponseWriter, r *http.Request) {
-	if !h.config.Server.UnsafeEnableEmbeddedTerminal {
-		WriteError(w, http.StatusForbidden, errCodeForbidden, "embedded terminal is disabled")
+const terminalTicketTTL = 30 * time.Second
+
+type terminalTicket struct {
+	Workspace string
+	ExpiresAt time.Time
+}
+
+type createTerminalSessionRequest struct {
+	Workspace string `json:"workspace"`
+}
+
+type terminalSessionResponse struct {
+	Object string              `json:"object"`
+	Data   terminalSessionData `json:"data"`
+}
+
+type terminalSessionData struct {
+	Token     string    `json:"token"`
+	Workspace string    `json:"workspace"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+func (h *Handler) HandleCreateTerminalSession(w http.ResponseWriter, r *http.Request) {
+	// The embedded terminal is an operator-only UI surface. Agents must use
+	// governed task/runtime tools instead of receiving or reusing these tickets.
+	if !requireLoopbackClient(w, r, "embedded terminal") {
 		return
 	}
+	var req createTerminalSessionRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	workspace, err := validateTerminalWorkspace(req.Workspace)
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+		return
+	}
+	token, err := newTerminalTicketToken()
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeInternalError, "failed to create terminal session")
+		return
+	}
+	expiresAt := time.Now().UTC().Add(terminalTicketTTL)
+	h.storeTerminalTicket(token, terminalTicket{Workspace: workspace, ExpiresAt: expiresAt})
+	WriteJSON(w, http.StatusOK, terminalSessionResponse{
+		Object: "terminal_session",
+		Data: terminalSessionData{
+			Token:     token,
+			Workspace: workspace,
+			ExpiresAt: expiresAt,
+		},
+	})
+}
+
+func (h *Handler) HandleTerminal(w http.ResponseWriter, r *http.Request) {
 	if !requireLoopbackClient(w, r, "embedded terminal") {
 		return
 	}
 	workspace, err := validateTerminalWorkspace(r.URL.Query().Get("workspace"))
 	if err != nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+		return
+	}
+	if err := h.consumeTerminalTicket(r.URL.Query().Get("token"), workspace, time.Now().UTC()); err != nil {
+		WriteError(w, http.StatusUnauthorized, errCodeUnauthorized, err.Error())
 		return
 	}
 	cols := positiveQueryInt(r, "cols", 80)
@@ -79,6 +136,41 @@ func (h *Handler) HandleTerminal(w http.ResponseWriter, r *http.Request) {
 	defer session.Close()
 
 	h.bridgeTerminal(ctx, conn, session)
+}
+
+func newTerminalTicketToken() (string, error) {
+	var raw [32]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(raw[:]), nil
+}
+
+func (h *Handler) storeTerminalTicket(token string, ticket terminalTicket) {
+	h.terminalTicketsMu.Lock()
+	defer h.terminalTicketsMu.Unlock()
+	if h.terminalTickets == nil {
+		h.terminalTickets = make(map[string]terminalTicket)
+	}
+	h.terminalTickets[token] = ticket
+}
+
+func (h *Handler) consumeTerminalTicket(token, workspace string, now time.Time) error {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return errors.New("terminal session token is required")
+	}
+	h.terminalTicketsMu.Lock()
+	defer h.terminalTicketsMu.Unlock()
+	ticket, ok := h.terminalTickets[token]
+	delete(h.terminalTickets, token)
+	if !ok || now.After(ticket.ExpiresAt) {
+		return errors.New("terminal session token is invalid or expired")
+	}
+	if ticket.Workspace != workspace {
+		return errors.New("terminal session token does not match workspace")
+	}
+	return nil
 }
 
 func validateTerminalWorkspace(path string) (string, error) {
