@@ -10,20 +10,31 @@
 # embedded UI, git/ssh, supported External Agent CLIs/ACP adapters, /data
 # persistence, and /workspace as the default work root.
 
-ARG NODE_VERSION=24
+ARG NODE_IMAGE=node:24-trixie-slim
 
-FROM node:${NODE_VERSION}-bookworm-slim
+FROM ${NODE_IMAGE}
 
 ARG TARGETPLATFORM
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
       bash \
+      build-essential \
       ca-certificates \
       curl \
       git \
+      jq \
+      less \
       openssh-client \
+      pkg-config \
+      procps \
+      python3 \
+      python3-pip \
+      python3-venv \
+      ripgrep \
       tini \
+      unzip \
+      xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
 ARG OPENAI_CODEX_VERSION=0.139.0
