@@ -3071,6 +3071,63 @@ describe("ChatView input", () => {
     expect(commands.getAttribute("style")).toContain("max-height:");
   });
 
+  it("scrolls the active slash command into view during keyboard navigation", () => {
+    const originalScrollIntoViewDescriptor = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "scrollIntoView",
+    );
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    try {
+      const availableCommands = Array.from({ length: 9 }, (_, index) => ({
+        name: `cmd${index + 1}`,
+        description: `Command ${index + 1}`,
+      }));
+      const { state, actions } = setup({
+        chatTarget: "external_agent",
+        agentAdapterID: "claude_code",
+        message: "/",
+        activeChatSession: {
+          id: "chat_commands",
+          title: "Agent commands",
+          agent_id: "claude_code",
+          driver_kind: "acp",
+          execution_mode: "external_agent",
+          status: "idle",
+          workspace: "/tmp/hecate",
+          available_commands: availableCommands,
+          messages: [],
+        },
+      });
+      render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+      const textarea = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+      const commands = screen.getByRole("listbox", { name: "Message commands" });
+      scrollIntoView.mockClear();
+
+      fireEvent.keyDown(textarea, { key: "ArrowDown" });
+
+      expect(within(commands).getByRole("option", { selected: true })).toHaveAttribute(
+        "aria-label",
+        "Insert /cmd2 command",
+      );
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
+    } finally {
+      if (originalScrollIntoViewDescriptor) {
+        Object.defineProperty(
+          HTMLElement.prototype,
+          "scrollIntoView",
+          originalScrollIntoViewDescriptor,
+        );
+      } else {
+        delete (HTMLElement.prototype as unknown as Record<string, unknown>).scrollIntoView;
+      }
+    }
+  });
+
   it("dismisses external-agent slash command suggestions with Escape", () => {
     const { state, actions } = setup({
       chatTarget: "external_agent",

@@ -317,6 +317,7 @@ export function ChatComposer(props: ChatComposerProps) {
   const formRef = useRef<HTMLFormElement>(null);
   const messageHistoryCursorRef = useRef<number | null>(null);
   const messageHistoryPendingTextRef = useRef("");
+  const commandOptionRefs = useRef<Array<HTMLDivElement | null>>([]);
   const commandListboxID = useId();
   const [commandPickerDismissed, setCommandPickerDismissed] = useState(false);
   const [activeCommandIndex, setActiveCommandIndex] = useState(0);
@@ -397,6 +398,15 @@ export function ChatComposer(props: ChatComposerProps) {
       commandSuggestions.length === 0 ? 0 : Math.min(current, commandSuggestions.length - 1),
     );
   }, [commandSuggestions.length]);
+
+  useEffect(() => {
+    commandOptionRefs.current = commandOptionRefs.current.slice(0, commandSuggestions.length);
+  }, [commandSuggestions.length]);
+
+  useEffect(() => {
+    if (!commandPickerVisible) return;
+    commandOptionRefs.current[activeCommandIndex]?.scrollIntoView({ block: "nearest" });
+  }, [activeCommandIndex, commandPickerVisible]);
 
   // Reset history navigation on session change. Scroll-side reset
   // lives in ChatView since it concerns the transcript surface.
@@ -865,6 +875,9 @@ export function ChatComposer(props: ChatComposerProps) {
                   return (
                     <div
                       key={`${command.kind}:${command.name}:${index}`}
+                      ref={(node) => {
+                        commandOptionRefs.current[index] = node;
+                      }}
                       id={`${commandListboxID}-option-${index}`}
                       role="option"
                       aria-label={`Insert ${commandText} command`}
