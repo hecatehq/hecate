@@ -82,6 +82,7 @@ export type ProjectWorkspaceViewProps = {
   onAddReviewArtifactFromAssignment: (assignment: ProjectAssignmentRecord) => void;
   onAddHandoffFromReviewArtifact: (artifact: ProjectCollaborationArtifactRecord) => void;
   onCreateDefaultAssignment: (item: ProjectWorkItemRecord) => void;
+  onPreparedAssignmentPreflightOpened: (assignmentID: string) => void;
   onCreateAssignmentFromReviewArtifact: (artifact: ProjectCollaborationArtifactRecord) => void;
   onCreateAssignmentFromHandoff: (handoff: ProjectHandoffRecord) => void;
   onCreateWork: () => void;
@@ -122,6 +123,7 @@ export type ProjectWorkspaceViewProps = {
   projectEmptyTitle: string;
   projectNeedsOnboarding: boolean;
   projectSkills: ProjectSkillRecord[];
+  preparingAssignmentID: string;
   rejectingCandidateID: string;
   roleByID: Map<string, ProjectWorkRoleRecord>;
   roles: ProjectWorkRoleRecord[];
@@ -170,6 +172,7 @@ export function ProjectWorkspaceView({
   onAddReviewArtifactFromAssignment,
   onAddHandoffFromReviewArtifact,
   onCreateDefaultAssignment,
+  onPreparedAssignmentPreflightOpened,
   onCreateAssignmentFromReviewArtifact,
   onCreateAssignmentFromHandoff,
   onCreateWork,
@@ -210,6 +213,7 @@ export function ProjectWorkspaceView({
   projectEmptyTitle,
   projectNeedsOnboarding,
   projectSkills,
+  preparingAssignmentID,
   rejectingCandidateID,
   roleByID,
   roles,
@@ -347,6 +351,7 @@ export function ProjectWorkspaceView({
                         assignmentErrors={assignmentErrors}
                         detailError={detailError}
                         creatingDefaultAssignment={creatingDefaultAssignment}
+                        preparingAssignmentID={preparingAssignmentID}
                         loading={detailLoadState === "loading"}
                         onOpenTask={onOpenTask}
                         onRefresh={onRefreshWorkItem}
@@ -380,6 +385,7 @@ export function ProjectWorkspaceView({
                         onAddReviewArtifactFromAssignment={onAddReviewArtifactFromAssignment}
                         onAddHandoffFromReviewArtifact={onAddHandoffFromReviewArtifact}
                         onCreateDefaultAssignment={onCreateDefaultAssignment}
+                        onPreparedAssignmentPreflightOpened={onPreparedAssignmentPreflightOpened}
                         onCreateAssignmentFromReviewArtifact={onCreateAssignmentFromReviewArtifact}
                       />
                     ) : (

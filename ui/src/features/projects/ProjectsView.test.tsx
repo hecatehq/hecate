@@ -4683,9 +4683,16 @@ describe("ProjectsView cockpit", () => {
     });
   });
 
-  it("queues a default assignment from a pristine work item", async () => {
+  it("prepares a default assignment from a pristine work item", async () => {
     resetProjectWorkMocks();
     const emptyWorkItem = { ...workItem, reviewer_role_ids: [], assignments: [] };
+    const preparedAssignment: ProjectAssignmentRecord = {
+      ...hecateAssignment,
+      id: "asgn_default",
+      status: "queued",
+      execution: undefined,
+      execution_ref: { kind: "none" },
+    };
     vi.mocked(getProjectWorkItems).mockResolvedValue({
       object: "project_work_items",
       data: [emptyWorkItem],
@@ -4694,19 +4701,17 @@ describe("ProjectsView cockpit", () => {
       object: "project_work_item",
       data: emptyWorkItem,
     });
-    vi.mocked(getProjectAssignments).mockResolvedValue({
+    vi.mocked(getProjectAssignments).mockResolvedValueOnce({
       object: "project_assignments",
       data: [],
     });
+    vi.mocked(getProjectAssignments).mockResolvedValue({
+      object: "project_assignments",
+      data: [preparedAssignment],
+    });
     vi.mocked(createProjectAssignment).mockResolvedValueOnce({
       object: "project_assignment",
-      data: {
-        ...hecateAssignment,
-        id: "asgn_default",
-        status: "queued",
-        execution: undefined,
-        execution_ref: { kind: "none" },
-      },
+      data: preparedAssignment,
     });
     window.localStorage.setItem("hecate.project", project.id);
     const state = createRuntimeConsoleFixture({
@@ -4716,8 +4721,10 @@ describe("ProjectsView cockpit", () => {
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
     const detail = await screen.findByRole("region", { name: "Selected work item" });
-    await within(detail).findByText("Ready to queue the first assignment");
-    await userEvent.click(within(detail).getByRole("button", { name: "Queue Software developer" }));
+    await within(detail).findByText("Ready to prepare the first assignment");
+    await userEvent.click(
+      within(detail).getByRole("button", { name: "Prepare Software developer" }),
+    );
 
     await waitFor(() =>
       expect(createProjectAssignment).toHaveBeenCalledWith(project.id, workItem.id, {
@@ -4725,6 +4732,15 @@ describe("ProjectsView cockpit", () => {
         driver_kind: "hecate_task",
       }),
     );
+    expect(
+      await screen.findByRole("dialog", { name: "Assignment asgn_default launch preflight" }),
+    ).toBeTruthy();
+    expect(getProjectAssignmentPreflight).toHaveBeenCalledWith(
+      project.id,
+      workItem.id,
+      "asgn_default",
+    );
+    expect(startProjectAssignment).not.toHaveBeenCalled();
   });
 
   it("sends selected project roots when creating assignments", async () => {

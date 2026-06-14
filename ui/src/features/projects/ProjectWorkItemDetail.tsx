@@ -1,4 +1,4 @@
-import { useCallback, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useState, type CSSProperties } from "react";
 
 import { getProjectAssignmentContext, getProjectAssignmentPreflight } from "../../lib/api";
 import { formatAbsoluteTime } from "../../lib/format";
@@ -77,6 +77,7 @@ export type ProjectWorkItemDetailProps = {
   assignmentErrors: Record<string, string>;
   detailError: string;
   creatingDefaultAssignment: boolean;
+  preparingAssignmentID: string;
   loading: boolean;
   onAddAssignment: () => void;
   onAddHandoff: () => void;
@@ -93,6 +94,7 @@ export type ProjectWorkItemDetailProps = {
   onAddReviewArtifactFromAssignment: (assignment: ProjectAssignmentRecord) => void;
   onAddHandoffFromReviewArtifact: (artifact: ProjectCollaborationArtifactRecord) => void;
   onCreateDefaultAssignment: (item: ProjectWorkItemRecord) => void;
+  onPreparedAssignmentPreflightOpened: (assignmentID: string) => void;
   onCreateAssignmentFromReviewArtifact: (artifact: ProjectCollaborationArtifactRecord) => void;
   onCreateAssignmentFromHandoff: (handoff: ProjectHandoffRecord) => void;
   onDeleteAssignment: (assignment: ProjectAssignmentRecord) => void;
@@ -130,6 +132,7 @@ export function ProjectWorkItemDetail({
   assignmentErrors,
   detailError,
   creatingDefaultAssignment,
+  preparingAssignmentID,
   loading,
   onAddAssignment,
   onAddEvidenceLink,
@@ -139,6 +142,7 @@ export function ProjectWorkItemDetail({
   onAddReviewArtifactFromAssignment,
   onAddHandoffFromReviewArtifact,
   onCreateDefaultAssignment,
+  onPreparedAssignmentPreflightOpened,
   onCreateAssignmentFromReviewArtifact,
   onCreateAssignmentFromHandoff,
   onDeleteAssignment,
@@ -335,6 +339,8 @@ export function ProjectWorkItemDetail({
                       }
                       onOpenTask={onOpenTask}
                       onStart={() => onStartAssignment(assignment)}
+                      autoOpenPreflight={preparingAssignmentID === assignment.id}
+                      onAutoOpenPreflightHandled={onPreparedAssignmentPreflightOpened}
                       onCreateHandoff={() => onAddHandoffFromAssignment(assignment, activityItem)}
                       onCreateReviewHandoff={
                         reviewRole
@@ -566,7 +572,7 @@ function WorkItemStartPanel({
       <div style={startPanelCopyStyle}>
         <div style={sectionLabelStyle}>Next step</div>
         <div style={titleStyle}>
-          {role ? "Ready to queue the first assignment" : "Add a role before assigning work"}
+          {role ? "Ready to prepare the first assignment" : "Add a role before assigning work"}
         </div>
         <div style={{ ...subtleTextStyle, marginTop: 5 }}>
           {role
@@ -583,7 +589,7 @@ function WorkItemStartPanel({
             disabled={creating}
           >
             <Icon d={Icons.tasks} size={13} />
-            {creating ? "Queueing..." : `Queue ${role.name || role.id}`}
+            {creating ? "Preparing..." : `Prepare ${role.name || role.id}`}
           </button>
         ) : (
           <button className="btn btn-primary btn-sm" type="button" onClick={onManageRoles}>
@@ -743,6 +749,7 @@ function ReviewerSetupNotice({
 function AssignmentRow({
   activityItem,
   assignment,
+  autoOpenPreflight,
   chatModel,
   error,
   loadContext,
@@ -750,6 +757,7 @@ function AssignmentRow({
   onCreateHandoff,
   onCreateReviewHandoff,
   onCreateReviewArtifact,
+  onAutoOpenPreflightHandled,
   onDelete,
   onEdit,
   onOpenChat,
@@ -762,6 +770,7 @@ function AssignmentRow({
 }: {
   activityItem?: ProjectActivityItemRecord;
   assignment: ProjectAssignmentRecord;
+  autoOpenPreflight?: boolean;
   chatModel: string;
   error: string;
   loadContext?: (() => Promise<ContextPacketRecord>) | null;
@@ -769,6 +778,7 @@ function AssignmentRow({
   onCreateHandoff: () => void;
   onCreateReviewHandoff?: () => void;
   onCreateReviewArtifact?: () => void;
+  onAutoOpenPreflightHandled?: (assignmentID: string) => void;
   onDelete: () => void;
   onEdit: () => void;
   onOpenChat?: () => void;
@@ -804,7 +814,7 @@ function AssignmentRow({
   const startedAt = activityView?.startedAt || execution?.started_at || assignment.started_at;
   const finishedAt = activityView?.finishedAt || execution?.finished_at || assignment.completed_at;
 
-  async function openPreflight() {
+  const openPreflight = useCallback(async () => {
     if (!loadPreflight) {
       onStart();
       return;
@@ -820,7 +830,22 @@ function AssignmentRow({
         detail: projectErrorMessage(error, "Failed to load assignment launch preflight."),
       });
     }
-  }
+  }, [loadPreflight, onStart]);
+
+  useEffect(() => {
+    if (!autoOpenPreflight) return;
+    onAutoOpenPreflightHandled?.(assignment.id);
+    if (!startable) return;
+    if (!loadPreflight) return;
+    void openPreflight();
+  }, [
+    assignment.id,
+    autoOpenPreflight,
+    loadPreflight,
+    onAutoOpenPreflightHandled,
+    openPreflight,
+    startable,
+  ]);
 
   return (
     <div style={assignmentStyle}>

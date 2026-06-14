@@ -259,6 +259,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
   const [detailError, setDetailError] = useState("");
   const [assignmentErrors, setAssignmentErrors] = useState<Record<string, string>>({});
   const [startingAssignmentID, setStartingAssignmentID] = useState("");
+  const [preparingAssignmentID, setPreparingAssignmentID] = useState("");
   const startingAssignmentIDsRef = useRef<Set<string>>(new Set());
   const [memoryEntries, setMemoryEntries] = useState<ProjectMemoryRecord[]>([]);
   const [memoryCandidates, setMemoryCandidates] = useState<ProjectMemoryCandidateRecord[]>([]);
@@ -576,6 +577,10 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
   useEffect(() => {
     assistant.dismiss();
   }, [assistant.dismiss, selectedProjectID, selectedWorkItemID]);
+
+  useEffect(() => {
+    setPreparingAssignmentID("");
+  }, [selectedProjectID, selectedWorkItemID]);
 
   useEffect(() => {
     if (!selectedProjectID) return;
@@ -1122,11 +1127,12 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
       });
       if (selectedWorkItemID === item.id) {
         setAssignments((current) => upsertAssignment(current, payload.data));
+        setPreparingAssignmentID(payload.data.id);
       }
       await loadWorkForProject(selectedProjectID, item.id);
       await loadWorkItemDetail(selectedProjectID, item.id);
     } catch (error) {
-      setDetailError(errorMessage(error, "Failed to queue assignment."));
+      setDetailError(errorMessage(error, "Failed to prepare assignment."));
     } finally {
       setNewAssignmentPending(false);
     }
@@ -1612,6 +1618,9 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
               setEditingHandoff("new");
             }}
             onCreateDefaultAssignment={(item) => void handleCreateDefaultAssignment(item)}
+            onPreparedAssignmentPreflightOpened={(assignmentID) => {
+              setPreparingAssignmentID((current) => (current === assignmentID ? "" : current));
+            }}
             onCreateAssignmentFromReviewArtifact={(artifact) =>
               void handleCreateAssignmentFromReviewArtifact(artifact)
             }
@@ -1682,6 +1691,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
             projectEmptyTitle={projectEmptyTitle}
             projectNeedsOnboarding={projectNeedsOnboarding}
             projectSkills={projectSkills}
+            preparingAssignmentID={preparingAssignmentID}
             rejectingCandidateID={rejectingCandidateID}
             roleByID={roleByID}
             roles={roles}
