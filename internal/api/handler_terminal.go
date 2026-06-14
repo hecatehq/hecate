@@ -43,6 +43,9 @@ func (h *Handler) HandleTerminal(w http.ResponseWriter, r *http.Request) {
 	rows := positiveQueryInt(r, "rows", 24)
 
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		// The desktop gateway, Vite dev UI, and local browser UI can run on
+		// different loopback ports. The terminal is still gated by the
+		// loopback socket check above and rejects forwarded-client headers.
 		OriginPatterns: []string{
 			"localhost:*",
 			"127.0.0.1:*",

@@ -591,6 +591,7 @@ func TestCloudRuntimeLocalEndpointGuardMiddleware(t *testing.T) {
 		{name: "disabled allows local endpoint", method: http.MethodPost, path: "/hecate/v1/system/shutdown", want: http.StatusNoContent},
 		{name: "blocks workspace dialog", enabled: true, method: http.MethodPost, path: "/hecate/v1/workspace-dialog", want: http.StatusForbidden},
 		{name: "blocks workspace open", enabled: true, method: http.MethodPost, path: "/hecate/v1/workspace-open", want: http.StatusForbidden},
+		{name: "blocks terminal", enabled: true, method: http.MethodGet, path: "/hecate/v1/terminal?workspace=/tmp", want: http.StatusForbidden},
 		{name: "blocks reset data", enabled: true, method: http.MethodPost, path: "/hecate/v1/system/reset-data", want: http.StatusForbidden},
 		{name: "blocks shutdown", enabled: true, method: http.MethodPost, path: "/hecate/v1/system/shutdown", want: http.StatusForbidden},
 		{name: "blocks mcp probe", enabled: true, method: http.MethodPost, path: "/hecate/v1/mcp/probe", want: http.StatusForbidden},
