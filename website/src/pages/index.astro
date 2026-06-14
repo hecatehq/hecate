@@ -67,6 +67,31 @@ try {
     throw err;
   }
 }
+
+const capabilityRows = [
+  [
+    "Model gateway",
+    "Route OpenAI-compatible and Anthropic-shaped requests across cloud and local providers with health, failover, and usage visibility.",
+  ],
+  [
+    "Project orchestration",
+    "Coordinate durable projects, workspace roots, assignments, handoffs, context snapshots, and operator-approved memory.",
+  ],
+  [
+    "External agents",
+    "Supervise local Codex, Claude Code, Cursor, and Grok Build sessions while their CLIs keep their own accounts and runtimes.",
+  ],
+  [
+    "Evidence",
+    "Keep traces, route reports, task artifacts, diffs, logs, usage, and final output close to the decision that produced them.",
+  ],
+];
+
+const downloadRows = [
+  ["macOS", "Apple Silicon", macos, "Download .dmg"],
+  ["Linux", "x86_64", linux, "Download .AppImage"],
+  ["Windows", "x86_64", windows, "Download .msi"],
+];
 ---
 
 <!doctype html>
@@ -76,33 +101,43 @@ try {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Hecate is a local-first AI runtime console. Route cloud/local models, run Hecate-owned tool agents, supervise Codex / Claude Code / Cursor / Grok Build, and keep every decision observable."
+      content="Hecate is a local AI operations console for supervised agent work across AI clients, model providers, coding agents, workspace tools, projects, approvals, artifacts, and traces."
     />
     <link rel="icon" href="/brand/png/mark-trivium-black-64.png" sizes="64x64" />
-    <title>Hecate - Local AI Runtime Console</title>
+    <title>Hecate - Local AI Operations Console</title>
   </head>
   <body>
-    <main class="page-shell">
-      <section class="hero" aria-labelledby="hero-title">
-        <div class="hero__backdrop" aria-hidden="true">
-          <span></span>
-          <span></span>
-          <span></span>
-        </div>
+    <header class="site-nav" aria-label="Primary navigation">
+      <a class="site-brand" href="/" aria-label="Hecate home">
+        <img src="/brand/png/mark-trivium-white-64.png" alt="" />
+        <span>hecate</span>
+      </a>
+      <nav class="site-links">
+        <a href="#download">Download</a>
+        <a href="#workflow">Projects</a>
+        <a href="#runtime">Runtime</a>
+        <a href="https://github.com/hecatehq/hecate">GitHub</a>
+      </nav>
+    </header>
 
+    <main>
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero__media" aria-hidden="true">
+          <img src="/product/chat-workspace-diff.png" alt="" />
+        </div>
         <div class="hero__copy">
-          <p class="eyebrow">model routing · agent runtime</p>
+          <p class="eyebrow">local AI operations console</p>
           <h1 id="hero-title">hecate</h1>
           <p class="lede">
-            Local-first AI runtime console. Route cloud/local models,
-            run Hecate-owned tool agents, supervise Codex / Claude Code / Cursor
-            / Grok Build, and keep every decision observable.
+            Run Hecate on your machine between AI clients, model providers,
+            coding agents, and workspace tools so project work can be coordinated,
+            routed, approved, traced, and reviewable.
           </p>
 
           <div class="hero__actions" aria-label="Primary actions">
             <a class="button button--primary" href={macos}>Download for macOS</a>
-            <a class="button button--ghost" href={linux}>Linux .AppImage</a>
-            <a class="button button--ghost" href={windows}>Windows .msi</a>
+            <a class="button button--ghost" href="#download">Other platforms</a>
+            <a class="button button--quiet" href="https://github.com/hecatehq/hecate">View source</a>
           </div>
 
           {/* Version + release-notes link only render when the
@@ -123,17 +158,85 @@ try {
             · <a href="https://github.com/hecatehq/hecate">GitHub</a>
           </p>
         </div>
+      </section>
 
-        <div class="hero__symbol" aria-hidden="true">
-          <div class="symbol-ring">
-            <img src="/brand/mark-trivium.svg" alt="" />
-          </div>
-          <div class="signal-line signal-line--top"></div>
-          <div class="signal-line signal-line--left"></div>
-          <div class="signal-line signal-line--right"></div>
+      <section class="download" id="download" aria-labelledby="download-title">
+        <div class="section-heading">
+          <p class="eyebrow">public alpha</p>
+          <h2 id="download-title">Install the local console.</h2>
+        </div>
+
+        <div class="download-table" aria-label="Download options">
+          {downloadRows.map(([platform, detail, url, action]) => (
+            <a class="download-row" href={url}>
+              <span class="download-platform">{platform}</span>
+              <span class="download-detail">{detail}</span>
+              <span class="download-action">{action}</span>
+            </a>
+          ))}
         </div>
       </section>
-    </main>
 
+      <section class="workflow" id="workflow" aria-labelledby="workflow-title">
+        <div class="workflow__copy">
+          <p class="eyebrow">project workflow</p>
+          <h2 id="workflow-title">Project work gets a durable local identity.</h2>
+          <p>
+            Start with a project, attach workspace roots when files matter, and
+            keep chats, tasks, external-agent sessions, context, memory, and evidence
+            connected to the same work.
+          </p>
+        </div>
+
+        <div class="feature-strip" aria-label="Hecate capability highlights">
+          {capabilityRows.map(([title, body]) => (
+            <div class="feature-row">
+              <strong>{title}</strong>
+              <span>{body}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section class="visual-band" aria-labelledby="approval-title">
+        <div class="visual-band__media">
+          <img src="/product/approval-required.png" alt="Hecate chat screen with an approval required before a file write" />
+        </div>
+        <div class="visual-band__copy" id="runtime">
+          <p class="eyebrow">operator control</p>
+          <h2 id="approval-title">Agents wait before crossing the line.</h2>
+          <p>
+            Hecate keeps file writes, tool actions, approvals, artifacts, and run context
+            visible before supervised work changes the workspace.
+          </p>
+        </div>
+      </section>
+
+      <section class="visual-band visual-band--reverse" aria-labelledby="observe-title">
+        <div class="visual-band__copy">
+          <p class="eyebrow">observability</p>
+          <h2 id="observe-title">Route reports and traces are first-class.</h2>
+          <p>
+            Hecate is OpenTelemetry-first: requests surface trace IDs, route decisions,
+            timing, token usage, and provider-reported cost where available.
+          </p>
+        </div>
+        <div class="visual-band__media">
+          <img src="/product/observe.png" alt="Hecate observability screen with recent requests and spans" />
+        </div>
+      </section>
+
+      <section class="cloud-bridge" aria-labelledby="cloud-title">
+        <div>
+          <p class="eyebrow">hosted direction</p>
+          <h2 id="cloud-title">Open source first. Hosted runtimes stay separate.</h2>
+        </div>
+        <p>
+          hecate.sh stays focused on the open-source local console. Hecate Cloud
+          will live separately at hecatehq.com, with the console at console.hecatehq.com.
+        </p>
+        <a class="button button--ghost" href="https://hecatehq.com">Hecate Cloud</a>
+      </section>
+    </main>
   </body>
 </html>
