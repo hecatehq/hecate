@@ -16,6 +16,7 @@ import (
 
 const (
 	projectChatPromptMaxBytes           = 6 * 1024
+	projectChatPromptRootMaxItems       = 4
 	projectChatPromptMemoryMaxItems     = 4
 	projectChatPromptMemoryMaxBytes     = 1024
 	projectChatPromptRoleMaxItems       = 8
@@ -66,12 +67,18 @@ func (h *Handler) hecateChatTaskSystemPrompt(ctx context.Context, session chat.S
 }
 
 func (h *Handler) projectChatWorkflowSystemPrompt(ctx context.Context, session chat.Session) string {
+	if !isHecateChatSession(session) {
+		return ""
+	}
 	project := h.projectSummary(ctx, session.ProjectID)
 	if project == nil {
 		return ""
 	}
 
 	sections := []string{projectChatWorkflowBoundary(*project)}
+	if roots := projectChatRootHints(*project); roots != "" {
+		sections = append(sections, roots)
+	}
 	if roles := h.projectChatRoleHints(ctx, project.ID); roles != "" {
 		sections = append(sections, roles)
 	}
@@ -102,6 +109,51 @@ func projectChatWorkflowBoundary(project projects.Project) string {
 			"- Assignments proposed from chat must stay queued and unstarted. Memory from model or document output should become memory candidates for operator promotion, not promoted memory.",
 		}, "\n"),
 	}, "\n")
+}
+
+func projectChatRootHints(project projects.Project) string {
+	if len(project.Roots) == 0 {
+		return ""
+	}
+	roots := append([]projects.Root(nil), project.Roots...)
+	defaultRootID := strings.TrimSpace(project.DefaultRootID)
+	sort.SliceStable(roots, func(i, j int) bool {
+		leftDefault := defaultRootID != "" && strings.TrimSpace(roots[i].ID) == defaultRootID
+		rightDefault := defaultRootID != "" && strings.TrimSpace(roots[j].ID) == defaultRootID
+		if leftDefault != rightDefault {
+			return leftDefault
+		}
+		if roots[i].Active != roots[j].Active {
+			return roots[i].Active
+		}
+		return false
+	})
+
+	lines := []string{"Project roots (metadata only; files are not read):"}
+	for i, root := range roots {
+		if i >= projectChatPromptRootMaxItems {
+			lines = append(lines, fmt.Sprintf("- %d additional roots omitted.", len(roots)-i))
+			break
+		}
+		label := compactProjectChatField(firstNonEmptyString(strings.TrimSpace(root.Path), "root"))
+		line := "- Root " + labelWithID(label, root.ID)
+		details := []string{"active=" + fmt.Sprint(root.Active)}
+		if defaultRootID != "" && strings.TrimSpace(root.ID) == defaultRootID {
+			details = append(details, "default=true")
+		}
+		if kind := strings.TrimSpace(root.Kind); kind != "" {
+			details = append(details, "kind="+kind)
+		}
+		if branch := compactProjectChatField(root.GitBranch); branch != "" {
+			details = append(details, "branch="+branch)
+		}
+		if remote := compactProjectChatField(root.GitRemote); remote != "" {
+			details = append(details, "remote="+remote)
+		}
+		line += ": " + strings.Join(details, ", ")
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (h *Handler) projectChatRoleHints(ctx context.Context, projectID string) string {
@@ -376,6 +428,15 @@ func projectChatWorkStatusCounts(items []projectwork.WorkItem) string {
 
 func compactProjectChatInline(value string) string {
 	value = strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+	return truncateProjectChatInlineValue(value)
+}
+
+func compactProjectChatField(value string) string {
+	value = strings.TrimSpace(value)
+	return truncateProjectChatInlineValue(value)
+}
+
+func truncateProjectChatInlineValue(value string) string {
 	if value == "" {
 		return ""
 	}

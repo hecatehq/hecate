@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -175,9 +176,26 @@ func TestHecateAgentChatProjectSessionInjectsProposalGuidance(t *testing.T) {
 	workspace := t.TempDir()
 
 	project, err := apiHandler.projects.Create(context.Background(), projects.Project{
-		ID:          "proj_hecate",
-		Name:        "Hecate",
-		Description: "Local AI operations console.",
+		ID:            "proj_hecate",
+		Name:          "Hecate",
+		Description:   "Local AI operations console.",
+		DefaultRootID: "root_main",
+		Roots: []projects.Root{
+			{
+				ID:        "root_main",
+				Path:      workspace,
+				Kind:      "git",
+				GitRemote: "git@github.com:hecatehq/hecate.git",
+				GitBranch: "main",
+				Active:    true,
+			},
+			{
+				ID:     "root_archive",
+				Path:   filepath.Join(workspace, "archive"),
+				Kind:   "local",
+				Active: false,
+			},
+		},
 	})
 	if err != nil {
 		t.Fatalf("Create project: %v", err)
@@ -276,6 +294,9 @@ func TestHecateAgentChatProjectSessionInjectsProposalGuidance(t *testing.T) {
 		"Project Assistant is a proposal author only.",
 		"Do not create or start chats, tasks, runs, external-agent sessions, promoted memory, or durable project records through generic tools or direct API calls.",
 		"Assignments proposed from chat must stay queued and unstarted.",
+		"Project roots (metadata only; files are not read):",
+		"- Root " + workspace + " (root_main): active=true, default=true, kind=git, branch=main, remote=git@github.com:hecatehq/hecate.git",
+		"- Root " + filepath.Join(workspace, "archive") + " (root_archive): active=false, kind=local",
 		"Role hints:",
 		"A Project Planner (role_planner): Shapes reviewable project work.",
 		"Project skills (metadata only; skill bodies are not loaded):",
@@ -300,6 +321,28 @@ func TestHecateAgentChatProjectSessionInjectsProposalGuidance(t *testing.T) {
 		if strings.Contains(backingTask.SystemPrompt, excluded) {
 			t.Fatalf("task system_prompt included inactive work %q:\n%s", excluded, backingTask.SystemPrompt)
 		}
+	}
+}
+
+func TestProjectChatWorkflowSystemPromptSkipsExternalAgentSessions(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	provider := &fakeProvider{name: "openai"}
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{provider}, config.Config{}, controlplane.NewMemoryStore())
+
+	project, err := apiHandler.projects.Create(context.Background(), projects.Project{
+		ID:   "proj_external",
+		Name: "External Project",
+	})
+	if err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+
+	prompt := apiHandler.projectChatWorkflowSystemPrompt(context.Background(), chat.Session{
+		AgentID:   "codex",
+		ProjectID: project.ID,
+	})
+	if prompt != "" {
+		t.Fatalf("external-agent project prompt = %q, want empty", prompt)
 	}
 }
 
@@ -370,6 +413,37 @@ func TestProjectChatPromptHelpersBoundUTF8Text(t *testing.T) {
 	}
 	if remaining != 64-len(section) {
 		t.Fatalf("remaining = %d, want %d", remaining, 64-len(section))
+	}
+}
+
+func TestProjectChatRootHintsBoundsAndOrdersMetadata(t *testing.T) {
+	text := projectChatRootHints(projects.Project{
+		DefaultRootID: "root_default",
+		Roots: []projects.Root{
+			{ID: "root_zeta", Path: "/tmp/zeta", Kind: "local", Active: true},
+			{ID: "root_inactive", Path: "/tmp/inactive", Kind: "local"},
+			{ID: "root_alpha", Path: "/tmp/alpha", Kind: "git", Active: true},
+			{ID: "root_default", Path: "/tmp/default", Kind: "git_worktree", Active: false, GitBranch: "feature/chat"},
+			{ID: "root_omitted", Path: "/tmp/omitted", Kind: "local"},
+		},
+	})
+
+	for _, want := range []string{
+		"Project roots (metadata only; files are not read):",
+		"- Root /tmp/default (root_default): active=false, default=true, kind=git_worktree, branch=feature/chat",
+		"- 1 additional roots omitted.",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("root hints missing %q:\n%s", want, text)
+		}
+	}
+	defaultIndex := strings.Index(text, "root_default")
+	activeIndex := strings.Index(text, "root_zeta")
+	if defaultIndex < 0 || activeIndex < 0 || defaultIndex > activeIndex {
+		t.Fatalf("root hints order = %q, want default root before active roots", text)
+	}
+	if strings.Contains(text, "root_omitted") {
+		t.Fatalf("root hints included omitted root:\n%s", text)
 	}
 }
 
