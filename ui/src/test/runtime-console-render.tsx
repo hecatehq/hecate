@@ -35,7 +35,7 @@ import type {
 function runtimeInitialState(fixture: RuntimeConsoleFixtureState) {
   return {
     health: fixture.health,
-    sessionInfo: null,
+    sessionInfo: fixture.sessionInfo,
     loading: fixture.loading,
     error: fixture.error,
     message: fixture.message,
@@ -298,6 +298,7 @@ function FixtureSyncer({ state }: { state: RuntimeConsoleFixtureState }) {
   // doesn't cause a re-render storm.
   useEffect(() => {
     runtimeActionsRef.current.setHealth(state.health);
+    runtimeActionsRef.current.setSessionInfo(state.sessionInfo);
     runtimeActionsRef.current.setLoading(state.loading);
     runtimeActionsRef.current.setError(state.error);
     runtimeActionsRef.current.setMessage(state.message);

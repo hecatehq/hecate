@@ -713,7 +713,7 @@ test("New chat falls back to Hecate when the remembered external agent needs set
 
   await page.getByRole("button", { name: "Choose agent for new chat" }).click();
   const cursorOption = page.getByRole("option", { name: /Cursor Agent/ });
-  await expect(cursorOption).toHaveAttribute("aria-disabled", "true");
+  await expect(cursorOption).not.toHaveAttribute("aria-disabled");
   await expect(cursorOption).toHaveAttribute(
     "title",
     "Open Connections to set up Cursor Agent, then sign in with cursor-agent login.",

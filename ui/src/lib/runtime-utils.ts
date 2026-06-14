@@ -7,6 +7,9 @@
 
 import type { ModelFilter, ModelRecord } from "../types/model";
 import type { ProviderFilter } from "../types/provider";
+import type { SessionResponse } from "../types/runtime";
+
+type SessionInfo = SessionResponse["data"] | null | undefined;
 
 export function parseCSV(value: string): string[] {
   return value
@@ -34,6 +37,10 @@ export function filterModelsByProvider(
     return models;
   }
   return models.filter((entry) => entry.metadata?.provider === provider);
+}
+
+export function isCloudRuntimeSession(sessionInfo: SessionInfo): boolean {
+  return Boolean(sessionInfo?.cloud_identity);
 }
 
 // formatRelativeTime renders an ISO timestamp as a short relative

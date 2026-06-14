@@ -1801,6 +1801,32 @@ describe("ChatView input", () => {
     expect(send.disabled).toBe(true);
   });
 
+  it("uses hosted-runtime setup copy instead of local provider discovery in cloud mode", async () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      defaultChatToolsEnabled: false,
+      settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
+      providerScopedModels: [],
+      agentAdapters: [],
+      sessionInfo: {
+        role: "operator",
+        cloud_identity: {
+          actor_id: "actor_1",
+          org_id: "org_1",
+          project_id: "proj_1",
+          runtime_id: "rt_1",
+        },
+      },
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(await screen.findByText("Hosted runtime")).toBeTruthy();
+    expect(screen.getByText(/Add an API-key provider or agent credential/i)).toBeTruthy();
+    expect(screen.queryByText("Detected locally")).toBeNull();
+    expect(screen.queryByText(/request was blocked/i)).toBeNull();
+    expect(discoverLocalProviders).not.toHaveBeenCalled();
+  });
+
   it("enables Hecate Chat tools when tools are not explicitly disabled for the model", async () => {
     const { state, actions } = setup({
       chatTarget: "agent",
@@ -3705,10 +3731,11 @@ describe("ChatView external-agent target", () => {
     expect(screen.getByRole("button", { name: "New Hecate chat" })).toBeTruthy();
     await user.click(agentPicker);
     const claudeOption = screen.getByRole("option", { name: /Claude Code/ });
-    expect(claudeOption).toHaveAttribute("aria-disabled", "true");
+    expect(claudeOption).not.toHaveAttribute("aria-disabled");
     await user.click(claudeOption);
     expect(setAgentAdapterID).not.toHaveBeenCalled();
 
+    await user.click(agentPicker);
     const hecateOption = screen.getByRole("option", { name: /Hecate/ });
     expect(hecateOption).not.toHaveAttribute("aria-disabled", "true");
     await user.click(hecateOption);

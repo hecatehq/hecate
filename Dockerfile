@@ -1,21 +1,20 @@
 # syntax=docker/dockerfile:1.7
 #
-# Multi-stage build. Three layers:
-#   1. ui-builder:  Bun compiles the React operator UI to ui/dist.
-#   2. go-builder:  Go compiles cmd/hecate with //go:embed pulling in
-#                   ui/dist from the previous stage.
-#   3. runtime:     distroless/static — small base, no shell, runs as
-#                   non-root. Suitable for production.
+# Hecate runtime image. This is the default local/self-host Docker image and
+# the base shape for hosted cloud runtime deployments. The same image can run in
+# either posture; Hecate's runtime mode env controls the security boundary.
 #
 # Build:   docker build -t hecate:dev .
 # Run:     docker run --rm -p 8765:8765 hecate:dev
 #
-# The runtime image needs no environment to start; it serves the API and
-# UI on :8765 immediately. Provider configuration happens through the UI
-# or by mounting a .env file into the container.
+# The image embeds the React UI, the Hecate binary, git/ssh, and the supported
+# External Agent CLIs/ACP adapters. Local mode can use mounted CLI login homes
+# or API keys. Cloud runtime mode ignores local login files and accepts only the
+# cloud-safe credential env families declared by the adapters.
 
 ARG GO_VERSION=1.26.2
 ARG BUN_VERSION=1.3.13
+ARG NODE_VERSION=24
 
 # ── 1. UI build ─────────────────────────────────────────────────────────────
 
@@ -35,7 +34,6 @@ RUN bun run build
 FROM golang:${GO_VERSION}-alpine AS go-builder
 WORKDIR /src
 
-# Module download caches independently of source.
 RUN apk add --no-cache git
 COPY go.mod go.sum ./
 RUN go mod download
@@ -45,50 +43,67 @@ RUN go mod download
 COPY . .
 COPY --from=ui-builder /app/ui/dist ./ui/dist
 
-# CGO_ENABLED=0 + -tags netgo + a static link give us a binary distroless
-# can run unmodified. -ldflags trim symbols + path info to keep the image
-# small and reproducible.
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -trimpath \
     -ldflags='-s -w' \
     -o /out/hecate \
     ./cmd/hecate
 
-# Pre-create an empty /data dir owned by distroless's nonroot uid (65532)
-# so that, when compose mounts a named volume on top, the volume inherits
-# nonroot ownership on first mount. Without this the binary boots as
-# nonroot but can't write the bootstrap file because /data is root-owned.
-# Distroless has no shell, so we have to set ownership in this builder
-# stage and copy the prepared directory over with --chown below.
-RUN mkdir -p /out/data && chown 65532:65532 /out/data
-
 # ── 3. Runtime ──────────────────────────────────────────────────────────────
 
-FROM gcr.io/distroless/static-debian12:nonroot AS runtime
+FROM node:${NODE_VERSION}-bookworm-slim AS runtime
 
-# Copy the static binary. The image starts the gateway by default.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+      bash \
+      ca-certificates \
+      curl \
+      git \
+      openssh-client \
+      tini \
+    && rm -rf /var/lib/apt/lists/*
+
+ARG OPENAI_CODEX_VERSION=0.139.0
+ARG CODEX_ACP_VERSION=0.16.0
+ARG CLAUDE_CODE_VERSION=2.1.177
+ARG CLAUDE_AGENT_ACP_VERSION=0.44.0
+ARG GROK_VERSION=0.2.51
+ARG CURSOR_INSTALL_SHA256=84b1d5128198bbe60a29047d643a679ce15af5e0fc695fd298dce9bf8ef24274
+ARG CURSOR_INSTALL_URL=https://cursor.com/install
+
+RUN npm install -g \
+      @openai/codex@${OPENAI_CODEX_VERSION} \
+      @zed-industries/codex-acp@${CODEX_ACP_VERSION} \
+      @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} \
+      @agentclientprotocol/claude-agent-acp@${CLAUDE_AGENT_ACP_VERSION} \
+      @xai-official/grok@${GROK_VERSION} \
+    && npm cache clean --force
+
+RUN mkdir -p /opt/cursor-agent \
+    && curl -fsSL "${CURSOR_INSTALL_URL}" -o /tmp/cursor-install.sh \
+    && printf '%s  %s\n' "${CURSOR_INSTALL_SHA256}" /tmp/cursor-install.sh | sha256sum -c - \
+    && HOME=/opt/cursor-agent PATH=/opt/cursor-agent/.local/bin:$PATH \
+      bash /tmp/cursor-install.sh \
+    && rm -f /tmp/cursor-install.sh \
+    && ln -sf /opt/cursor-agent/.local/bin/cursor-agent /usr/local/bin/cursor-agent \
+    && ln -sf /opt/cursor-agent/.local/bin/agent /usr/local/bin/agent
+
+RUN groupadd --system --gid 65532 hecate \
+    && useradd --system --uid 65532 --gid hecate --home-dir /home/hecate --create-home hecate \
+    && mkdir -p /data /workspace \
+    && chown -R hecate:hecate /data /workspace /home/hecate
+
 COPY --from=go-builder /out/hecate /usr/local/bin/hecate
-
-# /data holds the auto-generated bootstrap secret (control-plane encryption
-# key) and any file-backed control-plane state. We
-# copy in a pre-chowned empty dir from the builder so that when compose
-# mounts a named volume here, the volume inherits nonroot ownership on
-# first creation. Without this, the volume mounts root-owned and the
-# nonroot binary can't persist its bootstrap file.
-COPY --from=go-builder --chown=65532:65532 /out/data /data
 
 ENV HECATE_ADDRESS=0.0.0.0:8765 \
     HECATE_ALLOW_NON_LOOPBACK_BIND=1 \
     HECATE_PUBLIC_URL=http://127.0.0.1:8765 \
     HECATE_DATA_DIR=/data \
     HECATE_SQLITE_PATH=/data/hecate.db \
-    # Default the durable subsystems to SQLite in the docker image so
-    # `docker compose up` persists settings, projects, runtime history,
-    # tasks, and chat sessions across restarts without extra config.
-    # The .db lives on the /data
-    # volume and is wiped by `just reset-docker` along with the rest
-    # of the stack. Operators can override to `memory` for ephemeral.
     HECATE_BACKEND=sqlite \
+    HECATE_AGENT_ADAPTERS_DIR=/data/agent-adapters \
+    NPM_CONFIG_CACHE=/data/npm-cache \
+    TINI_SUBREAPER=1 \
     # Local inference: from inside a container 127.0.0.1 is the container's
     # own loopback, not the host. Override all local provider base URLs to
     # use host.docker.internal so model discovery reaches a server running on
@@ -102,9 +117,10 @@ ENV HECATE_ADDRESS=0.0.0.0:8765 \
     PROVIDER_LMSTUDIO_BASE_URL=http://host.docker.internal:1234/v1 \
     PROVIDER_LLAMACPP_BASE_URL=http://host.docker.internal:8080/v1 \
     PROVIDER_LOCALAI_BASE_URL=http://host.docker.internal:8080/v1
-VOLUME ["/data"]
 
+VOLUME ["/data", "/workspace"]
+WORKDIR /workspace
 EXPOSE 8765
-USER nonroot:nonroot
-ENTRYPOINT ["/usr/local/bin/hecate"]
+USER hecate:hecate
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/hecate"]
 CMD ["serve"]

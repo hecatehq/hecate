@@ -29,6 +29,7 @@ export function NewChatAgentButton({
   createDisabled,
   onChange,
   onCreate,
+  onSetupAgent,
 }: {
   value: string;
   adapters: AgentAdapterRecord[];
@@ -38,6 +39,7 @@ export function NewChatAgentButton({
   createDisabled?: boolean;
   onChange: (value: ChatAgentOptionID) => void;
   onCreate: (value: ChatAgentOptionID) => void;
+  onSetupAgent?: (adapterID: string) => void;
 }) {
   const { open, setOpen, toggle, wrapRef, triggerRef, menuRef } = useFloatingMenu<
     HTMLDivElement,
@@ -164,6 +166,8 @@ export function NewChatAgentButton({
           {options.map((option) => {
             const selectedOption = option.value === selected.id;
             const lockedOption = Boolean(option.disabled);
+            const setupActionAvailable =
+              lockedOption && option.value !== "hecate" && Boolean(onSetupAgent);
             return (
               <button
                 key={option.value}
@@ -172,15 +176,28 @@ export function NewChatAgentButton({
                 data-selected={selectedOption ? "true" : undefined}
                 role="option"
                 aria-selected={selectedOption}
-                aria-disabled={lockedOption || undefined}
+                aria-disabled={lockedOption && !setupActionAvailable ? true : undefined}
                 className={`dropdown-item ${selectedOption ? "selected" : ""}`}
                 onClick={() => {
-                  if (lockedOption) return;
+                  if (lockedOption) {
+                    if (option.value !== "hecate") {
+                      onSetupAgent?.(option.value);
+                      setOpen(false);
+                    }
+                    return;
+                  }
                   onChange(option.value);
                   setOpen(false);
                 }}
                 title={option.disabledReason || option.title}
-                style={lockedOption ? { cursor: "not-allowed", opacity: 0.5 } : undefined}
+                style={
+                  lockedOption
+                    ? {
+                        cursor: setupActionAvailable ? "pointer" : "not-allowed",
+                        opacity: setupActionAvailable ? 0.72 : 0.5,
+                      }
+                    : undefined
+                }
               >
                 {option.icon}
                 <span style={{ display: "grid", flex: 1, minWidth: 0 }}>

@@ -208,6 +208,39 @@ describe("ProvidersView add provider modal", () => {
     expect(screen.getByText("Ollama")).toBeTruthy();
   });
 
+  it("opens the modal on Cloud and skips local discovery in cloud runtime mode", async () => {
+    const state = createRuntimeConsoleFixture({
+      session: { label: "Hosted" },
+      sessionInfo: {
+        role: "operator",
+        cloud_identity: {
+          actor_id: "actor_1",
+          org_id: "org_1",
+          project_id: "proj_1",
+          runtime_id: "rt_1",
+        },
+      },
+      providerPresets: presets,
+      settingsConfig: emptySettingsConfig(),
+      providers: [],
+    });
+    const actions = createRuntimeConsoleActions();
+    const initialDiscoveryCalls = vi.mocked(discoverLocalProviders).mock.calls.length;
+
+    render(withRuntimeConsole(<ProvidersView />, { state, actions }));
+    const user = userEvent.setup();
+    await user.click(screen.getAllByText("Add provider")[0]);
+
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("Anthropic")).toBeTruthy();
+    expect(within(dialog).queryByRole("button", { name: "Local" })).toBeNull();
+    expect(within(dialog).queryByRole("button", { name: /Check local/i })).toBeNull();
+    expect(within(dialog).queryByText(/request was blocked/i)).toBeNull();
+    await waitFor(() => {
+      expect(discoverLocalProviders).toHaveBeenCalledTimes(initialDiscoveryCalls);
+    });
+  });
+
   it("switching to the Cloud tab swaps the preset list", async () => {
     openAddModal();
     const user = userEvent.setup();
@@ -679,6 +712,62 @@ describe("ProvidersView table renders", () => {
     expect(screen.getByTestId("external-agents-adapter-codex")).toBeTruthy();
     expect(screen.getByTestId("external-agents-row-grant-1")).toBeTruthy();
     expect(listChatGrants).toHaveBeenCalled();
+  });
+
+  it("shows hosted credential setup for external agents in cloud runtime mode", async () => {
+    const copyCommand = vi.fn(async () => undefined);
+    const probeAgentAdapter = vi.fn(async () => null);
+    const state = createRuntimeConsoleFixture({
+      sessionInfo: {
+        role: "operator",
+        cloud_identity: {
+          actor_id: "actor_1",
+          org_id: "org_1",
+          project_id: "proj_1",
+          runtime_id: "rt_1",
+        },
+      },
+      session: { label: "Hosted" },
+      providerPresets: presets,
+      settingsConfig: emptySettingsConfig(),
+      agentAdapters: [
+        {
+          id: "codex",
+          name: "Codex",
+          kind: "acp",
+          command: "codex-acp",
+          available: false,
+          status: "missing",
+          cost_mode: "external",
+          cloud_credential_hint: "Set OPENAI_API_KEY or CODEX_API_KEY for hosted Codex.",
+          credential_modes: [
+            {
+              id: "api_key",
+              name: "API key",
+              cloud_allowed: true,
+              env_keys: ["OPENAI_API_KEY", "CODEX_API_KEY"],
+            },
+          ],
+        },
+      ],
+    });
+    const actions = {
+      ...createRuntimeConsoleActions(),
+      copyCommand,
+      probeAgentAdapter,
+    };
+
+    render(withRuntimeConsole(<ProvidersView />, { state, actions }));
+
+    expect(await screen.findByText("Hosted credential")).toBeTruthy();
+    expect(screen.getByText("Set OPENAI_API_KEY or CODEX_API_KEY for hosted Codex.")).toBeTruthy();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "OPENAI_API_KEY" }));
+    expect(copyCommand).toHaveBeenCalledWith("OPENAI_API_KEY");
+
+    await user.click(screen.getByRole("button", { name: "Check again" }));
+    expect(probeAgentAdapter).toHaveBeenCalledWith("codex");
   });
 
   it("blocks submit when the typed Endpoint URL is already taken", async () => {

@@ -255,16 +255,26 @@ re-uploads cleanly without manual cleanup.
 ## Image build
 
 The published image is built by goreleaser in CI using `Dockerfile.release`.
-For local validation:
+The release Dockerfile copies the prebuilt binary into the same runtime shape as
+the source-build `Dockerfile`: embedded UI, git/ssh, supported External Agent
+CLIs/ACP adapters, `/data`, and `/workspace`. For local validation:
 
 ```bash
 docker compose build hecate
 just test-docker-smoke
 ```
 
-`docker compose` uses the development `Dockerfile`, not `Dockerfile.release`.
-Any new `ENV` var or runtime default needs to land in both files; otherwise
-local dev and the published image diverge silently.
+`docker compose` uses the source-build `Dockerfile`, not `Dockerfile.release`.
+Any new runtime package, `ENV` var, volume, or default needs to land in both
+files; otherwise local dev and the published image diverge silently.
+
+The bundled External Agent packages are pinned with Docker build args in both
+Dockerfiles. When bumping Codex, Claude Code, Cursor Agent, or Grok Build
+support, update the package version args in both files. Cursor's official
+installer does not expose a version flag, so the Dockerfiles verify the
+installer script against `CURSOR_INSTALL_SHA256` before running it; refresh the
+checksum only after reviewing the new script and confirming the hardcoded
+Cursor Agent package it installs.
 
 For published images, pin by tag in deployment examples and release notes.
 Avoid recommending `latest` for anything beyond quick experiments.

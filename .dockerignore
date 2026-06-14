@@ -44,6 +44,7 @@ e2e/local-ollama-*.log
 .git
 .github
 .claude
+.worktrees
 .idea
 .vscode
 *.log

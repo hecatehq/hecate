@@ -25,6 +25,7 @@ import {
   providerReadinessMeaning,
   providerRepairActionLabel,
 } from "../../lib/provider-readiness";
+import { isCloudRuntimeSession } from "../../lib/runtime-utils";
 import type { AgentAdapterHealthRecord, AgentAdapterRecord } from "../../types/agent-adapter";
 import type { ChatGrantRecord } from "../../types/chat";
 import type { ModelRecord } from "../../types/model";
@@ -230,6 +231,7 @@ export function ConnectionsPanel({
         agentAdapters={agentAdapters}
         agentAdapterHealthByID={agentAdapterHealthByID}
         agentAdapterHealthLoadingByID={agentAdapterHealthLoadingByID}
+        cloudRuntime={isCloudRuntimeSession(runtime.state.sessionInfo)}
         copyCommand={copyCommand}
         onProbeAdapter={(adapterID) => void probeAgentAdapter(adapterID)}
       />
@@ -638,12 +640,14 @@ function AdapterStatusSection({
   agentAdapters,
   agentAdapterHealthByID,
   agentAdapterHealthLoadingByID,
+  cloudRuntime,
   copyCommand,
   onProbeAdapter,
 }: {
   agentAdapters: ProvidersAndModelsState["agentAdapters"];
   agentAdapterHealthByID: ProvidersAndModelsState["agentAdapterHealthByID"];
   agentAdapterHealthLoadingByID: ProvidersAndModelsState["agentAdapterHealthLoadingByID"];
+  cloudRuntime: boolean;
   copyCommand: (command: string) => Promise<void>;
   onProbeAdapter: (adapterID: string) => void;
 }) {
@@ -675,6 +679,7 @@ function AdapterStatusSection({
           <AdapterStatusRow
             key={adapter.id}
             adapter={adapter}
+            cloudRuntime={cloudRuntime}
             divider={i < agentAdapters.length - 1}
             health={agentAdapterHealthByID.get(adapter.id) ?? null}
             loading={Boolean(agentAdapterHealthLoadingByID.get(adapter.id))}
@@ -719,6 +724,7 @@ function AdapterStatusSection({
 
 function AdapterStatusRow({
   adapter,
+  cloudRuntime,
   divider,
   health,
   loading,
@@ -726,6 +732,7 @@ function AdapterStatusRow({
   onProbeAdapter,
 }: {
   adapter: AgentAdapterRecord;
+  cloudRuntime: boolean;
   divider: boolean;
   health: AgentAdapterHealthRecord | null;
   loading: boolean;
@@ -735,7 +742,18 @@ function AdapterStatusRow({
   const readiness = resolveExternalAgentReadiness(adapter, health);
   const loginCommand = readiness.loginCommand;
   const showLocalAuthSetup =
-    Boolean(loginCommand) && !readiness.verifiedByProbe && readiness.kind === "sign_in";
+    !cloudRuntime &&
+    Boolean(loginCommand) &&
+    !readiness.verifiedByProbe &&
+    readiness.kind === "sign_in";
+  const showCloudCredentialSetup =
+    cloudRuntime &&
+    adapter.cloud_credential_ok !== true &&
+    Boolean(
+      adapter.cloud_credential_hint ||
+      adapter.cloud_credential_mode ||
+      adapter.credential_modes?.some((mode) => mode.cloud_allowed),
+    );
   const visibleHealthError =
     health && shouldShowProbeError(health) ? humanizeProbeError(health.error ?? "") : "";
   const healthPath = health?.path ?? "";
@@ -889,6 +907,14 @@ function AdapterStatusRow({
             testing={loading}
           />
         )}
+        {showCloudCredentialSetup && (
+          <AdapterCloudCredentialSetup
+            adapter={adapter}
+            onCopyCommand={onCopyCommand}
+            onTestAgain={() => onProbeAdapter(adapter)}
+            testing={loading}
+          />
+        )}
       </div>
       {loading && (
         <span
@@ -903,6 +929,95 @@ function AdapterStatusRow({
           checking…
         </span>
       )}
+    </div>
+  );
+}
+
+function AdapterCloudCredentialSetup({
+  adapter,
+  onCopyCommand,
+  onTestAgain,
+  testing,
+}: {
+  adapter: AgentAdapterRecord;
+  onCopyCommand: (command: string) => void;
+  onTestAgain: () => void;
+  testing: boolean;
+}) {
+  const keys = cloudCredentialKeys(adapter);
+  const detail =
+    adapter.cloud_credential_hint ||
+    (keys.length > 0
+      ? `Configure ${keys.join(" or ")} for this hosted runtime.`
+      : "Configure a cloud-safe credential for this hosted runtime.");
+  return (
+    <div
+      data-testid={externalAgentSetupFocusTarget(adapter.id)}
+      style={{
+        marginTop: 10,
+        padding: 10,
+        border: "1px solid var(--teal-border)",
+        borderRadius: 8,
+        background: "var(--teal-bg)",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 10,
+        }}
+      >
+        <div style={{ minWidth: 0 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 7,
+              fontSize: 11,
+              fontWeight: 600,
+              color: "var(--teal)",
+            }}
+          >
+            <Icon d={Icons.keys} size={12} />
+            Hosted credential
+          </div>
+          <div style={{ fontSize: 11, color: "var(--t2)", lineHeight: 1.4 }}>{detail}</div>
+          {keys.length > 0 && (
+            <div
+              style={{
+                marginTop: 8,
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 8,
+                alignItems: "center",
+              }}
+            >
+              {keys.map((key) => (
+                <button
+                  key={key}
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => onCopyCommand(key)}
+                  title={`Copy ${key}`}
+                  style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}
+                >
+                  {key}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={onTestAgain}
+                disabled={testing}
+              >
+                {testing ? "Testing..." : "Check again"}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1001,6 +1116,17 @@ function AdapterLocalAuthSetup({
       </div>
     </div>
   );
+}
+
+function cloudCredentialKeys(adapter: AgentAdapterRecord): string[] {
+  const keys = new Set<string>();
+  for (const mode of adapter.credential_modes ?? []) {
+    if (!mode.cloud_allowed) continue;
+    for (const key of mode.env_keys ?? []) {
+      if (key.trim()) keys.add(key.trim());
+    }
+  }
+  return [...keys];
 }
 
 function isDevOverridePath(path: string): boolean {

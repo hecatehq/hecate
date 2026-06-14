@@ -196,14 +196,20 @@ difference: it's automatic for Hecate (server context — no user
 sitting at a TTY to decide), and configured per-call in the local-CLI
 case.
 
-The official Linux Docker image is distroless and ships without
-`bwrap` or `sh`, so shell-tool calls inside the published image
-return an executor error and Layer 2 is unavailable. Operators who
-need shell tools should run the gateway directly on a Linux host
-(`apt-get install bubblewrap` to activate Layer 2) or roll a custom
-image based on `debian-slim` / `ubuntu` that adds `bubblewrap` and a
-POSIX shell. The gateway logs whichever wrapper is active at startup
-and surfaces the same on `/healthz` so operators can confirm what
+The official Linux Docker runtime image is a full Hecate runtime image, not a
+distroless binary wrapper. It ships with a POSIX shell, git/ssh, and the
+supported External Agent CLIs/ACP adapters so local/self-host containers and
+hosted cloud runtimes use the same image shape. The image does not install
+`bwrap` by default, so Layer 2 OS isolation normally reports `none` inside the
+published container. Shell tools can still run with Layer 0+1 process policy
+and the surrounding container boundary.
+
+Operators who need Linux `bwrap` isolation inside a container should build a
+custom image that adds `bubblewrap` and verify that unprivileged user
+namespaces work in the target runtime. Operators who need host-level `bwrap`
+isolation can run the gateway directly on a Linux host (`apt-get install
+bubblewrap` to activate Layer 2). The gateway logs whichever wrapper is active
+at startup and surfaces the same on `/healthz` so operators can confirm what
 they got.
 
 ## Environment variables

@@ -31,7 +31,7 @@ import type {
 } from "../types/provider";
 import type { CreateProjectPayload, ProjectRecord } from "../types/project";
 import type { RetentionRunData } from "../types/retention";
-import type { HealthResponse, RuntimeHeaders } from "../types/runtime";
+import type { HealthResponse, RuntimeHeaders, SessionResponse } from "../types/runtime";
 import type { UsageEventRecord, UsageSummaryResponse } from "../types/usage";
 import type { PendingToolCall } from "../app/state/chat";
 import type { NoticeState } from "../app/state/settings";
@@ -86,6 +86,7 @@ export type RuntimeConsoleFixtureState = {
   modelFilter: ModelFilter;
   models: ModelRecord[];
   notice: NoticeState | null;
+  sessionInfo: SessionResponse["data"] | null;
   session: SessionState;
   providerFilter: ProviderFilter;
   providerScopedModels: ModelRecord[];
@@ -165,6 +166,7 @@ export function createRuntimeConsoleFixture(
     modelFilter: "all",
     models: [],
     notice: null,
+    sessionInfo: null,
     session: { label: "Local" },
     providerFilter: "auto",
     providerPresets: [],

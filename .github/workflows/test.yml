@@ -59,6 +59,7 @@ jobs:
               - 'just/**'
             docker:
               - 'Dockerfile'
+              - 'Dockerfile.release'
               - '.dockerignore'
               - 'docker-compose.yml'
             go:

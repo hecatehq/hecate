@@ -159,7 +159,8 @@ describe("NewChatAgentButton", () => {
     expect(onCreate).toHaveBeenCalledWith("hecate");
   });
 
-  it("uses actionable disabled option tooltips", async () => {
+  it("opens focused setup from disabled agent options", async () => {
+    const onSetupAgent = vi.fn();
     render(
       <NewChatAgentButton
         value="hecate"
@@ -189,19 +190,23 @@ describe("NewChatAgentButton", () => {
         disableUnavailable
         onChange={() => {}}
         onCreate={() => {}}
+        onSetupAgent={onSetupAgent}
       />,
     );
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Choose agent for new chat" }));
     const cursor = screen.getByRole("option", { name: /Cursor Agent/ });
-    expect(cursor).toHaveAttribute("aria-disabled", "true");
+    expect(cursor).not.toHaveAttribute("aria-disabled");
     expect(cursor).toHaveAttribute(
       "title",
       expect.stringContaining("Open Connections to set up Cursor Agent"),
     );
     expect(cursor.getAttribute("title")).not.toContain("HECATE_AGENT_ADAPTER_DEV_OVERRIDES");
     expect(cursor.getAttribute("title")).not.toContain("forced");
+
+    await user.click(cursor);
+    expect(onSetupAgent).toHaveBeenCalledWith("cursor_agent");
   });
 
   it("switches the selected agent from the dropdown before creating a chat", async () => {
