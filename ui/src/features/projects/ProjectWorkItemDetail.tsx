@@ -39,7 +39,7 @@ import {
   reviewVerdictFromValue,
   reviewVerdictLabel,
 } from "./projectWorkForms";
-import { firstNonEmpty, shortID } from "./projectUtils";
+import { firstNonEmpty, isLinkableProjectLocator, shortID } from "./projectUtils";
 
 export type ProjectAssignmentChatLaunchRequest = {
   projectID: string;
@@ -632,21 +632,17 @@ function EvidenceArtifactMetadata({ artifact }: { artifact: ProjectCollaboration
   ].filter(Boolean);
   return (
     <div style={evidenceArtifactMetadataStyle}>
-      {artifact.evidence_url && isLinkableEvidenceURL(artifact.evidence_url) && (
+      {artifact.evidence_url && isLinkableProjectLocator(artifact.evidence_url) && (
         <a href={artifact.evidence_url} target="_blank" rel="noreferrer">
           {artifact.evidence_url}
         </a>
       )}
-      {artifact.evidence_url && !isLinkableEvidenceURL(artifact.evidence_url) && (
+      {artifact.evidence_url && !isLinkableProjectLocator(artifact.evidence_url) && (
         <span>{artifact.evidence_url}</span>
       )}
       {details.length > 0 && <span>{details.join(" · ")}</span>}
     </div>
   );
-}
-
-function isLinkableEvidenceURL(value: string): boolean {
-  return /^https?:\/\//i.test(value.trim());
 }
 
 function WorkItemCloseoutPanel({

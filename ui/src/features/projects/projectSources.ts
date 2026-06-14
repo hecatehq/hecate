@@ -1,4 +1,5 @@
 import type { ProjectContextSourcePayload, ProjectContextSourceRecord } from "../../types/project";
+import { isLinkableProjectLocator } from "./projectUtils";
 
 export type ProjectSourceForm = {
   kind: string;
@@ -79,6 +80,7 @@ export function projectContextSourcePayloadFromRecord(
   };
 }
 
+// V1 source edits PATCH the project-level source list until the API has per-source mutations.
 export function projectContextSourcesWithSavedSource(
   current: ProjectContextSourceRecord[],
   editing: ProjectContextSourceRecord | "new",
@@ -117,9 +119,7 @@ export function sourceKindLabel(kind: string): string {
   }
 }
 
-export function isLinkableSourceLocator(value: string): boolean {
-  return /^https?:\/\//i.test(value.trim());
-}
+export const isLinkableSourceLocator = isLinkableProjectLocator;
 
 export function projectSourceDefaultFormat(kind: string): string {
   switch (kind) {
