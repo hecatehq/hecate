@@ -21,13 +21,16 @@ chats for the active project. When an open chat is linked to a project, the chat
 header exposes a compact project shortcut that selects that project and opens
 the Projects workspace. Project-linked Hecate Chat also exposes a compact
 composer action that deterministically drafts a Project Assistant proposal from
-the current message and hands it to the Projects review surface. That handoff
-is proposal data only; it does not send a chat message, create project records,
-call the model-backed draft path, or apply the proposal. Deleting a project also
-deletes its project-scoped chat
-transcripts. Unprojected chats and chats in other projects stay untouched.
-The Projects review card preserves the originating request and chat session id
-for operator inspection and exposes an **Open source chat** action.
+the current message and hands it to the Projects review surface. The same path
+is available as the Hecate-owned `/proposal <request>` chat command for
+operators who prefer a slash-command flow; selecting `/proposal` only inserts
+the command scaffold, and submitting it drafts from the text after the command.
+That handoff is proposal data only; it does not send a chat message, create
+project records, call the model-backed draft path, or apply the proposal.
+Deleting a project also deletes its project-scoped chat transcripts.
+Unprojected chats and chats in other projects stay untouched. The Projects
+review card preserves the originating request and chat session id for operator
+inspection and exposes an **Open source chat** action.
 
 Hecate Chat treats model/provider readiness as part of composition, not a
 send-time surprise. If no configured provider has routable models, the empty
@@ -111,7 +114,9 @@ External Agent sessions may expose ACP-advertised `available_commands` on the
 session snapshot. These are agent-native slash command hints, not Hecate
 project commands; selecting one still sends ordinary prompt text to the
 external agent. The operator UI may show these hints while the composer starts
-with `/`; choosing a hint only inserts the slash command text.
+with `/`; choosing a hint only inserts the slash command text. Hecate-owned
+chat commands, such as `/proposal`, are separate local shortcuts and must still
+route through Hecate's proposal, validation, and operator-apply boundaries.
 
 Hecate Chat settings also own the **Tools** toggle and the optional **Compact
 command output** toggle. Tools decides whether future turns stay as direct

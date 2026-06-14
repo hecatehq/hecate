@@ -42,6 +42,11 @@ import { mergeAgentConfigOptions } from "./agentConfigOptions";
 const COMPOSER_TEXTAREA_MAX_LINES = 10;
 const COMPOSER_TEXTAREA_MIN_HEIGHT = 42;
 const COMMAND_SUGGESTION_LIMIT = 6;
+const PROJECT_PROPOSAL_COMMAND = {
+  name: "proposal",
+  description: "Draft a Project Assistant proposal",
+  inputHint: "request",
+};
 type ComposerTextareaNumericStyle =
   | "paddingTop"
   | "paddingBottom"
@@ -55,6 +60,13 @@ type HecateProviderOption = {
   kind?: string;
   configured?: boolean;
   disabledReason?: string;
+};
+
+type MessageCommandSuggestion = {
+  kind: "external_agent" | "project_proposal";
+  name: string;
+  description?: string;
+  inputHint?: string;
 };
 
 export type ChatComposerProps = {
@@ -110,7 +122,7 @@ export type ChatComposerProps = {
   onNavigate?: (workspace: "connections" | "runs" | "overview" | "settings" | "projects") => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
   onOpenTrace?: (requestID: string) => void;
-  onDraftProjectProposal?: () => void;
+  onDraftProjectProposal?: (request?: string) => void;
 };
 
 export function ChatComposer(props: ChatComposerProps) {
@@ -236,21 +248,40 @@ export function ChatComposer(props: ChatComposerProps) {
   const commandListboxID = useId();
   const [commandPickerDismissed, setCommandPickerDismissed] = useState(false);
   const [activeCommandIndex, setActiveCommandIndex] = useState(0);
-  const commandQuery = externalAgentCommandQuery(message);
+  const commandQuery = messageCommandQuery(message);
   const commandSuggestions = useMemo(() => {
-    if (!isExternalAgentChat || commandQuery === null) return [];
-    const commands = activeChatSession?.available_commands ?? [];
+    if (commandQuery === null) return [];
     const query = commandQuery.toLowerCase();
-    return commands
-      .filter((command) => externalAgentCommandName(command) !== "")
-      .filter((command) => externalAgentCommandName(command).toLowerCase().startsWith(query))
-      .slice(0, COMMAND_SUGGESTION_LIMIT);
-  }, [activeChatSession?.available_commands, commandQuery, isExternalAgentChat]);
+    const suggestions: MessageCommandSuggestion[] = [];
+
+    if (projectProposalAvailable && PROJECT_PROPOSAL_COMMAND.name.startsWith(query)) {
+      suggestions.push({ ...PROJECT_PROPOSAL_COMMAND, kind: "project_proposal" });
+    }
+
+    if (isExternalAgentChat) {
+      const commands = activeChatSession?.available_commands ?? [];
+      suggestions.push(
+        ...commands
+          .map((command) => ({
+            kind: "external_agent" as const,
+            name: externalAgentCommandName(command),
+            description: command.description,
+            inputHint: command.input_hint,
+          }))
+          .filter((command) => command.name !== "")
+          .filter((command) => command.name.toLowerCase().startsWith(query)),
+      );
+    }
+
+    return suggestions.slice(0, COMMAND_SUGGESTION_LIMIT);
+  }, [
+    activeChatSession?.available_commands,
+    commandQuery,
+    isExternalAgentChat,
+    projectProposalAvailable,
+  ]);
   const commandPickerVisible =
-    composerVisible &&
-    isExternalAgentChat &&
-    !commandPickerDismissed &&
-    commandSuggestions.length > 0;
+    composerVisible && !commandPickerDismissed && commandSuggestions.length > 0;
   const activeCommandOptionID = commandPickerVisible
     ? `${commandListboxID}-option-${activeCommandIndex}`
     : undefined;
@@ -342,8 +373,8 @@ export function ChatComposer(props: ChatComposerProps) {
     return true;
   }
 
-  function selectCommandSuggestion(command: ChatAvailableCommandRecord) {
-    const nextMessage = externalAgentCommandInsertion(command);
+  function selectCommandSuggestion(command: MessageCommandSuggestion) {
+    const nextMessage = messageCommandInsertion(command);
     if (!nextMessage) return;
     messageHistoryCursorRef.current = null;
     messageHistoryPendingTextRef.current = nextMessage;
@@ -400,6 +431,19 @@ export function ChatComposer(props: ChatComposerProps) {
   }
 
   function handleSubmit(e: SyntheticEvent<HTMLFormElement>) {
+    const proposalRequest = projectProposalCommandRequest(message);
+    if (proposalRequest !== null && projectProposalAvailable && onDraftProjectProposal) {
+      e.preventDefault();
+      if (!proposalRequest) {
+        settingsActions.setNoticeMessage("error", "Add a request after /proposal.");
+        return;
+      }
+      onDraftProjectProposal(proposalRequest);
+      if (textareaRef.current) {
+        textareaRef.current.style.height = "auto";
+      }
+      return;
+    }
     void chatActions.submitChat(e);
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
@@ -624,7 +668,7 @@ export function ChatComposer(props: ChatComposerProps) {
               <div
                 id={commandListboxID}
                 role="listbox"
-                aria-label="External agent commands"
+                aria-label="Message commands"
                 style={{
                   position: "absolute",
                   left: 0,
@@ -641,11 +685,11 @@ export function ChatComposer(props: ChatComposerProps) {
                 }}
               >
                 {commandSuggestions.map((command, index) => {
-                  const commandText = externalAgentCommandInsertion(command).trim();
+                  const commandText = messageCommandInsertion(command).trim();
                   const selected = index === activeCommandIndex;
                   return (
                     <div
-                      key={`${externalAgentCommandName(command)}:${index}`}
+                      key={`${command.kind}:${command.name}:${index}`}
                       id={`${commandListboxID}-option-${index}`}
                       role="option"
                       aria-label={`Insert ${commandText} command`}
@@ -691,7 +735,7 @@ export function ChatComposer(props: ChatComposerProps) {
                           whiteSpace: "nowrap",
                         }}
                       >
-                        {externalAgentCommandDetail(command)}
+                        {messageCommandDetail(command)}
                       </span>
                     </div>
                   );
@@ -900,7 +944,7 @@ export function ChatComposer(props: ChatComposerProps) {
                   aria-label="Draft Project Assistant proposal from message"
                   disabled={projectProposalDrafting}
                   title="Draft a Project Assistant proposal from this message"
-                  onClick={onDraftProjectProposal}
+                  onClick={() => onDraftProjectProposal()}
                   style={{
                     flexShrink: 0,
                     fontFamily: "var(--font-mono)",
@@ -971,7 +1015,7 @@ function numericStyleValue(element: HTMLElement, property: ComposerTextareaNumer
   return Number.parseFloat(window.getComputedStyle(element)[property]) || 0;
 }
 
-function externalAgentCommandQuery(message: string): string | null {
+function messageCommandQuery(message: string): string | null {
   if (!message.startsWith("/")) return null;
   const query = message.slice(1);
   if (/\s/.test(query)) return null;
@@ -982,15 +1026,22 @@ function externalAgentCommandName(command: ChatAvailableCommandRecord) {
   return command.name.trim().replace(/^\/+/, "");
 }
 
-function externalAgentCommandInsertion(command: ChatAvailableCommandRecord) {
-  const name = externalAgentCommandName(command);
+function messageCommandInsertion(command: MessageCommandSuggestion) {
+  const name = command.name;
   return name ? `/${name} ` : "";
 }
 
-function externalAgentCommandDetail(command: ChatAvailableCommandRecord) {
+function messageCommandDetail(command: MessageCommandSuggestion) {
   const description = command.description?.trim();
   if (description) return description;
-  return command.input_hint?.trim() ?? "";
+  return command.inputHint?.trim() ?? "";
+}
+
+function projectProposalCommandRequest(message: string): string | null {
+  if (!message.startsWith("/")) return null;
+  const match = message.match(/^\/proposal(?:\s+([\s\S]*))?$/i);
+  if (!match) return null;
+  return (match[1] ?? "").trim();
 }
 
 export function ChatErrorPanel({

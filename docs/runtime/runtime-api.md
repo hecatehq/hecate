@@ -2798,7 +2798,9 @@ accepts the deterministic draft fields `request`, optional `work_item_id`,
 optional `role_id`, and optional `driver_kind`; Hecate derives the project from
 the chat session and rejects unprojected or external-agent sessions. The
 endpoint always uses deterministic drafting and returns
-`project_assistant.proposal` data only. It does not call the model-backed draft
+`project_assistant.proposal` data only. The operator UI exposes it through the
+compact `Draft proposal` composer action and the Hecate-owned
+`/proposal <request>` slash command. It does not call the model-backed draft
 path, append chat messages, create project records, or apply the proposal; UI
 clients should hand the response to the Projects Project Assistant review/apply
 surface. Clients may carry local source metadata, such as the request text and
