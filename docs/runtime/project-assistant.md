@@ -100,11 +100,11 @@ permission model.
   ids, kinds, locators, trust labels, categories, and metadata notes, but it
   must not fetch source URLs, read local paths, execute source references, or
   treat source metadata as durable memory.
-- Bootstrap drafts may create memory candidates from project context-source
+- Bootstrap-mode setup drafts may create memory candidates from project context-source
   metadata, using `suggested_source_kind: "context_source"` and source refs back
   to the discovered source. Those candidates record provenance only; operators
   must review and edit/promote them before they become durable memory.
-- Bootstrap drafts may suggest project roles from enabled, available records in
+- Bootstrap-mode setup drafts may suggest project roles from enabled, available records in
   the project skills registry. Applying the proposal creates role records with
   `skill_ids` references only; it does not read or inject `SKILL.md` bodies,
   install skills, run scripts, grant tools, or change approval policy. Disabled,
@@ -247,13 +247,13 @@ and existing memory/candidate source refs. It does not treat host-specific
 guidance as Hecate policy authority, call a model, create durable memory, start
 tasks, or launch agents.
 
-In the operator UI, **Bootstrap project** is the project onboarding action, not a
+In the operator UI, **Set up project** is the project onboarding action, not a
 regular draft mode. It refreshes workspace guidance context sources, refreshes
 the project skills registry, then requests a project-scoped Bootstrap draft.
-Rootless projects skip workspace discovery naturally and can still use Bootstrap
-to propose roles, first work, and memory candidates from existing project
-metadata. Projects with no work items use Bootstrap as their primary onboarding
-action before showing the full work cockpit.
+Rootless projects skip workspace discovery naturally and can still use setup to
+propose roles, first work, and memory candidates from existing project metadata.
+Projects with no work items use setup as their primary onboarding action before
+showing the full work cockpit.
 The resulting proposal is still review/apply gated and does not attach to the
 currently selected work item.
 
@@ -487,7 +487,7 @@ The first visible UI should stay small and inspectable:
 - keep the workspace tabs as one stable row below the composer; narrow surfaces
   may scroll the tab strip, but should not wrap tabs into a second row;
 - keep the request and primary draft action in the first row; route controls,
-  bootstrap, and context inspection stay secondary so the assistant reads as a
+  setup, and context inspection stay secondary so the assistant reads as a
   project command band rather than a work-detail editor;
 - keep route controls contextual, with an automatic choice for the common path;
 - show context details only after explicit inspection, and proposal cards with
@@ -501,9 +501,9 @@ The first visible UI should stay small and inspectable:
 The Projects cockpit exposes this contract at the top of the project workspace.
 V0 uses a composer-style request box that drafts typed proposals from the
 selected project/work item. The `Rules` draft option uses deterministic server
-logic; `Bootstrap` proposes project setup records from guidance and skill
-registry metadata; the `Assistant` draft option asks the project default model
-to author the same typed proposal shape.
+logic; the project setup path uses Bootstrap mode to propose setup records from
+guidance and skill registry metadata; the `Assistant` draft option asks the
+project default model to author the same typed proposal shape.
 
 Hecate Chat stays visually simple. Project-linked Hecate Chat turns receive
 hidden project workflow guidance and bounded project context so the model can

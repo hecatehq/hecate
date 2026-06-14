@@ -191,7 +191,7 @@ describe("ProjectWorkspaceView", () => {
     expect(screen.getByText("Optional; attach files when this project needs them.")).toBeTruthy();
     expect(screen.getByText("optional")).toBeTruthy();
 
-    await userEvent.click(screen.getByRole("button", { name: "Bootstrap project" }));
+    await userEvent.click(screen.getByRole("button", { name: "Set up project" }));
     await userEvent.click(screen.getByRole("button", { name: "Create work" }));
     await userEvent.click(screen.getByRole("button", { name: "Project settings" }));
 

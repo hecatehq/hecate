@@ -121,14 +121,14 @@ export function ProjectAssistantPanel({
           <div style={assistantOnboardingCopyStyle}>
             <div style={sectionLabelStyle}>Project setup</div>
             <div style={setupPromptTitleStyle}>
-              {setupStarted ? "Create the first work item" : "Bootstrap project context"}
+              {setupStarted ? "Create the first work item" : "Set up project context"}
             </div>
             <div style={{ ...subtleTextStyle, marginTop: 4 }}>
               {setupStarted
                 ? "Project guidance or roles already exist. Inspect context or add the first reviewable work item."
                 : bootstrapPending
-                  ? "Discovering local guidance and preparing a reviewable setup proposal."
-                  : "Discover guidance, skills, and role suggestions before drafting project work."}
+                  ? "Discovering guidance and skills, then preparing a reviewable setup proposal."
+                  : "Discover guidance and skills, suggest roles, and prepare setup actions for review."}
             </div>
           </div>
           <div style={assistantOnboardingActionsStyle}>
@@ -151,7 +151,7 @@ export function ProjectAssistantPanel({
                 onClick={onBootstrap}
               >
                 <Icon d={Icons.refresh} size={14} />
-                {bootstrapPending ? "Bootstrapping..." : "Bootstrap project"}
+                {bootstrapPending ? "Setting up..." : "Set up project"}
               </button>
             )}
           </div>
@@ -524,7 +524,7 @@ function projectAssistantDraftMode(
 
 function projectAssistantBootstrapForm(): ProjectAssistantDraftForm {
   return {
-    request: "Bootstrap project guidance",
+    request: "Set up project guidance",
     roleID: PROJECT_ASSISTANT_AUTO,
     driverKind: PROJECT_ASSISTANT_AUTO,
     draftMode: "bootstrap",

@@ -101,7 +101,7 @@ export function useProjectAssistantController(options: Options) {
       const payload = await draftProjectAssistant(
         projectAssistantDraftPayload(
           {
-            request: "Bootstrap project guidance",
+            request: "Set up project guidance",
             roleID: PROJECT_ASSISTANT_AUTO,
             driverKind: PROJECT_ASSISTANT_AUTO,
             draftMode: "bootstrap",

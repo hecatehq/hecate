@@ -186,7 +186,7 @@ func TestService_DraftBootstrapCreatesGuidanceAndSkillRoleProposalAcrossStores(t
 
 			proposal, err := fixture.service.Draft(ctx, DraftInput{
 				ProjectID: project.ID,
-				Request:   "Bootstrap project guidance",
+				Request:   "Set up project guidance",
 				DraftMode: DraftModeBootstrap,
 				TraceID:   "trace_bootstrap",
 			})
@@ -195,6 +195,9 @@ func TestService_DraftBootstrapCreatesGuidanceAndSkillRoleProposalAcrossStores(t
 			}
 			if proposal.TraceID != "trace_bootstrap" || !proposal.RequiresConfirmation {
 				t.Fatalf("proposal trace/confirmation = %q/%v, want trace and confirmation", proposal.TraceID, proposal.RequiresConfirmation)
+			}
+			if proposal.Title != "Set up Bootstrap Project guidance" {
+				t.Fatalf("proposal title = %q, want setup title", proposal.Title)
 			}
 			if len(proposal.Actions) != 2 {
 				t.Fatalf("actions = %+v, want guidance candidate and skill role", proposal.Actions)
@@ -297,7 +300,7 @@ func TestService_DraftBootstrapIgnoresRepoSpecificDocsAISkills(t *testing.T) {
 
 	proposal, err := fixture.service.Draft(ctx, DraftInput{
 		ProjectID: project.ID,
-		Request:   "Bootstrap project guidance",
+		Request:   "Set up project guidance",
 		DraftMode: DraftModeBootstrap,
 	})
 	if err != nil {
@@ -382,7 +385,7 @@ func TestService_DraftBootstrapUsesRegisteredSkillDirsFromGuidanceReferences(t *
 
 	proposal, err := fixture.service.Draft(ctx, DraftInput{
 		ProjectID: project.ID,
-		Request:   "Bootstrap project guidance",
+		Request:   "Set up project guidance",
 		DraftMode: DraftModeBootstrap,
 	})
 	if err != nil {
