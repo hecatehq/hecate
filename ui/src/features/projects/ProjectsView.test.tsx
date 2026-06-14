@@ -1561,7 +1561,7 @@ describe("ProjectsView cockpit", () => {
     });
   });
 
-  it("keeps bootstrap out of the draft mode once project setup exists", async () => {
+  it("keeps project setup out of selected-work drafting once setup exists", async () => {
     resetProjectWorkMocks();
     window.localStorage.setItem("hecate.project", project.id);
     const state = createRuntimeConsoleFixture({
@@ -1574,8 +1574,11 @@ describe("ProjectsView cockpit", () => {
     const assistant = await screen.findByRole("region", { name: "Project Assistant" });
 
     expect(within(assistant).queryByText("Project onboarding")).toBeNull();
+    expect(within(assistant).queryByText("Set up project context")).toBeNull();
     expect(within(assistant).queryByRole("button", { name: "Set up project" })).toBeNull();
-    expect(within(assistant).queryByRole("option", { name: "Bootstrap" })).toBeNull();
+    expect(within(assistant).getByLabelText("Draft")).toBeTruthy();
+    expect(within(assistant).getByRole("option", { name: "Rules" })).toBeTruthy();
+    expect(within(assistant).getByRole("option", { name: "Assistant" })).toBeTruthy();
   });
 
   it("keeps selected-work drafting separate from project onboarding", async () => {
