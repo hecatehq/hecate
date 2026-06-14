@@ -112,9 +112,9 @@ agent-native command hints. Commands are still submitted as normal
 a separate execute-command RPC. The operator UI can surface the advertised list
 when the composer starts with `/`, but choosing an item only inserts the command
 text. These are external-agent-native commands, not Hecate-owned project
-mutations. Future Hecate Chat shortcuts such as `/plan` or `/remember` should
-remain intent hints that go through the usual proposal, validation, and
-operator-apply boundaries.
+mutations. Hecate Chat shortcuts such as `/proposal` are separate local UI
+commands, not ACP commands; they should remain intent hints that go through the
+usual proposal, validation, and operator-apply boundaries.
 
 Check discovery:
 

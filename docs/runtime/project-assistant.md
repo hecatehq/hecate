@@ -41,11 +41,13 @@ run, assignment, or agent session.
 
 Project-linked Hecate Chat has a compact `Draft proposal` composer action for
 turning the current draft message into the same Project Assistant proposal
-shape. That chat-session route derives `project_id` from the linked session
-instead of accepting it from the request body, always uses deterministic
-drafting, and hands the proposal to the Projects workspace for review. It does
-not append a chat message, call the model-backed draft path, create work
-records, or apply the proposal.
+shape. The same deterministic handoff is available as `/proposal <request>` in
+the chat composer; choosing the slash-command hint only inserts `/proposal `,
+and submitting it drafts from the text after the command. That chat-session
+route derives `project_id` from the linked session instead of accepting it from
+the request body, always uses deterministic drafting, and hands the proposal to
+the Projects workspace for review. It does not append a chat message, call the
+model-backed draft path, create work records, or apply the proposal.
 
 When Projects consumes a chat-drafted proposal handoff, the review card shows
 the source as `drafted from chat`, preserves the originating request text and

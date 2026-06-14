@@ -557,10 +557,10 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     onNavigate?.("projects");
   }
 
-  async function draftProjectProposalFromChat() {
+  async function draftProjectProposalFromChat(explicitRequest?: string) {
     const sessionID = activeSessionID.trim();
     const projectID = activeSessionProjectID.trim();
-    const request = state.message.trim();
+    const request = (explicitRequest ?? state.message).trim();
     if (!sessionID || !projectID || !request || projectProposalDrafting) return;
     setProjectProposalDrafting(true);
     try {
@@ -1033,7 +1033,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
                 projectProposalAvailable={projectProposalAvailable}
                 projectProposalDrafting={projectProposalDrafting}
                 messageHistory={messageHistory}
-                onDraftProjectProposal={() => void draftProjectProposalFromChat()}
+                onDraftProjectProposal={(request) => void draftProjectProposalFromChat(request)}
                 onNavigate={onNavigate}
                 onOpenTask={onOpenTask}
                 onOpenTrace={onOpenTrace}

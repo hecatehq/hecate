@@ -340,7 +340,7 @@ test("New chat creates an external-agent session with controls before the first 
   await expect(page.getByRole("button", { name: "Model", exact: true })).toContainText("Fast");
   const composer = page.getByRole("textbox", { name: "Message" });
   await composer.fill("/");
-  const commands = page.getByRole("listbox", { name: "External agent commands" });
+  const commands = page.getByRole("listbox", { name: "Message commands" });
   await expect(commands.getByRole("option", { name: "Insert /web command" })).toBeVisible();
   await expect(commands).toContainText("Search the web");
   await commands.getByRole("option", { name: "Insert /web command" }).click();
