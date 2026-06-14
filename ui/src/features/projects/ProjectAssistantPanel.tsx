@@ -32,18 +32,25 @@ type Props = {
   error: string;
   onApply: () => void;
   onBootstrap: () => void;
+  onCreateWork?: () => void;
   onDismiss: () => void;
   onInspectContext: (form: ProjectAssistantDraftForm) => void;
+  onManageRoles?: () => void;
+  onOpenWork?: () => void;
   onOpenSourceChat?: () => void;
   onPropose: (form: ProjectAssistantDraftForm) => void;
+  onReviewMemory?: () => void;
   project: ProjectRecord | null;
   proposal: ProjectAssistantProposal | null;
   roles: ProjectWorkRoleRecord[];
   bootstrapPending: boolean;
+  memoryCandidateCount?: number;
+  roleCount?: number;
   setupStarted?: boolean;
   setupFirst?: boolean;
   status: ProjectAssistantStatus;
   workItem: ProjectWorkItemRecord | null;
+  workItemCount?: number;
 };
 
 export type ProjectAssistantChatDraftSource = {
@@ -61,18 +68,25 @@ export function ProjectAssistantPanel({
   error,
   onApply,
   onBootstrap,
+  onCreateWork,
   onDismiss,
   onInspectContext,
+  onManageRoles,
+  onOpenWork,
   onOpenSourceChat,
   onPropose,
+  onReviewMemory,
   project,
   proposal,
   roles,
   bootstrapPending,
+  memoryCandidateCount = 0,
+  roleCount = roles.length,
   setupStarted = false,
   setupFirst = false,
   status,
   workItem,
+  workItemCount = workItem ? 1 : 0,
 }: Props) {
   const [form, setForm] = useState<ProjectAssistantDraftForm>(() =>
     projectAssistantDraftForm(project, workItem, roles),
@@ -336,15 +350,78 @@ export function ProjectAssistantPanel({
         </div>
       )}
       {applyResult && (
-        <div style={assistantResultStyle} role="status">
-          <span className="badge badge-green">applied</span>
-          <span>
-            Applied {applyResult.actions.length} action
-            {applyResult.actions.length === 1 ? "" : "s"} from {applyResult.proposal_id}.
-          </span>
-        </div>
+        <ProjectAssistantApplyResultPanel
+          result={applyResult}
+          memoryCandidateCount={memoryCandidateCount}
+          onCreateWork={onCreateWork}
+          onManageRoles={onManageRoles}
+          onOpenWork={onOpenWork}
+          onReviewMemory={onReviewMemory}
+          roleCount={roleCount}
+          workItemCount={workItemCount}
+        />
       )}
     </section>
+  );
+}
+
+function ProjectAssistantApplyResultPanel({
+  memoryCandidateCount,
+  onCreateWork,
+  onManageRoles,
+  onOpenWork,
+  onReviewMemory,
+  result,
+  roleCount,
+  workItemCount,
+}: {
+  memoryCandidateCount: number;
+  onCreateWork?: () => void;
+  onManageRoles?: () => void;
+  onOpenWork?: () => void;
+  onReviewMemory?: () => void;
+  result: ProjectAssistantApplyResult;
+  roleCount: number;
+  workItemCount: number;
+}) {
+  const resultActions = projectAssistantFollowUpActions({
+    memoryCandidateCount,
+    onCreateWork,
+    onManageRoles,
+    onOpenWork,
+    onReviewMemory,
+    result,
+    roleCount,
+    workItemCount,
+  });
+
+  return (
+    <div style={assistantResultStyle} role="status" aria-label="Project Assistant apply result">
+      <div style={assistantResultSummaryStyle}>
+        <span className="badge badge-green">applied</span>
+        <div style={assistantResultCopyStyle}>
+          <strong style={{ color: "var(--t1)" }}>
+            Applied {result.actions.length} action{result.actions.length === 1 ? "" : "s"}
+          </strong>
+          <span style={subtleTextStyle}>Proposal {result.proposal_id} is applied.</span>
+        </div>
+      </div>
+      {resultActions.length > 0 && (
+        <div style={assistantResultActionsStyle} aria-label="Project Assistant next steps">
+          {resultActions.map((action) => (
+            <button
+              key={action.key}
+              className={`btn ${action.primary ? "btn-primary" : "btn-ghost"} btn-sm`}
+              type="button"
+              onClick={action.onClick}
+            >
+              <Icon d={action.icon} size={13} />
+              {action.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -583,6 +660,77 @@ function projectAssistantActionLabel(kind: string): string {
     default:
       return kind.replace(/_/g, " ");
   }
+}
+
+function projectAssistantFollowUpActions({
+  memoryCandidateCount,
+  onCreateWork,
+  onManageRoles,
+  onOpenWork,
+  onReviewMemory,
+  result,
+  roleCount,
+  workItemCount,
+}: {
+  memoryCandidateCount: number;
+  onCreateWork?: () => void;
+  onManageRoles?: () => void;
+  onOpenWork?: () => void;
+  onReviewMemory?: () => void;
+  result: ProjectAssistantApplyResult;
+  roleCount: number;
+  workItemCount: number;
+}): Array<{
+  icon: string | string[];
+  key: string;
+  label: string;
+  onClick: () => void;
+  primary?: boolean;
+}> {
+  const appliedKinds = new Set(result.actions.map((action) => action.kind));
+  const actions: Array<{
+    icon: string | string[];
+    key: string;
+    label: string;
+    onClick: () => void;
+    primary?: boolean;
+  }> = [];
+
+  if ((memoryCandidateCount > 0 || appliedKinds.has("create_memory_candidate")) && onReviewMemory) {
+    actions.push({
+      icon: Icons.observe,
+      key: "review-memory",
+      label: "Review memory",
+      onClick: onReviewMemory,
+    });
+  }
+  if ((roleCount > 0 || appliedKinds.has("create_role")) && onManageRoles) {
+    actions.push({
+      icon: Icons.user,
+      key: "review-roles",
+      label: "Review roles",
+      onClick: onManageRoles,
+    });
+  }
+  if (workItemCount === 0 && !appliedKinds.has("create_work_item") && onCreateWork) {
+    actions.push({
+      icon: Icons.plus,
+      key: "create-work",
+      label: "Create first work",
+      onClick: onCreateWork,
+      primary: true,
+    });
+  } else if (onOpenWork) {
+    actions.push({
+      icon: Icons.tasks,
+      key: "open-work",
+      label: "Open work queue",
+      onClick: onOpenWork,
+      primary: actions.length === 0,
+    });
+  }
+
+  return actions;
 }
 
 function formatAssistantValue(value: unknown): string {
@@ -905,16 +1053,37 @@ const assistantProposalActionsStyle: CSSProperties = {
 };
 
 const assistantResultStyle: CSSProperties = {
-  alignItems: "center",
   background: "var(--green-bg)",
   border: "1px solid var(--green-border)",
   borderRadius: "var(--radius-sm)",
-  color: "var(--green)",
+  display: "grid",
+  gap: 9,
+  minWidth: 0,
+  padding: "9px 10px",
+};
+
+const assistantResultSummaryStyle: CSSProperties = {
+  alignItems: "center",
   display: "flex",
   flexWrap: "wrap",
-  fontSize: 12,
   gap: 8,
-  padding: "8px 9px",
+  minWidth: 0,
+};
+
+const assistantResultCopyStyle: CSSProperties = {
+  display: "grid",
+  flex: "1 1 220px",
+  fontSize: 12,
+  gap: 2,
+  minWidth: 0,
+};
+
+const assistantResultActionsStyle: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 8,
+  justifyContent: "flex-start",
+  minWidth: 0,
 };
 
 const domainHeaderStyle: CSSProperties = {

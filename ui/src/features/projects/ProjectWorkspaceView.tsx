@@ -268,8 +268,11 @@ export function ProjectWorkspaceView({
                   error={assistant.error}
                   onApply={() => void assistant.apply()}
                   onBootstrap={() => void assistant.bootstrap()}
+                  onCreateWork={onCreateWork}
                   onInspectContext={(form) => void assistant.inspectContext(form)}
                   onDismiss={assistant.dismiss}
+                  onManageRoles={onManageRoles}
+                  onOpenWork={() => onWorkspaceTabChange("work")}
                   onOpenSourceChat={
                     assistant.chatDraftSource?.sourceSessionID && onOpenChat
                       ? () =>
@@ -280,13 +283,17 @@ export function ProjectWorkspaceView({
                       : undefined
                   }
                   onPropose={(form) => void assistant.propose(form)}
+                  onReviewMemory={() => onWorkspaceTabChange("memory")}
                   project={project}
                   proposal={assistant.proposal}
                   roles={roles}
+                  memoryCandidateCount={memoryCandidates.length}
+                  roleCount={roles.length}
                   setupFirst={projectSetupFirst}
                   setupStarted={projectSetupStarted}
                   status={assistant.status}
                   workItem={selectedWorkItem}
+                  workItemCount={workItems.length}
                 />
                 <ProjectWorkspaceTabs
                   activeTab={workspaceTab}

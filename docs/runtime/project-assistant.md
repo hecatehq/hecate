@@ -258,6 +258,11 @@ Projects with no work items use setup as their primary onboarding action before
 showing the full work cockpit.
 The resulting proposal is still review/apply gated and does not attach to the
 currently selected work item.
+After a successful setup apply, the Projects UI keeps the apply result visible
+with explicit follow-up actions such as reviewing memory candidates, reviewing
+roles, opening the work queue, or creating the first work item. These actions
+only navigate or open the normal operator-controlled editors; they do not
+auto-promote memory, auto-start assignments, or bypass proposal review.
 
 `draft_mode: "model"` asks the configured gateway model to author the proposal
 from the same context packet. The request may provide `model` and `provider`;
@@ -523,7 +528,8 @@ deterministic Project Assistant draft path only; durable mutations must still
 stop at the explicit Projects review/apply card.
 Applying a proposal always calls `/project-assistant/apply` with `confirm: true`
 after the operator reviews the action rows. A successful apply refreshes the
-project list, project work, selected work-item detail, and project memory.
+project list, project work, selected work-item detail, and project memory, then
+the UI can offer next-step navigation into the refreshed project state.
 `404 not_found` and `409 conflict` apply responses are treated as stale review
 state: refresh the current work view and draft a fresh proposal instead of
 retrying blindly.
