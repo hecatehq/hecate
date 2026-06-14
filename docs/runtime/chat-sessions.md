@@ -23,10 +23,12 @@ the Projects workspace. Project-linked Hecate Chat also exposes a compact
 composer action that deterministically drafts a Project Assistant proposal from
 the current message and hands it to the Projects review surface. The same path
 is available as the Hecate-owned `/proposal <request>` chat command for
-operators who prefer a slash-command flow; selecting `/proposal` only inserts
-the command scaffold, and submitting it drafts from the text after the command.
-That handoff is proposal data only; it does not send a chat message, create
-project records, call the model-backed draft path, or apply the proposal.
+operators who prefer a slash-command flow. Project-shaping commands such as
+`/plan`, `/work`, `/handoff`, and `/review` use the same proposal boundary:
+selecting one only inserts the command scaffold, and submitting it drafts from
+the text after the command. That handoff is proposal data only; it does not send
+a chat message, create project records, call the model-backed draft path, or
+apply the proposal.
 Deleting a project also deletes its project-scoped chat transcripts.
 Unprojected chats and chats in other projects stay untouched. The Projects
 review card preserves the originating request and chat session id for operator
@@ -115,8 +117,12 @@ session snapshot. These are agent-native slash command hints, not Hecate
 project commands; selecting one still sends ordinary prompt text to the
 external agent. The operator UI may show these hints while the composer starts
 with `/`; choosing a hint only inserts the slash command text. Hecate-owned
-chat commands, such as `/proposal`, are separate local shortcuts and must still
-route through Hecate's proposal, validation, and operator-apply boundaries.
+chat commands are separate local shortcuts and must still route through
+Hecate's proposal, validation, and operator-apply boundaries. Current
+Hecate-owned commands are `/proposal`, `/plan`, `/work`, `/handoff`, `/review`,
+`/diff`, `/model`, `/settings`, `/status`, `/task`, `/project`, and
+`/connections`. The project commands draft Project Assistant proposals; the
+navigation commands open Hecate UI surfaces without sending a chat message.
 
 Hecate Chat settings also own the **Tools** toggle and the optional **Compact
 command output** toggle. Tools decides whether future turns stay as direct

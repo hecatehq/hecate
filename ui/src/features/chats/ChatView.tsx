@@ -537,6 +537,8 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     Boolean(activeSessionProjectID) &&
     Boolean(onNavigate) &&
     Boolean(state.message.trim());
+  const composerWorkspaceChangesAvailable =
+    selectedChatReady && isAgentChat && Boolean(activeWorkspacePath.trim());
 
   function openAgentSetup(adapterID = activeAgentAdapterID) {
     try {
@@ -1032,11 +1034,23 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
                 activeQueuedChatMessages={activeQueuedChatMessages}
                 projectProposalAvailable={projectProposalAvailable}
                 projectProposalDrafting={projectProposalDrafting}
+                workspaceChangesAvailable={composerWorkspaceChangesAvailable}
                 messageHistory={messageHistory}
                 onDraftProjectProposal={(request) => void draftProjectProposalFromChat(request)}
                 onNavigate={onNavigate}
                 onOpenTask={onOpenTask}
                 onOpenTrace={onOpenTrace}
+                onOpenWorkspaceChanges={() => {
+                  setChatSettingsOpen(false);
+                  setWorkspaceChangesOpen(true);
+                }}
+                onOpenChatSettings={() => {
+                  setWorkspaceChangesOpen(false);
+                  setChatSettingsOpen(true);
+                }}
+                onOpenLinkedProject={
+                  activeSessionProjectID && onNavigate ? () => openLinkedProject() : undefined
+                }
               />
             )}
           </div>

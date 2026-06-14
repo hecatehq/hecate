@@ -127,6 +127,12 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   submits another prompt, queue it locally in the composer and send it after
   the task finishes, is stopped, or reaches a terminal approval outcome. Do not
   pretend that local queue is durable before the message is submitted.
+- Hecate-owned chat slash commands are local UI shortcuts, not External Agent
+  ACP commands. Keep project-shaping commands (`/proposal`, `/plan`, `/work`,
+  `/handoff`, `/review`) on the Project Assistant proposal/confirmation rail;
+  navigation commands such as `/diff`, `/model`, `/settings`, `/status`,
+  `/task`, `/project`, and `/connections` may open Hecate UI surfaces but must
+  not send prompt text or mutate project records directly.
 - Use the shared `features/transcript` primitives for runtime storytelling.
   Task Detail and Hecate Chat should share `TranscriptActivityTimeline` labels
   and Details grouping instead of growing separate task/activity renderers.
