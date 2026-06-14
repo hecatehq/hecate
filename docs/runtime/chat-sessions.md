@@ -93,11 +93,13 @@ visible transcript message count for that turn, the legacy high-level
 `sources`, and itemized `items` with `kind`, `trust_level`, `origin`, `title`,
 optional `body` / `body_ref`, `included`, and `inclusion_reason`. Current items
 cover visible metadata only: system prompt presence, transcript count, enabled
-project context-source metadata, enabled project skill metadata, current
-active project work metadata, accepted project memory, workspace path metadata, Hecate
+project source metadata (workspace guidance, URLs, notes, local paths, or
+external references), enabled project skill metadata, current active project
+work metadata, accepted project memory, workspace path metadata, Hecate
 task-runtime state, and external-agent session metadata. It deliberately does
-not persist full system prompts, raw transcript text, file contents, `SKILL.md`
-bodies, or agent-private prompt packing. External Agent packets explicitly note
+not persist full system prompts, raw transcript text, file contents, source
+bodies, `SKILL.md` bodies, or agent-private prompt packing. External Agent
+packets explicitly note
 that Hecate can show adapter metadata and transcript rows it receives but cannot
 inspect the agent's private prompt or packed model context. The message count is
 an operator-facing transcript count, not a provider token count or a guarantee

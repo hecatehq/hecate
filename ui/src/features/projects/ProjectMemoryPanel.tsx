@@ -8,6 +8,14 @@ import type {
   ProjectRecord,
 } from "../../types/project";
 import { CopyableID, Icon, Icons, InlineError, Modal } from "../shared/ui";
+import {
+  isLinkableSourceLocator,
+  PROJECT_SOURCE_KINDS,
+  projectSourceDefaultFormat,
+  projectSourceFormFromRecord,
+  sourceKindLabel,
+  type ProjectSourceForm,
+} from "./projectSources";
 import { shortID } from "./projectUtils";
 
 export type MemoryForm = {
@@ -44,11 +52,14 @@ type ProjectMemoryPanelProps = {
   error: string;
   loading: boolean;
   onDiscoverContextSources: () => void;
+  onDeleteSource: (source: ProjectContextSourceRecord) => void;
+  onEditSource: (source: ProjectContextSourceRecord) => void;
   onPromoteCandidate: (candidate: ProjectMemoryCandidateRecord) => void;
   onRejectCandidate: (candidate: ProjectMemoryCandidateRecord) => void;
   onDelete: (entry: ProjectMemoryRecord) => void;
   onEdit: (entry: ProjectMemoryRecord) => void;
   onNew: () => void;
+  onNewSource: () => void;
   onRefresh: () => void;
   project: ProjectRecord | null;
   rejectingCandidateID: string;
@@ -61,11 +72,14 @@ export function ProjectMemoryPanel({
   error,
   loading,
   onDiscoverContextSources,
+  onDeleteSource,
+  onEditSource,
   onPromoteCandidate,
   onRejectCandidate,
   onDelete,
   onEdit,
   onNew,
+  onNewSource,
   onRefresh,
   project,
   rejectingCandidateID,
@@ -74,6 +88,7 @@ export function ProjectMemoryPanel({
   const enabledCount = entries.filter((entry) => entry.enabled).length;
   const pendingCount = candidates.filter((candidate) => candidate.status === "pending").length;
   const contextSources = project.context_sources ?? [];
+  const enabledSourceCount = contextSources.filter((source) => source.enabled).length;
   return (
     <div>
       <div style={panelStyle}>
@@ -83,7 +98,7 @@ export function ProjectMemoryPanel({
             <div style={{ ...subtleTextStyle, marginTop: 3 }}>
               {loading
                 ? "Loading project memory…"
-                : `${enabledCount} enabled / ${entries.length} saved entries · ${pendingCount} pending candidates`}
+                : `${enabledSourceCount}/${contextSources.length} sources · ${enabledCount}/${entries.length} memory · ${pendingCount} pending`}
             </div>
           </div>
           <button
@@ -105,6 +120,10 @@ export function ProjectMemoryPanel({
             <Icon d={Icons.search} size={12} />
             {discoveringContext ? "Discovering…" : "Discover"}
           </button>
+          <button className="btn btn-ghost btn-sm" type="button" onClick={onNewSource}>
+            <Icon d={Icons.plus} size={12} />
+            Source
+          </button>
           <button className="btn btn-primary btn-sm" type="button" onClick={onNew}>
             <Icon d={Icons.plus} size={12} />
             Memory
@@ -116,12 +135,20 @@ export function ProjectMemoryPanel({
           </div>
         )}
         <div style={{ display: "grid", gap: 8, marginBottom: 12 }}>
-          <div style={sectionLabelStyle}>Workspace guidance</div>
+          <div style={sectionLabelStyle}>Project sources</div>
           {contextSources.length === 0 ? (
-            <div style={subtleTextStyle}>No context sources discovered or configured yet.</div>
+            <div style={subtleTextStyle}>
+              No project sources yet. Add URLs, notes, local paths, or discover workspace guidance
+              from configured roots.
+            </div>
           ) : (
             contextSources.map((source) => (
-              <ProjectContextSourceRow key={source.id} source={source} />
+              <ProjectContextSourceRow
+                key={source.id}
+                source={source}
+                onDelete={() => onDeleteSource(source)}
+                onEdit={() => onEditSource(source)}
+              />
             ))
           )}
         </div>
@@ -155,6 +182,175 @@ export function ProjectMemoryPanel({
         )}
       </div>
     </div>
+  );
+}
+
+type ProjectSourceModalProps = {
+  error: string;
+  pending: boolean;
+  source: ProjectContextSourceRecord | null;
+  onClose: () => void;
+  onSave: (form: ProjectSourceForm) => void | Promise<void>;
+};
+
+export function ProjectSourceModal({
+  error,
+  pending,
+  source,
+  onClose,
+  onSave,
+}: ProjectSourceModalProps) {
+  const [form, setForm] = useState<ProjectSourceForm>(() => projectSourceFormFromRecord(source));
+  const locatorRequired = form.kind.trim() !== "note";
+  const valid =
+    form.title.trim().length > 0 &&
+    (form.locator.trim().length > 0 || (!locatorRequired && form.note.trim().length > 0));
+  return (
+    <Modal
+      title={source ? "Edit project source" : "New project source"}
+      onClose={onClose}
+      width={620}
+      footer={
+        <button
+          className="btn btn-primary"
+          type="button"
+          disabled={pending || !valid}
+          onClick={() => void onSave(form)}
+          style={{ width: "100%", justifyContent: "center" }}
+        >
+          {pending ? "Saving…" : source ? "Save source" : "Create source"}
+        </button>
+      }
+    >
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (valid) void onSave(form);
+        }}
+        style={{ display: "grid", gap: 12 }}
+      >
+        {error && <InlineError message={error} />}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <label style={fieldStyle}>
+            <span style={fieldLabelStyle}>Kind</span>
+            <select
+              className="input"
+              value={form.kind}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  kind: event.target.value,
+                  format: projectSourceDefaultFormat(event.target.value),
+                }))
+              }
+            >
+              {PROJECT_SOURCE_KINDS.map((kind) => (
+                <option key={kind} value={kind}>
+                  {sourceKindLabel(kind)}
+                </option>
+              ))}
+              {source?.kind &&
+                !(PROJECT_SOURCE_KINDS as readonly string[]).includes(source.kind) && (
+                  <option value={source.kind}>{source.kind}</option>
+                )}
+            </select>
+          </label>
+          <label style={fieldStyle}>
+            <span style={fieldLabelStyle}>Enabled</span>
+            <select
+              className="input"
+              value={form.enabled ? "true" : "false"}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, enabled: event.target.value === "true" }))
+              }
+            >
+              <option value="true">Enabled</option>
+              <option value="false">Disabled</option>
+            </select>
+          </label>
+        </div>
+        <label style={fieldStyle}>
+          <span style={fieldLabelStyle}>Title</span>
+          <input
+            className="input"
+            autoFocus
+            value={form.title}
+            onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
+            placeholder="Design brief, customer interview, source note"
+          />
+        </label>
+        <label style={fieldStyle}>
+          <span style={fieldLabelStyle}>Locator</span>
+          <input
+            className="input"
+            value={form.locator}
+            onChange={(event) =>
+              setForm((current) => ({ ...current, locator: event.target.value }))
+            }
+            placeholder="https://…, /local/path, ticket id, or leave blank for note"
+          />
+        </label>
+        <label style={fieldStyle}>
+          <span style={fieldLabelStyle}>Note</span>
+          <textarea
+            className="input"
+            value={form.note}
+            rows={4}
+            onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))}
+            placeholder="Optional operator note about why this source matters. Stored as source metadata, not injected as memory."
+            style={{ resize: "vertical", minHeight: 92 }}
+          />
+        </label>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <label style={fieldStyle}>
+            <span style={fieldLabelStyle}>Trust label</span>
+            <input
+              className="input"
+              value={form.trustLabel}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, trustLabel: event.target.value }))
+              }
+              placeholder="operator_source"
+            />
+          </label>
+          <label style={fieldStyle}>
+            <span style={fieldLabelStyle}>Category</span>
+            <input
+              className="input"
+              value={form.sourceCategory}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, sourceCategory: event.target.value }))
+              }
+              placeholder="operator_source"
+            />
+          </label>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <label style={fieldStyle}>
+            <span style={fieldLabelStyle}>Format</span>
+            <input
+              className="input"
+              value={form.format}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, format: event.target.value }))
+              }
+              placeholder="url, text, agents_md"
+            />
+          </label>
+          <label style={fieldStyle}>
+            <span style={fieldLabelStyle}>Scope</span>
+            <input
+              className="input"
+              value={form.scope}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, scope: event.target.value }))
+              }
+              placeholder="project, workspace, path:docs"
+            />
+          </label>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -321,8 +517,18 @@ export function ProjectMemoryModal({
   );
 }
 
-function ProjectContextSourceRow({ source }: { source: ProjectContextSourceRecord }) {
+function ProjectContextSourceRow({
+  source,
+  onDelete,
+  onEdit,
+}: {
+  source: ProjectContextSourceRecord;
+  onDelete: () => void;
+  onEdit: () => void;
+}) {
   const host = source.metadata?.host;
+  const note = source.metadata?.note;
+  const title = source.title || source.path;
   return (
     <div style={memoryEntryStyle}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
@@ -331,17 +537,44 @@ function ProjectContextSourceRow({ source }: { source: ProjectContextSourceRecor
             source.kind === "workspace_instruction" ? "badge badge-green" : "badge badge-muted"
           }
         >
-          {source.kind}
+          {sourceKindLabel(source.kind)}
         </span>
-        <div style={{ ...titleStyle, flex: 1, minWidth: 0 }}>{source.title || source.path}</div>
+        <div style={{ ...titleStyle, flex: 1, minWidth: 0 }}>{title}</div>
         <span className={source.enabled ? "badge badge-muted" : "badge badge-amber"}>
           {source.enabled ? "enabled" : "disabled"}
         </span>
+        <button
+          className="btn btn-ghost btn-sm"
+          type="button"
+          aria-label={`Edit source ${title}`}
+          onClick={onEdit}
+          title="Edit"
+        >
+          <Icon d={Icons.edit} size={12} />
+        </button>
+        <button
+          className="btn btn-ghost btn-sm"
+          type="button"
+          aria-label={`Delete source ${title}`}
+          onClick={onDelete}
+          title="Delete"
+          style={{ color: "var(--red)" }}
+        >
+          <Icon d={Icons.trash} size={12} />
+        </button>
       </div>
+      {note && <div style={memoryBodyStyle}>{note}</div>}
       <div style={metaLineStyle}>
-        <span>{source.path}</span>
+        {isLinkableSourceLocator(source.path) ? (
+          <a href={source.path} target="_blank" rel="noreferrer">
+            {source.path}
+          </a>
+        ) : (
+          <span>{source.path}</span>
+        )}
         {source.format && <span>{source.format}</span>}
         {source.scope && <span>{source.scope}</span>}
+        {source.trust_label && <span>{source.trust_label}</span>}
         {host && <span>{host}</span>}
       </div>
     </div>

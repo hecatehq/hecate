@@ -270,7 +270,7 @@ files matter.
 ```mermaid
 flowchart LR
     Project["Project<br/>stable local identity"] --> Roots["Workspace roots"]
-    Project --> Sources["Context sources<br/>repo guidance · selected docs"]
+    Project --> Sources["Project sources<br/>URLs · notes · files · guidance"]
     Project --> Memory["Project memory<br/>operator-approved entries"]
     Project --> Work["Work items · assignments · handoffs"]
 
@@ -293,6 +293,9 @@ Important boundaries:
   evidence, not durable memory by themselves.
 - Project memory is explicit operator-approved context. Hecate does not write
   memory automatically.
+- Project sources are provenance and source metadata first; Hecate does not
+  fetch source URLs or include source bodies unless a supported context policy
+  path explicitly does so.
 - Memory candidates can be proposed by chats, tasks, handoffs, or future
   workflows. They stay out of context until the operator promotes them.
 - External-agent private memory stays outside Hecate unless the operator imports

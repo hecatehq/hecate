@@ -5,6 +5,7 @@ import type {
   ProjectActivityItemRecord,
   ProjectAssignmentRecord,
   ProjectCollaborationArtifactRecord,
+  ProjectContextSourceRecord,
   ProjectHandoffRecord,
   ProjectMemoryCandidateRecord,
   ProjectMemoryRecord,
@@ -52,6 +53,7 @@ export type ProjectWorkspaceViewProps = {
   assignmentErrors: Record<string, string>;
   assignments: ProjectAssignmentRecord[];
   assistant: ReturnType<typeof useProjectAssistantController>;
+  creatingDefaultAssignment: boolean;
   detailError: string;
   detailLoadState: LoadState;
   discoveringContext: boolean;
@@ -79,6 +81,8 @@ export type ProjectWorkspaceViewProps = {
   ) => void;
   onAddReviewArtifactFromAssignment: (assignment: ProjectAssignmentRecord) => void;
   onAddHandoffFromReviewArtifact: (artifact: ProjectCollaborationArtifactRecord) => void;
+  onCreateDefaultAssignment: (item: ProjectWorkItemRecord) => void;
+  onPreparedAssignmentPreflightOpened: (assignmentID: string) => void;
   onCreateAssignmentFromReviewArtifact: (artifact: ProjectCollaborationArtifactRecord) => void;
   onCreateAssignmentFromHandoff: (handoff: ProjectHandoffRecord) => void;
   onCreateWork: () => void;
@@ -86,16 +90,19 @@ export type ProjectWorkspaceViewProps = {
   onDeleteAssignment: (assignment: ProjectAssignmentRecord) => void;
   onDeleteHandoff: (handoff: ProjectHandoffRecord) => void;
   onDeleteMemory: (entry: ProjectMemoryRecord) => void;
+  onDeleteSource: (source: ProjectContextSourceRecord) => void;
   onDeleteWorkItem: (item: ProjectWorkItemRecord) => void;
   onDiscoverContextSources: () => void;
   onDiscoverProjectSkills: () => void;
   onEditAssignment: (assignment: ProjectAssignmentRecord) => void;
   onEditHandoff: (handoff: ProjectHandoffRecord) => void;
   onEditMemory: (entry: ProjectMemoryRecord) => void;
+  onEditSource: (source: ProjectContextSourceRecord) => void;
   onEditWorkItem: (item: ProjectWorkItemRecord) => void;
   onManageProfiles: () => void;
   onManageRoles: () => void;
   onNewMemory: () => void;
+  onNewSource: () => void;
   onOpenChat?: (request: ProjectAssignmentChatLaunchRequest) => void;
   onOpenConnections?: () => void;
   onOpenSettings: () => void;
@@ -116,6 +123,7 @@ export type ProjectWorkspaceViewProps = {
   projectEmptyTitle: string;
   projectNeedsOnboarding: boolean;
   projectSkills: ProjectSkillRecord[];
+  preparingAssignmentID: string;
   rejectingCandidateID: string;
   roleByID: Map<string, ProjectWorkRoleRecord>;
   roles: ProjectWorkRoleRecord[];
@@ -142,6 +150,7 @@ export function ProjectWorkspaceView({
   assignmentErrors,
   assignments,
   assistant,
+  creatingDefaultAssignment,
   detailError,
   detailLoadState,
   discoveringContext,
@@ -162,6 +171,8 @@ export function ProjectWorkspaceView({
   onAddReviewHandoffFromAssignment,
   onAddReviewArtifactFromAssignment,
   onAddHandoffFromReviewArtifact,
+  onCreateDefaultAssignment,
+  onPreparedAssignmentPreflightOpened,
   onCreateAssignmentFromReviewArtifact,
   onCreateAssignmentFromHandoff,
   onCreateWork,
@@ -169,16 +180,19 @@ export function ProjectWorkspaceView({
   onDeleteAssignment,
   onDeleteHandoff,
   onDeleteMemory,
+  onDeleteSource,
   onDeleteWorkItem,
   onDiscoverContextSources,
   onDiscoverProjectSkills,
   onEditAssignment,
   onEditHandoff,
   onEditMemory,
+  onEditSource,
   onEditWorkItem,
   onManageProfiles,
   onManageRoles,
   onNewMemory,
+  onNewSource,
   onOpenChat,
   onOpenConnections,
   onOpenSettings,
@@ -199,6 +213,7 @@ export function ProjectWorkspaceView({
   projectEmptyTitle,
   projectNeedsOnboarding,
   projectSkills,
+  preparingAssignmentID,
   rejectingCandidateID,
   roleByID,
   roles,
@@ -215,6 +230,16 @@ export function ProjectWorkspaceView({
   workLoadState,
   workspaceTab,
 }: ProjectWorkspaceViewProps) {
+  const enabledContextSourceCount =
+    project?.context_sources?.filter((source) => source.enabled).length ?? 0;
+  const projectSetupStarted =
+    enabledContextSourceCount > 0 ||
+    roles.length > 0 ||
+    projectSkills.length > 0 ||
+    memoryEntries.length > 0 ||
+    memoryCandidates.length > 0;
+  const projectSetupFirst = workItems.length === 0 && !selectedWorkItem;
+
   return (
     <section style={detailStyle} aria-label="Selected work item">
       <div className="project-cockpit-workspace" style={cockpitWorkspaceStyle}>
@@ -223,9 +248,7 @@ export function ProjectWorkspaceView({
             {projectNeedsOnboarding ? (
               <ProjectOnboardingPanel
                 bootstrapPending={assistant.bootstrapPending}
-                contextSourceCount={
-                  (project.context_sources ?? []).filter((source) => source.enabled).length
-                }
+                contextSourceCount={enabledContextSourceCount}
                 onBootstrap={() => void assistant.bootstrap()}
                 onCreateWork={onCreateWork}
                 onOpenSettings={onOpenSettings}
@@ -260,6 +283,8 @@ export function ProjectWorkspaceView({
                   project={project}
                   proposal={assistant.proposal}
                   roles={roles}
+                  setupFirst={projectSetupFirst}
+                  setupStarted={projectSetupStarted}
                   status={assistant.status}
                   workItem={selectedWorkItem}
                 />
@@ -325,6 +350,8 @@ export function ProjectWorkspaceView({
                         handoffs={handoffs}
                         assignmentErrors={assignmentErrors}
                         detailError={detailError}
+                        creatingDefaultAssignment={creatingDefaultAssignment}
+                        preparingAssignmentID={preparingAssignmentID}
                         loading={detailLoadState === "loading"}
                         onOpenTask={onOpenTask}
                         onRefresh={onRefreshWorkItem}
@@ -357,6 +384,8 @@ export function ProjectWorkspaceView({
                         onAddReviewHandoffFromAssignment={onAddReviewHandoffFromAssignment}
                         onAddReviewArtifactFromAssignment={onAddReviewArtifactFromAssignment}
                         onAddHandoffFromReviewArtifact={onAddHandoffFromReviewArtifact}
+                        onCreateDefaultAssignment={onCreateDefaultAssignment}
+                        onPreparedAssignmentPreflightOpened={onPreparedAssignmentPreflightOpened}
                         onCreateAssignmentFromReviewArtifact={onCreateAssignmentFromReviewArtifact}
                       />
                     ) : (
@@ -395,11 +424,14 @@ export function ProjectWorkspaceView({
                 error={memoryError}
                 loading={memoryLoadState === "loading"}
                 onDiscoverContextSources={onDiscoverContextSources}
+                onDeleteSource={onDeleteSource}
+                onEditSource={onEditSource}
                 onPromoteCandidate={onPromoteCandidate}
                 onRejectCandidate={onRejectCandidate}
                 onDelete={onDeleteMemory}
                 onEdit={onEditMemory}
                 onNew={onNewMemory}
+                onNewSource={onNewSource}
                 onRefresh={onRefreshMemory}
                 project={project}
                 rejectingCandidateID={rejectingCandidateID}

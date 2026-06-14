@@ -27,3 +27,7 @@ export function projectNameFromPath(path: string): string {
   const segments = trimmed.split(/[/\\]/).filter(Boolean);
   return segments.at(-1) || "Untitled project";
 }
+
+export function isLinkableProjectLocator(value: string): boolean {
+  return /^https?:\/\//i.test(value.trim());
+}

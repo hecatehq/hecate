@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { firstNonEmpty, shortID, splitIDs, splitRoleIDs } from "./projectUtils";
+import {
+  firstNonEmpty,
+  isLinkableProjectLocator,
+  shortID,
+  splitIDs,
+  splitRoleIDs,
+} from "./projectUtils";
 
 describe("projectUtils", () => {
   it("splits comma-separated ids and drops empty entries", () => {
@@ -16,5 +22,12 @@ describe("projectUtils", () => {
   it("returns the first non-empty trimmed string", () => {
     expect(firstNonEmpty(undefined, "   ", null, " value ", "later")).toBe("value");
     expect(firstNonEmpty(undefined, "", null)).toBe("");
+  });
+
+  it("only treats http and https locators as linkable", () => {
+    expect(isLinkableProjectLocator("https://example.invalid/source")).toBe(true);
+    expect(isLinkableProjectLocator("http://example.invalid/source")).toBe(true);
+    expect(isLinkableProjectLocator("javascript:alert(1)")).toBe(false);
+    expect(isLinkableProjectLocator("/Users/alice/project/notes.md")).toBe(false);
   });
 });

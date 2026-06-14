@@ -182,8 +182,10 @@ function renderDetail(overrides: Partial<ProjectWorkItemDetailProps> = {}) {
     onAddHandoffFromReviewArtifact: vi.fn(),
     onAddReviewArtifactFromAssignment: vi.fn(),
     onAddReviewHandoffFromAssignment: vi.fn(),
+    onCreateDefaultAssignment: vi.fn(),
     onCreateAssignmentFromReviewArtifact: vi.fn(),
     onCreateAssignmentFromHandoff: vi.fn(),
+    onPreparedAssignmentPreflightOpened: vi.fn(),
     onDeleteAssignment: vi.fn(),
     onDeleteHandoff: vi.fn(),
     onDeleteWorkItem: vi.fn(),
@@ -212,6 +214,8 @@ function renderDetail(overrides: Partial<ProjectWorkItemDetailProps> = {}) {
     handoffs: [],
     assignmentErrors: {},
     detailError: "",
+    creatingDefaultAssignment: false,
+    preparingAssignmentID: "",
     loading: false,
     project: record,
     roleByID,
@@ -327,6 +331,50 @@ describe("ProjectWorkItemDetail", () => {
     expect(handlers.onManageRoles).toHaveBeenCalledTimes(1);
   });
 
+  it("guides pristine work items through default assignment creation", async () => {
+    const architect = role({ id: "architect", name: "Architect" });
+    const item = workItem({ owner_role_id: "architect", reviewer_role_ids: [] });
+    const { handlers } = renderDetail({
+      assignments: [],
+      artifacts: [],
+      handoffs: [],
+      roleByID: new Map([[architect.id, architect]]),
+      workItem: item,
+    });
+
+    expect(screen.getByRole("region", { name: "Start work" })).toBeTruthy();
+    expect(screen.getByText("Ready to prepare the first assignment")).toBeTruthy();
+    expect(screen.queryByText("No reviewer roles configured")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Mark done" })).toBeNull();
+    expect(screen.queryByText("No assignments recorded yet.")).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Prepare Architect" }));
+    await userEvent.click(screen.getByRole("button", { name: "Manual assignment" }));
+    await userEvent.click(screen.getByRole("button", { name: "Evidence" }));
+    await userEvent.click(screen.getByRole("button", { name: "Handoff" }));
+
+    expect(handlers.onCreateDefaultAssignment).toHaveBeenCalledWith(item);
+    expect(handlers.onAddAssignment).toHaveBeenCalledTimes(1);
+    expect(handlers.onAddEvidenceLink).toHaveBeenCalledTimes(1);
+    expect(handlers.onAddHandoff).toHaveBeenCalledTimes(1);
+  });
+
+  it("routes pristine work items without roles to role setup", async () => {
+    const { handlers } = renderDetail({
+      assignments: [],
+      artifacts: [],
+      handoffs: [],
+      roleByID: new Map(),
+      workItem: workItem({ owner_role_id: "", reviewer_role_ids: [] }),
+    });
+
+    expect(screen.getByText("Add a role before assigning work")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Manage roles" }));
+
+    expect(screen.queryByRole("button", { name: /Queue/ })).toBeNull();
+    expect(handlers.onManageRoles).toHaveBeenCalledTimes(1);
+  });
+
   it("guides setup when configured reviewer roles are missing", () => {
     renderDetail({
       workItem: workItem({ reviewer_role_ids: ["missing_reviewer"] }),
@@ -380,6 +428,27 @@ describe("ProjectWorkItemDetail", () => {
     expect(handlers.onStartAssignment).toHaveBeenCalledWith(
       expect.objectContaining({ id: "assign_1" }),
     );
+  });
+
+  it("opens launch preflight when a prepared assignment becomes visible", async () => {
+    const preparedAssignment = assignment({ id: "assign_prepared" });
+    const { handlers } = renderDetail({
+      assignments: [preparedAssignment],
+      preparingAssignmentID: "assign_prepared",
+    });
+
+    expect(
+      await screen.findByRole("dialog", {
+        name: "Assignment assign_prepared launch preflight",
+      }),
+    ).toBeTruthy();
+    expect(getProjectAssignmentPreflightMock).toHaveBeenCalledWith(
+      "proj_1",
+      "work_1",
+      "assign_prepared",
+    );
+    expect(handlers.onPreparedAssignmentPreflightOpened).toHaveBeenCalledWith("assign_prepared");
+    expect(handlers.onStartAssignment).not.toHaveBeenCalled();
   });
 
   it("renders handoff actions and delegates status changes", async () => {

@@ -40,6 +40,8 @@ type Props = {
   proposal: ProjectAssistantProposal | null;
   roles: ProjectWorkRoleRecord[];
   bootstrapPending: boolean;
+  setupStarted?: boolean;
+  setupFirst?: boolean;
   status: ProjectAssistantStatus;
   workItem: ProjectWorkItemRecord | null;
 };
@@ -67,6 +69,8 @@ export function ProjectAssistantPanel({
   proposal,
   roles,
   bootstrapPending,
+  setupStarted = false,
+  setupFirst = false,
   status,
   workItem,
 }: Props) {
@@ -88,8 +92,15 @@ export function ProjectAssistantPanel({
   const busy = status === "proposing" || status === "applying";
   const contextBusy = contextStatus === "loading";
   const bootstrapBusy = bootstrapPending || busy;
-  const panelDetail = workItem ? `Selected work: ${workItem.title}` : "Project queue";
+  const panelDetail = setupFirst
+    ? "Setup and first-work planning"
+    : workItem
+      ? `Selected work: ${workItem.title}`
+      : "Project queue";
   const modelDraftAvailable = Boolean(project.default_model?.trim());
+  const bootstrapForm = projectAssistantBootstrapForm();
+  const showSetupRow = setupFirst && !proposal && !applyResult;
+  const showBootstrapAction = setupFirst && !setupStarted && !proposal && !applyResult;
 
   return (
     <section style={assistantPanelStyle} aria-label="Project Assistant">
@@ -105,132 +116,157 @@ export function ProjectAssistantPanel({
           ) : null
         }
       />
-      <div style={assistantOnboardingStyle} aria-label="Project onboarding">
-        <div style={assistantOnboardingCopyStyle}>
-          <div style={sectionLabelStyle}>Project onboarding</div>
-          <div style={{ ...subtleTextStyle, marginTop: 3 }}>
-            {bootstrapPending ? "Preparing setup proposal" : "Setup proposal"}
+      {showSetupRow && (
+        <div style={assistantOnboardingStyle} aria-label="Project onboarding">
+          <div style={assistantOnboardingCopyStyle}>
+            <div style={sectionLabelStyle}>Project setup</div>
+            <div style={setupPromptTitleStyle}>
+              {setupStarted ? "Create the first work item" : "Bootstrap project context"}
+            </div>
+            <div style={{ ...subtleTextStyle, marginTop: 4 }}>
+              {setupStarted
+                ? "Project guidance or roles already exist. Inspect context or add the first reviewable work item."
+                : bootstrapPending
+                  ? "Discovering local guidance and preparing a reviewable setup proposal."
+                  : "Discover guidance, skills, and role suggestions before drafting project work."}
+            </div>
+          </div>
+          <div style={assistantOnboardingActionsStyle}>
+            {setupFirst && (
+              <button
+                className="btn btn-ghost btn-sm"
+                type="button"
+                disabled={bootstrapBusy || contextBusy}
+                onClick={() => onInspectContext(bootstrapForm)}
+              >
+                <Icon d={Icons.eye} size={13} />
+                {contextBusy ? "Inspecting..." : "Inspect context"}
+              </button>
+            )}
+            {showBootstrapAction && (
+              <button
+                className="btn btn-primary btn-sm"
+                type="button"
+                disabled={bootstrapBusy || contextBusy}
+                onClick={onBootstrap}
+              >
+                <Icon d={Icons.refresh} size={14} />
+                {bootstrapPending ? "Bootstrapping..." : "Bootstrap project"}
+              </button>
+            )}
           </div>
         </div>
-        <button
-          className="btn btn-primary"
-          type="button"
-          disabled={bootstrapBusy || contextBusy}
-          onClick={onBootstrap}
-          style={assistantOnboardingButtonStyle}
+      )}
+      {!setupFirst && (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!valid || busy) return;
+            onPropose(form);
+          }}
+          style={assistantComposerStyle}
         >
-          <Icon d={Icons.refresh} size={14} />
-          {bootstrapPending ? "Bootstrapping..." : "Bootstrap project"}
-        </button>
-      </div>
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (!valid || busy) return;
-          onPropose(form);
-        }}
-        style={assistantComposerStyle}
-      >
-        <div style={assistantPrimaryRowStyle}>
-          <label style={requestFieldStyle}>
-            <span style={fieldLabelStyle}>Request</span>
-            <textarea
-              className="input"
-              rows={workItem ? 1 : 2}
-              value={form.request}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, request: event.target.value }))
-              }
-              style={assistantRequestInputStyle}
-            />
-          </label>
-          <div style={assistantPrimaryActionsStyle}>
-            <button
-              className="btn btn-primary btn-sm"
-              type="submit"
-              disabled={!valid || busy}
-              style={assistantSubmitStyle}
-            >
-              <Icon d={Icons.send} size={13} />
-              {status === "proposing" ? "Drafting..." : "Draft proposal"}
-            </button>
-          </div>
-        </div>
-        <div style={assistantRouteBarStyle}>
-          <div style={assistantRouteFieldsStyle}>
-            <label style={routeFieldStyle}>
-              <span style={fieldLabelStyle}>Draft</span>
-              <select
+          <div style={assistantPrimaryRowStyle}>
+            <label style={requestFieldStyle}>
+              <span style={fieldLabelStyle}>Request</span>
+              <textarea
                 className="input"
-                value={form.draftMode}
+                rows={workItem ? 1 : 2}
+                value={form.request}
                 onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    draftMode: projectAssistantDraftMode(event.target.value, modelDraftAvailable),
-                  }))
+                  setForm((current) => ({ ...current, request: event.target.value }))
                 }
-              >
-                <option value="deterministic">Rules</option>
-                <option value="model" disabled={!modelDraftAvailable}>
-                  Assistant{modelDraftAvailable ? "" : " (set model)"}
-                </option>
-              </select>
+                style={assistantRequestInputStyle}
+              />
             </label>
-            <label style={routeFieldStyle}>
-              <span style={fieldLabelStyle}>Run as</span>
-              <select
-                className="input"
-                value={form.roleID}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    roleID: event.target.value,
-                  }))
-                }
-                disabled={roles.length === 0}
+            <div style={assistantPrimaryActionsStyle}>
+              <button
+                className="btn btn-primary btn-sm"
+                type="submit"
+                disabled={!valid || busy}
+                style={assistantSubmitStyle}
               >
-                {roles.length === 0 ? (
-                  <option value="">No roles</option>
-                ) : (
-                  <>
-                    <option value={PROJECT_ASSISTANT_AUTO}>Auto</option>
-                    {roles.map((role) => (
-                      <option key={role.id} value={role.id}>
-                        {role.name || role.id}
-                      </option>
-                    ))}
-                  </>
-                )}
-              </select>
-            </label>
-            <label style={routeFieldStyle}>
-              <span style={fieldLabelStyle}>Via</span>
-              <select
-                className="input"
-                value={form.driverKind}
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, driverKind: event.target.value }))
-                }
-              >
-                <option value={PROJECT_ASSISTANT_AUTO}>Auto</option>
-                <option value="hecate_task">Hecate task</option>
-                <option value="external_agent">External agent</option>
-              </select>
-            </label>
+                <Icon d={Icons.send} size={13} />
+                {status === "proposing" ? "Drafting..." : "Draft proposal"}
+              </button>
+            </div>
           </div>
-          <div style={assistantSecondaryActionsStyle}>
-            <button
-              className="btn btn-ghost btn-sm"
-              type="button"
-              disabled={!valid || busy || contextBusy}
-              onClick={() => onInspectContext(form)}
-            >
-              <Icon d={Icons.eye} size={13} />
-              {contextBusy ? "Inspecting..." : "Inspect context"}
-            </button>
+          <div style={assistantRouteBarStyle}>
+            <div style={assistantRouteFieldsStyle}>
+              <label style={routeFieldStyle}>
+                <span style={fieldLabelStyle}>Draft</span>
+                <select
+                  className="input"
+                  value={form.draftMode}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      draftMode: projectAssistantDraftMode(event.target.value, modelDraftAvailable),
+                    }))
+                  }
+                >
+                  <option value="deterministic">Rules</option>
+                  <option value="model" disabled={!modelDraftAvailable}>
+                    Assistant{modelDraftAvailable ? "" : " (set model)"}
+                  </option>
+                </select>
+              </label>
+              <label style={routeFieldStyle}>
+                <span style={fieldLabelStyle}>Run as</span>
+                <select
+                  className="input"
+                  value={form.roleID}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      roleID: event.target.value,
+                    }))
+                  }
+                  disabled={roles.length === 0}
+                >
+                  {roles.length === 0 ? (
+                    <option value="">No roles</option>
+                  ) : (
+                    <>
+                      <option value={PROJECT_ASSISTANT_AUTO}>Auto</option>
+                      {roles.map((role) => (
+                        <option key={role.id} value={role.id}>
+                          {role.name || role.id}
+                        </option>
+                      ))}
+                    </>
+                  )}
+                </select>
+              </label>
+              <label style={routeFieldStyle}>
+                <span style={fieldLabelStyle}>Via</span>
+                <select
+                  className="input"
+                  value={form.driverKind}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, driverKind: event.target.value }))
+                  }
+                >
+                  <option value={PROJECT_ASSISTANT_AUTO}>Auto</option>
+                  <option value="hecate_task">Hecate task</option>
+                  <option value="external_agent">External agent</option>
+                </select>
+              </label>
+            </div>
+            <div style={assistantSecondaryActionsStyle}>
+              <button
+                className="btn btn-ghost btn-sm"
+                type="button"
+                disabled={!valid || busy || contextBusy}
+                onClick={() => onInspectContext(form)}
+              >
+                <Icon d={Icons.eye} size={13} />
+                {contextBusy ? "Inspecting..." : "Inspect context"}
+              </button>
+            </div>
           </div>
-        </div>
-      </form>
+        </form>
+      )}
       {contextError && (
         <div style={{ marginTop: 2 }}>
           <InlineError message={contextError} />
@@ -486,6 +522,15 @@ function projectAssistantDraftMode(
   return "deterministic";
 }
 
+function projectAssistantBootstrapForm(): ProjectAssistantDraftForm {
+  return {
+    request: "Bootstrap project guidance",
+    roleID: PROJECT_ASSISTANT_AUTO,
+    driverKind: PROJECT_ASSISTANT_AUTO,
+    draftMode: "bootstrap",
+  };
+}
+
 function projectAssistantAutoRole(
   workItem: ProjectWorkItemRecord | null,
   roles: ProjectWorkRoleRecord[],
@@ -573,14 +618,16 @@ const assistantComposerStyle: CSSProperties = {
 };
 
 const assistantOnboardingStyle: CSSProperties = {
-  alignItems: "center",
-  borderBottom: "1px solid var(--border)",
+  alignItems: "flex-start",
+  background: "var(--bg1)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-sm)",
   display: "flex",
   flexWrap: "wrap",
   gap: 10,
   justifyContent: "space-between",
   minWidth: 0,
-  padding: "2px 0 10px",
+  padding: "10px",
 };
 
 const assistantOnboardingCopyStyle: CSSProperties = {
@@ -588,10 +635,13 @@ const assistantOnboardingCopyStyle: CSSProperties = {
   minWidth: 0,
 };
 
-const assistantOnboardingButtonStyle: CSSProperties = {
+const assistantOnboardingActionsStyle: CSSProperties = {
+  alignItems: "center",
+  display: "flex",
   flex: "0 0 auto",
-  justifyContent: "center",
-  minWidth: 170,
+  flexWrap: "wrap",
+  gap: 8,
+  justifyContent: "flex-end",
 };
 
 const assistantPrimaryRowStyle: CSSProperties = {
@@ -896,6 +946,14 @@ const titleStyle: CSSProperties = {
   overflow: "hidden",
   textOverflow: "ellipsis",
   whiteSpace: "nowrap",
+};
+
+const setupPromptTitleStyle: CSSProperties = {
+  color: "var(--t0)",
+  fontSize: 14,
+  fontWeight: 650,
+  lineHeight: 1.25,
+  marginTop: 5,
 };
 
 const subtleTextStyle: CSSProperties = {

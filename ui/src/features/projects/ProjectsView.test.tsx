@@ -1072,13 +1072,14 @@ describe("ProjectsView index", () => {
     expect((await screen.findAllByText("Build cockpit UI")).length).toBeGreaterThan(0);
   });
 
-  it("shows project onboarding before the selected project has work", async () => {
+  it("shows project onboarding before the selected project has work or setup state", async () => {
     resetProjectWorkMocks();
     const user = userEvent.setup();
     vi.mocked(getProjectActivity).mockResolvedValue({
       object: "project_activity",
       data: emptyActivityData(),
     });
+    vi.mocked(getProjectWorkRoles).mockResolvedValue({ object: "project_work_roles", data: [] });
     vi.mocked(getProjectWorkItems).mockResolvedValue({
       object: "project_work_items",
       data: [],
@@ -1111,6 +1112,55 @@ describe("ProjectsView index", () => {
         draft_mode: "bootstrap",
       });
     });
+    const assistant = await screen.findByRole("region", { name: "Project Assistant" });
+    expect(within(assistant).queryByRole("button", { name: "Bootstrap project" })).toBeNull();
+    expect(within(assistant).getByRole("button", { name: "Dismiss proposal" })).toBeTruthy();
+    expect(within(assistant).queryByLabelText("Request")).toBeNull();
+    expect(within(assistant).queryByRole("button", { name: "Draft proposal" })).toBeNull();
+  });
+
+  it("returns bootstrapped projects without work to the cockpit instead of setup-only mode", async () => {
+    resetProjectWorkMocks();
+    vi.mocked(getProjectActivity).mockResolvedValue({
+      object: "project_activity",
+      data: emptyActivityData(),
+    });
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [],
+    });
+    vi.mocked(getProjectWorkRoles).mockResolvedValue({ object: "project_work_roles", data: [] });
+    const bootstrappedProject: ProjectRecord = {
+      ...project,
+      context_sources: [
+        {
+          id: "ctx_agents",
+          kind: "workspace_instruction",
+          title: "AGENTS.md",
+          path: "AGENTS.md",
+          enabled: true,
+          source_category: "workspace_guidance",
+          trust_label: "workspace_guidance",
+          created_at: "2026-06-02T09:00:00Z",
+          updated_at: "2026-06-02T09:00:00Z",
+        },
+      ],
+    };
+    window.localStorage.setItem("hecate.project", bootstrappedProject.id);
+
+    render(<ProjectsView />, {
+      wrapper: directWrapper({ projects: [bootstrappedProject] }),
+    });
+
+    expect(await screen.findByRole("region", { name: "Project Assistant" })).toBeTruthy();
+    expect(screen.queryByText("Set up Hecate")).toBeNull();
+    expect(screen.getByRole("tablist", { name: "Project workspace views" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Work coordination" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Work" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Bootstrap project" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Inspect context" })).toBeTruthy();
+    expect(screen.queryByLabelText("Request")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Draft proposal" })).toBeNull();
   });
 
   it("keeps cockpit controls and work coordination in stable regions when work items exist", async () => {
@@ -1511,7 +1561,7 @@ describe("ProjectsView cockpit", () => {
     });
   });
 
-  it("surfaces bootstrap as project onboarding instead of a draft mode", async () => {
+  it("keeps bootstrap out of the draft mode once project setup exists", async () => {
     resetProjectWorkMocks();
     window.localStorage.setItem("hecate.project", project.id);
     const state = createRuntimeConsoleFixture({
@@ -1523,16 +1573,42 @@ describe("ProjectsView cockpit", () => {
     await screen.findByText("Selected work: Build cockpit UI");
     const assistant = await screen.findByRole("region", { name: "Project Assistant" });
 
-    expect(within(assistant).getByText("Project onboarding")).toBeInTheDocument();
-    expect(within(assistant).getByRole("button", { name: "Bootstrap project" })).toHaveClass(
-      "btn-primary",
-    );
+    expect(within(assistant).queryByText("Project onboarding")).toBeNull();
+    expect(within(assistant).queryByRole("button", { name: "Bootstrap project" })).toBeNull();
     expect(within(assistant).queryByRole("option", { name: "Bootstrap" })).toBeNull();
+  });
+
+  it("keeps selected-work drafting separate from project onboarding", async () => {
+    resetProjectWorkMocks();
+    vi.mocked(getProjectWorkRoles).mockResolvedValue({ object: "project_work_roles", data: [] });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await screen.findByText("Selected work: Build cockpit UI");
+    const assistant = await screen.findByRole("region", { name: "Project Assistant" });
+
+    expect(within(assistant).getByText("Selected work: Build cockpit UI")).toBeTruthy();
+    expect(within(assistant).getByLabelText("Request")).toBeTruthy();
+    expect(within(assistant).queryByText("Project setup")).toBeNull();
+    expect(within(assistant).queryByRole("button", { name: "Bootstrap project" })).toBeNull();
   });
 
   it("discovers guidance and skills before drafting project bootstrap proposals", async () => {
     resetProjectWorkMocks();
     const user = userEvent.setup();
+    vi.mocked(getProjectActivity).mockResolvedValue({
+      object: "project_activity",
+      data: emptyActivityData(),
+    });
+    vi.mocked(getProjectWorkRoles).mockResolvedValue({ object: "project_work_roles", data: [] });
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [],
+    });
     const discoveredProject: ProjectRecord = {
       ...project,
       context_sources: [
@@ -1564,9 +1640,8 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
-    await screen.findByText("Selected work: Build cockpit UI");
-    const assistant = await screen.findByRole("region", { name: "Project Assistant" });
-    await user.click(within(assistant).getByRole("button", { name: "Bootstrap project" }));
+    const onboarding = await screen.findByRole("region", { name: "Project onboarding" });
+    await user.click(within(onboarding).getByRole("button", { name: "Bootstrap project" }));
 
     await waitFor(() => {
       expect(discoverProjectContextSources).toHaveBeenCalledWith(project.id);
@@ -1917,6 +1992,108 @@ describe("ProjectsView cockpit", () => {
     await user.click(screen.getByRole("button", { name: "Delete memory Commit style" }));
     await user.click(screen.getByRole("button", { name: "Delete memory" }));
     expect(deleteProjectMemory).toHaveBeenCalledWith(project.id, memoryEntry.id);
+  });
+
+  it("manages project sources in the cockpit", async () => {
+    resetProjectWorkMocks();
+    const existingSource = {
+      id: "ctx_design",
+      kind: "url",
+      title: "Design brief",
+      path: "https://example.invalid/design",
+      enabled: true,
+      format: "url",
+      trust_label: "operator_source",
+      source_category: "operator_source",
+      metadata: { note: "Reviewed source." },
+      created_at: "2026-06-08T10:00:00Z",
+      updated_at: "2026-06-08T10:00:00Z",
+    };
+    const createdSource = {
+      id: "ctx_research_goals",
+      kind: "note",
+      title: "Research goals",
+      path: "note:research-goals",
+      enabled: true,
+      format: "text",
+      trust_label: "operator_source",
+      source_category: "operator_source",
+      metadata: { note: "Keep source notes as metadata." },
+      created_at: "2026-06-08T10:01:00Z",
+      updated_at: "2026-06-08T10:01:00Z",
+    };
+    const projectWithSource = { ...project, context_sources: [existingSource] };
+    vi.mocked(updateProject)
+      .mockResolvedValueOnce({
+        object: "project",
+        data: { ...projectWithSource, context_sources: [existingSource, createdSource] },
+      })
+      .mockResolvedValueOnce({
+        object: "project",
+        data: { ...projectWithSource, context_sources: [createdSource] },
+      });
+    const user = userEvent.setup();
+    const state = createRuntimeConsoleFixture({
+      projects: [projectWithSource],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await openProjectWorkspaceTab(/Memory \/ Context/);
+    expect(await screen.findByText("Design brief")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "https://example.invalid/design" })).toBeTruthy();
+    expect(screen.getByText("Reviewed source.")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Source" }));
+    const dialog = await screen.findByRole("dialog", { name: "New project source" });
+    await user.selectOptions(within(dialog).getByLabelText("Kind"), "note");
+    await user.type(within(dialog).getByLabelText("Title"), "Research goals");
+    await user.type(within(dialog).getByLabelText("Note"), "Keep source notes as metadata.");
+    await user.click(within(dialog).getByRole("button", { name: "Create source" }));
+
+    expect(updateProject).toHaveBeenNthCalledWith(1, project.id, {
+      context_sources: [
+        {
+          id: "ctx_design",
+          kind: "url",
+          title: "Design brief",
+          path: "https://example.invalid/design",
+          enabled: true,
+          format: "url",
+          trust_label: "operator_source",
+          source_category: "operator_source",
+          metadata: { note: "Reviewed source." },
+        },
+        {
+          kind: "note",
+          title: "Research goals",
+          path: "note:research-goals",
+          enabled: true,
+          format: "text",
+          trust_label: "operator_source",
+          source_category: "operator_source",
+          metadata: { note: "Keep source notes as metadata." },
+        },
+      ],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Delete source Design brief" }));
+    await user.click(screen.getByRole("button", { name: "Delete source" }));
+    expect(updateProject).toHaveBeenNthCalledWith(2, project.id, {
+      context_sources: [
+        {
+          id: "ctx_research_goals",
+          kind: "note",
+          title: "Research goals",
+          path: "note:research-goals",
+          enabled: true,
+          format: "text",
+          trust_label: "operator_source",
+          source_category: "operator_source",
+          metadata: { note: "Keep source notes as metadata." },
+        },
+      ],
+    });
   });
 
   it("discovers workspace guidance sources from the memory context panel", async () => {
@@ -4504,6 +4681,66 @@ describe("ProjectsView cockpit", () => {
       role_id: "software_developer",
       driver_kind: "external_agent",
     });
+  });
+
+  it("prepares a default assignment from a pristine work item", async () => {
+    resetProjectWorkMocks();
+    const emptyWorkItem = { ...workItem, reviewer_role_ids: [], assignments: [] };
+    const preparedAssignment: ProjectAssignmentRecord = {
+      ...hecateAssignment,
+      id: "asgn_default",
+      status: "queued",
+      execution: undefined,
+      execution_ref: { kind: "none" },
+    };
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [emptyWorkItem],
+    });
+    vi.mocked(getProjectWorkItem).mockResolvedValue({
+      object: "project_work_item",
+      data: emptyWorkItem,
+    });
+    vi.mocked(getProjectAssignments).mockResolvedValueOnce({
+      object: "project_assignments",
+      data: [],
+    });
+    vi.mocked(getProjectAssignments).mockResolvedValue({
+      object: "project_assignments",
+      data: [preparedAssignment],
+    });
+    vi.mocked(createProjectAssignment).mockResolvedValueOnce({
+      object: "project_assignment",
+      data: preparedAssignment,
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    const detail = await screen.findByRole("region", { name: "Selected work item" });
+    await within(detail).findByText("Ready to prepare the first assignment");
+    await userEvent.click(
+      within(detail).getByRole("button", { name: "Prepare Software developer" }),
+    );
+
+    await waitFor(() =>
+      expect(createProjectAssignment).toHaveBeenCalledWith(project.id, workItem.id, {
+        role_id: "software_developer",
+        driver_kind: "hecate_task",
+      }),
+    );
+    expect(
+      await screen.findByRole("dialog", { name: "Assignment asgn_default launch preflight" }),
+    ).toBeTruthy();
+    expect(getProjectAssignmentPreflight).toHaveBeenCalledWith(
+      project.id,
+      workItem.id,
+      "asgn_default",
+    );
+    expect(startProjectAssignment).not.toHaveBeenCalled();
   });
 
   it("sends selected project roots when creating assignments", async () => {
