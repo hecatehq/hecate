@@ -118,11 +118,33 @@ project commands; selecting one still sends ordinary prompt text to the
 external agent. The operator UI may show these hints while the composer starts
 with `/`; choosing a hint only inserts the slash command text. Hecate-owned
 chat commands are separate local shortcuts and must still route through
-Hecate's proposal, validation, and operator-apply boundaries. Current
-Hecate-owned commands are `/proposal`, `/plan`, `/work`, `/handoff`, `/review`,
-`/diff`, `/model`, `/settings`, `/status`, `/task`, `/project`, and
-`/connections`. The project commands draft Project Assistant proposals; the
-navigation commands open Hecate UI surfaces without sending a chat message.
+Hecate's proposal, validation, and operator-apply boundaries.
+
+### Hecate-owned chat commands
+
+Hecate-owned commands are local UI shortcuts in Hecate Chat. They are not ACP
+commands and they do not run when submitted to an External Agent chat. Project
+commands draft Project Assistant proposals; navigation commands open Hecate UI
+surfaces without sending a chat message.
+
+| Command               | Available when                          | Behavior                                                                    |
+| --------------------- | --------------------------------------- | --------------------------------------------------------------------------- |
+| `/proposal <request>` | Hecate Chat is linked to a project      | Drafts a Project Assistant proposal from the request.                       |
+| `/plan <request>`     | Hecate Chat is linked to a project      | Drafts a Project Assistant plan proposal from the request.                  |
+| `/work <request>`     | Hecate Chat is linked to a project      | Drafts a project-work proposal from the request.                            |
+| `/handoff <request>`  | Hecate Chat is linked to a project      | Drafts a project handoff proposal from the request.                         |
+| `/review <request>`   | Hecate Chat is linked to a project      | Drafts a project review proposal from the request.                          |
+| `/diff`               | Hecate Chat has a workspace             | Opens the workspace changes panel.                                          |
+| `/model`              | Hecate Chat is open                     | Opens chat settings focused on provider/model controls.                     |
+| `/settings`           | Hecate Chat is open                     | Opens the chat settings panel.                                              |
+| `/status`             | Hecate Chat is open                     | Opens the chat settings/status details panel.                               |
+| `/task`               | Hecate Chat is open                     | Opens the active task when one exists; otherwise opens the Tasks workspace. |
+| `/project`            | Hecate Chat is linked to a project      | Opens the linked project in Projects.                                       |
+| `/connections`        | Hecate Chat is open with app navigation | Opens Connections for provider/model and External Agent setup.              |
+
+Submitting a project command without text after the command returns a composer
+notice and does not draft a proposal. Unknown slash commands in Hecate Chat are
+submitted as ordinary chat text, matching the normal composer path.
 
 Hecate Chat settings also own the **Tools** toggle and the optional **Compact
 command output** toggle. Tools decides whether future turns stay as direct
