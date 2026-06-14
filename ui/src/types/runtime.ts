@@ -16,6 +16,9 @@ export type SessionResponse = {
       project_id: string;
       runtime_id: string;
     };
+    capabilities?: {
+      embedded_terminal?: boolean;
+    };
   };
 };
 

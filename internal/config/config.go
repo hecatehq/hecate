@@ -33,27 +33,28 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Address                    string
-	AllowNonLoopbackBind       bool
-	AllowedOrigins             []string
-	RuntimeToken               string
-	InferenceToken             string
-	CloudRuntimeMode           bool
-	CloudRuntimeSecret         string
-	CloudAllowLocalProviders   bool
-	PublicURL                  string
-	DataDir                    string
-	BootstrapFile              string
-	ControlPlaneBackend        string
-	ControlPlaneKey            string
-	ControlPlaneSecretKey      string
-	TasksBackend               string
-	TaskApprovalPolicies       []string
-	TaskQueueBackend           string
-	TaskQueueWorkers           int
-	TaskQueueBuffer            int
-	TaskQueueLeaseSeconds      int
-	TaskMaxConcurrentPerTenant int
+	Address                      string
+	AllowNonLoopbackBind         bool
+	AllowedOrigins               []string
+	RuntimeToken                 string
+	InferenceToken               string
+	UnsafeEnableEmbeddedTerminal bool
+	CloudRuntimeMode             bool
+	CloudRuntimeSecret           string
+	CloudAllowLocalProviders     bool
+	PublicURL                    string
+	DataDir                      string
+	BootstrapFile                string
+	ControlPlaneBackend          string
+	ControlPlaneKey              string
+	ControlPlaneSecretKey        string
+	TasksBackend                 string
+	TaskApprovalPolicies         []string
+	TaskQueueBackend             string
+	TaskQueueWorkers             int
+	TaskQueueBuffer              int
+	TaskQueueLeaseSeconds        int
+	TaskMaxConcurrentPerTenant   int
 	// TaskReconcileInterval controls how often the periodic reconciler
 	// scans for runs stuck in "running" past 3× the lease duration.
 	// Default 30s. Set via HECATE_TASK_RECONCILE_INTERVAL (Go duration
@@ -374,13 +375,14 @@ func LoadFromEnv() Config {
 	}
 	return Config{
 		Server: ServerConfig{
-			Address:              getEnv("HECATE_ADDRESS", "127.0.0.1:8765"),
-			AllowNonLoopbackBind: getEnvBool("HECATE_ALLOW_NON_LOOPBACK_BIND", false),
-			AllowedOrigins:       splitCSV(getEnv("HECATE_ALLOWED_ORIGINS", "")),
-			RuntimeToken:         getEnv("HECATE_RUNTIME_TOKEN", ""),
-			InferenceToken:       getEnv("HECATE_INFERENCE_TOKEN", ""),
-			CloudRuntimeMode:     cloudRuntimeMode,
-			CloudRuntimeSecret:   getEnv("HECATE_CLOUD_RUNTIME_SECRET", ""),
+			Address:                      getEnv("HECATE_ADDRESS", "127.0.0.1:8765"),
+			AllowNonLoopbackBind:         getEnvBool("HECATE_ALLOW_NON_LOOPBACK_BIND", false),
+			AllowedOrigins:               splitCSV(getEnv("HECATE_ALLOWED_ORIGINS", "")),
+			RuntimeToken:                 getEnv("HECATE_RUNTIME_TOKEN", ""),
+			InferenceToken:               getEnv("HECATE_INFERENCE_TOKEN", ""),
+			UnsafeEnableEmbeddedTerminal: getEnvBool("HECATE_UNSAFE_ENABLE_EMBEDDED_TERMINAL", false),
+			CloudRuntimeMode:             cloudRuntimeMode,
+			CloudRuntimeSecret:           getEnv("HECATE_CLOUD_RUNTIME_SECRET", ""),
 			// Hosted runtimes deny local model servers by default. Operators
 			// running an isolated sidecar can opt in explicitly.
 			CloudAllowLocalProviders: cloudAllowLocalProviders,

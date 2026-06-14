@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -23,7 +24,7 @@ import (
 func TestTerminalRejectsNonLoopbackClient(t *testing.T) {
 	t.Parallel()
 
-	handler := newTestHTTPHandlerWithConfig(slog.New(slog.NewJSONHandler(io.Discard, nil)), &fakeProvider{name: "openai"}, config.Config{})
+	handler := newTestHTTPHandlerWithConfig(slog.New(slog.NewJSONHandler(io.Discard, nil)), &fakeProvider{name: "openai"}, terminalEnabledTestConfig())
 	req := httptest.NewRequest(http.MethodGet, "/hecate/v1/terminal?workspace=/tmp", nil)
 	req.RemoteAddr = "203.0.113.12:4321"
 	recorder := httptest.NewRecorder()
@@ -38,7 +39,7 @@ func TestTerminalRejectsNonLoopbackClient(t *testing.T) {
 func TestTerminalRejectsForwardedClientHeaders(t *testing.T) {
 	t.Parallel()
 
-	handler := newTestHTTPHandlerWithConfig(slog.New(slog.NewJSONHandler(io.Discard, nil)), &fakeProvider{name: "openai"}, config.Config{})
+	handler := newTestHTTPHandlerWithConfig(slog.New(slog.NewJSONHandler(io.Discard, nil)), &fakeProvider{name: "openai"}, terminalEnabledTestConfig())
 	for _, header := range []string{"X-Forwarded-For", "X-Real-IP"} {
 		req := httptest.NewRequest(http.MethodGet, "/hecate/v1/terminal?workspace=/tmp", nil)
 		req.RemoteAddr = "127.0.0.1:4321"
@@ -56,7 +57,7 @@ func TestTerminalRejectsForwardedClientHeaders(t *testing.T) {
 func TestTerminalRejectsInvalidWorkspaceBeforeUpgrade(t *testing.T) {
 	t.Parallel()
 
-	handler := newTestHTTPHandlerWithConfig(slog.New(slog.NewJSONHandler(io.Discard, nil)), &fakeProvider{name: "openai"}, config.Config{})
+	handler := newTestHTTPHandlerWithConfig(slog.New(slog.NewJSONHandler(io.Discard, nil)), &fakeProvider{name: "openai"}, terminalEnabledTestConfig())
 	req := httptest.NewRequest(http.MethodGet, "/hecate/v1/terminal", nil)
 	req.RemoteAddr = "127.0.0.1:4321"
 	recorder := httptest.NewRecorder()
@@ -72,7 +73,7 @@ func TestTerminalWebSocketBridgesSession(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{name: "openai"}}, config.Config{}, nil)
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{name: "openai"}}, terminalEnabledTestConfig(), nil)
 	session := newFakeTerminalSession()
 	launcher := &fakeTerminalLauncher{session: session}
 	apiHandler.SetTerminalLauncher(launcher)
@@ -132,6 +133,32 @@ func TestTerminalWebSocketBridgesSession(t *testing.T) {
 	}
 	if exit.Type != "exit" || exit.Code != 0 {
 		t.Fatalf("exit message = %+v, want zero exit", exit)
+	}
+}
+
+func TestTerminalDisabledByDefault(t *testing.T) {
+	t.Parallel()
+
+	handler := newTestHTTPHandlerWithConfig(slog.New(slog.NewJSONHandler(io.Discard, nil)), &fakeProvider{name: "openai"}, config.Config{})
+	req := httptest.NewRequest(http.MethodGet, "/hecate/v1/terminal?workspace=/tmp", nil)
+	req.RemoteAddr = "127.0.0.1:4321"
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d, body=%s", recorder.Code, http.StatusForbidden, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "embedded terminal is disabled") {
+		t.Fatalf("body = %q, want disabled terminal message", recorder.Body.String())
+	}
+}
+
+func terminalEnabledTestConfig() config.Config {
+	return config.Config{
+		Server: config.ServerConfig{
+			UnsafeEnableEmbeddedTerminal: true,
+		},
 	}
 }
 

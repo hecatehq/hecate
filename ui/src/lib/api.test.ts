@@ -160,6 +160,9 @@ describe("api client", () => {
           invalid_token: false,
           role: "admin",
           source: "anonymous",
+          capabilities: {
+            embedded_terminal: true,
+          },
         },
       }),
     );
@@ -171,6 +174,7 @@ describe("api client", () => {
       expect.objectContaining({ method: "GET" }),
     );
     expect(result.data.role).toBe("admin");
+    expect(result.data.capabilities?.embedded_terminal).toBe(true);
   });
 
   it("returns chat payload plus runtime headers", async () => {

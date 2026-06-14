@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"strings"
 
 	gopty "github.com/aymanbagabas/go-pty"
 )
@@ -68,8 +69,41 @@ func normalizedSize(cols, rows int) (int, int) {
 }
 
 func terminalEnv(env []string) []string {
-	env = append(env, "TERM=xterm-256color", "COLORTERM=truecolor")
-	return env
+	filtered := make([]string, 0, len(env)+2)
+	for _, entry := range env {
+		key, _, ok := strings.Cut(entry, "=")
+		if ok && terminalEnvSecretKey(key) {
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+	filtered = append(filtered, "TERM=xterm-256color", "COLORTERM=truecolor")
+	return filtered
+}
+
+func terminalEnvSecretKey(key string) bool {
+	normalized := strings.ToUpper(strings.TrimSpace(key))
+	if normalized == "" {
+		return false
+	}
+	if strings.HasPrefix(normalized, "HECATE_") {
+		return strings.Contains(normalized, "TOKEN") ||
+			strings.Contains(normalized, "SECRET") ||
+			strings.Contains(normalized, "KEY")
+	}
+	for _, marker := range []string{
+		"API_KEY",
+		"AUTH_TOKEN",
+		"OAUTH_TOKEN",
+		"ACCESS_TOKEN",
+		"SECRET",
+		"PASSWORD",
+	} {
+		if strings.Contains(normalized, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 type ptySession struct {

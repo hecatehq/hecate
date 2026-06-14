@@ -31,6 +31,10 @@ type terminalServerMessage struct {
 }
 
 func (h *Handler) HandleTerminal(w http.ResponseWriter, r *http.Request) {
+	if !h.config.Server.UnsafeEnableEmbeddedTerminal {
+		WriteError(w, http.StatusForbidden, errCodeForbidden, "embedded terminal is disabled")
+		return
+	}
 	if !requireLoopbackClient(w, r, "embedded terminal") {
 		return
 	}

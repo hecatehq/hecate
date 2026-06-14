@@ -3812,9 +3812,10 @@ on the server machine.
 ### `GET /hecate/v1/terminal`
 
 Opens an embedded PTY-backed terminal over WebSocket for a validated local
-workspace. This endpoint is intentionally local-runtime-only: it accepts only
-loopback clients, rejects forwarded-client headers, canonicalizes `workspace`,
-and is blocked in cloud runtime mode.
+workspace. This endpoint is disabled by default; launch Hecate with
+`HECATE_UNSAFE_ENABLE_EMBEDDED_TERMINAL=1` to expose it. It is intentionally
+local-runtime-only: it accepts only loopback clients, rejects forwarded-client
+headers, canonicalizes `workspace`, and is blocked in cloud runtime mode.
 
 ```text
 GET /hecate/v1/terminal?workspace=/Users/alice/project&cols=100&rows=30
@@ -3848,7 +3849,8 @@ Server → client messages:
 The terminal starts the host shell as the same local OS user (`$SHELL` on
 macOS/Linux, PowerShell/cmd fallbacks on Windows). It is operator-controlled
 convenience UI, not a task-runtime sandbox: commands run directly in the
-workspace and are not approval-gated by Hecate.
+workspace and are not approval-gated by Hecate. Treat the opt-in flag as a local
+power-user mode, not something to enable in hosted or shared environments.
 
 ## Rate-limit headers on chat / messages
 

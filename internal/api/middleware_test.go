@@ -678,6 +678,34 @@ func TestNewServerWiresCloudRuntimeIdentity(t *testing.T) {
 	}
 }
 
+func TestSessionAdvertisesEmbeddedTerminalCapability(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	handler := NewServer(logger, NewHandler(config.Config{}, logger, nil, nil, nil, nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/hecate/v1/whoami", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status without terminal capability = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if strings.Contains(rec.Body.String(), `"embedded_terminal":true`) {
+		t.Fatalf("whoami body = %s, want terminal disabled by default", rec.Body.String())
+	}
+
+	handler = NewServer(logger, NewHandler(config.Config{
+		Server: config.ServerConfig{UnsafeEnableEmbeddedTerminal: true},
+	}, logger, nil, nil, nil, nil))
+	req = httptest.NewRequest(http.MethodGet, "/hecate/v1/whoami", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status with terminal capability = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), `"embedded_terminal":true`) {
+		t.Fatalf("whoami body = %s, want embedded terminal capability", rec.Body.String())
+	}
+}
+
 func TestNewServerWiresRuntimeTokenMiddleware(t *testing.T) {
 	token := "local-runtime-token-123456"
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))

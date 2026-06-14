@@ -19,6 +19,7 @@ function renderChatHeader(overrides: Partial<Parameters<typeof ChatHeader>[0]> =
     workspacePath: "/Users/alice/dev/hecate",
     workspaceDialogOpen: false,
     workspaceChangesOpen: false,
+    embeddedTerminalEnabled: true,
     terminalOpen: false,
     chatSettingsOpen: false,
     onChooseWorkspace: vi.fn(),
@@ -52,5 +53,11 @@ describe("ChatHeader", () => {
     await userEvent.setup().click(screen.getByRole("button", { name: "Terminal" }));
 
     expect(onToggleTerminal).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides the embedded terminal action when the backend capability is disabled", () => {
+    renderChatHeader({ embeddedTerminalEnabled: false });
+
+    expect(screen.queryByRole("button", { name: "Terminal" })).toBeNull();
   });
 });

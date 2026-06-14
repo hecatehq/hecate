@@ -24,6 +24,7 @@ type Props = {
   workspacePath: string;
   workspaceDialogOpen: boolean;
   workspaceChangesOpen: boolean;
+  embeddedTerminalEnabled: boolean;
   terminalOpen: boolean;
   chatSettingsOpen: boolean;
   onChooseWorkspace: () => void;
@@ -53,6 +54,7 @@ export function ChatHeader(props: Props) {
     workspacePath,
     workspaceDialogOpen,
     workspaceChangesOpen,
+    embeddedTerminalEnabled,
     terminalOpen,
     chatSettingsOpen,
     onChooseWorkspace,
@@ -210,7 +212,7 @@ export function ChatHeader(props: Props) {
             </button>
           )}
           <WorkspaceOpenMenu workspacePath={workspacePath} />
-          {workspacePath.trim() && (
+          {embeddedTerminalEnabled && workspacePath.trim() && (
             <button
               className="btn btn-ghost btn-sm chat-header-action"
               type="button"

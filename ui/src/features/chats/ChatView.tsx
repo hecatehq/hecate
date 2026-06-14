@@ -119,6 +119,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     hecateRTKAvailable: runtime.state.hecateRTKAvailable,
     hecateRTKEnabled: runtime.state.hecateRTKEnabled,
     hecateRTKPath: runtime.state.hecateRTKPath,
+    embeddedTerminalEnabled: Boolean(runtime.state.sessionInfo?.capabilities?.embedded_terminal),
     loading: runtime.state.loading,
     message: runtime.state.message,
     model: chat.state.model,
@@ -418,7 +419,11 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const workspaceChangesPanelOpen =
     selectedChatReady && isAgentChat && workspaceChangesOpen && Boolean(activeWorkspacePath.trim());
   const terminalPanelOpen =
-    selectedChatReady && isAgentChat && terminalOpen && Boolean(activeWorkspacePath.trim());
+    selectedChatReady &&
+    isAgentChat &&
+    terminalOpen &&
+    state.embeddedTerminalEnabled &&
+    Boolean(activeWorkspacePath.trim());
   const chatSettingsPanelOpen = selectedChatReady && isAgentChat && chatSettingsOpen;
   const rightPanelOpen = chatSettingsPanelOpen || workspaceChangesPanelOpen;
   const rightPanelLabel = chatSettingsPanelOpen ? "Chat settings panel" : "Workspace changes panel";
@@ -858,6 +863,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
             workspacePath={activeWorkspacePath}
             workspaceDialogOpen={workspaceDialogOpen}
             workspaceChangesOpen={workspaceChangesOpen}
+            embeddedTerminalEnabled={state.embeddedTerminalEnabled}
             terminalOpen={terminalPanelOpen}
             chatSettingsOpen={chatSettingsOpen}
             onChooseWorkspace={() => void chooseWorkspace()}

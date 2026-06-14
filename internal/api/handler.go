@@ -595,7 +595,12 @@ func (h *Handler) HandleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleSession(w http.ResponseWriter, r *http.Request) {
-	item := SessionResponseItem{Role: "operator"}
+	item := SessionResponseItem{
+		Role: "operator",
+		Capabilities: SessionCapabilitiesItem{
+			EmbeddedTerminal: h.config.Server.UnsafeEnableEmbeddedTerminal,
+		},
+	}
 	if identity, ok := cloudruntime.FromContext(r.Context()); ok {
 		item.CloudIdentity = &CloudIdentityResponseItem{
 			ActorID:   identity.ActorID,
