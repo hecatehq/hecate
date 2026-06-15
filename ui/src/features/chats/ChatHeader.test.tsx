@@ -1,5 +1,4 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { ChatHeader } from "./ChatHeader";
@@ -19,12 +18,9 @@ function renderChatHeader(overrides: Partial<Parameters<typeof ChatHeader>[0]> =
     workspacePath: "/Users/alice/dev/hecate",
     workspaceDialogOpen: false,
     workspaceChangesOpen: false,
-    embeddedTerminalEnabled: true,
-    terminalOpen: false,
     chatSettingsOpen: false,
     onChooseWorkspace: vi.fn(),
     onToggleWorkspaceChanges: vi.fn(),
-    onToggleTerminal: vi.fn(),
     onToggleChatSettings: vi.fn(),
     activeChatSession: null,
     ...overrides,
@@ -36,28 +32,15 @@ function renderChatHeader(overrides: Partial<Parameters<typeof ChatHeader>[0]> =
 }
 
 describe("ChatHeader", () => {
-  it("shows the embedded terminal action only when a workspace is selected", () => {
+  it("keeps workspace actions in the chat header without owning the global terminal", () => {
     const { rerender, props } = renderChatHeader();
 
-    expect(screen.getByRole("button", { name: "Terminal" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Terminal" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Workspace changes" })).toBeTruthy();
 
     rerender(<ChatHeader {...props} workspacePath="" />);
 
     expect(screen.queryByRole("button", { name: "Terminal" })).toBeNull();
-  });
-
-  it("toggles the embedded terminal from the header action", async () => {
-    const onToggleTerminal = vi.fn();
-    renderChatHeader({ onToggleTerminal });
-
-    await userEvent.setup().click(screen.getByRole("button", { name: "Terminal" }));
-
-    expect(onToggleTerminal).toHaveBeenCalledTimes(1);
-  });
-
-  it("hides the embedded terminal action when the backend capability is disabled", () => {
-    renderChatHeader({ embeddedTerminalEnabled: false });
-
-    expect(screen.queryByRole("button", { name: "Terminal" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Workspace changes" })).toBeNull();
   });
 });

@@ -3812,9 +3812,10 @@ on the server machine.
 ### `POST /hecate/v1/terminal/sessions`
 
 Creates a short-lived, one-use terminal ticket for the embedded workspace
-terminal. The route uses the normal protected Hecate API path, accepts only
-loopback clients, rejects forwarded-client headers, canonicalizes `workspace`,
-and is blocked in cloud runtime mode.
+terminal. The route uses the normal protected Hecate API path, canonicalizes
+`workspace`, and uses the runtime working directory when `workspace` is empty.
+Local runtimes accept only loopback clients and reject forwarded-client headers.
+Hosted Cloud runtimes require the Cloud identity/runtime middleware.
 
 ```http
 POST /hecate/v1/terminal/sessions
@@ -3840,9 +3841,10 @@ Content-Type: application/json
 Opens an embedded PTY-backed terminal over WebSocket for a validated local
 workspace. Browsers cannot attach custom runtime-token headers to a WebSocket
 upgrade, so this route consumes the one-use ticket from
-`POST /hecate/v1/terminal/sessions` instead. It remains local-runtime-only:
-loopback clients only, no forwarded-client headers, canonicalized workspace,
-and blocked in cloud runtime mode.
+`POST /hecate/v1/terminal/sessions` instead. Local runtimes accept only
+loopback clients and reject forwarded-client headers. Hosted Cloud runtimes
+allow the WebSocket route to consume the protected one-use ticket without custom
+Cloud identity headers during the browser upgrade.
 
 ```text
 GET /hecate/v1/terminal?workspace=/Users/alice/project&token=...&cols=100&rows=30
@@ -3851,12 +3853,12 @@ Upgrade: websocket
 
 Query parameters:
 
-| Parameter   | Type   | Meaning                                              |
-| ----------- | ------ | ---------------------------------------------------- |
-| `workspace` | string | Required local directory where the shell starts.     |
-| `token`     | string | Required one-use ticket from `/terminal/sessions`.   |
-| `cols`      | int    | Optional initial terminal columns. Defaults to `80`. |
-| `rows`      | int    | Optional initial terminal rows. Defaults to `24`.    |
+| Parameter   | Type   | Meaning                                                                           |
+| ----------- | ------ | --------------------------------------------------------------------------------- |
+| `workspace` | string | Local directory where the shell starts. Empty uses the runtime working directory. |
+| `token`     | string | Required one-use ticket from `/terminal/sessions`.                                |
+| `cols`      | int    | Optional initial terminal columns. Defaults to `80`.                              |
+| `rows`      | int    | Optional initial terminal rows. Defaults to `24`.                                 |
 
 Client → server messages:
 

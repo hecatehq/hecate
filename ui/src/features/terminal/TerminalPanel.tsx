@@ -13,22 +13,17 @@ type TerminalMessage =
   | { type: "exit"; code?: number }
   | { type: "error"; message?: string };
 
-export function ChatTerminalPanel({
-  workspace,
-  onClose,
-}: {
-  workspace: string;
-  onClose: () => void;
-}) {
+export function TerminalPanel({ workspace, onClose }: { workspace: string; onClose: () => void }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const [status, setStatus] = useState<TerminalStatus>("connecting");
+  const [resolvedWorkspace, setResolvedWorkspace] = useState(workspace);
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container || !workspace.trim()) return;
+    if (!container) return;
 
     const terminal = new Terminal({
       cursorBlink: false,
@@ -70,6 +65,7 @@ export function ChatTerminalPanel({
     void createTerminalSession(workspace)
       .then((response) => {
         if (disposed) return;
+        setResolvedWorkspace(response.data.workspace);
         socket = new WebSocket(
           terminalWebSocketURL(
             response.data.workspace,
@@ -144,8 +140,8 @@ export function ChatTerminalPanel({
       style={{
         borderTop: "1px solid var(--border)",
         background: "color-mix(in srgb, var(--bg0) 94%, var(--bg2))",
-        flex: "0 0 clamp(220px, 34vh, 420px)",
-        minHeight: 220,
+        flex: "0 0 clamp(240px, 34vh, 430px)",
+        minHeight: 240,
         display: "flex",
         flexDirection: "column",
         padding: "10px 12px 12px",
@@ -176,7 +172,7 @@ export function ChatTerminalPanel({
         >
           <Icon d={Icons.terminal} size={14} />
           <strong
-            title={workspace}
+            title={resolvedWorkspace}
             style={{
               minWidth: 0,
               overflow: "hidden",
@@ -186,7 +182,7 @@ export function ChatTerminalPanel({
               color: "var(--t0)",
             }}
           >
-            {terminalTitle(workspace)}
+            {terminalTitle(resolvedWorkspace)}
           </strong>
         </div>
         <span

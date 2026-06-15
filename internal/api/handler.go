@@ -601,7 +601,7 @@ func (h *Handler) HandleSession(w http.ResponseWriter, r *http.Request) {
 	item := SessionResponseItem{
 		Role: "operator",
 		Capabilities: SessionCapabilitiesItem{
-			EmbeddedTerminal: !h.config.Server.CloudRuntimeMode,
+			EmbeddedTerminal: true,
 		},
 	}
 	if identity, ok := cloudruntime.FromContext(r.Context()); ok {

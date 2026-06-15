@@ -560,6 +560,8 @@ func TestCloudRuntimeIdentityMiddleware(t *testing.T) {
 	}{
 		{name: "disabled allows request", path: "/hecate/v1/whoami", want: http.StatusNoContent},
 		{name: "healthz bypasses cloud identity", path: "/healthz", want: http.StatusNoContent},
+		{name: "terminal websocket consumes ticket instead of cloud identity headers", path: "/hecate/v1/terminal?workspace=/tmp&token=ticket", want: http.StatusNoContent},
+		{name: "terminal websocket without ticket requires cloud identity", path: "/hecate/v1/terminal?workspace=/tmp", want: http.StatusUnauthorized},
 		{name: "enabled requires secret", path: "/hecate/v1/whoami", want: http.StatusUnauthorized},
 		{name: "enabled requires identity", path: "/hecate/v1/whoami", secret: secret, want: http.StatusUnauthorized},
 		{name: "enabled accepts complete identity", path: "/hecate/v1/whoami", secret: secret, setIdentity: true, want: http.StatusNoContent},
@@ -612,8 +614,8 @@ func TestCloudRuntimeLocalEndpointGuardMiddleware(t *testing.T) {
 		{name: "disabled allows local endpoint", method: http.MethodPost, path: "/hecate/v1/system/shutdown", want: http.StatusNoContent},
 		{name: "blocks workspace dialog", enabled: true, method: http.MethodPost, path: "/hecate/v1/workspace-dialog", want: http.StatusForbidden},
 		{name: "blocks workspace open", enabled: true, method: http.MethodPost, path: "/hecate/v1/workspace-open", want: http.StatusForbidden},
-		{name: "blocks terminal session tickets", enabled: true, method: http.MethodPost, path: "/hecate/v1/terminal/sessions", want: http.StatusForbidden},
-		{name: "blocks terminal", enabled: true, method: http.MethodGet, path: "/hecate/v1/terminal?workspace=/tmp", want: http.StatusForbidden},
+		{name: "allows terminal session tickets", enabled: true, method: http.MethodPost, path: "/hecate/v1/terminal/sessions", want: http.StatusNoContent},
+		{name: "allows terminal websocket tickets", enabled: true, method: http.MethodGet, path: "/hecate/v1/terminal?workspace=/tmp", want: http.StatusNoContent},
 		{name: "blocks reset data", enabled: true, method: http.MethodPost, path: "/hecate/v1/system/reset-data", want: http.StatusForbidden},
 		{name: "blocks shutdown", enabled: true, method: http.MethodPost, path: "/hecate/v1/system/shutdown", want: http.StatusForbidden},
 		{name: "blocks mcp probe", enabled: true, method: http.MethodPost, path: "/hecate/v1/mcp/probe", want: http.StatusForbidden},
@@ -733,8 +735,8 @@ func TestSessionAdvertisesEmbeddedTerminalCapability(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("cloud status = %d, want %d", rec.Code, http.StatusOK)
 	}
-	if strings.Contains(rec.Body.String(), `"embedded_terminal":true`) {
-		t.Fatalf("cloud whoami body = %s, want terminal hidden in cloud runtime", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), `"embedded_terminal":true`) {
+		t.Fatalf("cloud whoami body = %s, want embedded terminal capability", rec.Body.String())
 	}
 }
 

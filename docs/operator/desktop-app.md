@@ -73,13 +73,13 @@ What works:
   desktop app it launches common local editors, Finder/folder, or a terminal via
   Tauri commands; in the browser UI the local gateway handles the same action
   for loopback clients.
-- Chats with a workspace show a terminal button in the header. It opens a
-  PTY-backed shell in a bottom drawer for the selected workspace: `$SHELL` on
-  macOS/Linux, then PowerShell/cmd fallbacks on Windows. The UI mints a
-  short-lived, one-use terminal ticket through the protected local API before
-  opening the WebSocket. The terminal is for operator convenience and runs as
-  the same local OS user; it is not a Hecate task sandbox and does not add extra
-  process isolation.
+- The top-right terminal button opens a PTY-backed shell in a bottom drawer:
+  `$SHELL` on macOS/Linux, then PowerShell/cmd fallbacks on Windows. When a chat
+  workspace is active, the shell starts there; otherwise it starts in the
+  runtime working directory. The UI mints a short-lived, one-use terminal ticket
+  through the protected API before opening the WebSocket. The terminal is for
+  operator convenience and runs as the same local OS user; it is not a Hecate
+  task sandbox and does not add extra process isolation.
 - Startup splash fonts are vendored for offline startup; their OFL license
   texts live next to the font files under `tauri/splash/fonts/`.
 - Window size and position persistence across launches.

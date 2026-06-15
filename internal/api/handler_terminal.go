@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -58,7 +60,7 @@ type terminalSessionData struct {
 func (h *Handler) HandleCreateTerminalSession(w http.ResponseWriter, r *http.Request) {
 	// The embedded terminal is an operator-only UI surface. Agents must use
 	// governed task/runtime tools instead of receiving or reusing these tickets.
-	if !requireLoopbackClient(w, r, "embedded terminal") {
+	if !h.requireTerminalOperatorAccess(w, r) {
 		return
 	}
 	var req createTerminalSessionRequest
@@ -88,7 +90,7 @@ func (h *Handler) HandleCreateTerminalSession(w http.ResponseWriter, r *http.Req
 }
 
 func (h *Handler) HandleTerminal(w http.ResponseWriter, r *http.Request) {
-	if !requireLoopbackClient(w, r, "embedded terminal") {
+	if !h.requireTerminalOperatorAccess(w, r) {
 		return
 	}
 	workspace, err := validateTerminalWorkspace(r.URL.Query().Get("workspace"))
@@ -104,14 +106,11 @@ func (h *Handler) HandleTerminal(w http.ResponseWriter, r *http.Request) {
 	rows := positiveQueryInt(r, "rows", 24)
 
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		// The desktop gateway, Vite dev UI, and local browser UI can run on
-		// different loopback ports. The terminal is still gated by the
-		// loopback socket check above and rejects forwarded-client headers.
-		OriginPatterns: []string{
-			"localhost:*",
-			"127.0.0.1:*",
-			"[::1]:*",
-		},
+		// The protected POST /terminal/sessions route mints a short-lived,
+		// one-use ticket. The WebSocket upgrade consumes that ticket and still
+		// enforces browser Origin checks, including the configured cloud UI
+		// origins when Hecate runs hosted.
+		OriginPatterns: h.terminalOriginPatterns(r),
 	})
 	if err != nil {
 		return
@@ -136,6 +135,13 @@ func (h *Handler) HandleTerminal(w http.ResponseWriter, r *http.Request) {
 	defer session.Close()
 
 	h.bridgeTerminal(ctx, conn, session)
+}
+
+func (h *Handler) requireTerminalOperatorAccess(w http.ResponseWriter, r *http.Request) bool {
+	if h.config.Server.CloudRuntimeMode {
+		return true
+	}
+	return requireLoopbackClient(w, r, "embedded terminal")
 }
 
 func newTerminalTicketToken() (string, error) {
@@ -176,9 +182,44 @@ func (h *Handler) consumeTerminalTicket(token, workspace string, now time.Time) 
 func validateTerminalWorkspace(path string) (string, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
-		return "", errors.New("workspace path is required")
+		cwd, err := os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("resolve default workspace: %w", err)
+		}
+		path = cwd
 	}
 	return canonicalWorkspaceDialogPath(path)
+}
+
+func (h *Handler) terminalOriginPatterns(r *http.Request) []string {
+	seen := make(map[string]struct{})
+	patterns := make([]string, 0, 4+len(h.config.Server.AllowedOrigins))
+	add := func(pattern string) {
+		pattern = strings.TrimSpace(pattern)
+		if pattern == "" {
+			return
+		}
+		key := strings.ToLower(pattern)
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		patterns = append(patterns, pattern)
+	}
+
+	// Local desktop/Vite/browser surfaces can run on different loopback ports.
+	add("localhost:*")
+	add("127.0.0.1:*")
+	add("[::1]:*")
+	add(r.Host)
+	for _, origin := range h.config.Server.AllowedOrigins {
+		parsed, err := url.Parse(strings.TrimSpace(origin))
+		if err != nil || parsed.Host == "" {
+			continue
+		}
+		add(parsed.Host)
+	}
+	return patterns
 }
 
 func positiveQueryInt(r *http.Request, key string, fallback int) int {
