@@ -3815,7 +3815,7 @@ Creates a short-lived, one-use terminal ticket for the embedded workspace
 terminal. The route uses the normal protected Hecate API path, canonicalizes
 `workspace`, and uses the runtime working directory when `workspace` is empty.
 Local runtimes accept only loopback clients and reject forwarded-client headers.
-Hosted Cloud runtimes require the Cloud identity/runtime middleware.
+Hosted runtimes require runtime identity middleware.
 
 ```http
 POST /hecate/v1/terminal/sessions
@@ -3842,9 +3842,9 @@ Opens an embedded PTY-backed terminal over WebSocket for a validated local
 workspace. Browsers cannot attach custom runtime-token headers to a WebSocket
 upgrade, so this route consumes the one-use ticket from
 `POST /hecate/v1/terminal/sessions` instead. Local runtimes accept only
-loopback clients and reject forwarded-client headers. Hosted Cloud runtimes
+loopback clients and reject forwarded-client headers. Hosted runtimes
 allow the WebSocket route to consume the protected one-use ticket without custom
-Cloud identity headers during the browser upgrade.
+runtime identity headers during the browser upgrade.
 
 ```text
 GET /hecate/v1/terminal?workspace=/Users/alice/project&token=...&cols=100&rows=30

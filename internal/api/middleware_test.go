@@ -560,8 +560,8 @@ func TestCloudRuntimeIdentityMiddleware(t *testing.T) {
 	}{
 		{name: "disabled allows request", path: "/hecate/v1/whoami", want: http.StatusNoContent},
 		{name: "healthz bypasses cloud identity", path: "/healthz", want: http.StatusNoContent},
-		{name: "terminal websocket consumes ticket instead of cloud identity headers", path: "/hecate/v1/terminal?workspace=/tmp&token=ticket", want: http.StatusNoContent},
-		{name: "terminal websocket without ticket requires cloud identity", path: "/hecate/v1/terminal?workspace=/tmp", want: http.StatusUnauthorized},
+		{name: "terminal websocket consumes ticket instead of runtime identity headers", path: "/hecate/v1/terminal?workspace=/tmp&token=ticket", want: http.StatusNoContent},
+		{name: "terminal websocket without ticket requires runtime identity", path: "/hecate/v1/terminal?workspace=/tmp", want: http.StatusUnauthorized},
 		{name: "enabled requires secret", path: "/hecate/v1/whoami", want: http.StatusUnauthorized},
 		{name: "enabled requires identity", path: "/hecate/v1/whoami", secret: secret, want: http.StatusUnauthorized},
 		{name: "enabled accepts complete identity", path: "/hecate/v1/whoami", secret: secret, setIdentity: true, want: http.StatusNoContent},
