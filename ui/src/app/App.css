@@ -2,8 +2,8 @@
 
 .hecate-shell {
   position: relative;
-  display: grid;
-  grid-template-rows: 1fr 24px;
+  display: flex;
+  flex-direction: column;
   height: 100vh;
   overflow: hidden;
   background: var(--bg0);
@@ -63,6 +63,42 @@ html[data-tauri-os="macos"] .hecate-shell {
   grid-template-columns: 48px 1fr;
   overflow: hidden;
   min-height: 0;
+  flex: 1;
+}
+
+.hecate-shell-terminal {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 1100;
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--bg1) 92%, transparent);
+  color: var(--t2);
+  box-shadow:
+    0 10px 30px color-mix(in srgb, black 24%, transparent),
+    0 1px 0 color-mix(in srgb, var(--t0) 7%, transparent) inset;
+  cursor: pointer;
+}
+
+.hecate-shell-terminal:hover {
+  color: var(--t0);
+  background: var(--bg2);
+}
+
+.hecate-shell-terminal--active {
+  color: var(--teal);
+  background: var(--teal-bg);
+  border-color: var(--teal-border);
+}
+
+html[data-tauri-os="macos"] .hecate-shell-terminal {
+  top: 34px;
 }
 
 /* Activity bar */

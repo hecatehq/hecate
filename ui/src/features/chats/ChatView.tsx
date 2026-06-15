@@ -44,7 +44,6 @@ import { ChatHeader } from "./ChatHeader";
 import { ChatRightPanel } from "./ChatRightPanel";
 import { ChatSettingsPanel } from "./ChatSettingsPanel";
 import { ChatSidebar, sidebarSessionAgentLabel, sidebarSessionBrand } from "./ChatSidebar";
-import { ChatTerminalPanel } from "./ChatTerminalPanel";
 import {
   ChatTranscript,
   buildTranscriptItems,
@@ -119,7 +118,6 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     hecateRTKAvailable: runtime.state.hecateRTKAvailable,
     hecateRTKEnabled: runtime.state.hecateRTKEnabled,
     hecateRTKPath: runtime.state.hecateRTKPath,
-    embeddedTerminalEnabled: Boolean(runtime.state.sessionInfo?.capabilities?.embedded_terminal),
     loading: runtime.state.loading,
     message: runtime.state.message,
     model: chat.state.model,
@@ -167,7 +165,6 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const workspaceDialogOpenRef = useRef(false);
   const [chatSettingsOpen, setChatSettingsOpen] = useState(false);
   const [workspaceChangesOpen, setWorkspaceChangesOpen] = useState(false);
-  const [terminalOpen, setTerminalOpen] = useState(false);
   const [workspaceRefreshSignal, setWorkspaceRefreshSignal] = useState(0);
   const [rightPanelWidth, setRightPanelWidth] = useState(() => readStoredRightPanelWidth());
   const [draftChatStarted, setDraftChatStarted] = useState(false);
@@ -418,12 +415,6 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const linkedProjectName = activeSessionProject?.name?.trim() || activeSessionProjectID;
   const workspaceChangesPanelOpen =
     selectedChatReady && isAgentChat && workspaceChangesOpen && Boolean(activeWorkspacePath.trim());
-  const terminalPanelOpen =
-    selectedChatReady &&
-    isAgentChat &&
-    terminalOpen &&
-    state.embeddedTerminalEnabled &&
-    Boolean(activeWorkspacePath.trim());
   const chatSettingsPanelOpen = selectedChatReady && isAgentChat && chatSettingsOpen;
   const rightPanelOpen = chatSettingsPanelOpen || workspaceChangesPanelOpen;
   const rightPanelLabel = chatSettingsPanelOpen ? "Chat settings panel" : "Workspace changes panel";
@@ -863,15 +854,12 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
             workspacePath={activeWorkspacePath}
             workspaceDialogOpen={workspaceDialogOpen}
             workspaceChangesOpen={workspaceChangesOpen}
-            embeddedTerminalEnabled={state.embeddedTerminalEnabled}
-            terminalOpen={terminalPanelOpen}
             chatSettingsOpen={chatSettingsOpen}
             onChooseWorkspace={() => void chooseWorkspace()}
             onToggleWorkspaceChanges={() => {
               setChatSettingsOpen(false);
               setWorkspaceChangesOpen((open) => !open);
             }}
-            onToggleTerminal={() => setTerminalOpen((open) => !open)}
             onToggleChatSettings={() => {
               setWorkspaceChangesOpen(false);
               setChatSettingsOpen((open) => !open);
@@ -1073,13 +1061,6 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
                 onOpenLinkedProject={
                   activeSessionProjectID && onNavigate ? () => openLinkedProject() : undefined
                 }
-              />
-            )}
-
-            {terminalPanelOpen && (
-              <ChatTerminalPanel
-                workspace={activeWorkspacePath}
-                onClose={() => setTerminalOpen(false)}
               />
             )}
           </div>

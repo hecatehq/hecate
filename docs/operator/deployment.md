@@ -141,11 +141,12 @@ The runtime stage defaults to `node:24-trixie-slim` through the `NODE_IMAGE`
 build arg so the image has a maintained Debian userspace for shell, npm, and
 project dependency workflows.
 
-The embedded workspace terminal can launch inside this image because `/bin/sh`,
-`bash`, and a PTY-capable userspace are present. The terminal endpoint remains a
-local-only operator endpoint in Hecate core: hosted Cloud terminal access should
-be exposed through a Cloud-authorized, audited control path rather than by
-forwarding the local-only route directly.
+The embedded terminal can launch inside this image because `/bin/sh`, `bash`,
+and a PTY-capable userspace are present. Local runtimes accept terminal tickets
+only from loopback clients. Hosted Cloud runtimes expose the same operator
+terminal through the Cloud-authorized ticket-mint route; the WebSocket consumes
+that short-lived ticket because browsers cannot attach the Cloud identity
+headers during upgrade.
 
 The bundled External Agent CLIs are pinned by Docker build args so a Hecate
 release does not silently move to a newer top-level agent package. The Cursor

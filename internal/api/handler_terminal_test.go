@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -60,7 +61,7 @@ func TestTerminalRejectsInvalidWorkspaceBeforeUpgrade(t *testing.T) {
 	t.Parallel()
 
 	handler := newTestHTTPHandler(slog.New(slog.NewJSONHandler(io.Discard, nil)), &fakeProvider{name: "openai"})
-	req := httptest.NewRequest(http.MethodGet, "/hecate/v1/terminal", nil)
+	req := httptest.NewRequest(http.MethodGet, "/hecate/v1/terminal?workspace=%00", nil)
 	req.RemoteAddr = "127.0.0.1:4321"
 	recorder := httptest.NewRecorder()
 
@@ -68,6 +69,51 @@ func TestTerminalRejectsInvalidWorkspaceBeforeUpgrade(t *testing.T) {
 
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d, body=%s", recorder.Code, http.StatusBadRequest, recorder.Body.String())
+	}
+}
+
+func TestCreateTerminalSessionDefaultsToRuntimeWorkspace(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{name: "openai"}}, config.Config{}, nil)
+	server := httptest.NewServer(NewServer(logger, apiHandler))
+	t.Cleanup(server.Close)
+
+	session := createTerminalSessionForTest(t, server, "")
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get cwd: %v", err)
+	}
+	wantWorkspace, err := filepath.EvalSymlinks(cwd)
+	if err != nil {
+		t.Fatalf("canonicalize cwd: %v", err)
+	}
+	if session.Data.Workspace != wantWorkspace {
+		t.Fatalf("workspace = %q, want runtime cwd %q", session.Data.Workspace, wantWorkspace)
+	}
+}
+
+func TestCreateTerminalSessionAllowsCloudRuntimeClient(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	apiHandler := newTestAPIHandlerWithSettings(slog.New(slog.NewJSONHandler(io.Discard, nil)), []providers.Provider{&fakeProvider{name: "openai"}}, config.Config{
+		Server: config.ServerConfig{CloudRuntimeMode: true},
+	}, nil)
+	body, err := json.Marshal(createTerminalSessionRequest{Workspace: workspace})
+	if err != nil {
+		t.Fatalf("marshal terminal session request: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/hecate/v1/terminal/sessions", bytes.NewReader(body))
+	req.RemoteAddr = "203.0.113.12:4321"
+	req.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	apiHandler.HandleCreateTerminalSession(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
 	}
 }
 
