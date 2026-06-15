@@ -58,6 +58,9 @@ type terminalSessionData struct {
 }
 
 func (h *Handler) HandleCreateTerminalSession(w http.ResponseWriter, r *http.Request) {
+	if !h.requireTerminalEnabled(w) {
+		return
+	}
 	// The embedded terminal is an operator-only UI surface. Agents must use
 	// governed task/runtime tools instead of receiving or reusing these tickets.
 	if !h.requireTerminalOperatorAccess(w, r) {
@@ -90,6 +93,9 @@ func (h *Handler) HandleCreateTerminalSession(w http.ResponseWriter, r *http.Req
 }
 
 func (h *Handler) HandleTerminal(w http.ResponseWriter, r *http.Request) {
+	if !h.requireTerminalEnabled(w) {
+		return
+	}
 	if !h.requireTerminalOperatorAccess(w, r) {
 		return
 	}
@@ -137,6 +143,14 @@ func (h *Handler) HandleTerminal(w http.ResponseWriter, r *http.Request) {
 	h.bridgeTerminal(ctx, conn, session)
 }
 
+func (h *Handler) requireTerminalEnabled(w http.ResponseWriter) bool {
+	if h.config.EmbeddedTerminalEnabled() {
+		return true
+	}
+	WriteError(w, http.StatusNotFound, errCodeNotFound, "embedded terminal is disabled")
+	return false
+}
+
 func (h *Handler) requireTerminalOperatorAccess(w http.ResponseWriter, r *http.Request) bool {
 	if h.config.Server.CloudRuntimeMode {
 		return true
@@ -158,6 +172,7 @@ func (h *Handler) storeTerminalTicket(token string, ticket terminalTicket) {
 	if h.terminalTickets == nil {
 		h.terminalTickets = make(map[string]terminalTicket)
 	}
+	h.pruneExpiredTerminalTicketsLocked(time.Now().UTC())
 	h.terminalTickets[token] = ticket
 }
 
@@ -168,6 +183,7 @@ func (h *Handler) consumeTerminalTicket(token, workspace string, now time.Time) 
 	}
 	h.terminalTicketsMu.Lock()
 	defer h.terminalTicketsMu.Unlock()
+	h.pruneExpiredTerminalTicketsLocked(now)
 	ticket, ok := h.terminalTickets[token]
 	delete(h.terminalTickets, token)
 	if !ok || now.After(ticket.ExpiresAt) {
@@ -177,6 +193,14 @@ func (h *Handler) consumeTerminalTicket(token, workspace string, now time.Time) 
 		return errors.New("terminal session token does not match workspace")
 	}
 	return nil
+}
+
+func (h *Handler) pruneExpiredTerminalTicketsLocked(now time.Time) {
+	for token, ticket := range h.terminalTickets {
+		if !ticket.ExpiresAt.After(now) {
+			delete(h.terminalTickets, token)
+		}
+	}
 }
 
 func validateTerminalWorkspace(path string) (string, error) {

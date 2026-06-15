@@ -740,6 +740,25 @@ func TestSessionAdvertisesEmbeddedTerminalCapability(t *testing.T) {
 	}
 }
 
+func TestSessionOmitsEmbeddedTerminalCapabilityWhenDisabled(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	handler := NewServer(logger, NewHandler(config.Config{
+		Server: config.ServerConfig{EmbeddedTerminalDisabled: true},
+	}, logger, nil, nil, nil, nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/hecate/v1/whoami", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if strings.Contains(rec.Body.String(), `"embedded_terminal":true`) {
+		t.Fatalf("whoami body = %s, want terminal capability omitted", rec.Body.String())
+	}
+}
+
 func TestNewServerWiresRuntimeTokenMiddleware(t *testing.T) {
 	token := "local-runtime-token-123456"
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
