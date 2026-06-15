@@ -3815,7 +3815,9 @@ Creates a short-lived, one-use terminal ticket for the embedded workspace
 terminal. The route uses the normal protected Hecate API path, canonicalizes
 `workspace`, and uses the runtime working directory when `workspace` is empty.
 Local runtimes accept only loopback clients and reject forwarded-client headers.
-Hosted runtimes require runtime identity middleware.
+Hosted runtimes require runtime identity middleware. When
+`HECATE_EMBEDDED_TERMINAL=false`, this route returns `404` and `/whoami` omits
+the `embedded_terminal` capability.
 
 ```http
 POST /hecate/v1/terminal/sessions
@@ -3844,7 +3846,8 @@ upgrade, so this route consumes the one-use ticket from
 `POST /hecate/v1/terminal/sessions` instead. Local runtimes accept only
 loopback clients and reject forwarded-client headers. Hosted runtimes
 allow the WebSocket route to consume the protected one-use ticket without custom
-runtime identity headers during the browser upgrade.
+runtime identity headers during the browser upgrade. When
+`HECATE_EMBEDDED_TERMINAL=false`, this route returns `404`.
 
 ```text
 GET /hecate/v1/terminal?workspace=/Users/alice/project&token=...&cols=100&rows=30
@@ -3879,9 +3882,12 @@ Server → client messages:
 The terminal starts the host shell as the same local OS user (`$SHELL` on
 macOS/Linux, PowerShell/cmd fallbacks on Windows). It is operator-controlled
 convenience UI, not a task-runtime sandbox: commands run directly in the
-workspace and are not approval-gated by Hecate. It is not exposed in cloud
-runtime mode. Agents must not receive or reuse terminal session tickets; agent
-command execution belongs in governed task-runtime tools instead.
+workspace and are not approval-gated by Hecate. Hosted runtimes can expose the
+same terminal through the protected ticket-mint route; if a deployment requires
+every command to pass through governed task-runtime tools, set
+`HECATE_EMBEDDED_TERMINAL=false`. Agents must not receive or reuse terminal
+session tickets; agent command execution belongs in governed task-runtime tools
+instead.
 
 ## Rate-limit headers on chat / messages
 

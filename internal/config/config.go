@@ -38,6 +38,7 @@ type ServerConfig struct {
 	AllowedOrigins             []string
 	RuntimeToken               string
 	InferenceToken             string
+	EmbeddedTerminalDisabled   bool
 	CloudRuntimeMode           bool
 	CloudRuntimeSecret         string
 	CloudAllowLocalProviders   bool
@@ -188,6 +189,10 @@ type RateLimitConfig struct {
 
 func (c Config) LocalProvidersAllowed() bool {
 	return !c.Server.CloudRuntimeMode || c.Server.CloudAllowLocalProviders
+}
+
+func (c Config) EmbeddedTerminalEnabled() bool {
+	return !c.Server.EmbeddedTerminalDisabled
 }
 
 type RouterConfig struct {
@@ -374,13 +379,14 @@ func LoadFromEnv() Config {
 	}
 	return Config{
 		Server: ServerConfig{
-			Address:              getEnv("HECATE_ADDRESS", "127.0.0.1:8765"),
-			AllowNonLoopbackBind: getEnvBool("HECATE_ALLOW_NON_LOOPBACK_BIND", false),
-			AllowedOrigins:       splitCSV(getEnv("HECATE_ALLOWED_ORIGINS", "")),
-			RuntimeToken:         getEnv("HECATE_RUNTIME_TOKEN", ""),
-			InferenceToken:       getEnv("HECATE_INFERENCE_TOKEN", ""),
-			CloudRuntimeMode:     cloudRuntimeMode,
-			CloudRuntimeSecret:   getEnv("HECATE_CLOUD_RUNTIME_SECRET", ""),
+			Address:                  getEnv("HECATE_ADDRESS", "127.0.0.1:8765"),
+			AllowNonLoopbackBind:     getEnvBool("HECATE_ALLOW_NON_LOOPBACK_BIND", false),
+			AllowedOrigins:           splitCSV(getEnv("HECATE_ALLOWED_ORIGINS", "")),
+			RuntimeToken:             getEnv("HECATE_RUNTIME_TOKEN", ""),
+			InferenceToken:           getEnv("HECATE_INFERENCE_TOKEN", ""),
+			EmbeddedTerminalDisabled: !getEnvBool("HECATE_EMBEDDED_TERMINAL", true),
+			CloudRuntimeMode:         cloudRuntimeMode,
+			CloudRuntimeSecret:       getEnv("HECATE_CLOUD_RUNTIME_SECRET", ""),
 			// Hosted runtimes deny local model servers by default. Operators
 			// running an isolated sidecar can opt in explicitly.
 			CloudAllowLocalProviders: cloudAllowLocalProviders,

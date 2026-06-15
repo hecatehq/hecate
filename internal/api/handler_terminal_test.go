@@ -72,6 +72,51 @@ func TestTerminalRejectsInvalidWorkspaceBeforeUpgrade(t *testing.T) {
 	}
 }
 
+func TestTerminalDisabledReturnsNotFound(t *testing.T) {
+	t.Parallel()
+
+	apiHandler := newTestAPIHandlerWithSettings(slog.New(slog.NewJSONHandler(io.Discard, nil)), []providers.Provider{&fakeProvider{name: "openai"}}, config.Config{
+		Server: config.ServerConfig{EmbeddedTerminalDisabled: true},
+	}, nil)
+	req := httptest.NewRequest(http.MethodGet, "/hecate/v1/terminal?workspace=/tmp", nil)
+	req.RemoteAddr = "127.0.0.1:4321"
+	recorder := httptest.NewRecorder()
+
+	apiHandler.HandleTerminal(recorder, req)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d, body=%s", recorder.Code, http.StatusNotFound, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "embedded terminal is disabled") {
+		t.Fatalf("body = %q, want disabled terminal message", recorder.Body.String())
+	}
+}
+
+func TestCreateTerminalSessionDisabledReturnsNotFound(t *testing.T) {
+	t.Parallel()
+
+	apiHandler := newTestAPIHandlerWithSettings(slog.New(slog.NewJSONHandler(io.Discard, nil)), []providers.Provider{&fakeProvider{name: "openai"}}, config.Config{
+		Server: config.ServerConfig{EmbeddedTerminalDisabled: true},
+	}, nil)
+	body, err := json.Marshal(createTerminalSessionRequest{Workspace: t.TempDir()})
+	if err != nil {
+		t.Fatalf("marshal terminal session request: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/hecate/v1/terminal/sessions", bytes.NewReader(body))
+	req.RemoteAddr = "127.0.0.1:4321"
+	req.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	apiHandler.HandleCreateTerminalSession(recorder, req)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d, body=%s", recorder.Code, http.StatusNotFound, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "embedded terminal is disabled") {
+		t.Fatalf("body = %q, want disabled terminal message", recorder.Body.String())
+	}
+}
+
 func TestCreateTerminalSessionDefaultsToRuntimeWorkspace(t *testing.T) {
 	t.Parallel()
 
@@ -91,6 +136,37 @@ func TestCreateTerminalSessionDefaultsToRuntimeWorkspace(t *testing.T) {
 	}
 	if session.Data.Workspace != wantWorkspace {
 		t.Fatalf("workspace = %q, want runtime cwd %q", session.Data.Workspace, wantWorkspace)
+	}
+}
+
+func TestCreateTerminalSessionRejectsCrossOriginBrowserRequest(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{name: "openai"}}, config.Config{}, nil)
+	server := httptest.NewServer(NewServer(logger, apiHandler))
+	t.Cleanup(server.Close)
+
+	body, err := json.Marshal(createTerminalSessionRequest{Workspace: t.TempDir()})
+	if err != nil {
+		t.Fatalf("marshal terminal session request: %v", err)
+	}
+	req, err := http.NewRequest(http.MethodPost, server.URL+"/hecate/v1/terminal/sessions", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("create terminal session request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "http://example.invalid")
+
+	resp, err := server.Client().Do(req)
+	if err != nil {
+		t.Fatalf("create terminal session: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		payload, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want %d, body=%s", resp.StatusCode, http.StatusForbidden, payload)
 	}
 }
 
@@ -267,6 +343,30 @@ func TestTerminalTicketIsWorkspaceBoundAndOneUse(t *testing.T) {
 	}
 	if err := handler.consumeTerminalTicket("one-use", canonicalWorkspace, time.Now().UTC()); err == nil {
 		t.Fatal("second terminal ticket consume returned nil error")
+	}
+}
+
+func TestTerminalTicketStorePrunesExpiredTickets(t *testing.T) {
+	t.Parallel()
+
+	handler := newTestAPIHandlerWithSettings(slog.New(slog.NewJSONHandler(io.Discard, nil)), []providers.Provider{&fakeProvider{name: "openai"}}, config.Config{}, nil)
+	now := time.Now().UTC()
+	handler.storeTerminalTicket("expired", terminalTicket{
+		Workspace: t.TempDir(),
+		ExpiresAt: now.Add(-time.Minute),
+	})
+	handler.storeTerminalTicket("fresh", terminalTicket{
+		Workspace: t.TempDir(),
+		ExpiresAt: now.Add(time.Minute),
+	})
+
+	handler.terminalTicketsMu.Lock()
+	defer handler.terminalTicketsMu.Unlock()
+	if _, ok := handler.terminalTickets["expired"]; ok {
+		t.Fatal("expired terminal ticket was not pruned")
+	}
+	if _, ok := handler.terminalTickets["fresh"]; !ok {
+		t.Fatal("fresh terminal ticket was pruned")
 	}
 }
 

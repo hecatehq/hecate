@@ -148,6 +148,22 @@ func TestLoadFromEnvInferenceToken(t *testing.T) {
 	}
 }
 
+func TestLoadFromEnvEmbeddedTerminalDefaultsEnabled(t *testing.T) {
+	cfg := LoadFromEnv()
+	if !cfg.EmbeddedTerminalEnabled() {
+		t.Fatal("EmbeddedTerminalEnabled() = false, want enabled by default")
+	}
+}
+
+func TestLoadFromEnvEmbeddedTerminalCanBeDisabled(t *testing.T) {
+	t.Setenv("HECATE_EMBEDDED_TERMINAL", "false")
+
+	cfg := LoadFromEnv()
+	if cfg.EmbeddedTerminalEnabled() {
+		t.Fatal("EmbeddedTerminalEnabled() = true for HECATE_EMBEDDED_TERMINAL=false, want disabled")
+	}
+}
+
 func TestLoadFromEnvCloudRuntimeMode(t *testing.T) {
 	t.Setenv("HECATE_CLOUD_RUNTIME_MODE", "true")
 	t.Setenv("HECATE_CLOUD_RUNTIME_SECRET", "cloud-runtime-secret-123456")
