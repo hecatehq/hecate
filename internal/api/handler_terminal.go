@@ -108,8 +108,8 @@ func (h *Handler) HandleTerminal(w http.ResponseWriter, r *http.Request) {
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		// The protected POST /terminal/sessions route mints a short-lived,
 		// one-use ticket. The WebSocket upgrade consumes that ticket and still
-		// enforces browser Origin checks, including the configured cloud UI
-		// origins when Hecate runs hosted.
+		// enforces browser Origin checks, including configured UI origins when
+		// Hecate runs hosted.
 		OriginPatterns: h.terminalOriginPatterns(r),
 	})
 	if err != nil {

@@ -143,10 +143,10 @@ project dependency workflows.
 
 The embedded terminal can launch inside this image because `/bin/sh`, `bash`,
 and a PTY-capable userspace are present. Local runtimes accept terminal tickets
-only from loopback clients. Hosted Cloud runtimes expose the same operator
-terminal through the Cloud-authorized ticket-mint route; the WebSocket consumes
-that short-lived ticket because browsers cannot attach the Cloud identity
-headers during upgrade.
+only from loopback clients. Hosted runtimes expose the same operator terminal
+through the protected ticket-mint route; the WebSocket consumes that short-lived
+ticket because browsers cannot attach the runtime identity headers during
+upgrade.
 
 The bundled External Agent CLIs are pinned by Docker build args so a Hecate
 release does not silently move to a newer top-level agent package. The Cursor
