@@ -92,6 +92,18 @@ func TestTerminalDisabledReturnsNotFound(t *testing.T) {
 	}
 }
 
+func TestTerminalStartErrorMessageExplainsDeviceNotConfigured(t *testing.T) {
+	t.Parallel()
+
+	got := terminalStartErrorMessage(errors.New("device not configured"))
+	if !strings.Contains(got, "could not allocate a pseudo-terminal") {
+		t.Fatalf("message = %q, want PTY allocation guidance", got)
+	}
+	if !strings.Contains(got, "device not configured") {
+		t.Fatalf("message = %q, want original device error", got)
+	}
+}
+
 func TestCreateTerminalSessionDisabledReturnsNotFound(t *testing.T) {
 	t.Parallel()
 

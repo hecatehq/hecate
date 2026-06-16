@@ -22,8 +22,9 @@ type SessionManager struct {
 	// acpChatClient created from this manager. Optional — nil is
 	// safe (every Record* method is nil-tolerant) and matches the
 	// pre-existing constructor surface that older tests rely on.
-	metrics *telemetry.AgentAdapterMetrics
-	closed  bool
+	metrics             *telemetry.AgentAdapterMetrics
+	onAvailableCommands func(AvailableCommandsUpdate)
+	closed              bool
 }
 
 func NewSessionManager() *SessionManager {
@@ -61,6 +62,12 @@ func (m *SessionManager) SetAdapterMetrics(metrics *telemetry.AgentAdapterMetric
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.metrics = metrics
+}
+
+func (m *SessionManager) SetAvailableCommandsUpdateHook(hook func(AvailableCommandsUpdate)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.onAvailableCommands = hook
 }
 
 // shutdownCancelHook is invoked once per adapter id torn down via
@@ -219,9 +226,10 @@ func (m *SessionManager) session(ctx context.Context, adapter Adapter, req RunRe
 		logger := m.logger
 		coordinator := m.coordinator
 		metrics := m.metrics
+		onAvailableCommands := m.onAvailableCommands
 		m.mu.Unlock()
 
-		started, resumed, recovery, err := startACPSession(startCtx, adapter, req.SessionID, req.Workspace, req.PreviousNativeSessionID, req.ConfigOptions, logger, coordinator, metrics)
+		started, resumed, recovery, err := startACPSession(startCtx, adapter, req.SessionID, req.Workspace, req.PreviousNativeSessionID, req.ConfigOptions, logger, coordinator, metrics, onAvailableCommands)
 		startCancel()
 
 		var previous *acpSession

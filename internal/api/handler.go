@@ -339,6 +339,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		terminalLauncher:    terminal.NewPTYLauncher(logger),
 		terminalTickets:     make(map[string]terminalTicket),
 	}
+	h.wireAgentChatRunnerHooks(agentChatRunner)
 	runner.SetProjectAssistantDraftTool(h)
 	h.startAgentChatIdleSweeper()
 	return h
@@ -473,6 +474,15 @@ func (h *Handler) SetAgentChatRunner(runner agentadapters.Runner) {
 		return
 	}
 	h.agentChatRunner = runner
+	h.wireAgentChatRunnerHooks(runner)
+}
+
+func (h *Handler) wireAgentChatRunnerHooks(runner agentadapters.Runner) {
+	mgr, ok := runner.(*agentadapters.SessionManager)
+	if !ok {
+		return
+	}
+	mgr.SetAvailableCommandsUpdateHook(h.handleAgentChatAvailableCommandsUpdate)
 }
 
 func (h *Handler) SetStateCleaner(cleaner StateCleaner) {

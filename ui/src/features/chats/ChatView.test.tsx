@@ -3194,6 +3194,41 @@ describe("ChatView input", () => {
     expect(within(commands).getByRole("option", { name: "Insert /cmd9 command" })).toBeTruthy();
     expect(commands).toHaveStyle({ overflowY: "auto" });
     expect(commands.getAttribute("style")).toContain("max-height:");
+    expect(commands.getAttribute("style")).toContain("scrollbar-gutter: stable");
+  });
+
+  it("keeps slash command wheel scrolling inside the picker", () => {
+    const availableCommands = Array.from({ length: 9 }, (_, index) => ({
+      name: `cmd${index + 1}`,
+      description: `Command ${index + 1}`,
+    }));
+    const { state, actions } = setup({
+      chatTarget: "external_agent",
+      agentAdapterID: "claude_code",
+      message: "/",
+      activeChatSession: {
+        id: "chat_commands",
+        title: "Agent commands",
+        agent_id: "claude_code",
+        driver_kind: "acp",
+        execution_mode: "external_agent",
+        status: "idle",
+        workspace: "/tmp/hecate",
+        available_commands: availableCommands,
+        messages: [],
+      },
+    });
+    const bubbled = vi.fn();
+    document.body.addEventListener("wheel", bubbled);
+    try {
+      render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+      fireEvent.wheel(screen.getByRole("listbox", { name: "Message commands" }));
+
+      expect(bubbled).not.toHaveBeenCalled();
+    } finally {
+      document.body.removeEventListener("wheel", bubbled);
+    }
   });
 
   it("scrolls the active slash command into view during keyboard navigation", () => {
