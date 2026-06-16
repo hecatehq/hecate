@@ -24,7 +24,7 @@
     "@astrojs/check": "^0.9.9",
     "@types/node": "^25.6.2",
     "@typescript/native-preview": "beta",
-    "oxfmt": "^0.54.0",
+    "oxfmt": "^0.55.0",
     "oxlint": "^1.65.0",
     "oxlint-tsgolint": "0.23.0"
   },
