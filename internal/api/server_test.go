@@ -7145,6 +7145,7 @@ type fakeProvider struct {
 	name         string
 	defaultModel string
 	response     *types.ChatResponse
+	responses    []*types.ChatResponse
 	err          error
 	errSequence  []error
 	calls        int
@@ -7248,8 +7249,13 @@ func (p *fakeProvider) Chat(_ context.Context, req types.ChatRequest) (*types.Ch
 		return nil, p.err
 	}
 
-	cloned := *p.response
-	cloned.Choices = append([]types.ChatChoice(nil), p.response.Choices...)
+	response := p.response
+	if len(p.responses) > 0 {
+		response = p.responses[0]
+		p.responses = p.responses[1:]
+	}
+	cloned := *response
+	cloned.Choices = append([]types.ChatChoice(nil), response.Choices...)
 	return &cloned, nil
 }
 

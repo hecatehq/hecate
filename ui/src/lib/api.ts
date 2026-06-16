@@ -42,6 +42,7 @@ import type {
 } from "../types/chat";
 import type {
   TaskApprovalsResponse,
+  TaskArtifactResponse,
   TaskArtifactsResponse,
   TaskPatchResponse,
   TaskResponse,
@@ -1310,6 +1311,16 @@ export async function getTaskRunArtifacts(
 ): Promise<TaskArtifactsResponse> {
   return fetchJSON<TaskArtifactsResponse>(
     `${HECATE_API}/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/artifacts`,
+  );
+}
+
+export async function getTaskRunArtifact(
+  taskID: string,
+  runID: string,
+  artifactID: string,
+): Promise<TaskArtifactResponse> {
+  return fetchJSON<TaskArtifactResponse>(
+    `${HECATE_API}/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/artifacts/${encodeURIComponent(artifactID)}`,
   );
 }
 

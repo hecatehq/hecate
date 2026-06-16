@@ -18,6 +18,7 @@ import (
 	"github.com/hecatehq/hecate/internal/controlplane"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/modelcaps"
+	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
@@ -152,6 +153,108 @@ func TestHecateAgentChatCreatesVisibleTaskAndContinuesSameTask(t *testing.T) {
 	if secondAssistant.RequestID != secondRun.RequestID || secondAssistant.TraceID != secondRun.TraceID || secondAssistant.SpanID != secondRun.RootSpanID {
 		t.Fatalf("second assistant trace linkage = request %q trace %q span %q, want backing run request %q trace %q span %q",
 			secondAssistant.RequestID, secondAssistant.TraceID, secondAssistant.SpanID, secondRun.RequestID, secondRun.TraceID, secondRun.RootSpanID)
+	}
+}
+
+func TestHecateAgentChatProjectDraftToolCreatesProposalArtifact(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	provider := &fakeProvider{
+		name: "openai",
+		responses: []*types.ChatResponse{
+			{
+				ID:        "chatcmpl-proposal-tool",
+				Model:     "gpt-4o-mini",
+				CreatedAt: time.Now().UTC(),
+				Choices: []types.ChatChoice{{
+					Index: 0,
+					Message: types.Message{
+						Role: "assistant",
+						ToolCalls: []types.ToolCall{{
+							ID:   "call_project_proposal",
+							Type: "function",
+							Function: types.ToolCallFunction{
+								Name:      orchestrator.AgentToolDraftProjectProposal,
+								Arguments: `{"request":"Plan next work for hecate\nCapture the next reviewable project task."}`,
+							},
+						}},
+					},
+					FinishReason: "tool_calls",
+				}},
+				Usage: types.Usage{PromptTokens: 20, CompletionTokens: 8, TotalTokens: 28},
+			},
+			{
+				ID:        "chatcmpl-proposal-final",
+				Model:     "gpt-4o-mini",
+				CreatedAt: time.Now().UTC(),
+				Choices: []types.ChatChoice{{
+					Index:        0,
+					Message:      types.Message{Role: "assistant", Content: "I drafted a proposal for review in Projects."},
+					FinishReason: "stop",
+				}},
+				Usage: types.Usage{PromptTokens: 30, CompletionTokens: 9, TotalTokens: 39},
+			},
+		},
+	}
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{provider}, config.Config{}, controlplane.NewMemoryStore())
+	handler := NewServer(logger, apiHandler)
+	client := newTaskTestClient(t, handler)
+	workspace := t.TempDir()
+
+	project := mustRequestJSONStatus[ProjectResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects",
+		`{"name":"Hecate"}`)
+	session := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions",
+		fmt.Sprintf(`{"agent_id":"hecate","title":"Project planning","workspace":%q,"project_id":%q,"provider":"openai","model":"gpt-4o-mini"}`, workspace, project.Data.ID))
+	response := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions/"+session.Data.ID+"/messages",
+		`{"execution_mode":"hecate_task","content":"Plan next work for hecate"}`)
+	if response.Data.Status != "completed" || response.Data.TaskID == "" || response.Data.LatestRunID == "" {
+		t.Fatalf("chat response status/task/run = %q/%q/%q, want completed with task run", response.Data.Status, response.Data.TaskID, response.Data.LatestRunID)
+	}
+	assistant := response.Data.Messages[len(response.Data.Messages)-1]
+	proposalActivity := findChatActivityByType(assistant, orchestrator.ProjectAssistantProposalArtifactKind)
+	if proposalActivity.ArtifactID == "" {
+		t.Fatalf("assistant activities missing proposal artifact activity: %+v", assistant.Activities)
+	}
+	artifacts := mustRequestJSON[TaskArtifactsResponse](client, http.MethodGet, "/hecate/v1/tasks/"+response.Data.TaskID+"/runs/"+response.Data.LatestRunID+"/artifacts", "")
+	var proposalArtifact TaskArtifactItem
+	for _, artifact := range artifacts.Data {
+		if artifact.Kind == orchestrator.ProjectAssistantProposalArtifactKind {
+			proposalArtifact = artifact
+			break
+		}
+	}
+	if proposalArtifact.ID == "" || proposalArtifact.ID != proposalActivity.ArtifactID {
+		t.Fatalf("proposal artifact = %+v, activity = %+v", proposalArtifact, proposalActivity)
+	}
+	var payload orchestrator.ProjectAssistantDraftResult
+	if err := json.Unmarshal([]byte(proposalArtifact.ContentText), &payload); err != nil {
+		t.Fatalf("proposal artifact JSON error = %v\n%s", err, proposalArtifact.ContentText)
+	}
+	if payload.ProjectID != project.Data.ID || payload.SourceChatSessionID != session.Data.ID || payload.ActionCount != 1 || !json.Valid(payload.Proposal) {
+		t.Fatalf("proposal payload = %+v, want linked project/session and embedded proposal", payload)
+	}
+	if items, err := apiHandler.projectWork.ListWorkItems(context.Background(), project.Data.ID); err != nil || len(items) != 0 {
+		t.Fatalf("work items after draft = %d, err=%v; want no direct project mutations", len(items), err)
+	}
+}
+
+func TestHecateAgentChatProjectDraftToolRejectsProjectMismatch(t *testing.T) {
+	handler := newTestAPIHandlerWithSettings(slog.New(slog.NewJSONHandler(io.Discard, nil)), nil, config.Config{}, controlplane.NewMemoryStore())
+	if _, err := handler.agentChat.Create(context.Background(), chat.Session{
+		ID:        "chat_mismatch",
+		AgentID:   chat.DefaultAgentID,
+		ProjectID: "proj_source",
+		Status:    "idle",
+	}); err != nil {
+		t.Fatalf("Create(chat) error = %v", err)
+	}
+
+	_, err := handler.DraftProjectProposal(context.Background(), orchestrator.ProjectAssistantDraftInput{
+		ProjectID:           "proj_other",
+		SourceChatSessionID: "chat_mismatch",
+		Request:             "Plan next work",
+	})
+	if err == nil || !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("DraftProjectProposal err = %v, want project mismatch", err)
 	}
 }
 
@@ -944,6 +1047,15 @@ func agentChatMessageHasActivity(message ChatMessageItem, activityType string) b
 		}
 	}
 	return false
+}
+
+func findChatActivityByType(message ChatMessageItem, activityType string) ChatActivityItem {
+	for _, activity := range message.Activities {
+		if activity.Type == activityType {
+			return activity
+		}
+	}
+	return ChatActivityItem{}
 }
 
 func TestChatActivityFromTaskActivityCarriesApprovalMetadata(t *testing.T) {

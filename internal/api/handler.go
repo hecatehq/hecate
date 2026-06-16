@@ -339,6 +339,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		terminalLauncher:    terminal.NewPTYLauncher(logger),
 		terminalTickets:     make(map[string]terminalTicket),
 	}
+	runner.SetProjectAssistantDraftTool(h)
 	h.startAgentChatIdleSweeper()
 	return h
 }
