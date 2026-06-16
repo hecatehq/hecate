@@ -3,7 +3,11 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ChatView } from "./ChatView";
-import { discoverLocalProviders, draftChatProjectAssistant } from "../../lib/api";
+import {
+  discoverLocalProviders,
+  draftChatProjectAssistant,
+  getTaskRunArtifact,
+} from "../../lib/api";
 import { readProjectAssistantChatHandoff } from "../../lib/project-assistant-chat-handoff";
 import {
   createRuntimeConsoleActions,
@@ -38,6 +42,40 @@ vi.mock("../../lib/api", async (importOriginal) => {
         requires_confirmation: true,
       },
     })),
+    getTaskRunArtifact: vi.fn(async () => ({
+      object: "task_artifact",
+      data: {
+        id: "artifact_project_proposal",
+        task_id: "task_1",
+        run_id: "run_1",
+        kind: "project_assistant_proposal",
+        name: "Project Assistant proposal",
+        mime_type: "application/json",
+        storage_kind: "inline",
+        status: "ready",
+        content_text: JSON.stringify({
+          object: "project_assistant.chat_proposal",
+          project_id: "proj_1",
+          source_chat_session_id: "s1",
+          request: "Plan next project work",
+          proposal_id: "pa_artifact",
+          action_count: 1,
+          proposal: {
+            id: "pa_artifact",
+            title: "Plan next project work",
+            summary: "Create a work item from chat.",
+            actions: [
+              {
+                kind: "create_work_item",
+                target: { project_id: "proj_1" },
+                patch: { project_id: "proj_1", title: "Plan next project work" },
+              },
+            ],
+            requires_confirmation: true,
+          },
+        }),
+      },
+    })),
   };
 });
 
@@ -69,6 +107,41 @@ afterEach(() => {
         },
       ],
       requires_confirmation: true,
+    },
+  });
+  vi.mocked(getTaskRunArtifact).mockReset();
+  vi.mocked(getTaskRunArtifact).mockResolvedValue({
+    object: "task_artifact",
+    data: {
+      id: "artifact_project_proposal",
+      task_id: "task_1",
+      run_id: "run_1",
+      kind: "project_assistant_proposal",
+      name: "Project Assistant proposal",
+      mime_type: "application/json",
+      storage_kind: "inline",
+      status: "ready",
+      content_text: JSON.stringify({
+        object: "project_assistant.chat_proposal",
+        project_id: "proj_1",
+        source_chat_session_id: "s1",
+        request: "Plan next project work",
+        proposal_id: "pa_artifact",
+        action_count: 1,
+        proposal: {
+          id: "pa_artifact",
+          title: "Plan next project work",
+          summary: "Create a work item from chat.",
+          actions: [
+            {
+              kind: "create_work_item",
+              target: { project_id: "proj_1" },
+              patch: { project_id: "proj_1", title: "Plan next project work" },
+            },
+          ],
+          requires_confirmation: true,
+        },
+      }),
     },
   });
 });
@@ -6137,6 +6210,85 @@ describe("ChatView session title", () => {
       request: "Plan next project work",
       source_session_id: "s1",
       proposal: { id: "pa_chat" },
+    });
+  });
+
+  it("opens a Project Assistant proposal artifact from the chat transcript", async () => {
+    const selectProject = vi.fn(async () => undefined);
+    const onNavigate = vi.fn();
+    const project: ProjectRecord = {
+      id: "proj_1",
+      name: "Hecate",
+      roots: [],
+      created_at: "2026-05-29T00:00:00Z",
+      updated_at: "2026-05-29T00:00:00Z",
+    };
+    const { state, actions } = setup(
+      {
+        chatTarget: "agent",
+        projects: [project],
+        activeChatSessionID: "s1",
+        activeChatSession: {
+          id: "s1",
+          agent_id: "hecate",
+          title: "Project chat",
+          project_id: "proj_1",
+          provider: "openai",
+          model: "gpt-4o-mini",
+          status: "idle",
+          workspace: "/tmp/hecate",
+          messages: [
+            {
+              id: "m_user",
+              role: "user",
+              content: "Plan next project work",
+              created_at: "2026-05-29T10:00:00Z",
+            },
+            {
+              id: "m_assistant",
+              role: "assistant",
+              content: "I drafted a proposal for review in Projects.",
+              created_at: "2026-05-29T10:00:02Z",
+              execution_mode: "hecate_task",
+              task_id: "task_1",
+              run_id: "run_1",
+              activities: [
+                {
+                  id: "activity_proposal",
+                  type: "project_assistant_proposal",
+                  kind: "project_assistant_proposal",
+                  status: "ready",
+                  title: "Project Assistant proposal",
+                  artifact_id: "artifact_project_proposal",
+                },
+              ],
+            },
+          ],
+          provider_calls: [],
+        } as any,
+      },
+      { selectProject },
+    );
+    render(withRuntimeConsole(<ChatView onNavigate={onNavigate} />, { state, actions }));
+
+    const user = userEvent.setup();
+    await user.click(screen.getByText("Proposal"));
+    await user.click(screen.getByRole("button", { name: "Open in Projects" }));
+
+    await waitFor(() => {
+      expect(getTaskRunArtifact).toHaveBeenCalledWith(
+        "task_1",
+        "run_1",
+        "artifact_project_proposal",
+      );
+    });
+    expect(selectProject).toHaveBeenCalledWith("proj_1");
+    expect(onNavigate).toHaveBeenCalledWith("projects");
+    expect(readProjectAssistantChatHandoff()).toMatchObject({
+      project_id: "proj_1",
+      request: "Plan next project work",
+      source_session_id: "s1",
+      proposal: { id: "pa_artifact" },
     });
   });
 

@@ -141,6 +141,10 @@ type Runner struct {
 	// rebuilds the executor from scratch) can re-bind the same factory
 	// instead of resetting to the no-cipher default.
 	mcpHostFactory AgentMCPHostFactory
+	// projectAssistantDraftTool is also rebound across agent_loop
+	// executor rebuilds. The API layer owns the actual drafting
+	// boundary; the runner just forwards the seam.
+	projectAssistantDraftTool ProjectAssistantDraftTool
 }
 
 type StartTaskResult struct {
@@ -295,11 +299,24 @@ func (r *Runner) SetAgentLLMClient(llm AgentLLMClient) {
 		factory = DefaultMCPHostFactory
 	}
 	agent.SetMCPHostFactory(factory)
+	if r.projectAssistantDraftTool != nil {
+		agent.SetProjectAssistantDraftTool(r.projectAssistantDraftTool)
+	}
 	// Same story for metrics — the rebuild lost the prior wiring.
 	if r.metrics != nil {
 		agent.SetMetrics(r.metrics)
 	}
 	r.agent = agent
+}
+
+// SetProjectAssistantDraftTool wires the proposal-only Project
+// Assistant tool into project-linked Hecate Chat agent_loop runs.
+// Safe to call after NewRunner; nil clears the current binding.
+func (r *Runner) SetProjectAssistantDraftTool(tool ProjectAssistantDraftTool) {
+	r.projectAssistantDraftTool = tool
+	if agent, ok := r.agent.(*AgentLoopExecutor); ok {
+		agent.SetProjectAssistantDraftTool(tool)
+	}
 }
 
 // SetMCPHostFactory updates the MCP host factory on both the stored
@@ -329,7 +346,7 @@ func (r *Runner) hasPolicy(name string) bool {
 func agentLoopGatedTools(policies map[string]struct{}) []string {
 	// all_tools gates every tool the agent can call — no need to enumerate.
 	if _, ok := policies["all_tools"]; ok {
-		return []string{"shell_exec", "git_exec", "git_status", "git_diff", "file_write", "file_edit", "apply_patch", "read_file", "grep", "glob", "artifact_read", "list_dir", "http_request"}
+		return []string{"shell_exec", "git_exec", "git_status", "git_diff", "file_write", "file_edit", "apply_patch", "read_file", "grep", "glob", "artifact_read", "list_dir", "http_request", AgentToolDraftProjectProposal}
 	}
 	out := make([]string, 0, len(policies))
 	for p := range policies {

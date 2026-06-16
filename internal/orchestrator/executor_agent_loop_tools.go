@@ -13,12 +13,13 @@ import (
 )
 
 type agentLoopToolDispatcher struct {
-	shell      Executor
-	file       Executor
-	git        Executor
-	httpPolicy HTTPRequestPolicy
-	httpClient *http.Client
-	metrics    *telemetry.OrchestratorMetrics
+	shell                     Executor
+	file                      Executor
+	git                       Executor
+	httpPolicy                HTTPRequestPolicy
+	httpClient                *http.Client
+	projectAssistantDraftTool ProjectAssistantDraftTool
+	metrics                   *telemetry.OrchestratorMetrics
 }
 
 type agentLoopToolDispatchResult struct {
@@ -167,6 +168,13 @@ func (d *agentLoopToolDispatcher) Dispatch(ctx context.Context, spec ExecutionSp
 			return agentLoopToolDispatchResult{Text: fmt.Sprintf("invalid arguments for http_request: %v", err)}, nil
 		}
 		return d.httpRequestTool(ctx, spec, args, stepIndex, startedAt, call.Function.Name)
+
+	case AgentToolDraftProjectProposal:
+		var args projectAssistantDraftArgs
+		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
+			return agentLoopToolDispatchResult{Text: fmt.Sprintf("invalid arguments for %s: %v", AgentToolDraftProjectProposal, err)}, nil
+		}
+		return d.projectAssistantDraftProposalTool(ctx, spec, args, stepIndex, startedAt, call.Function.Name), nil
 
 	default:
 		return agentLoopToolDispatchResult{Text: fmt.Sprintf("unknown tool: %s", call.Function.Name)}, nil

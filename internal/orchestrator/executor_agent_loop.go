@@ -175,7 +175,7 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 
 	runState := newAgentLoopRunState(spec, e.maxTurns)
 	conversation := newAgentLoopConversation(spec)
-	tools := agentToolDefinitions()
+	tools := agentToolDefinitions(projectAssistantDraftToolAvailable(spec.Task, e.toolDispatcher.projectAssistantDraftTool))
 
 	// Bring up external MCP servers if the task configured any. Their
 	// tools are appended to the built-in catalog under names of the
@@ -424,8 +424,9 @@ func estimateAgentPromptTokens(messages []types.Message) int {
 // passes to the LLM each turn. Names match the dispatch switch in
 // dispatchToolCall(). Schemas are JSON Schema 2020-12, kept minimal
 // because verbose schemas waste tokens.
-func agentToolDefinitions() []types.Tool {
-	return []types.Tool{
+func agentToolDefinitions(includeProjectAssistantDraftOpt ...bool) []types.Tool {
+	includeProjectAssistantDraft := len(includeProjectAssistantDraftOpt) > 0 && includeProjectAssistantDraftOpt[0]
+	tools := []types.Tool{
 		{
 			Type: "function",
 			Function: types.ToolFunction{
@@ -628,6 +629,26 @@ func agentToolDefinitions() []types.Tool {
 			},
 		},
 	}
+	if includeProjectAssistantDraft {
+		tools = append(tools, types.Tool{
+			Type: "function",
+			Function: types.ToolFunction{
+				Name:        AgentToolDraftProjectProposal,
+				Description: "Draft a reviewable Project Assistant proposal for the linked project. This creates a proposal artifact only; it does not apply changes, start tasks, create chats, run agents, or promote memory. Use when the operator asks to plan, queue, assign, hand off, or capture project work for review.",
+				Parameters: json.RawMessage(`{
+					"type": "object",
+					"properties": {
+						"request": {"type": "string", "description": "The operator's project-planning request to turn into a reviewable proposal."},
+						"work_item_id": {"type": "string", "description": "Optional selected project work item id when the request is about an existing item."},
+						"role_id": {"type": "string", "description": "Optional project role id to use for assignment proposals."},
+						"driver_kind": {"type": "string", "description": "Optional assignment driver hint, such as hecate_task or external_agent."}
+					},
+					"required": ["request"]
+				}`),
+			},
+		})
+	}
+	return tools
 }
 
 type shellExecArgs struct {
