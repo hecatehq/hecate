@@ -3427,7 +3427,11 @@ test("Claude Code setup appears when the adapter is not installed", async ({ pag
   await openClaudeExternalAgent(page, { available: false, healthStatus: "not_installed" });
 
   await expect(page.getByText("Claude Code is unavailable")).toBeVisible();
-  await expect(page.getByText(/Install Claude Code, then sign in with Claude Code/)).toBeVisible();
+  await expect(
+    page.getByText(
+      /Install Claude Code plus the Claude ACP adapter, then sign in with Claude Code/,
+    ),
+  ).toBeVisible();
   await expect(page.getByRole("button", { name: "Install" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Auth" })).toBeVisible();
   await page.locator("textarea").fill("hello from Claude Code");
