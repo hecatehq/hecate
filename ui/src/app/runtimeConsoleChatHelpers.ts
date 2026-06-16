@@ -1,9 +1,10 @@
 import type { ChatMessage } from "../lib/api";
 import type { RuntimeHeaders } from "../types/runtime";
-import type { ModelResponse } from "../types/model";
+import type { ModelRecord, ModelResponse } from "../types/model";
 import type {
   ConfiguredStateResponse,
   ProviderFilter,
+  ProviderPresetRecord,
   ProviderStatusResponse,
 } from "../types/provider";
 import type {
@@ -111,6 +112,8 @@ export function defaultModelForProvider(
   provider: ProviderFilter,
   models: ModelResponse["data"],
   providers: ProviderStatusResponse["data"],
+  configuredProviders: ConfiguredStateResponse["data"]["providers"] = [],
+  providerPresets: ProviderPresetRecord[] = [],
 ): string {
   if (provider === "auto") {
     return "";
@@ -118,6 +121,11 @@ export function defaultModelForProvider(
 
   const providerRecord = providers.find((entry) => entry.name === provider);
   const scopedModels = models.filter((entry) => entry.metadata?.provider === provider);
+  const configuredDefault = configuredDefaultModelForProvider(
+    provider,
+    configuredProviders,
+    providerPresets,
+  );
   if (providerRecord?.default_model) {
     return providerRecord.default_model;
   }
@@ -127,11 +135,65 @@ export function defaultModelForProvider(
       scopedModels.find((entry) => entry.metadata?.default)?.id ??
       scopedModels[0]?.id ??
       providerRecord.models?.[0] ??
+      configuredDefault ??
       ""
     );
   }
 
-  return scopedModels.find((entry) => entry.metadata?.default)?.id ?? scopedModels[0]?.id ?? "";
+  return (
+    scopedModels.find((entry) => entry.metadata?.default)?.id ??
+    scopedModels[0]?.id ??
+    configuredDefault
+  );
+}
+
+function configuredDefaultModelForProvider(
+  provider: ProviderFilter,
+  configuredProviders: ConfiguredStateResponse["data"]["providers"] = [],
+  providerPresets: ProviderPresetRecord[] = [],
+): string {
+  if (provider === "auto") return "";
+  const configured = configuredProviders.find((entry) => entry.id === provider);
+  const presetID = configured?.preset_id || provider;
+  const preset = providerPresets.find((entry) => entry.id === presetID);
+  return configured?.default_model || preset?.default_model || "";
+}
+
+export function withConfiguredDefaultModels(
+  models: ModelRecord[],
+  provider: ProviderFilter,
+  configuredProviders: ConfiguredStateResponse["data"]["providers"] = [],
+  providerPresets: ProviderPresetRecord[] = [],
+): ModelRecord[] {
+  if (configuredProviders.length === 0) return models;
+  const out = [...models];
+  const seen = new Set(out.map((entry) => `${entry.metadata?.provider ?? ""}\0${entry.id}`));
+  const includeProvider = (id: string) => provider === "auto" || provider === id;
+
+  for (const configured of configuredProviders) {
+    if (!includeProvider(configured.id)) continue;
+    const modelID = configuredDefaultModelForProvider(
+      configured.id,
+      configuredProviders,
+      providerPresets,
+    );
+    if (!modelID) continue;
+    const key = `${configured.id}\0${modelID}`;
+    if (seen.has(key)) continue;
+    out.push({
+      id: modelID,
+      owned_by: configured.id,
+      metadata: {
+        provider: configured.id,
+        provider_kind: configured.kind,
+        default: true,
+        discovery_source: "configured_default",
+      },
+    });
+    seen.add(key);
+  }
+
+  return out;
 }
 
 export function defaultProviderForChat(
@@ -172,6 +234,8 @@ export function isModelValidForProvider(
   provider: ProviderFilter,
   models: ModelResponse["data"],
   providers: ProviderStatusResponse["data"],
+  configuredProviders: ConfiguredStateResponse["data"]["providers"] = [],
+  providerPresets: ProviderPresetRecord[] = [],
 ): boolean {
   if (!model || provider === "auto") {
     return true;
@@ -183,6 +247,9 @@ export function isModelValidForProvider(
 
   const providerRecord = providers.find((entry) => entry.name === provider);
   if (providerRecord?.default_model === model || providerRecord?.models?.includes(model)) {
+    return true;
+  }
+  if (configuredDefaultModelForProvider(provider, configuredProviders, providerPresets) === model) {
     return true;
   }
   if (providerRecord) {

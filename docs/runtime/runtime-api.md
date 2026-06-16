@@ -3111,6 +3111,13 @@ optional `description`, and optional `input_hint`. The `name` is agent-owned;
 clients should render it as a slash command hint but submit the chosen command
 as normal prompt text.
 
+Hecate-owned sessions may include `context_summary` when older direct-model
+chat transcript turns have been compacted. The original messages remain in the
+durable transcript; `context_summary` tells clients and later model calls how
+many older messages were summarized, the last summarized message id, and when
+the summary was produced. Hecate injects that summary as system context before
+the retained recent transcript on later direct-model turns.
+
 ### `PATCH /hecate/v1/chat/sessions/{id}`
 
 Renames a chat session. This is shared by Hecate Chat
@@ -3180,6 +3187,36 @@ PATCH /hecate/v1/chat/sessions/chat_.../settings
     "id": "chat_...",
     "agent_id": "hecate",
     "rtk_enabled": true
+  }
+}
+```
+
+### `POST /hecate/v1/chat/sessions/{id}/compact`
+
+Compacts older transcript context for a Hecate-owned chat session and returns
+the updated session. This endpoint is deterministic and local to Hecate; it
+does not call a model. It summarizes older user/assistant turns into
+`context_summary` while retaining the newest messages in full for later turns.
+
+External Agent sessions reject this endpoint with `409 chat.runtime_mismatch`
+because their native runtimes own their own context windows. If there are not
+enough older messages to compact, Hecate returns `400 invalid_request`.
+
+```json
+POST /hecate/v1/chat/sessions/chat_.../compact
+
+→ 200
+{
+  "object": "chat_session",
+  "data": {
+    "id": "chat_...",
+    "agent_id": "hecate",
+    "context_summary": {
+      "content": "- User: previous request\n- Assistant: previous answer",
+      "message_count": 2,
+      "through_message_id": "msg_...",
+      "compacted_at": "2026-06-16T10:00:00Z"
+    }
   }
 }
 ```

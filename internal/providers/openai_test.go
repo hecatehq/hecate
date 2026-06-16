@@ -365,6 +365,61 @@ func TestOpenAIProviderCapabilitiesDiscovery(t *testing.T) {
 	}
 }
 
+func TestOpenAIProviderFireworksDiscoveryUsesModelsEndpoint(t *testing.T) {
+	t.Parallel()
+
+	var calls int
+	transport := testRoundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		calls++
+		if r.Method != http.MethodGet {
+			return nil, fmt.Errorf("method = %s, want GET", r.Method)
+		}
+		if got := r.URL.String(); got != "https://api.fireworks.ai/v1/accounts/fireworks/models" {
+			return nil, fmt.Errorf("url = %s, want Fireworks models endpoint", got)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer fireworks-key" {
+			return nil, fmt.Errorf("Authorization = %q, want Bearer fireworks-key", got)
+		}
+		return jsonHTTPResponse(fireworksModelsResponse{Models: []fireworksModel{
+			{
+				Name:          "accounts/fireworks/models/deepseek-v3p1",
+				SupportsTools: true,
+				ContextLength: 131072,
+			},
+			{ID: "accounts/fireworks/models/llama-v3p1"},
+		}})
+	})
+
+	provider := NewOpenAICompatibleProvider(config.OpenAICompatibleProviderConfig{
+		Name:         "fireworks",
+		Kind:         "cloud",
+		BaseURL:      "https://api.fireworks.ai/inference/v1",
+		ModelsPath:   "https://api.fireworks.ai/v1/accounts/fireworks/models",
+		APIKey:       "fireworks-key",
+		Timeout:      time.Second,
+		DefaultModel: "accounts/fireworks/models/deepseek-v3p1",
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	provider.httpClient.Transport = transport
+
+	caps, err := provider.Capabilities(context.Background())
+	if err != nil {
+		t.Fatalf("Capabilities() error = %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("discovery call count = %d, want 1", calls)
+	}
+	if len(caps.Models) != 2 || caps.Models[0] != "accounts/fireworks/models/deepseek-v3p1" {
+		t.Fatalf("models = %#v, want Fireworks model names", caps.Models)
+	}
+	if caps.DiscoverySource != "fireworks_models" {
+		t.Fatalf("discovery source = %q, want fireworks_models", caps.DiscoverySource)
+	}
+	capability := caps.ModelCapabilities["accounts/fireworks/models/deepseek-v3p1"]
+	if capability.ToolCalling != "basic" || capability.MaxContextTokens != 131072 {
+		t.Fatalf("model capability = %+v, want tools and context length", capability)
+	}
+}
+
 func TestOpenAIProviderOllamaDiscoveryReadsNativeToolCapabilities(t *testing.T) {
 	t.Parallel()
 
