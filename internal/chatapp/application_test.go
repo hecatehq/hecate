@@ -167,6 +167,69 @@ func TestApplication_RenameSessionValidation(t *testing.T) {
 	}
 }
 
+func TestApplication_CompactSessionWithSummaryPersistsCustomSummary(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := chat.NewMemoryStore()
+	app := New(Options{Store: store})
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	if _, err := store.Create(ctx, chat.Session{
+		ID:      "chat_hecate",
+		AgentID: chat.DefaultAgentID,
+		Messages: []chat.Message{
+			{ID: "msg_1", Role: "user", Content: "first", Status: "completed"},
+			{ID: "msg_2", Role: "assistant", Content: "second", Status: "completed"},
+			{ID: "msg_3", Role: "user", Content: "third", Status: "completed"},
+			{ID: "msg_4", Role: "assistant", Content: "fourth", Status: "completed"},
+		},
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	called := false
+	result, err := app.CompactSessionWithSummary(ctx, CompactSessionCommand{
+		ID:               " chat_hecate ",
+		RetainMessages:   2,
+		MinMessages:      3,
+		HecateOnly:       true,
+		RequireCompacted: true,
+		Now:              now,
+	}, func(_ context.Context, session chat.Session, selection chat.CompactTranscriptResult) (chat.ContextSummary, error) {
+		called = true
+		if session.ID != "chat_hecate" {
+			t.Fatalf("callback session id = %q, want chat_hecate", session.ID)
+		}
+		if len(selection.Messages) != 2 || selection.Messages[0].ID != "msg_1" || selection.Messages[1].ID != "msg_2" {
+			t.Fatalf("callback compacted messages = %+v, want msg_1/msg_2", selection.Messages)
+		}
+		summary := selection.Summary
+		summary.Content = "semantic summary"
+		summary.Strategy = chat.ContextSummaryStrategySemantic
+		return summary, nil
+	})
+	if err != nil {
+		t.Fatalf("CompactSessionWithSummary() error = %v", err)
+	}
+	if !called {
+		t.Fatal("summary callback was not called")
+	}
+	if result.Session.ContextSummary.Content != "semantic summary" ||
+		result.Session.ContextSummary.MessageCount != 2 ||
+		result.Session.ContextSummary.ThroughMessageID != "msg_2" ||
+		result.Session.ContextSummary.Strategy != chat.ContextSummaryStrategySemantic ||
+		!result.Session.ContextSummary.CompactedAt.Equal(now) {
+		t.Fatalf("context summary = %+v, want custom semantic summary", result.Session.ContextSummary)
+	}
+	stored, ok, err := store.Get(ctx, "chat_hecate")
+	if err != nil || !ok {
+		t.Fatalf("Get(chat_hecate) ok=%v err=%v", ok, err)
+	}
+	if stored.ContextSummary.Content != "semantic summary" {
+		t.Fatalf("stored context summary = %+v, want custom semantic summary", stored.ContextSummary)
+	}
+}
+
 func TestApplication_CreateSessionPreparesExternalSession(t *testing.T) {
 	t.Parallel()
 

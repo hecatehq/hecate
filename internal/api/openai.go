@@ -870,6 +870,7 @@ type ChatContextSummaryItem struct {
 	Content          string `json:"content,omitempty"`
 	MessageCount     int    `json:"message_count,omitempty"`
 	ThroughMessageID string `json:"through_message_id,omitempty"`
+	Strategy         string `json:"strategy,omitempty"`
 	CompactedAt      string `json:"compacted_at,omitempty"`
 }
 

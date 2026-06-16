@@ -3661,6 +3661,7 @@ describe("ChatView input", () => {
           context_summary: {
             message_count: 12,
             through_message_id: "msg_12",
+            strategy: "semantic_transcript_summary",
             content: "- User: old request",
           },
           messages: [],
@@ -3674,7 +3675,7 @@ describe("ChatView input", () => {
 
     expect(screen.getByLabelText("Chat settings panel")).toBeTruthy();
     expect(screen.getByText("Compacted")).toBeTruthy();
-    expect(screen.getByText("12 messages")).toBeTruthy();
+    expect(screen.getByText("12 messages (semantic)")).toBeTruthy();
     expect(setMessage).toHaveBeenCalledWith("");
     expect(submitChat).not.toHaveBeenCalled();
   });

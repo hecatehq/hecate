@@ -198,7 +198,7 @@ export function ChatSettingsPanel({
             {contextSummary?.message_count ? (
               <ChatSettingsField
                 label="Compacted"
-                value={`${formatInteger(contextSummary.message_count)} messages`}
+                value={`${formatInteger(contextSummary.message_count)} messages (${contextSummaryStrategyLabel(contextSummary.strategy)})`}
                 title={contextSummary.through_message_id}
                 mono
               />
@@ -534,6 +534,17 @@ function CopyCommandRow({
 
 function shortID(id: string): string {
   return compactID(id, ["task_", "run_", "chat_"], 8);
+}
+
+function contextSummaryStrategyLabel(strategy?: string): string {
+  switch (strategy) {
+    case "semantic_transcript_summary":
+      return "semantic";
+    case "deterministic_transcript_summary":
+      return "deterministic";
+    default:
+      return "summary";
+  }
 }
 
 function formatAgentContextUsage(usage: ChatUsageRecord): string {

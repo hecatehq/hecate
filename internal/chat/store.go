@@ -183,6 +183,7 @@ type ContextSummary struct {
 	Content          string    `json:"content,omitempty"`
 	MessageCount     int       `json:"message_count,omitempty"`
 	ThroughMessageID string    `json:"through_message_id,omitempty"`
+	Strategy         string    `json:"strategy,omitempty"`
 	CompactedAt      time.Time `json:"compacted_at,omitempty"`
 }
 
@@ -190,6 +191,7 @@ func (summary ContextSummary) Empty() bool {
 	return strings.TrimSpace(summary.Content) == "" &&
 		summary.MessageCount == 0 &&
 		strings.TrimSpace(summary.ThroughMessageID) == "" &&
+		strings.TrimSpace(summary.Strategy) == "" &&
 		summary.CompactedAt.IsZero()
 }
 

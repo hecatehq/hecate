@@ -117,6 +117,7 @@ export type ChatContextSummaryRecord = {
   content?: string;
   message_count?: number;
   through_message_id?: string;
+  strategy?: string;
   compacted_at?: string;
 };
 

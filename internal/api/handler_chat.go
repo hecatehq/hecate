@@ -240,10 +240,8 @@ func (h *Handler) HandleUpdateChatSession(w http.ResponseWriter, r *http.Request
 }
 
 func (h *Handler) HandleCompactChatSession(w http.ResponseWriter, r *http.Request) {
-	result, err := h.chatApplication().CompactSession(r.Context(), chatapp.CompactSessionCommand{
-		ID:               r.PathValue("id"),
+	session, err := h.compactChatSession(r.Context(), r.PathValue("id"), compactChatSessionOptions{
 		RetainMessages:   agentChatManualCompactRetainMessages,
-		HecateOnly:       true,
 		RequireCompacted: true,
 		Now:              time.Now().UTC(),
 	})
@@ -254,8 +252,8 @@ func (h *Handler) HandleCompactChatSession(w http.ResponseWriter, r *http.Reques
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	h.agentChatLive.publishSession(result.Session)
-	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(result.Session, h.agentChatSnapshotConfig())})
+	h.agentChatLive.publishSession(session)
+	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(session, h.agentChatSnapshotConfig())})
 }
 
 func (h *Handler) HandleChatSessionStream(w http.ResponseWriter, r *http.Request) {
@@ -955,7 +953,7 @@ func (h *Handler) handleDirectModelTurn(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	content := strings.TrimSpace(req.Content)
-	if compacted, err := h.compactChatSessionForModelTurn(r.Context(), session); err != nil {
+	if compacted, err := h.compactChatSessionForModelTurn(r.Context(), session, provider, model); err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	} else if compacted.ID != "" {
@@ -1097,18 +1095,14 @@ func (h *Handler) handleDirectModelTurn(w http.ResponseWriter, r *http.Request, 
 	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(updated, h.agentChatSnapshotConfig())})
 }
 
-func (h *Handler) compactChatSessionForModelTurn(ctx context.Context, session chat.Session) (chat.Session, error) {
-	result, err := h.chatApplication().CompactSession(ctx, chatapp.CompactSessionCommand{
-		ID:             session.ID,
+func (h *Handler) compactChatSessionForModelTurn(ctx context.Context, session chat.Session, provider, model string) (chat.Session, error) {
+	return h.compactChatSession(ctx, session.ID, compactChatSessionOptions{
 		RetainMessages: agentChatAutoCompactRetainMessages,
 		MinMessages:    agentChatAutoCompactMinMessages,
-		HecateOnly:     true,
+		Provider:       provider,
+		Model:          model,
 		Now:            time.Now().UTC(),
 	})
-	if err != nil {
-		return chat.Session{}, err
-	}
-	return result.Session, nil
 }
 
 func agentChatModelHistory(session chat.Session, systemPrompt, content string) []types.Message {

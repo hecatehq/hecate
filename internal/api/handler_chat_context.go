@@ -992,6 +992,10 @@ func appendTranscriptContext(packet *chat.ContextPacket, summary chat.ContextSum
 	if summary.MessageCount > 0 {
 		detail = fmt.Sprintf("%d older messages summarized", summary.MessageCount)
 	}
+	strategy := strings.TrimSpace(summary.Strategy)
+	if strategy == "" {
+		strategy = chat.ContextSummaryStrategyDeterministic
+	}
 	appendContextPacketSourceWithSection(packet, contextSectionRuntime, chat.ContextSource{
 		Kind:   "transcript_summary",
 		Label:  "Compacted transcript",
@@ -1008,7 +1012,7 @@ func appendTranscriptContext(packet *chat.ContextPacket, summary chat.ContextSum
 		Metadata: map[string]string{
 			"message_count":       fmt.Sprintf("%d", summary.MessageCount),
 			"through_message_id":  strings.TrimSpace(summary.ThroughMessageID),
-			"compaction_strategy": "deterministic_transcript_summary",
+			"compaction_strategy": strategy,
 		},
 	})
 }

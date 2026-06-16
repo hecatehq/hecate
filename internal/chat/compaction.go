@@ -15,6 +15,11 @@ const (
 	compactLineMaxRunes    = 600
 )
 
+const (
+	ContextSummaryStrategyDeterministic = "deterministic_transcript_summary"
+	ContextSummaryStrategySemantic      = "semantic_transcript_summary"
+)
+
 type CompactTranscriptOptions struct {
 	Now            time.Time
 	RetainMessages int
@@ -23,6 +28,7 @@ type CompactTranscriptOptions struct {
 
 type CompactTranscriptResult struct {
 	Summary   ContextSummary
+	Messages  []Message
 	Compacted bool
 }
 
@@ -72,15 +78,14 @@ func CompactTranscriptSummary(session Session, opts CompactTranscriptOptions) Co
 		Content:          buildCompactTranscriptSummary(current.Content, nextMessages),
 		MessageCount:     current.MessageCount + len(nextMessages),
 		ThroughMessageID: nextMessages[len(nextMessages)-1].ID,
+		Strategy:         ContextSummaryStrategyDeterministic,
 		CompactedAt:      now.UTC(),
 	}
-	return CompactTranscriptResult{Summary: nextSummary, Compacted: true}
+	return CompactTranscriptResult{Summary: nextSummary, Messages: append([]Message(nil), nextMessages...), Compacted: true}
 }
 
-// Transcript compaction is deterministic and intentionally not model-backed
-// semantic summarization. Each older message contributes one bounded line, and
-// the combined text is capped from the oldest side to keep the prompt budget
-// predictable.
+// Transcript summaries are injected ahead of retained full messages so direct
+// model turns keep older context without resending the whole transcript.
 func TranscriptSummaryPrompt(summary ContextSummary) string {
 	content := strings.TrimSpace(summary.Content)
 	if content == "" {

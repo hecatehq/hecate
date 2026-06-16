@@ -133,6 +133,7 @@ func renderChatContextSummary(summary chat.ContextSummary) *ChatContextSummaryIt
 		Content:          summary.Content,
 		MessageCount:     summary.MessageCount,
 		ThroughMessageID: summary.ThroughMessageID,
+		Strategy:         summary.Strategy,
 		CompactedAt:      formatOptionalTime(summary.CompactedAt),
 	}
 }

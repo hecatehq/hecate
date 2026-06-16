@@ -118,6 +118,18 @@ that every counted message was packed into the provider or agent prompt. Context
 packets are snapshots on assistant messages; changing project context sources,
 skills, or work records later does not rewrite old message packets.
 
+Long Hecate-owned model chats compact older transcript context before a direct
+model turn once the compactable transcript reaches the automatic threshold.
+`/compact` runs the same compaction path manually. When the session has a
+routable provider/model, Hecate asks that model to produce a structured semantic
+summary of the older transcript window and stores it as `context_summary` with
+`strategy: "semantic_transcript_summary"`. If that model call is unavailable,
+empty, or fails, Hecate falls back to the deterministic transcript summary:
+one bounded line per compacted message, capped from the oldest side, with
+`strategy: "deterministic_transcript_summary"`. Original chat messages remain
+stored; future Hecate-owned model turns inject the summary as background and
+send newer transcript messages in full.
+
 External Agent sessions may expose ACP-advertised `available_commands` on the
 session snapshot. These are agent-native slash command hints, not Hecate
 project commands; selecting one still sends ordinary prompt text to the
@@ -154,6 +166,8 @@ packing remains agent-owned and does not receive this Hecate prelude.
 | `/task`               | Hecate Chat is open                     | Opens the active task when one exists; otherwise opens the Tasks workspace. |
 | `/project`            | Hecate Chat is linked to a project      | Opens the linked project in Projects.                                       |
 | `/connections`        | Hecate Chat is open with app navigation | Opens Connections for provider/model and External Agent setup.              |
+| `/context`            | Hecate Chat is open                     | Opens the chat context/settings panel without sending a chat message.       |
+| `/compact`            | Hecate Chat is open                     | Compacts older Hecate-owned transcript context without sending a message.   |
 
 Submitting a project command without text after the command returns a composer
 notice and does not draft a proposal. Unknown slash commands in Hecate Chat are

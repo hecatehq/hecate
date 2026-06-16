@@ -35,6 +35,12 @@ func TestCompactTranscriptSummary_SummarizesOlderVisibleMessages(t *testing.T) {
 	if !result.Summary.CompactedAt.Equal(now) {
 		t.Fatalf("CompactedAt = %s, want %s", result.Summary.CompactedAt, now)
 	}
+	if result.Summary.Strategy != ContextSummaryStrategyDeterministic {
+		t.Fatalf("Strategy = %q, want %q", result.Summary.Strategy, ContextSummaryStrategyDeterministic)
+	}
+	if len(result.Messages) != 3 || result.Messages[0].ID != "m1" || result.Messages[2].ID != "m4" {
+		t.Fatalf("Messages = %+v, want compacted transcript selection m1..m4 without running assistant", result.Messages)
+	}
 	if strings.Contains(result.Summary.Content, "still running") {
 		t.Fatalf("summary includes running assistant message: %q", result.Summary.Content)
 	}
