@@ -163,6 +163,13 @@ locally:
 just release vX.Y.Z --skip-snapshot
 ```
 
+Pass `--yes` only for non-interactive release automation after the preflight
+and verification gate have passed:
+
+```bash
+bun scripts/release.ts vX.Y.Z --skip-snapshot --yes
+```
+
 The script's annotated tag message is just the version string. For
 substantive release notes, tag manually instead so the message becomes
 the canonical release notes (what `git show vX.Y.Z` and the GitHub
@@ -217,6 +224,9 @@ Pre-flight checks before the snapshot run (the script enforces these):
   the current Docker context points at a missing socket. If `just verify` has
   already passed and only the local snapshot is blocked, rerun with
   `--skip-snapshot`.
+- Non-interactive shells can pass `--yes` after reviewing the release target.
+  This only answers confirmation prompts; it does not skip preflight,
+  stamping, tag creation, or the branch+tag push.
 
 ## Post-release docs refresh
 

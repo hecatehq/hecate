@@ -4,6 +4,7 @@
 // Usage:
 //   bun scripts/release.ts <version>                 # e.g. v0.1.0-alpha.9
 //   bun scripts/release.ts v0.2.0 --skip-snapshot    # skip goreleaser dry-run
+//   bun scripts/release.ts v0.2.0 --skip-snapshot --yes
 //   bun scripts/release.ts v0.2.0 --preflight-only   # validate local release deps
 //
 // The script runs pre-flight checks, fires a goreleaser snapshot dry-run so
@@ -33,6 +34,10 @@ function run(cmd: string, opts: { silent?: boolean } = {}): string {
 }
 
 function confirm(question: string): boolean {
+  if (process.argv.includes("--yes")) {
+    console.log(`${question} [y/N] y (--yes)`);
+    return true;
+  }
   const answer = prompt(`${question} [y/N] `);
   return /^y/i.test(answer ?? "");
 }
@@ -68,12 +73,12 @@ const skipSnapshot = args.includes("--skip-snapshot");
 const preflightOnly = args.includes("--preflight-only");
 
 if (!version) {
-  console.error("usage: bun scripts/release.ts <version> [--skip-snapshot] [--preflight-only]");
+  console.error("usage: bun scripts/release.ts <version> [--skip-snapshot] [--preflight-only] [--yes]");
   console.error("       version: vX.Y.Z  or  vX.Y.Z-pre.N  (e.g. v0.1.0-alpha.9)");
   process.exit(1);
 }
 
-const allowedFlags = new Set(["--skip-snapshot", "--preflight-only"]);
+const allowedFlags = new Set(["--skip-snapshot", "--preflight-only", "--yes"]);
 const unknownFlags = args.filter(a => a.startsWith("--") && !allowedFlags.has(a));
 if (unknownFlags.length > 0) {
   fail(`unknown option${unknownFlags.length === 1 ? "" : "s"}: ${unknownFlags.join(", ")}`);
