@@ -22,9 +22,9 @@ export type AgentAdapterRecord = {
   auth_status?: "ok" | "unauthenticated" | "billing" | "unknown" | string;
   auth_error?: string;
   credential_modes?: AgentAdapterCredentialMode[];
-  cloud_credential_mode?: string;
-  cloud_credential_ok?: boolean;
-  cloud_credential_hint?: string;
+  remote_credential_mode?: string;
+  remote_credential_ok?: boolean;
+  remote_credential_hint?: string;
   config_options?: ChatConfigOptionRecord[];
   claude_code_cli?: AgentAdapterSetupCommandStatus;
 };
@@ -33,7 +33,7 @@ export type AgentAdapterCredentialMode = {
   id: string;
   name?: string;
   description?: string;
-  cloud_allowed: boolean;
+  remote_allowed: boolean;
   env_keys?: string[];
 };
 

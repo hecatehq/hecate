@@ -1874,7 +1874,7 @@ describe("ChatView input", () => {
     expect(send.disabled).toBe(true);
   });
 
-  it("uses hosted-runtime setup copy instead of local provider discovery in cloud mode", async () => {
+  it("uses hosted-runtime setup copy instead of local provider discovery in remote mode", async () => {
     const { state, actions } = setup({
       chatTarget: "agent",
       defaultChatToolsEnabled: false,
@@ -1883,7 +1883,7 @@ describe("ChatView input", () => {
       agentAdapters: [],
       sessionInfo: {
         role: "operator",
-        cloud_identity: {
+        remote_identity: {
           actor_id: "actor_1",
           org_id: "org_1",
           project_id: "proj_1",

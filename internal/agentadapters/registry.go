@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/hecatehq/hecate/internal/agentcontrols"
-	"github.com/hecatehq/hecate/internal/cloudruntime"
 	"github.com/hecatehq/hecate/internal/gitrunner"
+	"github.com/hecatehq/hecate/internal/remoteruntime"
 )
 
 const (
@@ -27,9 +27,9 @@ const (
 // adapter and the operator has not selected a concrete model yet.
 var ErrLaunchModelRequired = errors.New("launch model required")
 
-// ErrCloudCredentialRequired means a hosted/cloud request tried to start an
-// external agent without a vendor-supported cloud-safe credential mode.
-var ErrCloudCredentialRequired = errors.New("cloud-safe external-agent credential required")
+// ErrRemoteCredentialRequired means a remote-mode request tried to start an
+// external agent without an explicitly allowed credential mode.
+var ErrRemoteCredentialRequired = errors.New("remote-safe external-agent credential required")
 
 // adapterDiscoveryOverrideEnv is intentionally narrower than
 // adapterDevOverrideEnv: keep it for backend tests that only need catalog
@@ -37,6 +37,7 @@ var ErrCloudCredentialRequired = errors.New("cloud-safe external-agent credentia
 // and probe visuals stay aligned.
 const adapterDiscoveryOverrideEnv = "HECATE_AGENT_ADAPTER_DISCOVERY_OVERRIDES"
 const adapterDevOverrideEnv = "HECATE_AGENT_ADAPTER_DEV_OVERRIDES"
+const personalRemoteExternalAgentLoginsEnv = "HECATE_PERSONAL_REMOTE_EXTERNAL_AGENT_LOGINS"
 
 const (
 	adapterDevOverrideMissing      = "missing"
@@ -82,11 +83,11 @@ type Adapter struct {
 }
 
 type CredentialMode struct {
-	ID           string
-	Name         string
-	Description  string
-	CloudAllowed bool
-	EnvKeys      []string
+	ID            string
+	Name          string
+	Description   string
+	RemoteAllowed bool
+	EnvKeys       []string
 }
 
 type VersionProbe struct {
@@ -141,19 +142,19 @@ type ManagedRunner struct {
 
 type Status struct {
 	Adapter
-	Available           bool
-	Status              string
-	Path                string
-	Error               string
-	AdapterVersion      string
-	AgentVersion        string
-	VersionOutsideRange bool
-	AuthStatus          string
-	AuthError           string
-	CloudCredentialMode string
-	CloudCredentialOK   bool
-	CloudCredentialHint string
-	ClaudeCodeCLI       SetupCommandStatus
+	Available            bool
+	Status               string
+	Path                 string
+	Error                string
+	AdapterVersion       string
+	AgentVersion         string
+	VersionOutsideRange  bool
+	AuthStatus           string
+	AuthError            string
+	RemoteCredentialMode string
+	RemoteCredentialOK   bool
+	RemoteCredentialHint string
+	ClaudeCodeCLI        SetupCommandStatus
 }
 
 type LookupFunc func(file string) (string, error)
@@ -284,11 +285,11 @@ func BuiltIns() []Adapter {
 					Description: "Uses the operator's local Codex CLI login files. Local Hecate only.",
 				},
 				{
-					ID:           CredentialModeAPIKey,
-					Name:         "API key",
-					Description:  "Uses a scoped OpenAI/Codex API key supplied to the adapter environment.",
-					CloudAllowed: true,
-					EnvKeys:      []string{"OPENAI_API_KEY", "CODEX_API_KEY"},
+					ID:            CredentialModeAPIKey,
+					Name:          "API key",
+					Description:   "Uses a scoped OpenAI/Codex API key supplied to the adapter environment.",
+					RemoteAllowed: true,
+					EnvKeys:       []string{"OPENAI_API_KEY", "CODEX_API_KEY"},
 				},
 			},
 		},
@@ -329,11 +330,11 @@ func BuiltIns() []Adapter {
 					Description: "Uses the operator's local Claude Code login. Local Hecate only.",
 				},
 				{
-					ID:           CredentialModeAPIKey,
-					Name:         "API key",
-					Description:  "Uses a scoped Anthropic API key supplied to the adapter environment.",
-					CloudAllowed: true,
-					EnvKeys:      []string{"ANTHROPIC_API_KEY"},
+					ID:            CredentialModeAPIKey,
+					Name:          "API key",
+					Description:   "Uses a scoped Anthropic API key supplied to the adapter environment.",
+					RemoteAllowed: true,
+					EnvKeys:       []string{"ANTHROPIC_API_KEY"},
 				},
 			},
 		},
@@ -359,11 +360,11 @@ func BuiltIns() []Adapter {
 					Description: "Uses the operator's local Cursor Agent login. Local Hecate only.",
 				},
 				{
-					ID:           CredentialModeAPIKey,
-					Name:         "API key",
-					Description:  "Uses a scoped Cursor API key supplied to the adapter environment.",
-					CloudAllowed: true,
-					EnvKeys:      []string{"CURSOR_API_KEY"},
+					ID:            CredentialModeAPIKey,
+					Name:          "API key",
+					Description:   "Uses a scoped Cursor API key supplied to the adapter environment.",
+					RemoteAllowed: true,
+					EnvKeys:       []string{"CURSOR_API_KEY"},
 				},
 			},
 		},
@@ -389,11 +390,11 @@ func BuiltIns() []Adapter {
 					Description: "Uses the operator's local Grok Build login. Local Hecate only.",
 				},
 				{
-					ID:           CredentialModeAPIKey,
-					Name:         "API key",
-					Description:  "Uses a scoped xAI API key supplied to the adapter environment.",
-					CloudAllowed: true,
-					EnvKeys:      []string{"XAI_API_KEY", "PROVIDER_XAI_API_KEY"},
+					ID:            CredentialModeAPIKey,
+					Name:          "API key",
+					Description:   "Uses a scoped xAI API key supplied to the adapter environment.",
+					RemoteAllowed: true,
+					EnvKeys:       []string{"XAI_API_KEY", "PROVIDER_XAI_API_KEY"},
 				},
 			},
 		},
@@ -401,7 +402,7 @@ func BuiltIns() []Adapter {
 }
 
 func adaptersForBuild(items []Adapter) []Adapter {
-	if !cloudRuntimeBuild {
+	if !remoteRuntimeBuild {
 		return items
 	}
 	filtered := make([]Adapter, 0, len(items))
@@ -418,21 +419,18 @@ func adaptersForBuild(items []Adapter) []Adapter {
 func cloudAllowedCredentialModes(adapter Adapter) []CredentialMode {
 	modes := make([]CredentialMode, 0, len(adapter.CredentialModes))
 	for _, mode := range adapter.CredentialModes {
-		if mode.CloudAllowed {
+		if mode.RemoteAllowed {
 			modes = append(modes, mode)
 		}
 	}
 	return modes
 }
 
-func cloudCredentialStatus(adapter Adapter, getenv func(string) string) (CredentialMode, bool, string) {
+func remoteCredentialStatus(adapter Adapter, getenv func(string) string) (CredentialMode, bool, string) {
 	if getenv == nil {
 		getenv = os.Getenv
 	}
 	modes := cloudAllowedCredentialModes(adapter)
-	if len(modes) == 0 {
-		return CredentialMode{}, false, fmt.Sprintf("%s does not declare a cloud-safe credential mode", adapter.Name)
-	}
 	var envKeys []string
 	for _, mode := range modes {
 		envKeys = append(envKeys, mode.EnvKeys...)
@@ -440,7 +438,36 @@ func cloudCredentialStatus(adapter Adapter, getenv func(string) string) (Credent
 			return mode, true, ""
 		}
 	}
-	return CredentialMode{}, false, fmt.Sprintf("%s requires one cloud-safe credential environment variable: %s", adapter.Name, strings.Join(uniqueStrings(envKeys), ", "))
+	if personalRemoteExternalAgentLoginsAllowed(getenv) {
+		if mode, ok := localLoginCredentialMode(adapter); ok {
+			return mode, true, ""
+		}
+	}
+	if len(modes) == 0 {
+		return CredentialMode{}, false, fmt.Sprintf("%s does not declare a remote-safe credential mode", adapter.Name)
+	}
+	return CredentialMode{}, false, fmt.Sprintf("%s requires one remote-safe credential environment variable: %s", adapter.Name, strings.Join(uniqueStrings(envKeys), ", "))
+}
+
+func localLoginCredentialMode(adapter Adapter) (CredentialMode, bool) {
+	for _, mode := range adapter.CredentialModes {
+		if mode.ID == CredentialModeLocalLogin {
+			return mode, true
+		}
+	}
+	return CredentialMode{}, false
+}
+
+func personalRemoteExternalAgentLoginsAllowed(getenv func(string) string) bool {
+	if getenv == nil {
+		getenv = os.Getenv
+	}
+	switch strings.ToLower(strings.TrimSpace(getenv(personalRemoteExternalAgentLoginsEnv))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 func credentialModeConfigured(mode CredentialMode, getenv func(string) string) bool {
@@ -455,19 +482,19 @@ func credentialModeConfigured(mode CredentialMode, getenv func(string) string) b
 	return false
 }
 
-func validateCloudCredentialForRequest(ctx context.Context, adapter Adapter) (CredentialMode, error) {
-	if _, ok := cloudruntime.FromContext(ctx); !ok {
+func validateRemoteCredentialForRequest(ctx context.Context, adapter Adapter) (CredentialMode, error) {
+	if _, ok := remoteruntime.FromContext(ctx); !ok {
 		return CredentialMode{}, nil
 	}
-	mode, ok, hint := cloudCredentialStatus(adapter, os.Getenv)
+	mode, ok, hint := remoteCredentialStatus(adapter, os.Getenv)
 	if ok {
 		return mode, nil
 	}
-	return CredentialMode{}, fmt.Errorf("%w: %s", ErrCloudCredentialRequired, hint)
+	return CredentialMode{}, fmt.Errorf("%w: %s", ErrRemoteCredentialRequired, hint)
 }
 
-func cloudCredentialHint(adapter Adapter) string {
-	_, ok, hint := cloudCredentialStatus(adapter, os.Getenv)
+func remoteCredentialHint(adapter Adapter) string {
+	_, ok, hint := remoteCredentialStatus(adapter, os.Getenv)
 	if ok {
 		return ""
 	}
@@ -559,12 +586,12 @@ func statusForAdapter(ctx context.Context, item Adapter, lookup LookupFunc, opts
 		status.Error = err.Error()
 		return status
 	}
-	if _, ok := cloudruntime.FromContext(ctx); ok {
-		mode, ready, hint := cloudCredentialStatus(item, os.Getenv)
-		status.CloudCredentialOK = ready
-		status.CloudCredentialHint = hint
+	if _, ok := remoteruntime.FromContext(ctx); ok {
+		mode, ready, hint := remoteCredentialStatus(item, os.Getenv)
+		status.RemoteCredentialOK = ready
+		status.RemoteCredentialHint = hint
 		if ready {
-			status.CloudCredentialMode = mode.ID
+			status.RemoteCredentialMode = mode.ID
 		} else {
 			status.Error = hint
 			status.AuthStatus = AuthStatusUnauthenticated
@@ -1098,27 +1125,45 @@ type adapterProcessEnv struct {
 }
 
 func prepareAdapterProcessEnv(ctx context.Context, adapter Adapter, env []string) (adapterProcessEnv, error) {
-	mode, err := validateCloudCredentialForRequest(ctx, adapter)
+	mode, err := validateRemoteCredentialForRequest(ctx, adapter)
 	if err != nil {
 		return adapterProcessEnv{}, err
 	}
-	if _, ok := cloudruntime.FromContext(ctx); !ok {
+	if _, ok := remoteruntime.FromContext(ctx); !ok {
 		return adapterProcessEnv{values: sanitizedEnvForAdapter(adapter.ID, env)}, nil
+	}
+	if mode.ID == CredentialModeLocalLogin {
+		home := remoteRuntimePersistentHome(env)
+		if home == "" {
+			return adapterProcessEnv{}, fmt.Errorf("%w: HOME or USERPROFILE is required when %s=1", ErrRemoteCredentialRequired, personalRemoteExternalAgentLoginsEnv)
+		}
+		return adapterProcessEnv{
+			values: remoteRuntimeLocalLoginAdapterEnv(adapter, mode, env, home),
+		}, nil
 	}
 	home, err := os.MkdirTemp("", "hecate-cloud-agent-home-*")
 	if err != nil {
 		return adapterProcessEnv{}, fmt.Errorf("create cloud adapter home: %w", err)
 	}
 	return adapterProcessEnv{
-		values: cloudRuntimeAdapterEnv(adapter, mode, env, home),
+		values: remoteRuntimeAdapterEnv(adapter, mode, env, home),
 		cleanup: func() {
 			_ = os.RemoveAll(home)
 		},
 	}, nil
 }
 
+func remoteRuntimePersistentHome(env []string) string {
+	for _, key := range []string{"HOME", "USERPROFILE"} {
+		if value := strings.TrimSpace(envValue(env, key)); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
 func prepareGenericProcessEnv(ctx context.Context, env []string) (adapterProcessEnv, error) {
-	if _, ok := cloudruntime.FromContext(ctx); !ok {
+	if _, ok := remoteruntime.FromContext(ctx); !ok {
 		return adapterProcessEnv{values: sanitizedEnv(env)}, nil
 	}
 	home, err := os.MkdirTemp("", "hecate-cloud-agent-home-*")
@@ -1126,14 +1171,14 @@ func prepareGenericProcessEnv(ctx context.Context, env []string) (adapterProcess
 		return adapterProcessEnv{}, fmt.Errorf("create cloud adapter home: %w", err)
 	}
 	return adapterProcessEnv{
-		values: cloudRuntimeBaseEnv(env, home, nil),
+		values: remoteRuntimeBaseEnv(env, home, nil),
 		cleanup: func() {
 			_ = os.RemoveAll(home)
 		},
 	}, nil
 }
 
-func cloudRuntimeAdapterEnv(adapter Adapter, mode CredentialMode, env []string, home string) []string {
+func remoteRuntimeAdapterEnv(adapter Adapter, mode CredentialMode, env []string, home string) []string {
 	allowedKeys := make(map[string]struct{}, len(mode.EnvKeys))
 	for _, key := range mode.EnvKeys {
 		key = strings.TrimSpace(key)
@@ -1141,7 +1186,7 @@ func cloudRuntimeAdapterEnv(adapter Adapter, mode CredentialMode, env []string, 
 			allowedKeys[key] = struct{}{}
 		}
 	}
-	out := cloudRuntimeBaseEnv(env, home, allowedKeys)
+	out := remoteRuntimeBaseEnv(env, home, allowedKeys)
 	if strings.EqualFold(strings.TrimSpace(adapter.ID), "grok_build") && !envContainsKey(out, "XAI_API_KEY") {
 		if providerKey := envValue(env, "PROVIDER_XAI_API_KEY"); strings.TrimSpace(providerKey) != "" {
 			out = append(out, "XAI_API_KEY="+providerKey)
@@ -1150,7 +1195,17 @@ func cloudRuntimeAdapterEnv(adapter Adapter, mode CredentialMode, env []string, 
 	return out
 }
 
-func cloudRuntimeBaseEnv(env []string, home string, allowedKeys map[string]struct{}) []string {
+func remoteRuntimeLocalLoginAdapterEnv(adapter Adapter, mode CredentialMode, env []string, home string) []string {
+	out := remoteRuntimeAdapterEnv(adapter, mode, env, home)
+	for _, key := range []string{"XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "NPM_CONFIG_CACHE"} {
+		if value := strings.TrimSpace(envValue(env, key)); value != "" {
+			out = replaceEnvValue(out, key, value)
+		}
+	}
+	return out
+}
+
+func remoteRuntimeBaseEnv(env []string, home string, allowedKeys map[string]struct{}) []string {
 	allowedPrefixes := []string{
 		"PATH=",
 		"Path=",
@@ -1178,7 +1233,7 @@ func cloudRuntimeBaseEnv(env []string, home string, allowedKeys map[string]struc
 	}
 	for _, entry := range env {
 		name, value, ok := strings.Cut(entry, "=")
-		if !ok || cloudRuntimeEnvNameIsEphemeral(name) {
+		if !ok || remoteRuntimeEnvNameIsEphemeral(name) {
 			continue
 		}
 		if _, ok := allowedKeys[name]; ok && name != "PROVIDER_XAI_API_KEY" {
@@ -1197,7 +1252,19 @@ func cloudRuntimeBaseEnv(env []string, home string, allowedKeys map[string]struc
 	return out
 }
 
-func cloudRuntimeEnvNameIsEphemeral(name string) bool {
+func replaceEnvValue(env []string, key, value string) []string {
+	prefix := key + "="
+	entry := prefix + value
+	for i, item := range env {
+		if strings.HasPrefix(item, prefix) {
+			env[i] = entry
+			return env
+		}
+	}
+	return append(env, entry)
+}
+
+func remoteRuntimeEnvNameIsEphemeral(name string) bool {
 	switch name {
 	case "HOME", "USERPROFILE", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME":
 		return true

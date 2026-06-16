@@ -15,7 +15,7 @@ import (
 var (
 	ErrControlPlaneNotConfigured = errors.New("control plane is not configured")
 	ErrRuntimeNotConfigured      = errors.New("dynamic provider runtime is not configured")
-	ErrLocalProvidersDisabled    = errors.New("local providers are disabled in cloud runtime mode")
+	ErrLocalProvidersDisabled    = errors.New("local providers are disabled in remote runtime mode")
 )
 
 type ValidationError = apperrors.ValidationError

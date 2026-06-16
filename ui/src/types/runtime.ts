@@ -10,7 +10,7 @@ export type SessionResponse = {
   object: string;
   data: {
     role: string;
-    cloud_identity?: {
+    remote_identity?: {
       actor_id: string;
       org_id: string;
       project_id: string;

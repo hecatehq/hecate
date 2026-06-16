@@ -208,12 +208,12 @@ describe("ProvidersView add provider modal", () => {
     expect(screen.getByText("Ollama")).toBeTruthy();
   });
 
-  it("opens the modal on Cloud and skips local discovery in cloud runtime mode", async () => {
+  it("opens the modal on Cloud and skips local discovery in remote runtime mode", async () => {
     const state = createRuntimeConsoleFixture({
       session: { label: "Hosted" },
       sessionInfo: {
         role: "operator",
-        cloud_identity: {
+        remote_identity: {
           actor_id: "actor_1",
           org_id: "org_1",
           project_id: "proj_1",
@@ -714,13 +714,13 @@ describe("ProvidersView table renders", () => {
     expect(listChatGrants).toHaveBeenCalled();
   });
 
-  it("shows hosted credential setup for external agents in cloud runtime mode", async () => {
+  it("shows hosted credential setup for external agents in remote runtime mode", async () => {
     const copyCommand = vi.fn(async () => undefined);
     const probeAgentAdapter = vi.fn(async () => null);
     const state = createRuntimeConsoleFixture({
       sessionInfo: {
         role: "operator",
-        cloud_identity: {
+        remote_identity: {
           actor_id: "actor_1",
           org_id: "org_1",
           project_id: "proj_1",
@@ -739,12 +739,12 @@ describe("ProvidersView table renders", () => {
           available: false,
           status: "missing",
           cost_mode: "external",
-          cloud_credential_hint: "Set OPENAI_API_KEY or CODEX_API_KEY for hosted Codex.",
+          remote_credential_hint: "Set OPENAI_API_KEY or CODEX_API_KEY for hosted Codex.",
           credential_modes: [
             {
               id: "api_key",
               name: "API key",
-              cloud_allowed: true,
+              remote_allowed: true,
               env_keys: ["OPENAI_API_KEY", "CODEX_API_KEY"],
             },
           ],

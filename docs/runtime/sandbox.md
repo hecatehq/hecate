@@ -199,7 +199,7 @@ case.
 The official Linux Docker runtime image is a full Hecate runtime image, not a
 distroless binary wrapper. It ships with a POSIX shell, git/ssh, and the
 supported External Agent CLIs/ACP adapters so local/self-host containers and
-hosted cloud runtimes use the same image shape. It also includes common
+hosted remote runtimes use the same image shape. It also includes common
 project-dependency tooling (`build-essential`, Python/pip/venv, `pkg-config`,
 `ripgrep`, `jq`, and archive/process helpers) so operator terminal sessions and
 project setup commands can run without `sudo`. The image does not install

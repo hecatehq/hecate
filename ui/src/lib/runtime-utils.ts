@@ -39,8 +39,8 @@ export function filterModelsByProvider(
   return models.filter((entry) => entry.metadata?.provider === provider);
 }
 
-export function isCloudRuntimeSession(sessionInfo: SessionInfo): boolean {
-  return Boolean(sessionInfo?.cloud_identity);
+export function isRemoteRuntimeSession(sessionInfo: SessionInfo): boolean {
+  return Boolean(sessionInfo?.remote_identity);
 }
 
 // formatRelativeTime renders an ISO timestamp as a short relative

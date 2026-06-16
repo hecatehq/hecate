@@ -358,18 +358,18 @@ For errors that should surface before a run is created (bad config, missing requ
   Queue backend changes must also update `internal/telemetry/metric_labels.go`
   and `internal/telemetry/metrics_test.go` so hosted Postgres stays visible in
   OTel instead of collapsing to `other`.
-- **Cloud runtime endpoint policy** — every new `/hecate/v1/*` route must be
-  classified in `internal/api/cloud_runtime_policy.go` as cloud-safe or
-  local-only. Unknown Hecate-native paths fail closed in cloud mode, and
-  `TestCloudRuntimeEndpointPolicyCoversRegisteredHecateRoutes` guards the
+- **Remote runtime endpoint policy** — every new `/hecate/v1/*` route must be
+  classified in `internal/api/remote_runtime_policy.go` as remote-safe or
+  local-only. Unknown Hecate-native paths fail closed in remote mode, and
+  `TestRemoteRuntimeEndpointPolicyCoversRegisteredHecateRoutes` guards the
   registered route list.
-- **Cloud external-agent env** — adapter subprocesses started from
+- **Remote external-agent env** — adapter subprocesses started from
   cloud-identified requests must go through `prepareAdapterProcessEnv`, not
-  direct `os.Environ()` filtering. Cloud mode uses an ephemeral home and only
-  the declared cloud-safe credential keys plus runtime essentials.
-- **Cloud local-provider policy** — cloud runtime mode disables `kind=local`
+  direct `os.Environ()` filtering. Remote mode uses an ephemeral home and only
+  the declared remote-safe credential keys plus runtime essentials.
+- **Remote local-provider policy** — remote runtime mode disables `kind=local`
   providers by default. Keep preset filtering, settings validation, env import,
-  and runtime-manager reload in sync; `HECATE_CLOUD_ALLOW_LOCAL_PROVIDERS=1` is
+  and runtime-manager reload in sync; `HECATE_REMOTE_ALLOW_LOCAL_PROVIDERS=1` is
   the explicit sidecar opt-in. This is a provider-kind policy, not URL
   destination filtering; egress restrictions belong in the deployment boundary.
 - **Capability cache seeding** for provider tests — see [`../providers/SKILL.md`](../providers/SKILL.md) for the snippet. Without it the discovery path panics on a nil request body.

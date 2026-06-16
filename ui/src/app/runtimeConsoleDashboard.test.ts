@@ -66,7 +66,7 @@ describe("deriveSessionState", () => {
     expect(
       deriveSessionState({
         role: "operator",
-        cloud_identity: {
+        remote_identity: {
           actor_id: "actor_1",
           org_id: "org_1",
           project_id: "proj_1",

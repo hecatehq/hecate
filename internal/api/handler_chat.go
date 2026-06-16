@@ -436,9 +436,9 @@ func writeAgentChatPrepareError(w http.ResponseWriter, adapterName string, err e
 		})
 		return
 	}
-	if errors.Is(err, agentadapters.ErrCloudCredentialRequired) {
+	if errors.Is(err, agentadapters.ErrRemoteCredentialRequired) {
 		WriteErrorDetails(w, http.StatusForbidden, errCodeForbidden, err.Error(), ErrorDetails{
-			UserMessage:    "This hosted runtime needs cloud-safe credentials for the selected external agent.",
+			UserMessage:    "This hosted runtime needs remote-safe credentials for the selected external agent.",
 			OperatorAction: "Set a scoped API key or enterprise token for this runtime instead of using local CLI login files.",
 		})
 		return

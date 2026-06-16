@@ -29,7 +29,7 @@ private to the host, load balancer, or orchestrator health check.
 ## Contents
 
 - [Image pinning](#image-pinning)
-- [Cloud runtime mode](#cloud-runtime-mode)
+- [Remote runtime mode](#remote-runtime-mode)
 - [Binary install](#binary-install)
 - [Desktop app](#desktop-app)
 - [Resetting state](#resetting-state)
@@ -38,33 +38,38 @@ private to the host, load balancer, or orchestrator health check.
 - [External-agent startup knobs](#external-agent-startup-knobs)
 - [Rate limiting](#rate-limiting)
 
-## Cloud runtime mode
+## Remote runtime mode
 
-The Docker runtime image is shared by local/self-host deployments and hosted
-Hecate Cloud runtimes. It includes the Hecate binary, embedded UI, git/ssh, and
-the supported External Agent CLIs/ACP adapters. The image defaults to
-local/self-host mode; hosted deployments opt into the cloud security posture
-with runtime env. Start the runtime with:
+The Docker runtime image is shared by local/self-host deployments and remote
+runtimes. It includes the Hecate binary, embedded UI, git/ssh, and the supported
+External Agent CLIs/ACP adapters. The image defaults to local/self-host mode;
+remote deployments opt into the remote security posture with runtime env. Start
+the runtime with:
 
 ```bash
-HECATE_CLOUD_RUNTIME_MODE=1
-HECATE_CLOUD_RUNTIME_SECRET=replace-with-at-least-24-random-characters
+HECATE_REMOTE_RUNTIME_MODE=1
+HECATE_REMOTE_RUNTIME_SECRET=replace-with-at-least-24-random-characters
 ```
 
-In this mode every non-`/healthz` request must arrive through the trusted Cloud
-control-plane proxy. The proxy sends `X-Hecate-Cloud-Runtime-Secret` plus
-`X-Hecate-Cloud-Actor-ID`, `X-Hecate-Cloud-Org-ID`,
-`X-Hecate-Cloud-Project-ID`, and `X-Hecate-Cloud-Runtime-ID`; Hecate records the
+Treat this mode as a single-operator personal remote runtime boundary unless
+the surrounding product has its own account model, authorization checks, audit,
+credential separation, and vendor-supported External Agent credentials. Remote
+runtime mode is not multi-user authentication by itself.
+
+In this mode every non-`/healthz` request must arrive through the trusted
+control-plane proxy. The proxy sends `X-Hecate-Remote-Runtime-Secret` plus
+`X-Hecate-Remote-Actor-ID`, `X-Hecate-Remote-Org-ID`,
+`X-Hecate-Remote-Project-ID`, and `X-Hecate-Remote-Runtime-ID`; Hecate records the
 actor identity on supported audit and telemetry paths. The legacy
 `HECATE_RUNTIME_TOKEN` and `HECATE_INFERENCE_TOKEN` guards are bypassed once a
-request has valid Cloud identity, so the Cloud proxy is the authentication
-boundary for hosted runtimes.
+request has valid remote identity, so the trusted proxy is the authentication
+boundary for remote runtimes.
 
-Cloud mode also blocks local-only operations over the remote surface:
+Remote mode also blocks local-only operations over the remote surface:
 workspace picker/open-in-editor, reset-data, shutdown, MCP probe, and local
 provider discovery and MCP registry discovery. Hecate-native `/hecate/v1/*`
-routes are classified for cloud mode, and route coverage tests fail when a new
-registered route is not explicitly marked cloud-safe or local-only. Keep the
+routes are classified for remote mode, and route coverage tests fail when a new
+registered route is not explicitly marked remote-safe or local-only. Keep the
 runtime network-private even with this mode enabled; the header secret is the
 internal proxy contract, not a public internet authentication system.
 
@@ -77,33 +82,47 @@ applies its process policy, env sanitisation, and approval gates, but
 filesystem/network isolation inside the container is normally reported as
 `none`.
 
-Cloud mode also disables local model providers by default. Local presets are
+Remote mode also disables local model providers by default. Local presets are
 hidden, `kind=local` provider creates/updates are rejected, env-preconfigured
 local providers are skipped, and pre-existing local provider rows are not loaded
-into the runtime registry. Leave this default for Hecate Cloud SaaS runtimes.
+into the runtime registry. Leave this default unless the runtime deliberately
+attaches an isolated local-model sidecar.
 Private deployments that deliberately attach an isolated Ollama/vLLM-compatible
 sidecar can opt in with:
 
 ```bash
-HECATE_CLOUD_ALLOW_LOCAL_PROVIDERS=1
+HECATE_REMOTE_ALLOW_LOCAL_PROVIDERS=1
 ```
 
 The local-provider switch is based on Hecate provider `kind`, not URL
 classification. A custom `kind=cloud` provider keeps its configured `base_url`;
-network destination policy belongs in the cloud deployment boundary.
+network destination policy belongs in the remote deployment boundary.
 
-External Agent sessions in cloud mode use a fail-closed credential policy even
-though the image contains the agent CLIs. Hecate will not treat local CLI
-browser-login files or copied personal auth tokens as hosted credentials. Codex,
-Claude Code, Cursor Agent, and Grok Build can still run in hosted runtimes when
-the runtime receives vendor-supported cloud-safe credentials: `OPENAI_API_KEY` /
-`CODEX_API_KEY`, `ANTHROPIC_API_KEY`, `CURSOR_API_KEY`, or `XAI_API_KEY`
-respectively. The adapter catalog reports the declared credential modes and
-marks an adapter unauthenticated until one of its cloud-safe env keys is
-present. When Hecate starts an External Agent for a cloud request, the child
-process receives only runtime essentials, the matching cloud-safe credential
-family, and an ephemeral `HOME` / XDG config directory; local CLI login homes
-and broad auth-token env vars are not inherited.
+External Agent sessions in remote mode use a fail-closed credential policy even
+though the image contains the agent CLIs. By default, Hecate only accepts
+vendor-supported remote credentials: `OPENAI_API_KEY` / `CODEX_API_KEY`,
+`ANTHROPIC_API_KEY`, `CURSOR_API_KEY`, or `XAI_API_KEY` respectively. The
+adapter catalog reports the declared credential modes and marks an adapter
+unauthenticated until one of its remote-safe env keys is present. When Hecate
+starts an External Agent for a remote request, the child process receives only
+runtime essentials, the matching credential family, and an ephemeral `HOME` /
+XDG config directory.
+
+For a single-user personal remote runtime, an operator may opt into
+runtime-local External Agent login state:
+
+```bash
+HECATE_PERSONAL_REMOTE_EXTERNAL_AGENT_LOGINS=1
+```
+
+Only use this when the runtime's `HOME` / XDG config/cache/data directories live
+on that runtime's persistent volume and the runtime is owned by one person. The
+login should be created inside that runtime through Terminal or SSH. Keep this
+unset unless that one-person ownership boundary is true. External Agent vendors
+may restrict or forbid shared/account-delegated use of browser or CLI login
+state; Hecate does not interpret, bypass, or relax those terms. For anything
+beyond personal remote use, use vendor-supported API keys, team/project
+credentials, enterprise tokens, or future vendor auth flows.
 
 ## Image pinning
 
@@ -113,7 +132,7 @@ and broad auth-token env vars are not inherited.
 The published image has the same runtime posture as local source builds from
 `Dockerfile`: Hecate plus a shell, git/ssh, common dependency-install tooling,
 and the supported External Agent CLIs/ACP adapters. Local/self-host behavior
-remains the default unless `HECATE_CLOUD_RUNTIME_MODE=1` is set.
+remains the default unless `HECATE_REMOTE_RUNTIME_MODE=1` is set.
 
 To pin to a specific release, replace `:latest` with the published tag (no `v` prefix — goreleaser uses the bare semver as the docker tag). Example for the current alpha:
 
@@ -305,9 +324,9 @@ database; if they diverge, the env value wins on the next startup.
 Hecate keeps the storage model intentionally boring: one process-wide backend
 selector controls all Hecate-owned durable state.
 
-| Env var          | `memory`                         | `sqlite`                                         | `postgres`                                              |
-| ---------------- | -------------------------------- | ------------------------------------------------ | ------------------------------------------------------- |
-| `HECATE_BACKEND` | local default; resets on restart | Docker default; persists to `HECATE_SQLITE_PATH` | Cloud/runtime option; persists to `HECATE_POSTGRES_URL` |
+| Env var          | `memory`                         | `sqlite`                                         | `postgres`                                               |
+| ---------------- | -------------------------------- | ------------------------------------------------ | -------------------------------------------------------- |
+| `HECATE_BACKEND` | local default; resets on restart | Docker default; persists to `HECATE_SQLITE_PATH` | Remote runtime option; persists to `HECATE_POSTGRES_URL` |
 
 The backend covers settings, encrypted provider credentials, audit events,
 provider health history, usage events, retention history, projects, chat

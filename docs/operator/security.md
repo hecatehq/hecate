@@ -12,12 +12,15 @@ Hecate assumes the operator trusts their own machine, local user account, and se
 - `HECATE_INFERENCE_TOKEN` can require `Authorization: Bearer <token>` or `x-api-key: <token>` on the provider-compatible inference routes: `GET /v1/models`, `POST /v1/chat/completions`, and `POST /v1/messages`. It does not protect Hecate-native `/hecate/v1/*`, `/healthz`, static UI assets, or OTLP `/v1/traces`, `/v1/metrics`, and `/v1/logs`.
 - Hecate is not designed to be exposed directly on a network.
 - If you bind Hecate to anything other than loopback, startup requires `HECATE_ALLOW_NON_LOOPBACK_BIND=1`. Set it only when you have your own firewall, reverse proxy, or access-control layer in front.
-- Hosted runtimes must use `HECATE_CLOUD_RUNTIME_MODE=1` behind the Hecate
-  Cloud proxy. In that mode, non-health requests require trusted
-  `X-Hecate-Cloud-*` identity headers plus the internal runtime secret, and
+- Hosted runtimes must use `HECATE_REMOTE_RUNTIME_MODE=1` behind the Hecate
+  trusted proxy. In that mode, non-health requests require trusted
+  `X-Hecate-Remote-*` identity headers plus the internal runtime secret, and
   local-only endpoints remain blocked. Local model providers are also disabled
   unless the runtime is explicitly launched with
-  `HECATE_CLOUD_ALLOW_LOCAL_PROVIDERS=1` for an isolated sidecar deployment.
+  `HECATE_REMOTE_ALLOW_LOCAL_PROVIDERS=1` for an isolated sidecar deployment.
+  External Agent CLI login state remains disabled unless a single-user personal
+  remote runtime explicitly sets `HECATE_PERSONAL_REMOTE_EXTERNAL_AGENT_LOGINS=1`
+  and keeps the runtime home/XDG directories on its persistent volume.
   The runtime secret is not public auth; keep the runtime network-private.
 - Do not put local-only endpoints such as workspace folder selection, "open in editor", local provider discovery, MCP registry discovery, MCP probe, reset-data, or shutdown behind a forwarding proxy. Those endpoints reject non-loopback sockets and `X-Forwarded-For` / `X-Real-IP` headers because they can inspect host-local state, open local OS UI, spawn diagnostic subprocesses, or mutate local operator state.
 - Do not run Hecate on a shared host where untrusted local users can access the gateway port or data directory.

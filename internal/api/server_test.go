@@ -1037,29 +1037,29 @@ func TestProviderPresetsReturnsCatalog(t *testing.T) {
 	}
 }
 
-func TestProviderPresetsHideLocalProvidersInCloudRuntimeByDefault(t *testing.T) {
+func TestProviderPresetsHideLocalProvidersInRemoteRuntimeByDefault(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	handler := NewHandler(config.Config{Server: config.ServerConfig{CloudRuntimeMode: true}}, logger, nil, nil, nil, nil)
+	handler := NewHandler(config.Config{Server: config.ServerConfig{RemoteRuntimeMode: true}}, logger, nil, nil, nil, nil)
 	response := requestProviderPresetsDirect(t, handler)
 	if response.Object != "provider_presets" {
 		t.Fatalf("object = %q, want provider_presets", response.Object)
 	}
 	for _, item := range response.Data {
 		if item.Kind == "local" {
-			t.Fatalf("cloud runtime preset list contains local provider: %+v", item)
+			t.Fatalf("remote runtime preset list contains local provider: %+v", item)
 		}
 	}
 }
 
-func TestProviderPresetsAllowLocalProvidersInCloudRuntimeWithOptIn(t *testing.T) {
+func TestProviderPresetsAllowLocalProvidersInRemoteRuntimeWithOptIn(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	handler := NewHandler(config.Config{Server: config.ServerConfig{
-		CloudRuntimeMode:         true,
-		CloudAllowLocalProviders: true,
+		RemoteRuntimeMode:         true,
+		RemoteAllowLocalProviders: true,
 	}}, logger, nil, nil, nil, nil)
 	response := requestProviderPresetsDirect(t, handler)
 	foundOllama := false

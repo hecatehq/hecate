@@ -80,34 +80,34 @@ type AgentAdapterProbeData struct {
 
 func renderAgentAdapterItem(ctx context.Context, item agentadapters.Status) AgentAdapterResponseItem {
 	rendered := AgentAdapterResponseItem{
-		ID:                  item.ID,
-		Name:                item.Name,
-		Kind:                item.Kind,
-		Command:             item.Command,
-		Args:                item.Args,
-		Managed:             item.Managed.Package != "",
-		ManagedPackage:      item.Managed.Package,
-		Available:           item.Available,
-		Status:              item.Status,
-		Path:                item.Path,
-		Error:               item.Error,
-		Description:         item.Description,
-		CostMode:            item.CostMode,
-		DocsURL:             item.DocsURL,
-		AdapterVersion:      item.AdapterVersion,
-		AgentVersion:        item.AgentVersion,
-		SupportedRange:      item.SupportedRange,
-		VersionOutsideRange: item.VersionOutsideRange,
-		AuthStatus:          item.AuthStatus,
-		AuthError:           item.AuthError,
-		CredentialModes:     renderAgentAdapterCredentialModes(item.CredentialModes),
-		CloudCredentialMode: item.CloudCredentialMode,
-		CloudCredentialHint: item.CloudCredentialHint,
-		ConfigOptions:       agentadapters.LaunchConfigOptions(ctx, item),
+		ID:                   item.ID,
+		Name:                 item.Name,
+		Kind:                 item.Kind,
+		Command:              item.Command,
+		Args:                 item.Args,
+		Managed:              item.Managed.Package != "",
+		ManagedPackage:       item.Managed.Package,
+		Available:            item.Available,
+		Status:               item.Status,
+		Path:                 item.Path,
+		Error:                item.Error,
+		Description:          item.Description,
+		CostMode:             item.CostMode,
+		DocsURL:              item.DocsURL,
+		AdapterVersion:       item.AdapterVersion,
+		AgentVersion:         item.AgentVersion,
+		SupportedRange:       item.SupportedRange,
+		VersionOutsideRange:  item.VersionOutsideRange,
+		AuthStatus:           item.AuthStatus,
+		AuthError:            item.AuthError,
+		CredentialModes:      renderAgentAdapterCredentialModes(item.CredentialModes),
+		RemoteCredentialMode: item.RemoteCredentialMode,
+		RemoteCredentialHint: item.RemoteCredentialHint,
+		ConfigOptions:        agentadapters.LaunchConfigOptions(ctx, item),
 	}
-	if item.CloudCredentialHint != "" || item.CloudCredentialMode != "" {
-		cloudCredentialOK := item.CloudCredentialOK
-		rendered.CloudCredentialOK = &cloudCredentialOK
+	if item.RemoteCredentialHint != "" || item.RemoteCredentialMode != "" {
+		remoteCredentialOK := item.RemoteCredentialOK
+		rendered.RemoteCredentialOK = &remoteCredentialOK
 	}
 	if item.ID == "claude_code" {
 		rendered.ClaudeCodeCLI = &AgentAdapterSetupCommandStatusItem{
@@ -126,11 +126,11 @@ func renderAgentAdapterCredentialModes(modes []agentadapters.CredentialMode) []A
 	out := make([]AgentAdapterCredentialModeItem, 0, len(modes))
 	for _, mode := range modes {
 		out = append(out, AgentAdapterCredentialModeItem{
-			ID:           mode.ID,
-			Name:         mode.Name,
-			Description:  mode.Description,
-			CloudAllowed: mode.CloudAllowed,
-			EnvKeys:      append([]string(nil), mode.EnvKeys...),
+			ID:            mode.ID,
+			Name:          mode.Name,
+			Description:   mode.Description,
+			RemoteAllowed: mode.RemoteAllowed,
+			EnvKeys:       append([]string(nil), mode.EnvKeys...),
 		})
 	}
 	return out

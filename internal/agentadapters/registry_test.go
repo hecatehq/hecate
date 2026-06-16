@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecatehq/hecate/internal/cloudruntime"
+	"github.com/hecatehq/hecate/internal/remoteruntime"
 )
 
 func TestBuiltInsIncludeInitialExternalAgents(t *testing.T) {
@@ -64,9 +64,9 @@ func TestBuiltInsIncludeInitialExternalAgents(t *testing.T) {
 		if !hasCredentialMode(adapter, CredentialModeAPIKey, true, tc.envKeys...) {
 			t.Fatalf("%s credential modes = %#v, want cloud API key mode with %v", tc.id, adapter.CredentialModes, tc.envKeys)
 		}
-		if cloudRuntimeBuild {
+		if remoteRuntimeBuild {
 			if hasCredentialMode(adapter, CredentialModeLocalLogin, false) {
-				t.Fatalf("%s credential modes = %#v, want hecate_cloud build to omit local login", tc.id, adapter.CredentialModes)
+				t.Fatalf("%s credential modes = %#v, want hecate_remote build to omit local login", tc.id, adapter.CredentialModes)
 			}
 		} else if !hasCredentialMode(adapter, CredentialModeLocalLogin, false) {
 			t.Fatalf("%s credential modes = %#v, want local login mode in default build", tc.id, adapter.CredentialModes)
@@ -74,7 +74,7 @@ func TestBuiltInsIncludeInitialExternalAgents(t *testing.T) {
 	}
 }
 
-func TestCloudRuntimeCredentialsRejectLocalLoginFiles(t *testing.T) {
+func TestRemoteRuntimeCredentialsRejectLocalLoginFiles(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("OPENAI_API_KEY", "")
@@ -91,37 +91,52 @@ func TestCloudRuntimeCredentialsRejectLocalLoginFiles(t *testing.T) {
 	if !ok {
 		t.Fatalf("missing codex adapter")
 	}
-	if _, err := validateCloudCredentialForRequest(cloudIdentityContext(), adapter); !errors.Is(err, ErrCloudCredentialRequired) {
-		t.Fatalf("validateCloudCredentialForRequest error = %v, want ErrCloudCredentialRequired", err)
+	if _, err := validateRemoteCredentialForRequest(remoteIdentityContext(), adapter); !errors.Is(err, ErrRemoteCredentialRequired) {
+		t.Fatalf("validateRemoteCredentialForRequest error = %v, want ErrRemoteCredentialRequired", err)
+	}
+
+	t.Setenv(personalRemoteExternalAgentLoginsEnv, "1")
+	mode, err := validateRemoteCredentialForRequest(remoteIdentityContext(), adapter)
+	if remoteRuntimeBuild {
+		if !errors.Is(err, ErrRemoteCredentialRequired) {
+			t.Fatalf("hecate_remote validateRemoteCredentialForRequest error = %v, want ErrRemoteCredentialRequired", err)
+		}
+	} else {
+		if err != nil {
+			t.Fatalf("validateRemoteCredentialForRequest with personal remote login opt-in: %v", err)
+		}
+		if mode.ID != CredentialModeLocalLogin {
+			t.Fatalf("credential mode = %#v, want local login", mode)
+		}
 	}
 
 	t.Setenv("OPENAI_API_KEY", "sk-cloud")
-	mode, err := validateCloudCredentialForRequest(cloudIdentityContext(), adapter)
+	mode, err = validateRemoteCredentialForRequest(remoteIdentityContext(), adapter)
 	if err != nil {
-		t.Fatalf("validateCloudCredentialForRequest with API key: %v", err)
+		t.Fatalf("validateRemoteCredentialForRequest with API key: %v", err)
 	}
 	if mode.ID != CredentialModeAPIKey {
 		t.Fatalf("credential mode = %#v, want API key", mode)
 	}
 }
 
-func TestCloudRuntimeCredentialsAllowCursorAndGrokAPIKeys(t *testing.T) {
+func TestRemoteRuntimeCredentialsAllowCursorAndGrokAPIKeys(t *testing.T) {
 	t.Setenv("CURSOR_API_KEY", "")
 	t.Setenv("XAI_API_KEY", "")
 	t.Setenv("PROVIDER_XAI_API_KEY", "")
-	ctx := cloudIdentityContext()
+	ctx := remoteIdentityContext()
 
 	cursor, ok := BuiltInByID("cursor_agent")
 	if !ok {
 		t.Fatalf("missing cursor_agent adapter")
 	}
-	if _, err := validateCloudCredentialForRequest(ctx, cursor); !errors.Is(err, ErrCloudCredentialRequired) {
-		t.Fatalf("cursor cloud credential error = %v, want ErrCloudCredentialRequired", err)
+	if _, err := validateRemoteCredentialForRequest(ctx, cursor); !errors.Is(err, ErrRemoteCredentialRequired) {
+		t.Fatalf("cursor remote credential error = %v, want ErrRemoteCredentialRequired", err)
 	}
 	t.Setenv("CURSOR_API_KEY", "cursor-cloud")
-	mode, err := validateCloudCredentialForRequest(ctx, cursor)
+	mode, err := validateRemoteCredentialForRequest(ctx, cursor)
 	if err != nil {
-		t.Fatalf("cursor cloud credential with API key: %v", err)
+		t.Fatalf("cursor remote credential with API key: %v", err)
 	}
 	if mode.ID != CredentialModeAPIKey {
 		t.Fatalf("cursor credential mode = %#v, want API key", mode)
@@ -131,45 +146,65 @@ func TestCloudRuntimeCredentialsAllowCursorAndGrokAPIKeys(t *testing.T) {
 	if !ok {
 		t.Fatalf("missing grok_build adapter")
 	}
-	if _, err := validateCloudCredentialForRequest(ctx, grok); !errors.Is(err, ErrCloudCredentialRequired) {
-		t.Fatalf("grok cloud credential error = %v, want ErrCloudCredentialRequired", err)
+	if _, err := validateRemoteCredentialForRequest(ctx, grok); !errors.Is(err, ErrRemoteCredentialRequired) {
+		t.Fatalf("grok remote credential error = %v, want ErrRemoteCredentialRequired", err)
 	}
 	t.Setenv("PROVIDER_XAI_API_KEY", "xai-provider-cloud")
-	mode, err = validateCloudCredentialForRequest(ctx, grok)
+	mode, err = validateRemoteCredentialForRequest(ctx, grok)
 	if err != nil {
-		t.Fatalf("grok cloud credential with provider API key: %v", err)
+		t.Fatalf("grok remote credential with provider API key: %v", err)
 	}
 	if mode.ID != CredentialModeAPIKey {
 		t.Fatalf("grok credential mode = %#v, want API key", mode)
 	}
 }
 
-func TestCloudRuntimeStatusRequiresCloudCredentialBeforeDiscoveryOverrides(t *testing.T) {
+func TestRemoteRuntimeStatusRequiresRemoteCredentialBeforeDiscoveryOverrides(t *testing.T) {
 	t.Setenv(adapterDevOverrideEnv, "cursor_agent=ready")
 	t.Setenv("CURSOR_API_KEY", "")
 
-	status, ok := StatusForAdapter(cloudIdentityContext(), "cursor_agent", func(file string) (string, error) {
+	status, ok := StatusForAdapter(remoteIdentityContext(), "cursor_agent", func(file string) (string, error) {
 		return "/usr/local/bin/" + file, nil
 	})
 	if !ok {
 		t.Fatalf("StatusForAdapter(cursor_agent) ok = false")
 	}
 	if status.Available || status.Status != StatusMissing {
-		t.Fatalf("status = %#v, want cloud credential gate to keep adapter unavailable", status)
+		t.Fatalf("status = %#v, want remote credential gate to keep adapter unavailable", status)
 	}
 	if status.AuthStatus != AuthStatusUnauthenticated || !strings.Contains(status.AuthError, "CURSOR_API_KEY") {
-		t.Fatalf("auth status/error = %q/%q, want cloud credential hint", status.AuthStatus, status.AuthError)
+		t.Fatalf("auth status/error = %q/%q, want remote credential hint", status.AuthStatus, status.AuthError)
 	}
 
 	t.Setenv("CURSOR_API_KEY", "cursor-cloud")
-	status, ok = StatusForAdapter(cloudIdentityContext(), "cursor_agent", func(file string) (string, error) {
+	status, ok = StatusForAdapter(remoteIdentityContext(), "cursor_agent", func(file string) (string, error) {
 		return "/usr/local/bin/" + file, nil
 	})
 	if !ok {
 		t.Fatalf("StatusForAdapter(cursor_agent) ok = false")
 	}
-	if !status.Available || status.CloudCredentialMode != CredentialModeAPIKey || !status.CloudCredentialOK {
-		t.Fatalf("status = %#v, want cloud credential ready status", status)
+	if !status.Available || status.RemoteCredentialMode != CredentialModeAPIKey || !status.RemoteCredentialOK {
+		t.Fatalf("status = %#v, want remote credential ready status", status)
+	}
+}
+
+func TestRemoteRuntimeStatusCanOptIntoPersonalRemoteLogins(t *testing.T) {
+	if remoteRuntimeBuild {
+		t.Skip("hecate_remote build omits local-login credential modes")
+	}
+	t.Setenv(adapterDevOverrideEnv, "codex=ready")
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("CODEX_API_KEY", "")
+	t.Setenv(personalRemoteExternalAgentLoginsEnv, "1")
+
+	status, ok := StatusForAdapter(remoteIdentityContext(), "codex", func(file string) (string, error) {
+		return "/usr/local/bin/" + file, nil
+	})
+	if !ok {
+		t.Fatalf("StatusForAdapter(codex) ok = false")
+	}
+	if !status.Available || !status.RemoteCredentialOK || status.RemoteCredentialMode != CredentialModeLocalLogin {
+		t.Fatalf("status = %#v, want personal remote login credential ready status", status)
 	}
 }
 
@@ -1051,7 +1086,7 @@ func TestSanitizedEnvMapsProviderXAIKeyOnlyForGrokBuild(t *testing.T) {
 	}
 }
 
-func TestCloudRuntimeAdapterEnvUsesOnlyCloudCredentialKeysAndEphemeralHome(t *testing.T) {
+func TestRemoteRuntimeAdapterEnvUsesOnlyRemoteCredentialKeysAndEphemeralHome(t *testing.T) {
 	t.Parallel()
 
 	adapter, ok := BuiltInByID("codex")
@@ -1059,7 +1094,7 @@ func TestCloudRuntimeAdapterEnvUsesOnlyCloudCredentialKeysAndEphemeralHome(t *te
 		t.Fatal("missing codex adapter")
 	}
 	mode := CredentialMode{ID: CredentialModeAPIKey, EnvKeys: []string{"OPENAI_API_KEY", "CODEX_API_KEY"}}
-	env := cloudRuntimeAdapterEnv(adapter, mode, []string{
+	env := remoteRuntimeAdapterEnv(adapter, mode, []string{
 		"PATH=/bin",
 		"HOME=/Users/alice",
 		"XDG_CONFIG_HOME=/Users/alice/.config",
@@ -1107,7 +1142,7 @@ func TestCloudRuntimeAdapterEnvUsesOnlyCloudCredentialKeysAndEphemeralHome(t *te
 	}
 }
 
-func TestCloudRuntimeAdapterEnvMapsProviderXAIKeyWithoutLeakingBridge(t *testing.T) {
+func TestRemoteRuntimeAdapterEnvMapsProviderXAIKeyWithoutLeakingBridge(t *testing.T) {
 	t.Parallel()
 
 	adapter, ok := BuiltInByID("grok_build")
@@ -1115,7 +1150,7 @@ func TestCloudRuntimeAdapterEnvMapsProviderXAIKeyWithoutLeakingBridge(t *testing
 		t.Fatal("missing grok_build adapter")
 	}
 	mode := CredentialMode{ID: CredentialModeAPIKey, EnvKeys: []string{"XAI_API_KEY", "PROVIDER_XAI_API_KEY"}}
-	env := cloudRuntimeAdapterEnv(adapter, mode, []string{
+	env := remoteRuntimeAdapterEnv(adapter, mode, []string{
 		"PATH=/bin",
 		"XAI_API_KEY=",
 		"PROVIDER_XAI_API_KEY=provider-xai-test",
@@ -1130,6 +1165,63 @@ func TestCloudRuntimeAdapterEnvMapsProviderXAIKeyWithoutLeakingBridge(t *testing
 	}
 	if got["PROVIDER_XAI_API_KEY=provider-xai-test"] {
 		t.Fatalf("provider-scoped key leaked into cloud adapter env: %#v", env)
+	}
+}
+
+func TestPrepareAdapterProcessEnvUsesPersistentHomeForPersonalRemoteLogins(t *testing.T) {
+	if remoteRuntimeBuild {
+		t.Skip("hecate_remote build omits local-login credential modes")
+	}
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("CODEX_API_KEY", "")
+	t.Setenv(personalRemoteExternalAgentLoginsEnv, "1")
+
+	adapter, ok := BuiltInByID("codex")
+	if !ok {
+		t.Fatal("missing codex adapter")
+	}
+	processEnv, err := prepareAdapterProcessEnv(remoteIdentityContext(), adapter, []string{
+		"PATH=/bin",
+		"HOME=/workspace/.hecate/home",
+		"XDG_CONFIG_HOME=/workspace/.hecate/config",
+		"XDG_CACHE_HOME=/workspace/.hecate/cache",
+		"XDG_DATA_HOME=/workspace/.hecate/share",
+		"NPM_CONFIG_CACHE=/workspace/.hecate/npm-cache",
+		"OPENAI_API_KEY=",
+		"CODEX_AUTH_TOKEN=local-token",
+		"HECATE_RUNTIME_TOKEN=runtime-token",
+	})
+	if err != nil {
+		t.Fatalf("prepareAdapterProcessEnv: %v", err)
+	}
+	if processEnv.cleanup != nil {
+		t.Fatal("cleanup set for persistent personal remote login env, want no temp home cleanup")
+	}
+
+	got := map[string]bool{}
+	for _, item := range processEnv.values {
+		got[item] = true
+	}
+	for _, want := range []string{
+		"HOME=/workspace/.hecate/home",
+		"USERPROFILE=/workspace/.hecate/home",
+		"XDG_CONFIG_HOME=/workspace/.hecate/config",
+		"XDG_CACHE_HOME=/workspace/.hecate/cache",
+		"XDG_DATA_HOME=/workspace/.hecate/share",
+		"NPM_CONFIG_CACHE=/workspace/.hecate/npm-cache",
+		"PATH=/bin",
+	} {
+		if !got[want] {
+			t.Fatalf("missing personal remote login env %q in %#v", want, processEnv.values)
+		}
+	}
+	for _, blocked := range []string{
+		"CODEX_AUTH_TOKEN=local-token",
+		"HECATE_RUNTIME_TOKEN=runtime-token",
+	} {
+		if got[blocked] {
+			t.Fatalf("blocked personal remote login env %q leaked into %#v", blocked, processEnv.values)
+		}
 	}
 }
 
@@ -1224,7 +1316,7 @@ func TestNormalizeErrorExtractsJSONRPCStringData(t *testing.T) {
 
 func hasCredentialMode(adapter Adapter, id string, cloudAllowed bool, envKeys ...string) bool {
 	for _, mode := range adapter.CredentialModes {
-		if mode.ID != id || mode.CloudAllowed != cloudAllowed {
+		if mode.ID != id || mode.RemoteAllowed != cloudAllowed {
 			continue
 		}
 		for _, envKey := range envKeys {
@@ -1244,8 +1336,8 @@ func hasCredentialMode(adapter Adapter, id string, cloudAllowed bool, envKeys ..
 	return false
 }
 
-func cloudIdentityContext() context.Context {
-	return cloudruntime.WithIdentity(context.Background(), cloudruntime.Identity{
+func remoteIdentityContext() context.Context {
+	return remoteruntime.WithIdentity(context.Background(), remoteruntime.Identity{
 		ActorID:   "actor_test",
 		OrgID:     "org_test",
 		ProjectID: "project_test",

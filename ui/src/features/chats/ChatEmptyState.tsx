@@ -12,7 +12,7 @@ type Props = {
   isAgentChat: boolean;
   isHecateChat: boolean;
   isExternalAgentChat: boolean;
-  isCloudRuntime: boolean;
+  isRemoteRuntime: boolean;
   setupRepair: ChatSetupRepairState | null;
   modelRouteUnavailable: boolean;
   selectedModelIssue: SelectedModelIssue | null;
@@ -45,7 +45,7 @@ export function ChatEmptyState({
   isAgentChat,
   isHecateChat,
   isExternalAgentChat,
-  isCloudRuntime,
+  isRemoteRuntime,
   setupRepair,
   modelRouteUnavailable,
   selectedModelIssue,
@@ -77,7 +77,7 @@ export function ChatEmptyState({
     isHecateChat && (modelRouteUnavailable || Boolean(selectedModelIssue));
   const hasQuickLocalProviderCandidates =
     isHecateChat &&
-    !isCloudRuntime &&
+    !isRemoteRuntime &&
     modelRouteUnavailable &&
     !hasConfiguredProviders &&
     quickLocalProviders.some((discovery) => discovery.preset_id != null);
@@ -232,7 +232,7 @@ export function ChatEmptyState({
       {isHecateChat &&
         modelRouteUnavailable &&
         !hasConfiguredProviders &&
-        (isCloudRuntime ? (
+        (isRemoteRuntime ? (
           <HostedRuntimeProviderSetup />
         ) : (
           <QuickLocalProviderAdd

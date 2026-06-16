@@ -15,7 +15,6 @@ import (
 	"github.com/hecatehq/hecate/internal/agentadapters"
 	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/chat"
-	"github.com/hecatehq/hecate/internal/cloudruntime"
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/controlplane"
 	"github.com/hecatehq/hecate/internal/gateway"
@@ -29,6 +28,7 @@ import (
 	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/internal/ratelimit"
+	"github.com/hecatehq/hecate/internal/remoteruntime"
 	"github.com/hecatehq/hecate/internal/sandbox"
 	"github.com/hecatehq/hecate/internal/secrets"
 	"github.com/hecatehq/hecate/internal/taskstate"
@@ -606,8 +606,8 @@ func (h *Handler) HandleSession(w http.ResponseWriter, r *http.Request) {
 			LocalProvidersAllowed: h.config.LocalProvidersAllowed(),
 		},
 	}
-	if identity, ok := cloudruntime.FromContext(r.Context()); ok {
-		item.CloudIdentity = &CloudIdentityResponseItem{
+	if identity, ok := remoteruntime.FromContext(r.Context()); ok {
+		item.RemoteIdentity = &RemoteIdentityResponseItem{
 			ActorID:   identity.ActorID,
 			OrgID:     identity.OrgID,
 			ProjectID: identity.ProjectID,
@@ -704,7 +704,7 @@ func settingsActor(r *http.Request) string {
 	if requestID != "" {
 		actor += ":" + requestID
 	}
-	return cloudruntime.ActorForAudit(r.Context(), actor)
+	return remoteruntime.ActorForAudit(r.Context(), actor)
 }
 
 // decodeJSON decodes the request body into v and writes a 400 on failure.

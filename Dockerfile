@@ -1,5 +1,5 @@
 # Hecate runtime image. This is the default local/self-host Docker image and
-# the base shape for hosted cloud runtime deployments. The same image can run in
+# the base shape for hosted remote runtime deployments. The same image can run in
 # either posture; Hecate's runtime mode env controls the security boundary.
 #
 # Build:   docker build -t hecate:dev .
@@ -7,8 +7,8 @@
 #
 # The image embeds the React UI, the Hecate binary, git/ssh, and the supported
 # External Agent CLIs/ACP adapters. Local mode can use mounted CLI login homes
-# or API keys. Cloud runtime mode ignores local login files and accepts only the
-# cloud-safe credential env families declared by the adapters.
+# or API keys. Remote runtime mode ignores local login files and accepts only the
+# remote-safe credential env families declared by the adapters.
 
 ARG GO_VERSION=1.26.2
 ARG BUN_VERSION=1.3.13

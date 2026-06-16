@@ -114,10 +114,10 @@ func Probe(ctx context.Context, adapterID string) (res ProbeResult) {
 		res.DurationMS = elapsedMS(start)
 		return res
 	}
-	if _, err := validateCloudCredentialForRequest(ctx, adapter); err != nil {
+	if _, err := validateRemoteCredentialForRequest(ctx, adapter); err != nil {
 		res.Status = ProbeStatusAuthRequired
 		res.Error = err.Error()
-		res.Hint = cloudCredentialHint(adapter)
+		res.Hint = remoteCredentialHint(adapter)
 		res.DurationMS = elapsedMS(start)
 		return res
 	}
@@ -156,7 +156,7 @@ func Probe(ctx context.Context, adapterID string) (res ProbeResult) {
 		res.Stage = ProbeStageSpawn
 		res.Status = ProbeStatusAuthRequired
 		res.Error = err.Error()
-		res.Hint = cloudCredentialHint(adapter)
+		res.Hint = remoteCredentialHint(adapter)
 		res.DurationMS = elapsedMS(start)
 		return res
 	}
