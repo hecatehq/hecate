@@ -10,7 +10,7 @@
 //
 // Run with:
 //
-//	go test -tags 'e2e docker' -count=1 -timeout 5m ./e2e/...
+//	go test -tags 'e2e docker' -count=1 -timeout 10m ./e2e/...
 //
 // Requirements: Docker daemon reachable on the host.
 package e2e
@@ -34,9 +34,10 @@ import (
 const dockerProject = "hecate-e2e-smoke"
 
 // dockerSmokeTimeout caps each test's container lifecycle. Cold builds on a
-// fresh runner can hit ~60s for the Bun + Go stages combined; we add slack
-// for first-time image pulls.
-const dockerSmokeTimeout = 3 * time.Minute
+// fresh runner can take several minutes once base image pulls, UI build, Go
+// build, and bundled External Agent CLI installs are all included. Keep this
+// below the recipe's 10m package timeout so failures still produce test output.
+const dockerSmokeTimeout = 8 * time.Minute
 
 // TestDockerSmokeImageBootsAndAuthenticates verifies the production image
 // produced by the project Dockerfile actually runs end-to-end:

@@ -4,16 +4,19 @@ package e2e
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
+	"time"
 )
 
 func TestProjectActivityProjectionE2E(t *testing.T) {
 	baseURL := gatewayServer(t, "HECATE_BACKEND=sqlite")
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 
-	project := postJSONDecodeStatus[e2eProjectResponse](t, baseURL+"/hecate/v1/projects", `{
-		"name": "project activity e2e"
-	}`, http.StatusCreated)
+	project := postJSONDecodeStatus[e2eProjectResponse](t, baseURL+"/hecate/v1/projects", fmt.Sprintf(`{
+		"name": "project activity e2e %s"
+	}`, suffix), http.StatusCreated)
 	projectID := project.Data.ID
 	if projectID == "" {
 		t.Fatal("created project id is empty")
