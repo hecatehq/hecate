@@ -91,6 +91,7 @@ var builtInProviders = []BuiltInProvider{
 		Protocol:    "openai",
 		BaseURL:     "https://api.fireworks.ai/inference/v1",
 		APIKeyEnv:   "PROVIDER_FIREWORKS_API_KEY",
+		ModelsPath:  "https://api.fireworks.ai/v1/accounts/fireworks/models",
 		DocsURL:     "https://docs.fireworks.ai/getting-started/introduction",
 		Description: "Fireworks.ai serverless inference. Hosts an evolving catalog of open-weight models; model IDs are namespaced (`accounts/fireworks/models/<slug>`).",
 	},

@@ -212,6 +212,20 @@ type openAIModel struct {
 	ID string `json:"id"`
 }
 
+type fireworksModelsResponse struct {
+	Models []fireworksModel `json:"models"`
+	Data   []fireworksModel `json:"data"`
+}
+
+type fireworksModel struct {
+	ID                 string `json:"id"`
+	Name               string `json:"name"`
+	DisplayName        string `json:"displayName"`
+	SupportsTools      bool   `json:"supportsTools"`
+	SupportsImageInput bool   `json:"supportsImageInput"`
+	ContextLength      int    `json:"contextLength"`
+}
+
 type ollamaShowRequest struct {
 	Model string `json:"model"`
 }
@@ -400,6 +414,10 @@ func (p *OpenAICompatibleProvider) staticCapabilities(source string) Capabilitie
 
 func (p *OpenAICompatibleProvider) discoverCapabilities(ctx context.Context) (Capabilities, error) {
 	endpoint := buildModelsURL(p.config.BaseURL, p.config.ModelsPath)
+	if p.isFireworksProvider() {
+		return p.discoverFireworksCapabilities(ctx, endpoint)
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return Capabilities{}, fmt.Errorf("build models request: %w", err)
@@ -444,6 +462,83 @@ func (p *OpenAICompatibleProvider) discoverCapabilities(ctx context.Context) (Ca
 		ModelCapabilities: p.discoverProviderModelCapabilities(ctx, models),
 		Discoverable:      true,
 		DiscoverySource:   "upstream_v1_models",
+		RefreshedAt:       time.Now().UTC(),
+	}, nil
+}
+
+func (p *OpenAICompatibleProvider) discoverFireworksCapabilities(ctx context.Context, endpoint string) (Capabilities, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return Capabilities{}, fmt.Errorf("build Fireworks models request: %w", err)
+	}
+	if p.config.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+p.config.APIKey)
+	}
+	injectTraceContext(req)
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return Capabilities{}, fmt.Errorf("send Fireworks models request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= http.StatusBadRequest {
+		return Capabilities{}, decodeUpstreamError(resp)
+	}
+
+	var payload fireworksModelsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return Capabilities{}, fmt.Errorf("decode Fireworks models response: %w", err)
+	}
+
+	items := payload.Models
+	if len(items) == 0 {
+		items = payload.Data
+	}
+	models := make([]string, 0, len(items))
+	modelCapabilities := make(map[string]types.ModelCapabilities, len(items))
+	for _, item := range items {
+		id := strings.TrimSpace(item.Name)
+		if id == "" {
+			id = strings.TrimSpace(item.ID)
+		}
+		if id == "" || contains(models, id) {
+			continue
+		}
+		models = append(models, id)
+
+		cap := types.ModelCapabilities{
+			Streaming:      true,
+			StreamingKnown: true,
+			Source:         "provider",
+		}
+		if item.SupportsTools {
+			cap.ToolCalling = "basic"
+		}
+		if item.ContextLength > 0 {
+			cap.MaxContextTokens = item.ContextLength
+		}
+		if cap.ToolCalling != "" || cap.MaxContextTokens > 0 {
+			modelCapabilities[id] = cap
+		}
+	}
+	if len(modelCapabilities) == 0 {
+		modelCapabilities = nil
+	}
+
+	defaultModel := p.config.DefaultModel
+	if defaultModel == "" && len(models) > 0 {
+		defaultModel = models[0]
+	}
+
+	return Capabilities{
+		Name:              p.Name(),
+		Kind:              p.Kind(),
+		DefaultModel:      defaultModel,
+		Models:            models,
+		ModelCapabilities: modelCapabilities,
+		Discoverable:      true,
+		DiscoverySource:   "fireworks_models",
 		RefreshedAt:       time.Now().UTC(),
 	}, nil
 }
@@ -511,6 +606,10 @@ func (p *OpenAICompatibleProvider) ollamaCapabilityDiscoveryTimeout() time.Durat
 
 func (p *OpenAICompatibleProvider) isOllamaProvider() bool {
 	return strings.EqualFold(strings.TrimSpace(p.config.Name), "ollama")
+}
+
+func (p *OpenAICompatibleProvider) isFireworksProvider() bool {
+	return strings.EqualFold(strings.TrimSpace(p.config.Name), "fireworks")
 }
 
 func ollamaNativeBaseURL(base string) (string, error) {
@@ -907,7 +1006,11 @@ func buildModelsURL(baseURL, path string) string {
 }
 
 func buildProviderURL(baseURL, path string) string {
-	return strings.TrimRight(baseURL, "/") + "/" + strings.TrimLeft(strings.TrimSpace(path), "/")
+	trimmedPath := strings.TrimSpace(path)
+	if u, err := url.Parse(trimmedPath); err == nil && u.IsAbs() {
+		return trimmedPath
+	}
+	return strings.TrimRight(baseURL, "/") + "/" + strings.TrimLeft(trimmedPath, "/")
 }
 
 func decodeUpstreamError(resp *http.Response) error {

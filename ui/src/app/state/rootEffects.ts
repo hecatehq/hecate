@@ -130,7 +130,7 @@ export function RootEffects() {
   } = chat.state;
   const { setChatCancelling, setModel, setProviderFilter, setQueuedChatMessages } = chat.actions;
   const { setHecateRTKEnabled: setHecateRTKEnabledState } = runtime.actions;
-  const { models, providers } = providersAndModels.state;
+  const { models, providers, providerPresets } = providersAndModels.state;
   const { notice } = settings.state;
   const { dismissNoticeIfMatching } = settings.actions;
   const settingsConfig = settings.state.config;
@@ -190,11 +190,34 @@ export function RootEffects() {
     if (nextProvider === providerFilter) return;
     setProviderFilter(nextProvider);
     const nextModel =
-      model && isModelValidForProvider(model, nextProvider, models, providers)
+      model &&
+      isModelValidForProvider(
+        model,
+        nextProvider,
+        models,
+        providers,
+        configuredProviders,
+        providerPresets,
+      )
         ? model
-        : defaultModelForProvider(nextProvider, models, providers);
+        : defaultModelForProvider(
+            nextProvider,
+            models,
+            providers,
+            configuredProviders,
+            providerPresets,
+          );
     setModel(nextModel);
-  }, [model, models, providerFilter, providers, settingsConfig, setProviderFilter, setModel]);
+  }, [
+    model,
+    models,
+    providerFilter,
+    providerPresets,
+    providers,
+    settingsConfig,
+    setProviderFilter,
+    setModel,
+  ]);
 
   useEffect(() => {
     if (!settingsConfig) return;
@@ -212,18 +235,40 @@ export function RootEffects() {
       if (activeHecateSessionUsesProvider) return;
       const nextProvider = defaultProviderForChat(models, configuredProviders, providers);
       setProviderFilter(nextProvider);
-      setModel(defaultModelForProvider(nextProvider, models, providers));
+      setModel(
+        defaultModelForProvider(
+          nextProvider,
+          models,
+          providers,
+          configuredProviders,
+          providerPresets,
+        ),
+      );
       return;
     }
-    const stillValid = isModelValidForProvider(model, providerFilter, models, providers);
+    const stillValid = isModelValidForProvider(
+      model,
+      providerFilter,
+      models,
+      providers,
+      configuredProviders,
+      providerPresets,
+    );
     if (stillValid) return;
-    const nextModel = defaultModelForProvider(providerFilter, models, providers);
+    const nextModel = defaultModelForProvider(
+      providerFilter,
+      models,
+      providers,
+      configuredProviders,
+      providerPresets,
+    );
     setModel(nextModel);
   }, [
     activeChatSession,
     model,
     models,
     providerFilter,
+    providerPresets,
     providers,
     settingsConfig,
     setModel,

@@ -48,6 +48,7 @@ import {
   buildSyntheticChatResult,
   defaultModelForProvider,
   deriveChatSessionTitle,
+  isModelValidForProvider,
   renderChatSessionSummary,
 } from "../../runtimeConsoleChatHelpers";
 import { modelSelectionHasNoToolCalling } from "../../../lib/chat-setup-readiness";
@@ -68,9 +69,15 @@ import { reconcileChatSession } from "../reconcileChatSession";
 import { useProjects } from "../projects";
 import { useProvidersAndModels } from "../providersAndModels";
 import { useRuntime } from "../runtime";
+import { useSettings } from "../settings";
 import { useUsage } from "../usage";
 import type { RuntimeHeaders } from "../../../types/runtime";
-import type { ProviderFilter } from "../../../types/provider";
+import type {
+  ConfiguredStateResponse,
+  ProviderFilter,
+  ProviderPresetRecord,
+  ProviderStatusResponse,
+} from "../../../types/provider";
 import type { ModelRecord } from "../../../types/model";
 import type {
   ChatActivityRecord,
@@ -172,15 +179,21 @@ function effectiveHecateToolsEnabled({
 
 function modelAvailableForProviderFilter(
   models: ModelRecord[],
+  providers: ProviderStatusResponse["data"],
+  configuredProviders: ConfiguredStateResponse["data"]["providers"],
+  providerPresets: ProviderPresetRecord[],
   providerFilter: ProviderFilter,
   model: string,
 ): boolean {
   if (!model.trim()) return false;
-  return models.some((entry) => {
-    if (entry.id !== model) return false;
-    if (!providerFilter || providerFilter === "auto") return true;
-    return entry.metadata?.provider === providerFilter;
-  });
+  return isModelValidForProvider(
+    model,
+    providerFilter,
+    models,
+    providers,
+    configuredProviders,
+    providerPresets,
+  );
 }
 
 export { chatSessionIsExternal, chatSessionIsBusy };
@@ -318,6 +331,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
   const chat = useChat();
   const projects = useProjects();
   const approvals = useApprovals();
+  const settings = useSettings();
 
   const { message, hecateRTKEnabled } = runtime.state;
   const {
@@ -326,7 +340,8 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     setHecateRTKEnabled: setHecateRTKEnabledState,
   } = runtime.actions;
   const { setSummary: setUsageSummary, setEvents: setUsageEvents } = usage.actions;
-  const { agentAdapters, models, providers } = providersAndModels.state;
+  const { agentAdapters, models, providers, providerPresets } = providersAndModels.state;
+  const configuredProviders = settings.state.config?.providers ?? [];
   const activeProjectID = projects.activeProjectID.trim();
   const {
     defaultChatTarget,
@@ -414,7 +429,15 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
 
   function selectProviderRoute(nextProvider: ProviderFilter) {
     setProviderFilter(nextProvider);
-    setModel(defaultModelForProvider(nextProvider, models, providers));
+    setModel(
+      defaultModelForProvider(
+        nextProvider,
+        models,
+        providers,
+        configuredProviders,
+        providerPresets,
+      ),
+    );
   }
 
   function updateAgentWorkspace(nextWorkspace: string) {
@@ -959,7 +982,14 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     const requestedModel =
       toolsEnabled &&
       requestedSelectionModel &&
-      !modelAvailableForProviderFilter(models, requestedProviderFilter, requestedSelectionModel)
+      !modelAvailableForProviderFilter(
+        models,
+        providers,
+        configuredProviders,
+        providerPresets,
+        requestedProviderFilter,
+        requestedSelectionModel,
+      )
         ? ""
         : requestedSelectionModel;
     const workspace = workspaceForNewChat(createProjectID);
