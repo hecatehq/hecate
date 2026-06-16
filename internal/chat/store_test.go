@@ -433,6 +433,60 @@ func runStoreAvailableCommandsRoundTrip(t *testing.T, store Store) {
 	}
 }
 
+func runStoreContextSummaryRoundTrip(t *testing.T, store Store) {
+	t.Helper()
+	ctx := context.Background()
+	createdAt := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	if _, err := store.Create(ctx, Session{
+		ID:      "chat_context_summary",
+		Title:   "Context summary",
+		AgentID: DefaultAgentID,
+		ContextSummary: ContextSummary{
+			Content:          "- User: first request",
+			MessageCount:     1,
+			ThroughMessageID: "msg_user_1",
+			CompactedAt:      createdAt,
+		},
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	got, ok, err := store.Get(ctx, "chat_context_summary")
+	if err != nil || !ok {
+		t.Fatalf("Get: ok=%v err=%v", ok, err)
+	}
+	if got.ContextSummary.Content != "- User: first request" ||
+		got.ContextSummary.MessageCount != 1 ||
+		got.ContextSummary.ThroughMessageID != "msg_user_1" ||
+		!got.ContextSummary.CompactedAt.Equal(createdAt) {
+		t.Fatalf("stored context summary = %+v", got.ContextSummary)
+	}
+	got.ContextSummary.Content = "mutated"
+	again, _, err := store.Get(ctx, "chat_context_summary")
+	if err != nil {
+		t.Fatalf("Get again: %v", err)
+	}
+	if again.ContextSummary.Content != "- User: first request" {
+		t.Fatalf("context summary mutated through get snapshot: %+v", again.ContextSummary)
+	}
+
+	updated, err := store.UpdateSession(ctx, "chat_context_summary", func(item *Session) {
+		item.ContextSummary = ContextSummary{
+			Content:          "- Assistant: answer",
+			MessageCount:     2,
+			ThroughMessageID: "msg_assistant_1",
+			CompactedAt:      createdAt.Add(time.Minute),
+		}
+	})
+	if err != nil {
+		t.Fatalf("UpdateSession: %v", err)
+	}
+	if updated.ContextSummary.MessageCount != 2 ||
+		updated.ContextSummary.ThroughMessageID != "msg_assistant_1" {
+		t.Fatalf("updated context summary = %+v", updated.ContextSummary)
+	}
+}
+
 func runStoreDeleteByProjectID(t *testing.T, store Store) {
 	t.Helper()
 	ctx := context.Background()

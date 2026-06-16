@@ -201,6 +201,7 @@ export function createRuntimeConsoleFixture(
 export type RuntimeConsoleFixtureActions = {
   copyCommand: (command: string) => Promise<void>;
   cancelAgentChat: () => Promise<void>;
+  compactChatSession: (sessionID?: string) => Promise<boolean>;
   chooseAgentWorkspace: () => Promise<boolean>;
   createChatSession: (options?: {
     agentID?: string;
@@ -283,6 +284,7 @@ export function createRuntimeConsoleActions(): RuntimeConsoleFixtureActions {
   return {
     copyCommand: async () => undefined,
     cancelAgentChat: async () => undefined,
+    compactChatSession: async () => true,
     chooseAgentWorkspace: async () => true,
     createChatSession: async () => undefined,
     deleteChatSession: async () => undefined,

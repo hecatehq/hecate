@@ -113,6 +113,13 @@ export type ChatUsageRecord = {
   reported_cost_currency?: string;
 };
 
+export type ChatContextSummaryRecord = {
+  content?: string;
+  message_count?: number;
+  through_message_id?: string;
+  compacted_at?: string;
+};
+
 export type ChatTimingRecord = {
   total_ms?: number;
   queue_ms?: number;
@@ -208,6 +215,7 @@ export type ChatSessionRecord = {
   updated_at?: string;
   config_options?: ChatConfigOptionRecord[];
   available_commands?: ChatAvailableCommandRecord[];
+  context_summary?: ChatContextSummaryRecord;
   segments?: ChatSegmentRecord[];
   messages?: ChatMessageRecord[];
 };

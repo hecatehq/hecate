@@ -79,6 +79,12 @@ const HECATE_MESSAGE_COMMANDS: Record<
   status: {
     description: "Open chat status details",
   },
+  context: {
+    description: "Open chat context details",
+  },
+  compact: {
+    description: "Compact older chat context",
+  },
   task: {
     description: "Open the active task or Tasks",
   },
@@ -107,6 +113,8 @@ type HecateMessageCommandName =
   | "model"
   | "settings"
   | "status"
+  | "context"
+  | "compact"
   | "task"
   | "project"
   | "connections";
@@ -333,6 +341,7 @@ export function ChatComposer(props: ChatComposerProps) {
           projectProposalAvailable && !projectProposalDrafting && Boolean(onDraftProjectProposal),
         workspaceChangesAvailable: workspaceChangesAvailable && Boolean(onOpenWorkspaceChanges),
         chatSettingsAvailable: Boolean(onOpenChatSettings),
+        compactAvailable: Boolean(activeSessionID),
         taskAvailable: Boolean(onOpenTask && activeHecateTaskID) || Boolean(onNavigate),
         projectAvailable: Boolean(onOpenLinkedProject),
         connectionsAvailable: Boolean(onNavigate),
@@ -368,6 +377,7 @@ export function ChatComposer(props: ChatComposerProps) {
   }, [
     activeChatSession?.available_commands,
     activeHecateTaskID,
+    activeSessionID,
     commandQuery,
     isExternalAgentChat,
     isHecateChat,
@@ -545,7 +555,7 @@ export function ChatComposer(props: ChatComposerProps) {
     const hecateCommand = parseHecateMessageCommand(message);
     if (hecateCommand && isHecateChat && hecateCommandDefinition(hecateCommand.name)) {
       e.preventDefault();
-      handleHecateMessageCommand(hecateCommand);
+      void handleHecateMessageCommand(hecateCommand);
       if (textareaRef.current) {
         textareaRef.current.style.height = "auto";
       }
@@ -563,7 +573,7 @@ export function ChatComposer(props: ChatComposerProps) {
     runtime.actions.setMessage("");
   }
 
-  function handleHecateMessageCommand(command: ParsedHecateMessageCommand) {
+  async function handleHecateMessageCommand(command: ParsedHecateMessageCommand) {
     const name = command.name;
     if (HECATE_PROJECT_COMMAND_NAMES.has(name)) {
       if (!projectProposalAvailable || projectProposalDrafting || !onDraftProjectProposal) {
@@ -593,12 +603,22 @@ export function ChatComposer(props: ChatComposerProps) {
       case "model":
       case "settings":
       case "status":
+      case "context":
         if (!onOpenChatSettings) {
           settingsActions.setNoticeMessage("error", "Chat settings are not available here.");
           return;
         }
         onOpenChatSettings();
         clearLocalCommandMessage();
+        return;
+      case "compact":
+        if (!activeSessionID) {
+          settingsActions.setNoticeMessage("error", "Open a Hecate chat before using /compact.");
+          return;
+        }
+        if (await chatActions.compactChatSession(activeSessionID)) {
+          clearLocalCommandMessage();
+        }
         return;
       case "task":
         if (activeHecateTaskID && onOpenTask) {
@@ -1240,6 +1260,7 @@ type HecateMessageCommandAvailability = {
   projectProposalAvailable: boolean;
   workspaceChangesAvailable: boolean;
   chatSettingsAvailable: boolean;
+  compactAvailable: boolean;
   taskAvailable: boolean;
   projectAvailable: boolean;
   connectionsAvailable: boolean;
@@ -1263,7 +1284,9 @@ function availableHecateMessageCommands(availability: HecateMessageCommandAvaila
     push("model");
     push("settings");
     push("status");
+    push("context");
   }
+  if (availability.compactAvailable) push("compact");
   if (availability.taskAvailable) push("task");
   if (availability.projectAvailable) push("project");
   if (availability.connectionsAvailable) push("connections");

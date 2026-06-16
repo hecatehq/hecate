@@ -257,7 +257,7 @@ func (h *Handler) directModelContextPacket(ctx context.Context, session chat.Ses
 		})
 	}
 	appendProjectContextSources(&packet, h.projectContextSources(ctx, session))
-	appendTranscriptContext(&packet)
+	appendTranscriptContext(&packet, session.ContextSummary)
 	return packet
 }
 
@@ -308,7 +308,7 @@ func (h *Handler) hecateTaskContextPacket(ctx context.Context, session chat.Sess
 	if forceNewTask || strings.TrimSpace(session.TaskID) == "" {
 		taskDetail = "Starting a new task-backed agent loop"
 	}
-	appendTranscriptContext(&packet)
+	appendTranscriptContext(&packet, session.ContextSummary)
 	appendContextPacketSourceWithSection(&packet, contextSectionRuntime, chat.ContextSource{
 		Kind:   "task_runtime",
 		Label:  "Hecate task runtime",
@@ -352,7 +352,7 @@ func (h *Handler) externalAgentContextPacket(ctx context.Context, session chat.S
 	if strings.TrimSpace(adapterName) == "" {
 		adapterName = "External agent"
 	}
-	appendTranscriptContext(&packet)
+	appendTranscriptContext(&packet, session.ContextSummary)
 	appendContextPacketSourceWithSection(&packet, contextSectionRuntime, chat.ContextSource{
 		Kind:   "adapter_session",
 		Label:  adapterName + " ACP session",
@@ -974,7 +974,7 @@ func appendProjectAssignmentArtifacts(packet *chat.ContextPacket, items []projec
 	}
 }
 
-func appendTranscriptContext(packet *chat.ContextPacket) {
+func appendTranscriptContext(packet *chat.ContextPacket, summary chat.ContextSummary) {
 	source := transcriptContextSource(packet.MessageCount)
 	appendContextPacketSourceWithSection(packet, contextSectionRuntime, source, chat.ContextItem{
 		Kind:            "transcript",
@@ -984,6 +984,32 @@ func appendTranscriptContext(packet *chat.ContextPacket) {
 		Body:            source.Detail,
 		Included:        true,
 		InclusionReason: "Visible terminal transcript count for this turn",
+	})
+	if summary.Empty() {
+		return
+	}
+	detail := "Older transcript messages are summarized before newer messages"
+	if summary.MessageCount > 0 {
+		detail = fmt.Sprintf("%d older messages summarized", summary.MessageCount)
+	}
+	appendContextPacketSourceWithSection(packet, contextSectionRuntime, chat.ContextSource{
+		Kind:   "transcript_summary",
+		Label:  "Compacted transcript",
+		Detail: detail,
+		Trust:  "runtime",
+	}, chat.ContextItem{
+		Kind:            "transcript_summary",
+		TrustLevel:      contextTrustRuntimeState,
+		Origin:          "chat.transcript.compacted",
+		Title:           "Compacted transcript",
+		Body:            detail,
+		Included:        true,
+		InclusionReason: "Hecate summarized older chat messages to keep long sessions usable",
+		Metadata: map[string]string{
+			"message_count":       fmt.Sprintf("%d", summary.MessageCount),
+			"through_message_id":  strings.TrimSpace(summary.ThroughMessageID),
+			"compaction_strategy": "deterministic_transcript_summary",
+		},
 	})
 }
 

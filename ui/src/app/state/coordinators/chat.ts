@@ -21,6 +21,7 @@ import {
   cancelChatSession as cancelChatSessionRequest,
   chatCompletionsStream,
   chooseWorkspaceDirectory as chooseWorkspaceDirectoryRequest,
+  compactChatSession as compactChatSessionRequest,
   createChatMessage as createChatMessageRequest,
   createChatSession as createChatSessionRequest,
   deleteChatSession as deleteChatSessionRequest,
@@ -247,6 +248,7 @@ type ChatActionsReturn = {
   submitAgentChat: (queued?: QueuedChatMessage) => Promise<void>;
   submitChat: (event: SyntheticEvent<HTMLFormElement>) => Promise<void>;
   cancelAgentChat: () => Promise<void>;
+  compactChatSession: (sessionID?: string) => Promise<boolean>;
   updateToolResult: (index: number, result: string) => void;
   submitToolResults: () => Promise<void>;
   createChatSession: (options?: CreateChatSessionOptions) => Promise<void>;
@@ -786,6 +788,30 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     } catch (error) {
       setChatCancelling(false);
       setChatErrorState(error, "failed to cancel agent chat");
+    }
+  }
+
+  async function compactChatSession(sessionID = activeChatSessionID): Promise<boolean> {
+    if (!sessionID) {
+      params.setNoticeMessage("error", "Open a Hecate chat before using /compact.");
+      return false;
+    }
+    setChatLoading(true);
+    clearChatErrorState();
+    try {
+      const payload = await compactChatSessionRequest(sessionID);
+      applyChatSession(payload.data);
+      const count = payload.data.context_summary?.message_count ?? 0;
+      params.setNoticeMessage(
+        "success",
+        count > 0 ? `Compacted ${count} transcript messages.` : "Compacted chat context.",
+      );
+      return true;
+    } catch (error) {
+      setChatErrorState(error, "failed to compact chat context");
+      return false;
+    } finally {
+      setChatLoading(false);
     }
   }
 
@@ -1477,6 +1503,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     // The wide public surface that lands in the viewmodel actions bag
     submitChat,
     cancelAgentChat,
+    compactChatSession,
     updateToolResult,
     submitToolResults,
     createChatSession,

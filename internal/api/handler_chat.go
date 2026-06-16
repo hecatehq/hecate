@@ -30,6 +30,12 @@ const (
 	agentChatMaxOutputBytes      = 4 * 1024 * 1024
 )
 
+const (
+	agentChatManualCompactRetainMessages = chat.DefaultCompactRetainMessages
+	agentChatAutoCompactRetainMessages   = chat.DefaultCompactRetainMessages
+	agentChatAutoCompactMinMessages      = chat.DefaultCompactMinMessages
+)
+
 func (h *Handler) HandleChatSessions(w http.ResponseWriter, r *http.Request) {
 	result, err := h.chatApplication().ListSessions(r.Context())
 	if err != nil {
@@ -221,6 +227,25 @@ func (h *Handler) HandleUpdateChatSession(w http.ResponseWriter, r *http.Request
 	result, err := h.chatApplication().RenameSession(r.Context(), chatapp.RenameSessionCommand{
 		ID:    r.PathValue("id"),
 		Title: req.Title,
+	})
+	if err != nil {
+		if writeChatAppError(w, err) {
+			return
+		}
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	h.agentChatLive.publishSession(result.Session)
+	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(result.Session, h.agentChatSnapshotConfig())})
+}
+
+func (h *Handler) HandleCompactChatSession(w http.ResponseWriter, r *http.Request) {
+	result, err := h.chatApplication().CompactSession(r.Context(), chatapp.CompactSessionCommand{
+		ID:               r.PathValue("id"),
+		RetainMessages:   agentChatManualCompactRetainMessages,
+		HecateOnly:       true,
+		RequireCompacted: true,
+		Now:              time.Now().UTC(),
 	})
 	if err != nil {
 		if writeChatAppError(w, err) {
@@ -930,6 +955,15 @@ func (h *Handler) handleDirectModelTurn(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	content := strings.TrimSpace(req.Content)
+	if compacted, err := h.compactChatSessionForModelTurn(r.Context(), session); err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	} else if compacted.ID != "" {
+		if compacted.ContextSummary.ThroughMessageID != session.ContextSummary.ThroughMessageID || compacted.ContextSummary.Content != session.ContextSummary.Content {
+			h.agentChatLive.publishSession(compacted)
+		}
+		session = compacted
+	}
 	assistantID := newChatID("msg")
 	runID := newChatID("model_run")
 	startedAt := time.Now().UTC()
@@ -1063,12 +1097,33 @@ func (h *Handler) handleDirectModelTurn(w http.ResponseWriter, r *http.Request, 
 	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(updated, h.agentChatSnapshotConfig())})
 }
 
+func (h *Handler) compactChatSessionForModelTurn(ctx context.Context, session chat.Session) (chat.Session, error) {
+	result, err := h.chatApplication().CompactSession(ctx, chatapp.CompactSessionCommand{
+		ID:             session.ID,
+		RetainMessages: agentChatAutoCompactRetainMessages,
+		MinMessages:    agentChatAutoCompactMinMessages,
+		HecateOnly:     true,
+		Now:            time.Now().UTC(),
+	})
+	if err != nil {
+		return chat.Session{}, err
+	}
+	return result.Session, nil
+}
+
 func agentChatModelHistory(session chat.Session, systemPrompt, content string) []types.Message {
 	messages := make([]types.Message, 0, len(session.Messages))
 	if systemPrompt = strings.TrimSpace(systemPrompt); systemPrompt != "" {
 		messages = append(messages, types.Message{Role: "system", Content: systemPrompt})
 	}
-	for _, message := range session.Messages {
+	skipThroughIndex := compactedTranscriptMessageIndex(session.Messages, session.ContextSummary.ThroughMessageID)
+	if compacted := chat.TranscriptSummaryPrompt(session.ContextSummary); compacted != "" && skipThroughIndex >= 0 {
+		messages = append(messages, types.Message{Role: "system", Content: compacted})
+	}
+	for i, message := range session.Messages {
+		if skipThroughIndex >= 0 && i <= skipThroughIndex {
+			continue
+		}
 		if message.Role != "user" && message.Role != "assistant" {
 			continue
 		}
@@ -1083,6 +1138,19 @@ func agentChatModelHistory(session chat.Session, systemPrompt, content string) [
 	}
 	messages = append(messages, types.Message{Role: "user", Content: content})
 	return messages
+}
+
+func compactedTranscriptMessageIndex(messages []chat.Message, throughMessageID string) int {
+	throughMessageID = strings.TrimSpace(throughMessageID)
+	if throughMessageID == "" {
+		return -1
+	}
+	for i, message := range messages {
+		if message.ID == throughMessageID {
+			return i
+		}
+	}
+	return -1
 }
 
 func modelSegmentID(session chat.Session, provider, model string) string {

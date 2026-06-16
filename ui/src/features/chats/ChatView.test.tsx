@@ -3387,6 +3387,8 @@ describe("ChatView input", () => {
     expect(within(commands).getByRole("option", { name: "Insert /model command" })).toBeTruthy();
     expect(within(commands).getByRole("option", { name: "Insert /settings command" })).toBeTruthy();
     expect(within(commands).getByRole("option", { name: "Insert /status command" })).toBeTruthy();
+    expect(within(commands).getByRole("option", { name: "Insert /context command" })).toBeTruthy();
+    expect(within(commands).getByRole("option", { name: "Insert /compact command" })).toBeTruthy();
     expect(within(commands).getByRole("option", { name: "Insert /task command" })).toBeTruthy();
     expect(
       within(commands).getByRole("option", { name: "Insert /connections command" }),
@@ -3634,6 +3636,78 @@ describe("ChatView input", () => {
     fireEvent.submit(screen.getByRole("textbox", { name: "Message" }).closest("form")!);
 
     expect(screen.getByLabelText("Chat settings panel")).toBeTruthy();
+    expect(setMessage).toHaveBeenCalledWith("");
+    expect(submitChat).not.toHaveBeenCalled();
+  });
+
+  it("opens chat context with /context without sending chat", () => {
+    const setMessage = vi.fn();
+    const submitChat = vi.fn(async () => undefined);
+    const { state, actions } = setup(
+      {
+        chatTarget: "agent",
+        defaultChatToolsEnabled: false,
+        message: "/context",
+        activeChatSessionID: "s1",
+        activeChatSession: {
+          id: "s1",
+          agent_id: "hecate",
+          title: "Project chat",
+          execution_mode: "hecate_task",
+          provider: "openai",
+          model: "gpt-4o-mini",
+          status: "idle",
+          workspace: "/tmp/hecate",
+          context_summary: {
+            message_count: 12,
+            through_message_id: "msg_12",
+            content: "- User: old request",
+          },
+          messages: [],
+        },
+      },
+      { setMessage, submitChat },
+    );
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    fireEvent.submit(screen.getByRole("textbox", { name: "Message" }).closest("form")!);
+
+    expect(screen.getByLabelText("Chat settings panel")).toBeTruthy();
+    expect(screen.getByText("Compacted")).toBeTruthy();
+    expect(screen.getByText("12 messages")).toBeTruthy();
+    expect(setMessage).toHaveBeenCalledWith("");
+    expect(submitChat).not.toHaveBeenCalled();
+  });
+
+  it("compacts chat context with /compact without sending chat", async () => {
+    const compactChatSession = vi.fn(async () => true);
+    const setMessage = vi.fn();
+    const submitChat = vi.fn(async () => undefined);
+    const { state, actions } = setup(
+      {
+        chatTarget: "agent",
+        defaultChatToolsEnabled: false,
+        message: "/compact",
+        activeChatSessionID: "s1",
+        activeChatSession: {
+          id: "s1",
+          agent_id: "hecate",
+          title: "Project chat",
+          execution_mode: "hecate_task",
+          provider: "openai",
+          model: "gpt-4o-mini",
+          status: "idle",
+          workspace: "/tmp/hecate",
+          messages: [],
+        },
+      },
+      { compactChatSession, setMessage, submitChat },
+    );
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    fireEvent.submit(screen.getByRole("textbox", { name: "Message" }).closest("form")!);
+
+    await waitFor(() => expect(compactChatSession).toHaveBeenCalledWith("s1"));
     expect(setMessage).toHaveBeenCalledWith("");
     expect(submitChat).not.toHaveBeenCalled();
   });

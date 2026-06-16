@@ -862,6 +862,13 @@ export async function cancelChatSession(id: string): Promise<ChatSessionResponse
   );
 }
 
+export async function compactChatSession(id: string): Promise<ChatSessionResponse> {
+  return fetchJSON<ChatSessionResponse>(
+    `${HECATE_API}/chat/sessions/${encodeURIComponent(id)}/compact`,
+    { method: "POST", body: {} },
+  );
+}
+
 export async function createChatMessage(
   id: string,
   payload: string | CreateChatMessagePayload,

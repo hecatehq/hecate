@@ -499,6 +499,105 @@ func TestDirectHecateChatProjectSessionInjectsProposalGuidance(t *testing.T) {
 	}
 }
 
+func TestDirectHecateChatAutoCompactsLongTranscript(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	provider := &fakeProvider{
+		name: "openai",
+		response: &types.ChatResponse{
+			ID:        "chatcmpl-hecate-direct-compact",
+			Model:     "gpt-4o-mini",
+			CreatedAt: time.Now().UTC(),
+			Choices: []types.ChatChoice{{
+				Index:        0,
+				Message:      types.Message{Role: "assistant", Content: "ack"},
+				FinishReason: "stop",
+			}},
+		},
+	}
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{provider}, config.Config{}, controlplane.NewMemoryStore())
+	handler := NewServer(logger, apiHandler)
+	client := newTaskTestClient(t, handler)
+
+	session := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions",
+		`{"agent_id":"hecate","provider":"openai","model":"gpt-4o-mini"}`)
+	var updated ChatSessionResponse
+	for i := 1; i <= 10; i++ {
+		updated = mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions/"+session.Data.ID+"/messages",
+			fmt.Sprintf(`{"execution_mode":"hecate_task","tools_enabled":false,"content":"question %02d"}`, i))
+	}
+
+	if updated.Data.ContextSummary == nil {
+		t.Fatal("context_summary is nil, want automatic compaction metadata")
+	}
+	if updated.Data.ContextSummary.MessageCount != 10 {
+		t.Fatalf("context_summary message_count = %d, want 10", updated.Data.ContextSummary.MessageCount)
+	}
+	request := provider.LastRequest()
+	if len(request.Messages) != 10 {
+		t.Fatalf("provider message count = %d, want compact summary + 8 retained + current", len(request.Messages))
+	}
+	if request.Messages[0].Role != "system" || !strings.Contains(request.Messages[0].Content, "Earlier chat transcript compacted by Hecate") {
+		t.Fatalf("first provider message = %+v, want compacted transcript system summary", request.Messages[0])
+	}
+	if request.Messages[1].Role != "user" || request.Messages[1].Content != "question 06" {
+		t.Fatalf("first retained provider message = %+v, want question 06", request.Messages[1])
+	}
+	if request.Messages[len(request.Messages)-1].Content != "question 10" {
+		t.Fatalf("last provider message = %+v, want current prompt", request.Messages[len(request.Messages)-1])
+	}
+	lastAssistant := updated.Data.Messages[len(updated.Data.Messages)-1]
+	if lastAssistant.ContextPacket == nil || !chatContextPacketHasKind(*lastAssistant.ContextPacket, "transcript_summary") {
+		t.Fatalf("assistant context packet missing transcript_summary: %+v", lastAssistant.ContextPacket)
+	}
+}
+
+func TestHecateChatCompactEndpointCompactsTranscript(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	provider := &fakeProvider{
+		name: "openai",
+		response: &types.ChatResponse{
+			ID:        "chatcmpl-hecate-manual-compact",
+			Model:     "gpt-4o-mini",
+			CreatedAt: time.Now().UTC(),
+			Choices: []types.ChatChoice{{
+				Index:        0,
+				Message:      types.Message{Role: "assistant", Content: "ack"},
+				FinishReason: "stop",
+			}},
+		},
+	}
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{provider}, config.Config{}, controlplane.NewMemoryStore())
+	handler := NewServer(logger, apiHandler)
+	client := newTaskTestClient(t, handler)
+
+	session := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions",
+		`{"agent_id":"hecate","provider":"openai","model":"gpt-4o-mini"}`)
+	for i := 1; i <= 5; i++ {
+		_ = mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions/"+session.Data.ID+"/messages",
+			fmt.Sprintf(`{"execution_mode":"hecate_task","tools_enabled":false,"content":"manual %02d"}`, i))
+	}
+
+	compacted := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions/"+session.Data.ID+"/compact", `{}`)
+	if compacted.Data.ContextSummary == nil {
+		t.Fatal("context_summary is nil, want manual compaction metadata")
+	}
+	if compacted.Data.ContextSummary.MessageCount != 2 {
+		t.Fatalf("context_summary message_count = %d, want 2", compacted.Data.ContextSummary.MessageCount)
+	}
+	if !strings.Contains(compacted.Data.ContextSummary.Content, "manual 01") {
+		t.Fatalf("context_summary content = %q, want first turn", compacted.Data.ContextSummary.Content)
+	}
+}
+
+func chatContextPacketHasKind(packet ChatContextPacketItem, kind string) bool {
+	for _, item := range packet.Items {
+		if item.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
 func TestProjectChatPromptHelpersBoundUTF8Text(t *testing.T) {
 	remaining := 64
 	section, truncated := boundedPromptContextSection("Header", strings.Repeat("é", 80), 48, &remaining)
