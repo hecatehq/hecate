@@ -52,6 +52,7 @@ export function TranscriptMessageRow({
   copied,
   turnPrompt,
   copiedDebug,
+  onOpenProjectProposal,
 }: {
   id: string;
   role: "user" | "assistant";
@@ -87,6 +88,7 @@ export function TranscriptMessageRow({
   copied: boolean;
   turnPrompt?: string;
   copiedDebug?: boolean;
+  onOpenProjectProposal?: (activity: ChatActivityRecord) => void;
 }) {
   const [hovered, setHovered] = useState(false);
   const isAssistant = role === "assistant";
@@ -129,6 +131,14 @@ export function TranscriptMessageRow({
     isAssistant && visibleActivities?.length
       ? (activity: ChatActivityRecord) => {
           if (inlineMCPAppActivitySet.has(activity)) return null;
+          if (isProjectAssistantProposalActivity(activity) && onOpenProjectProposal) {
+            return (
+              <ProjectAssistantProposalActivity
+                activity={activity}
+                onOpen={() => onOpenProjectProposal(activity)}
+              />
+            );
+          }
           return renderAgentActivityAdvanced(activity, {
             taskLink,
             diffStat,
@@ -374,6 +384,40 @@ type ChatActivityWithMCPApp = ChatActivityRecord & { mcp_app: ChatMCPAppRecord }
 
 function hasMCPApp(activity: ChatActivityRecord): activity is ChatActivityWithMCPApp {
   return Boolean(activity.mcp_app);
+}
+
+function isProjectAssistantProposalActivity(activity: ChatActivityRecord): boolean {
+  return (
+    activity.type === "project_assistant_proposal" || activity.kind === "project_assistant_proposal"
+  );
+}
+
+function ProjectAssistantProposalActivity({
+  activity,
+  onOpen,
+}: {
+  activity: ChatActivityRecord;
+  onOpen: () => void;
+}) {
+  return (
+    <div style={{ display: "grid", gap: 7 }}>
+      <div style={{ color: "var(--t2)", fontSize: 11, lineHeight: 1.5 }}>
+        {activity.detail || activity.title || "Project Assistant proposal"}
+      </div>
+      <div>
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          onClick={onOpen}
+          title="Open Project Assistant proposal in Projects"
+          style={{ fontSize: 10, padding: "2px 7px", gap: 5 }}
+        >
+          <Icon d={Icons.projects} size={12} />
+          Open in Projects
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function renderAgentActivityAdvanced(

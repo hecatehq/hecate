@@ -3,8 +3,11 @@ import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 import { useChat } from "../../app/state/chat";
 import { useChatActions } from "../../app/state/coordinators/chat";
 import { useChatTarget } from "../../app/state/derived";
+import { useProjects } from "../../app/state/projects";
 import { useWiredSettingsActions } from "../../app/state/coordinators/wired";
+import { getTaskRunArtifact } from "../../lib/api";
 import { formatDurationMs } from "../../lib/format";
+import { writeProjectAssistantChatHandoff } from "../../lib/project-assistant-chat-handoff";
 import type {
   ChatActivityRecord,
   ChatContextPacketRecord,
@@ -13,6 +16,7 @@ import type {
   ChatTimingRecord,
   ChatUsageRecord,
 } from "../../types/chat";
+import type { ProjectAssistantProposal } from "../../types/project";
 import { CodeBlock, Icon, Icons } from "../shared/ui";
 import { TranscriptMessageRow } from "../transcript/TranscriptMessageRow";
 
@@ -97,6 +101,49 @@ function useStableCallback<A extends unknown[], R>(fn: (...args: A) => R): (...a
   return useRef((...args: A) => ref.current(...args)).current;
 }
 
+type ProjectAssistantProposalArtifactPayload = {
+  project_id: string;
+  source_session_id?: string;
+  request?: string;
+  proposal: ProjectAssistantProposal;
+};
+
+function parseProjectAssistantProposalArtifact(
+  content: string,
+): ProjectAssistantProposalArtifactPayload | null {
+  try {
+    const parsed = JSON.parse(content) as {
+      project_id?: unknown;
+      source_chat_session_id?: unknown;
+      request?: unknown;
+      proposal?: unknown;
+    };
+    const projectID = typeof parsed.project_id === "string" ? parsed.project_id.trim() : "";
+    if (!projectID || !isProjectAssistantProposal(parsed.proposal)) return null;
+    return {
+      project_id: projectID,
+      source_session_id:
+        typeof parsed.source_chat_session_id === "string"
+          ? parsed.source_chat_session_id.trim()
+          : undefined,
+      request: typeof parsed.request === "string" ? parsed.request : undefined,
+      proposal: parsed.proposal,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function isProjectAssistantProposal(value: unknown): value is ProjectAssistantProposal {
+  if (!value || typeof value !== "object") return false;
+  const proposal = value as Partial<ProjectAssistantProposal>;
+  return (
+    typeof proposal.id === "string" &&
+    typeof proposal.title === "string" &&
+    Array.isArray(proposal.actions)
+  );
+}
+
 export function ChatTranscript({
   isHecateAgentChat,
   activeSessionID,
@@ -111,6 +158,7 @@ export function ChatTranscript({
   openExternalAgentSetup,
 }: Props) {
   const chat = useChat();
+  const projects = useProjects();
   const chatTarget = useChatTarget();
   const { actions: settingsActions } = useWiredSettingsActions();
   const chatActions = useChatActions({
@@ -196,6 +244,57 @@ export function ChatTranscript({
   const handleOpenSetup = useStableCallback((adapterID?: string) => {
     openExternalAgentSetup(adapterID);
   });
+  const handleOpenProjectProposal = useStableCallback(
+    async (message: VisibleChatMessage, activity: ChatActivityRecord) => {
+      const taskID = (message.task_id ?? "").trim();
+      const runID = (message.run_id ?? "").trim();
+      const artifactID = (activity.artifact_id ?? "").trim();
+      if (!taskID || !runID || !artifactID) {
+        settingsActions.setNoticeMessage(
+          "error",
+          "Project Assistant proposal artifact is missing.",
+        );
+        return;
+      }
+      try {
+        const artifact = await getTaskRunArtifact(taskID, runID, artifactID);
+        const payload = parseProjectAssistantProposalArtifact(artifact.data.content_text ?? "");
+        if (!payload) {
+          settingsActions.setNoticeMessage(
+            "error",
+            "Project Assistant proposal artifact could not be opened.",
+          );
+          return;
+        }
+        const projectID = payload.project_id.trim();
+        const handoffWritten = writeProjectAssistantChatHandoff({
+          project_id: projectID,
+          proposal: payload.proposal,
+          request: payload.request,
+          source_session_id: payload.source_session_id || activeSessionID,
+          created_at: new Date().toISOString(),
+        });
+        if (!handoffWritten) {
+          settingsActions.setNoticeMessage(
+            "error",
+            "Failed to hand off the proposal to Projects. Try opening it again.",
+          );
+          return;
+        }
+        void projects.actions.selectProject(projectID);
+        onNavigate?.("projects");
+        settingsActions.setNoticeMessage(
+          "success",
+          "Project Assistant proposal loaded. Review it in Projects.",
+        );
+      } catch (error) {
+        settingsActions.setNoticeMessage(
+          "error",
+          error instanceof Error ? error.message : "Failed to open Project Assistant proposal.",
+        );
+      }
+    },
+  );
   const stableWorkspaceChanges = useStableCallback(onOpenWorkspaceChanges ?? noop);
   // Preserve the undefined case: TranscriptMessageRow renders a plain,
   // non-clickable label when changedFilesLink.onClick is undefined, so a
@@ -233,6 +332,7 @@ export function ChatTranscript({
                 onCopy={handleCopy}
                 onOpenTask={handleOpenTask}
                 onOpenTrace={handleOpenTrace}
+                onOpenProjectProposal={handleOpenProjectProposal}
                 onOpenWorkspaceChanges={workspaceChangesHandler}
                 openExternalAgentSetup={handleOpenSetup}
               />
@@ -359,6 +459,7 @@ type ChatTranscriptRowProps = {
   onCopy: (id: string, text: string) => void;
   onOpenTask: (taskID: string, runID?: string) => void;
   onOpenTrace: (requestID: string) => void;
+  onOpenProjectProposal: (message: VisibleChatMessage, activity: ChatActivityRecord) => void;
   onOpenWorkspaceChanges?: () => void;
   openExternalAgentSetup: (adapterID?: string) => void;
 };
@@ -378,6 +479,7 @@ const ChatTranscriptRow = memo(function ChatTranscriptRow({
   onCopy,
   onOpenTask,
   onOpenTrace,
+  onOpenProjectProposal,
   onOpenWorkspaceChanges,
   openExternalAgentSetup,
 }: ChatTranscriptRowProps) {
@@ -453,6 +555,9 @@ const ChatTranscriptRow = memo(function ChatTranscriptRow({
           : undefined
       }
       activities={role === "assistant" ? m.activities : undefined}
+      onOpenProjectProposal={
+        role === "assistant" ? (activity) => onOpenProjectProposal(m, activity) : undefined
+      }
       rawOutput={role === "assistant" ? m.raw_output : undefined}
       agentUsage={role === "assistant" ? m.usage : undefined}
       agentTiming={role === "assistant" ? m.timing : undefined}

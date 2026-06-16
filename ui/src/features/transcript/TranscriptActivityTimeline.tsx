@@ -351,6 +351,11 @@ function CommandGroupActivities({
 function advancedSummaryLabel(activity: ChatActivityRecord): string {
   if (activity.mcp_app) return "App";
   if (activity.type === "tool_group" && (activity.children?.length ?? 0) > 0) return "Commands";
+  if (
+    activity.type === "project_assistant_proposal" ||
+    activity.kind === "project_assistant_proposal"
+  )
+    return "Proposal";
   if (activity.type === "changed_files" || activity.type === "files_changed")
     return "Workspace diff";
   if (activity.type === "output") return "Output";

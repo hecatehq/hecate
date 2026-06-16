@@ -272,6 +272,15 @@ export function activityDisplay(activity: ChatActivityRecord): { title: string; 
   if (activity.type === "thinking") {
     return { title: "Thinking" };
   }
+  if (
+    activity.type === "project_assistant_proposal" ||
+    activity.kind === "project_assistant_proposal"
+  ) {
+    return {
+      title: "Project Assistant proposal",
+      detail: cleanActivityDetail(activity) || activity.title,
+    };
+  }
   if (activity.type === "model_turns") {
     return { title: "Thinking", detail: activity.detail };
   }

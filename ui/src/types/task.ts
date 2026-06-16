@@ -175,6 +175,11 @@ export type TaskArtifactsResponse = {
   data: TaskArtifactRecord[];
 };
 
+export type TaskArtifactResponse = {
+  object: string;
+  data: TaskArtifactRecord;
+};
+
 export type TaskPatchRecord = {
   artifact: TaskArtifactRecord;
   diff: string;

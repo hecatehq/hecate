@@ -310,14 +310,14 @@ Approval resolution is owned by the task runtime so approval, run, task, step, a
 
 `HECATE_TASK_APPROVAL_POLICIES` (default `shell_exec,git_exec,file_write`) is a comma-separated allowlist of which approval gates are active across the task runtime. It controls both pre-execution gates on `shell` / `git` / `file` tasks **and** mid-loop gates inside `agent_loop` runs — same env var, same names. Recognized values:
 
-| Value            | Effect                                                                                                                                                                                                                                                                |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `shell_exec`     | Gate `execution_kind=shell` task creates and `agent_loop` `shell_exec` tool calls.                                                                                                                                                                                    |
-| `git_exec`       | Gate `execution_kind=git` task creates and `agent_loop` `git_exec` / `git_status` / `git_diff` tool calls.                                                                                                                                                            |
-| `file_write`     | Gate `execution_kind=file` task creates and `agent_loop` `file_write` / `file_edit` / `apply_patch` tool calls.                                                                                                                                                       |
-| `network_egress` | Gate task creates that opt into `sandbox_network=true` and `agent_loop` `http_request` tool calls.                                                                                                                                                                    |
-| `read_file`      | Gate `agent_loop` `read_file` / `grep` / `glob` / `artifact_read` tool calls. Useful when operators want visibility into every file, search, or persisted artifact the agent reads, not just what it writes.                                                          |
-| `all_tools`      | Gate every agent tool call (`shell_exec`, `git_exec`, `git_status`, `git_diff`, `file_write`, `file_edit`, `apply_patch`, `read_file`, `grep`, `glob`, `artifact_read`, `list_dir`, `http_request`) and all pre-execution task gates. Short-circuits to the full set. |
+| Value            | Effect                                                                                                                                                                                                                                                                                          |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `shell_exec`     | Gate `execution_kind=shell` task creates and `agent_loop` `shell_exec` tool calls.                                                                                                                                                                                                              |
+| `git_exec`       | Gate `execution_kind=git` task creates and `agent_loop` `git_exec` / `git_status` / `git_diff` tool calls.                                                                                                                                                                                      |
+| `file_write`     | Gate `execution_kind=file` task creates and `agent_loop` `file_write` / `file_edit` / `apply_patch` tool calls.                                                                                                                                                                                 |
+| `network_egress` | Gate task creates that opt into `sandbox_network=true` and `agent_loop` `http_request` tool calls.                                                                                                                                                                                              |
+| `read_file`      | Gate `agent_loop` `read_file` / `grep` / `glob` / `artifact_read` tool calls. Useful when operators want visibility into every file, search, or persisted artifact the agent reads, not just what it writes.                                                                                    |
+| `all_tools`      | Gate every agent tool call (`shell_exec`, `git_exec`, `git_status`, `git_diff`, `file_write`, `file_edit`, `apply_patch`, `read_file`, `grep`, `glob`, `artifact_read`, `list_dir`, `http_request`, `draft_project_proposal`) and all pre-execution task gates. Short-circuits to the full set. |
 
 Unknown policy names are rejected at startup with a clear error. Empty value disables every gate (use only in trusted environments). For per-MCP-server gating in `agent_loop` runs, see `approval_policy` on `mcp_servers` entries in [`mcp.md#approval-policy`](mcp.md#approval-policy).
 
@@ -346,7 +346,8 @@ cursor instead of creating a new `run_event` row.
 The frame also includes a normalized `activity` array for clients that want a
 coding-agent-style timeline without reconstructing it from raw steps and
 artifacts. Activity item types include `thinking`, `tool_call`, `patch`,
-`changed_files`, `final_answer`, `approval`, and `run_result`. Approval
+`changed_files`, `final_answer`, `project_assistant_proposal`, `approval`, and
+`run_result`. Approval
 activities carry `approval_id` and `needs_action` when a user decision is
 pending. The operator UI uses this same array in both Task Detail and Hecate
 Chat transcript projections; clients should treat it as the compact timeline
@@ -2807,6 +2808,13 @@ surface. Clients may carry local source metadata, such as the request text and
 chat session id, for review UI navigation; that metadata is not part of the
 proposal apply payload.
 
+Task-backed project-linked Hecate Chat may also produce
+`project_assistant_proposal` artifacts when the model calls the
+`draft_project_proposal` agent-loop tool. The artifact content is JSON with the
+linked `project_id`, optional `source_chat_session_id`, original request, and
+embedded Project Assistant `proposal`. It is a review handoff only; clients open
+it in Projects and still apply through `/hecate/v1/project-assistant/apply`.
+
 ## Chat session endpoints
 
 ### `GET /hecate/v1/chat/sessions`
@@ -3198,6 +3206,9 @@ the user message and assistant output.
   vocabulary as project assignment launch context and keeps Chat conversational
   while telling the model to treat project-planning intent as proposal-only
   Project Assistant work; it does not grant direct project mutation rights.
+  Task-backed project-linked Hecate Chat exposes the bounded
+  `draft_project_proposal` tool for that proposal-only path; direct model turns
+  receive the guidance but cannot call tools.
   Skill entries are metadata only and do not inject `SKILL.md` bodies. If the
   selected model routes to a cloud provider, the bounded project prompt context
   is sent through the normal model gateway route like any other chat prompt.

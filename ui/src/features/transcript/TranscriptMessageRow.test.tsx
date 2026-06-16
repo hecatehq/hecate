@@ -742,6 +742,31 @@ describe("TranscriptMessageRow", () => {
     expect(screen.getByText(/drwxr-xr-x@ 20 chicoxyzzy staff 640/)).toBeInTheDocument();
   });
 
+  it("renders a Project Assistant proposal activity action", async () => {
+    const user = userEvent.setup();
+    const onOpenProjectProposal = vi.fn();
+    const activity: ChatActivityRecord = {
+      type: "project_assistant_proposal",
+      kind: "project_assistant_proposal",
+      title: "Project Assistant proposal",
+      status: "ready",
+      artifact_id: "artifact_project_proposal",
+    };
+
+    render(
+      <TranscriptMessageRow
+        {...baseProps}
+        activities={[activity]}
+        onOpenProjectProposal={onOpenProjectProposal}
+      />,
+    );
+
+    await user.click(screen.getByText("Proposal"));
+    await user.click(screen.getByRole("button", { name: "Open in Projects" }));
+
+    expect(onOpenProjectProposal).toHaveBeenCalledWith(activity);
+  });
+
   it("shows full captured command output from detail-only output-captured rows", async () => {
     const user = userEvent.setup();
     const activities: ChatActivityRecord[] = [

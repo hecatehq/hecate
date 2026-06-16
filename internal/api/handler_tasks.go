@@ -453,6 +453,8 @@ func buildTaskActivityItems(steps []TaskStepItem, artifacts []TaskArtifactItem, 
 			itemType = "changed_files"
 		case "summary":
 			itemType = "final_answer"
+		case orchestrator.ProjectAssistantProposalArtifactKind:
+			itemType = orchestrator.ProjectAssistantProposalArtifactKind
 		}
 		summary := map[string]any{
 			"size_bytes": artifact.SizeBytes,
