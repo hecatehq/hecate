@@ -76,7 +76,7 @@ diff --git a/AGENTS.md b/AGENTS.md
 index be6d4e94..256cc3b9 100644
 --- a/AGENTS.md
 +++ b/AGENTS.md
-@@ -27,6 +27,14 @@ guidance live in [\`docs-ai/\`](docs-ai/README.md).
+@@ -27,4 +27,8 @@ guidance live in [\`docs-ai/\`](docs-ai/README.md).
  
  When in doubt: read [\`docs-ai/core/project-context.md\`](docs-ai/core/project-context.md).
  
