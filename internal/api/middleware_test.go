@@ -717,6 +717,9 @@ func TestSessionAdvertisesEmbeddedTerminalCapability(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `"embedded_terminal":true`) {
 		t.Fatalf("local whoami body = %s, want embedded terminal capability", rec.Body.String())
 	}
+	if !strings.Contains(rec.Body.String(), `"local_providers_allowed":true`) {
+		t.Fatalf("local whoami body = %s, want local providers allowed capability", rec.Body.String())
+	}
 
 	handler = NewServer(logger, NewHandler(config.Config{
 		Server: config.ServerConfig{
@@ -737,6 +740,39 @@ func TestSessionAdvertisesEmbeddedTerminalCapability(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"embedded_terminal":true`) {
 		t.Fatalf("cloud whoami body = %s, want embedded terminal capability", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"local_providers_allowed":false`) {
+		t.Fatalf("cloud whoami body = %s, want local providers disabled capability", rec.Body.String())
+	}
+}
+
+func TestSessionAdvertisesLocalProvidersAllowedWhenCloudOptIn(t *testing.T) {
+	t.Parallel()
+
+	const secret = "cloud-runtime-secret-123456"
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	handler := NewServer(logger, NewHandler(config.Config{
+		Server: config.ServerConfig{
+			CloudRuntimeMode:         true,
+			CloudRuntimeSecret:       secret,
+			CloudAllowLocalProviders: true,
+		},
+	}, logger, nil, nil, nil, nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/hecate/v1/whoami", nil)
+	req.Header.Set(cloudruntime.HeaderRuntimeSecret, secret)
+	req.Header.Set(cloudruntime.HeaderActorID, "actor_1")
+	req.Header.Set(cloudruntime.HeaderOrgID, "org_1")
+	req.Header.Set(cloudruntime.HeaderProjectID, "proj_1")
+	req.Header.Set(cloudruntime.HeaderRuntimeID, "rt_1")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("cloud status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"local_providers_allowed":true`) {
+		t.Fatalf("cloud whoami body = %s, want local providers opt-in capability", rec.Body.String())
 	}
 }
 
