@@ -357,7 +357,7 @@ describe("ChatView input", () => {
     expect(selectChatSession).toHaveBeenCalledWith("");
   });
 
-  it("disables new agent chat creation without a workspace and keeps setup on the canvas", async () => {
+  it("keeps external-agent chat creation blocked until a workspace is selected", async () => {
     const createChatSession = vi.fn(async () => undefined);
     const chooseAgentWorkspace = vi.fn(async () => true);
     const { state, actions } = setup(
@@ -460,6 +460,32 @@ describe("ChatView input", () => {
       {
         chatTarget: "agent",
         defaultChatToolsEnabled: false,
+        agentWorkspace: "",
+        activeChatSessionID: "",
+        activeChatSession: null,
+      },
+      { createChatSession },
+    );
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const user = userEvent.setup();
+    const newChatButton = screen.getByRole("button", { name: "New Hecate chat" });
+    expect(newChatButton).not.toBeDisabled();
+    expect(
+      screen.queryByText("Choose a workspace in the chat view before starting agent chats."),
+    ).toBeNull();
+
+    await user.click(newChatButton);
+
+    expect(createChatSession).toHaveBeenCalledWith({ agentID: "hecate", projectID: "" });
+  });
+
+  it("allows Hecate chat creation without a workspace even when tools are enabled", async () => {
+    const createChatSession = vi.fn(async () => undefined);
+    const { state, actions } = setup(
+      {
+        chatTarget: "agent",
+        defaultChatToolsEnabled: true,
         agentWorkspace: "",
         activeChatSessionID: "",
         activeChatSession: null,

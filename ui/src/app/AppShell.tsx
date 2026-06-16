@@ -384,18 +384,6 @@ function AuthenticatedShell({
           <UpdateBanner />
         </div>
       )}
-      {terminalAvailable && (
-        <button
-          aria-expanded={terminalOpen}
-          aria-label={terminalOpen ? "Close terminal" : "Open terminal"}
-          className={`hecate-shell-terminal${terminalOpen ? " hecate-shell-terminal--active" : ""}`}
-          onClick={() => setTerminalOpen((open) => !open)}
-          title={terminalOpen ? "Close terminal" : "Open terminal"}
-          type="button"
-        >
-          <SvgIcon d={IC.terminal} size={17} />
-        </button>
-      )}
       <div className="hecate-workarea">
         {/* Activity bar */}
         <nav className="hecate-activitybar" aria-label="Workspace navigation">
@@ -412,6 +400,18 @@ function AuthenticatedShell({
               {ws.icon}
             </button>
           ))}
+          {terminalAvailable && (
+            <button
+              aria-expanded={terminalOpen}
+              aria-label={terminalOpen ? "Close terminal" : "Open terminal"}
+              className={`hecate-activitybtn${terminalOpen ? " hecate-activitybtn--active" : ""}`}
+              onClick={() => setTerminalOpen((open) => !open)}
+              title={terminalOpen ? "Close terminal" : "Open terminal"}
+              type="button"
+            >
+              <SvgIcon d={IC.terminal} size={17} />
+            </button>
+          )}
           {/* Pin theme toggle to the bottom of the rail. The flex spacer
               keeps it visually separated from workspace icons regardless
               of how many workspaces are registered. */}

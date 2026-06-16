@@ -357,20 +357,72 @@ test("New chat creates an external-agent session with controls before the first 
   );
 });
 
-test("New Hecate chat asks for workspace before creating a tools-on session", async ({ page }) => {
+test("New Hecate chat can start without workspace and shows tools workspace guidance", async ({
+  page,
+}) => {
   let createBody: any = null;
+  let messageBody: any = null;
   await page.route("/hecate/v1/chat/sessions", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ object: "chat_sessions", data: [] }),
+      });
+      return;
+    }
     if (route.request().method() === "POST") {
       createBody = JSON.parse(route.request().postData() ?? "{}");
       await route.fulfill({
-        status: 500,
+        status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ error: { type: "unexpected", message: "unexpected create" } }),
+        body: JSON.stringify({
+          object: "chat_session",
+          data: {
+            id: "chat-no-workspace-tools-e2e",
+            title: "Hecate chat",
+            agent_id: "hecate",
+            provider: createBody.provider || "anthropic",
+            model: createBody.model || "claude-sonnet-4-6",
+            capabilities: { tool_calling: "basic", streaming: true, source: "provider" },
+            rtk_enabled: Boolean(createBody.rtk_enabled),
+            tools_enabled: true,
+            status: "idle",
+            messages: [],
+          },
+        }),
       });
       return;
     }
     await route.fallback();
   });
+  await page.route(
+    "/hecate/v1/chat/sessions/chat-no-workspace-tools-e2e/messages",
+    async (route) => {
+      messageBody = await route.request().postDataJSON();
+      await route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ error: { type: "unexpected", message: "unexpected message" } }),
+      });
+    },
+  );
+  await page.route("/v1/models*", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "list",
+        data: MOCK_MODELS.map((entry) => ({
+          ...entry,
+          metadata: {
+            ...entry.metadata,
+            capabilities: { tool_calling: "basic", streaming: true, source: "provider" },
+          },
+        })),
+      }),
+    }),
+  );
   await page.addInitScript(() => {
     window.localStorage.setItem("hecate.chatTarget", "agent");
     window.localStorage.removeItem("hecate.project");
@@ -378,12 +430,21 @@ test("New Hecate chat asks for workspace before creating a tools-on session", as
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
 
-  await expect(page.getByRole("button", { name: "New Hecate chat", exact: true })).toBeDisabled();
+  await page.getByRole("button", { name: "New Hecate chat", exact: true }).click();
 
+  await expect.poll(() => createBody?.agent_id).toBe("hecate");
+  expect(createBody).not.toHaveProperty("workspace");
+  await expect(page.getByText("Tools on", { exact: true })).toBeVisible();
   await expect(page.getByText("Choose a workspace", { exact: true })).toBeVisible();
-  await expect(page.locator("textarea")).toHaveCount(0);
+  await expect(
+    page.getByText("Hecate uses the workspace as the working directory for this chat."),
+  ).toBeVisible();
+  await expect(page.locator("textarea")).toHaveCount(1);
+  await page.getByRole("textbox", { name: "Message" }).fill("inspect the workspace");
+  await expect(page.getByRole("button", { name: "Send message" })).toBeDisabled();
+  await page.keyboard.press("Enter");
   await expect(page.getByText("Model required")).toHaveCount(0);
-  await expect.poll(() => createBody).toBeNull();
+  await expect.poll(() => messageBody).toBeNull();
 });
 
 test("New external-agent chat asks for workspace without flashing an inline error", async ({

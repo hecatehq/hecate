@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ConsoleShell, getAvailableWorkspaces } from "./AppShell";
@@ -253,7 +253,10 @@ describe("ConsoleShell terminal", () => {
       }),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Open terminal" }));
+    const navigation = screen.getByRole("navigation", { name: "Workspace navigation" });
+    const terminalButton = within(navigation).getByRole("button", { name: "Open terminal" });
+
+    fireEvent.click(terminalButton);
 
     const terminal = screen.getByRole("region", { name: "Embedded terminal" });
     expect(terminal).toHaveAttribute("data-workspace", "/Users/alice/project");
