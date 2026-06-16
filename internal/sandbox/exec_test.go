@@ -2,7 +2,6 @@ package sandbox
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,16 +34,13 @@ func TestLocalExecutorSeparatesStdoutAndStderr(t *testing.T) {
 }
 
 func TestLocalExecutorUsesRTKWhenEnabled(t *testing.T) {
-	dir := t.TempDir()
-	logPath := filepath.Join(dir, "rtk.log")
-	rtkPath := filepath.Join(dir, "rtk")
-	rtkScript := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$@\" > %q\nexec \"$@\"\n", logPath)
-	if err := os.WriteFile(rtkPath, []byte(rtkScript), 0o755); err != nil {
-		t.Fatalf("WriteFile(rtk) error = %v", err)
-	}
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	reset := SetWrapperForTesting(WrapperNone)
+	defer reset()
 
-	exec := NewLocalExecutor()
+	process := &recordingProcessRunner{
+		result: processrunner.Result{Stdout: "compacted", ExitCode: 0},
+	}
+	exec := &LocalExecutor{processes: process}
 	result, err := exec.Run(context.Background(), Command{
 		Command:    `printf 'compacted'`,
 		Timeout:    5 * time.Second,
@@ -56,12 +52,11 @@ func TestLocalExecutorUsesRTKWhenEnabled(t *testing.T) {
 	if result.Stdout != "compacted" {
 		t.Fatalf("stdout = %q, want compacted", result.Stdout)
 	}
-	logged, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatalf("ReadFile(rtk log) error = %v", err)
+	if process.req.Command != "rtk" {
+		t.Fatalf("process command = %q, want rtk", process.req.Command)
 	}
-	if got := string(logged); !strings.Contains(got, "sh\n-lc\nprintf 'compacted'\n") {
-		t.Fatalf("rtk argv log = %q, want sh -lc command", got)
+	if got := strings.Join(process.req.Args, "\x00"); got != "sh\x00-lc\x00printf 'compacted'" {
+		t.Fatalf("process args = %q, want RTK shell argv", got)
 	}
 }
 
