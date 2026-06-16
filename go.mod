@@ -6,7 +6,7 @@ require (
 	github.com/aymanbagabas/go-pty v0.2.3
 	github.com/coder/acp-go-sdk v0.13.5
 	github.com/coder/websocket v1.8.15
-	github.com/jackc/pgx/v5 v5.9.2
+	github.com/jackc/pgx/v5 v5.10.0
 	github.com/ncruces/zenity v0.10.14
 	github.com/spf13/cobra v1.10.2
 	go.opentelemetry.io/otel v1.44.0
