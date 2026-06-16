@@ -20,17 +20,20 @@ import (
 const (
 	acpShutdownCancelTimeout = 2 * time.Second
 	acpShutdownCloseTimeout  = 2 * time.Second
+	acpInitialCommandTimeout = 500 * time.Millisecond
 )
 
 type acpSession struct {
-	adapter    Adapter
-	workspace  string
-	cmd        *exec.Cmd
-	conn       *acp.ClientSideConnection
-	client     *acpChatClient
-	nativeID   string
-	logger     *slog.Logger
-	envCleanup func()
+	sessionID           string
+	adapter             Adapter
+	workspace           string
+	cmd                 *exec.Cmd
+	conn                *acp.ClientSideConnection
+	client              *acpChatClient
+	nativeID            string
+	logger              *slog.Logger
+	envCleanup          func()
+	onAvailableCommands func(AvailableCommandsUpdate)
 
 	configMu      sync.Mutex
 	configOptions []agentcontrols.ConfigOption
@@ -39,6 +42,7 @@ type acpSession struct {
 	commandMu              sync.Mutex
 	availableCommands      []agentcontrols.Command
 	availableCommandsKnown bool
+	commandUpdate          chan struct{}
 
 	turnMu sync.Mutex
 
@@ -47,7 +51,7 @@ type acpSession struct {
 	activeDone   chan struct{}
 }
 
-func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace, previousNativeSessionID string, selectedOptions []agentcontrols.ConfigOption, logger *slog.Logger, coordinator *ApprovalCoordinator, metrics *telemetry.AgentAdapterMetrics) (*acpSession, bool, string, error) {
+func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace, previousNativeSessionID string, selectedOptions []agentcontrols.ConfigOption, logger *slog.Logger, coordinator *ApprovalCoordinator, metrics *telemetry.AgentAdapterMetrics, onAvailableCommands func(AvailableCommandsUpdate)) (*acpSession, bool, string, error) {
 	command, err := resolveExecutable(adapter, exec.LookPath)
 	if err != nil {
 		return nil, false, "", err
@@ -109,17 +113,20 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 		coordinator: coordinator,
 		metrics:     metrics,
 	}
-	conn := acp.NewClientSideConnection(client, stdin, stdout)
 	session := &acpSession{
-		adapter:    adapter,
-		workspace:  workspace,
-		cmd:        cmd,
-		conn:       conn,
-		client:     client,
-		logger:     sessionLogger,
-		envCleanup: processEnv.cleanup,
+		sessionID:           sessionID,
+		adapter:             adapter,
+		workspace:           workspace,
+		cmd:                 cmd,
+		client:              client,
+		logger:              sessionLogger,
+		envCleanup:          processEnv.cleanup,
+		onAvailableCommands: onAvailableCommands,
+		commandUpdate:       make(chan struct{}),
 	}
 	client.onAvailableCommands = session.setAvailableCommands
+	conn := acp.NewClientSideConnection(client, stdin, stdout)
+	session.conn = conn
 	if logger != nil {
 		conn.SetLogger(logger.With(
 			slog.String("component", "agent_adapters.acp"),
@@ -251,6 +258,7 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 	session.nativeID = nativeID
 	session.configOptions = configOptions
 	session.managedConfig = managedConfig
+	session.waitForInitialAvailableCommands(ctx)
 	cleanupEnvOnError = false
 	return session, resumed, recovery, nil
 }
@@ -521,10 +529,23 @@ func (s *acpSession) configOptionsSnapshot() []agentcontrols.ConfigOption {
 }
 
 func (s *acpSession) setAvailableCommands(commands []agentcontrols.Command) {
+	commands = cloneCommands(commands)
 	s.commandMu.Lock()
-	defer s.commandMu.Unlock()
-	s.availableCommands = cloneCommands(commands)
+	s.availableCommands = commands
 	s.availableCommandsKnown = true
+	if s.commandUpdate != nil {
+		close(s.commandUpdate)
+	}
+	s.commandUpdate = make(chan struct{})
+	s.commandMu.Unlock()
+
+	if s.onAvailableCommands != nil {
+		s.onAvailableCommands(AvailableCommandsUpdate{
+			SessionID: s.sessionID,
+			AdapterID: s.adapter.ID,
+			Commands:  cloneCommands(commands),
+		})
+	}
 }
 
 func (s *acpSession) availableCommandsSnapshot() ([]agentcontrols.Command, bool) {
@@ -534,6 +555,26 @@ func (s *acpSession) availableCommandsSnapshot() ([]agentcontrols.Command, bool)
 		return nil, false
 	}
 	return cloneCommands(s.availableCommands), true
+}
+
+func (s *acpSession) waitForInitialAvailableCommands(ctx context.Context) {
+	s.commandMu.Lock()
+	if s.availableCommandsKnown {
+		s.commandMu.Unlock()
+		return
+	}
+	update := s.commandUpdate
+	s.commandMu.Unlock()
+	if update == nil {
+		return
+	}
+
+	waitCtx, cancel := context.WithTimeout(ctx, acpInitialCommandTimeout)
+	defer cancel()
+	select {
+	case <-waitCtx.Done():
+	case <-update:
+	}
 }
 
 func cloneConfigOptions(options []agentcontrols.ConfigOption) []agentcontrols.ConfigOption {

@@ -163,6 +163,27 @@ func TestACPChatClientCapturesAvailableCommandsWithoutActiveTurn(t *testing.T) {
 	}
 }
 
+func TestSessionManagerPrepareWaitsForInitialAvailableCommands(t *testing.T) {
+	t.Setenv("HECATE_FAKE_ACP_COMMANDS_DELAY", "50ms")
+	installFakeACPExecutable(t, "codex-acp")
+
+	manager := NewSessionManager()
+	result, err := manager.PrepareSession(context.Background(), PrepareSessionRequest{
+		SessionID: "chat_commands",
+		AdapterID: "codex",
+		Workspace: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("PrepareSession: %v", err)
+	}
+	if !result.AvailableCommandsKnown {
+		t.Fatal("AvailableCommandsKnown = false, want true")
+	}
+	if got := result.AvailableCommands; len(got) != 2 || got[0].Name != "web" || got[1].Name != "plan" {
+		t.Fatalf("available commands = %#v, want web and plan", got)
+	}
+}
+
 func TestSessionManagerUsesACPModelStateForBuiltInACPAdapters(t *testing.T) {
 	t.Setenv("HECATE_FAKE_ACP_MODELS", "1")
 
@@ -1627,9 +1648,10 @@ func installFakeACPExecutable(t *testing.T, name string) {
 	}
 	exe := filepath.Join(bin, name)
 	script := fmt.Sprintf(
-		"#!/bin/sh\nHECATE_FAKE_ACP_AGENT=1 HECATE_FAKE_ACP_LOAD_SESSION_FAIL=%q HECATE_FAKE_ACP_NEW_SESSION_DELAY=%q HECATE_FAKE_ACP_MODELS=%q HECATE_FAKE_ACP_CONFIG_OPTIONS=%q HECATE_FAKE_ACP_SET_MODEL_ERROR=%q exec %q -test.run '^TestFakeACPAgentProcess$'\n",
+		"#!/bin/sh\nHECATE_FAKE_ACP_AGENT=1 HECATE_FAKE_ACP_LOAD_SESSION_FAIL=%q HECATE_FAKE_ACP_NEW_SESSION_DELAY=%q HECATE_FAKE_ACP_COMMANDS_DELAY=%q HECATE_FAKE_ACP_MODELS=%q HECATE_FAKE_ACP_CONFIG_OPTIONS=%q HECATE_FAKE_ACP_SET_MODEL_ERROR=%q exec %q -test.run '^TestFakeACPAgentProcess$'\n",
 		os.Getenv("HECATE_FAKE_ACP_LOAD_SESSION_FAIL"),
 		os.Getenv("HECATE_FAKE_ACP_NEW_SESSION_DELAY"),
+		os.Getenv("HECATE_FAKE_ACP_COMMANDS_DELAY"),
 		os.Getenv("HECATE_FAKE_ACP_MODELS"),
 		os.Getenv("HECATE_FAKE_ACP_CONFIG_OPTIONS"),
 		os.Getenv("HECATE_FAKE_ACP_SET_MODEL_ERROR"),
@@ -1685,6 +1707,7 @@ func (a *fakeACPAgent) NewSession(context.Context, acp.NewSessionRequest) (acp.N
 	a.mu.Lock()
 	a.sessions[id] = &fakeACPSession{model: "model-a", mode: "ask"}
 	a.mu.Unlock()
+	a.publishAvailableCommandsAfterDelay(acp.SessionId(id))
 	return acp.NewSessionResponse{
 		SessionId:     acp.SessionId(id),
 		ConfigOptions: fakeACPConfigOptions("ask", "model-a"),
@@ -1698,9 +1721,32 @@ func (a *fakeACPAgent) LoadSession(_ context.Context, params acp.LoadSessionRequ
 	a.mu.Lock()
 	a.sessions[string(params.SessionId)] = &fakeACPSession{model: "model-a", mode: "ask"}
 	a.mu.Unlock()
+	a.publishAvailableCommandsAfterDelay(params.SessionId)
 	return acp.LoadSessionResponse{
 		ConfigOptions: fakeACPConfigOptions("ask", "model-a"),
 	}, nil
+}
+
+func (a *fakeACPAgent) publishAvailableCommandsAfterDelay(sessionID acp.SessionId) {
+	delay, err := time.ParseDuration(os.Getenv("HECATE_FAKE_ACP_COMMANDS_DELAY"))
+	if err != nil || delay <= 0 {
+		return
+	}
+	go func() {
+		time.Sleep(delay)
+		_ = a.conn.SessionUpdate(context.Background(), acp.SessionNotification{
+			SessionId: sessionID,
+			Update: acp.SessionUpdate{
+				AvailableCommandsUpdate: &acp.SessionAvailableCommandsUpdate{
+					SessionUpdate: "available_commands_update",
+					AvailableCommands: []acp.AvailableCommand{
+						{Name: "web", Description: "Search the web"},
+						{Name: "plan", Description: "Create a plan"},
+					},
+				},
+			},
+		})
+	}()
 }
 
 func (a *fakeACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (acp.PromptResponse, error) {

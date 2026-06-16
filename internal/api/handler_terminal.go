@@ -134,7 +134,7 @@ func (h *Handler) HandleTerminal(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		_ = wsjson.Write(ctx, conn, terminalServerMessage{
 			Type:    "error",
-			Message: fmt.Sprintf("failed to start terminal: %v", err),
+			Message: terminalStartErrorMessage(err),
 		})
 		return
 	}
@@ -346,4 +346,13 @@ func terminalExitCode(err error) int {
 		return exitErr.ExitCode()
 	}
 	return -1
+}
+
+func terminalStartErrorMessage(err error) string {
+	if terminal.DeviceNotConfigured(err) {
+		return "failed to start terminal: macOS could not allocate a pseudo-terminal " +
+			"(device not configured). Restart Hecate and try again; if this persists in a " +
+			"packaged build, use a build that allows PTY access."
+	}
+	return fmt.Sprintf("failed to start terminal: %v", err)
 }

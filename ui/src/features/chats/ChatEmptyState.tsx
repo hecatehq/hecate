@@ -465,12 +465,16 @@ function agentSetupHint(adapter: AgentAdapterRecord): {
     case "claude_code":
       return {
         label: "Claude Code",
-        action: "Install Claude Code, then sign in with Claude Code.",
+        action: "Install Claude Code plus the Claude ACP adapter, then sign in with Claude Code.",
         commands: [
-          { label: "Install", command: "npm install -g @anthropic-ai/claude-code" },
+          {
+            label: "Install",
+            command:
+              "npm install -g @anthropic-ai/claude-code @agentclientprotocol/claude-agent-acp",
+          },
           { label: "Auth", command: "claude /login" },
         ],
-        note: "Hecate uses Claude Code's local auth; it does not store Claude tokens.",
+        note: "Hecate launches claude-agent-acp. If Node/npm/npx is visible to Hecate, Connections can manage that adapter package for you. Hecate uses Claude Code's local auth and does not store Claude tokens.",
       };
     case "cursor_agent":
       return {

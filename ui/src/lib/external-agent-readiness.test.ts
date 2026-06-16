@@ -89,6 +89,27 @@ describe("resolveExternalAgentReadiness", () => {
     });
   });
 
+  it("names the Claude ACP adapter in setup guidance", () => {
+    const readiness = resolveExternalAgentReadiness(
+      adapter({
+        id: "claude_code",
+        name: "Claude Code",
+        command: "claude-agent-acp",
+        available: false,
+        status: "missing",
+        managed_package: "@agentclientprotocol/claude-agent-acp",
+      }),
+      null,
+    );
+
+    expect(readiness).toMatchObject({
+      kind: "setup",
+      needsRepair: true,
+    });
+    expect(readiness.setupHint).toContain("@agentclientprotocol/claude-agent-acp");
+    expect(readiness.setupHint).toContain("claude /login");
+  });
+
   it("keeps unprobed available agents muted until a probe verifies readiness", () => {
     const readiness = resolveExternalAgentReadiness(adapter({ auth_status: "unknown" }), null);
 

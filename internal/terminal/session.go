@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"time"
 
 	gopty "github.com/aymanbagabas/go-pty"
 )
@@ -35,6 +36,32 @@ func NewPTYLauncher(logger *slog.Logger) *PTYLauncher {
 }
 
 func (l *PTYLauncher) Start(ctx context.Context, req StartRequest) (Session, error) {
+	const attempts = 3
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		session, err := l.startOnce(ctx, req)
+		if err == nil {
+			return session, nil
+		}
+		lastErr = err
+		if !DeviceNotConfigured(err) || attempt == attempts {
+			return nil, err
+		}
+		if l.logger != nil {
+			l.logger.Debug("terminal pty allocation failed; retrying", "attempt", attempt, "error", err)
+		}
+		timer := time.NewTimer(time.Duration(attempt*25) * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return nil, lastErr
+}
+
+func (l *PTYLauncher) startOnce(ctx context.Context, req StartRequest) (Session, error) {
 	cols, rows := normalizedSize(req.Cols, req.Rows)
 	pt, err := gopty.New()
 	if err != nil {
@@ -56,6 +83,13 @@ func (l *PTYLauncher) Start(ctx context.Context, req StartRequest) (Session, err
 		return nil, err
 	}
 	return &ptySession{pty: pt, cmd: cmd}, nil
+}
+
+func DeviceNotConfigured(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "device not configured")
 }
 
 func normalizedSize(cols, rows int) (int, int) {

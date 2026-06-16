@@ -861,13 +861,16 @@ export function ChatComposer(props: ChatComposerProps) {
                   borderRadius: "var(--radius-sm)",
                   background: "var(--bg2)",
                   boxShadow: "0 10px 28px rgba(0, 0, 0, 0.28)",
-                  maxHeight: "min(40vh, 320px)",
+                  maxHeight: "min(60vh, 520px)",
                   overflowY: "auto",
                   overscrollBehavior: "contain",
+                  scrollbarGutter: "stable",
+                  touchAction: "pan-y",
                   padding: 4,
                   display: "grid",
                   gap: 2,
                 }}
+                onWheel={(event) => event.stopPropagation()}
               >
                 {commandSuggestions.map((command, index) => {
                   const commandText = messageCommandInsertion(command).trim();

@@ -6,7 +6,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -160,6 +162,43 @@ func (h *Handler) isValidChatAgentID(agentID string) bool {
 	}
 	_, ok := agentadapters.BuiltInByID(agentID)
 	return ok
+}
+
+func (h *Handler) handleAgentChatAvailableCommandsUpdate(update agentadapters.AvailableCommandsUpdate) {
+	if h == nil || h.agentChat == nil {
+		return
+	}
+	sessionID := strings.TrimSpace(update.SessionID)
+	if sessionID == "" {
+		return
+	}
+	commands := slices.Clone(update.Commands)
+	ctx, cancel := context.WithTimeout(context.Background(), agentChatConfigOptionTimeout)
+	defer cancel()
+	session, ok, err := h.agentChat.Get(ctx, sessionID)
+	if err != nil {
+		telemetry.Warn(h.logger, ctx, "agent chat available commands load failed", slog.String("session_id", sessionID), slog.Any("error", err))
+		return
+	}
+	if !ok {
+		return
+	}
+	if update.AdapterID != "" && session.AgentID != update.AdapterID {
+		return
+	}
+	if slices.Equal(session.AvailableCommands, commands) {
+		return
+	}
+	updated, err := h.agentChat.UpdateSession(ctx, sessionID, func(item *chat.Session) {
+		item.AvailableCommands = commands
+	})
+	if err != nil {
+		telemetry.Warn(h.logger, ctx, "agent chat available commands update failed", slog.String("session_id", sessionID), slog.Any("error", err))
+		return
+	}
+	if h.agentChatLive != nil {
+		h.agentChatLive.publishSession(updated)
+	}
 }
 
 func (h *Handler) HandleChatSession(w http.ResponseWriter, r *http.Request) {

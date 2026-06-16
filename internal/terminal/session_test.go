@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"errors"
 	"slices"
 	"testing"
 )
@@ -32,5 +33,14 @@ func TestTerminalEnvStripsSecrets(t *testing.T) {
 		if !slices.Contains(env, required) {
 			t.Fatalf("terminalEnv missing %q in %v", required, env)
 		}
+	}
+}
+
+func TestDeviceNotConfiguredDetectsMacOSErrnoText(t *testing.T) {
+	if !DeviceNotConfigured(errors.New("device not configured")) {
+		t.Fatal("DeviceNotConfigured returned false for macOS ENXIO text")
+	}
+	if DeviceNotConfigured(errors.New("permission denied")) {
+		t.Fatal("DeviceNotConfigured returned true for an unrelated error")
 	}
 }

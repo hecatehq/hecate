@@ -192,6 +192,12 @@ type PrepareSessionResult struct {
 	AvailableCommandsKnown bool
 }
 
+type AvailableCommandsUpdate struct {
+	SessionID string
+	AdapterID string
+	Commands  []agentcontrols.Command
+}
+
 type SetSessionConfigOptionRequest struct {
 	SessionID string
 	ConfigID  string
