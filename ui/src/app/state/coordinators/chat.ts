@@ -937,12 +937,6 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         ? ""
         : requestedSelectionModel;
     const workspace = workspaceForNewChat(createProjectID);
-    if (toolsEnabled && !workspace) {
-      setChatErrorState(chatWorkspaceRequiredError());
-      setActiveChatSessionID("");
-      setActiveChatSession(null);
-      return;
-    }
     const createProvider = requestedProviderFilter === "auto" ? "" : requestedProviderFilter;
     if (requestedReuseEmptyDraft) {
       const reusable = findReusableEmptyDraftSession(chat.state.chatSessions, {
