@@ -77,6 +77,10 @@ func CompactTranscriptSummary(session Session, opts CompactTranscriptOptions) Co
 	return CompactTranscriptResult{Summary: nextSummary, Compacted: true}
 }
 
+// Transcript compaction is deterministic and intentionally not model-backed
+// semantic summarization. Each older message contributes one bounded line, and
+// the combined text is capped from the oldest side to keep the prompt budget
+// predictable.
 func TranscriptSummaryPrompt(summary ContextSummary) string {
 	content := strings.TrimSpace(summary.Content)
 	if content == "" {
