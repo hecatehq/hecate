@@ -8,8 +8,8 @@
 //
 // The script runs pre-flight checks, fires a goreleaser snapshot dry-run so
 // you can inspect the changelog before anything is published, stamps the Tauri
-// app version, then tags and pushes on explicit confirmation. CI takes it from
-// there (~5-10 min).
+// app version, then commits, tags, and pushes the branch + tag on explicit
+// confirmation. CI takes it from there (~5-10 min).
 //
 // Recovery if the CI run fails:
 //   git push --delete origin <version>
@@ -108,7 +108,6 @@ if (branch !== "master" && branch !== "main") {
 }
 console.log(`  branch    : ${branch}`);
 console.log(`  commit    : ${run("git rev-parse --short HEAD", { silent: true })}`);
-const preStampHead = run("git rev-parse HEAD", { silent: true });
 
 // 3. Tag must not already exist.
 try {
@@ -196,13 +195,12 @@ const remote = (() => {
 console.log(`  tag    : ${version}`);
 console.log(`  remote : ${remote}`);
 
-if (!confirm("\nTag, stamp Tauri version, and push?")) abort("cancelled by user");
+if (!confirm("\nStamp Tauri version, tag, and push branch + tag?")) abort("cancelled by user");
 
 // ── Stamp Tauri version ───────────────────────────────────────────────────────
 
 sep("Tauri version stamp");
 const stampScript = resolve(root, "scripts/stamp-version.ts");
-let stampCommitCreated = false;
 if (existsSync(stampScript)) {
   // execFileSync (no shell) so that paths/args with spaces or special
   // characters can't be interpreted as shell metacharacters. CodeQL also
@@ -223,7 +221,6 @@ if (existsSync(stampScript)) {
       cwd: root,
       stdio: "inherit",
     });
-    stampCommitCreated = true;
     console.log("  committed Tauri version stamp");
   } else {
     console.log("  Tauri files already at correct version — no commit needed");
@@ -238,18 +235,8 @@ sep("Tag and push");
 execFileSync("git", ["tag", "-a", version, "-m", version], { cwd: root, stdio: "inherit" });
 console.log(`Tagged ${version}`);
 
-execFileSync("git", ["push", "origin", version], { cwd: root, stdio: "inherit" });
-
-// Keep the local release branch on the pre-tag commit. The version stamp
-// commit is intentionally reachable through the annotated tag only; leaving the
-// branch there makes local master diverge as soon as CI publishes manifest/docs
-// commits back to origin/master.
-if (stampCommitCreated) {
-  sep("Restore release branch");
-  execFileSync("git", ["reset", "--hard", preStampHead], { cwd: root, stdio: "inherit" });
-  console.log(`  ${branch} restored to ${preStampHead.slice(0, 12)}`);
-  console.log(`  ${version} still points at the Tauri version stamp commit`);
-}
+execFileSync("git", ["push", "origin", `HEAD:${branch}`, version], { cwd: root, stdio: "inherit" });
+console.log(`Pushed ${branch} and ${version}`);
 
 // ── Done ──────────────────────────────────────────────────────────────────────
 

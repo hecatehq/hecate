@@ -153,8 +153,8 @@ It performs, in order: clean-worktree check, tag-uniqueness check,
 goreleaser-on-PATH check, Docker-daemon check when the snapshot is enabled,
 the full project verification gate, goreleaser snapshot dry-run, interactive
 confirmation prompt, Tauri version stamp commit (Cargo.toml, package.json,
-tauri.conf.json), annotated tag, tag push, and local branch restore to the
-pre-stamp commit.
+tauri.conf.json), annotated tag, and one push containing both the stamped branch
+and the tag.
 
 Pass `--skip-snapshot` to skip the dry-run when you've already validated
 locally:
@@ -169,15 +169,17 @@ the canonical release notes (what `git show vX.Y.Z` and the GitHub
 Releases page surface):
 
 ```bash
-pre_stamp=$(git rev-parse HEAD)
 TAURI_VERSION=X.Y.Z bun scripts/stamp-version.ts
 git add tauri/src-tauri/Cargo.toml tauri/src-tauri/Cargo.lock \
         tauri/src-tauri/tauri.conf.json tauri/package.json
 git commit -m "chore(tauri): stamp version X.Y.Z"
 git tag -a vX.Y.Z -F /tmp/release-notes.txt    # message from a file
-git push origin vX.Y.Z
-git reset --hard "$pre_stamp"                  # keep the stamp on the tag only
+git push origin HEAD:master vX.Y.Z
 ```
+
+The version stamp commit stays on `master`. This keeps the visible Tauri
+metadata (`tauri/package.json`, `Cargo.toml`, `tauri.conf.json`) aligned with
+the latest release instead of hiding the release version on the tag only.
 
 ## Snapshot dry-run
 
@@ -245,8 +247,12 @@ git tag -d vX.Y.Z
 ```
 
 Tag deletion on GitHub also clears the dangling Release entry (if one was
-created before the failure step). Goreleaser's release pipeline is mostly
-idempotent — a clean retag at a fixed commit produces the same artifacts.
+created before the failure step). The Tauri version stamp commit remains on
+`master`; that is fine when retrying the same version because the release script
+will find the Tauri files already stamped and skip creating a duplicate stamp
+commit. If the version is abandoned entirely, revert or supersede the stamp with
+the next release version before tagging again. Goreleaser's release pipeline is
+mostly idempotent — a clean retag at a fixed commit produces the same artifacts.
 
 For Tauri-side failures, the `.dmg` / `.deb` / `.AppImage` / `.msi` may be
 partially uploaded. `tauri-action` uploads with `--clobber`, so a retag
