@@ -859,10 +859,18 @@ type ChatSessionItem struct {
 	IdleTimeoutMS        int64                        `json:"idle_timeout_ms,omitempty"`
 	ConfigOptions        []agentcontrols.ConfigOption `json:"config_options,omitempty"`
 	AvailableCommands    []agentcontrols.Command      `json:"available_commands,omitempty"`
+	ContextSummary       *ChatContextSummaryItem      `json:"context_summary,omitempty"`
 	CreatedAt            string                       `json:"created_at,omitempty"`
 	UpdatedAt            string                       `json:"updated_at,omitempty"`
 	Segments             []ChatSegmentItem            `json:"segments,omitempty"`
 	Messages             []ChatMessageItem            `json:"messages"`
+}
+
+type ChatContextSummaryItem struct {
+	Content          string `json:"content,omitempty"`
+	MessageCount     int    `json:"message_count,omitempty"`
+	ThroughMessageID string `json:"through_message_id,omitempty"`
+	CompactedAt      string `json:"compacted_at,omitempty"`
 }
 
 type ChatSegmentItem struct {

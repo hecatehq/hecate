@@ -94,6 +94,7 @@ var remoteRuntimeAllowedRoutes = []remoteRuntimeRoutePattern{
 	{method: http.MethodGet, path: "/hecate/v1/chat/sessions/{id}/stream"},
 	{method: http.MethodPost, path: "/hecate/v1/chat/sessions/{id}/cancel"},
 	{method: http.MethodPost, path: "/hecate/v1/chat/sessions/{id}/close"},
+	{method: http.MethodPost, path: "/hecate/v1/chat/sessions/{id}/compact"},
 	{method: http.MethodPatch, path: "/hecate/v1/chat/sessions/{id}/settings"},
 	{method: http.MethodPost, path: "/hecate/v1/chat/sessions/{id}/config-options/{config_id}"},
 	{method: http.MethodPost, path: "/hecate/v1/chat/sessions/{id}/messages"},

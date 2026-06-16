@@ -28,6 +28,7 @@ var (
 	ErrSessionIDRequired       = errors.New("session id is required")
 	ErrTitleRequired           = errors.New("request must include title")
 	ErrTitleEmpty              = errors.New("title cannot be set to an empty string")
+	ErrNothingToCompact        = errors.New("chat transcript has no older context to compact")
 )
 
 type ValidationError = apperrors.ValidationError
@@ -119,6 +120,15 @@ type SetHecateSettingsResult struct {
 type RenameSessionCommand struct {
 	ID    string
 	Title *string
+}
+
+type CompactSessionCommand struct {
+	ID               string
+	RetainMessages   int
+	MinMessages      int
+	HecateOnly       bool
+	RequireCompacted bool
+	Now              time.Time
 }
 
 type SessionResult struct {
@@ -255,6 +265,44 @@ func (app *Application) RenameSession(ctx context.Context, cmd RenameSessionComm
 	}
 	updated, err := app.store.UpdateSession(ctx, id, func(item *chat.Session) {
 		item.Title = title
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &SessionResult{Session: updated}, nil
+}
+
+func (app *Application) CompactSession(ctx context.Context, cmd CompactSessionCommand) (*SessionResult, error) {
+	if app == nil || app.store == nil {
+		return nil, ErrStoreNotConfigured
+	}
+	id := strings.TrimSpace(cmd.ID)
+	if id == "" {
+		return nil, Validation(ErrSessionIDRequired)
+	}
+	session, ok, err := app.store.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, ErrSessionNotFound
+	}
+	if cmd.HecateOnly && isExternalSession(session) {
+		return nil, ErrHecateSessionOnly
+	}
+	result := chat.CompactTranscriptSummary(session, chat.CompactTranscriptOptions{
+		Now:            cmd.Now,
+		RetainMessages: cmd.RetainMessages,
+		MinMessages:    cmd.MinMessages,
+	})
+	if !result.Compacted {
+		if cmd.RequireCompacted {
+			return nil, ErrNothingToCompact
+		}
+		return &SessionResult{Session: session}, nil
+	}
+	updated, err := app.store.UpdateSession(ctx, id, func(item *chat.Session) {
+		item.ContextSummary = result.Summary
 	})
 	if err != nil {
 		return nil, err

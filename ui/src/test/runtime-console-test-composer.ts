@@ -506,6 +506,7 @@ export function useRuntimeConsole() {
     actions: {
       copyCommand,
       cancelAgentChat: chatActions.cancelAgentChat,
+      compactChatSession: chatActions.compactChatSession,
       deletePolicyRule: policyActions.deletePolicyRule,
       chooseAgentWorkspace: chatActions.chooseAgentWorkspace,
       createChatSession: chatActions.createChatSession,

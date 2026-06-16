@@ -36,10 +36,11 @@ type Session struct {
 	// TurnsUsed counts how many user→assistant round-trips have completed
 	// (successfully or with failure) in this session. Used to enforce the
 	// HECATE_CHAT_MAX_TURNS_PER_SESSION ceiling.
-	TurnsUsed int
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	Messages  []Message
+	TurnsUsed      int
+	ContextSummary ContextSummary
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	Messages       []Message
 }
 
 type Message struct {
@@ -176,6 +177,20 @@ func (packet ContextPacket) Empty() bool {
 		packet.MessageCount == 0 &&
 		len(packet.Sources) == 0 &&
 		len(packet.Items) == 0
+}
+
+type ContextSummary struct {
+	Content          string    `json:"content,omitempty"`
+	MessageCount     int       `json:"message_count,omitempty"`
+	ThroughMessageID string    `json:"through_message_id,omitempty"`
+	CompactedAt      time.Time `json:"compacted_at,omitempty"`
+}
+
+func (summary ContextSummary) Empty() bool {
+	return strings.TrimSpace(summary.Content) == "" &&
+		summary.MessageCount == 0 &&
+		strings.TrimSpace(summary.ThroughMessageID) == "" &&
+		summary.CompactedAt.IsZero()
 }
 
 type Usage struct {
@@ -433,6 +448,7 @@ func (s *MemoryStore) UpdateMessage(_ context.Context, sessionID string, message
 func cloneSession(session Session) Session {
 	session.ConfigOptions = cloneConfigOptions(session.ConfigOptions)
 	session.AvailableCommands = cloneCommands(session.AvailableCommands)
+	session.ContextSummary = cloneContextSummary(session.ContextSummary)
 	session.Messages = append([]Message(nil), session.Messages...)
 	for i := range session.Messages {
 		session.Messages[i].Activities = append([]Activity(nil), session.Messages[i].Activities...)
@@ -446,6 +462,12 @@ func cloneSession(session Session) Session {
 		}
 	}
 	return session
+}
+
+func cloneContextSummary(summary ContextSummary) ContextSummary {
+	summary.Content = strings.TrimSpace(summary.Content)
+	summary.ThroughMessageID = strings.TrimSpace(summary.ThroughMessageID)
+	return summary
 }
 
 func cloneStringMap(in map[string]string) map[string]string {

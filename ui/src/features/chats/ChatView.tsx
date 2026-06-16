@@ -1086,6 +1086,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
                   workspace={state.activeChatSession?.workspace || state.agentWorkspace}
                   status={state.activeChatSession?.status || ""}
                   messageCount={state.activeChatSession?.messages?.length ?? 0}
+                  contextSummary={state.activeChatSession?.context_summary}
                   agentUsage={latestChatUsage}
                   usageSource={isHecateChat ? "hecate" : "adapter"}
                   externalSession={isExternalAgentChat ? state.activeChatSession : null}

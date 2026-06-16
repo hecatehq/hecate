@@ -117,10 +117,23 @@ func renderChatSession(session chat.Session, limits agentChatSnapshotConfig) Cha
 		IdleTimeoutMS:        limits.IdleTimeout.Milliseconds(),
 		ConfigOptions:        session.ConfigOptions,
 		AvailableCommands:    session.AvailableCommands,
+		ContextSummary:       renderChatContextSummary(session.ContextSummary),
 		CreatedAt:            formatOptionalTime(session.CreatedAt),
 		UpdatedAt:            formatOptionalTime(session.UpdatedAt),
 		Segments:             renderChatSegments(session),
 		Messages:             messages,
+	}
+}
+
+func renderChatContextSummary(summary chat.ContextSummary) *ChatContextSummaryItem {
+	if summary.Empty() {
+		return nil
+	}
+	return &ChatContextSummaryItem{
+		Content:          summary.Content,
+		MessageCount:     summary.MessageCount,
+		ThroughMessageID: summary.ThroughMessageID,
+		CompactedAt:      formatOptionalTime(summary.CompactedAt),
 	}
 }
 

@@ -1,6 +1,10 @@
 import type { ReactNode } from "react";
 import { formatInteger } from "../../lib/format";
-import type { ChatSessionRecord, ChatUsageRecord } from "../../types/chat";
+import type {
+  ChatContextSummaryRecord,
+  ChatSessionRecord,
+  ChatUsageRecord,
+} from "../../types/chat";
 import { Icon, Icons } from "../shared/ui";
 import { ExternalAgentSettingsControls } from "./ChatAgentControls";
 import { compactID } from "./ChatComposer";
@@ -21,6 +25,7 @@ export function ChatSettingsPanel({
   workspace,
   status,
   messageCount,
+  contextSummary,
   agentUsage,
   usageSource,
   externalSession,
@@ -48,6 +53,7 @@ export function ChatSettingsPanel({
   workspace?: string;
   status?: string;
   messageCount: number;
+  contextSummary?: ChatContextSummaryRecord;
   agentUsage: ChatUsageRecord | null;
   usageSource: "hecate" | "adapter";
   externalSession: ChatSessionRecord | null;
@@ -189,6 +195,14 @@ export function ChatSettingsPanel({
             />
             <ChatSettingsField label="Status" value={status || "new chat"} />
             <ChatSettingsField label="Messages" value={String(messageCount)} mono />
+            {contextSummary?.message_count ? (
+              <ChatSettingsField
+                label="Compacted"
+                value={`${formatInteger(contextSummary.message_count)} messages`}
+                title={contextSummary.through_message_id}
+                mono
+              />
+            ) : null}
             {taskID && <ChatSettingsField label="Task" value={shortID(taskID)} mono />}
           </div>
         </ChatSettingsSection>

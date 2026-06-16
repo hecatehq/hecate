@@ -11,6 +11,7 @@ var chatAppErrorMappings = []appErrorMapping{
 	validationAppErrorMapping(http.StatusBadRequest, errCodeInvalidRequest),
 	sentinelAppErrorMapping(http.StatusNotFound, errCodeNotFound, chatapp.ErrSessionNotFound),
 	sentinelAppErrorMapping(http.StatusBadRequest, errCodeInvalidRequest, chatapp.ErrNoSettingsProvided),
+	sentinelAppErrorMapping(http.StatusBadRequest, errCodeInvalidRequest, chatapp.ErrNothingToCompact),
 	sentinelAppErrorMapping(http.StatusConflict, errCodeRuntimeMismatch,
 		chatapp.ErrExternalSessionOnly,
 		chatapp.ErrHecateSessionOnly,

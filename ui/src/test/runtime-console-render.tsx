@@ -201,6 +201,7 @@ function buildOverrides(actions: RuntimeConsoleFixtureActions): CoordinatorOverr
       submitChat: actions.submitChat,
       submitToolResults: actions.submitToolResults,
       cancelAgentChat: actions.cancelAgentChat,
+      compactChatSession: actions.compactChatSession,
       chooseAgentWorkspace: actions.chooseAgentWorkspace,
       createChatSession: actions.createChatSession,
       deleteChatSession: actions.deleteChatSession,
