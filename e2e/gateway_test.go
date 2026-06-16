@@ -137,12 +137,15 @@ func gatewayServer(t *testing.T, extraEnv ...string) string {
 		addr := fmt.Sprintf("127.0.0.1:%d", port)
 		baseURL := "http://" + addr
 
-		// HECATE_DATA_DIR points at a per-test temp dir so any state file the
-		// runtime touches (bootstrap, control plane) lands under the test's
-		// own filesystem and gets cleaned up automatically.
+		// HECATE_DATA_DIR and HECATE_SQLITE_PATH point at a per-test temp dir
+		// so every state file the runtime touches lands under the test's own
+		// filesystem and gets cleaned up automatically. HECATE_DATA_DIR alone
+		// does not imply the sqlite path.
+		dataDir := t.TempDir()
 		env := append(os.Environ(),
 			"HECATE_ADDRESS="+addr,
-			"HECATE_DATA_DIR="+t.TempDir(),
+			"HECATE_DATA_DIR="+dataDir,
+			"HECATE_SQLITE_PATH="+filepath.Join(dataDir, "hecate.db"),
 		)
 		env = append(env, extraEnv...)
 		env = append(env, autoPreconfiguredEnv(extraEnv)...)

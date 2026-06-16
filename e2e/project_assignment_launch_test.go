@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"path/filepath"
 	"testing"
@@ -26,8 +27,9 @@ func TestProjectAssignmentPreflightStartLaunchPlanE2E(t *testing.T) {
 		"PROVIDER_FAKE_MODELS="+agentLoopE2EModel,
 	)
 
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 	project := postJSONDecodeStatus[e2eProjectResponse](t, baseURL+"/hecate/v1/projects", e2eProjectLaunchJSON(t, map[string]any{
-		"name":                   "Project launch plan e2e",
+		"name":                   "Project launch plan e2e " + suffix,
 		"workspace_path":         canonicalWorkDir,
 		"workspace_kind":         "git",
 		"default_provider":       "fake",
