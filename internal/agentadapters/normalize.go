@@ -32,7 +32,7 @@ func NormalizeError(adapterName string, err error) string {
 	if raw == "" {
 		return ""
 	}
-	if errors.Is(err, ErrCloudCredentialRequired) {
+	if errors.Is(err, ErrRemoteCredentialRequired) {
 		return raw
 	}
 	if adapterName == "Claude Code" && isAuthErrorText(raw) {

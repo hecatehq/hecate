@@ -170,12 +170,12 @@ func TestCreateTerminalSessionRejectsCrossOriginBrowserRequest(t *testing.T) {
 	}
 }
 
-func TestCreateTerminalSessionAllowsCloudRuntimeClient(t *testing.T) {
+func TestCreateTerminalSessionAllowsRemoteRuntimeClient(t *testing.T) {
 	t.Parallel()
 
 	workspace := t.TempDir()
 	apiHandler := newTestAPIHandlerWithSettings(slog.New(slog.NewJSONHandler(io.Discard, nil)), []providers.Provider{&fakeProvider{name: "openai"}}, config.Config{
-		Server: config.ServerConfig{CloudRuntimeMode: true},
+		Server: config.ServerConfig{RemoteRuntimeMode: true},
 	}, nil)
 	body, err := json.Marshal(createTerminalSessionRequest{Workspace: workspace})
 	if err != nil {

@@ -17,7 +17,7 @@ Hecate starts a fresh native session and keeps the Hecate transcript.
 
 ## Supported External Agents
 
-| External agent | How Hecate starts it                                                                                                      | Local auth mode                                            | Cloud-safe auth mode                             |
+| External agent | How Hecate starts it                                                                                                      | Local auth mode                                            | Remote-safe auth mode                            |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------ |
 | Codex          | Hecate-managed launcher for `@zed-industries/codex-acp` via local `npx`; direct `codex-acp` also works                    | Operator-owned Codex CLI auth visible to the adapter       | `OPENAI_API_KEY` or `CODEX_API_KEY`              |
 | Claude Code    | Hecate-managed launcher for `@agentclientprotocol/claude-agent-acp` via local `npx`; direct `claude-agent-acp` also works | Operator-owned Claude Code login visible to Claude Code    | `ANTHROPIC_API_KEY`                              |
@@ -37,28 +37,46 @@ The selected external agent owns its model/runtime/account relationship:
 - Hecate does not call Claude Code SDK/API, Codex SDK/API, Cursor Agent APIs,
   or Grok/xAI APIs directly for External Agent sessions.
 - Hecate does not proxy, pool, resell, or bypass external-agent credentials,
-  subscriptions, credits, or vendor policy.
+  accounts, credits, or vendor policy.
 - Hecate does not store External Agent credentials. The local agent process reads the
   operator's local CLI login files and environment.
 - Local CLI login files remain owned by the upstream CLI. Do not copy them
   between users or machines.
-- Hosted or multi-user Hecate deployments must not collect, copy, or share
-  personal subscription tokens or browser-login files. Use vendor-supported
-  team/project/API-key controls for shared automation.
+- Remote runtimes use vendor-supported API-key style credentials by default.
+  Runtime-local browser login state is only considered when explicitly enabled
+  for a one-person personal remote runtime.
+- External Agent vendors may restrict or forbid shared/account-delegated use of
+  browser or CLI login state. Hecate does not interpret, bypass, or relax those
+  terms; check the vendor-supported auth mode for the way you deploy.
 
-When `HECATE_CLOUD_RUNTIME_MODE=1`, External Agent launches fail closed unless
-the selected adapter has a declared cloud-safe credential mode and the matching
+When `HECATE_REMOTE_RUNTIME_MODE=1`, External Agent launches fail closed unless
+the selected adapter has a declared remote-safe credential mode and the matching
 environment variable is present. The bundled CLIs do not make personal
-subscription/browser logins valid for hosted mode. Local CLI login files such as
-Codex, Claude Code, Cursor, or Grok browser-auth caches are ignored for this
-decision. The runtime accepts API-key style credentials for Codex
-(`OPENAI_API_KEY` / `CODEX_API_KEY`), Claude Code (`ANTHROPIC_API_KEY`), Cursor
-(`CURSOR_API_KEY`), and Grok Build (`XAI_API_KEY`, or `PROVIDER_XAI_API_KEY`
-bridged to `XAI_API_KEY` only for Grok). Auth-token env vars that represent
-local CLI login state, such as `CODEX_AUTH_TOKEN` or `ANTHROPIC_AUTH_TOKEN`,
-are local-only for this policy. Cloud-mode adapter processes also get an
-ephemeral `HOME` / XDG config directory instead of the runtime process home, so
-copied browser-login files are not discovered through normal CLI lookup paths.
+browser login state sufficient for remote mode by default. Runtime-local CLI
+login state is ignored for this decision unless the personal remote opt-in below
+is enabled. The runtime accepts API-key style
+credentials for Codex (`OPENAI_API_KEY` / `CODEX_API_KEY`), Claude Code
+(`ANTHROPIC_API_KEY`), Cursor (`CURSOR_API_KEY`), and Grok Build (`XAI_API_KEY`,
+or `PROVIDER_XAI_API_KEY` bridged to `XAI_API_KEY` only for Grok). Auth-token env
+vars that represent local CLI login state, such as `CODEX_AUTH_TOKEN` or
+`ANTHROPIC_AUTH_TOKEN`, are local-only for this policy. Remote-mode adapter
+processes also get an ephemeral `HOME` / XDG config directory instead of the
+runtime process home.
+
+Single-user personal remote runtimes can deliberately opt into runtime-local
+External Agent login state with:
+
+```bash
+HECATE_PERSONAL_REMOTE_EXTERNAL_AGENT_LOGINS=1
+```
+
+Use it only when one human owns the runtime boundary, the runtime home/XDG
+directories are on that runtime's persistent volume, and logins are created
+inside the runtime, for example from Hecate Terminal or SSH. Keep it unset
+unless that ownership boundary is true. Use API keys, team/project credentials,
+enterprise tokens, or future vendor auth flows for anything beyond personal
+remote use. The `hecate_remote` build tag still strips local-login credential
+modes entirely.
 
 This is the same practical boundary used by ACP-capable editors such as
 [Zed](https://zed.dev/docs/ai/external-agents): the client supervises a local
@@ -258,8 +276,8 @@ export XAI_API_KEY=...
 In local mode, Hecate passes only the matching credential family to each adapter
 process: Codex receives `CODEX_` / `OPENAI_`, Claude Code receives `CLAUDE_` /
 `ANTHROPIC_`, Cursor Agent receives `CURSOR_`, and Grok Build receives `XAI_`.
-Provider or gateway-scoped secrets are not shared across adapters. In cloud
-runtime mode this narrows further to the declared cloud-safe env keys plus
+Provider or gateway-scoped secrets are not shared across adapters. In remote
+runtime mode this narrows further to the declared remote-safe env keys plus
 runtime essentials such as `PATH`, locale, temp, and certificate variables.
 
 If discovery cannot find a direct CLI adapter, install the vendor CLI and

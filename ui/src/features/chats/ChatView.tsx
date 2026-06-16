@@ -31,7 +31,7 @@ import { resolveExternalAgentReadiness } from "../../lib/external-agent-readines
 import { buildSelectedModelIssue } from "../../lib/provider-issues";
 import { providerDisplayName } from "../../lib/provider-utils";
 import { projectByID, projectDefaultWorkspace } from "../../lib/project-workspace";
-import { isCloudRuntimeSession } from "../../lib/runtime-utils";
+import { isRemoteRuntimeSession } from "../../lib/runtime-utils";
 import type { AgentAdapterRecord } from "../../types/agent-adapter";
 import type { ChatConfigOptionRecord, ChatSessionRecord, ChatUsageRecord } from "../../types/chat";
 import type { LocalProviderDiscoveryRecord, ProviderFilter } from "../../types/provider";
@@ -92,7 +92,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const dashboardActions = useWiredDashboardActions();
   const activeProjectWorkspace = projectDefaultWorkspace(projects.activeProject);
   const agentWorkspace = chat.state.agentWorkspace || activeProjectWorkspace;
-  const isCloudRuntime = isCloudRuntimeSession(runtime.state.sessionInfo);
+  const isRemoteRuntime = isRemoteRuntimeSession(runtime.state.sessionInfo);
   // Compose the legacy `state` and `actions` lookalikes so the JSX
   // below stays close to the pre-migration shape. Each field is read
   // off the slice (or computed via a derived hook) the field used to
@@ -642,7 +642,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   useEffect(() => {
     if (
       !isHecateChat ||
-      isCloudRuntime ||
+      isRemoteRuntime ||
       !modelRouteUnavailable ||
       hasConfiguredProviders ||
       quickLocalProviders.length > 0 ||
@@ -651,7 +651,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
       return;
     void refreshQuickLocalProviders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isCloudRuntime, isHecateChat, modelRouteUnavailable, hasConfiguredProviders]);
+  }, [isRemoteRuntime, isHecateChat, modelRouteUnavailable, hasConfiguredProviders]);
 
   async function chooseWorkspace() {
     if (workspaceDialogOpenRef.current) return;
@@ -677,7 +677,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   }
 
   async function refreshQuickLocalProviders() {
-    if (isCloudRuntime) {
+    if (isRemoteRuntime) {
       setQuickLocalProviders([]);
       setQuickLocalError("");
       return;
@@ -972,7 +972,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
                   isAgentChat={isAgentChat}
                   isHecateChat={isHecateChat}
                   isExternalAgentChat={isExternalAgentChat}
-                  isCloudRuntime={isCloudRuntime}
+                  isRemoteRuntime={isRemoteRuntime}
                   setupRepair={chatSetupRepair}
                   modelRouteUnavailable={modelRouteUnavailable}
                   selectedModelIssue={selectedModelIssue}

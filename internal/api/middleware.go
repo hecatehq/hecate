@@ -20,7 +20,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	semconv "go.opentelemetry.io/otel/semconv/v1.34.0"
 
-	"github.com/hecatehq/hecate/internal/cloudruntime"
+	"github.com/hecatehq/hecate/internal/remoteruntime"
 	"github.com/hecatehq/hecate/internal/telemetry"
 )
 
@@ -90,7 +90,7 @@ func OTelHTTPSpanMiddleware(next http.Handler) http.Handler {
 		if requestID := telemetry.RequestIDFromContext(ctx); requestID != "" {
 			span.SetAttributes(attribute.String("hecate.request_id", requestID))
 		}
-		if identity, ok := cloudruntime.FromContext(ctx); ok {
+		if identity, ok := remoteruntime.FromContext(ctx); ok {
 			span.SetAttributes(
 				attribute.String("hecate.cloud.actor_id", identity.ActorID),
 				attribute.String("hecate.cloud.org_id", identity.OrgID),
@@ -184,7 +184,7 @@ func RuntimeTokenMiddleware(token string) middleware {
 				next.ServeHTTP(w, r)
 				return
 			}
-			if _, ok := cloudruntime.FromContext(r.Context()); ok || !isHecateAPIPath(r.URL.Path) || runtimeTokenMatches(r.Header.Get(runtimeTokenHeader), token) {
+			if _, ok := remoteruntime.FromContext(r.Context()); ok || !isHecateAPIPath(r.URL.Path) || runtimeTokenMatches(r.Header.Get(runtimeTokenHeader), token) {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -197,7 +197,7 @@ func isTerminalWebSocketTicketRequest(r *http.Request) bool {
 	return r.Method == http.MethodGet && r.URL.Path == "/hecate/v1/terminal" && strings.TrimSpace(r.URL.Query().Get("token")) != ""
 }
 
-func CloudRuntimeIdentityMiddleware(enabled bool, secret string) middleware {
+func RemoteRuntimeIdentityMiddleware(enabled bool, secret string) middleware {
 	secret = strings.TrimSpace(secret)
 	return func(next http.Handler) http.Handler {
 		if !enabled {
@@ -215,27 +215,27 @@ func CloudRuntimeIdentityMiddleware(enabled bool, secret string) middleware {
 				next.ServeHTTP(w, r)
 				return
 			}
-			if !tokenMatches(r.Header.Get(cloudruntime.HeaderRuntimeSecret), secret) {
-				WriteError(w, http.StatusUnauthorized, errCodeUnauthorized, "cloud runtime identity is required")
+			if !tokenMatches(r.Header.Get(remoteruntime.HeaderRuntimeSecret), secret) {
+				WriteError(w, http.StatusUnauthorized, errCodeUnauthorized, "remote runtime identity is required")
 				return
 			}
-			identity, err := cloudruntime.FromHeaders(r.Header)
+			identity, err := remoteruntime.FromHeaders(r.Header)
 			if err != nil {
-				WriteError(w, http.StatusUnauthorized, errCodeUnauthorized, "cloud runtime identity headers are required")
+				WriteError(w, http.StatusUnauthorized, errCodeUnauthorized, "remote runtime identity headers are required")
 				return
 			}
-			next.ServeHTTP(w, r.WithContext(cloudruntime.WithIdentity(r.Context(), identity)))
+			next.ServeHTTP(w, r.WithContext(remoteruntime.WithIdentity(r.Context(), identity)))
 		})
 	}
 }
 
-func CloudRuntimeLocalEndpointGuardMiddleware(enabled bool) middleware {
+func RemoteRuntimeLocalEndpointGuardMiddleware(enabled bool) middleware {
 	return func(next http.Handler) http.Handler {
 		if !enabled {
 			return next
 		}
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if reason := cloudRuntimeEndpointBlockReason(r.Method, r.URL.Path); reason != "" {
+			if reason := remoteRuntimeEndpointBlockReason(r.Method, r.URL.Path); reason != "" {
 				WriteError(w, http.StatusForbidden, errCodeForbidden, reason)
 				return
 			}
@@ -251,7 +251,7 @@ func InferenceTokenMiddleware(token string) middleware {
 			return next
 		}
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if _, ok := cloudruntime.FromContext(r.Context()); ok || !isProviderInferenceRoute(r.Method, r.URL.Path) || inferenceTokenMatches(r, token) {
+			if _, ok := remoteruntime.FromContext(r.Context()); ok || !isProviderInferenceRoute(r.Method, r.URL.Path) || inferenceTokenMatches(r, token) {
 				next.ServeHTTP(w, r)
 				return
 			}

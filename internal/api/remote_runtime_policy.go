@@ -2,15 +2,15 @@ package api
 
 import "net/http"
 
-const cloudRuntimeLocalOnlyMessage = "local-only endpoint is disabled in cloud runtime mode"
-const cloudRuntimeEndpointNotAllowedMessage = "endpoint is not enabled in cloud runtime mode"
+const remoteRuntimeLocalOnlyMessage = "local-only endpoint is disabled in remote runtime mode"
+const remoteRuntimeEndpointNotAllowedMessage = "endpoint is not enabled in remote runtime mode"
 
-type cloudRuntimeRoutePattern struct {
+type remoteRuntimeRoutePattern struct {
 	method string
 	path   string
 }
 
-var cloudRuntimeLocalOnlyRoutes = []cloudRuntimeRoutePattern{
+var remoteRuntimeLocalOnlyRoutes = []remoteRuntimeRoutePattern{
 	{method: http.MethodPost, path: "/hecate/v1/workspace-dialog"},
 	{method: http.MethodPost, path: "/hecate/v1/workspace-open"},
 	{method: http.MethodPost, path: "/hecate/v1/system/reset-data"},
@@ -22,7 +22,7 @@ var cloudRuntimeLocalOnlyRoutes = []cloudRuntimeRoutePattern{
 
 // Keep this table in lockstep with server.go. The coverage test is part of the
 // safety boundary because dynamic "{id}" routes can overlap future exact paths.
-var cloudRuntimeAllowedRoutes = []cloudRuntimeRoutePattern{
+var remoteRuntimeAllowedRoutes = []remoteRuntimeRoutePattern{
 	{method: http.MethodGet, path: "/hecate/v1/whoami"},
 	{method: http.MethodGet, path: "/hecate/v1/providers/presets"},
 	{method: http.MethodGet, path: "/hecate/v1/providers/status"},
@@ -163,29 +163,29 @@ var cloudRuntimeAllowedRoutes = []cloudRuntimeRoutePattern{
 	{method: http.MethodDelete, path: "/hecate/v1/settings/policy-rules/{id}"},
 }
 
-func cloudRuntimeEndpointBlockReason(method, path string) string {
+func remoteRuntimeEndpointBlockReason(method, path string) string {
 	if !isHecateAPIPath(path) {
 		return ""
 	}
-	if routePatternsMatch(cloudRuntimeLocalOnlyRoutes, method, path) {
-		return cloudRuntimeLocalOnlyMessage
+	if routePatternsMatch(remoteRuntimeLocalOnlyRoutes, method, path) {
+		return remoteRuntimeLocalOnlyMessage
 	}
-	if routePatternsMatch(cloudRuntimeAllowedRoutes, method, path) {
+	if routePatternsMatch(remoteRuntimeAllowedRoutes, method, path) {
 		return ""
 	}
-	return cloudRuntimeEndpointNotAllowedMessage
+	return remoteRuntimeEndpointNotAllowedMessage
 }
 
-func cloudRuntimeRoutePatternKnown(pattern string) bool {
+func remoteRuntimeRoutePatternKnown(pattern string) bool {
 	method, path, ok := splitRoutePattern(pattern)
 	if !ok || !isHecateAPIPath(path) {
 		return true
 	}
-	return routePatternDeclared(cloudRuntimeAllowedRoutes, method, path) ||
-		routePatternDeclared(cloudRuntimeLocalOnlyRoutes, method, path)
+	return routePatternDeclared(remoteRuntimeAllowedRoutes, method, path) ||
+		routePatternDeclared(remoteRuntimeLocalOnlyRoutes, method, path)
 }
 
-func routePatternDeclared(patterns []cloudRuntimeRoutePattern, method, path string) bool {
+func routePatternDeclared(patterns []remoteRuntimeRoutePattern, method, path string) bool {
 	for _, pattern := range patterns {
 		if pattern.method == method && pattern.path == path {
 			return true
@@ -194,7 +194,7 @@ func routePatternDeclared(patterns []cloudRuntimeRoutePattern, method, path stri
 	return false
 }
 
-func routePatternsMatch(patterns []cloudRuntimeRoutePattern, method, path string) bool {
+func routePatternsMatch(patterns []remoteRuntimeRoutePattern, method, path string) bool {
 	for _, pattern := range patterns {
 		if pattern.method == method && routePathMatches(pattern.path, path) {
 			return true

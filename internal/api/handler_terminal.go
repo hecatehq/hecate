@@ -152,7 +152,7 @@ func (h *Handler) requireTerminalEnabled(w http.ResponseWriter) bool {
 }
 
 func (h *Handler) requireTerminalOperatorAccess(w http.ResponseWriter, r *http.Request) bool {
-	if h.config.Server.CloudRuntimeMode {
+	if h.config.Server.RemoteRuntimeMode {
 		return true
 	}
 	return requireLoopbackClient(w, r, "embedded terminal")

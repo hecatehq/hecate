@@ -87,7 +87,7 @@ func TestApplication_CreateProviderBuildsRuntimeProvider(t *testing.T) {
 	}
 }
 
-func TestApplication_CreateProviderRejectsLocalProviderInCloudRuntimeByDefault(t *testing.T) {
+func TestApplication_CreateProviderRejectsLocalProviderInRemoteRuntimeByDefault(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -97,7 +97,7 @@ func TestApplication_CreateProviderRejectsLocalProviderInCloudRuntimeByDefault(t
 		ControlPlane: store,
 		Runtime:      runtime,
 		Config: config.Config{Server: config.ServerConfig{
-			CloudRuntimeMode: true,
+			RemoteRuntimeMode: true,
 		}},
 	})
 
@@ -116,7 +116,7 @@ func TestApplication_CreateProviderRejectsLocalProviderInCloudRuntimeByDefault(t
 	}
 }
 
-func TestApplication_CreateProviderAllowsLocalProviderInCloudRuntimeWithOptIn(t *testing.T) {
+func TestApplication_CreateProviderAllowsLocalProviderInRemoteRuntimeWithOptIn(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -126,8 +126,8 @@ func TestApplication_CreateProviderAllowsLocalProviderInCloudRuntimeWithOptIn(t 
 		ControlPlane: store,
 		Runtime:      runtime,
 		Config: config.Config{Server: config.ServerConfig{
-			CloudRuntimeMode:         true,
-			CloudAllowLocalProviders: true,
+			RemoteRuntimeMode:         true,
+			RemoteAllowLocalProviders: true,
 		}},
 	})
 
@@ -363,7 +363,7 @@ func TestApplication_DeleteProviderDispatchesRuntime(t *testing.T) {
 	}
 }
 
-func TestApplication_StatusFiltersLocalProvidersInCloudRuntimeByDefault(t *testing.T) {
+func TestApplication_StatusFiltersLocalProvidersInRemoteRuntimeByDefault(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -393,7 +393,7 @@ func TestApplication_StatusFiltersLocalProvidersInCloudRuntimeByDefault(t *testi
 	app := New(Options{
 		ControlPlane: store,
 		Config: config.Config{Server: config.ServerConfig{
-			CloudRuntimeMode: true,
+			RemoteRuntimeMode: true,
 		}},
 	})
 
@@ -406,7 +406,7 @@ func TestApplication_StatusFiltersLocalProvidersInCloudRuntimeByDefault(t *testi
 	}
 }
 
-func TestApplication_UpdateProviderRejectsLocalProviderInCloudRuntimeByDefault(t *testing.T) {
+func TestApplication_UpdateProviderRejectsLocalProviderInRemoteRuntimeByDefault(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -428,7 +428,7 @@ func TestApplication_UpdateProviderRejectsLocalProviderInCloudRuntimeByDefault(t
 		ControlPlane: store,
 		Runtime:      runtime,
 		Config: config.Config{Server: config.ServerConfig{
-			CloudRuntimeMode: true,
+			RemoteRuntimeMode: true,
 		}},
 	})
 

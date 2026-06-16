@@ -1,4 +1,4 @@
-package cloudruntime
+package remoteruntime
 
 import (
 	"context"
@@ -8,14 +8,14 @@ import (
 )
 
 const (
-	HeaderActorID       = "X-Hecate-Cloud-Actor-ID"
-	HeaderOrgID         = "X-Hecate-Cloud-Org-ID"
-	HeaderProjectID     = "X-Hecate-Cloud-Project-ID"
-	HeaderRuntimeID     = "X-Hecate-Cloud-Runtime-ID"
-	HeaderRuntimeSecret = "X-Hecate-Cloud-Runtime-Secret"
+	HeaderActorID       = "X-Hecate-Remote-Actor-ID"
+	HeaderOrgID         = "X-Hecate-Remote-Org-ID"
+	HeaderProjectID     = "X-Hecate-Remote-Project-ID"
+	HeaderRuntimeID     = "X-Hecate-Remote-Runtime-ID"
+	HeaderRuntimeSecret = "X-Hecate-Remote-Runtime-Secret"
 )
 
-var ErrMissingIdentity = errors.New("missing cloud runtime identity")
+var ErrMissingIdentity = errors.New("missing remote runtime identity")
 
 type Identity struct {
 	ActorID   string

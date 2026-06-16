@@ -39,28 +39,28 @@ paths such as `/v1/traces`, `/v1/metrics`, and `/v1/logs`. The operator UI
 sends it to local provider-compatible paths when `hecate.inferenceToken` is
 present in `sessionStorage` or `localStorage`.
 
-When `HECATE_CLOUD_RUNTIME_MODE=1`, `/healthz` remains the unauthenticated
-liveness probe and every other path requires trusted Cloud proxy headers:
-`X-Hecate-Cloud-Runtime-Secret`, `X-Hecate-Cloud-Actor-ID`,
-`X-Hecate-Cloud-Org-ID`, `X-Hecate-Cloud-Project-ID`, and
-`X-Hecate-Cloud-Runtime-ID`. Valid Cloud identity is attached to request
-context, exposed from `GET /hecate/v1/whoami` as `data.cloud_identity`, added to
+When `HECATE_REMOTE_RUNTIME_MODE=1`, `/healthz` remains the unauthenticated
+liveness probe and every other path requires trusted trusted proxy headers:
+`X-Hecate-Remote-Runtime-Secret`, `X-Hecate-Remote-Actor-ID`,
+`X-Hecate-Remote-Org-ID`, `X-Hecate-Remote-Project-ID`, and
+`X-Hecate-Remote-Runtime-ID`. Valid remote identity is attached to request
+context, exposed from `GET /hecate/v1/whoami` as `data.remote_identity`, added to
 the top-level HTTP span attributes, and accepted in place of the local
-runtime/inference shared tokens. Cloud mode rejects local-only endpoints for
+runtime/inference shared tokens. Remote mode rejects local-only endpoints for
 workspace picker/open, reset-data, shutdown, MCP probe, and local provider
 and MCP registry discovery. Hecate-native `/hecate/v1/*` routes are explicitly
-classified for cloud mode, and route coverage tests fail when a new registered
-route is not marked cloud-safe or local-only.
+classified for remote mode, and route coverage tests fail when a new registered
+route is not marked remote-safe or local-only.
 
-Cloud mode disables local model providers by default. In that default posture,
+Remote mode disables local model providers by default. In that default posture,
 local presets are omitted, `kind=local` provider creates/updates are rejected,
 env-preconfigured local providers are skipped, and existing local provider rows
 are not loaded into the runtime provider registry. Set
-`HECATE_CLOUD_ALLOW_LOCAL_PROVIDERS=1` only for a private hosted runtime whose
+`HECATE_REMOTE_ALLOW_LOCAL_PROVIDERS=1` only for a private hosted runtime whose
 local model server is intentionally inside that runtime's isolation boundary.
 This provider policy is kind-based: Hecate blocks providers marked
 `kind=local`, but does not URL-filter custom `kind=cloud` `base_url`
-destinations. Cloud operators should enforce egress and private-endpoint policy
+destinations. Operators should enforce egress and private-endpoint policy
 outside the runtime when they need destination-level controls.
 
 Legacy Hecate-native `/v1/*` and `/admin/*` paths are intentionally not kept as
@@ -616,7 +616,7 @@ POST /hecate/v1/mcp/probe
 
 Tool names come back un-namespaced — the operator wants to see what the upstream itself calls them, not the gateway's runtime alias. MCP Apps metadata is preserved when present: `_meta` is the raw upstream object, `ui_resource_uri` and `ui_visibility` are derived convenience fields, and `model_visible: false` means the tool is app-only and will not be shown to the agent-loop model. Bounded by a 10-second deadline; a stuck upstream surfaces as a 400 with the diagnostic rather than wedging the request.
 
-`POST /hecate/v1/system/reset-data` resets local operator state without restarting the gateway. It deletes chat sessions, projects, project memory entries and candidates, project work-coordination rows, agent profiles, tasks, configured providers, policy rules, and saved external-agent approval grants. Chat sessions are deleted through the normal chat-delete path first, so live external-agent sessions are closed before their rows disappear. When SQLite or Postgres is configured, it then clears remaining Hecate-prefixed database table rows while preserving schemas. Workspace files and external CLI auth files are not touched. The endpoint is local-only and blocked in cloud runtime mode: non-loopback sockets and forwarded-client headers are rejected.
+`POST /hecate/v1/system/reset-data` resets local operator state without restarting the gateway. It deletes chat sessions, projects, project memory entries and candidates, project work-coordination rows, agent profiles, tasks, configured providers, policy rules, and saved external-agent approval grants. Chat sessions are deleted through the normal chat-delete path first, so live external-agent sessions are closed before their rows disappear. When SQLite or Postgres is configured, it then clears remaining Hecate-prefixed database table rows while preserving schemas. Workspace files and external CLI auth files are not touched. The endpoint is local-only and blocked in remote runtime mode: non-loopback sockets and forwarded-client headers are rejected.
 
 ```json
 → 200
@@ -869,9 +869,9 @@ probes each unique default local endpoint once. Shared endpoints, such as the
 `llama.cpp` / `LocalAI` default `127.0.0.1:8080/v1`, are only called once and
 then reused for every matching preset card.
 
-This endpoint is local-only and returns `403` in cloud runtime mode. Hosted
+This endpoint is local-only and returns `403` in remote runtime mode. Hosted
 runtimes also disable local provider presets and `kind=local` providers unless
-launched with `HECATE_CLOUD_ALLOW_LOCAL_PROVIDERS=1`.
+launched with `HECATE_REMOTE_ALLOW_LOCAL_PROVIDERS=1`.
 
 ```json
 GET /hecate/v1/settings/providers/local-discovery
@@ -905,7 +905,7 @@ GET /hecate/v1/settings/providers/local-discovery
 
 This endpoint does not create or mutate provider records. It is a UX helper for
 the picker and is local-only: non-loopback sockets, forwarded-client headers,
-and cloud runtime mode are rejected. Routing readiness still comes from
+and remote runtime mode are rejected. Routing readiness still comes from
 `GET /hecate/v1/providers/status` after the operator adds a provider.
 
 ### `GET /v1/models`
@@ -1008,12 +1008,12 @@ GET /hecate/v1/agent-adapters
         {
           "id": "local_login",
           "name": "Local CLI login",
-          "cloud_allowed": false
+          "remote_allowed": false
         },
         {
           "id": "api_key",
           "name": "API key",
-          "cloud_allowed": true,
+          "remote_allowed": true,
           "env_keys": ["OPENAI_API_KEY", "CODEX_API_KEY"]
         }
       ]
@@ -1084,13 +1084,17 @@ vars and login files without spawning the agent. Use `POST
 /hecate/v1/agent-adapters/{id}/probe` for the full ACP handshake.
 
 `credential_modes` describes how the adapter can authenticate. `local_login`
-means operator-local CLI/browser login files and is never sufficient for hosted
-cloud runtime requests. Cloud mode accepts only rows where `cloud_allowed=true`
-and one listed `env_keys` value is present in the runtime environment. In cloud
-runtime mode, catalog rows include `cloud_credential_mode`,
-`cloud_credential_ok`, and `cloud_credential_hint` when applicable; adapters
-without cloud-safe credentials are reported as `available=false`,
-`auth_status="unauthenticated"` before Hecate attempts command discovery.
+means operator-local CLI/browser login state and is not sufficient for remote
+runtime requests by default. Remote runtime mode normally accepts only rows where
+`remote_allowed=true` and one listed `env_keys` value is present in the runtime
+environment. A single-user personal remote runtime may opt into runtime-local
+login state with `HECATE_PERSONAL_REMOTE_EXTERNAL_AGENT_LOGINS=1`; then
+`remote_credential_mode` may report `local_login`, but the `hecate_remote` build
+tag still strips local-login modes entirely. In remote runtime mode, catalog rows
+include `remote_credential_mode`, `remote_credential_ok`, and
+`remote_credential_hint` when applicable; adapters without allowed credentials
+are reported as `available=false`, `auth_status="unauthenticated"` before
+Hecate attempts command discovery.
 
 These are **external agents**, not model providers. They run ACP-compatible
 coding agents under Hecate supervision; cost is reported as `external`
@@ -3822,7 +3826,7 @@ the `embedded_terminal` capability.
 `GET /hecate/v1/whoami` also reports
 `capabilities.local_providers_allowed`. Local mode reports `true`; cloud
 runtime mode reports `false` by default and `true` only when
-`HECATE_CLOUD_ALLOW_LOCAL_PROVIDERS=1` is explicitly set.
+`HECATE_REMOTE_ALLOW_LOCAL_PROVIDERS=1` is explicitly set.
 
 ```http
 POST /hecate/v1/terminal/sessions

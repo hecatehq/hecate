@@ -51,7 +51,7 @@ transcript counts. Do not store full prompt bodies, raw transcript text, file
 contents, or adapter-private prompt packing in that packet.
 Hosted/cloud-runtime work keeps the local architecture but changes the request
 boundary. New Hecate-native HTTP routes must be classified in
-`internal/api/cloud_runtime_policy.go` as cloud-safe or local-only; the route
+`internal/api/remote_runtime_policy.go` as remote-safe or local-only; the route
 coverage test guards the registration list. External Agent subprocesses
 launched from a cloud-identified request must use the cloud process-env helper
 so personal CLI login homes and broad local auth-token envs are not inherited.
@@ -152,10 +152,10 @@ These earn extra scrutiny; changes here are not drive-by territory.
 - **Usage/cost fields** — money fields are `int64` micro-USD (`1_000_000` = `$1`) when present. Never `float64`; Hecate records usage events for visibility, not spend enforcement.
 - **No built-in multi-user auth layer in local mode.** Every local-mode request
   is processed as the operator. The gateway binds to `127.0.0.1` by default;
-  bind elsewhere only behind a reverse proxy or firewall. Cloud runtime mode
-  trusts Hecate Cloud identity headers only after the internal runtime secret is
-  validated. Cloud runtime mode disables local model providers unless
-  `HECATE_CLOUD_ALLOW_LOCAL_PROVIDERS=1` is set for an intentionally isolated
+  bind elsewhere only behind a reverse proxy or firewall. Remote runtime mode
+  trusts remote identity headers only after the internal runtime secret is
+  validated. Remote runtime mode disables local model providers unless
+  `HECATE_REMOTE_ALLOW_LOCAL_PROVIDERS=1` is set for an intentionally isolated
   sidecar deployment. The provider gate is based on `kind=local`, not URL
   destination inspection.
 

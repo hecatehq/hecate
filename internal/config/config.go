@@ -33,28 +33,29 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Address                    string
-	AllowNonLoopbackBind       bool
-	AllowedOrigins             []string
-	RuntimeToken               string
-	InferenceToken             string
-	EmbeddedTerminalDisabled   bool
-	CloudRuntimeMode           bool
-	CloudRuntimeSecret         string
-	CloudAllowLocalProviders   bool
-	PublicURL                  string
-	DataDir                    string
-	BootstrapFile              string
-	ControlPlaneBackend        string
-	ControlPlaneKey            string
-	ControlPlaneSecretKey      string
-	TasksBackend               string
-	TaskApprovalPolicies       []string
-	TaskQueueBackend           string
-	TaskQueueWorkers           int
-	TaskQueueBuffer            int
-	TaskQueueLeaseSeconds      int
-	TaskMaxConcurrentPerTenant int
+	Address                           string
+	AllowNonLoopbackBind              bool
+	AllowedOrigins                    []string
+	RuntimeToken                      string
+	InferenceToken                    string
+	EmbeddedTerminalDisabled          bool
+	RemoteRuntimeMode                 bool
+	RemoteRuntimeSecret               string
+	RemoteAllowLocalProviders         bool
+	PersonalRemoteExternalAgentLogins bool
+	PublicURL                         string
+	DataDir                           string
+	BootstrapFile                     string
+	ControlPlaneBackend               string
+	ControlPlaneKey                   string
+	ControlPlaneSecretKey             string
+	TasksBackend                      string
+	TaskApprovalPolicies              []string
+	TaskQueueBackend                  string
+	TaskQueueWorkers                  int
+	TaskQueueBuffer                   int
+	TaskQueueLeaseSeconds             int
+	TaskMaxConcurrentPerTenant        int
 	// TaskReconcileInterval controls how often the periodic reconciler
 	// scans for runs stuck in "running" past 3× the lease duration.
 	// Default 30s. Set via HECATE_TASK_RECONCILE_INTERVAL (Go duration
@@ -188,7 +189,11 @@ type RateLimitConfig struct {
 }
 
 func (c Config) LocalProvidersAllowed() bool {
-	return !c.Server.CloudRuntimeMode || c.Server.CloudAllowLocalProviders
+	return !c.Server.RemoteRuntimeMode || c.Server.RemoteAllowLocalProviders
+}
+
+func (c Config) PersonalRemoteExternalAgentLoginsAllowed() bool {
+	return c.Server.RemoteRuntimeMode && c.Server.PersonalRemoteExternalAgentLogins
 }
 
 func (c Config) EmbeddedTerminalEnabled() bool {
@@ -371,10 +376,11 @@ type OpenAICompatibleProviderConfig struct {
 func LoadFromEnv() Config {
 	storageBackend := strings.ToLower(strings.TrimSpace(getEnv("HECATE_BACKEND", "memory")))
 	providersCfg := loadProvidersFromEnv()
-	cloudRuntimeMode := getEnvBool("HECATE_CLOUD_RUNTIME_MODE", false)
-	cloudAllowLocalProviders := getEnvBool("HECATE_CLOUD_ALLOW_LOCAL_PROVIDERS", false)
+	remoteRuntimeMode := getEnvBool("HECATE_REMOTE_RUNTIME_MODE", false)
+	remoteAllowLocalProviders := getEnvBool("HECATE_REMOTE_ALLOW_LOCAL_PROVIDERS", false)
+	personalRemoteExternalAgentLogins := getEnvBool("HECATE_PERSONAL_REMOTE_EXTERNAL_AGENT_LOGINS", false)
 	allowedProviderKinds := splitCSV(getEnv("HECATE_ALLOWED_PROVIDER_KINDS", ""))
-	if cloudRuntimeMode && !cloudAllowLocalProviders && len(allowedProviderKinds) == 0 {
+	if remoteRuntimeMode && !remoteAllowLocalProviders && len(allowedProviderKinds) == 0 {
 		allowedProviderKinds = []string{"cloud"}
 	}
 	return Config{
@@ -385,11 +391,12 @@ func LoadFromEnv() Config {
 			RuntimeToken:             getEnv("HECATE_RUNTIME_TOKEN", ""),
 			InferenceToken:           getEnv("HECATE_INFERENCE_TOKEN", ""),
 			EmbeddedTerminalDisabled: !getEnvBool("HECATE_EMBEDDED_TERMINAL", true),
-			CloudRuntimeMode:         cloudRuntimeMode,
-			CloudRuntimeSecret:       getEnv("HECATE_CLOUD_RUNTIME_SECRET", ""),
+			RemoteRuntimeMode:        remoteRuntimeMode,
+			RemoteRuntimeSecret:      getEnv("HECATE_REMOTE_RUNTIME_SECRET", ""),
 			// Hosted runtimes deny local model servers by default. Operators
 			// running an isolated sidecar can opt in explicitly.
-			CloudAllowLocalProviders: cloudAllowLocalProviders,
+			RemoteAllowLocalProviders:         remoteAllowLocalProviders,
+			PersonalRemoteExternalAgentLogins: personalRemoteExternalAgentLogins,
 			// PublicURL is written to hecate.runtime.json for local
 			// diagnostics. Empty means derive from Address.
 			PublicURL: getEnv("HECATE_PUBLIC_URL", ""),
@@ -557,12 +564,12 @@ func (c Config) Validate() error {
 	if token := strings.TrimSpace(c.Server.InferenceToken); token != "" && len(token) < 24 {
 		errs = append(errs, errors.New("HECATE_INFERENCE_TOKEN must be at least 24 characters when set"))
 	}
-	if c.Server.CloudRuntimeMode {
-		if secret := strings.TrimSpace(c.Server.CloudRuntimeSecret); len(secret) < 24 {
-			errs = append(errs, errors.New("HECATE_CLOUD_RUNTIME_SECRET must be at least 24 characters when HECATE_CLOUD_RUNTIME_MODE is enabled"))
+	if c.Server.RemoteRuntimeMode {
+		if secret := strings.TrimSpace(c.Server.RemoteRuntimeSecret); len(secret) < 24 {
+			errs = append(errs, errors.New("HECATE_REMOTE_RUNTIME_SECRET must be at least 24 characters when HECATE_REMOTE_RUNTIME_MODE is enabled"))
 		}
-		if !c.Server.CloudAllowLocalProviders && stringSliceContainsFold(c.Governor.AllowedProviderKinds, "local") {
-			errs = append(errs, errors.New("HECATE_CLOUD_ALLOW_LOCAL_PROVIDERS=1 is required before allowing local provider kind in cloud runtime mode"))
+		if !c.Server.RemoteAllowLocalProviders && stringSliceContainsFold(c.Governor.AllowedProviderKinds, "local") {
+			errs = append(errs, errors.New("HECATE_REMOTE_ALLOW_LOCAL_PROVIDERS=1 is required before allowing local provider kind in remote runtime mode"))
 		}
 	}
 

@@ -164,36 +164,36 @@ func TestLoadFromEnvEmbeddedTerminalCanBeDisabled(t *testing.T) {
 	}
 }
 
-func TestLoadFromEnvCloudRuntimeMode(t *testing.T) {
-	t.Setenv("HECATE_CLOUD_RUNTIME_MODE", "true")
-	t.Setenv("HECATE_CLOUD_RUNTIME_SECRET", "cloud-runtime-secret-123456")
+func TestLoadFromEnvRemoteRuntimeMode(t *testing.T) {
+	t.Setenv("HECATE_REMOTE_RUNTIME_MODE", "true")
+	t.Setenv("HECATE_REMOTE_RUNTIME_SECRET", "cloud-runtime-secret-123456")
 
 	cfg := LoadFromEnv()
-	if !cfg.Server.CloudRuntimeMode {
-		t.Fatal("CloudRuntimeMode = false, want true")
+	if !cfg.Server.RemoteRuntimeMode {
+		t.Fatal("RemoteRuntimeMode = false, want true")
 	}
-	if cfg.Server.CloudRuntimeSecret != "cloud-runtime-secret-123456" {
-		t.Fatalf("CloudRuntimeSecret = %q, want configured secret", cfg.Server.CloudRuntimeSecret)
+	if cfg.Server.RemoteRuntimeSecret != "cloud-runtime-secret-123456" {
+		t.Fatalf("RemoteRuntimeSecret = %q, want configured secret", cfg.Server.RemoteRuntimeSecret)
 	}
 }
 
-func TestLoadFromEnvCloudRuntimeDisablesLocalProvidersByDefault(t *testing.T) {
-	t.Setenv("HECATE_CLOUD_RUNTIME_MODE", "true")
-	t.Setenv("HECATE_CLOUD_RUNTIME_SECRET", "cloud-runtime-secret-123456")
+func TestLoadFromEnvRemoteRuntimeDisablesLocalProvidersByDefault(t *testing.T) {
+	t.Setenv("HECATE_REMOTE_RUNTIME_MODE", "true")
+	t.Setenv("HECATE_REMOTE_RUNTIME_SECRET", "cloud-runtime-secret-123456")
 
 	cfg := LoadFromEnv()
 	if cfg.LocalProvidersAllowed() {
-		t.Fatal("LocalProvidersAllowed() = true, want false in cloud runtime mode by default")
+		t.Fatal("LocalProvidersAllowed() = true, want false in remote runtime mode by default")
 	}
 	if !reflect.DeepEqual(cfg.Governor.AllowedProviderKinds, []string{"cloud"}) {
 		t.Fatalf("AllowedProviderKinds = %#v, want [cloud]", cfg.Governor.AllowedProviderKinds)
 	}
 }
 
-func TestLoadFromEnvCloudRuntimeCanOptIntoLocalProviders(t *testing.T) {
-	t.Setenv("HECATE_CLOUD_RUNTIME_MODE", "true")
-	t.Setenv("HECATE_CLOUD_RUNTIME_SECRET", "cloud-runtime-secret-123456")
-	t.Setenv("HECATE_CLOUD_ALLOW_LOCAL_PROVIDERS", "true")
+func TestLoadFromEnvRemoteRuntimeCanOptIntoLocalProviders(t *testing.T) {
+	t.Setenv("HECATE_REMOTE_RUNTIME_MODE", "true")
+	t.Setenv("HECATE_REMOTE_RUNTIME_SECRET", "cloud-runtime-secret-123456")
+	t.Setenv("HECATE_REMOTE_ALLOW_LOCAL_PROVIDERS", "true")
 
 	cfg := LoadFromEnv()
 	if !cfg.LocalProvidersAllowed() {
@@ -201,6 +201,22 @@ func TestLoadFromEnvCloudRuntimeCanOptIntoLocalProviders(t *testing.T) {
 	}
 	if len(cfg.Governor.AllowedProviderKinds) != 0 {
 		t.Fatalf("AllowedProviderKinds = %#v, want unset when local providers are explicitly allowed", cfg.Governor.AllowedProviderKinds)
+	}
+}
+
+func TestLoadFromEnvPersonalRemoteExternalAgentLoginsOptIn(t *testing.T) {
+	t.Setenv("HECATE_REMOTE_RUNTIME_MODE", "true")
+	t.Setenv("HECATE_REMOTE_RUNTIME_SECRET", "cloud-runtime-secret-123456")
+
+	cfg := LoadFromEnv()
+	if cfg.PersonalRemoteExternalAgentLoginsAllowed() {
+		t.Fatal("PersonalRemoteExternalAgentLoginsAllowed() = true, want false in remote runtime mode by default")
+	}
+
+	t.Setenv("HECATE_PERSONAL_REMOTE_EXTERNAL_AGENT_LOGINS", "true")
+	cfg = LoadFromEnv()
+	if !cfg.PersonalRemoteExternalAgentLoginsAllowed() {
+		t.Fatal("PersonalRemoteExternalAgentLoginsAllowed() = false, want true with explicit personal remote opt-in")
 	}
 }
 
@@ -460,43 +476,43 @@ func TestValidateRejectsShortInferenceToken(t *testing.T) {
 	}
 }
 
-func TestValidateRejectsCloudRuntimeModeWithoutStrongSecret(t *testing.T) {
+func TestValidateRejectsRemoteRuntimeModeWithoutStrongSecret(t *testing.T) {
 	cfg := LoadFromEnv()
-	cfg.Server.CloudRuntimeMode = true
-	cfg.Server.CloudRuntimeSecret = "short"
+	cfg.Server.RemoteRuntimeMode = true
+	cfg.Server.RemoteRuntimeSecret = "short"
 
 	err := cfg.Validate()
 	if err == nil {
-		t.Fatal("Validate() error = nil, want invalid cloud runtime secret error")
+		t.Fatal("Validate() error = nil, want invalid remote runtime secret error")
 	}
-	if !strings.Contains(err.Error(), "HECATE_CLOUD_RUNTIME_SECRET") {
-		t.Fatalf("Validate() error = %q, want HECATE_CLOUD_RUNTIME_SECRET", err)
+	if !strings.Contains(err.Error(), "HECATE_REMOTE_RUNTIME_SECRET") {
+		t.Fatalf("Validate() error = %q, want HECATE_REMOTE_RUNTIME_SECRET", err)
 	}
 }
 
-func TestValidateAllowsCloudRuntimeSecretOnlyWhenCloudModeDisabled(t *testing.T) {
+func TestValidateAllowsRemoteRuntimeSecretOnlyWhenCloudModeDisabled(t *testing.T) {
 	cfg := LoadFromEnv()
-	cfg.Server.CloudRuntimeMode = false
-	cfg.Server.CloudRuntimeSecret = "short"
+	cfg.Server.RemoteRuntimeMode = false
+	cfg.Server.RemoteRuntimeSecret = "short"
 
 	if err := cfg.Validate(); err != nil {
-		t.Fatalf("Validate() error = %v, want nil when cloud runtime mode is disabled", err)
+		t.Fatalf("Validate() error = %v, want nil when remote runtime mode is disabled", err)
 	}
 }
 
-func TestValidateRejectsLocalProviderKindInCloudRuntimeWithoutOptIn(t *testing.T) {
+func TestValidateRejectsLocalProviderKindInRemoteRuntimeWithoutOptIn(t *testing.T) {
 	cfg := LoadFromEnv()
-	cfg.Server.CloudRuntimeMode = true
-	cfg.Server.CloudRuntimeSecret = "cloud-runtime-secret-123456"
-	cfg.Server.CloudAllowLocalProviders = false
+	cfg.Server.RemoteRuntimeMode = true
+	cfg.Server.RemoteRuntimeSecret = "cloud-runtime-secret-123456"
+	cfg.Server.RemoteAllowLocalProviders = false
 	cfg.Governor.AllowedProviderKinds = []string{"local"}
 
 	err := cfg.Validate()
 	if err == nil {
 		t.Fatal("Validate() error = nil, want local-provider cloud opt-in error")
 	}
-	if !strings.Contains(err.Error(), "HECATE_CLOUD_ALLOW_LOCAL_PROVIDERS") {
-		t.Fatalf("Validate() error = %q, want HECATE_CLOUD_ALLOW_LOCAL_PROVIDERS", err)
+	if !strings.Contains(err.Error(), "HECATE_REMOTE_ALLOW_LOCAL_PROVIDERS") {
+		t.Fatalf("Validate() error = %q, want HECATE_REMOTE_ALLOW_LOCAL_PROVIDERS", err)
 	}
 }
 

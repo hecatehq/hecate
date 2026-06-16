@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hecatehq/hecate/internal/cloudruntime"
 	"github.com/hecatehq/hecate/internal/config"
+	"github.com/hecatehq/hecate/internal/remoteruntime"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -405,12 +405,12 @@ func TestRuntimeTokenMiddleware(t *testing.T) {
 	}
 }
 
-func TestRuntimeTokenMiddlewareAllowsCloudIdentity(t *testing.T) {
+func TestRuntimeTokenMiddlewareAllowsRemoteIdentity(t *testing.T) {
 	handler := RuntimeTokenMiddleware("local-runtime-token-123456")(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	req := httptest.NewRequest(http.MethodGet, "/hecate/v1/whoami", nil)
-	req = req.WithContext(cloudruntime.WithIdentity(req.Context(), cloudruntime.Identity{ActorID: "actor_1"}))
+	req = req.WithContext(remoteruntime.WithIdentity(req.Context(), remoteruntime.Identity{ActorID: "actor_1"}))
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
@@ -534,12 +534,12 @@ func TestInferenceTokenMiddleware(t *testing.T) {
 	}
 }
 
-func TestInferenceTokenMiddlewareAllowsCloudIdentity(t *testing.T) {
+func TestInferenceTokenMiddlewareAllowsRemoteIdentity(t *testing.T) {
 	handler := InferenceTokenMiddleware("local-inference-token-123456")(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-	req = req.WithContext(cloudruntime.WithIdentity(req.Context(), cloudruntime.Identity{ActorID: "actor_1"}))
+	req = req.WithContext(remoteruntime.WithIdentity(req.Context(), remoteruntime.Identity{ActorID: "actor_1"}))
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
@@ -549,7 +549,7 @@ func TestInferenceTokenMiddlewareAllowsCloudIdentity(t *testing.T) {
 	}
 }
 
-func TestCloudRuntimeIdentityMiddleware(t *testing.T) {
+func TestRemoteRuntimeIdentityMiddleware(t *testing.T) {
 	const secret = "cloud-runtime-secret-123456"
 	tests := []struct {
 		name        string
@@ -570,9 +570,9 @@ func TestCloudRuntimeIdentityMiddleware(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			enabled := tt.name != "disabled allows request"
-			handler := CloudRuntimeIdentityMiddleware(enabled, secret)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handler := RemoteRuntimeIdentityMiddleware(enabled, secret)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if tt.setIdentity {
-					identity, ok := cloudruntime.FromContext(r.Context())
+					identity, ok := remoteruntime.FromContext(r.Context())
 					if !ok {
 						t.Fatal("cloud identity missing from context")
 					}
@@ -584,13 +584,13 @@ func TestCloudRuntimeIdentityMiddleware(t *testing.T) {
 			}))
 			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
 			if tt.secret != "" {
-				req.Header.Set(cloudruntime.HeaderRuntimeSecret, tt.secret)
+				req.Header.Set(remoteruntime.HeaderRuntimeSecret, tt.secret)
 			}
 			if tt.setIdentity {
-				req.Header.Set(cloudruntime.HeaderActorID, "actor_1")
-				req.Header.Set(cloudruntime.HeaderOrgID, "org_1")
-				req.Header.Set(cloudruntime.HeaderProjectID, "proj_1")
-				req.Header.Set(cloudruntime.HeaderRuntimeID, "rt_1")
+				req.Header.Set(remoteruntime.HeaderActorID, "actor_1")
+				req.Header.Set(remoteruntime.HeaderOrgID, "org_1")
+				req.Header.Set(remoteruntime.HeaderProjectID, "proj_1")
+				req.Header.Set(remoteruntime.HeaderRuntimeID, "rt_1")
 			}
 			rec := httptest.NewRecorder()
 
@@ -603,7 +603,7 @@ func TestCloudRuntimeIdentityMiddleware(t *testing.T) {
 	}
 }
 
-func TestCloudRuntimeLocalEndpointGuardMiddleware(t *testing.T) {
+func TestRemoteRuntimeLocalEndpointGuardMiddleware(t *testing.T) {
 	tests := []struct {
 		name    string
 		enabled bool
@@ -628,7 +628,7 @@ func TestCloudRuntimeLocalEndpointGuardMiddleware(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler := CloudRuntimeLocalEndpointGuardMiddleware(tt.enabled)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			handler := RemoteRuntimeLocalEndpointGuardMiddleware(tt.enabled)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusNoContent)
 			}))
 			req := httptest.NewRequest(tt.method, tt.path, nil)
@@ -643,7 +643,7 @@ func TestCloudRuntimeLocalEndpointGuardMiddleware(t *testing.T) {
 	}
 }
 
-func TestCloudRuntimeEndpointPolicyCoversRegisteredHecateRoutes(t *testing.T) {
+func TestRemoteRuntimeEndpointPolicyCoversRegisteredHecateRoutes(t *testing.T) {
 	source, err := os.ReadFile("server.go")
 	if err != nil {
 		t.Fatalf("read server.go: %v", err)
@@ -659,23 +659,23 @@ func TestCloudRuntimeEndpointPolicyCoversRegisteredHecateRoutes(t *testing.T) {
 		if !ok || !isHecateAPIPath(path) {
 			continue
 		}
-		if !cloudRuntimeRoutePatternKnown(pattern) {
+		if !remoteRuntimeRoutePatternKnown(pattern) {
 			missing = append(missing, pattern)
 		}
 	}
 	if len(missing) > 0 {
-		t.Fatalf("cloud runtime route policy missing classifications: %s", strings.Join(missing, ", "))
+		t.Fatalf("remote runtime route policy missing classifications: %s", strings.Join(missing, ", "))
 	}
 }
 
-func TestNewServerWiresCloudRuntimeIdentity(t *testing.T) {
+func TestNewServerWiresRemoteRuntimeIdentity(t *testing.T) {
 	const secret = "cloud-runtime-secret-123456"
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	handler := NewServer(logger, NewHandler(config.Config{
 		Server: config.ServerConfig{
-			CloudRuntimeMode:   true,
-			CloudRuntimeSecret: secret,
-			RuntimeToken:       "local-runtime-token-123456",
+			RemoteRuntimeMode:   true,
+			RemoteRuntimeSecret: secret,
+			RuntimeToken:        "local-runtime-token-123456",
 		},
 	}, logger, nil, nil, nil, nil))
 
@@ -687,17 +687,17 @@ func TestNewServerWiresCloudRuntimeIdentity(t *testing.T) {
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/hecate/v1/whoami", nil)
-	req.Header.Set(cloudruntime.HeaderRuntimeSecret, secret)
-	req.Header.Set(cloudruntime.HeaderActorID, "actor_1")
-	req.Header.Set(cloudruntime.HeaderOrgID, "org_1")
-	req.Header.Set(cloudruntime.HeaderProjectID, "proj_1")
-	req.Header.Set(cloudruntime.HeaderRuntimeID, "rt_1")
+	req.Header.Set(remoteruntime.HeaderRuntimeSecret, secret)
+	req.Header.Set(remoteruntime.HeaderActorID, "actor_1")
+	req.Header.Set(remoteruntime.HeaderOrgID, "org_1")
+	req.Header.Set(remoteruntime.HeaderProjectID, "proj_1")
+	req.Header.Set(remoteruntime.HeaderRuntimeID, "rt_1")
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status with cloud identity = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), `"cloud_identity"`) || !strings.Contains(rec.Body.String(), `"actor_id":"actor_1"`) {
+	if !strings.Contains(rec.Body.String(), `"remote_identity"`) || !strings.Contains(rec.Body.String(), `"actor_id":"actor_1"`) {
 		t.Fatalf("whoami body = %s, want cloud identity", rec.Body.String())
 	}
 }
@@ -723,16 +723,16 @@ func TestSessionAdvertisesEmbeddedTerminalCapability(t *testing.T) {
 
 	handler = NewServer(logger, NewHandler(config.Config{
 		Server: config.ServerConfig{
-			CloudRuntimeMode:   true,
-			CloudRuntimeSecret: secret,
+			RemoteRuntimeMode:   true,
+			RemoteRuntimeSecret: secret,
 		},
 	}, logger, nil, nil, nil, nil))
 	req = httptest.NewRequest(http.MethodGet, "/hecate/v1/whoami", nil)
-	req.Header.Set(cloudruntime.HeaderRuntimeSecret, secret)
-	req.Header.Set(cloudruntime.HeaderActorID, "actor_1")
-	req.Header.Set(cloudruntime.HeaderOrgID, "org_1")
-	req.Header.Set(cloudruntime.HeaderProjectID, "proj_1")
-	req.Header.Set(cloudruntime.HeaderRuntimeID, "rt_1")
+	req.Header.Set(remoteruntime.HeaderRuntimeSecret, secret)
+	req.Header.Set(remoteruntime.HeaderActorID, "actor_1")
+	req.Header.Set(remoteruntime.HeaderOrgID, "org_1")
+	req.Header.Set(remoteruntime.HeaderProjectID, "proj_1")
+	req.Header.Set(remoteruntime.HeaderRuntimeID, "rt_1")
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -754,18 +754,18 @@ func TestSessionAdvertisesLocalProvidersAllowedWhenCloudOptIn(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	handler := NewServer(logger, NewHandler(config.Config{
 		Server: config.ServerConfig{
-			CloudRuntimeMode:         true,
-			CloudRuntimeSecret:       secret,
-			CloudAllowLocalProviders: true,
+			RemoteRuntimeMode:         true,
+			RemoteRuntimeSecret:       secret,
+			RemoteAllowLocalProviders: true,
 		},
 	}, logger, nil, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/hecate/v1/whoami", nil)
-	req.Header.Set(cloudruntime.HeaderRuntimeSecret, secret)
-	req.Header.Set(cloudruntime.HeaderActorID, "actor_1")
-	req.Header.Set(cloudruntime.HeaderOrgID, "org_1")
-	req.Header.Set(cloudruntime.HeaderProjectID, "proj_1")
-	req.Header.Set(cloudruntime.HeaderRuntimeID, "rt_1")
+	req.Header.Set(remoteruntime.HeaderRuntimeSecret, secret)
+	req.Header.Set(remoteruntime.HeaderActorID, "actor_1")
+	req.Header.Set(remoteruntime.HeaderOrgID, "org_1")
+	req.Header.Set(remoteruntime.HeaderProjectID, "proj_1")
+	req.Header.Set(remoteruntime.HeaderRuntimeID, "rt_1")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {

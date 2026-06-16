@@ -8,7 +8,7 @@ import { useSettings } from "../../app/state/settings";
 import { useWiredProviderActions } from "../../app/state/coordinators/wired";
 import { discoverLocalProviders } from "../../lib/api";
 import { resolvedBaseURL } from "../../lib/provider-utils";
-import { isCloudRuntimeSession } from "../../lib/runtime-utils";
+import { isRemoteRuntimeSession } from "../../lib/runtime-utils";
 import type { LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/provider";
 import { BrandAvatar, Icon, Icons, InlineError, Modal } from "../shared/ui";
 
@@ -34,7 +34,7 @@ export function AddProviderModal({ open, onClose }: Props) {
   const providerActions = useWiredProviderActions();
   const providerPresets = providersAndModels.state.providerPresets;
   const settingsConfig = settings.state.config;
-  const localProvidersAllowed = !isCloudRuntimeSession(runtime.state.sessionInfo);
+  const localProvidersAllowed = !isRemoteRuntimeSession(runtime.state.sessionInfo);
   const [step, setStep] = useState<"pick" | "form">("pick");
   const [pickTab, setPickTab] = useState<"cloud" | "local">("local");
   const [preset, setPreset] = useState<ProviderPresetRecord | null>(null);

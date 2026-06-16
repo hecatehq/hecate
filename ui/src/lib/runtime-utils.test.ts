@@ -20,7 +20,7 @@ import {
   formatTraceAttributeValue,
   findProvider,
   healthStatusTone,
-  isCloudRuntimeSession,
+  isRemoteRuntimeSession,
   parseCSV,
   providerStatusTone,
   routeOutcomeTone,
@@ -84,13 +84,13 @@ describe("runtime-utils", () => {
     expect(filterModelsByProvider(models, "auto")).toEqual(models);
   });
 
-  it("detects cloud runtime sessions from cloud identity", () => {
-    expect(isCloudRuntimeSession(null)).toBe(false);
-    expect(isCloudRuntimeSession({ role: "operator" })).toBe(false);
+  it("detects remote runtime sessions from cloud identity", () => {
+    expect(isRemoteRuntimeSession(null)).toBe(false);
+    expect(isRemoteRuntimeSession({ role: "operator" })).toBe(false);
     expect(
-      isCloudRuntimeSession({
+      isRemoteRuntimeSession({
         role: "operator",
-        cloud_identity: {
+        remote_identity: {
           actor_id: "actor-1",
           org_id: "org-1",
           project_id: "project-1",

@@ -25,7 +25,7 @@ import {
   providerReadinessMeaning,
   providerRepairActionLabel,
 } from "../../lib/provider-readiness";
-import { isCloudRuntimeSession } from "../../lib/runtime-utils";
+import { isRemoteRuntimeSession } from "../../lib/runtime-utils";
 import type { AgentAdapterHealthRecord, AgentAdapterRecord } from "../../types/agent-adapter";
 import type { ChatGrantRecord } from "../../types/chat";
 import type { ModelRecord } from "../../types/model";
@@ -231,7 +231,7 @@ export function ConnectionsPanel({
         agentAdapters={agentAdapters}
         agentAdapterHealthByID={agentAdapterHealthByID}
         agentAdapterHealthLoadingByID={agentAdapterHealthLoadingByID}
-        cloudRuntime={isCloudRuntimeSession(runtime.state.sessionInfo)}
+        remoteRuntime={isRemoteRuntimeSession(runtime.state.sessionInfo)}
         copyCommand={copyCommand}
         onProbeAdapter={(adapterID) => void probeAgentAdapter(adapterID)}
       />
@@ -640,14 +640,14 @@ function AdapterStatusSection({
   agentAdapters,
   agentAdapterHealthByID,
   agentAdapterHealthLoadingByID,
-  cloudRuntime,
+  remoteRuntime,
   copyCommand,
   onProbeAdapter,
 }: {
   agentAdapters: ProvidersAndModelsState["agentAdapters"];
   agentAdapterHealthByID: ProvidersAndModelsState["agentAdapterHealthByID"];
   agentAdapterHealthLoadingByID: ProvidersAndModelsState["agentAdapterHealthLoadingByID"];
-  cloudRuntime: boolean;
+  remoteRuntime: boolean;
   copyCommand: (command: string) => Promise<void>;
   onProbeAdapter: (adapterID: string) => void;
 }) {
@@ -679,7 +679,7 @@ function AdapterStatusSection({
           <AdapterStatusRow
             key={adapter.id}
             adapter={adapter}
-            cloudRuntime={cloudRuntime}
+            remoteRuntime={remoteRuntime}
             divider={i < agentAdapters.length - 1}
             health={agentAdapterHealthByID.get(adapter.id) ?? null}
             loading={Boolean(agentAdapterHealthLoadingByID.get(adapter.id))}
@@ -724,7 +724,7 @@ function AdapterStatusSection({
 
 function AdapterStatusRow({
   adapter,
-  cloudRuntime,
+  remoteRuntime,
   divider,
   health,
   loading,
@@ -732,7 +732,7 @@ function AdapterStatusRow({
   onProbeAdapter,
 }: {
   adapter: AgentAdapterRecord;
-  cloudRuntime: boolean;
+  remoteRuntime: boolean;
   divider: boolean;
   health: AgentAdapterHealthRecord | null;
   loading: boolean;
@@ -742,17 +742,17 @@ function AdapterStatusRow({
   const readiness = resolveExternalAgentReadiness(adapter, health);
   const loginCommand = readiness.loginCommand;
   const showLocalAuthSetup =
-    !cloudRuntime &&
+    !remoteRuntime &&
     Boolean(loginCommand) &&
     !readiness.verifiedByProbe &&
     readiness.kind === "sign_in";
-  const showCloudCredentialSetup =
-    cloudRuntime &&
-    adapter.cloud_credential_ok !== true &&
+  const showRemoteCredentialSetup =
+    remoteRuntime &&
+    adapter.remote_credential_ok !== true &&
     Boolean(
-      adapter.cloud_credential_hint ||
-      adapter.cloud_credential_mode ||
-      adapter.credential_modes?.some((mode) => mode.cloud_allowed),
+      adapter.remote_credential_hint ||
+      adapter.remote_credential_mode ||
+      adapter.credential_modes?.some((mode) => mode.remote_allowed),
     );
   const visibleHealthError =
     health && shouldShowProbeError(health) ? humanizeProbeError(health.error ?? "") : "";
@@ -907,8 +907,8 @@ function AdapterStatusRow({
             testing={loading}
           />
         )}
-        {showCloudCredentialSetup && (
-          <AdapterCloudCredentialSetup
+        {showRemoteCredentialSetup && (
+          <AdapterRemoteCredentialSetup
             adapter={adapter}
             onCopyCommand={onCopyCommand}
             onTestAgain={() => onProbeAdapter(adapter)}
@@ -933,7 +933,7 @@ function AdapterStatusRow({
   );
 }
 
-function AdapterCloudCredentialSetup({
+function AdapterRemoteCredentialSetup({
   adapter,
   onCopyCommand,
   onTestAgain,
@@ -944,12 +944,12 @@ function AdapterCloudCredentialSetup({
   onTestAgain: () => void;
   testing: boolean;
 }) {
-  const keys = cloudCredentialKeys(adapter);
+  const keys = remoteCredentialKeys(adapter);
   const detail =
-    adapter.cloud_credential_hint ||
+    adapter.remote_credential_hint ||
     (keys.length > 0
       ? `Configure ${keys.join(" or ")} for this hosted runtime.`
-      : "Configure a cloud-safe credential for this hosted runtime.");
+      : "Configure a remote-safe credential for this hosted runtime.");
   return (
     <div
       data-testid={externalAgentSetupFocusTarget(adapter.id)}
@@ -1118,10 +1118,10 @@ function AdapterLocalAuthSetup({
   );
 }
 
-function cloudCredentialKeys(adapter: AgentAdapterRecord): string[] {
+function remoteCredentialKeys(adapter: AgentAdapterRecord): string[] {
   const keys = new Set<string>();
   for (const mode of adapter.credential_modes ?? []) {
-    if (!mode.cloud_allowed) continue;
+    if (!mode.remote_allowed) continue;
     for (const key of mode.env_keys ?? []) {
       if (key.trim()) keys.add(key.trim());
     }

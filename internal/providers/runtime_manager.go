@@ -98,7 +98,7 @@ func (m *ControlPlaneRuntimeManager) Upsert(ctx context.Context, provider contro
 		provider.Protocol = "openai"
 	}
 	if !m.localProvidersAllowed && providerKind(provider) == string(KindLocal) {
-		return controlplane.Provider{}, fmt.Errorf("local providers are disabled in cloud runtime mode")
+		return controlplane.Provider{}, fmt.Errorf("local providers are disabled in remote runtime mode")
 	}
 	if provider.Kind == string(KindCloud) && encryptedSecret == nil {
 		existing := findControlPlaneProvider(state.Providers, provider.ID, provider.Name)
@@ -185,7 +185,7 @@ func (m *ControlPlaneRuntimeManager) resolvedConfigs(ctx context.Context) ([]con
 			if providerName == "" {
 				providerName = item.ID
 			}
-			m.logger.Info("skipping local provider because cloud runtime local providers are disabled", slog.String("provider", providerName))
+			m.logger.Info("skipping local provider because remote runtime local providers are disabled", slog.String("provider", providerName))
 			continue
 		}
 		if !item.Enabled {
