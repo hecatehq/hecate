@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1.7
-#
 # Hecate runtime image. This is the default local/self-host Docker image and
 # the base shape for hosted cloud runtime deployments. The same image can run in
 # either posture; Hecate's runtime mode env controls the security boundary.
@@ -91,10 +89,14 @@ RUN npm install -g \
     && npm cache clean --force
 
 RUN mkdir -p /opt/cursor-agent \
-    && curl -fsSL "${CURSOR_INSTALL_URL}" -o /tmp/cursor-install.sh \
+    && curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors "${CURSOR_INSTALL_URL}" -o /tmp/cursor-install.sh \
     && printf '%s  %s\n' "${CURSOR_INSTALL_SHA256}" /tmp/cursor-install.sh | sha256sum -c - \
-    && HOME=/opt/cursor-agent PATH=/opt/cursor-agent/.local/bin:$PATH \
-      bash /tmp/cursor-install.sh \
+    && for attempt in 1 2 3; do \
+      HOME=/opt/cursor-agent PATH=/opt/cursor-agent/.local/bin:$PATH \
+        bash /tmp/cursor-install.sh && break; \
+      if [ "$attempt" = "3" ]; then exit 1; fi; \
+      sleep 3; \
+    done \
     && rm -f /tmp/cursor-install.sh \
     && ln -sf /opt/cursor-agent/.local/bin/cursor-agent /usr/local/bin/cursor-agent \
     && ln -sf /opt/cursor-agent/.local/bin/agent /usr/local/bin/agent
