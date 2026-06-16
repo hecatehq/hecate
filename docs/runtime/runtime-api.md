@@ -3819,6 +3819,11 @@ Hosted runtimes require runtime identity middleware. When
 `HECATE_EMBEDDED_TERMINAL=false`, this route returns `404` and `/whoami` omits
 the `embedded_terminal` capability.
 
+`GET /hecate/v1/whoami` also reports
+`capabilities.local_providers_allowed`. Local mode reports `true`; cloud
+runtime mode reports `false` by default and `true` only when
+`HECATE_CLOUD_ALLOW_LOCAL_PROVIDERS=1` is explicitly set.
+
 ```http
 POST /hecate/v1/terminal/sessions
 Content-Type: application/json
