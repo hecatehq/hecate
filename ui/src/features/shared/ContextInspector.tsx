@@ -247,6 +247,7 @@ export function ContextInspectorPanel({
       }}
     >
       <ContextSummary packet={packet} />
+      <ProjectLinkedHecateContextNotice packet={packet} />
       {!compact && refs.length > 0 && (
         <section style={{ display: "grid", gap: 8 }}>
           <div className="kicker">Linked refs</div>
@@ -293,6 +294,7 @@ function ContextSummary({ packet }: { packet: ContextPacketRecord }) {
   const modeValue = packet.execution_mode ? humanExecutionMode(packet.execution_mode) : "—";
   const profileValue = packet.execution_profile || "—";
   const workspaceValue = packet.workspace || "—";
+  const projectPreludeValue = projectLinkedHecateChatPacket(packet) ? "Included" : "—";
   const systemPromptValue =
     typeof packet.system_prompt_included === "boolean"
       ? packet.system_prompt_included
@@ -319,6 +321,9 @@ function ContextSummary({ packet }: { packet: ContextPacketRecord }) {
         <ContextMetaCell label="Execution profile" value={profileValue} />
         <ContextMetaCell label="Workspace" value={workspaceValue} />
         <ContextMetaCell label="System prompt" value={systemPromptValue} />
+        {projectLinkedHecateChatPacket(packet) && (
+          <ContextMetaCell label="Project prelude" value={projectPreludeValue} />
+        )}
         <ContextMetaCell label="Transcript count" value={messageCountValue} />
       </div>
     </section>
@@ -377,6 +382,26 @@ function ContextSectionGroup({ group }: { group: ContextSectionGroupRecord }) {
         ))}
       </div>
     </section>
+  );
+}
+
+function ProjectLinkedHecateContextNotice({ packet }: { packet: ContextPacketRecord }) {
+  if (!projectLinkedHecateChatPacket(packet)) return null;
+  const includedSections = projectPreludeSections(packet.items ?? []);
+  const sectionText =
+    includedSections.length > 0 ? ` Itemized sections here: ${includedSections.join(", ")}.` : "";
+  return (
+    <ContextInspectorNotice
+      title="Project-linked Hecate context"
+      detail={
+        "This turn used Hecate's bounded project prelude for the linked project. " +
+        "Project roots, roles, skills, active work, and accepted memory may guide the turn; " +
+        "root files and SKILL.md bodies are metadata-only unless a tool reads them explicitly. " +
+        "Durable project changes still go through Project Assistant proposal review/apply." +
+        sectionText
+      }
+      tone="muted"
+    />
   );
 }
 
@@ -522,6 +547,32 @@ function visibleRefs(refs?: ContextPacketRefsRecord): Array<[string, string]> {
 
 function hasRefs(refs?: ContextPacketRefsRecord): boolean {
   return visibleRefs(refs).length > 0;
+}
+
+function projectLinkedHecateChatPacket(packet: ContextPacketRecord): boolean {
+  return (
+    packet.execution_mode === "hecate_task" &&
+    Boolean(packet.refs?.project_id?.trim()) &&
+    Boolean(packet.refs?.session_id?.trim())
+  );
+}
+
+function projectPreludeSections(items: ContextPacketItemRecord[]): string[] {
+  const labels = new Map<string, string>([
+    ["project", "project"],
+    ["skills", "skills"],
+    ["project_work", "active work"],
+    ["memory", "memory"],
+    ["sources", "sources"],
+    ["instructions", "instructions"],
+  ]);
+  const seen = new Set<string>();
+  for (const item of items) {
+    if (!item.included) continue;
+    const label = labels.get(item.section ?? "");
+    if (label) seen.add(label);
+  }
+  return Array.from(labels.values()).filter((label) => seen.has(label));
 }
 
 function humanExecutionMode(mode: string): string {

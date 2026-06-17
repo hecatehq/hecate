@@ -118,6 +118,10 @@ an operator-facing transcript count, not a provider token count or a guarantee
 that every counted message was packed into the provider or agent prompt. Context
 packets are snapshots on assistant messages; changing project context sources,
 skills, or work records later does not rewrite old message packets.
+For project-linked Hecate Chat packets, the inspector also calls out the
+bounded project prelude explicitly so operators can distinguish project
+guidance from ordinary transcript/runtime metadata and see the metadata-only
+root / skill-body boundary.
 
 Long Hecate-owned model chats compact older transcript context before a direct
 model turn once the compactable transcript reaches the automatic threshold.

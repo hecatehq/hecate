@@ -3454,6 +3454,9 @@ accepts only one active task-backed turn per Hecate Chat session.
 ### `GET /hecate/v1/chat/sessions/{id}/messages/{message_id}/context`
 
 Returns the persisted context packet snapshot for an assistant message:
+operator UIs render project-linked Hecate Chat packets with an explicit
+project-prelude note, while the wire packet remains the same itemized
+`context_packet` shape.
 
 ```json
 GET /hecate/v1/chat/sessions/chat_.../messages/msg_.../context
