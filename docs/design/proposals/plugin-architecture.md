@@ -277,6 +277,12 @@ namespace. The visible label, routing key, telemetry, and command-picker
 deduplication should preserve the specific agent identity because `/review`,
 `/plan`, or another command may have different semantics in different agents.
 
+Plugin command labels are display strings, not routing identities. Internally,
+local plugin commands should be addressed by a plugin-scoped key such as
+`plugin_id:command_name` or `plugin_id:capability_id:command_name`. If two
+plugins declare the same short command name, the command picker should
+disambiguate with plugin identity instead of choosing one by install order.
+
 ### UI surfaces
 
 UI surfaces should be conservative in alpha:
@@ -424,6 +430,13 @@ model are in place.
   configured for that capability.
 - Remote-runtime mode must classify every plugin API route as remote-safe or
   local-only before it ships.
+- Manifest permissions are requested grants, not proof of enforcement. For the
+  registry-only slice they are descriptive metadata. Before any plugin-owned
+  process, MCP server, or connector write path executes, each permission string
+  has to be classified as enforced or advisory.
+- Manifest secret names are binding requests, not secret values. Enabling a
+  capability should bind each requested secret name to a Hecate-owned
+  `secret_ref` before that secret can be delivered to a capability runtime.
 
 ## Implementation Sequence
 
@@ -455,3 +468,8 @@ model are in place.
 - Should plugin MCP servers be long-lived cached processes, profile-scoped, or
   run-scoped only?
 - How much of plugin auth should be shared with External Agent adapters, if any?
+- Should `network:<host>` permissions become sandbox-enforced egress
+  constraints for plugin-owned processes, stay advisory metadata for
+  Hecate-owned connector calls, or have separate meanings for those two cases?
+- How should Hecate surface and repair command/capability ID collisions across
+  multiple installed plugins?
