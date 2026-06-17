@@ -371,17 +371,48 @@ execution/review cockpit.
 
 ## Storage And API Sketch
 
-First implementation should be registry-only:
+First implementation should be registry-only. The record is a catalog and
+policy-review object, not a runtime grant.
+
+Registry-only means Hecate can:
+
+- Read a Hecate-native manifest from a built-in source or local path.
+- Validate schema, IDs, capability declarations, and requested permissions.
+- Persist the raw manifest plus a normalized projection for listing/search.
+- Show requested capabilities, permission requests, auth requirements, and
+  collision warnings to the operator.
+- Toggle plugin/capability enablement state as metadata.
+- Bind requested secret names to Hecate `secret_ref` records without exposing
+  the secret value.
+
+Registry-only must not:
+
+- Run plugin hooks, scripts, installers, or bundled binaries.
+- Start plugin-declared MCP servers.
+- Make connector network calls or OAuth requests.
+- Mount tools into chats/tasks/profiles.
+- Register executable slash-command handlers.
+- Render arbitrary plugin-owned UI.
+- Mutate projects, tasks, chats, memory, external refs, or evidence.
+
+The minimum durable shape should keep raw manifests and normalized capability
+records separate. The raw manifest preserves forward-compatible metadata; the
+projection gives Hecate stable query/filter/conflict behavior:
 
 ```text
 plugins
   id
   name
+  description
   version
   source_kind          # builtin | local_path | imported | remote_registry
   source_ref
-  enabled
+  manifest_schema_version
+  manifest_digest
   manifest_json
+  requested_permissions_json
+  registry_state       # valid | invalid | unsupported
+  enabled
   installed_at
   updated_at
 
@@ -389,11 +420,15 @@ plugin_capabilities
   plugin_id
   capability_id
   capability_kind     # connector | mcp_server | skill | slash_command | ...
+  display_name
+  requested_permissions_json
   enabled
   config_json
 
 plugin_auth
   plugin_id
+  capability_id
+  requested_name       # e.g. github_token from the manifest
   auth_kind           # token | oauth | env | none
   status              # unknown | configured | expired | error
   secret_ref
@@ -401,6 +436,19 @@ plugin_auth
 
 Mirror the normal Hecate storage rule: memory, SQLite, and Postgres for any
 durable plugin state.
+
+The registry should enforce stable identity rules before writing records:
+
+- `plugin.id` is globally unique.
+- `capability_id` is unique inside one plugin.
+- `(plugin_id, capability_id)` is the durable routing key for capabilities.
+- Short command names are not unique globally; duplicate command names produce
+  picker disambiguation metadata rather than install-order precedence.
+- Manifest permission strings are parsed and stored, but each permission has to
+  be classified as `enforced`, `advisory`, or `unsupported` before any
+  executable capability ships.
+- Secret requests store only requested names and binding status until the
+  operator maps them to Hecate secret refs.
 
 Initial APIs can be local-only:
 
@@ -412,8 +460,21 @@ PATCH /hecate/v1/plugins/{id}
 GET  /hecate/v1/plugins/{id}/health
 ```
 
-Connector-specific network APIs should wait until the registry and permission
-model are in place.
+API behavior for the registry slice:
+
+- `POST /install-local` validates and stores a manifest projection. It does not
+  execute package code or fetch provider state.
+- `PATCH /{id}` can enable/disable the plugin or individual capabilities as
+  metadata. It does not grant secrets, network, tools, or UI execution by
+  itself.
+- `GET /{id}/health` reports registry health: manifest validity, unsupported
+  permissions, unresolved secret bindings, disabled capabilities, and command
+  collisions. It does not call external providers.
+
+The first UI can be a read-only/plugin-settings list: plugin name, version,
+source, enabled state, capabilities, requested permissions, auth-binding status,
+and warnings. Connector-specific network APIs and active plugin surfaces should
+wait until the registry and permission model are in place.
 
 ## Security Model
 
