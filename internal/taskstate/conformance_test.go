@@ -174,9 +174,12 @@ func runStoreTaskRunStepRoundTrip(t *testing.T, store Store) {
 	ctx := context.Background()
 
 	task := types.Task{
-		ID:     "task-1",
-		Title:  "demo",
-		Status: "queued",
+		ID:           "task-1",
+		Title:        "demo",
+		ProjectID:    "proj-1",
+		WorkItemID:   "work-1",
+		AssignmentID: "asgn-1",
+		Status:       "queued",
 	}
 	saved, err := store.CreateTask(ctx, task)
 	if err != nil {
@@ -195,11 +198,14 @@ func runStoreTaskRunStepRoundTrip(t *testing.T, store Store) {
 	}
 
 	run := types.TaskRun{
-		ID:        "run-1",
-		TaskID:    "task-1",
-		Number:    1,
-		Status:    "running",
-		StartedAt: time.Now().UTC(),
+		ID:           "run-1",
+		TaskID:       "task-1",
+		ProjectID:    "proj-1",
+		WorkItemID:   "work-1",
+		AssignmentID: "asgn-1",
+		Number:       1,
+		Status:       "running",
+		StartedAt:    time.Now().UTC(),
 	}
 	if _, err := store.CreateRun(ctx, run); err != nil {
 		t.Fatalf("CreateRun: %v", err)
@@ -210,6 +216,9 @@ func runStoreTaskRunStepRoundTrip(t *testing.T, store Store) {
 	}
 	if gotRun.Status != "running" || gotRun.Number != 1 {
 		t.Fatalf("GetRun round-trip mismatch: %+v", gotRun)
+	}
+	if gotRun.ProjectID != "proj-1" || gotRun.WorkItemID != "work-1" || gotRun.AssignmentID != "asgn-1" {
+		t.Fatalf("GetRun linkage = project %q work %q assignment %q, want proj-1/work-1/asgn-1", gotRun.ProjectID, gotRun.WorkItemID, gotRun.AssignmentID)
 	}
 
 	for i, status := range []string{"running", "completed"} {

@@ -608,6 +608,9 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 	run := types.TaskRun{
 		ID:           idgen("run"),
 		TaskID:       task.ID,
+		ProjectID:    strings.TrimSpace(task.ProjectID),
+		WorkItemID:   strings.TrimSpace(task.WorkItemID),
+		AssignmentID: strings.TrimSpace(task.AssignmentID),
 		Number:       len(runs) + 1,
 		Status:       "queued",
 		Orchestrator: "builtin",
@@ -624,6 +627,9 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 	}
 	if options.ResumeFromRun != nil {
 		prior := *options.ResumeFromRun
+		run.ProjectID = firstNonEmpty(run.ProjectID, strings.TrimSpace(prior.ProjectID))
+		run.WorkItemID = firstNonEmpty(run.WorkItemID, strings.TrimSpace(prior.WorkItemID))
+		run.AssignmentID = firstNonEmpty(run.AssignmentID, strings.TrimSpace(prior.AssignmentID))
 		if strings.TrimSpace(prior.WorkspacePath) != "" {
 			run.WorkspacePath = prior.WorkspacePath
 			run.WorkspaceID = firstNonEmpty(prior.WorkspaceID, run.WorkspaceID)

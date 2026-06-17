@@ -743,6 +743,9 @@ func renderTaskRun(run types.TaskRun, parentTasks ...types.Task) TaskRunItem {
 	item := TaskRunItem{
 		ID:                 run.ID,
 		TaskID:             run.TaskID,
+		ProjectID:          run.ProjectID,
+		WorkItemID:         run.WorkItemID,
+		AssignmentID:       run.AssignmentID,
 		Number:             run.Number,
 		Status:             run.Status,
 		Orchestrator:       run.Orchestrator,
@@ -765,15 +768,15 @@ func renderTaskRun(run types.TaskRun, parentTasks ...types.Task) TaskRunItem {
 	}
 	if len(parentTasks) > 0 {
 		task := parentTasks[0]
-		item.ProjectID = task.ProjectID
-		item.WorkItemID = task.WorkItemID
-		item.AssignmentID = task.AssignmentID
+		item.ProjectID = firstNonEmptyString(item.ProjectID, task.ProjectID)
+		item.WorkItemID = firstNonEmptyString(item.WorkItemID, task.WorkItemID)
+		item.AssignmentID = firstNonEmptyString(item.AssignmentID, task.AssignmentID)
 	}
 	if packet, ok, err := chatcontext.FromTaskRun(run); err == nil && ok && packet.Refs != nil {
 		refs := chatcontext.Refs(*packet.Refs)
-		item.ProjectID = firstNonEmptyString(refs.ProjectID, item.ProjectID)
-		item.WorkItemID = firstNonEmptyString(refs.WorkItemID, item.WorkItemID)
-		item.AssignmentID = firstNonEmptyString(refs.AssignmentID, item.AssignmentID)
+		item.ProjectID = firstNonEmptyString(item.ProjectID, refs.ProjectID)
+		item.WorkItemID = firstNonEmptyString(item.WorkItemID, refs.WorkItemID)
+		item.AssignmentID = firstNonEmptyString(item.AssignmentID, refs.AssignmentID)
 	}
 	if !run.StartedAt.IsZero() {
 		item.StartedAt = run.StartedAt.UTC().Format(time.RFC3339Nano)
