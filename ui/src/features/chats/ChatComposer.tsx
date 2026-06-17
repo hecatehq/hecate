@@ -95,6 +95,8 @@ const HECATE_MESSAGE_COMMANDS: Record<
     description: "Open Connections",
   },
 };
+// Keep proposal-oriented project commands here so the picker labels them as
+// Project, not as generic Hecate navigation/runtime shortcuts.
 const HECATE_PROJECT_COMMAND_NAMES = new Set<string>([
   "proposal",
   "plan",
@@ -352,7 +354,7 @@ export function ChatComposer(props: ChatComposerProps) {
           name: command.name,
           description: command.description,
           inputHint: command.inputHint,
-          sourceLabel: "Hecate",
+          sourceLabel: hecateMessageCommandSourceLabel(command.name),
         });
       }
     }
@@ -366,7 +368,7 @@ export function ChatComposer(props: ChatComposerProps) {
             name: externalAgentCommandName(command),
             description: command.description,
             inputHint: command.input_hint,
-            sourceLabel: selectedActiveAgent?.name || "Agent",
+            sourceLabel: "External Agent",
           }))
           .filter((command) => command.name !== "")
           .filter((command) => command.name.toLowerCase().startsWith(query)),
@@ -389,7 +391,6 @@ export function ChatComposer(props: ChatComposerProps) {
     onOpenWorkspaceChanges,
     projectProposalAvailable,
     projectProposalDrafting,
-    selectedActiveAgent?.name,
     workspaceChangesAvailable,
   ]);
   const commandPickerVisible =
@@ -955,7 +956,7 @@ export function ChatComposer(props: ChatComposerProps) {
                             fontFamily: "var(--font-mono)",
                             fontSize: 10,
                             textTransform: "uppercase",
-                            letterSpacing: "0.06em",
+                            letterSpacing: 0,
                             minWidth: 0,
                             overflow: "hidden",
                             textOverflow: "ellipsis",
@@ -1254,6 +1255,10 @@ function messageCommandQuery(message: string): string | null {
 
 function externalAgentCommandName(command: ChatAvailableCommandRecord) {
   return command.name.trim().replace(/^\/+/, "");
+}
+
+function hecateMessageCommandSourceLabel(name: HecateMessageCommandName) {
+  return HECATE_PROJECT_COMMAND_NAMES.has(name) ? "Project" : "Hecate";
 }
 
 type HecateMessageCommandAvailability = {

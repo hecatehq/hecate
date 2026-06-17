@@ -142,6 +142,9 @@ external agent. The operator UI may show these hints while the composer starts
 with `/`; choosing a hint only inserts the slash command text. Hecate-owned
 chat commands are separate local shortcuts and must still route through
 Hecate's proposal, validation, and operator-apply boundaries.
+The composer picker labels command provenance as **External Agent** for
+ACP-advertised external commands, **Project** for Hecate-owned project proposal
+shortcuts, and **Hecate** for local navigation/runtime shortcuts.
 
 ### Hecate-owned chat commands
 

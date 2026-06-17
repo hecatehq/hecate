@@ -142,6 +142,9 @@ commands, not ACP commands. Project-shaping shortcuts such as `/plan`, `/work`,
 `/handoff`, and `/review` should remain intent hints that go through the usual
 proposal, validation, and operator-apply boundaries instead of directly
 mutating project records.
+The composer picker labels ACP-advertised commands as **External Agent**.
+Hecate-owned local shortcuts use **Project** for proposal-oriented project
+commands and **Hecate** for local navigation/runtime commands.
 
 Check discovery:
 
