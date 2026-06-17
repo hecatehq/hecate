@@ -92,6 +92,7 @@ describe("providerDisplayName", () => {
   it("falls back to canonical names before lower-case configured names", () => {
     expect(providerDisplayName("ollama", [makeCP("ollama")], [])).toBe("Ollama");
     expect(providerDisplayName("lmstudio", [makeCP("lmstudio")], [])).toBe("LM Studio");
+    expect(providerDisplayName("fireworks", [makeCP("fireworks")], [])).toBe("Fireworks AI");
     expect(providerDisplayName("openrouter", [makeCP("openrouter")], [])).toBe("OpenRouter");
     expect(providerDisplayName("vercel_ai_gateway", [makeCP("vercel_ai_gateway")], [])).toBe(
       "Vercel AI Gateway",

@@ -796,6 +796,9 @@ func TestBuiltInProviderCatalogMetadata(t *testing.T) {
 	if fireworks.BaseURL != "https://api.fireworks.ai/inference/v1" {
 		t.Fatalf("fireworks base url = %q, want https://api.fireworks.ai/inference/v1", fireworks.BaseURL)
 	}
+	if fireworks.ModelsPath != "https://api.fireworks.ai/v1/accounts/fireworks/models" {
+		t.Fatalf("fireworks models path = %q, want Fireworks account models endpoint", fireworks.ModelsPath)
+	}
 
 	huggingface, ok := BuiltInProviderByID("huggingface")
 	if !ok {

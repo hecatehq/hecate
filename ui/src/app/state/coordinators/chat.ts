@@ -186,6 +186,32 @@ function modelAvailableForProviderFilter(
   model: string,
 ): boolean {
   if (!model.trim()) return false;
+  if (providerFilter === "auto") {
+    const knownProviders = new Set<string>();
+    for (const entry of models) {
+      if (entry.id === model && typeof entry.metadata?.provider === "string") {
+        knownProviders.add(entry.metadata.provider);
+      }
+    }
+    for (const provider of providers) {
+      if (provider.default_model === model || provider.models?.includes(model)) {
+        knownProviders.add(provider.name);
+      }
+    }
+    for (const configured of configuredProviders) {
+      knownProviders.add(configured.id);
+    }
+    return Array.from(knownProviders).some((provider) =>
+      isModelValidForProvider(
+        model,
+        provider,
+        models,
+        providers,
+        configuredProviders,
+        providerPresets,
+      ),
+    );
+  }
   return isModelValidForProvider(
     model,
     providerFilter,

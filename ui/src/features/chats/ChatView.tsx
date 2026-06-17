@@ -20,6 +20,7 @@ import {
 } from "../../app/state/coordinators/wired";
 import { discoverLocalProviders, draftChatProjectAssistant } from "../../lib/api";
 import { writeProjectAssistantChatHandoff } from "../../lib/project-assistant-chat-handoff";
+import { withConfiguredDefaultModels } from "../../app/runtimeConsoleChatHelpers";
 import {
   modelSelectionHasNoToolCalling,
   resolveChatSetupRepairState,
@@ -288,10 +289,16 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     if (!providerConfigLoaded) return state.providerScopedModels;
     if (configuredProviders.length === 0) return [];
     const ids = new Set(configuredProviders.map((c) => c.id));
-    return state.providerScopedModels.filter((m) => {
+    const filteredModels = state.providerScopedModels.filter((m) => {
       const provider = m.metadata?.provider;
       return typeof provider === "string" ? ids.has(provider) : true;
     });
+    return withConfiguredDefaultModels(
+      filteredModels,
+      state.providerFilter,
+      configuredProviders,
+      state.providerPresets,
+    );
   })();
   const modelRouteUnavailable = providerConfigLoaded && selectableModels.length === 0;
   const hasConfiguredProviders = configuredProviders.length > 0;

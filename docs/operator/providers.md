@@ -139,6 +139,12 @@ provider-specific endpoint layout: Hecate sends chat traffic to
 fields such as `citations` and `search_results` are not forwarded yet; the
 normalized assistant text, model, and token usage are.
 
+Fireworks AI is also OpenAI Chat Completions-compatible, but its public model
+catalog is account-scoped. Hecate sends chat traffic to
+`https://api.fireworks.ai/inference/v1` and discovers the public Fireworks model
+list through `https://api.fireworks.ai/v1/accounts/fireworks/models`, which
+returns model metadata such as context length and tool support.
+
 ## Anthropic prompt caching
 
 Hecate automatically attaches `cache_control: {"type":"ephemeral"}`
