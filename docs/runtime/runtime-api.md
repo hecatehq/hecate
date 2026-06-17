@@ -3550,9 +3550,15 @@ Section values currently used by the runtime are:
 
 `included=true` means the item was part of the prepared context for that
 message or run. `included=false` means the item is related inspectable metadata
-that V1 did not inject into the runtime context. Native project-assignment
-packets currently use `included=false` for project memory, project sources,
-handoffs, and artifact refs.
+that V1 did not inject into the runtime context. Hecate-owned project chat
+packets use explicit `prompt_context` items to distinguish bounded project
+prelude content from visible-only project source metadata. External Agent chat
+and External Agent project-assignment packets mark project memory/source
+records as visible-only because Hecate records metadata for inspection but does
+not inject those bodies into adapter prompts. Native project-assignment packets
+can mark project memory and eligible source metadata included only when the
+resolved profile policy activated bounded prompt inclusion; handoffs and
+artifact refs remain metadata-only.
 
 Legacy packets can omit `id`, `execution_profile`, `refs`, or `section`. The
 server backfills obvious request-scoped refs and default sections where it can,

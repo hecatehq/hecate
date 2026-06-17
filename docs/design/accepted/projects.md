@@ -414,8 +414,10 @@ The next project-orchestration slices are:
    assignments. Profile-management UI, role/project default profile selection,
    project-skill pickers, profile-driven context-packet activation, and bounded
    native-assignment prompt inclusion for project memory plus portable
-   `AGENTS.md` guidance exist. Chat, external-agent, host-specific guidance, and
-   arbitrary source-document prompt policy remain follow-up work.
+   `AGENTS.md` guidance exist. Project-linked Hecate Chat now records its
+   bounded project prelude explicitly, and External Agent chat/assignment
+   packets keep project memory/source bodies metadata-only. Host-specific
+   guidance and arbitrary source-document prompt policy remain follow-up work.
 2. Broaden focused project journeys beyond the current API-level create
    project -> discover guidance/skills -> add memory -> create/start assignment
    -> inspect context -> follow handoff regression. Remaining hardening should

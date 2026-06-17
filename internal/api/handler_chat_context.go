@@ -220,9 +220,14 @@ func (h *Handler) directModelContextPacket(ctx context.Context, session chat.Ses
 	packet.SystemPromptIncluded = strings.TrimSpace(systemPrompt) != ""
 	packet.MessageCount = chatTranscriptMessageCount(session.Messages) + 1
 	populateProjectRefs(&packet, session.ProjectID)
-	appendProjectSummary(&packet, h.projectSummary(ctx, session.ProjectID), true, "Project linked to this chat session")
-	appendProjectChatSkills(&packet, h.projectChatEnabledSkills(ctx, session.ProjectID), true, "Enabled project skill metadata for this direct model turn; skill bodies are not injected")
-	appendProjectChatWork(&packet, h.projectChatWorkSnapshot(ctx, session.ProjectID), true, "Current project work metadata for this direct model turn")
+	project := h.projectSummary(ctx, session.ProjectID)
+	appendProjectSummary(&packet, project, true, "Project linked to this chat session")
+	projectPromptIncluded := project != nil
+	appendProjectChatSkills(&packet, h.projectChatEnabledSkills(ctx, session.ProjectID), projectPromptIncluded, hecateChatProjectMetadataReason(projectPromptIncluded, "direct model turn"))
+	appendProjectChatWork(&packet, h.projectChatWorkSnapshot(ctx, session.ProjectID), projectPromptIncluded, hecateChatProjectMetadataReason(projectPromptIncluded, "direct model turn"))
+	if project != nil {
+		appendHecateChatPromptPolicy(&packet)
+	}
 	if packet.SystemPromptIncluded {
 		appendContextPacketSourceWithSection(&packet, contextSectionInstructions, chat.ContextSource{
 			Kind:   "system_prompt",
@@ -239,7 +244,11 @@ func (h *Handler) directModelContextPacket(ctx context.Context, session chat.Ses
 			InclusionReason: "Configured for this direct model turn",
 		})
 	}
-	appendProjectMemory(&packet, h.projectMemoryEntries(ctx, session))
+	if projectPromptIncluded {
+		appendProjectMemory(&packet, h.projectMemoryEntries(ctx, session))
+	} else {
+		appendProjectMemoryWithInclusion(&packet, h.projectMemoryEntries(ctx, session), false, "Project memory is inspectable only; no linked project prompt prelude was assembled")
+	}
 	if strings.TrimSpace(session.Workspace) != "" {
 		appendContextPacketSourceWithSection(&packet, contextSectionWorkspace, chat.ContextSource{
 			Kind:   "workspace",
@@ -267,9 +276,14 @@ func (h *Handler) hecateTaskContextPacket(ctx context.Context, session chat.Sess
 	packet.MessageCount = chatTranscriptMessageCount(session.Messages) + 1
 	packet.ExecutionProfile = "chat_agent"
 	populateProjectRefs(&packet, session.ProjectID)
-	appendProjectSummary(&packet, h.projectSummary(ctx, session.ProjectID), true, "Project linked to this chat session")
-	appendProjectChatSkills(&packet, h.projectChatEnabledSkills(ctx, session.ProjectID), true, "Enabled project skill metadata for this task-backed turn; skill bodies are not injected")
-	appendProjectChatWork(&packet, h.projectChatWorkSnapshot(ctx, session.ProjectID), true, "Current project work metadata for this task-backed turn")
+	project := h.projectSummary(ctx, session.ProjectID)
+	appendProjectSummary(&packet, project, true, "Project linked to this chat session")
+	projectPromptIncluded := project != nil
+	appendProjectChatSkills(&packet, h.projectChatEnabledSkills(ctx, session.ProjectID), projectPromptIncluded, hecateChatProjectMetadataReason(projectPromptIncluded, "task-backed turn"))
+	appendProjectChatWork(&packet, h.projectChatWorkSnapshot(ctx, session.ProjectID), projectPromptIncluded, hecateChatProjectMetadataReason(projectPromptIncluded, "task-backed turn"))
+	if project != nil {
+		appendHecateChatPromptPolicy(&packet)
+	}
 	if packet.SystemPromptIncluded {
 		appendContextPacketSourceWithSection(&packet, contextSectionInstructions, chat.ContextSource{
 			Kind:   "system_prompt",
@@ -286,7 +300,11 @@ func (h *Handler) hecateTaskContextPacket(ctx context.Context, session chat.Sess
 			InclusionReason: "Stored on the backing task for this task segment",
 		})
 	}
-	appendProjectMemory(&packet, h.projectMemoryEntries(ctx, session))
+	if projectPromptIncluded {
+		appendProjectMemory(&packet, h.projectMemoryEntries(ctx, session))
+	} else {
+		appendProjectMemoryWithInclusion(&packet, h.projectMemoryEntries(ctx, session), false, "Project memory is inspectable only; no linked project prompt prelude was assembled")
+	}
 	if strings.TrimSpace(session.Workspace) != "" {
 		appendContextPacketSourceWithSection(&packet, contextSectionWorkspace, chat.ContextSource{
 			Kind:   "workspace",
@@ -330,8 +348,9 @@ func (h *Handler) externalAgentContextPacket(ctx context.Context, session chat.S
 	packet := baseChatContextPacket(chat.ExecutionModeExternalAgent, "", "", session.Workspace)
 	packet.MessageCount = chatTranscriptMessageCount(session.Messages) + 1
 	populateProjectRefs(&packet, session.ProjectID)
-	appendProjectSummary(&packet, h.projectSummary(ctx, session.ProjectID), true, "Project linked to this chat session")
-	appendProjectMemory(&packet, h.projectMemoryEntries(ctx, session))
+	appendProjectSummary(&packet, h.projectSummary(ctx, session.ProjectID), false, "Project linked to this external-agent chat session; not injected into the adapter prompt")
+	appendExternalAgentChatPromptPolicy(&packet)
+	appendProjectMemoryWithInclusion(&packet, h.projectMemoryEntries(ctx, session), false, "Project memory is inspectable only; Hecate does not inject memory bodies into External Agent chat prompts in V1")
 	if strings.TrimSpace(session.Workspace) != "" {
 		appendContextPacketSourceWithSection(&packet, contextSectionWorkspace, chat.ContextSource{
 			Kind:   "workspace",
@@ -348,7 +367,7 @@ func (h *Handler) externalAgentContextPacket(ctx context.Context, session chat.S
 			InclusionReason: "Workspace path selected for this external-agent session",
 		})
 	}
-	appendProjectContextSources(&packet, h.projectContextSources(ctx, session))
+	appendProjectContextSourcesWithInclusion(&packet, h.projectContextSources(ctx, session), false, "Project source metadata is inspectable only; Hecate does not inject source bodies into External Agent chat prompts in V1")
 	if strings.TrimSpace(adapterName) == "" {
 		adapterName = "External agent"
 	}
@@ -505,6 +524,9 @@ func (h *Handler) projectAssignmentContextPacket(ctx context.Context, project pr
 	appendResolvedAgentProfile(&packet, profile)
 	appendResolvedProjectSkills(&packet, skills)
 	appendProjectAssignmentPromptContext(&packet, promptContext)
+	if driverKind == projectwork.AssignmentDriverExternalAgent {
+		appendExternalAgentAssignmentPromptPolicy(&packet, profile)
+	}
 	if packet.SystemPromptIncluded {
 		promptOrigin := "task.system_prompt"
 		promptBodyRef := "task_system_prompt"
@@ -545,8 +567,13 @@ func (h *Handler) projectAssignmentContextPacket(ctx context.Context, project pr
 			InclusionReason: "Selected as the project assignment workspace",
 		})
 	}
-	appendProjectMemoryForProfilePolicy(&packet, h.enabledProjectMemoryEntries(ctx, project.ID), profile)
-	appendProjectContextSourcesForProfilePolicy(&packet, projectContextSourcesFromProject(project), profile)
+	if driverKind == projectwork.AssignmentDriverExternalAgent {
+		appendProjectMemoryWithInclusion(&packet, h.enabledProjectMemoryEntries(ctx, project.ID), false, "External-agent assignment launch records memory metadata only; Hecate does not inject memory bodies into adapter prompts in V1")
+		appendProjectContextSourcesWithInclusion(&packet, projectContextSourcesFromProject(project), false, "External-agent assignment launch records source metadata only; Hecate does not inject source bodies into adapter prompts in V1")
+	} else {
+		appendProjectMemoryForProfilePolicy(&packet, h.enabledProjectMemoryEntries(ctx, project.ID), profile)
+		appendProjectContextSourcesForProfilePolicy(&packet, projectContextSourcesFromProject(project), profile)
+	}
 	appendProjectAssignmentHandoffs(&packet, h.assignmentRelevantHandoffs(ctx, assignment, role.ID), false, "Handoff references are inspectable metadata only in project assignment launch context v1")
 	appendProjectAssignmentArtifacts(&packet, h.assignmentRelevantArtifacts(ctx, assignment), false, "Artifact references are inspectable metadata only in project assignment launch context v1")
 	return packet
@@ -651,7 +678,18 @@ func (h *Handler) assignmentRelevantHandoffs(ctx context.Context, assignment pro
 }
 
 func appendProjectMemory(packet *chat.ContextPacket, entries []memory.Entry) {
-	appendProjectMemoryWithInclusion(packet, entries, true, "Enabled project memory entry")
+	if len(entries) == 0 {
+		return
+	}
+	included := projectChatPromptIncludedMemoryIDs(entries)
+	for _, entry := range entries {
+		reason := "Project memory body is inspectable but omitted from the bounded Hecate-owned chat prompt"
+		isIncluded := included[strings.TrimSpace(entry.ID)]
+		if isIncluded {
+			reason = "Bounded project memory body included in the Hecate-owned project chat system prompt"
+		}
+		appendProjectMemoryEntry(packet, entry, isIncluded, reason)
+	}
 }
 
 func appendProjectChatSkills(packet *chat.ContextPacket, skills []projectskills.Skill, included bool, reason string) {
@@ -673,6 +711,13 @@ func appendProjectChatSkills(packet *chat.ContextPacket, skills []projectskills.
 		Included:        included,
 		InclusionReason: reason,
 	})
+}
+
+func hecateChatProjectMetadataReason(included bool, turn string) string {
+	if included {
+		return "Included in the Hecate-owned project chat system prompt for this " + turn + "; bodies remain metadata-only unless explicitly noted"
+	}
+	return "Inspectable project metadata only; no linked project prompt prelude was assembled for this " + turn
 }
 
 func appendProjectChatWork(packet *chat.ContextPacket, snapshot projectChatWorkSnapshot, included bool, reason string) {
@@ -710,33 +755,58 @@ func appendProjectMemoryForProfilePolicy(packet *chat.ContextPacket, entries []m
 
 func appendProjectMemoryWithInclusion(packet *chat.ContextPacket, entries []memory.Entry, included bool, reason string) {
 	for _, entry := range entries {
-		trust := strings.TrimSpace(entry.TrustLabel)
-		if trust == "" {
-			trust = contextTrustOperatorMemory
-		}
-		sourceDetail := strings.TrimSpace(entry.SourceKind)
-		if sourceID := strings.TrimSpace(entry.SourceID); sourceID != "" {
-			sourceDetail = firstNonEmptyString(sourceDetail, "operator") + ":" + sourceID
-		}
-		appendContextPacketSourceWithSection(packet, contextSectionMemory, chat.ContextSource{
-			Kind:   "memory",
-			Label:  entry.Title,
-			Detail: sourceDetail,
-			Trust:  trust,
-		}, chat.ContextItem{
-			Kind:            "memory",
-			TrustLevel:      trust,
-			Origin:          entry.ID,
-			Title:           entry.Title,
-			Body:            entry.Body,
-			Included:        included,
-			InclusionReason: reason,
-		})
+		appendProjectMemoryEntry(packet, entry, included, reason)
 	}
 }
 
+func appendProjectMemoryEntry(packet *chat.ContextPacket, entry memory.Entry, included bool, reason string) {
+	trust := strings.TrimSpace(entry.TrustLabel)
+	if trust == "" {
+		trust = contextTrustOperatorMemory
+	}
+	sourceDetail := strings.TrimSpace(entry.SourceKind)
+	if sourceID := strings.TrimSpace(entry.SourceID); sourceID != "" {
+		sourceDetail = firstNonEmptyString(sourceDetail, "operator") + ":" + sourceID
+	}
+	appendContextPacketSourceWithSection(packet, contextSectionMemory, chat.ContextSource{
+		Kind:   "memory",
+		Label:  entry.Title,
+		Detail: sourceDetail,
+		Trust:  trust,
+	}, chat.ContextItem{
+		Kind:            "memory",
+		TrustLevel:      trust,
+		Origin:          entry.ID,
+		Title:           entry.Title,
+		Body:            entry.Body,
+		Included:        included,
+		InclusionReason: reason,
+	})
+}
+
+func projectChatPromptIncludedMemoryIDs(entries []memory.Entry) map[string]bool {
+	included := make(map[string]bool, min(len(entries), projectChatPromptMemoryMaxItems))
+	remaining := projectChatPromptMaxBytes
+	count := 0
+	for _, entry := range entries {
+		if count >= projectChatPromptMemoryMaxItems {
+			break
+		}
+		id := strings.TrimSpace(entry.ID)
+		if id == "" {
+			continue
+		}
+		if _, ok := projectChatMemorySection(entry, &remaining); !ok {
+			continue
+		}
+		included[id] = true
+		count++
+	}
+	return included
+}
+
 func appendProjectContextSources(packet *chat.ContextPacket, sources []chat.ContextSource) {
-	appendProjectContextSourcesWithInclusion(packet, sources, true, "Enabled project context source metadata")
+	appendProjectContextSourcesWithInclusion(packet, sources, false, "Project context-source metadata is inspectable for Hecate-owned chat; source file bodies are not loaded into chat prompts in V1")
 }
 
 func appendProjectContextSourcesForProfilePolicy(packet *chat.ContextPacket, sources []chat.ContextSource, profile projectworkapp.ResolvedAgentProfile) {
@@ -922,6 +992,70 @@ func appendProjectAssignmentPromptContext(packet *chat.ContextPacket, promptCont
 		Body:            strings.Join(body, "\n"),
 		Included:        len(promptContext.Sections) > 0,
 		InclusionReason: "Profile memory/source policies applied to the native assignment prompt",
+	})
+}
+
+func appendHecateChatPromptPolicy(packet *chat.ContextPacket) {
+	appendContextPacketSourceWithSection(packet, contextSectionInstructions, chat.ContextSource{
+		Kind:   "prompt_context",
+		Label:  "Project prompt policy",
+		Detail: "Hecate-owned chat",
+		Trust:  contextTrustRuntimeState,
+	}, chat.ContextItem{
+		Kind:       "prompt_context",
+		TrustLevel: contextTrustRuntimeState,
+		Origin:     "chat.project_prompt_context",
+		Title:      "Project prompt policy",
+		Body: strings.Join([]string{
+			"Hecate-owned project chat turns include a bounded project workflow prelude in the system prompt.",
+			"The prelude may include project identity, root metadata, role hints, enabled skill metadata, active work metadata, and bounded accepted project memory bodies.",
+			"Project context-source file bodies, host-specific guidance file bodies, and SKILL.md bodies are not loaded into Hecate-owned chat prompts in V1.",
+		}, "\n"),
+		Included:        true,
+		InclusionReason: "Hecate-owned project chat system prompt policy",
+	})
+}
+
+func appendExternalAgentChatPromptPolicy(packet *chat.ContextPacket) {
+	appendContextPacketSourceWithSection(packet, contextSectionInstructions, chat.ContextSource{
+		Kind:   "prompt_context",
+		Label:  "External Agent prompt policy",
+		Detail: "adapter-owned prompt packing",
+		Trust:  contextTrustRuntimeState,
+	}, chat.ContextItem{
+		Kind:       "prompt_context",
+		TrustLevel: contextTrustRuntimeState,
+		Origin:     "external_agent.prompt_context",
+		Title:      "External Agent prompt policy",
+		Body: strings.Join([]string{
+			"Hecate sends the operator message to the External Agent adapter. When a project is linked, Hecate records project metadata for inspection.",
+			"Hecate does not inject project memory bodies, project source bodies, host-specific guidance file bodies, or SKILL.md bodies into External Agent chat prompts in V1.",
+			"The adapter owns any private prompt packing inside its native session.",
+		}, "\n"),
+		Included:        false,
+		InclusionReason: "Inspectable boundary note only; External Agent prompt packing is adapter-owned",
+	})
+}
+
+func appendExternalAgentAssignmentPromptPolicy(packet *chat.ContextPacket, profile projectworkapp.ResolvedAgentProfile) {
+	appendContextPacketSourceWithSection(packet, contextSectionInstructions, chat.ContextSource{
+		Kind:   "prompt_context",
+		Label:  "External Agent assignment prompt policy",
+		Detail: "adapter-owned prompt packing",
+		Trust:  contextTrustRuntimeState,
+	}, chat.ContextItem{
+		Kind:       "prompt_context",
+		TrustLevel: contextTrustRuntimeState,
+		Origin:     "external_agent_assignment.prompt_context",
+		Title:      "External Agent assignment prompt policy",
+		Body: strings.Join([]string{
+			"External Agent assignment start prepares a supervised chat session; it does not dispatch an adapter prompt.",
+			"Hecate records project launch metadata for inspection, but does not inject project memory bodies, project source bodies, host-specific guidance file bodies, or SKILL.md bodies into adapter prompts in V1.",
+			"Profile project_memory_policy: " + firstNonEmptyString(strings.TrimSpace(profile.ProjectMemoryPolicy), agentprofiles.MemoryInherit),
+			"Profile context_source_policy: " + firstNonEmptyString(strings.TrimSpace(profile.ContextSourcePolicy), agentprofiles.ContextInherit),
+		}, "\n"),
+		Included:        false,
+		InclusionReason: "Inspectable boundary note only; External Agent prompt packing is adapter-owned",
 	})
 }
 
