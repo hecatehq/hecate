@@ -41,6 +41,16 @@ var (
 	}
 )
 
+type projectChatWorkflowPromptPlan struct {
+	Text              string
+	IncludedMemoryIDs map[string]bool
+}
+
+type projectChatPromptBuilder struct {
+	sections  []string
+	remaining int
+}
+
 func (h *Handler) hecateChatEffectiveSystemPrompt(ctx context.Context, session chat.Session, operatorPrompt string) string {
 	operatorPrompt = strings.TrimSpace(operatorPrompt)
 	projectPrompt := h.projectChatWorkflowSystemPrompt(ctx, session)
@@ -67,33 +77,120 @@ func (h *Handler) hecateChatTaskSystemPrompt(ctx context.Context, session chat.S
 }
 
 func (h *Handler) projectChatWorkflowSystemPrompt(ctx context.Context, session chat.Session) string {
+	return h.projectChatWorkflowPromptPlan(ctx, session).Text
+}
+
+func (h *Handler) projectChatWorkflowPromptPlan(ctx context.Context, session chat.Session) projectChatWorkflowPromptPlan {
+	plan := projectChatWorkflowPromptPlan{IncludedMemoryIDs: make(map[string]bool)}
 	if !isHecateChatSession(session) {
-		return ""
+		return plan
 	}
 	project := h.projectSummary(ctx, session.ProjectID)
 	if project == nil {
-		return ""
+		return plan
 	}
 
-	sections := []string{projectChatWorkflowBoundary(*project)}
+	builder := projectChatPromptBuilder{remaining: projectChatPromptMaxBytes}
+	builder.append(projectChatWorkflowBoundary(*project))
 	if roots := projectChatRootHints(*project); roots != "" {
-		sections = append(sections, roots)
+		builder.append(roots)
 	}
 	if roles := h.projectChatRoleHints(ctx, project.ID); roles != "" {
-		sections = append(sections, roles)
+		builder.append(roles)
 	}
 	if skills := h.projectChatSkillHints(ctx, project.ID); skills != "" {
-		sections = append(sections, skills)
+		builder.append(skills)
 	}
 	if work := h.projectChatWorkHints(ctx, project.ID); work != "" {
-		sections = append(sections, work)
+		builder.append(work)
 	}
-	if memoryText := h.projectChatMemoryPrompt(ctx, project.ID); memoryText != "" {
-		sections = append(sections, memoryText)
+	builder.appendMemory(h.enabledProjectMemoryEntries(ctx, project.ID), plan.IncludedMemoryIDs)
+	plan.Text = builder.text()
+	return plan
+}
+
+func (b *projectChatPromptBuilder) append(section string) bool {
+	section = strings.TrimSpace(section)
+	if b == nil || section == "" {
+		return false
 	}
-	text := strings.Join(sections, "\n\n")
-	text, _ = truncatePromptContextText(text, projectChatPromptMaxBytes)
-	return text
+	separatorBytes := 0
+	if len(b.sections) > 0 {
+		separatorBytes = len("\n\n")
+	}
+	if b.remaining <= separatorBytes {
+		return false
+	}
+	text, _ := truncatePromptContextText(section, b.remaining-separatorBytes)
+	if text == "" {
+		return false
+	}
+	b.sections = append(b.sections, text)
+	b.remaining -= separatorBytes + len(text)
+	return true
+}
+
+func (b *projectChatPromptBuilder) appendMemory(entries []memory.Entry, includedIDs map[string]bool) {
+	if b == nil || len(entries) == 0 {
+		return
+	}
+	separatorBytes := 0
+	if len(b.sections) > 0 {
+		separatorBytes = len("\n\n")
+	}
+	if b.remaining <= separatorBytes {
+		return
+	}
+	remaining := b.remaining - separatorBytes
+	header := "Accepted project memory:"
+	if remaining <= len(header) {
+		return
+	}
+	parts := []string{header}
+	remaining -= len(header)
+	included := 0
+	for _, entry := range entries {
+		if included >= projectChatPromptMemoryMaxItems {
+			appendProjectChatMemoryLine(&parts, &remaining, fmt.Sprintf("- %d additional memory entries omitted.", len(entries)-included))
+			break
+		}
+		if remaining <= len("\n") {
+			break
+		}
+		entryRemaining := remaining - len("\n")
+		section, ok := projectChatMemorySection(entry, &entryRemaining)
+		if !ok {
+			continue
+		}
+		parts = append(parts, section)
+		remaining = entryRemaining
+		if id := strings.TrimSpace(entry.ID); id != "" && includedIDs != nil {
+			includedIDs[id] = true
+		}
+		included++
+	}
+	if included == 0 {
+		return
+	}
+	text := strings.Join(parts, "\n")
+	b.sections = append(b.sections, text)
+	b.remaining -= separatorBytes + len(text)
+}
+
+func appendProjectChatMemoryLine(parts *[]string, remaining *int, line string) {
+	if parts == nil || remaining == nil || *remaining <= len("\n") {
+		return
+	}
+	text, _ := truncatePromptContextText(line, *remaining-len("\n"))
+	if text == "" {
+		return
+	}
+	*parts = append(*parts, text)
+	*remaining -= len("\n") + len(text)
+}
+
+func (b projectChatPromptBuilder) text() string {
+	return strings.Join(b.sections, "\n\n")
 }
 
 func projectChatWorkflowBoundary(project projects.Project) string {
@@ -205,25 +302,9 @@ func (h *Handler) projectChatMemoryPrompt(ctx context.Context, projectID string)
 	if len(entries) == 0 {
 		return ""
 	}
-	remaining := projectChatPromptMaxBytes
-	sections := []string{"Accepted project memory:"}
-	included := 0
-	for _, entry := range entries {
-		if included >= projectChatPromptMemoryMaxItems {
-			sections = append(sections, fmt.Sprintf("- %d additional memory entries omitted.", len(entries)-included))
-			break
-		}
-		section, ok := projectChatMemorySection(entry, &remaining)
-		if !ok {
-			continue
-		}
-		sections = append(sections, section)
-		included++
-	}
-	if included == 0 {
-		return ""
-	}
-	return strings.Join(sections, "\n")
+	builder := projectChatPromptBuilder{remaining: projectChatPromptMaxBytes}
+	builder.appendMemory(entries, nil)
+	return builder.text()
 }
 
 func projectChatMemorySection(entry memory.Entry, remaining *int) (string, bool) {

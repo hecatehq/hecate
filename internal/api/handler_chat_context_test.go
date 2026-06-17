@@ -237,6 +237,58 @@ func TestChatContextPacketsIncludeEnabledProjectMemory(t *testing.T) {
 	}
 }
 
+func TestChatContextPacketsMarkOverflowProjectMemoryVisibleOnly(t *testing.T) {
+	ctx := context.Background()
+	memoryStore := memory.NewMemoryStore()
+	base := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
+	for idx := 0; idx < projectChatPromptMemoryMaxItems+1; idx++ {
+		id := fmt.Sprintf("mem_%02d", idx)
+		if _, err := memoryStore.Create(ctx, memory.Entry{
+			ID:         id,
+			ProjectID:  "proj_1",
+			Title:      fmt.Sprintf("Memory %02d", idx),
+			Body:       fmt.Sprintf("Memory body %02d.", idx),
+			TrustLabel: memory.TrustLabelOperatorMemory,
+			SourceKind: memory.SourceKindOperator,
+			Enabled:    true,
+			CreatedAt:  base.Add(-time.Duration(idx) * time.Minute),
+			UpdatedAt:  base.Add(-time.Duration(idx) * time.Minute),
+		}); err != nil {
+			t.Fatalf("Create memory %s: %v", id, err)
+		}
+	}
+	projectStore := projects.NewMemoryStore()
+	if _, err := projectStore.Create(ctx, projects.Project{ID: "proj_1", Name: "Hecate"}); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	handler := &Handler{memory: memoryStore, projects: projectStore}
+	packet := handler.directModelContextPacket(ctx, chat.Session{
+		ID:        "chat_1",
+		ProjectID: "proj_1",
+		Messages:  []chat.Message{{ID: "u1", Role: "user", Content: "first"}},
+	}, "ollama", "llama3.1:8b", "")
+
+	included := 0
+	for _, item := range packet.Items {
+		if item.Kind == "memory" && item.Included {
+			included++
+		}
+	}
+	if included != projectChatPromptMemoryMaxItems {
+		t.Fatalf("included memory count = %d, want %d", included, projectChatPromptMemoryMaxItems)
+	}
+	overflow := findContextItemByOrigin(packet, "mem_04")
+	if overflow == nil {
+		t.Fatalf("overflow memory item not found: %+v", packet.Items)
+	}
+	if overflow.Included {
+		t.Fatalf("overflow memory Included = true, want visible-only")
+	}
+	if !strings.Contains(overflow.InclusionReason, "omitted from the bounded Hecate-owned chat prompt") {
+		t.Fatalf("overflow memory reason = %q, want bounded prompt omission", overflow.InclusionReason)
+	}
+}
+
 func TestChatContextPacketsIncludeProjectSkillAndWorkMetadata(t *testing.T) {
 	ctx := context.Background()
 	skillStore := projectskills.NewMemoryStore()

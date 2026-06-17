@@ -221,8 +221,12 @@ func (h *Handler) directModelContextPacket(ctx context.Context, session chat.Ses
 	packet.MessageCount = chatTranscriptMessageCount(session.Messages) + 1
 	populateProjectRefs(&packet, session.ProjectID)
 	project := h.projectSummary(ctx, session.ProjectID)
+	var promptPlan projectChatWorkflowPromptPlan
 	appendProjectSummary(&packet, project, true, "Project linked to this chat session")
 	projectPromptIncluded := project != nil
+	if projectPromptIncluded {
+		promptPlan = h.projectChatWorkflowPromptPlan(ctx, session)
+	}
 	appendProjectChatSkills(&packet, h.projectChatEnabledSkills(ctx, session.ProjectID), projectPromptIncluded, hecateChatProjectMetadataReason(projectPromptIncluded, "direct model turn"))
 	appendProjectChatWork(&packet, h.projectChatWorkSnapshot(ctx, session.ProjectID), projectPromptIncluded, hecateChatProjectMetadataReason(projectPromptIncluded, "direct model turn"))
 	if project != nil {
@@ -245,7 +249,7 @@ func (h *Handler) directModelContextPacket(ctx context.Context, session chat.Ses
 		})
 	}
 	if projectPromptIncluded {
-		appendProjectMemory(&packet, h.projectMemoryEntries(ctx, session))
+		appendProjectMemory(&packet, h.projectMemoryEntries(ctx, session), promptPlan.IncludedMemoryIDs)
 	} else {
 		appendProjectMemoryWithInclusion(&packet, h.projectMemoryEntries(ctx, session), false, "Project memory is inspectable only; no linked project prompt prelude was assembled")
 	}
@@ -277,8 +281,12 @@ func (h *Handler) hecateTaskContextPacket(ctx context.Context, session chat.Sess
 	packet.ExecutionProfile = "chat_agent"
 	populateProjectRefs(&packet, session.ProjectID)
 	project := h.projectSummary(ctx, session.ProjectID)
+	var promptPlan projectChatWorkflowPromptPlan
 	appendProjectSummary(&packet, project, true, "Project linked to this chat session")
 	projectPromptIncluded := project != nil
+	if projectPromptIncluded {
+		promptPlan = h.projectChatWorkflowPromptPlan(ctx, session)
+	}
 	appendProjectChatSkills(&packet, h.projectChatEnabledSkills(ctx, session.ProjectID), projectPromptIncluded, hecateChatProjectMetadataReason(projectPromptIncluded, "task-backed turn"))
 	appendProjectChatWork(&packet, h.projectChatWorkSnapshot(ctx, session.ProjectID), projectPromptIncluded, hecateChatProjectMetadataReason(projectPromptIncluded, "task-backed turn"))
 	if project != nil {
@@ -301,7 +309,7 @@ func (h *Handler) hecateTaskContextPacket(ctx context.Context, session chat.Sess
 		})
 	}
 	if projectPromptIncluded {
-		appendProjectMemory(&packet, h.projectMemoryEntries(ctx, session))
+		appendProjectMemory(&packet, h.projectMemoryEntries(ctx, session), promptPlan.IncludedMemoryIDs)
 	} else {
 		appendProjectMemoryWithInclusion(&packet, h.projectMemoryEntries(ctx, session), false, "Project memory is inspectable only; no linked project prompt prelude was assembled")
 	}
@@ -677,14 +685,13 @@ func (h *Handler) assignmentRelevantHandoffs(ctx context.Context, assignment pro
 	return filtered
 }
 
-func appendProjectMemory(packet *chat.ContextPacket, entries []memory.Entry) {
+func appendProjectMemory(packet *chat.ContextPacket, entries []memory.Entry, includedMemoryIDs map[string]bool) {
 	if len(entries) == 0 {
 		return
 	}
-	included := projectChatPromptIncludedMemoryIDs(entries)
 	for _, entry := range entries {
 		reason := "Project memory body is inspectable but omitted from the bounded Hecate-owned chat prompt"
-		isIncluded := included[strings.TrimSpace(entry.ID)]
+		isIncluded := includedMemoryIDs[strings.TrimSpace(entry.ID)]
 		if isIncluded {
 			reason = "Bounded project memory body included in the Hecate-owned project chat system prompt"
 		}
@@ -782,27 +789,6 @@ func appendProjectMemoryEntry(packet *chat.ContextPacket, entry memory.Entry, in
 		Included:        included,
 		InclusionReason: reason,
 	})
-}
-
-func projectChatPromptIncludedMemoryIDs(entries []memory.Entry) map[string]bool {
-	included := make(map[string]bool, min(len(entries), projectChatPromptMemoryMaxItems))
-	remaining := projectChatPromptMaxBytes
-	count := 0
-	for _, entry := range entries {
-		if count >= projectChatPromptMemoryMaxItems {
-			break
-		}
-		id := strings.TrimSpace(entry.ID)
-		if id == "" {
-			continue
-		}
-		if _, ok := projectChatMemorySection(entry, &remaining); !ok {
-			continue
-		}
-		included[id] = true
-		count++
-	}
-	return included
 }
 
 func appendProjectContextSources(packet *chat.ContextPacket, sources []chat.ContextSource) {
