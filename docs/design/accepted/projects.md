@@ -359,8 +359,9 @@ work, missing provider/model defaults, and context readiness without adding a
 separate persisted health model. Assignment rows now render compact execution
 evidence from canonical assignment/activity refs, while the Context Inspector
 renders the full persisted launch packet with Profile, Instructions, Skills,
-Memory, Project sources, Work context, and Runtime evidence groups. Broader task
-`project_id` scoping, profiles, and presets are not linked to `project_id` yet.
+Memory, Project sources, Work context, and Runtime evidence groups. Task and run
+records now carry direct project/work/assignment linkage when created from
+project-scoped surfaces; profiles and presets are not linked to `project_id` yet.
 
 Persist `project_id` on:
 
@@ -385,9 +386,9 @@ Because Hecate has no stable users yet, later cleanup can remove legacy path-der
 1. Add project store and API basics. Done for memory + SQLite CRUD.
 2. Add UI list/create/rename/delete basics. Done.
 3. Add `project_id` to chat sessions.
-4. Add `project_id` to tasks. Partial: project work assignments can start
-   linked native tasks via origin metadata; broader task/run scoping remains
-   future.
+4. Add `project_id` to tasks and runs. Done for task records, run records, task
+   lists, run responses, project assignments, and project-linked Hecate Chat
+   task-backed turns.
 5. Thread project identity into chat context packets. Done for itemized project context-source metadata.
 6. Add project-scoped memory. Done.
 7. Add agent-profile memory-source selection.
@@ -409,20 +410,18 @@ Because Hecate has no stable users yet, later cleanup can remove legacy path-der
 
 The next project-orchestration slices are:
 
-1. Finish durable task/run project linkage so native tasks, project assignments,
-   and chat-origin work all expose the same `project_id` boundary.
-2. Extend explicit prompt/source-content policy beyond native project
+1. Extend explicit prompt/source-content policy beyond native project
    assignments. Profile-management UI, role/project default profile selection,
    project-skill pickers, profile-driven context-packet activation, and bounded
    native-assignment prompt inclusion for project memory plus portable
    `AGENTS.md` guidance exist. Chat, external-agent, host-specific guidance, and
    arbitrary source-document prompt policy remain follow-up work.
-3. Broaden focused project journeys beyond the current API-level create
+2. Broaden focused project journeys beyond the current API-level create
    project -> discover guidance/skills -> add memory -> create/start assignment
    -> inspect context -> follow handoff regression. Remaining hardening should
    cover approval/failure paths, activity-health triage, and UI end-to-end
    flows.
-4. Keep tightening the Projects cockpit UI around operator decisions: no hidden
+3. Keep tightening the Projects cockpit UI around operator decisions: no hidden
    recommendations, no separate health persistence, and no automatic memory
    promotion.
 

@@ -105,6 +105,55 @@ func TestStartReconcileLoop_RequeuesStaleRunningRun(t *testing.T) {
 	}
 }
 
+func TestRunnerStartTaskSnapshotsProjectLinkageOnRun(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := taskstate.NewMemoryStore()
+	runner := NewRunner(
+		slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		store,
+		nil,
+		Config{ApprovalPolicies: []string{"shell_exec"}},
+	)
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = runner.Shutdown(shutdownCtx)
+	}()
+
+	idgen := func(prefix string) string {
+		return prefix + "_linkage"
+	}
+	task := types.Task{
+		ID:            "task_project",
+		ProjectID:     "proj_1",
+		WorkItemID:    "work_1",
+		AssignmentID:  "asgn_1",
+		ExecutionKind: "shell",
+		ShellCommand:  "echo ready",
+		Status:        "queued",
+	}
+	if _, err := store.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	result, err := runner.StartTask(ctx, task, idgen)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	if result.Run.ProjectID != "proj_1" || result.Run.WorkItemID != "work_1" || result.Run.AssignmentID != "asgn_1" {
+		t.Fatalf("result run linkage = project %q work %q assignment %q, want proj_1/work_1/asgn_1", result.Run.ProjectID, result.Run.WorkItemID, result.Run.AssignmentID)
+	}
+	storedRun, ok, err := store.GetRun(ctx, task.ID, result.Run.ID)
+	if err != nil || !ok {
+		t.Fatalf("GetRun: ok=%v err=%v", ok, err)
+	}
+	if storedRun.ProjectID != "proj_1" || storedRun.WorkItemID != "work_1" || storedRun.AssignmentID != "asgn_1" {
+		t.Fatalf("stored run linkage = project %q work %q assignment %q, want proj_1/work_1/asgn_1", storedRun.ProjectID, storedRun.WorkItemID, storedRun.AssignmentID)
+	}
+}
+
 // TestStartReconcileLoop_SkipsFreshRunningRun verifies that the loop does NOT
 // re-enqueue a run that only recently entered "running" state — i.e. an
 // active worker is still within its lease window.

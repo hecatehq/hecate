@@ -161,8 +161,15 @@ type MCPServerConfig struct {
 }
 
 type TaskRun struct {
-	ID                 string
-	TaskID             string
+	ID     string
+	TaskID string
+	// ProjectID, WorkItemID, and AssignmentID snapshot the project
+	// boundary from the parent task at run creation time. They let
+	// run streams, traces, and retained run records remain project-aware
+	// even when the parent task is not loaded by the caller.
+	ProjectID          string
+	WorkItemID         string
+	AssignmentID       string
 	Number             int
 	Status             string
 	Orchestrator       string
