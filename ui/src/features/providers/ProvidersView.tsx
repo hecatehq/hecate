@@ -12,7 +12,7 @@ import {
   providerReadinessMeaning,
   providerRepairActionLabel,
 } from "../../lib/provider-readiness";
-import { resolvedBaseURL } from "../../lib/provider-utils";
+import { providerDisplayName, resolvedBaseURL } from "../../lib/provider-utils";
 import { describeHealthErrorClass, describeRoutingBlockedReason } from "../../lib/runtime-utils";
 import { ProviderReadinessChecklist, ProviderReadinessSummary } from "../shared/ProviderReadiness";
 import { Badge, BrandAvatar, ConfirmModal, Icon, Icons, Modal } from "../shared/ui";
@@ -196,16 +196,15 @@ export function ProvidersView() {
 
   const selectedConfig = selectedID ? (configuredByID.get(selectedID) ?? null) : null;
   const selectedStatus = selectedID ? statusByName.get(selectedID) : null;
-  const selectedPreset = selectedID ? providerPresets.find((p) => p.id === selectedID) : null;
+  const selectedDisplayName = selectedID
+    ? providerDisplayName(selectedID, configuredProviders, providerPresets, providers)
+    : "";
+  const deleteConfirmName = deleteConfirmID
+    ? providerDisplayName(deleteConfirmID, configuredProviders, providerPresets, providers)
+    : "provider";
   const deleteConfirmConfig = deleteConfirmID
     ? (configuredByID.get(deleteConfirmID) ?? null)
     : null;
-  const deleteConfirmPreset = deleteConfirmID
-    ? providerPresets.find((p) => p.id === deleteConfirmID)
-    : null;
-  const deleteConfirmName = deleteConfirmConfig
-    ? deleteConfirmPreset?.name || deleteConfirmConfig.name || deleteConfirmID || "provider"
-    : "provider";
 
   const selectedHealthCounters = [
     selectedStatus?.consecutive_failures
@@ -224,7 +223,7 @@ export function ProvidersView() {
     const cp = configuredByID.get(id);
     const rt = statusByName.get(id);
     const preset = providerPresets.find((p) => p.id === id);
-    const displayName = preset?.name || cp?.name || id;
+    const displayName = providerDisplayName(id, configuredProviders, providerPresets, providers);
     const baseURL = rt?.base_url || resolvedBaseURL(id, cp ?? undefined, providerPresets);
     const modelCount = rt?.model_count ?? rt?.models?.length ?? 0;
     const modelBadge =
@@ -579,7 +578,7 @@ export function ProvidersView() {
       {/* Edit provider modal — opens on row click */}
       {selectedID && selectedConfig && (
         <Modal
-          title={`${selectedPreset?.name || selectedConfig.name || selectedID} · ${selectedConfig.kind || "cloud"}`}
+          title={`${selectedDisplayName} · ${selectedConfig.kind || "cloud"}`}
           onClose={() => setSelectedID(null)}
           footer={null}
           width={560}
@@ -587,11 +586,7 @@ export function ProvidersView() {
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             {/* Header strip: brand initial + base URL */}
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <BrandAvatar
-                brand={selectedID}
-                fallback={selectedPreset?.name || selectedConfig.name || selectedID}
-                size={32}
-              />
+              <BrandAvatar brand={selectedID} fallback={selectedDisplayName} size={32} />
               {selectedConfig.base_url && (
                 <span
                   style={{

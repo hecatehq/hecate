@@ -15,6 +15,7 @@ import {
   isModelValidForProvider,
   providerHasChatRouteEvidence,
   renderChatSessionSummary,
+  withConfiguredDefaultModels,
 } from "./runtimeConsoleChatHelpers";
 
 function emptyRuntimeHeaders(overrides: Partial<RuntimeHeaders> = {}): RuntimeHeaders {
@@ -187,6 +188,24 @@ describe("defaultModelForProvider", () => {
     const providers = [provider({ name: "ollama", models: ["llama3.1:8b"] })];
     expect(defaultModelForProvider("ollama", [], providers)).toBe("llama3.1:8b");
   });
+
+  it("falls back to configured provider defaults before discovery reports models", () => {
+    const configured = [
+      {
+        id: "fireworks",
+        name: "fireworks",
+        kind: "cloud",
+        protocol: "openai",
+        base_url: "",
+        default_model: "accounts/fireworks/models/deepseek-v3p1",
+        credential_configured: true,
+      },
+    ];
+
+    expect(defaultModelForProvider("fireworks", [], [], configured, [])).toBe(
+      "accounts/fireworks/models/deepseek-v3p1",
+    );
+  });
 });
 
 describe("defaultProviderForChat", () => {
@@ -286,6 +305,89 @@ describe("isModelValidForProvider", () => {
   it("rejects models not listed by a provider record", () => {
     const providers = [provider({ name: "openai", default_model: "gpt-4o", models: ["gpt-4o"] })];
     expect(isModelValidForProvider("gpt-3.5", "openai", [], providers)).toBe(false);
+  });
+
+  it("accepts configured provider defaults before discovery reports models", () => {
+    const configured = [
+      {
+        id: "fireworks",
+        name: "fireworks",
+        kind: "cloud",
+        protocol: "openai",
+        base_url: "",
+        default_model: "accounts/fireworks/models/deepseek-v3p1",
+        credential_configured: true,
+      },
+    ];
+
+    expect(
+      isModelValidForProvider(
+        "accounts/fireworks/models/deepseek-v3p1",
+        "fireworks",
+        [],
+        [],
+        configured,
+        [],
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("withConfiguredDefaultModels", () => {
+  it("adds configured default models when discovery has not reported them yet", () => {
+    const configured = [
+      {
+        id: "fireworks",
+        name: "fireworks",
+        kind: "cloud",
+        protocol: "openai",
+        base_url: "",
+        default_model: "accounts/fireworks/models/deepseek-v3p1",
+        credential_configured: true,
+      },
+    ];
+
+    expect(withConfiguredDefaultModels([], "fireworks", configured, [])).toEqual([
+      {
+        id: "accounts/fireworks/models/deepseek-v3p1",
+        owned_by: "fireworks",
+        metadata: {
+          provider: "fireworks",
+          provider_kind: "cloud",
+          default: true,
+          discovery_source: "configured_default",
+        },
+      },
+    ]);
+  });
+
+  it("uses preset defaults when configured providers inherit the preset model", () => {
+    const configured = [
+      {
+        id: "fireworks",
+        name: "fireworks",
+        preset_id: "fireworks",
+        kind: "cloud",
+        protocol: "openai",
+        base_url: "",
+        credential_configured: true,
+      },
+    ];
+    const presets = [
+      {
+        id: "fireworks",
+        name: "Fireworks AI",
+        kind: "cloud",
+        protocol: "openai",
+        base_url: "https://api.fireworks.ai/inference/v1",
+        default_model: "accounts/fireworks/models/deepseek-v3p1",
+      },
+    ];
+
+    expect(withConfiguredDefaultModels([], "fireworks", configured, presets)).toHaveLength(1);
+    expect(withConfiguredDefaultModels([], "fireworks", configured, presets)[0].id).toBe(
+      "accounts/fireworks/models/deepseek-v3p1",
+    );
   });
 });
 

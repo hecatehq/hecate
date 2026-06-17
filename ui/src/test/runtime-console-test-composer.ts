@@ -347,11 +347,25 @@ export function useRuntimeConsole() {
     }
     setProviderFilter(nextProvider);
     const nextModel =
-      model && isModelValidForProvider(model, nextProvider, models, providers)
+      model &&
+      isModelValidForProvider(
+        model,
+        nextProvider,
+        models,
+        providers,
+        configuredProviders,
+        providerPresets,
+      )
         ? model
-        : defaultModelForProvider(nextProvider, models, providers);
+        : defaultModelForProvider(
+            nextProvider,
+            models,
+            providers,
+            configuredProviders,
+            providerPresets,
+          );
     setModel(nextModel);
-  }, [model, models, providerFilter, providers, settingsConfig]);
+  }, [model, models, providerFilter, providerPresets, providers, settingsConfig]);
 
   useEffect(() => {
     if (providerFilter === "auto") {
@@ -375,16 +389,45 @@ export function useRuntimeConsole() {
       }
       const nextProvider = defaultProviderForChat(models, configuredProviders, providers);
       setProviderFilter(nextProvider);
-      setModel(defaultModelForProvider(nextProvider, models, providers));
+      setModel(
+        defaultModelForProvider(
+          nextProvider,
+          models,
+          providers,
+          configuredProviders,
+          providerPresets,
+        ),
+      );
       return;
     }
-    const stillValid = isModelValidForProvider(model, providerFilter, models, providers);
+    const stillValid = isModelValidForProvider(
+      model,
+      providerFilter,
+      models,
+      providers,
+      configuredProviders,
+      providerPresets,
+    );
     if (stillValid) {
       return;
     }
-    const nextModel = defaultModelForProvider(providerFilter, models, providers);
+    const nextModel = defaultModelForProvider(
+      providerFilter,
+      models,
+      providers,
+      configuredProviders,
+      providerPresets,
+    );
     setModel(nextModel);
-  }, [activeChatSession, model, models, providerFilter, providers, settingsConfig]);
+  }, [
+    activeChatSession,
+    model,
+    models,
+    providerFilter,
+    providerPresets,
+    providers,
+    settingsConfig,
+  ]);
 
   // When models load, validate the selected model. If it's not in the list
   // (e.g. stale localStorage), clear it and let the operator pick.
