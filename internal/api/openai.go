@@ -419,6 +419,78 @@ type ProjectSkillResponseItem struct {
 	UpdatedAt              string   `json:"updated_at"`
 }
 
+type PluginsResponse struct {
+	Object string               `json:"object"`
+	Data   []PluginResponseItem `json:"data"`
+}
+
+type PluginResponse struct {
+	Object string             `json:"object"`
+	Data   PluginResponseItem `json:"data"`
+}
+
+type PluginResponseItem struct {
+	ID                    string                    `json:"id"`
+	Name                  string                    `json:"name"`
+	Description           string                    `json:"description,omitempty"`
+	Version               string                    `json:"version"`
+	SourceKind            string                    `json:"source_kind"`
+	SourceRef             string                    `json:"source_ref,omitempty"`
+	ManifestSchemaVersion string                    `json:"manifest_schema_version"`
+	ManifestDigest        string                    `json:"manifest_digest"`
+	RequestedPermissions  []PluginPermissionRecord  `json:"requested_permissions,omitempty"`
+	RegistryState         string                    `json:"registry_state"`
+	Enabled               bool                      `json:"enabled"`
+	Warnings              []string                  `json:"warnings,omitempty"`
+	Capabilities          []PluginCapabilityRecord  `json:"capabilities,omitempty"`
+	Auth                  []PluginAuthBindingRecord `json:"auth,omitempty"`
+	InstalledAt           string                    `json:"installed_at"`
+	UpdatedAt             string                    `json:"updated_at"`
+}
+
+type PluginCapabilityRecord struct {
+	ID                   string                   `json:"id"`
+	Kind                 string                   `json:"kind"`
+	DisplayName          string                   `json:"display_name"`
+	RequestedPermissions []PluginPermissionRecord `json:"requested_permissions,omitempty"`
+	Enabled              bool                     `json:"enabled"`
+	Warnings             []string                 `json:"warnings,omitempty"`
+}
+
+type PluginPermissionRecord struct {
+	Value          string `json:"value"`
+	Classification string `json:"classification"`
+}
+
+type PluginAuthBindingRecord struct {
+	CapabilityID  string   `json:"capability_id,omitempty"`
+	RequestedName string   `json:"requested_name"`
+	Kind          string   `json:"kind"`
+	Status        string   `json:"status"`
+	SecretRef     string   `json:"secret_ref,omitempty"`
+	Warnings      []string `json:"warnings,omitempty"`
+}
+
+type PluginHealthResponse struct {
+	Object string             `json:"object"`
+	Data   PluginHealthRecord `json:"data"`
+}
+
+type PluginHealthRecord struct {
+	PluginID                 string                         `json:"plugin_id"`
+	RegistryState            string                         `json:"registry_state"`
+	Warnings                 []string                       `json:"warnings,omitempty"`
+	UnsupportedPermissions   []string                       `json:"unsupported_permissions,omitempty"`
+	UnresolvedSecretBindings []string                       `json:"unresolved_secret_bindings,omitempty"`
+	DisabledCapabilities     []string                       `json:"disabled_capabilities,omitempty"`
+	CommandCollisions        []PluginCommandCollisionRecord `json:"command_collisions,omitempty"`
+}
+
+type PluginCommandCollisionRecord struct {
+	Command   string   `json:"command"`
+	PluginIDs []string `json:"plugin_ids"`
+}
+
 type ProjectMemoryResponse struct {
 	Object string                    `json:"object"`
 	Data   ProjectMemoryResponseItem `json:"data"`
@@ -1257,6 +1329,7 @@ type SystemResetDataResponseItem struct {
 	ProjectsDeleted            int `json:"projects_deleted"`
 	ProjectSkillsDeleted       int `json:"project_skills_deleted"`
 	ProjectWorkRowsDeleted     int `json:"project_work_rows_deleted"`
+	PluginsDeleted             int `json:"plugins_deleted"`
 	AgentProfilesDeleted       int `json:"agent_profiles_deleted"`
 	ChatSessionsDeleted        int `json:"chat_sessions_deleted"`
 	TasksDeleted               int `json:"tasks_deleted"`

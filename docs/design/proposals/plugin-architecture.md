@@ -462,14 +462,25 @@ GET  /hecate/v1/plugins/{id}/health
 
 API behavior for the registry slice:
 
-- `POST /install-local` validates and stores a manifest projection. It does not
-  execute package code or fetch provider state.
+- `POST /install-local` validates and stores a manifest projection. In the
+  first implementation it records manifest JSON supplied by the operator/client
+  plus an optional `source_ref`; it does not read arbitrary paths, execute
+  package code, or fetch provider state.
 - `PATCH /{id}` can enable/disable the plugin or individual capabilities as
   metadata. It does not grant secrets, network, tools, or UI execution by
   itself.
 - `GET /{id}/health` reports registry health: manifest validity, unsupported
   permissions, unresolved secret bindings, disabled capabilities, and command
   collisions. It does not call external providers.
+
+The first shipped registry slice uses `schema_version: "hecate.plugin.v0"`,
+stores the raw manifest, projects capabilities from either a capability array
+or grouped `connectors`, `mcp_servers`, `skills`, `slash_commands`,
+`project_mappers`, `evidence_providers`, and `ui_surfaces`, and classifies
+permission strings as review metadata (`advisory` or `unsupported`). No
+permission string is treated as an executable grant in this slice.
+`manifest_digest` is computed from Hecate's canonicalized manifest JSON rather
+than caller/file bytes, so formatting-only differences produce the same digest.
 
 The first UI can be a read-only/plugin-settings list: plugin name, version,
 source, enabled state, capabilities, requested permissions, auth-binding status,

@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { resetSystemData } from "../../lib/api";
+import { getPlugins, resetSystemData } from "../../lib/api";
 import { ConnectionsPanel } from "../connections/ConnectionsPanel";
 import { SettingsView } from "./SettingsView";
 import {
@@ -13,6 +13,7 @@ import { withRuntimeConsole } from "../../test/runtime-console-render";
 
 vi.mock("../../lib/api", async (importOriginal) => ({
   ...((await importOriginal()) as Record<string, unknown>),
+  getPlugins: vi.fn(),
   resetSystemData: vi.fn(),
 }));
 
@@ -24,6 +25,8 @@ function setup(stateOverrides = {}, actionOverrides = {}) {
 }
 
 beforeEach(() => {
+  vi.mocked(getPlugins).mockReset();
+  vi.mocked(getPlugins).mockResolvedValue({ object: "plugins", data: [] });
   vi.mocked(resetSystemData).mockReset();
   sessionStorage.removeItem("hecate.settingsFocus");
   sessionStorage.removeItem("hecate.connectionsFocus");
@@ -61,6 +64,54 @@ describe("SettingsView", () => {
     const { state, actions } = setup({}, { loadRetentionRuns });
     render(withRuntimeConsole(<SettingsView />, { state, actions }));
     expect(loadRetentionRuns).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders plugin registry records for operator inspection", async () => {
+    vi.mocked(getPlugins).mockResolvedValue({
+      object: "plugins",
+      data: [
+        {
+          id: "github",
+          name: "GitHub",
+          description: "Read and link GitHub work.",
+          version: "0.1.0",
+          source_kind: "local_path",
+          source_ref: "/plugins/github/plugin.json",
+          manifest_schema_version: "hecate.plugin.v0",
+          manifest_digest: "sha256:abc",
+          requested_permissions: [{ value: "network:github.com", classification: "advisory" }],
+          registry_state: "valid",
+          enabled: false,
+          warnings: [],
+          capabilities: [
+            {
+              id: "issues",
+              kind: "connector",
+              display_name: "Issues",
+              requested_permissions: [{ value: "secret:github_token", classification: "advisory" }],
+              enabled: true,
+            },
+          ],
+          auth: [
+            {
+              capability_id: "issues",
+              requested_name: "github_token",
+              kind: "token",
+              status: "unknown",
+            },
+          ],
+          installed_at: "2026-06-18T10:00:00Z",
+          updated_at: "2026-06-18T10:00:00Z",
+        },
+      ],
+    });
+    const { state, actions } = setup();
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
+
+    expect(await screen.findByText("GitHub")).toBeTruthy();
+    expect(screen.getByText("github@0.1.0")).toBeTruthy();
+    expect(screen.getByText(/1 capabilities/i)).toBeTruthy();
+    expect(screen.getByText(/Unresolved auth: github_token/i)).toBeTruthy();
   });
 });
 
@@ -131,6 +182,7 @@ describe("SettingsView maintenance cleanup", () => {
       object: "system_reset",
       data: {
         projects_deleted: 1,
+        plugins_deleted: 1,
         chat_sessions_deleted: 2,
         tasks_deleted: 1,
         providers_deleted: 1,

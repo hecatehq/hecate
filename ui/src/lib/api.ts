@@ -57,6 +57,13 @@ import type { TraceListResponse, TraceResponse } from "../types/trace";
 import type { UsageEventsResponse, UsageSummaryResponse } from "../types/usage";
 import type { RetentionRunResponse, RetentionRunsResponse } from "../types/retention";
 import type {
+  InstallLocalPluginPayload,
+  PluginHealthResponse,
+  PluginResponse,
+  PluginsResponse,
+  UpdatePluginPayload,
+} from "../types/plugin";
+import type {
   CreateProjectPayload,
   CreateProjectCollaborationArtifactPayload,
   CreateProjectWorktreeRootPayload,
@@ -302,6 +309,39 @@ export async function resetSystemData(): Promise<SystemResetDataResponse> {
   return fetchJSON<SystemResetDataResponse>(`${HECATE_API}/system/reset-data`, {
     method: "POST",
   });
+}
+
+export async function getPlugins(): Promise<PluginsResponse> {
+  return fetchJSON<PluginsResponse>(`${HECATE_API}/plugins`);
+}
+
+export async function getPlugin(pluginID: string): Promise<PluginResponse> {
+  return fetchJSON<PluginResponse>(`${HECATE_API}/plugins/${encodeURIComponent(pluginID)}`);
+}
+
+export async function installLocalPlugin(
+  payload: InstallLocalPluginPayload,
+): Promise<PluginResponse> {
+  return fetchJSON<PluginResponse>(`${HECATE_API}/plugins/install-local`, {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export async function updatePlugin(
+  pluginID: string,
+  payload: UpdatePluginPayload,
+): Promise<PluginResponse> {
+  return fetchJSON<PluginResponse>(`${HECATE_API}/plugins/${encodeURIComponent(pluginID)}`, {
+    method: "PATCH",
+    body: payload,
+  });
+}
+
+export async function getPluginHealth(pluginID: string): Promise<PluginHealthResponse> {
+  return fetchJSON<PluginHealthResponse>(
+    `${HECATE_API}/plugins/${encodeURIComponent(pluginID)}/health`,
+  );
 }
 
 export async function getProviderPresets(): Promise<ProviderPresetResponse> {

@@ -3,6 +3,7 @@ package api
 import (
 	"github.com/hecatehq/hecate/internal/chatapp"
 	"github.com/hecatehq/hecate/internal/modelapp"
+	"github.com/hecatehq/hecate/internal/pluginregistryapp"
 	"github.com/hecatehq/hecate/internal/projectassistantapp"
 	"github.com/hecatehq/hecate/internal/projectworkapp"
 	"github.com/hecatehq/hecate/internal/providerapp"
@@ -89,6 +90,13 @@ func (h *Handler) projectAssistantApplication() *projectassistantapp.Application
 		})
 	}
 	return h.projectAssistant
+}
+
+func (h *Handler) pluginRegistryApplication() *pluginregistryapp.Application {
+	if h == nil {
+		return pluginregistryapp.New(pluginregistryapp.Options{})
+	}
+	return pluginregistryapp.New(pluginregistryapp.Options{Store: h.pluginRegistry})
 }
 
 func (h *Handler) modelApplication() *modelapp.Application {

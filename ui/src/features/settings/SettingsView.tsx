@@ -3,7 +3,8 @@ import { useRetention, type RetentionState } from "../../app/state/retention";
 import { useRetentionActions } from "../../app/state/coordinators/retention";
 import { useWiredDashboardActions } from "../../app/state/coordinators/wired";
 import { useSettings } from "../../app/state/settings";
-import { resetSystemData } from "../../lib/api";
+import { getPlugins, resetSystemData } from "../../lib/api";
+import type { PluginRecord } from "../../types/plugin";
 import { Badge, ConfirmModal, Icon, Icons, InlineError } from "../shared/ui";
 
 export function SettingsView() {
@@ -20,6 +21,9 @@ export function SettingsView() {
   const [resetConfirmation, setResetConfirmation] = useState("");
   const [resetPending, setResetPending] = useState(false);
   const [resetError, setResetError] = useState("");
+  const [plugins, setPlugins] = useState<PluginRecord[]>([]);
+  const [pluginsLoading, setPluginsLoading] = useState(false);
+  const [pluginsError, setPluginsError] = useState("");
   // Retention runs aren't in the boot-time dashboard snapshot —
   // fetch on first SettingsView mount so the user doesn't see a
   // permanently empty list. `loadRuns` is a stable useCallback, so
@@ -31,6 +35,24 @@ export function SettingsView() {
     didFetchRetentionRunsRef.current = true;
     void loadRetentionRuns();
   }, [loadRetentionRuns]);
+
+  useEffect(() => {
+    void loadPlugins();
+  }, []);
+
+  async function loadPlugins() {
+    setPluginsLoading(true);
+    setPluginsError("");
+    try {
+      const response = await getPlugins();
+      setPlugins(response.data ?? []);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to load plugins.";
+      setPluginsError(message);
+    } finally {
+      setPluginsLoading(false);
+    }
+  }
 
   async function handleResetData() {
     if (resetConfirmation !== "RESET") return;
@@ -58,6 +80,12 @@ export function SettingsView() {
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
+        <PluginRegistrySettings
+          error={pluginsError}
+          loading={pluginsLoading}
+          plugins={plugins}
+          onRefresh={() => void loadPlugins()}
+        />
         <RetentionSettings
           storageBackend={storageBackend}
           state={retention.state}
@@ -117,6 +145,7 @@ export function SettingsView() {
 
 function resetSummary(data: {
   projects_deleted: number;
+  plugins_deleted?: number;
   chat_sessions_deleted: number;
   tasks_deleted: number;
   providers_deleted: number;
@@ -126,6 +155,7 @@ function resetSummary(data: {
 }): string {
   const total =
     data.projects_deleted +
+    (data.plugins_deleted ?? 0) +
     data.chat_sessions_deleted +
     data.tasks_deleted +
     data.providers_deleted +
@@ -217,6 +247,147 @@ const RETENTION_SUBSYSTEMS = [
     description: "Resolved approval prompts. Durable grants are kept.",
   },
 ] as const;
+
+function PluginRegistrySettings({
+  error,
+  loading,
+  onRefresh,
+  plugins,
+}: {
+  error: string;
+  loading: boolean;
+  onRefresh: () => void;
+  plugins: PluginRecord[];
+}) {
+  const capabilityCount = plugins.reduce(
+    (sum, plugin) => sum + (plugin.capabilities?.length ?? 0),
+    0,
+  );
+  return (
+    <section style={{ marginBottom: 20 }}>
+      <SectionHeader
+        title="Plugins"
+        description="Installed plugin manifests and requested capabilities. Registry entries do not run code or mount tools yet."
+        meta={`${plugins.length} plugin${plugins.length === 1 ? "" : "s"} · ${capabilityCount} cap${capabilityCount === 1 ? "" : "s"}`}
+        actions={
+          <button className="btn btn-ghost btn-sm" disabled={loading} onClick={onRefresh}>
+            <Icon d={Icons.refresh} size={13} /> {loading ? "Loading…" : "Refresh"}
+          </button>
+        }
+      />
+      {error && <InlineError message={error} />}
+      {!error && plugins.length === 0 && !loading && (
+        <div className="card" style={{ padding: "14px 16px", color: "var(--t3)", fontSize: 12 }}>
+          No plugins installed.
+        </div>
+      )}
+      {plugins.length > 0 && (
+        <div style={{ display: "grid", gap: 10 }}>
+          {plugins.map((plugin) => (
+            <PluginRegistryRow key={plugin.id} plugin={plugin} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function PluginRegistryRow({ plugin }: { plugin: PluginRecord }) {
+  const capabilities = plugin.capabilities ?? [];
+  const permissions = [
+    ...(plugin.requested_permissions ?? []),
+    ...capabilities.flatMap((capability) => capability.requested_permissions ?? []),
+  ];
+  const unsupported = permissions.filter(
+    (permission) => permission.classification === "unsupported",
+  );
+  const auth = plugin.auth ?? [];
+  const unresolvedAuth = auth.filter((binding) => binding.status !== "configured");
+  return (
+    <article className="card" style={{ padding: "14px 16px" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "var(--t0)" }}>{plugin.name}</div>
+            <span style={{ fontSize: 11, color: "var(--t3)", fontFamily: "var(--font-mono)" }}>
+              {plugin.id}@{plugin.version}
+            </span>
+            <Badge status={plugin.enabled ? "enabled" : "disabled"} />
+            <Badge
+              status={plugin.registry_state === "valid" ? "ok" : "warn"}
+              label={plugin.registry_state}
+            />
+          </div>
+          {plugin.description && (
+            <div style={{ fontSize: 12, color: "var(--t2)", lineHeight: 1.45, marginTop: 6 }}>
+              {plugin.description}
+            </div>
+          )}
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 8,
+              marginTop: 10,
+              fontSize: 11,
+              color: "var(--t3)",
+            }}
+          >
+            <span>{sourceLabel(plugin)}</span>
+            <span>{capabilities.length} capabilities</span>
+            <span>{permissions.length} permissions</span>
+            <span>{auth.length} auth requests</span>
+          </div>
+        </div>
+      </div>
+      {capabilities.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 12 }}>
+          {capabilities.map((capability) => (
+            <span
+              key={capability.id}
+              className="badge badge-muted"
+              title={capability.id}
+              style={{ textTransform: "none" }}
+            >
+              {pluginCapabilityKindLabel(capability.kind)} ·{" "}
+              {capability.display_name || capability.id}
+            </span>
+          ))}
+        </div>
+      )}
+      {(unsupported.length > 0 ||
+        unresolvedAuth.length > 0 ||
+        (plugin.warnings?.length ?? 0) > 0) && (
+        <div style={{ display: "grid", gap: 4, marginTop: 12, fontSize: 11, color: "var(--t3)" }}>
+          {unsupported.length > 0 && (
+            <div>
+              Unsupported permissions:{" "}
+              {unsupported.map((permission) => permission.value).join(", ")}
+            </div>
+          )}
+          {unresolvedAuth.length > 0 && (
+            <div>
+              Unresolved auth: {unresolvedAuth.map((binding) => binding.requested_name).join(", ")}
+            </div>
+          )}
+          {plugin.warnings?.map((warning) => (
+            <div key={warning}>{warning}</div>
+          ))}
+        </div>
+      )}
+    </article>
+  );
+}
+
+function sourceLabel(plugin: PluginRecord) {
+  const kind = plugin.source_kind.replaceAll("_", " ");
+  if (!plugin.source_ref) return kind;
+  return `${kind}: ${plugin.source_ref}`;
+}
+
+function pluginCapabilityKindLabel(kind: string) {
+  return kind.replaceAll("_", " ");
+}
 
 type RetentionSubsystemID = (typeof RETENTION_SUBSYSTEMS)[number]["id"];
 

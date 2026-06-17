@@ -13,6 +13,7 @@ import (
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/controlplane"
 	"github.com/hecatehq/hecate/internal/memory"
+	"github.com/hecatehq/hecate/internal/pluginregistry"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/internal/storage"
@@ -27,6 +28,7 @@ func TestSystemResetDataMemoryBackendDeletesStateAndClosesAgentSessions(t *testi
 	runtime := &fakeProviderRuntime{store: cpStore}
 	handler := NewHandler(config.Config{}, logger, nil, cpStore, taskstate.NewMemoryStore(), nil, runtime)
 	handler.SetProjectStore(projects.NewMemoryStore())
+	handler.SetPluginRegistryStore(pluginregistry.NewMemoryStore())
 	handler.SetAgentProfileStore(agentprofiles.NewMemoryStore())
 	chatStore := chat.NewMemoryStore()
 	handler.SetAgentChatStore(chatStore)
@@ -96,6 +98,16 @@ func TestSystemResetDataMemoryBackendDeletesStateAndClosesAgentSessions(t *testi
 	if _, err := handler.agentProfiles.Create(ctx, agentprofiles.Profile{ID: "prof_reset", Name: "Reset profile"}); err != nil {
 		t.Fatalf("create agent profile: %v", err)
 	}
+	if _, err := handler.pluginRegistry.Upsert(ctx, pluginregistry.Plugin{
+		ID:                    "github",
+		Name:                  "GitHub",
+		Version:               "0.1.0",
+		SourceKind:            pluginregistry.SourceLocalPath,
+		ManifestSchemaVersion: pluginregistry.ManifestSchemaVersion,
+		ManifestJSON:          []byte(`{"schema_version":"hecate.plugin.v0","id":"github","name":"GitHub","version":"0.1.0"}`),
+	}); err != nil {
+		t.Fatalf("create plugin record: %v", err)
+	}
 	if _, err := cpStore.UpsertProvider(ctx, controlplane.Provider{
 		ID:       "openai",
 		Name:     "OpenAI",
@@ -126,8 +138,8 @@ func TestSystemResetDataMemoryBackendDeletesStateAndClosesAgentSessions(t *testi
 	if err := json.Unmarshal(rec.Body.Bytes(), &reset); err != nil {
 		t.Fatalf("decode reset response: %v", err)
 	}
-	if reset.Data.ProjectsDeleted != 1 || reset.Data.ProjectWorkRowsDeleted != 2 || reset.Data.AgentProfilesDeleted != 1 || reset.Data.ChatSessionsDeleted != 2 || reset.Data.TasksDeleted != 1 || reset.Data.ProvidersDeleted != 1 || reset.Data.PolicyRulesDeleted != 1 {
-		t.Fatalf("reset stats = %+v, want one project, one profile, two project-work rows, one task, provider, rule and two chats", reset.Data)
+	if reset.Data.ProjectsDeleted != 1 || reset.Data.ProjectWorkRowsDeleted != 2 || reset.Data.PluginsDeleted != 1 || reset.Data.AgentProfilesDeleted != 1 || reset.Data.ChatSessionsDeleted != 2 || reset.Data.TasksDeleted != 1 || reset.Data.ProvidersDeleted != 1 || reset.Data.PolicyRulesDeleted != 1 {
+		t.Fatalf("reset stats = %+v, want one project, one plugin, one profile, two project-work rows, one task, provider, rule and two chats", reset.Data)
 	}
 	if len(runner.closedSessions) != 2 {
 		t.Fatalf("closed sessions = %#v, want two external chats closed", runner.closedSessions)
@@ -239,6 +251,10 @@ func TestSystemResetDataSQLiteBackendClearsRemainingRows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSQLiteStore(agentprofiles): %v", err)
 	}
+	pluginStore, err := pluginregistry.NewSQLiteStore(ctx, client)
+	if err != nil {
+		t.Fatalf("NewSQLiteStore(pluginregistry): %v", err)
+	}
 	taskStore, err := taskstate.NewSQLiteStore(ctx, client)
 	if err != nil {
 		t.Fatalf("NewSQLiteStore(taskstate): %v", err)
@@ -257,6 +273,7 @@ func TestSystemResetDataSQLiteBackendClearsRemainingRows(t *testing.T) {
 	handler.SetProjectStore(projectStore)
 	handler.SetMemoryStore(memoryStore)
 	handler.SetProjectWorkStore(projectWorkStore)
+	handler.SetPluginRegistryStore(pluginStore)
 	handler.SetAgentProfileStore(agentProfileStore)
 	handler.SetStateCleaner(client)
 	runner := &fakeAgentChatRunner{}
@@ -301,6 +318,16 @@ func TestSystemResetDataSQLiteBackendClearsRemainingRows(t *testing.T) {
 	if _, err := agentProfileStore.Create(ctx, agentprofiles.Profile{ID: "prof_sqlite_reset", Name: "SQLite profile"}); err != nil {
 		t.Fatalf("create agent profile: %v", err)
 	}
+	if _, err := pluginStore.Upsert(ctx, pluginregistry.Plugin{
+		ID:                    "linear",
+		Name:                  "Linear",
+		Version:               "0.1.0",
+		SourceKind:            pluginregistry.SourceLocalPath,
+		ManifestSchemaVersion: pluginregistry.ManifestSchemaVersion,
+		ManifestJSON:          []byte(`{"schema_version":"hecate.plugin.v0","id":"linear","name":"Linear","version":"0.1.0"}`),
+	}); err != nil {
+		t.Fatalf("create plugin record: %v", err)
+	}
 	if _, err := cpStore.UpsertProvider(ctx, controlplane.Provider{
 		ID:       "openai",
 		Name:     "OpenAI",
@@ -332,11 +359,15 @@ func TestSystemResetDataSQLiteBackendClearsRemainingRows(t *testing.T) {
 	if reset.Data.AgentProfilesDeleted != 1 {
 		t.Fatalf("agent profiles deleted = %d, want 1", reset.Data.AgentProfilesDeleted)
 	}
+	if reset.Data.PluginsDeleted != 1 {
+		t.Fatalf("plugins deleted = %d, want 1", reset.Data.PluginsDeleted)
+	}
 	if len(runner.closedSessions) != 1 || runner.closedSessions[0] != "chat_sqlite_external" {
 		t.Fatalf("closed sessions = %#v, want sqlite external chat closed", runner.closedSessions)
 	}
 	assertSQLiteTableCount(t, client, client.QualifiedTable("memory_entries"), 0)
 	assertSQLiteTableCount(t, client, client.QualifiedTable("agent_profiles"), 0)
+	assertSQLiteTableCount(t, client, client.QualifiedTable("plugins"), 0)
 	assertSQLiteTableCount(t, client, client.QualifiedTable("reset_scratch"), 0)
 }
 
