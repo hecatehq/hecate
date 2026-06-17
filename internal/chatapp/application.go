@@ -131,6 +131,8 @@ type CompactSessionCommand struct {
 	Now              time.Time
 }
 
+type CompactSessionSummaryFunc func(context.Context, chat.Session, chat.CompactTranscriptResult) (chat.ContextSummary, error)
+
 type SessionResult struct {
 	Session chat.Session
 }
@@ -273,6 +275,10 @@ func (app *Application) RenameSession(ctx context.Context, cmd RenameSessionComm
 }
 
 func (app *Application) CompactSession(ctx context.Context, cmd CompactSessionCommand) (*SessionResult, error) {
+	return app.CompactSessionWithSummary(ctx, cmd, nil)
+}
+
+func (app *Application) CompactSessionWithSummary(ctx context.Context, cmd CompactSessionCommand, summarize CompactSessionSummaryFunc) (*SessionResult, error) {
 	if app == nil || app.store == nil {
 		return nil, ErrStoreNotConfigured
 	}
@@ -301,8 +307,16 @@ func (app *Application) CompactSession(ctx context.Context, cmd CompactSessionCo
 		}
 		return &SessionResult{Session: session}, nil
 	}
+	summary := result.Summary
+	if summarize != nil {
+		customSummary, err := summarize(ctx, session, result)
+		if err != nil {
+			return nil, err
+		}
+		summary = customSummary
+	}
 	updated, err := app.store.UpdateSession(ctx, id, func(item *chat.Session) {
-		item.ContextSummary = result.Summary
+		item.ContextSummary = summary
 	})
 	if err != nil {
 		return nil, err

@@ -3095,6 +3095,16 @@ contains its derived `turn_kind`, `execution_mode`, provider/model snapshot,
 optional `task_id`, latest run id, status, message count, and first/last
 timestamps.
 
+Hecate-owned sessions may include `context_summary` after automatic or manual
+context compaction. The summary is operator-visible metadata for older
+transcript context and includes `content`, `message_count`,
+`through_message_id`, `compacted_at`, and `strategy`. `strategy` is
+`semantic_transcript_summary` when Hecate used the session provider/model to
+summarize the older transcript window, and `deterministic_transcript_summary`
+when it used the bounded transcript-line fallback. Original messages remain in
+`messages`; future direct model turns inject the summary as background context
+and send newer messages in full.
+
 External Agent sessions may also include `config_options`, a normalized
 projection of ACP session configuration options reported by the agent during
 `session/new`, `session/load`, or `session/set_config_option`, merged with any

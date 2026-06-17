@@ -445,6 +445,7 @@ func runStoreContextSummaryRoundTrip(t *testing.T, store Store) {
 			Content:          "- User: first request",
 			MessageCount:     1,
 			ThroughMessageID: "msg_user_1",
+			Strategy:         ContextSummaryStrategySemantic,
 			CompactedAt:      createdAt,
 		},
 	}); err != nil {
@@ -458,6 +459,7 @@ func runStoreContextSummaryRoundTrip(t *testing.T, store Store) {
 	if got.ContextSummary.Content != "- User: first request" ||
 		got.ContextSummary.MessageCount != 1 ||
 		got.ContextSummary.ThroughMessageID != "msg_user_1" ||
+		got.ContextSummary.Strategy != ContextSummaryStrategySemantic ||
 		!got.ContextSummary.CompactedAt.Equal(createdAt) {
 		t.Fatalf("stored context summary = %+v", got.ContextSummary)
 	}
@@ -475,6 +477,7 @@ func runStoreContextSummaryRoundTrip(t *testing.T, store Store) {
 			Content:          "- Assistant: answer",
 			MessageCount:     2,
 			ThroughMessageID: "msg_assistant_1",
+			Strategy:         ContextSummaryStrategyDeterministic,
 			CompactedAt:      createdAt.Add(time.Minute),
 		}
 	})
@@ -482,7 +485,8 @@ func runStoreContextSummaryRoundTrip(t *testing.T, store Store) {
 		t.Fatalf("UpdateSession: %v", err)
 	}
 	if updated.ContextSummary.MessageCount != 2 ||
-		updated.ContextSummary.ThroughMessageID != "msg_assistant_1" {
+		updated.ContextSummary.ThroughMessageID != "msg_assistant_1" ||
+		updated.ContextSummary.Strategy != ContextSummaryStrategyDeterministic {
 		t.Fatalf("updated context summary = %+v", updated.ContextSummary)
 	}
 }

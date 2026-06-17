@@ -532,6 +532,9 @@ func TestDirectHecateChatAutoCompactsLongTranscript(t *testing.T) {
 	if updated.Data.ContextSummary.MessageCount != 10 {
 		t.Fatalf("context_summary message_count = %d, want 10", updated.Data.ContextSummary.MessageCount)
 	}
+	if updated.Data.ContextSummary.Strategy != chat.ContextSummaryStrategySemantic {
+		t.Fatalf("context_summary strategy = %q, want semantic", updated.Data.ContextSummary.Strategy)
+	}
 	request := provider.LastRequest()
 	if len(request.Messages) != 10 {
 		t.Fatalf("provider message count = %d, want compact summary + 8 retained + current", len(request.Messages))
@@ -584,8 +587,54 @@ func TestHecateChatCompactEndpointCompactsTranscript(t *testing.T) {
 	if compacted.Data.ContextSummary.MessageCount != 2 {
 		t.Fatalf("context_summary message_count = %d, want 2", compacted.Data.ContextSummary.MessageCount)
 	}
-	if !strings.Contains(compacted.Data.ContextSummary.Content, "manual 01") {
-		t.Fatalf("context_summary content = %q, want first turn", compacted.Data.ContextSummary.Content)
+	if compacted.Data.ContextSummary.Strategy != chat.ContextSummaryStrategySemantic {
+		t.Fatalf("context_summary strategy = %q, want semantic", compacted.Data.ContextSummary.Strategy)
+	}
+	if compacted.Data.ContextSummary.Content != "ack" {
+		t.Fatalf("context_summary content = %q, want provider semantic summary", compacted.Data.ContextSummary.Content)
+	}
+	request := provider.LastRequest()
+	if len(request.Messages) != 2 || !strings.Contains(request.Messages[1].Content, "manual 01") {
+		t.Fatalf("semantic compaction request = %+v, want transcript in compaction prompt", request.Messages)
+	}
+}
+
+func TestHecateChatCompactEndpointFallsBackToDeterministicSummary(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	provider := &fakeProvider{
+		name: "openai",
+		response: &types.ChatResponse{
+			ID:        "chatcmpl-hecate-compact-fallback",
+			Model:     "gpt-4o-mini",
+			CreatedAt: time.Now().UTC(),
+			Choices: []types.ChatChoice{{
+				Index:        0,
+				Message:      types.Message{Role: "assistant", Content: "ack"},
+				FinishReason: "stop",
+			}},
+		},
+		errSequence: []error{nil, nil, nil, nil, nil, fmt.Errorf("semantic compaction unavailable")},
+	}
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{provider}, config.Config{}, controlplane.NewMemoryStore())
+	handler := NewServer(logger, apiHandler)
+	client := newTaskTestClient(t, handler)
+
+	session := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions",
+		`{"agent_id":"hecate","provider":"openai","model":"gpt-4o-mini"}`)
+	for i := 1; i <= 5; i++ {
+		_ = mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions/"+session.Data.ID+"/messages",
+			fmt.Sprintf(`{"execution_mode":"hecate_task","tools_enabled":false,"content":"fallback %02d"}`, i))
+	}
+
+	compacted := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions/"+session.Data.ID+"/compact", `{}`)
+	if compacted.Data.ContextSummary == nil {
+		t.Fatal("context_summary is nil, want fallback compaction metadata")
+	}
+	if compacted.Data.ContextSummary.Strategy != chat.ContextSummaryStrategyDeterministic {
+		t.Fatalf("context_summary strategy = %q, want deterministic fallback", compacted.Data.ContextSummary.Strategy)
+	}
+	if !strings.Contains(compacted.Data.ContextSummary.Content, "fallback 01") {
+		t.Fatalf("context_summary content = %q, want deterministic transcript line", compacted.Data.ContextSummary.Content)
 	}
 }
 
