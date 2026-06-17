@@ -662,6 +662,11 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
 
   async function chooseWorkspace() {
     if (workspaceDialogOpenRef.current) return;
+    if (isRemoteRuntime) {
+      setWorkspacePathValue(state.agentWorkspace || "/workspace");
+      setWorkspaceEntryOpen(true);
+      return;
+    }
     workspaceDialogOpenRef.current = true;
     setWorkspaceDialogOpen(true);
     setWorkspacePathValue(state.agentWorkspace);
@@ -853,6 +858,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
             }
             isAgentChat={isAgentChat}
             isExternalAgentChat={isExternalAgentChat}
+            isRemoteRuntime={isRemoteRuntime}
             linkedProjectName={linkedProjectName}
             onOpenProject={
               activeSessionProjectID && onNavigate ? () => openLinkedProject() : undefined
@@ -916,7 +922,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
                       useTypedWorkspace();
                     }
                   }}
-                  placeholder="/Users/alice/dev/project"
+                  placeholder={isRemoteRuntime ? "/workspace" : "/Users/alice/dev/project"}
                   style={{ height: 30, minWidth: 0 }}
                   value={workspacePathValue}
                 />

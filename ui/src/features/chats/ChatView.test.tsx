@@ -5828,6 +5828,51 @@ describe("ChatView external-agent target", () => {
     expect(setAgentWorkspace).toHaveBeenCalledWith("/workspaces/hecate");
   });
 
+  it("uses typed workspace entry instead of the local picker in remote runtime", async () => {
+    const chooseAgentWorkspace = vi.fn(async () => true);
+    const setAgentWorkspace = vi.fn();
+    const { state, actions } = setup(
+      {
+        chatTarget: "external_agent",
+        agentWorkspace: "",
+        sessionInfo: {
+          role: "operator",
+          remote_identity: {
+            actor_id: "actor_1",
+            org_id: "org_1",
+            project_id: "proj_1",
+            runtime_id: "rt_1",
+          },
+        },
+        agentAdapters: [
+          {
+            id: "codex",
+            name: "Codex",
+            kind: "acp",
+            command: "codex-acp",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+          },
+        ],
+      },
+      { chooseAgentWorkspace, setAgentWorkspace },
+    );
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTitle("Set workspace path"));
+    expect(chooseAgentWorkspace).not.toHaveBeenCalled();
+
+    const input = screen.getByPlaceholderText("/workspace") as HTMLInputElement;
+    expect(input.value).toBe("/workspace");
+    await user.clear(input);
+    await user.type(input, "/workspace/project");
+    await user.click(screen.getByRole("button", { name: "Use" }));
+
+    expect(setAgentWorkspace).toHaveBeenCalledWith("/workspace/project");
+  });
+
   it("keeps the workspace changes button enabled for current git diff checks", () => {
     const { state, actions } = setup({
       chatTarget: "external_agent",
