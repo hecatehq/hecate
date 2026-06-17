@@ -82,7 +82,9 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
   per-tool `agent_loop` gating (`read_file`, `all_tools`). Unknown policy names
   are rejected at startup. The per-MCP-server `approval_policy` axis
   (`auto` / `require_approval` / `block`) is separate.
-- Browser automation, WASM plugins, and broad tool marketplaces are out of
+- A Hecate plugin architecture is proposed in
+  `docs/design/proposals/plugin-architecture.md`, but browser automation, WASM
+  plugins, arbitrary plugin hooks, and broad tool marketplaces remain out of
   scope for the current alpha.
 
 ## Hecate Chat

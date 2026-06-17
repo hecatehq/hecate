@@ -78,6 +78,12 @@ before implementing Agent Profiles V1, skill registry support, or workspace
 | [Agent event protocol v1](candidates/event-protocol-v1.md) | Candidate | Envelope exists for task-run event APIs; payload stability is still in progress. |
 | [Artifact storage v1](candidates/artifact-storage-v1.md)   | Candidate | Broader than the shipped task artifacts and chat diff inspect/revert surface.    |
 
+### Extension Surface
+
+| Record                                                  | Bucket   | Notes                                                                                      |
+| ------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------ |
+| [Plugin architecture](proposals/plugin-architecture.md) | Proposal | Hecate-native plugins, connectors, MCP capabilities, skills, slash commands, and evidence. |
+
 ### Platform, CLI, And Provider Surface
 
 | Record                                                                    | Bucket   | Notes                                                                   |
@@ -112,6 +118,7 @@ before implementing Agent Profiles V1, skill registry support, or workspace
 | [External Agent approval loop v1](implemented/external-agent-approval-loop-v1.md)                       | Implemented record | Agent and chat runtime        |
 | [Agent event protocol v1](candidates/event-protocol-v1.md)                                              | Candidate          | Runtime contracts             |
 | [Artifact storage v1](candidates/artifact-storage-v1.md)                                                | Candidate          | Runtime contracts             |
+| [Plugin architecture](proposals/plugin-architecture.md)                                                 | Proposal           | Extension surface             |
 | [CLI structure](proposals/cli-structure.md)                                                             | Proposal           | Platform and CLI              |
 | [Migration CLI](proposals/migration-cli.md)                                                             | Proposal           | Platform and CLI              |
 | [Provider response extensions](proposals/provider-response-extensions.md)                               | Proposal           | Platform and CLI              |
