@@ -23,6 +23,7 @@ Hecate assumes the operator trusts their own machine, local user account, and se
   and keeps the runtime home/XDG directories on its persistent volume.
   The runtime secret is not public auth; keep the runtime network-private.
 - Do not put local-only endpoints such as workspace folder selection, "open in editor", local provider discovery, MCP registry discovery, MCP probe, reset-data, or shutdown behind a forwarding proxy. Those endpoints reject non-loopback sockets and `X-Forwarded-For` / `X-Real-IP` headers because they can inspect host-local state, open local OS UI, spawn diagnostic subprocesses, or mutate local operator state.
+- Plugin registry APIs are also blocked in remote-runtime mode. In the first registry-only slice, plugin rows are metadata for operator review: installing a manifest records requested capabilities, permissions, and auth bindings, but does not execute plugin code, start plugin-declared MCP servers, mount tools, grant secrets, or make connector network calls.
 - Do not run Hecate on a shared host where untrusted local users can access the gateway port or data directory.
 
 ## Runtime boundaries

@@ -47,8 +47,8 @@ liveness probe and every other path requires trusted trusted proxy headers:
 context, exposed from `GET /hecate/v1/whoami` as `data.remote_identity`, added to
 the top-level HTTP span attributes, and accepted in place of the local
 runtime/inference shared tokens. Remote mode rejects local-only endpoints for
-workspace picker/open, reset-data, shutdown, MCP probe, and local provider
-and MCP registry discovery. Hecate-native `/hecate/v1/*` routes are explicitly
+workspace picker/open, reset-data, shutdown, MCP probe, plugin-registry
+management, and local provider and MCP registry discovery. Hecate-native `/hecate/v1/*` routes are explicitly
 classified for remote mode, and route coverage tests fail when a new registered
 route is not marked remote-safe or local-only.
 
@@ -139,6 +139,7 @@ object when available.
 - [Runtime backend and queue configuration](#runtime-backend-and-queue-configuration)
 - [Usage endpoints](#usage-endpoints)
 - [Health and discovery endpoints](#health-and-discovery-endpoints)
+- [Plugin registry endpoints](#plugin-registry-endpoints)
 - [Agent profile endpoints](#agent-profile-endpoints)
 - [Project endpoints](#project-endpoints)
 - [Project Assistant endpoints](#project-assistant-endpoints)
@@ -618,7 +619,7 @@ POST /hecate/v1/mcp/probe
 
 Tool names come back un-namespaced — the operator wants to see what the upstream itself calls them, not the gateway's runtime alias. MCP Apps metadata is preserved when present: `_meta` is the raw upstream object, `ui_resource_uri` and `ui_visibility` are derived convenience fields, and `model_visible: false` means the tool is app-only and will not be shown to the agent-loop model. Bounded by a 10-second deadline; a stuck upstream surfaces as a 400 with the diagnostic rather than wedging the request.
 
-`POST /hecate/v1/system/reset-data` resets local operator state without restarting the gateway. It deletes chat sessions, projects, project memory entries and candidates, project work-coordination rows, agent profiles, tasks, configured providers, policy rules, and saved external-agent approval grants. Chat sessions are deleted through the normal chat-delete path first, so live external-agent sessions are closed before their rows disappear. When SQLite or Postgres is configured, it then clears remaining Hecate-prefixed database table rows while preserving schemas. Workspace files and external CLI auth files are not touched. The endpoint is local-only and blocked in remote runtime mode: non-loopback sockets and forwarded-client headers are rejected.
+`POST /hecate/v1/system/reset-data` resets local operator state without restarting the gateway. It deletes chat sessions, projects, project memory entries and candidates, project work-coordination rows, plugin registry records, agent profiles, tasks, configured providers, policy rules, and saved external-agent approval grants. Chat sessions are deleted through the normal chat-delete path first, so live external-agent sessions are closed before their rows disappear. When SQLite or Postgres is configured, it then clears remaining Hecate-prefixed database table rows while preserving schemas. Workspace files and external CLI auth files are not touched. The endpoint is local-only and blocked in remote runtime mode: non-loopback sockets and forwarded-client headers are rejected.
 
 ```json
 → 200
@@ -627,6 +628,7 @@ Tool names come back un-namespaced — the operator wants to see what the upstre
   "data": {
     "projects_deleted": 1,
     "project_work_rows_deleted": 3,
+    "plugins_deleted": 1,
     "agent_profiles_deleted": 1,
     "chat_sessions_deleted": 2,
     "tasks_deleted": 1,
@@ -1237,6 +1239,114 @@ Status codes:
 - `404 not_found` when the adapter id is not registered.
 - `409 conflict` when the adapter is not managed or the launcher cannot be
   recreated.
+
+## Plugin registry endpoints
+
+The plugin registry is a local catalog and policy-review surface. Registry rows
+store a raw Hecate-native manifest plus normalized capabilities, requested
+permissions, and auth-binding requests. They do not run plugin code, start MCP
+servers, mount tools, call external providers, or grant secrets.
+`manifest_digest` is a SHA-256 digest of Hecate's canonicalized manifest JSON,
+so semantically equivalent manifests share the same digest even when caller
+formatting differs.
+
+The initial routes are local-only in remote-runtime mode:
+
+- `GET /hecate/v1/plugins`
+- `GET /hecate/v1/plugins/{id}`
+- `POST /hecate/v1/plugins/install-local`
+- `PATCH /hecate/v1/plugins/{id}`
+- `GET /hecate/v1/plugins/{id}/health`
+
+`POST /hecate/v1/plugins/install-local` accepts either a manifest directly or
+an object with `manifest` and optional `source_ref`. The current slice records
+the manifest JSON sent by the operator/client; it does not read arbitrary local
+paths or execute package lifecycle hooks.
+
+```json
+POST /hecate/v1/plugins/install-local
+{
+  "source_ref": "/plugins/github/plugin.json",
+  "manifest": {
+    "schema_version": "hecate.plugin.v0",
+    "id": "github",
+    "name": "GitHub",
+    "version": "0.1.0",
+    "permissions": ["network:github.com", "secret:github_token"],
+    "capabilities": {
+      "connectors": [
+        {
+          "id": "issues",
+          "display_name": "Issues",
+          "auth": [{ "name": "github_token", "kind": "token" }]
+        }
+      ],
+      "slash_commands": [{ "name": "github" }]
+    }
+  }
+}
+```
+
+```json
+→ 200
+{
+  "object": "plugin",
+  "data": {
+    "id": "github",
+    "name": "GitHub",
+    "version": "0.1.0",
+    "source_kind": "local_path",
+    "source_ref": "/plugins/github/plugin.json",
+    "manifest_schema_version": "hecate.plugin.v0",
+    "manifest_digest": "sha256:...",
+    "requested_permissions": [
+      { "value": "network:github.com", "classification": "advisory" },
+      { "value": "secret:github_token", "classification": "advisory" }
+    ],
+    "registry_state": "valid",
+    "enabled": false,
+    "capabilities": [
+      {
+        "id": "issues",
+        "kind": "connector",
+        "display_name": "Issues",
+        "enabled": true
+      },
+      {
+        "id": "github",
+        "kind": "slash_command",
+        "display_name": "/github",
+        "enabled": true
+      }
+    ],
+    "auth": [
+      {
+        "capability_id": "issues",
+        "requested_name": "github_token",
+        "kind": "token",
+        "status": "unknown"
+      }
+    ],
+    "installed_at": "2026-06-18T10:00:00Z",
+    "updated_at": "2026-06-18T10:00:00Z"
+  }
+}
+```
+
+`PATCH /hecate/v1/plugins/{id}` currently toggles only registry metadata:
+
+```json
+{
+  "enabled": true,
+  "capabilities": {
+    "issues": { "enabled": false }
+  }
+}
+```
+
+`GET /hecate/v1/plugins/{id}/health` reports manifest review status:
+unsupported permissions, unresolved secret-binding requests, disabled
+capabilities, and slash-command collisions. It does not call external services.
 
 ## Agent profile endpoints
 

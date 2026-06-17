@@ -28,6 +28,7 @@ import (
 	"github.com/hecatehq/hecate/internal/governor"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/orchestrator"
+	"github.com/hecatehq/hecate/internal/pluginregistry"
 	"github.com/hecatehq/hecate/internal/profiler"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectskills"
@@ -212,6 +213,7 @@ func runServe() {
 	memoryStore := buildMemoryStore(cfg, logger, sqliteClient, postgresClient)
 	projectWorkStore := buildProjectWorkStore(cfg, logger, sqliteClient, postgresClient)
 	projectSkillStore := buildProjectSkillStore(cfg, logger, sqliteClient, postgresClient)
+	pluginRegistryStore := buildPluginRegistryStore(cfg, logger, sqliteClient, postgresClient)
 	agentProfileStore := buildAgentProfileStore(cfg, logger, sqliteClient, postgresClient)
 	// Approval state follows HECATE_BACKEND so chat transcripts, grants,
 	// and pending approval rows move together across memory/sqlite/postgres modes.
@@ -284,6 +286,7 @@ func runServe() {
 	handler.SetMemoryStore(memoryStore)
 	handler.SetProjectWorkStore(projectWorkStore)
 	handler.SetProjectSkillStore(projectSkillStore)
+	handler.SetPluginRegistryStore(pluginRegistryStore)
 	handler.SetAgentProfileStore(agentProfileStore)
 	handler.SetAgentApprovalStore(approvalStore)
 	if postgresClient != nil {
@@ -890,6 +893,27 @@ func buildProjectSkillStore(cfg config.Config, logger *slog.Logger, sqliteClient
 		return store
 	default:
 		return projectskills.NewMemoryStore()
+	}
+}
+
+func buildPluginRegistryStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient, postgresClient *storage.PostgresClient) pluginregistry.Store {
+	switch cfg.Projects.Backend {
+	case "sqlite":
+		store, err := pluginregistry.NewSQLiteStore(context.Background(), sqliteClient)
+		if err != nil {
+			logger.Error("plugin registry store init failed", slog.Any("error", err))
+			os.Exit(1)
+		}
+		return store
+	case "postgres":
+		store, err := pluginregistry.NewPostgresStore(context.Background(), postgresClient)
+		if err != nil {
+			logger.Error("plugin registry store init failed", slog.Any("error", err))
+			os.Exit(1)
+		}
+		return store
+	default:
+		return pluginregistry.NewMemoryStore()
 	}
 }
 

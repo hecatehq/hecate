@@ -15,6 +15,7 @@ func NewServer(logger *slog.Logger, handler *Handler) http.Handler {
 	registerHecateAgentRoutes(mux, handler)
 	registerHecateTaskRoutes(mux, handler)
 	registerHecateOperationsRoutes(mux, handler)
+	registerHecatePluginRoutes(mux, handler)
 	registerHecateSettingsRoutes(mux, handler)
 	registerAPINotFound(mux)
 
@@ -216,6 +217,17 @@ func registerHecateOperationsRoutes(mux *http.ServeMux, handler *Handler) {
 	mux.HandleFunc("POST /hecate/v1/mcp/probe", handler.HandleMCPProbe)
 	mux.HandleFunc("GET /hecate/v1/usage/events", handler.HandleUsageEvents)
 	mux.HandleFunc("GET /hecate/v1/usage/summary", handler.HandleUsageSummary)
+}
+
+func registerHecatePluginRoutes(mux *http.ServeMux, handler *Handler) {
+	// Plugin records are registry-only metadata in this slice. The routes are
+	// local-only in remote-runtime mode until package trust, auth binding, and
+	// capability execution policies exist.
+	mux.HandleFunc("GET /hecate/v1/plugins", handler.HandlePlugins)
+	mux.HandleFunc("POST /hecate/v1/plugins/install-local", handler.HandleInstallLocalPlugin)
+	mux.HandleFunc("GET /hecate/v1/plugins/{id}", handler.HandlePlugin)
+	mux.HandleFunc("PATCH /hecate/v1/plugins/{id}", handler.HandleUpdatePlugin)
+	mux.HandleFunc("GET /hecate/v1/plugins/{id}/health", handler.HandlePluginHealth)
 }
 
 func registerHecateSettingsRoutes(mux *http.ServeMux, handler *Handler) {

@@ -116,6 +116,10 @@ export type SystemResetDataResponse = {
   object: string;
   data: {
     projects_deleted: number;
+    project_skills_deleted?: number;
+    project_work_rows_deleted?: number;
+    plugins_deleted?: number;
+    agent_profiles_deleted?: number;
     chat_sessions_deleted: number;
     tasks_deleted: number;
     providers_deleted: number;
