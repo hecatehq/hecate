@@ -592,6 +592,75 @@ describe("TranscriptMessageRow", () => {
     ).toBeInTheDocument();
   });
 
+  it("calls out project-linked Hecate context packets", async () => {
+    const user = userEvent.setup();
+    const contextPacket: ChatContextPacketRecord = {
+      execution_mode: "hecate_task",
+      provider: "openai",
+      model: "gpt-4o-mini",
+      workspace: "/tmp/hecate",
+      system_prompt_included: true,
+      message_count: 2,
+      refs: {
+        project_id: "proj_1",
+        session_id: "chat_1",
+        message_id: "msg_1",
+      },
+      items: [
+        {
+          section: "project",
+          kind: "project",
+          trust_level: "project",
+          origin: "proj_1",
+          title: "Hecate",
+          included: true,
+          inclusion_reason: "Project linked to this chat session",
+        },
+        {
+          section: "skills",
+          kind: "project_skills",
+          trust_level: "workspace_guidance",
+          origin: "project.skills",
+          title: "Project skills",
+          body: "Backend Skill (backend): Backend changes. Path: .hecate/skills/backend/SKILL.md",
+          included: true,
+        },
+        {
+          section: "project_work",
+          kind: "project_work",
+          trust_level: "project",
+          origin: "project.work",
+          title: "Project work",
+          body: "Work item Plan chat context (work_1): status=ready",
+          included: true,
+        },
+        {
+          section: "memory",
+          kind: "memory",
+          trust_level: "operator_memory",
+          origin: "mem_1",
+          title: "Project boundary",
+          body: "Use Project Assistant proposals for durable changes.",
+          included: true,
+        },
+      ],
+    };
+
+    render(<TranscriptMessageRow {...baseProps} contextPacket={contextPacket} />);
+    await user.click(screen.getByText(/what the agent saw · 2 messages · openai · gpt-4o-mini/));
+
+    expect(screen.getByText("Project prelude")).toBeInTheDocument();
+    expect(screen.getAllByText("Included").length).toBeGreaterThan(0);
+    expect(screen.getByText("Project-linked Hecate context")).toBeInTheDocument();
+    expect(
+      screen.getByText(/root files and SKILL\.md bodies are metadata-only/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Project Assistant proposal review\/apply/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Itemized sections here: project, skills, active work, memory\./),
+    ).toBeInTheDocument();
+  });
+
   it("links failed tools to related stdout and stderr artifacts", async () => {
     const onOpenTask = vi.fn();
     const user = userEvent.setup();
