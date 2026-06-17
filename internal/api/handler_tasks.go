@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -463,6 +464,9 @@ func buildTaskActivityItems(steps []TaskStepItem, artifacts []TaskArtifactItem, 
 		if preview := taskActivityArtifactContentPreview(artifact); preview != "" {
 			summary["content_preview"] = preview
 		}
+		if artifact.Kind == orchestrator.ProjectAssistantProposalArtifactKind {
+			addProjectAssistantProposalActivitySummary(summary, artifact)
+		}
 		items = append(items, TaskActivityItem{
 			ID:         "artifact:" + artifact.ID,
 			Type:       itemType,
@@ -514,6 +518,22 @@ func cloneActivitySummary(summary map[string]any) map[string]any {
 		out[key] = value
 	}
 	return out
+}
+
+func addProjectAssistantProposalActivitySummary(summary map[string]any, artifact TaskArtifactItem) {
+	var payload orchestrator.ProjectAssistantDraftResult
+	if err := json.Unmarshal([]byte(artifact.ContentText), &payload); err != nil {
+		return
+	}
+	if title := strings.TrimSpace(payload.Title); title != "" {
+		summary["proposal_title"] = title
+	}
+	if payload.ActionCount > 0 {
+		summary["proposal_action_count"] = payload.ActionCount
+	}
+	if proposalID := strings.TrimSpace(payload.ProposalID); proposalID != "" {
+		summary["proposal_id"] = proposalID
+	}
 }
 
 func addShellDebugSummary(summary map[string]any, input map[string]any) {

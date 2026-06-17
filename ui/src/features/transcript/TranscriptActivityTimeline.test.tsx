@@ -559,6 +559,26 @@ describe("TranscriptActivityTimeline", () => {
     expect(screen.queryByText(/Output/)).toBeNull();
   });
 
+  it("summarizes project proposal activities as ready proposals", () => {
+    const activities: ChatActivityRecord[] = [
+      {
+        type: "project_assistant_proposal",
+        kind: "project_assistant_proposal",
+        title: "Project Assistant proposal",
+        detail: "Plan next project work - 1 action - ready for review",
+        status: "ready",
+      },
+    ];
+
+    render(<TranscriptActivityTimeline activities={activities} />);
+
+    expect(screen.getByText(/1 proposal ready/)).toBeInTheDocument();
+    expect(screen.getByText("Project Assistant proposal")).toBeInTheDocument();
+    expect(
+      screen.getByText("Plan next project work - 1 action - ready for review"),
+    ).toBeInTheDocument();
+  });
+
   it("hides output artifacts without captured previews", () => {
     const activities: ChatActivityRecord[] = [
       { type: "artifact", title: "ACP output", status: "ready", detail: "stdout · 1 line" },

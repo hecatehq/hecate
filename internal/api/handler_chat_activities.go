@@ -2,11 +2,13 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/hecatehq/hecate/internal/agentadapters"
 	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/telemetry"
 )
 
@@ -247,6 +249,9 @@ func agentChatTaskArtifactPreview(item TaskActivityItem) string {
 }
 
 func agentChatTaskActivityDetail(item TaskActivityItem) string {
+	if item.Type == orchestrator.ProjectAssistantProposalArtifactKind || item.Kind == orchestrator.ProjectAssistantProposalArtifactKind {
+		return agentChatProjectAssistantProposalDetail(item)
+	}
 	parts := make([]string, 0, 3)
 	if item.Path != "" && item.Path != item.Title {
 		parts = append(parts, item.Path)
@@ -274,6 +279,41 @@ func agentChatTaskActivityDetail(item TaskActivityItem) string {
 		parts = append(parts, item.Status)
 	}
 	return strings.Join(parts, " - ")
+}
+
+func agentChatProjectAssistantProposalDetail(item TaskActivityItem) string {
+	parts := make([]string, 0, 3)
+	if title, _ := item.Summary["proposal_title"].(string); strings.TrimSpace(title) != "" && title != item.Title {
+		parts = append(parts, strings.TrimSpace(title))
+	}
+	if actionCount := intFromActivitySummary(item.Summary["proposal_action_count"]); actionCount > 0 {
+		parts = append(parts, fmt.Sprintf("%d action%s", actionCount, activityPluralSuffix(actionCount)))
+	}
+	parts = append(parts, "ready for review")
+	return strings.Join(parts, " - ")
+}
+
+func intFromActivitySummary(value any) int {
+	switch typed := value.(type) {
+	case int:
+		return typed
+	case int64:
+		return int(typed)
+	case float64:
+		return int(typed)
+	case json.Number:
+		n, _ := typed.Int64()
+		return int(n)
+	default:
+		return 0
+	}
+}
+
+func activityPluralSuffix(count int) string {
+	if count == 1 {
+		return ""
+	}
+	return "s"
 }
 
 func compactActivityArgv(value any) string {

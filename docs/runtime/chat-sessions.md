@@ -32,9 +32,10 @@ apply the proposal.
 When tools are on, project-linked Hecate Chat can also let the model call the
 Hecate-owned `draft_project_proposal` tool from ordinary natural-language
 planning intent. That produces a `project_assistant_proposal` task artifact on
-the backing run and shows a compact transcript activity that opens the proposal
-in Projects. It is still proposal data only: no mirrored Project Assistant chat
-is created, and apply remains an explicit Projects action.
+the backing run and shows a compact transcript activity with the proposal title,
+action count, and a **Review in Projects** action. It is still proposal data
+only: no mirrored Project Assistant chat is created, and apply remains an
+explicit Projects action.
 Deleting a project also deletes its project-scoped chat transcripts.
 Unprojected chats and chats in other projects stay untouched. The Projects
 review card preserves the originating request and chat session id for operator
@@ -229,9 +230,10 @@ instead of split across two execution-mode values:
   the captured app iframe directly in the assistant message body and keeps the
   compact tool activity row collapsed below it as audit metadata.
   If the project-linked agent loop drafts a Project Assistant proposal, the
-  transcript shows a `Project Assistant proposal` activity with an **Open in
-  Projects** action. The linked artifact is the handoff; Chats does not create a
-  second Project Assistant chat thread.
+  transcript shows a `Project Assistant proposal` activity with proposal
+  title/action-count metadata and a **Review in Projects** action. The linked
+  artifact is the handoff; Chats does not create a second Project Assistant chat
+  thread.
   Deleting a Hecate Chat cancels any non-terminal backing task run before the
   transcript is removed; the backing Task record remains in Tasks for audit and
   artifact history.

@@ -443,6 +443,22 @@ describe("activityDisplay", () => {
     });
   });
 
+  it("renders project proposal rows with review-ready metadata", () => {
+    expect(
+      activityDisplay(
+        activity({
+          type: "project_assistant_proposal",
+          kind: "project_assistant_proposal",
+          title: "Project Assistant proposal",
+          detail: "Plan next project work - 2 actions - ready for review",
+        }),
+      ),
+    ).toEqual({
+      title: "Project Assistant proposal",
+      detail: "Plan next project work - 2 actions - ready for review",
+    });
+  });
+
   it("renders 'Starting agent' for the canonical start-row title", () => {
     expect(
       activityDisplay(activity({ type: "started", title: "Starting Hecate Chat tools" })).title,

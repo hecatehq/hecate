@@ -2816,8 +2816,10 @@ Task-backed project-linked Hecate Chat may also produce
 `project_assistant_proposal` artifacts when the model calls the
 `draft_project_proposal` agent-loop tool. The artifact content is JSON with the
 linked `project_id`, optional `source_chat_session_id`, original request, and
-embedded Project Assistant `proposal`. It is a review handoff only; clients open
-it in Projects and still apply through `/hecate/v1/project-assistant/apply`.
+embedded Project Assistant `proposal`. The normalized chat activity may carry
+proposal title/action-count detail so clients can render a compact review row.
+It is a review handoff only; clients open it in Projects and still apply through
+`/hecate/v1/project-assistant/apply`.
 
 ## Chat session endpoints
 

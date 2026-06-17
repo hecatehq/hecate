@@ -6395,6 +6395,7 @@ describe("ChatView session title", () => {
                   kind: "project_assistant_proposal",
                   status: "ready",
                   title: "Project Assistant proposal",
+                  detail: "Plan next project work - 1 action - ready for review",
                   artifact_id: "artifact_project_proposal",
                 },
               ],
@@ -6408,8 +6409,9 @@ describe("ChatView session title", () => {
     render(withRuntimeConsole(<ChatView onNavigate={onNavigate} />, { state, actions }));
 
     const user = userEvent.setup();
+    await user.click(screen.getByText(/1 proposal ready/));
     await user.click(screen.getByText("Proposal"));
-    await user.click(screen.getByRole("button", { name: "Open in Projects" }));
+    await user.click(screen.getByRole("button", { name: "Review in Projects" }));
 
     await waitFor(() => {
       expect(getTaskRunArtifact).toHaveBeenCalledWith(

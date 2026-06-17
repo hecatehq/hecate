@@ -409,11 +409,11 @@ function ProjectAssistantProposalActivity({
           type="button"
           className="btn btn-ghost btn-sm"
           onClick={onOpen}
-          title="Open Project Assistant proposal in Projects"
+          title="Review Project Assistant proposal in Projects"
           style={{ fontSize: 10, padding: "2px 7px", gap: 5 }}
         >
           <Icon d={Icons.projects} size={12} />
-          Open in Projects
+          Review in Projects
         </button>
       </div>
     </div>
