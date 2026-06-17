@@ -14,6 +14,7 @@ function renderChatHeader(overrides: Partial<Parameters<typeof ChatHeader>[0]> =
     sublineHoverTitle: "Tools on",
     isAgentChat: true,
     isExternalAgentChat: false,
+    isRemoteRuntime: false,
     showWorkspaceButton: true,
     workspacePath: "/Users/alice/dev/hecate",
     workspaceDialogOpen: false,
@@ -42,5 +43,13 @@ describe("ChatHeader", () => {
 
     expect(screen.queryByRole("button", { name: "Terminal" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Workspace changes" })).toBeNull();
+  });
+
+  it("hides local workspace opener controls in remote runtime", () => {
+    renderChatHeader({ isRemoteRuntime: true });
+
+    expect(screen.getByRole("button", { name: "Workspace changes" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Open workspace in/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Choose workspace opener" })).toBeNull();
   });
 });

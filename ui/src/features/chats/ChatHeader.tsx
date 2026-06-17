@@ -18,6 +18,7 @@ type Props = {
   // Right-side actions.
   isAgentChat: boolean;
   isExternalAgentChat: boolean;
+  isRemoteRuntime: boolean;
   linkedProjectName?: string;
   onOpenProject?: () => void;
   showWorkspaceButton: boolean;
@@ -45,6 +46,7 @@ export function ChatHeader(props: Props) {
     sublineHoverTitle,
     isAgentChat,
     isExternalAgentChat,
+    isRemoteRuntime,
     linkedProjectName,
     onOpenProject,
     showWorkspaceButton,
@@ -189,9 +191,17 @@ export function ChatHeader(props: Props) {
                   ? "Workspace folder dialog is already open"
                   : workspacePath
                     ? `Workspace: ${workspacePath}`
+                    : isRemoteRuntime
+                      ? "Set workspace path"
+                      : "Choose workspace folder"
+              }
+              aria-label={
+                workspacePath
+                  ? `Workspace: ${workspacePath}`
+                  : isRemoteRuntime
+                    ? "Set workspace path"
                     : "Choose workspace folder"
               }
-              aria-label={workspacePath ? `Workspace: ${workspacePath}` : "Choose workspace folder"}
               type="button"
               style={{
                 width: 30,
@@ -205,7 +215,7 @@ export function ChatHeader(props: Props) {
               <Icon d={Icons.folder} size={13} />
             </button>
           )}
-          <WorkspaceOpenMenu workspacePath={workspacePath} />
+          {!isRemoteRuntime && <WorkspaceOpenMenu workspacePath={workspacePath} />}
           {workspacePath.trim() && (
             <button
               className="btn btn-ghost btn-sm chat-header-action"
