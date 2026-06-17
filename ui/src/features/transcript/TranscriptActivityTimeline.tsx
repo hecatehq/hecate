@@ -130,6 +130,7 @@ export function TranscriptActivityTimeline({
 
   const plan = primaryRaw.filter((activity) => activity.type === "plan");
   const tools = primaryRaw.filter((activity) => activity.type === "tool_call");
+  const proposals = primaryRaw.filter(isProjectAssistantProposalActivity);
   const failedTools = tools.filter(
     (activity) => activityEffectiveStatus(activity) === "failed",
   ).length;
@@ -144,6 +145,9 @@ export function TranscriptActivityTimeline({
         : failedTools > 0
           ? `${failedTools} failed tool${failedTools === 1 ? "" : "s"}`
           : `${tools.length} tool${tools.length === 1 ? "" : "s"}`
+      : "",
+    proposals.length > 0
+      ? `${proposals.length} proposal${proposals.length === 1 ? "" : "s"} ready`
       : "",
     diffStat ? "workspace diff snapshot" : "",
   ]
@@ -366,6 +370,12 @@ function advancedSummaryLabel(activity: ChatActivityRecord): string {
   )
     return "Output";
   return "Advanced";
+}
+
+function isProjectAssistantProposalActivity(activity: ChatActivityRecord): boolean {
+  return (
+    activity.type === "project_assistant_proposal" || activity.kind === "project_assistant_proposal"
+  );
 }
 
 function PlanActivityLine({ activity }: { activity: ChatActivityRecord }) {

@@ -1207,6 +1207,34 @@ func TestChatActivityFromTaskActivityCarriesArtifactMetadata(t *testing.T) {
 	}
 }
 
+func TestChatActivityFromTaskActivityFormatsProjectAssistantProposalDetail(t *testing.T) {
+	item := TaskActivityItem{
+		ID:         "artifact:proposal_1",
+		Type:       orchestrator.ProjectAssistantProposalArtifactKind,
+		Status:     "ready",
+		Title:      "Project Assistant proposal",
+		ArtifactID: "artifact_project_proposal",
+		Kind:       orchestrator.ProjectAssistantProposalArtifactKind,
+		Summary: map[string]any{
+			"proposal_title":        "Plan next project work",
+			"proposal_action_count": float64(2),
+		},
+		OccurredAt: "2026-05-03T10:00:00Z",
+	}
+
+	activity := agentChatActivityFromTaskActivity(item)
+	rendered := renderAgentChatActivities([]chat.Activity{activity})
+	if len(rendered) != 1 {
+		t.Fatalf("rendered activities = %d, want 1", len(rendered))
+	}
+	if rendered[0].Detail != "Plan next project work - 2 actions - ready for review" {
+		t.Fatalf("proposal detail = %q", rendered[0].Detail)
+	}
+	if rendered[0].ArtifactID != "artifact_project_proposal" {
+		t.Fatalf("artifact_id = %q", rendered[0].ArtifactID)
+	}
+}
+
 func TestChatActivityFromTaskActivityCarriesMCPApp(t *testing.T) {
 	item := TaskActivityItem{
 		ID:       "step:step_weather",
@@ -1355,6 +1383,38 @@ func TestTaskActivityItemsIncludeOutputArtifactPreview(t *testing.T) {
 	preview, _ := item.Summary["content_preview"].(string)
 	if !strings.Contains(preview, "+hello") {
 		t.Fatalf("content_preview = %q, want stdout preview", preview)
+	}
+}
+
+func TestTaskActivityItemsIncludeProjectAssistantProposalMetadata(t *testing.T) {
+	items := buildTaskActivityItems(nil, []TaskArtifactItem{{
+		ID:          "artifact_project_proposal",
+		TaskID:      "task_1",
+		RunID:       "run_1",
+		Kind:        orchestrator.ProjectAssistantProposalArtifactKind,
+		Name:        "Project Assistant proposal",
+		MimeType:    "application/json",
+		StorageKind: "inline",
+		Status:      "ready",
+		ContentText: `{
+			"object":"project_assistant.chat_proposal",
+			"project_id":"proj_1",
+			"proposal_id":"pa_1",
+			"title":"Plan next project work",
+			"action_count":2,
+			"proposal":{"id":"pa_1","title":"Plan next project work","actions":[]}
+		}`,
+	}}, nil, types.TaskRun{})
+
+	item := taskActivityByID(items, "artifact:artifact_project_proposal")
+	if item.Type != orchestrator.ProjectAssistantProposalArtifactKind {
+		t.Fatalf("activity type = %q, want proposal activity", item.Type)
+	}
+	if item.Summary["proposal_title"] != "Plan next project work" || item.Summary["proposal_action_count"] != 2 {
+		t.Fatalf("proposal summary = %#v, want title/action count", item.Summary)
+	}
+	if item.Summary["proposal_id"] != "pa_1" {
+		t.Fatalf("proposal_id = %#v", item.Summary["proposal_id"])
 	}
 }
 

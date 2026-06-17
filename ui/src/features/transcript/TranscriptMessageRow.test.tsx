@@ -749,6 +749,7 @@ describe("TranscriptMessageRow", () => {
       type: "project_assistant_proposal",
       kind: "project_assistant_proposal",
       title: "Project Assistant proposal",
+      detail: "Plan next project work - 1 action - ready for review",
       status: "ready",
       artifact_id: "artifact_project_proposal",
     };
@@ -762,7 +763,10 @@ describe("TranscriptMessageRow", () => {
     );
 
     await user.click(screen.getByText("Proposal"));
-    await user.click(screen.getByRole("button", { name: "Open in Projects" }));
+    expect(
+      screen.getAllByText("Plan next project work - 1 action - ready for review").length,
+    ).toBeGreaterThanOrEqual(1);
+    await user.click(screen.getByRole("button", { name: "Review in Projects" }));
 
     expect(onOpenProjectProposal).toHaveBeenCalledWith(activity);
   });

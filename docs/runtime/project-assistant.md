@@ -53,9 +53,10 @@ Project-linked Hecate Chat task-backed runs also expose a Hecate-owned
 `draft_project_proposal` agent-loop tool. The model can call it from ordinary
 chat intent, but it uses the same deterministic Project Assistant draft path and
 stores the result as a `project_assistant_proposal` task artifact. The transcript
-can open that artifact in Projects via the same transient handoff shape; no
-Project Assistant chat is mirrored into Chats, and apply still sends only the
-typed proposal through the normal confirmation path.
+shows the proposal title/action count and can open that artifact in Projects via
+the same transient handoff shape; no Project Assistant chat is mirrored into
+Chats, and apply still sends only the typed proposal through the normal
+confirmation path.
 
 When Projects consumes a chat-drafted proposal handoff, the review card shows
 the source as `drafted from chat`, preserves the originating request text and
