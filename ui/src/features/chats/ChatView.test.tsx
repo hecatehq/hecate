@@ -3123,6 +3123,9 @@ describe("ChatView input", () => {
     expect(within(commands).getByRole("option", { name: "Insert /web command" })).toHaveTextContent(
       "/web",
     );
+    expect(within(commands).getByRole("option", { name: "Insert /web command" })).toHaveTextContent(
+      "External Agent",
+    );
     expect(within(commands).getByRole("option", { selected: true })).toHaveAttribute(
       "aria-label",
       "Insert /web command",
@@ -3383,7 +3386,9 @@ describe("ChatView input", () => {
     render(withRuntimeConsole(<ChatView onNavigate={() => undefined} />, { state, actions }));
 
     const commands = screen.getByRole("listbox", { name: "Message commands" });
-    expect(within(commands).getByRole("option", { name: "Insert /diff command" })).toBeTruthy();
+    expect(
+      within(commands).getByRole("option", { name: "Insert /diff command" }),
+    ).toHaveTextContent("Hecate");
     expect(within(commands).getByRole("option", { name: "Insert /model command" })).toBeTruthy();
     expect(within(commands).getByRole("option", { name: "Insert /settings command" })).toBeTruthy();
     expect(within(commands).getByRole("option", { name: "Insert /status command" })).toBeTruthy();
@@ -3422,6 +3427,9 @@ describe("ChatView input", () => {
     expect(
       within(commands).getByRole("option", { name: "Insert /proposal command" }),
     ).toHaveTextContent("/proposal");
+    expect(
+      within(commands).getByRole("option", { name: "Insert /proposal command" }),
+    ).toHaveTextContent("Project");
     expect(within(commands).getByText("Draft a Project Assistant proposal")).toBeTruthy();
 
     const user = userEvent.setup();
