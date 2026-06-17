@@ -9,10 +9,10 @@
 > [Agent memory](agent-memory.md), [Projects](../accepted/projects.md), and
 > [Runtime API](../../runtime/runtime-api.md) for today's context-packet,
 > memory, project, and task behavior.
-> **Next action:** extend profile-driven prompt/source content policy to chats
-> and external-agent starts, then add compatibility warnings for host-specific
-> guidance. Remote skill install and skill execution remain separate later
-> slices.
+> **Next action:** add compatibility warnings for host-specific guidance and
+> decide whether arbitrary source-document body inclusion needs an explicit
+> operator approval flow. Remote skill install and skill execution remain
+> separate later slices.
 
 Hecate needs a clean vocabulary for several things that are easy to blur:
 workspace `AGENTS.md` files, other Markdown instruction files, reusable

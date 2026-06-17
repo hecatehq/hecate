@@ -102,6 +102,13 @@ func TestChatContextPacketsIncludeEnabledProjectSources(t *testing.T) {
 				Trust:  "project",
 			})
 			assertContextItem(t, tc.packet, "workspace_doc", contextTrustWorkspaceGuidance, "README.md")
+			readme := findContextItemByOrigin(tc.packet, "README.md")
+			if readme == nil || readme.Included {
+				t.Fatalf("README source item = %+v, want visible-only source metadata for chat packets", readme)
+			}
+			if !strings.Contains(readme.InclusionReason, "source") || !(strings.Contains(readme.InclusionReason, "not loaded") || strings.Contains(readme.InclusionReason, "not inject")) {
+				t.Fatalf("README source reason = %q, want source-body boundary", readme.InclusionReason)
+			}
 			assertContextSource(t, tc.packet, chat.ContextSource{
 				Kind:   "project_notes",
 				Label:  "docs/notes.md",
@@ -158,7 +165,11 @@ func TestChatContextPacketsIncludeEnabledProjectMemory(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Create disabled memory: %v", err)
 	}
-	handler := &Handler{memory: memoryStore}
+	projectStore := projects.NewMemoryStore()
+	if _, err := projectStore.Create(ctx, projects.Project{ID: "proj_1", Name: "Hecate"}); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	handler := &Handler{memory: memoryStore, projects: projectStore}
 	session := chat.Session{
 		ID:        "chat_1",
 		ProjectID: "proj_1",
@@ -167,20 +178,24 @@ func TestChatContextPacketsIncludeEnabledProjectMemory(t *testing.T) {
 	}
 
 	packets := []struct {
-		name   string
-		packet chat.ContextPacket
+		name           string
+		packet         chat.ContextPacket
+		memoryIncluded bool
 	}{
 		{
-			name:   "direct model",
-			packet: handler.directModelContextPacket(ctx, session, "ollama", "llama3.1:8b", ""),
+			name:           "direct model",
+			packet:         handler.directModelContextPacket(ctx, session, "ollama", "llama3.1:8b", ""),
+			memoryIncluded: true,
 		},
 		{
-			name:   "hecate task",
-			packet: handler.hecateTaskContextPacket(ctx, session, "ollama", "llama3.1:8b", "", false),
+			name:           "hecate task",
+			packet:         handler.hecateTaskContextPacket(ctx, session, "ollama", "llama3.1:8b", "", false),
+			memoryIncluded: true,
 		},
 		{
-			name:   "external agent",
-			packet: handler.externalAgentContextPacket(ctx, session, "Cursor Agent"),
+			name:           "external agent",
+			packet:         handler.externalAgentContextPacket(ctx, session, "Cursor Agent"),
+			memoryIncluded: false,
 		},
 	}
 
@@ -193,6 +208,9 @@ func TestChatContextPacketsIncludeEnabledProjectMemory(t *testing.T) {
 			if operator.TrustLevel != contextTrustOperatorMemory || operator.Body != "Use conventional commits." {
 				t.Fatalf("operator memory item = %+v, want operator_memory body snapshot", *operator)
 			}
+			if operator.Included != tc.memoryIncluded {
+				t.Fatalf("operator memory Included = %v, want %v for %s", operator.Included, tc.memoryIncluded, tc.name)
+			}
 			generated := findContextItemByOrigin(tc.packet, "mem_generated")
 			if generated == nil {
 				t.Fatalf("generated memory item not found: %+v", tc.packet.Items)
@@ -200,8 +218,20 @@ func TestChatContextPacketsIncludeEnabledProjectMemory(t *testing.T) {
 			if generated.TrustLevel != "generated_summary" || generated.Body != "Generated summary content." {
 				t.Fatalf("generated memory item = %+v, want generated_summary body snapshot", *generated)
 			}
+			if generated.Included != tc.memoryIncluded {
+				t.Fatalf("generated memory Included = %v, want %v for %s", generated.Included, tc.memoryIncluded, tc.name)
+			}
 			if findContextItemByOrigin(tc.packet, "mem_disabled") != nil {
 				t.Fatalf("disabled memory was included: %+v", tc.packet.Items)
+			}
+			if tc.memoryIncluded {
+				policy := findContextItemByOrigin(tc.packet, "chat.project_prompt_context")
+				if policy == nil || !policy.Included {
+					t.Fatalf("chat project prompt policy item = %+v, want included Hecate-owned chat policy", policy)
+				}
+				if !strings.Contains(policy.Body, "bounded accepted project memory bodies") || !strings.Contains(policy.Body, "source file bodies") {
+					t.Fatalf("chat project prompt policy body = %q, want content boundary", policy.Body)
+				}
 			}
 		})
 	}
@@ -271,7 +301,11 @@ func TestChatContextPacketsIncludeProjectSkillAndWorkMetadata(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Create completed assignment: %v", err)
 	}
-	handler := &Handler{projectSkills: skillStore, projectWork: workStore}
+	projectStore := projects.NewMemoryStore()
+	if _, err := projectStore.Create(ctx, projects.Project{ID: "proj_1", Name: "Hecate"}); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	handler := &Handler{projects: projectStore, projectSkills: skillStore, projectWork: workStore}
 	session := chat.Session{
 		ID:        "chat_1",
 		ProjectID: "proj_1",
@@ -436,6 +470,16 @@ func TestExternalAgentContextPacketNotesPrivatePromptBoundary(t *testing.T) {
 	}
 	if !strings.Contains(item.Body, "cannot inspect the external agent's private prompt") {
 		t.Fatalf("external agent item body = %q, want private prompt boundary note", item.Body)
+	}
+	policy := findContextItemByOrigin(packet, "external_agent.prompt_context")
+	if policy == nil {
+		t.Fatalf("external-agent prompt policy item not found: %+v", packet.Items)
+	}
+	if policy.Included {
+		t.Fatalf("external-agent prompt policy Included = true, want inspect-only boundary note")
+	}
+	if !strings.Contains(policy.Body, "does not inject project memory bodies") || !strings.Contains(policy.Body, "adapter owns any private prompt packing") {
+		t.Fatalf("external-agent prompt policy body = %q, want project content boundary", policy.Body)
 	}
 }
 
@@ -813,17 +857,17 @@ func TestChatContextPacketSourceOrdering(t *testing.T) {
 		{
 			name: "direct model",
 			got:  sourceKinds(handler.directModelContextPacket(ctx, session, "ollama", "llama3.1:8b", "system")),
-			want: []string{"project", "system_prompt", "workspace", "workspace_doc", "project_notes", "transcript"},
+			want: []string{"project", "prompt_context", "system_prompt", "workspace", "workspace_doc", "project_notes", "transcript"},
 		},
 		{
 			name: "hecate task",
 			got:  sourceKinds(handler.hecateTaskContextPacket(ctx, session, "ollama", "llama3.1:8b", "system", false)),
-			want: []string{"project", "system_prompt", "workspace", "workspace_doc", "project_notes", "transcript", "task_runtime"},
+			want: []string{"project", "prompt_context", "system_prompt", "workspace", "workspace_doc", "project_notes", "transcript", "task_runtime"},
 		},
 		{
 			name: "external agent",
 			got:  sourceKinds(handler.externalAgentContextPacket(ctx, session, "Cursor Agent")),
-			want: []string{"project", "workspace", "workspace_doc", "project_notes", "transcript", "adapter_session"},
+			want: []string{"project", "prompt_context", "workspace", "workspace_doc", "project_notes", "transcript", "adapter_session"},
 		},
 	}
 

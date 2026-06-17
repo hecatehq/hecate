@@ -276,6 +276,16 @@ remain metadata-only for this path. If the selected route is a cloud provider,
 included project memory and workspace-instruction bodies are sent to that
 provider as normal task prompt content.
 
+Project-linked Hecate Chat uses a separate bounded project prelude in the chat
+system prompt. It may include project identity, root metadata, role hints,
+enabled skill metadata, active work metadata, and accepted project memory
+bodies. Project context-source file bodies, host-specific guidance file bodies,
+and `SKILL.md` bodies are not loaded into chat prompts in V1. External Agent
+chat and External Agent project-assignment starts record project metadata for
+inspection, but Hecate does not inject project memory bodies, source bodies, or
+skill bodies into adapter prompts; the adapter owns any private prompt packing
+inside its native session.
+
 ## Approval gating
 
 Two distinct approval flows:

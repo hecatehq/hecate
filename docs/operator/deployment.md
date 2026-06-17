@@ -358,7 +358,9 @@ Deployment-specific notes:
   inspection, and context packets snapshot project-scoped memory/source
   decisions. Native project assignments can include bounded project memory and
   portable `AGENTS.md` prompt context when the resolved profile asks for it;
-  broader chat/external-agent source-content policy remains follow-up work.
+  Hecate-owned project chat has an explicit bounded project prelude, while
+  External Agent paths keep project memory/source bodies metadata-only unless a
+  future adapter-specific prompt policy is added.
 - When `HECATE_BACKEND=sqlite` or `postgres`, Hecate runs a startup reconcile
   pass that flips any pending external-agent approvals from a prior process to
   `status=timed_out`, `path=startup_reconcile` before serving requests, so an

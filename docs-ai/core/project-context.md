@@ -45,6 +45,14 @@ mark project memory and source metadata active, visible-only, or omitted. Native
 project assignments can include bounded project memory and portable `AGENTS.md`
 workspace-instruction bodies only when the resolved profile explicitly includes
 them; host-specific guidance files and skill bodies remain metadata-only.
+Project-linked Hecate Chat uses a bounded project prelude in the chat system
+prompt and records that policy in the context packet; project context-source
+file bodies, host-specific guidance file bodies, and `SKILL.md` bodies are not
+loaded into chat prompts in V1. External Agent chat and External Agent
+project-assignment starts record project metadata for inspection, but Hecate
+does not inject project memory bodies, source bodies, or skill bodies into
+adapter prompts; the adapter owns private prompt packing inside its native
+session.
 Model-backed assistant turns should carry a small context-inspector packet:
 execution mode, route/workspace metadata, source provenance, and visible
 transcript counts. Do not store full prompt bodies, raw transcript text, file

@@ -1599,6 +1599,29 @@ func TestProjectWorkAPI_StartExternalAgentAssignmentPreparesLinkedSession(t *tes
 		Driver:              projectwork.AssignmentDriverExternalAgent,
 		WithoutRoleDefaults: true,
 	})
+	if _, err := handler.memory.Create(t.Context(), memory.Entry{
+		ID:         "mem_external",
+		ProjectID:  "proj_start",
+		Title:      "External boundary",
+		Body:       "Do not inject this into external-agent prompts.",
+		TrustLabel: memory.TrustLabelOperatorMemory,
+		SourceKind: memory.SourceKindOperator,
+		Enabled:    true,
+	}); err != nil {
+		t.Fatalf("Create external assignment memory: %v", err)
+	}
+	if _, err := handler.projects.Update(t.Context(), "proj_start", func(project *projects.Project) {
+		project.ContextSources = []projects.ContextSource{{
+			ID:         "ctx_external",
+			Kind:       "workspace_instruction",
+			Title:      "AGENTS.md",
+			Path:       "AGENTS.md",
+			Enabled:    true,
+			TrustLabel: "workspace_guidance",
+		}}
+	}); err != nil {
+		t.Fatalf("Update project context source: %v", err)
+	}
 	if _, err := handler.agentProfiles.Create(t.Context(), agentprofiles.Profile{
 		ID:                  "prof_external",
 		Name:                "External implementer",
@@ -1607,8 +1630,8 @@ func TestProjectWorkAPI_StartExternalAgentAssignmentPreparesLinkedSession(t *tes
 		ExecutionProfile:    "external_implementation",
 		ExternalAgentKind:   "codex",
 		ApprovalPolicy:      agentprofiles.ApprovalRequire,
-		ProjectMemoryPolicy: agentprofiles.MemoryVisibleOnly,
-		ContextSourcePolicy: agentprofiles.ContextVisibleOnly,
+		ProjectMemoryPolicy: agentprofiles.MemoryInclude,
+		ContextSourcePolicy: agentprofiles.ContextIncludeEnabled,
 		SkillIDs:            []string{"project-handoff"},
 	}); err != nil {
 		t.Fatalf("Create external profile: %v", err)
@@ -1670,6 +1693,29 @@ func TestProjectWorkAPI_StartExternalAgentAssignmentPreparesLinkedSession(t *tes
 	profileItem := findRenderedContextItemByOrigin(packetResp.Data, "prof_external")
 	if profileItem == nil || profileItem.Section != contextSectionProfile || !strings.Contains(profileItem.Body, "External agent: codex") {
 		t.Fatalf("profile item = %+v, want external profile metadata", profileItem)
+	}
+	memoryItem := findRenderedContextItemByOrigin(packetResp.Data, "mem_external")
+	if memoryItem == nil || memoryItem.Included {
+		t.Fatalf("external assignment memory item = %+v, want visible-only memory despite include policy", memoryItem)
+	}
+	if !strings.Contains(memoryItem.InclusionReason, "does not inject memory bodies into adapter prompts") {
+		t.Fatalf("external assignment memory reason = %q, want adapter prompt boundary", memoryItem.InclusionReason)
+	}
+	sourceItem := findRenderedContextItemByOrigin(packetResp.Data, "AGENTS.md")
+	if sourceItem == nil || sourceItem.Included {
+		t.Fatalf("external assignment source item = %+v, want visible-only source despite include policy", sourceItem)
+	}
+	if !strings.Contains(sourceItem.InclusionReason, "does not inject source bodies into adapter prompts") {
+		t.Fatalf("external assignment source reason = %q, want adapter prompt boundary", sourceItem.InclusionReason)
+	}
+	policyItem := findRenderedContextItemByOrigin(packetResp.Data, "external_agent_assignment.prompt_context")
+	if policyItem == nil || policyItem.Included {
+		t.Fatalf("external assignment prompt policy item = %+v, want inspect-only policy note", policyItem)
+	}
+	for _, want := range []string{"does not dispatch an adapter prompt", "Profile project_memory_policy: include", "Profile context_source_policy: include_enabled"} {
+		if !strings.Contains(policyItem.Body, want) {
+			t.Fatalf("external assignment prompt policy body = %q, want %q", policyItem.Body, want)
+		}
 	}
 }
 
