@@ -33,7 +33,7 @@ Facts, accessed 2026-06-17:
   consent to and understand data access and operations, retain control over
   what is shared and executed, and treat tool descriptions from untrusted
   servers with appropriate caution. Source:
-  <https://modelcontextprotocol.io/specification/2025-06-18#security-and-trust--safety>.
+  <https://modelcontextprotocol.io/specification/2025-06-18>.
 - Hecate already uses MCP in both directions: as a local MCP server exposing
   Hecate surfaces, and as an MCP client that can attach external MCP tools to
   `agent_loop` tasks. Source: [MCP integration](../../runtime/mcp.md).
