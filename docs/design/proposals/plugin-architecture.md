@@ -264,12 +264,18 @@ Plugin slash commands are local Hecate commands unless they are explicitly
 External Agent commands advertised by ACP. The composer should label
 provenance:
 
-| Label            | Meaning                                                                              |
-| ---------------- | ------------------------------------------------------------------------------------ |
-| Hecate           | Local navigation/runtime shortcut owned by Hecate or a Hecate-native plugin.         |
-| Project          | Hecate-owned project/proposal shortcut.                                              |
-| External Agent   | ACP-advertised command sent as ordinary prompt text to the active External Agent.    |
-| Plugin: `<name>` | Future UI label when a Hecate plugin owns a local command outside built-in surfaces. |
+| Label                          | Meaning                                                                                           |
+| ------------------------------ | ------------------------------------------------------------------------------------------------- |
+| Hecate                         | Local navigation/runtime shortcut owned by Hecate or a Hecate-native plugin.                      |
+| Project                        | Hecate-owned project/proposal shortcut.                                                           |
+| External Agent: `<agent name>` | ACP-advertised command sent as ordinary prompt text to the active External Agent adapter/session. |
+| Plugin: `<name>`               | Future UI label when a Hecate plugin owns a local command outside built-in surfaces.              |
+
+Hecate should group External Agent commands by their originating adapter and
+session. "External Agent" is the capability class, not a shared command
+namespace. The visible label, routing key, telemetry, and command-picker
+deduplication should preserve the specific agent identity because `/review`,
+`/plan`, or another command may have different semantics in different agents.
 
 ### UI surfaces
 
