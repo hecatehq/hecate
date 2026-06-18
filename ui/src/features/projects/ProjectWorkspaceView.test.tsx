@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -195,7 +195,8 @@ describe("ProjectWorkspaceView", () => {
     await userEvent.click(screen.getByRole("button", { name: "Set defaults" }));
     await userEvent.click(screen.getByRole("button", { name: "Review setup" }));
     await userEvent.click(screen.getByRole("button", { name: "Set up" }));
-    await userEvent.click(screen.getAllByRole("button", { name: "Create work" })[1]);
+    const firstWorkCheck = screen.getByRole("group", { name: "First work item" });
+    await userEvent.click(within(firstWorkCheck).getByRole("button", { name: "Create work" }));
     await userEvent.click(screen.getByRole("button", { name: "Set up project" }));
     await userEvent.click(screen.getByRole("button", { name: "Project settings" }));
 
