@@ -1304,9 +1304,18 @@ MCP server capabilities may use the inline shape above or place the same fields
 inside `config`. The registry normalizes either shape into an `mcp_server`
 response object. Exactly one of `command` or `url` must be set; `transport`, if
 present, must match (`stdio` for `command`, `http` for `url`). `env` and
-`headers` values must be whole `$VAR_NAME` references. Literal values and
-manifest-provided encrypted blobs are rejected so plugin registry records do
-not become a credential store.
+`headers` values must be whole `$VAR_NAME` references; `env` keys must be valid
+process environment names and `headers` keys must be valid HTTP header names.
+Literal values and manifest-provided encrypted blobs are rejected so plugin
+registry records do not become a credential store. Unknown MCP server
+capability fields are rejected in this native v0 schema; compatibility
+importers should translate or drop host-specific fields such as `cwd` or
+`timeout` before installing a Hecate manifest.
+
+`approval_policy` is recorded as requested mount metadata only. When explicit
+mounting into profiles or task/chat starts lands, Hecate's own approval policy
+remains authoritative; a plugin-declared `auto` value must not downgrade a
+Hecate-owned requirement for approval.
 
 ```json
 → 200

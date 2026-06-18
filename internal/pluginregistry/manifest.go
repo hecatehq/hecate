@@ -33,6 +33,18 @@ type manifestCapability struct {
 	URL            string            `json:"url"`
 	Headers        map[string]string `json:"headers"`
 	ApprovalPolicy string            `json:"approval_policy"`
+	raw            json.RawMessage
+}
+
+func (item *manifestCapability) UnmarshalJSON(raw []byte) error {
+	type manifestCapabilityAlias manifestCapability
+	var decoded manifestCapabilityAlias
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return err
+	}
+	*item = manifestCapability(decoded)
+	item.raw = compactJSON(raw)
+	return nil
 }
 
 type manifestAuth struct {
@@ -178,6 +190,9 @@ func capabilitiesFromManifest(items []manifestCapability, forcedKind string) ([]
 }
 
 func mcpServerConfigJSONFromManifest(capabilityID string, item manifestCapability) (json.RawMessage, error) {
+	if err := validateMCPServerCapabilityFields(item.raw); err != nil {
+		return nil, err
+	}
 	hasConfig := len(compactJSON(item.Config)) > 0
 	hasInline := hasInlineMCPServerConfig(item)
 	if hasConfig && hasInline {
@@ -201,6 +216,25 @@ func mcpServerConfigJSONFromManifest(capabilityID string, item manifestCapabilit
 		return nil, ErrInvalid
 	}
 	return normalizeMCPServerConfigJSON(capabilityID, raw)
+}
+
+func validateMCPServerCapabilityFields(raw json.RawMessage) error {
+	if len(raw) == 0 {
+		return ErrInvalid
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return ErrInvalid
+	}
+	for field := range fields {
+		switch field {
+		case "id", "name", "kind", "display_name", "permissions", "enabled", "auth",
+			"config", "transport", "command", "args", "env", "url", "headers", "approval_policy":
+		default:
+			return ErrInvalid
+		}
+	}
+	return nil
 }
 
 func hasInlineMCPServerConfig(item manifestCapability) bool {

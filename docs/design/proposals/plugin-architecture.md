@@ -219,7 +219,9 @@ The registry slice validates MCP server declarations and projects them as
 mount candidates. Installing a plugin still does not start the declared server,
 mount it into a task/chat/profile, or grant credentials. Env/header values in
 manifests are `$VAR_NAME` references only; secret binding and literal secret
-storage stay Hecate-owned.
+storage stay Hecate-owned. The declared `approval_policy` is a requested mount
+default, not authority: Hecate's policy gates remain the final source of truth,
+and plugin metadata cannot downgrade an operator-required approval.
 
 MCP tool descriptions and metadata must be treated as external input. Hecate
 should preserve MCP annotations, but approval policy remains Hecate-owned:
