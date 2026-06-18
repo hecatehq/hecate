@@ -115,6 +115,12 @@ export function ProjectAssistantPanel({
   const bootstrapForm = projectAssistantBootstrapForm();
   const showSetupRow = setupFirst && !proposal && !applyResult;
   const showBootstrapAction = setupFirst && !setupStarted && !proposal && !applyResult;
+  const showSetupRefreshAction = setupFirst && setupStarted && !proposal && !applyResult;
+  const setupSummary = projectAssistantSetupSummary({
+    memoryCandidateCount,
+    roleCount,
+    workItemCount,
+  });
 
   return (
     <section style={assistantPanelStyle} aria-label="Project Assistant">
@@ -135,11 +141,11 @@ export function ProjectAssistantPanel({
           <div style={assistantOnboardingCopyStyle}>
             <div style={sectionLabelStyle}>Project setup</div>
             <div style={setupPromptTitleStyle}>
-              {setupStarted ? "Create the first work item" : "Set up project context"}
+              {setupStarted ? "Setup ready" : "Set up project context"}
             </div>
             <div style={{ ...subtleTextStyle, marginTop: 4 }}>
               {setupStarted
-                ? "Project guidance or roles already exist. Inspect context or add the first reviewable work item."
+                ? `${setupSummary}. Create the first reviewable work item, review setup output, or refresh setup when guidance changes.`
                 : bootstrapPending
                   ? "Discovering guidance and skills, then preparing a reviewable setup proposal."
                   : "Discover guidance and skills, suggest roles, and prepare setup actions for review."}
@@ -157,6 +163,39 @@ export function ProjectAssistantPanel({
                 {contextBusy ? "Inspecting..." : "Inspect context"}
               </button>
             )}
+            {setupStarted && memoryCandidateCount > 0 && onReviewMemory && (
+              <button
+                className="btn btn-ghost btn-sm"
+                type="button"
+                disabled={bootstrapBusy || contextBusy}
+                onClick={onReviewMemory}
+              >
+                <Icon d={Icons.observe} size={13} />
+                Review memory
+              </button>
+            )}
+            {setupStarted && roleCount > 0 && onManageRoles && (
+              <button
+                className="btn btn-ghost btn-sm"
+                type="button"
+                disabled={bootstrapBusy || contextBusy}
+                onClick={onManageRoles}
+              >
+                <Icon d={Icons.user} size={13} />
+                Review roles
+              </button>
+            )}
+            {setupStarted && workItemCount === 0 && onCreateWork && (
+              <button
+                className="btn btn-primary btn-sm"
+                type="button"
+                disabled={bootstrapBusy || contextBusy}
+                onClick={onCreateWork}
+              >
+                <Icon d={Icons.plus} size={13} />
+                Create first work
+              </button>
+            )}
             {showBootstrapAction && (
               <button
                 className="btn btn-primary btn-sm"
@@ -166,6 +205,17 @@ export function ProjectAssistantPanel({
               >
                 <Icon d={Icons.refresh} size={14} />
                 {bootstrapPending ? "Setting up..." : "Set up project"}
+              </button>
+            )}
+            {showSetupRefreshAction && (
+              <button
+                className="btn btn-ghost btn-sm"
+                type="button"
+                disabled={bootstrapBusy || contextBusy}
+                onClick={onBootstrap}
+              >
+                <Icon d={Icons.refresh} size={13} />
+                {bootstrapPending ? "Refreshing..." : "Refresh setup"}
               </button>
             )}
           </div>
@@ -731,6 +781,25 @@ function projectAssistantFollowUpActions({
   }
 
   return actions;
+}
+
+function projectAssistantSetupSummary({
+  memoryCandidateCount,
+  roleCount,
+  workItemCount,
+}: {
+  memoryCandidateCount: number;
+  roleCount: number;
+  workItemCount: number;
+}): string {
+  const parts = [
+    roleCount > 0 ? `${roleCount} role${roleCount === 1 ? "" : "s"}` : "",
+    memoryCandidateCount > 0
+      ? `${memoryCandidateCount} memory candidate${memoryCandidateCount === 1 ? "" : "s"}`
+      : "",
+    workItemCount > 0 ? `${workItemCount} work item${workItemCount === 1 ? "" : "s"}` : "",
+  ].filter(Boolean);
+  return parts.length > 0 ? `Project setup has ${parts.join(" · ")}` : "Project setup has begun";
 }
 
 function formatAssistantValue(value: unknown): string {
