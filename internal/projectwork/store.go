@@ -98,10 +98,13 @@ type WorkItem struct {
 }
 
 type Assignment struct {
-	ID            string
-	ProjectID     string
-	WorkItemID    string
-	RoleID        string
+	ID         string
+	ProjectID  string
+	WorkItemID string
+	RoleID     string
+	// RootID references a projects.Root. The projectwork store treats it as an
+	// opaque project-scoped ref; caller boundaries validate membership because
+	// project roots live in the projects store.
 	RootID        string
 	DriverKind    string
 	Status        string
