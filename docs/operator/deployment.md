@@ -160,16 +160,12 @@ The runtime stage defaults to `node:24-trixie-slim` through the `NODE_IMAGE`
 build arg so the image has a maintained Debian userspace for shell, npm, and
 project dependency workflows.
 
-The embedded terminal can launch inside this image because `/bin/sh`, `bash`,
-and a PTY-capable userspace are present. Local runtimes accept terminal tickets
-only from loopback clients. Hosted runtimes expose the same operator terminal
-through the protected ticket-mint route; the WebSocket consumes that short-lived
-ticket because browsers cannot attach the runtime identity headers during
-upgrade. Set `HECATE_EMBEDDED_TERMINAL=false` when a deployment requires all
-command execution to stay behind task-runtime approvals, sandboxing, timeouts,
-and output caps. When the embedded terminal is enabled in a hosted runtime, the
-container, VM, or dedicated OS-user boundary is the isolation boundary for those
-operator shell commands.
+Hecate does not expose an embedded terminal over the runtime API. Configure
+container and remote instances through environment variables, mounted secrets,
+the persisted settings UI/API, or your deployment platform's own administrative
+shell (`ssh`, `docker exec`, `kubectl exec`, provider console, or equivalent).
+Direct platform shells bypass Hecate approvals and audit trails; use
+task-runtime tools when command execution should remain governed by Hecate.
 
 The bundled External Agent CLIs are pinned by Docker build args so a Hecate
 release does not silently move to a newer top-level agent package. The Cursor
@@ -267,7 +263,6 @@ environment.
 | Env var                             | Default             | Applies to                                           |
 | ----------------------------------- | ------------------- | ---------------------------------------------------- |
 | `HECATE_AGENT_ADAPTERS_DIR`         | platform user cache | Managed Codex / Claude ACP launcher scripts          |
-| `HECATE_EMBEDDED_TERMINAL`          | `true`              | Enables the operator embedded terminal surface       |
 | `HECATE_CHAT_MAX_TURNS_PER_SESSION` | `0`                 | Per-session user→assistant turn ceiling              |
 | `HECATE_CHAT_MAX_SESSION_DURATION`  | `0s`                | Wall-clock age ceiling before new turns are rejected |
 | `HECATE_CHAT_IDLE_TIMEOUT`          | `0s`                | Background idle auto-close sweeper                   |

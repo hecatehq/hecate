@@ -369,20 +369,6 @@ func TestRuntimeTokenMiddleware(t *testing.T) {
 			token:  "local-runtime-token-123456",
 			want:   http.StatusNoContent,
 		},
-		{
-			name:   "terminal websocket consumes ticket instead of runtime header",
-			method: http.MethodGet,
-			path:   "/hecate/v1/terminal?workspace=/tmp&token=ticket",
-			token:  "local-runtime-token-123456",
-			want:   http.StatusNoContent,
-		},
-		{
-			name:   "terminal ticket creation remains runtime-token protected",
-			method: http.MethodPost,
-			path:   "/hecate/v1/terminal/sessions",
-			token:  "local-runtime-token-123456",
-			want:   http.StatusUnauthorized,
-		},
 	}
 
 	for _, tt := range tests {
@@ -560,8 +546,6 @@ func TestRemoteRuntimeIdentityMiddleware(t *testing.T) {
 	}{
 		{name: "disabled allows request", path: "/hecate/v1/whoami", want: http.StatusNoContent},
 		{name: "healthz bypasses cloud identity", path: "/healthz", want: http.StatusNoContent},
-		{name: "terminal websocket consumes ticket instead of runtime identity headers", path: "/hecate/v1/terminal?workspace=/tmp&token=ticket", want: http.StatusNoContent},
-		{name: "terminal websocket without ticket requires runtime identity", path: "/hecate/v1/terminal?workspace=/tmp", want: http.StatusUnauthorized},
 		{name: "enabled requires secret", path: "/hecate/v1/whoami", want: http.StatusUnauthorized},
 		{name: "enabled requires identity", path: "/hecate/v1/whoami", secret: secret, want: http.StatusUnauthorized},
 		{name: "enabled accepts complete identity", path: "/hecate/v1/whoami", secret: secret, setIdentity: true, want: http.StatusNoContent},
@@ -614,8 +598,6 @@ func TestRemoteRuntimeLocalEndpointGuardMiddleware(t *testing.T) {
 		{name: "disabled allows local endpoint", method: http.MethodPost, path: "/hecate/v1/system/shutdown", want: http.StatusNoContent},
 		{name: "blocks workspace dialog", enabled: true, method: http.MethodPost, path: "/hecate/v1/workspace-dialog", want: http.StatusForbidden},
 		{name: "blocks workspace open", enabled: true, method: http.MethodPost, path: "/hecate/v1/workspace-open", want: http.StatusForbidden},
-		{name: "allows terminal session tickets", enabled: true, method: http.MethodPost, path: "/hecate/v1/terminal/sessions", want: http.StatusNoContent},
-		{name: "allows terminal websocket tickets", enabled: true, method: http.MethodGet, path: "/hecate/v1/terminal?workspace=/tmp", want: http.StatusNoContent},
 		{name: "blocks reset data", enabled: true, method: http.MethodPost, path: "/hecate/v1/system/reset-data", want: http.StatusForbidden},
 		{name: "blocks shutdown", enabled: true, method: http.MethodPost, path: "/hecate/v1/system/shutdown", want: http.StatusForbidden},
 		{name: "blocks mcp probe", enabled: true, method: http.MethodPost, path: "/hecate/v1/mcp/probe", want: http.StatusForbidden},
@@ -702,7 +684,7 @@ func TestNewServerWiresRemoteRuntimeIdentity(t *testing.T) {
 	}
 }
 
-func TestSessionAdvertisesEmbeddedTerminalCapability(t *testing.T) {
+func TestSessionAdvertisesLocalProviderCapability(t *testing.T) {
 	const secret = "cloud-runtime-secret-123456"
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -714,8 +696,8 @@ func TestSessionAdvertisesEmbeddedTerminalCapability(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("local status = %d, want %d", rec.Code, http.StatusOK)
 	}
-	if !strings.Contains(rec.Body.String(), `"embedded_terminal":true`) {
-		t.Fatalf("local whoami body = %s, want embedded terminal capability", rec.Body.String())
+	if strings.Contains(rec.Body.String(), `"embedded_terminal"`) {
+		t.Fatalf("local whoami body = %s, want no embedded terminal capability", rec.Body.String())
 	}
 	if !strings.Contains(rec.Body.String(), `"local_providers_allowed":true`) {
 		t.Fatalf("local whoami body = %s, want local providers allowed capability", rec.Body.String())
@@ -738,8 +720,8 @@ func TestSessionAdvertisesEmbeddedTerminalCapability(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("cloud status = %d, want %d", rec.Code, http.StatusOK)
 	}
-	if !strings.Contains(rec.Body.String(), `"embedded_terminal":true`) {
-		t.Fatalf("cloud whoami body = %s, want embedded terminal capability", rec.Body.String())
+	if strings.Contains(rec.Body.String(), `"embedded_terminal"`) {
+		t.Fatalf("cloud whoami body = %s, want no embedded terminal capability", rec.Body.String())
 	}
 	if !strings.Contains(rec.Body.String(), `"local_providers_allowed":false`) {
 		t.Fatalf("cloud whoami body = %s, want local providers disabled capability", rec.Body.String())
@@ -773,25 +755,6 @@ func TestSessionAdvertisesLocalProvidersAllowedWhenCloudOptIn(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"local_providers_allowed":true`) {
 		t.Fatalf("cloud whoami body = %s, want local providers opt-in capability", rec.Body.String())
-	}
-}
-
-func TestSessionOmitsEmbeddedTerminalCapabilityWhenDisabled(t *testing.T) {
-	t.Parallel()
-
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	handler := NewServer(logger, NewHandler(config.Config{
-		Server: config.ServerConfig{EmbeddedTerminalDisabled: true},
-	}, logger, nil, nil, nil, nil))
-
-	req := httptest.NewRequest(http.MethodGet, "/hecate/v1/whoami", nil)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
-	}
-	if strings.Contains(rec.Body.String(), `"embedded_terminal":true`) {
-		t.Fatalf("whoami body = %s, want terminal capability omitted", rec.Body.String())
 	}
 }
 

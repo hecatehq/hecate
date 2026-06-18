@@ -12,7 +12,6 @@ import {
   createProjectWorktreeRoot,
   createProjectWorkRole,
   createProjectWorkItem,
-  createTerminalSession,
   deleteChatGrant,
   deletePolicyRule,
   deleteProjectAssignment,
@@ -139,30 +138,6 @@ describe("api client", () => {
     );
   });
 
-  it("creates an embedded terminal session ticket", async () => {
-    fetchMock.mockResolvedValue(
-      jsonResponse({
-        object: "terminal_session",
-        data: {
-          token: "terminal-ticket",
-          workspace: "/Users/alice/dev/hecate",
-          expires_at: "2026-06-14T12:00:00Z",
-        },
-      }),
-    );
-
-    const result = await createTerminalSession("/Users/alice/dev/hecate");
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/hecate/v1/terminal/sessions",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({ workspace: "/Users/alice/dev/hecate" }),
-      }),
-    );
-    expect(result.data.token).toBe("terminal-ticket");
-  });
-
   it("surfaces text error bodies when the local gateway lacks an endpoint", async () => {
     fetchMock.mockResolvedValue(
       new Response("404 page not found\n", {
@@ -186,7 +161,7 @@ describe("api client", () => {
           role: "admin",
           source: "anonymous",
           capabilities: {
-            embedded_terminal: true,
+            local_providers_allowed: true,
           },
         },
       }),
@@ -199,7 +174,7 @@ describe("api client", () => {
       expect.objectContaining({ method: "GET" }),
     );
     expect(result.data.role).toBe("admin");
-    expect(result.data.capabilities?.embedded_terminal).toBe(true);
+    expect(result.data.capabilities?.local_providers_allowed).toBe(true);
   });
 
   it("returns chat payload plus runtime headers", async () => {

@@ -38,7 +38,6 @@ type ServerConfig struct {
 	AllowedOrigins                    []string
 	RuntimeToken                      string
 	InferenceToken                    string
-	EmbeddedTerminalDisabled          bool
 	RemoteRuntimeMode                 bool
 	RemoteRuntimeSecret               string
 	RemoteAllowLocalProviders         bool
@@ -194,10 +193,6 @@ func (c Config) LocalProvidersAllowed() bool {
 
 func (c Config) PersonalRemoteExternalAgentLoginsAllowed() bool {
 	return c.Server.RemoteRuntimeMode && c.Server.PersonalRemoteExternalAgentLogins
-}
-
-func (c Config) EmbeddedTerminalEnabled() bool {
-	return !c.Server.EmbeddedTerminalDisabled
 }
 
 type RouterConfig struct {
@@ -385,14 +380,13 @@ func LoadFromEnv() Config {
 	}
 	return Config{
 		Server: ServerConfig{
-			Address:                  getEnv("HECATE_ADDRESS", "127.0.0.1:8765"),
-			AllowNonLoopbackBind:     getEnvBool("HECATE_ALLOW_NON_LOOPBACK_BIND", false),
-			AllowedOrigins:           splitCSV(getEnv("HECATE_ALLOWED_ORIGINS", "")),
-			RuntimeToken:             getEnv("HECATE_RUNTIME_TOKEN", ""),
-			InferenceToken:           getEnv("HECATE_INFERENCE_TOKEN", ""),
-			EmbeddedTerminalDisabled: !getEnvBool("HECATE_EMBEDDED_TERMINAL", true),
-			RemoteRuntimeMode:        remoteRuntimeMode,
-			RemoteRuntimeSecret:      getEnv("HECATE_REMOTE_RUNTIME_SECRET", ""),
+			Address:              getEnv("HECATE_ADDRESS", "127.0.0.1:8765"),
+			AllowNonLoopbackBind: getEnvBool("HECATE_ALLOW_NON_LOOPBACK_BIND", false),
+			AllowedOrigins:       splitCSV(getEnv("HECATE_ALLOWED_ORIGINS", "")),
+			RuntimeToken:         getEnv("HECATE_RUNTIME_TOKEN", ""),
+			InferenceToken:       getEnv("HECATE_INFERENCE_TOKEN", ""),
+			RemoteRuntimeMode:    remoteRuntimeMode,
+			RemoteRuntimeSecret:  getEnv("HECATE_REMOTE_RUNTIME_SECRET", ""),
 			// Hosted runtimes deny local model servers by default. Operators
 			// running an isolated sidecar can opt in explicitly.
 			RemoteAllowLocalProviders:         remoteAllowLocalProviders,

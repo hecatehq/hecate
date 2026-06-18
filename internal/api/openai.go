@@ -247,7 +247,6 @@ type SessionResponseItem struct {
 }
 
 type SessionCapabilitiesItem struct {
-	EmbeddedTerminal      bool `json:"embedded_terminal,omitempty"`
 	LocalProvidersAllowed bool `json:"local_providers_allowed"`
 }
 
