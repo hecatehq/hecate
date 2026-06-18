@@ -2033,16 +2033,16 @@ Role list responses merge built-in roles with project custom roles. Built-ins
 are listable but immutable and are not seeded as duplicate project rows. The
 built-in role ids and default profile mappings are:
 
-| Role id              | Default driver | Default profile             |
-| -------------------- | -------------- | --------------------------- |
-| `product_manager`    | `hecate_task`  | `planning`                  |
-| `architect`          | `hecate_task`  | `architecture`              |
-| `software_developer` | `hecate_task`  | `implementation`            |
-| `frontend_engineer`  | `hecate_task`  | `frontend_implementation`   |
-| `designer`           | `hecate_task`  | `design_review`             |
-| `sre`                | `hecate_task`  | `reliability_ops`           |
-| `tech_writer`        | `hecate_task`  | `documentation`             |
-| `reviewer_qa`        | `hecate_task`  | `review_qa`                 |
+| Role id              | Default driver | Default profile           |
+| -------------------- | -------------- | ------------------------- |
+| `product_manager`    | `hecate_task`  | `planning`                |
+| `architect`          | `hecate_task`  | `architecture`            |
+| `software_developer` | `hecate_task`  | `implementation`          |
+| `frontend_engineer`  | `hecate_task`  | `frontend_implementation` |
+| `designer`           | `hecate_task`  | `design_review`           |
+| `sre`                | `hecate_task`  | `reliability_ops`         |
+| `tech_writer`        | `hecate_task`  | `documentation`           |
+| `reviewer_qa`        | `hecate_task`  | `review_qa`               |
 
 Supported work-item statuses are `backlog`, `ready`, `running`, `review`,
 `blocked`, `done`, and `cancelled`. Supported assignment statuses are `queued`,
