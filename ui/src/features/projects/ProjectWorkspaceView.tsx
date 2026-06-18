@@ -660,7 +660,12 @@ function ProjectOnboardingPanel({
       </div>
       <div style={projectOnboardingChecklistStyle}>
         {checks.map((check) => (
-          <div key={check.label} style={projectOnboardingCheckStyle}>
+          <div
+            aria-label={check.label}
+            key={check.label}
+            role="group"
+            style={projectOnboardingCheckStyle}
+          >
             <span
               className={check.done ? "badge badge-green" : "badge badge-muted"}
               style={projectOnboardingCheckBadgeStyle}
