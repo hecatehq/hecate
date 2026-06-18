@@ -243,20 +243,23 @@ func (s *Service) draftDeterministic(ctx context.Context, input DraftInput, draf
 		if draftContext.Selection.RoleID == "" {
 			return Proposal{}, fmt.Errorf("%w: role_id is required for assignment drafts", ErrInvalid)
 		}
-		patch := mustRawJSON(map[string]any{
+		patch := map[string]any{
 			"project_id":   draftContext.Project.ID,
 			"work_item_id": draftContext.SelectedWork.ID,
 			"role_id":      draftContext.Selection.RoleID,
 			"driver_kind":  draftContext.Selection.DriverKind,
 			"status":       projectwork.AssignmentStatusQueued,
-		})
+		}
+		if rootID := strings.TrimSpace(draftContext.SelectedWork.RootID); rootID != "" {
+			patch["root_id"] = rootID
+		}
 		proposalInput = ProposalInput{
 			Title:   firstNonEmpty(request.title, fmt.Sprintf("Queue %s for %s", roleLabel, draftContext.SelectedWork.Title)),
 			Summary: fmt.Sprintf("Create a queued %s assignment on the selected work item.", draftContext.Selection.DriverKind),
 			Actions: []Action{{
 				Kind:   ActionCreateAssignment,
 				Target: map[string]string{"project_id": draftContext.Project.ID},
-				Patch:  patch,
+				Patch:  mustRawJSON(patch),
 				Reason: "Queue a reviewable assignment without starting execution.",
 			}},
 			TraceID: strings.TrimSpace(input.TraceID),

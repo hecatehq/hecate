@@ -76,7 +76,7 @@ export type ProjectWorkItemDetailProps = {
   handoffs: ProjectHandoffRecord[];
   assignmentErrors: Record<string, string>;
   detailError: string;
-  creatingDefaultAssignment: boolean;
+  draftingDefaultAssignment: boolean;
   preparingAssignmentID: string;
   loading: boolean;
   onAddAssignment: () => void;
@@ -93,7 +93,7 @@ export type ProjectWorkItemDetailProps = {
   ) => void;
   onAddReviewArtifactFromAssignment: (assignment: ProjectAssignmentRecord) => void;
   onAddHandoffFromReviewArtifact: (artifact: ProjectCollaborationArtifactRecord) => void;
-  onCreateDefaultAssignment: (item: ProjectWorkItemRecord) => void;
+  onDraftDefaultAssignment: (item: ProjectWorkItemRecord) => void;
   onPreparedAssignmentPreflightOpened: (assignmentID: string) => void;
   onCreateAssignmentFromReviewArtifact: (artifact: ProjectCollaborationArtifactRecord) => void;
   onCreateAssignmentFromHandoff: (handoff: ProjectHandoffRecord) => void;
@@ -131,7 +131,7 @@ export function ProjectWorkItemDetail({
   handoffs,
   assignmentErrors,
   detailError,
-  creatingDefaultAssignment,
+  draftingDefaultAssignment,
   preparingAssignmentID,
   loading,
   onAddAssignment,
@@ -141,7 +141,7 @@ export function ProjectWorkItemDetail({
   onAddReviewHandoffFromAssignment,
   onAddReviewArtifactFromAssignment,
   onAddHandoffFromReviewArtifact,
-  onCreateDefaultAssignment,
+  onDraftDefaultAssignment,
   onPreparedAssignmentPreflightOpened,
   onCreateAssignmentFromReviewArtifact,
   onCreateAssignmentFromHandoff,
@@ -260,11 +260,11 @@ export function ProjectWorkItemDetail({
         </section>
         {emptyWorkItem ? (
           <WorkItemStartPanel
-            creating={creatingDefaultAssignment}
+            drafting={draftingDefaultAssignment}
             onAddAssignment={onAddAssignment}
             onAddEvidenceLink={onAddEvidenceLink}
             onAddHandoff={onAddHandoff}
-            onCreateDefaultAssignment={() => onCreateDefaultAssignment(workItem)}
+            onDraftDefaultAssignment={() => onDraftDefaultAssignment(workItem)}
             onManageRoles={onManageRoles}
             role={suggestedAssignmentRole}
           />
@@ -551,19 +551,19 @@ export function ProjectWorkItemDetail({
 }
 
 function WorkItemStartPanel({
-  creating,
+  drafting,
   onAddAssignment,
   onAddEvidenceLink,
   onAddHandoff,
-  onCreateDefaultAssignment,
+  onDraftDefaultAssignment,
   onManageRoles,
   role,
 }: {
-  creating: boolean;
+  drafting: boolean;
   onAddAssignment: () => void;
   onAddEvidenceLink: () => void;
   onAddHandoff: () => void;
-  onCreateDefaultAssignment: () => void;
+  onDraftDefaultAssignment: () => void;
   onManageRoles: () => void;
   role: ProjectWorkRoleRecord | null;
 }) {
@@ -572,11 +572,11 @@ function WorkItemStartPanel({
       <div style={startPanelCopyStyle}>
         <div style={sectionLabelStyle}>Next step</div>
         <div style={titleStyle}>
-          {role ? "Ready to prepare the first assignment" : "Add a role before assigning work"}
+          {role ? "Ready to queue the first assignment" : "Add a role before assigning work"}
         </div>
         <div style={{ ...subtleTextStyle, marginTop: 5 }}>
           {role
-            ? `Hecate can use ${role.name || role.id} and inherited project defaults. You will review launch context before anything runs.`
+            ? `Hecate can draft a queued ${role.name || role.id} assignment proposal from this work item. You will review and apply it before anything is created.`
             : "Create or select a project role so Hecate can prepare this work from defaults."}
         </div>
       </div>
@@ -585,11 +585,11 @@ function WorkItemStartPanel({
           <button
             className="btn btn-primary btn-sm"
             type="button"
-            onClick={onCreateDefaultAssignment}
-            disabled={creating}
+            onClick={onDraftDefaultAssignment}
+            disabled={drafting}
           >
             <Icon d={Icons.tasks} size={13} />
-            {creating ? "Preparing..." : `Prepare ${role.name || role.id}`}
+            {drafting ? "Drafting..." : "Draft assignment"}
           </button>
         ) : (
           <button className="btn btn-primary btn-sm" type="button" onClick={onManageRoles}>

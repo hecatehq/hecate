@@ -350,6 +350,7 @@ func (s *Service) applyCreateAssignment(ctx context.Context, action Action) (Act
 		ProjectID:  projectID,
 		WorkItemID: patch.WorkItemID,
 		RoleID:     patch.RoleID,
+		RootID:     patch.RootID,
 		DriverKind: patch.DriverKind,
 		Status:     patch.Status,
 	})
@@ -564,6 +565,7 @@ type assignmentPatch struct {
 	ProjectID    string          `json:"project_id,omitempty"`
 	WorkItemID   string          `json:"work_item_id,omitempty"`
 	RoleID       string          `json:"role_id,omitempty"`
+	RootID       string          `json:"root_id,omitempty"`
 	DriverKind   string          `json:"driver_kind,omitempty"`
 	Status       string          `json:"status,omitempty"`
 	ExecutionRef json.RawMessage `json:"execution_ref,omitempty"`

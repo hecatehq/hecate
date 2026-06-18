@@ -83,7 +83,7 @@ Allowed action kinds are create_work_item, update_work_item, create_assignment, 
 Every action must target the current project_id from the context.
 Do not create chats, tasks, runs, sessions, filesystem changes, shell commands, or durable memory entries.
 If selected_work is present, work-scoped actions must use that selected work item.
-For create_assignment, use context.selection.role_id, context.selection.driver_kind, and status "queued".
+For create_assignment, use context.selection.role_id, context.selection.driver_kind, status "queued", and selected_work.root_id when present.
 Memory actions must create memory candidates only, with suggested_trust_label "generated_summary" and suggested_source_kind "generated". Pending memory candidates in context are lower-trust than accepted memory.`)
 	user := fmt.Sprintf("Draft one concise proposal for this Project Assistant context:\n\n%s", string(contextJSON))
 	return []types.Message{

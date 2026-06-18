@@ -92,6 +92,7 @@ type WorkItemContext struct {
 	Status          string    `json:"status"`
 	Priority        string    `json:"priority,omitempty"`
 	OwnerRoleID     string    `json:"owner_role_id,omitempty"`
+	RootID          string    `json:"root_id,omitempty"`
 	ReviewerRoleIDs []string  `json:"reviewer_role_ids,omitempty"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
@@ -496,6 +497,7 @@ func workItemContext(item projectwork.WorkItem) WorkItemContext {
 		Status:          item.Status,
 		Priority:        item.Priority,
 		OwnerRoleID:     item.OwnerRoleID,
+		RootID:          item.RootID,
 		ReviewerRoleIDs: append([]string(nil), item.ReviewerRoleIDs...),
 		CreatedAt:       item.CreatedAt,
 		UpdatedAt:       item.UpdatedAt,

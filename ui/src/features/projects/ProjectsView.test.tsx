@@ -136,7 +136,17 @@ vi.mock("../../lib/api", async (importOriginal) => {
         project: {
           id: "proj_1",
           name: "Hecate",
-          roots: [],
+          roots: [
+            {
+              id: "root_1",
+              path: "/Users/alice/dev/hecate",
+              kind: "git",
+              git_branch: "main",
+              active: true,
+              created_at: "2026-06-01T10:00:00Z",
+              updated_at: "2026-06-01T10:00:00Z",
+            },
+          ],
           created_at: "2026-06-01T10:00:00Z",
           updated_at: "2026-06-01T11:00:00Z",
         },
@@ -149,6 +159,7 @@ vi.mock("../../lib/api", async (importOriginal) => {
           priority: "high",
           owner_role_id: "software_developer",
           reviewer_role_ids: ["reviewer_qa"],
+          root_id: "root_1",
           created_at: "2026-06-02T10:00:00Z",
           updated_at: "2026-06-02T11:00:00Z",
         },
@@ -219,6 +230,7 @@ vi.mock("../../lib/api", async (importOriginal) => {
               project_id: "proj_1",
               work_item_id: "work_1",
               role_id: "software_developer",
+              root_id: "root_1",
               driver_kind: "hecate_task",
               status: "queued",
             },
@@ -325,6 +337,7 @@ const workItem: ProjectWorkItemRecord = {
   priority: "high",
   owner_role_id: "software_developer",
   reviewer_role_ids: ["reviewer_qa"],
+  root_id: "root_1",
   created_at: "2026-06-02T10:00:00Z",
   updated_at: "2026-06-02T11:00:00Z",
 };
@@ -611,6 +624,7 @@ function resetProjectWorkMocks() {
         priority: workItem.priority,
         owner_role_id: workItem.owner_role_id,
         reviewer_role_ids: workItem.reviewer_role_ids,
+        root_id: workItem.root_id,
         created_at: workItem.created_at,
         updated_at: workItem.updated_at,
       },
@@ -799,6 +813,7 @@ function resetProjectWorkMocks() {
             project_id: project.id,
             work_item_id: workItem.id,
             role_id: role.id,
+            root_id: workItem.root_id,
             driver_kind: "hecate_task",
             status: "queued",
           },
@@ -1719,6 +1734,7 @@ describe("ProjectsView cockpit", () => {
           title: workItem.title,
           status: workItem.status,
           owner_role_id: workItem.owner_role_id,
+          root_id: workItem.root_id,
           created_at: workItem.created_at,
           updated_at: workItem.updated_at,
         },
@@ -1887,6 +1903,7 @@ describe("ProjectsView cockpit", () => {
               project_id: project.id,
               work_item_id: workItem.id,
               role_id: role.id,
+              root_id: workItem.root_id,
               driver_kind: "hecate_task",
               status: "queued",
             },
@@ -4604,7 +4621,7 @@ describe("ProjectsView cockpit", () => {
       status: "review",
       priority: "urgent",
       owner_role_id: "software_developer",
-      root_id: "",
+      root_id: workItem.root_id,
       reviewer_role_ids: ["reviewer_qa"],
     });
 
@@ -4687,16 +4704,9 @@ describe("ProjectsView cockpit", () => {
     });
   });
 
-  it("prepares a default assignment from a pristine work item", async () => {
+  it("drafts a guided assignment proposal from a pristine work item", async () => {
     resetProjectWorkMocks();
     const emptyWorkItem = { ...workItem, reviewer_role_ids: [], assignments: [] };
-    const preparedAssignment: ProjectAssignmentRecord = {
-      ...hecateAssignment,
-      id: "asgn_default",
-      status: "queued",
-      execution: undefined,
-      execution_ref: { kind: "none" },
-    };
     vi.mocked(getProjectWorkItems).mockResolvedValue({
       object: "project_work_items",
       data: [emptyWorkItem],
@@ -4709,14 +4719,6 @@ describe("ProjectsView cockpit", () => {
       object: "project_assignments",
       data: [],
     });
-    vi.mocked(getProjectAssignments).mockResolvedValue({
-      object: "project_assignments",
-      data: [preparedAssignment],
-    });
-    vi.mocked(createProjectAssignment).mockResolvedValueOnce({
-      object: "project_assignment",
-      data: preparedAssignment,
-    });
     window.localStorage.setItem("hecate.project", project.id);
     const state = createRuntimeConsoleFixture({
       projects: [project],
@@ -4725,25 +4727,20 @@ describe("ProjectsView cockpit", () => {
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
     const detail = await screen.findByRole("region", { name: "Selected work item" });
-    await within(detail).findByText("Ready to prepare the first assignment");
-    await userEvent.click(
-      within(detail).getByRole("button", { name: "Prepare Software developer" }),
-    );
+    await within(detail).findByText("Ready to queue the first assignment");
+    await userEvent.click(within(detail).getByRole("button", { name: "Draft assignment" }));
 
     await waitFor(() =>
-      expect(createProjectAssignment).toHaveBeenCalledWith(project.id, workItem.id, {
-        role_id: "software_developer",
-        driver_kind: "hecate_task",
+      expect(draftProjectAssistant).toHaveBeenCalledWith({
+        project_id: project.id,
+        work_item_id: workItem.id,
+        request: "Queue Software developer for Build cockpit UI",
       }),
     );
-    expect(
-      await screen.findByRole("dialog", { name: "Assignment asgn_default launch preflight" }),
-    ).toBeTruthy();
-    expect(getProjectAssignmentPreflight).toHaveBeenCalledWith(
-      project.id,
-      workItem.id,
-      "asgn_default",
-    );
+    const assistant = await screen.findByRole("region", { name: "Project Assistant" });
+    expect(await within(assistant).findByText("Create assignment")).toBeTruthy();
+    expect(createProjectAssignment).not.toHaveBeenCalled();
+    expect(getProjectAssignmentPreflight).not.toHaveBeenCalled();
     expect(startProjectAssignment).not.toHaveBeenCalled();
   });
 
