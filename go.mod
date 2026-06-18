@@ -3,9 +3,7 @@ module github.com/hecatehq/hecate
 go 1.26.2
 
 require (
-	github.com/aymanbagabas/go-pty v0.2.3
 	github.com/coder/acp-go-sdk v0.13.5
-	github.com/coder/websocket v1.8.15
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/ncruces/zenity v0.10.14
 	github.com/spf13/cobra v1.10.2
@@ -32,7 +30,6 @@ require (
 	github.com/akavel/rsrc v0.10.2 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/creack/pty v1.1.24 // indirect
 	github.com/dchest/jsmin v0.0.0-20220218165748-59f39799265f // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
@@ -49,10 +46,8 @@ require (
 	github.com/randall77/makefat v0.0.0-20210315173500-7ddd0e42c844 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
-	github.com/u-root/u-root v0.16.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.44.0 // indirect
-	golang.org/x/crypto v0.51.0 // indirect
 	golang.org/x/image v0.38.0 // indirect
 	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect

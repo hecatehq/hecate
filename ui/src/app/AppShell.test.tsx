@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ConsoleShell, getAvailableWorkspaces } from "./AppShell";
@@ -47,16 +47,6 @@ vi.mock("../lib/api", async (importOriginal) => {
     getProjectHandoffs: vi.fn(async () => ({ object: "project_handoffs", data: [] })),
   };
 });
-
-vi.mock("../features/terminal/TerminalPanel", () => ({
-  TerminalPanel: ({ workspace, onClose }: { workspace: string; onClose: () => void }) => (
-    <section aria-label="Embedded terminal" data-workspace={workspace}>
-      <button onClick={onClose} type="button">
-        close terminal
-      </button>
-    </section>
-  ),
-}));
 
 function emptyActivityData() {
   return {
@@ -234,50 +224,6 @@ describe("ConsoleShell titlebar", () => {
       }),
     );
     expect(container.querySelector(".hecate-titlebar")).toBeNull();
-  });
-});
-
-describe("ConsoleShell terminal", () => {
-  it("shows a global terminal button when the runtime advertises terminal support", () => {
-    const state = createRuntimeConsoleFixture({
-      agentWorkspace: "/Users/alice/project",
-      sessionInfo: {
-        role: "operator",
-        capabilities: { embedded_terminal: true },
-      },
-    });
-    render(
-      withRuntimeConsole(<ConsoleShell activeWorkspace="overview" onSelectWorkspace={() => {}} />, {
-        state,
-        actions: createRuntimeConsoleActions(),
-      }),
-    );
-
-    const navigation = screen.getByRole("navigation", { name: "Workspace navigation" });
-    const terminalButton = within(navigation).getByRole("button", { name: "Open terminal" });
-
-    fireEvent.click(terminalButton);
-
-    const terminal = screen.getByRole("region", { name: "Embedded terminal" });
-    expect(terminal).toHaveAttribute("data-workspace", "/Users/alice/project");
-    expect(screen.getByRole("button", { name: "Close terminal" })).toBeInTheDocument();
-  });
-
-  it("hides the terminal button when the runtime does not advertise terminal support", () => {
-    const state = createRuntimeConsoleFixture({
-      sessionInfo: {
-        role: "operator",
-        capabilities: { embedded_terminal: false },
-      },
-    });
-    render(
-      withRuntimeConsole(<ConsoleShell activeWorkspace="overview" onSelectWorkspace={() => {}} />, {
-        state,
-        actions: createRuntimeConsoleActions(),
-      }),
-    );
-
-    expect(screen.queryByRole("button", { name: "Open terminal" })).not.toBeInTheDocument();
   });
 });
 

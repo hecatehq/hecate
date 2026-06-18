@@ -157,8 +157,6 @@ var remoteRuntimeAllowedRoutes = []remoteRuntimeRoutePattern{
 	{method: http.MethodGet, path: "/hecate/v1/system/mcp/cache"},
 	{method: http.MethodGet, path: "/hecate/v1/usage/events"},
 	{method: http.MethodGet, path: "/hecate/v1/usage/summary"},
-	{method: http.MethodPost, path: "/hecate/v1/terminal/sessions"},
-	{method: http.MethodGet, path: "/hecate/v1/terminal"},
 
 	{method: http.MethodGet, path: "/hecate/v1/settings"},
 	{method: http.MethodPost, path: "/hecate/v1/settings/providers"},

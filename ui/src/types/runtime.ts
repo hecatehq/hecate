@@ -17,17 +17,8 @@ export type SessionResponse = {
       runtime_id: string;
     };
     capabilities?: {
-      embedded_terminal?: boolean;
+      local_providers_allowed?: boolean;
     };
-  };
-};
-
-export type TerminalSessionResponse = {
-  object: "terminal_session";
-  data: {
-    token: string;
-    workspace: string;
-    expires_at: string;
   };
 };
 

@@ -11,7 +11,6 @@ import { useWiredSettingsActions } from "./state/coordinators/wired";
 import { deriveSessionState } from "./runtimeConsoleDashboard";
 import type { ChatUsageRecord } from "../types/chat";
 import { UpdateBanner } from "../features/shared/UpdateBanner";
-import { TerminalPanel } from "../features/terminal/TerminalPanel";
 import { usePersistedState } from "../lib/persistedState";
 import { isTauriOnMacOS } from "../lib/tauri";
 import type { ProviderFilter } from "../types/provider";
@@ -103,7 +102,7 @@ const IC = {
     "M15.75 3.75v3.75",
   ],
   // Settings — gear/cog. Distinct from any tab/inline icon so the
-  // activity bar's terminal entry reads as configuration at a glance.
+  // activity bar's configuration entry reads as configuration at a glance.
   settings: [
     "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z",
     "M15 12a3 3 0 11-6 0 3 3 0 016 0z",
@@ -113,11 +112,6 @@ const IC = {
     "M8 7h8",
     "M8 11h8",
     "M8 15h5",
-  ],
-  terminal: [
-    "M4 5.5A1.5 1.5 0 015.5 4h13A1.5 1.5 0 0120 5.5v13a1.5 1.5 0 01-1.5 1.5h-13A1.5 1.5 0 014 18.5v-13z",
-    "M8 9l3 3-3 3",
-    "M13 15h4",
   ],
 };
 
@@ -306,7 +300,6 @@ function AuthenticatedShell({
   const [taskFocusRequest, setTaskFocusRequest] = useState<TaskFocusRequest | null>(null);
   const [traceFocusRequest, setTraceFocusRequest] = useState<TraceFocusRequest | null>(null);
   const [theme, toggleTheme] = useTheme();
-  const [terminalOpen, setTerminalOpen] = useState(false);
 
   function openTaskFromChat(taskID: string, runID?: string) {
     setTaskFocusRequest({ taskID, runID, nonce: Date.now() });
@@ -362,7 +355,6 @@ function AuthenticatedShell({
     chat.state.activeChatSession?.workspace_branch || chat.state.agentWorkspaceBranch;
   const agentUsage = latestAgentUsage(chat.state.activeChatSession);
   const agentUsageLabel = formatAgentUsagePill(agentUsage);
-  const terminalAvailable = Boolean(runtime.state.sessionInfo?.capabilities?.embedded_terminal);
 
   // Only macOS gets the overlay-titlebar surface. titleBarStyle:
   // "Overlay" is a macOS-only Tauri config; on Linux/Windows the OS
@@ -400,18 +392,6 @@ function AuthenticatedShell({
               {ws.icon}
             </button>
           ))}
-          {terminalAvailable && (
-            <button
-              aria-expanded={terminalOpen}
-              aria-label={terminalOpen ? "Close terminal" : "Open terminal"}
-              className={`hecate-activitybtn${terminalOpen ? " hecate-activitybtn--active" : ""}`}
-              onClick={() => setTerminalOpen((open) => !open)}
-              title={terminalOpen ? "Close terminal" : "Open terminal"}
-              type="button"
-            >
-              <SvgIcon d={IC.terminal} size={17} />
-            </button>
-          )}
           {/* Pin theme toggle to the bottom of the rail. The flex spacer
               keeps it visually separated from workspace icons regardless
               of how many workspaces are registered. */}
@@ -469,10 +449,6 @@ function AuthenticatedShell({
           </div>
         </main>
       </div>
-
-      {terminalOpen && terminalAvailable && (
-        <TerminalPanel workspace={agentWorkspace || ""} onClose={() => setTerminalOpen(false)} />
-      )}
 
       {/* Status bar */}
       <div className="hecate-statusbar">

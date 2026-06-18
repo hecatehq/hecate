@@ -5,7 +5,6 @@ import type {
   RuntimeStatsResponse,
   SessionResponse,
   SystemResetDataResponse,
-  TerminalSessionResponse,
 } from "../types/runtime";
 import type { ModelResponse } from "../types/model";
 import type { ContextPacketResponse } from "../types/context";
@@ -1201,13 +1200,6 @@ export async function openWorkspaceTargetViaAPI(path: string, target: string): P
   return fetchJSON(`${HECATE_API}/workspace-open`, {
     method: "POST",
     body: { path, target },
-  });
-}
-
-export async function createTerminalSession(workspace: string): Promise<TerminalSessionResponse> {
-  return fetchJSON<TerminalSessionResponse>(`${HECATE_API}/terminal/sessions`, {
-    method: "POST",
-    body: { workspace },
   });
 }
 

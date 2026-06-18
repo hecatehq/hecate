@@ -177,13 +177,6 @@ func RuntimeTokenMiddleware(token string) middleware {
 			return next
 		}
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Browsers cannot attach custom headers during a WebSocket upgrade.
-			// The protected POST /terminal/sessions route mints a short-lived,
-			// one-use ticket; the GET upgrade only consumes that ticket.
-			if isTerminalWebSocketTicketRequest(r) {
-				next.ServeHTTP(w, r)
-				return
-			}
 			if _, ok := remoteruntime.FromContext(r.Context()); ok || !isHecateAPIPath(r.URL.Path) || runtimeTokenMatches(r.Header.Get(runtimeTokenHeader), token) {
 				next.ServeHTTP(w, r)
 				return
@@ -191,10 +184,6 @@ func RuntimeTokenMiddleware(token string) middleware {
 			WriteError(w, http.StatusUnauthorized, errCodeUnauthorized, "runtime token is required")
 		})
 	}
-}
-
-func isTerminalWebSocketTicketRequest(r *http.Request) bool {
-	return r.Method == http.MethodGet && r.URL.Path == "/hecate/v1/terminal" && strings.TrimSpace(r.URL.Query().Get("token")) != ""
 }
 
 func RemoteRuntimeIdentityMiddleware(enabled bool, secret string) middleware {
@@ -205,13 +194,6 @@ func RemoteRuntimeIdentityMiddleware(enabled bool, secret string) middleware {
 		}
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == "/healthz" {
-				next.ServeHTTP(w, r)
-				return
-			}
-			// Browsers cannot attach the cloud-runtime identity headers during
-			// a WebSocket upgrade. The protected POST /terminal/sessions route
-			// mints a one-use ticket; the GET upgrade only consumes it.
-			if isTerminalWebSocketTicketRequest(r) {
 				next.ServeHTTP(w, r)
 				return
 			}
