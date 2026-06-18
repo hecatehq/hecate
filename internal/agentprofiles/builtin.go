@@ -5,8 +5,8 @@ import (
 	"time"
 )
 
-func BuiltInProfiles() []Profile {
-	profiles := []Profile{
+var (
+	builtInProfiles = normalizeBuiltInProfiles([]Profile{
 		{
 			ID:                  "project_assignment",
 			Name:                "Project Assignment",
@@ -147,7 +147,28 @@ func BuiltInProfiles() []Profile {
 			ProjectMemoryPolicy: MemoryVisibleOnly,
 			ContextSourcePolicy: ContextVisibleOnly,
 		},
+	})
+	builtInProfilesByID = indexBuiltInProfiles(builtInProfiles)
+)
+
+func BuiltInProfiles() []Profile {
+	return cloneProfiles(builtInProfiles)
+}
+
+func BuiltInProfile(id string) (Profile, bool) {
+	profile, ok := builtInProfilesByID[strings.TrimSpace(id)]
+	if !ok {
+		return Profile{}, false
 	}
+	return cloneProfile(profile), true
+}
+
+func IsBuiltInProfileID(id string) bool {
+	_, ok := builtInProfilesByID[strings.TrimSpace(id)]
+	return ok
+}
+
+func normalizeBuiltInProfiles(profiles []Profile) []Profile {
 	for idx := range profiles {
 		profiles[idx] = normalizeProfile(profiles[idx], profiles[idx].UpdatedAt)
 		profiles[idx].BuiltIn = true
@@ -158,17 +179,10 @@ func BuiltInProfiles() []Profile {
 	return profiles
 }
 
-func BuiltInProfile(id string) (Profile, bool) {
-	id = strings.TrimSpace(id)
-	for _, profile := range BuiltInProfiles() {
-		if profile.ID == id {
-			return cloneProfile(profile), true
-		}
+func indexBuiltInProfiles(profiles []Profile) map[string]Profile {
+	index := make(map[string]Profile, len(profiles))
+	for _, profile := range profiles {
+		index[profile.ID] = cloneProfile(profile)
 	}
-	return Profile{}, false
-}
-
-func IsBuiltInProfileID(id string) bool {
-	_, ok := BuiltInProfile(id)
-	return ok
+	return index
 }

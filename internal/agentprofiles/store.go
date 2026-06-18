@@ -113,6 +113,9 @@ func (s *MemoryStore) List(_ context.Context) ([]Profile, error) {
 	defer s.mu.Unlock()
 	items := BuiltInProfiles()
 	for _, profile := range s.profiles {
+		if IsBuiltInProfileID(profile.ID) {
+			continue
+		}
 		items = append(items, cloneProfile(profile))
 	}
 	sortProfiles(items)
@@ -226,6 +229,14 @@ func cloneProfile(profile Profile) Profile {
 	profile.SkillIDs = append([]string(nil), profile.SkillIDs...)
 	profile.ExternalAgentOptions = cloneStringMap(profile.ExternalAgentOptions)
 	return profile
+}
+
+func cloneProfiles(profiles []Profile) []Profile {
+	out := make([]Profile, 0, len(profiles))
+	for _, profile := range profiles {
+		out = append(out, cloneProfile(profile))
+	}
+	return out
 }
 
 func sortProfiles(items []Profile) {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/hecatehq/hecate/internal/storage"
 )
@@ -108,5 +109,26 @@ func TestSQLiteStore_BuiltInProfiles(t *testing.T) {
 	}
 	if err := store.Delete(ctx, "safe_external_review"); !errors.Is(err, ErrBuiltIn) {
 		t.Fatalf("Delete built-in error = %v, want ErrBuiltIn", err)
+	}
+	legacy := normalizeProfile(Profile{
+		ID:   "safe_external_review",
+		Name: "Legacy Collision",
+	}, time.Now().UTC())
+	if err := store.upsert(ctx, legacy); err != nil {
+		t.Fatalf("seed legacy built-in collision: %v", err)
+	}
+	items, err := store.List(ctx)
+	if err != nil {
+		t.Fatalf("List with legacy built-in collision: %v", err)
+	}
+	if countProfileID(items, "safe_external_review") != 1 {
+		t.Fatalf("items = %+v, want exactly one safe_external_review built-in", items)
+	}
+	profile, ok, err = store.Get(ctx, "safe_external_review")
+	if err != nil || !ok {
+		t.Fatalf("Get colliding built-in ok=%v err=%v, want safe external review profile", ok, err)
+	}
+	if !profile.BuiltIn || profile.Name == "Legacy Collision" {
+		t.Fatalf("colliding profile = %+v, want built-in to shadow stored row", profile)
 	}
 }

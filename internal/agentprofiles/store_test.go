@@ -101,6 +101,23 @@ func TestMemoryStore_BuiltInProfiles(t *testing.T) {
 	if err := store.Delete(ctx, "implementation"); !errors.Is(err, ErrBuiltIn) {
 		t.Fatalf("Delete built-in error = %v, want ErrBuiltIn", err)
 	}
+	store.mu.Lock()
+	store.profiles["implementation"] = Profile{ID: "implementation", Name: "Legacy Collision"}
+	store.mu.Unlock()
+	items, err := store.List(ctx)
+	if err != nil {
+		t.Fatalf("List with legacy built-in collision: %v", err)
+	}
+	if countProfileID(items, "implementation") != 1 {
+		t.Fatalf("items = %+v, want exactly one implementation built-in", items)
+	}
+	profile, ok, err = store.Get(ctx, "implementation")
+	if err != nil || !ok {
+		t.Fatalf("Get colliding built-in ok=%v err=%v, want implementation profile", ok, err)
+	}
+	if !profile.BuiltIn || profile.Name == "Legacy Collision" {
+		t.Fatalf("colliding profile = %+v, want built-in to shadow stored row", profile)
+	}
 }
 
 func TestMemoryStore_Validation(t *testing.T) {
@@ -120,10 +137,15 @@ func TestMemoryStore_Validation(t *testing.T) {
 }
 
 func profileIDExists(items []Profile, id string) bool {
+	return countProfileID(items, id) > 0
+}
+
+func countProfileID(items []Profile, id string) int {
+	count := 0
 	for _, item := range items {
 		if item.ID == id {
-			return true
+			count++
 		}
 	}
-	return false
+	return count
 }
