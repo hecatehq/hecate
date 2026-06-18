@@ -66,8 +66,8 @@ func TestMemoryStore_ProfileRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if len(items) != 1 || items[0].ID != "prof_backend" {
-		t.Fatalf("items = %+v, want created profile", items)
+	if !profileIDExists(items, "implementation") || !profileIDExists(items, "prof_backend") {
+		t.Fatalf("items = %+v, want built-ins plus created profile", items)
 	}
 
 	if err := store.Delete(ctx, "prof_backend"); err != nil {
@@ -75,6 +75,31 @@ func TestMemoryStore_ProfileRoundTrip(t *testing.T) {
 	}
 	if err := store.Delete(ctx, "prof_backend"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Delete missing error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestMemoryStore_BuiltInProfiles(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := NewMemoryStore()
+
+	profile, ok, err := store.Get(ctx, "implementation")
+	if err != nil || !ok {
+		t.Fatalf("Get built-in ok=%v err=%v, want implementation profile", ok, err)
+	}
+	if !profile.BuiltIn || profile.ExecutionProfile != "coding_agent" || !profile.WritesAllowed {
+		t.Fatalf("built-in profile = %+v, want coding implementation posture", profile)
+	}
+	if _, err := store.Create(ctx, Profile{ID: "implementation", Name: "Override"}); !errors.Is(err, ErrBuiltIn) {
+		t.Fatalf("Create built-in error = %v, want ErrBuiltIn", err)
+	}
+	if _, err := store.Update(ctx, "implementation", func(profile *Profile) {
+		profile.Name = "Override"
+	}); !errors.Is(err, ErrBuiltIn) {
+		t.Fatalf("Update built-in error = %v, want ErrBuiltIn", err)
+	}
+	if err := store.Delete(ctx, "implementation"); !errors.Is(err, ErrBuiltIn) {
+		t.Fatalf("Delete built-in error = %v, want ErrBuiltIn", err)
 	}
 }
 
@@ -92,4 +117,13 @@ func TestMemoryStore_Validation(t *testing.T) {
 	if _, err := store.Create(ctx, Profile{ID: "prof_bad_policy", Name: "Bad", ApprovalPolicy: "sometimes"}); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("Create bad policy error = %v, want ErrInvalid", err)
 	}
+}
+
+func profileIDExists(items []Profile, id string) bool {
+	for _, item := range items {
+		if item.ID == id {
+			return true
+		}
+	}
+	return false
 }

@@ -682,7 +682,7 @@ func TestProjectWorkAPI_StartAssignmentCreatesNativeTaskRun(t *testing.T) {
 	if runResp.Data.ProjectID != "proj_start" || runResp.Data.WorkItemID != "work_start" || runResp.Data.AssignmentID != "asgn_start" {
 		t.Fatalf("run response linkage = project %q work %q assignment %q, want proj_start/work_start/asgn_start", runResp.Data.ProjectID, runResp.Data.WorkItemID, runResp.Data.AssignmentID)
 	}
-	if task.RequestedProvider != "anthropic" || task.RequestedModel != "claude-sonnet-4" || task.ExecutionProfile != "implementation" {
+	if task.RequestedProvider != "anthropic" || task.RequestedModel != "claude-sonnet-4" || task.ExecutionProfile != "coding_agent" {
 		t.Fatalf("task provider/model/profile = %q/%q/%q, want role defaults", task.RequestedProvider, task.RequestedModel, task.ExecutionProfile)
 	}
 	if task.WorkingDirectory != workspace || task.SandboxAllowedRoot != workspace || task.WorkspaceMode != "in_place" {
@@ -733,8 +733,8 @@ func TestProjectWorkAPI_PreflightAssignmentReturnsLaunchContextWithoutSideEffect
 	if packetResp.Data.ExecutionMode != chat.ExecutionModeHecateTask || packetResp.Data.Provider != "anthropic" || packetResp.Data.Model != "claude-sonnet-4" {
 		t.Fatalf("preflight mode/provider/model = %q/%q/%q, want native task launch hints", packetResp.Data.ExecutionMode, packetResp.Data.Provider, packetResp.Data.Model)
 	}
-	if packetResp.Data.ExecutionProfile != "implementation" || packetResp.Data.Workspace != workspace {
-		t.Fatalf("preflight profile/workspace = %q/%q, want implementation/%q", packetResp.Data.ExecutionProfile, packetResp.Data.Workspace, workspace)
+	if packetResp.Data.ExecutionProfile != "coding_agent" || packetResp.Data.Workspace != workspace {
+		t.Fatalf("preflight profile/workspace = %q/%q, want coding_agent/%q", packetResp.Data.ExecutionProfile, packetResp.Data.Workspace, workspace)
 	}
 	if packetResp.Data.Refs == nil || packetResp.Data.Refs.ProjectID != "proj_start" || packetResp.Data.Refs.WorkItemID != "work_start" || packetResp.Data.Refs.AssignmentID != "asgn_start" || packetResp.Data.Refs.RoleID != "role_backend" {
 		t.Fatalf("preflight refs = %+v, want project/work/assignment/role refs", packetResp.Data.Refs)
@@ -976,9 +976,20 @@ func TestProjectWorkAPI_StartAssignmentPersistsInspectableContextPacket(t *testi
 	handler.SetMemoryStore(memory.NewMemoryStore())
 	workspace := t.TempDir()
 	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
-		Workspace: workspace,
-		Driver:    projectwork.AssignmentDriverHecateTask,
+		Workspace:        workspace,
+		Driver:           projectwork.AssignmentDriverHecateTask,
+		RoleAgentProfile: "prof_packet_visible",
 	})
+	if _, err := handler.agentProfiles.Create(t.Context(), agentprofiles.Profile{
+		ID:                  "prof_packet_visible",
+		Name:                "Packet visible-only",
+		Surface:             agentprofiles.SurfaceHecateTask,
+		ExecutionProfile:    "repo_local",
+		ProjectMemoryPolicy: agentprofiles.MemoryVisibleOnly,
+		ContextSourcePolicy: agentprofiles.ContextVisibleOnly,
+	}); err != nil {
+		t.Fatalf("Create profile: %v", err)
+	}
 	if _, err := handler.projects.Update(t.Context(), "proj_start", func(project *projects.Project) {
 		project.ContextSources = []projects.ContextSource{{
 			ID:      "ctx_readme",
@@ -1054,8 +1065,8 @@ func TestProjectWorkAPI_StartAssignmentPersistsInspectableContextPacket(t *testi
 	if packetResp.Data.ID != ref.ContextSnapshotID {
 		t.Fatalf("task run context id = %q, want %q", packetResp.Data.ID, ref.ContextSnapshotID)
 	}
-	if packetResp.Data.ExecutionProfile != "implementation" {
-		t.Fatalf("execution_profile = %q, want implementation", packetResp.Data.ExecutionProfile)
+	if packetResp.Data.ExecutionProfile != "repo_local" {
+		t.Fatalf("execution_profile = %q, want repo_local", packetResp.Data.ExecutionProfile)
 	}
 	if packetResp.Data.Refs == nil || packetResp.Data.Refs.ProjectID != "proj_start" || packetResp.Data.Refs.WorkItemID != "work_start" || packetResp.Data.Refs.AssignmentID != "asgn_start" || packetResp.Data.Refs.RoleID != "role_backend" {
 		t.Fatalf("packet refs = %+v, want project/work/assignment/role refs", packetResp.Data.Refs)
@@ -1137,15 +1148,17 @@ func TestProjectWorkAPI_StartAssignmentAppliesProfileContextPolicies(t *testing.
 			handler, server := newProjectWorkTestServer()
 			handler.SetMemoryStore(memory.NewMemoryStore())
 			workspace := t.TempDir()
+			profileID := "prof_policy_" + strings.ReplaceAll(tc.name, " ", "_")
 			seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
-				Workspace: workspace,
-				Driver:    projectwork.AssignmentDriverHecateTask,
+				Workspace:        workspace,
+				Driver:           projectwork.AssignmentDriverHecateTask,
+				RoleAgentProfile: profileID,
 			})
 			if _, err := handler.agentProfiles.Create(t.Context(), agentprofiles.Profile{
-				ID:                  "implementation",
+				ID:                  profileID,
 				Name:                "Implementation",
 				Surface:             agentprofiles.SurfaceHecateTask,
-				ExecutionProfile:    "implementation",
+				ExecutionProfile:    "repo_local",
 				ToolsEnabled:        true,
 				WritesAllowed:       true,
 				ProjectMemoryPolicy: tc.memoryPolicy,
@@ -1222,14 +1235,15 @@ func TestProjectWorkAPI_StartAssignmentIncludesExplicitPromptContext(t *testing.
 		t.Fatalf("Write CLAUDE.md: %v", err)
 	}
 	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
-		Workspace: workspace,
-		Driver:    projectwork.AssignmentDriverHecateTask,
+		Workspace:        workspace,
+		Driver:           projectwork.AssignmentDriverHecateTask,
+		RoleAgentProfile: "prof_prompt_context",
 	})
 	if _, err := handler.agentProfiles.Create(t.Context(), agentprofiles.Profile{
-		ID:                  "implementation",
+		ID:                  "prof_prompt_context",
 		Name:                "Implementation",
 		Surface:             agentprofiles.SurfaceHecateTask,
-		ExecutionProfile:    "implementation",
+		ExecutionProfile:    "repo_local",
 		ProjectMemoryPolicy: agentprofiles.MemoryInclude,
 		ContextSourcePolicy: agentprofiles.ContextIncludeEnabled,
 	}); err != nil {
@@ -1328,14 +1342,15 @@ func TestProjectWorkAPI_StartAssignmentKeepsVisibleOnlyPromptContextOutOfSystemP
 		t.Fatalf("Write AGENTS.md: %v", err)
 	}
 	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
-		Workspace: workspace,
-		Driver:    projectwork.AssignmentDriverHecateTask,
+		Workspace:        workspace,
+		Driver:           projectwork.AssignmentDriverHecateTask,
+		RoleAgentProfile: "prof_visible_context",
 	})
 	if _, err := handler.agentProfiles.Create(t.Context(), agentprofiles.Profile{
-		ID:                  "implementation",
+		ID:                  "prof_visible_context",
 		Name:                "Implementation",
 		Surface:             agentprofiles.SurfaceHecateTask,
-		ExecutionProfile:    "implementation",
+		ExecutionProfile:    "repo_local",
 		ProjectMemoryPolicy: agentprofiles.MemoryVisibleOnly,
 		ContextSourcePolicy: agentprofiles.ContextVisibleOnly,
 	}); err != nil {
@@ -1402,14 +1417,15 @@ func TestProjectWorkAPI_StartAssignmentTruncatesPromptContext(t *testing.T) {
 	handler.SetMemoryStore(memory.NewMemoryStore())
 	workspace := t.TempDir()
 	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
-		Workspace: workspace,
-		Driver:    projectwork.AssignmentDriverHecateTask,
+		Workspace:        workspace,
+		Driver:           projectwork.AssignmentDriverHecateTask,
+		RoleAgentProfile: "prof_truncate_context",
 	})
 	if _, err := handler.agentProfiles.Create(t.Context(), agentprofiles.Profile{
-		ID:                  "implementation",
+		ID:                  "prof_truncate_context",
 		Name:                "Implementation",
 		Surface:             agentprofiles.SurfaceHecateTask,
-		ExecutionProfile:    "implementation",
+		ExecutionProfile:    "repo_local",
 		ProjectMemoryPolicy: agentprofiles.MemoryInclude,
 		ContextSourcePolicy: agentprofiles.ContextVisibleOnly,
 	}); err != nil {
@@ -2937,6 +2953,7 @@ type projectWorkAssignmentStartSeed struct {
 	TaskID              string
 	RunID               string
 	ProjectAgentProfile string
+	RoleAgentProfile    string
 	WithoutRoleDefaults bool
 }
 
@@ -2969,7 +2986,10 @@ func seedProjectWorkAssignmentStartTest(t *testing.T, handler *Handler, seed pro
 	if !seed.WithoutRoleDefaults {
 		role.DefaultProvider = "anthropic"
 		role.DefaultModel = "claude-sonnet-4"
-		role.DefaultAgentProfile = "implementation"
+		role.DefaultAgentProfile = strings.TrimSpace(seed.RoleAgentProfile)
+		if role.DefaultAgentProfile == "" {
+			role.DefaultAgentProfile = "implementation"
+		}
 	}
 	if _, err := handler.projectWork.CreateRole(t.Context(), role); err != nil {
 		t.Fatalf("CreateRole: %v", err)

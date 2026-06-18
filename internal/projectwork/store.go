@@ -247,14 +247,14 @@ func (s *MemoryStore) Backend() string {
 func BuiltInRoleProfiles(projectID string) []AgentRoleProfile {
 	projectID = strings.TrimSpace(projectID)
 	roles := []AgentRoleProfile{
-		{ID: "product_manager", Name: "Product Manager", Description: "Shapes product intent, scope, and acceptance criteria."},
-		{ID: "architect", Name: "Architect", Description: "Owns technical direction, boundaries, and system trade-offs."},
-		{ID: "software_developer", Name: "Software Developer", Description: "Implements backend and shared application behavior."},
-		{ID: "frontend_engineer", Name: "Frontend Engineer", Description: "Implements user-facing application surfaces."},
-		{ID: "designer", Name: "Designer", Description: "Owns interaction, information architecture, and visual quality."},
-		{ID: "sre", Name: "SRE", Description: "Owns deployability, reliability, observability, and operations."},
-		{ID: "tech_writer", Name: "Technical Writer", Description: "Turns implementation and decisions into clear operator-facing docs."},
-		{ID: "reviewer_qa", Name: "Reviewer QA", Description: "Reviews behavior, risks, regressions, and verification gaps."},
+		{ID: "product_manager", Name: "Product Manager", Description: "Shapes product intent, scope, and acceptance criteria.", DefaultDriverKind: AssignmentDriverHecateTask, DefaultAgentProfile: "planning"},
+		{ID: "architect", Name: "Architect", Description: "Owns technical direction, boundaries, and system trade-offs.", DefaultDriverKind: AssignmentDriverHecateTask, DefaultAgentProfile: "architecture"},
+		{ID: "software_developer", Name: "Software Developer", Description: "Implements backend and shared application behavior.", DefaultDriverKind: AssignmentDriverHecateTask, DefaultAgentProfile: "implementation"},
+		{ID: "frontend_engineer", Name: "Frontend Engineer", Description: "Implements user-facing application surfaces.", DefaultDriverKind: AssignmentDriverHecateTask, DefaultAgentProfile: "frontend_implementation"},
+		{ID: "designer", Name: "Designer", Description: "Owns interaction, information architecture, and visual quality.", DefaultDriverKind: AssignmentDriverHecateTask, DefaultAgentProfile: "design_review"},
+		{ID: "sre", Name: "SRE", Description: "Owns deployability, reliability, observability, and operations.", DefaultDriverKind: AssignmentDriverHecateTask, DefaultAgentProfile: "reliability_ops"},
+		{ID: "tech_writer", Name: "Technical Writer", Description: "Turns implementation and decisions into clear operator-facing docs.", DefaultDriverKind: AssignmentDriverHecateTask, DefaultAgentProfile: "documentation"},
+		{ID: "reviewer_qa", Name: "Reviewer QA", Description: "Reviews behavior, risks, regressions, and verification gaps.", DefaultDriverKind: AssignmentDriverHecateTask, DefaultAgentProfile: "review_qa"},
 	}
 	for idx := range roles {
 		roles[idx].ProjectID = projectID

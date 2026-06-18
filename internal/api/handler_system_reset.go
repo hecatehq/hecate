@@ -184,6 +184,9 @@ func (h *Handler) resetAgentProfiles(ctx context.Context) (int, error) {
 	}
 	deleted := 0
 	for _, item := range items {
+		if item.BuiltIn {
+			continue
+		}
 		if err := h.agentProfiles.Delete(ctx, item.ID); err != nil {
 			return deleted, err
 		}

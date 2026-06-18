@@ -29,6 +29,9 @@ project skills registry exposes local `SKILL.md` metadata for roles/profiles
 without granting tools, injecting bodies, or executing skill scripts. The
 operator UI can manage agent profiles and pick registered project skills for
 roles/profiles; those selections remain metadata until launch-time resolution.
+Agent profile responses include immutable built-in profiles such as
+`implementation`, `planning`, and `review_qa`; those built-ins are selectable
+defaults, not persisted rows or operator-editable project memory.
 Project roots are concrete checkouts, not project identity: one project can span
 the main checkout and linked Git worktrees, while newly discovered worktree roots
 stay inactive until the operator enables them. Context discovery must not treat

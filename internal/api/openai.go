@@ -302,6 +302,7 @@ type AgentProfileResponseItem struct {
 	SkillIDs             []string          `json:"skill_ids,omitempty"`
 	ExternalAgentKind    string            `json:"external_agent_kind,omitempty"`
 	ExternalAgentOptions map[string]string `json:"external_agent_options,omitempty"`
+	BuiltIn              bool              `json:"built_in"`
 	CreatedAt            string            `json:"created_at,omitempty"`
 	UpdatedAt            string            `json:"updated_at,omitempty"`
 }

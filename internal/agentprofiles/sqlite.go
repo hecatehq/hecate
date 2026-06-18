@@ -71,6 +71,9 @@ CREATE TABLE IF NOT EXISTS `+s.table+` (
 
 func (s *SQLiteStore) Create(ctx context.Context, profile Profile) (Profile, error) {
 	profile = normalizeProfile(profile, time.Now().UTC())
+	if IsBuiltInProfileID(profile.ID) || profile.BuiltIn {
+		return Profile{}, ErrBuiltIn
+	}
 	if err := validateProfile(profile); err != nil {
 		return Profile{}, err
 	}
@@ -81,7 +84,11 @@ func (s *SQLiteStore) Create(ctx context.Context, profile Profile) (Profile, err
 }
 
 func (s *SQLiteStore) Get(ctx context.Context, id string) (Profile, bool, error) {
-	row := s.client.DB().QueryRowContext(ctx, selectAgentProfileSQL(s.table)+" WHERE id = ?", strings.TrimSpace(id))
+	id = strings.TrimSpace(id)
+	if profile, ok := BuiltInProfile(id); ok {
+		return profile, true, nil
+	}
+	row := s.client.DB().QueryRowContext(ctx, selectAgentProfileSQL(s.table)+" WHERE id = ?", id)
 	profile, err := scanAgentProfile(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Profile{}, false, nil
@@ -98,7 +105,7 @@ func (s *SQLiteStore) List(ctx context.Context) ([]Profile, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Profile
+	items := BuiltInProfiles()
 	for rows.Next() {
 		item, err := scanAgentProfile(rows)
 		if err != nil {
@@ -109,10 +116,14 @@ func (s *SQLiteStore) List(ctx context.Context) ([]Profile, error) {
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	sortProfiles(items)
 	return items, nil
 }
 
 func (s *SQLiteStore) Update(ctx context.Context, id string, update func(*Profile)) (Profile, error) {
+	if IsBuiltInProfileID(id) {
+		return Profile{}, ErrBuiltIn
+	}
 	profile, ok, err := s.Get(ctx, id)
 	if err != nil {
 		return Profile{}, err
@@ -139,7 +150,11 @@ func (s *SQLiteStore) Update(ctx context.Context, id string, update func(*Profil
 }
 
 func (s *SQLiteStore) Delete(ctx context.Context, id string) error {
-	res, err := s.client.DB().ExecContext(ctx, `DELETE FROM `+s.table+` WHERE id = ?`, strings.TrimSpace(id))
+	id = strings.TrimSpace(id)
+	if IsBuiltInProfileID(id) {
+		return ErrBuiltIn
+	}
+	res, err := s.client.DB().ExecContext(ctx, `DELETE FROM `+s.table+` WHERE id = ?`, id)
 	if err != nil {
 		return err
 	}

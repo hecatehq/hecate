@@ -301,18 +301,10 @@ func (app *Application) ResolveAssignmentProfile(ctx context.Context, role proje
 			Warnings:            []string{fmt.Sprintf("Referenced agent profile %q was not found; using stored profile id as execution_profile hint.", candidate.id)},
 		}, nil
 	}
-	return ResolvedAgentProfile{
-		ID:                  "project_assignment",
-		Name:                "Project Assignment",
-		Source:              "built_in_fallback",
-		Surface:             agentprofiles.SurfaceHecateTask,
-		ExecutionProfile:    "project_assignment",
-		ToolsEnabled:        true,
-		WritesAllowed:       true,
-		ApprovalPolicy:      agentprofiles.ApprovalInherit,
-		ProjectMemoryPolicy: agentprofiles.MemoryVisibleOnly,
-		ContextSourcePolicy: agentprofiles.ContextVisibleOnly,
-	}, nil
+	if profile, ok := agentprofiles.BuiltInProfile("project_assignment"); ok {
+		return resolvedProfileFromStore(profile, "built_in_fallback"), nil
+	}
+	return ResolvedAgentProfile{}, fmt.Errorf("%w: project_assignment built-in profile is unavailable", agentprofiles.ErrNotFound)
 }
 
 func resolvedProfileFromStore(profile agentprofiles.Profile, source string) ResolvedAgentProfile {

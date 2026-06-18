@@ -34,6 +34,10 @@ func (h *Handler) HandleCreateAgentProfile(w http.ResponseWriter, r *http.Reques
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "invalid agent profile")
 		return
 	}
+	if errors.Is(err, agentprofiles.ErrBuiltIn) {
+		WriteError(w, http.StatusConflict, errCodeConflict, "built-in agent profile cannot be created")
+		return
+	}
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
@@ -66,6 +70,10 @@ func (h *Handler) HandleUpdateAgentProfile(w http.ResponseWriter, r *http.Reques
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent profile not found")
 		return
 	}
+	if errors.Is(err, agentprofiles.ErrBuiltIn) {
+		WriteError(w, http.StatusConflict, errCodeConflict, "built-in agent profile cannot be updated")
+		return
+	}
 	if errors.Is(err, agentprofiles.ErrInvalid) {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "invalid agent profile")
 		return
@@ -80,6 +88,9 @@ func (h *Handler) HandleUpdateAgentProfile(w http.ResponseWriter, r *http.Reques
 func (h *Handler) HandleDeleteAgentProfile(w http.ResponseWriter, r *http.Request) {
 	if err := h.agentProfiles.Delete(r.Context(), r.PathValue("id")); errors.Is(err, agentprofiles.ErrNotFound) {
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent profile not found")
+		return
+	} else if errors.Is(err, agentprofiles.ErrBuiltIn) {
+		WriteError(w, http.StatusConflict, errCodeConflict, "built-in agent profile cannot be deleted")
 		return
 	} else if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
@@ -180,6 +191,7 @@ func renderAgentProfile(profile agentprofiles.Profile) AgentProfileResponseItem 
 		SkillIDs:             append([]string(nil), profile.SkillIDs...),
 		ExternalAgentKind:    profile.ExternalAgentKind,
 		ExternalAgentOptions: cloneAgentProfileOptions(profile.ExternalAgentOptions),
+		BuiltIn:              profile.BuiltIn,
 		CreatedAt:            formatOptionalTime(profile.CreatedAt),
 		UpdatedAt:            formatOptionalTime(profile.UpdatedAt),
 	}

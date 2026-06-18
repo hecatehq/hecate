@@ -50,6 +50,9 @@ func TestAgentProfilesAPI_CRUD(t *testing.T) {
 	if created.Object != "agent_profile" || created.Data.ID != "prof_backend" || created.Data.ExecutionProfile != "implementation" {
 		t.Fatalf("created = %+v, want profile envelope", created)
 	}
+	if created.Data.BuiltIn {
+		t.Fatalf("created profile is marked built-in")
+	}
 	if !created.Data.ToolsEnabled || !created.Data.WritesAllowed || created.Data.NetworkAllowed {
 		t.Fatalf("posture = tools=%v writes=%v network=%v, want true/true/false", created.Data.ToolsEnabled, created.Data.WritesAllowed, created.Data.NetworkAllowed)
 	}
@@ -80,14 +83,48 @@ func TestAgentProfilesAPI_CRUD(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil {
 		t.Fatalf("decode list response: %v", err)
 	}
-	if listed.Object != "agent_profiles" || len(listed.Data) != 1 || listed.Data[0].ID != "prof_backend" {
-		t.Fatalf("listed = %+v, want created profile", listed)
+	if listed.Object != "agent_profiles" || !agentProfileResponseIDExists(listed.Data, "implementation") || !agentProfileResponseIDExists(listed.Data, "prof_backend") {
+		t.Fatalf("listed = %+v, want built-ins plus created profile", listed)
 	}
 
 	rec = httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/agent-profiles/prof_backend", nil))
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("delete status = %d body=%s, want 204", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAgentProfilesAPI_BuiltInProfilesAreReadOnly(t *testing.T) {
+	t.Parallel()
+	server := newAgentProfilesTestServer()
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/agent-profiles/implementation", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get built-in status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var got AgentProfileResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode get response: %v", err)
+	}
+	if !got.Data.BuiltIn || got.Data.ExecutionProfile != "coding_agent" || !got.Data.WritesAllowed {
+		t.Fatalf("built-in profile = %+v, want implementation posture", got.Data)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/agent-profiles", bytes.NewReader([]byte(`{"id":"implementation","name":"Override"}`))))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("create built-in status = %d body=%s, want 409", rec.Code, rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/agent-profiles/implementation", bytes.NewReader([]byte(`{"name":"Override"}`))))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("patch built-in status = %d body=%s, want 409", rec.Code, rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/agent-profiles/implementation", nil))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("delete built-in status = %d body=%s, want 409", rec.Code, rec.Body.String())
 	}
 }
 
@@ -104,6 +141,15 @@ func TestAgentProfilesAPI_RejectsInvalidEnums(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("create bad enum status = %d body=%s, want 400", rec.Code, rec.Body.String())
 	}
+}
+
+func agentProfileResponseIDExists(items []AgentProfileResponseItem, id string) bool {
+	for _, item := range items {
+		if item.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func TestAgentProfilesAPI_GeneratesIDsAndReturnsNotFound(t *testing.T) {

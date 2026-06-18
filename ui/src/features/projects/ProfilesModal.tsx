@@ -55,6 +55,7 @@ export function ProfilesModal({
   const [selectedProfileID, setSelectedProfileID] = useState(profiles[0]?.id ?? "new");
   const selectedProfile = profiles.find((profile) => profile.id === selectedProfileID) ?? null;
   const editingNew = selectedProfileID === "new";
+  const editingBuiltIn = Boolean(selectedProfile?.built_in);
   const [deleteProfile, setDeleteProfile] = useState<AgentProfileRecord | null>(null);
   const [form, setForm] = useState<AgentProfileForm>(() =>
     selectedProfile ? profileFormFromRecord(selectedProfile) : emptyAgentProfileForm(),
@@ -71,7 +72,7 @@ export function ProfilesModal({
     setForm(profileFormFromRecord(profile));
   }
 
-  const canSave = form.name.trim().length > 0;
+  const canSave = !editingBuiltIn && form.name.trim().length > 0;
   const submit = async () => {
     if (!canSave) return;
     if (editingNew) {
@@ -104,7 +105,12 @@ export function ProfilesModal({
         width={840}
         footer={
           <div style={{ display: "flex", gap: 8, width: "100%" }}>
-            {selectedProfile && !editingNew && (
+            {editingBuiltIn && (
+              <span className="badge badge-muted" style={{ alignSelf: "center" }}>
+                Built-in profile
+              </span>
+            )}
+            {selectedProfile && !editingNew && !editingBuiltIn && (
               <button
                 className="btn btn-ghost"
                 type="button"
@@ -115,15 +121,17 @@ export function ProfilesModal({
                 Delete profile
               </button>
             )}
-            <button
-              className="btn btn-primary"
-              type="button"
-              disabled={pending || !canSave}
-              onClick={() => void submit()}
-              style={{ marginLeft: "auto" }}
-            >
-              {pending ? "Saving..." : editingNew ? "Create profile" : "Save profile"}
-            </button>
+            {!editingBuiltIn && (
+              <button
+                className="btn btn-primary"
+                type="button"
+                disabled={pending || !canSave}
+                onClick={() => void submit()}
+                style={{ marginLeft: "auto" }}
+              >
+                {pending ? "Saving..." : editingNew ? "Create profile" : "Save profile"}
+              </button>
+            )}
           </div>
         }
       >
@@ -163,6 +171,7 @@ export function ProfilesModal({
                 <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
                   {profile.name || profile.id}
                 </span>
+                {profile.built_in && <span className="badge badge-muted">built-in</span>}
               </button>
             ))}
           </div>
@@ -193,6 +202,7 @@ export function ProfilesModal({
                   className="input"
                   value={form.name}
                   autoFocus={editingNew}
+                  disabled={editingBuiltIn}
                   onChange={(event) =>
                     setForm((current) => ({ ...current, name: event.target.value }))
                   }
@@ -204,6 +214,7 @@ export function ProfilesModal({
               <textarea
                 className="input"
                 value={form.description}
+                disabled={editingBuiltIn}
                 rows={2}
                 onChange={(event) =>
                   setForm((current) => ({ ...current, description: event.target.value }))
@@ -215,6 +226,7 @@ export function ProfilesModal({
               <textarea
                 className="input"
                 value={form.instructions}
+                disabled={editingBuiltIn}
                 rows={5}
                 onChange={(event) =>
                   setForm((current) => ({ ...current, instructions: event.target.value }))
@@ -227,6 +239,7 @@ export function ProfilesModal({
                 <select
                   className="input"
                   value={form.surface}
+                  disabled={editingBuiltIn}
                   onChange={(event) =>
                     setForm((current) => ({ ...current, surface: event.target.value }))
                   }
@@ -243,6 +256,7 @@ export function ProfilesModal({
                 <input
                   className="input"
                   value={form.executionProfile}
+                  disabled={editingBuiltIn}
                   placeholder="implementation"
                   onChange={(event) =>
                     setForm((current) => ({ ...current, executionProfile: event.target.value }))
@@ -254,6 +268,7 @@ export function ProfilesModal({
                 <input
                   className="input"
                   value={form.providerHint}
+                  disabled={editingBuiltIn}
                   placeholder="ollama"
                   onChange={(event) =>
                     setForm((current) => ({ ...current, providerHint: event.target.value }))
@@ -265,6 +280,7 @@ export function ProfilesModal({
                 <input
                   className="input"
                   value={form.modelHint}
+                  disabled={editingBuiltIn}
                   placeholder="qwen2.5-coder"
                   onChange={(event) =>
                     setForm((current) => ({ ...current, modelHint: event.target.value }))
@@ -277,6 +293,7 @@ export function ProfilesModal({
                 <input
                   type="checkbox"
                   checked={form.toolsEnabled}
+                  disabled={editingBuiltIn}
                   onChange={(event) =>
                     setForm((current) => ({ ...current, toolsEnabled: event.target.checked }))
                   }
@@ -287,6 +304,7 @@ export function ProfilesModal({
                 <input
                   type="checkbox"
                   checked={form.writesAllowed}
+                  disabled={editingBuiltIn}
                   onChange={(event) =>
                     setForm((current) => ({ ...current, writesAllowed: event.target.checked }))
                   }
@@ -297,6 +315,7 @@ export function ProfilesModal({
                 <input
                   type="checkbox"
                   checked={form.networkAllowed}
+                  disabled={editingBuiltIn}
                   onChange={(event) =>
                     setForm((current) => ({ ...current, networkAllowed: event.target.checked }))
                   }
@@ -310,6 +329,7 @@ export function ProfilesModal({
                 <select
                   className="input"
                   value={form.approvalPolicy}
+                  disabled={editingBuiltIn}
                   onChange={(event) =>
                     setForm((current) => ({ ...current, approvalPolicy: event.target.value }))
                   }
@@ -326,6 +346,7 @@ export function ProfilesModal({
                 <select
                   className="input"
                   value={form.projectMemoryPolicy}
+                  disabled={editingBuiltIn}
                   onChange={(event) =>
                     setForm((current) => ({ ...current, projectMemoryPolicy: event.target.value }))
                   }
@@ -342,6 +363,7 @@ export function ProfilesModal({
                 <select
                   className="input"
                   value={form.contextSourcePolicy}
+                  disabled={editingBuiltIn}
                   onChange={(event) =>
                     setForm((current) => ({ ...current, contextSourcePolicy: event.target.value }))
                   }
@@ -358,6 +380,7 @@ export function ProfilesModal({
                 <input
                   className="input"
                   value={form.externalAgentKind}
+                  disabled={editingBuiltIn}
                   placeholder="claude_code"
                   onChange={(event) =>
                     setForm((current) => ({ ...current, externalAgentKind: event.target.value }))
@@ -366,6 +389,7 @@ export function ProfilesModal({
               </label>
             </div>
             <ProjectSkillPicker
+              disabled={editingBuiltIn}
               onChange={(skillIDs) => setForm((current) => ({ ...current, skillIDs }))}
               skills={projectSkills}
               value={form.skillIDs}
