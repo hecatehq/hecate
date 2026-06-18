@@ -157,9 +157,9 @@ versioned GitHub Release assets below:
 
 | Platform              | Bundle                                                                                                                                                                                                                                                                                 |
 | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| macOS (Apple Silicon) | [Hecate_0.2.0-alpha.2_aarch64.dmg](https://github.com/hecatehq/hecate/releases/download/v0.2.0-alpha.2/Hecate_0.2.0-alpha.2_aarch64.dmg)                                                                                                                                               |
-| Linux x86_64          | [Hecate_0.2.0-alpha.2_amd64.deb](https://github.com/hecatehq/hecate/releases/download/v0.2.0-alpha.2/Hecate_0.2.0-alpha.2_amd64.deb) or [Hecate_0.2.0-alpha.2_amd64.AppImage](https://github.com/hecatehq/hecate/releases/download/v0.2.0-alpha.2/Hecate_0.2.0-alpha.2_amd64.AppImage) |
-| Windows x86_64        | [Hecate_0.2.0-alpha.2_x64_en-US.msi](https://github.com/hecatehq/hecate/releases/download/v0.2.0-alpha.2/Hecate_0.2.0-alpha.2_x64_en-US.msi)                                                                                                                                           |
+| macOS (Apple Silicon) | [Hecate_0.2.0-alpha.3_aarch64.dmg](https://github.com/hecatehq/hecate/releases/download/v0.2.0-alpha.3/Hecate_0.2.0-alpha.3_aarch64.dmg)                                                                                                                                               |
+| Linux x86_64          | [Hecate_0.2.0-alpha.3_amd64.deb](https://github.com/hecatehq/hecate/releases/download/v0.2.0-alpha.3/Hecate_0.2.0-alpha.3_amd64.deb) or [Hecate_0.2.0-alpha.3_amd64.AppImage](https://github.com/hecatehq/hecate/releases/download/v0.2.0-alpha.3/Hecate_0.2.0-alpha.3_amd64.AppImage) |
+| Windows x86_64        | [Hecate_0.2.0-alpha.3_x64_en-US.msi](https://github.com/hecatehq/hecate/releases/download/v0.2.0-alpha.3/Hecate_0.2.0-alpha.3_x64_en-US.msi)                                                                                                                                           |
 
 <!-- desktop-release-links:end -->
 
@@ -180,7 +180,7 @@ desktop status, updater behavior, signing notes, and footguns live in
 
 ```bash
 docker run --rm -p 127.0.0.1:8765:8765 -v hecate-data:/data \
-  ghcr.io/hecatehq/hecate:0.2.0-alpha.2
+  ghcr.io/hecatehq/hecate:0.2.0-alpha.3
 ```
 
 Open `http://127.0.0.1:8765`.
