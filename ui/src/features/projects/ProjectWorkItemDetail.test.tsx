@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -349,9 +349,11 @@ describe("ProjectWorkItemDetail", () => {
     expect(screen.queryByText("No assignments recorded yet.")).toBeNull();
 
     await userEvent.click(screen.getByRole("button", { name: "Draft first assignment" }));
-    await userEvent.click(screen.getByRole("button", { name: "Manual assignment" }));
-    await userEvent.click(screen.getByRole("button", { name: "Evidence" }));
-    await userEvent.click(screen.getByRole("button", { name: "Handoff" }));
+    const manualActions = screen.getByRole("group", { name: "Manual work item actions" });
+    expect(within(manualActions).getByText("Manual options")).toBeTruthy();
+    await userEvent.click(within(manualActions).getByRole("button", { name: "Assignment" }));
+    await userEvent.click(within(manualActions).getByRole("button", { name: "Evidence" }));
+    await userEvent.click(within(manualActions).getByRole("button", { name: "Handoff" }));
 
     expect(handlers.onDraftDefaultAssignment).toHaveBeenCalledWith(item);
     expect(handlers.onAddAssignment).toHaveBeenCalledTimes(1);

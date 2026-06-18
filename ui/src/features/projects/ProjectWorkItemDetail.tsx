@@ -597,18 +597,21 @@ function WorkItemStartPanel({
             Manage roles
           </button>
         )}
-        <button className="btn btn-ghost btn-sm" type="button" onClick={onAddAssignment}>
-          <Icon d={Icons.plus} size={12} />
-          Manual assignment
-        </button>
-        <button className="btn btn-ghost btn-sm" type="button" onClick={onAddEvidenceLink}>
-          <Icon d={Icons.plus} size={12} />
-          Evidence
-        </button>
-        <button className="btn btn-ghost btn-sm" type="button" onClick={onAddHandoff}>
-          <Icon d={Icons.plus} size={12} />
-          Handoff
-        </button>
+        <div aria-label="Manual work item actions" role="group" style={startPanelSecondaryStyle}>
+          <span style={startPanelSecondaryLabelStyle}>Manual options</span>
+          <button className="btn btn-ghost btn-sm" type="button" onClick={onAddAssignment}>
+            <Icon d={Icons.plus} size={12} />
+            Assignment
+          </button>
+          <button className="btn btn-ghost btn-sm" type="button" onClick={onAddEvidenceLink}>
+            <Icon d={Icons.plus} size={12} />
+            Evidence
+          </button>
+          <button className="btn btn-ghost btn-sm" type="button" onClick={onAddHandoff}>
+            <Icon d={Icons.plus} size={12} />
+            Handoff
+          </button>
+        </div>
       </div>
     </section>
   );
@@ -1815,10 +1818,26 @@ const startPanelCopyStyle: CSSProperties = {
 
 const startPanelActionsStyle: CSSProperties = {
   alignItems: "center",
+  display: "grid",
+  gap: 8,
+  justifyItems: "end",
+  minWidth: 0,
+};
+
+const startPanelSecondaryStyle: CSSProperties = {
+  alignItems: "center",
   display: "flex",
   flexWrap: "wrap",
-  gap: 8,
+  gap: 6,
   justifyContent: "flex-end",
+  minWidth: 0,
+};
+
+const startPanelSecondaryLabelStyle: CSSProperties = {
+  color: "var(--t3)",
+  fontFamily: "var(--font-mono)",
+  fontSize: 10,
+  textTransform: "uppercase",
 };
 
 const closeoutListStyle: CSSProperties = {
