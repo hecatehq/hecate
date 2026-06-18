@@ -13,6 +13,7 @@
 ARG GO_VERSION=1.26.2
 ARG BUN_VERSION=1.3.13
 ARG NODE_IMAGE=node:24-trixie-slim
+ARG HECATE_VERSION=dev
 
 # ── 1. UI build ─────────────────────────────────────────────────────────────
 
@@ -30,6 +31,7 @@ RUN bun run build
 # ── 2. Go build ─────────────────────────────────────────────────────────────
 
 FROM golang:${GO_VERSION}-alpine AS go-builder
+ARG HECATE_VERSION=dev
 WORKDIR /src
 
 RUN apk add --no-cache git
@@ -43,7 +45,7 @@ COPY --from=ui-builder /app/ui/dist ./ui/dist
 
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -trimpath \
-    -ldflags='-s -w' \
+    -ldflags="-s -w -X github.com/hecatehq/hecate/internal/version.Version=${HECATE_VERSION}" \
     -o /out/hecate \
     ./cmd/hecate
 

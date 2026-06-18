@@ -1174,6 +1174,15 @@ describe("status bar version chip", () => {
     expect(statusbar!.textContent).toContain(sampleVersion);
   });
 
+  it("labels raw dev builds clearly", () => {
+    renderWorkspace({ status: "ok", time: "2026-04-25T00:00:00Z", version: "dev" });
+
+    const statusbar = document.querySelector(".hecate-statusbar");
+    expect(statusbar).not.toBeNull();
+    expect(statusbar!.textContent).toContain("source build");
+    expect(statusbar!.textContent).not.toContain("|dev|");
+  });
+
   it("hides the version chip when /healthz did not include one", () => {
     renderWorkspace({ status: "ok", time: "2026-04-25T00:00:00Z" });
 

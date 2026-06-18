@@ -217,6 +217,13 @@ export function getAvailableWorkspaces(): WorkspaceDefinition[] {
   return [WS.chats, WS.projects, WS.runs, WS.connections, WS.overview, WS.usage, WS.settings];
 }
 
+function runtimeVersionLabel(version: string | undefined): string {
+  const trimmed = version?.trim() ?? "";
+  if (!trimmed) return "";
+  if (trimmed === "dev") return "source build";
+  return trimmed;
+}
+
 export function ConsoleShell({
   activeWorkspace,
   onSelectWorkspace,
@@ -296,6 +303,7 @@ function AuthenticatedShell({
     setNoticeMessage: settingsActions.setNoticeMessage,
   });
   const session = deriveSessionState(runtime.state.sessionInfo);
+  const runtimeVersion = runtimeVersionLabel(runtime.state.health?.version);
   const workspaces = getAvailableWorkspaces();
   const [taskFocusRequest, setTaskFocusRequest] = useState<TaskFocusRequest | null>(null);
   const [traceFocusRequest, setTraceFocusRequest] = useState<TraceFocusRequest | null>(null);
@@ -453,10 +461,10 @@ function AuthenticatedShell({
       {/* Status bar */}
       <div className="hecate-statusbar">
         <span className="hecate-statusbar__brand">hecate</span>
-        {runtime.state.health?.version && (
+        {runtimeVersion && (
           <>
             <span className="hecate-statusbar__sep">|</span>
-            <span style={{ fontFamily: "var(--font-mono)" }}>{runtime.state.health.version}</span>
+            <span style={{ fontFamily: "var(--font-mono)" }}>{runtimeVersion}</span>
           </>
         )}
         <span className="hecate-statusbar__sep">|</span>

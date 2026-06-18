@@ -1,7 +1,8 @@
 export type HealthResponse = {
   status: string;
   time: string;
-  // Build identifier of the gateway. "dev" for local builds; release
+  // Build identifier of the gateway. Local source builds default to
+  // "dev"; container/dev builds may stamp a commit label; release
   // builds (via goreleaser) inject the git tag.
   version?: string;
 };
