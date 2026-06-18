@@ -472,7 +472,10 @@ When the Go side adds a required prop (e.g. `streamTurnCosts`), update the `setu
   Settings, Roles, and Agent Profiles. Work with Project Assistant Bootstrap
   through one reviewable proposal path: UI helpers may refresh guidance/skills
   first, but they should still call the normal draft/apply flow rather than
-  mutating setup directly. Work Coordination uses one Work Queue with All /
+  mutating setup directly. New-project onboarding should make setup the primary
+  path, expose row-level actions for missing purpose/defaults/guidance/roles,
+  and move first-work creation after setup instead of leading with an open-ended
+  request box. Work Coordination uses one Work Queue with All /
   activity filters plus one selected work-item card; don't split the same work
   state across a separate Activity Inbox, Work Items list, and detail card.
   Keep the Projects index as a fixed left panel; don't add or restore a

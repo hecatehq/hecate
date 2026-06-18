@@ -576,7 +576,7 @@ function WorkItemStartPanel({
         </div>
         <div style={{ ...subtleTextStyle, marginTop: 5 }}>
           {role
-            ? `Hecate can draft a queued ${role.name || role.id} assignment proposal from this work item. You will review and apply it before anything is created.`
+            ? `Hecate can draft a reviewable ${role.name || role.id} assignment proposal from this work item. You will review and apply it before anything is created.`
             : "Create or select a project role so Hecate can prepare this work from defaults."}
         </div>
       </div>
@@ -589,7 +589,7 @@ function WorkItemStartPanel({
             disabled={drafting}
           >
             <Icon d={Icons.tasks} size={13} />
-            {drafting ? "Drafting..." : "Draft assignment"}
+            {drafting ? "Drafting..." : "Draft first assignment"}
           </button>
         ) : (
           <button className="btn btn-primary btn-sm" type="button" onClick={onManageRoles}>

@@ -4728,7 +4728,7 @@ describe("ProjectsView cockpit", () => {
 
     const detail = await screen.findByRole("region", { name: "Selected work item" });
     await within(detail).findByText("Ready to queue the first assignment");
-    await userEvent.click(within(detail).getByRole("button", { name: "Draft assignment" }));
+    await userEvent.click(within(detail).getByRole("button", { name: "Draft first assignment" }));
 
     await waitFor(() =>
       expect(draftProjectAssistant).toHaveBeenCalledWith({

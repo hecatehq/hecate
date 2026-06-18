@@ -191,13 +191,17 @@ describe("ProjectWorkspaceView", () => {
     expect(screen.getByText("Optional; attach files when this project needs them.")).toBeTruthy();
     expect(screen.getByText("optional")).toBeTruthy();
 
+    await userEvent.click(screen.getByRole("button", { name: "Add purpose" }));
+    await userEvent.click(screen.getByRole("button", { name: "Set defaults" }));
+    await userEvent.click(screen.getByRole("button", { name: "Review setup" }));
+    await userEvent.click(screen.getByRole("button", { name: "Set up" }));
+    await userEvent.click(screen.getAllByRole("button", { name: "Create work" })[1]);
     await userEvent.click(screen.getByRole("button", { name: "Set up project" }));
-    await userEvent.click(screen.getByRole("button", { name: "Create work" }));
     await userEvent.click(screen.getByRole("button", { name: "Project settings" }));
 
-    expect(assistantState.bootstrap).toHaveBeenCalledTimes(1);
+    expect(assistantState.bootstrap).toHaveBeenCalledTimes(2);
     expect(handlers.onCreateWork).toHaveBeenCalledTimes(1);
-    expect(handlers.onOpenSettings).toHaveBeenCalledTimes(1);
+    expect(handlers.onOpenSettings).toHaveBeenCalledTimes(4);
   });
 
   it("renders workspace tabs and delegates tab changes", async () => {
