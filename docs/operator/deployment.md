@@ -26,6 +26,15 @@ MCP tools, and chat/task control-plane calls. Use `HECATE_INFERENCE_TOKEN` for
 OpenAI- or Anthropic-shaped SDK clients pointed at `/v1/*`. Keep `/healthz`
 private to the host, load balancer, or orchestrator health check.
 
+When a self-hosted runtime binds beyond loopback and has configured provider
+credentials, startup logs a warning for each missing token so exposed
+deployments do not silently leave credential-spending routes unguarded. Remote
+runtime mode is different: valid `X-Hecate-Remote-*` identity from the trusted
+control-plane proxy is the auth boundary there, and the shared local tokens are
+bypassed after that identity check succeeds. The self-hosted warning is
+advisory and intentionally conservative; it can still appear when an
+authenticating reverse proxy is your access-control boundary.
+
 ## Contents
 
 - [Image pinning](#image-pinning)
@@ -155,6 +164,13 @@ reach through `-p 8765:8765` or `docker compose`. The image also sets
 `0.0.0.0` for the published port to work. Treat the host-side published port as
 the exposed surface and protect it with host firewall rules or a reverse proxy
 when it is reachable beyond your own machine.
+
+For container deployments reachable by other machines, use the same baseline as
+the top-level guardrail set: private `/data` volume, `HECATE_BACKEND=sqlite` or
+Postgres, platform-managed secrets for provider keys and bootstrap overrides,
+`HECATE_RUNTIME_TOKEN` for Hecate-native UI/API clients, and
+`HECATE_INFERENCE_TOKEN` for provider-compatible SDK clients. Do not put tokens
+or provider keys in image layers.
 
 The runtime stage defaults to `node:24-trixie-slim` through the `NODE_IMAGE`
 build arg so the image has a maintained Debian userspace for shell, npm, and

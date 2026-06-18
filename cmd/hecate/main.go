@@ -177,6 +177,7 @@ func runServe() {
 		logger.Warn("auto-import of env-preconfigured providers failed", slog.Any("error", err))
 	}
 	providerRegistry := providerRuntime.Registry()
+	logNetworkExposureProtectionWarnings(logger, cfg, providerRegistry)
 	providerHistoryStore := buildProviderHistoryStore(cfg, logger, sqliteClient, postgresClient)
 	healthTracker := providers.NewMemoryHealthTrackerWithHistory(
 		cfg.Provider.HealthThreshold,
