@@ -41,6 +41,14 @@ func TestStoreConformance_PluginRegistryLifecycle(t *testing.T) {
 							"secret_ref": "secret:from-manifest",
 						}},
 					}},
+					"mcp_servers": []map[string]any{{
+						"id":              "github-mcp",
+						"transport":       "stdio",
+						"command":         "npx",
+						"args":            []string{"-y", "@modelcontextprotocol/server-github"},
+						"env":             map[string]string{"GITHUB_TOKEN": "$GITHUB_TOKEN"},
+						"approval_policy": "require_approval",
+					}},
 					"slash_commands": []map[string]any{{
 						"name":         "github",
 						"display_name": "/github",
@@ -55,8 +63,15 @@ func TestStoreConformance_PluginRegistryLifecycle(t *testing.T) {
 			if stored.ID != "github" || stored.Enabled {
 				t.Fatalf("stored plugin = %+v, want normalized disabled plugin", stored)
 			}
-			if len(stored.Capabilities) != 2 || len(stored.Auth) != 1 {
+			if len(stored.Capabilities) != 3 || len(stored.Auth) != 1 {
 				t.Fatalf("stored plugin = %+v, want capabilities and auth projection", stored)
+			}
+			mcpConfig, err := ParseMCPServerConfig("github-mcp", findCapabilityForTest(stored.Capabilities, "github-mcp").ConfigJSON)
+			if err != nil {
+				t.Fatalf("ParseMCPServerConfig: %v", err)
+			}
+			if mcpConfig.Transport != MCPServerTransportStdio || mcpConfig.Command != "npx" || mcpConfig.Env["GITHUB_TOKEN"] != "$GITHUB_TOKEN" {
+				t.Fatalf("mcp config = %+v, want normalized stdio github server", mcpConfig)
 			}
 			if stored.Auth[0].SecretRef != "" || stored.Auth[0].Status != AuthStatusUnknown {
 				t.Fatalf("stored auth = %+v, want manifest secret_ref ignored", stored.Auth[0])
@@ -124,6 +139,110 @@ func TestPluginFromManifestRequiresSchemaVersion(t *testing.T) {
 	}
 	if _, err := PluginFromManifest(raw, SourceLocalPath, ""); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("PluginFromManifest err = %v, want ErrInvalid", err)
+	}
+}
+
+func TestPluginFromManifest_MCPServerConfigObjectNormalizes(t *testing.T) {
+	t.Parallel()
+	plugin := testPluginFromManifest(t, map[string]any{
+		"schema_version": ManifestSchemaVersion,
+		"id":             "linear",
+		"name":           "Linear",
+		"version":        "0.1.0",
+		"capabilities": map[string]any{
+			"mcp_servers": []map[string]any{{
+				"id": "linear-mcp",
+				"config": map[string]any{
+					"name":            "linear",
+					"url":             "https://linear.example/mcp",
+					"headers":         map[string]string{"Authorization": "$LINEAR_AUTHORIZATION"},
+					"approval_policy": "block",
+				},
+			}},
+		},
+	})
+	capability := findCapabilityForTest(plugin.Capabilities, "linear-mcp")
+	cfg, err := ParseMCPServerConfig(capability.ID, capability.ConfigJSON)
+	if err != nil {
+		t.Fatalf("ParseMCPServerConfig: %v", err)
+	}
+	if cfg.Name != "linear" || cfg.Transport != MCPServerTransportHTTP || cfg.URL != "https://linear.example/mcp" {
+		t.Fatalf("mcp config = %+v, want normalized http config object", cfg)
+	}
+	if cfg.Headers["Authorization"] != "$LINEAR_AUTHORIZATION" || cfg.ApprovalPolicy != "block" {
+		t.Fatalf("mcp config = %+v, want header ref and block policy", cfg)
+	}
+}
+
+func TestPluginFromManifest_MCPServerConfigValidation(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		server map[string]any
+	}{
+		{
+			name:   "missing transport target",
+			server: map[string]any{"id": "github"},
+		},
+		{
+			name: "command and url",
+			server: map[string]any{
+				"id":      "github",
+				"command": "npx",
+				"url":     "https://example.test/mcp",
+			},
+		},
+		{
+			name: "literal env value",
+			server: map[string]any{
+				"id":      "github",
+				"command": "npx",
+				"env":     map[string]string{"GITHUB_TOKEN": "literal-token"},
+			},
+		},
+		{
+			name: "encrypted env value",
+			server: map[string]any{
+				"id":      "github",
+				"command": "npx",
+				"env":     map[string]string{"GITHUB_TOKEN": "enc:token"},
+			},
+		},
+		{
+			name: "invalid approval",
+			server: map[string]any{
+				"id":              "github",
+				"command":         "npx",
+				"approval_policy": "trust_me",
+			},
+		},
+		{
+			name: "mixed inline and config shapes",
+			server: map[string]any{
+				"id":      "github",
+				"command": "npx",
+				"config":  map[string]any{"command": "npx"},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			raw, err := json.Marshal(map[string]any{
+				"schema_version": ManifestSchemaVersion,
+				"id":             "github",
+				"name":           "GitHub",
+				"version":        "0.1.0",
+				"capabilities": map[string]any{
+					"mcp_servers": []map[string]any{tc.server},
+				},
+			})
+			if err != nil {
+				t.Fatalf("marshal manifest: %v", err)
+			}
+			if _, err := PluginFromManifest(raw, SourceLocalPath, ""); !errors.Is(err, ErrInvalid) {
+				t.Fatalf("PluginFromManifest err = %v, want ErrInvalid", err)
+			}
+		})
 	}
 }
 

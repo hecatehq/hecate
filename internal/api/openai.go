@@ -454,7 +454,19 @@ type PluginCapabilityRecord struct {
 	DisplayName          string                   `json:"display_name"`
 	RequestedPermissions []PluginPermissionRecord `json:"requested_permissions,omitempty"`
 	Enabled              bool                     `json:"enabled"`
+	MCPServer            *PluginMCPServerRecord   `json:"mcp_server,omitempty"`
 	Warnings             []string                 `json:"warnings,omitempty"`
+}
+
+type PluginMCPServerRecord struct {
+	Name           string            `json:"name"`
+	Transport      string            `json:"transport"`
+	Command        string            `json:"command,omitempty"`
+	Args           []string          `json:"args,omitempty"`
+	Env            map[string]string `json:"env,omitempty"`
+	URL            string            `json:"url,omitempty"`
+	Headers        map[string]string `json:"headers,omitempty"`
+	ApprovalPolicy string            `json:"approval_policy,omitempty"`
 }
 
 type PluginPermissionRecord struct {

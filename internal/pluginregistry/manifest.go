@@ -18,14 +18,21 @@ type Manifest struct {
 }
 
 type manifestCapability struct {
-	ID          string          `json:"id"`
-	Name        string          `json:"name"`
-	Kind        string          `json:"kind"`
-	DisplayName string          `json:"display_name"`
-	Permissions []string        `json:"permissions"`
-	Enabled     *bool           `json:"enabled"`
-	Auth        []manifestAuth  `json:"auth"`
-	Config      json.RawMessage `json:"config"`
+	ID             string            `json:"id"`
+	Name           string            `json:"name"`
+	Kind           string            `json:"kind"`
+	DisplayName    string            `json:"display_name"`
+	Permissions    []string          `json:"permissions"`
+	Enabled        *bool             `json:"enabled"`
+	Auth           []manifestAuth    `json:"auth"`
+	Config         json.RawMessage   `json:"config"`
+	Transport      string            `json:"transport"`
+	Command        string            `json:"command"`
+	Args           []string          `json:"args"`
+	Env            map[string]string `json:"env"`
+	URL            string            `json:"url"`
+	Headers        map[string]string `json:"headers"`
+	ApprovalPolicy string            `json:"approval_policy"`
 }
 
 type manifestAuth struct {
@@ -151,6 +158,13 @@ func capabilitiesFromManifest(items []manifestCapability, forcedKind string) ([]
 			Enabled:              enabled,
 			ConfigJSON:           item.Config,
 		}
+		if kind == CapabilityMCPServer {
+			configJSON, err := mcpServerConfigJSONFromManifest(id, item)
+			if err != nil {
+				return nil, nil, err
+			}
+			capability.ConfigJSON = configJSON
+		}
 		capability = NormalizeCapability("", capability)
 		if capability.ID == "" || capability.Kind == "" {
 			return nil, nil, ErrInvalid
@@ -161,6 +175,53 @@ func capabilitiesFromManifest(items []manifestCapability, forcedKind string) ([]
 		}
 	}
 	return capabilities, auth, nil
+}
+
+func mcpServerConfigJSONFromManifest(capabilityID string, item manifestCapability) (json.RawMessage, error) {
+	hasConfig := len(compactJSON(item.Config)) > 0
+	hasInline := hasInlineMCPServerConfig(item)
+	if hasConfig && hasInline {
+		return nil, ErrInvalid
+	}
+	if hasConfig {
+		return normalizeMCPServerConfigJSON(capabilityID, item.Config)
+	}
+	cfg := MCPServerConfig{
+		Name:           item.Name,
+		Transport:      item.Transport,
+		Command:        item.Command,
+		Args:           append([]string(nil), item.Args...),
+		Env:            cloneStringMap(item.Env),
+		URL:            item.URL,
+		Headers:        cloneStringMap(item.Headers),
+		ApprovalPolicy: item.ApprovalPolicy,
+	}
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		return nil, ErrInvalid
+	}
+	return normalizeMCPServerConfigJSON(capabilityID, raw)
+}
+
+func hasInlineMCPServerConfig(item manifestCapability) bool {
+	return strings.TrimSpace(item.Transport) != "" ||
+		strings.TrimSpace(item.Command) != "" ||
+		len(item.Args) > 0 ||
+		len(item.Env) > 0 ||
+		strings.TrimSpace(item.URL) != "" ||
+		len(item.Headers) > 0 ||
+		strings.TrimSpace(item.ApprovalPolicy) != ""
+}
+
+func cloneStringMap(items map[string]string) map[string]string {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(items))
+	for key, value := range items {
+		out[key] = value
+	}
+	return out
 }
 
 func authBindingFromManifest(capabilityID string, item manifestAuth) AuthBinding {

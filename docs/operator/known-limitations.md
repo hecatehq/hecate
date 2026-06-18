@@ -82,11 +82,12 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
   per-tool `agent_loop` gating (`read_file`, `all_tools`). Unknown policy names
   are rejected at startup. The per-MCP-server `approval_policy` axis
   (`auto` / `require_approval` / `block`) is separate.
-- Hecate has a registry-only plugin metadata slice for native manifests, but it
-  does not execute plugin code, start plugin-declared MCP servers, mount plugin
-  tools, grant plugin secrets, or call connector APIs yet. Browser automation,
-  WASM plugins, arbitrary plugin hooks, and broad tool marketplaces remain out
-  of scope for the current alpha. Design notes live in
+- Hecate has a registry-only plugin metadata slice for native manifests. It can
+  validate and show plugin-declared MCP server mount candidates, but it does not
+  execute plugin code, start plugin-declared MCP servers, mount plugin tools,
+  grant plugin secrets, or call connector APIs yet. Browser automation, WASM
+  plugins, arbitrary plugin hooks, and broad tool marketplaces remain out of
+  scope for the current alpha. Design notes live in
   `docs/design/proposals/plugin-architecture.md`.
 
 ## Hecate Chat

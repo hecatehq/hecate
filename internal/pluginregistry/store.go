@@ -349,6 +349,11 @@ func ValidatePlugin(plugin Plugin) error {
 		if !oneOf(capability.Kind, CapabilityConnector, CapabilityMCPServer, CapabilitySkill, CapabilitySlashCommand, CapabilityProjectMapper, CapabilityEvidenceProvider, CapabilityUISurface) {
 			return ErrInvalid
 		}
+		if capability.Kind == CapabilityMCPServer {
+			if _, err := ParseMCPServerConfig(capability.ID, capability.ConfigJSON); err != nil {
+				return err
+			}
+		}
 		if !validPermissionClassifications(capability.RequestedPermissions) {
 			return ErrInvalid
 		}
