@@ -541,6 +541,16 @@ function SectionHeader({
   );
 }
 
+type ProjectOnboardingCheck = {
+  action?: () => void;
+  actionDisabled?: boolean;
+  actionLabel?: string;
+  detail: string;
+  done: boolean;
+  label: string;
+  optional?: boolean;
+};
+
 function ProjectOnboardingPanel({
   bootstrapPending,
   contextSourceCount,
@@ -565,11 +575,14 @@ function ProjectOnboardingPanel({
   const hasPurpose = Boolean(project.description?.trim());
   const hasDefaults = Boolean(project.default_provider && project.default_model);
   const hasGuidance = contextSourceCount > 0 || skillCount > 0;
-  const checks = [
+  const bootstrapActionLabel = bootstrapPending ? "Setting up..." : "Set up";
+  const checks: ProjectOnboardingCheck[] = [
     {
       label: "Project purpose",
       detail: hasPurpose ? project.description?.trim() || "Ready" : "Add a short purpose.",
       done: hasPurpose,
+      actionLabel: "Add purpose",
+      action: onOpenSettings,
     },
     {
       label: "Workspace source",
@@ -583,6 +596,8 @@ function ProjectOnboardingPanel({
       label: "Provider and model",
       detail: hasDefaults ? `${project.default_provider} / ${project.default_model}` : "Not set",
       done: hasDefaults,
+      actionLabel: "Set defaults",
+      action: onOpenSettings,
     },
     {
       label: "Sources and memory",
@@ -592,16 +607,24 @@ function ProjectOnboardingPanel({
           ? "Setup can discover workspace guidance and local skills."
           : "Add sources manually, or attach a workspace when files matter.",
       done: hasGuidance,
+      actionLabel: hasRoot ? "Discover" : "Review setup",
+      action: hasRoot ? onBootstrap : onOpenSettings,
+      actionDisabled: bootstrapPending,
     },
     {
       label: "Roles",
       detail: roleCount > 0 ? `${roleCount} roles` : "Setup can suggest roles from skills.",
       done: roleCount > 0,
+      actionLabel: bootstrapActionLabel,
+      action: onBootstrap,
+      actionDisabled: bootstrapPending,
     },
     {
       label: "First work item",
       detail: "Create the first reviewable task after setup.",
       done: false,
+      actionLabel: "Create work",
+      action: onCreateWork,
     },
   ];
   return (
@@ -648,6 +671,17 @@ function ProjectOnboardingPanel({
               <div style={titleStyle}>{check.label}</div>
               <div style={subtleTextStyle}>{check.detail}</div>
             </div>
+            {!check.done && check.action && (
+              <button
+                className="btn btn-ghost btn-sm"
+                disabled={check.actionDisabled}
+                onClick={check.action}
+                style={projectOnboardingCheckActionStyle}
+                type="button"
+              >
+                {check.actionLabel}
+              </button>
+            )}
           </div>
         ))}
       </div>
@@ -1004,7 +1038,7 @@ const projectOnboardingCheckStyle: CSSProperties = {
   borderRadius: "var(--radius-sm)",
   display: "grid",
   gap: 10,
-  gridTemplateColumns: "auto minmax(0, 1fr)",
+  gridTemplateColumns: "auto minmax(0, 1fr) auto",
   minWidth: 0,
   padding: 10,
 };
@@ -1012,6 +1046,11 @@ const projectOnboardingCheckStyle: CSSProperties = {
 const projectOnboardingCheckBadgeStyle: CSSProperties = {
   justifySelf: "start",
   textTransform: "uppercase",
+};
+
+const projectOnboardingCheckActionStyle: CSSProperties = {
+  justifySelf: "end",
+  whiteSpace: "nowrap",
 };
 
 const projectWorkspaceTabsStyle: CSSProperties = {

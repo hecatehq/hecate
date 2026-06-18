@@ -1,19 +1,22 @@
 # Projects
 
-> **Status:** accepted; orchestration foundation in progress.
+> **Status:** accepted; Projects V1 local cockpit substrate implemented.
 
 Current source of truth: [Agent runtime](../../runtime/agent-runtime.md), [Chat sessions](../../runtime/chat-sessions.md), [Architecture](../../contributor/architecture.md)
 
-Next action: make Projects the operational cockpit for project-scoped agent
-teams: add profile-management UI, finish profile-driven memory/source
-selection, and harden the activity/health/timeline UI with end-to-end project
-journeys.
+Projects V1 is the durable local cockpit for project-scoped work: roots,
+defaults, memory/context, skills metadata, roles, work items, assignments,
+handoffs, reviews, evidence, activity, and context inspection. Remaining
+near-term work should be beta hardening and dogfood-driven UX polish. Planner /
+Manager agents, runbooks, browser QA, automatic memory promotion, skill-body
+injection, and team project management should be handled as separate proposals
+instead of expanding this foundation document.
 
 ## Summary
 
 Hecate should distinguish **Projects** from **Workspaces**.
 
-A project is the durable Hecate identity for a codebase or work area. It owns memory scopes, chat/task grouping, default runtime choices, trusted context sources, and future agent-profile defaults. A workspace is a concrete filesystem root used by one chat, task, run, or external-agent session.
+A project is the durable Hecate identity for a codebase or work area. It owns memory scopes, chat/task grouping, default runtime choices, trusted context sources, and agent-profile defaults. A workspace is a concrete filesystem root used by one chat, task, run, or external-agent session.
 
 Today Hecate often uses a raw workspace path as both identity and runtime location. That works for early local flows, but it becomes confusing once we add durable memory, imported contexts, multiple checkouts of the same repo, temporary task workspaces, editor-owned workspaces, and future assistant layers.
 
@@ -396,12 +399,12 @@ Because Hecate has no stable users yet, later cleanup can remove legacy path-der
 5. Thread project identity into chat context packets. Done for itemized project context-source metadata.
 6. Add project-scoped memory. Done.
 7. Add agent-profile memory-source selection. Done for profile memory/source
-   policy snapshots and bounded native-assignment prompt inclusion.
+   policy snapshots, bounded native-assignment prompt inclusion, and
+   project-linked Hecate Chat prelude inspection.
 8. Move relevant defaults from ad hoc chat/task state into project defaults.
    Partial: provider, model, workspace mode, and agent profile defaults are
    project defaults; assignment starts resolve role/project/fallback profiles,
-   including immutable built-in profile defaults. Host-specific source-document
-   prompt policy remains future work.
+   including immutable built-in profile defaults.
 9. Add project activity aggregation. Done for the read-only V1 inbox.
 10. Add structured handoffs. Done for memory + SQLite store parity, API, UI
     actions, and activity projection signals.
@@ -412,26 +415,41 @@ Because Hecate has no stable users yet, later cleanup can remove legacy path-der
     tests, and an API-level project journey regression are updated; broad UI
     end-to-end project journeys remain beta-hardening work.
 
-## Near-Term Plan
+## V1 Closure Boundary
 
-The next project-orchestration slices are:
+Projects V1 is considered structurally complete when an operator can:
 
-1. Extend explicit prompt/source-content policy beyond native project
-   assignments. Profile-management UI, role/project default profile selection,
-   project-skill pickers, profile-driven context-packet activation, and bounded
-   native-assignment prompt inclusion for project memory plus portable
-   `AGENTS.md` guidance exist. Project-linked Hecate Chat now records its
-   bounded project prelude explicitly, and External Agent chat/assignment
-   packets keep project memory/source bodies metadata-only. Host-specific
-   guidance and arbitrary source-document prompt policy remain follow-up work.
-2. Broaden focused project journeys beyond the current API-level create
-   project -> discover guidance/skills -> add memory -> create/start assignment
-   -> inspect context -> follow handoff regression. Remaining hardening should
-   cover approval/failure paths, activity-health triage, and UI end-to-end
-   flows.
-3. Keep tightening the Projects cockpit UI around operator decisions: no hidden
-   recommendations, no separate health persistence, and no automatic memory
-   promotion.
+- Create a rootless or workspace-backed project without treating every project
+  as a GitHub/code project.
+- Run project setup to discover guidance and skills metadata, then review the
+  proposed memory/role changes before applying them.
+- Configure project defaults, roles, profiles, skills, provider/model posture,
+  memory/source policies, roots, and worktrees explicitly.
+- Create a work item, draft or manually create assignments, start Hecate Task
+  or External Agent execution, inspect launch context, record evidence/reviews,
+  hand off to another role, and close the work item deliberately.
+- See actionable project activity and health without a separate persisted
+  health model.
+
+Remaining Projects V1 hardening:
+
+- Add at least one browser-level operator journey test for create project ->
+  setup -> create work -> draft/start assignment -> review/closeout.
+- Keep polishing onboarding and first-work UI so setup is the obvious path and
+  manual forms remain available but secondary.
+- Continue dogfooding Hecate development through a Hecate project and capture
+  only concrete gaps as follow-up issues.
+
+Out of scope for this document and Projects V1:
+
+- Planner / Manager agents that autonomously propose sequencing across many
+  work items.
+- Workflow runbooks, browser QA capture, design-review automation, or
+  production-risk review modes.
+- Automatic memory writes, automatic handoff dispatch, remote skill install,
+  skill-body prompt injection, or host-specific guidance-body injection.
+- Multi-operator/team project-management semantics, GitHub issue sync, or
+  non-local permission models.
 
 ## Test Plan
 
@@ -444,13 +462,19 @@ The next project-orchestration slices are:
 - Memory tests that project memory appears only for matching `project_id`.
 - Profile tests proving Hecate Chat and external-agent profiles can opt into the
   same project memory without sharing private adapter memory.
-- E2E: create project from workspace, start chat, create task-backed turn, refresh, verify chat/task grouping.
+- API journey: create project, discover guidance/skills, add memory, create and
+  start assignment, inspect context, create handoff/follow-up assignment.
+- UI journeys: create rootless and workspace-backed projects, run setup, create
+  work, draft/start assignment, inspect context, record review/evidence,
+  complete closeout, and verify no-project/new-project onboarding states.
 
 ## Open Questions
 
-- Should a single filesystem root be allowed in multiple projects?
-- Should project identity be inferred from Git remote by default, or only from explicit user selection?
+- Should project identity ever be inferred from Git remote, or only from
+  explicit operator selection?
 - How should project defaults interact with per-chat overrides?
 - Should imported Claude/Codex contexts create projects automatically?
 - Should a project have one preferred workspace mode or separate defaults for Hecate Chat, Tasks, and External Agents?
 - Which agent profiles should opt into project memory by default?
+- What structured fields are needed for review/evidence querying once the V1
+  markdown-body artifact model is not enough?

@@ -348,7 +348,7 @@ describe("ProjectWorkItemDetail", () => {
     expect(screen.queryByRole("button", { name: "Mark done" })).toBeNull();
     expect(screen.queryByText("No assignments recorded yet.")).toBeNull();
 
-    await userEvent.click(screen.getByRole("button", { name: "Draft assignment" }));
+    await userEvent.click(screen.getByRole("button", { name: "Draft first assignment" }));
     await userEvent.click(screen.getByRole("button", { name: "Manual assignment" }));
     await userEvent.click(screen.getByRole("button", { name: "Evidence" }));
     await userEvent.click(screen.getByRole("button", { name: "Handoff" }));

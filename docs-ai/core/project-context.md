@@ -29,6 +29,9 @@ project skills registry exposes local `SKILL.md` metadata for roles/profiles
 without granting tools, injecting bodies, or executing skill scripts. The
 operator UI can manage agent profiles and pick registered project skills for
 roles/profiles; those selections remain metadata until launch-time resolution.
+Projects V1 is a usable local cockpit substrate, not a Planner/Manager agent:
+new project work should improve setup, inspection, evidence, and deliberate
+operator actions unless a separate proposal changes that boundary.
 Agent profile responses include immutable built-in profiles such as
 `implementation`, `planning`, and `review_qa`; those built-ins are selectable
 defaults, not persisted rows or operator-editable project memory.
