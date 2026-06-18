@@ -111,6 +111,9 @@ func (s *SQLiteStore) List(ctx context.Context) ([]Profile, error) {
 		if err != nil {
 			return nil, err
 		}
+		if IsBuiltInProfileID(item.ID) {
+			continue
+		}
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {

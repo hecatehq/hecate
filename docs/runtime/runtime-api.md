@@ -1400,6 +1400,8 @@ returned by list/get requests with `built_in: true`, can be selected by project
 or role defaults, and are resolved at assignment launch without being persisted
 as `agent_profiles` rows. `POST`, `PATCH`, and `DELETE` against built-in ids
 return `409 conflict`.
+If an older persisted row uses a now-reserved built-in id, list/get responses
+prefer the immutable built-in and suppress the stored duplicate.
 
 Built-in profile ids:
 
@@ -1415,6 +1417,11 @@ documentation
 review_qa
 safe_external_review
 ```
+
+Built-in profiles are portable runtime postures and intentionally avoid
+project-specific `skill_ids`. Bind discovered project skills through roles or
+custom profiles so missing project-local skills do not create warnings in every
+project.
 
 Profile responses use the normal Hecate envelope:
 
