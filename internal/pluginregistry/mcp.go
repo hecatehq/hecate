@@ -61,10 +61,10 @@ func normalizeMCPServerConfig(capabilityID string, raw json.RawMessage) (MCPServ
 	cfg.ApprovalPolicy = strings.TrimSpace(cfg.ApprovalPolicy)
 	cfg.Args = append([]string(nil), cfg.Args...)
 	var err error
-	if cfg.Env, err = normalizeMCPRefMap(cfg.Env); err != nil {
+	if cfg.Env, err = normalizeMCPRefMap(cfg.Env, isMCPEnvName); err != nil {
 		return MCPServerConfig{}, err
 	}
-	if cfg.Headers, err = normalizeMCPRefMap(cfg.Headers); err != nil {
+	if cfg.Headers, err = normalizeMCPRefMap(cfg.Headers, isHTTPHeaderName); err != nil {
 		return MCPServerConfig{}, err
 	}
 	if cfg.Name == "" {
@@ -97,7 +97,7 @@ func normalizeMCPServerConfig(capabilityID string, raw json.RawMessage) (MCPServ
 	return cfg, nil
 }
 
-func normalizeMCPRefMap(values map[string]string) (map[string]string, error) {
+func normalizeMCPRefMap(values map[string]string, validKey func(string) bool) (map[string]string, error) {
 	if len(values) == 0 {
 		return nil, nil
 	}
@@ -105,7 +105,7 @@ func normalizeMCPRefMap(values map[string]string) (map[string]string, error) {
 	for key, value := range values {
 		key = strings.TrimSpace(key)
 		value = strings.TrimSpace(value)
-		if key == "" || !isMCPEnvRef(value) {
+		if key == "" || !validKey(key) || !isMCPEnvRef(value) {
 			return nil, ErrInvalid
 		}
 		out[key] = value
@@ -113,17 +113,43 @@ func normalizeMCPRefMap(values map[string]string) (map[string]string, error) {
 	return out, nil
 }
 
-func isMCPEnvRef(value string) bool {
-	if len(value) < 2 || value[0] != '$' {
+func isMCPEnvName(value string) bool {
+	if value == "" {
 		return false
 	}
-	for i, c := range value[1:] {
+	for i, c := range value {
 		switch {
 		case c >= 'A' && c <= 'Z', c >= 'a' && c <= 'z', c == '_':
 		case c >= '0' && c <= '9':
 			if i == 0 {
 				return false
 			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func isMCPEnvRef(value string) bool {
+	if len(value) < 2 || value[0] != '$' {
+		return false
+	}
+	return isMCPEnvName(value[1:])
+}
+
+func isHTTPHeaderName(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, c := range value {
+		switch {
+		case c >= 'A' && c <= 'Z',
+			c >= 'a' && c <= 'z',
+			c >= '0' && c <= '9',
+			c == '!', c == '#', c == '$', c == '%', c == '&', c == '\'',
+			c == '*', c == '+', c == '-', c == '.', c == '^', c == '_',
+			c == '`', c == '|', c == '~':
 		default:
 			return false
 		}

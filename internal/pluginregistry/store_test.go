@@ -155,7 +155,7 @@ func TestPluginFromManifest_MCPServerConfigObjectNormalizes(t *testing.T) {
 				"config": map[string]any{
 					"name":            "linear",
 					"url":             "https://linear.example/mcp",
-					"headers":         map[string]string{"Authorization": "$LINEAR_AUTHORIZATION"},
+					"headers":         map[string]string{"X-API-Key": "$LINEAR_API_KEY"},
 					"approval_policy": "block",
 				},
 			}},
@@ -169,7 +169,7 @@ func TestPluginFromManifest_MCPServerConfigObjectNormalizes(t *testing.T) {
 	if cfg.Name != "linear" || cfg.Transport != MCPServerTransportHTTP || cfg.URL != "https://linear.example/mcp" {
 		t.Fatalf("mcp config = %+v, want normalized http config object", cfg)
 	}
-	if cfg.Headers["Authorization"] != "$LINEAR_AUTHORIZATION" || cfg.ApprovalPolicy != "block" {
+	if cfg.Headers["X-API-Key"] != "$LINEAR_API_KEY" || cfg.ApprovalPolicy != "block" {
 		t.Fatalf("mcp config = %+v, want header ref and block policy", cfg)
 	}
 }
@@ -209,6 +209,22 @@ func TestPluginFromManifest_MCPServerConfigValidation(t *testing.T) {
 			},
 		},
 		{
+			name: "invalid env key",
+			server: map[string]any{
+				"id":      "github",
+				"command": "npx",
+				"env":     map[string]string{"GITHUB TOKEN": "$GITHUB_TOKEN"},
+			},
+		},
+		{
+			name: "invalid header key",
+			server: map[string]any{
+				"id":      "github",
+				"url":     "https://example.test/mcp",
+				"headers": map[string]string{"Bad Header": "$GITHUB_TOKEN"},
+			},
+		},
+		{
 			name: "invalid approval",
 			server: map[string]any{
 				"id":              "github",
@@ -222,6 +238,24 @@ func TestPluginFromManifest_MCPServerConfigValidation(t *testing.T) {
 				"id":      "github",
 				"command": "npx",
 				"config":  map[string]any{"command": "npx"},
+			},
+		},
+		{
+			name: "unknown inline field",
+			server: map[string]any{
+				"id":      "github",
+				"command": "npx",
+				"cwd":     ".",
+			},
+		},
+		{
+			name: "unknown nested config field",
+			server: map[string]any{
+				"id": "github",
+				"config": map[string]any{
+					"command": "npx",
+					"cwd":     ".",
+				},
 			},
 		},
 	} {
