@@ -53,7 +53,7 @@ export type ProjectWorkspaceViewProps = {
   assignmentErrors: Record<string, string>;
   assignments: ProjectAssignmentRecord[];
   assistant: ReturnType<typeof useProjectAssistantController>;
-  creatingDefaultAssignment: boolean;
+  draftingDefaultAssignment: boolean;
   detailError: string;
   detailLoadState: LoadState;
   discoveringContext: boolean;
@@ -81,7 +81,7 @@ export type ProjectWorkspaceViewProps = {
   ) => void;
   onAddReviewArtifactFromAssignment: (assignment: ProjectAssignmentRecord) => void;
   onAddHandoffFromReviewArtifact: (artifact: ProjectCollaborationArtifactRecord) => void;
-  onCreateDefaultAssignment: (item: ProjectWorkItemRecord) => void;
+  onDraftDefaultAssignment: (item: ProjectWorkItemRecord) => void;
   onPreparedAssignmentPreflightOpened: (assignmentID: string) => void;
   onCreateAssignmentFromReviewArtifact: (artifact: ProjectCollaborationArtifactRecord) => void;
   onCreateAssignmentFromHandoff: (handoff: ProjectHandoffRecord) => void;
@@ -150,7 +150,7 @@ export function ProjectWorkspaceView({
   assignmentErrors,
   assignments,
   assistant,
-  creatingDefaultAssignment,
+  draftingDefaultAssignment,
   detailError,
   detailLoadState,
   discoveringContext,
@@ -171,7 +171,7 @@ export function ProjectWorkspaceView({
   onAddReviewHandoffFromAssignment,
   onAddReviewArtifactFromAssignment,
   onAddHandoffFromReviewArtifact,
-  onCreateDefaultAssignment,
+  onDraftDefaultAssignment,
   onPreparedAssignmentPreflightOpened,
   onCreateAssignmentFromReviewArtifact,
   onCreateAssignmentFromHandoff,
@@ -357,7 +357,7 @@ export function ProjectWorkspaceView({
                         handoffs={handoffs}
                         assignmentErrors={assignmentErrors}
                         detailError={detailError}
-                        creatingDefaultAssignment={creatingDefaultAssignment}
+                        draftingDefaultAssignment={draftingDefaultAssignment}
                         preparingAssignmentID={preparingAssignmentID}
                         loading={detailLoadState === "loading"}
                         onOpenTask={onOpenTask}
@@ -391,7 +391,7 @@ export function ProjectWorkspaceView({
                         onAddReviewHandoffFromAssignment={onAddReviewHandoffFromAssignment}
                         onAddReviewArtifactFromAssignment={onAddReviewArtifactFromAssignment}
                         onAddHandoffFromReviewArtifact={onAddHandoffFromReviewArtifact}
-                        onCreateDefaultAssignment={onCreateDefaultAssignment}
+                        onDraftDefaultAssignment={onDraftDefaultAssignment}
                         onPreparedAssignmentPreflightOpened={onPreparedAssignmentPreflightOpened}
                         onCreateAssignmentFromReviewArtifact={onCreateAssignmentFromReviewArtifact}
                       />

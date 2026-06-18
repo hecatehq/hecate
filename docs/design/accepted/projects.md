@@ -307,6 +307,10 @@ In the Projects UI, Bootstrap is project onboarding: it prepares setup proposals
 by refreshing workspace guidance and project skills, without inheriting nested
 worktree containers as parent-root input. It does not auto-start work, run
 agents, or write durable memory directly.
+For a selected work item, the guided first-assignment action also uses the
+Project Assistant proposal rail. It drafts a queued assignment proposal from the
+work item owner/default role and preserves the selected work root, but applying
+the proposal and starting the assignment remain separate operator actions.
 Planner and Manager are future proposal/monitoring layers. The orchestrator is
 the runtime coordinator that executes approved work through Tasks, External
 Agents, approvals, artifacts, traces, and events.

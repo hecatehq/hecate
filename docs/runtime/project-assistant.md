@@ -197,7 +197,8 @@ POST /hecate/v1/project-assistant/context
       "id": "work_next",
       "title": "Plan next work",
       "status": "ready",
-      "owner_role_id": "product_manager"
+      "owner_role_id": "product_manager",
+      "root_id": "root_feature"
     },
     "roles": [
       {
@@ -239,10 +240,11 @@ Unsupported driver kinds return `400 invalid_request`.
 Builds a server-owned proposal from project context and a short operator
 request. By default, `draft_mode` is `deterministic`: with `work_item_id` it
 proposes a queued assignment for the selected work; without `work_item_id` it
-proposes a new ready work item. `role_id` and `driver_kind` are optional hints;
-omitting them lets the server choose the selected work item's owner role, then
-the first loaded project role, and the selected role's default driver, then
-`hecate_task`.
+proposes a new ready work item. If the selected work item carries `root_id`, the
+assignment proposal includes that same root so branch/worktree selection is
+preserved. `role_id` and `driver_kind` are optional hints; omitting them lets
+the server choose the selected work item's owner role, then the first loaded
+project role, and the selected role's default driver, then `hecate_task`.
 
 `draft_mode: "bootstrap"` creates a deterministic project setup proposal. It
 uses enabled `workspace_guidance` context-source metadata to propose memory
@@ -323,6 +325,7 @@ POST /hecate/v1/project-assistant/draft
           "project_id": "proj_hecate",
           "work_item_id": "work_next",
           "role_id": "product_manager",
+          "root_id": "root_feature",
           "driver_kind": "external_agent",
           "status": "queued"
         },

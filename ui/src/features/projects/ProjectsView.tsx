@@ -121,7 +121,6 @@ import {
 import {
   assignmentCreatePayloadFromForm,
   assignmentUpdatePayloadFromForm,
-  defaultDriverForRole,
   evidenceLinkPayloadFromForm,
   handoffFormFromAssignment,
   handoffFormFromReviewArtifact,
@@ -147,6 +146,7 @@ import {
   useProjectSelectionController,
   useStoredRightPanelWidth,
 } from "./useProjectViewController";
+import { PROJECT_ASSISTANT_AUTO } from "./ProjectAssistantPanel";
 
 type Props = {
   onOpenChat?: (request: ProjectAssignmentChatLaunchRequest) => void;
@@ -1110,32 +1110,20 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     }
   }
 
-  async function handleCreateDefaultAssignment(item: ProjectWorkItemRecord) {
+  function handleDraftDefaultAssignment(item: ProjectWorkItemRecord) {
     if (!selectedProjectID) return;
     const role = (item.owner_role_id ? roleByID.get(item.owner_role_id) : null) ?? roles[0] ?? null;
     if (!role) {
-      setDetailError("Add a project role before creating an assignment.");
+      setDetailError("Add a project role before drafting an assignment proposal.");
       return;
     }
-    setNewAssignmentPending(true);
     setDetailError("");
-    try {
-      const payload = await createProjectAssignment(selectedProjectID, item.id, {
-        role_id: role.id,
-        driver_kind: defaultDriverForRole(role),
-        ...(item.root_id ? { root_id: item.root_id } : {}),
-      });
-      if (selectedWorkItemID === item.id) {
-        setAssignments((current) => upsertAssignment(current, payload.data));
-        setPreparingAssignmentID(payload.data.id);
-      }
-      await loadWorkForProject(selectedProjectID, item.id);
-      await loadWorkItemDetail(selectedProjectID, item.id);
-    } catch (error) {
-      setDetailError(errorMessage(error, "Failed to prepare assignment."));
-    } finally {
-      setNewAssignmentPending(false);
-    }
+    void assistant.propose({
+      request: `Queue ${role.name || role.id} for ${item.title}`,
+      roleID: PROJECT_ASSISTANT_AUTO,
+      driverKind: PROJECT_ASSISTANT_AUTO,
+      draftMode: "deterministic",
+    });
   }
 
   async function handleUpdateAssignment(form: EditAssignmentForm) {
@@ -1546,7 +1534,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
             assignmentErrors={assignmentErrors}
             assignments={assignments}
             assistant={assistant}
-            creatingDefaultAssignment={newAssignmentPending}
+            draftingDefaultAssignment={assistant.status === "proposing"}
             detailError={detailError}
             detailLoadState={detailLoadState}
             discoveringContext={discoveringContext}
@@ -1617,7 +1605,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
               setNewHandoffDraft(handoffFormFromReviewArtifact(artifact, selectedWorkItem));
               setEditingHandoff("new");
             }}
-            onCreateDefaultAssignment={(item) => void handleCreateDefaultAssignment(item)}
+            onDraftDefaultAssignment={handleDraftDefaultAssignment}
             onPreparedAssignmentPreflightOpened={(assignmentID) => {
               setPreparingAssignmentID((current) => (current === assignmentID ? "" : current));
             }}

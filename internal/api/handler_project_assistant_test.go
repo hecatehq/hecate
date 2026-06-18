@@ -199,6 +199,7 @@ func TestProjectAssistantAPI_DraftCreatesAssignmentProposal(t *testing.T) {
 		Brief:       "Pick the next reviewable task.",
 		Status:      projectwork.WorkItemStatusReady,
 		OwnerRoleID: "product_manager",
+		RootID:      "root_api",
 	})
 	if err != nil {
 		t.Fatalf("Create work item: %v", err)
@@ -228,8 +229,8 @@ func TestProjectAssistantAPI_DraftCreatesAssignmentProposal(t *testing.T) {
 	if err := json.Unmarshal(proposed.Data.Actions[0].Patch, &patch); err != nil {
 		t.Fatalf("decode patch: %v", err)
 	}
-	if patch["project_id"] != project.ID || patch["work_item_id"] != workItem.ID || patch["role_id"] != "product_manager" || patch["driver_kind"] != projectwork.AssignmentDriverExternalAgent {
-		t.Fatalf("patch = %+v, want selected project/work/owner role/external driver", patch)
+	if patch["project_id"] != project.ID || patch["work_item_id"] != workItem.ID || patch["role_id"] != "product_manager" || patch["root_id"] != "root_api" || patch["driver_kind"] != projectwork.AssignmentDriverExternalAgent {
+		t.Fatalf("patch = %+v, want selected project/work/owner role/root/external driver", patch)
 	}
 }
 

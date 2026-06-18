@@ -80,6 +80,7 @@ func TestService_DraftCreatesAssignmentProposalAcrossStores(t *testing.T) {
 				Brief:       "Pick the next reviewable task.",
 				Status:      projectwork.WorkItemStatusReady,
 				OwnerRoleID: "product_manager",
+				RootID:      "root_feature",
 			})
 			if err != nil {
 				t.Fatalf("CreateWorkItem: %v", err)
@@ -102,8 +103,8 @@ func TestService_DraftCreatesAssignmentProposalAcrossStores(t *testing.T) {
 				t.Fatalf("actions = %+v, want one create_assignment", proposal.Actions)
 			}
 			patch := rawPatchMap(t, proposal.Actions[0].Patch)
-			if patch["project_id"] != project.ID || patch["work_item_id"] != workItem.ID || patch["role_id"] != "product_manager" || patch["driver_kind"] != projectwork.AssignmentDriverExternalAgent || patch["status"] != projectwork.AssignmentStatusQueued {
-				t.Fatalf("assignment patch = %+v, want project/work/owner-role/external queued", patch)
+			if patch["project_id"] != project.ID || patch["work_item_id"] != workItem.ID || patch["role_id"] != "product_manager" || patch["root_id"] != "root_feature" || patch["driver_kind"] != projectwork.AssignmentDriverExternalAgent || patch["status"] != projectwork.AssignmentStatusQueued {
+				t.Fatalf("assignment patch = %+v, want project/work/owner-role/root/external queued", patch)
 			}
 		})
 	}
@@ -1444,6 +1445,7 @@ func TestService_ApplyCreatesProjectWorkRecords(t *testing.T) {
 							"project_id":   project.ID,
 							"work_item_id": "work_a",
 							"role_id":      "software_developer",
+							"root_id":      "root_worktree",
 							"driver_kind":  projectwork.AssignmentDriverHecateTask,
 						}),
 					},
@@ -1475,8 +1477,8 @@ func TestService_ApplyCreatesProjectWorkRecords(t *testing.T) {
 			if err != nil {
 				t.Fatalf("list assignments: %v", err)
 			}
-			if len(assignments) != 1 || assignments[0].ID != "asgn_a" || assignments[0].Status != projectwork.AssignmentStatusQueued {
-				t.Fatalf("assignments = %+v, want queued assignment", assignments)
+			if len(assignments) != 1 || assignments[0].ID != "asgn_a" || assignments[0].Status != projectwork.AssignmentStatusQueued || assignments[0].RootID != "root_worktree" {
+				t.Fatalf("assignments = %+v, want queued assignment with root", assignments)
 			}
 			handoffs, err := fixture.work.ListHandoffs(ctx, projectwork.HandoffFilter{ProjectID: project.ID, WorkItemID: "work_a"})
 			if err != nil {
