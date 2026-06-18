@@ -341,18 +341,35 @@ function PluginRegistryRow({ plugin }: { plugin: PluginRecord }) {
         </div>
       </div>
       {capabilities.length > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 12 }}>
-          {capabilities.map((capability) => (
-            <span
-              key={capability.id}
-              className="badge badge-muted"
-              title={capability.id}
-              style={{ textTransform: "none" }}
-            >
-              {pluginCapabilityKindLabel(capability.kind)} ·{" "}
-              {capability.display_name || capability.id}
-            </span>
-          ))}
+        <div style={{ display: "grid", gap: 6, marginTop: 12 }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {capabilities.map((capability) => (
+              <span
+                key={capability.id}
+                className="badge badge-muted"
+                title={capability.id}
+                style={{ textTransform: "none" }}
+              >
+                {pluginCapabilityKindLabel(capability.kind)} ·{" "}
+                {capability.display_name || capability.id}
+              </span>
+            ))}
+          </div>
+          {capabilities
+            .filter((capability) => capability.mcp_server)
+            .map((capability) => (
+              <div
+                key={`${capability.id}-mcp`}
+                style={{
+                  color: "var(--t3)",
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 11,
+                  lineHeight: 1.45,
+                }}
+              >
+                {pluginMCPServerSummary(capability.mcp_server!)}
+              </div>
+            ))}
         </div>
       )}
       {(unsupported.length > 0 ||
@@ -387,6 +404,23 @@ function sourceLabel(plugin: PluginRecord) {
 
 function pluginCapabilityKindLabel(kind: string) {
   return kind.replaceAll("_", " ");
+}
+
+function pluginMCPServerSummary(
+  server: NonNullable<PluginRecord["capabilities"]>[number]["mcp_server"],
+) {
+  if (!server) return "";
+  const route =
+    server.transport === "http"
+      ? server.url || "http"
+      : [server.command, ...(server.args ?? [])].filter(Boolean).join(" ");
+  const auth = [
+    ...Object.keys(server.env ?? {}).map((key) => `env:${key}`),
+    ...Object.keys(server.headers ?? {}).map((key) => `header:${key}`),
+  ];
+  const policy = server.approval_policy ? ` · approval ${server.approval_policy}` : "";
+  const refs = auth.length > 0 ? ` · refs ${auth.join(", ")}` : "";
+  return `MCP ${server.name} · ${server.transport}: ${route}${policy}${refs}`;
 }
 
 type RetentionSubsystemID = (typeof RETENTION_SUBSYSTEMS)[number]["id"];

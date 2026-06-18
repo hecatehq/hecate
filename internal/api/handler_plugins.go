@@ -176,10 +176,31 @@ func renderPluginCapabilities(items []pluginregistry.Capability) []PluginCapabil
 			DisplayName:          item.DisplayName,
 			RequestedPermissions: renderPluginPermissions(item.RequestedPermissions),
 			Enabled:              item.Enabled,
+			MCPServer:            renderPluginMCPServer(item),
 			Warnings:             item.Warnings,
 		})
 	}
 	return out
+}
+
+func renderPluginMCPServer(item pluginregistry.Capability) *PluginMCPServerRecord {
+	if item.Kind != pluginregistry.CapabilityMCPServer {
+		return nil
+	}
+	cfg, err := pluginregistry.ParseMCPServerConfig(item.ID, item.ConfigJSON)
+	if err != nil {
+		return nil
+	}
+	return &PluginMCPServerRecord{
+		Name:           cfg.Name,
+		Transport:      cfg.Transport,
+		Command:        cfg.Command,
+		Args:           append([]string(nil), cfg.Args...),
+		Env:            cloneStringMap(cfg.Env),
+		URL:            cfg.URL,
+		Headers:        cloneStringMap(cfg.Headers),
+		ApprovalPolicy: cfg.ApprovalPolicy,
+	}
 }
 
 func renderPluginPermissions(items []pluginregistry.Permission) []PluginPermissionRecord {

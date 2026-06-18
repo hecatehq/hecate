@@ -91,6 +91,20 @@ describe("SettingsView", () => {
               requested_permissions: [{ value: "secret:github_token", classification: "advisory" }],
               enabled: true,
             },
+            {
+              id: "github",
+              kind: "mcp_server",
+              display_name: "GitHub MCP",
+              enabled: true,
+              mcp_server: {
+                name: "github",
+                transport: "stdio",
+                command: "npx",
+                args: ["-y", "@modelcontextprotocol/server-github"],
+                env: { GITHUB_TOKEN: "$GITHUB_TOKEN" },
+                approval_policy: "require_approval",
+              },
+            },
           ],
           auth: [
             {
@@ -110,7 +124,10 @@ describe("SettingsView", () => {
 
     expect(await screen.findByText("GitHub")).toBeTruthy();
     expect(screen.getByText("github@0.1.0")).toBeTruthy();
-    expect(screen.getByText(/1 capabilities/i)).toBeTruthy();
+    expect(screen.getByText(/2 capabilities/i)).toBeTruthy();
+    expect(
+      screen.getByText(/MCP github · stdio: npx -y @modelcontextprotocol\/server-github/i),
+    ).toBeTruthy();
     expect(screen.getByText(/Unresolved auth: github_token/i)).toBeTruthy();
   });
 });

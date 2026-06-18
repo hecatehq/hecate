@@ -215,6 +215,12 @@ ways:
 - Expose as a connector-backed resource/tool surface in Hecate UI after an
   operator enables it.
 
+The registry slice validates MCP server declarations and projects them as
+mount candidates. Installing a plugin still does not start the declared server,
+mount it into a task/chat/profile, or grant credentials. Env/header values in
+manifests are `$VAR_NAME` references only; secret binding and literal secret
+storage stay Hecate-owned.
+
 MCP tool descriptions and metadata must be treated as external input. Hecate
 should preserve MCP annotations, but approval policy remains Hecate-owned:
 read-only hints can improve UX, while writes/destructive operations still need
@@ -519,8 +525,8 @@ wait until the registry and permission model are in place.
    Add memory/sqlite/postgres stores, API, and a read-only UI list. No network
    calls, no execution.
 3. **MCP-backed plugin capability**
-   Let a plugin declare MCP server configs that can be mounted into profiles or
-   task/chat starts.
+   Landed as validated mount-candidate metadata in the plugin registry. Follow-up
+   work should add explicit operator pickers for profiles and task/chat starts.
 4. **GitHub plugin v0**
    Start with read/search/link external refs and evidence links.
 5. **Linear plugin v0**

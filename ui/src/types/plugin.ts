@@ -9,7 +9,19 @@ export type PluginCapabilityRecord = {
   display_name: string;
   requested_permissions?: PluginPermissionRecord[];
   enabled: boolean;
+  mcp_server?: PluginMCPServerRecord;
   warnings?: string[];
+};
+
+export type PluginMCPServerRecord = {
+  name: string;
+  transport: "stdio" | "http" | string;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+  approval_policy?: "auto" | "require_approval" | "block" | string;
 };
 
 export type PluginAuthBindingRecord = {

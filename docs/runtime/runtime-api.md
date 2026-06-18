@@ -1244,8 +1244,9 @@ Status codes:
 
 The plugin registry is a local catalog and policy-review surface. Registry rows
 store a raw Hecate-native manifest plus normalized capabilities, requested
-permissions, and auth-binding requests. They do not run plugin code, start MCP
-servers, mount tools, call external providers, or grant secrets.
+permissions, auth-binding requests, and validated MCP-server mount candidates.
+They do not run plugin code, start MCP servers, mount tools, call external
+providers, or grant secrets.
 `manifest_digest` is a SHA-256 digest of Hecate's canonicalized manifest JSON,
 so semantically equivalent manifests share the same digest even when caller
 formatting differs.
@@ -1281,11 +1282,31 @@ POST /hecate/v1/plugins/install-local
           "auth": [{ "name": "github_token", "kind": "token" }]
         }
       ],
+      "mcp_servers": [
+        {
+          "id": "github-mcp",
+          "name": "github",
+          "display_name": "GitHub MCP",
+          "transport": "stdio",
+          "command": "npx",
+          "args": ["-y", "@modelcontextprotocol/server-github"],
+          "env": { "GITHUB_TOKEN": "$GITHUB_TOKEN" },
+          "approval_policy": "require_approval"
+        }
+      ],
       "slash_commands": [{ "name": "github" }]
     }
   }
 }
 ```
+
+MCP server capabilities may use the inline shape above or place the same fields
+inside `config`. The registry normalizes either shape into an `mcp_server`
+response object. Exactly one of `command` or `url` must be set; `transport`, if
+present, must match (`stdio` for `command`, `http` for `url`). `env` and
+`headers` values must be whole `$VAR_NAME` references. Literal values and
+manifest-provided encrypted blobs are rejected so plugin registry records do
+not become a credential store.
 
 ```json
 → 200
@@ -1311,6 +1332,20 @@ POST /hecate/v1/plugins/install-local
         "kind": "connector",
         "display_name": "Issues",
         "enabled": true
+      },
+      {
+        "id": "github-mcp",
+        "kind": "mcp_server",
+        "display_name": "GitHub MCP",
+        "enabled": true,
+        "mcp_server": {
+          "name": "github",
+          "transport": "stdio",
+          "command": "npx",
+          "args": ["-y", "@modelcontextprotocol/server-github"],
+          "env": { "GITHUB_TOKEN": "$GITHUB_TOKEN" },
+          "approval_policy": "require_approval"
+        }
       },
       {
         "id": "github",

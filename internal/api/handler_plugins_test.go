@@ -32,6 +32,14 @@ func TestPluginRegistryAPI_InstallListPatchAndHealth(t *testing.T) {
 					"permissions":  []string{"secret:github_token"},
 					"auth":         []map[string]any{{"name": "github_token", "kind": "token"}},
 				}},
+				"mcp_servers": []map[string]any{{
+					"id":              "github",
+					"transport":       "stdio",
+					"command":         "npx",
+					"args":            []string{"-y", "@modelcontextprotocol/server-github"},
+					"env":             map[string]string{"GITHUB_TOKEN": "$GITHUB_TOKEN"},
+					"approval_policy": "require_approval",
+				}},
 			},
 		},
 	})))
@@ -45,8 +53,15 @@ func TestPluginRegistryAPI_InstallListPatchAndHealth(t *testing.T) {
 	if installed.Object != "plugin" || installed.Data.ID != "github" || installed.Data.Enabled {
 		t.Fatalf("installed = %+v, want disabled github plugin", installed)
 	}
-	if len(installed.Data.Capabilities) != 1 || len(installed.Data.Auth) != 1 {
+	if len(installed.Data.Capabilities) != 2 || len(installed.Data.Auth) != 1 {
 		t.Fatalf("installed data = %+v, want projected capabilities and auth", installed.Data)
+	}
+	mcpCapability := findPluginCapabilityForTest(installed.Data.Capabilities, "github")
+	if mcpCapability.MCPServer == nil || mcpCapability.MCPServer.Transport != "stdio" || mcpCapability.MCPServer.Command != "npx" {
+		t.Fatalf("mcp capability = %+v, want projected stdio server config", mcpCapability)
+	}
+	if mcpCapability.MCPServer.Env["GITHUB_TOKEN"] != "$GITHUB_TOKEN" || mcpCapability.MCPServer.ApprovalPolicy != "require_approval" {
+		t.Fatalf("mcp capability = %+v, want env refs and approval policy", mcpCapability)
 	}
 
 	patchRec := httptest.NewRecorder()
@@ -148,6 +163,32 @@ func TestPluginRegistryAPI_RejectsDuplicateCapabilityIDsAsInvalidRequest(t *test
 	}
 }
 
+func TestPluginRegistryAPI_RejectsUnsafeMCPServerConfig(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{}, quietLogger(), nil, nil, nil, nil)
+	server := NewServer(quietLogger(), handler)
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/plugins/install-local", pluginAPITestJSONBody(t, map[string]any{
+		"manifest": map[string]any{
+			"schema_version": "hecate.plugin.v0",
+			"id":             "github",
+			"name":           "GitHub",
+			"version":        "0.1.0",
+			"capabilities": map[string]any{
+				"mcp_servers": []map[string]any{{
+					"id":      "github",
+					"command": "npx",
+					"env":     map[string]string{"GITHUB_TOKEN": "literal-token"},
+				}},
+			},
+		},
+	})))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s, want 400 for unsafe MCP server config", rec.Code, rec.Body.String())
+	}
+}
+
 func pluginAPITestJSONBody(t *testing.T, payload any) *bytes.Reader {
 	t.Helper()
 	raw, err := json.Marshal(payload)
@@ -155,4 +196,13 @@ func pluginAPITestJSONBody(t *testing.T, payload any) *bytes.Reader {
 		t.Fatalf("marshal payload: %v", err)
 	}
 	return bytes.NewReader(raw)
+}
+
+func findPluginCapabilityForTest(items []PluginCapabilityRecord, id string) PluginCapabilityRecord {
+	for _, item := range items {
+		if item.ID == id {
+			return item
+		}
+	}
+	return PluginCapabilityRecord{}
 }
