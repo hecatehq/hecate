@@ -18,6 +18,7 @@ export type AgentProfileRecord = {
   skill_ids?: string[];
   external_agent_kind?: string;
   external_agent_options?: Record<string, string>;
+  built_in?: boolean;
   created_at?: string;
   updated_at?: string;
 };

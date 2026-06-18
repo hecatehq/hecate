@@ -12,6 +12,7 @@ import (
 var (
 	ErrNotFound = errors.New("agent profile not found")
 	ErrInvalid  = errors.New("invalid agent profile")
+	ErrBuiltIn  = errors.New("built-in agent profile cannot be mutated")
 )
 
 const (
@@ -54,6 +55,7 @@ type Profile struct {
 	SkillIDs             []string
 	ExternalAgentKind    string
 	ExternalAgentOptions map[string]string
+	BuiltIn              bool
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
 }
@@ -82,6 +84,9 @@ func (s *MemoryStore) Create(_ context.Context, profile Profile) (Profile, error
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	profile = normalizeProfile(profile, time.Now().UTC())
+	if IsBuiltInProfileID(profile.ID) || profile.BuiltIn {
+		return Profile{}, ErrBuiltIn
+	}
 	if err := validateProfile(profile); err != nil {
 		return Profile{}, err
 	}
@@ -92,7 +97,11 @@ func (s *MemoryStore) Create(_ context.Context, profile Profile) (Profile, error
 func (s *MemoryStore) Get(_ context.Context, id string) (Profile, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	profile, ok := s.profiles[strings.TrimSpace(id)]
+	id = strings.TrimSpace(id)
+	if profile, ok := BuiltInProfile(id); ok {
+		return profile, true, nil
+	}
+	profile, ok := s.profiles[id]
 	if !ok {
 		return Profile{}, false, nil
 	}
@@ -102,7 +111,7 @@ func (s *MemoryStore) Get(_ context.Context, id string) (Profile, bool, error) {
 func (s *MemoryStore) List(_ context.Context) ([]Profile, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	items := make([]Profile, 0, len(s.profiles))
+	items := BuiltInProfiles()
 	for _, profile := range s.profiles {
 		items = append(items, cloneProfile(profile))
 	}
@@ -114,6 +123,9 @@ func (s *MemoryStore) Update(_ context.Context, id string, update func(*Profile)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	id = strings.TrimSpace(id)
+	if IsBuiltInProfileID(id) {
+		return Profile{}, ErrBuiltIn
+	}
 	profile, ok := s.profiles[id]
 	if !ok {
 		return Profile{}, ErrNotFound
@@ -139,6 +151,9 @@ func (s *MemoryStore) Delete(_ context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	id = strings.TrimSpace(id)
+	if IsBuiltInProfileID(id) {
+		return ErrBuiltIn
+	}
 	if _, ok := s.profiles[id]; !ok {
 		return ErrNotFound
 	}
@@ -215,6 +230,9 @@ func cloneProfile(profile Profile) Profile {
 
 func sortProfiles(items []Profile) {
 	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].BuiltIn != items[j].BuiltIn {
+			return items[i].BuiltIn
+		}
 		if items[i].UpdatedAt.Equal(items[j].UpdatedAt) {
 			return items[i].Name < items[j].Name
 		}

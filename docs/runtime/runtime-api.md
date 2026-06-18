@@ -1360,6 +1360,27 @@ resolved/skipped skill metadata and warnings into the context packet, but it
 does not install skills, execute scripts, grant tools, or inject `SKILL.md`
 bodies from an agent profile.
 
+Hecate also exposes an immutable built-in profile catalog. Built-ins are
+returned by list/get requests with `built_in: true`, can be selected by project
+or role defaults, and are resolved at assignment launch without being persisted
+as `agent_profiles` rows. `POST`, `PATCH`, and `DELETE` against built-in ids
+return `409 conflict`.
+
+Built-in profile ids:
+
+```text
+project_assignment
+planning
+architecture
+implementation
+frontend_implementation
+design_review
+reliability_ops
+documentation
+review_qa
+safe_external_review
+```
+
 Profile responses use the normal Hecate envelope:
 
 ```json
@@ -1376,7 +1397,7 @@ GET /hecate/v1/agent-profiles
       "surface": "hecate_task",
       "provider_hint": "anthropic",
       "model_hint": "claude-sonnet-4",
-      "execution_profile": "implementation",
+      "execution_profile": "coding_agent",
       "tools_enabled": true,
       "writes_allowed": true,
       "network_allowed": false,
@@ -1386,6 +1407,7 @@ GET /hecate/v1/agent-profiles
       "skill_ids": ["backend", "providers"],
       "external_agent_kind": "codex",
       "external_agent_options": { "effort": "high" },
+      "built_in": false,
       "created_at": "2026-06-08T12:00:00Z",
       "updated_at": "2026-06-08T12:00:00Z"
     }
@@ -1967,18 +1989,18 @@ instead of overwriting the existing record.
 
 Role list responses merge built-in roles with project custom roles. Built-ins
 are listable but immutable and are not seeded as duplicate project rows. The
-built-in IDs are:
+built-in role ids and default profile mappings are:
 
-```text
-product_manager
-architect
-software_developer
-frontend_engineer
-designer
-sre
-tech_writer
-reviewer_qa
-```
+| Role id              | Default driver | Default profile             |
+| -------------------- | -------------- | --------------------------- |
+| `product_manager`    | `hecate_task`  | `planning`                  |
+| `architect`          | `hecate_task`  | `architecture`              |
+| `software_developer` | `hecate_task`  | `implementation`            |
+| `frontend_engineer`  | `hecate_task`  | `frontend_implementation`   |
+| `designer`           | `hecate_task`  | `design_review`             |
+| `sre`                | `hecate_task`  | `reliability_ops`           |
+| `tech_writer`        | `hecate_task`  | `documentation`             |
+| `reviewer_qa`        | `hecate_task`  | `review_qa`                 |
 
 Supported work-item statuses are `backlog`, `ready`, `running`, `review`,
 `blocked`, `done`, and `cancelled`. Supported assignment statuses are `queued`,
@@ -2325,6 +2347,8 @@ Lists built-in roles plus custom roles for the project.
       "project_id": "proj_...",
       "name": "Architect",
       "description": "Owns technical direction, boundaries, and system trade-offs.",
+      "default_driver_kind": "hecate_task",
+      "default_agent_profile": "architecture",
       "built_in": true
     },
     {

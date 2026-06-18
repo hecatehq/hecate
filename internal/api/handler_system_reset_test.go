@@ -163,8 +163,8 @@ func TestSystemResetDataMemoryBackendDeletesStateAndClosesAgentSessions(t *testi
 	if err != nil {
 		t.Fatalf("list agent profiles: %v", err)
 	}
-	if len(profiles) != 0 {
-		t.Fatalf("agent profiles after reset = %#v, want none", profiles)
+	if !agentProfileListIsBuiltInOnly(profiles) {
+		t.Fatalf("agent profiles after reset = %#v, want only built-ins", profiles)
 	}
 	workItems, err := handler.projectWork.ListWorkItems(ctx, project.Data.ID)
 	if err != nil {
@@ -380,4 +380,16 @@ func assertSQLiteTableCount(t *testing.T, client *storage.SQLiteClient, table st
 	if got != want {
 		t.Fatalf("count %s = %d, want %d", table, got, want)
 	}
+}
+
+func agentProfileListIsBuiltInOnly(items []agentprofiles.Profile) bool {
+	if len(items) == 0 {
+		return false
+	}
+	for _, item := range items {
+		if !item.BuiltIn {
+			return false
+		}
+	}
+	return true
 }

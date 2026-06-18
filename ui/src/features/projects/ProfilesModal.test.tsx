@@ -131,6 +131,37 @@ describe("ProfilesModal", () => {
     );
   });
 
+  it("shows built-in profiles as read-only", () => {
+    render(
+      <ProfilesModal
+        error=""
+        pending={false}
+        profiles={[
+          profile({
+            id: "implementation",
+            name: "Implementation",
+            built_in: true,
+            writes_allowed: true,
+          }),
+        ]}
+        project={project()}
+        projectSkills={[skill()]}
+        roles={[]}
+        onClose={vi.fn()}
+        onCreate={vi.fn()}
+        onDelete={vi.fn()}
+        onUpdate={vi.fn()}
+      />,
+    );
+
+    expect(screen.getAllByText("built-in").length).toBeGreaterThan(0);
+    expect(screen.getByText("Built-in profile")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save profile" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete profile" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Name")).toBeDisabled();
+    expect(screen.getByLabelText("Use skill Backend")).toBeDisabled();
+  });
+
   it("confirms deletion with project and role references", async () => {
     const onDelete = vi.fn(async () => true);
 

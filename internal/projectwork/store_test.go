@@ -31,6 +31,12 @@ func TestStoreConformance_ProjectWorkLifecycle(t *testing.T) {
 			if len(roles) < 8 || !roleIDExists(roles, "product_manager") || !roleIDExists(roles, "reviewer_qa") {
 				t.Fatalf("built-in roles = %+v, want default project team roles", roles)
 			}
+			if role := roleByID(roles, "software_developer"); role.DefaultDriverKind != AssignmentDriverHecateTask || role.DefaultAgentProfile != "implementation" {
+				t.Fatalf("software developer role = %+v, want hecate_task implementation default", role)
+			}
+			if role := roleByID(roles, "reviewer_qa"); role.DefaultDriverKind != AssignmentDriverHecateTask || role.DefaultAgentProfile != "review_qa" {
+				t.Fatalf("reviewer role = %+v, want hecate_task review_qa default", role)
+			}
 
 			custom, err := store.CreateRole(ctx, AgentRoleProfile{
 				ID:                  "role_release_captain",
@@ -762,6 +768,15 @@ func roleIDExists(roles []AgentRoleProfile, id string) bool {
 		}
 	}
 	return false
+}
+
+func roleByID(roles []AgentRoleProfile, id string) AgentRoleProfile {
+	for _, role := range roles {
+		if role.ID == id {
+			return role
+		}
+	}
+	return AgentRoleProfile{}
 }
 
 func workItemIDExists(items []WorkItem, id string) bool {

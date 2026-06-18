@@ -2,6 +2,7 @@ package agentprofiles
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -80,7 +81,32 @@ func TestSQLiteStore_ProfileRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if len(items) != 1 || items[0].ID != "prof_reviewer" {
-		t.Fatalf("items = %+v, want one profile", items)
+	if !profileIDExists(items, "review_qa") || !profileIDExists(items, "prof_reviewer") {
+		t.Fatalf("items = %+v, want built-ins plus persisted profile", items)
+	}
+}
+
+func TestSQLiteStore_BuiltInProfiles(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := newSQLiteProfileTestStore(t)
+
+	profile, ok, err := store.Get(ctx, "safe_external_review")
+	if err != nil || !ok {
+		t.Fatalf("Get built-in ok=%v err=%v, want safe external review profile", ok, err)
+	}
+	if !profile.BuiltIn || profile.Surface != SurfaceExternalAgent || profile.WritesAllowed {
+		t.Fatalf("built-in profile = %+v, want safe external review posture", profile)
+	}
+	if _, err := store.Create(ctx, Profile{ID: "safe_external_review", Name: "Override"}); !errors.Is(err, ErrBuiltIn) {
+		t.Fatalf("Create built-in error = %v, want ErrBuiltIn", err)
+	}
+	if _, err := store.Update(ctx, "safe_external_review", func(profile *Profile) {
+		profile.Name = "Override"
+	}); !errors.Is(err, ErrBuiltIn) {
+		t.Fatalf("Update built-in error = %v, want ErrBuiltIn", err)
+	}
+	if err := store.Delete(ctx, "safe_external_review"); !errors.Is(err, ErrBuiltIn) {
+		t.Fatalf("Delete built-in error = %v, want ErrBuiltIn", err)
 	}
 }

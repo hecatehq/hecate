@@ -391,11 +391,13 @@ Because Hecate has no stable users yet, later cleanup can remove legacy path-der
    task-backed turns.
 5. Thread project identity into chat context packets. Done for itemized project context-source metadata.
 6. Add project-scoped memory. Done.
-7. Add agent-profile memory-source selection.
+7. Add agent-profile memory-source selection. Done for profile memory/source
+   policy snapshots and bounded native-assignment prompt inclusion.
 8. Move relevant defaults from ad hoc chat/task state into project defaults.
    Partial: provider, model, workspace mode, and agent profile defaults are
    project defaults; assignment starts resolve role/project/fallback profiles,
-   but profile-driven memory/source activation remains future.
+   including immutable built-in profile defaults. Host-specific source-document
+   prompt policy remains future work.
 9. Add project activity aggregation. Done for the read-only V1 inbox.
 10. Add structured handoffs. Done for memory + SQLite store parity, API, UI
     actions, and activity projection signals.
