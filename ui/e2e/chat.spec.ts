@@ -1492,9 +1492,9 @@ test("Hecate Agent local-provider onboarding renders the real final answer after
         data: [
           {
             id: "qwen2.5",
-            owned_by: "lm-studio",
+            owned_by: "lmstudio",
             metadata: {
-              provider: "lm-studio",
+              provider: "lmstudio",
               provider_kind: "local",
               capabilities: { tool_calling: "basic", streaming: true, source: "provider" },
             },
