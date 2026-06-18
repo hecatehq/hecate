@@ -206,6 +206,37 @@ describe("defaultModelForProvider", () => {
       "accounts/fireworks/models/deepseek-v3p1",
     );
   });
+
+  it("matches discovered models when configured provider ids differ from runtime ids", () => {
+    const configured = [
+      {
+        id: "fireworks-ai",
+        name: "fireworks",
+        preset_id: "fireworks",
+        kind: "cloud",
+        protocol: "openai",
+        base_url: "",
+        default_model: "accounts/fireworks/models/deepseek-v3p1",
+        credential_configured: true,
+      },
+    ];
+    const models = [
+      model({
+        id: "accounts/fireworks/models/llama-v3p1-405b",
+        metadata: { provider: "fireworks", default: true },
+      }),
+    ];
+    const providers = [
+      provider({
+        name: "fireworks",
+        default_model: "accounts/fireworks/models/llama-v3p1-405b",
+      }),
+    ];
+
+    expect(defaultModelForProvider("fireworks-ai", models, providers, configured, [])).toBe(
+      "accounts/fireworks/models/llama-v3p1-405b",
+    );
+  });
 });
 
 describe("defaultProviderForChat", () => {
@@ -285,6 +316,28 @@ describe("defaultProviderForChat", () => {
 
     expect(defaultProviderForChat([], configured, [])).toBe("lmstudio");
   });
+
+  it("returns the canonical route key for configured providers with custom ids", () => {
+    const configured = [
+      {
+        id: "fireworks-ai",
+        name: "fireworks",
+        preset_id: "fireworks",
+        kind: "cloud",
+        protocol: "openai",
+        base_url: "",
+        credential_configured: true,
+      },
+    ];
+    const models = [
+      model({
+        id: "accounts/fireworks/models/llama-v3p1-405b",
+        metadata: { provider: "fireworks", default: true },
+      }),
+    ];
+
+    expect(defaultProviderForChat(models, configured, [])).toBe("fireworks");
+  });
 });
 
 describe("isModelValidForProvider", () => {
@@ -325,6 +378,37 @@ describe("isModelValidForProvider", () => {
         "accounts/fireworks/models/deepseek-v3p1",
         "fireworks",
         [],
+        [],
+        configured,
+        [],
+      ),
+    ).toBe(true);
+  });
+
+  it("accepts discovered models through configured provider aliases", () => {
+    const configured = [
+      {
+        id: "fireworks-ai",
+        name: "fireworks",
+        preset_id: "fireworks",
+        kind: "cloud",
+        protocol: "openai",
+        base_url: "",
+        credential_configured: true,
+      },
+    ];
+    const models = [
+      model({
+        id: "accounts/fireworks/models/llama-v3p1-405b",
+        metadata: { provider: "fireworks" },
+      }),
+    ];
+
+    expect(
+      isModelValidForProvider(
+        "accounts/fireworks/models/llama-v3p1-405b",
+        "fireworks-ai",
+        models,
         [],
         configured,
         [],
@@ -389,6 +473,34 @@ describe("withConfiguredDefaultModels", () => {
       "accounts/fireworks/models/deepseek-v3p1",
     );
   });
+
+  it("adds configured default models under the canonical route key for custom ids", () => {
+    const configured = [
+      {
+        id: "fireworks-ai",
+        name: "fireworks",
+        preset_id: "fireworks",
+        kind: "cloud",
+        protocol: "openai",
+        base_url: "",
+        default_model: "accounts/fireworks/models/deepseek-v3p1",
+        credential_configured: true,
+      },
+    ];
+
+    expect(withConfiguredDefaultModels([], "fireworks", configured, [])).toEqual([
+      {
+        id: "accounts/fireworks/models/deepseek-v3p1",
+        owned_by: "fireworks",
+        metadata: {
+          provider: "fireworks",
+          provider_kind: "cloud",
+          default: true,
+          discovery_source: "configured_default",
+        },
+      },
+    ]);
+  });
 });
 
 describe("providerHasChatRouteEvidence", () => {
@@ -425,6 +537,34 @@ describe("providerHasChatRouteEvidence", () => {
     expect(providerHasChatRouteEvidence("ollama", [], [], [provider({ name: "ollama" })])).toBe(
       true,
     );
+  });
+
+  it("accepts runtime and model evidence through configured provider aliases", () => {
+    const configured = [
+      {
+        id: "fireworks-ai",
+        name: "fireworks",
+        preset_id: "fireworks",
+        kind: "cloud",
+        protocol: "openai",
+        base_url: "https://api.fireworks.ai/inference/v1",
+        credential_configured: true,
+      },
+    ];
+
+    expect(
+      providerHasChatRouteEvidence(
+        "fireworks-ai",
+        [
+          model({
+            id: "accounts/fireworks/models/llama-v3p1-405b",
+            metadata: { provider: "fireworks" },
+          }),
+        ],
+        configured,
+        [provider({ name: "fireworks" })],
+      ),
+    ).toBe(true);
   });
 });
 

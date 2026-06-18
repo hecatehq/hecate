@@ -748,7 +748,7 @@ export function ChatComposer(props: ChatComposerProps) {
           ) : (
             <>
               <HecateProviderConfigControl
-                value={providerFilter}
+                value={hecateChatProviderValue}
                 onChange={(v) => chatActions.selectProviderRoute(v as typeof providerFilter)}
                 options={hecateProviderOptions}
               />

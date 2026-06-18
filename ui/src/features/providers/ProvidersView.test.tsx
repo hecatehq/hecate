@@ -63,6 +63,14 @@ const presets: ProviderPresetRecord[] = [
     description: "",
   },
   {
+    id: "fireworks",
+    name: "Fireworks AI",
+    kind: "cloud",
+    protocol: "openai",
+    base_url: "https://api.fireworks.ai/inference/v1",
+    description: "",
+  },
+  {
     id: "llamacpp",
     name: "llama.cpp",
     kind: "local",
@@ -557,6 +565,47 @@ describe("ProvidersView table renders", () => {
 
     // No toggle/switch elements
     expect(screen.queryByRole("switch")).toBeNull();
+  });
+
+  it("uses preset names and runtime model counts for configured provider aliases", () => {
+    const state = createRuntimeConsoleFixture({
+      session: localSession,
+      providerPresets: presets,
+      settingsConfig: {
+        ...emptySettingsConfig(),
+        providers: [
+          makeConfigured("fireworks-ai", {
+            name: "fireworks",
+            preset_id: "fireworks",
+            kind: "cloud",
+            credential_configured: true,
+            base_url: "",
+          }),
+        ],
+      },
+      providers: [
+        makeStatus("fireworks", {
+          kind: "cloud",
+          healthy: true,
+          status: "healthy",
+          routing_ready: true,
+          credential_state: "configured",
+          models: ["accounts/fireworks/models/llama-v3p1-405b"],
+          model_count: 1,
+        }),
+      ],
+    });
+
+    render(
+      withRuntimeConsole(<ProvidersView />, { state, actions: createRuntimeConsoleActions() }),
+    );
+
+    const row = screen.getByText("Fireworks AI").closest("tr");
+    expect(row).toBeTruthy();
+    expect(within(row!).queryByText("fireworks")).toBeNull();
+    expect(within(row!).getByText("Healthy")).toBeTruthy();
+    expect(within(row!).getByText("Configured")).toBeTruthy();
+    expect(within(row!).getByText("1")).toBeTruthy();
   });
 
   it("surfaces readiness repair buttons from the summary card", async () => {

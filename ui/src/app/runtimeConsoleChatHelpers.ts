@@ -14,6 +14,14 @@ import type {
   ChatSessionsResponse,
   PendingAgentApproval,
 } from "../types/chat";
+import {
+  configuredProviderForKey,
+  configuredProviderMatches,
+  configuredProviderRouteKey,
+  providerAliasesForKey,
+  providerKeyMatches,
+  runtimeProviderForKey,
+} from "../lib/provider-utils";
 
 // humanizeChatError translates raw gateway/provider errors into something
 // an operator can act on. The backend's "api key is required for cloud
@@ -119,8 +127,11 @@ export function defaultModelForProvider(
     return "";
   }
 
-  const providerRecord = providers.find((entry) => entry.name === provider);
-  const scopedModels = models.filter((entry) => entry.metadata?.provider === provider);
+  const providerRecord = runtimeProviderForKey(provider, providers, configuredProviders);
+  const aliases = providerAliasesForKey(provider, configuredProviders);
+  const scopedModels = models.filter((entry) =>
+    providerKeyMatches(entry.metadata?.provider, aliases),
+  );
   const configuredDefault = configuredDefaultModelForProvider(
     provider,
     configuredProviders,
@@ -153,7 +164,7 @@ function configuredDefaultModelForProvider(
   providerPresets: ProviderPresetRecord[] = [],
 ): string {
   if (provider === "auto") return "";
-  const configured = configuredProviders.find((entry) => entry.id === provider);
+  const configured = configuredProviderForKey(provider, configuredProviders);
   const presetID = configured?.preset_id || provider;
   const preset = providerPresets.find((entry) => entry.id === presetID);
   return configured?.default_model || preset?.default_model || "";
@@ -168,23 +179,25 @@ export function withConfiguredDefaultModels(
   if (configuredProviders.length === 0) return models;
   const out = [...models];
   const seen = new Set(out.map((entry) => `${entry.metadata?.provider ?? ""}\0${entry.id}`));
-  const includeProvider = (id: string) => provider === "auto" || provider === id;
+  const includeProvider = (configured: ConfiguredStateResponse["data"]["providers"][number]) =>
+    provider === "auto" || configuredProviderMatches(configured, provider);
 
   for (const configured of configuredProviders) {
-    if (!includeProvider(configured.id)) continue;
+    if (!includeProvider(configured)) continue;
+    const routeKey = configuredProviderRouteKey(configured);
     const modelID = configuredDefaultModelForProvider(
-      configured.id,
+      routeKey,
       configuredProviders,
       providerPresets,
     );
     if (!modelID) continue;
-    const key = `${configured.id}\0${modelID}`;
+    const key = `${routeKey}\0${modelID}`;
     if (seen.has(key)) continue;
     out.push({
       id: modelID,
-      owned_by: configured.id,
+      owned_by: routeKey,
       metadata: {
-        provider: configured.id,
+        provider: routeKey,
         provider_kind: configured.kind,
         default: true,
         discovery_source: "configured_default",
@@ -205,28 +218,55 @@ export function defaultProviderForChat(
     (provider) => provider.kind !== "cloud" || provider.credential_configured,
   );
   const configuredSource = configuredUsable.length > 0 ? configuredUsable : configuredProviders;
-  const configuredIDs = new Set(configuredSource.map((provider) => provider.id));
+  const configuredAliases = new Set<string>();
+  for (const configured of configuredSource) {
+    for (const alias of providerAliasesForKey(configuredProviderRouteKey(configured), [
+      configured,
+    ])) {
+      configuredAliases.add(alias);
+    }
+  }
+  const configuredProviderForRoute = (provider: string | undefined) =>
+    provider
+      ? configuredSource.find((configured) => configuredProviderMatches(configured, provider))
+      : undefined;
 
   const preferredModelProvider = models.find((entry) => {
     const provider = entry.metadata?.provider;
-    return Boolean(provider && configuredIDs.has(provider) && entry.metadata?.default);
+    return Boolean(
+      provider &&
+      (configuredAliases.size === 0 || configuredAliases.has(provider.toLowerCase())) &&
+      entry.metadata?.default,
+    );
   })?.metadata?.provider;
-  if (preferredModelProvider) return preferredModelProvider;
+  if (preferredModelProvider) {
+    const configured = configuredProviderForRoute(preferredModelProvider);
+    return configured ? configuredProviderRouteKey(configured) : preferredModelProvider;
+  }
 
   const firstModelProvider = models.find((entry) => {
     const provider = entry.metadata?.provider;
-    return Boolean(provider && (configuredIDs.size === 0 || configuredIDs.has(provider)));
+    return Boolean(
+      provider && (configuredAliases.size === 0 || configuredAliases.has(provider.toLowerCase())),
+    );
   })?.metadata?.provider;
-  if (firstModelProvider) return firstModelProvider;
+  if (firstModelProvider) {
+    const configured = configuredProviderForRoute(firstModelProvider);
+    return configured ? configuredProviderRouteKey(configured) : firstModelProvider;
+  }
 
-  const providerWithReportedModels = providers.find(
-    (provider) =>
-      (configuredIDs.size === 0 || configuredIDs.has(provider.name)) &&
-      (provider.models?.length ?? 0) > 0,
-  )?.name;
-  if (providerWithReportedModels) return providerWithReportedModels;
+  const providerWithReportedModels = providers.find((provider) => {
+    return (
+      (configuredAliases.size === 0 || providerKeyMatches(provider.name, configuredAliases)) &&
+      (provider.models?.length ?? 0) > 0
+    );
+  })?.name;
+  if (providerWithReportedModels) {
+    const configured = configuredProviderForRoute(providerWithReportedModels);
+    return configured ? configuredProviderRouteKey(configured) : providerWithReportedModels;
+  }
 
-  return configuredSource[0]?.id ?? providers[0]?.name ?? "auto";
+  return configuredProviderRouteKey(configuredSource[0]) || providers[0]?.name || "auto";
 }
 
 export function isModelValidForProvider(
@@ -241,11 +281,17 @@ export function isModelValidForProvider(
     return true;
   }
 
-  if (models.some((entry) => entry.id === model && entry.metadata?.provider === provider)) {
+  const aliases = providerAliasesForKey(provider, configuredProviders);
+
+  if (
+    models.some(
+      (entry) => entry.id === model && providerKeyMatches(entry.metadata?.provider, aliases),
+    )
+  ) {
     return true;
   }
 
-  const providerRecord = providers.find((entry) => entry.name === provider);
+  const providerRecord = runtimeProviderForKey(provider, providers, configuredProviders);
   if (providerRecord?.default_model === model || providerRecord?.models?.includes(model)) {
     return true;
   }
@@ -269,9 +315,14 @@ export function providerHasChatRouteEvidence(
     return true;
   }
   return (
-    configuredProviders.some((entry) => entry.id === provider) ||
-    models.some((entry) => entry.metadata?.provider === provider) ||
-    providers.some((entry) => entry.name === provider)
+    configuredProviders.some((entry) => configuredProviderMatches(entry, provider)) ||
+    models.some((entry) =>
+      providerKeyMatches(
+        entry.metadata?.provider,
+        providerAliasesForKey(provider, configuredProviders),
+      ),
+    ) ||
+    Boolean(runtimeProviderForKey(provider, providers, configuredProviders))
   );
 }
 

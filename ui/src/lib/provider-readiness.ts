@@ -3,6 +3,7 @@ import type {
   ProviderReadinessCheckRecord,
   ProviderRecord,
 } from "../types/provider";
+import { configuredProviderAliases, configuredProviderRouteKey } from "./provider-utils";
 import { describeRoutingBlockedReason } from "./runtime-routing";
 
 export type ProviderRepairHint = {
@@ -232,14 +233,27 @@ export function providerRepairHint({
 
 export function providerFleetRepairHint(
   providers: Array<
-    Pick<ConfiguredProviderRecord, "id" | "name" | "kind" | "credential_configured">
+    Pick<ConfiguredProviderRecord, "id" | "name" | "preset_id" | "kind" | "credential_configured">
   >,
   statusByName: Map<string, ProviderRecord>,
 ): ProviderRepairHint | null {
+  const statusForProvider = (
+    provider: Pick<ConfiguredProviderRecord, "id" | "name" | "preset_id">,
+  ): ProviderRecord | undefined => {
+    for (const alias of [
+      ...configuredProviderAliases(provider),
+      configuredProviderRouteKey(provider),
+    ]) {
+      const status = statusByName.get(alias);
+      if (status) return status;
+    }
+    return undefined;
+  };
+
   for (const provider of providers) {
     const hint = providerRepairHint({
       configuredProvider: provider,
-      runtimeProvider: statusByName.get(provider.id),
+      runtimeProvider: statusForProvider(provider),
     });
     if (hint.tone !== "muted") return hint;
   }

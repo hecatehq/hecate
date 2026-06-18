@@ -12,7 +12,12 @@ import {
   providerReadinessMeaning,
   providerRepairActionLabel,
 } from "../../lib/provider-readiness";
-import { providerDisplayName, resolvedBaseURL } from "../../lib/provider-utils";
+import {
+  configuredProviderRouteKey,
+  providerDisplayName,
+  resolvedBaseURL,
+  runtimeProviderForConfigured,
+} from "../../lib/provider-utils";
 import { describeHealthErrorClass, describeRoutingBlockedReason } from "../../lib/runtime-utils";
 import { ProviderReadinessChecklist, ProviderReadinessSummary } from "../shared/ProviderReadiness";
 import { Badge, BrandAvatar, ConfirmModal, Icon, Icons, Modal } from "../shared/ui";
@@ -139,12 +144,18 @@ export function ProvidersView() {
   })();
   const statusByName = new Map(providers.map((p) => [p.name, p]));
   const configuredByID = new Map(configuredProviders.map((p) => [p.id, p]));
+  const runtimeStatusForID = (id: string): ProviderRecord | undefined => {
+    const configured = configuredByID.get(id);
+    return configured ? runtimeProviderForConfigured(configured, providers) : statusByName.get(id);
+  };
 
   const presetOrder = new Map(providerPresets.map((p, i) => [p.id, i]));
   const stableSort = (a: string, b: string) => {
-    const ai = presetOrder.get(a) ?? 999;
-    const bi = presetOrder.get(b) ?? 999;
-    return ai !== bi ? ai - bi : a.localeCompare(b);
+    const ar = configuredProviderRouteKey(configuredByID.get(a)) || a;
+    const br = configuredProviderRouteKey(configuredByID.get(b)) || b;
+    const ai = presetOrder.get(ar) ?? 999;
+    const bi = presetOrder.get(br) ?? 999;
+    return ai !== bi ? ai - bi : ar.localeCompare(br);
   };
 
   const cloudIDs = configuredProviders
@@ -156,15 +167,15 @@ export function ProvidersView() {
     .map((p) => p.id)
     .sort(stableSort);
   const readyProviderCount = configuredProviders.filter((provider) =>
-    isProviderRoutingReady(provider, statusByName.get(provider.id)),
+    isProviderRoutingReady(provider, runtimeProviderForConfigured(provider, providers)),
   ).length;
   const blockedProviderCount = configuredProviders.filter((provider) =>
-    isProviderNeedsAttention(provider, statusByName.get(provider.id)),
+    isProviderNeedsAttention(provider, runtimeProviderForConfigured(provider, providers)),
   ).length;
   const discoveredModelCount =
     models.length ||
     configuredProviders.reduce((sum, provider) => {
-      const status = statusByName.get(provider.id);
+      const status = runtimeProviderForConfigured(provider, providers);
       return sum + (status?.model_count ?? status?.models?.length ?? 0);
     }, 0);
   const fleetRepair = providerFleetRepairHint(configuredProviders, statusByName);
@@ -195,7 +206,7 @@ export function ProvidersView() {
   };
 
   const selectedConfig = selectedID ? (configuredByID.get(selectedID) ?? null) : null;
-  const selectedStatus = selectedID ? statusByName.get(selectedID) : null;
+  const selectedStatus = selectedID ? (runtimeStatusForID(selectedID) ?? null) : null;
   const selectedDisplayName = selectedID
     ? providerDisplayName(selectedID, configuredProviders, providerPresets, providers)
     : "";
@@ -221,10 +232,16 @@ export function ProvidersView() {
 
   function renderRow(id: string, isLast = false) {
     const cp = configuredByID.get(id);
-    const rt = statusByName.get(id);
-    const preset = providerPresets.find((p) => p.id === id);
-    const displayName = providerDisplayName(id, configuredProviders, providerPresets, providers);
-    const baseURL = rt?.base_url || resolvedBaseURL(id, cp ?? undefined, providerPresets);
+    const routeKey = configuredProviderRouteKey(cp) || id;
+    const rt = runtimeStatusForID(id);
+    const preset = providerPresets.find((p) => p.id === routeKey || p.id === id);
+    const displayName = providerDisplayName(
+      routeKey,
+      configuredProviders,
+      providerPresets,
+      providers,
+    );
+    const baseURL = rt?.base_url || resolvedBaseURL(routeKey, cp ?? undefined, providerPresets);
     const modelCount = rt?.model_count ?? rt?.models?.length ?? 0;
     const modelBadge =
       modelCount > 0
@@ -267,7 +284,7 @@ export function ProvidersView() {
         {/* Name */}
         <td style={{ padding: "8px 12px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <BrandAvatar brand={id} fallback={displayName} size={22} />
+            <BrandAvatar brand={routeKey} fallback={displayName} size={22} />
             <span style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)" }}>{displayName}</span>
             {cp?.custom_name && (
               <span

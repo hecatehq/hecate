@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { providerDisplayName, providerDotColor, resolvedBaseURL } from "./provider-utils";
+import {
+  configuredProviderForKey,
+  configuredProviderRouteKey,
+  providerDisplayName,
+  providerDotColor,
+  resolvedBaseURL,
+  runtimeProviderForConfigured,
+} from "./provider-utils";
 import type { ConfiguredProviderRecord, ProviderPresetRecord } from "../types/provider";
 
 const presets: ProviderPresetRecord[] = [
@@ -36,6 +43,22 @@ const presets: ProviderPresetRecord[] = [
     base_url: "http://127.0.0.1:11434/v1",
     description: "",
   },
+  {
+    id: "fireworks",
+    name: "Fireworks AI",
+    kind: "cloud",
+    protocol: "openai",
+    base_url: "https://api.fireworks.ai/inference/v1",
+    description: "",
+  },
+  {
+    id: "lmstudio",
+    name: "LM Studio",
+    kind: "local",
+    protocol: "openai",
+    base_url: "http://127.0.0.1:1234/v1",
+    description: "",
+  },
 ];
 
 function makeCP(name: string, base_url?: string): ConfiguredProviderRecord {
@@ -58,6 +81,13 @@ describe("resolvedBaseURL", () => {
   it("falls back to preset base_url when cp has no base_url", () => {
     const cp = makeCP("openai");
     expect(resolvedBaseURL("openai", cp, presets)).toBe("https://api.openai.com/v1");
+  });
+
+  it("uses the configured preset id when the stored provider id is custom", () => {
+    const cp = { ...makeCP("fireworks-ai"), name: "fireworks", preset_id: "fireworks" };
+    expect(resolvedBaseURL("fireworks-ai", cp, presets)).toBe(
+      "https://api.fireworks.ai/inference/v1",
+    );
   });
 
   it("falls back to preset base_url when cp is undefined", () => {
@@ -101,5 +131,42 @@ describe("providerDisplayName", () => {
 
   it("keeps custom provider names when no canonical name exists", () => {
     expect(providerDisplayName("my-local", [makeCP("my-local")], [])).toBe("my-local");
+  });
+
+  it("resolves canonical display names through configured provider aliases", () => {
+    const configured = [{ ...makeCP("fireworks-ai"), name: "fireworks", preset_id: "fireworks" }];
+
+    expect(providerDisplayName("fireworks-ai", configured, presets)).toBe("Fireworks AI");
+    expect(providerDisplayName("fireworks", configured, presets)).toBe("Fireworks AI");
+  });
+});
+
+describe("provider aliases", () => {
+  it("maps custom configured ids to the canonical provider route key", () => {
+    const configured = { ...makeCP("fireworks-ai"), name: "fireworks", preset_id: "fireworks" };
+
+    expect(configuredProviderRouteKey(configured)).toBe("fireworks");
+    expect(configuredProviderForKey("fireworks", [configured])?.id).toBe("fireworks-ai");
+    expect(configuredProviderForKey("fireworks-ai", [configured])?.id).toBe("fireworks-ai");
+  });
+
+  it("keeps stable ids as the route key when no preset alias exists", () => {
+    const configured = { ...makeCP("ollama"), name: "Ollama" };
+
+    expect(configuredProviderRouteKey(configured)).toBe("ollama");
+  });
+
+  it("finds runtime providers through configured aliases", () => {
+    const configured = { ...makeCP("lm-studio"), name: "lmstudio", preset_id: "lmstudio" };
+    const runtime = runtimeProviderForConfigured(configured, [
+      {
+        name: "lmstudio",
+        kind: "local",
+        healthy: true,
+        status: "ok",
+      },
+    ]);
+
+    expect(runtime?.name).toBe("lmstudio");
   });
 });

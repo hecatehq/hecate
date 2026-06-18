@@ -66,7 +66,8 @@ export function resolvedBaseURL(
   presets?: ProviderPresetRecord[],
 ): string {
   if (cp?.base_url) return cp.base_url;
-  return presets?.find((p) => p.id === name)?.base_url ?? "";
+  const presetID = cp?.preset_id || name;
+  return presets?.find((p) => p.id === presetID)?.base_url ?? "";
 }
 
 export function providerDotColor(enabled: boolean, healthy: boolean): "green" | "amber" | "red" {
@@ -79,19 +80,110 @@ export function providerIconColor(id: string): string {
   return PROVIDER_ICON_COLORS[id.toLowerCase()] ?? "var(--teal)";
 }
 
+export function normalizeProviderKey(value: string | null | undefined): string {
+  return (value ?? "").trim().toLowerCase();
+}
+
+export function configuredProviderAliases(
+  provider: Pick<ConfiguredProviderRecord, "id" | "name" | "preset_id"> | null | undefined,
+): string[] {
+  const seen = new Set<string>();
+  return [provider?.id, provider?.name, provider?.preset_id].flatMap((alias) => {
+    const key = normalizeProviderKey(alias);
+    if (!alias || !key || seen.has(key)) return [];
+    seen.add(key);
+    return [alias];
+  });
+}
+
+export function configuredProviderRouteKey(
+  provider: Pick<ConfiguredProviderRecord, "id" | "name" | "preset_id"> | null | undefined,
+): string {
+  return provider?.preset_id || provider?.id || provider?.name || "";
+}
+
+export function configuredProviderMatches(
+  provider: Pick<ConfiguredProviderRecord, "id" | "name" | "preset_id"> | null | undefined,
+  key: string | null | undefined,
+): boolean {
+  const target = normalizeProviderKey(key);
+  return Boolean(
+    target &&
+    configuredProviderAliases(provider).some((alias) => normalizeProviderKey(alias) === target),
+  );
+}
+
+export function configuredProviderForKey(
+  key: string | null | undefined,
+  configuredProviders: ConfiguredProviderRecord[] = [],
+): ConfiguredProviderRecord | undefined {
+  return configuredProviders.find((provider) => configuredProviderMatches(provider, key));
+}
+
+export function providerAliasesForKey(
+  key: string,
+  configuredProviders: ConfiguredProviderRecord[] = [],
+): Set<string> {
+  const aliases = new Set<string>();
+  const add = (value: string | null | undefined) => {
+    const normalized = normalizeProviderKey(value);
+    if (normalized) aliases.add(normalized);
+  };
+  add(key);
+  for (const provider of configuredProviders) {
+    if (configuredProviderMatches(provider, key)) {
+      for (const alias of configuredProviderAliases(provider)) add(alias);
+      add(configuredProviderRouteKey(provider));
+    }
+  }
+  return aliases;
+}
+
+export function providerKeyMatches(
+  key: string | null | undefined,
+  aliases: Set<string> | string[],
+): boolean {
+  const normalized = normalizeProviderKey(key);
+  if (!normalized) return false;
+  return aliases instanceof Set
+    ? aliases.has(normalized)
+    : aliases.some((alias) => normalizeProviderKey(alias) === normalized);
+}
+
+export function runtimeProviderForKey(
+  key: string,
+  runtimeProviders: ProviderRecord[] = [],
+  configuredProviders: ConfiguredProviderRecord[] = [],
+): ProviderRecord | undefined {
+  const aliases = providerAliasesForKey(key, configuredProviders);
+  return runtimeProviders.find((provider) => providerKeyMatches(provider.name, aliases));
+}
+
+export function runtimeProviderForConfigured(
+  provider: Pick<ConfiguredProviderRecord, "id" | "name" | "preset_id"> | null | undefined,
+  runtimeProviders: ProviderRecord[] = [],
+): ProviderRecord | undefined {
+  const aliases = new Set(configuredProviderAliases(provider).map(normalizeProviderKey));
+  aliases.add(normalizeProviderKey(configuredProviderRouteKey(provider)));
+  return runtimeProviders.find((runtimeProvider) =>
+    providerKeyMatches(runtimeProvider.name, aliases),
+  );
+}
+
 export function providerDisplayName(
   providerID: string,
   configuredProviders: ConfiguredProviderRecord[] = [],
   presets: ProviderPresetRecord[] = [],
   runtimeProviders: ProviderRecord[] = [],
 ): string {
-  const configured = configuredProviders.find((provider) => provider.id === providerID);
+  const configured = configuredProviderForKey(providerID, configuredProviders);
   const presetID = configured?.preset_id || providerID;
   const canonicalID = presetID.toLowerCase();
+  const runtimeProvider = runtimeProviderForKey(providerID, runtimeProviders, configuredProviders);
   return (
     presets.find((preset) => preset.id === presetID)?.name ||
     PROVIDER_DISPLAY_NAMES[canonicalID] ||
-    runtimeProviders.find((provider) => provider.name === providerID)?.name ||
+    runtimeProvider?.name ||
     configured?.name ||
     providerID
   );

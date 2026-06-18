@@ -1,5 +1,6 @@
 import type { ModelRecord } from "../types/model";
 import type { ConfiguredProviderRecord, ProviderRecord } from "../types/provider";
+import { providerAliasesForKey, providerDisplayName, providerKeyMatches } from "./provider-utils";
 
 export type LocalProviderIssue = {
   provider: string;
@@ -55,10 +56,19 @@ export function buildSelectedModelIssue({
     return null;
   }
   const matchingModels = selectableModels.filter((entry) => entry.id === model);
+  const providerAliases = providerAliasesForKey(
+    providerFilter,
+    configuredProvider ? [configuredProvider] : [],
+  );
+  if (runtimeProvider?.name) {
+    providerAliases.add(runtimeProvider.name.toLowerCase());
+  }
   const providerMatches =
     providerFilter === "auto"
       ? matchingModels
-      : matchingModels.filter((entry) => entry.metadata?.provider === providerFilter);
+      : matchingModels.filter((entry) =>
+          providerKeyMatches(entry.metadata?.provider, providerAliases),
+        );
   const readinessCandidates = providerMatches.length > 0 ? providerMatches : matchingModels;
   if (readinessCandidates.length > 0) {
     const readyCandidate = readinessCandidates.find(
@@ -72,7 +82,12 @@ export function buildSelectedModelIssue({
       const providerLabel =
         providerFilter === "auto"
           ? readiness.matched_provider || readiness.provider || "All providers"
-          : configuredProvider?.name || runtimeProvider?.name || providerFilter;
+          : providerDisplayName(
+              providerFilter,
+              configuredProvider ? [configuredProvider] : [],
+              [],
+              runtimeProvider ? [runtimeProvider] : [],
+            );
       const details = [
         { label: "Selected model", value: model },
         { label: "Provider route", value: providerLabel },
@@ -115,7 +130,12 @@ export function buildSelectedModelIssue({
   const providerLabel =
     providerFilter === "auto"
       ? "All providers"
-      : configuredProvider?.name || runtimeProvider?.name || providerFilter;
+      : providerDisplayName(
+          providerFilter,
+          configuredProvider ? [configuredProvider] : [],
+          [],
+          runtimeProvider ? [runtimeProvider] : [],
+        );
   const isLocal = configuredProvider?.kind === "local" || runtimeProvider?.kind === "local";
   const modelCount =
     runtimeProvider?.model_count ?? runtimeProvider?.models?.length ?? selectableModels.length;

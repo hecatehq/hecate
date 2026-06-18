@@ -30,7 +30,14 @@ import {
 import { describeGatewayError } from "../../lib/error-diagnostics";
 import { resolveExternalAgentReadiness } from "../../lib/external-agent-readiness";
 import { buildSelectedModelIssue } from "../../lib/provider-issues";
-import { providerDisplayName } from "../../lib/provider-utils";
+import {
+  configuredProviderForKey,
+  configuredProviderMatches,
+  configuredProviderRouteKey,
+  providerDisplayName,
+  providerKeyMatches,
+  runtimeProviderForKey,
+} from "../../lib/provider-utils";
 import { projectByID, projectDefaultWorkspace } from "../../lib/project-workspace";
 import { isRemoteRuntimeSession } from "../../lib/runtime-utils";
 import type { AgentAdapterRecord } from "../../types/agent-adapter";
@@ -288,10 +295,16 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     // unless the settings store knows about them.
     if (!providerConfigLoaded) return state.providerScopedModels;
     if (configuredProviders.length === 0) return [];
-    const ids = new Set(configuredProviders.map((c) => c.id));
+    const ids = new Set(
+      configuredProviders.flatMap((configured) => [
+        configured.id.toLowerCase(),
+        configured.name.toLowerCase(),
+        configured.preset_id?.toLowerCase() ?? "",
+      ]),
+    );
     const filteredModels = state.providerScopedModels.filter((m) => {
       const provider = m.metadata?.provider;
-      return typeof provider === "string" ? ids.has(provider) : true;
+      return typeof provider === "string" ? providerKeyMatches(provider, ids) : true;
     });
     return withConfiguredDefaultModels(
       filteredModels,
@@ -307,18 +320,24 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
       ? configuredProviders.length === 1
         ? configuredProviders[0]
         : undefined
-      : configuredProviders.find((provider) => provider.id === state.providerFilter);
+      : configuredProviderForKey(state.providerFilter, configuredProviders);
   const selectedRuntimeProvider =
     state.providerFilter === "auto"
       ? state.providers.length === 1
         ? state.providers[0]
         : undefined
-      : state.providers.find((provider) => provider.name === state.providerFilter);
+      : runtimeProviderForKey(state.providerFilter, state.providers, configuredProviders);
+  const selectedProviderRouteKey =
+    state.providerFilter === "auto"
+      ? "auto"
+      : selectedConfiguredProvider
+        ? configuredProviderRouteKey(selectedConfiguredProvider)
+        : state.providerFilter;
   const selectedProviderName =
     state.providerFilter === "auto"
       ? "Select provider"
       : providerDisplayName(
-          state.providerFilter,
+          selectedProviderRouteKey,
           configuredProviders,
           state.providerPresets,
           state.providers,
@@ -331,7 +350,11 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     const configured = state.settingsConfig?.providers ?? [];
     const source =
       configured.length > 0
-        ? configured.map((c) => ({ id: c.id, name: c.name, kind: c.kind }))
+        ? configured.map((c) => ({
+            id: configuredProviderRouteKey(c),
+            name: c.name,
+            kind: c.kind,
+          }))
         : state.providers
             .filter((p) => p.name)
             .map((p) => ({
@@ -341,7 +364,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
             }));
 
     return source.map((p) => {
-      const cfg = state.settingsConfig?.providers.find((c) => c.id === p.id);
+      const cfg = state.settingsConfig?.providers.find((c) => configuredProviderMatches(c, p.id));
       // Cloud-with-no-credentials is the only "disabled"
       // reason left now that the toggle is gone — we surface it as a
       // tooltip + key icon rather than hiding the row, so the operator
@@ -354,7 +377,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
         kind: p.kind,
         configured: cfg ? cfg.credential_configured : undefined,
         disabledReason: cloudUnconfigured
-          ? `Add an API key for ${cfg!.name || cfg!.id} in Connections`
+          ? `Add an API key for ${providerDisplayName(p.id, configured, state.providerPresets, state.providers)} in Connections`
           : undefined,
       };
     });
@@ -363,7 +386,11 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     const out = new Map<string, string>();
     for (const cfg of state.settingsConfig?.providers ?? []) {
       if (cfg.kind === "cloud" && !cfg.credential_configured) {
-        out.set(cfg.id, `Add an API key for ${cfg.name || cfg.id} in Connections`);
+        const routeKey = configuredProviderRouteKey(cfg);
+        out.set(
+          routeKey,
+          `Add an API key for ${providerDisplayName(routeKey, configuredProviders, state.providerPresets, state.providers)} in Connections`,
+        );
       }
     }
     return out;
@@ -383,7 +410,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const hecateAgentModelLocked = isHecateChat && Boolean(activeHecateAgentSegment);
   const hecateChatProviderValue = hecateAgentModelLocked
     ? activeHecateAgentSegment?.provider || state.activeChatSession?.provider || "auto"
-    : state.providerFilter;
+    : selectedProviderRouteKey;
   const hecateChatModelValue = hecateAgentModelLocked
     ? activeHecateAgentSegment?.model || state.activeChatSession?.model || ""
     : state.model;
@@ -391,7 +418,9 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     ? state.activeChatSession
       ? sidebarSessionBrand(state.activeChatSession)
       : newChatAgentID
-    : selectedConfiguredProvider?.id || selectedRuntimeProvider?.name || state.providerFilter;
+    : selectedConfiguredProvider
+      ? configuredProviderRouteKey(selectedConfiguredProvider)
+      : selectedRuntimeProvider?.name || state.providerFilter;
   const activeHeaderFallback = isAgentChat
     ? state.activeChatSession
       ? sidebarSessionAgentLabel(state.activeChatSession, state.agentAdapters)
