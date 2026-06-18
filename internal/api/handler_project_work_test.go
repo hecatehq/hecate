@@ -540,6 +540,16 @@ func TestProjectWorkAPI_WorkAndAssignmentRootIDs(t *testing.T) {
 
 	rec = httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_rooted/assignments", bytes.NewReader([]byte(`{
+		"id":"asgn_missing_root",
+		"role_id":"software_developer",
+		"root_id":"root_missing"
+	}`))))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("create assignment invalid root status = %d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_rooted/assignments", bytes.NewReader([]byte(`{
 		"id":"asgn_rooted",
 		"role_id":"software_developer",
 		"root_id":"root_feature"
