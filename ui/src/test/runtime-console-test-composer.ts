@@ -277,8 +277,8 @@ export function useRuntimeConsole() {
     [modelFilter, models],
   );
   const providerScopedModels = useMemo(
-    () => filterModelsByProvider(visibleModels, providerFilter),
-    [providerFilter, visibleModels],
+    () => filterModelsByProvider(visibleModels, providerFilter, settingsConfig?.providers ?? []),
+    [providerFilter, settingsConfig?.providers, visibleModels],
   );
   const localProviderIssues = useMemo(
     () =>

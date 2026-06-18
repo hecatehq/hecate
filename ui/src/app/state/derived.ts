@@ -14,6 +14,7 @@ import { useChat } from "./chat";
 import { CoordinatorOverridesContext } from "./coordinators/overrides";
 import { useProvidersAndModels } from "./providersAndModels";
 import { useRuntime } from "./runtime";
+import { useSettings } from "./settings";
 import { deriveSessionState, type SessionState } from "../runtimeConsoleDashboard";
 import { type ChatTarget } from "./_shared";
 import type { ChatSessionRecord } from "../../types/chat";
@@ -110,9 +111,11 @@ export function useRuntimeDerivedState(): RuntimeDerivedState {
   const { state: runtimeState } = useRuntime();
   const { state: providersState } = useProvidersAndModels();
   const { state: chatState } = useChat();
+  const { state: settingsState } = useSettings();
 
   const { providers, models } = providersState;
   const { modelFilter, providerFilter } = chatState;
+  const configuredProviders = settingsState.config?.providers ?? [];
 
   const localProviders = useMemo(
     () => providers.filter((provider) => provider.kind === "local"),
@@ -135,8 +138,8 @@ export function useRuntimeDerivedState(): RuntimeDerivedState {
     [modelFilter, models],
   );
   const providerScopedModels = useMemo(
-    () => filterModelsByProvider(visibleModels, providerFilter),
-    [providerFilter, visibleModels],
+    () => filterModelsByProvider(visibleModels, providerFilter, configuredProviders),
+    [configuredProviders, providerFilter, visibleModels],
   );
   const localProviderIssues = useMemo(
     () =>

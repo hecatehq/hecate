@@ -31,7 +31,7 @@ import {
 import type { TraceRouteRecord } from "./runtime-utils";
 import type { RuntimeHeaders } from "../types/runtime";
 import type { ModelRecord } from "../types/model";
-import type { ProviderRecord } from "../types/provider";
+import type { ConfiguredProviderRecord, ProviderRecord } from "../types/provider";
 import type { TraceListItem, TraceSpanRecord } from "../types/trace";
 import type { UsageSummaryRecord } from "../types/usage";
 
@@ -82,6 +82,29 @@ describe("runtime-utils", () => {
   it("filters models by provider", () => {
     expect(filterModelsByProvider(models, "ollama")).toEqual([models[1]]);
     expect(filterModelsByProvider(models, "auto")).toEqual(models);
+  });
+
+  it("filters models through configured provider aliases", () => {
+    const configuredProviders: ConfiguredProviderRecord[] = [
+      {
+        id: "fireworks-ai",
+        name: "fireworks",
+        preset_id: "fireworks",
+        kind: "cloud",
+        protocol: "openai",
+        base_url: "https://api.fireworks.ai/inference/v1",
+        credential_configured: true,
+      },
+    ];
+    const fireworksModel: ModelRecord = {
+      id: "accounts/fireworks/models/deepseek-v3",
+      owned_by: "fireworks",
+      metadata: { provider: "fireworks", provider_kind: "cloud" },
+    };
+
+    expect(filterModelsByProvider([fireworksModel], "fireworks-ai", configuredProviders)).toEqual([
+      fireworksModel,
+    ]);
   });
 
   it("detects remote runtime sessions from cloud identity", () => {

@@ -6,8 +6,9 @@
 // remain here because they don't fit any of the more focused files.
 
 import type { ModelFilter, ModelRecord } from "../types/model";
-import type { ProviderFilter } from "../types/provider";
+import type { ConfiguredProviderRecord, ProviderFilter } from "../types/provider";
 import type { SessionResponse } from "../types/runtime";
+import { providerAliasesForKey, providerKeyMatches } from "./provider-utils";
 
 type SessionInfo = SessionResponse["data"] | null | undefined;
 
@@ -32,11 +33,16 @@ export function filterModelsByKind(models: ModelRecord[], filter: ModelFilter): 
 export function filterModelsByProvider(
   models: ModelRecord[],
   provider: ProviderFilter,
+  configuredProviders: ConfiguredProviderRecord[] = [],
 ): ModelRecord[] {
   if (provider === "auto") {
     return models;
   }
-  return models.filter((entry) => entry.metadata?.provider === provider);
+  const aliases = providerAliasesForKey(provider, configuredProviders);
+  return models.filter((entry) => {
+    const providerKey = entry.metadata?.provider || entry.owned_by;
+    return providerKeyMatches(providerKey, aliases);
+  });
 }
 
 export function isRemoteRuntimeSession(sessionInfo: SessionInfo): boolean {
