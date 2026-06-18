@@ -89,6 +89,11 @@ Hecate stores local configuration and operational state on disk.
 - External agent credentials belong to the underlying CLI account. Hecate can probe and surface auth failures, but it does not own, proxy, or pool those accounts. See [External Agents](../runtime/external-agents.md#credential-and-account-boundaries) for credential and billing notes for Codex, Claude Code, Cursor Agent, and Grok Build.
 - Stdio MCP servers inherit only runtime-essential environment variables from the gateway. Server credentials must be configured explicitly on that MCP server entry.
 - If you expose Hecate beyond loopback while provider credentials are configured, anyone who can reach an unprotected inference path may be able to spend those credentials. Use your own network access control; set `HECATE_INFERENCE_TOKEN` for provider-compatible `/v1/*` clients and `HECATE_RUNTIME_TOKEN` for Hecate-native chat, task, and control-plane clients.
+- On self-hosted non-loopback starts, Hecate logs warnings when configured
+  provider credentials exist and either shared token is missing. Remote runtime
+  mode uses trusted proxy identity instead, so those local token warnings do not
+  apply there. The self-hosted warning is conservative advisory output and can
+  still appear behind an authenticating reverse proxy.
 
 ### Bootstrap key today
 
