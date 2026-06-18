@@ -491,7 +491,7 @@ Every action has the same envelope:
 | `create_role`             | `internal/projectwork` | Creates a custom project role; built-in role ids remain immutable.                                                                      |
 | `create_work_item`        | `internal/projectwork` | Creates a project-scoped work item; does not start a task.                                                                              |
 | `update_work_item`        | `internal/projectwork` | Updates one existing work item.                                                                                                         |
-| `create_assignment`       | `internal/projectwork` | Creates an assignment for existing project work.                                                                                        |
+| `create_assignment`       | `internal/projectwork` | Creates an assignment for existing project work; supplied `root_id` must match one of the project's roots.                              |
 | `create_handoff`          | `internal/projectwork` | Creates a handoff record; does not launch follow-up work.                                                                               |
 | `create_memory_candidate` | `internal/memory`      | Creates a candidate with provenance; never a durable memory entry.                                                                      |
 

@@ -1320,6 +1320,14 @@ func TestService_ApplyRevalidatesStaleTargets(t *testing.T) {
 			ctx := context.Background()
 			fixture := builder.build(t)
 			project := createTestProject(t, ctx, fixture.projects)
+			if _, err := fixture.work.CreateWorkItem(ctx, projectwork.WorkItem{
+				ID:        "work_stale_root",
+				ProjectID: project.ID,
+				Title:     "Stale root check",
+				Status:    projectwork.WorkItemStatusReady,
+			}); err != nil {
+				t.Fatalf("CreateWorkItem: %v", err)
+			}
 
 			cases := []struct {
 				name   string
@@ -1349,6 +1357,19 @@ func TestService_ApplyRevalidatesStaleTargets(t *testing.T) {
 					},
 				},
 				{
+					name: "missing assignment root",
+					action: Action{
+						Kind: ActionCreateAssignment,
+						Patch: rawPatch(t, map[string]any{
+							"project_id":   project.ID,
+							"work_item_id": "work_stale_root",
+							"role_id":      "software_developer",
+							"root_id":      "root_missing",
+							"driver_kind":  projectwork.AssignmentDriverHecateTask,
+						}),
+					},
+				},
+				{
 					name: "missing chat",
 					action: Action{
 						Kind:   ActionMoveChatSession,
@@ -1367,6 +1388,13 @@ func TestService_ApplyRevalidatesStaleTargets(t *testing.T) {
 					}, true)
 					if !errors.Is(err, ErrNotFound) {
 						t.Fatalf("Apply err = %v, want ErrNotFound", err)
+					}
+					assignments, err := fixture.work.ListAssignments(ctx, projectwork.AssignmentFilter{ProjectID: project.ID})
+					if err != nil {
+						t.Fatalf("ListAssignments: %v", err)
+					}
+					if len(assignments) != 0 {
+						t.Fatalf("assignments = %+v, want none after stale-target rejection", assignments)
 					}
 				})
 			}
@@ -1445,7 +1473,7 @@ func TestService_ApplyCreatesProjectWorkRecords(t *testing.T) {
 							"project_id":   project.ID,
 							"work_item_id": "work_a",
 							"role_id":      "software_developer",
-							"root_id":      "root_worktree",
+							"root_id":      project.Roots[0].ID,
 							"driver_kind":  projectwork.AssignmentDriverHecateTask,
 						}),
 					},
@@ -1477,7 +1505,7 @@ func TestService_ApplyCreatesProjectWorkRecords(t *testing.T) {
 			if err != nil {
 				t.Fatalf("list assignments: %v", err)
 			}
-			if len(assignments) != 1 || assignments[0].ID != "asgn_a" || assignments[0].Status != projectwork.AssignmentStatusQueued || assignments[0].RootID != "root_worktree" {
+			if len(assignments) != 1 || assignments[0].ID != "asgn_a" || assignments[0].Status != projectwork.AssignmentStatusQueued || assignments[0].RootID != project.Roots[0].ID {
 				t.Fatalf("assignments = %+v, want queued assignment with root", assignments)
 			}
 			handoffs, err := fixture.work.ListHandoffs(ctx, projectwork.HandoffFilter{ProjectID: project.ID, WorkItemID: "work_a"})

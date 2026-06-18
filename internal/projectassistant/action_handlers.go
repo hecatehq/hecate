@@ -338,8 +338,20 @@ func (s *Service) applyCreateAssignment(ctx context.Context, action Action) (Act
 	if projectID == "" {
 		projectID = targetValue(action, "project_id")
 	}
-	if _, err := s.requireWorkItem(ctx, projectID, patch.WorkItemID); err != nil {
+	item, err := s.requireWorkItem(ctx, projectID, patch.WorkItemID)
+	if err != nil {
 		return ActionResult{}, err
+	}
+	projectID = item.ProjectID
+	rootID := strings.TrimSpace(patch.RootID)
+	if rootID != "" {
+		project, err := s.requireProject(ctx, projectID)
+		if err != nil {
+			return ActionResult{}, err
+		}
+		if !projectHasRoot(project, rootID) {
+			return ActionResult{}, fmt.Errorf("%w: root %q", ErrNotFound, rootID)
+		}
 	}
 	id := strings.TrimSpace(patch.ID)
 	if id == "" {
@@ -348,9 +360,9 @@ func (s *Service) applyCreateAssignment(ctx context.Context, action Action) (Act
 	assignment, err := s.work.CreateAssignment(ctx, projectwork.Assignment{
 		ID:         id,
 		ProjectID:  projectID,
-		WorkItemID: patch.WorkItemID,
+		WorkItemID: item.ID,
 		RoleID:     patch.RoleID,
-		RootID:     patch.RootID,
+		RootID:     rootID,
 		DriverKind: patch.DriverKind,
 		Status:     patch.Status,
 	})
