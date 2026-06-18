@@ -433,8 +433,8 @@ Projects V1 is considered structurally complete when an operator can:
 
 Remaining Projects V1 hardening:
 
-- Add at least one browser-level operator journey test for create project ->
-  setup -> create work -> draft/start assignment -> review/closeout.
+- Keep the browser-level project journey test representative as setup,
+  assignment, evidence, and closeout flows evolve.
 - Keep polishing onboarding and first-work UI so setup is the obvious path and
   manual forms remain available but secondary.
 - Continue dogfooding Hecate development through a Hecate project and capture
@@ -466,7 +466,9 @@ Out of scope for this document and Projects V1:
   start assignment, inspect context, create handoff/follow-up assignment.
 - UI journeys: create rootless and workspace-backed projects, run setup, create
   work, draft/start assignment, inspect context, record review/evidence,
-  complete closeout, and verify no-project/new-project onboarding states.
+  complete closeout, and verify no-project/new-project onboarding states. A
+  browser-level Projects journey now covers create project -> setup proposal ->
+  first work -> assignment draft/start -> evidence -> closeout.
 
 ## Open Questions
 

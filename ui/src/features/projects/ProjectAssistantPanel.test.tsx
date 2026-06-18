@@ -53,6 +53,34 @@ function renderAssistantPanel(
 }
 
 describe("ProjectAssistantPanel", () => {
+  it("shows setup-ready actions after project setup has begun", async () => {
+    const user = userEvent.setup();
+    const handlers = renderAssistantPanel({
+      memoryCandidateCount: 1,
+      roleCount: 2,
+      setupFirst: true,
+      setupStarted: true,
+      workItemCount: 0,
+    });
+
+    const assistant = screen.getByRole("region", { name: "Project Assistant" });
+    expect(within(assistant).getByText("Setup ready")).toBeTruthy();
+    expect(
+      within(assistant).getByText(/Project setup has 2 roles · 1 memory candidate/),
+    ).toBeTruthy();
+    expect(within(assistant).queryByRole("button", { name: "Set up project" })).toBeNull();
+
+    await user.click(within(assistant).getByRole("button", { name: "Review memory" }));
+    await user.click(within(assistant).getByRole("button", { name: "Review roles" }));
+    await user.click(within(assistant).getByRole("button", { name: "Create first work" }));
+    await user.click(within(assistant).getByRole("button", { name: "Refresh setup" }));
+
+    expect(handlers.onReviewMemory).toHaveBeenCalledTimes(1);
+    expect(handlers.onManageRoles).toHaveBeenCalledTimes(1);
+    expect(handlers.onCreateWork).toHaveBeenCalledTimes(1);
+    expect(handlers.onBootstrap).toHaveBeenCalledTimes(1);
+  });
+
   it("turns applied setup proposals into follow-up actions", async () => {
     const user = userEvent.setup();
     const handlers = renderAssistantPanel({
