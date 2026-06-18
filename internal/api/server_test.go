@@ -190,6 +190,8 @@ func TestServerRejectsLegacyNativePathsButKeepsProviderCompatibleV1(t *testing.T
 		{method: http.MethodGet, path: "/v1/agent-chat/sessions"},
 		{method: http.MethodGet, path: "/admin/control-plane"},
 		{method: http.MethodPost, path: "/admin/control-plane/providers"},
+		{method: http.MethodPost, path: "/hecate/v1/terminal/sessions"},
+		{method: http.MethodGet, path: "/hecate/v1/terminal?workspace=/tmp&token=legacy"},
 	} {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
 			client.mustRequestStatus(http.StatusNotFound, tc.method, tc.path, "")
