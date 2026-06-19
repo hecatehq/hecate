@@ -278,14 +278,16 @@ environment.
 
 | Env var                             | Default             | Applies to                                           |
 | ----------------------------------- | ------------------- | ---------------------------------------------------- |
-| `HECATE_AGENT_ADAPTERS_DIR`         | platform user cache | Managed Codex / Claude ACP launcher scripts          |
+| `HECATE_AGENT_ADAPTERS_DIR`         | platform user cache | Legacy/custom managed ACP launcher scripts           |
 | `HECATE_CHAT_MAX_TURNS_PER_SESSION` | `0`                 | Per-session user→assistant turn ceiling              |
 | `HECATE_CHAT_MAX_SESSION_DURATION`  | `0s`                | Wall-clock age ceiling before new turns are rejected |
 | `HECATE_CHAT_IDLE_TIMEOUT`          | `0s`                | Background idle auto-close sweeper                   |
 
-Managed launchers are small wrapper scripts around a local package runner such
-as `npx`; Hecate garbage-collects stale launcher names at startup. If you move
-Node/npm managers, restart Hecate and use `POST
+Managed launchers are legacy/custom wrapper scripts around a local package
+runner such as `npx`; Hecate garbage-collects stale launcher names at startup.
+Codex and Claude Code now use standalone Go adapter binaries instead of managed
+npm launchers. If you still run a managed custom adapter and move Node/npm
+managers, restart Hecate and use `POST
 /hecate/v1/agent-adapters/{id}/refresh-launcher` to recreate the affected wrapper.
 Connections probes External Agent integrations when the workspace opens; the probe calls
 `POST /hecate/v1/agent-adapters/{id}/probe`, which re-runs discovery and

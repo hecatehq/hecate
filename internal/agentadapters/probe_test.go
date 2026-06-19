@@ -163,7 +163,7 @@ func TestProbeHonorsDevOverrideMatrix(t *testing.T) {
 			override:   "codex=connector_missing",
 			wantStatus: ProbeStatusNotInstalled,
 			wantStage:  ProbeStageLookup,
-			wantHint:   "@zed-industries/codex-acp",
+			wantHint:   "codex-acp-adapter",
 		},
 		{
 			name:       "app missing",

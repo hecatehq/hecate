@@ -89,15 +89,14 @@ describe("resolveExternalAgentReadiness", () => {
     });
   });
 
-  it("names the Claude ACP adapter in setup guidance", () => {
+  it("names the Claude Go ACP adapter in setup guidance", () => {
     const readiness = resolveExternalAgentReadiness(
       adapter({
         id: "claude_code",
         name: "Claude Code",
-        command: "claude-agent-acp",
+        command: "claude-code-acp-adapter",
         available: false,
         status: "missing",
-        managed_package: "@agentclientprotocol/claude-agent-acp",
       }),
       null,
     );
@@ -106,7 +105,7 @@ describe("resolveExternalAgentReadiness", () => {
       kind: "setup",
       needsRepair: true,
     });
-    expect(readiness.setupHint).toContain("@agentclientprotocol/claude-agent-acp");
+    expect(readiness.setupHint).toContain("claude-code-acp-adapter");
     expect(readiness.setupHint).toContain("claude /login");
   });
 

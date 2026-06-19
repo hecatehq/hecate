@@ -16,7 +16,7 @@ function makeAdapter(overrides: Partial<AgentAdapterRecord> = {}): AgentAdapterR
     id: "codex",
     name: "Codex",
     kind: "codex",
-    command: "codex-acp",
+    command: "codex-acp-adapter",
     available: true,
     status: "available",
     auth_status: "ok",

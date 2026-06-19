@@ -31,7 +31,7 @@ func TestAgentAdapterHealthSurfacesProbeResult(t *testing.T) {
 				AdapterID: "codex",
 				Status:    agentadapters.ProbeStatusReady,
 				Stage:     agentadapters.ProbeStageReady,
-				Path:      "/usr/local/bin/codex-acp",
+				Path:      "/usr/local/bin/codex-acp-adapter",
 			},
 		},
 		{
@@ -40,7 +40,7 @@ func TestAgentAdapterHealthSurfacesProbeResult(t *testing.T) {
 				AdapterID: "codex",
 				Status:    agentadapters.ProbeStatusAuthRequired,
 				Stage:     agentadapters.ProbeStageInitialize,
-				Path:      "/usr/local/bin/codex-acp",
+				Path:      "/usr/local/bin/codex-acp-adapter",
 				Error:     "Authentication required",
 				Hint:      "Run codex login",
 			},
@@ -51,7 +51,7 @@ func TestAgentAdapterHealthSurfacesProbeResult(t *testing.T) {
 				AdapterID: "codex",
 				Status:    agentadapters.ProbeStatusNotInstalled,
 				Stage:     agentadapters.ProbeStageLookup,
-				Error:     "exec: codex-acp not found",
+				Error:     "exec: codex-acp-adapter not found",
 				Hint:      "Install Codex and ensure it's on PATH.",
 			},
 		},
@@ -61,7 +61,7 @@ func TestAgentAdapterHealthSurfacesProbeResult(t *testing.T) {
 				AdapterID: "codex",
 				Status:    agentadapters.ProbeStatusError,
 				Stage:     agentadapters.ProbeStageInitialize,
-				Path:      "/usr/local/bin/codex-acp",
+				Path:      "/usr/local/bin/codex-acp-adapter",
 				Error:     "unexpected ACP protocol version",
 			},
 		},
@@ -150,7 +150,7 @@ func TestAgentAdapterProbeEndpointReturnsFreshAdapterAndHealth(t *testing.T) {
 			AdapterID:  "codex",
 			Status:     agentadapters.ProbeStatusReady,
 			Stage:      agentadapters.ProbeStageReady,
-			Path:       "/usr/local/bin/codex-acp",
+			Path:       "/usr/local/bin/codex-acp-adapter",
 			DurationMS: 42,
 		}
 	})
@@ -188,7 +188,7 @@ func TestAgentAdapterProbePromotesClaudeHandshakeToAuthOK(t *testing.T) {
 			AdapterID:  "claude_code",
 			Status:     agentadapters.ProbeStatusReady,
 			Stage:      agentadapters.ProbeStageReady,
-			Path:       "/usr/local/bin/claude-agent-acp",
+			Path:       "/usr/local/bin/claude-code-acp-adapter",
 			DurationMS: 42,
 		}
 	})

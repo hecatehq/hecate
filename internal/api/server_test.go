@@ -1107,10 +1107,10 @@ func TestAgentAdaptersReturnsBuiltIns(t *testing.T) {
 	foundCursor := false
 	foundGrok := false
 	for _, item := range response.Data {
-		if item.ID == "codex" && item.Kind == "acp" && item.Command == "codex-acp" && item.Managed && item.ManagedPackage == "@zed-industries/codex-acp" && item.CostMode == "external" {
+		if item.ID == "codex" && item.Kind == "acp" && item.Command == "codex-acp-adapter" && !item.Managed && item.ManagedPackage == "" && item.CostMode == "external" {
 			foundCodex = true
 		}
-		if item.ID == "claude_code" && item.Kind == "acp" && item.Command == "claude-agent-acp" && item.Managed && item.ManagedPackage == "@agentclientprotocol/claude-agent-acp" && item.CostMode == "external" {
+		if item.ID == "claude_code" && item.Kind == "acp" && item.Command == "claude-code-acp-adapter" && !item.Managed && item.ManagedPackage == "" && item.CostMode == "external" {
 			foundClaude = true
 		}
 		if item.ID == "cursor_agent" && item.Kind == "acp" && item.Command == "cursor-agent" && item.CostMode == "external" {
@@ -1278,7 +1278,7 @@ func TestAgentChatRunsExternalAdapter(t *testing.T) {
 		telemetry.AttrHecateExecutionKind:        "chat",
 		telemetry.AttrHecateAgentAdapterID:       "codex",
 		telemetry.AttrHecateAgentAdapterName:     "Codex",
-		telemetry.AttrHecateAgentAdapterCommand:  "codex-acp",
+		telemetry.AttrHecateAgentAdapterCommand:  "codex-acp-adapter",
 		telemetry.AttrHecateAgentDriverKind:      agentadapters.DriverKindACP,
 		telemetry.AttrHecateAgentNativeSessionID: "native_codex_1",
 		telemetry.AttrHecateWorkspacePath:        assistant.Workspace,

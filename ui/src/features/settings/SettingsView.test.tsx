@@ -485,7 +485,7 @@ describe("Connections external-agent panel", () => {
             id: "codex",
             name: "Codex",
             kind: "acp",
-            command: "codex-acp",
+            command: "codex-acp-adapter",
             available: true,
             status: "available",
             cost_mode: "external",
@@ -517,7 +517,7 @@ describe("Connections external-agent panel", () => {
               id: "codex",
               name: "Codex",
               kind: "acp",
-              command: "codex-acp",
+              command: "codex-acp-adapter",
               available: true,
               status: "available",
               cost_mode: "external",
@@ -544,7 +544,7 @@ describe("Connections external-agent panel", () => {
                 adapter_id: "codex",
                 status: "auth_required",
                 stage: "initialize",
-                path: "/usr/local/bin/codex-acp",
+                path: "/usr/local/bin/codex-acp-adapter",
                 error: "Authentication required",
                 hint: "Run codex login",
                 duration_ms: 412,
@@ -560,7 +560,7 @@ describe("Connections external-agent panel", () => {
       expect(within(row).getByText("codex login")).toBeTruthy();
       expect(screen.queryByTestId("external-agents-adapter-codex-detail")).toBeNull();
       expect(screen.queryByTestId("external-agents-adapter-codex-auth-warning")).toBeNull();
-      expect(row).not.toHaveTextContent("path /usr/local/bin/codex-acp");
+      expect(row).not.toHaveTextContent("path /usr/local/bin/codex-acp-adapter");
       expect(row).not.toHaveTextContent("412 ms");
       expect(row).not.toHaveTextContent("auth unknown");
     });
@@ -573,8 +573,7 @@ describe("Connections external-agent panel", () => {
               id: "codex",
               name: "Codex",
               kind: "acp",
-              command: "codex-acp",
-              managed_package: "@zed-industries/codex-acp",
+              command: "codex-acp-adapter",
               available: true,
               status: "available",
               cost_mode: "external",
@@ -598,8 +597,8 @@ describe("Connections external-agent panel", () => {
                 adapter_id: "codex",
                 status: "not_installed",
                 stage: "lookup",
-                error: "codex-acp command was not found",
-                hint: 'Install Node/npm so Hecate can manage "@zed-industries/codex-acp" automatically.',
+                error: "codex-acp-adapter command was not found",
+                hint: "Install Codex and ensure codex-acp-adapter is on PATH.",
                 duration_ms: 0,
               },
             ],
@@ -622,7 +621,9 @@ describe("Connections external-agent panel", () => {
 
       const codex = await screen.findByTestId("external-agents-adapter-codex");
       expect(within(codex).getByText("not configured")).toBeTruthy();
-      expect(codex).toHaveTextContent("Set up to use: Install Node/npm");
+      expect(codex).toHaveTextContent(
+        "Set up to use: Install Codex and ensure codex-acp-adapter is on PATH.",
+      );
       expect(codex).not.toHaveTextContent("not installed");
       expect(codex).not.toHaveTextContent("auth unknown");
       expect(codex).not.toHaveTextContent("0 ms");
@@ -682,7 +683,7 @@ describe("Connections external-agent panel", () => {
               id: "claude_code",
               name: "Claude Code",
               kind: "acp",
-              command: "claude-agent-acp",
+              command: "claude-code-acp-adapter",
               available: true,
               status: "available",
               cost_mode: "external",
@@ -707,9 +708,7 @@ describe("Connections external-agent panel", () => {
               id: "claude_code",
               name: "Claude Code",
               kind: "acp",
-              command: "claude-agent-acp",
-              managed: true,
-              managed_package: "@agentclientprotocol/claude-agent-acp",
+              command: "claude-code-acp-adapter",
               available: true,
               status: "available",
               cost_mode: "external",
@@ -735,7 +734,7 @@ describe("Connections external-agent panel", () => {
               id: "claude_code",
               name: "Claude Code",
               kind: "acp",
-              command: "claude-agent-acp",
+              command: "claude-code-acp-adapter",
               available: true,
               status: "available",
               cost_mode: "external",
@@ -767,11 +766,9 @@ describe("Connections external-agent panel", () => {
               id: "claude_code",
               name: "Claude Code",
               kind: "acp",
-              command: "claude-agent-acp",
+              command: "claude-code-acp-adapter",
               available: true,
               status: "available",
-              managed: true,
-              managed_package: "@agentclientprotocol/claude-agent-acp",
               cost_mode: "external",
               auth_status: "unauthenticated",
             },
@@ -794,11 +791,9 @@ describe("Connections external-agent panel", () => {
               id: "claude_code",
               name: "Claude Code",
               kind: "acp",
-              command: "claude-agent-acp",
+              command: "claude-code-acp-adapter",
               available: true,
               status: "available",
-              managed: true,
-              managed_package: "@agentclientprotocol/claude-agent-acp",
               cost_mode: "external",
               auth_status: "unauthenticated",
             },
@@ -809,10 +804,6 @@ describe("Connections external-agent panel", () => {
       render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
 
       await user.click(await screen.findByRole("button", { name: "Test again" }));
-      expect(probeAgentAdapter).not.toHaveBeenCalled();
-      expect(await screen.findByRole("dialog", { name: "Run managed agent check?" })).toBeTruthy();
-      expect(screen.getByText(/@agentclientprotocol\/claude-agent-acp/)).toBeTruthy();
-      await user.click(screen.getByRole("button", { name: "Run check" }));
       expect(probeAgentAdapter).toHaveBeenCalledWith("claude_code");
     });
   });

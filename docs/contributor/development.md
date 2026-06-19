@@ -273,10 +273,11 @@ version                 # build-time version metadata
 
 ## External-agent adapter smoke states
 
-External-agent onboarding depends on local tools (`codex-acp`,
-`claude-agent-acp`, `cursor-agent`, `grok`) and the underlying agent CLIs/auth that may
-already be installed on your machine. For manual UI smoke tests and Playwright
-fixtures, you can force the visual state without uninstalling anything. These
+External-agent onboarding depends on local tools (`codex-acp-adapter`,
+`claude-code-acp-adapter`, `cursor-agent`, `grok`) and the underlying agent
+CLIs/auth that may already be installed on your machine. For manual UI smoke
+tests and Playwright fixtures, you can force the visual state without
+uninstalling anything. These
 fixture env vars are intentionally not listed in `.env.example`; keep them in
 one-off test commands or `just` recipes instead of normal operator config.
 

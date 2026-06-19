@@ -257,11 +257,11 @@ func BuiltIns() []Adapter {
 		{
 			ID:      "codex",
 			Name:    "Codex",
-			Command: "codex-acp",
+			Command: "codex-acp-adapter",
 			CandidatePaths: []string{
-				"${HOME}/.local/bin/codex-acp",
-				"/opt/homebrew/bin/codex-acp",
-				"/usr/local/bin/codex-acp",
+				"${HOME}/.local/bin/codex-acp-adapter",
+				"/opt/homebrew/bin/codex-acp-adapter",
+				"/usr/local/bin/codex-acp-adapter",
 			},
 			AgentVersion: VersionProbe{
 				Command: "codex",
@@ -273,17 +273,11 @@ func BuiltIns() []Adapter {
 					"/usr/local/bin/codex",
 				},
 			},
-			Managed: ManagedLauncher{
-				Package: "@zed-industries/codex-acp",
-				Runners: []ManagedRunner{
-					{Command: "npx", Args: []string{"-y", "@zed-industries/codex-acp"}, CandidatePaths: managedNPXCandidates()},
-				},
-			},
 			Kind:           "acp",
-			Description:    "Run Codex through its ACP adapter as a long-lived external coding-agent session supervised by Hecate.",
+			Description:    "Run Codex through the standalone Go ACP adapter as an external coding-agent session supervised by Hecate.",
 			CostMode:       "external",
-			DocsURL:        "https://github.com/zed-industries/codex-acp",
-			SupportedRange: ">=0.1.0",
+			DocsURL:        "https://github.com/hecatehq/codex-acp-adapter",
+			SupportedRange: ">=0.0.0-dev",
 			CredentialModes: []CredentialMode{
 				{
 					ID:          CredentialModeLocalLogin,
@@ -302,11 +296,11 @@ func BuiltIns() []Adapter {
 		{
 			ID:      "claude_code",
 			Name:    "Claude Code",
-			Command: "claude-agent-acp",
+			Command: "claude-code-acp-adapter",
 			CandidatePaths: []string{
-				"${HOME}/.local/bin/claude-agent-acp",
-				"/opt/homebrew/bin/claude-agent-acp",
-				"/usr/local/bin/claude-agent-acp",
+				"${HOME}/.local/bin/claude-code-acp-adapter",
+				"/opt/homebrew/bin/claude-code-acp-adapter",
+				"/usr/local/bin/claude-code-acp-adapter",
 			},
 			AgentVersion: VersionProbe{
 				Command: "claude",
@@ -318,17 +312,11 @@ func BuiltIns() []Adapter {
 					"/usr/local/bin/claude",
 				},
 			},
-			Managed: ManagedLauncher{
-				Package: "@agentclientprotocol/claude-agent-acp",
-				Runners: []ManagedRunner{
-					{Command: "npx", Args: []string{"-y", "@agentclientprotocol/claude-agent-acp"}, CandidatePaths: managedNPXCandidates()},
-				},
-			},
 			Kind:           "acp",
-			Description:    "Run Claude Agent through ACP as a long-lived external coding-agent session supervised by Hecate.",
+			Description:    "Run Claude Code through the standalone Go ACP adapter as an external coding-agent session supervised by Hecate.",
 			CostMode:       "external",
-			DocsURL:        "https://github.com/agentclientprotocol/claude-agent-acp",
-			SupportedRange: ">=0.1.0",
+			DocsURL:        "https://github.com/hecatehq/claude-code-acp-adapter",
+			SupportedRange: ">=0.0.0-dev",
 			CredentialModes: []CredentialMode{
 				{
 					ID:          CredentialModeLocalLogin,
