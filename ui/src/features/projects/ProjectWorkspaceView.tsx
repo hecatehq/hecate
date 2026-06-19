@@ -26,7 +26,7 @@ import {
   type ProjectAssignmentChatLaunchRequest,
 } from "./ProjectWorkItemDetail";
 import { toProjectAssignmentExecutionViewModel } from "./projectAssignmentViewModels";
-import { workStatusLabel } from "./projectDisplay";
+import { formatProjectRowRelativeTime, workStatusLabel } from "./projectDisplay";
 import {
   projectActivityWorkItemToWorkItem,
   type ProjectActivityBucketKey,
@@ -307,6 +307,14 @@ export function ProjectWorkspaceView({
             )}
             {!projectNeedsOnboarding && workspaceTab === "work" && (
               <section style={projectTabPanelStyle} aria-label="Work coordination">
+                <ProjectResumeSummary
+                  activity={activity}
+                  memoryCandidateCount={memoryCandidates.length}
+                  onBucketChange={onActivityBucketChange}
+                  onReviewMemory={() => onWorkspaceTabChange("memory")}
+                  onSelectWorkItem={onSelectWorkItem}
+                  workItems={workItems}
+                />
                 <section aria-label="Work activity" style={workActivityPanelStyle}>
                   <SectionHeader
                     title="Work Queue"
@@ -694,6 +702,104 @@ function ProjectOnboardingPanel({
   );
 }
 
+function ProjectResumeSummary({
+  activity,
+  memoryCandidateCount,
+  onBucketChange,
+  onReviewMemory,
+  onSelectWorkItem,
+  workItems,
+}: {
+  activity: ProjectActivityData | null;
+  memoryCandidateCount: number;
+  onBucketChange: (bucket: ProjectActivityBucketKey) => void;
+  onReviewMemory: () => void;
+  onSelectWorkItem: (workItemID: string) => void;
+  workItems: ProjectWorkItemRecord[];
+}) {
+  const blocked = activity?.summary.blocked_count ?? 0;
+  const active = activity?.summary.active_count ?? 0;
+  const recent = activity?.summary.recent_count ?? 0;
+  const notStartedItem =
+    activity?.buckets.blocked.find((item) => item.blocking_signal === "not_started") ?? null;
+  const attentionItem = activity?.buckets.blocked[0] ?? activity?.buckets.active[0] ?? null;
+  const latestWorkItem = latestProjectWorkItem(workItems);
+  const continueWorkItemID =
+    attentionItem?.work_item.id ?? notStartedItem?.work_item.id ?? latestWorkItem?.id ?? "";
+  const attentionDetail =
+    attentionItem?.blocking_signal === "not_started"
+      ? "Queued assignment is ready to start."
+      : blocked > 0
+        ? "Open the blocked assignment and resolve the next action."
+        : active > 0
+          ? "An assignment is in progress; inspect or continue it."
+          : "";
+  const title =
+    blocked > 0
+      ? blocked === 1
+        ? "1 assignment needs attention"
+        : `${blocked} assignments need attention`
+      : active > 0
+        ? `${active} assignment${active === 1 ? "" : "s"} in progress`
+        : memoryCandidateCount > 0
+          ? `${memoryCandidateCount} memory candidate${memoryCandidateCount === 1 ? "" : "s"} to review`
+          : latestWorkItem
+            ? `Resume ${latestWorkItem.title}`
+            : "No project work in motion";
+  const detail =
+    attentionDetail ||
+    (latestWorkItem
+      ? `Last updated ${formatProjectRowRelativeTime(latestWorkItem.updated_at)}.`
+      : "Create a work item when there is something to coordinate.");
+
+  return (
+    <section aria-label="Project resume" style={projectResumeSummaryStyle}>
+      <div style={projectResumeCopyStyle}>
+        <div style={sectionLabelStyle}>Resume</div>
+        <div style={titleStyle}>{title}</div>
+        <div style={subtleTextStyle}>{detail}</div>
+      </div>
+      <div style={projectResumeStatsStyle}>
+        <button
+          className={blocked > 0 ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"}
+          type="button"
+          onClick={() => onBucketChange("blocked")}
+        >
+          Blocked <span className="badge badge-muted">{blocked}</span>
+        </button>
+        <button
+          className="btn btn-ghost btn-sm"
+          type="button"
+          onClick={() => onBucketChange("active")}
+        >
+          Active <span className="badge badge-muted">{active}</span>
+        </button>
+        <button
+          className="btn btn-ghost btn-sm"
+          type="button"
+          onClick={() => onBucketChange("recent")}
+        >
+          Recent <span className="badge badge-muted">{recent}</span>
+        </button>
+        {memoryCandidateCount > 0 && (
+          <button className="btn btn-ghost btn-sm" type="button" onClick={onReviewMemory}>
+            Memory <span className="badge badge-muted">{memoryCandidateCount}</span>
+          </button>
+        )}
+        {continueWorkItemID && (
+          <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            onClick={() => onSelectWorkItem(continueWorkItemID)}
+          >
+            Continue here
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function ProjectWorkspaceTabs({
   activeTab,
   memoryCandidateCount,
@@ -873,6 +979,17 @@ function uniqueActivityWorkItems(
     );
   }
   return out;
+}
+
+function latestProjectWorkItem(items: ProjectWorkItemRecord[]): ProjectWorkItemRecord | null {
+  if (items.length === 0) return null;
+  return [...items].sort((left, right) => {
+    const leftTime = Date.parse(left.updated_at || left.created_at || "");
+    const rightTime = Date.parse(right.updated_at || right.created_at || "");
+    return (
+      (Number.isFinite(rightTime) ? rightTime : 0) - (Number.isFinite(leftTime) ? leftTime : 0)
+    );
+  })[0];
 }
 
 export function ProjectEmptyBlock({ title, detail }: { title: string; detail: string }) {
@@ -1093,6 +1210,29 @@ const workActivityPanelStyle: CSSProperties = {
   ...panelStyle,
   display: "grid",
   gap: 10,
+};
+
+const projectResumeSummaryStyle: CSSProperties = {
+  ...panelStyle,
+  alignItems: "center",
+  display: "grid",
+  gap: 12,
+  gridTemplateColumns: "minmax(0, 1fr) auto",
+};
+
+const projectResumeCopyStyle: CSSProperties = {
+  display: "grid",
+  gap: 5,
+  minWidth: 0,
+};
+
+const projectResumeStatsStyle: CSSProperties = {
+  alignItems: "center",
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 6,
+  justifyContent: "flex-end",
+  minWidth: 0,
 };
 
 const workCoordinationGridStyle: CSSProperties = {

@@ -3,9 +3,12 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import type {
+  ProjectActivityData,
+  ProjectActivityItemRecord,
   ProjectAssignmentRecord,
   ProjectRecord,
   ProjectWorkItemRecord,
+  ProjectWorkRoleRecord,
 } from "../../types/project";
 import {
   ProjectWorkspaceView,
@@ -56,6 +59,89 @@ function assignment(overrides: Partial<ProjectAssignmentRecord> = {}): ProjectAs
     },
     created_at: "2026-06-12T00:00:00Z",
     updated_at: "2026-06-12T00:00:00Z",
+    ...overrides,
+  };
+}
+
+function role(overrides: Partial<ProjectWorkRoleRecord> = {}): ProjectWorkRoleRecord {
+  return {
+    id: "developer",
+    project_id: "proj_1",
+    name: "Developer",
+    built_in: false,
+    created_at: "2026-06-12T00:00:00Z",
+    updated_at: "2026-06-12T00:00:00Z",
+    ...overrides,
+  };
+}
+
+function activity(overrides: Partial<ProjectActivityData> = {}): ProjectActivityData {
+  const item = workItem({ id: "work_blocked", title: "Fix blocked launch" });
+  const blocked = activityItem({
+    assignment: assignment({
+      id: "assign_blocked",
+      work_item_id: item.id,
+      status: "queued",
+      execution_ref: { kind: "none" },
+    }),
+    blocking_signal: "not_started",
+    id: "assign_blocked",
+    status: "queued",
+    status_summary: "not started",
+    updated_at: "2026-06-13T00:00:00Z",
+    work_item: {
+      id: item.id,
+      title: item.title,
+      status: item.status,
+      priority: item.priority,
+    },
+  });
+  return {
+    project_id: "proj_1",
+    summary: {
+      work_item_count: 1,
+      assignment_count: 1,
+      active_count: 0,
+      blocked_count: 1,
+      completed_count: 0,
+      recent_count: 1,
+    },
+    buckets: {
+      active: [],
+      blocked: [blocked],
+      completed: [],
+      recent: [blocked],
+    },
+    recent: [blocked],
+    ...overrides,
+  };
+}
+
+function activityItem(
+  overrides: Partial<ProjectActivityItemRecord> = {},
+): ProjectActivityItemRecord {
+  const assign = assignment({
+    id: "assign_blocked",
+    work_item_id: "work_blocked",
+    status: "queued",
+    execution_ref: { kind: "none" },
+  });
+  return {
+    id: assign.id,
+    project_id: "proj_1",
+    work_item: {
+      id: "work_blocked",
+      title: "Fix blocked launch",
+      status: "ready",
+      priority: "normal",
+    },
+    assignment: assign,
+    role: role(),
+    status: "queued",
+    blocking_signal: "not_started",
+    status_summary: "not started",
+    artifact_summary: { count: 0 },
+    updated_at: "2026-06-13T00:00:00Z",
     ...overrides,
   };
 }
@@ -173,8 +259,8 @@ function renderWorkspace(overrides: Partial<ProjectWorkspaceViewProps> = {}) {
     ...overrides,
   };
 
-  render(<ProjectWorkspaceView {...props} />);
-  return { handlers, props };
+  const result = render(<ProjectWorkspaceView {...props} />);
+  return { handlers, props, ...result };
 }
 
 describe("ProjectWorkspaceView", () => {
@@ -222,6 +308,149 @@ describe("ProjectWorkspaceView", () => {
     expect(handlers.onWorkspaceTabChange).toHaveBeenNthCalledWith(1, "timeline");
     expect(handlers.onWorkspaceTabChange).toHaveBeenNthCalledWith(2, "memory");
     expect(handlers.onWorkspaceTabChange).toHaveBeenNthCalledWith(3, "skills");
+  });
+
+  it("renders a resume summary and delegates resume actions", async () => {
+    const item = workItem({ id: "work_blocked", title: "Fix blocked launch" });
+    const { handlers } = renderWorkspace({
+      activity: activity(),
+      memoryCandidates: [
+        {
+          id: "memcand_1",
+          project_id: "proj_1",
+          title: "Project lesson",
+          body: "Remember the launch flow.",
+          status: "pending",
+          suggested_kind: "note",
+          suggested_trust_label: "operator_review",
+          suggested_source_kind: "dogfood",
+          created_at: "2026-06-13T00:00:00Z",
+          updated_at: "2026-06-13T00:00:00Z",
+        },
+      ],
+      workItems: [item],
+    });
+
+    const resume = screen.getByRole("region", { name: "Project resume" });
+    expect(within(resume).getByText("1 assignment needs attention")).toBeTruthy();
+    expect(within(resume).getByText("Queued assignment is ready to start.")).toBeTruthy();
+
+    await userEvent.click(within(resume).getByRole("button", { name: /Blocked/ }));
+    await userEvent.click(within(resume).getByRole("button", { name: /Recent/ }));
+    await userEvent.click(within(resume).getByRole("button", { name: /Memory/ }));
+    await userEvent.click(within(resume).getByRole("button", { name: "Continue here" }));
+
+    expect(handlers.onActivityBucketChange).toHaveBeenNthCalledWith(1, "blocked");
+    expect(handlers.onActivityBucketChange).toHaveBeenNthCalledWith(2, "recent");
+    expect(handlers.onWorkspaceTabChange).toHaveBeenCalledWith("memory");
+    expect(handlers.onSelectWorkItem).toHaveBeenCalledWith("work_blocked");
+  });
+
+  it("prioritizes active, memory, latest work, and empty resume states", async () => {
+    const activeItem = activityItem({
+      assignment: assignment({
+        id: "assign_active",
+        work_item_id: "work_active",
+        status: "running",
+      }),
+      blocking_signal: "running",
+      id: "assign_active",
+      status: "running",
+      work_item: {
+        id: "work_active",
+        title: "Continue execution",
+        status: "ready",
+        priority: "normal",
+      },
+    });
+    const memoryCandidate: ProjectWorkspaceViewProps["memoryCandidates"][number] = {
+      id: "memcand_1",
+      project_id: "proj_1",
+      title: "Project lesson",
+      body: "Remember the launch flow.",
+      status: "pending",
+      suggested_kind: "note",
+      suggested_trust_label: "operator_review",
+      suggested_source_kind: "dogfood",
+      created_at: "2026-06-13T00:00:00Z",
+      updated_at: "2026-06-13T00:00:00Z",
+    };
+    const latest = workItem({
+      id: "work_latest",
+      title: "Polish project onboarding",
+      created_at: "2026-06-12T00:00:00Z",
+      updated_at: "2026-06-14T00:00:00Z",
+    });
+
+    const { handlers, props, rerender } = renderWorkspace({
+      activity: activity({
+        summary: {
+          work_item_count: 1,
+          assignment_count: 1,
+          active_count: 1,
+          blocked_count: 0,
+          completed_count: 0,
+          recent_count: 1,
+        },
+        buckets: {
+          active: [activeItem],
+          blocked: [],
+          completed: [],
+          recent: [activeItem],
+        },
+        recent: [activeItem],
+      }),
+    });
+
+    let resume = screen.getByRole("region", { name: "Project resume" });
+    expect(within(resume).getByText("1 assignment in progress")).toBeTruthy();
+    expect(
+      within(resume).getByText("An assignment is in progress; inspect or continue it."),
+    ).toBeTruthy();
+
+    await userEvent.click(within(resume).getByRole("button", { name: "Continue here" }));
+    expect(handlers.onSelectWorkItem).toHaveBeenCalledWith("work_active");
+
+    rerender(
+      <ProjectWorkspaceView
+        {...props}
+        {...handlers}
+        activity={null}
+        memoryCandidates={[memoryCandidate]}
+        workItems={[]}
+      />,
+    );
+    resume = screen.getByRole("region", { name: "Project resume" });
+    expect(within(resume).getByText("1 memory candidate to review")).toBeTruthy();
+
+    rerender(
+      <ProjectWorkspaceView
+        {...props}
+        {...handlers}
+        activity={null}
+        memoryCandidates={[]}
+        workItems={[latest]}
+      />,
+    );
+    resume = screen.getByRole("region", { name: "Project resume" });
+    expect(within(resume).getByText("Resume Polish project onboarding")).toBeTruthy();
+    await userEvent.click(within(resume).getByRole("button", { name: "Continue here" }));
+    expect(handlers.onSelectWorkItem).toHaveBeenCalledWith("work_latest");
+
+    rerender(
+      <ProjectWorkspaceView
+        {...props}
+        {...handlers}
+        activity={null}
+        memoryCandidates={[]}
+        workItems={[]}
+      />,
+    );
+    resume = screen.getByRole("region", { name: "Project resume" });
+    expect(within(resume).getByText("No project work in motion")).toBeTruthy();
+    expect(
+      within(resume).getByText("Create a work item when there is something to coordinate."),
+    ).toBeTruthy();
   });
 
   it("renders project empty state when nothing is selected", () => {
