@@ -48,7 +48,7 @@ test("Projects journey: setup, first work, assignment, evidence, closeout", asyn
   await page.getByRole("button", { name: "Create work item" }).click();
 
   await expect(page.getByRole("heading", { name: "Verify launch checklist" })).toBeVisible();
-  await page.getByRole("button", { name: "Draft first assignment" }).click();
+  await page.getByRole("button", { name: "Prepare next step" }).click();
   await expect(
     page.getByText("Queue the implementation role for the selected work item."),
   ).toBeVisible();
