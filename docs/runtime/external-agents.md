@@ -22,8 +22,12 @@ transcript prelude for multi-turn continuity. They do not yet claim
 vendor-native durable history across adapter process restarts; if that load is
 stale, Hecate falls back to a fresh native session. Hecate treats
 `codex-acp-adapter` and `claude-code-acp-adapter` versions older than
-`v0.1.0-alpha.7` as outside the tested range because those older releases lack
-the current continuity and permission-control surface.
+`v0.1.0-alpha.8` as outside the tested range because those older releases lack
+the current continuity, permission-control, and structured stream surface. The
+`v0.1.0-alpha.8` adapters translate supported Codex and Claude Code JSON streams
+into ACP assistant-message, thought, tool-call, tool-result, and usage updates,
+so Hecate can render External Agent activity without exposing raw JSONL output in
+the chat transcript.
 
 ## Supported External Agents
 
