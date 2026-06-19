@@ -28,7 +28,7 @@ func TestFakeACPAgentProcess(t *testing.T) {
 }
 
 func TestSessionManagerRunsTurnsThroughACP(t *testing.T) {
-	installFakeACPExecutable(t, "codex-acp")
+	installFakeACPExecutable(t, "codex-acp-adapter")
 	workspace := t.TempDir()
 
 	manager := NewSessionManager()
@@ -165,7 +165,7 @@ func TestACPChatClientCapturesAvailableCommandsWithoutActiveTurn(t *testing.T) {
 
 func TestSessionManagerPrepareWaitsForInitialAvailableCommands(t *testing.T) {
 	t.Setenv("HECATE_FAKE_ACP_COMMANDS_DELAY", "50ms")
-	installFakeACPExecutable(t, "codex-acp")
+	installFakeACPExecutable(t, "codex-acp-adapter")
 
 	manager := NewSessionManager()
 	result, err := manager.PrepareSession(context.Background(), PrepareSessionRequest{
@@ -191,8 +191,8 @@ func TestSessionManagerUsesACPModelStateForBuiltInACPAdapters(t *testing.T) {
 		adapterID string
 		command   string
 	}{
-		{adapterID: "codex", command: "codex-acp"},
-		{adapterID: "claude_code", command: "claude-agent-acp"},
+		{adapterID: "codex", command: "codex-acp-adapter"},
+		{adapterID: "claude_code", command: "claude-code-acp-adapter"},
 		{adapterID: "cursor_agent", command: "cursor-agent"},
 		{adapterID: "grok_build", command: "grok"},
 	}
@@ -383,7 +383,7 @@ func TestTrimToolSummaryPreservesUTF8(t *testing.T) {
 
 func TestSessionManagerSerializesConcurrentSessionStart(t *testing.T) {
 	t.Setenv("HECATE_FAKE_ACP_NEW_SESSION_DELAY", "100ms")
-	installFakeACPExecutable(t, "codex-acp")
+	installFakeACPExecutable(t, "codex-acp-adapter")
 	workspace := t.TempDir()
 	manager := NewSessionManager()
 
@@ -436,7 +436,7 @@ func TestSessionManagerSerializesConcurrentSessionStart(t *testing.T) {
 }
 
 func TestSessionManagerLoadsPersistedNativeSession(t *testing.T) {
-	installFakeACPExecutable(t, "codex-acp")
+	installFakeACPExecutable(t, "codex-acp-adapter")
 	workspace := t.TempDir()
 
 	firstManager := NewSessionManager()
@@ -481,7 +481,7 @@ func TestSessionManagerLoadsPersistedNativeSession(t *testing.T) {
 
 func TestSessionManagerStartsFreshWhenPersistedNativeSessionIsStale(t *testing.T) {
 	t.Setenv("HECATE_FAKE_ACP_LOAD_SESSION_FAIL", "1")
-	installFakeACPExecutable(t, "codex-acp")
+	installFakeACPExecutable(t, "codex-acp-adapter")
 	workspace := t.TempDir()
 
 	manager := NewSessionManager()
@@ -512,7 +512,7 @@ func TestSessionManagerStartsFreshWhenPersistedNativeSessionIsStale(t *testing.T
 }
 
 func TestSessionManagerCancelsACPPrompt(t *testing.T) {
-	installFakeACPExecutable(t, "codex-acp")
+	installFakeACPExecutable(t, "codex-acp-adapter")
 	workspace := t.TempDir()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -546,7 +546,7 @@ func TestSessionManagerCancelsACPPrompt(t *testing.T) {
 }
 
 func TestSessionManagerShutdownCancelsActiveACPPrompt(t *testing.T) {
-	installFakeACPExecutable(t, "codex-acp")
+	installFakeACPExecutable(t, "codex-acp-adapter")
 	workspace := t.TempDir()
 
 	manager := NewSessionManager()
@@ -593,7 +593,7 @@ func TestSessionManagerShutdownCancelsActiveACPPrompt(t *testing.T) {
 }
 
 func TestSessionManagerShutdownKillsStubbornACPProcess(t *testing.T) {
-	installFakeACPExecutable(t, "codex-acp")
+	installFakeACPExecutable(t, "codex-acp-adapter")
 	workspace := t.TempDir()
 
 	manager := NewSessionManager()
@@ -640,7 +640,7 @@ func TestSessionManagerShutdownKillsStubbornACPProcess(t *testing.T) {
 }
 
 func TestSessionManagerRejectsRunsAfterShutdown(t *testing.T) {
-	installFakeACPExecutable(t, "codex-acp")
+	installFakeACPExecutable(t, "codex-acp-adapter")
 	manager := NewSessionManager()
 	if err := manager.Shutdown(context.Background()); err != nil {
 		t.Fatalf("Shutdown: %v", err)

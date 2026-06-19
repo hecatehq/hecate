@@ -982,9 +982,8 @@ use `reason`, `provider_status`, `provider_blocked_reason`, and
 
 External coding-agent catalog. This is the first discovery surface for
 External Agent chats: it reports the agent runtimes Hecate knows how to
-supervise, whether their direct command or Hecate-managed launcher can be
-started, and any Hecate-managed launch `config_options` that can be selected
-before a concrete chat session exists.
+supervise, whether their command can be started, and any launch
+`config_options` that can be selected before a concrete chat session exists.
 
 ```json
 GET /hecate/v1/agent-adapters
@@ -996,16 +995,14 @@ GET /hecate/v1/agent-adapters
       "id": "codex",
       "name": "Codex",
       "kind": "acp",
-      "command": "codex-acp",
-      "managed": true,
-      "managed_package": "@zed-industries/codex-acp",
+      "command": "codex-acp-adapter",
       "available": true,
       "status": "available",
-      "path": "/Users/alice/Library/Caches/hecate/agent-adapters/codex-acp",
+      "path": "/Users/alice/.local/bin/codex-acp-adapter",
       "cost_mode": "external",
-      "adapter_version": "1.2.3",
+      "adapter_version": "0.0.0-dev",
       "agent_version": "0.48.0",
-      "supported_range": ">=0.1.0",
+      "supported_range": ">=0.0.0-dev",
       "version_outside_range": false,
       "auth_status": "ok",
       "credential_modes": [
@@ -1056,14 +1053,12 @@ GET /hecate/v1/agent-adapters
       "id": "claude_code",
       "name": "Claude Code",
       "kind": "acp",
-      "command": "claude-agent-acp",
-      "managed": true,
-      "managed_package": "@agentclientprotocol/claude-agent-acp",
+      "command": "claude-code-acp-adapter",
       "available": false,
       "status": "missing",
-      "error": "exec: \"claude-agent-acp\": executable file not found in $PATH; managed launcher unavailable: no local package runner found for @agentclientprotocol/claude-agent-acp",
+      "error": "exec: \"claude-code-acp-adapter\": executable file not found in $PATH",
       "cost_mode": "external",
-      "supported_range": ">=0.1.0",
+      "supported_range": ">=0.0.0-dev",
       "auth_status": "unknown",
       "auth_error": "Open Connections and test Claude Code. If it reports a sign-in error, run `claude /login` in Terminal."
     }
@@ -1071,16 +1066,15 @@ GET /hecate/v1/agent-adapters
 }
 ```
 
-`adapter_version` is the ACP bridge/launcher version when Hecate needs a
-separate bridge package or binary to speak ACP. Managed package launchers avoid
-package-manager execution during passive listing; their bridge version is only
-populated after an explicit readiness probe. `agent_version` is the underlying
-coding-agent CLI version, such as `codex`, `claude`, `cursor-agent`, or `grok`.
-Both fields are extracted from `--version` output and omitted when the command is
-missing or does not print a recognisable semver string. `version_outside_range`
-is `true` when the version subject to `supported_range` does not satisfy the
-constraint — the Connections UI shows an amber "outside tested range" chip in
-that case.
+`adapter_version` is the ACP bridge version when Hecate uses a separate binary
+to speak ACP. The standalone Go Codex and Claude Code adapters report
+`0.0.0-dev` when installed directly with `go install`; release-built binaries
+report their stamped tag. `agent_version` is the underlying coding-agent CLI
+version, such as `codex`, `claude`, `cursor-agent`, or `grok`. Both fields are
+extracted from `--version` output and omitted when the command is missing or
+does not print a recognisable semver string. `version_outside_range` is `true`
+when the version subject to `supported_range` does not satisfy the constraint —
+the Connections UI shows an amber "outside tested range" chip in that case.
 
 `auth_status` is a lightweight dashboard hint, not a full login check. Values:
 `ok`, `unauthenticated`, `billing`, or `unknown`. It is derived from known env
@@ -1133,7 +1127,7 @@ POST /hecate/v1/agent-adapters/codex/probe
       "id": "codex",
       "name": "Codex",
       "kind": "acp",
-      "command": "codex-acp",
+      "command": "codex-acp-adapter",
       "available": true,
       "status": "available",
       "auth_status": "ok"
@@ -1171,7 +1165,7 @@ GET /hecate/v1/agent-adapters/codex/health
     "adapter_id": "codex",
     "status": "auth_required",
     "stage": "initialize",
-    "path": "/Users/alice/.local/bin/codex-acp",
+    "path": "/Users/alice/.local/bin/codex-acp-adapter",
     "error": "Authentication required",
     "hint": "Adapter started but failed authentication. Try the adapter's CLI login flow or set its API-key env var.",
     "duration_ms": 412
@@ -1207,28 +1201,19 @@ on prompt completion see no charge.
 
 ### `POST /hecate/v1/agent-adapters/{id}/refresh-launcher`
 
-Deletes and recreates the Hecate-managed launcher script for a managed adapter
-such as Codex or Claude Code, then returns a one-item `agent_adapters` response
-with the refreshed status. This is useful after changing Node/npm managers or
-when `HECATE_AGENT_ADAPTERS_DIR` points at a stale cache.
+Deletes and recreates the Hecate-managed launcher script for a managed adapter,
+then returns a one-item `agent_adapters` response with the refreshed status.
+Codex and Claude Code now use standalone Go adapter binaries and normally return
+`409 conflict` from this endpoint.
 
 ```json
 POST /hecate/v1/agent-adapters/codex/refresh-launcher
-→ 200
+→ 409
 {
-  "object": "agent_adapters",
-  "data": [
-    {
-      "id": "codex",
-      "name": "Codex",
-      "kind": "acp",
-      "command": "codex-acp",
-      "managed": true,
-      "managed_package": "@zed-industries/codex-acp",
-      "available": true,
-      "status": "available"
-    }
-  ]
+  "error": {
+    "type": "conflict",
+    "message": "adapter codex does not use a managed launcher"
+  }
 }
 ```
 

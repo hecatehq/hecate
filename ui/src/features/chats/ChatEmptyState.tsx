@@ -456,9 +456,14 @@ function agentSetupHint(adapter: AgentAdapterRecord): {
     case "codex":
       return {
         label: "Codex",
-        action: "Install Codex CLI, then sign in with Codex.",
+        action: "Install Codex CLI plus the Codex ACP adapter, then sign in with Codex.",
         commands: [
           { label: "Install", command: "npm install -g @openai/codex" },
+          {
+            label: "Adapter",
+            command:
+              "go install github.com/hecatehq/codex-acp-adapter/cmd/codex-acp-adapter@latest",
+          },
           { label: "Auth", command: "codex login" },
         ],
       };
@@ -469,12 +474,16 @@ function agentSetupHint(adapter: AgentAdapterRecord): {
         commands: [
           {
             label: "Install",
+            command: "npm install -g @anthropic-ai/claude-code",
+          },
+          {
+            label: "Adapter",
             command:
-              "npm install -g @anthropic-ai/claude-code @agentclientprotocol/claude-agent-acp",
+              "go install github.com/hecatehq/claude-code-acp-adapter/cmd/claude-code-acp-adapter@latest",
           },
           { label: "Auth", command: "claude /login" },
         ],
-        note: "Hecate launches claude-agent-acp. If Node/npm/npx is visible to Hecate, Connections can manage that adapter package for you. Hecate uses Claude Code's local auth and does not store Claude tokens.",
+        note: "Hecate launches claude-code-acp-adapter. Hecate uses Claude Code's local auth and does not store Claude tokens.",
       };
     case "cursor_agent":
       return {

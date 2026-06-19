@@ -32,9 +32,14 @@ RUN bun run build
 
 FROM golang:${GO_VERSION}-alpine AS go-builder
 ARG HECATE_VERSION=dev
+ARG CODEX_ACP_ADAPTER_REF=latest
+ARG CLAUDE_CODE_ACP_ADAPTER_REF=latest
 WORKDIR /src
 
 RUN apk add --no-cache git
+RUN mkdir -p /adapter-bin \
+    && GOBIN=/adapter-bin go install github.com/hecatehq/codex-acp-adapter/cmd/codex-acp-adapter@${CODEX_ACP_ADAPTER_REF} \
+    && GOBIN=/adapter-bin go install github.com/hecatehq/claude-code-acp-adapter/cmd/claude-code-acp-adapter@${CLAUDE_CODE_ACP_ADAPTER_REF}
 COPY go.mod go.sum ./
 RUN go mod download
 
@@ -75,20 +80,19 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 ARG OPENAI_CODEX_VERSION=0.139.0
-ARG CODEX_ACP_VERSION=0.16.0
 ARG CLAUDE_CODE_VERSION=2.1.177
-ARG CLAUDE_AGENT_ACP_VERSION=0.44.0
 ARG GROK_VERSION=0.2.51
-ARG CURSOR_INSTALL_SHA256=dc91409e80e09bba95995c3ed3ad52fb01238f65f04505fb0c1d1fff978c6df9
+ARG CURSOR_INSTALL_SHA256=2b8497128716272ccd32f9d4b3a976c29f3f24165817d47b3e72f1710f7b2835
 ARG CURSOR_INSTALL_URL=https://cursor.com/install
 
 RUN npm install -g \
       @openai/codex@${OPENAI_CODEX_VERSION} \
-      @zed-industries/codex-acp@${CODEX_ACP_VERSION} \
       @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} \
-      @agentclientprotocol/claude-agent-acp@${CLAUDE_AGENT_ACP_VERSION} \
       @xai-official/grok@${GROK_VERSION} \
     && npm cache clean --force
+
+COPY --from=go-builder /adapter-bin/codex-acp-adapter /usr/local/bin/codex-acp-adapter
+COPY --from=go-builder /adapter-bin/claude-code-acp-adapter /usr/local/bin/claude-code-acp-adapter
 
 RUN mkdir -p /opt/cursor-agent \
     && curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors "${CURSOR_INSTALL_URL}" -o /tmp/cursor-install.sh \

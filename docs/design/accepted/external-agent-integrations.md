@@ -189,9 +189,9 @@ transcript intact.
 
 When an External Agent chat session is created:
 
-1. Resolve the adapter through a direct ACP command or a Hecate-managed launcher.
-   Codex and Claude can use local `npx` managed launchers; Cursor currently
-   comes from `cursor-agent acp`.
+1. Resolve the adapter command. Codex and Claude Code use standalone Go ACP
+   adapter binaries, Cursor comes from `cursor-agent acp`, and Grok comes from
+   `grok agent ... stdio`.
 2. Validate and canonicalize the workspace path.
 3. Build a sanitized process environment. Gateway/provider secrets are not
    forwarded by default.

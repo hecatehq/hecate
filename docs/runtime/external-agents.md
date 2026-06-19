@@ -17,18 +17,18 @@ Hecate starts a fresh native session and keeps the Hecate transcript.
 
 ## Supported External Agents
 
-| External agent | How Hecate starts it                                                                                                      | Local auth mode                                            | Remote-safe auth mode                            |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------ |
-| Codex          | Hecate-managed launcher for `@zed-industries/codex-acp` via local `npx`; direct `codex-acp` also works                    | Operator-owned Codex CLI auth visible to the adapter       | `OPENAI_API_KEY` or `CODEX_API_KEY`              |
-| Claude Code    | Hecate-managed launcher for `@agentclientprotocol/claude-agent-acp` via local `npx`; direct `claude-agent-acp` also works | Operator-owned Claude Code login visible to Claude Code    | `ANTHROPIC_API_KEY`                              |
-| Cursor Agent   | `cursor-agent acp`                                                                                                        | Operator-owned Cursor Agent auth visible to `cursor-agent` | `CURSOR_API_KEY`                                 |
-| Grok Build     | `grok agent ... stdio`                                                                                                    | Operator-owned Grok login visible to `grok`                | `XAI_API_KEY` or Hecate's `PROVIDER_XAI_API_KEY` |
+| External agent | How Hecate starts it      | Local auth mode                                            | Remote-safe auth mode                            |
+| -------------- | ------------------------- | ---------------------------------------------------------- | ------------------------------------------------ |
+| Codex          | `codex-acp-adapter`       | Operator-owned Codex CLI auth visible to the adapter       | `OPENAI_API_KEY` or `CODEX_API_KEY`              |
+| Claude Code    | `claude-code-acp-adapter` | Operator-owned Claude Code login visible to Claude Code    | `ANTHROPIC_API_KEY`                              |
+| Cursor Agent   | `cursor-agent acp`        | Operator-owned Cursor Agent auth visible to `cursor-agent` | `CURSOR_API_KEY`                                 |
+| Grok Build     | `grok agent ... stdio`    | Operator-owned Grok login visible to `grok`                | `XAI_API_KEY` or Hecate's `PROVIDER_XAI_API_KEY` |
 
 The Docker runtime image includes the supported agent CLIs and ACP adapters so
 local/self-host Docker deployments can use External Agents without installing
 those binaries into the container at runtime. Bare binary and desktop
-deployments still use whatever agent CLIs are installed on the operator's
-machine, plus Hecate's managed `npx` launcher where available.
+deployments use whatever agent CLIs and Go ACP adapter binaries are installed on
+the operator's machine.
 
 ## Credential and account boundaries
 
@@ -154,11 +154,12 @@ curl -s http://127.0.0.1:8765/hecate/v1/agent-adapters | jq
 
 Discovery reports command availability, tested version range, and lightweight
 auth hints (`auth_status`: `ok`, `unauthenticated`, `billing`, or `unknown`).
-When an ACP bridge or launcher is separate from the coding-agent CLI, Hecate
-reports both versions: `adapter_version` for the bridge and `agent_version` for
-the underlying agent (`codex`, `claude`, `cursor-agent`, `grok`). Managed package
-adapters avoid package-manager execution during passive discovery; their
-`adapter_version` is populated only after an explicit agent readiness test.
+When an ACP adapter binary is separate from the coding-agent CLI, Hecate reports
+both versions: `adapter_version` for the bridge and `agent_version` for the
+underlying agent (`codex`, `claude`, `cursor-agent`, `grok`). Legacy/custom
+managed package adapters avoid package-manager execution during passive
+discovery; their `adapter_version` is populated only after an explicit agent
+readiness test.
 
 Manual setup stays in the upstream CLIs:
 
@@ -185,13 +186,12 @@ call the probe endpoint for a full spawn + ACP handshake + no-op session check:
 curl -X POST http://127.0.0.1:8765/hecate/v1/agent-adapters/codex/probe | jq
 ```
 
-Some external agents run through Hecate-managed launchers when the direct ACP command
-is missing and `npx` is available; Hecate creates those launchers in the
-operator cache directory and runs the official ACP npm package from there.
-Other external agents ship ACP mode inside the vendor CLI, so that CLI must be
+Codex and Claude Code use standalone Go ACP adapter binaries backed by the
+operator's local vendor CLI. Cursor and Grok ship ACP mode inside the vendor CLI
+itself. The selected adapter command and the underlying vendor CLI must be
 installed and visible on `PATH`. Hecate does not pin an external-agent model by
-default. When an ACP agent reports model state, the agent-provided model
-list and current model become the chat model control.
+default. When an ACP agent reports model state, the agent-provided model list and
+current model become the chat model control.
 
 By default the managed launcher directory is the user cache location:
 
@@ -199,13 +199,14 @@ By default the managed launcher directory is the user cache location:
 <user-cache>/hecate/agent-adapters
 ```
 
-Set `HECATE_AGENT_ADAPTERS_DIR` only if you want to override that location for
-development, Docker volume mapping, or a packaged desktop build. Hecate removes
-stale managed-launcher scripts at startup when their adapter no longer exists.
-To force-refresh one managed launcher after changing Node/npm managers:
+Set `HECATE_AGENT_ADAPTERS_DIR` only if you still use a managed custom adapter
+and want to override that location for development, Docker volume mapping, or a
+packaged desktop build. Hecate removes stale managed-launcher scripts at startup
+when their adapter no longer exists. To force-refresh one managed launcher after
+changing Node/npm managers:
 
 ```sh
-curl -X POST http://127.0.0.1:8765/hecate/v1/agent-adapters/codex/refresh-launcher | jq
+curl -X POST http://127.0.0.1:8765/hecate/v1/agent-adapters/managed_adapter_id/refresh-launcher | jq
 ```
 
 ## Setup checks
@@ -217,8 +218,8 @@ package runner to be visible to Hecate.
 Use this order when troubleshooting:
 
 1. **Discovery** — `GET /hecate/v1/agent-adapters` tells you whether Hecate can
-   find a direct command or managed launcher and whether the installed version
-   is inside Hecate's tested range.
+   find the adapter command and whether the installed version is inside
+   Hecate's tested range.
 2. **Probe** — `POST /hecate/v1/agent-adapters/{id}/probe` actually starts the
    agent bridge and opens a temporary ACP session. This is the best "will it run?"
    check.
@@ -229,33 +230,26 @@ Use this order when troubleshooting:
 ### Codex ACP
 
 ```sh
-command -v npx
+command -v codex-acp-adapter
+command -v codex
 curl -s http://127.0.0.1:8765/hecate/v1/agent-adapters | jq '.data[] | select(.id=="codex")'
 ```
 
-If `available` is true, Hecate can start Codex ACP. The first run may fetch and
-cache the official `@zed-industries/codex-acp` package through `npx`.
-
-If Hecate reports that the managed launcher is unavailable, install Node/npm or
-start Hecate from an environment where `npx` is available. Hecate also checks
-common operator locations such as Volta, mise/asdf shims, Homebrew, and
-`/usr/bin`.
+If `available` is true, Hecate can start the Go Codex ACP adapter. The adapter
+uses the local `codex` CLI for command-backed prompt execution, so both
+`codex-acp-adapter` and `codex` should be visible to the Hecate process.
 
 ### Claude ACP
 
 ```sh
-command -v npx
+command -v claude-code-acp-adapter
+command -v claude
 curl -s http://127.0.0.1:8765/hecate/v1/agent-adapters | jq '.data[] | select(.id=="claude_code")'
 ```
 
-If `available` is true, Hecate can start Claude ACP. The first run may fetch and
-cache the official `@agentclientprotocol/claude-agent-acp` package through
-`npx`.
-
-If Hecate reports that the managed launcher is unavailable, install Node/npm or
-start Hecate from an environment where `npx` is available. Hecate also checks
-common operator locations such as Volta, mise/asdf shims, Homebrew, and
-`/usr/bin`.
+If `available` is true, Hecate can start the Go Claude Code ACP adapter. The
+adapter uses the local `claude` CLI for command-backed prompt execution, so both
+`claude-code-acp-adapter` and `claude` should be visible to the Hecate process.
 
 ### Direct CLI adapters
 

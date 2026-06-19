@@ -22,7 +22,7 @@ import (
 //   - Closing session A leaves session B's adapter process group intact
 //     — a follow-up turn against B still succeeds.
 func TestMultiWorkspaceConcurrency(t *testing.T) {
-	installFakeACPExecutable(t, "codex-acp")
+	installFakeACPExecutable(t, "codex-acp-adapter")
 
 	workspaceA := newConcurrentWorkspace(t)
 	workspaceB := newConcurrentWorkspace(t)
@@ -178,7 +178,7 @@ func TestMultiWorkspaceConcurrency(t *testing.T) {
 // any cancel that doesn't reach the adapter would block until the
 // outer Timeout (30s) fires.
 func TestMidTurnCancel(t *testing.T) {
-	installFakeACPExecutable(t, "codex-acp")
+	installFakeACPExecutable(t, "codex-acp-adapter")
 	workspace := newConcurrentWorkspace(t)
 
 	manager := NewSessionManager()
@@ -273,7 +273,7 @@ func TestMidTurnCancel(t *testing.T) {
 // SessionManager session id. That's the intended behavior per the
 // existing TestSessionManagerCancelsACPPrompt fixture.
 func TestFreshPromptAfterCancel(t *testing.T) {
-	installFakeACPExecutable(t, "codex-acp")
+	installFakeACPExecutable(t, "codex-acp-adapter")
 	workspace := newConcurrentWorkspace(t)
 
 	manager := NewSessionManager()
