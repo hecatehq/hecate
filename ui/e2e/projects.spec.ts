@@ -61,7 +61,7 @@ test("Projects journey: setup, first work, assignment, evidence, closeout", asyn
   await page.getByRole("button", { name: "Start assignment" }).click();
 
   await expect(page.getByText("completed", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Evidence" }).click();
+  await page.getByRole("button", { name: "Add evidence" }).click();
   await page
     .getByRole("dialog", { name: "Record evidence" })
     .getByLabel("Title")
