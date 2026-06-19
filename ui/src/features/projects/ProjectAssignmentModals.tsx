@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 
 import type {
   ProjectAssignmentRecord,
@@ -8,6 +8,7 @@ import type {
 } from "../../types/project";
 import { InlineError, Modal } from "../shared/ui";
 import { ProjectRootSelect } from "./ProjectRootSelect";
+import { projectRootOptionLabel } from "./projectSettings";
 import {
   ASSIGNMENT_STATUSES,
   assignmentStatusFromValue,
@@ -47,9 +48,20 @@ export function NewAssignmentModal({
     rootID: "",
   });
   const valid = form.roleID.trim().length > 0;
+  const selectedRole = roles.find((role) => role.id === form.roleID) ?? null;
+  const selectedRoot = project.roots.find((root) => root.id === form.rootID) ?? null;
+  const inheritedRootLabel = workItem?.root_id
+    ? "Uses the work item root"
+    : project.default_root_id
+      ? "Uses the project default root"
+      : "Uses the first active project root";
+  const rootSummary = selectedRoot ? projectRootOptionLabel(selectedRoot) : inheritedRootLabel;
+  const driverSummary = selectedRole
+    ? form.driverKind || defaultDriverForRole(selectedRole)
+    : "Select a role";
   return (
     <Modal
-      title="Add assignment"
+      title="Create queued assignment"
       onClose={onClose}
       width={520}
       footer={
@@ -60,7 +72,7 @@ export function NewAssignmentModal({
           onClick={() => void onCreate(form)}
           style={{ width: "100%", justifyContent: "center" }}
         >
-          {pending ? "Adding…" : "Add assignment"}
+          {pending ? "Creating..." : "Create queued assignment"}
         </button>
       }
     >
@@ -72,6 +84,26 @@ export function NewAssignmentModal({
         style={{ display: "grid", gap: 12 }}
       >
         {error && <InlineError message={error} />}
+        <section style={assignmentPlanStyle} aria-label="Queued assignment plan">
+          <div style={assignmentPlanHeaderStyle}>
+            <div style={assignmentPlanTitleStyle}>Queued assignment</div>
+            <span className="badge badge-muted">Review before start</span>
+          </div>
+          <div style={assignmentPlanGridStyle}>
+            <div>
+              <div style={assignmentPlanLabelStyle}>Role</div>
+              <div style={assignmentPlanValueStyle}>{selectedRole?.name || "Select a role"}</div>
+            </div>
+            <div>
+              <div style={assignmentPlanLabelStyle}>Driver</div>
+              <div style={assignmentPlanValueStyle}>{driverSummary}</div>
+            </div>
+            <div>
+              <div style={assignmentPlanLabelStyle}>Root</div>
+              <div style={assignmentPlanValueStyle}>{rootSummary}</div>
+            </div>
+          </div>
+        </section>
         <label style={projectWorkFieldStyle}>
           <span style={projectWorkFieldLabelStyle}>Role</span>
           <select
@@ -123,6 +155,53 @@ export function NewAssignmentModal({
     </Modal>
   );
 }
+
+const assignmentPlanStyle: CSSProperties = {
+  background: "var(--bg1)",
+  border: "1px solid var(--border)",
+  borderRadius: 8,
+  display: "grid",
+  gap: 10,
+  minWidth: 0,
+  padding: "10px 11px",
+};
+
+const assignmentPlanHeaderStyle: CSSProperties = {
+  alignItems: "center",
+  display: "flex",
+  gap: 8,
+  justifyContent: "space-between",
+  minWidth: 0,
+};
+
+const assignmentPlanTitleStyle: CSSProperties = {
+  color: "var(--t0)",
+  fontSize: 13,
+  fontWeight: 700,
+};
+
+const assignmentPlanGridStyle: CSSProperties = {
+  display: "grid",
+  gap: 8,
+  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+  minWidth: 0,
+};
+
+const assignmentPlanLabelStyle: CSSProperties = {
+  color: "var(--t3)",
+  fontFamily: "var(--font-mono)",
+  fontSize: 10,
+  textTransform: "uppercase",
+};
+
+const assignmentPlanValueStyle: CSSProperties = {
+  color: "var(--t1)",
+  fontSize: 12,
+  lineHeight: 1.35,
+  marginTop: 3,
+  minWidth: 0,
+  overflowWrap: "anywhere",
+};
 
 type EditAssignmentModalProps = {
   assignment: ProjectAssignmentRecord;
