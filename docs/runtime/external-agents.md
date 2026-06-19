@@ -15,6 +15,13 @@ agent's native ACP session id. After restart, the next prompt asks the agent to
 `session/load` that native session when supported. If the adapter cannot load it,
 Hecate starts a fresh native session and keeps the Hecate transcript.
 
+The bundled Go Codex and Claude Code adapters use command-backed sessions today.
+They support in-memory `session/load` / `session/resume` / `session/fork` while
+the adapter process is alive, and later prompt commands receive a bounded
+transcript prelude for multi-turn continuity. They do not yet claim
+vendor-native durable history across adapter process restarts; if that load is
+stale, Hecate falls back to a fresh native session.
+
 ## Supported External Agents
 
 | External agent | How Hecate starts it      | Local auth mode                                            | Remote-safe auth mode                            |

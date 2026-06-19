@@ -51,7 +51,11 @@ func TestDockerfilesPinSameGoACPAdapterVersions(t *testing.T) {
 
 	dev := readDockerfile(t, "Dockerfile")
 	release := readDockerfile(t, "Dockerfile.release")
-	for _, arg := range []string{"CODEX_ACP_ADAPTER_VERSION", "CLAUDE_CODE_ACP_ADAPTER_VERSION"} {
+	want := map[string]string{
+		"CODEX_ACP_ADAPTER_VERSION":       "v0.1.0-alpha.6",
+		"CLAUDE_CODE_ACP_ADAPTER_VERSION": "v0.1.0-alpha.6",
+	}
+	for arg, wantVersion := range want {
 		devVersion := dockerfileArgValue(dev, arg)
 		releaseVersion := dockerfileArgValue(release, arg)
 		if devVersion == "" || releaseVersion == "" {
@@ -59,6 +63,9 @@ func TestDockerfilesPinSameGoACPAdapterVersions(t *testing.T) {
 		}
 		if devVersion != releaseVersion {
 			t.Fatalf("%s versions drifted: Dockerfile=%s Dockerfile.release=%s", arg, devVersion, releaseVersion)
+		}
+		if devVersion != wantVersion {
+			t.Fatalf("%s version = %s, want %s", arg, devVersion, wantVersion)
 		}
 	}
 }
