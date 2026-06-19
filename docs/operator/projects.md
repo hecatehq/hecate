@@ -38,6 +38,10 @@ For each work item:
 Assignments keep their own execution records. Projects coordinate the work, but
 Tasks, Chats, and External Agents remain the execution surfaces.
 
+The Work Coordination tab starts with a compact resume summary. Use it to jump
+back to blocked, active, recent, or memory-review work before drilling into the
+full work queue.
+
 ## Roots And Worktrees
 
 Project roots are concrete workspace paths, not project identity. A single
