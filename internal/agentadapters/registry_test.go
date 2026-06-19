@@ -79,6 +79,51 @@ func TestBuiltInsIncludeInitialExternalAgents(t *testing.T) {
 	}
 }
 
+func TestBuiltInGoAdaptersUseReleasedBinaries(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		id           string
+		command      string
+		agentCommand string
+		docsURL      string
+	}{
+		{
+			id:           "codex",
+			command:      "codex-acp-adapter",
+			agentCommand: "codex",
+			docsURL:      "https://github.com/hecatehq/codex-acp-adapter",
+		},
+		{
+			id:           "claude_code",
+			command:      "claude-code-acp-adapter",
+			agentCommand: "claude",
+			docsURL:      "https://github.com/hecatehq/claude-code-acp-adapter",
+		},
+	} {
+		adapter, ok := BuiltInByID(tc.id)
+		if !ok {
+			t.Fatalf("missing built-in adapter %q", tc.id)
+		}
+		if adapter.Command != tc.command || len(adapter.Args) != 0 {
+			t.Fatalf("%s command = %q args=%#v, want released Go adapter binary without wrapper args", tc.id, adapter.Command, adapter.Args)
+		}
+		if adapter.AgentVersion.Command != tc.agentCommand || len(adapter.AgentVersion.Args) != 1 || adapter.AgentVersion.Args[0] != "--version" {
+			t.Fatalf("%s agent version probe = %#v, want native provider CLI version probe", tc.id, adapter.AgentVersion)
+		}
+		if adapter.DocsURL != tc.docsURL {
+			t.Fatalf("%s docs url = %q, want %q", tc.id, adapter.DocsURL, tc.docsURL)
+		}
+		assertNotPackageRunnerCommand(t, tc.id, adapter.Command)
+		assertNotPackageRunnerCommand(t, tc.id+" agent version probe", adapter.AgentVersion.Command)
+		for _, candidate := range adapter.CandidatePaths {
+			if !strings.HasSuffix(candidate, "/"+tc.command) {
+				t.Fatalf("%s candidate path = %q, want path ending in %s", tc.id, candidate, tc.command)
+			}
+		}
+	}
+}
+
 func TestRemoteRuntimeCredentialsRejectLocalLoginFiles(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -1040,6 +1085,14 @@ func hasCredentialMode(adapter Adapter, id string, cloudAllowed bool, envKeys ..
 		return true
 	}
 	return false
+}
+
+func assertNotPackageRunnerCommand(t testing.TB, label string, command string) {
+	t.Helper()
+	switch command {
+	case "npx", "npm", "node", "bun", "sh", "bash", "zsh", "cmd", "powershell", "pwsh":
+		t.Fatalf("%s command = %q, want direct binary without package runner or shell", label, command)
+	}
 }
 
 func remoteIdentityContext() context.Context {
