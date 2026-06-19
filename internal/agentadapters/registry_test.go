@@ -29,7 +29,7 @@ func TestBuiltInsIncludeInitialExternalAgents(t *testing.T) {
 	if got := found["codex"]; got.Command != "codex-acp-adapter" || got.Kind != DriverKindACP || got.CostMode != "external" {
 		t.Fatalf("codex adapter = %#v", got)
 	}
-	if got := found["codex"]; got.SupportedRange != ">=0.1.0-alpha.10" {
+	if got := found["codex"]; got.SupportedRange != ">=0.1.0-alpha.11" {
 		t.Fatalf("codex supported range = %q, want current Go adapter alpha range", got.SupportedRange)
 	}
 	if got := found["claude_code"]; got.Command != "claude-code-acp-adapter" || got.Kind != DriverKindACP || got.CostMode != "external" {
@@ -518,13 +518,13 @@ func TestStatusForAdapterReportsAdapterAndAgentVersionsForBridgeBinary(t *testin
 
 func TestStatusForAdapterWarnsOnOldGoAdapterRelease(t *testing.T) {
 	dir := t.TempDir()
-	adapterBinary := writeFakeBinary(t, dir, "codex-acp-adapter", "codex-acp-adapter 0.1.0-alpha.9")
+	adapterBinary := writeFakeBinary(t, dir, "codex-acp-adapter", "codex-acp-adapter 0.1.0-alpha.10")
 	agent := writeFakeBinary(t, dir, "codex", "codex 9.8.7")
 	adapter := Adapter{
 		ID:             "codex",
 		Name:           "Codex",
 		Command:        "codex-acp-adapter",
-		SupportedRange: ">=0.1.0-alpha.10",
+		SupportedRange: ">=0.1.0-alpha.11",
 		AgentVersion: VersionProbe{
 			Command: "codex",
 			Args:    []string{"--version"},
@@ -542,11 +542,11 @@ func TestStatusForAdapterWarnsOnOldGoAdapterRelease(t *testing.T) {
 		}
 	})
 
-	if status.AdapterVersion != "0.1.0-alpha.9" {
-		t.Fatalf("status.AdapterVersion = %q, want 0.1.0-alpha.9", status.AdapterVersion)
+	if status.AdapterVersion != "0.1.0-alpha.10" {
+		t.Fatalf("status.AdapterVersion = %q, want 0.1.0-alpha.10", status.AdapterVersion)
 	}
 	if !status.VersionOutsideRange {
-		t.Fatal("status.VersionOutsideRange = false, want warning for pre-alpha.10 adapter")
+		t.Fatal("status.VersionOutsideRange = false, want warning for pre-alpha.11 adapter")
 	}
 }
 

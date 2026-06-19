@@ -21,17 +21,19 @@ the adapter process is alive, and later prompt commands receive a bounded
 transcript prelude for multi-turn continuity. They do not yet claim
 vendor-native durable history across adapter process restarts; if that load is
 stale, Hecate falls back to a fresh native session. Hecate treats
-`codex-acp-adapter` and `claude-code-acp-adapter` versions older than
-`v0.1.0-alpha.10` as outside the tested range because those older releases lack
-the current continuity, permission-control, structured stream, and session
-metadata surface. The `v0.1.0-alpha.8` adapters added supported Codex and
-Claude Code JSON stream translation into ACP assistant-message, thought,
-tool-call, tool-result, and usage updates, so Hecate can render External Agent
-activity without exposing raw JSONL output in the chat transcript. The
-`v0.1.0-alpha.9` adapters added config-option update notifications and richer
-command-backed `session/list` metadata. The `v0.1.0-alpha.10` adapters also
-publish ACP `session_info_update` notifications with command-backed session
-title and updated-time metadata.
+`codex-acp-adapter` versions older than `v0.1.0-alpha.11` and
+`claude-code-acp-adapter` versions older than `v0.1.0-alpha.10` as outside the
+tested range because those older releases lack the current continuity,
+permission-control, structured stream, and session metadata surface. The
+`v0.1.0-alpha.8` adapters added supported Codex and Claude Code JSON stream
+translation into ACP assistant-message, thought, tool-call, tool-result, and
+usage updates, so Hecate can render External Agent activity without exposing raw
+JSONL output in the chat transcript. The `v0.1.0-alpha.9` adapters added
+config-option update notifications and richer command-backed `session/list`
+metadata. The `v0.1.0-alpha.10` adapters also publish ACP
+`session_info_update` notifications with command-backed session title and
+updated-time metadata. Codex adapter `v0.1.0-alpha.11` adds the advertised
+`/review` command backed by `codex review --uncommitted`.
 
 ## Supported External Agents
 
