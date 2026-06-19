@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -70,7 +69,6 @@ type Adapter struct {
 	Args             []string
 	CandidatePaths   []string
 	AgentVersion     VersionProbe
-	Managed          ManagedLauncher
 	LaunchSuffixArgs []string
 	LaunchModel      LaunchModelConfig
 	LaunchOptions    []LaunchSelectConfig
@@ -127,17 +125,6 @@ type LaunchSelectOption struct {
 	ID          string
 	Name        string
 	Description string
-}
-
-type ManagedLauncher struct {
-	Package string
-	Runners []ManagedRunner
-}
-
-type ManagedRunner struct {
-	Command        string
-	Args           []string
-	CandidatePaths []string
 }
 
 type Status struct {
@@ -537,24 +524,20 @@ func ListWithLookup(ctx context.Context, lookup LookupFunc) []Status {
 	items := BuiltIns()
 	out := make([]Status, 0, len(items))
 	for _, item := range items {
-		out = append(out, statusForAdapter(ctx, item, lookup, statusProbeOptions{}))
+		out = append(out, statusForAdapter(ctx, item, lookup))
 	}
 	return out
 }
 
 func StatusForAdapter(ctx context.Context, id string, lookup LookupFunc) (Status, bool) {
-	return statusForAdapterByID(ctx, id, lookup, statusProbeOptions{})
+	return statusForAdapterByID(ctx, id, lookup)
 }
 
 func StatusForAdapterAfterExplicitProbe(ctx context.Context, id string, lookup LookupFunc) (Status, bool) {
-	return statusForAdapterByID(ctx, id, lookup, statusProbeOptions{allowManagedAdapterVersion: true})
+	return statusForAdapterByID(ctx, id, lookup)
 }
 
-type statusProbeOptions struct {
-	allowManagedAdapterVersion bool
-}
-
-func statusForAdapterByID(ctx context.Context, id string, lookup LookupFunc, opts statusProbeOptions) (Status, bool) {
+func statusForAdapterByID(ctx context.Context, id string, lookup LookupFunc) (Status, bool) {
 	if lookup == nil {
 		lookup = exec.LookPath
 	}
@@ -562,12 +545,12 @@ func statusForAdapterByID(ctx context.Context, id string, lookup LookupFunc, opt
 		if item.ID != strings.TrimSpace(id) {
 			continue
 		}
-		return statusForAdapter(ctx, item, lookup, opts), true
+		return statusForAdapter(ctx, item, lookup), true
 	}
 	return Status{}, false
 }
 
-func statusForAdapter(ctx context.Context, item Adapter, lookup LookupFunc, opts statusProbeOptions) Status {
+func statusForAdapter(ctx context.Context, item Adapter, lookup LookupFunc) Status {
 	status := Status{
 		Adapter:    item,
 		Status:     StatusMissing,
@@ -607,41 +590,24 @@ func statusForAdapter(ctx context.Context, item Adapter, lookup LookupFunc, opts
 	status.Available = true
 	status.Status = StatusAvailable
 	status.Path = path
-	if item.Managed.Package != "" && shouldProbeAdapterVersionForStatus(item, path, lookup, opts.allowManagedAdapterVersion) {
-		v := DetectVersion(ctx, path)
-		status.AdapterVersion = v
-	}
-	status.AgentVersion = detectAgentVersionForStatus(ctx, item, path, lookup)
+	status.AdapterVersion, status.AgentVersion = detectAdapterAndAgentVersionsForStatus(ctx, item, path, lookup)
 	status.VersionOutsideRange = !satisfiesRange(firstNonEmptyVersion(status.AdapterVersion, status.AgentVersion), item.SupportedRange)
 	status.AuthStatus, status.AuthError = DetectAuthStatus(item)
 	return status
 }
 
-func shouldProbeAdapterVersionForStatus(adapter Adapter, path string, lookup LookupFunc, allowManaged bool) bool {
-	if !shouldProbeVersion(path) {
-		return false
-	}
-	if adapter.Managed.Package == "" {
-		return true
-	}
-	if allowManaged {
-		return true
-	}
-	planned, err := plannedManagedLauncher(adapter, lookup)
-	if err != nil {
-		return true
-	}
-	return filepath.Clean(planned) != filepath.Clean(path)
-}
-
-func detectAgentVersionForStatus(ctx context.Context, adapter Adapter, path string, lookup LookupFunc) string {
+func detectAdapterAndAgentVersionsForStatus(ctx context.Context, adapter Adapter, path string, lookup LookupFunc) (string, string) {
 	if adapter.AgentVersion.Command != "" {
-		return DetectVersionProbe(ctx, adapter.AgentVersion, lookup)
+		adapterVersion := ""
+		if shouldProbeVersion(path) {
+			adapterVersion = DetectVersion(ctx, path)
+		}
+		return adapterVersion, DetectVersionProbe(ctx, adapter.AgentVersion, lookup)
 	}
-	if adapter.Managed.Package != "" {
-		return ""
+	if shouldProbeVersion(path) {
+		return "", DetectVersion(ctx, path)
 	}
-	return DetectVersion(ctx, path)
+	return "", ""
 }
 
 func firstNonEmptyVersion(values ...string) string {
@@ -817,14 +783,6 @@ func applyAdapterDiscoveryOverride(status Status, override string) Status {
 }
 
 func resolveExecutable(adapter Adapter, lookup LookupFunc) (string, error) {
-	return resolveExecutableWithManaged(adapter, lookup, true)
-}
-
-func resolveExecutableForStatus(adapter Adapter, lookup LookupFunc) (string, error) {
-	return resolveExecutableWithManaged(adapter, lookup, false)
-}
-
-func resolveExecutableWithManaged(adapter Adapter, lookup LookupFunc, createManaged bool) (string, error) {
 	if lookup == nil {
 		lookup = exec.LookPath
 	}
@@ -850,202 +808,11 @@ func resolveExecutableWithManaged(adapter Adapter, lookup LookupFunc, createMana
 		}
 		return path, nil
 	}
-	if adapter.Managed.Package != "" {
-		var path string
-		var err error
-		if createManaged {
-			path, err = ensureManagedLauncher(adapter, lookup)
-		} else {
-			path, err = plannedManagedLauncher(adapter, lookup)
-		}
-		if err == nil {
-			return path, nil
-		}
-		return "", fmt.Errorf("%w; managed launcher unavailable: %v", firstErr, err)
-	}
 	return "", firstErr
 }
 
-func plannedManagedLauncher(adapter Adapter, lookup LookupFunc) (string, error) {
-	if adapter.Managed.Package == "" {
-		return "", errors.New("adapter has no managed launcher")
-	}
-	if _, _, err := resolveManagedRunner(adapter.Managed, lookup); err != nil {
-		return "", err
-	}
-	dir, err := managedLauncherDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, managedLauncherName(adapter.Command)), nil
-}
-
-func ensureManagedLauncher(adapter Adapter, lookup LookupFunc) (string, error) {
-	if adapter.Managed.Package == "" {
-		return "", errors.New("adapter has no managed launcher")
-	}
-	runner, runnerPath, err := resolveManagedRunner(adapter.Managed, lookup)
-	if err != nil {
-		return "", err
-	}
-	dir, err := managedLauncherDir()
-	if err != nil {
-		return "", err
-	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", fmt.Errorf("create managed adapter directory: %w", err)
-	}
-	path := filepath.Join(dir, managedLauncherName(adapter.Command))
-	content := managedLauncherContent(runnerPath, runner.Args)
-	if existing, err := os.ReadFile(path); err == nil && string(existing) == content {
-		return path, nil
-	}
-	mode := os.FileMode(0o755)
-	if runtime.GOOS == "windows" {
-		mode = 0o644
-	}
-	if err := os.WriteFile(path, []byte(content), mode); err != nil {
-		return "", fmt.Errorf("write managed adapter launcher: %w", err)
-	}
-	return path, nil
-}
-
-func RefreshManagedLauncher(ctx context.Context, id string, lookup LookupFunc) (Status, error) {
-	adapter, ok := FindAdapter(id)
-	if !ok {
-		return Status{}, fmt.Errorf("unknown adapter %q", id)
-	}
-	if adapter.Managed.Package == "" {
-		return Status{}, fmt.Errorf("adapter %q does not use a managed launcher", id)
-	}
-	dir, err := managedLauncherDir()
-	if err != nil {
-		return Status{}, err
-	}
-	_ = os.Remove(filepath.Join(dir, managedLauncherName(adapter.Command)))
-	if _, err := ensureManagedLauncher(adapter, lookup); err != nil {
-		return Status{}, err
-	}
-	return statusForAdapter(ctx, adapter, lookup, statusProbeOptions{}), nil
-}
-
-func GCManagedLaunchers() (int, error) {
-	dir, err := managedLauncherDir()
-	if err != nil {
-		return 0, err
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return 0, nil
-		}
-		return 0, err
-	}
-	keep := make(map[string]struct{})
-	for _, adapter := range BuiltIns() {
-		if adapter.Managed.Package != "" {
-			keep[managedLauncherName(adapter.Command)] = struct{}{}
-		}
-	}
-	removed := 0
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		if _, ok := keep[entry.Name()]; ok {
-			continue
-		}
-		if err := os.Remove(filepath.Join(dir, entry.Name())); err == nil {
-			removed++
-		}
-	}
-	return removed, nil
-}
-
-func resolveManagedRunner(managed ManagedLauncher, lookup LookupFunc) (ManagedRunner, string, error) {
-	if lookup == nil {
-		lookup = exec.LookPath
-	}
-	var errorsText []string
-	for _, runner := range managed.Runners {
-		if strings.TrimSpace(runner.Command) == "" {
-			continue
-		}
-		path, err := lookup(runner.Command)
-		if err == nil {
-			return runner, path, nil
-		}
-		for _, candidate := range runner.CandidatePaths {
-			path := expandPath(candidate)
-			if path == "" {
-				continue
-			}
-			info, statErr := os.Stat(path)
-			if statErr != nil || info.IsDir() || info.Mode()&0o111 == 0 {
-				continue
-			}
-			return runner, path, nil
-		}
-		errorsText = append(errorsText, fmt.Sprintf("%s: %v", runner.Command, err))
-	}
-	if len(errorsText) == 0 {
-		return ManagedRunner{}, "", fmt.Errorf("no runner configured for managed adapter package %s", managed.Package)
-	}
-	return ManagedRunner{}, "", fmt.Errorf("no local package runner found for %s (%s)", managed.Package, strings.Join(errorsText, "; "))
-}
-
-func managedLauncherDir() (string, error) {
-	if dir := strings.TrimSpace(os.Getenv("HECATE_AGENT_ADAPTERS_DIR")); dir != "" {
-		return filepath.Abs(filepath.Clean(dir))
-	}
-	dir, err := os.UserCacheDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve user cache directory: %w", err)
-	}
-	return filepath.Join(dir, "hecate", "agent-adapters"), nil
-}
-
-func managedNPXCandidates() []string {
-	return []string{
-		"${HOME}/.volta/bin/npx",
-		"${HOME}/.local/share/mise/shims/npx",
-		"${HOME}/.asdf/shims/npx",
-		"/opt/homebrew/bin/npx",
-		"/usr/local/bin/npx",
-		"/usr/bin/npx",
-	}
-}
-
-func managedLauncherName(command string) string {
-	if runtime.GOOS == "windows" {
-		return command + ".cmd"
-	}
-	return command
-}
-
-func managedLauncherContent(runnerPath string, args []string) string {
-	if runtime.GOOS == "windows" {
-		parts := []string{windowsQuote(runnerPath)}
-		for _, arg := range args {
-			parts = append(parts, windowsQuote(arg))
-		}
-		parts = append(parts, "%*")
-		return "@echo off\r\n" + strings.Join(parts, " ") + "\r\n"
-	}
-	parts := []string{"exec", shellQuote(runnerPath)}
-	for _, arg := range args {
-		parts = append(parts, shellQuote(arg))
-	}
-	parts = append(parts, "\"$@\"")
-	return "#!/bin/sh\n" + strings.Join(parts, " ") + "\n"
-}
-
-func shellQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
-}
-
-func windowsQuote(value string) string {
-	return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
+func resolveExecutableForStatus(adapter Adapter, lookup LookupFunc) (string, error) {
+	return resolveExecutable(adapter, lookup)
 }
 
 func Run(ctx context.Context, req RunRequest) (RunResult, error) {

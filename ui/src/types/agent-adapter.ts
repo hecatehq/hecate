@@ -6,8 +6,6 @@ export type AgentAdapterRecord = {
   kind: string;
   command: string;
   args?: string[];
-  managed?: boolean;
-  managed_package?: string;
   available: boolean;
   status: string;
   path?: string;

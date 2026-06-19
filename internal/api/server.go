@@ -123,7 +123,7 @@ func registerHecateProjectRoutes(mux *http.ServeMux, handler *Handler) {
 
 func registerHecateAgentRoutes(mux *http.ServeMux, handler *Handler) {
 	// External-agent adapters and agent-chat sessions are Hecate-native state:
-	// approvals, grants, launcher refresh, diffs, and session streams.
+	// approvals, grants, diffs, and session streams.
 	mux.HandleFunc("GET /hecate/v1/agent-profiles", handler.HandleAgentProfiles)
 	mux.HandleFunc("POST /hecate/v1/agent-profiles", handler.HandleCreateAgentProfile)
 	mux.HandleFunc("GET /hecate/v1/agent-profiles/{id}", handler.HandleAgentProfile)
@@ -131,7 +131,6 @@ func registerHecateAgentRoutes(mux *http.ServeMux, handler *Handler) {
 	mux.HandleFunc("DELETE /hecate/v1/agent-profiles/{id}", handler.HandleDeleteAgentProfile)
 	mux.HandleFunc("GET /hecate/v1/agent-adapters", handler.HandleAgentAdapters)
 	mux.HandleFunc("POST /hecate/v1/agent-adapters/{id}/probe", handler.HandleAgentAdapterProbe)
-	mux.HandleFunc("POST /hecate/v1/agent-adapters/{id}/refresh-launcher", handler.HandleAgentAdapterRefreshLauncher)
 	mux.HandleFunc("GET /hecate/v1/agent-adapters/{id}/health", handler.HandleAgentAdapterHealth)
 	mux.HandleFunc("GET /hecate/v1/chat/sessions", handler.HandleChatSessions)
 	mux.HandleFunc("POST /hecate/v1/chat/sessions", handler.HandleCreateChatSession)

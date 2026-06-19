@@ -27,8 +27,8 @@ describe("RootEffects", () => {
     const probeAgentAdapter = vi.fn(async () => null);
     const state = createRuntimeConsoleFixture({
       agentAdapters: [
-        adapter("codex", { managed: true }),
-        adapter("claude_code", { managed: true }),
+        adapter("codex"),
+        adapter("claude_code"),
         adapter("cursor_agent"),
         adapter("grok_build"),
       ],

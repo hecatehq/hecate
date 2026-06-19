@@ -367,15 +367,6 @@ export async function probeAgentAdapter(adapterID: string): Promise<AgentAdapter
   );
 }
 
-export async function refreshAgentAdapterLauncher(
-  adapterID: string,
-): Promise<AgentAdapterResponse> {
-  return fetchJSON<AgentAdapterResponse>(
-    `${HECATE_API}/agent-adapters/${encodeURIComponent(adapterID)}/refresh-launcher`,
-    { method: "POST" },
-  );
-}
-
 export async function getTrace(requestID: string): Promise<TraceResponse> {
   return fetchJSON<TraceResponse>(
     `${HECATE_API}/traces?request_id=${encodeURIComponent(requestID)}`,

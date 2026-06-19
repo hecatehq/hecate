@@ -334,12 +334,8 @@ func matchesAny(haystack string, needles ...string) bool {
 }
 
 // lookupHint is the human-friendly suggestion attached to a "binary
-// not on PATH" failure. We prefer the adapter's docs URL when one is
-// declared; otherwise we point at the managed-launcher fallback.
+// not on PATH" failure.
 func lookupHint(adapter Adapter) string {
-	if adapter.Managed.Package != "" {
-		return fmt.Sprintf("Install Node/npm so Hecate can manage %q automatically, or install the binary directly. Setup docs: %s", adapter.Managed.Package, adapter.DocsURL)
-	}
 	if adapter.DocsURL != "" {
 		return fmt.Sprintf("Install %s and ensure it's on PATH. Setup docs: %s", adapter.Name, adapter.DocsURL)
 	}

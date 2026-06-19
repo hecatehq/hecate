@@ -86,10 +86,13 @@ Remote deployments using the published image must supply container- or
 VM-level isolation around each instance. The image intentionally includes a
 POSIX shell, git/ssh, common project-dependency tools (`build-essential`,
 Python/pip/venv, `pkg-config`, `ripgrep`, `jq`, and archive/process helpers),
-and External Agent CLIs. It does not install `bwrap` by default; Hecate still
-applies its process policy, env sanitisation, and approval gates, but
-filesystem/network isolation inside the container is normally reported as
-`none`.
+and External Agent CLIs. The Codex and Claude Code ACP bridges are bundled as
+release-built Go binaries verified against their release checksums. The
+container build args `CODEX_ACP_ADAPTER_VERSION` and
+`CLAUDE_CODE_ACP_ADAPTER_VERSION` select those adapter releases. The image does
+not install `bwrap` by default; Hecate still applies its process policy, env
+sanitisation, and approval gates, but filesystem/network isolation inside the
+container is normally reported as `none`.
 
 Remote mode also disables local model providers by default. Local presets are
 hidden, `kind=local` provider creates/updates are rejected, env-preconfigured
@@ -276,19 +279,15 @@ chat sessions and External Agent integrations. The native app spawns the bundled
 process; Docker reads them from `.env` / compose; bare binaries read the shell
 environment.
 
-| Env var                             | Default             | Applies to                                           |
-| ----------------------------------- | ------------------- | ---------------------------------------------------- |
-| `HECATE_AGENT_ADAPTERS_DIR`         | platform user cache | Legacy/custom managed ACP launcher scripts           |
-| `HECATE_CHAT_MAX_TURNS_PER_SESSION` | `0`                 | Per-session user→assistant turn ceiling              |
-| `HECATE_CHAT_MAX_SESSION_DURATION`  | `0s`                | Wall-clock age ceiling before new turns are rejected |
-| `HECATE_CHAT_IDLE_TIMEOUT`          | `0s`                | Background idle auto-close sweeper                   |
+| Env var                             | Default | Applies to                                           |
+| ----------------------------------- | ------- | ---------------------------------------------------- |
+| `HECATE_CHAT_MAX_TURNS_PER_SESSION` | `0`     | Per-session user→assistant turn ceiling              |
+| `HECATE_CHAT_MAX_SESSION_DURATION`  | `0s`    | Wall-clock age ceiling before new turns are rejected |
+| `HECATE_CHAT_IDLE_TIMEOUT`          | `0s`    | Background idle auto-close sweeper                   |
 
-Managed launchers are legacy/custom wrapper scripts around a local package
-runner such as `npx`; Hecate garbage-collects stale launcher names at startup.
-Codex and Claude Code now use standalone Go adapter binaries instead of managed
-npm launchers. If you still run a managed custom adapter and move Node/npm
-managers, restart Hecate and use `POST
-/hecate/v1/agent-adapters/{id}/refresh-launcher` to recreate the affected wrapper.
+External Agent integrations now use direct ACP binaries only. Codex and Claude
+Code use standalone Go adapter binaries, while Cursor Agent and Grok Build use
+ACP modes built into their vendor CLIs.
 Connections probes External Agent integrations when the workspace opens; the probe calls
 `POST /hecate/v1/agent-adapters/{id}/probe`, which re-runs discovery and
 performs the ACP handshake so login/billing problems are visible before a chat

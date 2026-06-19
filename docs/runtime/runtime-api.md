@@ -1068,13 +1068,14 @@ GET /hecate/v1/agent-adapters
 
 `adapter_version` is the ACP bridge version when Hecate uses a separate binary
 to speak ACP. The standalone Go Codex and Claude Code adapters report
-`0.0.0-dev` when installed directly with `go install`; release-built binaries
-report their stamped tag. `agent_version` is the underlying coding-agent CLI
-version, such as `codex`, `claude`, `cursor-agent`, or `grok`. Both fields are
-extracted from `--version` output and omitted when the command is missing or
-does not print a recognisable semver string. `version_outside_range` is `true`
-when the version subject to `supported_range` does not satisfy the constraint —
-the Connections UI shows an amber "outside tested range" chip in that case.
+`0.0.0-dev` when installed directly with `go install`; Hecate container images
+bundle release-built adapter binaries so they report their stamped tag.
+`agent_version` is the underlying coding-agent CLI version, such as `codex`,
+`claude`, `cursor-agent`, or `grok`. Both fields are extracted from `--version`
+output and omitted when the command is missing or does not print a recognisable
+semver string. `version_outside_range` is `true` when the version subject to
+`supported_range` does not satisfy the constraint — the Connections UI shows an
+amber "outside tested range" chip in that case.
 
 `auth_status` is a lightweight dashboard hint, not a full login check. Values:
 `ok`, `unauthenticated`, `billing`, or `unknown`. It is derived from known env
@@ -1176,7 +1177,7 @@ GET /hecate/v1/agent-adapters/codex/health
 `status` is one of:
 
 - `ready` — spawn + Initialize + NewSession all succeeded.
-- `not_installed` — binary not on PATH and managed launcher unavailable.
+- `not_installed` — binary not on PATH.
 - `auth_required` — process started but Initialize or NewSession failed with
   an auth-shaped error (`Authentication required`, `Please log in`, `API key`,
   `Credit balance is too low`, `401`, `403`, …).
@@ -1198,32 +1199,6 @@ Status codes:
 The probe creates and immediately abandons a fresh ACP session, so agents that
 bill on session creation will see one no-op session per call. Agents that bill
 on prompt completion see no charge.
-
-### `POST /hecate/v1/agent-adapters/{id}/refresh-launcher`
-
-Deletes and recreates the Hecate-managed launcher script for a managed adapter,
-then returns a one-item `agent_adapters` response with the refreshed status.
-Codex and Claude Code now use standalone Go adapter binaries and normally return
-`409 conflict` from this endpoint.
-
-```json
-POST /hecate/v1/agent-adapters/codex/refresh-launcher
-→ 409
-{
-  "error": {
-    "type": "conflict",
-    "message": "adapter codex does not use a managed launcher"
-  }
-}
-```
-
-Status codes:
-
-- `200 OK` for managed adapters when a local package runner such as `npx` is
-  available.
-- `404 not_found` when the adapter id is not registered.
-- `409 conflict` when the adapter is not managed or the launcher cannot be
-  recreated.
 
 ## Plugin registry endpoints
 

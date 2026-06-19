@@ -47,27 +47,6 @@ func (h *Handler) HandleAgentAdapterProbe(w http.ResponseWriter, r *http.Request
 	})
 }
 
-func (h *Handler) HandleAgentAdapterRefreshLauncher(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimSpace(r.PathValue("id"))
-	if id == "" {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "adapter id is required")
-		return
-	}
-	status, err := agentadapters.RefreshManagedLauncher(r.Context(), id, nil)
-	if err != nil {
-		if _, ok := agentadapters.FindAdapter(id); !ok {
-			WriteError(w, http.StatusNotFound, errCodeNotFound, "adapter not found")
-			return
-		}
-		WriteError(w, http.StatusConflict, errCodeConflict, err.Error())
-		return
-	}
-	WriteJSON(w, http.StatusOK, AgentAdapterResponse{
-		Object: "agent_adapters",
-		Data:   []AgentAdapterResponseItem{renderAgentAdapterItem(r.Context(), status)},
-	})
-}
-
 type AgentAdapterProbeResponse struct {
 	Object string                `json:"object"`
 	Data   AgentAdapterProbeData `json:"data"`
@@ -85,8 +64,6 @@ func renderAgentAdapterItem(ctx context.Context, item agentadapters.Status) Agen
 		Kind:                 item.Kind,
 		Command:              item.Command,
 		Args:                 item.Args,
-		Managed:              item.Managed.Package != "",
-		ManagedPackage:       item.Managed.Package,
 		Available:            item.Available,
 		Status:               item.Status,
 		Path:                 item.Path,

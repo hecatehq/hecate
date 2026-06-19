@@ -819,8 +819,6 @@ type AgentAdapterResponseItem struct {
 	Kind                 string                              `json:"kind"`
 	Command              string                              `json:"command"`
 	Args                 []string                            `json:"args,omitempty"`
-	Managed              bool                                `json:"managed,omitempty"`
-	ManagedPackage       string                              `json:"managed_package,omitempty"`
 	Available            bool                                `json:"available"`
 	Status               string                              `json:"status"`
 	Path                 string                              `json:"path,omitempty"`
