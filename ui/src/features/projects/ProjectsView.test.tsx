@@ -74,7 +74,7 @@ import type {
   ProjectWorkItemRecord,
   ProjectWorkRoleRecord,
 } from "../../types/project";
-import { ProjectsView } from "./ProjectsView";
+import { buildFirstWorkItemDraft, ProjectsView } from "./ProjectsView";
 
 type LaunchContextContract = {
   sections: string[];
@@ -1176,6 +1176,137 @@ describe("ProjectsView index", () => {
     expect(screen.getByRole("button", { name: "Inspect context" })).toBeTruthy();
     expect(screen.queryByLabelText("Request")).toBeNull();
     expect(screen.queryByRole("button", { name: "Draft proposal" })).toBeNull();
+  });
+
+  it("prefills first work creation from setup context", async () => {
+    resetProjectWorkMocks();
+    vi.mocked(getProjectActivity).mockResolvedValue({
+      object: "project_activity",
+      data: emptyActivityData(),
+    });
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [],
+    });
+    vi.mocked(getProjectWorkRoles).mockResolvedValue({
+      object: "project_work_roles",
+      data: [role],
+    });
+    vi.mocked(getProjectMemoryCandidates).mockResolvedValue({
+      object: "project_memory_candidates",
+      data: [memoryCandidate],
+    });
+    vi.mocked(getProjectSkills).mockResolvedValue({
+      object: "project_skills",
+      data: [projectSkill],
+    });
+    const bootstrappedProject: ProjectRecord = {
+      ...project,
+      description: "Make Hecate usable for supervised project work.",
+      context_sources: [
+        {
+          id: "ctx_agents",
+          kind: "workspace_instruction",
+          title: "AGENTS.md",
+          path: "AGENTS.md",
+          enabled: true,
+          source_category: "workspace_guidance",
+          trust_label: "workspace_guidance",
+          created_at: "2026-06-02T09:00:00Z",
+          updated_at: "2026-06-02T09:00:00Z",
+        },
+      ],
+    };
+    const user = userEvent.setup();
+    window.localStorage.setItem("hecate.project", bootstrappedProject.id);
+
+    render(<ProjectsView />, {
+      wrapper: directWrapper({ projects: [bootstrappedProject] }),
+    });
+
+    const assistant = await screen.findByRole("region", { name: "Project Assistant" });
+    await within(assistant).findByText(/1 role · 1 memory candidate/);
+    await user.click(within(assistant).getByRole("button", { name: "Create first work" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "New work item" });
+    expect(within(dialog).getByLabelText("Title")).toHaveValue("Plan first work for Hecate");
+    const brief = within(dialog).getByLabelText("Brief") as HTMLTextAreaElement;
+    expect(brief.value).toContain("Purpose: Make Hecate usable for supervised project work.");
+    expect(brief.value).toContain("Guidance: AGENTS.md");
+    expect(brief.value).toContain("Relevant skills: Backend");
+    expect(brief.value).toContain(
+      "Review memory candidates before relying on them: Generated summary",
+    );
+    expect(within(dialog).getByLabelText("Owner role")).toHaveValue("software_developer");
+    expect(createProjectWorkItem).not.toHaveBeenCalled();
+  });
+
+  it("does not build a first-work draft without setup context", () => {
+    expect(
+      buildFirstWorkItemDraft({
+        memoryCandidates: [],
+        project: { ...project, description: "", context_sources: [] },
+        projectSkills: [],
+        roles: [],
+        workItems: [],
+      }),
+    ).toBeUndefined();
+  });
+
+  it("opens blank work creation when project already has work items", async () => {
+    resetProjectWorkMocks();
+    vi.mocked(getProjectActivity).mockResolvedValue({
+      object: "project_activity",
+      data: emptyActivityData(),
+    });
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [workItem],
+    });
+    vi.mocked(getProjectWorkRoles).mockResolvedValue({
+      object: "project_work_roles",
+      data: [role],
+    });
+    vi.mocked(getProjectMemoryCandidates).mockResolvedValue({
+      object: "project_memory_candidates",
+      data: [memoryCandidate],
+    });
+    vi.mocked(getProjectSkills).mockResolvedValue({
+      object: "project_skills",
+      data: [projectSkill],
+    });
+    const bootstrappedProject: ProjectRecord = {
+      ...project,
+      description: "Make Hecate usable for supervised project work.",
+      context_sources: [
+        {
+          id: "ctx_agents",
+          kind: "workspace_instruction",
+          title: "AGENTS.md",
+          path: "AGENTS.md",
+          enabled: true,
+          source_category: "workspace_guidance",
+          trust_label: "workspace_guidance",
+          created_at: "2026-06-02T09:00:00Z",
+          updated_at: "2026-06-02T09:00:00Z",
+        },
+      ],
+    };
+    const user = userEvent.setup();
+    window.localStorage.setItem("hecate.project", bootstrappedProject.id);
+
+    render(<ProjectsView />, {
+      wrapper: directWrapper({ projects: [bootstrappedProject] }),
+    });
+
+    const workPanel = await screen.findByRole("region", { name: "Work coordination" });
+    await user.click(within(workPanel).getByRole("button", { name: "Work" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "New work item" });
+    expect(within(dialog).getByLabelText("Title")).toHaveValue("");
+    expect(within(dialog).getByLabelText("Brief")).toHaveValue("");
+    expect(within(dialog).getByLabelText("Owner role")).toHaveValue("software_developer");
+    expect(createProjectWorkItem).not.toHaveBeenCalled();
   });
 
   it("keeps cockpit controls and work coordination in stable regions when work items exist", async () => {
