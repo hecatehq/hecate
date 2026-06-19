@@ -4727,8 +4727,8 @@ describe("ProjectsView cockpit", () => {
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
     const detail = await screen.findByRole("region", { name: "Selected work item" });
-    await within(detail).findByText("Ready to queue the first assignment");
-    await userEvent.click(within(detail).getByRole("button", { name: "Draft first assignment" }));
+    await within(detail).findByText("Let Hecate prepare the first step");
+    await userEvent.click(within(detail).getByRole("button", { name: "Prepare next step" }));
 
     await waitFor(() =>
       expect(draftProjectAssistant).toHaveBeenCalledWith({
