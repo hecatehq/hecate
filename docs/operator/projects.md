@@ -50,6 +50,9 @@ with a guided prepare action. Hecate can draft the first assignment from the
 work item role and context, but the operator still reviews and applies the
 proposal before execution records are created.
 
+After a work item has activity, use its Add strip to attach more assignments,
+evidence, or handoffs without scanning each section header for separate actions.
+
 ## Roots And Worktrees
 
 Project roots are concrete workspace paths, not project identity. A single

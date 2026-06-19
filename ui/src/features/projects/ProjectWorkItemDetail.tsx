@@ -192,6 +192,7 @@ export function ProjectWorkItemDetail({
     reviewArtifactNeedsFollowUpPath(artifact, handoffs),
   );
   const suggestedAssignmentRole = assignmentRoleForWorkItem(workItem, roleByID);
+  const canAddWorkRecords = !emptyWorkItem && workItem.status !== "done";
   return (
     <div style={workItemDetailStyle}>
       <article style={workItemCardStyle} aria-label={`${workItem.title} work item`}>
@@ -279,6 +280,13 @@ export function ProjectWorkItemDetail({
             onClose={() => onCloseWorkItem(workItem)}
           />
         )}
+        {canAddWorkRecords && (
+          <WorkItemAddActions
+            onAddAssignment={onAddAssignment}
+            onAddEvidenceLink={onAddEvidenceLink}
+            onAddHandoff={onAddHandoff}
+          />
+        )}
         {reviewFollowUps.length > 0 && (
           <ReviewFollowUpNotice
             artifact={reviewFollowUps[0]}
@@ -292,15 +300,6 @@ export function ProjectWorkItemDetail({
             <div style={workItemSectionHeaderStyle}>
               <div style={sectionLabelStyle}>Assignments</div>
               <span className="badge badge-muted">{assignments.length}</span>
-              <button
-                className="btn btn-primary btn-sm"
-                type="button"
-                onClick={onAddAssignment}
-                style={{ marginLeft: "auto" }}
-              >
-                <Icon d={Icons.plus} size={12} />
-                Assignment
-              </button>
             </div>
             {assignments.length === 0 ? (
               <div style={subtleTextStyle}>No assignments recorded yet.</div>
@@ -410,15 +409,6 @@ export function ProjectWorkItemDetail({
             <div style={workItemSectionHeaderStyle}>
               <div style={sectionLabelStyle}>Collaboration Artifacts</div>
               <span className="badge badge-muted">{artifacts.length}</span>
-              <button
-                className="btn btn-primary btn-sm"
-                type="button"
-                onClick={onAddEvidenceLink}
-                style={{ marginLeft: "auto" }}
-              >
-                <Icon d={Icons.plus} size={12} />
-                Evidence
-              </button>
             </div>
             {artifacts.length === 0 ? (
               <div style={subtleTextStyle}>No collaboration artifacts recorded yet.</div>
@@ -498,15 +488,6 @@ export function ProjectWorkItemDetail({
             <div style={workItemSectionHeaderStyle}>
               <div style={sectionLabelStyle}>Handoffs</div>
               <span className="badge badge-muted">{handoffs.length}</span>
-              <button
-                className="btn btn-primary btn-sm"
-                type="button"
-                onClick={onAddHandoff}
-                style={{ marginLeft: "auto" }}
-              >
-                <Icon d={Icons.plus} size={12} />
-                Handoff
-              </button>
             </div>
             {handoffError && <InlineError message={handoffError} />}
             {handoffs.length === 0 ? (
@@ -588,7 +569,7 @@ function WorkItemStartPanel({
         </div>
         <div style={{ ...subtleTextStyle, marginTop: 5 }}>
           {role
-            ? `Hecate will choose the ${role.name || role.id} role, reuse this work item context, and draft a reviewable assignment proposal. You still review and apply it before anything is created.`
+            ? `Hecate will use the ${role.name || role.id} role and this work item context to draft a reviewable assignment proposal. You still approve it before anything is created.`
             : "Create or select a project role so Hecate can prepare this work from defaults."}
         </div>
       </div>
@@ -609,21 +590,73 @@ function WorkItemStartPanel({
             Manage roles
           </button>
         )}
-        <div aria-label="Manual work item actions" role="group" style={startPanelSecondaryStyle}>
-          <span style={startPanelSecondaryLabelStyle}>Other ways to add context</span>
-          <button className="btn btn-ghost btn-sm" type="button" onClick={onAddAssignment}>
-            <Icon d={Icons.plus} size={12} />
-            Assignment
-          </button>
-          <button className="btn btn-ghost btn-sm" type="button" onClick={onAddEvidenceLink}>
-            <Icon d={Icons.plus} size={12} />
-            Evidence
-          </button>
-          <button className="btn btn-ghost btn-sm" type="button" onClick={onAddHandoff}>
-            <Icon d={Icons.plus} size={12} />
-            Handoff
-          </button>
+        <details style={manualAddDetailsStyle}>
+          <summary style={manualAddSummaryStyle}>Add manually</summary>
+          <div aria-label="Manual work item actions" role="group" style={startPanelSecondaryStyle}>
+            <button className="btn btn-ghost btn-sm" type="button" onClick={onAddAssignment}>
+              <Icon d={Icons.plus} size={12} />
+              Assignment
+            </button>
+            <button className="btn btn-ghost btn-sm" type="button" onClick={onAddEvidenceLink}>
+              <Icon d={Icons.plus} size={12} />
+              Evidence
+            </button>
+            <button className="btn btn-ghost btn-sm" type="button" onClick={onAddHandoff}>
+              <Icon d={Icons.plus} size={12} />
+              Handoff
+            </button>
+          </div>
+        </details>
+      </div>
+    </section>
+  );
+}
+
+function WorkItemAddActions({
+  onAddAssignment,
+  onAddEvidenceLink,
+  onAddHandoff,
+}: {
+  onAddAssignment: () => void;
+  onAddEvidenceLink: () => void;
+  onAddHandoff: () => void;
+}) {
+  return (
+    <section style={addActionsPanelStyle} aria-label="Add to work item">
+      <div style={addActionsCopyStyle}>
+        <div style={sectionLabelStyle}>Add</div>
+        <div style={subtleTextStyle}>
+          Add an assignment, source evidence, or a structured handoff to this work item.
         </div>
+      </div>
+      <div aria-label="Add work item records" role="group" style={addActionsButtonsStyle}>
+        <button
+          aria-label="Add assignment"
+          className="btn btn-ghost btn-sm"
+          type="button"
+          onClick={onAddAssignment}
+        >
+          <Icon d={Icons.plus} size={12} />
+          Assignment
+        </button>
+        <button
+          aria-label="Add evidence"
+          className="btn btn-ghost btn-sm"
+          type="button"
+          onClick={onAddEvidenceLink}
+        >
+          <Icon d={Icons.plus} size={12} />
+          Evidence
+        </button>
+        <button
+          aria-label="Add handoff"
+          className="btn btn-ghost btn-sm"
+          type="button"
+          onClick={onAddHandoff}
+        >
+          <Icon d={Icons.plus} size={12} />
+          Handoff
+        </button>
       </div>
     </section>
   );
@@ -1880,11 +1913,44 @@ const startPanelSecondaryStyle: CSSProperties = {
   minWidth: 0,
 };
 
-const startPanelSecondaryLabelStyle: CSSProperties = {
+const manualAddDetailsStyle: CSSProperties = {
+  color: "var(--t2)",
+  justifySelf: "end",
+  minWidth: 0,
+};
+
+const manualAddSummaryStyle: CSSProperties = {
   color: "var(--t3)",
+  cursor: "pointer",
   fontFamily: "var(--font-mono)",
   fontSize: 10,
   textTransform: "uppercase",
+};
+
+const addActionsPanelStyle: CSSProperties = {
+  alignItems: "center",
+  borderTop: "1px solid var(--border)",
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 10,
+  justifyContent: "space-between",
+  marginTop: 12,
+  minWidth: 0,
+  paddingTop: 12,
+};
+
+const addActionsCopyStyle: CSSProperties = {
+  flex: "1 1 260px",
+  minWidth: 0,
+};
+
+const addActionsButtonsStyle: CSSProperties = {
+  alignItems: "center",
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 6,
+  justifyContent: "flex-end",
+  minWidth: 0,
 };
 
 const closeoutListStyle: CSSProperties = {

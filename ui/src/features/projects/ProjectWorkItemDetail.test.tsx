@@ -349,8 +349,8 @@ describe("ProjectWorkItemDetail", () => {
     expect(screen.queryByText("No assignments recorded yet.")).toBeNull();
 
     await userEvent.click(screen.getByRole("button", { name: "Prepare next step" }));
+    await userEvent.click(screen.getByText("Add manually"));
     const manualActions = screen.getByRole("group", { name: "Manual work item actions" });
-    expect(within(manualActions).getByText("Other ways to add context")).toBeTruthy();
     await userEvent.click(within(manualActions).getByRole("button", { name: "Assignment" }));
     await userEvent.click(within(manualActions).getByRole("button", { name: "Evidence" }));
     await userEvent.click(within(manualActions).getByRole("button", { name: "Handoff" }));
@@ -409,6 +409,24 @@ describe("ProjectWorkItemDetail", () => {
     expect(handlers.onCloseWorkItem).toHaveBeenCalledWith(item);
   });
 
+  it("groups manual record creation for active work items", async () => {
+    const { handlers } = renderDetail({
+      assignments: [assignment({ status: "completed", execution_ref: { kind: "none" } })],
+    });
+
+    const addActions = screen.getByRole("region", { name: "Add to work item" });
+    expect(within(addActions).getByText("Add")).toBeTruthy();
+    expect(within(addActions).getByText(/Add an assignment, source evidence/)).toBeTruthy();
+
+    await userEvent.click(within(addActions).getByRole("button", { name: "Add assignment" }));
+    await userEvent.click(within(addActions).getByRole("button", { name: "Add evidence" }));
+    await userEvent.click(within(addActions).getByRole("button", { name: "Add handoff" }));
+
+    expect(handlers.onAddAssignment).toHaveBeenCalledTimes(1);
+    expect(handlers.onAddEvidenceLink).toHaveBeenCalledTimes(1);
+    expect(handlers.onAddHandoff).toHaveBeenCalledTimes(1);
+  });
+
   it("shows already-done closeout state without a mark-done action", () => {
     renderDetail({
       assignments: [assignment({ status: "failed", execution_ref: { kind: "none" } })],
@@ -417,6 +435,7 @@ describe("ProjectWorkItemDetail", () => {
 
     expect(screen.getByText("Work item is done")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Mark done" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Add to work item" })).toBeNull();
   });
 
   it("loads launch preflight before starting an assignment", async () => {
@@ -563,7 +582,7 @@ describe("ProjectWorkItemDetail", () => {
     expect(screen.getByRole("link", { name: "https://example.invalid/source" })).toBeTruthy();
     expect(screen.getByText("provider docs · external DOC-42")).toBeTruthy();
 
-    await userEvent.click(screen.getByRole("button", { name: "Evidence" }));
+    await userEvent.click(screen.getByRole("button", { name: "Add evidence" }));
 
     expect(handlers.onAddEvidenceLink).toHaveBeenCalledTimes(1);
   });

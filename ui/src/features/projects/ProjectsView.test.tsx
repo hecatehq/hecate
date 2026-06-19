@@ -3052,7 +3052,7 @@ describe("ProjectsView cockpit", () => {
 
     expect(await screen.findByText("Expose project work and native starts.")).toBeTruthy();
     const detail = await screen.findByRole("region", { name: "Selected work item" });
-    await userEvent.click(within(detail).getByRole("button", { name: "Evidence" }));
+    await userEvent.click(within(detail).getByRole("button", { name: "Add evidence" }));
 
     const dialog = await screen.findByRole("dialog", { name: "Record evidence" });
     fireEvent.change(within(dialog).getByLabelText("Title"), {
@@ -4692,11 +4692,12 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
-    await userEvent.click(await screen.findByRole("button", { name: "Assignment" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Add assignment" }));
+    const dialog = await screen.findByRole("dialog", { name: "Add assignment" });
     fireEvent.change(screen.getByLabelText("Driver"), {
       target: { value: "external_agent" },
     });
-    await userEvent.click(screen.getByRole("button", { name: "Add assignment" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Add assignment" }));
 
     expect(createProjectAssignment).toHaveBeenCalledWith(project.id, workItem.id, {
       role_id: "software_developer",
@@ -4768,11 +4769,12 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
-    await userEvent.click(await screen.findByRole("button", { name: "Assignment" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Add assignment" }));
+    const dialog = await screen.findByRole("dialog", { name: "Add assignment" });
     fireEvent.change(screen.getByLabelText("Root"), {
       target: { value: "root_feature" },
     });
-    await userEvent.click(screen.getByRole("button", { name: "Add assignment" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Add assignment" }));
 
     expect(createProjectAssignment).toHaveBeenCalledWith(rootedProject.id, workItem.id, {
       role_id: "software_developer",
@@ -5072,11 +5074,12 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
-    await userEvent.click(await screen.findByRole("button", { name: "Assignment" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Add assignment" }));
+    const dialog = await screen.findByRole("dialog", { name: "Add assignment" });
     fireEvent.change(screen.getByLabelText("Role"), {
       target: { value: "role_external" },
     });
-    await userEvent.click(screen.getByRole("button", { name: "Add assignment" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Add assignment" }));
 
     expect(createProjectAssignment).toHaveBeenCalledWith(project.id, workItem.id, {
       role_id: "role_external",
