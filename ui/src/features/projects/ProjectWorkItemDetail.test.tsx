@@ -343,14 +343,14 @@ describe("ProjectWorkItemDetail", () => {
     });
 
     expect(screen.getByRole("region", { name: "Start work" })).toBeTruthy();
-    expect(screen.getByText("Ready to queue the first assignment")).toBeTruthy();
+    expect(screen.getByText("Let Hecate prepare the first step")).toBeTruthy();
     expect(screen.queryByText("No reviewer roles configured")).toBeNull();
     expect(screen.queryByRole("button", { name: "Mark done" })).toBeNull();
     expect(screen.queryByText("No assignments recorded yet.")).toBeNull();
 
-    await userEvent.click(screen.getByRole("button", { name: "Draft first assignment" }));
+    await userEvent.click(screen.getByRole("button", { name: "Prepare next step" }));
     const manualActions = screen.getByRole("group", { name: "Manual work item actions" });
-    expect(within(manualActions).getByText("Manual options")).toBeTruthy();
+    expect(within(manualActions).getByText("Other ways to add context")).toBeTruthy();
     await userEvent.click(within(manualActions).getByRole("button", { name: "Assignment" }));
     await userEvent.click(within(manualActions).getByRole("button", { name: "Evidence" }));
     await userEvent.click(within(manualActions).getByRole("button", { name: "Handoff" }));
@@ -504,7 +504,40 @@ describe("ProjectWorkItemDetail", () => {
 
     expect(screen.getByText("Changes requested")).toBeTruthy();
     expect(screen.getByText("risk Medium")).toBeTruthy();
-    expect(screen.getByText("follow-up required")).toBeTruthy();
+    expect(screen.getAllByText("follow-up required")).toHaveLength(2);
+  });
+
+  it("surfaces review follow-up as a closeout notice", async () => {
+    const reviewArtifact = artifact({
+      review_verdict: "blocked",
+      review_follow_up_required: true,
+    });
+    const { handlers } = renderDetail({
+      artifacts: [reviewArtifact],
+    });
+
+    const notice = screen.getByRole("region", { name: "Review follow-up required" });
+    expect(within(notice).getByText("Architect review")).toBeTruthy();
+    expect(within(notice).getByText("follow-up required")).toBeTruthy();
+
+    await userEvent.click(within(notice).getByRole("button", { name: "Create follow-up" }));
+
+    expect(handlers.onCreateAssignmentFromReviewArtifact).toHaveBeenCalledWith(reviewArtifact);
+  });
+
+  it("does not surface review follow-up notice after a handoff is linked", () => {
+    renderDetail({
+      artifacts: [
+        artifact({
+          id: "art_review",
+          review_verdict: "blocked",
+          review_follow_up_required: true,
+        }),
+      ],
+      handoffs: [handoff({ linked_artifact_ids: ["art_review"] })],
+    });
+
+    expect(screen.queryByRole("region", { name: "Review follow-up required" })).toBeNull();
   });
 
   it("renders evidence link metadata and delegates evidence creation", async () => {

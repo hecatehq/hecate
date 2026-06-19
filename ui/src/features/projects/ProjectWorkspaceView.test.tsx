@@ -635,6 +635,32 @@ describe("ProjectWorkspaceView", () => {
       <ProjectWorkspaceView
         {...props}
         {...handlers}
+        artifacts={[
+          artifact({
+            id: "art_review",
+            kind: "review",
+            title: "Architect review",
+            review_follow_up_required: true,
+            review_verdict: "changes_requested",
+          }),
+        ]}
+        assignments={[completed]}
+        handoffs={[]}
+        selectedWorkItem={item}
+        workItems={[item]}
+      />,
+    );
+    nextAction = screen.getByRole("region", { name: "Project next action" });
+    expect(within(nextAction).getByText("Create review follow-up")).toBeTruthy();
+    await userEvent.click(within(nextAction).getByRole("button", { name: "Create follow-up" }));
+    expect(handlers.onCreateAssignmentFromReviewArtifact).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "art_review" }),
+    );
+
+    rerender(
+      <ProjectWorkspaceView
+        {...props}
+        {...handlers}
         assignments={[completed]}
         handoffs={[]}
         selectedWorkItem={item}

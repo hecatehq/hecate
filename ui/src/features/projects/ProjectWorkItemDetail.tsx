@@ -187,6 +187,9 @@ export function ProjectWorkItemDetail({
     artifacts.length === 0 &&
     handoffs.length === 0 &&
     workItem.status !== "done";
+  const reviewFollowUps = artifacts.filter((artifact) =>
+    reviewArtifactNeedsFollowUpPath(artifact, handoffs),
+  );
   const suggestedAssignmentRole = assignmentRoleForWorkItem(workItem, roleByID);
   return (
     <div style={workItemDetailStyle}>
@@ -273,6 +276,14 @@ export function ProjectWorkItemDetail({
             closeout={closeout}
             pending={closingWorkItemID === workItem.id}
             onClose={() => onCloseWorkItem(workItem)}
+          />
+        )}
+        {reviewFollowUps.length > 0 && (
+          <ReviewFollowUpNotice
+            artifact={reviewFollowUps[0]}
+            count={reviewFollowUps.length}
+            pending={artifactActionID === reviewFollowUps[0].id}
+            onCreateAssignment={() => onCreateAssignmentFromReviewArtifact(reviewFollowUps[0])}
           />
         )}
         {(!emptyWorkItem || assignments.length > 0) && (
@@ -572,11 +583,11 @@ function WorkItemStartPanel({
       <div style={startPanelCopyStyle}>
         <div style={sectionLabelStyle}>Next step</div>
         <div style={titleStyle}>
-          {role ? "Ready to queue the first assignment" : "Add a role before assigning work"}
+          {role ? "Let Hecate prepare the first step" : "Add a role before assigning work"}
         </div>
         <div style={{ ...subtleTextStyle, marginTop: 5 }}>
           {role
-            ? `Hecate can draft a reviewable ${role.name || role.id} assignment proposal from this work item. You will review and apply it before anything is created.`
+            ? `Hecate will choose the ${role.name || role.id} role, reuse this work item context, and draft a reviewable assignment proposal. You still review and apply it before anything is created.`
             : "Create or select a project role so Hecate can prepare this work from defaults."}
         </div>
       </div>
@@ -589,7 +600,7 @@ function WorkItemStartPanel({
             disabled={drafting}
           >
             <Icon d={Icons.tasks} size={13} />
-            {drafting ? "Drafting..." : "Draft first assignment"}
+            {drafting ? "Preparing..." : "Prepare next step"}
           </button>
         ) : (
           <button className="btn btn-primary btn-sm" type="button" onClick={onManageRoles}>
@@ -598,7 +609,7 @@ function WorkItemStartPanel({
           </button>
         )}
         <div aria-label="Manual work item actions" role="group" style={startPanelSecondaryStyle}>
-          <span style={startPanelSecondaryLabelStyle}>Manual options</span>
+          <span style={startPanelSecondaryLabelStyle}>Other ways to add context</span>
           <button className="btn btn-ghost btn-sm" type="button" onClick={onAddAssignment}>
             <Icon d={Icons.plus} size={12} />
             Assignment
@@ -698,6 +709,58 @@ function WorkItemCloseoutPanel({
       )}
     </section>
   );
+}
+
+function ReviewFollowUpNotice({
+  artifact,
+  count,
+  onCreateAssignment,
+  pending,
+}: {
+  artifact: ProjectCollaborationArtifactRecord;
+  count: number;
+  onCreateAssignment: () => void;
+  pending: boolean;
+}) {
+  return (
+    <section style={reviewFollowUpNoticeStyle} aria-label="Review follow-up required">
+      <div style={workItemSectionHeaderStyle}>
+        <span className="badge badge-amber">follow-up required</span>
+        {count > 1 && <span className="badge badge-muted">{count} reviews</span>}
+        <button
+          className="btn btn-primary btn-sm"
+          type="button"
+          onClick={onCreateAssignment}
+          disabled={pending}
+          style={{ marginLeft: "auto" }}
+        >
+          <Icon d={Icons.tasks} size={12} />
+          {pending ? "Creating..." : "Create follow-up"}
+        </button>
+      </div>
+      <div style={{ ...titleStyle, marginTop: 8 }}>{artifact.title || "Review follow-up"}</div>
+      <div style={{ ...subtleTextStyle, marginTop: 4 }}>
+        Review outcome blocks closeout until the operator creates and completes a follow-up path.
+      </div>
+    </section>
+  );
+}
+
+function reviewArtifactRequiresFollowUp(artifact: ProjectCollaborationArtifactRecord): boolean {
+  return (
+    artifact.kind === "review" &&
+    (artifact.review_follow_up_required === true ||
+      artifact.review_verdict === "blocked" ||
+      artifact.review_verdict === "changes_requested")
+  );
+}
+
+function reviewArtifactNeedsFollowUpPath(
+  artifact: ProjectCollaborationArtifactRecord,
+  handoffs: ProjectHandoffRecord[],
+): boolean {
+  if (!reviewArtifactRequiresFollowUp(artifact)) return false;
+  return !handoffs.some((handoff) => (handoff.linked_artifact_ids ?? []).includes(artifact.id));
 }
 
 function ReviewerSetupNotice({
@@ -1846,6 +1909,15 @@ const closeoutListStyle: CSSProperties = {
   lineHeight: 1.45,
   margin: "8px 0 0",
   paddingLeft: 18,
+};
+
+const reviewFollowUpNoticeStyle: CSSProperties = {
+  background: "rgba(245, 158, 11, 0.08)",
+  border: "1px solid rgba(245, 158, 11, 0.35)",
+  borderRadius: "var(--radius-sm)",
+  marginTop: 12,
+  minWidth: 0,
+  padding: 12,
 };
 
 const evidenceArtifactMetadataStyle: CSSProperties = {
