@@ -472,8 +472,7 @@ describe("Connections external-agent panel", () => {
   });
 
   // External agent status panel — surfaces readiness diagnostics.
-  // Direct binaries can be checked quietly; managed package-launcher
-  // agents require an explicit confirmation before a manual check.
+  // Direct adapter binaries can be checked quietly.
   // The section is hidden when no agents are registered (no point
   // showing an empty card); otherwise each row renders inline
   // diagnostic copy when a result exists.

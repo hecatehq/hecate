@@ -97,7 +97,8 @@ agent bridge, while authentication and billing stay with the provider.
 6. If the agent row is amber/red, open **Connections**. The probe performs
    a real spawn + ACP handshake + temporary
    no-op session, so it catches missing auth, billing/subscription issues,
-   unsupported versions, and broken managed launchers before a prompt fails.
+   unsupported versions, and missing or unsupported binaries before a prompt
+   fails.
 7. Send a small smoke prompt:
 
    ```text
@@ -156,10 +157,7 @@ Discovery reports command availability, tested version range, and lightweight
 auth hints (`auth_status`: `ok`, `unauthenticated`, `billing`, or `unknown`).
 When an ACP adapter binary is separate from the coding-agent CLI, Hecate reports
 both versions: `adapter_version` for the bridge and `agent_version` for the
-underlying agent (`codex`, `claude`, `cursor-agent`, `grok`). Legacy/custom
-managed package adapters avoid package-manager execution during passive
-discovery; their `adapter_version` is populated only after an explicit agent
-readiness test.
+underlying agent (`codex`, `claude`, `cursor-agent`, `grok`).
 
 Manual setup stays in the upstream CLIs:
 
@@ -193,27 +191,11 @@ installed and visible on `PATH`. Hecate does not pin an external-agent model by
 default. When an ACP agent reports model state, the agent-provided model list and
 current model become the chat model control.
 
-By default the managed launcher directory is the user cache location:
-
-```text
-<user-cache>/hecate/agent-adapters
-```
-
-Set `HECATE_AGENT_ADAPTERS_DIR` only if you still use a managed custom adapter
-and want to override that location for development, Docker volume mapping, or a
-packaged desktop build. Hecate removes stale managed-launcher scripts at startup
-when their adapter no longer exists. To force-refresh one managed launcher after
-changing Node/npm managers:
-
-```sh
-curl -X POST http://127.0.0.1:8765/hecate/v1/agent-adapters/managed_adapter_id/refresh-launcher | jq
-```
-
 ## Setup checks
 
 External Agent chat does not use Hecate model providers. It needs the selected
-coding-agent to be authenticated, and either a direct ACP command or a managed
-package runner to be visible to Hecate.
+coding-agent to be authenticated, and the direct ACP command to be visible to
+Hecate.
 
 Use this order when troubleshooting:
 

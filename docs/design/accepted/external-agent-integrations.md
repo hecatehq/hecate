@@ -126,8 +126,8 @@ internal/agentadapters/
 
 The current runtime shape is ACP-first:
 
-- `registry.go` declares built-in adapters, direct commands, managed launcher
-  metadata, tested version ranges, and lightweight auth hints.
+- `registry.go` declares built-in adapters, direct commands, tested version
+  ranges, and lightweight auth hints.
 - `probe.go` performs the explicit "can this adapter really start?" check by
   spawning the adapter, completing ACP `initialize`, opening a no-op session,
   and classifying the result.
@@ -157,7 +157,6 @@ Implemented MVP endpoints:
 GET  /hecate/v1/agent-adapters
 POST /hecate/v1/agent-adapters/{id}/probe
 GET  /hecate/v1/agent-adapters/{id}/health
-POST /hecate/v1/agent-adapters/{id}/refresh-launcher
 GET  /hecate/v1/chat/sessions
 POST /hecate/v1/chat/sessions
 GET  /hecate/v1/chat/sessions/{id}
@@ -215,11 +214,6 @@ storage is enabled, Hecate keeps the transcript and saved native session id. On
 the next prompt it asks the adapter to load that native session when the adapter
 advertises load-session support; otherwise it starts a fresh native ACP session
 and keeps the Hecate-side transcript intact.
-
-Managed launchers are intentionally local and operator-controlled. Hecate writes
-small wrapper scripts into the user cache directory or `HECATE_AGENT_ADAPTERS_DIR`,
-refreshes one adapter on demand, and removes stale launcher scripts at startup
-when the built-in adapter list changes.
 
 ## Relationship To ACP
 

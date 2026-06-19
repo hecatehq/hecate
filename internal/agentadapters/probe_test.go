@@ -291,10 +291,10 @@ func TestLookupHint(t *testing.T) {
 		if hint == "" {
 			t.Fatalf("lookupHint(%s) = empty — every adapter must surface a suggestion", a.ID)
 		}
-		// Hint should reference the adapter by name or by managed
-		// package — never just "install something".
-		if !strings.Contains(hint, a.Name) && !strings.Contains(hint, a.Managed.Package) {
-			t.Errorf("lookupHint(%s) = %q, want it to reference the adapter or its managed package", a.ID, hint)
+		// Hint should reference the adapter by name — never just
+		// "install something".
+		if !strings.Contains(hint, a.Name) {
+			t.Errorf("lookupHint(%s) = %q, want it to reference the adapter", a.ID, hint)
 		}
 	}
 }

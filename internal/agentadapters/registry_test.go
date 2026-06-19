@@ -3,7 +3,6 @@ package agentadapters
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,13 +26,13 @@ func TestBuiltInsIncludeInitialExternalAgents(t *testing.T) {
 		found[item.ID] = item
 	}
 
-	if got := found["codex"]; got.Command != "codex-acp-adapter" || got.Kind != DriverKindACP || got.Managed.Package != "" || got.CostMode != "external" {
+	if got := found["codex"]; got.Command != "codex-acp-adapter" || got.Kind != DriverKindACP || got.CostMode != "external" {
 		t.Fatalf("codex adapter = %#v", got)
 	}
 	if got := found["codex"]; got.SupportedRange != ">=0.0.0-dev" {
 		t.Fatalf("codex supported range = %q, want alpha dev-compatible range", got.SupportedRange)
 	}
-	if got := found["claude_code"]; got.Command != "claude-code-acp-adapter" || got.Kind != DriverKindACP || got.Managed.Package != "" || got.CostMode != "external" {
+	if got := found["claude_code"]; got.Command != "claude-code-acp-adapter" || got.Kind != DriverKindACP || got.CostMode != "external" {
 		t.Fatalf("claude_code adapter = %#v", got)
 	}
 	if got := found["claude_code"]; got.SupportedRange != ">=0.0.0-dev" {
@@ -370,7 +369,7 @@ func TestStatusForAdapterIgnoresInvalidDiscoveryOverride(t *testing.T) {
 		Command: "fake-adapter",
 	}, func(file string) (string, error) {
 		return "", errors.New("not found on PATH")
-	}, statusProbeOptions{})
+	})
 	if status.Available || status.Status != StatusMissing || !strings.Contains(status.Error, "not found") {
 		t.Fatalf("status = %#v, want normal missing lookup", status)
 	}
@@ -417,7 +416,7 @@ func TestResolveExecutableExpandsHomeCandidate(t *testing.T) {
 	if err := os.MkdirAll(bin, 0o755); err != nil {
 		t.Fatalf("mkdir bin: %v", err)
 	}
-	exe := filepath.Join(bin, "managed-test-acp")
+	exe := filepath.Join(bin, "direct-test-acp")
 	if err := os.WriteFile(exe, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatalf("write executable: %v", err)
 	}
@@ -425,7 +424,7 @@ func TestResolveExecutableExpandsHomeCandidate(t *testing.T) {
 	path, err := resolveExecutable(Adapter{
 		ID:             "codex",
 		Command:        "codex-missing",
-		CandidatePaths: []string{"${HOME}/.local/bin/managed-test-acp"},
+		CandidatePaths: []string{"${HOME}/.local/bin/direct-test-acp"},
 	}, func(file string) (string, error) {
 		return "", errors.New("not found on PATH")
 	})
@@ -437,333 +436,38 @@ func TestResolveExecutableExpandsHomeCandidate(t *testing.T) {
 	}
 }
 
-func TestResolveExecutableForStatusReportsManagedLauncherWithoutWriting(t *testing.T) {
+func TestStatusForAdapterReportsAdapterAndAgentVersionsForBridgeBinary(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("HECATE_AGENT_ADAPTERS_DIR", dir)
-
-	adapter := Adapter{
-		ID:      "codex",
-		Command: "managed-test-acp",
-		Managed: ManagedLauncher{
-			Package: "@example/managed-test-acp",
-			Runners: []ManagedRunner{{Command: "npx", Args: []string{"-y", "@example/managed-test-acp"}}},
-		},
-	}
-	path, err := resolveExecutableForStatus(adapter, func(file string) (string, error) {
-		if file == "npx" {
-			return "/usr/local/bin/npx", nil
-		}
-		return "", errors.New("not found on PATH")
-	})
-	if err != nil {
-		t.Fatalf("resolve executable for status: %v", err)
-	}
-	want := filepath.Join(dir, managedLauncherName("managed-test-acp"))
-	if path != want {
-		t.Fatalf("path = %q, want %q", path, want)
-	}
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Fatalf("managed status lookup wrote launcher, stat error = %v", err)
-	}
-}
-
-func TestShouldProbeVersionForStatusSkipsPlannedManagedLauncher(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("HECATE_AGENT_ADAPTERS_DIR", dir)
-
-	adapter := Adapter{
-		ID:      "codex",
-		Command: "managed-test-acp",
-		Managed: ManagedLauncher{
-			Package: "@example/managed-test-acp",
-			Runners: []ManagedRunner{{Command: "npx", Args: []string{"-y", "@example/managed-test-acp"}}},
-		},
-	}
-	path := filepath.Join(dir, managedLauncherName("managed-test-acp"))
-	if err := os.WriteFile(path, []byte("#!/bin/sh\nsleep 60\n"), 0o755); err != nil {
-		t.Fatalf("write planned launcher: %v", err)
-	}
-
-	lookup := func(file string) (string, error) {
-		if file == "npx" {
-			return "/usr/local/bin/npx", nil
-		}
-		return "", errors.New("not found on PATH")
-	}
-	if shouldProbeAdapterVersionForStatus(adapter, path, lookup, false) {
-		t.Fatalf("shouldProbeAdapterVersionForStatus returned true for planned managed launcher")
-	}
-}
-
-func TestStatusForAdapterDoesNotRunManagedPackageForVersion(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("HECATE_AGENT_ADAPTERS_DIR", dir)
-	marker := filepath.Join(dir, "runner-called")
-
-	runnerPath := writeGoHelperBinary(t, dir, "fake-npx", fmt.Sprintf(`package main
-
-import "os"
-
-func main() {
-	if err := os.WriteFile(%q, []byte("called"), 0o644); err != nil {
-		panic(err)
-	}
-}
-`, marker))
-	adapter := Adapter{
-		ID:      "managed_test",
-		Name:    "Managed Test",
-		Command: "managed-test-acp",
-		Managed: ManagedLauncher{
-			Package: "@example/managed-test-acp",
-			Runners: []ManagedRunner{{Command: "npx", Args: []string{"-y", "@example/managed-test-acp"}}},
-		},
-		SupportedRange: ">=4.0.0",
-	}
-	status := statusForAdapter(context.Background(), adapter, func(file string) (string, error) {
-		if file == "npx" {
-			return runnerPath, nil
-		}
-		return "", errors.New("not found on PATH")
-	}, statusProbeOptions{})
-	if !status.Available {
-		t.Fatalf("status = %#v, want managed adapter available", status)
-	}
-	if status.AdapterVersion != "" {
-		t.Fatalf("status.AdapterVersion = %q, want passive status to avoid package-manager execution", status.AdapterVersion)
-	}
-	if status.VersionOutsideRange {
-		t.Fatalf("status.VersionOutsideRange = true, want false when version is unknown")
-	}
-	if _, err := os.Stat(status.Path); !os.IsNotExist(err) {
-		t.Fatalf("managed status lookup wrote launcher at %q, stat error = %v", status.Path, err)
-	}
-	if _, err := os.Stat(marker); !os.IsNotExist(err) {
-		t.Fatalf("passive managed status probe executed package runner, marker stat error = %v", err)
-	}
-}
-
-func TestStatusForAdapterReportsManagedAgentVersionWithoutRunningPackage(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("HECATE_AGENT_ADAPTERS_DIR", dir)
-	marker := filepath.Join(dir, "runner-called")
+	adapterBinary := writeFakeBinary(t, dir, "codex-acp-adapter", "codex-acp-adapter 0.1.0-alpha.2")
 	agent := writeFakeBinary(t, dir, "codex", "codex 9.8.7")
-	runnerPath := writeGoHelperBinary(t, dir, "fake-npx", fmt.Sprintf(`package main
-
-import "os"
-
-func main() {
-	if err := os.WriteFile(%q, []byte("called"), 0o644); err != nil {
-		panic(err)
-	}
-}
-`, marker))
 	adapter := Adapter{
-		ID:      "managed_test",
-		Name:    "Managed Test",
-		Command: "managed-test-acp",
+		ID:      "codex",
+		Name:    "Codex",
+		Command: "codex-acp-adapter",
 		AgentVersion: VersionProbe{
 			Command: "codex",
 			Args:    []string{"--version"},
 		},
-		Managed: ManagedLauncher{
-			Package: "@example/managed-test-acp",
-			Runners: []ManagedRunner{{Command: "npx", Args: []string{"-y", "@example/managed-test-acp"}}},
-		},
-		SupportedRange: ">=4.0.0",
+		SupportedRange: ">=0.0.0-dev",
 	}
 	status := statusForAdapter(context.Background(), adapter, func(file string) (string, error) {
 		switch file {
+		case "codex-acp-adapter":
+			return adapterBinary, nil
 		case "codex":
 			return agent, nil
-		case "npx":
-			return runnerPath, nil
 		default:
 			return "", errors.New("not found on PATH")
 		}
-	}, statusProbeOptions{})
+	})
+	if status.AdapterVersion != "0.1.0-alpha.2" {
+		t.Fatalf("status.AdapterVersion = %q, want 0.1.0-alpha.2", status.AdapterVersion)
+	}
 	if status.AgentVersion != "9.8.7" {
 		t.Fatalf("status.AgentVersion = %q, want 9.8.7", status.AgentVersion)
 	}
-	if status.AdapterVersion != "" {
-		t.Fatalf("status.AdapterVersion = %q, want passive status to avoid package-manager execution", status.AdapterVersion)
-	}
-	if _, err := os.Stat(marker); !os.IsNotExist(err) {
-		t.Fatalf("passive managed status probe executed package runner, marker stat error = %v", err)
-	}
-}
-
-func TestStatusForAdapterExplicitProbeAllowsManagedAdapterVersion(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("HECATE_AGENT_ADAPTERS_DIR", dir)
-
-	adapter := Adapter{
-		ID:      "managed_test",
-		Name:    "Managed Test",
-		Command: "managed-test-acp",
-		Managed: ManagedLauncher{
-			Package: "@example/managed-test-acp",
-			Runners: []ManagedRunner{{Command: "npx", Args: []string{"-y", "@example/managed-test-acp"}}},
-		},
-		SupportedRange: ">=4.0.0",
-	}
-	path := filepath.Join(dir, managedLauncherName(adapter.Command))
-	if err := os.WriteFile(path, []byte("#!/bin/sh\necho managed-test-acp 4.5.6\n"), 0o755); err != nil {
-		t.Fatalf("write planned launcher: %v", err)
-	}
-	status := statusForAdapter(context.Background(), adapter, func(file string) (string, error) {
-		if file == "npx" {
-			return "/usr/local/bin/npx", nil
-		}
-		return "", errors.New("not found on PATH")
-	}, statusProbeOptions{allowManagedAdapterVersion: true})
-	if status.AdapterVersion != "4.5.6" {
-		t.Fatalf("status.AdapterVersion = %q, want 4.5.6", status.AdapterVersion)
-	}
 	if status.VersionOutsideRange {
 		t.Fatalf("status.VersionOutsideRange = true, want version in supported range")
-	}
-}
-
-func TestShouldProbeVersionForStatusAllowsDirectBinary(t *testing.T) {
-	exe := filepath.Join(t.TempDir(), "managed-test-acp")
-	if err := os.WriteFile(exe, []byte("#!/bin/sh\necho 1.2.3\n"), 0o755); err != nil {
-		t.Fatalf("write executable: %v", err)
-	}
-
-	if !shouldProbeAdapterVersionForStatus(Adapter{Command: "managed-test-acp"}, exe, func(file string) (string, error) {
-		return "", errors.New("not found on PATH")
-	}, false) {
-		t.Fatalf("shouldProbeAdapterVersionForStatus returned false for direct binary")
-	}
-}
-
-func TestResolveExecutableCreatesManagedLauncher(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("HECATE_AGENT_ADAPTERS_DIR", dir)
-
-	adapter := Adapter{
-		ID:      "codex",
-		Command: "managed-test-acp",
-		Managed: ManagedLauncher{
-			Package: "@example/managed-test-acp",
-			Runners: []ManagedRunner{{Command: "npx", Args: []string{"-y", "@example/managed-test-acp"}}},
-		},
-	}
-	path, err := resolveExecutable(adapter, func(file string) (string, error) {
-		if file == "npx" {
-			return "/usr/local/bin/npx", nil
-		}
-		return "", errors.New("not found on PATH")
-	})
-	if err != nil {
-		t.Fatalf("resolve executable: %v", err)
-	}
-	want := filepath.Join(dir, managedLauncherName("managed-test-acp"))
-	if path != want {
-		t.Fatalf("path = %q, want %q", path, want)
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat launcher: %v", err)
-	}
-	if info.Mode()&0o111 == 0 {
-		t.Fatalf("launcher mode = %v, want executable", info.Mode())
-	}
-	content, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read launcher: %v", err)
-	}
-	text := string(content)
-	if !strings.Contains(text, "/usr/local/bin/npx") || !strings.Contains(text, "@example/managed-test-acp") {
-		t.Fatalf("launcher content = %q", text)
-	}
-}
-
-func TestRefreshManagedLauncherRejectsUnmanagedBuiltIn(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("HECATE_AGENT_ADAPTERS_DIR", dir)
-
-	stale := filepath.Join(dir, managedLauncherName("codex-acp-adapter"))
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("mkdir launcher dir: %v", err)
-	}
-	if err := os.WriteFile(stale, []byte("#!/bin/sh\nexit 99\n"), 0o755); err != nil {
-		t.Fatalf("write stale launcher: %v", err)
-	}
-
-	_, err := RefreshManagedLauncher(context.Background(), "codex", func(file string) (string, error) {
-		if file == "npx" {
-			return "/usr/local/bin/npx", nil
-		}
-		return "", errors.New("not found on PATH")
-	})
-	if err == nil || !strings.Contains(err.Error(), `adapter "codex" does not use a managed launcher`) {
-		t.Fatalf("RefreshManagedLauncher error = %v, want unmanaged adapter conflict", err)
-	}
-	content, err := os.ReadFile(stale)
-	if err != nil {
-		t.Fatalf("read preserved launcher: %v", err)
-	}
-	if text := string(content); !strings.Contains(text, "exit 99") {
-		t.Fatalf("launcher content = %q, want unchanged stale content", text)
-	}
-}
-
-func TestGCManagedLaunchersRemovesOldManagedBuiltInFiles(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("HECATE_AGENT_ADAPTERS_DIR", dir)
-
-	oldManaged := filepath.Join(dir, managedLauncherName("managed-test-acp"))
-	stale := filepath.Join(dir, "old-adapter-acp")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("mkdir launcher dir: %v", err)
-	}
-	if err := os.WriteFile(oldManaged, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatalf("write old managed launcher: %v", err)
-	}
-	if err := os.WriteFile(stale, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatalf("write stale launcher: %v", err)
-	}
-
-	removed, err := GCManagedLaunchers()
-	if err != nil {
-		t.Fatalf("GCManagedLaunchers: %v", err)
-	}
-	if removed != 2 {
-		t.Fatalf("removed = %d, want 2", removed)
-	}
-	if _, err := os.Stat(oldManaged); !os.IsNotExist(err) {
-		t.Fatalf("old managed launcher stat error = %v, want not exist", err)
-	}
-	if _, err := os.Stat(stale); !os.IsNotExist(err) {
-		t.Fatalf("stale launcher stat error = %v, want not exist", err)
-	}
-}
-
-func TestResolveManagedRunnerUsesCandidatePath(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	bin := filepath.Join(home, ".volta", "bin")
-	if err := os.MkdirAll(bin, 0o755); err != nil {
-		t.Fatalf("mkdir volta bin: %v", err)
-	}
-	npx := filepath.Join(bin, "npx")
-	if err := os.WriteFile(npx, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatalf("write npx: %v", err)
-	}
-
-	_, path, err := resolveManagedRunner(ManagedLauncher{
-		Package: "@example/managed-test-acp",
-		Runners: []ManagedRunner{{Command: "npx", CandidatePaths: []string{"${HOME}/.volta/bin/npx"}}},
-	}, func(file string) (string, error) {
-		return "", errors.New("not found on PATH")
-	})
-	if err != nil {
-		t.Fatalf("resolve managed runner: %v", err)
-	}
-	if path != npx {
-		t.Fatalf("path = %q, want %q", path, npx)
 	}
 }
 

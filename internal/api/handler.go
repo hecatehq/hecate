@@ -236,11 +236,6 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 			Reason:    "shutdown",
 		})
 	})
-	if removed, err := agentadapters.GCManagedLaunchers(); err != nil {
-		logger.Warn("agent adapter launcher GC failed", "error", err)
-	} else if removed > 0 {
-		logger.Info("agent adapter launcher GC removed stale entries", "removed", removed)
-	}
 	// Wire the four-layer agent_loop system-prompt composer. Layers
 	// are concatenated broadest-first:
 	//   1. global default — operator's HECATE_TASK_AGENT_SYSTEM_PROMPT

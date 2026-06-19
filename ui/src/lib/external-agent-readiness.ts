@@ -191,9 +191,6 @@ export function externalAgentSetupHint(adapter: AgentAdapterRecord): string {
   if (adapter.id === "grok_build") {
     return "Install the Grok CLI, confirm grok is on PATH, then run grok login. Grok Build also needs a model selected before send.";
   }
-  if (adapter.managed_package) {
-    return `Install Node/npm so Hecate can manage "${adapter.managed_package}", or install ${adapter.command} directly.`;
-  }
   if (adapter.docs_url) {
     return `Install ${adapter.name} and ensure ${adapter.command} is on PATH. Setup docs: ${adapter.docs_url}`;
   }

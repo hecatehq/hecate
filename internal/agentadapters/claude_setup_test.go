@@ -28,7 +28,7 @@ func TestDetectClaudeCodeCLI(t *testing.T) {
 		}
 	})
 	if !status.Available || status.Command != "/tmp/bin/npx -y @anthropic-ai/claude-code" || status.ExecutablePath != "/tmp/bin/npx" {
-		t.Fatalf("DetectClaudeCodeCLI() = %+v, want npx-managed path", status)
+		t.Fatalf("DetectClaudeCodeCLI() = %+v, want npx setup path", status)
 	}
 
 	status = DetectClaudeCodeCLI(func(string) (string, error) {

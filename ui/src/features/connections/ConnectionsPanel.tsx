@@ -34,7 +34,7 @@ import type {
   ConfiguredStateResponse,
   ProviderRecord,
 } from "../../types/provider";
-import { BrandAvatar, ConfirmModal, Icon, Icons, InlineError } from "../shared/ui";
+import { BrandAvatar, Icon, Icons, InlineError } from "../shared/ui";
 
 type Props = {
   onNavigate?: (
@@ -626,10 +626,8 @@ function AnthropicProviderKeyCard({
 }
 
 // AdapterStatusSection lists the configured external agents.
-// Quiet startup probes only touch direct binaries. Managed launchers may
-// invoke a package-manager launcher, so manual checks ask first before
-// spawning the agent bridge, completing the ACP handshake, and returning a
-// typed health classification. That handshake is also the auth check:
+// Manual checks spawn the adapter bridge, complete the ACP handshake, and
+// return a typed health classification. That handshake is also the auth check:
 // auth failures surface as `auth_required`.
 //
 // The section is read-only otherwise: agent discovery and
@@ -651,22 +649,9 @@ function AdapterStatusSection({
   copyCommand: (command: string) => Promise<void>;
   onProbeAdapter: (adapterID: string) => void;
 }) {
-  const [managedProbeConfirm, setManagedProbeConfirm] = useState<AgentAdapterRecord | null>(null);
   if (!agentAdapters || agentAdapters.length === 0) {
     return null;
   }
-  const requestProbe = (adapter: AgentAdapterRecord) => {
-    if (adapter.managed) {
-      setManagedProbeConfirm(adapter);
-      return;
-    }
-    onProbeAdapter(adapter.id);
-  };
-  const confirmManagedProbe = () => {
-    if (!managedProbeConfirm) return;
-    onProbeAdapter(managedProbeConfirm.id);
-    setManagedProbeConfirm(null);
-  };
   return (
     <div style={{ marginBottom: 24 }} data-testid="external-agents-adapters">
       <SectionHeader
@@ -684,40 +669,10 @@ function AdapterStatusSection({
             health={agentAdapterHealthByID.get(adapter.id) ?? null}
             loading={Boolean(agentAdapterHealthLoadingByID.get(adapter.id))}
             onCopyCommand={(command) => void copyCommand(command)}
-            onProbeAdapter={requestProbe}
+            onProbeAdapter={(item) => onProbeAdapter(item.id)}
           />
         ))}
       </div>
-      {managedProbeConfirm && (
-        <ConfirmModal
-          title="Run managed agent check?"
-          confirmLabel="Run check"
-          onClose={() => setManagedProbeConfirm(null)}
-          onConfirm={confirmManagedProbe}
-          message={
-            <div>
-              <p style={{ marginTop: 0 }}>
-                Hecate will start {managedProbeConfirm.name} to verify readiness and auth. This
-                managed agent can run its package-manager launcher
-                {managedProbeConfirm.managed_package ? (
-                  <>
-                    {" "}
-                    for{" "}
-                    <code style={{ fontFamily: "var(--font-mono)", color: "var(--t0)" }}>
-                      {managedProbeConfirm.managed_package}
-                    </code>
-                  </>
-                ) : null}
-                .
-              </p>
-              <p style={{ marginBottom: 0, color: "var(--t2)" }}>
-                Continue only if you trust this agent package. Passive startup checks never run
-                package managers.
-              </p>
-            </div>
-          }
-        />
-      )}
     </div>
   );
 }

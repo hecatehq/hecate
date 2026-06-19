@@ -108,7 +108,7 @@ export function ChatEmptyState({
     isAgentChat && selectedAgentUnavailable
       ? `Hecate could not start ${selectedAgent?.name || "the selected agent"} because its CLI is not ready in this environment.`
       : isExternalAgentChat && agentRouteUnavailable
-        ? "Hecate did not find any supported coding-agent CLI or managed local runner in the known operator locations."
+        ? "Hecate did not find any supported coding-agent CLI or ACP adapter binary in the known operator locations."
         : nothingRunnable
           ? "Add a model provider or install a supported coding-agent CLI before sending a message."
           : selectedModelIssue

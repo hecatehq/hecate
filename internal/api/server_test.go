@@ -1107,10 +1107,10 @@ func TestAgentAdaptersReturnsBuiltIns(t *testing.T) {
 	foundCursor := false
 	foundGrok := false
 	for _, item := range response.Data {
-		if item.ID == "codex" && item.Kind == "acp" && item.Command == "codex-acp-adapter" && !item.Managed && item.ManagedPackage == "" && item.CostMode == "external" {
+		if item.ID == "codex" && item.Kind == "acp" && item.Command == "codex-acp-adapter" && item.CostMode == "external" {
 			foundCodex = true
 		}
-		if item.ID == "claude_code" && item.Kind == "acp" && item.Command == "claude-code-acp-adapter" && !item.Managed && item.ManagedPackage == "" && item.CostMode == "external" {
+		if item.ID == "claude_code" && item.Kind == "acp" && item.Command == "claude-code-acp-adapter" && item.CostMode == "external" {
 			foundClaude = true
 		}
 		if item.ID == "cursor_agent" && item.Kind == "acp" && item.Command == "cursor-agent" && item.CostMode == "external" {
