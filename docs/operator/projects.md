@@ -41,7 +41,14 @@ Tasks, Chats, and External Agents remain the execution surfaces.
 The Work Coordination tab starts with a deterministic next action and compact
 resume summary. Use the next action for the single most useful operator step,
 then jump to blocked, active, recent, or memory-review work from the resume
-summary before drilling into the full work queue.
+summary before drilling into the full work queue. Review artifacts that require
+follow-up are surfaced as closeout blockers with direct follow-up creation
+actions.
+
+For a new work item with no assignments or artifacts yet, the detail view starts
+with a guided prepare action. Hecate can draft the first assignment from the
+work item role and context, but the operator still reviews and applies the
+proposal before execution records are created.
 
 ## Roots And Worktrees
 

@@ -319,6 +319,7 @@ export function ProjectWorkspaceView({
                   onBucketChange={onActivityBucketChange}
                   onCloseWorkItem={onCloseWorkItem}
                   onCreateAssignmentFromHandoff={onCreateAssignmentFromHandoff}
+                  onCreateAssignmentFromReviewArtifact={onCreateAssignmentFromReviewArtifact}
                   onCreateWork={onCreateWork}
                   onDraftDefaultAssignment={onDraftDefaultAssignment}
                   onReviewMemory={() => onWorkspaceTabChange("memory")}
@@ -743,6 +744,7 @@ function ProjectNextAction({
   onBucketChange,
   onCloseWorkItem,
   onCreateAssignmentFromHandoff,
+  onCreateAssignmentFromReviewArtifact,
   onCreateWork,
   onDraftDefaultAssignment,
   onReviewMemory,
@@ -762,6 +764,7 @@ function ProjectNextAction({
   onBucketChange: (bucket: ProjectActivityBucketKey) => void;
   onCloseWorkItem: (item: ProjectWorkItemRecord) => void;
   onCreateAssignmentFromHandoff: (handoff: ProjectHandoffRecord) => void;
+  onCreateAssignmentFromReviewArtifact: (artifact: ProjectCollaborationArtifactRecord) => void;
   onCreateWork: () => void;
   onDraftDefaultAssignment: (item: ProjectWorkItemRecord) => void;
   onReviewMemory: () => void;
@@ -782,6 +785,7 @@ function ProjectNextAction({
     onBucketChange,
     onCloseWorkItem,
     onCreateAssignmentFromHandoff,
+    onCreateAssignmentFromReviewArtifact,
     onCreateWork,
     onDraftDefaultAssignment,
     onReviewMemory,
@@ -825,6 +829,7 @@ function buildProjectNextAction({
   onBucketChange,
   onCloseWorkItem,
   onCreateAssignmentFromHandoff,
+  onCreateAssignmentFromReviewArtifact,
   onCreateWork,
   onDraftDefaultAssignment,
   onReviewMemory,
@@ -844,6 +849,7 @@ function buildProjectNextAction({
   onBucketChange: (bucket: ProjectActivityBucketKey) => void;
   onCloseWorkItem: (item: ProjectWorkItemRecord) => void;
   onCreateAssignmentFromHandoff: (handoff: ProjectHandoffRecord) => void;
+  onCreateAssignmentFromReviewArtifact: (artifact: ProjectCollaborationArtifactRecord) => void;
   onCreateWork: () => void;
   onDraftDefaultAssignment: (item: ProjectWorkItemRecord) => void;
   onReviewMemory: () => void;
@@ -893,17 +899,16 @@ function buildProjectNextAction({
     };
   }
 
-  if (memoryCandidateCount > 0) {
+  const reviewFollowUp = artifacts.find((artifact) =>
+    reviewArtifactNeedsFollowUpAction(artifact, handoffs),
+  );
+  if (selectedWorkItem && reviewFollowUp && selectedWorkItem.status !== "done") {
     return {
-      actionLabel: "Review memory",
-      detail:
-        "Pending memory candidates should be accepted, edited, or rejected before more context accumulates.",
-      onAction: onReviewMemory,
-      status: "awaiting_approval",
-      title:
-        memoryCandidateCount === 1
-          ? "Review 1 memory candidate"
-          : `Review ${memoryCandidateCount} memory candidates`,
+      actionLabel: "Create follow-up",
+      detail: `${reviewFollowUp.title || "Review"} needs follow-up before this work can close.`,
+      onAction: () => onCreateAssignmentFromReviewArtifact(reviewFollowUp),
+      status: reviewFollowUp.review_verdict === "blocked" ? "blocked" : "awaiting_approval",
+      title: "Create review follow-up",
     };
   }
 
@@ -918,6 +923,20 @@ function buildProjectNextAction({
           : onCreateAssignmentFromHandoff(pendingHandoff),
       status: "awaiting_approval",
       title: `Continue handoff: ${pendingHandoff.title}`,
+    };
+  }
+
+  if (memoryCandidateCount > 0) {
+    return {
+      actionLabel: "Review memory",
+      detail:
+        "Pending memory candidates should be accepted, edited, or rejected before more context accumulates.",
+      onAction: onReviewMemory,
+      status: "awaiting_approval",
+      title:
+        memoryCandidateCount === 1
+          ? "Review 1 memory candidate"
+          : `Review ${memoryCandidateCount} memory candidates`,
     };
   }
 
@@ -1275,6 +1294,24 @@ function latestProjectWorkItem(items: ProjectWorkItemRecord[]): ProjectWorkItemR
       (Number.isFinite(rightTime) ? rightTime : 0) - (Number.isFinite(leftTime) ? leftTime : 0)
     );
   })[0];
+}
+
+function reviewArtifactNeedsFollowUpAction(
+  artifact: ProjectCollaborationArtifactRecord,
+  handoffs: ProjectHandoffRecord[],
+): boolean {
+  if (
+    artifact.kind !== "review" ||
+    (artifact.review_follow_up_required !== true &&
+      artifact.review_verdict !== "blocked" &&
+      artifact.review_verdict !== "changes_requested")
+  ) {
+    return false;
+  }
+  const linkedHandoffs = handoffs.filter((handoff) =>
+    (handoff.linked_artifact_ids ?? []).includes(artifact.id),
+  );
+  return linkedHandoffs.length === 0;
 }
 
 export function ProjectEmptyBlock({ title, detail }: { title: string; detail: string }) {
