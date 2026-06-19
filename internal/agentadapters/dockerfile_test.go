@@ -45,3 +45,40 @@ func TestDockerfilesInstallGoACPAdapterReleaseBinaries(t *testing.T) {
 		})
 	}
 }
+
+func TestDockerfilesPinSameGoACPAdapterVersions(t *testing.T) {
+	t.Parallel()
+
+	dev := readDockerfile(t, "Dockerfile")
+	release := readDockerfile(t, "Dockerfile.release")
+	for _, arg := range []string{"CODEX_ACP_ADAPTER_VERSION", "CLAUDE_CODE_ACP_ADAPTER_VERSION"} {
+		devVersion := dockerfileArgValue(dev, arg)
+		releaseVersion := dockerfileArgValue(release, arg)
+		if devVersion == "" || releaseVersion == "" {
+			t.Fatalf("%s versions = dev:%q release:%q, want both Dockerfiles pinned", arg, devVersion, releaseVersion)
+		}
+		if devVersion != releaseVersion {
+			t.Fatalf("%s versions drifted: Dockerfile=%s Dockerfile.release=%s", arg, devVersion, releaseVersion)
+		}
+	}
+}
+
+func readDockerfile(t testing.TB, name string) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", name))
+	if err != nil {
+		t.Fatalf("read %s: %v", name, err)
+	}
+	return string(raw)
+}
+
+func dockerfileArgValue(text string, name string) string {
+	prefix := "ARG " + name + "="
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		}
+	}
+	return ""
+}
