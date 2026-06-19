@@ -18,9 +18,5 @@ func DetectClaudeCodeCLI(lookup LookupFunc) SetupCommandStatus {
 	if err == nil {
 		return SetupCommandStatus{Available: true, Command: path, ExecutablePath: path}
 	}
-	npxPath, err := lookup("npx")
-	if err != nil {
-		return SetupCommandStatus{}
-	}
-	return SetupCommandStatus{Available: true, Command: npxPath + " -y @anthropic-ai/claude-code", ExecutablePath: npxPath}
+	return SetupCommandStatus{}
 }
