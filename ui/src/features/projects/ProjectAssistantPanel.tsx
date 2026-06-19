@@ -408,6 +408,7 @@ export function ProjectAssistantPanel({
           onOpenWork={onOpenWork}
           onReviewMemory={onReviewMemory}
           roleCount={roleCount}
+          setupFirst={setupFirst}
           workItemCount={workItemCount}
         />
       )}
@@ -423,6 +424,7 @@ function ProjectAssistantApplyResultPanel({
   onReviewMemory,
   result,
   roleCount,
+  setupFirst,
   workItemCount,
 }: {
   memoryCandidateCount: number;
@@ -432,6 +434,7 @@ function ProjectAssistantApplyResultPanel({
   onReviewMemory?: () => void;
   result: ProjectAssistantApplyResult;
   roleCount: number;
+  setupFirst: boolean;
   workItemCount: number;
 }) {
   const resultActions = projectAssistantFollowUpActions({
@@ -442,8 +445,10 @@ function ProjectAssistantApplyResultPanel({
     onReviewMemory,
     result,
     roleCount,
+    setupFirst,
     workItemCount,
   });
+  const resultSummaryActions = resultActions.filter((action) => action.includeInSummary !== false);
 
   return (
     <div style={assistantResultStyle} role="status" aria-label="Project Assistant apply result">
@@ -457,18 +462,28 @@ function ProjectAssistantApplyResultPanel({
         </div>
       </div>
       {resultActions.length > 0 && (
-        <div style={assistantResultActionsStyle} aria-label="Project Assistant next steps">
-          {resultActions.map((action) => (
-            <button
-              key={action.key}
-              className={`btn ${action.primary ? "btn-primary" : "btn-ghost"} btn-sm`}
-              type="button"
-              onClick={action.onClick}
-            >
-              <Icon d={action.icon} size={13} />
-              {action.label}
-            </button>
-          ))}
+        <div style={assistantResultNextStyle} aria-label="Project Assistant next steps">
+          <div style={assistantResultNextCopyStyle}>
+            <div style={sectionLabelStyle}>Next up</div>
+            <div style={subtleTextStyle}>
+              {resultSummaryActions.length > 0
+                ? projectAssistantNextUpSummary(resultSummaryActions)
+                : "Continue setup"}
+            </div>
+          </div>
+          <div style={assistantResultActionsStyle}>
+            {resultActions.map((action) => (
+              <button
+                key={action.key}
+                className={`btn ${action.primary ? "btn-primary" : "btn-ghost"} btn-sm`}
+                type="button"
+                onClick={action.onClick}
+              >
+                <Icon d={action.icon} size={13} />
+                {action.label}
+              </button>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -720,6 +735,7 @@ function projectAssistantFollowUpActions({
   onReviewMemory,
   result,
   roleCount,
+  setupFirst,
   workItemCount,
 }: {
   memoryCandidateCount: number;
@@ -729,9 +745,11 @@ function projectAssistantFollowUpActions({
   onReviewMemory?: () => void;
   result: ProjectAssistantApplyResult;
   roleCount: number;
+  setupFirst: boolean;
   workItemCount: number;
 }): Array<{
   icon: string | string[];
+  includeInSummary?: boolean;
   key: string;
   label: string;
   onClick: () => void;
@@ -740,6 +758,7 @@ function projectAssistantFollowUpActions({
   const appliedKinds = new Set(result.actions.map((action) => action.kind));
   const actions: Array<{
     icon: string | string[];
+    includeInSummary?: boolean;
     key: string;
     label: string;
     onClick: () => void;
@@ -779,8 +798,24 @@ function projectAssistantFollowUpActions({
       primary: actions.length === 0,
     });
   }
+  if (setupFirst && onOpenWork) {
+    actions.push({
+      icon: Icons.tasks,
+      includeInSummary: false,
+      key: "continue-setup",
+      label: "Continue setup",
+      onClick: onOpenWork,
+    });
+  }
 
   return actions;
+}
+
+function projectAssistantNextUpSummary(actions: Array<{ label: string }>) {
+  if (actions.length === 1) return actions[0].label;
+  const labels = actions.map((action) => action.label.toLowerCase());
+  const last = labels.pop();
+  return `${labels.join(", ")}, then ${last}`;
 }
 
 function projectAssistantSetupSummary({
@@ -1153,6 +1188,19 @@ const assistantResultActionsStyle: CSSProperties = {
   gap: 8,
   justifyContent: "flex-start",
   minWidth: 0,
+};
+
+const assistantResultNextStyle: CSSProperties = {
+  borderTop: "1px solid var(--border)",
+  display: "grid",
+  gap: 8,
+  marginTop: 10,
+  paddingTop: 10,
+};
+
+const assistantResultNextCopyStyle: CSSProperties = {
+  display: "grid",
+  gap: 3,
 };
 
 const domainHeaderStyle: CSSProperties = {

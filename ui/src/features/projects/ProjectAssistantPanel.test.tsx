@@ -102,15 +102,21 @@ describe("ProjectAssistantPanel", () => {
       name: "Project Assistant apply result",
     });
     expect(within(result).getByText("Applied 2 actions")).toBeTruthy();
+    expect(within(result).getByText("Next up")).toBeTruthy();
+    expect(
+      within(result).getByText("review memory, review roles, then create first work"),
+    ).toBeTruthy();
     expect(within(assistant).queryByRole("button", { name: "Set up project" })).toBeNull();
 
     await user.click(within(result).getByRole("button", { name: "Review memory" }));
     await user.click(within(result).getByRole("button", { name: "Review roles" }));
     await user.click(within(result).getByRole("button", { name: "Create first work" }));
+    await user.click(within(result).getByRole("button", { name: "Continue setup" }));
 
     expect(handlers.onReviewMemory).toHaveBeenCalledTimes(1);
     expect(handlers.onManageRoles).toHaveBeenCalledTimes(1);
     expect(handlers.onCreateWork).toHaveBeenCalledTimes(1);
+    expect(handlers.onOpenWork).toHaveBeenCalledTimes(1);
   });
 
   it("routes applied work proposals back to the work queue", async () => {
@@ -127,6 +133,8 @@ describe("ProjectAssistantPanel", () => {
 
     const result = screen.getByRole("status", { name: "Project Assistant apply result" });
     expect(within(result).queryByRole("button", { name: "Create first work" })).toBeNull();
+    expect(within(result).getByText("Next up")).toBeTruthy();
+    expect(within(result).getAllByText("Open work queue")).toHaveLength(2);
 
     await user.click(within(result).getByRole("button", { name: "Open work queue" }));
 
