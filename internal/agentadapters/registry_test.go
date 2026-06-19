@@ -29,14 +29,14 @@ func TestBuiltInsIncludeInitialExternalAgents(t *testing.T) {
 	if got := found["codex"]; got.Command != "codex-acp-adapter" || got.Kind != DriverKindACP || got.CostMode != "external" {
 		t.Fatalf("codex adapter = %#v", got)
 	}
-	if got := found["codex"]; got.SupportedRange != ">=0.0.0-dev" {
-		t.Fatalf("codex supported range = %q, want alpha dev-compatible range", got.SupportedRange)
+	if got := found["codex"]; got.SupportedRange != ">=0.1.0-alpha.7" {
+		t.Fatalf("codex supported range = %q, want current Go adapter alpha range", got.SupportedRange)
 	}
 	if got := found["claude_code"]; got.Command != "claude-code-acp-adapter" || got.Kind != DriverKindACP || got.CostMode != "external" {
 		t.Fatalf("claude_code adapter = %#v", got)
 	}
-	if got := found["claude_code"]; got.SupportedRange != ">=0.0.0-dev" {
-		t.Fatalf("claude_code supported range = %q, want alpha dev-compatible range", got.SupportedRange)
+	if got := found["claude_code"]; got.SupportedRange != ">=0.1.0-alpha.7" {
+		t.Fatalf("claude_code supported range = %q, want current Go adapter alpha range", got.SupportedRange)
 	}
 	if got := found["cursor_agent"]; got.Command != "cursor-agent" || got.Kind != DriverKindACP || got.CostMode != "external" {
 		t.Fatalf("cursor_agent adapter = %#v", got)
@@ -513,6 +513,40 @@ func TestStatusForAdapterReportsAdapterAndAgentVersionsForBridgeBinary(t *testin
 	}
 	if status.VersionOutsideRange {
 		t.Fatalf("status.VersionOutsideRange = true, want version in supported range")
+	}
+}
+
+func TestStatusForAdapterWarnsOnOldGoAdapterRelease(t *testing.T) {
+	dir := t.TempDir()
+	adapterBinary := writeFakeBinary(t, dir, "codex-acp-adapter", "codex-acp-adapter 0.1.0-alpha.6")
+	agent := writeFakeBinary(t, dir, "codex", "codex 9.8.7")
+	adapter := Adapter{
+		ID:             "codex",
+		Name:           "Codex",
+		Command:        "codex-acp-adapter",
+		SupportedRange: ">=0.1.0-alpha.7",
+		AgentVersion: VersionProbe{
+			Command: "codex",
+			Args:    []string{"--version"},
+		},
+	}
+
+	status := statusForAdapter(context.Background(), adapter, func(file string) (string, error) {
+		switch file {
+		case "codex-acp-adapter":
+			return adapterBinary, nil
+		case "codex":
+			return agent, nil
+		default:
+			return "", errors.New("not found on PATH")
+		}
+	})
+
+	if status.AdapterVersion != "0.1.0-alpha.6" {
+		t.Fatalf("status.AdapterVersion = %q, want 0.1.0-alpha.6", status.AdapterVersion)
+	}
+	if !status.VersionOutsideRange {
+		t.Fatal("status.VersionOutsideRange = false, want warning for pre-alpha.7 adapter")
 	}
 }
 

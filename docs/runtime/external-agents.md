@@ -20,7 +20,10 @@ They support in-memory `session/load` / `session/resume` / `session/fork` while
 the adapter process is alive, and later prompt commands receive a bounded
 transcript prelude for multi-turn continuity. They do not yet claim
 vendor-native durable history across adapter process restarts; if that load is
-stale, Hecate falls back to a fresh native session.
+stale, Hecate falls back to a fresh native session. Hecate treats
+`codex-acp-adapter` and `claude-code-acp-adapter` versions older than
+`v0.1.0-alpha.7` as outside the tested range because those older releases lack
+the current continuity and permission-control surface.
 
 ## Supported External Agents
 
