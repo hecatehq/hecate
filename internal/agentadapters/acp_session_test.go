@@ -164,6 +164,83 @@ func TestACPChatClientCapturesAvailableCommandsWithoutActiveTurn(t *testing.T) {
 	}
 }
 
+func TestACPChatClientCapturesConfigOptionsWithoutActiveTurn(t *testing.T) {
+	var got []agentcontrols.ConfigOption
+	client := &acpChatClient{
+		onConfigOptions: func(options []agentcontrols.ConfigOption) {
+			got = options
+		},
+	}
+	category := acp.SessionConfigOptionCategoryModel
+	values := acp.SessionConfigSelectOptionsUngrouped{
+		{Value: acp.SessionConfigValueId("model-a"), Name: "Model A"},
+		{Value: acp.SessionConfigValueId("model-b"), Name: "Model B"},
+	}
+
+	err := client.SessionUpdate(context.Background(), acp.SessionNotification{
+		SessionId: acp.SessionId("native_session"),
+		Update: acp.SessionUpdate{
+			ConfigOptionUpdate: &acp.SessionConfigOptionUpdate{
+				SessionUpdate: "config_option_update",
+				ConfigOptions: []acp.SessionConfigOption{{
+					Select: &acp.SessionConfigOptionSelect{
+						Id:           acp.SessionConfigId("model"),
+						Name:         "Model",
+						Category:     &category,
+						CurrentValue: acp.SessionConfigValueId("model-b"),
+						Options:      acp.SessionConfigSelectOptions{Ungrouped: &values},
+					},
+				}},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SessionUpdate: %v", err)
+	}
+	if len(got) != 1 ||
+		got[0].ID != "model" ||
+		got[0].Category != "model" ||
+		got[0].CurrentValue != "model-b" ||
+		got[0].Options[1].Value != "model-b" {
+		t.Fatalf("config options = %#v, want model-b option update", got)
+	}
+}
+
+func TestACPSessionConfigOptionUpdatePreservesManagedLaunchOptions(t *testing.T) {
+	session := &acpSession{
+		managedConfig: map[string]struct{}{"sandbox": {}},
+		configOptions: []agentcontrols.ConfigOption{
+			{
+				ID:           "mode",
+				Type:         agentcontrols.ConfigOptionTypeSelect,
+				CurrentValue: "ask",
+			},
+			{
+				ID:           "sandbox",
+				Source:       agentcontrols.ConfigOptionSourceLaunch,
+				Type:         agentcontrols.ConfigOptionTypeSelect,
+				CurrentValue: "read-only",
+			},
+		},
+	}
+
+	session.applyConfigOptionsUpdate([]agentcontrols.ConfigOption{{
+		ID:           "mode",
+		Type:         agentcontrols.ConfigOptionTypeSelect,
+		CurrentValue: "auto",
+	}})
+
+	got := session.configOptionsSnapshot()
+	if mode := findConfigOption(got, "mode"); mode == nil || mode.CurrentValue != "auto" {
+		t.Fatalf("config options = %#v, want updated mode", got)
+	}
+	if sandbox := findConfigOption(got, "sandbox"); sandbox == nil ||
+		sandbox.Source != agentcontrols.ConfigOptionSourceLaunch ||
+		sandbox.CurrentValue != "read-only" {
+		t.Fatalf("config options = %#v, want preserved managed sandbox", got)
+	}
+}
+
 func TestSessionManagerPrepareWaitsForInitialAvailableCommands(t *testing.T) {
 	t.Setenv("HECATE_FAKE_ACP_COMMANDS_DELAY", "50ms")
 	installFakeACPExecutable(t, "codex-acp-adapter")

@@ -20,6 +20,7 @@ type acpChatClient struct {
 	workspace           string
 	coordinator         *ApprovalCoordinator
 	onAvailableCommands func([]agentcontrols.Command)
+	onConfigOptions     func([]agentcontrols.ConfigOption)
 	// metrics is optional; nil-safe across every Record* call.
 	// Populated by the SessionManager when an *AgentAdapterMetrics
 	// has been wired (see SessionManager.SetAdapterMetrics).
@@ -63,6 +64,9 @@ func (c *acpChatClient) currentTurn() *acpTurn {
 func (c *acpChatClient) SessionUpdate(_ context.Context, params acp.SessionNotification) error {
 	if params.Update.AvailableCommandsUpdate != nil && c.onAvailableCommands != nil {
 		c.onAvailableCommands(agentcontrols.FromACPCommands(params.Update.AvailableCommandsUpdate.AvailableCommands))
+	}
+	if params.Update.ConfigOptionUpdate != nil && c.onConfigOptions != nil {
+		c.onConfigOptions(agentcontrols.FromACPOptions(params.Update.ConfigOptionUpdate.ConfigOptions))
 	}
 	turn := c.currentTurn()
 	if turn == nil {

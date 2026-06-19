@@ -125,6 +125,7 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 		commandUpdate:       make(chan struct{}),
 	}
 	client.onAvailableCommands = session.setAvailableCommands
+	client.onConfigOptions = session.applyConfigOptionsUpdate
 	conn := acp.NewClientSideConnection(client, stdin, stdout)
 	session.conn = conn
 	if logger != nil {
@@ -519,6 +520,15 @@ func (s *acpSession) setConfigOptions(options []agentcontrols.ConfigOption) {
 	s.configOptions = cloneConfigOptions(options)
 }
 
+func (s *acpSession) applyConfigOptionsUpdate(options []agentcontrols.ConfigOption) {
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
+	previous := cloneConfigOptions(s.configOptions)
+	options = preserveACPModelConfigOption(options, previous)
+	options = preserveManagedConfigOptions(options, previous, s.managedConfig)
+	s.configOptions = cloneConfigOptions(options)
+}
+
 func (s *acpSession) configOptionsSnapshot() []agentcontrols.ConfigOption {
 	s.configMu.Lock()
 	defer s.configMu.Unlock()
@@ -612,6 +622,27 @@ func preserveACPModelConfigOption(options, previous []agentcontrols.ConfigOption
 		}
 	}
 	return options
+}
+
+func preserveManagedConfigOptions(options, previous []agentcontrols.ConfigOption, managed map[string]struct{}) []agentcontrols.ConfigOption {
+	if len(managed) == 0 {
+		return options
+	}
+	out := cloneConfigOptions(options)
+	present := make(map[string]struct{}, len(out))
+	for _, option := range out {
+		present[option.ID] = struct{}{}
+	}
+	for _, option := range previous {
+		if _, ok := managed[option.ID]; !ok {
+			continue
+		}
+		if _, ok := present[option.ID]; ok {
+			continue
+		}
+		out = append(out, cloneConfigOptions([]agentcontrols.ConfigOption{option})...)
+	}
+	return out
 }
 
 func applySelectedACPModel(ctx context.Context, conn *acp.ClientSideConnection, nativeID string, adapter Adapter, options, selected []agentcontrols.ConfigOption) ([]agentcontrols.ConfigOption, error) {
