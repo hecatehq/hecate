@@ -212,6 +212,9 @@ func TestSatisfiesRange(t *testing.T) {
 		{"0.9.9", ">=1.0.0", false},
 		{"1.0.0-alpha", ">=1.0.0", false}, // pre-release is lower than release
 		{"1.0.0", ">=1.0.0-alpha", true},
+		{"0.1.0-alpha.9", ">=0.1.0-alpha.10", false},
+		{"0.1.0-alpha.10", ">=0.1.0-alpha.9", true},
+		{"0.1.0-alpha.10", ">=0.1.0-alpha.10", true},
 		{"", ">=0.1.0", true},         // unknown version → don't reject
 		{"1.0.0", "", true},           // no constraint
 		{"1.0.0", "unknown-op", true}, // unrecognised operator → don't reject

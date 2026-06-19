@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -137,13 +138,7 @@ func semverCmp(a, b string) int {
 	if aPre == "" && bPre != "" {
 		return 1
 	}
-	if aPre < bPre {
-		return -1
-	}
-	if aPre > bPre {
-		return 1
-	}
-	return 0
+	return compareSemverPrerelease(aPre, bPre)
 }
 
 func semverNums(v string) []string {
@@ -167,6 +162,56 @@ func semverPrerelease(v string) string {
 		return ""
 	}
 	return v[dash+1:]
+}
+
+func compareSemverPrerelease(a, b string) int {
+	aParts := strings.Split(a, ".")
+	bParts := strings.Split(b, ".")
+	maxLen := max(len(aParts), len(bParts))
+	for i := 0; i < maxLen; i++ {
+		if i >= len(aParts) {
+			return -1
+		}
+		if i >= len(bParts) {
+			return 1
+		}
+		av, aNumeric := semverPrereleaseNum(aParts[i])
+		bv, bNumeric := semverPrereleaseNum(bParts[i])
+		switch {
+		case aNumeric && bNumeric:
+			if av < bv {
+				return -1
+			}
+			if av > bv {
+				return 1
+			}
+		case aNumeric && !bNumeric:
+			return -1
+		case !aNumeric && bNumeric:
+			return 1
+		default:
+			if aParts[i] < bParts[i] {
+				return -1
+			}
+			if aParts[i] > bParts[i] {
+				return 1
+			}
+		}
+	}
+	return 0
+}
+
+func semverPrereleaseNum(part string) (int64, bool) {
+	if part == "" {
+		return 0, false
+	}
+	for _, c := range part {
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+	}
+	n, err := strconv.ParseInt(part, 10, 64)
+	return n, err == nil
 }
 
 func semverNum(parts []string, i int) int {

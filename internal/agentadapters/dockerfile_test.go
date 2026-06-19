@@ -52,8 +52,8 @@ func TestDockerfilesPinSameGoACPAdapterVersions(t *testing.T) {
 	dev := readDockerfile(t, "Dockerfile")
 	release := readDockerfile(t, "Dockerfile.release")
 	want := map[string]string{
-		"CODEX_ACP_ADAPTER_VERSION":       "v0.1.0-alpha.9",
-		"CLAUDE_CODE_ACP_ADAPTER_VERSION": "v0.1.0-alpha.9",
+		"CODEX_ACP_ADAPTER_VERSION":       "v0.1.0-alpha.10",
+		"CLAUDE_CODE_ACP_ADAPTER_VERSION": "v0.1.0-alpha.10",
 	}
 	for arg, wantVersion := range want {
 		devVersion := dockerfileArgValue(dev, arg)
