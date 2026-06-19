@@ -2157,6 +2157,9 @@ model, persisted health record, or new API contract.
 
 The top-level envelope follows the Hecate-native convention:
 
+Activity items are exposed through `data.recent` and the `data.buckets`
+collections. There is no top-level `data.items` list.
+
 ```json
 {
   "object": "project_activity",

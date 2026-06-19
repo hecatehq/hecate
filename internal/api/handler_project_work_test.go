@@ -2910,6 +2910,58 @@ func TestProjectWorkAPI_ProjectActivity(t *testing.T) {
 	}
 }
 
+func TestProjectWorkAPI_ProjectActivityShowsFreshQueuedAssignments(t *testing.T) {
+	t.Parallel()
+	_, server := newProjectWorkTestServer()
+	project := createProjectForWorkTest(t, server)
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/work-items", bytes.NewReader([]byte(`{
+		"id":"work_dogfood",
+		"title":"Dogfood Projects loop",
+		"brief":"Confirm queued work appears in project activity.",
+		"status":"ready",
+		"priority":"normal",
+		"owner_role_id":"developer"
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create work item status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_dogfood/assignments", bytes.NewReader([]byte(`{
+		"id":"asgn_dogfood",
+		"role_id":"developer",
+		"driver_kind":"hecate_task",
+		"status":"queued"
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create assignment status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+project.Data.ID+"/activity", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("activity status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response ProjectActivityEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode activity: %v", err)
+	}
+
+	if response.Data.Summary.AssignmentCount != 1 || response.Data.Summary.BlockedCount != 1 || response.Data.Summary.RecentCount != 1 {
+		t.Fatalf("activity summary = %+v, want queued assignment counted as blocked/recent", response.Data.Summary)
+	}
+	item := findProjectActivityItemForTest(t, response.Data.Buckets.Blocked, "asgn_dogfood")
+	if item.BlockingSignal != "not_started" || item.StatusSummary != "not started" || item.LinkedTaskID != "" || item.LinkedRunID != "" {
+		t.Fatalf("queued activity = %+v, want not-started without runtime links", item)
+	}
+	recent := findProjectActivityItemForTest(t, response.Data.Recent, "asgn_dogfood")
+	if recent.ID != item.ID || len(response.Data.Buckets.Recent) != len(response.Data.Recent) {
+		t.Fatalf("recent activity = %+v buckets=%+v, want recent assignment mirrored", response.Data.Recent, response.Data.Buckets.Recent)
+	}
+}
+
 type failingCreateTaskStore struct {
 	taskstate.Store
 }
