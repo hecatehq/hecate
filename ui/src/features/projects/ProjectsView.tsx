@@ -214,6 +214,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
   const [rolesPending, setRolesPending] = useState(false);
   const [rolesError, setRolesError] = useState("");
   const [newWorkModalOpen, setNewWorkModalOpen] = useState(false);
+  const [newWorkDraft, setNewWorkDraft] = useState<Partial<NewWorkItemForm> | undefined>();
   const [newWorkPending, setNewWorkPending] = useState(false);
   const [newWorkError, setNewWorkError] = useState("");
   const [editingWorkItem, setEditingWorkItem] = useState<ProjectWorkItemRecord | null>(null);
@@ -1006,6 +1007,20 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     }
   }
 
+  function openNewWorkItemModal() {
+    setNewWorkError("");
+    setNewWorkDraft(
+      buildFirstWorkItemDraft({
+        memoryCandidates,
+        project: selectedProject,
+        projectSkills,
+        roles,
+        workItems,
+      }),
+    );
+    setNewWorkModalOpen(true);
+  }
+
   async function handleCreateWorkItem(form: NewWorkItemForm) {
     if (!selectedProjectID) return;
     const title = form.title.trim();
@@ -1029,6 +1044,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
       }));
       setSelectedWorkItemID(payload.data.id);
       setNewWorkModalOpen(false);
+      setNewWorkDraft(undefined);
       await loadWorkItemDetail(selectedProjectID, payload.data.id);
     } catch (error) {
       setNewWorkError(errorMessage(error, "Failed to create work item."));
@@ -1613,10 +1629,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
               void handleCreateAssignmentFromReviewArtifact(artifact)
             }
             onCreateAssignmentFromHandoff={handleCreateAssignmentFromHandoff}
-            onCreateWork={() => {
-              setNewWorkError("");
-              setNewWorkModalOpen(true);
-            }}
+            onCreateWork={openNewWorkItemModal}
             onCloseWorkItem={(item) => void handleCloseWorkItem(item)}
             onDeleteAssignment={setDeleteAssignment}
             onDeleteHandoff={(handoff) => void handleDeleteHandoff(handoff)}
@@ -1757,8 +1770,12 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
             error={newWorkError}
             pending={newWorkPending}
             project={selectedProject}
+            initialDraft={newWorkDraft}
             roles={roles}
-            onClose={() => setNewWorkModalOpen(false)}
+            onClose={() => {
+              setNewWorkDraft(undefined);
+              setNewWorkModalOpen(false);
+            }}
             onCreate={handleCreateWorkItem}
           />
         )}
@@ -2363,6 +2380,86 @@ function upsertHandoff(items: ProjectHandoffRecord[], item: ProjectHandoffRecord
     );
     return byTime || left.id.localeCompare(right.id);
   });
+}
+
+export function buildFirstWorkItemDraft({
+  memoryCandidates,
+  project,
+  projectSkills,
+  roles,
+  workItems,
+}: {
+  memoryCandidates: ProjectMemoryCandidateRecord[];
+  project: ProjectRecord | null;
+  projectSkills: ProjectSkillRecord[];
+  roles: ProjectWorkRoleRecord[];
+  workItems: ProjectWorkItemRecord[];
+}): Partial<NewWorkItemForm> | undefined {
+  if (!project || workItems.length > 0) return undefined;
+
+  const enabledSources = (project.context_sources ?? []).filter((source) => source.enabled);
+  const availableSkills = projectSkills.filter(
+    (skill) => skill.enabled && skill.status === "available",
+  );
+  const pendingCandidates = memoryCandidates.filter((candidate) => candidate.status === "pending");
+  const hasSetupContext =
+    Boolean(project.description?.trim()) ||
+    enabledSources.length > 0 ||
+    availableSkills.length > 0 ||
+    pendingCandidates.length > 0 ||
+    roles.length > 0;
+  if (!hasSetupContext) return undefined;
+
+  const ownerRole = preferredFirstWorkRole(roles);
+  const lines = [
+    `Use the project setup context to define the first reviewable work item for ${project.name}.`,
+  ];
+  if (project.description?.trim()) lines.push(`Purpose: ${project.description.trim()}`);
+  if (enabledSources.length > 0) {
+    lines.push(`Guidance: ${enabledSources.slice(0, 3).map(contextSourceLabel).join(", ")}`);
+  }
+  if (availableSkills.length > 0) {
+    lines.push(
+      `Relevant skills: ${availableSkills
+        .slice(0, 4)
+        .map((skill) => skill.title || skill.id)
+        .join(", ")}`,
+    );
+  }
+  if (pendingCandidates.length > 0) {
+    lines.push(
+      `Review memory candidates before relying on them: ${pendingCandidates
+        .slice(0, 3)
+        .map((candidate) => candidate.title)
+        .join(", ")}`,
+    );
+  }
+  if (roles.length > 0) {
+    lines.push(
+      `Suggested owner: ${ownerRole?.name || ownerRole?.id || roles[0]?.name || roles[0]?.id}`,
+    );
+  }
+
+  return {
+    title: `Plan first work for ${project.name}`,
+    brief: lines.join("\n"),
+    ownerRoleID: ownerRole?.id ?? "",
+    priority: "normal",
+    rootID: "",
+  };
+}
+
+function preferredFirstWorkRole(roles: ProjectWorkRoleRecord[]) {
+  return (
+    roles.find((role) => /architect|planner|manager|lead/i.test(`${role.id} ${role.name}`)) ??
+    roles.find((role) => role.id === "software_developer") ??
+    roles[0] ??
+    null
+  );
+}
+
+function contextSourceLabel(source: ProjectContextSourceRecord) {
+  return source.title?.trim() || source.path || source.kind;
 }
 
 const topbarStyle: CSSProperties = {

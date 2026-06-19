@@ -25,6 +25,8 @@ operator applies or dismisses them. Setup does not launch agents, write project
 memory automatically, install skills, or inject skill bodies into prompts.
 Use the onboarding checklist for missing settings or first-work creation; use
 the primary **Set up project** action for discovery and role/memory suggestions.
+When setup context exists and the project has no work items yet, first-work
+creation opens with a draft title, brief, and owner role for operator review.
 
 ## Work Flow
 

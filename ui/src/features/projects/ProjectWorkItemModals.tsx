@@ -19,6 +19,7 @@ import { projectWorkFieldLabelStyle, projectWorkFieldStyle } from "./projectWork
 
 type NewWorkItemModalProps = {
   error: string;
+  initialDraft?: Partial<NewWorkItemForm>;
   pending: boolean;
   project: ProjectRecord;
   roles: ProjectWorkRoleRecord[];
@@ -28,19 +29,24 @@ type NewWorkItemModalProps = {
 
 export function NewWorkItemModal({
   error,
+  initialDraft,
   pending,
   project,
   roles,
   onClose,
   onCreate,
 }: NewWorkItemModalProps) {
-  const [form, setForm] = useState<NewWorkItemForm>({
-    title: "",
-    brief: "",
-    priority: "normal",
-    ownerRoleID: roles.find((role) => role.id === "software_developer")?.id ?? roles[0]?.id ?? "",
-    rootID: "",
-  });
+  const [form, setForm] = useState<NewWorkItemForm>(() => ({
+    title: initialDraft?.title ?? "",
+    brief: initialDraft?.brief ?? "",
+    priority: initialDraft?.priority ?? "normal",
+    ownerRoleID:
+      initialDraft?.ownerRoleID ??
+      roles.find((role) => role.id === "software_developer")?.id ??
+      roles[0]?.id ??
+      "",
+    rootID: initialDraft?.rootID ?? "",
+  }));
   const valid = form.title.trim().length > 0;
   return (
     <Modal
