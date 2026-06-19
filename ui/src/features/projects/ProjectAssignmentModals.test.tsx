@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -98,15 +98,40 @@ describe("ProjectAssignmentModals", () => {
       />,
     );
 
+    const plan = screen.getByRole("region", { name: "Queued assignment plan" });
+    expect(within(plan).getByText("Review before start")).toBeTruthy();
+    expect(within(plan).getByText("Software developer")).toBeTruthy();
+    expect(within(plan).getByText("Uses the work item root")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Role"), { target: { value: "researcher" } });
     expect(screen.getByLabelText("Driver")).toHaveValue("external_agent");
-    await userEvent.click(screen.getByRole("button", { name: "Add assignment" }));
+    expect(within(plan).getByText("Researcher")).toBeTruthy();
+    expect(within(plan).getByText("external_agent")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Create queued assignment" }));
 
     expect(onCreate).toHaveBeenCalledWith({
       roleID: "researcher",
       driverKind: "external_agent",
       rootID: "",
     });
+  });
+
+  it("keeps assignment plan fields unresolved until a role is available", () => {
+    render(
+      <NewAssignmentModal
+        error=""
+        pending={false}
+        project={project()}
+        workItem={workItem()}
+        roles={[]}
+        onClose={vi.fn()}
+        onCreate={vi.fn()}
+      />,
+    );
+
+    const plan = screen.getByRole("region", { name: "Queued assignment plan" });
+    expect(screen.getByRole("dialog", { name: "Create queued assignment" })).toBeTruthy();
+    expect(within(plan).getAllByText("Select a role")).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Create queued assignment" })).toBeDisabled();
   });
 
   it("edits canonical assignment execution reference fields", async () => {
