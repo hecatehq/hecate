@@ -264,7 +264,7 @@ func BuiltIns() []Adapter {
 			Description:    "Run Codex through the standalone Go ACP adapter as an external coding-agent session supervised by Hecate.",
 			CostMode:       "external",
 			DocsURL:        "https://github.com/hecatehq/codex-acp-adapter",
-			SupportedRange: ">=0.1.0-alpha.8",
+			SupportedRange: ">=0.1.0-alpha.9",
 			CredentialModes: []CredentialMode{
 				{
 					ID:          CredentialModeLocalLogin,
@@ -303,7 +303,7 @@ func BuiltIns() []Adapter {
 			Description:    "Run Claude Code through the standalone Go ACP adapter as an external coding-agent session supervised by Hecate.",
 			CostMode:       "external",
 			DocsURL:        "https://github.com/hecatehq/claude-code-acp-adapter",
-			SupportedRange: ">=0.1.0-alpha.8",
+			SupportedRange: ">=0.1.0-alpha.9",
 			CredentialModes: []CredentialMode{
 				{
 					ID:          CredentialModeLocalLogin,
