@@ -22,6 +22,7 @@ import {
 } from "./projectAssignmentViewModels";
 import {
   buildProjectWorkCloseoutReadiness,
+  reviewArtifactNeedsFollowUpPath,
   type ProjectWorkCloseoutReadiness,
 } from "./projectInsights";
 import {
@@ -744,23 +745,6 @@ function ReviewFollowUpNotice({
       </div>
     </section>
   );
-}
-
-function reviewArtifactRequiresFollowUp(artifact: ProjectCollaborationArtifactRecord): boolean {
-  return (
-    artifact.kind === "review" &&
-    (artifact.review_follow_up_required === true ||
-      artifact.review_verdict === "blocked" ||
-      artifact.review_verdict === "changes_requested")
-  );
-}
-
-function reviewArtifactNeedsFollowUpPath(
-  artifact: ProjectCollaborationArtifactRecord,
-  handoffs: ProjectHandoffRecord[],
-): boolean {
-  if (!reviewArtifactRequiresFollowUp(artifact)) return false;
-  return !handoffs.some((handoff) => (handoff.linked_artifact_ids ?? []).includes(artifact.id));
 }
 
 function ReviewerSetupNotice({

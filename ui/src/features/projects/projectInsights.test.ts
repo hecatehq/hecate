@@ -4,6 +4,8 @@ import {
   buildProjectHealthSummary,
   buildProjectWorkCloseoutReadiness,
   projectHealthMetrics,
+  reviewArtifactNeedsFollowUpPath,
+  reviewArtifactRequiresFollowUp,
 } from "./projectInsights";
 import type { AgentProfileRecord } from "../../types/agent-profile";
 import type {
@@ -361,6 +363,27 @@ describe("projectInsights", () => {
 
     expect(ready.ready).toBe(true);
     expect(ready.blockers).toEqual([]);
+  });
+
+  it("shares review follow-up path detection with closeout surfaces", () => {
+    const review = reviewArtifact({
+      id: "art_review_required",
+      review_verdict: "changes_requested",
+    });
+
+    expect(reviewArtifactRequiresFollowUp(review)).toBe(true);
+    expect(reviewArtifactNeedsFollowUpPath(review, [])).toBe(true);
+    expect(
+      reviewArtifactNeedsFollowUpPath(review, [
+        {
+          ...handoff("handoff_review", "pending"),
+          linked_artifact_ids: [review.id],
+        },
+      ]),
+    ).toBe(false);
+    expect(reviewArtifactRequiresFollowUp(reviewArtifact({ review_verdict: "approved" }))).toBe(
+      false,
+    );
   });
 });
 

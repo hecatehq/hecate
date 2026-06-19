@@ -31,6 +31,7 @@ import {
   activitySignalLabel,
   buildProjectWorkCloseoutReadiness,
   projectActivityWorkItemToWorkItem,
+  reviewArtifactNeedsFollowUpPath,
   type ProjectActivityBucketKey,
 } from "./projectInsights";
 import { useProjectAssistantController } from "./useProjectAssistantController";
@@ -900,7 +901,7 @@ function buildProjectNextAction({
   }
 
   const reviewFollowUp = artifacts.find((artifact) =>
-    reviewArtifactNeedsFollowUpAction(artifact, handoffs),
+    reviewArtifactNeedsFollowUpPath(artifact, handoffs),
   );
   if (selectedWorkItem && reviewFollowUp && selectedWorkItem.status !== "done") {
     return {
@@ -1294,24 +1295,6 @@ function latestProjectWorkItem(items: ProjectWorkItemRecord[]): ProjectWorkItemR
       (Number.isFinite(rightTime) ? rightTime : 0) - (Number.isFinite(leftTime) ? leftTime : 0)
     );
   })[0];
-}
-
-function reviewArtifactNeedsFollowUpAction(
-  artifact: ProjectCollaborationArtifactRecord,
-  handoffs: ProjectHandoffRecord[],
-): boolean {
-  if (
-    artifact.kind !== "review" ||
-    (artifact.review_follow_up_required !== true &&
-      artifact.review_verdict !== "blocked" &&
-      artifact.review_verdict !== "changes_requested")
-  ) {
-    return false;
-  }
-  const linkedHandoffs = handoffs.filter((handoff) =>
-    (handoff.linked_artifact_ids ?? []).includes(artifact.id),
-  );
-  return linkedHandoffs.length === 0;
 }
 
 export function ProjectEmptyBlock({ title, detail }: { title: string; detail: string }) {
