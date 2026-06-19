@@ -2,6 +2,7 @@ package agentadapters
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1604,6 +1605,79 @@ func TestACPTurnSurfacesToolContentPreview(t *testing.T) {
 	}
 	if got := activities[0].ArtifactPreview; got != "ok\nPASS ./internal/agentadapters" {
 		t.Fatalf("artifact preview = %q", got)
+	}
+}
+
+func TestACPTurnDecodesCommandBridgeToolActivityShape(t *testing.T) {
+	var activities []Activity
+	turn := newACPTurn(64*1024, nil)
+	turn.setActivityCallback(func(activity Activity) {
+		activities = append(activities, activity)
+	})
+
+	for _, raw := range []string{
+		`{
+			"sessionId": "session_1",
+			"update": {
+				"sessionUpdate": "tool_call",
+				"toolCallId": "prompt-command-1",
+				"title": "Run codex",
+				"kind": "execute",
+				"status": "in_progress",
+				"rawInput": {
+					"command": "codex exec hello",
+					"cwd": "/work"
+				}
+			}
+		}`,
+		`{
+			"sessionId": "session_1",
+			"update": {
+				"sessionUpdate": "tool_call_update",
+				"toolCallId": "prompt-command-1",
+				"title": "Run codex",
+				"kind": "execute",
+				"status": "completed",
+				"rawInput": {
+					"command": "codex exec hello",
+					"cwd": "/work"
+				},
+				"content": [{
+					"type": "content",
+					"content": {
+						"type": "text",
+						"text": "stdout:\nchunk one chunk two"
+					}
+				}]
+			}
+		}`,
+	} {
+		var notification acp.SessionNotification
+		if err := json.Unmarshal([]byte(raw), &notification); err != nil {
+			t.Fatalf("decode raw command bridge notification: %v", err)
+		}
+		turn.recordUpdate(notification)
+	}
+
+	if len(activities) != 2 {
+		t.Fatalf("activities = %#v, want command start + finish", activities)
+	}
+	if got := activities[0]; got.ID != "tool:prompt-command-1" ||
+		got.Type != "tool_call" ||
+		got.Status != "running" ||
+		got.Kind != "execute" ||
+		got.Title != "Run codex" ||
+		got.Detail != "execute · codex exec hello" {
+		t.Fatalf("start activity = %#v", got)
+	}
+	if got := activities[1]; got.ID != "tool:prompt-command-1" ||
+		got.Type != "tool_call" ||
+		got.Status != "completed" ||
+		got.Kind != "execute" ||
+		got.Title != "Run codex" ||
+		got.Detail != "execute · codex exec hello · output: stdout: chunk one chunk two" ||
+		got.ArtifactPreview != "stdout:\nchunk one chunk two" {
+		t.Fatalf("finish activity = %#v", got)
 	}
 }
 
