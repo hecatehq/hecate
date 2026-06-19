@@ -6,6 +6,9 @@ import type {
   ProjectActivityData,
   ProjectActivityItemRecord,
   ProjectAssignmentRecord,
+  ProjectCollaborationArtifactRecord,
+  ProjectHandoffRecord,
+  ProjectMemoryCandidateRecord,
   ProjectRecord,
   ProjectWorkItemRecord,
   ProjectWorkRoleRecord,
@@ -141,6 +144,58 @@ function activityItem(
     blocking_signal: "not_started",
     status_summary: "not started",
     artifact_summary: { count: 0 },
+    updated_at: "2026-06-13T00:00:00Z",
+    ...overrides,
+  };
+}
+
+function memoryCandidate(
+  overrides: Partial<ProjectMemoryCandidateRecord> = {},
+): ProjectMemoryCandidateRecord {
+  return {
+    id: "memcand_1",
+    project_id: "proj_1",
+    title: "Project lesson",
+    body: "Remember the launch flow.",
+    status: "pending",
+    suggested_kind: "note",
+    suggested_trust_label: "operator_review",
+    suggested_source_kind: "dogfood",
+    created_at: "2026-06-13T00:00:00Z",
+    updated_at: "2026-06-13T00:00:00Z",
+    ...overrides,
+  };
+}
+
+function handoff(overrides: Partial<ProjectHandoffRecord> = {}): ProjectHandoffRecord {
+  return {
+    id: "handoff_1",
+    project_id: "proj_1",
+    work_item_id: "work_1",
+    title: "Implementation handoff",
+    summary: "Follow up on the implementation.",
+    recommended_next_action: "Create the follow-up assignment.",
+    status: "pending",
+    provenance_kind: "operator",
+    trust_label: "operator_review",
+    created_at: "2026-06-13T00:00:00Z",
+    updated_at: "2026-06-13T00:00:00Z",
+    status_changed_at: "2026-06-13T00:00:00Z",
+    ...overrides,
+  };
+}
+
+function artifact(
+  overrides: Partial<ProjectCollaborationArtifactRecord> = {},
+): ProjectCollaborationArtifactRecord {
+  return {
+    id: "artifact_1",
+    project_id: "proj_1",
+    work_item_id: "work_1",
+    kind: "evidence_link",
+    title: "Launch checklist",
+    body: "Evidence recorded.",
+    created_at: "2026-06-13T00:00:00Z",
     updated_at: "2026-06-13T00:00:00Z",
     ...overrides,
   };
@@ -314,20 +369,7 @@ describe("ProjectWorkspaceView", () => {
     const item = workItem({ id: "work_blocked", title: "Fix blocked launch" });
     const { handlers } = renderWorkspace({
       activity: activity(),
-      memoryCandidates: [
-        {
-          id: "memcand_1",
-          project_id: "proj_1",
-          title: "Project lesson",
-          body: "Remember the launch flow.",
-          status: "pending",
-          suggested_kind: "note",
-          suggested_trust_label: "operator_review",
-          suggested_source_kind: "dogfood",
-          created_at: "2026-06-13T00:00:00Z",
-          updated_at: "2026-06-13T00:00:00Z",
-        },
-      ],
+      memoryCandidates: [memoryCandidate()],
       workItems: [item],
     });
 
@@ -363,18 +405,7 @@ describe("ProjectWorkspaceView", () => {
         priority: "normal",
       },
     });
-    const memoryCandidate: ProjectWorkspaceViewProps["memoryCandidates"][number] = {
-      id: "memcand_1",
-      project_id: "proj_1",
-      title: "Project lesson",
-      body: "Remember the launch flow.",
-      status: "pending",
-      suggested_kind: "note",
-      suggested_trust_label: "operator_review",
-      suggested_source_kind: "dogfood",
-      created_at: "2026-06-13T00:00:00Z",
-      updated_at: "2026-06-13T00:00:00Z",
-    };
+    const candidate = memoryCandidate();
     const latest = workItem({
       id: "work_latest",
       title: "Polish project onboarding",
@@ -416,7 +447,7 @@ describe("ProjectWorkspaceView", () => {
         {...props}
         {...handlers}
         activity={null}
-        memoryCandidates={[memoryCandidate]}
+        memoryCandidates={[candidate]}
         workItems={[]}
       />,
     );
@@ -451,6 +482,206 @@ describe("ProjectWorkspaceView", () => {
     expect(
       within(resume).getByText("Create a work item when there is something to coordinate."),
     ).toBeTruthy();
+  });
+
+  it("renders next action for queued, blocked, active, and memory states", async () => {
+    const queuedActivity = activity();
+    const blockedItem = activityItem({
+      blocking_signal: "failed",
+      id: "assign_failed",
+      status: "failed",
+      status_summary: "failed",
+      work_item: {
+        id: "work_failed",
+        title: "Repair failed launch",
+        status: "ready",
+        priority: "normal",
+      },
+    });
+    const activeItem = activityItem({
+      assignment: assignment({
+        id: "assign_active",
+        work_item_id: "work_active",
+        status: "running",
+      }),
+      blocking_signal: "running",
+      id: "assign_active",
+      status: "running",
+      work_item: {
+        id: "work_active",
+        title: "Continue execution",
+        status: "ready",
+        priority: "normal",
+      },
+    });
+    const { handlers, props, rerender } = renderWorkspace({
+      activity: queuedActivity,
+      memoryCandidates: [memoryCandidate()],
+    });
+
+    let nextAction = screen.getByRole("region", { name: "Project next action" });
+    expect(within(nextAction).getByText("Start queued assignment")).toBeTruthy();
+    await userEvent.click(within(nextAction).getByRole("button", { name: "Start assignment" }));
+    expect(handlers.onStartAssignment).toHaveBeenCalledWith(
+      queuedActivity.buckets.blocked[0].assignment,
+    );
+
+    rerender(
+      <ProjectWorkspaceView
+        {...props}
+        {...handlers}
+        activity={activity({
+          summary: {
+            work_item_count: 1,
+            assignment_count: 1,
+            active_count: 0,
+            blocked_count: 1,
+            completed_count: 0,
+            recent_count: 1,
+          },
+          buckets: {
+            active: [],
+            blocked: [blockedItem],
+            completed: [],
+            recent: [blockedItem],
+          },
+          recent: [blockedItem],
+        })}
+        memoryCandidates={[]}
+      />,
+    );
+    nextAction = screen.getByRole("region", { name: "Project next action" });
+    expect(within(nextAction).getByText("Resolve blocked assignment")).toBeTruthy();
+    await userEvent.click(within(nextAction).getByRole("button", { name: "Open blocked work" }));
+    expect(handlers.onActivityBucketChange).toHaveBeenCalledWith("blocked");
+    expect(handlers.onSelectWorkItem).toHaveBeenCalledWith("work_failed");
+
+    rerender(
+      <ProjectWorkspaceView
+        {...props}
+        {...handlers}
+        activity={activity({
+          summary: {
+            work_item_count: 1,
+            assignment_count: 1,
+            active_count: 1,
+            blocked_count: 0,
+            completed_count: 0,
+            recent_count: 1,
+          },
+          buckets: {
+            active: [activeItem],
+            blocked: [],
+            completed: [],
+            recent: [activeItem],
+          },
+          recent: [activeItem],
+        })}
+        memoryCandidates={[]}
+      />,
+    );
+    nextAction = screen.getByRole("region", { name: "Project next action" });
+    expect(within(nextAction).getByText("Inspect active assignment")).toBeTruthy();
+    await userEvent.click(within(nextAction).getByRole("button", { name: "Inspect work" }));
+    expect(handlers.onSelectWorkItem).toHaveBeenCalledWith("work_active");
+
+    rerender(
+      <ProjectWorkspaceView
+        {...props}
+        {...handlers}
+        activity={null}
+        memoryCandidates={[memoryCandidate()]}
+      />,
+    );
+    nextAction = screen.getByRole("region", { name: "Project next action" });
+    expect(within(nextAction).getByText("Review 1 memory candidate")).toBeTruthy();
+    await userEvent.click(within(nextAction).getByRole("button", { name: "Review memory" }));
+    expect(handlers.onWorkspaceTabChange).toHaveBeenCalledWith("memory");
+  });
+
+  it("renders next action for selected-work follow through", async () => {
+    const item = workItem();
+    const completed = assignment({
+      execution_ref: { kind: "task_run", status: "completed" },
+      status: "completed",
+    });
+    const pendingHandoff = handoff();
+    const { handlers, props, rerender } = renderWorkspace({
+      selectedWorkItem: item,
+      workItems: [item],
+      handoffs: [pendingHandoff],
+    });
+
+    let nextAction = screen.getByRole("region", { name: "Project next action" });
+    expect(within(nextAction).getByText("Continue handoff: Implementation handoff")).toBeTruthy();
+    await userEvent.click(within(nextAction).getByRole("button", { name: "Create assignment" }));
+    expect(handlers.onCreateAssignmentFromHandoff).toHaveBeenCalledWith(pendingHandoff);
+
+    rerender(
+      <ProjectWorkspaceView
+        {...props}
+        {...handlers}
+        handoffs={[]}
+        selectedWorkItem={item}
+        workItems={[item]}
+      />,
+    );
+    nextAction = screen.getByRole("region", { name: "Project next action" });
+    expect(within(nextAction).getByText("Create the first assignment")).toBeTruthy();
+    await userEvent.click(within(nextAction).getByRole("button", { name: "Draft assignment" }));
+    expect(handlers.onDraftDefaultAssignment).toHaveBeenCalledWith(item);
+
+    rerender(
+      <ProjectWorkspaceView
+        {...props}
+        {...handlers}
+        assignments={[completed]}
+        handoffs={[]}
+        selectedWorkItem={item}
+        workItems={[item]}
+      />,
+    );
+    nextAction = screen.getByRole("region", { name: "Project next action" });
+    expect(within(nextAction).getByText("Record completion evidence")).toBeTruthy();
+    await userEvent.click(within(nextAction).getByRole("button", { name: "Add evidence" }));
+    expect(handlers.onAddEvidenceLink).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <ProjectWorkspaceView
+        {...props}
+        {...handlers}
+        artifacts={[artifact()]}
+        assignments={[completed]}
+        handoffs={[]}
+        selectedWorkItem={item}
+        workItems={[item]}
+      />,
+    );
+    nextAction = screen.getByRole("region", { name: "Project next action" });
+    expect(within(nextAction).getByText("Close out selected work")).toBeTruthy();
+    await userEvent.click(within(nextAction).getByRole("button", { name: "Mark done" }));
+    expect(handlers.onCloseWorkItem).toHaveBeenCalledWith(item);
+  });
+
+  it("renders next action for empty and latest-work fallbacks", async () => {
+    const latest = workItem({
+      id: "work_latest",
+      title: "Polish project onboarding",
+      created_at: "2026-06-12T00:00:00Z",
+      updated_at: "2026-06-14T00:00:00Z",
+    });
+    const { handlers, props, rerender } = renderWorkspace();
+
+    let nextAction = screen.getByRole("region", { name: "Project next action" });
+    expect(within(nextAction).getByText("Create the first work item")).toBeTruthy();
+    await userEvent.click(within(nextAction).getByRole("button", { name: "Create work" }));
+    expect(handlers.onCreateWork).toHaveBeenCalledTimes(1);
+
+    rerender(<ProjectWorkspaceView {...props} {...handlers} workItems={[latest]} />);
+    nextAction = screen.getByRole("region", { name: "Project next action" });
+    expect(within(nextAction).getByText("Continue existing work")).toBeTruthy();
+    await userEvent.click(within(nextAction).getByRole("button", { name: "Continue work" }));
+    expect(handlers.onSelectWorkItem).toHaveBeenCalledWith("work_latest");
   });
 
   it("renders project empty state when nothing is selected", () => {
