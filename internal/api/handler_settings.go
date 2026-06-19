@@ -51,13 +51,14 @@ func (h *Handler) HandleSettingsUpdateProvider(w http.ResponseWriter, r *http.Re
 		BaseURL    *string `json:"base_url,omitempty"`
 		Name       *string `json:"name,omitempty"`
 		CustomName *string `json:"custom_name,omitempty"`
+		AccountID  *string `json:"account_id,omitempty"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
 	}
 
-	if req.BaseURL == nil && req.Name == nil && req.CustomName == nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "no fields to update (expected base_url, name, or custom_name)")
+	if req.BaseURL == nil && req.Name == nil && req.CustomName == nil && req.AccountID == nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "no fields to update (expected base_url, name, custom_name, or account_id)")
 		return
 	}
 
@@ -66,6 +67,7 @@ func (h *Handler) HandleSettingsUpdateProvider(w http.ResponseWriter, r *http.Re
 		BaseURL:    req.BaseURL,
 		Name:       req.Name,
 		CustomName: req.CustomName,
+		AccountID:  req.AccountID,
 	})
 	if err != nil {
 		writeProviderAppError(w, err)
@@ -130,6 +132,7 @@ func (h *Handler) HandleSettingsCreateProvider(w http.ResponseWriter, r *http.Re
 		Name       string `json:"name"`
 		PresetID   string `json:"preset_id"`
 		CustomName string `json:"custom_name"`
+		AccountID  string `json:"account_id"`
 		BaseURL    string `json:"base_url"`
 		APIKey     string `json:"api_key"`
 		Kind       string `json:"kind"`
@@ -143,6 +146,7 @@ func (h *Handler) HandleSettingsCreateProvider(w http.ResponseWriter, r *http.Re
 		Name:       req.Name,
 		PresetID:   req.PresetID,
 		CustomName: req.CustomName,
+		AccountID:  req.AccountID,
 		BaseURL:    req.BaseURL,
 		APIKey:     req.APIKey,
 		Kind:       req.Kind,
@@ -261,6 +265,7 @@ func renderProviderAppRecord(record providerapp.ProviderRecord) SettingsProvider
 		Name:                 record.Name,
 		PresetID:             record.PresetID,
 		CustomName:           record.CustomName,
+		AccountID:            record.AccountID,
 		Kind:                 record.Kind,
 		Protocol:             record.Protocol,
 		BaseURL:              record.BaseURL,
@@ -280,6 +285,7 @@ func renderSettingsProvider(provider controlplane.Provider, secrets []controlpla
 		Name:            provider.Name,
 		PresetID:        provider.PresetID,
 		CustomName:      provider.CustomName,
+		AccountID:       provider.AccountID,
 		Kind:            provider.Kind,
 		Protocol:        provider.Protocol,
 		BaseURL:         provider.BaseURL,

@@ -18,7 +18,11 @@ import {
   resolvedBaseURL,
   runtimeProviderForConfigured,
 } from "../../lib/provider-utils";
-import { describeHealthErrorClass, describeRoutingBlockedReason } from "../../lib/runtime-utils";
+import {
+  describeHealthErrorClass,
+  describeRoutingBlockedReason,
+  modelDisplayName,
+} from "../../lib/runtime-utils";
 import { ProviderReadinessChecklist, ProviderReadinessSummary } from "../shared/ProviderReadiness";
 import { Badge, BrandAvatar, ConfirmModal, Icon, Icons, Modal } from "../shared/ui";
 import { ConnectionsPanel } from "../connections/ConnectionsPanel";
@@ -86,6 +90,7 @@ export function ProvidersView() {
   const [pendingURL, setPendingURL] = useState("");
   const [pendingName, setPendingName] = useState("");
   const [pendingCustomName, setPendingCustomName] = useState("");
+  const [pendingAccountID, setPendingAccountID] = useState("");
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const [deleteConfirmID, setDeleteConfirmID] = useState<string | null>(null);
 
@@ -119,10 +124,14 @@ export function ProvidersView() {
       setPendingURL(resolvedBaseURL(selectedID, selectedConfig ?? undefined, providerPresets));
       setPendingName(selectedConfig.name || selectedID);
       setPendingCustomName(selectedConfig.custom_name ?? "");
+      setPendingAccountID(
+        selectedConfig.account_id || (isFireworksProvider(selectedConfig) ? "fireworks" : ""),
+      );
     } else {
       setPendingURL("");
       setPendingName("");
       setPendingCustomName("");
+      setPendingAccountID("");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedID]);
@@ -207,8 +216,9 @@ export function ProvidersView() {
 
   const selectedConfig = selectedID ? (configuredByID.get(selectedID) ?? null) : null;
   const selectedStatus = selectedID ? (runtimeStatusForID(selectedID) ?? null) : null;
+  const selectedRouteKey = configuredProviderRouteKey(selectedConfig) || selectedID || "";
   const selectedDisplayName = selectedID
-    ? providerDisplayName(selectedID, configuredProviders, providerPresets, providers)
+    ? providerDisplayName(selectedRouteKey, configuredProviders, providerPresets, providers)
     : "";
   const deleteConfirmName = deleteConfirmID
     ? providerDisplayName(deleteConfirmID, configuredProviders, providerPresets, providers)
@@ -603,7 +613,7 @@ export function ProvidersView() {
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             {/* Header strip: brand initial + base URL */}
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <BrandAvatar brand={selectedID} fallback={selectedDisplayName} size={32} />
+              <BrandAvatar brand={selectedRouteKey} fallback={selectedDisplayName} size={32} />
               {selectedConfig.base_url && (
                 <span
                   style={{
@@ -746,6 +756,45 @@ export function ProvidersView() {
                 <Icon d={Icons.check} size={13} /> Save custom name
               </button>
             </div>
+
+            {isFireworksProvider(selectedConfig) && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <label className="kicker-lg">Fireworks account ID</label>
+                <input
+                  className="input"
+                  type="text"
+                  value={pendingAccountID}
+                  onChange={(e) => setPendingAccountID(e.target.value)}
+                  aria-label="Fireworks account ID"
+                  placeholder="fireworks"
+                  style={{ fontFamily: "var(--font-mono)" }}
+                />
+                <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
+                  Used for model discovery. Keep{" "}
+                  <span style={{ fontFamily: "var(--font-mono)", color: "var(--t2)" }}>
+                    fireworks
+                  </span>{" "}
+                  for the public catalog, or enter your Fireworks account ID for private and
+                  fine-tuned models.
+                </div>
+                <button
+                  className="btn btn-primary btn-sm"
+                  style={{ alignSelf: "flex-start" }}
+                  disabled={
+                    (pendingAccountID.trim() || "fireworks") ===
+                    (selectedConfig.account_id || "fireworks")
+                  }
+                  onClick={() =>
+                    void providerActions.setProviderAccountID(
+                      selectedID,
+                      pendingAccountID.trim() || "fireworks",
+                    )
+                  }
+                >
+                  <Icon d={Icons.check} size={13} /> Save account ID
+                </button>
+              </div>
+            )}
 
             {/* Editable: API key (cloud) or Endpoint URL (local) */}
             {selectedConfig.kind === "local" ? (
@@ -943,33 +992,41 @@ export function ProvidersView() {
                     padding: "0 10px",
                   }}
                 >
-                  {selectedStatus.models.map((m) => (
-                    <div
-                      key={m}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        padding: "5px 0",
-                        borderBottom: "1px solid var(--border)",
-                      }}
-                    >
-                      <span
+                  {selectedStatus.models.map((m) => {
+                    const displayModel = modelDisplayName(m);
+                    return (
+                      <div
+                        key={m}
+                        title={displayModel === m ? undefined : m}
                         style={{
-                          fontFamily: "var(--font-mono)",
-                          fontSize: 12,
-                          color: "var(--t0)",
-                          flex: 1,
+                          display: "flex",
+                          alignItems: "center",
+                          padding: "5px 0",
+                          borderBottom: "1px solid var(--border)",
                         }}
                       >
-                        {m}
-                      </span>
-                      {m === selectedConfig.default_model && (
-                        <span className="badge badge-teal" style={{ fontSize: 9 }}>
-                          default
+                        <span
+                          style={{
+                            fontFamily: "var(--font-mono)",
+                            fontSize: 12,
+                            color: "var(--t0)",
+                            flex: 1,
+                            minWidth: 0,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {displayModel}
                         </span>
-                      )}
-                    </div>
-                  ))}
+                        {m === selectedConfig.default_model && (
+                          <span className="badge badge-teal" style={{ fontSize: 9 }}>
+                            default
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </details>
             )}
@@ -1101,6 +1158,13 @@ function isProviderNeedsAttention(
   if (status?.routing_blocked_reason) return true;
   if (status?.status === "open" || status?.status === "unhealthy") return true;
   return false;
+}
+
+function isFireworksProvider(provider: ConfiguredProviderRecord | null | undefined): boolean {
+  if (!provider) return false;
+  return [provider.preset_id, provider.name, provider.id].some(
+    (value) => value?.trim().toLowerCase() === "fireworks",
+  );
 }
 
 function resolveNextReadinessStep(

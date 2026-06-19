@@ -17,6 +17,7 @@ import { applyOverride, CoordinatorOverridesContext } from "./overrides";
 import {
   createProvider as createProviderRequest,
   deleteProvider as deleteProviderRequest,
+  setProviderAccountID as setProviderAccountIDRequest,
   setProviderAPIKey as setProviderAPIKeyRequest,
   setProviderBaseURL as setProviderBaseURLRequest,
   setProviderCustomName as setProviderCustomNameRequest,
@@ -68,6 +69,7 @@ export function useProviderActions(params: UseProviderActionsParams) {
     createParams: {
       name: string;
       preset_id?: string;
+      account_id?: string;
       custom_name?: string;
       base_url?: string;
       api_key?: string;
@@ -171,6 +173,12 @@ export function useProviderActions(params: UseProviderActionsParams) {
     await params.loadDashboard();
   }
 
+  async function setProviderAccountID(id: string, accountID: string): Promise<void> {
+    await setProviderAccountIDRequest(id, accountID);
+    await params.loadDashboard();
+    await params.refreshProviders();
+  }
+
   const overrides = useContext(CoordinatorOverridesContext);
   return applyOverride(
     {
@@ -180,6 +188,7 @@ export function useProviderActions(params: UseProviderActionsParams) {
       setProviderBaseURL,
       setProviderName,
       setProviderCustomName,
+      setProviderAccountID,
     },
     overrides?.providers,
   );

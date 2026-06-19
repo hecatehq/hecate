@@ -21,6 +21,7 @@ import {
   findProvider,
   healthStatusTone,
   isRemoteRuntimeSession,
+  modelDisplayName,
   parseCSV,
   providerStatusTone,
   routeOutcomeTone,
@@ -105,6 +106,36 @@ describe("runtime-utils", () => {
     expect(filterModelsByProvider([fireworksModel], "fireworks-ai", configuredProviders)).toEqual([
       fireworksModel,
     ]);
+  });
+
+  it("filters models through stored provider names without preset ids", () => {
+    const configuredProviders: ConfiguredProviderRecord[] = [
+      {
+        id: "fireworks-ai",
+        name: "fireworks",
+        kind: "cloud",
+        protocol: "openai",
+        base_url: "https://api.fireworks.ai/inference/v1",
+        credential_configured: true,
+      },
+    ];
+    const fireworksModel: ModelRecord = {
+      id: "accounts/fireworks/models/deepseek-v3",
+      owned_by: "fireworks",
+      metadata: { provider: "fireworks", provider_kind: "cloud" },
+    };
+
+    expect(filterModelsByProvider([fireworksModel], "fireworks-ai", configuredProviders)).toEqual([
+      fireworksModel,
+    ]);
+    expect(filterModelsByProvider([fireworksModel], "fireworks", configuredProviders)).toEqual([
+      fireworksModel,
+    ]);
+  });
+
+  it("renders account-scoped model ids as short model names", () => {
+    expect(modelDisplayName("accounts/fireworks/models/deepseek-v3p1")).toBe("deepseek-v3p1");
+    expect(modelDisplayName("gpt-4o-mini")).toBe("gpt-4o-mini");
   });
 
   it("detects remote runtime sessions from cloud identity", () => {

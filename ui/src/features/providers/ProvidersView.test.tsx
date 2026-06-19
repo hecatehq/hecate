@@ -608,6 +608,113 @@ describe("ProvidersView table renders", () => {
     expect(within(row!).getByText("1")).toBeTruthy();
   });
 
+  it("uses canonical names and runtime model counts for stored provider aliases", () => {
+    const state = createRuntimeConsoleFixture({
+      session: localSession,
+      providerPresets: presets,
+      settingsConfig: {
+        ...emptySettingsConfig(),
+        providers: [
+          makeConfigured("fireworks-ai", {
+            name: "fireworks",
+            kind: "cloud",
+            credential_configured: true,
+            base_url: "https://api.fireworks.ai/inference/v1",
+          }),
+          makeConfigured("local-lmstudio", {
+            name: "lmstudio",
+            kind: "local",
+            base_url: "http://127.0.0.1:1234/v1",
+          }),
+        ],
+      },
+      providers: [
+        makeStatus("fireworks", {
+          kind: "cloud",
+          healthy: true,
+          status: "healthy",
+          routing_ready: true,
+          credential_state: "configured",
+          models: ["accounts/fireworks/models/deepseek-v3"],
+          model_count: 50,
+        }),
+        makeStatus("lmstudio", {
+          kind: "local",
+          healthy: true,
+          status: "healthy",
+          routing_ready: true,
+          credential_state: "not_required",
+          models: ["qwen2.5-coder"],
+          model_count: 1,
+        }),
+      ],
+    });
+
+    render(
+      withRuntimeConsole(<ProvidersView />, { state, actions: createRuntimeConsoleActions() }),
+    );
+
+    const fireworksRow = screen.getByText("Fireworks AI").closest("tr");
+    const lmStudioRow = screen.getByText("LM Studio").closest("tr");
+    expect(fireworksRow).toBeTruthy();
+    expect(lmStudioRow).toBeTruthy();
+    expect(within(fireworksRow!).queryByText("fireworks")).toBeNull();
+    expect(within(fireworksRow!).getByText("50")).toBeTruthy();
+    expect(within(lmStudioRow!).queryByText("lmstudio")).toBeNull();
+    expect(within(lmStudioRow!).getByText("1")).toBeTruthy();
+  });
+
+  it("edits Fireworks account IDs and displays short model names", async () => {
+    const setProviderAccountID = vi.fn(async () => undefined);
+    const actions = { ...createRuntimeConsoleActions(), setProviderAccountID };
+    const state = createRuntimeConsoleFixture({
+      session: localSession,
+      providerPresets: presets,
+      settingsConfig: {
+        ...emptySettingsConfig(),
+        providers: [
+          makeConfigured("fireworks-ai", {
+            name: "fireworks",
+            kind: "cloud",
+            credential_configured: true,
+            account_id: "team-alpha",
+            base_url: "",
+          }),
+        ],
+      },
+      providers: [
+        makeStatus("fireworks", {
+          kind: "cloud",
+          healthy: true,
+          status: "healthy",
+          routing_ready: true,
+          credential_state: "configured",
+          models: ["accounts/team-alpha/models/deepseek-v3"],
+          model_count: 1,
+        }),
+      ],
+    });
+    const user = userEvent.setup();
+
+    render(withRuntimeConsole(<ProvidersView />, { state, actions }));
+
+    await user.click(screen.getByText("Fireworks AI"));
+
+    expect(screen.getByRole("dialog", { name: "Fireworks AI · cloud" })).toBeTruthy();
+    const accountInput = screen.getByLabelText("Fireworks account ID");
+    expect(accountInput).toHaveValue("team-alpha");
+    expect(screen.getByText("deepseek-v3")).toBeTruthy();
+    expect(screen.queryByText("accounts/team-alpha/models/deepseek-v3")).toBeNull();
+
+    await user.clear(accountInput);
+    await user.type(accountInput, "team-beta");
+    await user.click(screen.getByRole("button", { name: "Save account ID" }));
+
+    await waitFor(() => {
+      expect(setProviderAccountID).toHaveBeenCalledWith("fireworks-ai", "team-beta");
+    });
+  });
+
   it("surfaces readiness repair buttons from the summary card", async () => {
     const state = createRuntimeConsoleFixture({
       session: localSession,

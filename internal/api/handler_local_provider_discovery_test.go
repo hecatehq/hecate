@@ -117,8 +117,8 @@ func TestDiscoverLocalProvidersRunsCommandLookupsInParallel(t *testing.T) {
 	}
 	rt := &localProviderRoundTrip{
 		body: map[string]string{
-			"http://127.0.0.1:11434/api/tags": `{"models":[]}`,
-			"http://127.0.0.1:1234/v1/models": `{"data":[]}`,
+			"http://127.0.0.1:11434/api/tags":     `{"models":[]}`,
+			"http://127.0.0.1:1234/api/v1/models": `{"models":[]}`,
 		},
 	}
 
@@ -153,8 +153,8 @@ func TestDiscoverLocalProvidersRunsHTTPProbesInParallel(t *testing.T) {
 		started: make(chan string, 2),
 		release: make(chan struct{}),
 		body: map[string]string{
-			"http://127.0.0.1:11434/api/tags": `{"models":[]}`,
-			"http://127.0.0.1:1234/v1/models": `{"data":[]}`,
+			"http://127.0.0.1:11434/api/tags":     `{"models":[]}`,
+			"http://127.0.0.1:1234/api/v1/models": `{"models":[]}`,
 		},
 	}
 	var releaseOnce sync.Once
@@ -169,8 +169,8 @@ func TestDiscoverLocalProvidersRunsHTTPProbesInParallel(t *testing.T) {
 		receiveLocalDiscoverySignal(t, rt.started),
 		receiveLocalDiscoverySignal(t, rt.started),
 	}
-	if strings.Join(urls, ",") != "http://127.0.0.1:11434/api/tags,http://127.0.0.1:1234/v1/models" &&
-		strings.Join(urls, ",") != "http://127.0.0.1:1234/v1/models,http://127.0.0.1:11434/api/tags" {
+	if strings.Join(urls, ",") != "http://127.0.0.1:11434/api/tags,http://127.0.0.1:1234/api/v1/models" &&
+		strings.Join(urls, ",") != "http://127.0.0.1:1234/api/v1/models,http://127.0.0.1:11434/api/tags" {
 		t.Fatalf("HTTP probes started = %#v, want both unique endpoints", urls)
 	}
 
@@ -223,7 +223,7 @@ func TestDiscoverLocalProvidersFindsLMStudioInNativeAppPath(t *testing.T) {
 	}
 	rt := &localProviderRoundTrip{
 		err: map[string]error{
-			"http://127.0.0.1:1234/v1/models": errors.New("connection refused"),
+			"http://127.0.0.1:1234/api/v1/models": errors.New("connection refused"),
 		},
 	}
 	lookPath := func(command string) (string, error) {
@@ -247,6 +247,38 @@ func TestDiscoverLocalProvidersFindsLMStudioInNativeAppPath(t *testing.T) {
 	}
 	if item.Status != "installed" {
 		t.Fatalf("status = %q, want installed", item.Status)
+	}
+}
+
+func TestDiscoverLocalProvidersLMStudioRunningWithNativeModels(t *testing.T) {
+	t.Parallel()
+
+	providers := []config.BuiltInProvider{
+		{ID: "lmstudio", Name: "LM Studio", Kind: "local", BaseURL: "http://127.0.0.1:1234/v1"},
+	}
+	rt := &localProviderRoundTrip{
+		body: map[string]string{
+			"http://127.0.0.1:1234/api/v1/models": `{"models":[{"key":"qwen/qwen3-4b","type":"llm"},{"key":"text-embedding-nomic","type":"embedding"}]}`,
+		},
+	}
+
+	items := discoverLocalProviders(context.Background(), providers, missingLocalCommand, rt)
+
+	if len(items) != 1 {
+		t.Fatalf("items = %d, want 1", len(items))
+	}
+	item := items[0]
+	if item.Status != "running" {
+		t.Fatalf("status = %q, want running", item.Status)
+	}
+	if !item.HTTPAvailable {
+		t.Fatal("HTTPAvailable = false, want true")
+	}
+	if strings.Join(item.Models, ",") != "qwen/qwen3-4b" {
+		t.Fatalf("models = %#v, want only LLM models from LM Studio native response", item.Models)
+	}
+	if item.ModelCount != 1 {
+		t.Fatalf("model count = %d, want 1", item.ModelCount)
 	}
 }
 
@@ -336,7 +368,7 @@ func TestDiscoverLocalProvidersRejectsInvalidHTTPProbeBody(t *testing.T) {
 	}
 	rt := &localProviderRoundTrip{
 		body: map[string]string{
-			"http://127.0.0.1:1234/v1/models": `not-json`,
+			"http://127.0.0.1:1234/api/v1/models": `not-json`,
 		},
 	}
 
@@ -400,6 +432,18 @@ func TestLocalProviderProbeURLUsesOllamaNativeTagsEndpoint(t *testing.T) {
 	})
 	if got != "http://127.0.0.1:11434/api/tags" {
 		t.Fatalf("probe URL = %q, want Ollama native tags endpoint", got)
+	}
+}
+
+func TestLocalProviderProbeURLUsesLMStudioNativeModelsEndpoint(t *testing.T) {
+	t.Parallel()
+
+	got := localProviderProbeURL(config.BuiltInProvider{
+		ID:      "lmstudio",
+		BaseURL: "http://127.0.0.1:1234/v1",
+	})
+	if got != "http://127.0.0.1:1234/api/v1/models" {
+		t.Fatalf("probe URL = %q, want LM Studio native models endpoint", got)
 	}
 }
 

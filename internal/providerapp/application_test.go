@@ -201,6 +201,51 @@ func TestApplication_StatusBuildsProviderRecordsAndPolicyRules(t *testing.T) {
 	}
 }
 
+func TestApplication_StatusCanonicalizesPresetProviderRecords(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := controlplane.NewMemoryStore()
+	if _, err := store.UpsertProvider(ctx, controlplane.Provider{
+		ID:        "fireworks-ai",
+		Name:      "fireworks",
+		AccountID: "team-alpha",
+		Kind:      "cloud",
+		Protocol:  "openai",
+		BaseURL:   "https://api.fireworks.ai/inference/v1",
+		Enabled:   true,
+	}, &controlplane.ProviderSecret{ProviderID: "fireworks-ai", APIKeyEncrypted: "cipher"}); err != nil {
+		t.Fatalf("UpsertProvider(fireworks): %v", err)
+	}
+	if _, err := store.UpsertProvider(ctx, controlplane.Provider{
+		ID:       "local-lmstudio",
+		Name:     "lmstudio",
+		Kind:     "local",
+		Protocol: "openai",
+		BaseURL:  "http://127.0.0.1:1234/v1",
+		Enabled:  true,
+	}, nil); err != nil {
+		t.Fatalf("UpsertProvider(lmstudio): %v", err)
+	}
+
+	result, err := New(Options{ControlPlane: store}).Status(ctx)
+	if err != nil {
+		t.Fatalf("Status() error = %v", err)
+	}
+	providers := map[string]ProviderRecord{}
+	for _, provider := range result.Providers {
+		providers[provider.ID] = provider
+	}
+	fireworks := providers["fireworks-ai"]
+	if fireworks.Name != "Fireworks AI" || fireworks.PresetID != "fireworks" || fireworks.AccountID != "team-alpha" {
+		t.Fatalf("fireworks record = %+v, want canonical display metadata with account id", fireworks)
+	}
+	lmstudio := providers["local-lmstudio"]
+	if lmstudio.Name != "LM Studio" || lmstudio.PresetID != "lmstudio" {
+		t.Fatalf("lmstudio record = %+v, want canonical display metadata", lmstudio)
+	}
+}
+
 func TestApplication_StatusWithoutControlPlaneReturnsEnvDefaults(t *testing.T) {
 	t.Parallel()
 
@@ -315,6 +360,38 @@ func TestApplication_UpdateProviderValidatesAndDispatches(t *testing.T) {
 	}
 	if _, err := app.UpdateProvider(ctx, UpdateProviderCommand{ID: "custom"}); !IsValidationError(err) {
 		t.Fatalf("UpdateProvider(no fields) error = %v, want validation", err)
+	}
+}
+
+func TestApplication_UpdateProviderAccountIDValidatesAndDispatches(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := controlplane.NewMemoryStore()
+	if _, err := store.UpsertProvider(ctx, controlplane.Provider{
+		ID:       "fireworks-ai",
+		Name:     "fireworks",
+		PresetID: "fireworks",
+		Kind:     "cloud",
+		Protocol: "openai",
+		BaseURL:  "https://api.fireworks.ai/inference/v1",
+		Enabled:  true,
+	}, &controlplane.ProviderSecret{ProviderID: "fireworks-ai", APIKeyEncrypted: "cipher"}); err != nil {
+		t.Fatalf("UpsertProvider: %v", err)
+	}
+	runtime := &recordingRuntime{}
+	app := New(Options{ControlPlane: store, Runtime: runtime})
+	accountID := " team-beta "
+
+	if _, err := app.UpdateProvider(ctx, UpdateProviderCommand{ID: "fireworks-ai", AccountID: &accountID}); err != nil {
+		t.Fatalf("UpdateProvider(account_id) error = %v", err)
+	}
+	if len(runtime.upsertCalls) != 1 || runtime.upsertCalls[0].provider.AccountID != "team-beta" {
+		t.Fatalf("upsert calls = %+v, want trimmed Fireworks account id", runtime.upsertCalls)
+	}
+	invalidAccountID := "team/beta"
+	if _, err := app.UpdateProvider(ctx, UpdateProviderCommand{ID: "fireworks-ai", AccountID: &invalidAccountID}); !IsValidationError(err) {
+		t.Fatalf("UpdateProvider(invalid account_id) error = %v, want validation", err)
 	}
 }
 

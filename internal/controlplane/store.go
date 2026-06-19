@@ -19,6 +19,7 @@ type Provider struct {
 	// "Anthropic" + "Dev"). Name itself stays fixed for preset-based
 	// providers; this is the disambiguator.
 	CustomName     string    `json:"custom_name,omitempty"`
+	AccountID      string    `json:"account_id,omitempty"`
 	Kind           string    `json:"kind"`
 	Protocol       string    `json:"protocol"`
 	BaseURL        string    `json:"base_url"`
@@ -93,6 +94,7 @@ func cloneState(state State) State {
 			Name:           provider.Name,
 			PresetID:       provider.PresetID,
 			CustomName:     provider.CustomName,
+			AccountID:      provider.AccountID,
 			Kind:           provider.Kind,
 			Protocol:       provider.Protocol,
 			BaseURL:        provider.BaseURL,

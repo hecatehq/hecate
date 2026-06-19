@@ -1419,6 +1419,7 @@ type SettingsProviderRecord struct {
 	Name                 string   `json:"name"`
 	PresetID             string   `json:"preset_id,omitempty"`
 	CustomName           string   `json:"custom_name,omitempty"`
+	AccountID            string   `json:"account_id,omitempty"`
 	Kind                 string   `json:"kind"`
 	Protocol             string   `json:"protocol"`
 	BaseURL              string   `json:"base_url"`

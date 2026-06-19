@@ -15,6 +15,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 
+import { providerDisplayName } from "../../lib/provider-utils";
+import { modelDisplayName } from "../../lib/runtime-utils";
 import type { ModelRecord } from "../../types/model";
 import type { ProviderPresetRecord } from "../../types/provider";
 import { Icon, Icons } from "./Icons";
@@ -103,9 +105,15 @@ export function ModelPicker({
     if (open) setTimeout(() => inputRef.current?.focus(), 0);
   }, [open]);
 
-  const providerName = (id: string) => presets?.find((p) => p.id === id)?.name || id;
+  const providerName = (id: string) => providerDisplayName(id, [], presets);
   const matchedFilter = filter
-    ? models.filter((m) => m.id.toLowerCase().includes(filter.toLowerCase()))
+    ? models.filter((m) => {
+        const needle = filter.toLowerCase();
+        return (
+          m.id.toLowerCase().includes(needle) ||
+          modelDisplayName(m.id).toLowerCase().includes(needle)
+        );
+      })
     : models;
   // Sort usable models above disabled ones — within each bucket the
   // source order is preserved (provider-grouped, alphabetical-ish).
@@ -135,7 +143,9 @@ export function ModelPicker({
       ? allLabel
       : isEmpty
         ? "no models available"
-        : value || "Pick a model";
+        : value
+          ? modelDisplayName(value)
+          : "Pick a model";
   const buttonWidth = triggerWidth === undefined ? undefined : triggerWidth;
   const disabledTitle = isEmpty
     ? "No discovered models for this provider. Configure credentials or start the local runtime."
@@ -337,11 +347,13 @@ export function ModelPicker({
               const reason = provider ? disabledProviders?.get(provider) : undefined;
               const disabled = !!reason;
               const warning = !disabled ? modelWarnings?.get(m.id) : undefined;
+              const displayName = modelDisplayName(m.id);
+              const idTitle = displayName === m.id ? undefined : m.id;
               // Title combines warning (if any) with the disabled
               // reason. We skip the warning when the row is already
               // disabled — the disabled tooltip is the more
               // important signal.
-              const rowTitle = disabled ? reason : warning;
+              const rowTitle = [disabled ? reason : warning, idTitle].filter(Boolean).join("\n");
               return (
                 <button
                   key={m.id}
@@ -352,7 +364,7 @@ export function ModelPicker({
                   aria-disabled={disabled || undefined}
                   aria-selected={m.id === value}
                   role="option"
-                  title={rowTitle}
+                  title={rowTitle || undefined}
                   style={disabled ? { cursor: "not-allowed" } : undefined}
                   onClick={() => selectModel(m)}
                 >
@@ -370,7 +382,7 @@ export function ModelPicker({
                       opacity: disabled ? 0.5 : 1,
                     }}
                   >
-                    {m.id}
+                    {displayName}
                   </span>
                   {showProvider && provider && (
                     <span

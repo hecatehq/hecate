@@ -69,12 +69,14 @@ type UpdateProviderCommand struct {
 	BaseURL    *string
 	Name       *string
 	CustomName *string
+	AccountID  *string
 }
 
 type CreateProviderCommand struct {
 	Name       string
 	PresetID   string
 	CustomName string
+	AccountID  string
 	BaseURL    string
 	APIKey     string
 	Kind       string
@@ -116,6 +118,7 @@ type ProviderRecord struct {
 	Name                 string
 	PresetID             string
 	CustomName           string
+	AccountID            string
 	Kind                 string
 	Protocol             string
 	BaseURL              string
@@ -159,8 +162,8 @@ func (app *Application) UpdateProvider(ctx context.Context, cmd UpdateProviderCo
 	if app.runtime == nil {
 		return nil, ErrRuntimeNotConfigured
 	}
-	if cmd.BaseURL == nil && cmd.Name == nil && cmd.CustomName == nil {
-		return nil, Validation(errors.New("no fields to update (expected base_url, name, or custom_name)"))
+	if cmd.BaseURL == nil && cmd.Name == nil && cmd.CustomName == nil && cmd.AccountID == nil {
+		return nil, Validation(errors.New("no fields to update (expected base_url, name, custom_name, or account_id)"))
 	}
 	state, err := app.controlPlane.Snapshot(ctx)
 	if err != nil {
@@ -193,6 +196,13 @@ func (app *Application) UpdateProvider(ctx context.Context, cmd UpdateProviderCo
 	}
 	if cmd.CustomName != nil {
 		updated.CustomName = strings.TrimSpace(*cmd.CustomName)
+	}
+	if cmd.AccountID != nil {
+		accountID, err := normalizeProviderAccountID(*cmd.AccountID)
+		if err != nil {
+			return nil, Validation(err)
+		}
+		updated.AccountID = accountID
 	}
 	provider, err := app.runtime.Upsert(ctx, updated, "")
 	if err != nil {
@@ -275,11 +285,16 @@ func (app *Application) CreateProvider(ctx context.Context, cmd CreateProviderCo
 	if protocol == "" {
 		protocol = "openai"
 	}
+	accountID, err := normalizeProviderAccountID(cmd.AccountID)
+	if err != nil {
+		return nil, Validation(err)
+	}
 	provider, err := app.runtime.Upsert(ctx, controlplane.Provider{
 		ID:         id,
 		Name:       cmd.Name,
 		PresetID:   cmd.PresetID,
 		CustomName: strings.TrimSpace(cmd.CustomName),
+		AccountID:  accountID,
 		Kind:       kind,
 		Protocol:   protocol,
 		BaseURL:    cmd.BaseURL,
@@ -373,11 +388,13 @@ func buildProviderRecords(cfg config.Config, state controlplane.State) []Provide
 		if !cfg.LocalProvidersAllowed() && providerKind(cp) == "local" {
 			continue
 		}
-		preset, hasPreset := presetByID[cp.ID]
+		preset, hasPreset := builtInProviderForControlPlaneProvider(presetByID, cp)
 		record := ProviderRecord{
 			ID:             cp.ID,
 			Name:           cp.Name,
+			PresetID:       cp.PresetID,
 			CustomName:     cp.CustomName,
+			AccountID:      cp.AccountID,
 			Kind:           cp.Kind,
 			Protocol:       cp.Protocol,
 			BaseURL:        cp.BaseURL,
@@ -389,6 +406,7 @@ func buildProviderRecords(cfg config.Config, state controlplane.State) []Provide
 		}
 		if hasPreset {
 			record.PresetID = preset.ID
+			record.Name = preset.Name
 			if record.Kind == "" {
 				record.Kind = preset.Kind
 			}
@@ -422,6 +440,22 @@ func buildProviderRecords(cfg config.Config, state controlplane.State) []Provide
 	return records
 }
 
+func builtInProviderForControlPlaneProvider(
+	presetByID map[string]config.BuiltInProvider,
+	provider controlplane.Provider,
+) (config.BuiltInProvider, bool) {
+	for _, candidate := range []string{provider.PresetID, provider.Name, provider.ID} {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		if preset, ok := presetByID[candidate]; ok {
+			return preset, true
+		}
+	}
+	return config.BuiltInProvider{}, false
+}
+
 func createProviderKind(cmd CreateProviderCommand, id, fallback string) string {
 	if strings.TrimSpace(cmd.Kind) != "" {
 		return normalizeProviderKind(cmd.Kind)
@@ -448,6 +482,17 @@ func providerKind(provider controlplane.Provider) string {
 
 func normalizeProviderKind(kind string) string {
 	return strings.ToLower(strings.TrimSpace(kind))
+}
+
+func normalizeProviderAccountID(accountID string) (string, error) {
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		return "", nil
+	}
+	if strings.ContainsAny(accountID, "/?#") {
+		return "", errors.New("account_id cannot contain /, ?, or #")
+	}
+	return accountID, nil
 }
 
 func slugify(name string) string {

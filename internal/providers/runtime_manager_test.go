@@ -277,6 +277,42 @@ func TestControlPlaneRuntimeManagerHydratesPresetEndpointPaths(t *testing.T) {
 	}
 }
 
+func TestControlPlaneRuntimeManagerAppliesFireworksAccountID(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewTextHandler(testWriter{t}, nil))
+	store := controlplane.NewMemoryStore()
+	key := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef0123456789abcdef"))
+	cipher, err := secrets.NewAESGCMCipher(key)
+	if err != nil {
+		t.Fatalf("NewAESGCMCipher() error = %v", err)
+	}
+
+	manager := NewControlPlaneRuntimeManager(logger, nil, store, cipher)
+	if _, err := manager.Upsert(context.Background(), controlplane.Provider{
+		ID:        "fireworks-ai",
+		Name:      "fireworks",
+		PresetID:  "fireworks",
+		AccountID: "team-alpha",
+		Enabled:   true,
+	}, "fw-secret"); err != nil {
+		t.Fatalf("Upsert() error = %v", err)
+	}
+
+	registry := manager.Registry()
+	provider, ok := registry.Get("fireworks")
+	if !ok {
+		t.Fatal("expected fireworks provider in registry")
+	}
+	openaiProvider, ok := provider.(*OpenAICompatibleProvider)
+	if !ok {
+		t.Fatalf("provider type = %T, want *OpenAICompatibleProvider", provider)
+	}
+	if openaiProvider.config.ModelsPath != config.FireworksModelsPath("team-alpha") {
+		t.Fatalf("models path = %q, want team account endpoint", openaiProvider.config.ModelsPath)
+	}
+}
+
 func TestControlPlaneRuntimeManagerPreservesExistingOverridesOnMinimalUpdate(t *testing.T) {
 	t.Parallel()
 

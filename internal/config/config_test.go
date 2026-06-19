@@ -825,6 +825,41 @@ func TestBuiltInProviderCatalogMetadata(t *testing.T) {
 	}
 }
 
+func TestFireworksModelsPath(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		accountID string
+		want      string
+	}{
+		{
+			name:      "default",
+			accountID: "",
+			want:      "https://api.fireworks.ai/v1/accounts/fireworks/models",
+		},
+		{
+			name:      "custom account",
+			accountID: "team-alpha",
+			want:      "https://api.fireworks.ai/v1/accounts/team-alpha/models",
+		},
+		{
+			name:      "escaped account",
+			accountID: "team alpha",
+			want:      "https://api.fireworks.ai/v1/accounts/team%20alpha/models",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := FireworksModelsPath(tt.accountID); got != tt.want {
+				t.Fatalf("FireworksModelsPath(%q) = %q, want %q", tt.accountID, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestLoadProvidersFromEnvIncludesCustomProviderFromCoreEnvKeys(t *testing.T) {
 	t.Setenv("PROVIDER_CUSTOM_PRECONFIGURED", "1")
 	t.Setenv("PROVIDER_CUSTOM_BASE_URL", "https://example.com/v1")

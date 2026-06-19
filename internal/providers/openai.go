@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -33,6 +34,9 @@ const (
 	ollamaCapabilityDiscoveryMaxModels   = 32
 	ollamaCapabilityDiscoveryMinTimeout  = 500 * time.Millisecond
 	ollamaCapabilityDiscoveryMaxTimeout  = 3 * time.Second
+
+	fireworksModelDiscoveryPageSize = 200
+	fireworksModelDiscoveryMaxPages = 20
 )
 
 type openAIChatCompletionRequest struct {
@@ -213,8 +217,24 @@ type openAIModel struct {
 }
 
 type fireworksModelsResponse struct {
-	Models []fireworksModel `json:"models"`
-	Data   []fireworksModel `json:"data"`
+	Models           []fireworksModel `json:"models"`
+	Data             []fireworksModel `json:"data"`
+	NextPageToken    string           `json:"nextPageToken"`
+	NextPageTokenAlt string           `json:"next_page_token"`
+}
+
+func (r fireworksModelsResponse) items() []fireworksModel {
+	if len(r.Models) > 0 {
+		return r.Models
+	}
+	return r.Data
+}
+
+func (r fireworksModelsResponse) nextPageToken() string {
+	if token := strings.TrimSpace(r.NextPageToken); token != "" {
+		return token
+	}
+	return strings.TrimSpace(r.NextPageTokenAlt)
 }
 
 type fireworksModel struct {
@@ -224,6 +244,20 @@ type fireworksModel struct {
 	SupportsTools      bool   `json:"supportsTools"`
 	SupportsImageInput bool   `json:"supportsImageInput"`
 	ContextLength      int    `json:"contextLength"`
+}
+
+type lmStudioModelsResponse struct {
+	Models []lmStudioModel `json:"models"`
+}
+
+type lmStudioModel struct {
+	ID               string `json:"id"`
+	Key              string `json:"key"`
+	Type             string `json:"type"`
+	MaxContextLength int    `json:"max_context_length"`
+	Capabilities     struct {
+		TrainedForToolUse bool `json:"trained_for_tool_use"`
+	} `json:"capabilities"`
 }
 
 type ollamaShowRequest struct {
@@ -417,6 +451,12 @@ func (p *OpenAICompatibleProvider) discoverCapabilities(ctx context.Context) (Ca
 	if p.isFireworksProvider() {
 		return p.discoverFireworksCapabilities(ctx, endpoint)
 	}
+	if p.isLMStudioProvider() {
+		caps, err := p.discoverLMStudioCapabilities(ctx)
+		if err == nil && len(caps.Models) > 0 {
+			return caps, nil
+		}
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -466,10 +506,14 @@ func (p *OpenAICompatibleProvider) discoverCapabilities(ctx context.Context) (Ca
 	}, nil
 }
 
-func (p *OpenAICompatibleProvider) discoverFireworksCapabilities(ctx context.Context, endpoint string) (Capabilities, error) {
+func (p *OpenAICompatibleProvider) discoverLMStudioCapabilities(ctx context.Context) (Capabilities, error) {
+	endpoint, err := lmStudioNativeModelsURL(p.config.BaseURL)
+	if err != nil {
+		return Capabilities{}, fmt.Errorf("build LM Studio models URL: %w", err)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return Capabilities{}, fmt.Errorf("build Fireworks models request: %w", err)
+		return Capabilities{}, fmt.Errorf("build LM Studio models request: %w", err)
 	}
 	if p.config.APIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+p.config.APIKey)
@@ -478,7 +522,7 @@ func (p *OpenAICompatibleProvider) discoverFireworksCapabilities(ctx context.Con
 
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
-		return Capabilities{}, fmt.Errorf("send Fireworks models request: %w", err)
+		return Capabilities{}, fmt.Errorf("send LM Studio models request: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -486,25 +530,116 @@ func (p *OpenAICompatibleProvider) discoverFireworksCapabilities(ctx context.Con
 		return Capabilities{}, decodeUpstreamError(resp)
 	}
 
-	var payload fireworksModelsResponse
+	var payload lmStudioModelsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return Capabilities{}, fmt.Errorf("decode Fireworks models response: %w", err)
+		return Capabilities{}, fmt.Errorf("decode LM Studio models response: %w", err)
 	}
 
-	items := payload.Models
-	if len(items) == 0 {
-		items = payload.Data
-	}
-	models := make([]string, 0, len(items))
-	modelCapabilities := make(map[string]types.ModelCapabilities, len(items))
-	for _, item := range items {
-		id := strings.TrimSpace(item.Name)
+	models := make([]string, 0, len(payload.Models))
+	modelCapabilities := make(map[string]types.ModelCapabilities, len(payload.Models))
+	for _, item := range payload.Models {
+		if modelType := strings.TrimSpace(item.Type); modelType != "" && !strings.EqualFold(modelType, "llm") {
+			continue
+		}
+		id := strings.TrimSpace(item.Key)
 		if id == "" {
 			id = strings.TrimSpace(item.ID)
 		}
 		if id == "" || contains(models, id) {
 			continue
 		}
+		models = append(models, id)
+
+		cap := types.ModelCapabilities{
+			Streaming:      true,
+			StreamingKnown: true,
+			Source:         "provider",
+		}
+		if item.Capabilities.TrainedForToolUse {
+			cap.ToolCalling = "basic"
+		}
+		if item.MaxContextLength > 0 {
+			cap.MaxContextTokens = item.MaxContextLength
+		}
+		modelCapabilities[id] = cap
+	}
+	if len(modelCapabilities) == 0 {
+		modelCapabilities = nil
+	}
+
+	defaultModel := p.config.DefaultModel
+	if defaultModel == "" && len(models) > 0 {
+		defaultModel = models[0]
+	}
+
+	return Capabilities{
+		Name:              p.Name(),
+		Kind:              p.Kind(),
+		DefaultModel:      defaultModel,
+		Models:            models,
+		ModelCapabilities: modelCapabilities,
+		Discoverable:      true,
+		DiscoverySource:   "lmstudio_api_models",
+		RefreshedAt:       time.Now().UTC(),
+	}, nil
+}
+
+func (p *OpenAICompatibleProvider) discoverFireworksCapabilities(ctx context.Context, endpoint string) (Capabilities, error) {
+	items := make([]fireworksModel, 0)
+	pageToken := ""
+	for page := 0; page < fireworksModelDiscoveryMaxPages; page++ {
+		pageEndpoint, err := fireworksModelsPageURL(endpoint, pageToken)
+		if err != nil {
+			return Capabilities{}, fmt.Errorf("build Fireworks models page URL: %w", err)
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageEndpoint, nil)
+		if err != nil {
+			return Capabilities{}, fmt.Errorf("build Fireworks models request: %w", err)
+		}
+		if p.config.APIKey != "" {
+			req.Header.Set("Authorization", "Bearer "+p.config.APIKey)
+		}
+		injectTraceContext(req)
+
+		resp, err := p.httpClient.Do(req)
+		if err != nil {
+			return Capabilities{}, fmt.Errorf("send Fireworks models request: %w", err)
+		}
+
+		if resp.StatusCode >= http.StatusBadRequest {
+			defer resp.Body.Close()
+			return Capabilities{}, decodeUpstreamError(resp)
+		}
+
+		var payload fireworksModelsResponse
+		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+			resp.Body.Close()
+			return Capabilities{}, fmt.Errorf("decode Fireworks models response: %w", err)
+		}
+		resp.Body.Close()
+
+		items = append(items, payload.items()...)
+		pageToken = payload.nextPageToken()
+		if pageToken == "" {
+			break
+		}
+	}
+
+	models := make([]string, 0, len(items))
+	modelCapabilities := make(map[string]types.ModelCapabilities, len(items))
+	seen := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		id := strings.TrimSpace(item.Name)
+		if id == "" {
+			id = strings.TrimSpace(item.ID)
+		}
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
 		models = append(models, id)
 
 		cap := types.ModelCapabilities{
@@ -541,6 +676,24 @@ func (p *OpenAICompatibleProvider) discoverFireworksCapabilities(ctx context.Con
 		DiscoverySource:   "fireworks_models",
 		RefreshedAt:       time.Now().UTC(),
 	}, nil
+}
+
+func fireworksModelsPageURL(endpoint string, pageToken string) (string, error) {
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return "", err
+	}
+	query := u.Query()
+	if query.Get("pageSize") == "" {
+		query.Set("pageSize", strconv.Itoa(fireworksModelDiscoveryPageSize))
+	}
+	if pageToken != "" {
+		query.Set("pageToken", pageToken)
+	} else {
+		query.Del("pageToken")
+	}
+	u.RawQuery = query.Encode()
+	return u.String(), nil
 }
 
 func (p *OpenAICompatibleProvider) discoverProviderModelCapabilities(ctx context.Context, models []string) map[string]types.ModelCapabilities {
@@ -609,7 +762,40 @@ func (p *OpenAICompatibleProvider) isOllamaProvider() bool {
 }
 
 func (p *OpenAICompatibleProvider) isFireworksProvider() bool {
-	return strings.EqualFold(strings.TrimSpace(p.config.Name), "fireworks")
+	if strings.EqualFold(strings.TrimSpace(p.config.Name), "fireworks") {
+		return true
+	}
+	endpoint := buildModelsURL(p.config.BaseURL, p.config.ModelsPath)
+	parsed, err := url.Parse(endpoint)
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(parsed.Host, "api.fireworks.ai") &&
+		strings.Contains(parsed.EscapedPath(), "/models")
+}
+
+func (p *OpenAICompatibleProvider) isLMStudioProvider() bool {
+	switch strings.ToLower(strings.TrimSpace(p.config.Name)) {
+	case "lmstudio", "lm-studio", "lm studio", "local-lmstudio":
+		return true
+	default:
+		return false
+	}
+}
+
+func lmStudioNativeModelsURL(base string) (string, error) {
+	u, err := url.Parse(strings.TrimSpace(base))
+	if err != nil {
+		return "", err
+	}
+	u.RawQuery = ""
+	u.Fragment = ""
+	path := strings.TrimRight(u.Path, "/")
+	if strings.EqualFold(path, "/v1") {
+		path = ""
+	}
+	u.Path = strings.TrimRight(path, "/") + "/api/v1/models"
+	return u.String(), nil
 }
 
 func ollamaNativeBaseURL(base string) (string, error) {

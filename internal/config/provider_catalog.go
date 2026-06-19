@@ -1,6 +1,7 @@
 package config
 
 import (
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -20,6 +21,16 @@ type BuiltInProvider struct {
 	DefaultModel string
 	DocsURL      string
 	Description  string
+}
+
+const FireworksDefaultAccountID = "fireworks"
+
+func FireworksModelsPath(accountID string) string {
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		accountID = FireworksDefaultAccountID
+	}
+	return "https://api.fireworks.ai/v1/accounts/" + url.PathEscape(accountID) + "/models"
 }
 
 var builtInProviders = []BuiltInProvider{
@@ -91,7 +102,7 @@ var builtInProviders = []BuiltInProvider{
 		Protocol:    "openai",
 		BaseURL:     "https://api.fireworks.ai/inference/v1",
 		APIKeyEnv:   "PROVIDER_FIREWORKS_API_KEY",
-		ModelsPath:  "https://api.fireworks.ai/v1/accounts/fireworks/models",
+		ModelsPath:  FireworksModelsPath(""),
 		DocsURL:     "https://docs.fireworks.ai/getting-started/introduction",
 		Description: "Fireworks.ai serverless inference. Hosts an evolving catalog of open-weight models; model IDs are namespaced (`accounts/fireworks/models/<slug>`).",
 	},
