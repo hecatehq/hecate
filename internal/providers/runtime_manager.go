@@ -252,6 +252,9 @@ func (m *ControlPlaneRuntimeManager) resolvedConfigs(ctx context.Context) ([]con
 		if builtIn, ok := builtInForControlPlaneProvider(item); ok {
 			cfg.ChatPath = builtIn.ChatPath
 			cfg.ModelsPath = builtIn.ModelsPath
+			if builtIn.ID == "fireworks" {
+				cfg.ModelsPath = config.FireworksModelsPath(item.AccountID)
+			}
 		}
 		if _, ok := byName[cfg.Name]; !ok {
 			order = append(order, cfg.Name)

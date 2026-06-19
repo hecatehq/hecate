@@ -142,8 +142,11 @@ normalized assistant text, model, and token usage are.
 Fireworks AI is also OpenAI Chat Completions-compatible, but its public model
 catalog is account-scoped. Hecate sends chat traffic to
 `https://api.fireworks.ai/inference/v1` and discovers the public Fireworks model
-list through `https://api.fireworks.ai/v1/accounts/fireworks/models`, which
-returns model metadata such as context length and tool support.
+list through `https://api.fireworks.ai/v1/accounts/fireworks/models` by
+default. Set the provider's **Fireworks account ID** to discover private,
+fine-tuned, or organization-scoped model catalogs instead. The chat request still
+uses the full Fireworks model ID returned by discovery, while the UI displays the
+short model name in pickers.
 
 ## Anthropic prompt caching
 
@@ -198,13 +201,13 @@ providers are unaffected.
 
 Every UI action maps to a Hecate-native settings endpoint:
 
-- `POST /hecate/v1/settings/providers` — add a provider. Body `{name, kind, protocol, base_url?, api_key?, custom_name?, preset_id?}`.
+- `POST /hecate/v1/settings/providers` — add a provider. Body `{name, kind, protocol, base_url?, api_key?, custom_name?, preset_id?, account_id?}`.
 - `GET /hecate/v1/settings/providers/local-discovery` — probe local presets
   for command presence and default endpoint availability. Used by the Add
   provider modal before a provider is created. Remote runtime mode blocks this
   endpoint and hides local presets by default.
 - `DELETE /hecate/v1/settings/providers/{id}` — remove it.
-- `PATCH /hecate/v1/settings/providers/{id}` — partial update; accepts `base_url`, `name`, and `custom_name`.
+- `PATCH /hecate/v1/settings/providers/{id}` — partial update; accepts `base_url`, `name`, `custom_name`, and provider-specific fields such as Fireworks `account_id`.
 - `PUT /hecate/v1/settings/providers/{id}/api-key` — set the API key (empty `key` clears it).
 
 The full surface lives in [`runtime-api.md`](../runtime/runtime-api.md) and is implemented in [`internal/api/handler_settings.go`](../../internal/api/handler_settings.go). Useful for terraforming a fleet of gateways from a single config source of truth.

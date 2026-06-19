@@ -45,6 +45,12 @@ export function filterModelsByProvider(
   });
 }
 
+export function modelDisplayName(model: Pick<ModelRecord, "id"> | string): string {
+  const id = typeof model === "string" ? model : model.id;
+  const accountScoped = /^accounts\/[^/]+\/models\/(.+)$/.exec(id);
+  return accountScoped?.[1] || id;
+}
+
 export function isRemoteRuntimeSession(sessionInfo: SessionInfo): boolean {
   return Boolean(sessionInfo?.remote_identity);
 }

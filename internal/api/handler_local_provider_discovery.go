@@ -258,6 +258,14 @@ func localProviderProbeURL(provider config.BuiltInProvider) string {
 			return parsed.String()
 		}
 	}
+	if provider.ID == "lmstudio" {
+		if parsed, err := url.Parse(provider.BaseURL); err == nil && parsed.Scheme != "" && parsed.Host != "" {
+			parsed.Path = "/api/v1/models"
+			parsed.RawQuery = ""
+			parsed.Fragment = ""
+			return parsed.String()
+		}
+	}
 
 	base := strings.TrimRight(provider.BaseURL, "/")
 	if strings.HasSuffix(base, "/models") {
@@ -313,6 +321,32 @@ func decodeLocalProviderModels(body []byte, providerID string) ([]string, error)
 		for _, model := range payload.Models {
 			if strings.TrimSpace(model.Name) != "" {
 				models = append(models, model.Name)
+			}
+		}
+		return models, nil
+	}
+	if providerID == "lmstudio" {
+		var payload struct {
+			Models []struct {
+				ID   string `json:"id"`
+				Key  string `json:"key"`
+				Type string `json:"type"`
+			} `json:"models"`
+		}
+		if err := json.NewDecoder(bytes.NewReader(body)).Decode(&payload); err != nil {
+			return nil, fmt.Errorf("invalid %s response: %w", providerID, err)
+		}
+		models := make([]string, 0, len(payload.Models))
+		for _, model := range payload.Models {
+			if modelType := strings.TrimSpace(model.Type); modelType != "" && !strings.EqualFold(modelType, "llm") {
+				continue
+			}
+			id := strings.TrimSpace(model.Key)
+			if id == "" {
+				id = strings.TrimSpace(model.ID)
+			}
+			if id != "" {
+				models = append(models, id)
 			}
 		}
 		return models, nil

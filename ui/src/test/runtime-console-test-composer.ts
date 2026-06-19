@@ -584,6 +584,7 @@ export function useRuntimeConsole() {
       setProviderBaseURL: providerActions.setProviderBaseURL,
       setProviderName: providerActions.setProviderName,
       setProviderCustomName: providerActions.setProviderCustomName,
+      setProviderAccountID: providerActions.setProviderAccountID,
       getChatApproval: chatActions.getChatApproval,
       listChatMessageFiles: chatActions.listChatMessageFiles,
       getChatWorkspaceDiff: chatActions.getChatWorkspaceDiff,

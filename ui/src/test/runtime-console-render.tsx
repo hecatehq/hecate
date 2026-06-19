@@ -238,6 +238,7 @@ function buildOverrides(actions: RuntimeConsoleFixtureActions): CoordinatorOverr
       setProviderBaseURL: actions.setProviderBaseURL,
       setProviderName: actions.setProviderName,
       setProviderCustomName: actions.setProviderCustomName,
+      setProviderAccountID: actions.setProviderAccountID,
     },
     policy: {
       upsertPolicyRule: actions.upsertPolicyRule,

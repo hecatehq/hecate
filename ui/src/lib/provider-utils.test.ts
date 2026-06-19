@@ -8,7 +8,11 @@ import {
   resolvedBaseURL,
   runtimeProviderForConfigured,
 } from "./provider-utils";
-import type { ConfiguredProviderRecord, ProviderPresetRecord } from "../types/provider";
+import type {
+  ConfiguredProviderRecord,
+  ProviderPresetRecord,
+  ProviderRecord,
+} from "../types/provider";
 
 const presets: ProviderPresetRecord[] = [
   {
@@ -138,6 +142,22 @@ describe("providerDisplayName", () => {
 
     expect(providerDisplayName("fireworks-ai", configured, presets)).toBe("Fireworks AI");
     expect(providerDisplayName("fireworks", configured, presets)).toBe("Fireworks AI");
+  });
+
+  it("resolves canonical display names from stored provider names without preset ids", () => {
+    const configured = [
+      { ...makeCP("fireworks-ai"), name: "fireworks" },
+      { ...makeCP("local-lmstudio"), name: "lmstudio", kind: "local" },
+    ];
+    const runtime: ProviderRecord[] = [
+      { name: "fireworks", kind: "cloud", healthy: true, status: "healthy" },
+      { name: "lmstudio", kind: "local", healthy: true, status: "healthy" },
+    ];
+
+    expect(providerDisplayName("fireworks-ai", configured, [], runtime)).toBe("Fireworks AI");
+    expect(providerDisplayName("fireworks", configured, [], runtime)).toBe("Fireworks AI");
+    expect(providerDisplayName("local-lmstudio", configured, [], runtime)).toBe("LM Studio");
+    expect(providerDisplayName("lmstudio", configured, [], runtime)).toBe("LM Studio");
   });
 });
 

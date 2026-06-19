@@ -20,6 +20,7 @@ type Props = {
 type AddFormState = {
   name: string;
   custom_name: string;
+  account_id: string;
   base_url: string;
   api_key: string;
   kind: string;
@@ -125,6 +126,7 @@ export function AddProviderModal({ open, onClose }: Props) {
         name: form.name.trim(),
         preset_id: preset?.id,
         custom_name: form.custom_name.trim() || undefined,
+        account_id: form.account_id.trim() || undefined,
         base_url: form.base_url.trim() || undefined,
         api_key: form.api_key.trim() || undefined,
         kind: form.kind,
@@ -144,6 +146,7 @@ export function AddProviderModal({ open, onClose }: Props) {
     setForm({
       name: nextPreset.name,
       custom_name: "",
+      account_id: nextPreset.id === "fireworks" ? "fireworks" : "",
       base_url: discovery?.base_url || nextPreset.base_url,
       api_key: "",
       kind: nextPreset.kind,
@@ -382,6 +385,25 @@ export function AddProviderModal({ open, onClose }: Props) {
             . Choose another provider entry or remove the existing one first.
           </div>
         )}
+        {preset?.id === "fireworks" && (
+          <div>
+            <label className="kicker-lg" style={{ display: "block", marginBottom: 6 }}>
+              Fireworks account ID
+            </label>
+            <input
+              className="input"
+              type="text"
+              value={form.account_id}
+              onChange={(e) => setForm((f) => ({ ...f, account_id: e.target.value }))}
+              placeholder="fireworks"
+              style={{ fontFamily: "var(--font-mono)" }}
+            />
+            <div style={{ marginTop: 6, fontSize: 11, color: "var(--t3)", lineHeight: 1.4 }}>
+              Keep <span style={{ fontFamily: "var(--font-mono)" }}>fireworks</span> for the public
+              catalog, or use your Fireworks account ID for private and fine-tuned models.
+            </div>
+          </div>
+        )}
         {showAPIKey && (
           <div>
             <label className="kicker-lg" style={{ display: "block", marginBottom: 6 }}>
@@ -431,7 +453,15 @@ export function AddProviderModal({ open, onClose }: Props) {
 }
 
 function emptyAddForm(kind: "cloud" | "local"): AddFormState {
-  return { name: "Custom", custom_name: "", base_url: "", api_key: "", kind, protocol: "openai" };
+  return {
+    name: "Custom",
+    custom_name: "",
+    account_id: "",
+    base_url: "",
+    api_key: "",
+    kind,
+    protocol: "openai",
+  };
 }
 
 function providerSlug(name: string): string {

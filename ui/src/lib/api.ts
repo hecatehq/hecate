@@ -1222,7 +1222,7 @@ export async function deletePolicyRule(id: string): Promise<unknown> {
 // Credentials live behind PUT /providers/{id}/api-key, not here.
 export async function updateProvider(
   id: string,
-  patch: { base_url?: string; name?: string; custom_name?: string },
+  patch: { base_url?: string; name?: string; custom_name?: string; account_id?: string },
 ): Promise<unknown> {
   return fetchJSON(`${HECATE_API}/settings/providers/${encodeURIComponent(id)}`, {
     method: "PATCH",
@@ -1241,6 +1241,7 @@ export async function setProviderAPIKey(id: string, key: string): Promise<unknow
 export async function createProvider(params: {
   name: string;
   preset_id?: string;
+  account_id?: string;
   custom_name?: string;
   base_url?: string;
   api_key?: string;
@@ -1274,6 +1275,10 @@ export async function setProviderName(id: string, name: string): Promise<unknown
 // clears it. Allowed for any provider, including presets.
 export async function setProviderCustomName(id: string, customName: string): Promise<unknown> {
   return updateProvider(id, { custom_name: customName });
+}
+
+export async function setProviderAccountID(id: string, accountID: string): Promise<unknown> {
+  return updateProvider(id, { account_id: accountID });
 }
 
 // createProvider params include the optional custom_name disambiguator.

@@ -369,25 +369,43 @@ func TestOpenAIProviderFireworksDiscoveryUsesModelsEndpoint(t *testing.T) {
 	t.Parallel()
 
 	var calls int
+	pageTokens := make([]string, 0, 2)
 	transport := testRoundTripperFunc(func(r *http.Request) (*http.Response, error) {
 		calls++
 		if r.Method != http.MethodGet {
 			return nil, fmt.Errorf("method = %s, want GET", r.Method)
 		}
-		if got := r.URL.String(); got != "https://api.fireworks.ai/v1/accounts/fireworks/models" {
-			return nil, fmt.Errorf("url = %s, want Fireworks models endpoint", got)
+		if got := r.URL.Scheme + "://" + r.URL.Host + r.URL.Path; got != "https://api.fireworks.ai/v1/accounts/fireworks/models" {
+			return nil, fmt.Errorf("url path = %s, want Fireworks models endpoint", got)
 		}
 		if got := r.Header.Get("Authorization"); got != "Bearer fireworks-key" {
 			return nil, fmt.Errorf("Authorization = %q, want Bearer fireworks-key", got)
 		}
-		return jsonHTTPResponse(fireworksModelsResponse{Models: []fireworksModel{
-			{
-				Name:          "accounts/fireworks/models/deepseek-v3p1",
-				SupportsTools: true,
-				ContextLength: 131072,
-			},
-			{ID: "accounts/fireworks/models/llama-v3p1"},
-		}})
+		query := r.URL.Query()
+		if got := query.Get("pageSize"); got != "200" {
+			return nil, fmt.Errorf("pageSize = %q, want 200", got)
+		}
+		pageToken := query.Get("pageToken")
+		pageTokens = append(pageTokens, pageToken)
+		switch pageToken {
+		case "":
+			return jsonHTTPResponse(fireworksModelsResponse{
+				Models: []fireworksModel{
+					{
+						Name:          "accounts/fireworks/models/deepseek-v3p1",
+						SupportsTools: true,
+						ContextLength: 131072,
+					},
+				},
+				NextPageToken: "next-page",
+			})
+		case "next-page":
+			return jsonHTTPResponse(fireworksModelsResponse{Models: []fireworksModel{
+				{ID: "accounts/fireworks/models/llama-v3p1"},
+			}})
+		default:
+			return nil, fmt.Errorf("unexpected pageToken = %q", pageToken)
+		}
 	})
 
 	provider := NewOpenAICompatibleProvider(config.OpenAICompatibleProviderConfig{
@@ -405,8 +423,11 @@ func TestOpenAIProviderFireworksDiscoveryUsesModelsEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Capabilities() error = %v", err)
 	}
-	if calls != 1 {
-		t.Fatalf("discovery call count = %d, want 1", calls)
+	if calls != 2 {
+		t.Fatalf("discovery call count = %d, want 2", calls)
+	}
+	if len(pageTokens) != 2 || pageTokens[0] != "" || pageTokens[1] != "next-page" {
+		t.Fatalf("page tokens = %#v, want first page then next-page", pageTokens)
 	}
 	if len(caps.Models) != 2 || caps.Models[0] != "accounts/fireworks/models/deepseek-v3p1" {
 		t.Fatalf("models = %#v, want Fireworks model names", caps.Models)
@@ -417,6 +438,104 @@ func TestOpenAIProviderFireworksDiscoveryUsesModelsEndpoint(t *testing.T) {
 	capability := caps.ModelCapabilities["accounts/fireworks/models/deepseek-v3p1"]
 	if capability.ToolCalling != "basic" || capability.MaxContextTokens != 131072 {
 		t.Fatalf("model capability = %+v, want tools and context length", capability)
+	}
+}
+
+func TestOpenAIProviderLMStudioDiscoveryUsesNativeModelsEndpoint(t *testing.T) {
+	t.Parallel()
+
+	var calls int
+	transport := testRoundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		calls++
+		if r.Method != http.MethodGet {
+			return nil, fmt.Errorf("method = %s, want GET", r.Method)
+		}
+		if got := r.URL.String(); got != "http://127.0.0.1:1234/api/v1/models" {
+			return nil, fmt.Errorf("url = %s, want LM Studio native models endpoint", got)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body: io.NopCloser(strings.NewReader(`{
+				"models": [
+					{
+						"key": "qwen/qwen3-4b",
+						"type": "llm",
+						"max_context_length": 32768,
+						"capabilities": {"trained_for_tool_use": true}
+					},
+					{"key": "text-embedding-nomic", "type": "embedding"}
+				]
+			}`)),
+		}, nil
+	})
+
+	provider := NewOpenAICompatibleProvider(config.OpenAICompatibleProviderConfig{
+		Name:    "lmstudio",
+		Kind:    "local",
+		BaseURL: "http://127.0.0.1:1234/v1",
+		Timeout: time.Second,
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	provider.httpClient.Transport = transport
+
+	caps, err := provider.Capabilities(context.Background())
+	if err != nil {
+		t.Fatalf("Capabilities() error = %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("discovery call count = %d, want 1", calls)
+	}
+	if len(caps.Models) != 1 || caps.Models[0] != "qwen/qwen3-4b" {
+		t.Fatalf("models = %#v, want LM Studio LLM model keys", caps.Models)
+	}
+	if caps.DefaultModel != "qwen/qwen3-4b" {
+		t.Fatalf("default model = %q, want first discovered LM Studio model", caps.DefaultModel)
+	}
+	if caps.DiscoverySource != "lmstudio_api_models" {
+		t.Fatalf("discovery source = %q, want lmstudio_api_models", caps.DiscoverySource)
+	}
+	capability := caps.ModelCapabilities["qwen/qwen3-4b"]
+	if capability.ToolCalling != "basic" || capability.MaxContextTokens != 32768 || !capability.Streaming {
+		t.Fatalf("model capability = %+v, want native LM Studio tools/context/streaming", capability)
+	}
+}
+
+func TestOpenAIProviderLMStudioDiscoveryFallsBackToOpenAIModelsEndpoint(t *testing.T) {
+	t.Parallel()
+
+	var paths []string
+	transport := testRoundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		paths = append(paths, r.URL.Path)
+		switch r.URL.Path {
+		case "/api/v1/models":
+			return nil, fmt.Errorf("LM Studio native endpoint unavailable")
+		case "/v1/models":
+			return jsonHTTPResponse(openAIModelsResponse{Data: []openAIModel{{ID: "fallback-model"}}})
+		default:
+			return nil, fmt.Errorf("path = %s, want /api/v1/models or /v1/models", r.URL.Path)
+		}
+	})
+
+	provider := NewOpenAICompatibleProvider(config.OpenAICompatibleProviderConfig{
+		Name:    "LM Studio",
+		Kind:    "local",
+		BaseURL: "http://127.0.0.1:1234/v1",
+		Timeout: time.Second,
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	provider.httpClient.Transport = transport
+
+	caps, err := provider.Capabilities(context.Background())
+	if err != nil {
+		t.Fatalf("Capabilities() error = %v", err)
+	}
+	if strings.Join(paths, ",") != "/api/v1/models,/v1/models" {
+		t.Fatalf("request paths = %#v, want native LM Studio then OpenAI fallback", paths)
+	}
+	if len(caps.Models) != 1 || caps.Models[0] != "fallback-model" {
+		t.Fatalf("models = %#v, want fallback OpenAI model list", caps.Models)
+	}
+	if caps.DiscoverySource != "upstream_v1_models" {
+		t.Fatalf("discovery source = %q, want upstream_v1_models fallback", caps.DiscoverySource)
 	}
 }
 

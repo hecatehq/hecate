@@ -447,6 +447,42 @@ describe("ModelPicker", () => {
     expect(document.querySelector(".dropdown-menu")).toBeNull();
   });
 
+  it("shows account-scoped models as short names while selecting the full id", async () => {
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    const fireworksModels: ModelRecord[] = [
+      {
+        id: "accounts/fireworks/models/deepseek-v3p1",
+        owned_by: "fireworks",
+        metadata: { provider: "fireworks", provider_kind: "cloud", default: true },
+      },
+      {
+        id: "accounts/fireworks/models/llama-v3p1",
+        owned_by: "fireworks",
+        metadata: { provider: "fireworks", provider_kind: "cloud", default: false },
+      },
+    ];
+    render(
+      <ModelPicker
+        value="accounts/fireworks/models/deepseek-v3p1"
+        onChange={onChange}
+        models={fireworksModels}
+      />,
+    );
+
+    expect(screen.getByRole("button")).toHaveTextContent("deepseek-v3p1");
+    await user.click(screen.getByRole("button"));
+
+    const input = screen.getByRole("textbox", { name: /filter models/i });
+    await user.type(input, "llama");
+    const menu = document.querySelector(".dropdown-menu") as HTMLElement;
+    expect(within(menu).getByText("llama-v3p1")).toBeTruthy();
+    expect(within(menu).getAllByText("Fireworks AI").length).toBeGreaterThan(0);
+
+    await user.click(within(menu).getByText("llama-v3p1"));
+    expect(onChange).toHaveBeenCalledWith("accounts/fireworks/models/llama-v3p1");
+  });
+
   it("supports filtering, arrow-key navigation, and Enter selection", async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();

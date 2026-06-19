@@ -84,6 +84,18 @@ export function normalizeProviderKey(value: string | null | undefined): string {
   return (value ?? "").trim().toLowerCase();
 }
 
+function canonicalProviderDisplayName(
+  key: string | null | undefined,
+  presets: ProviderPresetRecord[] = [],
+): string | undefined {
+  const normalized = normalizeProviderKey(key);
+  if (!normalized) return undefined;
+  return (
+    presets.find((preset) => normalizeProviderKey(preset.id) === normalized)?.name ||
+    PROVIDER_DISPLAY_NAMES[normalized]
+  );
+}
+
 export function configuredProviderAliases(
   provider: Pick<ConfiguredProviderRecord, "id" | "name" | "preset_id"> | null | undefined,
 ): string[] {
@@ -177,12 +189,13 @@ export function providerDisplayName(
   runtimeProviders: ProviderRecord[] = [],
 ): string {
   const configured = configuredProviderForKey(providerID, configuredProviders);
-  const presetID = configured?.preset_id || providerID;
-  const canonicalID = presetID.toLowerCase();
   const runtimeProvider = runtimeProviderForKey(providerID, runtimeProviders, configuredProviders);
   return (
-    presets.find((preset) => preset.id === presetID)?.name ||
-    PROVIDER_DISPLAY_NAMES[canonicalID] ||
+    canonicalProviderDisplayName(configured?.preset_id, presets) ||
+    canonicalProviderDisplayName(providerID, presets) ||
+    canonicalProviderDisplayName(configured?.name, presets) ||
+    canonicalProviderDisplayName(configured?.id, presets) ||
+    canonicalProviderDisplayName(runtimeProvider?.name, presets) ||
     runtimeProvider?.name ||
     configured?.name ||
     providerID
