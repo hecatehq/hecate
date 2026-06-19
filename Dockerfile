@@ -12,6 +12,7 @@
 
 ARG GO_VERSION=1.26.2
 ARG BUN_VERSION=1.3.13
+ARG ALPINE_VERSION=3.22
 ARG NODE_IMAGE=node:24-trixie-slim
 ARG HECATE_VERSION=dev
 
@@ -28,18 +29,54 @@ RUN bun install --frozen-lockfile
 COPY ui/ ./
 RUN bun run build
 
-# ── 2. Go build ─────────────────────────────────────────────────────────────
+# ── 2. ACP adapter release downloads ────────────────────────────────────────
+
+FROM alpine:${ALPINE_VERSION} AS adapter-downloader
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+ARG CODEX_ACP_ADAPTER_VERSION=v0.1.0-alpha.2
+ARG CLAUDE_CODE_ACP_ADAPTER_VERSION=v0.1.0-alpha.2
+
+RUN apk add --no-cache ca-certificates curl tar \
+    && set -eux; \
+    os="${TARGETOS:-linux}"; \
+    arch="${TARGETARCH:-amd64}"; \
+    if [ "$os" != "linux" ]; then \
+      echo "unsupported adapter target OS: ${os}" >&2; \
+      exit 1; \
+    fi; \
+    case "$arch" in \
+      amd64|arm64) ;; \
+      *) echo "unsupported adapter target arch: ${arch}" >&2; exit 1 ;; \
+    esac; \
+    mkdir -p /adapter-bin; \
+    download_adapter() { \
+      repo="$1"; \
+      binary="$2"; \
+      version="$3"; \
+      release_version="${version#v}"; \
+      archive="${binary}_${release_version}_${os}_${arch}.tar.gz"; \
+      release_url="https://github.com/hecatehq/${repo}/releases/download/${version}"; \
+      workdir="/tmp/${binary}"; \
+      mkdir -p "$workdir"; \
+      curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors "$release_url/checksums.txt" -o "$workdir/checksums.txt"; \
+      curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors "$release_url/$archive" -o "$workdir/$archive"; \
+      grep "  ${archive}$" "$workdir/checksums.txt" > "$workdir/${archive}.sha256"; \
+      (cd "$workdir" && sha256sum -c "${archive}.sha256"); \
+      tar -xzf "$workdir/$archive" -C /adapter-bin "$binary"; \
+      chmod 0755 "/adapter-bin/$binary"; \
+      rm -rf "$workdir"; \
+    }; \
+    download_adapter codex-acp-adapter codex-acp-adapter "$CODEX_ACP_ADAPTER_VERSION"; \
+    download_adapter claude-code-acp-adapter claude-code-acp-adapter "$CLAUDE_CODE_ACP_ADAPTER_VERSION"
+
+# ── 3. Go build ─────────────────────────────────────────────────────────────
 
 FROM golang:${GO_VERSION}-alpine AS go-builder
 ARG HECATE_VERSION=dev
-ARG CODEX_ACP_ADAPTER_REF=latest
-ARG CLAUDE_CODE_ACP_ADAPTER_REF=latest
 WORKDIR /src
 
 RUN apk add --no-cache git
-RUN mkdir -p /adapter-bin \
-    && GOBIN=/adapter-bin go install github.com/hecatehq/codex-acp-adapter/cmd/codex-acp-adapter@${CODEX_ACP_ADAPTER_REF} \
-    && GOBIN=/adapter-bin go install github.com/hecatehq/claude-code-acp-adapter/cmd/claude-code-acp-adapter@${CLAUDE_CODE_ACP_ADAPTER_REF}
 COPY go.mod go.sum ./
 RUN go mod download
 
@@ -54,7 +91,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o /out/hecate \
     ./cmd/hecate
 
-# ── 3. Runtime ──────────────────────────────────────────────────────────────
+# ── 4. Runtime ──────────────────────────────────────────────────────────────
 
 FROM ${NODE_IMAGE} AS runtime
 
@@ -91,8 +128,8 @@ RUN npm install -g \
       @xai-official/grok@${GROK_VERSION} \
     && npm cache clean --force
 
-COPY --from=go-builder /adapter-bin/codex-acp-adapter /usr/local/bin/codex-acp-adapter
-COPY --from=go-builder /adapter-bin/claude-code-acp-adapter /usr/local/bin/claude-code-acp-adapter
+COPY --from=adapter-downloader /adapter-bin/codex-acp-adapter /usr/local/bin/codex-acp-adapter
+COPY --from=adapter-downloader /adapter-bin/claude-code-acp-adapter /usr/local/bin/claude-code-acp-adapter
 
 RUN mkdir -p /opt/cursor-agent \
     && curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors "${CURSOR_INSTALL_URL}" -o /tmp/cursor-install.sh \
@@ -120,7 +157,6 @@ ENV HECATE_ADDRESS=0.0.0.0:8765 \
     HECATE_DATA_DIR=/data \
     HECATE_SQLITE_PATH=/data/hecate.db \
     HECATE_BACKEND=sqlite \
-    HECATE_AGENT_ADAPTERS_DIR=/data/agent-adapters \
     NPM_CONFIG_CACHE=/data/npm-cache \
     TINI_SUBREAPER=1 \
     # Local inference: from inside a container 127.0.0.1 is the container's
