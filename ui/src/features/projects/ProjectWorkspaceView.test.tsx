@@ -334,16 +334,16 @@ describe("ProjectWorkspaceView", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Add purpose" }));
     await userEvent.click(screen.getByRole("button", { name: "Set defaults" }));
-    await userEvent.click(screen.getByRole("button", { name: "Review setup" }));
-    await userEvent.click(screen.getByRole("button", { name: "Set up" }));
+    expect(screen.queryByRole("button", { name: "Review setup" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Set up" })).toBeNull();
     const firstWorkCheck = screen.getByRole("group", { name: "First work item" });
     await userEvent.click(within(firstWorkCheck).getByRole("button", { name: "Create work" }));
     await userEvent.click(screen.getByRole("button", { name: "Set up project" }));
     await userEvent.click(screen.getByRole("button", { name: "Project settings" }));
 
-    expect(assistantState.bootstrap).toHaveBeenCalledTimes(2);
+    expect(assistantState.bootstrap).toHaveBeenCalledTimes(1);
     expect(handlers.onCreateWork).toHaveBeenCalledTimes(1);
-    expect(handlers.onOpenSettings).toHaveBeenCalledTimes(4);
+    expect(handlers.onOpenSettings).toHaveBeenCalledTimes(3);
   });
 
   it("renders workspace tabs and delegates tab changes", async () => {

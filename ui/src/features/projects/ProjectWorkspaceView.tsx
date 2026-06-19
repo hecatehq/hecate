@@ -607,7 +607,6 @@ function ProjectOnboardingPanel({
   const hasPurpose = Boolean(project.description?.trim());
   const hasDefaults = Boolean(project.default_provider && project.default_model);
   const hasGuidance = contextSourceCount > 0 || skillCount > 0;
-  const bootstrapActionLabel = bootstrapPending ? "Setting up..." : "Set up";
   const checks: ProjectOnboardingCheck[] = [
     {
       label: "Project purpose",
@@ -636,20 +635,15 @@ function ProjectOnboardingPanel({
       detail: hasGuidance
         ? `${contextSourceCount} sources · ${skillCount} skills`
         : hasRoot
-          ? "Setup can discover workspace guidance and local skills."
-          : "Add sources manually, or attach a workspace when files matter.",
+          ? "Set up project can discover workspace guidance and local skills."
+          : "Attach a workspace when files matter, or add sources later.",
       done: hasGuidance,
-      actionLabel: hasRoot ? "Discover" : "Review setup",
-      action: hasRoot ? onBootstrap : onOpenSettings,
-      actionDisabled: bootstrapPending,
     },
     {
       label: "Roles",
-      detail: roleCount > 0 ? `${roleCount} roles` : "Setup can suggest roles from skills.",
+      detail:
+        roleCount > 0 ? `${roleCount} roles` : "Set up project can suggest roles from skills.",
       done: roleCount > 0,
-      actionLabel: bootstrapActionLabel,
-      action: onBootstrap,
-      actionDisabled: bootstrapPending,
     },
     {
       label: "First work item",
@@ -679,10 +673,6 @@ function ProjectOnboardingPanel({
           >
             <Icon d={Icons.refresh} size={13} />
             {bootstrapPending ? "Setting up..." : "Set up project"}
-          </button>
-          <button className="btn btn-ghost btn-sm" type="button" onClick={onCreateWork}>
-            <Icon d={Icons.plus} size={13} />
-            Create work
           </button>
           <button className="btn btn-ghost btn-sm" type="button" onClick={onOpenSettings}>
             <Icon d={Icons.settings} size={13} />
