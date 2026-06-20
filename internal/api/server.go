@@ -103,6 +103,7 @@ func registerHecateProjectRoutes(mux *http.ServeMux, handler *Handler) {
 	mux.HandleFunc("GET /hecate/v1/projects/{id}/work-items", handler.HandleProjectWorkItems)
 	mux.HandleFunc("POST /hecate/v1/projects/{id}/work-items", handler.HandleCreateProjectWorkItem)
 	mux.HandleFunc("GET /hecate/v1/projects/{id}/work-items/{work_item_id}", handler.HandleProjectWorkItem)
+	mux.HandleFunc("GET /hecate/v1/projects/{id}/work-items/{work_item_id}/readiness", handler.HandleProjectWorkItemReadiness)
 	mux.HandleFunc("PATCH /hecate/v1/projects/{id}/work-items/{work_item_id}", handler.HandleUpdateProjectWorkItem)
 	mux.HandleFunc("DELETE /hecate/v1/projects/{id}/work-items/{work_item_id}", handler.HandleDeleteProjectWorkItem)
 	mux.HandleFunc("GET /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments", handler.HandleProjectWorkAssignments)

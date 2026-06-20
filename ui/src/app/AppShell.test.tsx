@@ -15,6 +15,7 @@ import {
   getProjectHandoffs,
   getProjectOperationsBrief,
   getProjectWorkItem,
+  getProjectWorkItemReadiness,
   getProjectWorkItems,
   getProjectWorkRoles,
 } from "../lib/api";
@@ -44,6 +45,22 @@ vi.mock("../lib/api", async (importOriginal) => {
     getProjectWorkRoles: vi.fn(async () => ({ object: "project_roles", data: [] })),
     getProjectWorkItems: vi.fn(async () => ({ object: "project_work_items", data: [] })),
     getProjectWorkItem: vi.fn(async () => ({ object: "project_work_item", data: emptyWorkItem })),
+    getProjectWorkItemReadiness: vi.fn(async () => ({
+      object: "project_work_item_readiness",
+      data: {
+        project_id: "",
+        work_item_id: "",
+        ready: false,
+        status: "blocked",
+        title: "Closeout readiness unavailable",
+        detail: "Refresh work item detail before marking done.",
+        blockers: ["Closeout readiness is unavailable."],
+        warnings: [],
+        assignment_count: 0,
+        completed_assignments: 0,
+        review_follow_up_count: 0,
+      },
+    })),
     getProjectAssignments: vi.fn(async () => ({ object: "project_assignments", data: [] })),
     getProjectCollaborationArtifacts: vi.fn(async () => ({
       object: "project_collaboration_artifacts",
@@ -113,6 +130,22 @@ function resetProjectWorkMocks() {
   vi.mocked(getProjectWorkItem).mockResolvedValue({
     object: "project_work_item",
     data: emptyWorkItem,
+  });
+  vi.mocked(getProjectWorkItemReadiness).mockResolvedValue({
+    object: "project_work_item_readiness",
+    data: {
+      project_id: "",
+      work_item_id: "",
+      ready: false,
+      status: "blocked",
+      title: "Closeout readiness unavailable",
+      detail: "Refresh work item detail before marking done.",
+      blockers: ["Closeout readiness is unavailable."],
+      warnings: [],
+      assignment_count: 0,
+      completed_assignments: 0,
+      review_follow_up_count: 0,
+    },
   });
   vi.mocked(getProjectAssignments).mockResolvedValue({ object: "project_assignments", data: [] });
   vi.mocked(getProjectCollaborationArtifacts).mockResolvedValue({

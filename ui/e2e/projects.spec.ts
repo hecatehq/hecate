@@ -411,6 +411,16 @@ async function handleWorkItemRoute(
     }
   }
 
+  if (subresource === "readiness" && method === "GET") {
+    await route.fulfill(
+      ok({
+        object: "project_work_item_readiness",
+        data: projectWorkItemReadiness(state, item),
+      }),
+    );
+    return;
+  }
+
   if (subresource === "assignments") {
     const assignmentID = parts[4] || "";
     if (!assignmentID) {
@@ -625,6 +635,80 @@ function assignmentPreflight(projectID: string, workItemID: string, assignmentID
         included: true,
       },
     ],
+  };
+}
+
+function projectWorkItemReadiness(state: ProjectJourneyState, workItem: ProjectWorkItemRecord) {
+  const assignments = state.assignments.filter(
+    (assignment) => assignment.work_item_id === workItem.id,
+  );
+  const artifacts = state.artifacts.filter((artifact) => artifact.work_item_id === workItem.id);
+  const completedAssignments = assignments.filter(
+    (assignment) => (assignment.execution_ref?.status || assignment.status) === "completed",
+  );
+  const blockers: string[] = [];
+  const warnings: string[] = [];
+  if (workItem.status === "done") {
+    return {
+      project_id: workItem.project_id,
+      work_item_id: workItem.id,
+      ready: false,
+      status: "done",
+      title: "Work item is done",
+      detail: "This work item has already been marked done by the operator.",
+      blockers,
+      warnings,
+      assignment_count: assignments.length,
+      completed_assignments: completedAssignments.length,
+      review_follow_up_count: 0,
+    };
+  }
+
+  const activeAssignments = assignments.filter((assignment) =>
+    ["queued", "running", "awaiting_approval"].includes(
+      assignment.execution_ref?.status || assignment.status,
+    ),
+  ).length;
+  const missingEvidenceAssignments = completedAssignments.filter(
+    (assignment) =>
+      !artifacts.some(
+        (artifact) =>
+          artifact.kind === "evidence_link" &&
+          (!artifact.assignment_id || artifact.assignment_id === assignment.id),
+      ),
+  );
+  if (activeAssignments > 0) {
+    blockers.push(
+      `${activeAssignments} assignment${activeAssignments === 1 ? " is" : "s are"} still active`,
+    );
+  }
+  if (missingEvidenceAssignments.length > 0) {
+    blockers.push(
+      `${missingEvidenceAssignments.length} completed assignment${
+        missingEvidenceAssignments.length === 1 ? " is" : "s are"
+      } missing evidence`,
+    );
+  }
+  if (assignments.length === 0) {
+    warnings.push("No assignments are linked to this work item; closeout is manual.");
+  }
+
+  const ready = blockers.length === 0;
+  return {
+    project_id: workItem.project_id,
+    work_item_id: workItem.id,
+    ready,
+    status: ready ? "ready" : "blocked",
+    title: ready ? "Ready to mark done" : "Closeout is blocked",
+    detail: ready
+      ? "Assignments, evidence, handoffs, and review follow-up are clear. The operator can mark this work item done."
+      : "Resolve the listed assignment, evidence, handoff, or review follow-up items before marking this work done.",
+    blockers,
+    warnings,
+    assignment_count: assignments.length,
+    completed_assignments: completedAssignments.length,
+    review_follow_up_count: 0,
+    missing_evidence_assignment_ids: missingEvidenceAssignments.map((assignment) => assignment.id),
   };
 }
 

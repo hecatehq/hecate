@@ -370,9 +370,10 @@ preflight, selected-work follow-through, or Project Assistant proposal flows.
 Review follow-up, missing completion evidence, and closeout-ready work items
 open the existing selected-work detail surface; the brief does not persist a
 plan, mark work done, or start work.
-The selected-work detail card still computes its closeout gate locally for V1;
-the next convergence step is a read-only backend closeout readiness contract
-that both Project Operations and the detail card reflect.
+The selected-work detail card now reflects the same read-only backend closeout
+readiness contract as Project Operations, so Mark done is enabled from the
+server-owned assignment/evidence/handoff/review-follow-up decision rather than
+a separate client cascade.
 Assignment rows now render compact execution evidence from canonical
 assignment/activity refs, while the Context Inspector renders the full persisted
 launch packet with Profile, Instructions, Skills, Memory, Project sources, Work

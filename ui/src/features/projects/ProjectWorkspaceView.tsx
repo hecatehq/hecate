@@ -13,6 +13,7 @@ import type {
   ProjectOperationsBriefItem,
   ProjectRecord,
   ProjectSkillRecord,
+  ProjectWorkItemReadinessRecord,
   ProjectWorkItemRecord,
   ProjectWorkRoleRecord,
   UpdateProjectSkillPayload,
@@ -134,6 +135,7 @@ export type ProjectWorkspaceViewProps = {
   roleByID: Map<string, ProjectWorkRoleRecord>;
   roles: ProjectWorkRoleRecord[];
   selectedWorkItem: ProjectWorkItemRecord | null;
+  selectedWorkItemReadiness: ProjectWorkItemReadinessRecord | null;
   selectedWorkItemID: string;
   closingWorkItemID: string;
   skillsError: string;
@@ -228,6 +230,7 @@ export function ProjectWorkspaceView({
   roleByID,
   roles,
   selectedWorkItem,
+  selectedWorkItemReadiness,
   selectedWorkItemID,
   closingWorkItemID,
   skillsError,
@@ -406,6 +409,7 @@ export function ProjectWorkspaceView({
                         project={project}
                         roleByID={roleByID}
                         closingWorkItemID={closingWorkItemID}
+                        closeoutReadiness={selectedWorkItemReadiness}
                         startingAssignmentID={startingAssignmentID}
                         workItem={selectedWorkItem}
                         onAddAssignment={onAddAssignment}

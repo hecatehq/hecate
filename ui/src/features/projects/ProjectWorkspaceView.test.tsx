@@ -267,6 +267,7 @@ function renderWorkspace(overrides: Partial<ProjectWorkspaceViewProps> = {}) {
     roleByID: new Map(),
     roles: [],
     selectedWorkItem: null,
+    selectedWorkItemReadiness: null,
     selectedWorkItemID: "",
     closingWorkItemID: "",
     skillsError: "",

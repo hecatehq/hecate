@@ -2203,13 +2203,17 @@ non-cancelled assignment, makes it `blocked`. Otherwise the stored work-item
 status is returned.
 
 The Projects UI also exposes an operator closeout action for selected work
-items. That action uses the normal work-item `PATCH` path with `status="done"`
-after showing readiness derived from assignments, handoffs, and review
-artifacts. Readiness is advisory UI state: Hecate does not auto-mutate the
-stored work-item status from review verdicts, handoffs, or assignment rollups
-without an explicit operator update. The guided closeout action is disabled
-while blockers remain; operators can still make an intentional manual override
-through the normal work-item edit flow.
+items. The read-only
+`GET /hecate/v1/projects/{id}/work-items/{work_item_id}/readiness` contract is
+the shared closeout authority for Project Operations and selected-work detail:
+it derives blockers from assignments, completion evidence, handoffs, and review
+follow-up without mutating project state. The guided action still uses the
+normal work-item `PATCH` path with `status="done"` only after the operator
+clicks Mark done. Hecate does not auto-mutate stored work-item status from
+review verdicts, handoffs, or assignment rollups without an explicit operator
+update. The guided closeout action is disabled while blockers remain; operators
+can still make an intentional manual override through the normal work-item edit
+flow.
 
 #### `GET /hecate/v1/projects/{id}/activity`
 
@@ -2400,10 +2404,13 @@ Returns a read-only Project Operations brief for the selected project. The
 brief is an operator-facing triage layer over existing project state: launch
 defaults, the project activity buckets, work items without assignments, pending
 handoffs, pending memory candidates, review artifacts that need follow-up,
-missing completion evidence, and work items ready for closeout. It is bounded
-and deterministic; it does not create tasks, runs, chats, assignments,
-handoffs, proposals, memory entries, or memory candidates, and it never starts
-queued work.
+missing completion evidence, and work items ready for closeout. When none of
+those operations exists, the server may return a low-priority `open_latest_work`
+orientation item so the operator can reopen the most recently updated work item
+without clients deriving their own fallback cascade. It is bounded and
+deterministic; it does not create tasks, runs, chats, assignments, handoffs,
+proposals, memory entries, or memory candidates, and it never starts queued
+work.
 The eight-item cap is applied after sorting by priority, explicit operation
 kind urgency, recency, and stable ID, so truncation is part of the operator
 priority policy.
@@ -2691,6 +2698,37 @@ Returns:
 #### `GET /hecate/v1/projects/{id}/work-items/{work_item_id}`
 
 Returns one work item or `404 not_found`.
+
+#### `GET /hecate/v1/projects/{id}/work-items/{work_item_id}/readiness`
+
+Returns the read-only closeout readiness contract for one work item. This is
+the same server-side decision path used by Project Operations when it surfaces
+review follow-up, missing completion evidence, or closeout-ready items.
+
+The response does not create, update, or delete project records. `ready=true`
+means the selected-work detail may enable the guided Mark done action; the
+operator still applies the durable `status="done"` mutation through
+`PATCH /hecate/v1/projects/{id}/work-items/{work_item_id}`.
+
+```json
+{
+  "object": "project_work_item_readiness",
+  "data": {
+    "project_id": "proj_...",
+    "work_item_id": "work_...",
+    "ready": false,
+    "status": "blocked",
+    "title": "Closeout is blocked",
+    "detail": "Resolve the listed assignment, evidence, handoff, or review follow-up items before marking this work done.",
+    "blockers": ["1 completed assignment is missing evidence"],
+    "warnings": [],
+    "assignment_count": 1,
+    "completed_assignments": 1,
+    "review_follow_up_count": 0,
+    "missing_evidence_assignment_ids": ["asgn_..."]
+  }
+}
+```
 
 #### `PATCH /hecate/v1/projects/{id}/work-items/{work_item_id}`
 

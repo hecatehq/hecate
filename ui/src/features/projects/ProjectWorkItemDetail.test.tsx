@@ -8,6 +8,7 @@ import type {
   ProjectCollaborationArtifactRecord,
   ProjectHandoffRecord,
   ProjectRecord,
+  ProjectWorkItemReadinessRecord,
   ProjectWorkItemRecord,
   ProjectWorkRoleRecord,
 } from "../../types/project";
@@ -79,6 +80,26 @@ function workItem(overrides: Partial<ProjectWorkItemRecord> = {}): ProjectWorkIt
     reviewer_role_ids: ["architect"],
     created_at: "2026-06-12T00:00:00Z",
     updated_at: "2026-06-13T09:00:00Z",
+    ...overrides,
+  };
+}
+
+function closeoutReadiness(
+  overrides: Partial<ProjectWorkItemReadinessRecord> = {},
+): ProjectWorkItemReadinessRecord {
+  return {
+    project_id: "proj_1",
+    work_item_id: "work_1",
+    ready: true,
+    status: "ready",
+    title: "Ready to mark done",
+    detail:
+      "Assignments, evidence, handoffs, and review follow-up are clear. The operator can mark this work item done.",
+    blockers: [],
+    warnings: [],
+    assignment_count: 1,
+    completed_assignments: 1,
+    review_follow_up_count: 0,
     ...overrides,
   };
 }
@@ -220,6 +241,7 @@ function renderDetail(overrides: Partial<ProjectWorkItemDetailProps> = {}) {
     project: record,
     roleByID,
     closingWorkItemID: "",
+    closeoutReadiness: closeoutReadiness(),
     startingAssignmentID: "",
     workItem: workItem(),
     ...handlers,
@@ -389,6 +411,15 @@ describe("ProjectWorkItemDetail", () => {
   it("shows closeout blockers while assignments are active", () => {
     renderDetail({
       assignments: [assignment({ status: "running", execution_ref: { kind: "none" } })],
+      closeoutReadiness: closeoutReadiness({
+        ready: false,
+        status: "blocked",
+        title: "Closeout is blocked",
+        detail:
+          "Resolve the listed assignment, evidence, handoff, or review follow-up items before marking this work done.",
+        blockers: ["1 assignment is still active"],
+        completed_assignments: 0,
+      }),
     });
 
     expect(screen.getByText("Closeout is blocked")).toBeTruthy();
@@ -430,6 +461,14 @@ describe("ProjectWorkItemDetail", () => {
   it("shows already-done closeout state without a mark-done action", () => {
     renderDetail({
       assignments: [assignment({ status: "failed", execution_ref: { kind: "none" } })],
+      closeoutReadiness: closeoutReadiness({
+        ready: false,
+        status: "done",
+        title: "Work item is done",
+        detail: "This work item has already been marked done by the operator.",
+        blockers: [],
+        completed_assignments: 0,
+      }),
       workItem: workItem({ status: "done" }),
     });
 
