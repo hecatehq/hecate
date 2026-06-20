@@ -842,21 +842,41 @@ export type ProjectActivityResponse = {
 
 export type ProjectActivityBucketKey = "all" | "active" | "blocked" | "completed" | "recent";
 
-export type ProjectHealthAttentionAction =
-  | "memory"
-  | "profiles"
-  | "roles"
-  | "settings"
-  | "skills"
+export type ProjectActionType =
+  | "draft_project_proposal"
+  | "open_activity_bucket"
+  | "open_assignment_preflight"
+  | "open_memory_review"
+  | "open_profiles"
+  | "open_project_settings"
+  | "open_roles"
+  | "open_skills"
+  | "open_task"
+  | "open_work_item"
+  | "review_memory_candidate"
   | (string & {});
+
+export type ProjectAction = {
+  type: ProjectActionType;
+  project_id: string;
+  work_item_id?: string;
+  assignment_id?: string;
+  handoff_id?: string;
+  activity_bucket?: "all" | "active" | "blocked" | "completed" | "recent" | (string & {});
+  task_id?: string;
+  run_id?: string;
+  chat_id?: string;
+  candidate_id?: string;
+  request?: string;
+};
 
 export type ProjectHealthAttention = {
   id: string;
-  project_id?: string;
+  project_id: string;
   title: string;
   detail: string;
   status: string;
-  action?: ProjectHealthAttentionAction;
+  action: ProjectAction;
   bucket?: ProjectActivityBucketKey;
   work_item_id?: string;
   task_id?: string;
@@ -954,14 +974,6 @@ export type ProjectSetupReadinessResponse = {
 
 export type ProjectOperationsBriefPriority = "high" | "medium" | "low" | (string & {});
 
-export type ProjectOperationsBriefActionType =
-  | "draft_project_proposal"
-  | "open_assignment_preflight"
-  | "open_memory_review"
-  | "open_project_settings"
-  | "open_work_item"
-  | (string & {});
-
 export type ProjectOperationsBriefTarget = {
   surface: "project_settings" | "work" | "memory" | string;
   project_id: string;
@@ -971,15 +983,7 @@ export type ProjectOperationsBriefTarget = {
   activity_bucket?: "all" | "active" | "blocked" | "completed" | "recent" | (string & {});
 };
 
-export type ProjectOperationsBriefAction = {
-  type: ProjectOperationsBriefActionType;
-  project_id: string;
-  work_item_id?: string;
-  assignment_id?: string;
-  handoff_id?: string;
-  activity_bucket?: "all" | "active" | "blocked" | "completed" | "recent" | (string & {});
-  request?: string;
-};
+export type ProjectOperationsBriefAction = ProjectAction;
 
 export type ProjectOperationsBriefItem = {
   id: string;

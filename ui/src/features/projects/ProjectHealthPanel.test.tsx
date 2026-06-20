@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import type {
+  ProjectAction,
   ProjectHealthAttention,
   ProjectHealthSummary,
   ProjectMemoryCandidateRecord,
@@ -50,47 +51,62 @@ function healthSummary(overrides: Partial<ProjectHealthSummary> = {}) {
   } satisfies ProjectHealthSummary;
 }
 
+function projectAction(
+  type: ProjectAction["type"],
+  overrides: Partial<ProjectAction> = {},
+): ProjectAction {
+  return { type, project_id: "proj_1", ...overrides };
+}
+
 function renderPanel(overrides: Partial<Parameters<typeof ProjectHealthPanel>[0]> = {}) {
   const candidate = memoryCandidate();
   const attentionItems: ProjectHealthAttention[] = [
     {
       id: "proj_1:defaults",
+      project_id: "proj_1",
       title: "Provider/model defaults missing",
       detail: "Set defaults before starting assignments.",
       status: "awaiting_approval",
-      action: "settings",
+      action: projectAction("open_project_settings"),
     },
     {
       id: "assign_1:blocked",
+      project_id: "proj_1",
       title: "Blocked assignment",
       detail: "One assignment needs review.",
       status: "failed",
       bucket: "blocked",
+      action: projectAction("open_activity_bucket", { activity_bucket: "blocked" }),
       action_label: "View blocked",
     },
     {
       id: "work_1:item",
+      project_id: "proj_1",
       title: "Work item needs attention",
       detail: "Open the work item.",
       status: "running",
+      action: projectAction("open_work_item", { work_item_id: "work_1" }),
       work_item_id: "work_1",
       action_label: "Open review",
     },
     {
       id: "task_1:item",
+      project_id: "proj_1",
       title: "Task needs attention",
       detail: "Open the linked task.",
       status: "running",
+      action: projectAction("open_task", { run_id: "run_1", task_id: "task_1" }),
       task_id: "task_1",
       run_id: "run_1",
     },
     {
       id: "memcand_1:memory-candidate",
+      project_id: "proj_1",
       title: "Memory candidate pending review",
       detail: "Review generated memory.",
       status: "awaiting_approval",
+      action: projectAction("review_memory_candidate", { candidate_id: candidate.id }),
       candidate_id: candidate.id,
-      action: "memory",
     },
   ];
   const handlers = {
@@ -175,7 +191,7 @@ describe("ProjectHealthPanel", () => {
           title: "Provider/model defaults missing",
           detail: "Set defaults before starting assignments.",
           status: "awaiting_approval",
-          action: "settings",
+          action: { type: "open_project_settings", project_id: "proj_other" },
         },
       ],
       selectedProjectID: "proj_1",
@@ -190,6 +206,36 @@ describe("ProjectHealthPanel", () => {
       "Project attention target changed. Refresh project work and try again.",
     );
     expect(handlers.onAttentionDefaults).not.toHaveBeenCalled();
+  });
+
+  it("applies the stale-project guard to compact attention controls", async () => {
+    const { handlers } = renderPanel({
+      attentionItems: [
+        {
+          id: "proj_other:blocked",
+          project_id: "proj_other",
+          title: "Blocked assignment",
+          detail: "One assignment needs review.",
+          status: "failed",
+          action: {
+            type: "open_activity_bucket",
+            project_id: "proj_other",
+            activity_bucket: "blocked",
+          },
+          bucket: "blocked",
+          action_label: "View blocked",
+        },
+      ],
+      selectedProjectID: "proj_1",
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Project attention: 1" }));
+    await userEvent.click(screen.getByRole("button", { name: "View blocked" }));
+
+    expect(handlers.onAttentionError).toHaveBeenCalledWith(
+      "Project attention target changed. Refresh project work and try again.",
+    );
+    expect(handlers.onAttentionBucket).not.toHaveBeenCalled();
   });
 
   it("shows when lower-priority attention items are hidden", async () => {

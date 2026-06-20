@@ -20,11 +20,11 @@ const (
 
 	projectOperationsBriefItemLimit = 8
 
-	projectOperationsActionDraftProjectProposal    = "draft_project_proposal"
-	projectOperationsActionOpenAssignmentPreflight = "open_assignment_preflight"
-	projectOperationsActionOpenMemoryReview        = "open_memory_review"
-	projectOperationsActionOpenProjectSettings     = "open_project_settings"
-	projectOperationsActionOpenWorkItem            = "open_work_item"
+	projectOperationsActionDraftProjectProposal    = projectActionDraftProjectProposal
+	projectOperationsActionOpenAssignmentPreflight = projectActionOpenAssignmentPreflight
+	projectOperationsActionOpenMemoryReview        = projectActionOpenMemoryReview
+	projectOperationsActionOpenProjectSettings     = projectActionOpenProjectSettings
+	projectOperationsActionOpenWorkItem            = projectActionOpenWorkItem
 )
 
 type ProjectOperationsBriefEnvelope struct {
@@ -75,16 +75,6 @@ type ProjectOperationsBriefTargetResponse struct {
 	AssignmentID   string `json:"assignment_id,omitempty"`
 	HandoffID      string `json:"handoff_id,omitempty"`
 	ActivityBucket string `json:"activity_bucket,omitempty"`
-}
-
-type ProjectOperationsBriefActionResponse struct {
-	Type           string `json:"type"`
-	ProjectID      string `json:"project_id"`
-	WorkItemID     string `json:"work_item_id,omitempty"`
-	AssignmentID   string `json:"assignment_id,omitempty"`
-	HandoffID      string `json:"handoff_id,omitempty"`
-	ActivityBucket string `json:"activity_bucket,omitempty"`
-	Request        string `json:"request,omitempty"`
 }
 
 func (h *Handler) HandleProjectOperationsBrief(w http.ResponseWriter, r *http.Request) {
@@ -604,47 +594,23 @@ func boundedProjectOperationsItems(items []ProjectOperationsBriefItemResponse, l
 }
 
 func projectOperationsDraftProjectProposalAction(projectID, workItemID, request string) ProjectOperationsBriefActionResponse {
-	return ProjectOperationsBriefActionResponse{
-		Type:       projectOperationsActionDraftProjectProposal,
-		ProjectID:  projectID,
-		WorkItemID: strings.TrimSpace(workItemID),
-		Request:    strings.TrimSpace(request),
-	}
+	return newProjectActionDraftProposal(projectID, workItemID, request)
 }
 
 func projectOperationsOpenAssignmentPreflightAction(projectID, workItemID, assignmentID, bucket string) ProjectOperationsBriefActionResponse {
-	return ProjectOperationsBriefActionResponse{
-		Type:           projectOperationsActionOpenAssignmentPreflight,
-		ProjectID:      projectID,
-		WorkItemID:     workItemID,
-		AssignmentID:   assignmentID,
-		ActivityBucket: bucket,
-	}
+	return newProjectActionOpenAssignmentPreflight(projectID, workItemID, assignmentID, bucket)
 }
 
 func projectOperationsOpenMemoryReviewAction(projectID string) ProjectOperationsBriefActionResponse {
-	return ProjectOperationsBriefActionResponse{
-		Type:      projectOperationsActionOpenMemoryReview,
-		ProjectID: projectID,
-	}
+	return newProjectActionOpenMemoryReview(projectID)
 }
 
 func projectOperationsOpenProjectSettingsAction(projectID string) ProjectOperationsBriefActionResponse {
-	return ProjectOperationsBriefActionResponse{
-		Type:      projectOperationsActionOpenProjectSettings,
-		ProjectID: projectID,
-	}
+	return newProjectActionOpenProjectSettings(projectID)
 }
 
 func projectOperationsOpenWorkItemAction(projectID, workItemID, assignmentID, handoffID, bucket string) ProjectOperationsBriefActionResponse {
-	return ProjectOperationsBriefActionResponse{
-		Type:           projectOperationsActionOpenWorkItem,
-		ProjectID:      projectID,
-		WorkItemID:     workItemID,
-		AssignmentID:   assignmentID,
-		HandoffID:      handoffID,
-		ActivityBucket: bucket,
-	}
+	return newProjectActionOpenWorkItem(projectID, workItemID, assignmentID, handoffID, bucket)
 }
 
 func projectOperationsItemID(kind string, parts ...string) string {

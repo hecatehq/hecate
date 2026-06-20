@@ -2447,17 +2447,26 @@ show when lower-priority attention rows are hidden.
     "attention": [
       {
         "id": "proj_...:defaults",
+        "project_id": "proj_...",
         "title": "Provider/model defaults missing",
         "detail": "Native project starts and assignment chats need a default provider and model.",
         "status": "awaiting_approval",
-        "action": "settings"
+        "action": {
+          "type": "open_project_settings",
+          "project_id": "proj_..."
+        }
       },
       {
         "id": "memcand_...:memory-candidate",
+        "project_id": "proj_...",
         "title": "Memory candidate pending review",
         "detail": "Remember project convention - generated_summary",
         "status": "awaiting_approval",
-        "action": "memory",
+        "action": {
+          "type": "review_memory_candidate",
+          "project_id": "proj_...",
+          "candidate_id": "memcand_..."
+        },
         "candidate_id": "memcand_..."
       }
     ]
@@ -2465,12 +2474,15 @@ show when lower-priority attention rows are hidden.
 }
 ```
 
-Attention rows route to existing surfaces. `action` is used for project-wide
-targets (`settings`, `memory`, `profiles`, `roles`, `skills`); `work_item_id`,
-`task_id`, `run_id`, `chat_id`, `candidate_id`, and `bucket` point the operator
-to existing work, task, chat, memory-review, or activity surfaces. Clients
-should not mutate project state directly from a row; they open the referenced
-surface and use that surface's explicit typed mutation.
+Attention rows route to existing surfaces through a typed `action` object.
+Supported action types are shared with Project Operations where they overlap:
+`open_project_settings`, `open_memory_review`, `open_profiles`, `open_roles`,
+`open_skills`, `open_work_item`, `open_task`, `open_activity_bucket`, and
+`review_memory_candidate`. The top-level `work_item_id`, `task_id`, `run_id`,
+`chat_id`, `candidate_id`, and `bucket` fields remain row metadata for compact
+buttons and labels; clients should use `action` as the authority for row
+activation. Clients should not mutate project state directly from a row; they
+open the referenced surface and use that surface's explicit typed mutation.
 
 #### `GET /hecate/v1/projects/{id}/setup-readiness`
 

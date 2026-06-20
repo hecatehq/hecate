@@ -111,23 +111,31 @@ func TestProjectHealth_ReadOnlyAttention(t *testing.T) {
 		t.Fatalf("health summary = %+v, want candidate/handoff/review counts", response.Data.Summary)
 	}
 	defaults := findProjectHealthAttentionForTest(t, response.Data.Attention, "Provider/model defaults missing")
-	if defaults.Action != projectHealthActionSettings || defaults.Status != "awaiting_approval" {
-		t.Fatalf("defaults attention = %+v, want settings action", defaults)
+	assertProjectHealthActionForTest(t, defaults, projectActionOpenProjectSettings, "proj_health")
+	if defaults.Status != "awaiting_approval" {
+		t.Fatalf("defaults attention = %+v, want awaiting approval status", defaults)
 	}
 	handoff := findProjectHealthAttentionForTest(t, response.Data.Attention, "Pending handoff: Review server attention")
 	if handoff.WorkItemID != "work_review" || handoff.Bucket != "recent" || handoff.ActionLabel != "View recent" {
 		t.Fatalf("handoff attention = %+v, want recent work target", handoff)
 	}
+	assertProjectHealthActionForTest(t, handoff, projectActionOpenWorkItem, "proj_health")
+	if handoff.Action.WorkItemID != "work_review" || handoff.Action.AssignmentID != "asgn_review" || handoff.Action.ActivityBucket != "recent" {
+		t.Fatalf("handoff action = %+v, want recent work item target", handoff.Action)
+	}
 	review := findProjectHealthAttentionForTest(t, response.Data.Attention, "Review follow-up: Review server attention")
 	if review.WorkItemID != "work_review" || review.ActionLabel != "Open review" {
 		t.Fatalf("review attention = %+v, want review work target", review)
 	}
-	context := findProjectHealthAttentionForTest(t, response.Data.Attention, "No project memory or context sources enabled")
-	if context.Action != projectHealthActionMemory {
-		t.Fatalf("context attention = %+v, want memory action", context)
+	assertProjectHealthActionForTest(t, review, projectActionOpenWorkItem, "proj_health")
+	if review.Action.WorkItemID != "work_review" {
+		t.Fatalf("review action = %+v, want work item target", review.Action)
 	}
+	context := findProjectHealthAttentionForTest(t, response.Data.Attention, "No project memory or context sources enabled")
+	assertProjectHealthActionForTest(t, context, projectActionOpenMemoryReview, "proj_health")
 	candidate := findProjectHealthAttentionForTest(t, response.Data.Attention, "Memory candidate pending review")
-	if candidate.CandidateID != "memcand_health" || candidate.Action != projectHealthActionMemory {
+	assertProjectHealthActionForTest(t, candidate, projectActionReviewMemoryCandidate, "proj_health")
+	if candidate.CandidateID != "memcand_health" || candidate.Action.CandidateID != "memcand_health" {
 		t.Fatalf("candidate attention = %+v, want memory candidate target", candidate)
 	}
 
@@ -193,11 +201,13 @@ func TestProjectHealth_ProfileAndSkillReferences(t *testing.T) {
 		t.Fatalf("decode health: %v", err)
 	}
 	profiles := findProjectHealthAttentionForTest(t, response.Data.Attention, "Agent profile reference missing")
-	if profiles.Action != projectHealthActionProfiles || !strings.Contains(profiles.Detail, "missing_profile") {
+	assertProjectHealthActionForTest(t, profiles, projectActionOpenProfiles, "proj_refs")
+	if !strings.Contains(profiles.Detail, "missing_profile") {
 		t.Fatalf("profile attention = %+v, want missing profile detail", profiles)
 	}
 	skills := findProjectHealthAttentionForTest(t, response.Data.Attention, "Project skills need review")
-	if skills.Action != projectHealthActionSkills || !strings.Contains(skills.Detail, "unresolved: review") || !strings.Contains(skills.Detail, "disabled: backend") {
+	assertProjectHealthActionForTest(t, skills, projectActionOpenSkills, "proj_refs")
+	if !strings.Contains(skills.Detail, "unresolved: review") || !strings.Contains(skills.Detail, "disabled: backend") {
 		t.Fatalf("skill attention = %+v, want unresolved and disabled skill detail", skills)
 	}
 }
@@ -259,6 +269,10 @@ func TestProjectHealth_StandalonePendingHandoffAttention(t *testing.T) {
 	if handoff.WorkItemID != "work_standalone_handoff" || handoff.ActionLabel != "Open handoff" || handoff.Bucket != "" {
 		t.Fatalf("handoff attention = %+v, want standalone work target", handoff)
 	}
+	assertProjectHealthActionForTest(t, handoff, projectActionOpenWorkItem, "proj_standalone_handoff")
+	if handoff.Action.WorkItemID != "work_standalone_handoff" || handoff.Action.HandoffID != "handoff_standalone" {
+		t.Fatalf("handoff action = %+v, want standalone handoff work target", handoff.Action)
+	}
 }
 
 func TestProjectHealth_AttentionCapReportsOmittedItems(t *testing.T) {
@@ -315,4 +329,14 @@ func findProjectHealthAttentionForTest(t *testing.T, items []ProjectHealthAttent
 	}
 	t.Fatalf("project health attention %q not found in %+v", title, items)
 	return ProjectHealthAttentionItem{}
+}
+
+func assertProjectHealthActionForTest(t *testing.T, item ProjectHealthAttentionItem, actionType, projectID string) {
+	t.Helper()
+	if item.ProjectID != projectID {
+		t.Fatalf("attention item project_id = %q, want %q in %+v", item.ProjectID, projectID, item)
+	}
+	if item.Action.Type != actionType || item.Action.ProjectID != projectID {
+		t.Fatalf("attention action = %+v, want type %q for project %q", item.Action, actionType, projectID)
+	}
 }

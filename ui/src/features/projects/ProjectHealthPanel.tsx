@@ -8,7 +8,12 @@ import type {
 } from "../../types/project";
 import { Badge, Icon, Icons } from "../shared/ui";
 import { useFloatingMenu } from "../shared/useFloatingMenu";
-import { routeProjectHealthAttention, type ProjectActionRoute } from "./projectActionRouting";
+import {
+  PROJECT_ATTENTION_STALE_MESSAGE,
+  projectActivityBucket,
+  routeProjectHealthAttention,
+  type ProjectActionRoute,
+} from "./projectActionRouting";
 import { activitySignalLabel } from "./projectInsights";
 import { projectVisibilityDetail } from "./projectVisibilityDetail";
 
@@ -74,7 +79,8 @@ export function ProjectHealthPanel({
   const postureRows = projectHealthPostureRows(summary);
   const closeMenu = () => attentionMenu.close();
   const handleAttentionAction = (item: ProjectHealthAttention) => {
-    const candidate = memoryCandidates.find((candidate) => candidate.id === item.candidate_id);
+    const candidateID = projectHealthAttentionCandidateID(item);
+    const candidate = memoryCandidates.find((candidate) => candidate.id === candidateID);
     handleAttentionRoute(
       routeProjectHealthAttention(item, {
         hasMemoryCandidate: Boolean(candidate),
@@ -124,6 +130,15 @@ export function ProjectHealthPanel({
       default:
         return;
     }
+  };
+  const handleAttentionMetadataAction = (item: ProjectHealthAttention, run: () => void) => {
+    if (!projectHealthAttentionTargetCurrent(item, selectedProjectID)) {
+      onAttentionError?.(PROJECT_ATTENTION_STALE_MESSAGE);
+      closeMenu();
+      return;
+    }
+    run();
+    closeMenu();
   };
   return (
     <div ref={attentionMenu.wrapRef} style={projectAttentionMenuStyle}>
@@ -177,23 +192,21 @@ export function ProjectHealthPanel({
                   item={item}
                   onActivate={() => handleAttentionAction(item)}
                   onBucketChange={(bucket) => {
-                    onAttentionBucket(bucket);
-                    closeMenu();
+                    handleAttentionMetadataAction(item, () => onAttentionBucket(bucket));
                   }}
                   onOpenTask={(taskID, runID) => {
-                    onAttentionTask?.(taskID, runID);
-                    closeMenu();
+                    handleAttentionMetadataAction(item, () => onAttentionTask?.(taskID, runID));
                   }}
                   onReviewCandidate={(candidate) => {
-                    onAttentionReviewCandidate(candidate);
-                    closeMenu();
+                    handleAttentionMetadataAction(item, () =>
+                      onAttentionReviewCandidate(candidate),
+                    );
                   }}
                   onSelectWorkItem={(workItemID) => {
-                    onAttentionWorkItem(workItemID);
-                    closeMenu();
+                    handleAttentionMetadataAction(item, () => onAttentionWorkItem(workItemID));
                   }}
                   reviewCandidate={memoryCandidates.find(
-                    (candidate) => candidate.id === item.candidate_id,
+                    (candidate) => candidate.id === projectHealthAttentionCandidateID(item),
                   )}
                 />
               ))}
@@ -222,6 +235,9 @@ function ProjectHealthAttentionRow({
   onSelectWorkItem: (workItemID: string) => void;
   reviewCandidate?: ProjectMemoryCandidateRecord;
 }) {
+  const bucketTarget = projectHealthAttentionBucket(item);
+  const workItemID = projectHealthAttentionWorkItemID(item);
+  const taskTarget = projectHealthAttentionTaskTarget(item);
   return (
     <div
       className="project-attention-item"
@@ -242,19 +258,19 @@ function ProjectHealthAttentionRow({
         <span aria-hidden="true" className="project-attention-item-chevron">
           <Icon d={Icons.chevR} size={12} />
         </span>
-        {item.bucket && (
+        {bucketTarget && (
           <button
             className="btn btn-ghost btn-sm project-attention-item-action"
             type="button"
             onClick={(event) => {
               event.stopPropagation();
-              onBucketChange(item.bucket!);
+              onBucketChange(bucketTarget);
             }}
           >
             {item.action_label ?? "Inbox"}
           </button>
         )}
-        {item.work_item_id && (
+        {workItemID && (
           <button
             className="btn btn-ghost btn-sm project-attention-item-action"
             type="button"
@@ -265,20 +281,20 @@ function ProjectHealthAttentionRow({
             }
             onClick={(event) => {
               event.stopPropagation();
-              onSelectWorkItem(item.work_item_id!);
+              onSelectWorkItem(workItemID);
             }}
           >
-            {item.bucket ? "Details" : (item.action_label ?? "Details")}
+            {bucketTarget ? "Details" : (item.action_label ?? "Details")}
           </button>
         )}
-        {item.task_id && (
+        {taskTarget && (
           <button
             className="btn btn-ghost btn-sm project-attention-item-action"
             type="button"
             aria-label="Open attention task"
             onClick={(event) => {
               event.stopPropagation();
-              onOpenTask?.(item.task_id!, item.run_id);
+              onOpenTask?.(taskTarget.taskID, taskTarget.runID);
             }}
             disabled={!onOpenTask}
           >
@@ -303,6 +319,41 @@ function ProjectHealthAttentionRow({
       <div style={subtleTextStyle}>{item.detail}</div>
     </div>
   );
+}
+
+function projectHealthAttentionTargetCurrent(
+  item: ProjectHealthAttention,
+  selectedProjectID?: string,
+): boolean {
+  const projectID = item.action?.project_id;
+  return !projectID || !selectedProjectID || projectID === selectedProjectID;
+}
+
+function projectHealthAttentionBucket(
+  item: ProjectHealthAttention,
+): ProjectActivityBucketKey | undefined {
+  switch (item.action?.type) {
+    case "open_activity_bucket":
+    case "open_work_item":
+      return projectActivityBucket(item.action.activity_bucket);
+    default:
+      return undefined;
+  }
+}
+
+function projectHealthAttentionWorkItemID(item: ProjectHealthAttention): string | undefined {
+  return item.action?.type === "open_work_item" ? item.action.work_item_id : undefined;
+}
+
+function projectHealthAttentionTaskTarget(
+  item: ProjectHealthAttention,
+): { taskID: string; runID?: string } | undefined {
+  if (item.action?.type !== "open_task" || !item.action.task_id) return undefined;
+  return { taskID: item.action.task_id, runID: item.action.run_id };
+}
+
+function projectHealthAttentionCandidateID(item: ProjectHealthAttention): string | undefined {
+  return item.action?.type === "review_memory_candidate" ? item.action.candidate_id : undefined;
 }
 
 type ProjectHealthPostureRow = {

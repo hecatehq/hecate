@@ -177,6 +177,14 @@ function projectHealthData(
   };
 }
 
+function projectHealthAction(
+  projectID: string,
+  type: ProjectHealthAttention["action"]["type"],
+  overrides: Partial<ProjectHealthAttention["action"]> = {},
+): ProjectHealthAttention["action"] {
+  return { type, project_id: projectID, ...overrides };
+}
+
 function projectSetupReadinessData(
   projectID: string,
   overrides: Partial<ProjectSetupReadiness> = {},
@@ -4226,9 +4234,14 @@ describe("ProjectsView cockpit", () => {
       data: projectHealthData(project.id, [
         {
           id: staleAssignment.id,
+          project_id: project.id,
           title: "Stale or unknown assignment: Build cockpit UI",
           detail: "linked run missing",
           status: "stale_unknown",
+          action: projectHealthAction(project.id, "open_work_item", {
+            activity_bucket: "blocked",
+            work_item_id: workItem.id,
+          }),
           bucket: "blocked",
           work_item_id: workItem.id,
           task_id: "task_1",
@@ -4414,19 +4427,27 @@ describe("ProjectsView cockpit", () => {
         [
           {
             id: "asgn_1:handoff",
+            project_id: project.id,
             title: "Pending handoff: Build cockpit UI",
             detail: "QA handoff - Reviewer QA - updated 2026-06-04T10:00:00Z",
             status: "awaiting_approval",
+            action: projectHealthAction(project.id, "open_work_item", {
+              activity_bucket: "recent",
+              work_item_id: workItem.id,
+            }),
             bucket: "recent",
             work_item_id: workItem.id,
             action_label: "View recent",
           },
           {
             id: `${memoryCandidate.id}:memory-candidate`,
+            project_id: project.id,
             title: "Memory candidate pending review",
             detail: `${memoryCandidate.title} - ${memoryCandidate.suggested_trust_label}`,
             status: "awaiting_approval",
-            action: "memory",
+            action: projectHealthAction(project.id, "review_memory_candidate", {
+              candidate_id: memoryCandidate.id,
+            }),
             candidate_id: memoryCandidate.id,
           },
         ],
@@ -4558,17 +4579,19 @@ describe("ProjectsView cockpit", () => {
       data: projectHealthData(projectWithoutDefaults.id, [
         {
           id: `${projectWithoutDefaults.id}:defaults`,
+          project_id: projectWithoutDefaults.id,
           title: "Provider/model defaults missing",
           detail: "Native project starts and assignment chats need a default provider and model.",
           status: "awaiting_approval",
-          action: "settings",
+          action: projectHealthAction(projectWithoutDefaults.id, "open_project_settings"),
         },
         {
           id: `${projectWithoutDefaults.id}:context`,
+          project_id: projectWithoutDefaults.id,
           title: "No project memory or context sources enabled",
           detail: "Project-scoped context is empty for new chats and linked context packets.",
           status: "stale_unknown",
-          action: "memory",
+          action: projectHealthAction(projectWithoutDefaults.id, "open_memory_review"),
         },
       ]),
     });
@@ -4613,10 +4636,11 @@ describe("ProjectsView cockpit", () => {
       data: projectHealthData(project.id, [
         {
           id: `${project.id}:skills`,
+          project_id: project.id,
           title: "Project skills need review",
           detail: "disabled: backend.",
           status: "awaiting_approval",
-          action: "skills",
+          action: projectHealthAction(project.id, "open_skills"),
         },
       ]),
     });
@@ -4717,9 +4741,14 @@ describe("ProjectsView cockpit", () => {
       data: projectHealthData(project.id, [
         {
           id: staleAssignment.id,
+          project_id: project.id,
           title: "Stale or unknown assignment: Build cockpit UI",
           detail: "linked run missing",
           status: "stale_unknown",
+          action: projectHealthAction(project.id, "open_work_item", {
+            activity_bucket: "blocked",
+            work_item_id: workItem.id,
+          }),
           bucket: "blocked",
           work_item_id: workItem.id,
           task_id: "task_1",

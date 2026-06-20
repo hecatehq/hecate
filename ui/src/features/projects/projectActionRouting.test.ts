@@ -136,42 +136,103 @@ describe("projectActionRouting", () => {
   it("routes project health attention items to existing cockpit surfaces", () => {
     const attention = (overrides: Partial<ProjectHealthAttention>): ProjectHealthAttention => ({
       id: "attn_1",
+      project_id: "proj_1",
       title: "Needs attention",
       detail: "Open the right surface.",
       status: "blocked",
+      action: { type: "open_project_settings", project_id: "proj_1" },
       ...overrides,
     });
 
-    expect(routeProjectHealthAttention(attention({ action: "settings" }))).toEqual({
+    expect(
+      routeProjectHealthAttention(
+        attention({ action: { type: "open_project_settings", project_id: "proj_1" } }),
+      ),
+    ).toEqual({
       kind: "open_project_settings",
     });
     expect(
-      routeProjectHealthAttention(attention({ action: "settings", project_id: "other" }), {
-        selectedProjectID: "proj_1",
-      }),
+      routeProjectHealthAttention(
+        attention({
+          action: { type: "open_project_settings", project_id: "other" },
+          project_id: "other",
+        }),
+        {
+          selectedProjectID: "proj_1",
+        },
+      ),
     ).toEqual({
       kind: "error",
       message: "Project attention target changed. Refresh project work and try again.",
     });
-    expect(routeProjectHealthAttention(attention({ action: "skills" }))).toEqual({
+    expect(
+      routeProjectHealthAttention(
+        attention({ action: { type: "open_skills", project_id: "proj_1" } }),
+      ),
+    ).toEqual({
       kind: "open_skills",
     });
-    expect(routeProjectHealthAttention(attention({ candidate_id: "cand_1" }))).toEqual({
+    expect(
+      routeProjectHealthAttention(
+        attention({
+          action: {
+            type: "review_memory_candidate",
+            project_id: "proj_1",
+            candidate_id: "cand_1",
+          },
+          candidate_id: "cand_1",
+        }),
+      ),
+    ).toEqual({
       kind: "open_memory_review",
     });
     expect(
-      routeProjectHealthAttention(attention({ candidate_id: "cand_1" }), {
-        hasMemoryCandidate: true,
-      }),
+      routeProjectHealthAttention(
+        attention({
+          action: {
+            type: "review_memory_candidate",
+            project_id: "proj_1",
+            candidate_id: "cand_1",
+          },
+          candidate_id: "cand_1",
+        }),
+        {
+          hasMemoryCandidate: true,
+        },
+      ),
     ).toEqual({ kind: "review_memory_candidate", candidateID: "cand_1" });
     expect(
-      routeProjectHealthAttention(attention({ work_item_id: "work_1", bucket: "blocked" })),
+      routeProjectHealthAttention(
+        attention({
+          action: {
+            type: "open_work_item",
+            project_id: "proj_1",
+            work_item_id: "work_1",
+            activity_bucket: "blocked",
+          },
+          bucket: "blocked",
+          work_item_id: "work_1",
+        }),
+      ),
     ).toEqual({
       kind: "open_work_item",
       workItemID: "work_1",
       bucket: "blocked",
     });
-    expect(routeProjectHealthAttention(attention({ task_id: "task_1", run_id: "run_1" }))).toEqual({
+    expect(
+      routeProjectHealthAttention(
+        attention({
+          action: {
+            type: "open_task",
+            project_id: "proj_1",
+            task_id: "task_1",
+            run_id: "run_1",
+          },
+          run_id: "run_1",
+          task_id: "task_1",
+        }),
+      ),
+    ).toEqual({
       kind: "open_task",
       taskID: "task_1",
       runID: "run_1",
