@@ -1026,6 +1026,34 @@ func TestSessionManagerShutdownKillsStubbornACPProcess(t *testing.T) {
 	}
 }
 
+func TestSessionManagerCloseTreatsUnsupportedACPCloseAsOptional(t *testing.T) {
+	t.Setenv("HECATE_FAKE_ACP_CLOSE_UNSUPPORTED", "1")
+	installFakeACPExecutable(t, "cursor-agent")
+
+	manager := NewSessionManager()
+	sessionID := "chat_close_optional"
+	run, err := manager.Run(context.Background(), RunRequest{
+		SessionID:      sessionID,
+		AdapterID:      "cursor_agent",
+		Workspace:      t.TempDir(),
+		Prompt:         "close unsupported",
+		Timeout:        5 * time.Second,
+		MaxOutputBytes: 64 * 1024,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !strings.Contains(run.Output, "turn 1: close unsupported") {
+		t.Fatalf("Run output = %q, want fake ACP response", run.Output)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := manager.CloseSession(ctx, sessionID); err != nil {
+		t.Fatalf("CloseSession: %v", err)
+	}
+}
+
 func TestSessionManagerACPApprovalApproveCreatesGrantAndReusesSession(t *testing.T) {
 	installFakeACPExecutable(t, "codex-acp-adapter")
 	workspace := t.TempDir()
@@ -2353,7 +2381,7 @@ func installFakeACPExecutable(t *testing.T, name string) {
 	}
 	exe := filepath.Join(bin, name)
 	script := fmt.Sprintf(
-		"#!/bin/sh\nHECATE_FAKE_ACP_AGENT=1 HECATE_FAKE_ACP_LOAD_SESSION_FAIL=%q HECATE_FAKE_ACP_NEW_SESSION_DELAY=%q HECATE_FAKE_ACP_COMMANDS_DELAY=%q HECATE_FAKE_ACP_MODELS=%q HECATE_FAKE_ACP_CONFIG_OPTIONS=%q HECATE_FAKE_ACP_SET_MODEL_ERROR=%q HECATE_FAKE_ACP_EXPECT_MCP_METHOD=%q HECATE_FAKE_ACP_EXPECT_MCP_JSON=%q HECATE_FAKE_ACP_AUTHENTICATE_FILE=%q HECATE_FAKE_ACP_AUTHENTICATE_ERROR=%q HECATE_FAKE_ACP_LOGOUT_FILE=%q HECATE_FAKE_ACP_LOGOUT_ERROR=%q HECATE_FAKE_ACP_AUTH_AGENT_LOGIN=%q HECATE_FAKE_ACP_AUTH_AGENT_OTHER=%q HECATE_FAKE_ACP_AUTH_ENV_VAR=%q HECATE_FAKE_ACP_AUTH_TERMINAL=%q HECATE_FAKE_ACP_SUPPORTS_LOGOUT=%q exec %q -test.run '^TestFakeACPAgentProcess$'\n",
+		"#!/bin/sh\nHECATE_FAKE_ACP_AGENT=1 HECATE_FAKE_ACP_LOAD_SESSION_FAIL=%q HECATE_FAKE_ACP_NEW_SESSION_DELAY=%q HECATE_FAKE_ACP_COMMANDS_DELAY=%q HECATE_FAKE_ACP_MODELS=%q HECATE_FAKE_ACP_CONFIG_OPTIONS=%q HECATE_FAKE_ACP_SET_MODEL_ERROR=%q HECATE_FAKE_ACP_EXPECT_MCP_METHOD=%q HECATE_FAKE_ACP_EXPECT_MCP_JSON=%q HECATE_FAKE_ACP_AUTHENTICATE_FILE=%q HECATE_FAKE_ACP_AUTHENTICATE_ERROR=%q HECATE_FAKE_ACP_LOGOUT_FILE=%q HECATE_FAKE_ACP_LOGOUT_ERROR=%q HECATE_FAKE_ACP_AUTH_AGENT_LOGIN=%q HECATE_FAKE_ACP_AUTH_AGENT_OTHER=%q HECATE_FAKE_ACP_AUTH_ENV_VAR=%q HECATE_FAKE_ACP_AUTH_TERMINAL=%q HECATE_FAKE_ACP_SUPPORTS_LOGOUT=%q HECATE_FAKE_ACP_CLOSE_UNSUPPORTED=%q exec %q -test.run '^TestFakeACPAgentProcess$'\n",
 		os.Getenv("HECATE_FAKE_ACP_LOAD_SESSION_FAIL"),
 		os.Getenv("HECATE_FAKE_ACP_NEW_SESSION_DELAY"),
 		os.Getenv("HECATE_FAKE_ACP_COMMANDS_DELAY"),
@@ -2371,6 +2399,7 @@ func installFakeACPExecutable(t *testing.T, name string) {
 		os.Getenv("HECATE_FAKE_ACP_AUTH_ENV_VAR"),
 		os.Getenv("HECATE_FAKE_ACP_AUTH_TERMINAL"),
 		os.Getenv("HECATE_FAKE_ACP_SUPPORTS_LOGOUT"),
+		os.Getenv("HECATE_FAKE_ACP_CLOSE_UNSUPPORTED"),
 		os.Args[0],
 	)
 	if err := os.WriteFile(exe, []byte(script), 0o755); err != nil {
@@ -2692,6 +2721,9 @@ func (a *fakeACPAgent) Cancel(_ context.Context, params acp.CancelNotification) 
 }
 
 func (a *fakeACPAgent) CloseSession(context.Context, acp.CloseSessionRequest) (acp.CloseSessionResponse, error) {
+	if os.Getenv("HECATE_FAKE_ACP_CLOSE_UNSUPPORTED") == "1" {
+		return acp.CloseSessionResponse{}, acp.NewMethodNotFound(acp.AgentMethodSessionClose)
+	}
 	return acp.CloseSessionResponse{}, nil
 }
 

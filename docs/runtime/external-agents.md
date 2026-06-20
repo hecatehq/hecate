@@ -484,7 +484,9 @@ On Hecate shutdown, active External Agent turns are cancelled first. Hecate wait
 briefly for the ACP turn to drain, asks the native ACP session to close, and
 then kills the owned agent process group if it is still alive. This keeps app
 quit / restart from leaving Codex, Claude Code, Cursor Agent, or Grok Build
-processes behind.
+processes behind. If an ACP peer does not implement `session/close`, Hecate
+treats that as an optional shutdown method and still terminates the owned
+process group.
 Operators can also close an External Agent chat session manually to release the external
 agent process while keeping the Hecate chat history. Deleting a chat performs
 the same release step and then removes the persisted history.
