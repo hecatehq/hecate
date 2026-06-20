@@ -35,7 +35,7 @@ func TestBuiltInsIncludeInitialExternalAgents(t *testing.T) {
 	if got := found["claude_code"]; got.Command != "claude-code-acp-adapter" || got.Kind != DriverKindACP || got.CostMode != "external" {
 		t.Fatalf("claude_code adapter = %#v", got)
 	}
-	if got := found["claude_code"]; got.SupportedRange != ">=0.1.0-alpha.13" {
+	if got := found["claude_code"]; got.SupportedRange != ">=0.1.0-alpha.14" {
 		t.Fatalf("claude_code supported range = %q, want current Go adapter alpha range", got.SupportedRange)
 	}
 	if got := found["cursor_agent"]; got.Command != "cursor-agent" || got.Kind != DriverKindACP || got.CostMode != "external" {
