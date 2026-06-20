@@ -283,8 +283,7 @@ drift needs coverage, run `just test-acp-release-smoke`; it downloads the
 Dockerfile-pinned Go adapter release binaries, verifies checksums, and smokes
 probe capability discovery, ACP authenticate/logout, session config selectors,
 advertised slash commands, prompt streaming, and usage mapping with fake
-`codex` and `claude` CLIs. npm adapter wrappers are not part of the supported
-test path.
+`codex` and `claude` CLIs.
 
 ## Setup checks
 

@@ -1,0 +1,35 @@
+name: ACP adapter release smoke
+
+# Manual packaging check for the standalone Go ACP adapters. Normal PR CI keeps
+# using the repo-local fake ACP peer; this workflow downloads released adapter
+# binaries and proves the Dockerfile-pinned artifacts still satisfy Hecate's ACP
+# boundary.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Release binary smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up just
+        uses: extractions/setup-just@v4
+
+      - name: Run ACP adapter release smoke
+        run: just test-acp-release-smoke
