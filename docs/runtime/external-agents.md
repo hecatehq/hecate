@@ -24,11 +24,12 @@ transcript prelude for multi-turn continuity. Claude Code adapter
 after an adapter process restart. Codex does not yet claim vendor-native
 durable history across adapter process restarts; if a load is stale, Hecate
 falls back to a fresh native session. Hecate treats `codex-acp-adapter` versions
-older than `v0.1.0-alpha.21` and `claude-code-acp-adapter` versions older than
-`v0.1.0-alpha.23` as outside the tested range because those older releases lack
+older than `v0.1.0-alpha.22` and `claude-code-acp-adapter` versions older than
+`v0.1.0-alpha.24` as outside the tested range because those older releases lack
 the current continuity, permission-control, structured stream, session metadata,
 external MCP handoff surface, ACP authenticate/logout mapping, and prompt auth
-failure/stop-reason classification. The
+failure/stop-reason classification, or the local-login environment contract that
+is exercised by the real CLI smoke suite. The
 `v0.1.0-alpha.8` adapters added supported Codex and Claude Code JSON stream
 translation into ACP assistant-message, thought, tool-call, tool-result, and
 usage updates, so Hecate can render External Agent activity without exposing raw
@@ -63,6 +64,9 @@ or refusals in the chat activity timeline.
 Codex adapter `v0.1.0-alpha.21` maps parsed Codex stream permission requests to
 ACP `session/request_permission`, so Hecate can record and resolve adapter tool
 approvals instead of silently auto-continuing parsed permission events.
+Codex adapter `v0.1.0-alpha.22` keeps first-party CLI local-login detection
+visible to the spawned Codex process while retaining the sanitized adapter
+environment, and the release is covered by the opt-in real CLI smoke suite.
 Claude Code adapter `v0.1.0-alpha.11` adds command-backed stdio/HTTP MCP server
 config propagation into Claude `--mcp-config`, and `v0.1.0-alpha.12` adds
 Claude-native `--session-id` reload after adapter restarts. Claude Code adapter
@@ -96,6 +100,10 @@ Claude Code adapter `v0.1.0-alpha.23` maps parsed Claude Code stream permission
 requests to ACP `session/request_permission`, so Hecate can record and resolve
 adapter tool approvals instead of silently auto-continuing parsed permission
 events.
+Claude Code adapter `v0.1.0-alpha.24` keeps first-party CLI local-login
+detection visible to the spawned Claude process while retaining the sanitized
+adapter environment, and the release is covered by the opt-in real CLI smoke
+suite.
 
 ## Supported External Agents
 
