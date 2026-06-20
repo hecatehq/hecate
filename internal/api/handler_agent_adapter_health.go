@@ -14,10 +14,23 @@ import (
 // real adapter binaries.
 type AgentAdapterProbe func(ctx context.Context, adapterID string) agentadapters.ProbeResult
 
+// AgentAdapterLogout is the function shape the handler calls to ask an
+// adapter to clear its own account/session state. Production wiring uses
+// agentadapters.Logout directly; tests inject a fake to avoid spawning real
+// adapter binaries.
+type AgentAdapterLogout func(ctx context.Context, adapterID string) (agentadapters.LogoutResult, error)
+
 // SetAgentAdapterProbe overrides the probe used by HandleAgentAdapterHealth.
 // Pass nil to restore the default (agentadapters.Probe). Test-only.
 func (h *Handler) SetAgentAdapterProbe(p AgentAdapterProbe) {
 	h.agentAdapterProbe = p
+}
+
+// SetAgentAdapterLogout overrides the logout call used by
+// HandleAgentAdapterLogout. Pass nil to restore the default
+// (agentadapters.Logout). Test-only.
+func (h *Handler) SetAgentAdapterLogout(fn AgentAdapterLogout) {
+	h.agentAdapterLogout = fn
 }
 
 // HandleAgentAdapterHealth probes a single adapter to confirm it can
@@ -62,6 +75,13 @@ func (h *Handler) probeAgentAdapter(ctx context.Context, id string) agentadapter
 		return h.agentAdapterProbe(ctx, id)
 	}
 	return agentadapters.Probe(ctx, id)
+}
+
+func (h *Handler) logoutAgentAdapter(ctx context.Context, id string) (agentadapters.LogoutResult, error) {
+	if h != nil && h.agentAdapterLogout != nil {
+		return h.agentAdapterLogout(ctx, id)
+	}
+	return agentadapters.Logout(ctx, id)
 }
 
 // AgentAdapterHealthResponse wraps the probe result. Object is the

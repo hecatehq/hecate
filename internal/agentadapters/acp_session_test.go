@@ -437,6 +437,43 @@ func TestSessionManagerAppliesSelectedACPModelDuringPrepare(t *testing.T) {
 	}
 }
 
+func TestLogoutCallsACPLogout(t *testing.T) {
+	logoutFile := filepath.Join(t.TempDir(), "logout.called")
+	t.Setenv("HECATE_FAKE_ACP_LOGOUT_FILE", logoutFile)
+	installFakeACPExecutable(t, "codex-acp-adapter")
+
+	result, err := Logout(context.Background(), "codex")
+	if err != nil {
+		t.Fatalf("Logout: %v", err)
+	}
+	if result.AdapterID != "codex" || result.Status != LogoutStatusLoggedOut || result.Path == "" {
+		t.Fatalf("logout result = %#v, want codex logged_out with path", result)
+	}
+	if _, err := os.Stat(logoutFile); err != nil {
+		t.Fatalf("logout marker missing: %v", err)
+	}
+}
+
+func TestLogoutReturnsACPLogoutError(t *testing.T) {
+	t.Setenv("HECATE_FAKE_ACP_LOGOUT_ERROR", "logout refused")
+	installFakeACPExecutable(t, "codex-acp-adapter")
+
+	_, err := Logout(context.Background(), "codex")
+	if err == nil {
+		t.Fatal("Logout error = nil, want ACP logout failure")
+	}
+	if got := err.Error(); !strings.Contains(got, `logout ACP adapter "codex"`) || !strings.Contains(got, "logout refused") {
+		t.Fatalf("Logout error = %q, want adapter logout failure with diagnostic", got)
+	}
+}
+
+func TestLogoutRejectsUnknownAdapter(t *testing.T) {
+	_, err := Logout(context.Background(), "no_such_adapter")
+	if err == nil || !strings.Contains(err.Error(), `agent adapter "no_such_adapter" not found`) {
+		t.Fatalf("Logout error = %v, want unknown adapter", err)
+	}
+}
+
 func findConfigOption(options []agentcontrols.ConfigOption, id string) *agentcontrols.ConfigOption {
 	for i := range options {
 		if options[i].ID == id {
@@ -1898,7 +1935,7 @@ func installFakeACPExecutable(t *testing.T, name string) {
 	}
 	exe := filepath.Join(bin, name)
 	script := fmt.Sprintf(
-		"#!/bin/sh\nHECATE_FAKE_ACP_AGENT=1 HECATE_FAKE_ACP_LOAD_SESSION_FAIL=%q HECATE_FAKE_ACP_NEW_SESSION_DELAY=%q HECATE_FAKE_ACP_COMMANDS_DELAY=%q HECATE_FAKE_ACP_MODELS=%q HECATE_FAKE_ACP_CONFIG_OPTIONS=%q HECATE_FAKE_ACP_SET_MODEL_ERROR=%q HECATE_FAKE_ACP_EXPECT_MCP_METHOD=%q HECATE_FAKE_ACP_EXPECT_MCP_JSON=%q exec %q -test.run '^TestFakeACPAgentProcess$'\n",
+		"#!/bin/sh\nHECATE_FAKE_ACP_AGENT=1 HECATE_FAKE_ACP_LOAD_SESSION_FAIL=%q HECATE_FAKE_ACP_NEW_SESSION_DELAY=%q HECATE_FAKE_ACP_COMMANDS_DELAY=%q HECATE_FAKE_ACP_MODELS=%q HECATE_FAKE_ACP_CONFIG_OPTIONS=%q HECATE_FAKE_ACP_SET_MODEL_ERROR=%q HECATE_FAKE_ACP_EXPECT_MCP_METHOD=%q HECATE_FAKE_ACP_EXPECT_MCP_JSON=%q HECATE_FAKE_ACP_LOGOUT_FILE=%q HECATE_FAKE_ACP_LOGOUT_ERROR=%q exec %q -test.run '^TestFakeACPAgentProcess$'\n",
 		os.Getenv("HECATE_FAKE_ACP_LOAD_SESSION_FAIL"),
 		os.Getenv("HECATE_FAKE_ACP_NEW_SESSION_DELAY"),
 		os.Getenv("HECATE_FAKE_ACP_COMMANDS_DELAY"),
@@ -1907,6 +1944,8 @@ func installFakeACPExecutable(t *testing.T, name string) {
 		os.Getenv("HECATE_FAKE_ACP_SET_MODEL_ERROR"),
 		os.Getenv("HECATE_FAKE_ACP_EXPECT_MCP_METHOD"),
 		os.Getenv("HECATE_FAKE_ACP_EXPECT_MCP_JSON"),
+		os.Getenv("HECATE_FAKE_ACP_LOGOUT_FILE"),
+		os.Getenv("HECATE_FAKE_ACP_LOGOUT_ERROR"),
 		os.Args[0],
 	)
 	if err := os.WriteFile(exe, []byte(script), 0o755); err != nil {
@@ -1938,6 +1977,14 @@ func (a *fakeACPAgent) Authenticate(context.Context, acp.AuthenticateRequest) (a
 }
 
 func (a *fakeACPAgent) Logout(context.Context, acp.LogoutRequest) (acp.LogoutResponse, error) {
+	if message := strings.TrimSpace(os.Getenv("HECATE_FAKE_ACP_LOGOUT_ERROR")); message != "" {
+		return acp.LogoutResponse{}, fmt.Errorf("%s", message)
+	}
+	if path := strings.TrimSpace(os.Getenv("HECATE_FAKE_ACP_LOGOUT_FILE")); path != "" {
+		if err := os.WriteFile(path, []byte("logout\n"), 0o644); err != nil {
+			return acp.LogoutResponse{}, err
+		}
+	}
 	return acp.LogoutResponse{}, nil
 }
 

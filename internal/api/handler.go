@@ -89,8 +89,9 @@ type Handler struct {
 	// through to agentadapters.Probe; tests install a fake via
 	// SetAgentAdapterProbe so they can exercise the handler without
 	// spawning real ACP binaries.
-	agentAdapterProbe AgentAdapterProbe
-	stateCleaner      StateCleaner
+	agentAdapterProbe  AgentAdapterProbe
+	agentAdapterLogout AgentAdapterLogout
+	stateCleaner       StateCleaner
 	// quitFunc is wired by main.go to request an orderly process
 	// shutdown — used by HandleSystemShutdown when the desktop app's
 	// close-window confirmation flow asks the gateway to quit. nil in

@@ -1200,6 +1200,35 @@ The probe creates and immediately abandons a fresh ACP session, so agents that
 bill on session creation will see one no-op session per call. Agents that bill
 on prompt completion see no charge.
 
+### `POST /hecate/v1/agent-adapters/{id}/logout`
+
+Asks one registered ACP adapter to clear its own account/session state. Hecate
+spawns the adapter, performs ACP `Initialize`, calls ACP `logout`, and then
+terminates the process. This is an adapter-account action: it does not delete
+Hecate chat sessions, close live adapter sessions, revoke approvals, or mutate
+transcripts.
+
+```json
+POST /hecate/v1/agent-adapters/codex/logout
+→ 200
+{
+  "object": "agent_adapter_logout",
+  "data": {
+    "adapter_id": "codex",
+    "status": "logged_out",
+    "path": "/Users/alice/.local/bin/codex-acp-adapter",
+    "duration_ms": 328
+  }
+}
+```
+
+Status codes:
+
+- `200 OK` when the adapter accepted ACP `logout`.
+- `404 not_found` when the adapter id is not registered.
+- `502 chat.adapter_unavailable` when the adapter binary cannot start,
+  initialize, or complete ACP `logout`.
+
 ## Plugin registry endpoints
 
 The plugin registry is a local catalog and policy-review surface. Registry rows

@@ -605,6 +605,7 @@ func TestRemoteRuntimeLocalEndpointGuardMiddleware(t *testing.T) {
 		{name: "blocks local provider discovery", enabled: true, method: http.MethodGet, path: "/hecate/v1/settings/providers/local-discovery", want: http.StatusForbidden},
 		{name: "blocks unclassified hecate endpoint", enabled: true, method: http.MethodPost, path: "/hecate/v1/future-local-only", want: http.StatusForbidden},
 		{name: "allows normal endpoint", enabled: true, method: http.MethodGet, path: "/hecate/v1/whoami", want: http.StatusNoContent},
+		{name: "allows adapter logout", enabled: true, method: http.MethodPost, path: "/hecate/v1/agent-adapters/codex/logout", want: http.StatusNoContent},
 		{name: "allows static ui", enabled: true, method: http.MethodGet, path: "/", want: http.StatusNoContent},
 		{name: "allows provider-compatible endpoint", enabled: true, method: http.MethodPost, path: "/v1/chat/completions", want: http.StatusNoContent},
 	}

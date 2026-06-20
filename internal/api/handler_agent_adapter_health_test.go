@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -225,5 +226,99 @@ func TestAgentAdapterProbeUsesSyntheticStatusWhenDevOverrideActive(t *testing.T)
 	}
 	if !strings.Contains(resp.Data.Health.Hint, "codex login") {
 		t.Fatalf("health hint = %q, want codex login guidance", resp.Data.Health.Hint)
+	}
+}
+
+func TestAgentAdapterLogoutEndpointReturnsResult(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	calls := 0
+	apiHandler.SetAgentAdapterLogout(func(_ context.Context, id string) (agentadapters.LogoutResult, error) {
+		calls++
+		if id != "codex" {
+			t.Fatalf("logout called for %q, want codex", id)
+		}
+		return agentadapters.LogoutResult{
+			AdapterID:  id,
+			Status:     agentadapters.LogoutStatusLoggedOut,
+			Path:       "/usr/local/bin/codex-acp-adapter",
+			DurationMS: 12,
+		}, nil
+	})
+	server := NewServer(logger, apiHandler)
+	client := newAPITestClient(t, server)
+
+	resp := mustRequestJSON[AgentAdapterLogoutResponse](client, http.MethodPost, "/hecate/v1/agent-adapters/codex/logout", "")
+	if calls != 1 {
+		t.Fatalf("logout call count = %d, want 1", calls)
+	}
+	if resp.Object != "agent_adapter_logout" {
+		t.Fatalf("object = %q, want agent_adapter_logout", resp.Object)
+	}
+	if resp.Data.AdapterID != "codex" || resp.Data.Status != agentadapters.LogoutStatusLoggedOut {
+		t.Fatalf("logout response = %#v, want codex logged_out", resp.Data)
+	}
+	if resp.Data.Path != "/usr/local/bin/codex-acp-adapter" || resp.Data.DurationMS != 12 {
+		t.Fatalf("logout diagnostics = %#v, want path + duration", resp.Data)
+	}
+}
+
+func TestAgentAdapterLogoutMapsFailureToUnavailable(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	apiHandler.SetAgentAdapterLogout(func(context.Context, string) (agentadapters.LogoutResult, error) {
+		return agentadapters.LogoutResult{}, errors.New("adapter refused logout")
+	})
+	server := NewServer(logger, apiHandler)
+	client := newAPITestClient(t, server)
+
+	recorder := client.mustRequestStatus(http.StatusBadGateway, http.MethodPost, "/hecate/v1/agent-adapters/codex/logout", "")
+	var body map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	errBody, _ := body["error"].(map[string]any)
+	if errBody == nil {
+		t.Fatalf("response missing error body: %s", recorder.Body.String())
+	}
+	if typ, _ := errBody["type"].(string); typ != errCodeAgentAdapterUnavailable {
+		t.Fatalf("error.type = %q, want %q", typ, errCodeAgentAdapterUnavailable)
+	}
+	if msg, _ := errBody["message"].(string); !strings.Contains(msg, "adapter refused logout") {
+		t.Fatalf("error.message = %q, want logout diagnostic", msg)
+	}
+}
+
+func TestAgentAdapterLogout404OnUnknownAdapter(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	logoutCalls := 0
+	apiHandler.SetAgentAdapterLogout(func(context.Context, string) (agentadapters.LogoutResult, error) {
+		logoutCalls++
+		return agentadapters.LogoutResult{}, nil
+	})
+	server := NewServer(logger, apiHandler)
+	client := newAPITestClient(t, server)
+
+	recorder := client.mustRequestStatus(http.StatusNotFound, http.MethodPost, "/hecate/v1/agent-adapters/no-such-adapter/logout", "")
+	if logoutCalls != 0 {
+		t.Fatalf("logout call count = %d, want 0 (404 must short-circuit)", logoutCalls)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	errBody, _ := body["error"].(map[string]any)
+	if errBody == nil {
+		t.Fatalf("response missing error body: %s", recorder.Body.String())
+	}
+	if msg, _ := errBody["message"].(string); !strings.Contains(strings.ToLower(msg), "not found") {
+		t.Fatalf("error.message = %q, want substring %q", msg, "not found")
 	}
 }

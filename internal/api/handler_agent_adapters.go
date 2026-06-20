@@ -47,6 +47,29 @@ func (h *Handler) HandleAgentAdapterProbe(w http.ResponseWriter, r *http.Request
 	})
 }
 
+func (h *Handler) HandleAgentAdapterLogout(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "adapter id is required")
+		return
+	}
+	adapter, ok := agentadapters.FindAdapter(id)
+	if !ok {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "adapter not found")
+		return
+	}
+	result, err := h.logoutAgentAdapter(ctx, id)
+	if err != nil {
+		WriteError(w, http.StatusBadGateway, errCodeAgentAdapterUnavailable, agentadapters.NormalizeError(adapter.Name, err))
+		return
+	}
+	WriteJSON(w, http.StatusOK, AgentAdapterLogoutResponse{
+		Object: "agent_adapter_logout",
+		Data:   result,
+	})
+}
+
 type AgentAdapterProbeResponse struct {
 	Object string                `json:"object"`
 	Data   AgentAdapterProbeData `json:"data"`
@@ -55,6 +78,11 @@ type AgentAdapterProbeResponse struct {
 type AgentAdapterProbeData struct {
 	Adapter AgentAdapterResponseItem  `json:"adapter"`
 	Health  agentadapters.ProbeResult `json:"health"`
+}
+
+type AgentAdapterLogoutResponse struct {
+	Object string                     `json:"object"`
+	Data   agentadapters.LogoutResult `json:"data"`
 }
 
 func renderAgentAdapterItem(ctx context.Context, item agentadapters.Status) AgentAdapterResponseItem {

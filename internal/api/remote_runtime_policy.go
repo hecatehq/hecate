@@ -90,6 +90,7 @@ var remoteRuntimeAllowedRoutes = []remoteRuntimeRoutePattern{
 	{method: http.MethodGet, path: "/hecate/v1/agent-adapters"},
 	{method: http.MethodPost, path: "/hecate/v1/agent-adapters/{id}/probe"},
 	{method: http.MethodGet, path: "/hecate/v1/agent-adapters/{id}/health"},
+	{method: http.MethodPost, path: "/hecate/v1/agent-adapters/{id}/logout"},
 	{method: http.MethodGet, path: "/hecate/v1/chat/sessions"},
 	{method: http.MethodPost, path: "/hecate/v1/chat/sessions"},
 	{method: http.MethodGet, path: "/hecate/v1/chat/sessions/{id}"},
