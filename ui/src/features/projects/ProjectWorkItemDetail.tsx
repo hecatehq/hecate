@@ -21,7 +21,6 @@ import {
   toProjectAssignmentExecutionViewModel,
   type ProjectAssignmentEvidenceViewModel,
 } from "./projectAssignmentViewModels";
-import { reviewArtifactNeedsFollowUpPath } from "./projectInsights";
 import {
   assignmentStatusLabel,
   formatProjectRowRelativeTime,
@@ -182,8 +181,9 @@ export function ProjectWorkItemDetail({
     artifacts.length === 0 &&
     handoffs.length === 0 &&
     workItem.status !== "done";
+  const reviewFollowUpArtifactIDs = new Set(closeout.review_follow_up_artifact_ids ?? []);
   const reviewFollowUps = artifacts.filter((artifact) =>
-    reviewArtifactNeedsFollowUpPath(artifact, handoffs),
+    reviewFollowUpArtifactIDs.has(artifact.id),
   );
   const suggestedAssignmentRole = assignmentRoleForWorkItem(workItem, roleByID);
   const canAddWorkRecords = !emptyWorkItem && workItem.status !== "done";

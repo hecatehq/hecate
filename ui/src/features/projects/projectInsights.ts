@@ -546,29 +546,12 @@ function reviewFollowUpAttentionItem(
   };
 }
 
-export function reviewArtifactRequiresFollowUp(
-  artifact: ProjectCollaborationArtifactRecord,
-): boolean {
+function reviewArtifactRequiresFollowUp(artifact: ProjectCollaborationArtifactRecord): boolean {
   return (
     artifact.kind === "review" &&
     (artifact.review_follow_up_required === true ||
       artifact.review_verdict === "blocked" ||
       artifact.review_verdict === "changes_requested")
-  );
-}
-
-export function reviewArtifactNeedsFollowUpPath(
-  artifact: ProjectCollaborationArtifactRecord,
-  handoffs: ProjectHandoffRecord[],
-): boolean {
-  if (!reviewArtifactRequiresFollowUp(artifact)) return false;
-  return !handoffs.some(
-    (handoff) =>
-      (handoff.linked_artifact_ids ?? []).includes(artifact.id) &&
-      (handoff.status === "pending" ||
-        handoff.status === "dismissed" ||
-        handoff.status === "superseded" ||
-        Boolean(handoff.target_assignment_id)),
   );
 }
 

@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  buildProjectHealthSummary,
-  projectHealthMetrics,
-  reviewArtifactNeedsFollowUpPath,
-  reviewArtifactRequiresFollowUp,
-} from "./projectInsights";
+import { buildProjectHealthSummary, projectHealthMetrics } from "./projectInsights";
 import type { AgentProfileRecord } from "../../types/agent-profile";
 import type {
   ProjectActivityData,
@@ -252,52 +247,6 @@ describe("projectInsights", () => {
 
     expect(attention?.chatID).toBe("chat_failed");
     expect(attention?.actionLabel).toBe("View blocked");
-  });
-
-  it("shares review follow-up path detection with closeout surfaces", () => {
-    const review = reviewArtifact({
-      id: "art_review_required",
-      review_verdict: "changes_requested",
-    });
-
-    expect(reviewArtifactRequiresFollowUp(review)).toBe(true);
-    expect(reviewArtifactNeedsFollowUpPath(review, [])).toBe(true);
-    expect(
-      reviewArtifactNeedsFollowUpPath(review, [
-        {
-          ...handoff("handoff_review", "pending"),
-          linked_artifact_ids: [review.id],
-        },
-      ]),
-    ).toBe(false);
-    expect(
-      reviewArtifactNeedsFollowUpPath(review, [
-        {
-          ...handoff("handoff_review", "accepted"),
-          linked_artifact_ids: [review.id],
-        },
-      ]),
-    ).toBe(true);
-    expect(
-      reviewArtifactNeedsFollowUpPath(review, [
-        {
-          ...handoff("handoff_review", "accepted"),
-          linked_artifact_ids: [review.id],
-          target_assignment_id: "asgn_followup",
-        },
-      ]),
-    ).toBe(false);
-    expect(
-      reviewArtifactNeedsFollowUpPath(review, [
-        {
-          ...handoff("handoff_review", "dismissed"),
-          linked_artifact_ids: [review.id],
-        },
-      ]),
-    ).toBe(false);
-    expect(reviewArtifactRequiresFollowUp(reviewArtifact({ review_verdict: "approved" }))).toBe(
-      false,
-    );
   });
 });
 
