@@ -5564,7 +5564,7 @@ func TestTaskRunStream_CancelledSnapshotClearsPendingApproval(t *testing.T) {
 func TestTaskRunStream_AgentTurnCompletedFlowsTurnOverlayIntoSnapshot(t *testing.T) {
 	// End-to-end check on the Turn overlay path:
 	//
-	//   1. Runner emits `turn.completed` to the run-event log
+	//   1. A `turn.completed` event lands in the run-event log
 	//   2. SSE projector reads the event, treats it as Turn-only
 	//      (ok=false)
 	//   3. Projector preserves the overlay across live-state rebuild
@@ -5580,31 +5580,36 @@ func TestTaskRunStream_AgentTurnCompletedFlowsTurnOverlayIntoSnapshot(t *testing
 	t.Parallel()
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	handler := newTestHTTPHandlerForProviders(logger, nil, config.Config{})
+	apiHandler := newTestAPIHandlerWithSettings(logger, nil, config.Config{}, nil)
+	handler := NewServer(logger, apiHandler)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	createResp := postJSONToURL(t, server.URL+"/hecate/v1/tasks", `{"title":"Turn overlay","prompt":"Test turn overlay flow","execution_kind":"shell","shell_command":"echo hi","working_directory":".","timeout_ms":3000}`)
-	if createResp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(createResp.Body)
-		t.Fatalf("create status = %d, body=%s", createResp.StatusCode, string(body))
+	ctx := context.Background()
+	now := time.Now().UTC()
+	taskID := "task-turn-overlay"
+	runID := "run-turn-overlay"
+	if _, err := apiHandler.taskStore.CreateTask(ctx, types.Task{
+		ID:          taskID,
+		Title:       "Turn overlay",
+		Prompt:      "Test turn overlay flow",
+		Status:      "running",
+		LatestRunID: runID,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+		StartedAt:   now,
+	}); err != nil {
+		t.Fatalf("CreateTask: %v", err)
 	}
-	var created TaskResponse
-	if err := json.NewDecoder(createResp.Body).Decode(&created); err != nil {
-		t.Fatalf("decode create: %v", err)
+	if _, err := apiHandler.taskStore.CreateRun(ctx, types.TaskRun{
+		ID:        runID,
+		TaskID:    taskID,
+		Number:    1,
+		Status:    "running",
+		StartedAt: now,
+	}); err != nil {
+		t.Fatalf("CreateRun: %v", err)
 	}
-	createResp.Body.Close()
-
-	startResp := postJSONToURL(t, server.URL+"/hecate/v1/tasks/"+created.Data.ID+"/start", "")
-	if startResp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(startResp.Body)
-		t.Fatalf("start status = %d, body=%s", startResp.StatusCode, string(body))
-	}
-	var started TaskRunResponse
-	if err := json.NewDecoder(startResp.Body).Decode(&started); err != nil {
-		t.Fatalf("decode start: %v", err)
-	}
-	startResp.Body.Close()
 
 	// Inject a turn.completed event via the public events
 	// endpoint. The endpoint always merges a `snapshot` key into
@@ -5622,14 +5627,14 @@ func TestTaskRunStream_AgentTurnCompletedFlowsTurnOverlayIntoSnapshot(t *testing
 			"tool_calls": 1
 		}
 	}`
-	eventResp := postJSONToURL(t, server.URL+"/hecate/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/events", eventBody)
+	eventResp := postJSONToURL(t, server.URL+"/hecate/v1/tasks/"+taskID+"/runs/"+runID+"/events", eventBody)
 	if eventResp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(eventResp.Body)
 		t.Fatalf("post event status = %d, body=%s", eventResp.StatusCode, string(body))
 	}
 	eventResp.Body.Close()
 
-	streamReq, err := http.NewRequest(http.MethodGet, server.URL+"/hecate/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/stream", nil)
+	streamReq, err := http.NewRequest(http.MethodGet, server.URL+"/hecate/v1/tasks/"+taskID+"/runs/"+runID+"/stream", nil)
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
@@ -5683,8 +5688,8 @@ func TestTaskRunStream_AgentTurnCompletedFlowsTurnOverlayIntoSnapshot(t *testing
 		if got := payload.Data.Turn.Turn; got != 2 {
 			t.Errorf("Turn.Turn = %d, want 2", got)
 		}
-		if payload.Data.Run.ID != started.Data.ID {
-			t.Errorf("Run.ID = %q, want %q (overlay should merge AFTER full state rebuild, not replace it)", payload.Data.Run.ID, started.Data.ID)
+		if payload.Data.Run.ID != runID {
+			t.Errorf("Run.ID = %q, want %q (overlay should merge AFTER full state rebuild, not replace it)", payload.Data.Run.ID, runID)
 		}
 		sawTurn = true
 		break
