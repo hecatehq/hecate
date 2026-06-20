@@ -308,6 +308,19 @@ This is visual-only: it changes Connections and Chats readiness UI and fake
 probe results, but it does not create adapter processes or make a chat send
 succeed.
 
+Packaged Go ACP adapter releases can be checked without importing adapter
+source modules into Hecate:
+
+```bash
+just test-acp-release-smoke
+```
+
+That opt-in smoke downloads the Codex and Claude Code adapter versions pinned in
+the Dockerfiles, verifies their release checksums, puts fake `codex` / `claude`
+CLIs on `PATH`, and runs Hecate's probe/auth/logout/session/run path against
+the real adapter binaries. It requires network access and is intentionally not
+part of the normal unit-test ladder.
+
 There is also a narrower discovery-only fixture env var,
 `HECATE_AGENT_ADAPTER_DISCOVERY_OVERRIDES`, used by backend tests that only
 need catalog states (`all=missing`, `codex=available`). Prefer

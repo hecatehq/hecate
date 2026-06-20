@@ -232,7 +232,7 @@ ACP peer to cover probing, auth/logout, session prepare/load, config options,
 commands, usage, and run output. Do not import standalone adapter source modules
 or `acp-adapter-kit` into Hecate just to test Codex/Claude adapter behavior;
 that parity belongs in the adapter repositories, with optional release-binary
-smokes when packaging drift needs coverage.
+smokes (`just test-acp-release-smoke`) when packaging drift needs coverage.
 
 Chat session lifecycle orchestration starts in `internal/chatapp.Application`.
 Session create, external-agent prepare, native session metadata persistence,
