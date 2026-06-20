@@ -334,6 +334,12 @@ async function mockProjectJourneyAPIs(page: Page) {
       await route.fulfill(ok({ object: "project_activity", data: projectActivity(state) }));
       return;
     }
+    if (resource === "operations" && parts[2] === "brief") {
+      await route.fulfill(
+        ok({ object: "project_operations_brief", data: projectOperationsBrief(projectID) }),
+      );
+      return;
+    }
     if (resource === "work-items") {
       await handleWorkItemRoute(route, state, parts, method, projectID, ok);
       return;
@@ -675,5 +681,21 @@ function projectActivity(state: ProjectJourneyState): ProjectActivityData {
       recent: item,
     },
     recent: item,
+  };
+}
+
+function projectOperationsBrief(projectID: string) {
+  return {
+    project_id: projectID,
+    generated_at: NOW,
+    summary: {
+      item_count: 0,
+      high_count: 0,
+      medium_count: 0,
+      low_count: 0,
+      pending_memory_candidate_count: 0,
+      pending_handoff_count: 0,
+    },
+    items: [],
   };
 }
