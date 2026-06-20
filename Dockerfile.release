@@ -14,8 +14,8 @@ ARG NODE_IMAGE=node:24-trixie-slim
 FROM alpine:${ALPINE_VERSION} AS adapter-downloader
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
-ARG CODEX_ACP_ADAPTER_VERSION=v0.1.0-alpha.20
-ARG CLAUDE_CODE_ACP_ADAPTER_VERSION=v0.1.0-alpha.22
+ARG CODEX_ACP_ADAPTER_VERSION=v0.1.0-alpha.21
+ARG CLAUDE_CODE_ACP_ADAPTER_VERSION=v0.1.0-alpha.23
 
 RUN apk add --no-cache ca-certificates curl tar \
     && set -eux; \
