@@ -22,6 +22,89 @@ import (
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
+const (
+	projectAssignmentLaunchReadinessStatusReady   = "ready"
+	projectAssignmentLaunchReadinessStatusBlocked = "blocked"
+)
+
+type ProjectAssignmentLaunchReadinessEnvelope struct {
+	Object string                                   `json:"object"`
+	Data   ProjectAssignmentLaunchReadinessResponse `json:"data"`
+}
+
+type ProjectAssignmentLaunchReadinessResponse struct {
+	ProjectID        string                      `json:"project_id"`
+	WorkItemID       string                      `json:"work_item_id"`
+	AssignmentID     string                      `json:"assignment_id"`
+	GeneratedAt      string                      `json:"generated_at"`
+	Ready            bool                        `json:"ready"`
+	Status           string                      `json:"status"`
+	Title            string                      `json:"title"`
+	Detail           string                      `json:"detail"`
+	Blockers         []string                    `json:"blockers"`
+	Warnings         []string                    `json:"warnings"`
+	DriverKind       string                      `json:"driver_kind"`
+	Workspace        string                      `json:"workspace,omitempty"`
+	RootID           string                      `json:"root_id,omitempty"`
+	RootPath         string                      `json:"root_path,omitempty"`
+	Provider         string                      `json:"provider,omitempty"`
+	Model            string                      `json:"model,omitempty"`
+	ExecutionProfile string                      `json:"execution_profile,omitempty"`
+	ExternalAgentID  string                      `json:"external_agent_id,omitempty"`
+	ExternalAgent    string                      `json:"external_agent,omitempty"`
+	SessionTitle     string                      `json:"session_title,omitempty"`
+	ModelReadiness   *ModelReadinessResponseItem `json:"model_readiness,omitempty"`
+}
+
+func (h *Handler) HandleProjectWorkAssignmentLaunchReadiness(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	projectID := r.PathValue("id")
+	workItemID := r.PathValue("work_item_id")
+	assignmentID := r.PathValue("assignment_id")
+	if h.projects == nil || h.projectWork == nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project stores are not configured")
+		return
+	}
+	project, ok, err := h.projects.Get(ctx, projectID)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	if !ok {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
+		return
+	}
+	workItem, ok, err := h.projectWork.GetWorkItem(ctx, projectID, workItemID)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	if !ok {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "work item not found")
+		return
+	}
+	assignment, ok, err := h.loadProjectWorkAssignment(ctx, projectID, workItemID, assignmentID)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	if !ok {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "assignment not found")
+		return
+	}
+	role, roleOK, err := h.loadProjectWorkRole(ctx, projectID, assignment.RoleID)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	readiness, err := h.renderProjectAssignmentLaunchReadiness(ctx, project, workItem, assignment, role, roleOK)
+	if err != nil {
+		WriteError(w, projectAssignmentPreflightHTTPStatus(err), projectAssignmentPreflightErrorCode(err), err.Error())
+		return
+	}
+	WriteJSON(w, http.StatusOK, ProjectAssignmentLaunchReadinessEnvelope{Object: "project_assignment_launch_readiness", Data: readiness})
+}
+
 func (h *Handler) HandleProjectWorkAssignmentPreflight(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := r.PathValue("id")
@@ -134,6 +217,163 @@ func projectAssignmentPreflightErrorCode(err error) string {
 		}
 	}
 	return errCodeGatewayError
+}
+
+func (h *Handler) renderProjectAssignmentLaunchReadiness(ctx context.Context, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile, roleOK bool) (ProjectAssignmentLaunchReadinessResponse, error) {
+	driverKind := firstNonEmptyString(strings.TrimSpace(assignment.DriverKind), projectwork.AssignmentDriverHecateTask)
+	readiness := ProjectAssignmentLaunchReadinessResponse{
+		ProjectID:    project.ID,
+		WorkItemID:   workItem.ID,
+		AssignmentID: assignment.ID,
+		GeneratedAt:  formatOptionalTime(time.Now().UTC()),
+		Status:       projectAssignmentLaunchReadinessStatusReady,
+		Title:        "Ready to start assignment",
+		Detail:       "Launch checks are clear. Review the preflight context before starting this assignment.",
+		DriverKind:   driverKind,
+		Blockers:     []string{},
+		Warnings:     []string{},
+	}
+	if !roleOK {
+		role = projectwork.AgentRoleProfile{ID: strings.TrimSpace(assignment.RoleID)}
+		readiness.Blockers = append(readiness.Blockers, "Assignment role not found.")
+	}
+	if status := strings.TrimSpace(assignment.Status); status != "" && status != projectwork.AssignmentStatusQueued {
+		if projectWorkAssignmentIsTerminal(status) {
+			readiness.Blockers = append(readiness.Blockers, "Terminal assignments cannot be started.")
+		} else {
+			readiness.Blockers = append(readiness.Blockers, "Only queued assignments can be started.")
+		}
+	}
+
+	switch driverKind {
+	case projectwork.AssignmentDriverHecateTask:
+		if h.taskStore == nil {
+			readiness.Blockers = append(readiness.Blockers, "Task store is not configured.")
+		}
+		if h.taskRunner == nil {
+			readiness.Blockers = append(readiness.Blockers, "Task runner is not configured.")
+		}
+		if h.taskStore != nil {
+			active, err := projectWorkAssignmentHasActiveExecution(ctx, h.taskStore, assignment)
+			if err != nil {
+				return ProjectAssignmentLaunchReadinessResponse{}, err
+			}
+			if active {
+				readiness.Blockers = append(readiness.Blockers, "Assignment already has active execution.")
+			}
+		}
+		if len(readiness.Blockers) == 0 {
+			if err := h.populateTaskAssignmentLaunchReadiness(ctx, project, workItem, assignment, role, &readiness); err != nil {
+				return ProjectAssignmentLaunchReadinessResponse{}, err
+			}
+		}
+	case projectwork.AssignmentDriverExternalAgent:
+		if h.agentChat == nil {
+			readiness.Blockers = append(readiness.Blockers, "Agent chat store is not configured.")
+		}
+		if h.agentChatRunner == nil {
+			readiness.Blockers = append(readiness.Blockers, "Agent chat runner is not configured.")
+		}
+		if strings.TrimSpace(assignment.ExecutionRef.ChatSessionID) != "" {
+			readiness.Blockers = append(readiness.Blockers, "External Agent assignment already has a prepared chat session.")
+		}
+		if len(readiness.Blockers) == 0 {
+			if err := h.populateExternalAgentAssignmentLaunchReadiness(ctx, project, workItem, assignment, role, &readiness); err != nil {
+				return ProjectAssignmentLaunchReadinessResponse{}, err
+			}
+		}
+	default:
+		readiness.Blockers = append(readiness.Blockers, fmt.Sprintf("Assignment driver_kind %q is not supported.", driverKind))
+	}
+
+	readiness.Blockers = projectWorkReadinessUniqueStrings(readiness.Blockers)
+	readiness.Warnings = projectWorkReadinessUniqueStrings(readiness.Warnings)
+	readiness.Ready = len(readiness.Blockers) == 0
+	if !readiness.Ready {
+		readiness.Status = projectAssignmentLaunchReadinessStatusBlocked
+		readiness.Title = "Launch is blocked"
+		readiness.Detail = "Resolve the listed launch blockers before starting or preparing this assignment."
+	}
+	return readiness, nil
+}
+
+func (h *Handler) populateTaskAssignmentLaunchReadiness(ctx context.Context, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile, readiness *ProjectAssignmentLaunchReadinessResponse) error {
+	plan, err := h.projectWorkApplication().ResolveTaskAssignmentLaunchPlan(ctx, project, workItem, assignment, role)
+	if err != nil {
+		readiness.Blockers = append(readiness.Blockers, projectAssignmentLaunchPlanBlocker(err))
+		return nil
+	}
+	readiness.Workspace = plan.WorkingDirectory
+	readiness.RootID = plan.Root.ID
+	readiness.RootPath = plan.Root.Path
+	readiness.Provider = plan.RequestedProvider
+	readiness.Model = plan.RequestedModel
+	readiness.ExecutionProfile = plan.ExecutionProfile
+	readiness.Warnings = append(readiness.Warnings, projectAssignmentLaunchPlanWarnings(plan.Profile, plan.ResolvedSkills)...)
+	if h.service == nil {
+		return nil
+	}
+	result, err := h.service.ProviderModelReadiness(ctx, plan.RequestedProvider, plan.RequestedModel)
+	if err != nil {
+		return err
+	}
+	modelReadiness := renderModelReadiness(result.Readiness.ToModelReadiness())
+	readiness.ModelReadiness = &modelReadiness
+	if !modelReadiness.Ready {
+		readiness.Blockers = append(readiness.Blockers, projectAssignmentModelReadinessBlocker(modelReadiness))
+	}
+	return nil
+}
+
+func (h *Handler) populateExternalAgentAssignmentLaunchReadiness(ctx context.Context, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile, readiness *ProjectAssignmentLaunchReadinessResponse) error {
+	plan, err := h.projectWorkApplication().ResolveExternalAgentAssignmentLaunchPlan(ctx, project, workItem, assignment, role)
+	if err != nil {
+		readiness.Blockers = append(readiness.Blockers, projectAssignmentLaunchPlanBlocker(err))
+		return nil
+	}
+	readiness.Workspace = plan.Workspace
+	readiness.RootID = plan.Root.ID
+	readiness.RootPath = plan.Root.Path
+	readiness.ExecutionProfile = plan.ExecutionProfile
+	readiness.ExternalAgentID = plan.AdapterID
+	readiness.ExternalAgent = firstNonEmptyString(plan.Adapter.Name, plan.AdapterID)
+	readiness.SessionTitle = plan.SessionTitle
+	readiness.Title = "Ready to prepare External Agent chat"
+	readiness.Detail = "Launch checks are clear. Review the preflight context before preparing this supervised External Agent chat."
+	readiness.Warnings = append(readiness.Warnings, projectAssignmentLaunchPlanWarnings(plan.Profile, plan.ResolvedSkills)...)
+	return nil
+}
+
+func projectAssignmentLaunchPlanBlocker(err error) string {
+	var launchErr projectworkapp.LaunchPlanError
+	if errors.As(err, &launchErr) && strings.TrimSpace(launchErr.Message) != "" {
+		return launchErr.Message
+	}
+	if strings.TrimSpace(err.Error()) != "" {
+		return err.Error()
+	}
+	return "Launch plan could not be resolved."
+}
+
+func projectAssignmentLaunchPlanWarnings(profile projectworkapp.ResolvedAgentProfile, skills projectworkapp.ResolvedProjectSkills) []string {
+	warnings := append([]string(nil), profile.Warnings...)
+	warnings = append(warnings, skills.Warnings...)
+	for _, skipped := range skills.Skipped {
+		if skipped.ID == "" {
+			continue
+		}
+		warnings = append(warnings, "Project skill "+skipped.ID+" was not included: "+firstNonEmptyString(skipped.Reason, "unavailable"))
+	}
+	return warnings
+}
+
+func projectAssignmentModelReadinessBlocker(readiness ModelReadinessResponseItem) string {
+	return firstNonEmptyString(
+		strings.TrimSpace(readiness.Message),
+		strings.TrimSpace(readiness.OperatorAction),
+		strings.TrimSpace(readiness.Reason),
+		"The selected provider/model cannot be routed for this assignment.",
+	)
 }
 
 func (h *Handler) projectAssignmentPreflightContext(ctx context.Context, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile) (chat.ContextPacket, error) {

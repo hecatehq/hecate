@@ -30,6 +30,7 @@ import {
   getChatWorkspaceFiles,
   getChatApproval,
   getProjectAssignmentContext,
+  getProjectAssignmentLaunchReadiness,
   getProjectAssignmentPreflight,
   getProjectAssignments,
   getProjectActivity,
@@ -652,6 +653,29 @@ describe("api client", () => {
       expect.objectContaining({ method: "GET" }),
     );
     expect(result.data.id).toBe("ctx_preflight");
+  });
+
+  it("fetches project assignment launch readiness", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        object: "project_assignment_launch_readiness",
+        data: {
+          project_id: "proj/1",
+          work_item_id: "work/1",
+          assignment_id: "asgn/1",
+          ready: true,
+          status: "ready",
+        },
+      }),
+    );
+
+    const result = await getProjectAssignmentLaunchReadiness("proj/1", "work/1", "asgn/1");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/hecate/v1/projects/proj%2F1/work-items/work%2F1/assignments/asgn%2F1/launch-readiness",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(result.data.ready).toBe(true);
   });
 
   it("creates project work items and assignments", async () => {

@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
 
-import { getProjectAssignmentContext, getProjectAssignmentPreflight } from "../../lib/api";
+import {
+  getProjectAssignmentContext,
+  getProjectAssignmentLaunchReadiness,
+  getProjectAssignmentPreflight,
+} from "../../lib/api";
 import { formatAbsoluteTime } from "../../lib/format";
 import type { ContextPacketRecord } from "../../types/context";
 import type {
   ProjectActivityItemRecord,
   ProjectAssignmentRecord,
+  ProjectAssignmentLaunchReadinessRecord,
   ProjectCollaborationArtifactRecord,
   ProjectHandoffRecord,
   ProjectRecord,
@@ -49,11 +54,18 @@ export type ProjectAssignmentChatLaunchRequest = {
 
 type AssignmentPreflightState =
   | { status: "idle" | "loading" }
-  | { status: "ready"; packet: ContextPacketRecord }
+  | {
+      status: "ready";
+      packet: ContextPacketRecord;
+      readiness: ProjectAssignmentLaunchReadinessRecord;
+    }
   | { status: "error"; detail: string };
 
 type AssignmentLaunchReadinessNoticeRecord = {
+  title: string;
   detail: string;
+  blockers: string[];
+  warnings: string[];
 };
 
 type AssignmentLaunchRepairActions = {
@@ -391,6 +403,18 @@ export function ProjectWorkItemDetail({
                               ).data
                           : null
                       }
+                      loadReadiness={
+                        project
+                          ? async () =>
+                              (
+                                await getProjectAssignmentLaunchReadiness(
+                                  project.id,
+                                  workItem.id,
+                                  assignment.id,
+                                )
+                              ).data
+                          : null
+                      }
                     />
                   );
                 })}
@@ -518,6 +542,18 @@ export function ProjectWorkItemDetail({
                           ? async () =>
                               (
                                 await getProjectAssignmentPreflight(
+                                  project.id,
+                                  workItem.id,
+                                  targetAssignment.id,
+                                )
+                              ).data
+                          : null
+                      }
+                      loadReadiness={
+                        project && targetAssignment
+                          ? async () =>
+                              (
+                                await getProjectAssignmentLaunchReadiness(
                                   project.id,
                                   workItem.id,
                                   targetAssignment.id,
@@ -848,6 +884,7 @@ function AssignmentRow({
   error,
   loadContext,
   loadPreflight,
+  loadReadiness,
   onCreateHandoff,
   onCreateReviewHandoff,
   onCreateReviewArtifact,
@@ -869,6 +906,7 @@ function AssignmentRow({
   error: string;
   loadContext?: (() => Promise<ContextPacketRecord>) | null;
   loadPreflight?: (() => Promise<ContextPacketRecord>) | null;
+  loadReadiness?: (() => Promise<ProjectAssignmentLaunchReadinessRecord>) | null;
   onCreateHandoff: () => void;
   onCreateReviewHandoff?: () => void;
   onCreateReviewArtifact?: () => void;
@@ -909,33 +947,34 @@ function AssignmentRow({
   const finishedAt = activityView?.finishedAt || execution?.finished_at || assignment.completed_at;
 
   const openPreflight = useCallback(async () => {
-    if (!loadPreflight) {
+    if (!loadPreflight || !loadReadiness) {
       onStart();
       return;
     }
     setPreflightOpen(true);
     setPreflightState({ status: "loading" });
     try {
-      const packet = await loadPreflight();
-      setPreflightState({ status: "ready", packet });
+      const [readiness, packet] = await Promise.all([loadReadiness(), loadPreflight()]);
+      setPreflightState({ status: "ready", packet, readiness });
     } catch (error) {
       setPreflightState({
         status: "error",
-        detail: projectErrorMessage(error, "Failed to load assignment launch preflight."),
+        detail: projectErrorMessage(error, "Failed to load assignment launch checks."),
       });
     }
-  }, [loadPreflight, onStart]);
+  }, [loadPreflight, loadReadiness, onStart]);
 
   useEffect(() => {
     if (!autoOpenPreflight) return;
     onAutoOpenPreflightHandled?.(assignment.id);
     if (!startable) return;
-    if (!loadPreflight) return;
+    if (!loadPreflight || !loadReadiness) return;
     void openPreflight();
   }, [
     assignment.id,
     autoOpenPreflight,
     loadPreflight,
+    loadReadiness,
     onAutoOpenPreflightHandled,
     openPreflight,
     startable,
@@ -1166,7 +1205,7 @@ function AssignmentLaunchPreflightModal({
   state: AssignmentPreflightState;
 }) {
   const ready = state.status === "ready";
-  const readinessNotice = ready ? assignmentLaunchReadinessNotice(state.packet) : null;
+  const readinessNotice = ready ? assignmentLaunchReadinessNotice(state.readiness) : null;
   const canConfirm = ready && !readinessNotice;
   const runRepairAction = useCallback(
     (action?: () => void) => {
@@ -1195,7 +1234,7 @@ function AssignmentLaunchPreflightModal({
             disabled={!canConfirm || pending}
             title={
               readinessNotice
-                ? "Fix the provider/model readiness issue before starting this assignment."
+                ? "Resolve the launch readiness blockers before starting this assignment."
                 : undefined
             }
           >
@@ -1276,11 +1315,23 @@ function AssignmentLaunchReadinessNotice({
           }}
         >
           <Icon d={Icons.warning} size={13} />
-          Provider/model not ready
+          {notice.title}
         </div>
         <div style={{ color: "var(--amber-lo)", fontSize: 12, lineHeight: 1.45 }}>
           {notice.detail}
         </div>
+        {notice.blockers.length > 0 && (
+          <ul style={{ margin: "2px 0 0 18px", padding: 0 }}>
+            {notice.blockers.map((blocker) => (
+              <li key={blocker}>{blocker}</li>
+            ))}
+          </ul>
+        )}
+        {notice.warnings.length > 0 && (
+          <div style={{ color: "var(--amber-lo)", fontSize: 12, lineHeight: 1.45 }}>
+            {notice.warnings.join(" ")}
+          </div>
+        )}
       </div>
       {actions.length > 0 && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 2 }}>
@@ -1305,6 +1356,7 @@ function ProjectHandoffRow({
   assignment,
   handoff,
   loadPreflight,
+  loadReadiness,
   onCreateAssignment,
   onDelete,
   onEdit,
@@ -1318,6 +1370,7 @@ function ProjectHandoffRow({
   assignment?: ProjectAssignmentRecord;
   handoff: ProjectHandoffRecord;
   loadPreflight?: (() => Promise<ContextPacketRecord>) | null;
+  loadReadiness?: (() => Promise<ProjectAssignmentLaunchReadinessRecord>) | null;
   onCreateAssignment: () => void;
   onDelete: () => void;
   onEdit: () => void;
@@ -1341,19 +1394,19 @@ function ProjectHandoffRow({
   const sourceRefs = handoffSourceRefs(handoff);
 
   async function openPreflight() {
-    if (!loadPreflight) {
+    if (!loadPreflight || !loadReadiness) {
       onStart();
       return;
     }
     setPreflightOpen(true);
     setPreflightState({ status: "loading" });
     try {
-      const packet = await loadPreflight();
-      setPreflightState({ status: "ready", packet });
+      const [readiness, packet] = await Promise.all([loadReadiness(), loadPreflight()]);
+      setPreflightState({ status: "ready", packet, readiness });
     } catch (error) {
       setPreflightState({
         status: "error",
-        detail: projectErrorMessage(error, "Failed to load assignment launch preflight."),
+        detail: projectErrorMessage(error, "Failed to load assignment launch checks."),
       });
     }
   }
@@ -1743,29 +1796,27 @@ function formatLaunchContextBullet(label: string, value: string): string {
 }
 
 function assignmentLaunchReadinessNotice(
-  packet: ContextPacketRecord,
+  readiness: ProjectAssignmentLaunchReadinessRecord,
 ): AssignmentLaunchReadinessNoticeRecord | null {
-  const item = packet.items?.find((candidate) => candidate.kind === "launch_readiness");
-  if (!item) return null;
-  const ready = (item.metadata?.ready || contextBodyField(item.body || "", "Ready")).toLowerCase();
-  if (ready !== "false") return null;
-  const message = item.metadata?.message || contextBodyField(item.body || "", "Message");
-  const action =
-    item.metadata?.operator_action || contextBodyField(item.body || "", "Operator action");
-  const reason = item.metadata?.reason || contextBodyField(item.body || "", "Reason");
-  const detail = [message, action].filter(Boolean).join(" ");
+  if (readiness.ready) return null;
+  const modelReadiness = readiness.model_readiness;
+  const title =
+    modelReadiness?.ready === false
+      ? "Provider/model not ready"
+      : readiness.title || "Launch is blocked";
+  const modelDetail = [modelReadiness?.message, modelReadiness?.operator_action]
+    .filter(Boolean)
+    .join(" ");
   return {
-    detail: detail || reason || "The selected provider/model cannot be routed for this assignment.",
+    title,
+    detail:
+      modelDetail ||
+      readiness.detail ||
+      modelReadiness?.reason ||
+      "Resolve launch readiness blockers before starting this assignment.",
+    blockers: readiness.blockers ?? [],
+    warnings: readiness.warnings ?? [],
   };
-}
-
-function contextBodyField(body: string, label: string): string {
-  const prefix = `${label}:`;
-  for (const rawLine of body.split("\n")) {
-    const line = rawLine.trim();
-    if (line.startsWith(prefix)) return line.slice(prefix.length).trim();
-  }
-  return "";
 }
 
 const sectionLabelStyle: CSSProperties = {

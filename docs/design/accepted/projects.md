@@ -347,6 +347,12 @@ Queued assignment launches now show a launch preflight context packet before
 dispatch; confirming the preview starts the native task or prepares the External
 Agent chat, while preflight itself creates no task, run, chat session, artifact,
 memory entry, or assignment update.
+Assignment launch readiness is a separate server-owned projection at
+`GET /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments/{assignment_id}/launch-readiness`.
+The Projects UI uses its typed `ready`, `blockers`, resolved workspace/profile
+hints, and provider/model readiness fields to gate explicit start/prepare
+confirmation, while the preflight context packet remains inspectable evidence
+rather than client-parsed authority.
 Project roots now model concrete checkouts for assignment execution: work items
 and assignments can select a root by `root_id`, and launch resolution uses
 assignment root, work-item root, project default root, then first active root.

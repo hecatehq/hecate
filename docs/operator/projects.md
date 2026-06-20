@@ -37,8 +37,8 @@ creation opens with a draft title, brief, and owner role for operator review.
 For each work item:
 
 1. Draft the first assignment from the owner role, or create one manually.
-2. Inspect the launch context before starting work when defaults, roots, or
-   provider/model posture are uncertain.
+2. Inspect launch readiness and launch context before starting work when
+   defaults, roots, or provider/model posture are uncertain.
 3. Start a Hecate Task or External Agent assignment.
 4. Record evidence, reviews, and handoffs as the work moves between roles.
 5. Close the work item only after assignments and review follow-up are clear.
@@ -86,6 +86,12 @@ drilling into the full work queue. Review follow-up and closeout operations
 open selected-work detail. Closeout readiness is the server contract shared by
 Project Operations and selected-work detail; the operator still creates
 follow-up paths or marks work done explicitly from that surface.
+Assignment launch readiness is also server-backed. Before `Start assignment`,
+`Prepare chat`, or `Start from handoff`, the detail view loads
+`GET /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments/{assignment_id}/launch-readiness`
+and uses its typed `ready`/`blockers` fields as the launch gate. The separate
+preflight context packet remains inspectable evidence for the operator; it is
+not parsed by the client as the readiness authority.
 
 For a new work item with no assignments or artifacts yet, the detail view starts
 with a guided prepare action. Hecate can draft the first assignment from the
