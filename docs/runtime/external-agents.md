@@ -24,7 +24,7 @@ transcript prelude for multi-turn continuity. Claude Code adapter
 after an adapter process restart. Codex does not yet claim vendor-native
 durable history across adapter process restarts; if a load is stale, Hecate
 falls back to a fresh native session. Hecate treats `codex-acp-adapter` versions
-older than `v0.1.0-alpha.11` and `claude-code-acp-adapter` versions older than
+older than `v0.1.0-alpha.12` and `claude-code-acp-adapter` versions older than
 `v0.1.0-alpha.12` as outside the tested range because those older releases lack
 the current continuity, permission-control, structured stream, and session
 metadata surface. The
@@ -36,10 +36,12 @@ config-option update notifications and richer command-backed `session/list`
 metadata. The `v0.1.0-alpha.10` adapters also publish ACP
 `session_info_update` notifications with command-backed session title and
 updated-time metadata. Codex adapter `v0.1.0-alpha.11` adds the advertised
-`/review` command backed by `codex review --uncommitted`; Claude Code adapter
-`v0.1.0-alpha.11` adds command-backed stdio/HTTP MCP server config propagation
-into Claude `--mcp-config`, and `v0.1.0-alpha.12` adds Claude-native
-`--session-id` reload after adapter restarts.
+`/review` command backed by `codex review --uncommitted`, and
+`v0.1.0-alpha.12` adds an ACP config option that maps normal Codex turns to
+`codex exec --search` when enabled. Claude Code adapter `v0.1.0-alpha.11` adds
+command-backed stdio/HTTP MCP server config propagation into Claude
+`--mcp-config`, and `v0.1.0-alpha.12` adds Claude-native `--session-id` reload
+after adapter restarts.
 
 ## Supported External Agents
 
