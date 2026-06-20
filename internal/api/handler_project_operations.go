@@ -345,6 +345,10 @@ func sortProjectOperationsItems(items []ProjectOperationsBriefItemResponse) {
 		if leftRank != rightRank {
 			return leftRank < rightRank
 		}
+		leftKindRank, rightKindRank := projectOperationsKindRank(items[i].Kind), projectOperationsKindRank(items[j].Kind)
+		if leftKindRank != rightKindRank {
+			return leftKindRank < rightKindRank
+		}
 		leftTime, rightTime := parseProjectActivityTime(items[i].UpdatedAt), parseProjectActivityTime(items[j].UpdatedAt)
 		if !leftTime.Equal(rightTime) {
 			return leftTime.After(rightTime)
@@ -363,6 +367,37 @@ func projectOperationsPriorityRank(priority string) int {
 		return 2
 	default:
 		return 3
+	}
+}
+
+func projectOperationsKindRank(kind string) int {
+	switch strings.TrimSpace(kind) {
+	case "approve_assignment":
+		return 0
+	case "review_failed_assignment":
+		return 10
+	case "inspect_stale_assignment":
+		return 20
+	case "start_queued_assignment":
+		return 30
+	case "configure_project_defaults":
+		return 40
+	case "review_cancelled_assignment":
+		return 50
+	case "review_pending_handoff":
+		return 60
+	case "prepare_first_assignment":
+		return 70
+	case "create_first_work_item":
+		return 80
+	case "review_memory_candidates":
+		return 90
+	case "inspect_active_assignment":
+		return 100
+	case "record_completion_evidence":
+		return 110
+	default:
+		return 1000
 	}
 }
 

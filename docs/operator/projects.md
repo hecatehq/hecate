@@ -52,6 +52,9 @@ operations seed the normal Project Assistant proposal rail; the operator still
 reviews and applies typed changes before Hecate creates durable project records.
 When there is no server-backed operation to show, the tab falls back to the
 deterministic next action and compact resume summary.
+That fallback is transitional: new project-operations prioritization should
+land in the server brief first so clients do not maintain competing next-action
+cascades.
 
 Use the top action for the single most useful operator step, then jump to
 blocked, active, recent, or memory-review work from the resume summary before
