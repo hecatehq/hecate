@@ -272,6 +272,13 @@ installed and visible on `PATH`. Hecate does not pin an external-agent model by
 default. When an ACP agent reports model state, the agent-provided model list and
 current model become the chat model control.
 
+Hecate's adapter integration tests exercise the Go Codex and Claude Code adapter
+packages through the same stdio ACP boundary that production uses, with fake
+`codex` and `claude` CLIs standing in for the vendor binaries. Those tests cover
+probe capability discovery, ACP authenticate/logout, session config selectors,
+advertised slash commands, prompt streaming, and usage mapping. npm adapter
+wrappers are not part of the supported test path.
+
 ## Setup checks
 
 External Agent chat does not use Hecate model providers. It needs the selected
