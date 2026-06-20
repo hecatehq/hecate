@@ -24,8 +24,8 @@ transcript prelude for multi-turn continuity. Claude Code adapter
 after an adapter process restart. Codex does not yet claim vendor-native
 durable history across adapter process restarts; if a load is stale, Hecate
 falls back to a fresh native session. Hecate treats `codex-acp-adapter` versions
-older than `v0.1.0-alpha.17` and `claude-code-acp-adapter` versions older than
-`v0.1.0-alpha.19` as outside the tested range because those older releases lack
+older than `v0.1.0-alpha.18` and `claude-code-acp-adapter` versions older than
+`v0.1.0-alpha.20` as outside the tested range because those older releases lack
 the current continuity, permission-control, structured stream, session metadata,
 external MCP handoff surface, and ACP authenticate/logout mapping. The
 `v0.1.0-alpha.8` adapters added supported Codex and Claude Code JSON stream
@@ -51,6 +51,8 @@ Codex adapter `v0.1.0-alpha.16` maps ACP `logout` to the native `codex logout`
 command.
 Codex adapter `v0.1.0-alpha.17` maps ACP `authenticate` to the native
 `codex login` command.
+Codex adapter `v0.1.0-alpha.18` pins the shared Go ACP adapter kit to its
+first tagged alpha release.
 Claude Code adapter `v0.1.0-alpha.11` adds command-backed stdio/HTTP MCP server
 config propagation into Claude `--mcp-config`, and `v0.1.0-alpha.12` adds
 Claude-native `--session-id` reload after adapter restarts. Claude Code adapter
@@ -72,6 +74,8 @@ Claude Code adapter `v0.1.0-alpha.18` maps ACP `logout` to the native
 `claude auth logout` command.
 Claude Code adapter `v0.1.0-alpha.19` maps ACP `authenticate` to the native
 `claude /login` command.
+Claude Code adapter `v0.1.0-alpha.20` pins the shared Go ACP adapter kit to its
+first tagged alpha release.
 
 ## Supported External Agents
 

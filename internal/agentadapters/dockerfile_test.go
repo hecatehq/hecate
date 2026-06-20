@@ -51,22 +51,58 @@ func TestDockerfilesPinSameGoACPAdapterVersions(t *testing.T) {
 
 	dev := readDockerfile(t, "Dockerfile")
 	release := readDockerfile(t, "Dockerfile.release")
-	want := map[string]string{
-		"CODEX_ACP_ADAPTER_VERSION":       "v0.1.0-alpha.17",
-		"CLAUDE_CODE_ACP_ADAPTER_VERSION": "v0.1.0-alpha.19",
+	goMod := readRepoFile(t, "go.mod")
+	adapters := map[string]Adapter{}
+	for _, adapter := range BuiltIns() {
+		adapters[adapter.ID] = adapter
 	}
-	for arg, wantVersion := range want {
-		devVersion := dockerfileArgValue(dev, arg)
-		releaseVersion := dockerfileArgValue(release, arg)
-		if devVersion == "" || releaseVersion == "" {
-			t.Fatalf("%s versions = dev:%q release:%q, want both Dockerfiles pinned", arg, devVersion, releaseVersion)
-		}
-		if devVersion != releaseVersion {
-			t.Fatalf("%s versions drifted: Dockerfile=%s Dockerfile.release=%s", arg, devVersion, releaseVersion)
-		}
-		if devVersion != wantVersion {
-			t.Fatalf("%s version = %s, want %s", arg, devVersion, wantVersion)
-		}
+
+	tests := []struct {
+		name   string
+		id     string
+		arg    string
+		module string
+	}{
+		{
+			name:   "codex",
+			id:     "codex",
+			arg:    "CODEX_ACP_ADAPTER_VERSION",
+			module: "github.com/hecatehq/codex-acp-adapter",
+		},
+		{
+			name:   "claude_code",
+			id:     "claude_code",
+			arg:    "CLAUDE_CODE_ACP_ADAPTER_VERSION",
+			module: "github.com/hecatehq/claude-code-acp-adapter",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			devVersion := dockerfileArgValue(dev, tt.arg)
+			releaseVersion := dockerfileArgValue(release, tt.arg)
+			moduleVersion := goModRequireVersion(t, goMod, tt.module)
+			adapter, ok := adapters[tt.id]
+			if !ok {
+				t.Fatalf("missing built-in adapter %q", tt.id)
+			}
+
+			if devVersion == "" || releaseVersion == "" {
+				t.Fatalf("%s versions = dev:%q release:%q, want both Dockerfiles pinned", tt.arg, devVersion, releaseVersion)
+			}
+			if devVersion != releaseVersion {
+				t.Fatalf("%s versions drifted: Dockerfile=%s Dockerfile.release=%s", tt.arg, devVersion, releaseVersion)
+			}
+			if devVersion != moduleVersion {
+				t.Fatalf("%s version = %s, want go.mod %s", tt.arg, devVersion, moduleVersion)
+			}
+			if !satisfiesRange(strings.TrimPrefix(devVersion, "v"), adapter.SupportedRange) {
+				t.Fatalf("%s version %s does not satisfy registry range %q", tt.arg, devVersion, adapter.SupportedRange)
+			}
+			wantRange := ">=" + strings.TrimPrefix(moduleVersion, "v")
+			if adapter.SupportedRange != wantRange {
+				t.Fatalf("%s registry range = %q, want %q from go.mod", tt.id, adapter.SupportedRange, wantRange)
+			}
+		})
 	}
 }
 
@@ -92,6 +128,11 @@ func TestDockerfilesPinSameCursorInstallerChecksum(t *testing.T) {
 
 func readDockerfile(t testing.TB, name string) string {
 	t.Helper()
+	return readRepoFile(t, name)
+}
+
+func readRepoFile(t testing.TB, name string) string {
+	t.Helper()
 	raw, err := os.ReadFile(filepath.Join("..", "..", name))
 	if err != nil {
 		t.Fatalf("read %s: %v", name, err)
@@ -107,5 +148,17 @@ func dockerfileArgValue(text string, name string) string {
 			return strings.TrimSpace(strings.TrimPrefix(line, prefix))
 		}
 	}
+	return ""
+}
+
+func goModRequireVersion(t testing.TB, text, module string) string {
+	t.Helper()
+	for _, line := range strings.Split(text, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && fields[0] == module {
+			return fields[1]
+		}
+	}
+	t.Fatalf("go.mod missing require for %s", module)
 	return ""
 }
