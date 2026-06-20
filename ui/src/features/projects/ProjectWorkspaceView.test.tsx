@@ -381,6 +381,53 @@ describe("ProjectWorkspaceView", () => {
     expect(handlers.onOperationAction).toHaveBeenCalledWith(operationItem);
   });
 
+  it("explains compact project operations limits", () => {
+    const operationItems = Array.from({ length: 5 }, (_, index) => ({
+      id: `prepare_first_assignment:proj_1:work_${index}`,
+      kind: "prepare_first_assignment",
+      priority: "medium",
+      title: `Prepare first assignment: Work ${index}`,
+      detail: "This work item has no queued or running assignments yet.",
+      action_label: "Draft assignment",
+      target: {
+        surface: "work",
+        project_id: "proj_1",
+        work_item_id: `work_${index}`,
+      },
+      action: {
+        type: "draft_project_proposal",
+        project_id: "proj_1",
+        work_item_id: `work_${index}`,
+        request: `Queue an assignment for Work ${index}`,
+      },
+    }));
+    renderWorkspace({
+      operationsBrief: {
+        project_id: "proj_1",
+        generated_at: "2026-06-13T00:00:00Z",
+        summary: {
+          item_count: 5,
+          available_item_count: 9,
+          omitted_item_count: 4,
+          item_limit: 8,
+          high_count: 0,
+          medium_count: 5,
+          low_count: 0,
+          pending_memory_candidate_count: 0,
+          pending_handoff_count: 0,
+        },
+        items: operationItems,
+      },
+    });
+
+    const operations = screen.getByRole("region", { name: "Project operations" });
+    expect(
+      within(operations).getByText(
+        "Showing top 4 of 9 operations; 4 lower-priority operations were omitted by the server cap.",
+      ),
+    ).toBeTruthy();
+  });
+
   it("renders a resume summary and delegates resume actions", async () => {
     const item = workItem({ id: "work_blocked", title: "Fix blocked launch" });
     const { handlers } = renderWorkspace({

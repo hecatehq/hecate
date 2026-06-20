@@ -862,6 +862,9 @@ export type ProjectOperationsBriefItem = {
 
 export type ProjectOperationsBriefSummary = {
   item_count: number;
+  available_item_count?: number;
+  omitted_item_count?: number;
+  item_limit?: number;
   high_count: number;
   medium_count: number;
   low_count: number;

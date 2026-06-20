@@ -730,6 +730,8 @@ function ProjectOperationsBriefPanel({
   const items = brief?.items ?? [];
   const primary = items[0] ?? null;
   const secondary = items.slice(1, 4);
+  const shownItemCount = (primary ? 1 : 0) + secondary.length;
+  const limitDetail = projectOperationsLimitDetail(brief, shownItemCount);
   const title = loading && !brief ? "Loading operations..." : primary?.title || "Operations clear";
   const detail =
     loading && !brief
@@ -781,9 +783,26 @@ function ProjectOperationsBriefPanel({
           ))}
         </div>
       )}
+      {limitDetail && <div style={subtleTextStyle}>{limitDetail}</div>}
       {error && <InlineError message={error} />}
     </section>
   );
+}
+
+function projectOperationsLimitDetail(
+  brief: ProjectOperationsBrief | null,
+  shownItemCount: number,
+) {
+  if (!brief || shownItemCount === 0) return "";
+  const availableItemCount = brief.summary.available_item_count ?? brief.items.length;
+  const omittedItemCount = brief.summary.omitted_item_count ?? 0;
+  if (omittedItemCount > 0) {
+    return `Showing top ${shownItemCount} of ${availableItemCount} operations; ${omittedItemCount} lower-priority ${omittedItemCount === 1 ? "operation was" : "operations were"} omitted by the server cap.`;
+  }
+  if (brief.items.length > shownItemCount) {
+    return `Showing top ${shownItemCount} of ${brief.items.length} operations.`;
+  }
+  return "";
 }
 
 function projectOperationBadge(item: ProjectOperationsBriefItem): string {

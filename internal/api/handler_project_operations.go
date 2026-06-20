@@ -41,6 +41,9 @@ type ProjectOperationsBriefResponse struct {
 
 type ProjectOperationsBriefSummaryResponse struct {
 	ItemCount                   int `json:"item_count"`
+	AvailableItemCount          int `json:"available_item_count"`
+	OmittedItemCount            int `json:"omitted_item_count"`
+	ItemLimit                   int `json:"item_limit"`
 	HighCount                   int `json:"high_count"`
 	MediumCount                 int `json:"medium_count"`
 	LowCount                    int `json:"low_count"`
@@ -146,6 +149,7 @@ func (h *Handler) renderProjectOperationsBrief(ctx context.Context, projectID st
 	}
 
 	sortProjectOperationsItems(items)
+	availableItemCount := len(items)
 	items = boundedProjectOperationsItems(items, projectOperationsBriefItemLimit)
 	response := ProjectOperationsBriefResponse{
 		ProjectID:   projectID,
@@ -153,6 +157,9 @@ func (h *Handler) renderProjectOperationsBrief(ctx context.Context, projectID st
 		Items:       items,
 	}
 	response.Summary.ItemCount = len(items)
+	response.Summary.AvailableItemCount = availableItemCount
+	response.Summary.OmittedItemCount = availableItemCount - len(items)
+	response.Summary.ItemLimit = projectOperationsBriefItemLimit
 	response.Summary.PendingMemoryCandidateCount = pendingMemoryCandidates
 	for _, handoff := range handoffs {
 		if handoff.Status == projectwork.HandoffStatusPending {

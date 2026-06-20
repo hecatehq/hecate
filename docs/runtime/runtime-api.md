@@ -2413,7 +2413,9 @@ proposals, memory entries, or memory candidates, and it never starts queued
 work.
 The eight-item cap is applied after sorting by priority, explicit operation
 kind urgency, recency, and stable ID, so truncation is part of the operator
-priority policy.
+priority policy. The summary reports the returned item count, available item
+count before the cap, omitted item count, and current item limit so clients can
+show when lower-priority operations are hidden.
 
 Each item has a `kind` that explains why it appears and an `action` that is the
 typed client routing contract. Clients should dispatch on `action.type`, not on
@@ -2442,6 +2444,9 @@ where the operator reviews the typed proposal before any durable mutation.
     "generated_at": "2026-06-20T12:00:00Z",
     "summary": {
       "item_count": 2,
+      "available_item_count": 2,
+      "omitted_item_count": 0,
+      "item_limit": 8,
       "high_count": 1,
       "medium_count": 1,
       "low_count": 0,
