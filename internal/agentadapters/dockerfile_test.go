@@ -39,7 +39,7 @@ func TestDockerfilesInstallGoACPAdapterReleaseBinaries(t *testing.T) {
 				"@agentclientprotocol/claude-agent-acp",
 			} {
 				if strings.Contains(text, forbidden) {
-					t.Fatalf("%s contains legacy npm ACP adapter package %q", name, forbidden)
+					t.Fatalf("%s contains unsupported ACP adapter package %q", name, forbidden)
 				}
 			}
 		})
