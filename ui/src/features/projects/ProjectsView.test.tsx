@@ -39,6 +39,7 @@ import {
   getProjectMemory,
   getProjectMemoryCandidates,
   getProjectSkills,
+  getProjectSetupReadiness,
   getProjectWorkItem,
   getProjectWorkItemReadiness,
   getProjectWorkItems,
@@ -74,6 +75,7 @@ import type {
   ProjectMemoryCandidateRecord,
   ProjectMemoryRecord,
   ProjectRecord,
+  ProjectSetupReadiness,
   ProjectSkillRecord,
   ProjectWorkItemRecord,
   ProjectWorkRoleRecord,
@@ -173,6 +175,37 @@ function projectHealthData(
   };
 }
 
+function projectSetupReadinessData(
+  projectID: string,
+  overrides: Partial<ProjectSetupReadiness> = {},
+): ProjectSetupReadiness {
+  return {
+    project_id: projectID,
+    generated_at: "2026-06-20T00:00:00Z",
+    show_onboarding: false,
+    setup_started: true,
+    first_work_ready: false,
+    summary: {
+      work_item_count: 1,
+      role_count: 1,
+      skill_count: 0,
+      enabled_context_source_count: 0,
+      saved_memory_count: 0,
+      pending_memory_candidate_count: 0,
+      has_purpose: true,
+      has_active_root: true,
+      missing_defaults: false,
+    },
+    primary_action: {
+      type: "bootstrap_project",
+      project_id: projectID,
+      label: "Set up project",
+    },
+    checks: [],
+    ...overrides,
+  };
+}
+
 async function openProjectWorkspaceTab(name: RegExp | string) {
   await userEvent.click(await screen.findByRole("tab", { name }));
 }
@@ -193,6 +226,10 @@ vi.mock("../../lib/api", async (importOriginal) => {
     getProjectHealth: vi.fn(async () => ({
       object: "project_health",
       data: emptyProjectHealthData(),
+    })),
+    getProjectSetupReadiness: vi.fn(async () => ({
+      object: "project_setup_readiness",
+      data: projectSetupReadinessData(""),
     })),
     getProjectOperationsBrief: vi.fn(async () => ({
       object: "project_operations_brief",
@@ -582,6 +619,10 @@ function resetProjectWorkMocks() {
   vi.mocked(getProjectHealth).mockResolvedValue({
     object: "project_health",
     data: { ...emptyProjectHealthData(), project_id: project.id },
+  });
+  vi.mocked(getProjectSetupReadiness).mockResolvedValue({
+    object: "project_setup_readiness",
+    data: projectSetupReadinessData(project.id),
   });
   vi.mocked(getProjectWorkRoles).mockResolvedValue({ object: "project_roles", data: [role] });
   vi.mocked(getProjectWorkItems).mockResolvedValue({
@@ -1132,6 +1173,7 @@ afterEach(() => {
   vi.mocked(getProjectActivity).mockReset();
   vi.mocked(getProjectHealth).mockReset();
   vi.mocked(getProjectOperationsBrief).mockReset();
+  vi.mocked(getProjectSetupReadiness).mockReset();
   vi.mocked(getProjectWorkRoles).mockReset();
   vi.mocked(getProjectWorkItems).mockReset();
   vi.mocked(getProjectWorkItem).mockReset();
@@ -1213,6 +1255,33 @@ describe("ProjectsView index", () => {
       object: "project_work_items",
       data: [],
     });
+    vi.mocked(getProjectSetupReadiness).mockResolvedValue({
+      object: "project_setup_readiness",
+      data: projectSetupReadinessData(project.id, {
+        show_onboarding: true,
+        setup_started: false,
+        first_work_ready: false,
+        summary: {
+          work_item_count: 0,
+          role_count: 0,
+          skill_count: 0,
+          enabled_context_source_count: 0,
+          saved_memory_count: 0,
+          pending_memory_candidate_count: 0,
+          has_purpose: true,
+          has_active_root: true,
+          missing_defaults: false,
+        },
+        checks: [
+          {
+            id: "workspace_source",
+            label: "Workspace source",
+            detail: "/Users/alice/dev/hecate",
+            status: "ready",
+          },
+        ],
+      }),
+    });
     window.localStorage.setItem("hecate.project", project.id);
     window.localStorage.setItem("hecate.projects.panel_collapsed", "1");
 
@@ -1259,6 +1328,25 @@ describe("ProjectsView index", () => {
       data: [],
     });
     vi.mocked(getProjectWorkRoles).mockResolvedValue({ object: "project_work_roles", data: [] });
+    vi.mocked(getProjectSetupReadiness).mockResolvedValue({
+      object: "project_setup_readiness",
+      data: projectSetupReadinessData(project.id, {
+        show_onboarding: false,
+        setup_started: true,
+        first_work_ready: true,
+        summary: {
+          work_item_count: 0,
+          role_count: 0,
+          skill_count: 0,
+          enabled_context_source_count: 1,
+          saved_memory_count: 0,
+          pending_memory_candidate_count: 0,
+          has_purpose: true,
+          has_active_root: true,
+          missing_defaults: false,
+        },
+      }),
+    });
     const bootstrappedProject: ProjectRecord = {
       ...project,
       context_sources: [
@@ -1331,6 +1419,25 @@ describe("ProjectsView index", () => {
         },
       ],
     };
+    vi.mocked(getProjectSetupReadiness).mockResolvedValue({
+      object: "project_setup_readiness",
+      data: projectSetupReadinessData(bootstrappedProject.id, {
+        show_onboarding: false,
+        setup_started: true,
+        first_work_ready: true,
+        summary: {
+          work_item_count: 0,
+          role_count: 1,
+          skill_count: 1,
+          enabled_context_source_count: 1,
+          saved_memory_count: 0,
+          pending_memory_candidate_count: 1,
+          has_purpose: true,
+          has_active_root: true,
+          missing_defaults: false,
+        },
+      }),
+    });
     const user = userEvent.setup();
     window.localStorage.setItem("hecate.project", bootstrappedProject.id);
 
@@ -1893,6 +2000,25 @@ describe("ProjectsView cockpit", () => {
       object: "project_work_items",
       data: [],
     });
+    vi.mocked(getProjectSetupReadiness).mockResolvedValue({
+      object: "project_setup_readiness",
+      data: projectSetupReadinessData(project.id, {
+        show_onboarding: true,
+        setup_started: false,
+        first_work_ready: false,
+        summary: {
+          work_item_count: 0,
+          role_count: 0,
+          skill_count: 0,
+          enabled_context_source_count: 0,
+          saved_memory_count: 0,
+          pending_memory_candidate_count: 0,
+          has_purpose: true,
+          has_active_root: true,
+          missing_defaults: false,
+        },
+      }),
+    });
     const discoveredProject: ProjectRecord = {
       ...project,
       context_sources: [
@@ -2082,6 +2208,25 @@ describe("ProjectsView cockpit", () => {
     vi.mocked(getProjectActivity).mockResolvedValue({
       object: "project_activity",
       data: emptyActivityData(),
+    });
+    vi.mocked(getProjectSetupReadiness).mockResolvedValue({
+      object: "project_setup_readiness",
+      data: projectSetupReadinessData(project.id, {
+        show_onboarding: true,
+        setup_started: false,
+        first_work_ready: false,
+        summary: {
+          work_item_count: 0,
+          role_count: 0,
+          skill_count: 0,
+          enabled_context_source_count: 0,
+          saved_memory_count: 0,
+          pending_memory_candidate_count: 0,
+          has_purpose: true,
+          has_active_root: true,
+          missing_defaults: false,
+        },
+      }),
     });
     const user = userEvent.setup();
     window.localStorage.setItem("hecate.project", project.id);

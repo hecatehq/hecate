@@ -826,6 +826,7 @@ export type ProjectHealthAttentionAction =
 
 export type ProjectHealthAttention = {
   id: string;
+  project_id?: string;
   title: string;
   detail: string;
   status: string;
@@ -872,6 +873,57 @@ export type ProjectHealth = {
 export type ProjectHealthResponse = {
   object: string;
   data: ProjectHealth;
+};
+
+export type ProjectSetupReadinessActionType =
+  | "bootstrap_project"
+  | "create_work_item"
+  | "open_project_settings"
+  | (string & {});
+
+export type ProjectSetupReadinessAction = {
+  type: ProjectSetupReadinessActionType;
+  project_id: string;
+  label: string;
+};
+
+export type ProjectSetupReadinessCheckStatus = "ready" | "todo" | "optional" | (string & {});
+
+export type ProjectSetupReadinessCheck = {
+  id: string;
+  label: string;
+  detail: string;
+  status: ProjectSetupReadinessCheckStatus;
+  optional?: boolean;
+  action?: ProjectSetupReadinessAction;
+};
+
+export type ProjectSetupReadinessSummary = {
+  work_item_count: number;
+  role_count: number;
+  skill_count: number;
+  enabled_context_source_count: number;
+  saved_memory_count: number;
+  pending_memory_candidate_count: number;
+  has_purpose: boolean;
+  has_active_root: boolean;
+  missing_defaults: boolean;
+};
+
+export type ProjectSetupReadiness = {
+  project_id: string;
+  generated_at: string;
+  show_onboarding: boolean;
+  setup_started: boolean;
+  first_work_ready: boolean;
+  summary: ProjectSetupReadinessSummary;
+  primary_action: ProjectSetupReadinessAction;
+  checks: ProjectSetupReadinessCheck[];
+};
+
+export type ProjectSetupReadinessResponse = {
+  object: string;
+  data: ProjectSetupReadiness;
 };
 
 export type ProjectOperationsBriefPriority = "high" | "medium" | "low" | (string & {});

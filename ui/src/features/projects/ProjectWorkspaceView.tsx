@@ -13,13 +13,15 @@ import type {
   ProjectOperationsBrief,
   ProjectOperationsBriefItem,
   ProjectRecord,
+  ProjectSetupReadiness,
+  ProjectSetupReadinessAction,
+  ProjectSetupReadinessCheck,
   ProjectSkillRecord,
   ProjectWorkItemReadinessRecord,
   ProjectWorkItemRecord,
   ProjectWorkRoleRecord,
   UpdateProjectSkillPayload,
 } from "../../types/project";
-import { projectDefaultWorkspace } from "../../lib/project-workspace";
 import { Badge, Icon, Icons, InlineError } from "../shared/ui";
 import { ProjectAssistantPanel } from "./ProjectAssistantPanel";
 import { ProjectMemoryPanel } from "./ProjectMemoryPanel";
@@ -118,12 +120,14 @@ export type ProjectWorkspaceViewProps = {
   onSetHandoffStatus: (handoff: ProjectHandoffRecord, status: string) => void;
   onStartAssignment: (assignment: ProjectAssignmentRecord) => void;
   onStartHandoff: (handoff: ProjectHandoffRecord) => void;
+  onSetupReadinessAction: (action: ProjectSetupReadinessAction) => void;
   onUpdateProjectSkill: (skill: ProjectSkillRecord, patch: UpdateProjectSkillPayload) => void;
   onWorkspaceTabChange: (tab: ProjectWorkspaceTab) => void;
   project: ProjectRecord | null;
   projectEmptyDetail: string;
   projectEmptyTitle: string;
   projectNeedsOnboarding: boolean;
+  projectSetupReadiness: ProjectSetupReadiness | null;
   operationsBrief: ProjectOperationsBrief | null;
   operationsBriefError: string;
   operationsBriefLoadState: LoadState;
@@ -213,12 +217,14 @@ export function ProjectWorkspaceView({
   onSetHandoffStatus,
   onStartAssignment,
   onStartHandoff,
+  onSetupReadinessAction,
   onUpdateProjectSkill,
   onWorkspaceTabChange,
   project,
   projectEmptyDetail,
   projectEmptyTitle,
   projectNeedsOnboarding,
+  projectSetupReadiness,
   operationsBrief,
   operationsBriefError,
   operationsBriefLoadState,
@@ -241,15 +247,13 @@ export function ProjectWorkspaceView({
   workLoadState,
   workspaceTab,
 }: ProjectWorkspaceViewProps) {
-  const enabledContextSourceCount =
-    project?.context_sources?.filter((source) => source.enabled).length ?? 0;
-  const projectSetupStarted =
-    enabledContextSourceCount > 0 ||
-    roles.length > 0 ||
-    projectSkills.length > 0 ||
-    memoryEntries.length > 0 ||
-    memoryCandidates.length > 0;
-  const projectSetupFirst = workItems.length === 0 && !selectedWorkItem;
+  const projectSetupStarted = projectSetupReadiness?.setup_started ?? false;
+  const projectSetupFirst = projectSetupReadiness?.first_work_ready ?? false;
+  const projectSetupAssistantMode =
+    projectSetupFirst ||
+    (workItems.length === 0 &&
+      !selectedWorkItem &&
+      (Boolean(assistant.proposal) || Boolean(assistant.applyResult)));
 
   return (
     <section style={detailStyle} aria-label="Selected work item">
@@ -257,16 +261,15 @@ export function ProjectWorkspaceView({
         {project ? (
           <section style={domainSectionStyle} aria-label="Project workspace">
             {projectNeedsOnboarding ? (
-              <ProjectOnboardingPanel
-                bootstrapPending={assistant.bootstrapPending}
-                contextSourceCount={enabledContextSourceCount}
-                onBootstrap={() => void assistant.bootstrap()}
-                onCreateWork={onCreateWork}
-                onOpenSettings={onOpenSettings}
-                project={project}
-                roleCount={roles.length}
-                skillCount={projectSkills.length}
-              />
+              projectSetupReadiness && (
+                <ProjectOnboardingPanel
+                  bootstrapPending={assistant.bootstrapPending}
+                  onAction={onSetupReadinessAction}
+                  onOpenSettings={onOpenSettings}
+                  project={project}
+                  readiness={projectSetupReadiness}
+                />
+              )
             ) : (
               <>
                 <ProjectAssistantPanel
@@ -300,7 +303,7 @@ export function ProjectWorkspaceView({
                   roles={roles}
                   memoryCandidateCount={memoryCandidates.length}
                   roleCount={roles.length}
-                  setupFirst={projectSetupFirst}
+                  setupFirst={projectSetupAssistantMode}
                   setupStarted={projectSetupStarted}
                   status={assistant.status}
                   workItem={selectedWorkItem}
@@ -567,86 +570,20 @@ function SectionHeader({
   );
 }
 
-type ProjectOnboardingCheck = {
-  action?: () => void;
-  actionDisabled?: boolean;
-  actionLabel?: string;
-  detail: string;
-  done: boolean;
-  label: string;
-  optional?: boolean;
-};
-
 function ProjectOnboardingPanel({
   bootstrapPending,
-  contextSourceCount,
-  onBootstrap,
-  onCreateWork,
+  onAction,
   onOpenSettings,
   project,
-  roleCount,
-  skillCount,
+  readiness,
 }: {
   bootstrapPending: boolean;
-  contextSourceCount: number;
-  onBootstrap: () => void;
-  onCreateWork: () => void;
+  onAction: (action: ProjectSetupReadinessAction) => void;
   onOpenSettings: () => void;
   project: ProjectRecord;
-  roleCount: number;
-  skillCount: number;
+  readiness: ProjectSetupReadiness;
 }) {
-  const hasRoot = project.roots.some((root) => root.active !== false && root.path);
-  const workspace = projectDefaultWorkspace(project);
-  const hasPurpose = Boolean(project.description?.trim());
-  const hasDefaults = Boolean(project.default_provider && project.default_model);
-  const hasGuidance = contextSourceCount > 0 || skillCount > 0;
-  const checks: ProjectOnboardingCheck[] = [
-    {
-      label: "Project purpose",
-      detail: hasPurpose ? project.description?.trim() || "Ready" : "Add a short purpose.",
-      done: hasPurpose,
-      actionLabel: "Add purpose",
-      action: onOpenSettings,
-    },
-    {
-      label: "Workspace source",
-      detail: hasRoot
-        ? workspace || "Ready"
-        : "Optional; attach files when this project needs them.",
-      done: true,
-      optional: !hasRoot,
-    },
-    {
-      label: "Provider and model",
-      detail: hasDefaults ? `${project.default_provider} / ${project.default_model}` : "Not set",
-      done: hasDefaults,
-      actionLabel: "Set defaults",
-      action: onOpenSettings,
-    },
-    {
-      label: "Sources and memory",
-      detail: hasGuidance
-        ? `${contextSourceCount} sources · ${skillCount} skills`
-        : hasRoot
-          ? "Set up project can discover workspace guidance and local skills."
-          : "Attach a workspace when files matter, or add sources later.",
-      done: hasGuidance,
-    },
-    {
-      label: "Roles",
-      detail:
-        roleCount > 0 ? `${roleCount} roles` : "Set up project can suggest roles from skills.",
-      done: roleCount > 0,
-    },
-    {
-      label: "First work item",
-      detail: "Create the first reviewable task after setup.",
-      done: false,
-      actionLabel: "Create work",
-      action: onCreateWork,
-    },
-  ];
+  const primaryAction = readiness.primary_action;
   return (
     <section aria-label="Project onboarding" style={projectOnboardingStyle}>
       <div style={projectOnboardingCopyStyle}>
@@ -662,11 +599,13 @@ function ProjectOnboardingPanel({
           <button
             className="btn btn-primary btn-sm"
             type="button"
-            disabled={bootstrapPending}
-            onClick={onBootstrap}
+            disabled={bootstrapPending && primaryAction.type === "bootstrap_project"}
+            onClick={() => onAction(primaryAction)}
           >
             <Icon d={Icons.refresh} size={13} />
-            {bootstrapPending ? "Setting up..." : "Set up project"}
+            {bootstrapPending && primaryAction.type === "bootstrap_project"
+              ? "Setting up..."
+              : primaryAction.label}
           </button>
           <button className="btn btn-ghost btn-sm" type="button" onClick={onOpenSettings}>
             <Icon d={Icons.settings} size={13} />
@@ -675,32 +614,32 @@ function ProjectOnboardingPanel({
         </div>
       </div>
       <div style={projectOnboardingChecklistStyle}>
-        {checks.map((check) => (
+        {readiness.checks.map((check) => (
           <div
             aria-label={check.label}
-            key={check.label}
+            key={check.id}
             role="group"
             style={projectOnboardingCheckStyle}
           >
             <span
-              className={check.done ? "badge badge-green" : "badge badge-muted"}
+              className={projectOnboardingCheckBadgeClass(check)}
               style={projectOnboardingCheckBadgeStyle}
             >
-              {check.optional ? "optional" : check.done ? "ready" : "todo"}
+              {projectOnboardingCheckBadgeLabel(check)}
             </span>
             <div style={{ minWidth: 0 }}>
               <div style={titleStyle}>{check.label}</div>
               <div style={subtleTextStyle}>{check.detail}</div>
             </div>
-            {!check.done && check.action && (
+            {check.status !== "ready" && !check.optional && check.action && (
               <button
                 className="btn btn-ghost btn-sm"
-                disabled={check.actionDisabled}
-                onClick={check.action}
+                disabled={bootstrapPending && check.action.type === "bootstrap_project"}
+                onClick={() => onAction(check.action!)}
                 style={projectOnboardingCheckActionStyle}
                 type="button"
               >
-                {check.actionLabel}
+                {check.action.label}
               </button>
             )}
           </div>
@@ -708,6 +647,16 @@ function ProjectOnboardingPanel({
       </div>
     </section>
   );
+}
+
+function projectOnboardingCheckBadgeClass(check: ProjectSetupReadinessCheck): string {
+  return check.status === "ready" ? "badge badge-green" : "badge badge-muted";
+}
+
+function projectOnboardingCheckBadgeLabel(check: ProjectSetupReadinessCheck): string {
+  if (check.optional || check.status === "optional") return "optional";
+  if (check.status === "ready") return "ready";
+  return "todo";
 }
 
 function ProjectOperationsBriefPanel({

@@ -15,6 +15,7 @@ import {
   getProjectHandoffs,
   getProjectHealth,
   getProjectOperationsBrief,
+  getProjectSetupReadiness,
   getProjectWorkItem,
   getProjectWorkItemReadiness,
   getProjectWorkItems,
@@ -23,6 +24,7 @@ import {
 import type {
   ProjectAssignmentRecord,
   ProjectHealth,
+  ProjectSetupReadiness,
   ProjectWorkItemRecord,
 } from "../types/project";
 
@@ -50,6 +52,10 @@ vi.mock("../lib/api", async (importOriginal) => {
     getProjectHealth: vi.fn(async () => ({
       object: "project_health",
       data: emptyProjectHealthData(),
+    })),
+    getProjectSetupReadiness: vi.fn(async () => ({
+      object: "project_setup_readiness",
+      data: emptyProjectSetupReadinessData(),
     })),
     getProjectWorkRoles: vi.fn(async () => ({ object: "project_roles", data: [] })),
     getProjectWorkItems: vi.fn(async () => ({ object: "project_work_items", data: [] })),
@@ -146,6 +152,33 @@ function emptyProjectHealthData(): ProjectHealth {
   };
 }
 
+function emptyProjectSetupReadinessData(): ProjectSetupReadiness {
+  return {
+    project_id: "",
+    generated_at: "",
+    show_onboarding: false,
+    setup_started: true,
+    first_work_ready: false,
+    summary: {
+      work_item_count: 0,
+      role_count: 0,
+      skill_count: 0,
+      enabled_context_source_count: 0,
+      saved_memory_count: 0,
+      pending_memory_candidate_count: 0,
+      has_purpose: false,
+      has_active_root: false,
+      missing_defaults: false,
+    },
+    primary_action: {
+      type: "bootstrap_project",
+      project_id: "",
+      label: "Set up project",
+    },
+    checks: [],
+  };
+}
+
 function resetProjectWorkMocks() {
   const emptyWorkItem: ProjectWorkItemRecord = {
     id: "",
@@ -167,6 +200,10 @@ function resetProjectWorkMocks() {
   vi.mocked(getProjectHealth).mockResolvedValue({
     object: "project_health",
     data: emptyProjectHealthData(),
+  });
+  vi.mocked(getProjectSetupReadiness).mockResolvedValue({
+    object: "project_setup_readiness",
+    data: emptyProjectSetupReadinessData(),
   });
   vi.mocked(getProjectWorkRoles).mockResolvedValue({ object: "project_roles", data: [] });
   vi.mocked(getProjectWorkItems).mockResolvedValue({ object: "project_work_items", data: [] });

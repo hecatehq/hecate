@@ -99,6 +99,7 @@ import type {
   ProjectMemoryResponse,
   ProjectOperationsBriefResponse,
   ProjectResponse,
+  ProjectSetupReadinessResponse,
   ProjectSkillResponse,
   ProjectSkillsResponse,
   ProjectWorkItemsResponse,
@@ -604,6 +605,14 @@ export async function getProjectOperationsBrief(
 ): Promise<ProjectOperationsBriefResponse> {
   return fetchJSON<ProjectOperationsBriefResponse>(
     `${HECATE_API}/projects/${encodeURIComponent(projectID)}/operations/brief`,
+  );
+}
+
+export async function getProjectSetupReadiness(
+  projectID: string,
+): Promise<ProjectSetupReadinessResponse> {
+  return fetchJSON<ProjectSetupReadinessResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/setup-readiness`,
   );
 }
 

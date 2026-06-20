@@ -8,6 +8,7 @@ import type {
   ProjectHealth,
   ProjectMemoryCandidateRecord,
   ProjectRecord,
+  ProjectSetupReadiness,
   ProjectSkillRecord,
   ProjectWorkItemRecord,
   ProjectWorkRoleRecord,
@@ -33,7 +34,11 @@ test("Projects journey: setup, first work, assignment, evidence, closeout", asyn
   await page.getByRole("button", { name: "Create project" }).click();
 
   await expect(page.getByText("Set up Launch operations")).toBeVisible();
-  await page.getByRole("button", { name: "Set up project" }).click();
+  await page
+    .getByRole("region", { name: "Project onboarding" })
+    .getByRole("button", { name: "Set up project" })
+    .first()
+    .click();
   await expect(page.getByText("Bootstrap Launch operations guidance")).toBeVisible();
   await page.getByRole("button", { name: "Apply proposal" }).click();
 
@@ -337,6 +342,12 @@ async function mockProjectJourneyAPIs(page: Page) {
     }
     if (resource === "health") {
       await route.fulfill(ok({ object: "project_health", data: projectHealth(state, projectID) }));
+      return;
+    }
+    if (resource === "setup-readiness") {
+      await route.fulfill(
+        ok({ object: "project_setup_readiness", data: projectSetupReadiness(state, projectID) }),
+      );
       return;
     }
     if (resource === "operations" && parts[2] === "brief") {
@@ -804,6 +815,123 @@ function projectHealth(state: ProjectJourneyState, projectID: string): ProjectHe
       stale_or_unknown_assignment_count: 0,
     },
     attention: [],
+  };
+}
+
+function projectSetupReadiness(
+  state: ProjectJourneyState,
+  projectID: string,
+): ProjectSetupReadiness {
+  const project = state.projects.find((item) => item.id === projectID) ?? state.projects[0];
+  const enabledContextSourceCount = state.sources.filter((source) => source.enabled).length;
+  const pendingMemoryCandidateCount = state.memoryCandidates.filter(
+    (candidate) => candidate.status === "pending",
+  ).length;
+  const roleCount = state.roles.filter((role) => !role.built_in).length;
+  const skillCount = state.skills.length;
+  const workItemCount = state.workItems.filter((item) => item.project_id === projectID).length;
+  const hasActiveRoot = Boolean(project?.roots?.some((root) => root.active && root.path));
+  const missingDefaults = !(project?.default_provider && project?.default_model);
+  const setupStarted =
+    enabledContextSourceCount > 0 ||
+    roleCount > 0 ||
+    skillCount > 0 ||
+    pendingMemoryCandidateCount > 0;
+  return {
+    project_id: projectID,
+    generated_at: NOW,
+    show_onboarding: workItemCount === 0 && !setupStarted,
+    setup_started: setupStarted,
+    first_work_ready: workItemCount === 0 && setupStarted,
+    summary: {
+      work_item_count: workItemCount,
+      role_count: roleCount,
+      skill_count: skillCount,
+      enabled_context_source_count: enabledContextSourceCount,
+      saved_memory_count: 0,
+      pending_memory_candidate_count: pendingMemoryCandidateCount,
+      has_purpose: Boolean(project?.description?.trim()),
+      has_active_root: hasActiveRoot,
+      missing_defaults: missingDefaults,
+    },
+    primary_action: {
+      type: "bootstrap_project",
+      project_id: projectID,
+      label: "Set up project",
+    },
+    checks: [
+      {
+        id: "purpose",
+        label: "Project purpose",
+        detail: project?.description || "Add a short purpose.",
+        status: project?.description?.trim() ? "ready" : "todo",
+        action: project?.description?.trim()
+          ? undefined
+          : { type: "open_project_settings", project_id: projectID, label: "Add purpose" },
+      },
+      {
+        id: "workspace_source",
+        label: "Workspace source",
+        detail:
+          project?.roots?.find((root) => root.active && root.path)?.path ||
+          "Optional; attach files when this project needs them.",
+        status: hasActiveRoot ? "ready" : "optional",
+        optional: !hasActiveRoot,
+      },
+      {
+        id: "launch_defaults",
+        label: "Provider and model",
+        detail: missingDefaults
+          ? "Not set"
+          : `${project?.default_provider} / ${project?.default_model}`,
+        status: missingDefaults ? "todo" : "ready",
+        action: missingDefaults
+          ? { type: "open_project_settings", project_id: projectID, label: "Set defaults" }
+          : undefined,
+      },
+      {
+        id: "sources_memory",
+        label: "Sources and memory",
+        detail:
+          enabledContextSourceCount > 0 || pendingMemoryCandidateCount > 0 || skillCount > 0
+            ? `${enabledContextSourceCount} source(s), ${pendingMemoryCandidateCount} memory candidate(s), ${skillCount} skill(s)`
+            : "Attach a workspace when files matter, or add sources later.",
+        status:
+          enabledContextSourceCount > 0 || pendingMemoryCandidateCount > 0 || skillCount > 0
+            ? "ready"
+            : "todo",
+        action:
+          enabledContextSourceCount > 0 || pendingMemoryCandidateCount > 0 || skillCount > 0
+            ? undefined
+            : { type: "bootstrap_project", project_id: projectID, label: "Set up project" },
+      },
+      {
+        id: "roles",
+        label: "Roles",
+        detail:
+          roleCount > 0
+            ? `${roleCount} role(s) configured.`
+            : "Set up project can suggest roles from skills.",
+        status: roleCount > 0 ? "ready" : "todo",
+        action:
+          roleCount > 0
+            ? undefined
+            : { type: "bootstrap_project", project_id: projectID, label: "Set up project" },
+      },
+      {
+        id: "first_work_item",
+        label: "First work item",
+        detail:
+          workItemCount > 0
+            ? `${workItemCount} work item(s) created.`
+            : "Create the first reviewable task after setup.",
+        status: workItemCount > 0 ? "ready" : "todo",
+        action:
+          workItemCount > 0
+            ? undefined
+            : { type: "create_work_item", project_id: projectID, label: "Create work" },
+      },
+    ],
   };
 }
 

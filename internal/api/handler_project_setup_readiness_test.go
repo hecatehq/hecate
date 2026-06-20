@@ -1,0 +1,180 @@
+package api
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/hecatehq/hecate/internal/memory"
+	"github.com/hecatehq/hecate/internal/projects"
+	"github.com/hecatehq/hecate/internal/projectskills"
+	"github.com/hecatehq/hecate/internal/projectwork"
+)
+
+func TestProjectSetupReadiness_ReadOnlyPristineProject(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	if _, err := handler.projects.Create(t.Context(), projects.Project{
+		ID:   "proj_setup",
+		Name: "Setup",
+	}); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+
+	beforeWork, err := handler.projectWork.ListWorkItems(t.Context(), "proj_setup")
+	if err != nil {
+		t.Fatalf("ListWorkItems before: %v", err)
+	}
+	beforeRoles, err := handler.projectWork.ListRoles(t.Context(), "proj_setup")
+	if err != nil {
+		t.Fatalf("ListRoles before: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_setup/setup-readiness", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("setup readiness status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response ProjectSetupReadinessEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode setup readiness: %v", err)
+	}
+	if response.Object != "project_setup_readiness" || response.Data.ProjectID != "proj_setup" {
+		t.Fatalf("setup readiness envelope = %+v, want project_setup_readiness for project", response)
+	}
+	if !response.Data.ShowOnboarding || response.Data.SetupStarted || response.Data.FirstWorkReady {
+		t.Fatalf("setup readiness flags = %+v, want onboarding for pristine project", response.Data)
+	}
+	if response.Data.Summary.WorkItemCount != 0 || response.Data.Summary.RoleCount != 0 || !response.Data.Summary.MissingDefaults {
+		t.Fatalf("setup readiness summary = %+v, want empty project with missing defaults", response.Data.Summary)
+	}
+	if response.Data.PrimaryAction.Type != projectSetupReadinessActionBootstrap || response.Data.PrimaryAction.Label != "Set up project" {
+		t.Fatalf("primary action = %+v, want setup action", response.Data.PrimaryAction)
+	}
+	purpose := findProjectSetupReadinessCheckForTest(t, response.Data.Checks, "purpose")
+	if purpose.Status != projectSetupReadinessStatusTodo || purpose.Action == nil || purpose.Action.Type != projectSetupReadinessActionProjectSettings {
+		t.Fatalf("purpose check = %+v, want settings todo", purpose)
+	}
+	workspace := findProjectSetupReadinessCheckForTest(t, response.Data.Checks, "workspace_source")
+	if workspace.Status != projectSetupReadinessStatusOptional || !workspace.Optional || workspace.Action != nil {
+		t.Fatalf("workspace check = %+v, want optional without action", workspace)
+	}
+	sources := findProjectSetupReadinessCheckForTest(t, response.Data.Checks, "sources_memory")
+	if sources.Status != projectSetupReadinessStatusTodo || sources.Action == nil || sources.Action.Type != projectSetupReadinessActionBootstrap {
+		t.Fatalf("sources check = %+v, want bootstrap todo", sources)
+	}
+	firstWork := findProjectSetupReadinessCheckForTest(t, response.Data.Checks, "first_work_item")
+	if firstWork.Status != projectSetupReadinessStatusTodo || firstWork.Action == nil || firstWork.Action.Type != projectSetupReadinessActionCreateWorkItem {
+		t.Fatalf("first work check = %+v, want create-work todo", firstWork)
+	}
+
+	afterWork, err := handler.projectWork.ListWorkItems(t.Context(), "proj_setup")
+	if err != nil {
+		t.Fatalf("ListWorkItems after: %v", err)
+	}
+	afterRoles, err := handler.projectWork.ListRoles(t.Context(), "proj_setup")
+	if err != nil {
+		t.Fatalf("ListRoles after: %v", err)
+	}
+	if len(beforeWork) != len(afterWork) || len(beforeRoles) != len(afterRoles) {
+		t.Fatalf("setup readiness mutated project state: work %d->%d roles %d->%d", len(beforeWork), len(afterWork), len(beforeRoles), len(afterRoles))
+	}
+}
+
+func TestProjectSetupReadiness_SetupStartedFirstWorkReady(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	root := t.TempDir()
+	if _, err := handler.projects.Create(t.Context(), projects.Project{
+		ID:              "proj_ready",
+		Name:            "Ready",
+		Description:     "Coordinate release work.",
+		DefaultProvider: "openai",
+		DefaultModel:    "gpt-5",
+		Roots:           []projects.Root{{ID: "root_ready", Path: root, Kind: "git", Active: true}},
+		ContextSources: []projects.ContextSource{{
+			ID:      "ctx_ready",
+			Kind:    "workspace_instruction",
+			Title:   "AGENTS.md",
+			Path:    "AGENTS.md",
+			Enabled: true,
+		}},
+	}); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	if _, err := handler.projectWork.CreateRole(t.Context(), projectwork.AgentRoleProfile{
+		ID:        "role_ready",
+		ProjectID: "proj_ready",
+		Name:      "Owner",
+	}); err != nil {
+		t.Fatalf("CreateRole: %v", err)
+	}
+	if _, err := handler.projectSkills.UpsertDiscovered(t.Context(), "proj_ready", []projectskills.Skill{{
+		ID:        "skill_ready",
+		ProjectID: "proj_ready",
+		Path:      "skills/ready/SKILL.md",
+		Enabled:   true,
+		Status:    projectskills.StatusAvailable,
+	}}); err != nil {
+		t.Fatalf("UpsertDiscovered: %v", err)
+	}
+	if _, err := handler.memory.Create(t.Context(), memory.Entry{
+		ID:        "mem_ready",
+		ProjectID: "proj_ready",
+		Title:     "Release posture",
+		Body:      "Keep setup explicit.",
+		Enabled:   true,
+	}); err != nil {
+		t.Fatalf("Create memory: %v", err)
+	}
+	if _, err := handler.memoryCandidates.CreateCandidate(t.Context(), memory.Candidate{
+		ID:        "memcand_ready",
+		ProjectID: "proj_ready",
+		Title:     "Candidate",
+		Body:      "Review me.",
+		Status:    memory.CandidateStatusPending,
+	}); err != nil {
+		t.Fatalf("CreateCandidate: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_ready/setup-readiness", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("setup readiness status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response ProjectSetupReadinessEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode setup readiness: %v", err)
+	}
+	if response.Data.ShowOnboarding || !response.Data.SetupStarted || !response.Data.FirstWorkReady {
+		t.Fatalf("setup readiness flags = %+v, want setup started and first work ready", response.Data)
+	}
+	if response.Data.Summary.EnabledContextSourceCount != 1 || response.Data.Summary.RoleCount != 1 || response.Data.Summary.SkillCount != 1 || response.Data.Summary.SavedMemoryCount != 1 || response.Data.Summary.PendingMemoryCandidateCount != 1 {
+		t.Fatalf("setup readiness summary = %+v, want setup counts", response.Data.Summary)
+	}
+	if response.Data.Summary.MissingDefaults || !response.Data.Summary.HasPurpose || !response.Data.Summary.HasActiveRoot {
+		t.Fatalf("setup readiness summary = %+v, want ready project defaults/purpose/root", response.Data.Summary)
+	}
+	for _, id := range []string{"purpose", "workspace_source", "launch_defaults", "sources_memory", "roles"} {
+		check := findProjectSetupReadinessCheckForTest(t, response.Data.Checks, id)
+		if check.Status != projectSetupReadinessStatusReady || check.Action != nil {
+			t.Fatalf("check %s = %+v, want ready without action", id, check)
+		}
+	}
+	firstWork := findProjectSetupReadinessCheckForTest(t, response.Data.Checks, "first_work_item")
+	if firstWork.Status != projectSetupReadinessStatusTodo || firstWork.Action == nil || firstWork.Action.Type != projectSetupReadinessActionCreateWorkItem {
+		t.Fatalf("first work check = %+v, want create-work todo", firstWork)
+	}
+}
+
+func findProjectSetupReadinessCheckForTest(t *testing.T, checks []ProjectSetupReadinessCheckResponse, id string) ProjectSetupReadinessCheckResponse {
+	t.Helper()
+	for _, check := range checks {
+		if check.ID == id {
+			return check
+		}
+	}
+	t.Fatalf("missing setup readiness check %q in %+v", id, checks)
+	return ProjectSetupReadinessCheckResponse{}
+}

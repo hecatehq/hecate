@@ -8,6 +8,7 @@ import type {
 } from "../../types/project";
 import { Badge, Icon, Icons } from "../shared/ui";
 import { useFloatingMenu } from "../shared/useFloatingMenu";
+import { routeProjectHealthAttention, type ProjectActionRoute } from "./projectActionRouting";
 import { activitySignalLabel } from "./projectInsights";
 
 export type ProjectHealthPanelProps = {
@@ -15,9 +16,11 @@ export type ProjectHealthPanelProps = {
   disabled?: boolean;
   memoryCandidates: ProjectMemoryCandidateRecord[];
   omittedAttentionCount?: number;
+  selectedProjectID?: string;
   summary?: ProjectHealthSummary;
   onAttentionBucket: (bucket: ProjectActivityBucketKey) => void;
   onAttentionDefaults: () => void;
+  onAttentionError?: (message: string) => void;
   onAttentionMemory: () => void;
   onAttentionProfiles: () => void;
   onAttentionReviewCandidate: (candidate: ProjectMemoryCandidateRecord) => void;
@@ -33,9 +36,11 @@ export function ProjectHealthPanel({
   disabled = false,
   memoryCandidates,
   omittedAttentionCount = 0,
+  selectedProjectID,
   summary,
   onAttentionBucket,
   onAttentionDefaults,
+  onAttentionError,
   onAttentionMemory,
   onAttentionProfiles,
   onAttentionReviewCandidate,
@@ -60,28 +65,56 @@ export function ProjectHealthPanel({
   const postureRows = projectHealthPostureRows(summary);
   const closeMenu = () => attentionMenu.close();
   const handleAttentionAction = (item: ProjectHealthAttention) => {
-    if (item.action === "settings" || item.id.endsWith(":defaults")) {
-      onAttentionDefaults();
-    } else if (item.action === "skills") {
-      onAttentionSkills();
-    } else if (item.action === "profiles") {
-      onAttentionProfiles();
-    } else if (item.action === "roles") {
-      onAttentionRoles();
-    } else if (item.candidate_id) {
-      const candidate = memoryCandidates.find((candidate) => candidate.id === item.candidate_id);
-      if (candidate) onAttentionReviewCandidate(candidate);
-      else onAttentionMemory();
-    } else if (item.work_item_id) {
-      onAttentionWorkItem(item.work_item_id);
-    } else if (item.task_id) {
-      onAttentionTask?.(item.task_id, item.run_id);
-    } else if (item.bucket) {
-      onAttentionBucket(item.bucket);
-    } else if (item.action === "memory" || item.id.endsWith(":context")) {
-      onAttentionMemory();
-    }
+    const candidate = memoryCandidates.find((candidate) => candidate.id === item.candidate_id);
+    handleAttentionRoute(
+      routeProjectHealthAttention(item, {
+        hasMemoryCandidate: Boolean(candidate),
+        selectedProjectID,
+      }),
+      candidate,
+    );
     closeMenu();
+  };
+  const handleAttentionRoute = (
+    route: ProjectActionRoute,
+    candidate?: ProjectMemoryCandidateRecord,
+  ) => {
+    switch (route.kind) {
+      case "error":
+        onAttentionError?.(route.message);
+        return;
+      case "open_project_settings":
+        onAttentionDefaults();
+        return;
+      case "open_skills":
+        onAttentionSkills();
+        return;
+      case "open_profiles":
+        onAttentionProfiles();
+        return;
+      case "open_roles":
+        onAttentionRoles();
+        return;
+      case "review_memory_candidate":
+        if (candidate) onAttentionReviewCandidate(candidate);
+        else onAttentionMemory();
+        return;
+      case "open_work_item":
+        if (route.bucket) onAttentionBucket(route.bucket);
+        onAttentionWorkItem(route.workItemID);
+        return;
+      case "open_task":
+        onAttentionTask?.(route.taskID, route.runID);
+        return;
+      case "open_activity_bucket":
+        onAttentionBucket(route.bucket);
+        return;
+      case "open_memory_review":
+        onAttentionMemory();
+        return;
+      default:
+        return;
+    }
   };
   return (
     <div ref={attentionMenu.wrapRef} style={projectAttentionMenuStyle}>

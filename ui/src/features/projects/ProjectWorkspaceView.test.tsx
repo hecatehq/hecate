@@ -8,6 +8,7 @@ import type {
   ProjectAssignmentRecord,
   ProjectMemoryCandidateRecord,
   ProjectRecord,
+  ProjectSetupReadiness,
   ProjectWorkItemRecord,
   ProjectWorkRoleRecord,
 } from "../../types/project";
@@ -183,6 +184,77 @@ function assistant() {
   } as unknown as ProjectWorkspaceViewProps["assistant"];
 }
 
+function setupReadiness(overrides: Partial<ProjectSetupReadiness> = {}): ProjectSetupReadiness {
+  return {
+    project_id: "proj_1",
+    generated_at: "2026-06-20T00:00:00Z",
+    show_onboarding: true,
+    setup_started: false,
+    first_work_ready: false,
+    summary: {
+      work_item_count: 0,
+      role_count: 0,
+      skill_count: 0,
+      enabled_context_source_count: 0,
+      saved_memory_count: 0,
+      pending_memory_candidate_count: 0,
+      has_purpose: false,
+      has_active_root: false,
+      missing_defaults: true,
+    },
+    primary_action: {
+      type: "bootstrap_project",
+      project_id: "proj_1",
+      label: "Set up project",
+    },
+    checks: [
+      {
+        id: "purpose",
+        label: "Project purpose",
+        detail: "Add a short purpose.",
+        status: "todo",
+        action: { type: "open_project_settings", project_id: "proj_1", label: "Add purpose" },
+      },
+      {
+        id: "workspace_source",
+        label: "Workspace source",
+        detail: "Optional; attach files when this project needs them.",
+        status: "optional",
+        optional: true,
+      },
+      {
+        id: "launch_defaults",
+        label: "Provider and model",
+        detail: "Not set",
+        status: "todo",
+        action: { type: "open_project_settings", project_id: "proj_1", label: "Set defaults" },
+      },
+      {
+        id: "sources_memory",
+        label: "Sources and memory",
+        detail: "Attach a workspace when files matter, or add sources later.",
+        status: "todo",
+        action: { type: "bootstrap_project", project_id: "proj_1", label: "Set up project" },
+      },
+      {
+        id: "roles",
+        label: "Roles",
+        detail: "Set up project can suggest roles from skills.",
+        status: "todo",
+        action: { type: "bootstrap_project", project_id: "proj_1", label: "Set up project" },
+      },
+      {
+        id: "first_work_item",
+        label: "First work item",
+        detail: "Create the first reviewable task after setup.",
+        status: "todo",
+        action: { type: "create_work_item", project_id: "proj_1", label: "Create work" },
+      },
+    ],
+    ...overrides,
+  };
+}
+
 function renderWorkspace(overrides: Partial<ProjectWorkspaceViewProps> = {}) {
   const handlers = {
     onActivityBucketChange: vi.fn(),
@@ -229,6 +301,7 @@ function renderWorkspace(overrides: Partial<ProjectWorkspaceViewProps> = {}) {
     onSetHandoffStatus: vi.fn(),
     onStartAssignment: vi.fn(),
     onStartHandoff: vi.fn(),
+    onSetupReadinessAction: vi.fn(),
     onUpdateProjectSkill: vi.fn(),
     onWorkspaceTabChange: vi.fn(),
   };
@@ -258,6 +331,7 @@ function renderWorkspace(overrides: Partial<ProjectWorkspaceViewProps> = {}) {
     projectEmptyDetail: "Choose a project.",
     projectEmptyTitle: "No project selected",
     projectNeedsOnboarding: false,
+    projectSetupReadiness: null,
     operationsBrief: null,
     operationsBriefError: "",
     operationsBriefLoadState: "idle",
@@ -289,11 +363,10 @@ function renderWorkspace(overrides: Partial<ProjectWorkspaceViewProps> = {}) {
 
 describe("ProjectWorkspaceView", () => {
   it("renders onboarding and delegates setup actions", async () => {
-    const assistantState = assistant();
     const { handlers } = renderWorkspace({
-      assistant: assistantState,
       project: project({ name: "Console" }),
       projectNeedsOnboarding: true,
+      projectSetupReadiness: setupReadiness(),
     });
 
     expect(screen.getByText("Set up Console")).toBeTruthy();
@@ -307,12 +380,31 @@ describe("ProjectWorkspaceView", () => {
     expect(screen.queryByRole("button", { name: "Set up" })).toBeNull();
     const firstWorkCheck = screen.getByRole("group", { name: "First work item" });
     await userEvent.click(within(firstWorkCheck).getByRole("button", { name: "Create work" }));
-    await userEvent.click(screen.getByRole("button", { name: "Set up project" }));
+    await userEvent.click(screen.getAllByRole("button", { name: "Set up project" })[0]);
     await userEvent.click(screen.getByRole("button", { name: "Project settings" }));
 
-    expect(assistantState.bootstrap).toHaveBeenCalledTimes(1);
-    expect(handlers.onCreateWork).toHaveBeenCalledTimes(1);
-    expect(handlers.onOpenSettings).toHaveBeenCalledTimes(3);
+    expect(handlers.onSetupReadinessAction).toHaveBeenCalledTimes(4);
+    expect(handlers.onSetupReadinessAction).toHaveBeenNthCalledWith(1, {
+      type: "open_project_settings",
+      project_id: "proj_1",
+      label: "Add purpose",
+    });
+    expect(handlers.onSetupReadinessAction).toHaveBeenNthCalledWith(2, {
+      type: "open_project_settings",
+      project_id: "proj_1",
+      label: "Set defaults",
+    });
+    expect(handlers.onSetupReadinessAction).toHaveBeenNthCalledWith(3, {
+      type: "create_work_item",
+      project_id: "proj_1",
+      label: "Create work",
+    });
+    expect(handlers.onSetupReadinessAction).toHaveBeenNthCalledWith(4, {
+      type: "bootstrap_project",
+      project_id: "proj_1",
+      label: "Set up project",
+    });
+    expect(handlers.onOpenSettings).toHaveBeenCalledTimes(1);
   });
 
   it("renders workspace tabs and delegates tab changes", async () => {
