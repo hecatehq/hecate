@@ -231,6 +231,118 @@ func TestACPAdapterReleaseBinariesSmoke(t *testing.T) {
 	}
 }
 
+func TestACPAdapterReleaseBinariesPromptApprovalAndGrant(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("release smoke uses Unix shell fake vendor CLIs")
+	}
+	for _, tt := range acpReleaseSmokeTestCases(t) {
+		t.Run(tt.adapterID, func(t *testing.T) {
+			binDir := t.TempDir()
+			downloadACPAdapterReleaseBinary(t, tt.repo, tt.binary, tt.version, binDir)
+			installFakeVendorCLI(t, tt.vendorCommand, tt.vendorScript)
+			t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+			manager := NewSessionManager()
+			approvalStore := NewMemoryApprovalStore()
+			coordinator := NewApprovalCoordinator(CoordinatorOptions{
+				Mode:    ModePrompt,
+				Store:   approvalStore,
+				Timeout: 5 * time.Second,
+			})
+			manager.SetApprovalCoordinator(coordinator)
+			t.Cleanup(func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				if err := manager.Shutdown(ctx); err != nil {
+					t.Errorf("Shutdown(%s): %v", tt.adapterID, err)
+				}
+			})
+
+			sessionID := "release_prompt_" + tt.adapterID
+			workspace := t.TempDir()
+			prepared, err := manager.PrepareSession(context.Background(), PrepareSessionRequest{
+				SessionID:  sessionID,
+				AdapterID:  tt.adapterID,
+				Workspace:  workspace,
+				MCPServers: tt.mcpServers,
+			})
+			if err != nil {
+				t.Fatalf("PrepareSession(%s): %v", tt.adapterID, err)
+			}
+			for _, option := range tt.setConfigOptions {
+				if _, err := manager.SetSessionConfigOption(context.Background(), SetSessionConfigOptionRequest{
+					SessionID: sessionID,
+					ConfigID:  option.id,
+					Value:     option.value,
+				}); err != nil {
+					t.Fatalf("SetSessionConfigOption(%s, %s=%s): %v", tt.adapterID, option.id, option.value, err)
+				}
+			}
+
+			firstDone := make(chan runResultAndError, 1)
+			go func() {
+				run, err := manager.Run(context.Background(), RunRequest{
+					SessionID:      sessionID,
+					AdapterID:      tt.adapterID,
+					Workspace:      workspace,
+					Prompt:         "hello " + tt.adapterID,
+					MCPServers:     tt.mcpServers,
+					Timeout:        10 * time.Second,
+					MaxOutputBytes: 64 * 1024,
+				})
+				firstDone <- runResultAndError{run: run, err: err}
+			}()
+
+			pending := waitForPendingACPApproval(t, approvalStore, sessionID)
+			if pending.AdapterID != tt.adapterID ||
+				pending.ToolName != tt.wantApprovalToolName ||
+				pending.ToolKind != tt.wantApprovalToolKind {
+				t.Fatalf("pending approval(%s) = %+v, want %s %q", tt.adapterID, pending, tt.wantApprovalToolKind, tt.wantApprovalToolName)
+			}
+			if _, err := coordinator.Resolve(context.Background(), pending.ID, ResolveRequest{
+				Decision:       ApprovalDecisionApprove,
+				Scope:          ApprovalScopeSession,
+				SelectedOption: "allow",
+				Note:           "release smoke grant",
+			}); err != nil {
+				t.Fatalf("Resolve(%s): %v", tt.adapterID, err)
+			}
+
+			first := awaitRunResult(t, firstDone)
+			if first.err != nil {
+				t.Fatalf("Run(%s) after approval: %v", tt.adapterID, first.err)
+			}
+			if first.run.NativeSessionID != prepared.NativeSessionID || first.run.SessionStarted {
+				t.Fatalf("Run(%s) = %#v, want reused prepared session %q", tt.adapterID, first.run, prepared.NativeSessionID)
+			}
+			if !strings.Contains(first.run.Output, tt.wantOutput) {
+				t.Fatalf("Run(%s) output = %q, want %q", tt.adapterID, first.run.Output, tt.wantOutput)
+			}
+			assertApprovalPathForSession(t, approvalStore, sessionID, PathOperator, ApprovalStatusApproved)
+
+			second, err := manager.Run(context.Background(), RunRequest{
+				SessionID:      sessionID,
+				AdapterID:      tt.adapterID,
+				Workspace:      workspace,
+				Prompt:         "hello " + tt.adapterID,
+				MCPServers:     tt.mcpServers,
+				Timeout:        5 * time.Second,
+				MaxOutputBytes: 64 * 1024,
+			})
+			if err != nil {
+				t.Fatalf("Run(%s) through grant: %v", tt.adapterID, err)
+			}
+			if second.NativeSessionID != prepared.NativeSessionID || second.SessionStarted {
+				t.Fatalf("Run(%s) through grant = %#v, want reused prepared session %q", tt.adapterID, second, prepared.NativeSessionID)
+			}
+			if !strings.Contains(second.Output, tt.wantOutput) {
+				t.Fatalf("Run(%s) through grant output = %q, want %q", tt.adapterID, second.Output, tt.wantOutput)
+			}
+			assertApprovalPathForSession(t, approvalStore, sessionID, PathGrant, ApprovalStatusApproved)
+		})
+	}
+}
+
 type acpReleaseSmokeTestCase struct {
 	adapterID              string
 	repo                   string
