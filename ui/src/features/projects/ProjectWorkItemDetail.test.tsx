@@ -525,11 +525,50 @@ describe("ProjectWorkItemDetail", () => {
     );
     expect(getProjectAssignmentPreflightMock).toHaveBeenCalledWith("proj_1", "work_1", "assign_1");
 
-    await userEvent.click(await screen.findByRole("button", { name: "Start assignment" }));
+    const preflight = await screen.findByRole("dialog", {
+      name: "Assignment assign_1 launch preflight",
+    });
+    const posture = within(preflight).getByRole("region", { name: "Resolved launch posture" });
+    expect(within(posture).getByText("Launch posture")).toBeTruthy();
+    expect(within(posture).getByText("Hecate task")).toBeTruthy();
+    expect(within(posture).getByText("/workspace/hecate")).toBeTruthy();
+    expect(within(posture).getByText("root_main")).toBeTruthy();
+    expect(within(posture).getByText("openai / gpt-5")).toBeTruthy();
+    expect(within(posture).getByText("implementation")).toBeTruthy();
+
+    await userEvent.click(within(preflight).getByRole("button", { name: "Start assignment" }));
 
     expect(handlers.onStartAssignment).toHaveBeenCalledWith(
       expect.objectContaining({ id: "assign_1" }),
     );
+  });
+
+  it("shows External Agent launch posture before preparing chat", async () => {
+    getProjectAssignmentLaunchReadinessMock.mockResolvedValueOnce({
+      object: "project_assignment_launch_readiness",
+      data: launchReadiness({
+        driver_kind: "external_agent",
+        provider: "",
+        model: "",
+        external_agent: "Codex",
+        external_agent_id: "codex",
+        session_title: "Implementation follow-up",
+      }),
+    });
+    renderDetail({
+      assignments: [assignment({ driver_kind: "external_agent", execution_ref: { kind: "none" } })],
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Prepare chat" }));
+    const preflight = await screen.findByRole("dialog", {
+      name: "Assignment assign_1 launch preflight",
+    });
+    const posture = within(preflight).getByRole("region", { name: "Resolved launch posture" });
+
+    expect(within(posture).getAllByText("External Agent").length).toBeGreaterThan(0);
+    expect(within(posture).getByText("Codex (codex)")).toBeTruthy();
+    expect(within(posture).getByText("Implementation follow-up")).toBeTruthy();
+    expect(within(posture).queryByText("openai / gpt-5")).toBeNull();
   });
 
   it("opens launch preflight when a prepared assignment becomes visible", async () => {
@@ -587,6 +626,7 @@ describe("ProjectWorkItemDetail", () => {
     });
 
     expect(within(preflight).getByText("Provider/model not ready")).toBeTruthy();
+    expect(within(preflight).getByRole("region", { name: "Resolved launch posture" })).toBeTruthy();
     expect(within(preflight).getByRole("status").textContent).toContain(
       'No routable provider reports model "dogfood-model"',
     );

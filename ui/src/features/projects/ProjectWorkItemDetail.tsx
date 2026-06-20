@@ -1263,6 +1263,7 @@ function AssignmentLaunchPreflightModal({
                 repairActions={repairActions}
               />
             )}
+            <AssignmentLaunchPosture readiness={state.readiness} />
             <ContextInspectorPanel
               packet={state.packet}
               emptyDetail="No launch context metadata returned."
@@ -1271,6 +1272,34 @@ function AssignmentLaunchPreflightModal({
         ) : null}
       </div>
     </Modal>
+  );
+}
+
+function AssignmentLaunchPosture({
+  readiness,
+}: {
+  readiness: ProjectAssignmentLaunchReadinessRecord;
+}) {
+  const rows = assignmentLaunchPostureRows(readiness);
+  return (
+    <section aria-label="Resolved launch posture" style={launchPosturePanelStyle}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+        <div style={sectionLabelStyle}>Launch posture</div>
+        <span className={readiness.ready ? "badge badge-green" : "badge badge-amber"}>
+          {readiness.status || (readiness.ready ? "ready" : "blocked")}
+        </span>
+      </div>
+      <div style={launchPostureGridStyle}>
+        {rows.map((row) => (
+          <div key={row.label} style={launchPostureItemStyle}>
+            <div style={launchPostureLabelStyle}>{row.label}</div>
+            <div style={launchPostureValueStyle} title={row.value}>
+              {row.value}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -1795,6 +1824,54 @@ function formatLaunchContextBullet(label: string, value: string): string {
   return continuation ? `- ${label}: ${firstLine}\n${continuation}` : `- ${label}: ${firstLine}`;
 }
 
+function assignmentLaunchPostureRows(
+  readiness: ProjectAssignmentLaunchReadinessRecord,
+): Array<{ label: string; value: string }> {
+  const rows = [
+    { label: "Driver", value: assignmentLaunchDriverLabel(readiness.driver_kind) },
+    { label: "Workspace", value: firstNonEmpty(readiness.workspace, "No workspace resolved") },
+  ];
+  const root = labelWithID(readiness.root_path, readiness.root_id ?? "");
+  if (root) rows.push({ label: "Root", value: root });
+  if (readiness.provider || readiness.model) {
+    rows.push({
+      label: "Provider/model",
+      value: `${firstNonEmpty(readiness.provider, "auto")} / ${firstNonEmpty(readiness.model, "auto")}`,
+    });
+  }
+  if (readiness.execution_profile) {
+    rows.push({ label: "Profile", value: readiness.execution_profile });
+  }
+  if (
+    readiness.driver_kind === "external_agent" ||
+    readiness.external_agent ||
+    readiness.external_agent_id
+  ) {
+    rows.push({
+      label: "External Agent",
+      value: firstNonEmpty(
+        labelWithID(readiness.external_agent, readiness.external_agent_id ?? ""),
+        "Unresolved External Agent",
+      ),
+    });
+  }
+  if (readiness.session_title) {
+    rows.push({ label: "Session", value: readiness.session_title });
+  }
+  return rows;
+}
+
+function assignmentLaunchDriverLabel(kind: string): string {
+  switch (kind) {
+    case "hecate_task":
+      return "Hecate task";
+    case "external_agent":
+      return "External Agent";
+    default:
+      return kind || "unknown";
+  }
+}
+
 function assignmentLaunchReadinessNotice(
   readiness: ProjectAssignmentLaunchReadinessRecord,
 ): AssignmentLaunchReadinessNoticeRecord | null {
@@ -1840,6 +1917,41 @@ const subtleTextStyle: CSSProperties = {
   color: "var(--t3)",
   fontSize: 12,
   lineHeight: 1.4,
+};
+
+const launchPosturePanelStyle: CSSProperties = {
+  background: "var(--bg2)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-sm)",
+  display: "grid",
+  gap: 10,
+  padding: "10px 12px",
+};
+
+const launchPostureGridStyle: CSSProperties = {
+  display: "grid",
+  gap: 8,
+  gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+};
+
+const launchPostureItemStyle: CSSProperties = {
+  display: "grid",
+  gap: 3,
+  minWidth: 0,
+};
+
+const launchPostureLabelStyle: CSSProperties = {
+  color: "var(--t3)",
+  fontFamily: "var(--font-mono)",
+  fontSize: 10,
+  textTransform: "uppercase",
+};
+
+const launchPostureValueStyle: CSSProperties = {
+  color: "var(--t1)",
+  fontSize: 12,
+  lineHeight: 1.35,
+  overflowWrap: "anywhere",
 };
 
 const metaLineStyle: CSSProperties = {
