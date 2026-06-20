@@ -80,6 +80,20 @@ func TestACPAdapterReleaseBinariesSmoke(t *testing.T) {
 					t.Fatalf("PrepareSession(%s) commands = %#v, want %q", tt.adapterID, prepared.AvailableCommands, name)
 				}
 			}
+			for _, option := range tt.setConfigOptions {
+				updated, err := manager.SetSessionConfigOption(context.Background(), SetSessionConfigOptionRequest{
+					SessionID: "release_" + tt.adapterID,
+					ConfigID:  option.id,
+					Value:     option.value,
+				})
+				if err != nil {
+					t.Fatalf("SetSessionConfigOption(%s, %s=%s): %v", tt.adapterID, option.id, option.value, err)
+				}
+				got := findConfigOption(updated.ConfigOptions, option.id)
+				if got == nil || got.CurrentValue != option.value {
+					t.Fatalf("SetSessionConfigOption(%s, %s) options = %#v, want current value %q", tt.adapterID, option.id, updated.ConfigOptions, option.value)
+				}
+			}
 
 			run, err := manager.Run(context.Background(), RunRequest{
 				SessionID:      "release_" + tt.adapterID,
@@ -126,7 +140,13 @@ type acpReleaseSmokeTestCase struct {
 	wantOutput          string
 	wantStopReason      string
 	wantConfigOptionIDs []string
+	setConfigOptions    []acpReleaseConfigOption
 	wantCommands        []string
+}
+
+type acpReleaseConfigOption struct {
+	id    string
+	value string
 }
 
 func acpReleaseSmokeTestCases(t *testing.T) []acpReleaseSmokeTestCase {
@@ -148,6 +168,12 @@ func acpReleaseSmokeTestCases(t *testing.T) []acpReleaseSmokeTestCase {
 				"sandbox",
 				"web_search",
 			},
+			setConfigOptions: []acpReleaseConfigOption{
+				{id: "model", value: "gpt-5-codex"},
+				{id: "reasoning_effort", value: "high"},
+				{id: "sandbox", value: "read-only"},
+				{id: "web_search", value: "enabled"},
+			},
 			wantCommands: []string{"review", "init"},
 		},
 		{
@@ -163,6 +189,11 @@ func acpReleaseSmokeTestCases(t *testing.T) []acpReleaseSmokeTestCase {
 				"model",
 				"effort",
 				"permission_mode",
+			},
+			setConfigOptions: []acpReleaseConfigOption{
+				{id: "model", value: "sonnet"},
+				{id: "effort", value: "high"},
+				{id: "permission_mode", value: "plan"},
 			},
 			wantCommands: []string{"init", "review", "code-review", "security-review", "compact", "debug", "run", "verify"},
 		},
@@ -268,6 +299,15 @@ func installFakeVendorCLI(t *testing.T, name, body string) {
 }
 
 const fakeCodexCLIScript = `
+require_contains() {
+  pattern="$1"
+  shift
+  case " $* " in
+    *"$pattern"*) ;;
+    *) echo "missing expected codex argument pattern: $pattern in $*" >&2; exit 65 ;;
+  esac
+}
+
 case "$1" in
   --version)
     printf 'codex 9.8.7\n'
@@ -282,6 +322,10 @@ case "$1" in
     exit 0
     ;;
   exec)
+    require_contains " --sandbox read-only " "$@"
+    require_contains " --model gpt-5-codex " "$@"
+    require_contains " --config model_reasoning_effort=\"high\" " "$@"
+    require_contains " --search " "$@"
     printf '{"method":"item/started","params":{"item":{"type":"local_shell_call","id":"tool-1","command":"go test ./..."}}}\n'
     printf '{"method":"item/reasoning/textDelta","params":{"item_id":"thought-1","delta":"checking"}}\n'
     printf '{"method":"item/completed","params":{"item":{"type":"agent_message","id":"msg-1","text":"go codex answer"}}}\n'
@@ -295,6 +339,15 @@ exit 64
 `
 
 const fakeClaudeCodeCLIScript = `
+require_contains() {
+  pattern="$1"
+  shift
+  case " $* " in
+    *"$pattern"*) ;;
+    *) echo "missing expected claude argument pattern: $pattern in $*" >&2; exit 65 ;;
+  esac
+}
+
 case "$1" in
   --version)
     printf 'claude 9.8.7\n'
@@ -311,6 +364,9 @@ case "$1" in
     fi
     ;;
   --print)
+    require_contains " --permission-mode plan " "$@"
+    require_contains " --model sonnet " "$@"
+    require_contains " --effort high " "$@"
     printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tool-1","name":"Bash","input":{"command":"go test ./..."}}]}}\n'
     printf '{"type":"assistant","message":{"content":[{"type":"thinking","id":"thought-1","thinking":"checking"},{"type":"text","text":"go claude answer"}]}}\n'
     printf '{"type":"result","subtype":"error_max_turns","usage":{"input_tokens":10,"output_tokens":5,"context_window":100}}\n'
