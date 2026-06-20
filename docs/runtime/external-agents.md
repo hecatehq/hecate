@@ -25,7 +25,7 @@ after an adapter process restart. Codex does not yet claim vendor-native
 durable history across adapter process restarts; if a load is stale, Hecate
 falls back to a fresh native session. Hecate treats `codex-acp-adapter` versions
 older than `v0.1.0-alpha.14` and `claude-code-acp-adapter` versions older than
-`v0.1.0-alpha.12` as outside the tested range because those older releases lack
+`v0.1.0-alpha.13` as outside the tested range because those older releases lack
 the current continuity, permission-control, structured stream, session metadata,
 and external MCP handoff surface. The
 `v0.1.0-alpha.8` adapters added supported Codex and Claude Code JSON stream
@@ -45,7 +45,10 @@ Codex adapter `v0.1.0-alpha.14` also advertises `/init` through the normal
 create or update repository agent instructions from Hecate.
 Claude Code adapter `v0.1.0-alpha.11` adds command-backed stdio/HTTP MCP server
 config propagation into Claude `--mcp-config`, and `v0.1.0-alpha.12` adds
-Claude-native `--session-id` reload after adapter restarts.
+Claude-native `--session-id` reload after adapter restarts. Claude Code adapter
+`v0.1.0-alpha.13` advertises `/init` through the normal `claude --print` prompt
+path so operators can ask Claude Code to inspect the workspace and create or
+update `CLAUDE.md` from Hecate.
 
 ## Supported External Agents
 
