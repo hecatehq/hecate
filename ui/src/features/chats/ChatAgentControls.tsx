@@ -639,7 +639,7 @@ export function ExternalAgentConfigControls({
   }
   const controls = prioritizeAgentConfigOptions(session.config_options)
     .filter((option) => !agentConfigOptionIsText(option))
-    .slice(0, 3);
+    .slice(0, 4);
   if (controls.length === 0) {
     return null;
   }

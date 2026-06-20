@@ -363,6 +363,7 @@ describe("ExternalAgentConfigControls", () => {
 
       expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("Agent Model Fast");
       expect(screen.getByRole("button", { name: "Level of thinking" })).toHaveTextContent("Medium");
+      expect(screen.getByRole("button", { name: "Web search" })).toHaveTextContent("Auto");
       expect(screen.queryByRole("button", { name: "Verbosity" })).toBeNull();
       view.unmount();
     }

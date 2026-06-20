@@ -32,6 +32,10 @@ describe("agent config option helpers", () => {
     expect(agentConfigOptionKind(option({ id: "approval_mode", name: "Approval mode" }))).toBe(
       "mode",
     );
+    expect(agentConfigOptionKind(option({ id: "web_search", name: "Web search" }))).toBe("tool");
+    expect(agentConfigOptionKind(option({ id: "tools", name: "Tools", category: "tool" }))).toBe(
+      "tool",
+    );
     expect(agentConfigOptionKind(option({ id: "system_prompt", name: "System prompt" }))).toBe(
       "instructions",
     );
@@ -61,6 +65,7 @@ describe("agent config option helpers", () => {
       option({ id: "thinking_level", name: "Level of thinking" }),
       option({ id: "model", name: "Model" }),
       option({ id: "system_prompt", name: "System prompt" }),
+      option({ id: "web_search", name: "Web search" }),
     ]);
 
     expect(ordered.map((item) => item.id)).toEqual([
@@ -68,6 +73,7 @@ describe("agent config option helpers", () => {
       "model",
       "thinking_level",
       "approval_mode",
+      "web_search",
       "verbosity",
     ]);
   });

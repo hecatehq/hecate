@@ -1,6 +1,12 @@
 import type { ChatConfigOptionRecord } from "../../types/chat";
 
-export type AgentConfigOptionKind = "instructions" | "model" | "thought_level" | "mode" | "other";
+export type AgentConfigOptionKind =
+  | "instructions"
+  | "model"
+  | "thought_level"
+  | "mode"
+  | "tool"
+  | "other";
 
 export function mergeAgentConfigOptions(
   catalogOptions: ChatConfigOptionRecord[],
@@ -41,8 +47,10 @@ export function prioritizeAgentConfigOptions(
         return 1;
       case "mode":
         return 2;
-      default:
+      case "tool":
         return 3;
+      default:
+        return 4;
     }
   };
   return [...options].sort((a, b) => priority(a) - priority(b) || a.name.localeCompare(b.name));
@@ -51,7 +59,12 @@ export function prioritizeAgentConfigOptions(
 export function agentConfigOptionKind(option: ChatConfigOptionRecord): AgentConfigOptionKind {
   if (agentConfigOptionIsInstructions(option)) return "instructions";
   const category = (option.category ?? "").toLowerCase();
-  if (category === "model" || category === "thought_level" || category === "mode") {
+  if (
+    category === "model" ||
+    category === "thought_level" ||
+    category === "mode" ||
+    category === "tool"
+  ) {
     return category;
   }
   const tokens = agentConfigOptionTokens(option);
@@ -66,6 +79,7 @@ export function agentConfigOptionKind(option: ChatConfigOptionRecord): AgentConf
     return "thought_level";
   }
   if (tokens.includes("mode")) return "mode";
+  if (tokens.includes("tool") || hasTokenSequence(tokens, ["web", "search"])) return "tool";
   return "other";
 }
 
@@ -99,6 +113,8 @@ export function agentConfigOptionLabel(option: ChatConfigOptionRecord): string {
       return "reasoning";
     case "mode":
       return "mode";
+    case "tool":
+      return option.name || option.id;
     default:
       return option.name || option.id;
   }
