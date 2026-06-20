@@ -738,6 +738,7 @@ export function NewTaskSlideOver({
               onChange={setTaskModel}
               models={scopedModels}
               presets={providerPresets}
+              runtimeProviders={providers}
               // Hide the per-row provider suffix when a specific
               // provider is already pinned — every row would carry
               // the same suffix.

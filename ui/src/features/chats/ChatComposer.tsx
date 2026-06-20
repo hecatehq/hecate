@@ -796,6 +796,8 @@ export function ChatComposer(props: ChatComposerProps) {
                 onChange={onHecateModelChange}
                 models={selectableModels}
                 presets={providerPresets}
+                configuredProviders={settings.state.config?.providers}
+                runtimeProviders={providers}
                 showProvider={false}
                 disabledProviders={hecateDisabledProviderReasons}
               />

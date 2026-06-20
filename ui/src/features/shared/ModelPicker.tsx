@@ -18,7 +18,11 @@ import type { KeyboardEvent } from "react";
 import { providerDisplayName } from "../../lib/provider-utils";
 import { modelDisplayName } from "../../lib/runtime-utils";
 import type { ModelRecord } from "../../types/model";
-import type { ProviderPresetRecord } from "../../types/provider";
+import type {
+  ConfiguredProviderRecord,
+  ProviderPresetRecord,
+  ProviderRecord,
+} from "../../types/provider";
 import { Icon, Icons } from "./Icons";
 import { focusDropdownItem, focusInitialDropdownItem } from "./dropdownKeyboard";
 import { useFloatingDropdownStyle } from "./useFloatingDropdownStyle";
@@ -29,6 +33,8 @@ export function ModelPicker({
   onChange,
   models,
   presets,
+  configuredProviders,
+  runtimeProviders,
   disabledProviders,
   modelWarnings,
   showProvider = true,
@@ -45,6 +51,8 @@ export function ModelPicker({
   // provider suffix as a friendly name (e.g. "openai" → "OpenAI").
   // Without it the picker falls back to the raw provider id.
   presets?: ProviderPresetRecord[];
+  configuredProviders?: ConfiguredProviderRecord[];
+  runtimeProviders?: ProviderRecord[];
   // Provider ids whose models render disabled (greyed, not clickable,
   // with a key indicator). Map value is the tooltip explaining why
   // (e.g. "Add an API key for X in Connections"). Pass an
@@ -105,7 +113,8 @@ export function ModelPicker({
     if (open) setTimeout(() => inputRef.current?.focus(), 0);
   }, [open]);
 
-  const providerName = (id: string) => providerDisplayName(id, [], presets);
+  const providerName = (id: string) =>
+    providerDisplayName(id, configuredProviders, presets, runtimeProviders);
   const matchedFilter = filter
     ? models.filter((m) => {
         const needle = filter.toLowerCase();

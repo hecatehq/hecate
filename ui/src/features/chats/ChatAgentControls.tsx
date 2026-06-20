@@ -3,7 +3,13 @@ import type { KeyboardEvent } from "react";
 import type { AgentAdapterHealthRecord, AgentAdapterRecord } from "../../types/agent-adapter";
 import type { ChatConfigOptionRecord } from "../../types/chat";
 import type { ModelRecord } from "../../types/model";
-import type { ProviderPresetRecord } from "../../types/provider";
+import type {
+  ConfiguredProviderRecord,
+  ProviderPresetRecord,
+  ProviderRecord,
+} from "../../types/provider";
+import { providerDisplayName } from "../../lib/provider-utils";
+import { modelDisplayName } from "../../lib/runtime-utils";
 import { BrandAvatar, DropdownPicker, Icon, Icons } from "../shared/ui";
 import type { DropdownPickerOption, ProviderOption } from "../shared/ui";
 import { focusDropdownItem, focusInitialDropdownItem } from "../shared/dropdownKeyboard";
@@ -745,6 +751,8 @@ export function HecateModelConfigControl({
   value,
   models,
   presets,
+  configuredProviders,
+  runtimeProviders,
   disabledProviders,
   showProvider,
   placement = "up",
@@ -753,12 +761,15 @@ export function HecateModelConfigControl({
   value: string;
   models: ModelRecord[];
   presets?: ProviderPresetRecord[];
+  configuredProviders?: ConfiguredProviderRecord[];
+  runtimeProviders?: ProviderRecord[];
   disabledProviders?: Map<string, string>;
   showProvider?: boolean;
   placement?: "up" | "down";
   onChange: (value: string) => void;
 }) {
-  const providerName = (id: string) => presets?.find((preset) => preset.id === id)?.name || id;
+  const providerName = (id: string) =>
+    providerDisplayName(id, configuredProviders, presets, runtimeProviders);
   const pickerOptions: DropdownPickerOption<string>[] = [
     { value: "", label: "Pick a model", title: "No model selected" },
     ...models.map((model) => {
@@ -766,7 +777,7 @@ export function HecateModelConfigControl({
       const disabledReason = provider ? disabledProviders?.get(provider) : undefined;
       return {
         value: model.id,
-        label: model.id,
+        label: modelDisplayName(model.id),
         detail: showProvider && provider ? providerName(provider) : undefined,
         title: disabledReason || model.id,
         disabled: Boolean(disabledReason),

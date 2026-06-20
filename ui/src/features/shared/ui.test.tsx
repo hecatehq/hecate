@@ -483,6 +483,49 @@ describe("ModelPicker", () => {
     expect(onChange).toHaveBeenCalledWith("accounts/fireworks/models/llama-v3p1");
   });
 
+  it("renders configured provider aliases with their preset display name", async () => {
+    const user = userEvent.setup();
+    const aliasedModels: ModelRecord[] = [
+      {
+        id: "accounts/fireworks/models/deepseek-v3p1",
+        owned_by: "fireworks-prod",
+        metadata: { provider: "fireworks-prod", provider_kind: "cloud", default: true },
+      },
+    ];
+    render(
+      <ModelPicker
+        value=""
+        onChange={() => {}}
+        models={aliasedModels}
+        presets={[
+          {
+            id: "fireworks",
+            name: "Fireworks AI",
+            kind: "cloud",
+            protocol: "openai",
+            base_url: "https://api.fireworks.ai/inference/v1",
+          },
+        ]}
+        configuredProviders={[
+          {
+            id: "fireworks-prod",
+            name: "fireworks-prod",
+            preset_id: "fireworks",
+            kind: "cloud",
+            protocol: "openai",
+            base_url: "https://api.fireworks.ai/inference/v1",
+            credential_configured: true,
+          },
+        ]}
+      />,
+    );
+
+    await user.click(screen.getByRole("button"));
+    const menu = document.querySelector(".dropdown-menu") as HTMLElement;
+    expect(within(menu).getAllByText("Fireworks AI").length).toBeGreaterThan(0);
+    expect(within(menu).queryByText("fireworks-prod")).toBeNull();
+  });
+
   it("supports filtering, arrow-key navigation, and Enter selection", async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();

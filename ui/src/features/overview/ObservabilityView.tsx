@@ -602,6 +602,8 @@ export function ObservabilityView({ onNavigate, focusRequest }: Props) {
               onChange={setModelFilter}
               models={modelOptions}
               presets={providerPresets}
+              configuredProviders={settingsConfig?.providers ?? []}
+              runtimeProviders={providers}
               showProvider={providerFilter === "auto"}
               includeAll
               triggerWidth={220}
