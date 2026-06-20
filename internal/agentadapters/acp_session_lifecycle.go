@@ -856,7 +856,11 @@ func (s *acpSession) Close(ctx context.Context) error {
 	if s.conn != nil && s.nativeID != "" {
 		closeCtx, cancel := context.WithTimeout(ctx, acpShutdownCloseTimeout)
 		if _, err := s.conn.CloseSession(closeCtx, acp.CloseSessionRequest{SessionId: acp.SessionId(s.nativeID)}); err != nil && s.logger != nil {
-			s.logger.Warn("close ACP session RPC failed", slog.String("native_session_id", s.nativeID), slog.Any("error", err))
+			if isACPMethodNotFound(err, acp.AgentMethodSessionClose) {
+				s.logger.Debug("ACP session close RPC unsupported", slog.String("native_session_id", s.nativeID))
+			} else {
+				s.logger.Warn("close ACP session RPC failed", slog.String("native_session_id", s.nativeID), slog.Any("error", err))
+			}
 		}
 		cancel()
 	}
@@ -871,6 +875,25 @@ func (s *acpSession) Close(ctx context.Context) error {
 		s.envCleanup = nil
 	}
 	return nil
+}
+
+func isACPMethodNotFound(err error, method string) bool {
+	if err == nil {
+		return false
+	}
+	var rpcErr *acp.RequestError
+	if !errors.As(err, &rpcErr) || rpcErr.Code != -32601 {
+		return false
+	}
+	if method == "" {
+		return true
+	}
+	if data, ok := rpcErr.Data.(map[string]any); ok {
+		if got, ok := data["method"].(string); ok {
+			return got == method
+		}
+	}
+	return strings.Contains(rpcErr.Error(), method)
 }
 
 func (s *acpSession) setActiveTurn(cancel context.CancelFunc, done chan struct{}) {
