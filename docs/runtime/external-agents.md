@@ -509,6 +509,14 @@ replayed as actionable prompts — startup reconcile marks them `timed_out` with
   available; never the right setting for interactive use.
 - `deny` — every agent request is refused.
 
+Prompt-mode decisions are forwarded back to the ACP adapter as native ACP
+permission outcomes. Approving selects the operator-chosen allow option and can
+create a durable grant when the operator chooses a session/workspace/tool scope;
+rejecting selects the operator-chosen reject option; cancelling or timing out
+returns ACP `Cancelled`. Hecate clears the active turn after each terminal
+outcome, so the same local ACP session can continue accepting later turns unless
+the adapter process itself exits.
+
 ## Runtime guardrails
 
 ### Per-session turn ceiling

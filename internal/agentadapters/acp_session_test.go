@@ -3,6 +3,7 @@ package agentadapters
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1022,6 +1023,251 @@ func TestSessionManagerShutdownKillsStubbornACPProcess(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatalf("timed out waiting for stubborn ACP process termination")
+	}
+}
+
+func TestSessionManagerACPApprovalApproveCreatesGrantAndReusesSession(t *testing.T) {
+	installFakeACPExecutable(t, "codex-acp-adapter")
+	workspace := t.TempDir()
+
+	store := NewMemoryApprovalStore()
+	coord := NewApprovalCoordinator(CoordinatorOptions{
+		Mode:    ModePrompt,
+		Store:   store,
+		Timeout: 5 * time.Second,
+	})
+	manager := NewSessionManager()
+	manager.SetApprovalCoordinator(coord)
+	t.Cleanup(func() { _ = manager.Shutdown(context.Background()) })
+
+	const sessionID = "chat_permission_approve"
+	firstDone := make(chan runResultAndError, 1)
+	go func() {
+		run, err := manager.Run(context.Background(), RunRequest{
+			SessionID:      sessionID,
+			AdapterID:      "codex",
+			Workspace:      workspace,
+			Prompt:         "permission prompt",
+			Timeout:        10 * time.Second,
+			MaxOutputBytes: 64 * 1024,
+		})
+		firstDone <- runResultAndError{run: run, err: err}
+	}()
+
+	pending := waitForPendingACPApproval(t, store, sessionID)
+	if pending.ToolKind != "file_write" || pending.ToolName != "Write file" || pending.Workspace != canonicalTestPath(t, workspace) {
+		t.Fatalf("pending approval = %+v, want file_write Write file in workspace %q", pending, canonicalTestPath(t, workspace))
+	}
+	resolved, err := coord.Resolve(context.Background(), pending.ID, ResolveRequest{
+		Decision:       ApprovalDecisionApprove,
+		Scope:          ApprovalScopeSession,
+		SelectedOption: "allow_once_id",
+		Note:           "safe for this session",
+	})
+	if err != nil {
+		t.Fatalf("Resolve approve: %v", err)
+	}
+	if resolved.Status != ApprovalStatusApproved || resolved.Path != PathOperator {
+		t.Fatalf("resolved approval = %+v, want approved via operator", resolved)
+	}
+
+	first := awaitRunResult(t, firstDone)
+	if first.err != nil {
+		t.Fatalf("first Run after approval: %v", first.err)
+	}
+	if !strings.Contains(first.run.Output, "permission approved") {
+		t.Fatalf("first Run output = %q, want permission approved", first.run.Output)
+	}
+	if first.run.NativeSessionID == "" {
+		t.Fatal("first Run native session id is empty")
+	}
+
+	second, err := manager.Run(context.Background(), RunRequest{
+		SessionID:      sessionID,
+		AdapterID:      "codex",
+		Workspace:      workspace,
+		Prompt:         "permission prompt again",
+		Timeout:        5 * time.Second,
+		MaxOutputBytes: 64 * 1024,
+	})
+	if err != nil {
+		t.Fatalf("second Run through grant: %v", err)
+	}
+	if second.NativeSessionID != first.run.NativeSessionID || second.SessionStarted {
+		t.Fatalf("second Run session = id %q started %v, want reused %q", second.NativeSessionID, second.SessionStarted, first.run.NativeSessionID)
+	}
+	if !strings.Contains(second.Output, "permission approved") {
+		t.Fatalf("second Run output = %q, want permission approved via grant", second.Output)
+	}
+	assertApprovalPathForSession(t, store, sessionID, PathGrant, ApprovalStatusApproved)
+}
+
+func TestSessionManagerACPApprovalRejectLeavesSessionReusable(t *testing.T) {
+	installFakeACPExecutable(t, "codex-acp-adapter")
+	workspace := t.TempDir()
+
+	store := NewMemoryApprovalStore()
+	coord := NewApprovalCoordinator(CoordinatorOptions{
+		Mode:    ModePrompt,
+		Store:   store,
+		Timeout: 5 * time.Second,
+	})
+	manager := NewSessionManager()
+	manager.SetApprovalCoordinator(coord)
+	t.Cleanup(func() { _ = manager.Shutdown(context.Background()) })
+
+	const sessionID = "chat_permission_reject"
+	done := make(chan runResultAndError, 1)
+	go func() {
+		run, err := manager.Run(context.Background(), RunRequest{
+			SessionID:      sessionID,
+			AdapterID:      "codex",
+			Workspace:      workspace,
+			Prompt:         "permission prompt",
+			Timeout:        10 * time.Second,
+			MaxOutputBytes: 64 * 1024,
+		})
+		done <- runResultAndError{run: run, err: err}
+	}()
+
+	pending := waitForPendingACPApproval(t, store, sessionID)
+	if _, err := coord.Resolve(context.Background(), pending.ID, ResolveRequest{
+		Decision:       ApprovalDecisionDeny,
+		Scope:          ApprovalScopeOnce,
+		SelectedOption: "reject_once_id",
+		Note:           "not safe",
+	}); err != nil {
+		t.Fatalf("Resolve deny: %v", err)
+	}
+
+	rejected := awaitRunResult(t, done)
+	if rejected.err == nil || !strings.Contains(rejected.err.Error(), "permission rejected") {
+		t.Fatalf("Run error = %v, want permission rejected", rejected.err)
+	}
+	if rejected.run.ExitCode != 1 {
+		t.Fatalf("rejected Run exit code = %d, want 1", rejected.run.ExitCode)
+	}
+	assertApprovalPathForSession(t, store, sessionID, PathOperator, ApprovalStatusDenied)
+	assertFollowUpRunReusesACPSession(t, manager, sessionID, workspace, rejected.run.NativeSessionID)
+}
+
+func TestSessionManagerACPApprovalCancelLeavesSessionReusable(t *testing.T) {
+	installFakeACPExecutable(t, "codex-acp-adapter")
+	workspace := t.TempDir()
+
+	store := NewMemoryApprovalStore()
+	coord := NewApprovalCoordinator(CoordinatorOptions{
+		Mode:    ModePrompt,
+		Store:   store,
+		Timeout: 5 * time.Second,
+	})
+	manager := NewSessionManager()
+	manager.SetApprovalCoordinator(coord)
+	t.Cleanup(func() { _ = manager.Shutdown(context.Background()) })
+
+	const sessionID = "chat_permission_cancel"
+	done := make(chan runResultAndError, 1)
+	go func() {
+		run, err := manager.Run(context.Background(), RunRequest{
+			SessionID:      sessionID,
+			AdapterID:      "codex",
+			Workspace:      workspace,
+			Prompt:         "permission prompt",
+			Timeout:        10 * time.Second,
+			MaxOutputBytes: 64 * 1024,
+		})
+		done <- runResultAndError{run: run, err: err}
+	}()
+
+	pending := waitForPendingACPApproval(t, store, sessionID)
+	if _, err := coord.Cancel(context.Background(), pending.ID); err != nil {
+		t.Fatalf("Cancel approval: %v", err)
+	}
+
+	cancelled := awaitRunResult(t, done)
+	if !errors.Is(cancelled.err, context.Canceled) {
+		t.Fatalf("Run error = %v, want context.Canceled", cancelled.err)
+	}
+	assertApprovalPathForSession(t, store, sessionID, PathOperator, ApprovalStatusCancelled)
+	assertFollowUpRunReusesACPSession(t, manager, sessionID, workspace, cancelled.run.NativeSessionID)
+}
+
+type runResultAndError struct {
+	run RunResult
+	err error
+}
+
+func waitForPendingACPApproval(t *testing.T, store *MemoryApprovalStore, sessionID string) Approval {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		rows, err := store.ListApprovals(context.Background(), sessionID, ApprovalStatusPending)
+		if err != nil {
+			t.Fatalf("ListApprovals(%s): %v", sessionID, err)
+		}
+		if len(rows) > 0 {
+			return rows[0]
+		}
+		if time.Now().After(deadline) {
+			all, _ := store.ListApprovals(context.Background(), sessionID, "")
+			t.Fatalf("timed out waiting for pending ACP approval; rows=%+v", all)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func canonicalTestPath(t *testing.T, path string) string {
+	t.Helper()
+	got, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%q): %v", path, err)
+	}
+	return got
+}
+
+func awaitRunResult(t *testing.T, ch <-chan runResultAndError) runResultAndError {
+	t.Helper()
+	select {
+	case got := <-ch:
+		return got
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for ACP run result")
+		return runResultAndError{}
+	}
+}
+
+func assertApprovalPathForSession(t *testing.T, store *MemoryApprovalStore, sessionID string, path ApprovalResolutionPath, status ApprovalStatus) {
+	t.Helper()
+	rows, err := store.ListApprovals(context.Background(), sessionID, "")
+	if err != nil {
+		t.Fatalf("ListApprovals(%s): %v", sessionID, err)
+	}
+	for _, row := range rows {
+		if row.Path == path && row.Status == status {
+			return
+		}
+	}
+	t.Fatalf("approvals(%s) = %+v, want status=%s path=%s", sessionID, rows, status, path)
+}
+
+func assertFollowUpRunReusesACPSession(t *testing.T, manager *SessionManager, sessionID, workspace, nativeSessionID string) {
+	t.Helper()
+	follow, err := manager.Run(context.Background(), RunRequest{
+		SessionID:      sessionID,
+		AdapterID:      "codex",
+		Workspace:      workspace,
+		Prompt:         "fresh prompt body",
+		Timeout:        5 * time.Second,
+		MaxOutputBytes: 64 * 1024,
+	})
+	if err != nil {
+		t.Fatalf("follow-up Run after permission terminal outcome: %v", err)
+	}
+	if follow.NativeSessionID != nativeSessionID || follow.SessionStarted {
+		t.Fatalf("follow-up session = id %q started %v, want reused %q", follow.NativeSessionID, follow.SessionStarted, nativeSessionID)
+	}
+	if !strings.Contains(follow.Output, "fresh prompt body") {
+		t.Fatalf("follow-up output = %q, want fresh prompt", follow.Output)
 	}
 }
 
@@ -2351,6 +2597,51 @@ func (a *fakeACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (ac
 		}
 		return acp.PromptResponse{StopReason: acp.StopReasonMaxTokens}, nil
 	}
+	if strings.HasPrefix(prompt, "permission prompt") {
+		if err := a.conn.SessionUpdate(turnCtx, acp.SessionNotification{
+			SessionId: params.SessionId,
+			Update:    acp.UpdateAgentMessageText("waiting for permission"),
+		}); err != nil {
+			return acp.PromptResponse{}, err
+		}
+		resp, err := a.conn.RequestPermission(turnCtx, fakeACPRequestPermission())
+		if err != nil {
+			return acp.PromptResponse{}, err
+		}
+		switch {
+		case resp.Outcome.Selected != nil:
+			switch string(resp.Outcome.Selected.OptionId) {
+			case "allow_once_id", "allow_always_id":
+				if err := a.conn.SessionUpdate(turnCtx, acp.SessionNotification{
+					SessionId: params.SessionId,
+					Update:    acp.UpdateAgentMessageText("permission approved"),
+				}); err != nil {
+					return acp.PromptResponse{}, err
+				}
+				return acp.PromptResponse{StopReason: acp.StopReasonEndTurn}, nil
+			case "reject_once_id", "reject_always_id":
+				if err := a.conn.SessionUpdate(turnCtx, acp.SessionNotification{
+					SessionId: params.SessionId,
+					Update:    acp.UpdateAgentMessageText("permission rejected"),
+				}); err != nil {
+					return acp.PromptResponse{}, err
+				}
+				return acp.PromptResponse{StopReason: acp.StopReasonCancelled}, fmt.Errorf("permission rejected")
+			default:
+				return acp.PromptResponse{StopReason: acp.StopReasonCancelled}, fmt.Errorf("unexpected permission option %q", resp.Outcome.Selected.OptionId)
+			}
+		case resp.Outcome.Cancelled != nil:
+			if err := a.conn.SessionUpdate(turnCtx, acp.SessionNotification{
+				SessionId: params.SessionId,
+				Update:    acp.UpdateAgentMessageText("permission cancelled"),
+			}); err != nil {
+				return acp.PromptResponse{}, err
+			}
+			return acp.PromptResponse{StopReason: acp.StopReasonCancelled}, nil
+		default:
+			return acp.PromptResponse{StopReason: acp.StopReasonCancelled}, fmt.Errorf("permission response missing outcome")
+		}
+	}
 
 	if err := a.conn.SessionUpdate(turnCtx, acp.SessionNotification{
 		SessionId: params.SessionId,
@@ -2371,6 +2662,25 @@ func (a *fakeACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (ac
 		return acp.PromptResponse{}, err
 	}
 	return acp.PromptResponse{StopReason: acp.StopReasonEndTurn}, nil
+}
+
+func fakeACPRequestPermission() acp.RequestPermissionRequest {
+	title := "Write file"
+	kind := acp.ToolKindEdit
+	return acp.RequestPermissionRequest{
+		Options: []acp.PermissionOption{
+			{OptionId: "allow_once_id", Kind: acp.PermissionOptionKindAllowOnce, Name: "Allow once"},
+			{OptionId: "allow_always_id", Kind: acp.PermissionOptionKindAllowAlways, Name: "Allow always"},
+			{OptionId: "reject_once_id", Kind: acp.PermissionOptionKindRejectOnce, Name: "Reject once"},
+			{OptionId: "reject_always_id", Kind: acp.PermissionOptionKindRejectAlways, Name: "Reject always"},
+		},
+		ToolCall: acp.ToolCallUpdate{
+			ToolCallId: acp.ToolCallId("permission-call"),
+			Title:      &title,
+			Kind:       &kind,
+			RawInput:   map[string]any{"path": "README.md"},
+		},
+	}
 }
 
 func (a *fakeACPAgent) Cancel(_ context.Context, params acp.CancelNotification) error {
