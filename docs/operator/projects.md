@@ -54,7 +54,9 @@ memory/context posture, and pending memory candidates. The menu also shows the
 server summary counts for setup, memory, context, and work follow-up so the
 operator can see why the project needs attention before opening a specific
 item. The menu opens existing surfaces only; it does not create records, launch
-agents, or write memory.
+agents, or write memory. Like Project Operations, Needs Attention rows use a
+typed server-provided `action` object for follow-through; compact row fields are
+display metadata, not a second routing authority.
 
 The Work Coordination tab starts with Project Operations when the server finds
 actionable project state: missing launch defaults, pending approvals, blocked

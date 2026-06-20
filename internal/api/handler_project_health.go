@@ -17,11 +17,6 @@ import (
 
 const (
 	projectHealthAttentionLimit = 5
-
-	projectHealthActionMemory   = "memory"
-	projectHealthActionProfiles = "profiles"
-	projectHealthActionSettings = "settings"
-	projectHealthActionSkills   = "skills"
 )
 
 type ProjectHealthEnvelope struct {
@@ -60,18 +55,19 @@ type ProjectHealthSummaryResponse struct {
 }
 
 type ProjectHealthAttentionItem struct {
-	ID          string `json:"id"`
-	Title       string `json:"title"`
-	Detail      string `json:"detail"`
-	Status      string `json:"status"`
-	Action      string `json:"action,omitempty"`
-	Bucket      string `json:"bucket,omitempty"`
-	WorkItemID  string `json:"work_item_id,omitempty"`
-	TaskID      string `json:"task_id,omitempty"`
-	RunID       string `json:"run_id,omitempty"`
-	ChatID      string `json:"chat_id,omitempty"`
-	CandidateID string `json:"candidate_id,omitempty"`
-	ActionLabel string `json:"action_label,omitempty"`
+	ID          string                `json:"id"`
+	ProjectID   string                `json:"project_id"`
+	Title       string                `json:"title"`
+	Detail      string                `json:"detail"`
+	Status      string                `json:"status"`
+	Action      ProjectActionResponse `json:"action"`
+	Bucket      string                `json:"bucket,omitempty"`
+	WorkItemID  string                `json:"work_item_id,omitempty"`
+	TaskID      string                `json:"task_id,omitempty"`
+	RunID       string                `json:"run_id,omitempty"`
+	ChatID      string                `json:"chat_id,omitempty"`
+	CandidateID string                `json:"candidate_id,omitempty"`
+	ActionLabel string                `json:"action_label,omitempty"`
 }
 
 func (h *Handler) HandleProjectHealth(w http.ResponseWriter, r *http.Request) {
@@ -247,28 +243,30 @@ func projectHealthAttentionItems(project projects.Project, activity ProjectActiv
 	items := make([]ProjectHealthAttentionItem, 0, projectHealthAttentionLimit+4)
 	if !projectHasActiveRoot(project) {
 		items = append(items, ProjectHealthAttentionItem{
-			ID:     projectHealthItemID(project.ID, "root"),
-			Title:  "No project root configured",
-			Detail: "Assignment starts need an active local workspace root for files, tools, and guidance discovery.",
-			Status: "stale_unknown",
-			Action: projectHealthActionSettings,
+			ID:        projectHealthItemID(project.ID, "root"),
+			ProjectID: project.ID,
+			Title:     "No project root configured",
+			Detail:    "Assignment starts need an active local workspace root for files, tools, and guidance discovery.",
+			Status:    "stale_unknown",
+			Action:    newProjectActionOpenProjectSettings(project.ID),
 		})
 	}
 	if projectHealthMissingDefaults(project) {
 		items = append(items, ProjectHealthAttentionItem{
-			ID:     projectHealthItemID(project.ID, "defaults"),
-			Title:  "Provider/model defaults missing",
-			Detail: "Native project starts and assignment chats need a default provider and model.",
-			Status: "awaiting_approval",
-			Action: projectHealthActionSettings,
+			ID:        projectHealthItemID(project.ID, "defaults"),
+			ProjectID: project.ID,
+			Title:     "Provider/model defaults missing",
+			Detail:    "Native project starts and assignment chats need a default provider and model.",
+			Status:    "awaiting_approval",
+			Action:    newProjectActionOpenProjectSettings(project.ID),
 		})
 	}
 	items = append(items, projectHealthProfileAttentionItems(project, roles, agentProfiles)...)
 	items = append(items, projectHealthSkillAttentionItems(project, roles, agentProfiles, skills)...)
-	if item := projectHealthPendingHandoffAttention(activity, workItems, handoffs); item != nil {
+	if item := projectHealthPendingHandoffAttention(project.ID, activity, workItems, handoffs); item != nil {
 		items = append(items, *item)
 	}
-	if item := projectHealthReviewFollowUpAttention(workItems, artifacts, handoffs); item != nil {
+	if item := projectHealthReviewFollowUpAttention(project.ID, workItems, artifacts, handoffs); item != nil {
 		items = append(items, *item)
 	}
 	if len(staleAssignments) > 0 {
@@ -279,20 +277,22 @@ func projectHealthAttentionItems(project projects.Project, activity ProjectActiv
 	}
 	if projectHealthEnabledMemoryCount(memoryEntries) == 0 && projectHealthEnabledContextSourceCount(project) == 0 {
 		items = append(items, ProjectHealthAttentionItem{
-			ID:     projectHealthItemID(project.ID, "context"),
-			Title:  "No project memory or context sources enabled",
-			Detail: "Project-scoped context is empty for new chats and linked context packets.",
-			Status: "stale_unknown",
-			Action: projectHealthActionMemory,
+			ID:        projectHealthItemID(project.ID, "context"),
+			ProjectID: project.ID,
+			Title:     "No project memory or context sources enabled",
+			Detail:    "Project-scoped context is empty for new chats and linked context packets.",
+			Status:    "stale_unknown",
+			Action:    newProjectActionOpenMemoryReview(project.ID),
 		})
 	}
 	if candidate := firstPendingProjectHealthMemoryCandidate(memoryCandidates); candidate != nil {
 		items = append(items, ProjectHealthAttentionItem{
 			ID:          projectHealthItemID(candidate.ID, "memory-candidate"),
+			ProjectID:   project.ID,
 			Title:       "Memory candidate pending review",
 			Detail:      strings.Join(projectHealthNonEmpty(candidate.Title, candidate.SuggestedTrustLabel), " - "),
 			Status:      "awaiting_approval",
-			Action:      projectHealthActionMemory,
+			Action:      newProjectActionReviewMemoryCandidate(project.ID, candidate.ID),
 			CandidateID: candidate.ID,
 		})
 	}
@@ -333,11 +333,12 @@ func projectHealthProfileAttentionItems(project projects.Project, roles []projec
 		return nil
 	}
 	return []ProjectHealthAttentionItem{{
-		ID:     projectHealthItemID(project.ID, "profiles", "missing"),
-		Title:  "Agent profile reference missing",
-		Detail: "Project or role defaults reference " + projectHealthSummarizeIDs(missing) + ".",
-		Status: "stale_unknown",
-		Action: projectHealthActionProfiles,
+		ID:        projectHealthItemID(project.ID, "profiles", "missing"),
+		ProjectID: project.ID,
+		Title:     "Agent profile reference missing",
+		Detail:    "Project or role defaults reference " + projectHealthSummarizeIDs(missing) + ".",
+		Status:    "stale_unknown",
+		Action:    newProjectActionOpenProfiles(project.ID),
 	}}
 }
 
@@ -390,11 +391,12 @@ func projectHealthSkillAttentionItems(project projects.Project, roles []projectw
 		status = "awaiting_approval"
 	}
 	return []ProjectHealthAttentionItem{{
-		ID:     projectHealthItemID(project.ID, "skills"),
-		Title:  "Project skills need review",
-		Detail: strings.Join(details, "; ") + ".",
-		Status: status,
-		Action: projectHealthActionSkills,
+		ID:        projectHealthItemID(project.ID, "skills"),
+		ProjectID: project.ID,
+		Title:     "Project skills need review",
+		Detail:    strings.Join(details, "; ") + ".",
+		Status:    status,
+		Action:    newProjectActionOpenSkills(project.ID),
 	}}
 }
 
@@ -435,7 +437,7 @@ func referencedProjectHealthSkillIDs(project projects.Project, roles []projectwo
 	return referenced
 }
 
-func projectHealthPendingHandoffAttention(activity ProjectActivityDataResponse, workItems []projectwork.WorkItem, handoffs []projectwork.Handoff) *ProjectHealthAttentionItem {
+func projectHealthPendingHandoffAttention(projectID string, activity ProjectActivityDataResponse, workItems []projectwork.WorkItem, handoffs []projectwork.Handoff) *ProjectHealthAttentionItem {
 	for _, item := range projectHealthUniqueActivityItems(activity) {
 		if !projectHealthHasPendingHandoff(item) {
 			continue
@@ -457,9 +459,11 @@ func projectHealthPendingHandoffAttention(activity ProjectActivityDataResponse, 
 		), " - ")
 		return &ProjectHealthAttentionItem{
 			ID:          projectHealthItemID(item.ID, "handoff"),
+			ProjectID:   projectID,
 			Title:       "Pending handoff: " + firstNonEmpty(item.WorkItem.Title, item.WorkItem.ID),
 			Detail:      detail,
 			Status:      "awaiting_approval",
+			Action:      newProjectActionOpenWorkItem(projectID, item.WorkItem.ID, item.Assignment.ID, "", "recent"),
 			Bucket:      "recent",
 			WorkItemID:  item.WorkItem.ID,
 			ActionLabel: "View recent",
@@ -491,9 +495,11 @@ func projectHealthPendingHandoffAttention(activity ProjectActivityDataResponse, 
 		), " - ")
 		return &ProjectHealthAttentionItem{
 			ID:          projectHealthItemID(handoff.ID, "handoff"),
+			ProjectID:   projectID,
 			Title:       "Pending handoff: " + firstNonEmpty(workItem.Title, handoff.Title, handoff.ID),
 			Detail:      detail,
 			Status:      "awaiting_approval",
+			Action:      newProjectActionOpenWorkItem(projectID, handoff.WorkItemID, firstNonEmpty(handoff.TargetAssignmentID, handoff.SourceAssignmentID), handoff.ID, ""),
 			WorkItemID:  handoff.WorkItemID,
 			ActionLabel: "Open handoff",
 		}
@@ -501,7 +507,7 @@ func projectHealthPendingHandoffAttention(activity ProjectActivityDataResponse, 
 	return nil
 }
 
-func projectHealthReviewFollowUpAttention(workItems []projectwork.WorkItem, artifacts []projectwork.CollaborationArtifact, handoffs []projectwork.Handoff) *ProjectHealthAttentionItem {
+func projectHealthReviewFollowUpAttention(projectID string, workItems []projectwork.WorkItem, artifacts []projectwork.CollaborationArtifact, handoffs []projectwork.Handoff) *ProjectHealthAttentionItem {
 	workByID := make(map[string]projectwork.WorkItem, len(workItems))
 	for _, workItem := range workItems {
 		workByID[workItem.ID] = workItem
@@ -536,9 +542,11 @@ func projectHealthReviewFollowUpAttention(workItems []projectwork.WorkItem, arti
 		}
 		return &ProjectHealthAttentionItem{
 			ID:          projectHealthItemID(artifact.ID, "review-follow-up"),
+			ProjectID:   projectID,
 			Title:       "Review follow-up: " + firstNonEmpty(workItem.Title, artifact.Title, artifact.ID),
 			Detail:      detail,
 			Status:      status,
+			Action:      newProjectActionOpenWorkItem(projectID, artifact.WorkItemID, "", "", ""),
 			WorkItemID:  artifact.WorkItemID,
 			ActionLabel: "Open review",
 		}
@@ -564,9 +572,11 @@ func projectHealthActivityAttention(item ProjectActivityItemResponse, title, act
 	taskID, runID, chatID := projectHealthExecutionRefs(item)
 	return ProjectHealthAttentionItem{
 		ID:          item.ID,
+		ProjectID:   item.ProjectID,
 		Title:       title + ": " + firstNonEmpty(item.WorkItem.Title, item.Assignment.ID),
 		Detail:      strings.Join(projectHealthNonEmpty(item.StatusSummary, firstNonEmpty(item.Role.Name, item.Assignment.RoleID), projectHealthUpdatedAtDetail(item.UpdatedAt)), " - "),
 		Status:      firstNonEmpty(item.BlockingSignal, item.Status),
+		Action:      newProjectActionOpenWorkItem(item.ProjectID, item.WorkItem.ID, item.Assignment.ID, "", bucket),
 		Bucket:      bucket,
 		WorkItemID:  item.WorkItem.ID,
 		TaskID:      taskID,

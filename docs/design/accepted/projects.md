@@ -370,10 +370,12 @@ project defaults, roots, profile/skill refs, handoffs, review artifacts,
 assignment execution links, memory candidates, and memory/context metadata so
 operators can separate actionable setup gaps, blocked or stale assignments,
 pending handoffs, memory review work, and context readiness without adding a
-separate persisted health model. The Project Operations brief now exposes the
-top bounded operator actions from those same records with typed `action`
-routing back into existing Project Settings, Work Coordination, Memory/Context,
-preflight, selected-work follow-through, or Project Assistant proposal flows.
+separate persisted health model. Needs Attention and Project Operations share a
+typed `action` routing contract for follow-through into existing Project
+Settings, Work Coordination, Memory/Context, preflight, selected-work
+follow-through, task, activity bucket, or Project Assistant proposal flows.
+Projection-specific fields remain display metadata and should not become a
+second client routing authority.
 Review follow-up, missing completion evidence, and closeout-ready work items
 open the existing selected-work detail surface; the brief does not persist a
 plan, mark work done, or start work.

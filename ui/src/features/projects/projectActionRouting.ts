@@ -1,10 +1,13 @@
 import type {
   ProjectActivityBucketKey,
+  ProjectAction,
   ProjectHealthAttention,
-  ProjectOperationsBriefAction,
   ProjectOperationsBriefItem,
   ProjectSetupReadinessAction,
 } from "../../types/project";
+
+export const PROJECT_ATTENTION_STALE_MESSAGE =
+  "Project attention target changed. Refresh project work and try again.";
 
 export type ProjectActionRoute =
   | { kind: "bootstrap_project" }
@@ -32,17 +35,44 @@ export function routeProjectOperationAction(
   item: ProjectOperationsBriefItem,
   selectedProjectID: string,
 ): ProjectActionRoute {
-  const action = item.action;
+  return routeProjectAction(item.action, {
+    missingMessage: "Project operation is missing an action. Refresh project work and try again.",
+    selectedProjectID,
+    source: "Project operation",
+    staleMessage: "Project operation target changed. Refresh project work and try again.",
+    unsupportedMessage:
+      "Project operation action is not supported. Refresh project work and try again.",
+  });
+}
+
+export function routeProjectAction(
+  action: ProjectAction | undefined,
+  {
+    hasMemoryCandidate,
+    missingMessage,
+    selectedProjectID,
+    source,
+    staleMessage,
+    unsupportedMessage,
+  }: {
+    hasMemoryCandidate?: boolean;
+    missingMessage: string;
+    selectedProjectID?: string;
+    source: string;
+    staleMessage: string;
+    unsupportedMessage: string;
+  },
+): ProjectActionRoute {
   if (!action?.type) {
     return {
       kind: "error",
-      message: "Project operation is missing an action. Refresh project work and try again.",
+      message: missingMessage,
     };
   }
   if (action.project_id && selectedProjectID && action.project_id !== selectedProjectID) {
     return {
       kind: "error",
-      message: "Project operation target changed. Refresh project work and try again.",
+      message: staleMessage,
     };
   }
   if (action.type === "draft_project_proposal") {
@@ -50,7 +80,7 @@ export function routeProjectOperationAction(
     if (!request) {
       return {
         kind: "error",
-        message: "Project operation is missing a Project Assistant draft request.",
+        message: `${source} is missing a Project Assistant draft request.`,
       };
     }
     return { kind: "draft_project_proposal", request, workItemID: action.work_item_id };
@@ -60,14 +90,26 @@ export function routeProjectOperationAction(
       return { kind: "open_project_settings" };
     case "open_memory_review":
       return { kind: "open_memory_review" };
+    case "open_profiles":
+      return { kind: "open_profiles" };
+    case "open_roles":
+      return { kind: "open_roles" };
+    case "open_skills":
+      return { kind: "open_skills" };
     case "open_assignment_preflight":
-      return routeProjectAssignmentPreflight(action);
+      return routeProjectAssignmentPreflight(action, source);
     case "open_work_item":
-      return routeProjectWorkTarget(action);
+      return routeProjectWorkTarget(action, source);
+    case "open_task":
+      return routeProjectTaskTarget(action, source);
+    case "open_activity_bucket":
+      return routeProjectActivityBucket(action, source);
+    case "review_memory_candidate":
+      return routeProjectMemoryCandidate(action, hasMemoryCandidate, source);
     default:
       return {
         kind: "error",
-        message: "Project operation action is not supported. Refresh project work and try again.",
+        message: unsupportedMessage,
       };
   }
 }
@@ -101,50 +143,26 @@ export function routeProjectHealthAttention(
   item: ProjectHealthAttention,
   options: { hasMemoryCandidate?: boolean; selectedProjectID?: string } = {},
 ): ProjectActionRoute {
-  if (
-    item.project_id &&
-    options.selectedProjectID &&
-    item.project_id !== options.selectedProjectID
-  ) {
-    return {
-      kind: "error",
-      message: "Project attention target changed. Refresh project work and try again.",
-    };
-  }
-  if (item.action === "settings" || item.id.endsWith(":defaults")) {
-    return { kind: "open_project_settings" };
-  }
-  if (item.action === "skills") return { kind: "open_skills" };
-  if (item.action === "profiles") return { kind: "open_profiles" };
-  if (item.action === "roles") return { kind: "open_roles" };
-  if (item.candidate_id) {
-    return options.hasMemoryCandidate
-      ? { kind: "review_memory_candidate", candidateID: item.candidate_id }
-      : { kind: "open_memory_review" };
-  }
-  if (item.work_item_id) {
-    return {
-      kind: "open_work_item",
-      workItemID: item.work_item_id,
-      bucket: projectActivityBucket(item.bucket),
-    };
-  }
-  if (item.task_id) {
-    return { kind: "open_task", taskID: item.task_id, runID: item.run_id };
-  }
-  const bucket = projectActivityBucket(item.bucket);
-  if (bucket) return { kind: "open_activity_bucket", bucket };
-  if (item.action === "memory" || item.id.endsWith(":context")) {
-    return { kind: "open_memory_review" };
-  }
-  return { kind: "none" };
+  return routeProjectAction(item.action, {
+    hasMemoryCandidate: options.hasMemoryCandidate,
+    missingMessage:
+      "Project attention item is missing an action. Refresh project work and try again.",
+    selectedProjectID: options.selectedProjectID,
+    source: "Project attention item",
+    staleMessage: PROJECT_ATTENTION_STALE_MESSAGE,
+    unsupportedMessage:
+      "Project attention action is not supported. Refresh project work and try again.",
+  });
 }
 
-function routeProjectAssignmentPreflight(action: ProjectOperationsBriefAction): ProjectActionRoute {
+function routeProjectAssignmentPreflight(
+  action: ProjectAction,
+  source: string,
+): ProjectActionRoute {
   if (!action.assignment_id) {
     return {
       kind: "error",
-      message: "Project operation is missing an assignment preflight target.",
+      message: `${source} is missing an assignment preflight target.`,
     };
   }
   return {
@@ -155,11 +173,11 @@ function routeProjectAssignmentPreflight(action: ProjectOperationsBriefAction): 
   };
 }
 
-function routeProjectWorkTarget(action: ProjectOperationsBriefAction): ProjectActionRoute {
+function routeProjectWorkTarget(action: ProjectAction, source: string): ProjectActionRoute {
   if (!action.work_item_id) {
     return {
       kind: "error",
-      message: "Project operation is missing a work item target.",
+      message: `${source} is missing a work item target.`,
     };
   }
   return {
@@ -167,6 +185,43 @@ function routeProjectWorkTarget(action: ProjectOperationsBriefAction): ProjectAc
     bucket: projectActivityBucket(action.activity_bucket),
     workItemID: action.work_item_id,
   };
+}
+
+function routeProjectTaskTarget(action: ProjectAction, source: string): ProjectActionRoute {
+  if (!action.task_id) {
+    return {
+      kind: "error",
+      message: `${source} is missing a task target.`,
+    };
+  }
+  return { kind: "open_task", taskID: action.task_id, runID: action.run_id };
+}
+
+function routeProjectActivityBucket(action: ProjectAction, source: string): ProjectActionRoute {
+  const bucket = projectActivityBucket(action.activity_bucket);
+  if (!bucket) {
+    return {
+      kind: "error",
+      message: `${source} is missing an activity bucket target.`,
+    };
+  }
+  return { kind: "open_activity_bucket", bucket };
+}
+
+function routeProjectMemoryCandidate(
+  action: ProjectAction,
+  hasMemoryCandidate: boolean | undefined,
+  source: string,
+): ProjectActionRoute {
+  if (!action.candidate_id) {
+    return {
+      kind: "error",
+      message: `${source} is missing a memory candidate target.`,
+    };
+  }
+  return hasMemoryCandidate
+    ? { kind: "review_memory_candidate", candidateID: action.candidate_id }
+    : { kind: "open_memory_review" };
 }
 
 export function projectActivityBucket(value?: string): ProjectActivityBucketKey | undefined {
