@@ -119,6 +119,29 @@ func TestACPAdapterReleaseBinariesSmoke(t *testing.T) {
 				t.Fatalf("Run(%s) stop reason = %q, want %q", tt.adapterID, run.StopReason, tt.wantStopReason)
 			}
 
+			for _, commandRun := range tt.commandRuns {
+				run, err := manager.Run(context.Background(), RunRequest{
+					SessionID:      "release_" + tt.adapterID,
+					AdapterID:      tt.adapterID,
+					Workspace:      workspace,
+					Prompt:         commandRun.prompt,
+					Timeout:        5 * time.Second,
+					MaxOutputBytes: 64 * 1024,
+				})
+				if err != nil {
+					t.Fatalf("Run(%s, %q): %v", tt.adapterID, commandRun.prompt, err)
+				}
+				if run.DriverKind != DriverKindACP || run.NativeSessionID != prepared.NativeSessionID || run.SessionStarted {
+					t.Fatalf("Run(%s, %q) = %#v, want reused ACP session %q", tt.adapterID, commandRun.prompt, run, prepared.NativeSessionID)
+				}
+				if !strings.Contains(run.Output, commandRun.wantOutput) {
+					t.Fatalf("Run(%s, %q) output = %q, want %q", tt.adapterID, commandRun.prompt, run.Output, commandRun.wantOutput)
+				}
+				if run.StopReason != commandRun.wantStopReason {
+					t.Fatalf("Run(%s, %q) stop reason = %q, want %q", tt.adapterID, commandRun.prompt, run.StopReason, commandRun.wantStopReason)
+				}
+			}
+
 			logout, err := Logout(context.Background(), tt.adapterID)
 			if err != nil {
 				t.Fatalf("Logout(%s): %v", tt.adapterID, err)
@@ -142,11 +165,18 @@ type acpReleaseSmokeTestCase struct {
 	wantConfigOptionIDs []string
 	setConfigOptions    []acpReleaseConfigOption
 	wantCommands        []string
+	commandRuns         []acpReleaseCommandRun
 }
 
 type acpReleaseConfigOption struct {
 	id    string
 	value string
+}
+
+type acpReleaseCommandRun struct {
+	prompt         string
+	wantOutput     string
+	wantStopReason string
 }
 
 func acpReleaseSmokeTestCases(t *testing.T) []acpReleaseSmokeTestCase {
@@ -175,6 +205,18 @@ func acpReleaseSmokeTestCases(t *testing.T) []acpReleaseSmokeTestCase {
 				{id: "web_search", value: "enabled"},
 			},
 			wantCommands: []string{"review", "init"},
+			commandRuns: []acpReleaseCommandRun{
+				{
+					prompt:         "/review focus on tests",
+					wantOutput:     "go codex review",
+					wantStopReason: "end_turn",
+				},
+				{
+					prompt:         "/init focus on repo guidance",
+					wantOutput:     "go codex init",
+					wantStopReason: "end_turn",
+				},
+			},
 		},
 		{
 			adapterID:      "claude_code",
@@ -196,6 +238,13 @@ func acpReleaseSmokeTestCases(t *testing.T) []acpReleaseSmokeTestCase {
 				{id: "permission_mode", value: "plan"},
 			},
 			wantCommands: []string{"init", "review", "code-review", "security-review", "compact", "debug", "run", "verify"},
+			commandRuns: []acpReleaseCommandRun{
+				{
+					prompt:         "/verify release smoke",
+					wantOutput:     "go claude verify",
+					wantStopReason: "end_turn",
+				},
+			},
 		},
 	}
 }
@@ -326,11 +375,30 @@ case "$1" in
     require_contains " --model gpt-5-codex " "$@"
     require_contains " --config model_reasoning_effort=\"high\" " "$@"
     require_contains " --search " "$@"
+    case "$*" in
+      *"/init focus on repo guidance"*) message="go codex init";;
+      *"hello codex"*) message="go codex answer";;
+      *) echo "unexpected codex exec prompt: $*" >&2; exit 66 ;;
+    esac
     printf '{"method":"item/started","params":{"item":{"type":"local_shell_call","id":"tool-1","command":"go test ./..."}}}\n'
     printf '{"method":"item/reasoning/textDelta","params":{"item_id":"thought-1","delta":"checking"}}\n'
-    printf '{"method":"item/completed","params":{"item":{"type":"agent_message","id":"msg-1","text":"go codex answer"}}}\n'
-    printf '{"method":"turn/completed","params":{"finish_reason":"max_tokens","usage":{"input_tokens":10,"output_tokens":5,"context_window":100}}}\n'
+    printf '{"method":"item/completed","params":{"item":{"type":"agent_message","id":"msg-1","text":"%s"}}}\n' "$message"
+    if [ "$message" = "go codex answer" ]; then
+      finish_reason="max_tokens"
+    else
+      finish_reason="end_turn"
+    fi
+    printf '{"method":"turn/completed","params":{"finish_reason":"%s","usage":{"input_tokens":10,"output_tokens":5,"context_window":100}}}\n' "$finish_reason"
     printf '{"method":"item/completed","params":{"item":{"type":"local_shell_call","id":"tool-1","status":"completed","stdout":"ok"}}}\n'
+    exit 0
+    ;;
+  review)
+    require_contains " --uncommitted " "$@"
+    require_contains " --config model=\"gpt-5-codex\" " "$@"
+    require_contains " --config model_reasoning_effort=\"high\" " "$@"
+    require_contains " focus on tests " "$@"
+    printf '{"method":"item/completed","params":{"item":{"type":"agent_message","id":"msg-review","text":"go codex review"}}}\n'
+    printf '{"method":"turn/completed","params":{"finish_reason":"end_turn","usage":{"input_tokens":12,"output_tokens":6,"context_window":100}}}\n'
     exit 0
     ;;
 esac
@@ -367,9 +435,14 @@ case "$1" in
     require_contains " --permission-mode plan " "$@"
     require_contains " --model sonnet " "$@"
     require_contains " --effort high " "$@"
+    case "$*" in
+      *"/verify release smoke"*) message="go claude verify"; stop_reason="end_turn";;
+      *"hello claude_code"*) message="go claude answer"; stop_reason="error_max_turns";;
+      *) echo "unexpected claude prompt: $*" >&2; exit 66 ;;
+    esac
     printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tool-1","name":"Bash","input":{"command":"go test ./..."}}]}}\n'
-    printf '{"type":"assistant","message":{"content":[{"type":"thinking","id":"thought-1","thinking":"checking"},{"type":"text","text":"go claude answer"}]}}\n'
-    printf '{"type":"result","subtype":"error_max_turns","usage":{"input_tokens":10,"output_tokens":5,"context_window":100}}\n'
+    printf '{"type":"assistant","message":{"content":[{"type":"thinking","id":"thought-1","thinking":"checking"},{"type":"text","text":"%s"}]}}\n' "$message"
+    printf '{"type":"result","subtype":"%s","usage":{"input_tokens":10,"output_tokens":5,"context_window":100}}\n' "$stop_reason"
     printf '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tool-1","content":"ok"}]}}\n'
     exit 0
     ;;
