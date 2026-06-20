@@ -2,8 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import type { ProjectMemoryCandidateRecord } from "../../types/project";
-import type { ProjectHealthAttention } from "./projectInsights";
+import type { ProjectHealthAttention, ProjectMemoryCandidateRecord } from "../../types/project";
 import { ProjectHealthPanel } from "./ProjectHealthPanel";
 
 function memoryCandidate(overrides: Partial<ProjectMemoryCandidateRecord> = {}) {
@@ -37,30 +36,30 @@ function renderPanel(overrides: Partial<Parameters<typeof ProjectHealthPanel>[0]
       detail: "One assignment needs review.",
       status: "failed",
       bucket: "blocked",
-      actionLabel: "View blocked",
+      action_label: "View blocked",
     },
     {
       id: "work_1:item",
       title: "Work item needs attention",
       detail: "Open the work item.",
       status: "running",
-      workItemID: "work_1",
-      actionLabel: "Open review",
+      work_item_id: "work_1",
+      action_label: "Open review",
     },
     {
       id: "task_1:item",
       title: "Task needs attention",
       detail: "Open the linked task.",
       status: "running",
-      taskID: "task_1",
-      runID: "run_1",
+      task_id: "task_1",
+      run_id: "run_1",
     },
     {
       id: "memcand_1:memory-candidate",
       title: "Memory candidate pending review",
       detail: "Review generated memory.",
       status: "awaiting_approval",
-      candidateID: candidate.id,
+      candidate_id: candidate.id,
       action: "memory",
     },
   ];
@@ -134,6 +133,15 @@ describe("ProjectHealthPanel", () => {
     );
 
     expect(handlers.onAttentionMemory).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows when lower-priority attention items are hidden", async () => {
+    renderPanel({ omittedAttentionCount: 2 });
+
+    await userEvent.click(screen.getByRole("button", { name: "Project attention: 5, 2 hidden" }));
+
+    expect(screen.getAllByText("5+").length).toBeGreaterThan(0);
+    expect(screen.getByText("2 lower-priority items are hidden by the server cap.")).toBeTruthy();
   });
 
   it("shows empty guidance when there are no attention items", async () => {

@@ -382,7 +382,7 @@ describe("ProjectWorkspaceView", () => {
   });
 
   it("explains compact project operations limits", () => {
-    const operationItems = Array.from({ length: 5 }, (_, index) => ({
+    const operationItems = Array.from({ length: 8 }, (_, index) => ({
       id: `prepare_first_assignment:proj_1:work_${index}`,
       kind: "prepare_first_assignment",
       priority: "medium",
@@ -406,12 +406,12 @@ describe("ProjectWorkspaceView", () => {
         project_id: "proj_1",
         generated_at: "2026-06-13T00:00:00Z",
         summary: {
-          item_count: 5,
+          item_count: 8,
           available_item_count: 9,
-          omitted_item_count: 4,
+          omitted_item_count: 1,
           item_limit: 8,
           high_count: 0,
-          medium_count: 5,
+          medium_count: 8,
           low_count: 0,
           pending_memory_candidate_count: 0,
           pending_handoff_count: 0,
@@ -423,7 +423,7 @@ describe("ProjectWorkspaceView", () => {
     const operations = screen.getByRole("region", { name: "Project operations" });
     expect(
       within(operations).getByText(
-        "Showing top 4 of 9 operations; 4 lower-priority operations were omitted by the server cap.",
+        "Showing top 4 of 8 returned operations (9 available; 1 lower-priority operation was capped by the server).",
       ),
     ).toBeTruthy();
   });

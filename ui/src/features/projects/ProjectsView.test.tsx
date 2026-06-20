@@ -27,6 +27,7 @@ import {
   discoverProjectRoots,
   discoverProjectSkills,
   getProjectActivity,
+  getProjectHealth,
   getProjectOperationsBrief,
   getAgentProfiles,
   getProjectAssignmentContext,
@@ -69,6 +70,7 @@ import { withRuntimeConsole } from "../../test/runtime-console-render";
 import type {
   ProjectAssignmentRecord,
   ProjectActivityData,
+  ProjectHealthAttention,
   ProjectMemoryCandidateRecord,
   ProjectMemoryRecord,
   ProjectRecord,
@@ -122,6 +124,55 @@ function emptyOperationsBriefData() {
   };
 }
 
+function emptyProjectHealthData() {
+  return {
+    project_id: "",
+    generated_at: "",
+    summary: {
+      attention_count: 0,
+      available_attention_count: 0,
+      omitted_attention_count: 0,
+      attention_limit: 5,
+      missing_defaults: false,
+      missing_project_root: false,
+      enabled_memory_count: 0,
+      saved_memory_count: 0,
+      enabled_context_source_count: 0,
+      pending_memory_candidate_count: 0,
+      promoted_memory_candidate_count: 0,
+      rejected_memory_candidate_count: 0,
+      pending_handoff_count: 0,
+      accepted_handoff_count: 0,
+      superseded_handoff_count: 0,
+      dismissed_handoff_count: 0,
+      review_follow_up_count: 0,
+      blocked_review_count: 0,
+      changes_requested_review_count: 0,
+      stale_or_unknown_assignment_count: 0,
+    },
+    attention: [],
+  };
+}
+
+function projectHealthData(
+  projectID: string,
+  attention: ProjectHealthAttention[] = [],
+  summary: Partial<ReturnType<typeof emptyProjectHealthData>["summary"]> = {},
+) {
+  const base = emptyProjectHealthData();
+  return {
+    ...base,
+    project_id: projectID,
+    summary: {
+      ...base.summary,
+      attention_count: attention.length,
+      available_attention_count: attention.length,
+      ...summary,
+    },
+    attention,
+  };
+}
+
 async function openProjectWorkspaceTab(name: RegExp | string) {
   await userEvent.click(await screen.findByRole("tab", { name }));
 }
@@ -138,6 +189,10 @@ vi.mock("../../lib/api", async (importOriginal) => {
     getProjectActivity: vi.fn(async () => ({
       object: "project_activity",
       data: emptyActivityData(),
+    })),
+    getProjectHealth: vi.fn(async () => ({
+      object: "project_health",
+      data: emptyProjectHealthData(),
     })),
     getProjectOperationsBrief: vi.fn(async () => ({
       object: "project_operations_brief",
@@ -523,6 +578,10 @@ function resetProjectWorkMocks() {
   vi.mocked(getProjectOperationsBrief).mockResolvedValue({
     object: "project_operations_brief",
     data: emptyOperationsBriefData(),
+  });
+  vi.mocked(getProjectHealth).mockResolvedValue({
+    object: "project_health",
+    data: { ...emptyProjectHealthData(), project_id: project.id },
   });
   vi.mocked(getProjectWorkRoles).mockResolvedValue({ object: "project_roles", data: [role] });
   vi.mocked(getProjectWorkItems).mockResolvedValue({
@@ -1071,6 +1130,7 @@ afterEach(() => {
   window.localStorage.clear();
   window.sessionStorage.clear();
   vi.mocked(getProjectActivity).mockReset();
+  vi.mocked(getProjectHealth).mockReset();
   vi.mocked(getProjectOperationsBrief).mockReset();
   vi.mocked(getProjectWorkRoles).mockReset();
   vi.mocked(getProjectWorkItems).mockReset();
@@ -1582,6 +1642,26 @@ describe("ProjectsView cockpit", () => {
     });
     expect(actions.selectProject).toHaveBeenCalledWith(project.id);
     expect((await screen.findAllByText("Build cockpit UI")).length).toBeGreaterThan(0);
+  });
+
+  it("loads project work when project health is unavailable", async () => {
+    resetProjectWorkMocks();
+    vi.mocked(getProjectHealth).mockRejectedValue(new Error("health unavailable"));
+    const state = createRuntimeConsoleFixture({ projects: [project] });
+    const actions = {
+      ...createRuntimeConsoleActions(),
+      selectProject: vi.fn(async () => undefined),
+    };
+    render(withRuntimeConsole(<ProjectsView />, { state, actions }));
+
+    await userEvent.click(screen.getByRole("button", { name: "Open project Hecate" }));
+
+    await waitFor(() => {
+      expect(getProjectWorkItems).toHaveBeenCalledWith(project.id);
+    });
+    expect(actions.selectProject).toHaveBeenCalledWith(project.id);
+    expect((await screen.findAllByText("Build cockpit UI")).length).toBeGreaterThan(0);
+    expect(screen.queryByText("Failed to load project work.")).toBeNull();
   });
 
   it("reviews and applies Project Assistant assignment proposals", async () => {
@@ -3943,6 +4023,22 @@ describe("ProjectsView cockpit", () => {
         recent: [],
       },
     });
+    vi.mocked(getProjectHealth).mockResolvedValue({
+      object: "project_health",
+      data: projectHealthData(project.id, [
+        {
+          id: staleAssignment.id,
+          title: "Stale or unknown assignment: Build cockpit UI",
+          detail: "linked run missing",
+          status: "stale_unknown",
+          bucket: "blocked",
+          work_item_id: workItem.id,
+          task_id: "task_1",
+          run_id: "run_missing",
+          action_label: "View blocked",
+        },
+      ]),
+    });
     window.localStorage.setItem("hecate.project", project.id);
     const state = createRuntimeConsoleFixture({
       projects: [project],
@@ -4113,6 +4209,32 @@ describe("ProjectsView cockpit", () => {
         },
       ],
     });
+    vi.mocked(getProjectHealth).mockResolvedValue({
+      object: "project_health",
+      data: projectHealthData(
+        project.id,
+        [
+          {
+            id: "asgn_1:handoff",
+            title: "Pending handoff: Build cockpit UI",
+            detail: "QA handoff - Reviewer QA - updated 2026-06-04T10:00:00Z",
+            status: "awaiting_approval",
+            bucket: "recent",
+            work_item_id: workItem.id,
+            action_label: "View recent",
+          },
+          {
+            id: `${memoryCandidate.id}:memory-candidate`,
+            title: "Memory candidate pending review",
+            detail: `${memoryCandidate.title} - ${memoryCandidate.suggested_trust_label}`,
+            status: "awaiting_approval",
+            action: "memory",
+            candidate_id: memoryCandidate.id,
+          },
+        ],
+        { pending_memory_candidate_count: 1, pending_handoff_count: 1 },
+      ),
+    });
 
     const user = userEvent.setup();
     window.localStorage.setItem("hecate.project", project.id);
@@ -4229,6 +4351,25 @@ describe("ProjectsView cockpit", () => {
       ],
     };
     vi.mocked(getProjectMemory).mockResolvedValue({ object: "project_memory", data: [] });
+    vi.mocked(getProjectHealth).mockResolvedValue({
+      object: "project_health",
+      data: projectHealthData(projectWithoutDefaults.id, [
+        {
+          id: `${projectWithoutDefaults.id}:defaults`,
+          title: "Provider/model defaults missing",
+          detail: "Native project starts and assignment chats need a default provider and model.",
+          status: "awaiting_approval",
+          action: "settings",
+        },
+        {
+          id: `${projectWithoutDefaults.id}:context`,
+          title: "No project memory or context sources enabled",
+          detail: "Project-scoped context is empty for new chats and linked context packets.",
+          status: "stale_unknown",
+          action: "memory",
+        },
+      ]),
+    });
     window.localStorage.setItem("hecate.project", projectWithoutDefaults.id);
     const state = createRuntimeConsoleFixture({
       projects: [projectWithoutDefaults],
@@ -4264,6 +4405,18 @@ describe("ProjectsView cockpit", () => {
     vi.mocked(getProjectSkills).mockResolvedValue({
       object: "project_skills",
       data: [{ ...projectSkill, enabled: false }],
+    });
+    vi.mocked(getProjectHealth).mockResolvedValue({
+      object: "project_health",
+      data: projectHealthData(project.id, [
+        {
+          id: `${project.id}:skills`,
+          title: "Project skills need review",
+          detail: "disabled: backend.",
+          status: "awaiting_approval",
+          action: "skills",
+        },
+      ]),
     });
     window.localStorage.setItem("hecate.project", project.id);
     const state = createRuntimeConsoleFixture({
@@ -4356,6 +4509,22 @@ describe("ProjectsView cockpit", () => {
     vi.mocked(getProjectAssignments).mockResolvedValue({
       object: "project_assignments",
       data: [staleAssignment],
+    });
+    vi.mocked(getProjectHealth).mockResolvedValue({
+      object: "project_health",
+      data: projectHealthData(project.id, [
+        {
+          id: staleAssignment.id,
+          title: "Stale or unknown assignment: Build cockpit UI",
+          detail: "linked run missing",
+          status: "stale_unknown",
+          bucket: "blocked",
+          work_item_id: workItem.id,
+          task_id: "task_1",
+          run_id: "run_missing",
+          action_label: "View blocked",
+        },
+      ]),
     });
     window.localStorage.setItem("hecate.project", project.id);
     const state = createRuntimeConsoleFixture({

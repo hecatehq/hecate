@@ -13,13 +13,18 @@ import {
   getProjectActivity,
   getProjectCollaborationArtifacts,
   getProjectHandoffs,
+  getProjectHealth,
   getProjectOperationsBrief,
   getProjectWorkItem,
   getProjectWorkItemReadiness,
   getProjectWorkItems,
   getProjectWorkRoles,
 } from "../lib/api";
-import type { ProjectAssignmentRecord, ProjectWorkItemRecord } from "../types/project";
+import type {
+  ProjectAssignmentRecord,
+  ProjectHealth,
+  ProjectWorkItemRecord,
+} from "../types/project";
 
 vi.mock("../lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/api")>();
@@ -41,6 +46,10 @@ vi.mock("../lib/api", async (importOriginal) => {
     getProjectOperationsBrief: vi.fn(async () => ({
       object: "project_operations_brief",
       data: emptyOperationsBriefData(),
+    })),
+    getProjectHealth: vi.fn(async () => ({
+      object: "project_health",
+      data: emptyProjectHealthData(),
     })),
     getProjectWorkRoles: vi.fn(async () => ({ object: "project_roles", data: [] })),
     getProjectWorkItems: vi.fn(async () => ({ object: "project_work_items", data: [] })),
@@ -107,6 +116,36 @@ function emptyOperationsBriefData() {
   };
 }
 
+function emptyProjectHealthData(): ProjectHealth {
+  return {
+    project_id: "",
+    generated_at: "",
+    summary: {
+      attention_count: 0,
+      available_attention_count: 0,
+      omitted_attention_count: 0,
+      attention_limit: 5,
+      missing_defaults: false,
+      missing_project_root: false,
+      enabled_memory_count: 0,
+      saved_memory_count: 0,
+      enabled_context_source_count: 0,
+      pending_memory_candidate_count: 0,
+      promoted_memory_candidate_count: 0,
+      rejected_memory_candidate_count: 0,
+      pending_handoff_count: 0,
+      accepted_handoff_count: 0,
+      superseded_handoff_count: 0,
+      dismissed_handoff_count: 0,
+      review_follow_up_count: 0,
+      blocked_review_count: 0,
+      changes_requested_review_count: 0,
+      stale_or_unknown_assignment_count: 0,
+    },
+    attention: [],
+  };
+}
+
 function resetProjectWorkMocks() {
   const emptyWorkItem: ProjectWorkItemRecord = {
     id: "",
@@ -124,6 +163,10 @@ function resetProjectWorkMocks() {
   vi.mocked(getProjectOperationsBrief).mockResolvedValue({
     object: "project_operations_brief",
     data: emptyOperationsBriefData(),
+  });
+  vi.mocked(getProjectHealth).mockResolvedValue({
+    object: "project_health",
+    data: emptyProjectHealthData(),
   });
   vi.mocked(getProjectWorkRoles).mockResolvedValue({ object: "project_roles", data: [] });
   vi.mocked(getProjectWorkItems).mockResolvedValue({ object: "project_work_items", data: [] });

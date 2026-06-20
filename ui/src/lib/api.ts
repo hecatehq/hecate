@@ -92,6 +92,7 @@ import type {
   ProjectCollaborationArtifactsResponse,
   ProjectHandoffResponse,
   ProjectHandoffsResponse,
+  ProjectHealthResponse,
   ProjectMemoryCandidateListResponse,
   ProjectMemoryCandidateResponse,
   ProjectMemoryListResponse,
@@ -589,6 +590,12 @@ export async function rejectProjectMemoryCandidate(
 export async function getProjectActivity(projectID: string): Promise<ProjectActivityResponse> {
   return fetchJSON<ProjectActivityResponse>(
     `${HECATE_API}/projects/${encodeURIComponent(projectID)}/activity`,
+  );
+}
+
+export async function getProjectHealth(projectID: string): Promise<ProjectHealthResponse> {
+  return fetchJSON<ProjectHealthResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/health`,
   );
 }
 

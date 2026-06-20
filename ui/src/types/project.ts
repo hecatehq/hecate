@@ -814,6 +814,66 @@ export type ProjectActivityResponse = {
   data: ProjectActivityData;
 };
 
+export type ProjectActivityBucketKey = "all" | "active" | "blocked" | "completed" | "recent";
+
+export type ProjectHealthAttentionAction =
+  | "memory"
+  | "profiles"
+  | "roles"
+  | "settings"
+  | "skills"
+  | (string & {});
+
+export type ProjectHealthAttention = {
+  id: string;
+  title: string;
+  detail: string;
+  status: string;
+  action?: ProjectHealthAttentionAction;
+  bucket?: ProjectActivityBucketKey;
+  work_item_id?: string;
+  task_id?: string;
+  run_id?: string;
+  chat_id?: string;
+  candidate_id?: string;
+  action_label?: string;
+};
+
+export type ProjectHealthSummary = {
+  attention_count: number;
+  available_attention_count: number;
+  omitted_attention_count: number;
+  attention_limit: number;
+  missing_defaults: boolean;
+  missing_project_root: boolean;
+  enabled_memory_count: number;
+  saved_memory_count: number;
+  enabled_context_source_count: number;
+  pending_memory_candidate_count: number;
+  promoted_memory_candidate_count: number;
+  rejected_memory_candidate_count: number;
+  pending_handoff_count: number;
+  accepted_handoff_count: number;
+  superseded_handoff_count: number;
+  dismissed_handoff_count: number;
+  review_follow_up_count: number;
+  blocked_review_count: number;
+  changes_requested_review_count: number;
+  stale_or_unknown_assignment_count: number;
+};
+
+export type ProjectHealth = {
+  project_id: string;
+  generated_at: string;
+  summary: ProjectHealthSummary;
+  attention: ProjectHealthAttention[];
+};
+
+export type ProjectHealthResponse = {
+  object: string;
+  data: ProjectHealth;
+};
+
 export type ProjectOperationsBriefPriority = "high" | "medium" | "low" | (string & {});
 
 export type ProjectOperationsBriefActionType =

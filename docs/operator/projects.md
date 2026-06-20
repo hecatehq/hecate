@@ -42,6 +42,13 @@ For each work item:
 Assignments keep their own execution records. Projects coordinate the work, but
 Tasks, Chats, and External Agents remain the execution surfaces.
 
+The project header's **Needs Attention** menu is server-derived from
+`GET /hecate/v1/projects/{id}/health`. It surfaces compact setup and operations
+signals such as missing defaults, missing roots, profile or skill reference
+issues, pending handoffs, review follow-up, stale assignment links, empty
+memory/context posture, and pending memory candidates. The menu opens existing
+surfaces only; it does not create records, launch agents, or write memory.
+
 The Work Coordination tab starts with Project Operations when the server finds
 actionable project state: missing launch defaults, pending approvals, blocked
 or stale assignments, queued assignments that need preflight, pending handoffs,

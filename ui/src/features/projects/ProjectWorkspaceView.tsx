@@ -1,6 +1,7 @@
 import type { CSSProperties, ReactNode } from "react";
 
 import type {
+  ProjectActivityBucketKey,
   ProjectActivityData,
   ProjectActivityItemRecord,
   ProjectAssignmentRecord,
@@ -30,10 +31,7 @@ import {
 } from "./ProjectWorkItemDetail";
 import { toProjectAssignmentExecutionViewModel } from "./projectAssignmentViewModels";
 import { formatProjectRowRelativeTime, workStatusLabel } from "./projectDisplay";
-import {
-  projectActivityWorkItemToWorkItem,
-  type ProjectActivityBucketKey,
-} from "./projectInsights";
+import { projectActivityWorkItemToWorkItem } from "./projectInsights";
 import { useProjectAssistantController } from "./useProjectAssistantController";
 
 export type WorkItemSummary = {
@@ -794,13 +792,25 @@ function projectOperationsLimitDetail(
   shownItemCount: number,
 ) {
   if (!brief || shownItemCount === 0) return "";
-  const availableItemCount = brief.summary.available_item_count ?? brief.items.length;
-  const omittedItemCount = brief.summary.omitted_item_count ?? 0;
+  const returnedItemCount = Math.max(brief.summary.item_count ?? 0, brief.items.length);
+  const availableItemCount = Math.max(
+    brief.summary.available_item_count ?? returnedItemCount,
+    returnedItemCount,
+  );
+  const omittedItemCount = Math.max(
+    brief.summary.omitted_item_count ?? availableItemCount - returnedItemCount,
+    0,
+  );
+  const returnedLabel = `${returnedItemCount} returned ${returnedItemCount === 1 ? "operation" : "operations"}`;
+  const shownLabel =
+    shownItemCount >= returnedItemCount
+      ? `Showing all ${returnedLabel}`
+      : `Showing top ${shownItemCount} of ${returnedLabel}`;
   if (omittedItemCount > 0) {
-    return `Showing top ${shownItemCount} of ${availableItemCount} operations; ${omittedItemCount} lower-priority ${omittedItemCount === 1 ? "operation was" : "operations were"} omitted by the server cap.`;
+    return `${shownLabel} (${availableItemCount} available; ${omittedItemCount} lower-priority ${omittedItemCount === 1 ? "operation was" : "operations were"} capped by the server).`;
   }
-  if (brief.items.length > shownItemCount) {
-    return `Showing top ${shownItemCount} of ${brief.items.length} operations.`;
+  if (returnedItemCount > shownItemCount) {
+    return `${shownLabel}.`;
   }
   return "";
 }

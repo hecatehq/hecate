@@ -5,6 +5,7 @@ import type {
   ProjectAssignmentRecord,
   ProjectCollaborationArtifactRecord,
   ProjectContextSourceRecord,
+  ProjectHealth,
   ProjectMemoryCandidateRecord,
   ProjectRecord,
   ProjectSkillRecord,
@@ -332,6 +333,10 @@ async function mockProjectJourneyAPIs(page: Page) {
     }
     if (resource === "activity") {
       await route.fulfill(ok({ object: "project_activity", data: projectActivity(state) }));
+      return;
+    }
+    if (resource === "health") {
+      await route.fulfill(ok({ object: "project_health", data: projectHealth(state, projectID) }));
       return;
     }
     if (resource === "operations" && parts[2] === "brief") {
@@ -765,6 +770,40 @@ function projectActivity(state: ProjectJourneyState): ProjectActivityData {
       recent: item,
     },
     recent: item,
+  };
+}
+
+function projectHealth(state: ProjectJourneyState, projectID: string): ProjectHealth {
+  const enabledContextSourceCount = state.sources.filter((source) => source.enabled).length;
+  const pendingMemoryCandidateCount = state.memoryCandidates.filter(
+    (candidate) => candidate.status === "pending",
+  ).length;
+  return {
+    project_id: projectID,
+    generated_at: NOW,
+    summary: {
+      attention_count: 0,
+      available_attention_count: 0,
+      omitted_attention_count: 0,
+      attention_limit: 5,
+      missing_defaults: !(state.projects[0]?.default_provider && state.projects[0]?.default_model),
+      missing_project_root: !(state.projects[0]?.roots ?? []).some((root) => root.active),
+      enabled_memory_count: 0,
+      saved_memory_count: 0,
+      enabled_context_source_count: enabledContextSourceCount,
+      pending_memory_candidate_count: pendingMemoryCandidateCount,
+      promoted_memory_candidate_count: 0,
+      rejected_memory_candidate_count: 0,
+      pending_handoff_count: 0,
+      accepted_handoff_count: 0,
+      superseded_handoff_count: 0,
+      dismissed_handoff_count: 0,
+      review_follow_up_count: 0,
+      blocked_review_count: 0,
+      changes_requested_review_count: 0,
+      stale_or_unknown_assignment_count: 0,
+    },
+    attention: [],
   };
 }
 
