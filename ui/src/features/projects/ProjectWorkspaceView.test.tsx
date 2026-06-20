@@ -254,6 +254,7 @@ function renderWorkspace(overrides: Partial<ProjectWorkspaceViewProps> = {}) {
     onOpenChat: vi.fn(),
     onOpenConnections: vi.fn(),
     onOpenSettings: vi.fn(),
+    onOperationAction: vi.fn(),
     onOpenTask: vi.fn(),
     onPromoteCandidate: vi.fn(),
     onRefreshMemory: vi.fn(),
@@ -293,6 +294,9 @@ function renderWorkspace(overrides: Partial<ProjectWorkspaceViewProps> = {}) {
     projectEmptyDetail: "Choose a project.",
     projectEmptyTitle: "No project selected",
     projectNeedsOnboarding: false,
+    operationsBrief: null,
+    operationsBriefError: "",
+    operationsBriefLoadState: "idle",
     projectSkills: [],
     preparingAssignmentID: "",
     rejectingCandidateID: "",
@@ -363,6 +367,46 @@ describe("ProjectWorkspaceView", () => {
     expect(handlers.onWorkspaceTabChange).toHaveBeenNthCalledWith(1, "timeline");
     expect(handlers.onWorkspaceTabChange).toHaveBeenNthCalledWith(2, "memory");
     expect(handlers.onWorkspaceTabChange).toHaveBeenNthCalledWith(3, "skills");
+  });
+
+  it("renders project operations brief items", async () => {
+    const operationItem = {
+      id: "start_queued_assignment:proj_1:asgn_1",
+      kind: "start_queued_assignment",
+      priority: "high",
+      title: "Review queued assignment: Build cockpit UI",
+      detail: "Open launch preflight before starting this assignment.",
+      action_label: "Review start",
+      status: "not_started",
+      target: {
+        surface: "work",
+        project_id: "proj_1",
+        work_item_id: "work_1",
+        assignment_id: "asgn_1",
+        activity_bucket: "blocked",
+      },
+      updated_at: "2026-06-13T00:00:00Z",
+    } as const;
+    const { handlers } = renderWorkspace({
+      operationsBrief: {
+        project_id: "proj_1",
+        generated_at: "2026-06-13T00:00:00Z",
+        summary: {
+          item_count: 1,
+          high_count: 1,
+          medium_count: 0,
+          low_count: 0,
+          pending_memory_candidate_count: 0,
+          pending_handoff_count: 0,
+        },
+        items: [operationItem],
+      },
+    });
+
+    const operations = screen.getByRole("region", { name: "Project operations" });
+    expect(within(operations).getByText("Review queued assignment: Build cockpit UI")).toBeTruthy();
+    await userEvent.click(within(operations).getByRole("button", { name: /Review start/ }));
+    expect(handlers.onOperationAction).toHaveBeenCalledWith(operationItem);
   });
 
   it("renders a resume summary and delegates resume actions", async () => {

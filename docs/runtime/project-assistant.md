@@ -39,6 +39,12 @@ selected work item, the draft creates a new project work item. In both cases
 `Draft proposal` creates reviewable data only; it does not create a chat, task,
 run, assignment, or agent session.
 
+Project Operations brief items may seed this same draft flow with a
+`draft_request` and an optional work-item target. The brief is read-only routing
+state; it can open Project Settings, Work Coordination, Memory/Context, or an
+assignment preflight, and draftable items still become ordinary Project
+Assistant proposals that must be reviewed and explicitly applied.
+
 Project-linked Hecate Chat has a compact `Draft proposal` composer action for
 turning the current draft message into the same Project Assistant proposal
 shape. The same deterministic handoff is available as `/proposal <request>` in

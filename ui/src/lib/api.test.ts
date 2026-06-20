@@ -37,6 +37,7 @@ import {
   getProjectHandoffs,
   getProjectMemory,
   getProjectMemoryCandidates,
+  getProjectOperationsBrief,
   getProjectWorkItem,
   getProjectWorkItems,
   getProjectWorkRoles,
@@ -284,11 +285,12 @@ describe("api client", () => {
 
   it("builds project work coordination requests", async () => {
     fetchMock.mockClear();
-    for (let i = 0; i < 7; i += 1) {
+    for (let i = 0; i < 8; i += 1) {
       fetchMock.mockResolvedValueOnce(jsonResponse({ object: "ok", data: [] }));
     }
 
     await getProjectActivity("proj/1");
+    await getProjectOperationsBrief("proj/1");
     await getProjectWorkRoles("proj/1");
     await getProjectWorkItems("proj/1");
     await getProjectWorkItem("proj/1", "work/1");
@@ -303,31 +305,36 @@ describe("api client", () => {
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
-      "/hecate/v1/projects/proj%2F1/roles",
+      "/hecate/v1/projects/proj%2F1/operations/brief",
       expect.objectContaining({ method: "GET" }),
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       3,
-      "/hecate/v1/projects/proj%2F1/work-items",
+      "/hecate/v1/projects/proj%2F1/roles",
       expect.objectContaining({ method: "GET" }),
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       4,
-      "/hecate/v1/projects/proj%2F1/work-items/work%2F1",
+      "/hecate/v1/projects/proj%2F1/work-items",
       expect.objectContaining({ method: "GET" }),
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       5,
-      "/hecate/v1/projects/proj%2F1/work-items/work%2F1/assignments",
+      "/hecate/v1/projects/proj%2F1/work-items/work%2F1",
       expect.objectContaining({ method: "GET" }),
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       6,
-      "/hecate/v1/projects/proj%2F1/work-items/work%2F1/artifacts",
+      "/hecate/v1/projects/proj%2F1/work-items/work%2F1/assignments",
       expect.objectContaining({ method: "GET" }),
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       7,
+      "/hecate/v1/projects/proj%2F1/work-items/work%2F1/artifacts",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      8,
       "/hecate/v1/projects/proj%2F1/work-items/work%2F1/handoffs",
       expect.objectContaining({ method: "GET" }),
     );

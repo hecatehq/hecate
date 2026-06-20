@@ -798,6 +798,55 @@ export type ProjectActivityResponse = {
   data: ProjectActivityData;
 };
 
+export type ProjectOperationsBriefPriority = "high" | "medium" | "low" | (string & {});
+
+export type ProjectOperationsBriefTarget = {
+  surface: "project_settings" | "work" | "memory" | "skills" | string;
+  project_id: string;
+  work_item_id?: string;
+  assignment_id?: string;
+  handoff_id?: string;
+  activity_bucket?: "all" | "active" | "blocked" | "completed" | "recent" | (string & {});
+};
+
+export type ProjectOperationsBriefItem = {
+  id: string;
+  kind: string;
+  priority: ProjectOperationsBriefPriority;
+  title: string;
+  detail: string;
+  action_label: string;
+  status?: string;
+  target: ProjectOperationsBriefTarget;
+  draft_request?: string;
+  work_item?: ProjectActivityWorkItemRecord;
+  assignment?: ProjectAssignmentRecord;
+  handoff?: ProjectHandoffRecord;
+  updated_at?: string;
+  metadata?: Record<string, string>;
+};
+
+export type ProjectOperationsBriefSummary = {
+  item_count: number;
+  high_count: number;
+  medium_count: number;
+  low_count: number;
+  pending_memory_candidate_count: number;
+  pending_handoff_count: number;
+};
+
+export type ProjectOperationsBrief = {
+  project_id: string;
+  generated_at: string;
+  summary: ProjectOperationsBriefSummary;
+  items: ProjectOperationsBriefItem[];
+};
+
+export type ProjectOperationsBriefResponse = {
+  object: string;
+  data: ProjectOperationsBrief;
+};
+
 export type ProjectWorkRolesResponse = {
   object: string;
   data: ProjectWorkRoleRecord[];

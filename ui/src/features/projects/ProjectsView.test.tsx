@@ -27,6 +27,7 @@ import {
   discoverProjectRoots,
   discoverProjectSkills,
   getProjectActivity,
+  getProjectOperationsBrief,
   getAgentProfiles,
   getProjectAssignmentContext,
   getProjectAssignmentPreflight,
@@ -104,6 +105,22 @@ function emptyActivityData() {
   };
 }
 
+function emptyOperationsBriefData() {
+  return {
+    project_id: "",
+    generated_at: "",
+    summary: {
+      item_count: 0,
+      high_count: 0,
+      medium_count: 0,
+      low_count: 0,
+      pending_memory_candidate_count: 0,
+      pending_handoff_count: 0,
+    },
+    items: [],
+  };
+}
+
 async function openProjectWorkspaceTab(name: RegExp | string) {
   await userEvent.click(await screen.findByRole("tab", { name }));
 }
@@ -120,6 +137,10 @@ vi.mock("../../lib/api", async (importOriginal) => {
     getProjectActivity: vi.fn(async () => ({
       object: "project_activity",
       data: emptyActivityData(),
+    })),
+    getProjectOperationsBrief: vi.fn(async () => ({
+      object: "project_operations_brief",
+      data: emptyOperationsBriefData(),
     })),
     getProjectWorkRoles: vi.fn(async () => ({ object: "project_roles", data: [] })),
     getProjectWorkItems: vi.fn(async () => ({ object: "project_work_items", data: [] })),
@@ -475,6 +496,10 @@ function resetProjectWorkMocks() {
       },
       recent: [],
     },
+  });
+  vi.mocked(getProjectOperationsBrief).mockResolvedValue({
+    object: "project_operations_brief",
+    data: emptyOperationsBriefData(),
   });
   vi.mocked(getProjectWorkRoles).mockResolvedValue({ object: "project_roles", data: [role] });
   vi.mocked(getProjectWorkItems).mockResolvedValue({
@@ -1019,6 +1044,7 @@ afterEach(() => {
   window.localStorage.clear();
   window.sessionStorage.clear();
   vi.mocked(getProjectActivity).mockReset();
+  vi.mocked(getProjectOperationsBrief).mockReset();
   vi.mocked(getProjectWorkRoles).mockReset();
   vi.mocked(getProjectWorkItems).mockReset();
   vi.mocked(getProjectWorkItem).mockReset();
@@ -4873,6 +4899,74 @@ describe("ProjectsView cockpit", () => {
     expect(await within(assistant).findByText("Create assignment")).toBeTruthy();
     expect(createProjectAssignment).not.toHaveBeenCalled();
     expect(getProjectAssignmentPreflight).not.toHaveBeenCalled();
+    expect(startProjectAssignment).not.toHaveBeenCalled();
+  });
+
+  it("drafts a Project Assistant proposal from an operations brief item", async () => {
+    resetProjectWorkMocks();
+    const emptyWorkItem = { ...workItem, reviewer_role_ids: [], assignments: [] };
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [emptyWorkItem],
+    });
+    vi.mocked(getProjectWorkItem).mockResolvedValue({
+      object: "project_work_item",
+      data: emptyWorkItem,
+    });
+    vi.mocked(getProjectAssignments).mockResolvedValue({
+      object: "project_assignments",
+      data: [],
+    });
+    vi.mocked(getProjectOperationsBrief).mockResolvedValue({
+      object: "project_operations_brief",
+      data: {
+        project_id: project.id,
+        generated_at: "2026-06-14T00:00:00Z",
+        summary: {
+          item_count: 1,
+          high_count: 0,
+          medium_count: 1,
+          low_count: 0,
+          pending_memory_candidate_count: 0,
+          pending_handoff_count: 0,
+        },
+        items: [
+          {
+            id: "prepare_first_assignment:proj_1:work_1",
+            kind: "prepare_first_assignment",
+            priority: "medium",
+            title: "Prepare first assignment: Build cockpit UI",
+            detail: "This work item has no queued or running assignments yet.",
+            action_label: "Draft assignment",
+            draft_request: "Queue an assignment for Build cockpit UI",
+            target: {
+              surface: "work",
+              project_id: project.id,
+              work_item_id: workItem.id,
+            },
+            updated_at: "2026-06-14T00:00:00Z",
+          },
+        ],
+      },
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    const operations = await screen.findByRole("region", { name: "Project operations" });
+    await userEvent.click(within(operations).getByRole("button", { name: /Draft assignment/ }));
+
+    await waitFor(() =>
+      expect(draftProjectAssistant).toHaveBeenCalledWith({
+        project_id: project.id,
+        work_item_id: workItem.id,
+        request: "Queue an assignment for Build cockpit UI",
+      }),
+    );
+    expect(createProjectAssignment).not.toHaveBeenCalled();
     expect(startProjectAssignment).not.toHaveBeenCalled();
   });
 

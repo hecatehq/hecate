@@ -59,14 +59,18 @@ export function useProjectAssistantController(options: Options) {
   const [bootstrapPending, setBootstrapPending] = useState(false);
 
   const propose = useCallback(
-    async (form: ProjectAssistantDraftForm) => {
+    async (form: ProjectAssistantDraftForm, workItemID?: string) => {
       if (!options.project) return;
       setStatus("proposing");
       setError("");
       setApplyResult(null);
       try {
         const payload = await draftProjectAssistant(
-          projectAssistantDraftPayload(form, options.project.id, options.selectedWorkItem?.id),
+          projectAssistantDraftPayload(
+            form,
+            options.project.id,
+            workItemID ?? options.selectedWorkItem?.id,
+          ),
         );
         setProposal(payload.data);
         setChatDraftSource(null);
