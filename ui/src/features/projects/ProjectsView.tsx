@@ -32,6 +32,7 @@ import {
   getProjectOperationsBrief,
   getProjectSkills,
   getProjectWorkItem,
+  getProjectWorkItemReadiness,
   getProjectWorkItems,
   getProjectWorkRoles,
   startProjectAssignment,
@@ -94,6 +95,7 @@ import type {
   ProjectContextSourceRecord,
   ProjectSkillRecord,
   ProjectRecord,
+  ProjectWorkItemReadinessRecord,
   ProjectWorkItemRecord,
   ProjectWorkRoleRecord,
   UpdateProjectPayload,
@@ -246,6 +248,8 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
   const [roles, setRoles] = useState<ProjectWorkRoleRecord[]>([]);
   const [selectedWorkItemID, setSelectedWorkItemID] = useState("");
   const [selectedWorkItem, setSelectedWorkItem] = useState<ProjectWorkItemRecord | null>(null);
+  const [selectedWorkItemReadiness, setSelectedWorkItemReadiness] =
+    useState<ProjectWorkItemReadinessRecord | null>(null);
   const [assignments, setAssignments] = useState<ProjectAssignmentRecord[]>([]);
   const [artifacts, setArtifacts] = useState<ProjectCollaborationArtifactRecord[]>([]);
   const [handoffs, setHandoffs] = useState<ProjectHandoffRecord[]>([]);
@@ -422,6 +426,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     if (!preferredWorkItemID) {
       setSelectedWorkItemID("");
       setSelectedWorkItem(null);
+      setSelectedWorkItemReadiness(null);
       setAssignments([]);
       setArtifacts([]);
       setHandoffs([]);
@@ -527,21 +532,25 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     setAssignmentErrors({});
     if (!projectID || !workItemID) {
       setSelectedWorkItem(null);
+      setSelectedWorkItemReadiness(null);
       setAssignments([]);
       setArtifacts([]);
       setHandoffs([]);
       setDetailLoadState("idle");
       return;
     }
+    setSelectedWorkItemReadiness(null);
     setDetailLoadState("loading");
     try {
-      const [itemRes, assignmentRes, artifactRes, handoffRes] = await Promise.all([
+      const [itemRes, assignmentRes, artifactRes, handoffRes, readinessRes] = await Promise.all([
         getProjectWorkItem(projectID, workItemID),
         getProjectAssignments(projectID, workItemID),
         getProjectCollaborationArtifacts(projectID, workItemID),
         getProjectHandoffs(projectID, workItemID),
+        getProjectWorkItemReadiness(projectID, workItemID),
       ]);
       setSelectedWorkItem(itemRes.data);
+      setSelectedWorkItemReadiness(readinessRes.data);
       setAssignments(assignmentRes.data ?? []);
       setArtifacts(artifactRes.data ?? []);
       setHandoffs(handoffRes.data ?? []);
@@ -552,6 +561,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
       }));
       setDetailLoadState("loaded");
     } catch (error) {
+      setSelectedWorkItemReadiness(null);
       setDetailLoadState("error");
       setDetailError(errorMessage(error, "Failed to load work item detail."));
     }
@@ -1789,6 +1799,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
             roleByID={roleByID}
             roles={roles}
             selectedWorkItem={selectedWorkItem}
+            selectedWorkItemReadiness={selectedWorkItemReadiness}
             selectedWorkItemID={selectedWorkItemID}
             skillsError={skillsError}
             skillsLoadState={skillsLoadState}

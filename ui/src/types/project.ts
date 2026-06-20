@@ -526,6 +526,22 @@ export type CreateProjectWorkItemPayload = {
 
 export type UpdateProjectWorkItemPayload = Partial<CreateProjectWorkItemPayload>;
 
+export type ProjectWorkItemReadinessRecord = {
+  project_id: string;
+  work_item_id: string;
+  ready: boolean;
+  status: "blocked" | "done" | "ready" | (string & {});
+  title: string;
+  detail: string;
+  blockers: string[];
+  warnings: string[];
+  assignment_count: number;
+  completed_assignments: number;
+  review_follow_up_count: number;
+  review_follow_up_artifact_ids?: string[];
+  missing_evidence_assignment_ids?: string[];
+};
+
 export type ProjectAssignmentStatus =
   | "queued"
   | "running"
@@ -893,6 +909,11 @@ export type ProjectWorkItemsResponse = {
 export type ProjectWorkItemResponse = {
   object: string;
   data: ProjectWorkItemRecord;
+};
+
+export type ProjectWorkItemReadinessResponse = {
+  object: string;
+  data: ProjectWorkItemReadinessRecord;
 };
 
 export type ProjectAssignmentsResponse = {

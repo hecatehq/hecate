@@ -9,6 +9,7 @@ import type {
   ProjectCollaborationArtifactRecord,
   ProjectHandoffRecord,
   ProjectRecord,
+  ProjectWorkItemReadinessRecord,
   ProjectWorkItemRecord,
   ProjectWorkRoleRecord,
 } from "../../types/project";
@@ -20,11 +21,7 @@ import {
   toProjectAssignmentExecutionViewModel,
   type ProjectAssignmentEvidenceViewModel,
 } from "./projectAssignmentViewModels";
-import {
-  buildProjectWorkCloseoutReadiness,
-  reviewArtifactNeedsFollowUpPath,
-  type ProjectWorkCloseoutReadiness,
-} from "./projectInsights";
+import { reviewArtifactNeedsFollowUpPath } from "./projectInsights";
 import {
   assignmentStatusLabel,
   formatProjectRowRelativeTime,
@@ -118,6 +115,7 @@ export type ProjectWorkItemDetailProps = {
   project: ProjectRecord | null;
   roleByID: Map<string, ProjectWorkRoleRecord>;
   closingWorkItemID: string;
+  closeoutReadiness: ProjectWorkItemReadinessRecord | null;
   startingAssignmentID: string;
   workItem: ProjectWorkItemRecord | null;
 };
@@ -166,6 +164,7 @@ export function ProjectWorkItemDetail({
   project,
   roleByID,
   closingWorkItemID,
+  closeoutReadiness,
   startingAssignmentID,
   workItem,
 }: ProjectWorkItemDetailProps) {
@@ -177,12 +176,7 @@ export function ProjectWorkItemDetail({
       />
     );
   }
-  const closeout = buildProjectWorkCloseoutReadiness({
-    assignments,
-    artifacts,
-    handoffs,
-    workItem,
-  });
+  const closeout = closeoutReadiness ?? unavailableCloseoutReadiness(workItem, loading);
   const emptyWorkItem =
     assignments.length === 0 &&
     artifacts.length === 0 &&
@@ -693,12 +687,33 @@ function EvidenceArtifactMetadata({ artifact }: { artifact: ProjectCollaboration
   );
 }
 
+function unavailableCloseoutReadiness(
+  workItem: ProjectWorkItemRecord,
+  loading: boolean,
+): ProjectWorkItemReadinessRecord {
+  return {
+    project_id: workItem.project_id,
+    work_item_id: workItem.id,
+    ready: false,
+    status: "blocked",
+    title: loading ? "Checking closeout readiness" : "Closeout readiness unavailable",
+    detail: loading
+      ? "Loading closeout readiness from the project operations contract."
+      : "Refresh work item detail before marking done.",
+    blockers: [loading ? "Closeout readiness is loading." : "Closeout readiness is unavailable."],
+    warnings: [],
+    assignment_count: 0,
+    completed_assignments: 0,
+    review_follow_up_count: 0,
+  };
+}
+
 function WorkItemCloseoutPanel({
   closeout,
   onClose,
   pending,
 }: {
-  closeout: ProjectWorkCloseoutReadiness;
+  closeout: ProjectWorkItemReadinessRecord;
   onClose: () => void;
   pending: boolean;
 }) {
@@ -710,7 +725,7 @@ function WorkItemCloseoutPanel({
         <div style={sectionLabelStyle}>Closeout</div>
         <Badge status={status} label={closeout.status === "done" ? "done" : closeout.status} />
         <span className="badge badge-muted">
-          {closeout.completedAssignments}/{closeout.assignmentCount} assignments complete
+          {closeout.completed_assignments}/{closeout.assignment_count} assignments complete
         </span>
         {closeout.status !== "done" && (
           <button

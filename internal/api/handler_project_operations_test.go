@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projects"
@@ -245,6 +246,137 @@ func TestProjectOperationsBrief_SelectedWorkFollowThrough(t *testing.T) {
 	requireProjectOperationsItemAbsentForTest(t, response.Data.Items, "prepare_first_assignment")
 }
 
+func TestProjectWorkItemReadiness_ReadOnlyCloseoutContract(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	if _, err := handler.projects.Create(t.Context(), projects.Project{
+		ID:   "proj_readiness",
+		Name: "Readiness",
+	}); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	if _, err := handler.projectWork.CreateWorkItem(t.Context(), projectwork.WorkItem{
+		ID:        "work_readiness",
+		ProjectID: "proj_readiness",
+		Title:     "Verify closeout",
+		Status:    projectwork.WorkItemStatusReview,
+	}); err != nil {
+		t.Fatalf("CreateWorkItem: %v", err)
+	}
+	if _, err := handler.projectWork.CreateAssignment(t.Context(), projectwork.Assignment{
+		ID:         "asgn_complete",
+		ProjectID:  "proj_readiness",
+		WorkItemID: "work_readiness",
+		RoleID:     "developer",
+		Status:     projectwork.AssignmentStatusCompleted,
+	}); err != nil {
+		t.Fatalf("CreateAssignment: %v", err)
+	}
+
+	beforeAssignments, err := handler.projectWork.ListAssignments(t.Context(), projectwork.AssignmentFilter{ProjectID: "proj_readiness", WorkItemID: "work_readiness"})
+	if err != nil {
+		t.Fatalf("ListAssignments before: %v", err)
+	}
+	beforeArtifacts, err := handler.projectWork.ListArtifacts(t.Context(), projectwork.ArtifactFilter{ProjectID: "proj_readiness", WorkItemID: "work_readiness"})
+	if err != nil {
+		t.Fatalf("ListArtifacts before: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_readiness/work-items/work_readiness/readiness", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("readiness status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response ProjectWorkItemReadinessEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode readiness: %v", err)
+	}
+	if response.Object != "project_work_item_readiness" || response.Data.ProjectID != "proj_readiness" || response.Data.WorkItemID != "work_readiness" {
+		t.Fatalf("readiness envelope = %+v, want work item readiness", response)
+	}
+	if response.Data.Ready || response.Data.Status != "blocked" || len(response.Data.MissingEvidenceAssignmentIDs) != 1 || response.Data.MissingEvidenceAssignmentIDs[0] != "asgn_complete" {
+		t.Fatalf("readiness = %+v, want missing evidence blocker", response.Data)
+	}
+
+	afterAssignments, err := handler.projectWork.ListAssignments(t.Context(), projectwork.AssignmentFilter{ProjectID: "proj_readiness", WorkItemID: "work_readiness"})
+	if err != nil {
+		t.Fatalf("ListAssignments after: %v", err)
+	}
+	afterArtifacts, err := handler.projectWork.ListArtifacts(t.Context(), projectwork.ArtifactFilter{ProjectID: "proj_readiness", WorkItemID: "work_readiness"})
+	if err != nil {
+		t.Fatalf("ListArtifacts after: %v", err)
+	}
+	if len(afterAssignments) != len(beforeAssignments) || len(afterArtifacts) != len(beforeArtifacts) {
+		t.Fatalf("readiness mutated project state: assignments %d->%d artifacts %d->%d", len(beforeAssignments), len(afterAssignments), len(beforeArtifacts), len(afterArtifacts))
+	}
+
+	if _, err := handler.projectWork.CreateArtifact(t.Context(), projectwork.CollaborationArtifact{
+		ID:                 "artifact_evidence",
+		ProjectID:          "proj_readiness",
+		WorkItemID:         "work_readiness",
+		AssignmentID:       "asgn_complete",
+		Kind:               projectwork.ArtifactKindEvidenceLink,
+		Title:              "Evidence",
+		Body:               "Evidence recorded.",
+		EvidenceURL:        "https://example.com/evidence",
+		EvidenceTrustLabel: "operator_reviewed",
+	}); err != nil {
+		t.Fatalf("CreateArtifact(evidence): %v", err)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_readiness/work-items/work_readiness/readiness", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("readiness with evidence status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode readiness with evidence: %v", err)
+	}
+	if !response.Data.Ready || response.Data.Status != "ready" || response.Data.CompletedAssignments != 1 || response.Data.AssignmentCount != 1 {
+		t.Fatalf("readiness with evidence = %+v, want ready closeout", response.Data)
+	}
+}
+
+func TestProjectOperationsBrief_OpenLatestWorkWhenNoOperations(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	if _, err := handler.projects.Create(t.Context(), projects.Project{
+		ID:              "proj_latest",
+		Name:            "Latest Work",
+		DefaultProvider: "ollama",
+		DefaultModel:    "qwen2.5-coder",
+	}); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	older := time.Date(2026, 6, 20, 10, 0, 0, 0, time.UTC)
+	newer := time.Date(2026, 6, 20, 11, 0, 0, 0, time.UTC)
+	for _, item := range []projectwork.WorkItem{
+		{ID: "work_older", ProjectID: "proj_latest", Title: "Older work", Status: projectwork.WorkItemStatusDone, CreatedAt: older, UpdatedAt: older},
+		{ID: "work_newer", ProjectID: "proj_latest", Title: "Newer work", Status: projectwork.WorkItemStatusDone, CreatedAt: newer, UpdatedAt: newer},
+	} {
+		if _, err := handler.projectWork.CreateWorkItem(t.Context(), item); err != nil {
+			t.Fatalf("CreateWorkItem(%s): %v", item.ID, err)
+		}
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_latest/operations/brief", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("operations brief status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response ProjectOperationsBriefEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode operations brief: %v", err)
+	}
+	if len(response.Data.Items) != 1 {
+		t.Fatalf("operations items = %+v, want only latest work fallback", response.Data.Items)
+	}
+	item := response.Data.Items[0]
+	if item.Kind != "open_latest_work" || item.Target.WorkItemID != "work_newer" || item.Action.Type != projectOperationsActionOpenWorkItem {
+		t.Fatalf("latest work item = %+v, want newest work target", item)
+	}
+}
+
 func TestProjectOperationsReviewFollowUpPathAndBlockerSemantics(t *testing.T) {
 	t.Parallel()
 	artifact := projectwork.CollaborationArtifact{
@@ -259,10 +391,10 @@ func TestProjectOperationsReviewFollowUpPathAndBlockerSemantics(t *testing.T) {
 		Status:            projectwork.HandoffStatusAccepted,
 		LinkedArtifactIDs: []string{artifact.ID},
 	}}
-	if projectOperationsArtifactHasLinkedFollowUpPath(artifact.ID, acceptedWithoutTarget) {
+	if projectWorkReadinessArtifactHasLinkedFollowUpPath(artifact.ID, acceptedWithoutTarget) {
 		t.Fatal("accepted handoff without target assignment should not hide review follow-up operation")
 	}
-	if !projectOperationsReviewFollowUpBlocker(artifact, acceptedWithoutTarget, nil) {
+	if projectWorkReadinessReviewFollowUpBlocker(artifact, acceptedWithoutTarget, nil) == "" {
 		t.Fatal("accepted handoff without target assignment should still block closeout")
 	}
 
@@ -271,7 +403,7 @@ func TestProjectOperationsReviewFollowUpPathAndBlockerSemantics(t *testing.T) {
 		Status:            projectwork.HandoffStatusPending,
 		LinkedArtifactIDs: []string{artifact.ID},
 	}}
-	if !projectOperationsArtifactHasLinkedFollowUpPath(artifact.ID, pending) || !projectOperationsReviewFollowUpBlocker(artifact, pending, nil) {
+	if !projectWorkReadinessArtifactHasLinkedFollowUpPath(artifact.ID, pending) || projectWorkReadinessReviewFollowUpBlocker(artifact, pending, nil) == "" {
 		t.Fatal("pending handoff should route through handoff review and block closeout")
 	}
 
@@ -280,7 +412,7 @@ func TestProjectOperationsReviewFollowUpPathAndBlockerSemantics(t *testing.T) {
 		Status:            projectwork.HandoffStatusDismissed,
 		LinkedArtifactIDs: []string{artifact.ID},
 	}}
-	if !projectOperationsArtifactHasLinkedFollowUpPath(artifact.ID, dismissed) || projectOperationsReviewFollowUpBlocker(artifact, dismissed, nil) {
+	if !projectWorkReadinessArtifactHasLinkedFollowUpPath(artifact.ID, dismissed) || projectWorkReadinessReviewFollowUpBlocker(artifact, dismissed, nil) != "" {
 		t.Fatal("dismissed handoff should clear review follow-up without blocking closeout")
 	}
 
@@ -293,7 +425,7 @@ func TestProjectOperationsReviewFollowUpPathAndBlockerSemantics(t *testing.T) {
 	assignmentsByID := map[string]projectwork.Assignment{
 		"asgn_followup": {ID: "asgn_followup", Status: projectwork.AssignmentStatusCompleted},
 	}
-	if !projectOperationsArtifactHasLinkedFollowUpPath(artifact.ID, completedTarget) || projectOperationsReviewFollowUpBlocker(artifact, completedTarget, assignmentsByID) {
+	if !projectWorkReadinessArtifactHasLinkedFollowUpPath(artifact.ID, completedTarget) || projectWorkReadinessReviewFollowUpBlocker(artifact, completedTarget, assignmentsByID) != "" {
 		t.Fatal("completed target assignment should clear review follow-up closeout blocker")
 	}
 }

@@ -139,6 +139,11 @@ func (h *Handler) renderProjectOperationsBrief(ctx context.Context, projectID st
 		items = append(items, memoryCandidateOperationItem(projectID, pendingMemoryCandidates))
 	}
 	items = append(items, assignmentGapOperationItems(projectID, workItems, assignments)...)
+	if len(items) == 0 {
+		if item := latestWorkOperationItem(projectID, workItems); item != nil {
+			items = append(items, *item)
+		}
+	}
 
 	sortProjectOperationsItems(items)
 	items = boundedProjectOperationsItems(items, projectOperationsBriefItemLimit)
@@ -299,8 +304,7 @@ func handoffOperationItems(projectID string, handoffs []projectwork.Handoff) []P
 
 func selectedWorkFollowThroughOperationItems(projectID string, workItems []projectwork.WorkItem, assignments []projectwork.Assignment, artifacts []projectwork.CollaborationArtifact, handoffs []projectwork.Handoff) []ProjectOperationsBriefItemResponse {
 	assignmentsByWorkItem := groupProjectWorkAssignmentsByWorkItem(assignments)
-	assignmentsByID := projectOperationsAssignmentsByID(assignments)
-	artifactsByAssignment, artifactsByWorkItem := groupProjectActivityArtifacts(artifacts)
+	assignmentsByID := projectWorkReadinessAssignmentsByID(assignments)
 	allArtifactsByWorkItem := projectOperationsArtifactsByWorkItem(artifacts)
 	handoffsByWorkItem := projectOperationsHandoffsByWorkItem(handoffs)
 	items := make([]ProjectOperationsBriefItemResponse, 0, len(workItems))
@@ -308,20 +312,22 @@ func selectedWorkFollowThroughOperationItems(projectID string, workItems []proje
 		if projectWorkItemClosed(workItem.Status) {
 			continue
 		}
-		if review := projectOperationsReviewFollowUpArtifact(allArtifactsByWorkItem[workItem.ID], handoffs); review != nil {
+		workItemAssignments := assignmentsByWorkItem[workItem.ID]
+		workItemArtifacts := allArtifactsByWorkItem[workItem.ID]
+		workItemHandoffs := handoffsByWorkItem[workItem.ID]
+		readiness := renderProjectWorkItemReadiness(workItem, workItemAssignments, workItemArtifacts, workItemHandoffs)
+		if review := projectWorkReadinessReviewFollowUpArtifact(workItemArtifacts, workItemHandoffs); review != nil {
 			items = append(items, reviewFollowUpOperationItem(projectID, workItem, *review))
 		}
-		for _, assignment := range assignmentsByWorkItem[workItem.ID] {
-			if projectOperationsAssignmentStatus(assignment) != projectwork.AssignmentStatusCompleted {
-				continue
-			}
-			if projectOperationsAssignmentHasEvidence(assignment, artifactsByAssignment, artifactsByWorkItem) {
+		for _, assignmentID := range readiness.MissingEvidenceAssignmentIDs {
+			assignment, ok := assignmentsByID[assignmentID]
+			if !ok {
 				continue
 			}
 			items = append(items, completionEvidenceOperationItem(projectID, workItem, assignment))
 		}
-		if projectOperationsWorkItemReadyToClose(workItem, assignmentsByWorkItem[workItem.ID], artifactsByAssignment, artifactsByWorkItem, handoffsByWorkItem[workItem.ID], assignmentsByID) {
-			items = append(items, closeWorkItemOperationItem(projectID, workItem, assignmentsByWorkItem[workItem.ID]))
+		if readiness.Ready && len(workItemAssignments) > 0 {
+			items = append(items, closeWorkItemOperationItem(projectID, workItem, workItemAssignments))
 		}
 	}
 	return items
@@ -476,6 +482,40 @@ func assignmentGapOperationItems(projectID string, workItems []projectwork.WorkI
 	return items
 }
 
+func latestWorkOperationItem(projectID string, workItems []projectwork.WorkItem) *ProjectOperationsBriefItemResponse {
+	if len(workItems) == 0 {
+		return nil
+	}
+	items := append([]projectwork.WorkItem(nil), workItems...)
+	sort.SliceStable(items, func(i, j int) bool {
+		left, right := projectworkTime(items[i].UpdatedAt, items[i].CreatedAt), projectworkTime(items[j].UpdatedAt, items[j].CreatedAt)
+		if !left.Equal(right) {
+			return left.After(right)
+		}
+		return items[i].ID < items[j].ID
+	})
+	workItem := items[0]
+	rendered := renderProjectActivityWorkItem(renderProjectWorkItem(workItem))
+	target := ProjectOperationsBriefTargetResponse{
+		Surface:    "work",
+		ProjectID:  projectID,
+		WorkItemID: workItem.ID,
+	}
+	return &ProjectOperationsBriefItemResponse{
+		ID:          projectOperationsItemID("open_latest_work", projectID, workItem.ID),
+		Kind:        "open_latest_work",
+		Priority:    projectOperationsPriorityLow,
+		Title:       "Open latest work: " + firstNonEmpty(workItem.Title, workItem.ID),
+		Detail:      "Review the most recently updated work item.",
+		ActionLabel: "Open work",
+		Status:      firstNonEmpty(workItem.Status, projectwork.WorkItemStatusReady),
+		Target:      target,
+		Action:      projectOperationsOpenWorkItemAction(target.ProjectID, target.WorkItemID, "", "", ""),
+		WorkItem:    &rendered,
+		UpdatedAt:   formatOptionalTime(projectworkTime(workItem.UpdatedAt, workItem.CreatedAt)),
+	}
+}
+
 func sortProjectOperationsItems(items []ProjectOperationsBriefItemResponse) {
 	sort.SliceStable(items, func(i, j int) bool {
 		leftRank, rightRank := projectOperationsPriorityRank(items[i].Priority), projectOperationsPriorityRank(items[j].Priority)
@@ -539,6 +579,8 @@ func projectOperationsKindRank(kind string) int {
 		return 110
 	case "close_work_item":
 		return 120
+	case "open_latest_work":
+		return 130
 	default:
 		return 1000
 	}
@@ -628,153 +670,6 @@ func projectWorkItemClosed(status string) bool {
 	}
 }
 
-func projectOperationsReviewFollowUpArtifact(artifacts []projectwork.CollaborationArtifact, handoffs []projectwork.Handoff) *projectwork.CollaborationArtifact {
-	items := append([]projectwork.CollaborationArtifact(nil), artifacts...)
-	sort.SliceStable(items, func(i, j int) bool {
-		left, right := projectworkTime(items[i].UpdatedAt, items[i].CreatedAt), projectworkTime(items[j].UpdatedAt, items[j].CreatedAt)
-		if !left.Equal(right) {
-			return left.After(right)
-		}
-		return items[i].ID < items[j].ID
-	})
-	for i := range items {
-		if !projectOperationsReviewArtifactRequiresFollowUp(items[i]) {
-			continue
-		}
-		if projectOperationsArtifactHasLinkedFollowUpPath(items[i].ID, handoffs) {
-			continue
-		}
-		return &items[i]
-	}
-	return nil
-}
-
-func projectOperationsReviewArtifactRequiresFollowUp(artifact projectwork.CollaborationArtifact) bool {
-	if artifact.Kind != projectwork.ArtifactKindReview {
-		return false
-	}
-	return artifact.ReviewFollowUpRequired || artifact.ReviewVerdict == projectwork.ReviewVerdictBlocked || artifact.ReviewVerdict == projectwork.ReviewVerdictChangesRequested
-}
-
-func projectOperationsArtifactHasLinkedFollowUpPath(artifactID string, handoffs []projectwork.Handoff) bool {
-	artifactID = strings.TrimSpace(artifactID)
-	if artifactID == "" {
-		return false
-	}
-	for _, handoff := range handoffs {
-		for _, linkedID := range handoff.LinkedArtifactIDs {
-			if strings.TrimSpace(linkedID) != artifactID {
-				continue
-			}
-			if handoff.Status == projectwork.HandoffStatusPending ||
-				handoff.Status == projectwork.HandoffStatusDismissed ||
-				handoff.Status == projectwork.HandoffStatusSuperseded ||
-				strings.TrimSpace(handoff.TargetAssignmentID) != "" {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func projectOperationsWorkItemReadyToClose(workItem projectwork.WorkItem, assignments []projectwork.Assignment, artifactsByAssignment, artifactsByWorkItem map[string][]projectwork.CollaborationArtifact, handoffs []projectwork.Handoff, assignmentsByID map[string]projectwork.Assignment) bool {
-	if projectWorkItemClosed(workItem.Status) || len(assignments) == 0 {
-		return false
-	}
-	for _, assignment := range assignments {
-		if projectOperationsAssignmentStatus(assignment) != projectwork.AssignmentStatusCompleted {
-			return false
-		}
-		if !projectOperationsAssignmentHasEvidence(assignment, artifactsByAssignment, artifactsByWorkItem) {
-			return false
-		}
-	}
-	for _, handoff := range handoffs {
-		if handoff.Status == projectwork.HandoffStatusPending {
-			return false
-		}
-	}
-	for _, artifact := range artifactsByWorkItem[workItem.ID] {
-		if projectOperationsReviewFollowUpBlocker(artifact, handoffs, assignmentsByID) {
-			return false
-		}
-	}
-	for _, assignment := range assignments {
-		for _, artifact := range artifactsByAssignment[assignment.ID] {
-			if projectOperationsReviewFollowUpBlocker(artifact, handoffs, assignmentsByID) {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-func projectOperationsAssignmentStatus(assignment projectwork.Assignment) string {
-	return firstNonEmpty(assignment.ExecutionRef.Status, assignment.Status)
-}
-
-func projectOperationsAssignmentHasEvidence(assignment projectwork.Assignment, artifactsByAssignment, artifactsByWorkItem map[string][]projectwork.CollaborationArtifact) bool {
-	if projectOperationsArtifactsIncludeEvidence(artifactsByAssignment[assignment.ID]) {
-		return true
-	}
-	return projectOperationsArtifactsIncludeEvidence(artifactsByWorkItem[assignment.WorkItemID])
-}
-
-func projectOperationsArtifactsIncludeEvidence(artifacts []projectwork.CollaborationArtifact) bool {
-	for _, artifact := range artifacts {
-		if artifact.Kind == projectwork.ArtifactKindEvidenceLink {
-			return true
-		}
-	}
-	return false
-}
-
-func projectOperationsReviewFollowUpBlocker(artifact projectwork.CollaborationArtifact, handoffs []projectwork.Handoff, assignmentsByID map[string]projectwork.Assignment) bool {
-	if !projectOperationsReviewArtifactRequiresFollowUp(artifact) {
-		return false
-	}
-	linked := make([]projectwork.Handoff, 0)
-	for _, handoff := range handoffs {
-		for _, artifactID := range handoff.LinkedArtifactIDs {
-			if strings.TrimSpace(artifactID) == artifact.ID {
-				linked = append(linked, handoff)
-				break
-			}
-		}
-	}
-	if len(linked) == 0 {
-		return true
-	}
-	hasTargetAssignment := false
-	hasCompletedTarget := false
-	hasDismissedOrSuperseded := false
-	for _, handoff := range linked {
-		if handoff.Status == projectwork.HandoffStatusPending {
-			return true
-		}
-		if handoff.Status == projectwork.HandoffStatusDismissed || handoff.Status == projectwork.HandoffStatusSuperseded {
-			hasDismissedOrSuperseded = true
-		}
-		if strings.TrimSpace(handoff.TargetAssignmentID) == "" {
-			continue
-		}
-		hasTargetAssignment = true
-		if assignment, ok := assignmentsByID[handoff.TargetAssignmentID]; ok {
-			hasCompletedTarget = hasCompletedTarget || projectOperationsAssignmentStatus(assignment) == projectwork.AssignmentStatusCompleted
-		}
-	}
-	if hasCompletedTarget {
-		return false
-	}
-	if hasTargetAssignment {
-		return true
-	}
-	if hasDismissedOrSuperseded {
-		return false
-	}
-	return true
-}
-
 func projectOperationsArtifactsByWorkItem(artifacts []projectwork.CollaborationArtifact) map[string][]projectwork.CollaborationArtifact {
 	byWorkItem := make(map[string][]projectwork.CollaborationArtifact)
 	for _, artifact := range artifacts {
@@ -795,14 +690,6 @@ func projectOperationsHandoffsByWorkItem(handoffs []projectwork.Handoff) map[str
 		byWorkItem[handoff.WorkItemID] = append(byWorkItem[handoff.WorkItemID], handoff)
 	}
 	return byWorkItem
-}
-
-func projectOperationsAssignmentsByID(assignments []projectwork.Assignment) map[string]projectwork.Assignment {
-	byID := make(map[string]projectwork.Assignment, len(assignments))
-	for _, assignment := range assignments {
-		byID[assignment.ID] = assignment
-	}
-	return byID
 }
 
 func projectOperationsLatestAssignmentTime(assignments []projectwork.Assignment, fallback time.Time) time.Time {

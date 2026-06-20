@@ -102,6 +102,7 @@ import type {
   ProjectSkillsResponse,
   ProjectWorkItemsResponse,
   ProjectWorkItemResponse,
+  ProjectWorkItemReadinessResponse,
   ProjectWorkRoleResponse,
   ProjectWorkRolesResponse,
   ProjectsResponse,
@@ -679,6 +680,15 @@ export async function getProjectWorkItem(
 ): Promise<ProjectWorkItemResponse> {
   return fetchJSON<ProjectWorkItemResponse>(
     `${HECATE_API}/projects/${encodeURIComponent(projectID)}/work-items/${encodeURIComponent(workItemID)}`,
+  );
+}
+
+export async function getProjectWorkItemReadiness(
+  projectID: string,
+  workItemID: string,
+): Promise<ProjectWorkItemReadinessResponse> {
+  return fetchJSON<ProjectWorkItemReadinessResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/work-items/${encodeURIComponent(workItemID)}/readiness`,
   );
 }
 

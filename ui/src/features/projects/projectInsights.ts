@@ -107,17 +107,6 @@ export type ProjectHealthSummary = {
   attention: ProjectHealthAttention[];
 };
 
-export type ProjectWorkCloseoutReadiness = {
-  ready: boolean;
-  status: "blocked" | "done" | "ready";
-  title: string;
-  detail: string;
-  blockers: string[];
-  warnings: string[];
-  completedAssignments: number;
-  assignmentCount: number;
-};
-
 export type ProjectHealthSummaryOptions = {
   agentProfiles?: AgentProfileRecord[];
   artifacts?: ProjectCollaborationArtifactRecord[];
@@ -420,102 +409,6 @@ export function projectHealthMetrics(health: ProjectHealthSummary): ProjectHealt
   ];
 }
 
-export function buildProjectWorkCloseoutReadiness({
-  assignments,
-  artifacts,
-  handoffs,
-  workItem,
-}: {
-  assignments: ProjectAssignmentRecord[];
-  artifacts: ProjectCollaborationArtifactRecord[];
-  handoffs: ProjectHandoffRecord[];
-  workItem: ProjectWorkItemRecord | null;
-}): ProjectWorkCloseoutReadiness {
-  if (!workItem) {
-    return closeoutReadiness({
-      status: "blocked",
-      title: "No work item selected",
-      detail: "Select a work item before reviewing closeout readiness.",
-    });
-  }
-  const assignmentStatuses = assignments.map(assignmentCloseoutStatus);
-  const completedAssignments = assignmentStatuses.filter((status) => status === "completed").length;
-  if (workItem.status === "done") {
-    return closeoutReadiness({
-      status: "done",
-      title: "Work item is done",
-      detail: "This work item has already been marked done by the operator.",
-      assignmentCount: assignments.length,
-      completedAssignments,
-    });
-  }
-
-  const blockers: string[] = [];
-  const warnings: string[] = [];
-  const activeAssignments = assignmentStatuses.filter(isActiveCloseoutAssignmentStatus).length;
-  const failedAssignments = assignmentStatuses.filter((status) => status === "failed").length;
-  const cancelledAssignments = assignmentStatuses.filter((status) => status === "cancelled").length;
-  const unresolvedAssignments = assignmentStatuses.filter(
-    isUnresolvedCloseoutAssignmentStatus,
-  ).length;
-  const pendingHandoffs = handoffs.filter((handoff) => handoff.status === "pending").length;
-  if (activeAssignments > 0) {
-    blockers.push(
-      pluralize(activeAssignments, "assignment is still active", "assignments are still active"),
-    );
-  }
-  if (failedAssignments > 0) {
-    blockers.push(pluralize(failedAssignments, "assignment failed", "assignments failed"));
-  }
-  if (cancelledAssignments > 0) {
-    blockers.push(
-      pluralize(cancelledAssignments, "assignment was cancelled", "assignments were cancelled"),
-    );
-  }
-  if (unresolvedAssignments > 0) {
-    blockers.push(
-      pluralize(
-        unresolvedAssignments,
-        "assignment is not complete",
-        "assignments are not complete",
-      ),
-    );
-  }
-  if (pendingHandoffs > 0) {
-    blockers.push(pluralize(pendingHandoffs, "handoff is pending", "handoffs are pending"));
-  }
-  if (assignments.length === 0) {
-    warnings.push("No assignments are linked to this work item; closeout is manual.");
-  }
-
-  for (const artifact of artifacts.filter(reviewArtifactRequiresFollowUp)) {
-    const blocker = closeoutReviewFollowUpBlocker(artifact, handoffs, assignments);
-    if (blocker) blockers.push(blocker);
-  }
-
-  if (blockers.length > 0) {
-    return closeoutReadiness({
-      status: "blocked",
-      title: "Closeout is blocked",
-      detail:
-        "Resolve the listed assignment, handoff, or review follow-up items before marking this work done.",
-      blockers: uniqueStrings(blockers),
-      warnings,
-      assignmentCount: assignments.length,
-      completedAssignments,
-    });
-  }
-  return closeoutReadiness({
-    status: "ready",
-    title: "Ready to mark done",
-    detail:
-      "Assignments and review follow-up are clear. The operator can mark this work item done.",
-    warnings,
-    assignmentCount: assignments.length,
-    completedAssignments,
-  });
-}
-
 export function projectActivityWorkItemToWorkItem(
   projectID: string,
   item: ProjectActivityItemRecord["work_item"],
@@ -677,81 +570,6 @@ export function reviewArtifactNeedsFollowUpPath(
         handoff.status === "superseded" ||
         Boolean(handoff.target_assignment_id)),
   );
-}
-
-function closeoutReviewFollowUpBlocker(
-  artifact: ProjectCollaborationArtifactRecord,
-  handoffs: ProjectHandoffRecord[],
-  assignments: ProjectAssignmentRecord[],
-): string {
-  const linkedHandoffs = handoffs.filter((handoff) =>
-    (handoff.linked_artifact_ids ?? []).includes(artifact.id),
-  );
-  const pending = linkedHandoffs.filter((handoff) => handoff.status === "pending").length;
-  if (pending > 0) {
-    return `Review follow-up "${artifact.title || artifact.id}" has a pending handoff`;
-  }
-  const targetAssignmentIDs = linkedHandoffs
-    .map((handoff) => handoff.target_assignment_id ?? "")
-    .filter(Boolean);
-  const targetAssignments = targetAssignmentIDs
-    .map((assignmentID) => assignments.find((assignment) => assignment.id === assignmentID))
-    .filter(Boolean) as ProjectAssignmentRecord[];
-  if (
-    targetAssignments.some((assignment) => assignmentCloseoutStatus(assignment) === "completed")
-  ) {
-    return "";
-  }
-  if (targetAssignmentIDs.length > 0) {
-    return `Review follow-up "${artifact.title || artifact.id}" assignment is not completed`;
-  }
-  if (
-    linkedHandoffs.some(
-      (handoff) => handoff.status === "dismissed" || handoff.status === "superseded",
-    )
-  ) {
-    return "";
-  }
-  return `Review follow-up "${artifact.title || artifact.id}" is not triaged`;
-}
-
-function closeoutReadiness(
-  patch: Partial<ProjectWorkCloseoutReadiness> &
-    Pick<ProjectWorkCloseoutReadiness, "detail" | "status" | "title">,
-): ProjectWorkCloseoutReadiness {
-  return {
-    ready: patch.status === "ready",
-    blockers: [],
-    warnings: [],
-    assignmentCount: 0,
-    completedAssignments: 0,
-    ...patch,
-  };
-}
-
-function assignmentCloseoutStatus(assignment: ProjectAssignmentRecord): string {
-  return toProjectAssignmentExecutionViewModel(assignment).status || assignment.status;
-}
-
-function isActiveCloseoutAssignmentStatus(status: string): boolean {
-  return status === "queued" || status === "running" || status === "awaiting_approval";
-}
-
-function isUnresolvedCloseoutAssignmentStatus(status: string): boolean {
-  return (
-    status !== "completed" &&
-    status !== "failed" &&
-    status !== "cancelled" &&
-    !isActiveCloseoutAssignmentStatus(status)
-  );
-}
-
-function pluralize(count: number, singular: string, plural: string): string {
-  return `${count} ${count === 1 ? singular : plural}`;
-}
-
-function uniqueStrings(values: string[]): string[] {
-  return Array.from(new Set(values.filter(Boolean)));
 }
 
 function addHandoffStatus(summary: ProjectHealthSummary["handoffs"], status: string) {

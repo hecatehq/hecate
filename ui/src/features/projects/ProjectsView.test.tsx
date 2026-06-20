@@ -39,6 +39,7 @@ import {
   getProjectMemoryCandidates,
   getProjectSkills,
   getProjectWorkItem,
+  getProjectWorkItemReadiness,
   getProjectWorkItems,
   getProjectWorkRoles,
   draftProjectAssistant,
@@ -145,6 +146,10 @@ vi.mock("../../lib/api", async (importOriginal) => {
     getProjectWorkRoles: vi.fn(async () => ({ object: "project_roles", data: [] })),
     getProjectWorkItems: vi.fn(async () => ({ object: "project_work_items", data: [] })),
     getProjectWorkItem: vi.fn(async () => ({ object: "project_work_item", data: null })),
+    getProjectWorkItemReadiness: vi.fn(async () => ({
+      object: "project_work_item_readiness",
+      data: workItemReadiness(),
+    })),
     getProjectAssignments: vi.fn(async () => ({ object: "project_assignments", data: [] })),
     getProjectAssignmentContext: vi.fn(async () => ({ object: "context_packet", data: null })),
     getProjectAssignmentPreflight: vi.fn(async () => ({
@@ -363,6 +368,24 @@ const workItem: ProjectWorkItemRecord = {
   updated_at: "2026-06-02T11:00:00Z",
 };
 
+function workItemReadiness(overrides = {}) {
+  return {
+    project_id: project.id,
+    work_item_id: workItem.id,
+    ready: false,
+    status: "blocked",
+    title: "Closeout is blocked",
+    detail:
+      "Resolve the listed assignment, evidence, handoff, or review follow-up items before marking this work done.",
+    blockers: ["1 assignment is still active"],
+    warnings: [],
+    assignment_count: 1,
+    completed_assignments: 0,
+    review_follow_up_count: 0,
+    ...overrides,
+  };
+}
+
 const hecateAssignment: ProjectAssignmentRecord = {
   id: "asgn_1",
   project_id: "proj_1",
@@ -509,6 +532,10 @@ function resetProjectWorkMocks() {
   vi.mocked(getProjectWorkItem).mockResolvedValue({
     object: "project_work_item",
     data: workItem,
+  });
+  vi.mocked(getProjectWorkItemReadiness).mockResolvedValue({
+    object: "project_work_item_readiness",
+    data: workItemReadiness(),
   });
   vi.mocked(getProjectAssignments).mockResolvedValue({
     object: "project_assignments",
@@ -1048,6 +1075,7 @@ afterEach(() => {
   vi.mocked(getProjectWorkRoles).mockReset();
   vi.mocked(getProjectWorkItems).mockReset();
   vi.mocked(getProjectWorkItem).mockReset();
+  vi.mocked(getProjectWorkItemReadiness).mockReset();
   vi.mocked(getProjectAssignments).mockReset();
   vi.mocked(getProjectAssignmentContext).mockReset();
   vi.mocked(getProjectAssignmentPreflight).mockReset();
@@ -4819,6 +4847,19 @@ describe("ProjectsView cockpit", () => {
     vi.mocked(getProjectAssignments).mockResolvedValue({
       object: "project_assignments",
       data: [completedAssignment],
+    });
+    vi.mocked(getProjectWorkItemReadiness).mockResolvedValue({
+      object: "project_work_item_readiness",
+      data: workItemReadiness({
+        ready: true,
+        status: "ready",
+        title: "Ready to mark done",
+        detail:
+          "Assignments, evidence, handoffs, and review follow-up are clear. The operator can mark this work item done.",
+        blockers: [],
+        assignment_count: 1,
+        completed_assignments: 1,
+      }),
     });
     vi.mocked(updateProjectWorkItem).mockResolvedValue({
       object: "project_work_item",
