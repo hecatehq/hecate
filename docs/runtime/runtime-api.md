@@ -2399,17 +2399,33 @@ standalone activity rows for them.
 Returns a read-only Project Operations brief for the selected project. The
 brief is an operator-facing triage layer over existing project state: launch
 defaults, the project activity buckets, work items without assignments, pending
-handoffs, and pending memory candidates. It is bounded and deterministic; it
-does not create tasks, runs, chats, assignments, handoffs, proposals, memory
-entries, or memory candidates, and it never starts queued work.
+handoffs, pending memory candidates, review artifacts that need follow-up,
+missing completion evidence, and work items ready for closeout. It is bounded
+and deterministic; it does not create tasks, runs, chats, assignments,
+handoffs, proposals, memory entries, or memory candidates, and it never starts
+queued work.
+The eight-item cap is applied after sorting by priority, explicit operation
+kind urgency, recency, and stable ID, so truncation is part of the operator
+priority policy.
 
-Each item points at an existing Hecate surface with `target.surface`:
-`project_settings`, `work`, `memory`, or `skills`. Items may include
-`work_item`, `assignment`, or `handoff` summaries copied from the existing
-project APIs so clients can route without reinterpreting raw ids. Items that can
-seed Project Assistant carry a plain `draft_request`; clients must still call
-the normal Project Assistant draft/propose/apply flow, where the operator
-reviews the typed proposal before any durable mutation.
+Each item has a `kind` that explains why it appears and an `action` that is the
+typed client routing contract. Clients should dispatch on `action.type`, not on
+`kind` or `target.surface`. `target` remains descriptive context for existing
+Hecate surfaces (`project_settings`, `work`, or `memory`) and for summaries
+copied from the existing project APIs.
+
+Known action types are:
+
+- `open_project_settings`
+- `open_work_item`
+- `open_assignment_preflight`
+- `open_memory_review`
+- `draft_project_proposal`
+
+Actions do not directly mutate project state. `open_assignment_preflight` opens
+the existing assignment launch preflight before any start. `draft_project_proposal`
+uses `action.request` and the normal Project Assistant draft/propose/apply flow,
+where the operator reviews the typed proposal before any durable mutation.
 
 ```json
 {
@@ -2440,6 +2456,13 @@ reviews the typed proposal before any durable mutation.
           "work_item_id": "work_...",
           "assignment_id": "asgn_...",
           "activity_bucket": "blocked"
+        },
+        "action": {
+          "type": "open_work_item",
+          "project_id": "proj_...",
+          "work_item_id": "work_...",
+          "assignment_id": "asgn_...",
+          "activity_bucket": "blocked"
         }
       },
       {
@@ -2452,6 +2475,10 @@ reviews the typed proposal before any durable mutation.
         "status": "pending",
         "target": {
           "surface": "memory",
+          "project_id": "proj_..."
+        },
+        "action": {
+          "type": "open_memory_review",
           "project_id": "proj_..."
         },
         "metadata": {

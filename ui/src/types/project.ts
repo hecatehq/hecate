@@ -800,13 +800,31 @@ export type ProjectActivityResponse = {
 
 export type ProjectOperationsBriefPriority = "high" | "medium" | "low" | (string & {});
 
+export type ProjectOperationsBriefActionType =
+  | "draft_project_proposal"
+  | "open_assignment_preflight"
+  | "open_memory_review"
+  | "open_project_settings"
+  | "open_work_item"
+  | (string & {});
+
 export type ProjectOperationsBriefTarget = {
-  surface: "project_settings" | "work" | "memory" | "skills" | string;
+  surface: "project_settings" | "work" | "memory" | string;
   project_id: string;
   work_item_id?: string;
   assignment_id?: string;
   handoff_id?: string;
   activity_bucket?: "all" | "active" | "blocked" | "completed" | "recent" | (string & {});
+};
+
+export type ProjectOperationsBriefAction = {
+  type: ProjectOperationsBriefActionType;
+  project_id: string;
+  work_item_id?: string;
+  assignment_id?: string;
+  handoff_id?: string;
+  activity_bucket?: "all" | "active" | "blocked" | "completed" | "recent" | (string & {});
+  request?: string;
 };
 
 export type ProjectOperationsBriefItem = {
@@ -818,7 +836,7 @@ export type ProjectOperationsBriefItem = {
   action_label: string;
   status?: string;
   target: ProjectOperationsBriefTarget;
-  draft_request?: string;
+  action: ProjectOperationsBriefAction;
   work_item?: ProjectActivityWorkItemRecord;
   assignment?: ProjectAssignmentRecord;
   handoff?: ProjectHandoffRecord;

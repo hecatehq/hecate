@@ -4938,11 +4938,16 @@ describe("ProjectsView cockpit", () => {
             title: "Prepare first assignment: Build cockpit UI",
             detail: "This work item has no queued or running assignments yet.",
             action_label: "Draft assignment",
-            draft_request: "Queue an assignment for Build cockpit UI",
             target: {
               surface: "work",
               project_id: project.id,
               work_item_id: workItem.id,
+            },
+            action: {
+              type: "draft_project_proposal",
+              project_id: project.id,
+              work_item_id: workItem.id,
+              request: "Queue an assignment for Build cockpit UI",
             },
             updated_at: "2026-06-14T00:00:00Z",
           },
@@ -4966,6 +4971,183 @@ describe("ProjectsView cockpit", () => {
         request: "Queue an assignment for Build cockpit UI",
       }),
     );
+    expect(createProjectAssignment).not.toHaveBeenCalled();
+    expect(startProjectAssignment).not.toHaveBeenCalled();
+  });
+
+  it("opens assignment preflight from an operations brief item without starting it", async () => {
+    resetProjectWorkMocks();
+    const queuedAssignment: ProjectAssignmentRecord = {
+      ...hecateAssignment,
+      status: "queued",
+      execution: undefined,
+      execution_ref: undefined,
+      started_at: undefined,
+    };
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [{ ...workItem, assignments: [queuedAssignment] }],
+    });
+    vi.mocked(getProjectWorkItem).mockResolvedValue({
+      object: "project_work_item",
+      data: { ...workItem, assignments: [queuedAssignment] },
+    });
+    vi.mocked(getProjectAssignments).mockResolvedValue({
+      object: "project_assignments",
+      data: [queuedAssignment],
+    });
+    vi.mocked(getProjectOperationsBrief).mockResolvedValue({
+      object: "project_operations_brief",
+      data: {
+        project_id: project.id,
+        generated_at: "2026-06-14T00:00:00Z",
+        summary: {
+          item_count: 1,
+          high_count: 1,
+          medium_count: 0,
+          low_count: 0,
+          pending_memory_candidate_count: 0,
+          pending_handoff_count: 0,
+        },
+        items: [
+          {
+            id: "start_queued_assignment:proj_1:asgn_1",
+            kind: "start_queued_assignment",
+            priority: "high",
+            title: "Review queued assignment: Build cockpit UI",
+            detail: "Open launch preflight before starting this assignment.",
+            action_label: "Review start",
+            status: "not_started",
+            target: {
+              surface: "work",
+              project_id: project.id,
+              work_item_id: workItem.id,
+              assignment_id: queuedAssignment.id,
+              activity_bucket: "blocked",
+            },
+            action: {
+              type: "open_assignment_preflight",
+              project_id: project.id,
+              work_item_id: workItem.id,
+              assignment_id: queuedAssignment.id,
+              activity_bucket: "blocked",
+            },
+            updated_at: "2026-06-14T00:00:00Z",
+          },
+        ],
+      },
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    const operations = await screen.findByRole("region", { name: "Project operations" });
+    await userEvent.click(within(operations).getByRole("button", { name: /Review start/ }));
+
+    expect(getProjectAssignmentPreflight).toHaveBeenCalledWith(
+      project.id,
+      workItem.id,
+      queuedAssignment.id,
+    );
+    const preflight = await screen.findByRole("dialog", {
+      name: "Assignment asgn_1 launch preflight",
+    });
+    expect(within(preflight).getByText("Launch preflight")).toBeTruthy();
+    expect(startProjectAssignment).not.toHaveBeenCalled();
+    await userEvent.click(within(preflight).getByRole("button", { name: "Start assignment" }));
+
+    expect(startProjectAssignment).toHaveBeenCalledWith(
+      project.id,
+      workItem.id,
+      queuedAssignment.id,
+      "hecate_task",
+    );
+  });
+
+  it("opens selected work follow-through from an operations brief item without mutating work", async () => {
+    resetProjectWorkMocks();
+    const reviewWorkItem: ProjectWorkItemRecord = {
+      ...workItem,
+      id: "work_review_followup",
+      title: "Review requested changes",
+      brief: "Follow up on review findings.",
+      status: "review",
+      assignments: [],
+    };
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [workItem, reviewWorkItem],
+    });
+    vi.mocked(getProjectWorkItem).mockImplementation(async (_projectID, workItemID) => ({
+      object: "project_work_item",
+      data: workItemID === reviewWorkItem.id ? reviewWorkItem : workItem,
+    }));
+    vi.mocked(getProjectAssignments).mockResolvedValue({
+      object: "project_assignments",
+      data: [],
+    });
+    vi.mocked(getProjectOperationsBrief).mockResolvedValue({
+      object: "project_operations_brief",
+      data: {
+        project_id: project.id,
+        generated_at: "2026-06-14T00:00:00Z",
+        summary: {
+          item_count: 1,
+          high_count: 0,
+          medium_count: 1,
+          low_count: 0,
+          pending_memory_candidate_count: 0,
+          pending_handoff_count: 0,
+        },
+        items: [
+          {
+            id: "review_follow_up:proj_1:artifact_review",
+            kind: "review_follow_up",
+            priority: "medium",
+            title: "Review follow-up: Review requested changes",
+            detail: "Review artifact Architecture review needs a follow-up path before closeout.",
+            action_label: "Open review",
+            status: "awaiting_approval",
+            target: {
+              surface: "work",
+              project_id: project.id,
+              work_item_id: reviewWorkItem.id,
+            },
+            action: {
+              type: "open_work_item",
+              project_id: project.id,
+              work_item_id: reviewWorkItem.id,
+            },
+            metadata: {
+              artifact_id: "artifact_review",
+              review_verdict: "changes_requested",
+            },
+            updated_at: "2026-06-14T00:00:00Z",
+          },
+        ],
+      },
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    const operations = await screen.findByRole("region", { name: "Project operations" });
+    await userEvent.click(within(operations).getByRole("button", { name: /Open review/ }));
+
+    await waitFor(() =>
+      expect(getProjectWorkItem).toHaveBeenCalledWith(project.id, reviewWorkItem.id),
+    );
+    expect(
+      await screen.findByRole("article", { name: "Review requested changes work item" }),
+    ).toBeTruthy();
+    expect(draftProjectAssistant).not.toHaveBeenCalled();
+    expect(createProjectHandoff).not.toHaveBeenCalled();
     expect(createProjectAssignment).not.toHaveBeenCalled();
     expect(startProjectAssignment).not.toHaveBeenCalled();
   });

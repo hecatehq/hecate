@@ -30,10 +30,7 @@ import {
 import { toProjectAssignmentExecutionViewModel } from "./projectAssignmentViewModels";
 import { formatProjectRowRelativeTime, workStatusLabel } from "./projectDisplay";
 import {
-  activitySignalLabel,
-  buildProjectWorkCloseoutReadiness,
   projectActivityWorkItemToWorkItem,
-  reviewArtifactNeedsFollowUpPath,
   type ProjectActivityBucketKey,
 } from "./projectInsights";
 import { useProjectAssistantController } from "./useProjectAssistantController";
@@ -325,31 +322,6 @@ export function ProjectWorkspaceView({
                   error={operationsBriefError}
                   loading={operationsBriefLoadState === "loading"}
                   onAction={onOperationAction}
-                  // Transitional fallback: keep Project Operations as the server-backed source of truth
-                  // for new next-action derivation once the brief has proven out.
-                  fallback={
-                    <ProjectNextAction
-                      activity={activity}
-                      assignments={assignments}
-                      artifacts={artifacts}
-                      handoffs={handoffs}
-                      memoryCandidateCount={memoryCandidates.length}
-                      onAddEvidenceLink={onAddEvidenceLink}
-                      onBucketChange={onActivityBucketChange}
-                      onCloseWorkItem={onCloseWorkItem}
-                      onCreateAssignmentFromHandoff={onCreateAssignmentFromHandoff}
-                      onCreateAssignmentFromReviewArtifact={onCreateAssignmentFromReviewArtifact}
-                      onCreateWork={onCreateWork}
-                      onDraftDefaultAssignment={onDraftDefaultAssignment}
-                      onReviewMemory={() => onWorkspaceTabChange("memory")}
-                      onSelectWorkItem={onSelectWorkItem}
-                      onStartAssignment={onStartAssignment}
-                      onStartHandoff={onStartHandoff}
-                      selectedWorkItem={selectedWorkItem}
-                      startingAssignmentID={startingAssignmentID}
-                      workItems={workItems}
-                    />
-                  }
                 />
                 <ProjectResumeSummary
                   activity={activity}
@@ -736,35 +708,19 @@ function ProjectOnboardingPanel({
   );
 }
 
-type ProjectNextActionState = {
-  actionLabel: string;
-  detail: string;
-  disabled?: boolean;
-  onAction: () => void;
-  status: string;
-  title: string;
-};
-
 function ProjectOperationsBriefPanel({
   brief,
   error,
-  fallback,
   loading,
   onAction,
 }: {
   brief: ProjectOperationsBrief | null;
   error: string;
-  fallback: ReactNode;
   loading: boolean;
   onAction: (item: ProjectOperationsBriefItem) => void;
 }) {
   if ((!brief || brief.items.length === 0) && !loading) {
-    return (
-      <>
-        {fallback}
-        {error && <InlineError message={error} />}
-      </>
-    );
+    return error ? <InlineError message={error} /> : null;
   }
 
   const items = brief?.items ?? [];
@@ -833,278 +789,6 @@ function projectOperationBadge(item: ProjectOperationsBriefItem): string {
   return item.priority || item.status || "operation";
 }
 
-function ProjectNextAction({
-  activity,
-  assignments,
-  artifacts,
-  handoffs,
-  memoryCandidateCount,
-  onAddEvidenceLink,
-  onBucketChange,
-  onCloseWorkItem,
-  onCreateAssignmentFromHandoff,
-  onCreateAssignmentFromReviewArtifact,
-  onCreateWork,
-  onDraftDefaultAssignment,
-  onReviewMemory,
-  onSelectWorkItem,
-  onStartAssignment,
-  onStartHandoff,
-  selectedWorkItem,
-  startingAssignmentID,
-  workItems,
-}: {
-  activity: ProjectActivityData | null;
-  assignments: ProjectAssignmentRecord[];
-  artifacts: ProjectCollaborationArtifactRecord[];
-  handoffs: ProjectHandoffRecord[];
-  memoryCandidateCount: number;
-  onAddEvidenceLink: () => void;
-  onBucketChange: (bucket: ProjectActivityBucketKey) => void;
-  onCloseWorkItem: (item: ProjectWorkItemRecord) => void;
-  onCreateAssignmentFromHandoff: (handoff: ProjectHandoffRecord) => void;
-  onCreateAssignmentFromReviewArtifact: (artifact: ProjectCollaborationArtifactRecord) => void;
-  onCreateWork: () => void;
-  onDraftDefaultAssignment: (item: ProjectWorkItemRecord) => void;
-  onReviewMemory: () => void;
-  onSelectWorkItem: (workItemID: string) => void;
-  onStartAssignment: (assignment: ProjectAssignmentRecord) => void;
-  onStartHandoff: (handoff: ProjectHandoffRecord) => void;
-  selectedWorkItem: ProjectWorkItemRecord | null;
-  startingAssignmentID: string;
-  workItems: ProjectWorkItemRecord[];
-}) {
-  const nextAction = buildProjectNextAction({
-    activity,
-    assignments,
-    artifacts,
-    handoffs,
-    memoryCandidateCount,
-    onAddEvidenceLink,
-    onBucketChange,
-    onCloseWorkItem,
-    onCreateAssignmentFromHandoff,
-    onCreateAssignmentFromReviewArtifact,
-    onCreateWork,
-    onDraftDefaultAssignment,
-    onReviewMemory,
-    onSelectWorkItem,
-    onStartAssignment,
-    onStartHandoff,
-    selectedWorkItem,
-    startingAssignmentID,
-    workItems,
-  });
-
-  return (
-    <section aria-label="Project next action" style={projectNextActionStyle}>
-      <div style={projectResumeCopyStyle}>
-        <div style={sectionLabelStyle}>Next action</div>
-        <div style={titleStyle}>{nextAction.title}</div>
-        <div style={subtleTextStyle}>{nextAction.detail}</div>
-      </div>
-      <div style={projectNextActionControlsStyle}>
-        <Badge status={nextAction.status} label={activitySignalLabel(nextAction.status)} />
-        <button
-          className="btn btn-primary btn-sm"
-          type="button"
-          onClick={nextAction.onAction}
-          disabled={nextAction.disabled}
-        >
-          {nextAction.actionLabel}
-        </button>
-      </div>
-    </section>
-  );
-}
-
-function buildProjectNextAction({
-  activity,
-  assignments,
-  artifacts,
-  handoffs,
-  memoryCandidateCount,
-  onAddEvidenceLink,
-  onBucketChange,
-  onCloseWorkItem,
-  onCreateAssignmentFromHandoff,
-  onCreateAssignmentFromReviewArtifact,
-  onCreateWork,
-  onDraftDefaultAssignment,
-  onReviewMemory,
-  onSelectWorkItem,
-  onStartAssignment,
-  onStartHandoff,
-  selectedWorkItem,
-  startingAssignmentID,
-  workItems,
-}: {
-  activity: ProjectActivityData | null;
-  assignments: ProjectAssignmentRecord[];
-  artifacts: ProjectCollaborationArtifactRecord[];
-  handoffs: ProjectHandoffRecord[];
-  memoryCandidateCount: number;
-  onAddEvidenceLink: () => void;
-  onBucketChange: (bucket: ProjectActivityBucketKey) => void;
-  onCloseWorkItem: (item: ProjectWorkItemRecord) => void;
-  onCreateAssignmentFromHandoff: (handoff: ProjectHandoffRecord) => void;
-  onCreateAssignmentFromReviewArtifact: (artifact: ProjectCollaborationArtifactRecord) => void;
-  onCreateWork: () => void;
-  onDraftDefaultAssignment: (item: ProjectWorkItemRecord) => void;
-  onReviewMemory: () => void;
-  onSelectWorkItem: (workItemID: string) => void;
-  onStartAssignment: (assignment: ProjectAssignmentRecord) => void;
-  onStartHandoff: (handoff: ProjectHandoffRecord) => void;
-  selectedWorkItem: ProjectWorkItemRecord | null;
-  startingAssignmentID: string;
-  workItems: ProjectWorkItemRecord[];
-}): ProjectNextActionState {
-  const blockedItems = activity?.buckets.blocked ?? [];
-  const queuedItem = blockedItems.find((item) => item.blocking_signal === "not_started");
-  if (queuedItem) {
-    return {
-      actionLabel:
-        startingAssignmentID === queuedItem.assignment.id ? "Starting..." : "Start assignment",
-      detail: `${queuedItem.work_item.title} is queued and ready for operator dispatch.`,
-      disabled: startingAssignmentID === queuedItem.assignment.id,
-      onAction: () => onStartAssignment(queuedItem.assignment),
-      status: "awaiting_approval",
-      title: "Start queued assignment",
-    };
-  }
-
-  const blockedItem = blockedItems[0] ?? null;
-  if (blockedItem) {
-    return {
-      actionLabel: "Open blocked work",
-      detail: `${blockedItem.work_item.title} needs operator attention: ${blockedItem.status_summary}.`,
-      onAction: () => {
-        onBucketChange("blocked");
-        onSelectWorkItem(blockedItem.work_item.id);
-      },
-      status: blockedItem.blocking_signal,
-      title: "Resolve blocked assignment",
-    };
-  }
-
-  const activeItem = activity?.buckets.active[0] ?? null;
-  if (activeItem) {
-    return {
-      actionLabel: "Inspect work",
-      detail: `${activeItem.work_item.title} has an assignment in progress.`,
-      onAction: () => onSelectWorkItem(activeItem.work_item.id),
-      status: activeItem.blocking_signal,
-      title: "Inspect active assignment",
-    };
-  }
-
-  const reviewFollowUp = artifacts.find((artifact) =>
-    reviewArtifactNeedsFollowUpPath(artifact, handoffs),
-  );
-  if (selectedWorkItem && reviewFollowUp && selectedWorkItem.status !== "done") {
-    return {
-      actionLabel: "Create follow-up",
-      detail: `${reviewFollowUp.title || "Review"} needs follow-up before this work can close.`,
-      onAction: () => onCreateAssignmentFromReviewArtifact(reviewFollowUp),
-      status: reviewFollowUp.review_verdict === "blocked" ? "blocked" : "awaiting_approval",
-      title: "Create review follow-up",
-    };
-  }
-
-  const pendingHandoff = handoffs.find((handoff) => handoff.status === "pending");
-  if (pendingHandoff) {
-    return {
-      actionLabel: pendingHandoff.target_assignment_id ? "Start handoff" : "Create assignment",
-      detail: pendingHandoff.recommended_next_action || pendingHandoff.summary,
-      onAction: () =>
-        pendingHandoff.target_assignment_id
-          ? onStartHandoff(pendingHandoff)
-          : onCreateAssignmentFromHandoff(pendingHandoff),
-      status: "awaiting_approval",
-      title: `Continue handoff: ${pendingHandoff.title}`,
-    };
-  }
-
-  if (memoryCandidateCount > 0) {
-    return {
-      actionLabel: "Review memory",
-      detail:
-        "Pending memory candidates should be accepted, edited, or rejected before more context accumulates.",
-      onAction: onReviewMemory,
-      status: "awaiting_approval",
-      title:
-        memoryCandidateCount === 1
-          ? "Review 1 memory candidate"
-          : `Review ${memoryCandidateCount} memory candidates`,
-    };
-  }
-
-  if (selectedWorkItem && assignments.length === 0 && selectedWorkItem.status !== "done") {
-    return {
-      actionLabel: "Draft assignment",
-      detail:
-        "This work item has no assignments yet. Let the Project Assistant draft the first one.",
-      onAction: () => onDraftDefaultAssignment(selectedWorkItem),
-      status: "not_started",
-      title: "Create the first assignment",
-    };
-  }
-
-  const hasCompletedAssignment = assignments.some(
-    (assignment) => assignment.status === "completed",
-  );
-  const hasEvidence = artifacts.some((artifact) => artifact.kind === "evidence_link");
-  if (
-    selectedWorkItem &&
-    hasCompletedAssignment &&
-    !hasEvidence &&
-    selectedWorkItem.status !== "done"
-  ) {
-    return {
-      actionLabel: "Add evidence",
-      detail: "A completed assignment should leave reviewable evidence before this work is closed.",
-      onAction: onAddEvidenceLink,
-      status: "completed",
-      title: "Record completion evidence",
-    };
-  }
-
-  const closeout = buildProjectWorkCloseoutReadiness({
-    assignments,
-    artifacts,
-    handoffs,
-    workItem: selectedWorkItem,
-  });
-  if (selectedWorkItem && closeout.ready && closeout.status === "ready") {
-    return {
-      actionLabel: "Mark done",
-      detail: closeout.detail,
-      onAction: () => onCloseWorkItem(selectedWorkItem),
-      status: "completed",
-      title: "Close out selected work",
-    };
-  }
-
-  const latestWorkItem = latestProjectWorkItem(workItems);
-  if (latestWorkItem) {
-    return {
-      actionLabel: "Continue work",
-      detail: `Pick up ${latestWorkItem.title}, last updated ${formatProjectRowRelativeTime(latestWorkItem.updated_at)}.`,
-      onAction: () => onSelectWorkItem(latestWorkItem.id),
-      status: latestWorkItem.status,
-      title: "Continue existing work",
-    };
-  }
-
-  return {
-    actionLabel: "Create work",
-    detail: "Start with one reviewable work item that Hecate can coordinate.",
-    onAction: onCreateWork,
-    status: "not_started",
-    title: "Create the first work item",
-  };
-}
-
 function ProjectResumeSummary({
   activity,
   memoryCandidateCount,
@@ -1133,7 +817,7 @@ function ProjectResumeSummary({
     attentionItem?.blocking_signal === "not_started"
       ? "Queued assignment is ready to start."
       : blocked > 0
-        ? "Open the blocked assignment and resolve the next action."
+        ? "Open the blocked assignment and resolve the blocker."
         : active > 0
           ? "An assignment is in progress; inspect or continue it."
           : "";
@@ -1615,14 +1299,6 @@ const workActivityPanelStyle: CSSProperties = {
   gap: 10,
 };
 
-const projectNextActionStyle: CSSProperties = {
-  ...panelStyle,
-  alignItems: "center",
-  display: "grid",
-  gap: 12,
-  gridTemplateColumns: "minmax(0, 1fr) auto",
-};
-
 const projectOperationsBriefStyle: CSSProperties = {
   ...panelStyle,
   alignItems: "center",
@@ -1673,15 +1349,6 @@ const projectOperationsItemActionStyle: CSSProperties = {
   color: "var(--t3)",
   fontSize: 11,
   whiteSpace: "nowrap",
-};
-
-const projectNextActionControlsStyle: CSSProperties = {
-  alignItems: "center",
-  display: "flex",
-  flexWrap: "wrap",
-  gap: 8,
-  justifyContent: "flex-end",
-  minWidth: 0,
 };
 
 const projectResumeSummaryStyle: CSSProperties = {

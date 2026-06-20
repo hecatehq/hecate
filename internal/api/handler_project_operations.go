@@ -17,6 +17,14 @@ const (
 	projectOperationsPriorityHigh   = "high"
 	projectOperationsPriorityMedium = "medium"
 	projectOperationsPriorityLow    = "low"
+
+	projectOperationsBriefItemLimit = 8
+
+	projectOperationsActionDraftProjectProposal    = "draft_project_proposal"
+	projectOperationsActionOpenAssignmentPreflight = "open_assignment_preflight"
+	projectOperationsActionOpenMemoryReview        = "open_memory_review"
+	projectOperationsActionOpenProjectSettings     = "open_project_settings"
+	projectOperationsActionOpenWorkItem            = "open_work_item"
 )
 
 type ProjectOperationsBriefEnvelope struct {
@@ -41,20 +49,20 @@ type ProjectOperationsBriefSummaryResponse struct {
 }
 
 type ProjectOperationsBriefItemResponse struct {
-	ID           string                               `json:"id"`
-	Kind         string                               `json:"kind"`
-	Priority     string                               `json:"priority"`
-	Title        string                               `json:"title"`
-	Detail       string                               `json:"detail"`
-	ActionLabel  string                               `json:"action_label"`
-	Status       string                               `json:"status,omitempty"`
-	Target       ProjectOperationsBriefTargetResponse `json:"target"`
-	DraftRequest string                               `json:"draft_request,omitempty"`
-	WorkItem     *ProjectActivityWorkItemResponse     `json:"work_item,omitempty"`
-	Assignment   *ProjectWorkAssignmentResponse       `json:"assignment,omitempty"`
-	Handoff      *ProjectHandoffResponse              `json:"handoff,omitempty"`
-	UpdatedAt    string                               `json:"updated_at,omitempty"`
-	Metadata     map[string]string                    `json:"metadata,omitempty"`
+	ID          string                               `json:"id"`
+	Kind        string                               `json:"kind"`
+	Priority    string                               `json:"priority"`
+	Title       string                               `json:"title"`
+	Detail      string                               `json:"detail"`
+	ActionLabel string                               `json:"action_label"`
+	Status      string                               `json:"status,omitempty"`
+	Target      ProjectOperationsBriefTargetResponse `json:"target"`
+	Action      ProjectOperationsBriefActionResponse `json:"action"`
+	WorkItem    *ProjectActivityWorkItemResponse     `json:"work_item,omitempty"`
+	Assignment  *ProjectWorkAssignmentResponse       `json:"assignment,omitempty"`
+	Handoff     *ProjectHandoffResponse              `json:"handoff,omitempty"`
+	UpdatedAt   string                               `json:"updated_at,omitempty"`
+	Metadata    map[string]string                    `json:"metadata,omitempty"`
 }
 
 type ProjectOperationsBriefTargetResponse struct {
@@ -64,6 +72,16 @@ type ProjectOperationsBriefTargetResponse struct {
 	AssignmentID   string `json:"assignment_id,omitempty"`
 	HandoffID      string `json:"handoff_id,omitempty"`
 	ActivityBucket string `json:"activity_bucket,omitempty"`
+}
+
+type ProjectOperationsBriefActionResponse struct {
+	Type           string `json:"type"`
+	ProjectID      string `json:"project_id"`
+	WorkItemID     string `json:"work_item_id,omitempty"`
+	AssignmentID   string `json:"assignment_id,omitempty"`
+	HandoffID      string `json:"handoff_id,omitempty"`
+	ActivityBucket string `json:"activity_bucket,omitempty"`
+	Request        string `json:"request,omitempty"`
 }
 
 func (h *Handler) HandleProjectOperationsBrief(w http.ResponseWriter, r *http.Request) {
@@ -103,22 +121,27 @@ func (h *Handler) renderProjectOperationsBrief(ctx context.Context, projectID st
 	if err != nil {
 		return ProjectOperationsBriefResponse{}, err
 	}
+	artifacts, err := h.projectWork.ListArtifacts(ctx, projectwork.ArtifactFilter{ProjectID: projectID})
+	if err != nil {
+		return ProjectOperationsBriefResponse{}, err
+	}
 	pendingMemoryCandidates, err := h.pendingProjectMemoryCandidateCount(ctx, projectID)
 	if err != nil {
 		return ProjectOperationsBriefResponse{}, err
 	}
 
-	items := make([]ProjectOperationsBriefItemResponse, 0, 8)
+	items := make([]ProjectOperationsBriefItemResponse, 0, projectOperationsBriefItemLimit)
 	items = append(items, projectDefaultOperationItems(project)...)
 	items = append(items, assignmentOperationItems(activity)...)
 	items = append(items, handoffOperationItems(projectID, handoffs)...)
+	items = append(items, selectedWorkFollowThroughOperationItems(projectID, workItems, assignments, artifacts, handoffs)...)
 	if pendingMemoryCandidates > 0 {
 		items = append(items, memoryCandidateOperationItem(projectID, pendingMemoryCandidates))
 	}
 	items = append(items, assignmentGapOperationItems(projectID, workItems, assignments)...)
 
 	sortProjectOperationsItems(items)
-	items = boundedProjectOperationsItems(items, 8)
+	items = boundedProjectOperationsItems(items, projectOperationsBriefItemLimit)
 	response := ProjectOperationsBriefResponse{
 		ProjectID:   projectID,
 		GeneratedAt: formatOptionalTime(time.Now().UTC()),
@@ -183,6 +206,7 @@ func projectDefaultOperationItems(project projects.Project) []ProjectOperationsB
 			Surface:   "project_settings",
 			ProjectID: project.ID,
 		},
+		Action:    projectOperationsOpenProjectSettingsAction(project.ID),
 		UpdatedAt: formatOptionalTime(project.UpdatedAt),
 		Metadata: map[string]string{
 			"missing": strings.Join(missing, ","),
@@ -209,18 +233,23 @@ func assignmentOperationItems(activity ProjectActivityDataResponse) []ProjectOpe
 	for _, item := range activity.Buckets.Active {
 		items = append(items, projectOperationItemFromActivity(item, "inspect_active_assignment", projectOperationsPriorityLow, "Inspect active assignment", item.StatusSummary, "Inspect work"))
 	}
-	for _, item := range activity.Buckets.Completed {
-		if item.ArtifactSummary.Count > 0 {
-			continue
-		}
-		items = append(items, projectOperationItemFromActivity(item, "record_completion_evidence", projectOperationsPriorityLow, "Record completion evidence", "Completed assignments should leave reviewable evidence before work is closed.", "Open work"))
-	}
 	return items
 }
 
 func projectOperationItemFromActivity(activity ProjectActivityItemResponse, kind, priority, title, detail, actionLabel string) ProjectOperationsBriefItemResponse {
 	workItem := activity.WorkItem
 	assignment := activity.Assignment
+	target := ProjectOperationsBriefTargetResponse{
+		Surface:        "work",
+		ProjectID:      activity.ProjectID,
+		WorkItemID:     activity.WorkItem.ID,
+		AssignmentID:   activity.Assignment.ID,
+		ActivityBucket: projectActivityBucket(activity),
+	}
+	action := projectOperationsOpenWorkItemAction(target.ProjectID, target.WorkItemID, target.AssignmentID, "", target.ActivityBucket)
+	if kind == "start_queued_assignment" {
+		action = projectOperationsOpenAssignmentPreflightAction(target.ProjectID, target.WorkItemID, target.AssignmentID, target.ActivityBucket)
+	}
 	return ProjectOperationsBriefItemResponse{
 		ID:          projectOperationsItemID(kind, activity.ProjectID, activity.Assignment.ID),
 		Kind:        kind,
@@ -229,16 +258,11 @@ func projectOperationItemFromActivity(activity ProjectActivityItemResponse, kind
 		Detail:      firstNonEmpty(detail, activity.StatusSummary),
 		ActionLabel: actionLabel,
 		Status:      activity.BlockingSignal,
-		Target: ProjectOperationsBriefTargetResponse{
-			Surface:        "work",
-			ProjectID:      activity.ProjectID,
-			WorkItemID:     activity.WorkItem.ID,
-			AssignmentID:   activity.Assignment.ID,
-			ActivityBucket: projectActivityBucket(activity),
-		},
-		WorkItem:   &workItem,
-		Assignment: &assignment,
-		UpdatedAt:  activity.UpdatedAt,
+		Target:      target,
+		Action:      action,
+		WorkItem:    &workItem,
+		Assignment:  &assignment,
+		UpdatedAt:   activity.UpdatedAt,
 	}
 }
 
@@ -249,6 +273,13 @@ func handoffOperationItems(projectID string, handoffs []projectwork.Handoff) []P
 			continue
 		}
 		rendered := renderProjectHandoff(handoff)
+		target := ProjectOperationsBriefTargetResponse{
+			Surface:      "work",
+			ProjectID:    projectID,
+			WorkItemID:   handoff.WorkItemID,
+			HandoffID:    handoff.ID,
+			AssignmentID: firstNonEmpty(handoff.TargetAssignmentID, handoff.SourceAssignmentID),
+		}
 		items = append(items, ProjectOperationsBriefItemResponse{
 			ID:          projectOperationsItemID("review_pending_handoff", projectID, handoff.ID),
 			Kind:        "review_pending_handoff",
@@ -257,18 +288,123 @@ func handoffOperationItems(projectID string, handoffs []projectwork.Handoff) []P
 			Detail:      firstNonEmpty(handoff.RecommendedNextAction, handoff.Summary, "Review the handoff and decide the next assignment."),
 			ActionLabel: "Open handoff",
 			Status:      handoff.Status,
-			Target: ProjectOperationsBriefTargetResponse{
-				Surface:      "work",
-				ProjectID:    projectID,
-				WorkItemID:   handoff.WorkItemID,
-				HandoffID:    handoff.ID,
-				AssignmentID: firstNonEmpty(handoff.TargetAssignmentID, handoff.SourceAssignmentID),
-			},
-			Handoff:   &rendered,
-			UpdatedAt: formatOptionalTime(projectworkTime(handoff.UpdatedAt, handoff.CreatedAt)),
+			Target:      target,
+			Action:      projectOperationsOpenWorkItemAction(target.ProjectID, target.WorkItemID, target.AssignmentID, target.HandoffID, ""),
+			Handoff:     &rendered,
+			UpdatedAt:   formatOptionalTime(projectworkTime(handoff.UpdatedAt, handoff.CreatedAt)),
 		})
 	}
 	return items
+}
+
+func selectedWorkFollowThroughOperationItems(projectID string, workItems []projectwork.WorkItem, assignments []projectwork.Assignment, artifacts []projectwork.CollaborationArtifact, handoffs []projectwork.Handoff) []ProjectOperationsBriefItemResponse {
+	assignmentsByWorkItem := groupProjectWorkAssignmentsByWorkItem(assignments)
+	assignmentsByID := projectOperationsAssignmentsByID(assignments)
+	artifactsByAssignment, artifactsByWorkItem := groupProjectActivityArtifacts(artifacts)
+	allArtifactsByWorkItem := projectOperationsArtifactsByWorkItem(artifacts)
+	handoffsByWorkItem := projectOperationsHandoffsByWorkItem(handoffs)
+	items := make([]ProjectOperationsBriefItemResponse, 0, len(workItems))
+	for _, workItem := range workItems {
+		if projectWorkItemClosed(workItem.Status) {
+			continue
+		}
+		if review := projectOperationsReviewFollowUpArtifact(allArtifactsByWorkItem[workItem.ID], handoffs); review != nil {
+			items = append(items, reviewFollowUpOperationItem(projectID, workItem, *review))
+		}
+		for _, assignment := range assignmentsByWorkItem[workItem.ID] {
+			if projectOperationsAssignmentStatus(assignment) != projectwork.AssignmentStatusCompleted {
+				continue
+			}
+			if projectOperationsAssignmentHasEvidence(assignment, artifactsByAssignment, artifactsByWorkItem) {
+				continue
+			}
+			items = append(items, completionEvidenceOperationItem(projectID, workItem, assignment))
+		}
+		if projectOperationsWorkItemReadyToClose(workItem, assignmentsByWorkItem[workItem.ID], artifactsByAssignment, artifactsByWorkItem, handoffsByWorkItem[workItem.ID], assignmentsByID) {
+			items = append(items, closeWorkItemOperationItem(projectID, workItem, assignmentsByWorkItem[workItem.ID]))
+		}
+	}
+	return items
+}
+
+func reviewFollowUpOperationItem(projectID string, workItem projectwork.WorkItem, artifact projectwork.CollaborationArtifact) ProjectOperationsBriefItemResponse {
+	renderedWorkItem := renderProjectActivityWorkItem(renderProjectWorkItem(workItem))
+	status := "awaiting_approval"
+	if artifact.ReviewVerdict == projectwork.ReviewVerdictBlocked {
+		status = "blocked"
+	}
+	target := ProjectOperationsBriefTargetResponse{
+		Surface:    "work",
+		ProjectID:  projectID,
+		WorkItemID: workItem.ID,
+	}
+	return ProjectOperationsBriefItemResponse{
+		ID:          projectOperationsItemID("review_follow_up", projectID, artifact.ID),
+		Kind:        "review_follow_up",
+		Priority:    projectOperationsPriorityMedium,
+		Title:       "Review follow-up: " + firstNonEmpty(workItem.Title, artifact.Title, artifact.ID),
+		Detail:      "Review artifact " + firstNonEmpty(artifact.Title, artifact.ID) + " needs a follow-up path before closeout.",
+		ActionLabel: "Open review",
+		Status:      status,
+		Target:      target,
+		Action:      projectOperationsOpenWorkItemAction(target.ProjectID, target.WorkItemID, "", "", ""),
+		WorkItem:    &renderedWorkItem,
+		UpdatedAt:   formatOptionalTime(projectworkTime(artifact.UpdatedAt, artifact.CreatedAt, workItem.UpdatedAt, workItem.CreatedAt)),
+		Metadata: map[string]string{
+			"artifact_id":    artifact.ID,
+			"review_verdict": artifact.ReviewVerdict,
+		},
+	}
+}
+
+func completionEvidenceOperationItem(projectID string, workItem projectwork.WorkItem, assignment projectwork.Assignment) ProjectOperationsBriefItemResponse {
+	renderedWorkItem := renderProjectActivityWorkItem(renderProjectWorkItem(workItem))
+	renderedAssignment := renderProjectWorkAssignment(assignment)
+	target := ProjectOperationsBriefTargetResponse{
+		Surface:      "work",
+		ProjectID:    projectID,
+		WorkItemID:   workItem.ID,
+		AssignmentID: assignment.ID,
+	}
+	return ProjectOperationsBriefItemResponse{
+		ID:          projectOperationsItemID("record_completion_evidence", projectID, assignment.ID),
+		Kind:        "record_completion_evidence",
+		Priority:    projectOperationsPriorityLow,
+		Title:       "Record completion evidence: " + firstNonEmpty(workItem.Title, assignment.ID),
+		Detail:      "Completed assignments should leave reviewable evidence before work is closed.",
+		ActionLabel: "Open work",
+		Status:      projectwork.AssignmentStatusCompleted,
+		Target:      target,
+		Action:      projectOperationsOpenWorkItemAction(target.ProjectID, target.WorkItemID, target.AssignmentID, "", "completed"),
+		WorkItem:    &renderedWorkItem,
+		Assignment:  &renderedAssignment,
+		UpdatedAt:   formatOptionalTime(projectworkTime(assignment.CompletedAt, assignment.UpdatedAt, assignment.CreatedAt, workItem.UpdatedAt, workItem.CreatedAt)),
+	}
+}
+
+func closeWorkItemOperationItem(projectID string, workItem projectwork.WorkItem, assignments []projectwork.Assignment) ProjectOperationsBriefItemResponse {
+	renderedWorkItem := renderProjectActivityWorkItem(renderProjectWorkItem(workItem))
+	target := ProjectOperationsBriefTargetResponse{
+		Surface:    "work",
+		ProjectID:  projectID,
+		WorkItemID: workItem.ID,
+	}
+	return ProjectOperationsBriefItemResponse{
+		ID:          projectOperationsItemID("close_work_item", projectID, workItem.ID),
+		Kind:        "close_work_item",
+		Priority:    projectOperationsPriorityLow,
+		Title:       "Close out work item: " + firstNonEmpty(workItem.Title, workItem.ID),
+		Detail:      "Assignments, evidence, handoffs, and review follow-up are clear. Mark done from selected-work detail.",
+		ActionLabel: "Open closeout",
+		Status:      "ready",
+		Target:      target,
+		Action:      projectOperationsOpenWorkItemAction(target.ProjectID, target.WorkItemID, "", "", ""),
+		WorkItem:    &renderedWorkItem,
+		UpdatedAt:   formatOptionalTime(projectOperationsLatestAssignmentTime(assignments, projectworkTime(workItem.UpdatedAt, workItem.CreatedAt))),
+		Metadata: map[string]string{
+			"assignment_count": intString(len(assignments)),
+		},
+	}
 }
 
 func memoryCandidateOperationItem(projectID string, count int) ProjectOperationsBriefItemResponse {
@@ -288,6 +424,7 @@ func memoryCandidateOperationItem(projectID string, count int) ProjectOperations
 			Surface:   "memory",
 			ProjectID: projectID,
 		},
+		Action: projectOperationsOpenMemoryReviewAction(projectID),
 		Metadata: map[string]string{
 			"candidate_count": intString(count),
 		},
@@ -299,17 +436,17 @@ func assignmentGapOperationItems(projectID string, workItems []projectwork.WorkI
 	items := make([]ProjectOperationsBriefItemResponse, 0, len(workItems)+1)
 	if len(workItems) == 0 {
 		items = append(items, ProjectOperationsBriefItemResponse{
-			ID:           projectOperationsItemID("create_first_work_item", projectID),
-			Kind:         "create_first_work_item",
-			Priority:     projectOperationsPriorityMedium,
-			Title:        "Create the first work item",
-			Detail:       "Start with one reviewable project work item before queueing assignments.",
-			ActionLabel:  "Draft work",
-			DraftRequest: "Create the first project work item",
+			ID:          projectOperationsItemID("create_first_work_item", projectID),
+			Kind:        "create_first_work_item",
+			Priority:    projectOperationsPriorityMedium,
+			Title:       "Create the first work item",
+			Detail:      "Start with one reviewable project work item before queueing assignments.",
+			ActionLabel: "Draft work",
 			Target: ProjectOperationsBriefTargetResponse{
 				Surface:   "work",
 				ProjectID: projectID,
 			},
+			Action: projectOperationsDraftProjectProposalAction(projectID, "", "Create the first project work item"),
 		})
 		return items
 	}
@@ -319,19 +456,19 @@ func assignmentGapOperationItems(projectID string, workItems []projectwork.WorkI
 		}
 		rendered := renderProjectActivityWorkItem(renderProjectWorkItem(workItem))
 		items = append(items, ProjectOperationsBriefItemResponse{
-			ID:           projectOperationsItemID("prepare_first_assignment", projectID, workItem.ID),
-			Kind:         "prepare_first_assignment",
-			Priority:     projectOperationsPriorityMedium,
-			Title:        "Prepare first assignment: " + firstNonEmpty(workItem.Title, workItem.ID),
-			Detail:       "This work item has no queued or running assignments yet.",
-			ActionLabel:  "Draft assignment",
-			DraftRequest: "Queue an assignment for " + firstNonEmpty(workItem.Title, workItem.ID),
-			Status:       firstNonEmpty(workItem.Status, projectwork.WorkItemStatusReady),
+			ID:          projectOperationsItemID("prepare_first_assignment", projectID, workItem.ID),
+			Kind:        "prepare_first_assignment",
+			Priority:    projectOperationsPriorityMedium,
+			Title:       "Prepare first assignment: " + firstNonEmpty(workItem.Title, workItem.ID),
+			Detail:      "This work item has no queued or running assignments yet.",
+			ActionLabel: "Draft assignment",
+			Status:      firstNonEmpty(workItem.Status, projectwork.WorkItemStatusReady),
 			Target: ProjectOperationsBriefTargetResponse{
 				Surface:    "work",
 				ProjectID:  projectID,
 				WorkItemID: workItem.ID,
 			},
+			Action:    projectOperationsDraftProjectProposalAction(projectID, workItem.ID, "Queue an assignment for "+firstNonEmpty(workItem.Title, workItem.ID)),
 			WorkItem:  &rendered,
 			UpdatedAt: formatOptionalTime(projectworkTime(workItem.UpdatedAt, workItem.CreatedAt)),
 		})
@@ -371,6 +508,8 @@ func projectOperationsPriorityRank(priority string) int {
 }
 
 func projectOperationsKindRank(kind string) int {
+	// Kind rank is operator urgency within each priority tier because the brief cap
+	// keeps only the first sorted items.
 	switch strings.TrimSpace(kind) {
 	case "approve_assignment":
 		return 0
@@ -386,6 +525,8 @@ func projectOperationsKindRank(kind string) int {
 		return 50
 	case "review_pending_handoff":
 		return 60
+	case "review_follow_up":
+		return 65
 	case "prepare_first_assignment":
 		return 70
 	case "create_first_work_item":
@@ -396,6 +537,8 @@ func projectOperationsKindRank(kind string) int {
 		return 100
 	case "record_completion_evidence":
 		return 110
+	case "close_work_item":
+		return 120
 	default:
 		return 1000
 	}
@@ -409,6 +552,50 @@ func boundedProjectOperationsItems(items []ProjectOperationsBriefItemResponse, l
 		return append([]ProjectOperationsBriefItemResponse(nil), items[:limit]...)
 	}
 	return append([]ProjectOperationsBriefItemResponse(nil), items...)
+}
+
+func projectOperationsDraftProjectProposalAction(projectID, workItemID, request string) ProjectOperationsBriefActionResponse {
+	return ProjectOperationsBriefActionResponse{
+		Type:       projectOperationsActionDraftProjectProposal,
+		ProjectID:  projectID,
+		WorkItemID: strings.TrimSpace(workItemID),
+		Request:    strings.TrimSpace(request),
+	}
+}
+
+func projectOperationsOpenAssignmentPreflightAction(projectID, workItemID, assignmentID, bucket string) ProjectOperationsBriefActionResponse {
+	return ProjectOperationsBriefActionResponse{
+		Type:           projectOperationsActionOpenAssignmentPreflight,
+		ProjectID:      projectID,
+		WorkItemID:     workItemID,
+		AssignmentID:   assignmentID,
+		ActivityBucket: bucket,
+	}
+}
+
+func projectOperationsOpenMemoryReviewAction(projectID string) ProjectOperationsBriefActionResponse {
+	return ProjectOperationsBriefActionResponse{
+		Type:      projectOperationsActionOpenMemoryReview,
+		ProjectID: projectID,
+	}
+}
+
+func projectOperationsOpenProjectSettingsAction(projectID string) ProjectOperationsBriefActionResponse {
+	return ProjectOperationsBriefActionResponse{
+		Type:      projectOperationsActionOpenProjectSettings,
+		ProjectID: projectID,
+	}
+}
+
+func projectOperationsOpenWorkItemAction(projectID, workItemID, assignmentID, handoffID, bucket string) ProjectOperationsBriefActionResponse {
+	return ProjectOperationsBriefActionResponse{
+		Type:           projectOperationsActionOpenWorkItem,
+		ProjectID:      projectID,
+		WorkItemID:     workItemID,
+		AssignmentID:   assignmentID,
+		HandoffID:      handoffID,
+		ActivityBucket: bucket,
+	}
 }
 
 func projectOperationsItemID(kind string, parts ...string) string {
@@ -439,6 +626,195 @@ func projectWorkItemClosed(status string) bool {
 	default:
 		return false
 	}
+}
+
+func projectOperationsReviewFollowUpArtifact(artifacts []projectwork.CollaborationArtifact, handoffs []projectwork.Handoff) *projectwork.CollaborationArtifact {
+	items := append([]projectwork.CollaborationArtifact(nil), artifacts...)
+	sort.SliceStable(items, func(i, j int) bool {
+		left, right := projectworkTime(items[i].UpdatedAt, items[i].CreatedAt), projectworkTime(items[j].UpdatedAt, items[j].CreatedAt)
+		if !left.Equal(right) {
+			return left.After(right)
+		}
+		return items[i].ID < items[j].ID
+	})
+	for i := range items {
+		if !projectOperationsReviewArtifactRequiresFollowUp(items[i]) {
+			continue
+		}
+		if projectOperationsArtifactHasLinkedFollowUpPath(items[i].ID, handoffs) {
+			continue
+		}
+		return &items[i]
+	}
+	return nil
+}
+
+func projectOperationsReviewArtifactRequiresFollowUp(artifact projectwork.CollaborationArtifact) bool {
+	if artifact.Kind != projectwork.ArtifactKindReview {
+		return false
+	}
+	return artifact.ReviewFollowUpRequired || artifact.ReviewVerdict == projectwork.ReviewVerdictBlocked || artifact.ReviewVerdict == projectwork.ReviewVerdictChangesRequested
+}
+
+func projectOperationsArtifactHasLinkedFollowUpPath(artifactID string, handoffs []projectwork.Handoff) bool {
+	artifactID = strings.TrimSpace(artifactID)
+	if artifactID == "" {
+		return false
+	}
+	for _, handoff := range handoffs {
+		for _, linkedID := range handoff.LinkedArtifactIDs {
+			if strings.TrimSpace(linkedID) != artifactID {
+				continue
+			}
+			if handoff.Status == projectwork.HandoffStatusPending ||
+				handoff.Status == projectwork.HandoffStatusDismissed ||
+				handoff.Status == projectwork.HandoffStatusSuperseded ||
+				strings.TrimSpace(handoff.TargetAssignmentID) != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func projectOperationsWorkItemReadyToClose(workItem projectwork.WorkItem, assignments []projectwork.Assignment, artifactsByAssignment, artifactsByWorkItem map[string][]projectwork.CollaborationArtifact, handoffs []projectwork.Handoff, assignmentsByID map[string]projectwork.Assignment) bool {
+	if projectWorkItemClosed(workItem.Status) || len(assignments) == 0 {
+		return false
+	}
+	for _, assignment := range assignments {
+		if projectOperationsAssignmentStatus(assignment) != projectwork.AssignmentStatusCompleted {
+			return false
+		}
+		if !projectOperationsAssignmentHasEvidence(assignment, artifactsByAssignment, artifactsByWorkItem) {
+			return false
+		}
+	}
+	for _, handoff := range handoffs {
+		if handoff.Status == projectwork.HandoffStatusPending {
+			return false
+		}
+	}
+	for _, artifact := range artifactsByWorkItem[workItem.ID] {
+		if projectOperationsReviewFollowUpBlocker(artifact, handoffs, assignmentsByID) {
+			return false
+		}
+	}
+	for _, assignment := range assignments {
+		for _, artifact := range artifactsByAssignment[assignment.ID] {
+			if projectOperationsReviewFollowUpBlocker(artifact, handoffs, assignmentsByID) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func projectOperationsAssignmentStatus(assignment projectwork.Assignment) string {
+	return firstNonEmpty(assignment.ExecutionRef.Status, assignment.Status)
+}
+
+func projectOperationsAssignmentHasEvidence(assignment projectwork.Assignment, artifactsByAssignment, artifactsByWorkItem map[string][]projectwork.CollaborationArtifact) bool {
+	if projectOperationsArtifactsIncludeEvidence(artifactsByAssignment[assignment.ID]) {
+		return true
+	}
+	return projectOperationsArtifactsIncludeEvidence(artifactsByWorkItem[assignment.WorkItemID])
+}
+
+func projectOperationsArtifactsIncludeEvidence(artifacts []projectwork.CollaborationArtifact) bool {
+	for _, artifact := range artifacts {
+		if artifact.Kind == projectwork.ArtifactKindEvidenceLink {
+			return true
+		}
+	}
+	return false
+}
+
+func projectOperationsReviewFollowUpBlocker(artifact projectwork.CollaborationArtifact, handoffs []projectwork.Handoff, assignmentsByID map[string]projectwork.Assignment) bool {
+	if !projectOperationsReviewArtifactRequiresFollowUp(artifact) {
+		return false
+	}
+	linked := make([]projectwork.Handoff, 0)
+	for _, handoff := range handoffs {
+		for _, artifactID := range handoff.LinkedArtifactIDs {
+			if strings.TrimSpace(artifactID) == artifact.ID {
+				linked = append(linked, handoff)
+				break
+			}
+		}
+	}
+	if len(linked) == 0 {
+		return true
+	}
+	hasTargetAssignment := false
+	hasCompletedTarget := false
+	hasDismissedOrSuperseded := false
+	for _, handoff := range linked {
+		if handoff.Status == projectwork.HandoffStatusPending {
+			return true
+		}
+		if handoff.Status == projectwork.HandoffStatusDismissed || handoff.Status == projectwork.HandoffStatusSuperseded {
+			hasDismissedOrSuperseded = true
+		}
+		if strings.TrimSpace(handoff.TargetAssignmentID) == "" {
+			continue
+		}
+		hasTargetAssignment = true
+		if assignment, ok := assignmentsByID[handoff.TargetAssignmentID]; ok {
+			hasCompletedTarget = hasCompletedTarget || projectOperationsAssignmentStatus(assignment) == projectwork.AssignmentStatusCompleted
+		}
+	}
+	if hasCompletedTarget {
+		return false
+	}
+	if hasTargetAssignment {
+		return true
+	}
+	if hasDismissedOrSuperseded {
+		return false
+	}
+	return true
+}
+
+func projectOperationsArtifactsByWorkItem(artifacts []projectwork.CollaborationArtifact) map[string][]projectwork.CollaborationArtifact {
+	byWorkItem := make(map[string][]projectwork.CollaborationArtifact)
+	for _, artifact := range artifacts {
+		if artifact.WorkItemID == "" {
+			continue
+		}
+		byWorkItem[artifact.WorkItemID] = append(byWorkItem[artifact.WorkItemID], artifact)
+	}
+	return byWorkItem
+}
+
+func projectOperationsHandoffsByWorkItem(handoffs []projectwork.Handoff) map[string][]projectwork.Handoff {
+	byWorkItem := make(map[string][]projectwork.Handoff)
+	for _, handoff := range handoffs {
+		if handoff.WorkItemID == "" {
+			continue
+		}
+		byWorkItem[handoff.WorkItemID] = append(byWorkItem[handoff.WorkItemID], handoff)
+	}
+	return byWorkItem
+}
+
+func projectOperationsAssignmentsByID(assignments []projectwork.Assignment) map[string]projectwork.Assignment {
+	byID := make(map[string]projectwork.Assignment, len(assignments))
+	for _, assignment := range assignments {
+		byID[assignment.ID] = assignment
+	}
+	return byID
+}
+
+func projectOperationsLatestAssignmentTime(assignments []projectwork.Assignment, fallback time.Time) time.Time {
+	latest := fallback
+	for _, assignment := range assignments {
+		for _, value := range []time.Time{assignment.CompletedAt, assignment.StartedAt, assignment.UpdatedAt, assignment.CreatedAt} {
+			if value.After(latest) {
+				latest = value
+			}
+		}
+	}
+	return latest
 }
 
 func projectworkTime(values ...time.Time) time.Time {
