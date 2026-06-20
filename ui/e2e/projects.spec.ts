@@ -83,6 +83,61 @@ test("Projects journey: setup, first work, assignment, evidence, closeout", asyn
   expect(state.artifacts).toHaveLength(1);
 });
 
+test("Projects rootless journey: plan work without setup or workspace", async ({ page }) => {
+  const state = await mockProjectJourneyAPIs(page);
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.workspace", "projects");
+  });
+
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+
+  await page.getByRole("button", { name: "Add" }).click();
+  await page.getByLabel("Name").fill("Research notes");
+  await page.getByLabel("Purpose").fill("Coordinate interview synthesis and writing tasks.");
+  await expect(page.getByLabel("Folder path")).toHaveCount(0);
+  await page.getByRole("button", { name: "Create project" }).click();
+
+  await expect(page.getByText("Set up Research notes")).toBeVisible();
+  await expect(
+    page.getByText("Optional; attach files when this project needs them."),
+  ).toBeVisible();
+  const onboarding = page.getByRole("region", { name: "Project onboarding" });
+  await onboarding.getByRole("button", { name: "Create work" }).click();
+
+  await page.getByLabel("Title").fill("Summarize interview themes");
+  await page
+    .getByLabel("Brief")
+    .fill("Turn interview notes into a reviewable theme summary for the next planning pass.");
+  await expect(page.getByLabel("Owner role")).toHaveValue("");
+  await page.getByRole("button", { name: "Create work item" }).click();
+
+  await expect(page.getByRole("heading", { name: "Summarize interview themes" })).toBeVisible();
+  await expect(page.getByText("Add a role before assigning work")).toBeVisible();
+  await page.getByText("Add manually").click();
+  const manualActions = page.getByRole("group", { name: "Manual work item actions" });
+  await manualActions.getByRole("button", { name: "Evidence" }).click();
+  await page
+    .getByRole("dialog", { name: "Record evidence" })
+    .getByLabel("Title")
+    .fill("Interview source notes");
+  await page.getByLabel("URL").fill("https://example.test/interviews");
+  await page.getByLabel("Summary").fill("Source notes reviewed for the theme summary.");
+  await page.getByRole("button", { name: "Record evidence" }).click();
+
+  await expect(page.getByText("Interview source notes", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Mark done" }).click();
+  await expect(page.getByRole("article", { name: /Summarize interview themes/ })).toContainText(
+    "done",
+  );
+
+  expect(state.projects[0]?.roots).toHaveLength(0);
+  expect(state.roles).toHaveLength(0);
+  expect(state.workItems[0]?.owner_role_id).toBe("");
+  expect(state.workItems[0]?.status).toBe("done");
+  expect(state.artifacts).toHaveLength(1);
+});
+
 async function mockProjectJourneyAPIs(page: Page) {
   const state = {
     projects: [] as ProjectRecord[],

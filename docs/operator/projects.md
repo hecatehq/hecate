@@ -57,6 +57,20 @@ proposal before execution records are created.
 After a work item has activity, use its Add strip to attach more assignments,
 evidence, or handoffs without scanning each section header for separate actions.
 
+## V1 Stop Line
+
+Projects V1 is good enough for Hecate dogfooding when an operator can:
+
+- create a rootless planning/research/design project and manage manual work
+  without attaching a workspace;
+- create a workspace-backed code project, run setup, review proposed memory and
+  roles, then create the first work item;
+- inspect assignment context, start supervised work, record evidence or review
+  artifacts, create handoffs, and close work only after blockers are clear.
+
+Prefer dogfooding and small friction fixes over adding new Projects concepts
+until those journeys break down in real Hecate development work.
+
 ## Roots And Worktrees
 
 Project roots are concrete workspace paths, not project identity. A single
