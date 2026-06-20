@@ -441,6 +441,50 @@ func TestOpenAIProviderFireworksDiscoveryUsesModelsEndpoint(t *testing.T) {
 	}
 }
 
+func TestOpenAIProviderFireworksDiscoveryStopsOnRepeatedPageToken(t *testing.T) {
+	t.Parallel()
+
+	var calls int
+	transport := testRoundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		calls++
+		switch r.URL.Query().Get("pageToken") {
+		case "":
+			return jsonHTTPResponse(fireworksModelsResponse{
+				Models:        []fireworksModel{{Name: "accounts/fireworks/models/first"}},
+				NextPageToken: "repeat-token",
+			})
+		case "repeat-token":
+			return jsonHTTPResponse(fireworksModelsResponse{
+				Models:        []fireworksModel{{Name: "accounts/fireworks/models/second"}},
+				NextPageToken: "repeat-token",
+			})
+		default:
+			return nil, fmt.Errorf("unexpected pageToken = %q", r.URL.Query().Get("pageToken"))
+		}
+	})
+
+	provider := NewOpenAICompatibleProvider(config.OpenAICompatibleProviderConfig{
+		Name:       "fireworks-repeated-cursor",
+		Kind:       "cloud",
+		BaseURL:    "https://api.fireworks.ai/inference/v1",
+		ModelsPath: "https://api.fireworks.ai/v1/accounts/fireworks/models",
+		APIKey:     "fireworks-key",
+		Timeout:    time.Second,
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	provider.httpClient.Transport = transport
+
+	caps, err := provider.Capabilities(context.Background())
+	if err != nil {
+		t.Fatalf("Capabilities() error = %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("discovery call count = %d, want 2 before repeated cursor stops pagination", calls)
+	}
+	if len(caps.Models) != 2 {
+		t.Fatalf("models = %#v, want both pages before repeated cursor", caps.Models)
+	}
+}
+
 func TestOpenAIProviderLMStudioDiscoveryUsesNativeModelsEndpoint(t *testing.T) {
 	t.Parallel()
 

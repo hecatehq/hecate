@@ -219,7 +219,7 @@ func TestApplication_StatusCanonicalizesPresetProviderRecords(t *testing.T) {
 	}
 	if _, err := store.UpsertProvider(ctx, controlplane.Provider{
 		ID:       "local-lmstudio",
-		Name:     "lmstudio",
+		Name:     "LM Studio",
 		Kind:     "local",
 		Protocol: "openai",
 		BaseURL:  "http://127.0.0.1:1234/v1",

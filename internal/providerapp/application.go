@@ -378,17 +378,12 @@ func buildProviderRecords(cfg config.Config, state controlplane.State) []Provide
 		}
 	}
 
-	presetByID := make(map[string]config.BuiltInProvider)
-	for _, b := range config.BuiltInProviders() {
-		presetByID[b.ID] = b
-	}
-
 	records := make([]ProviderRecord, 0, len(state.Providers))
 	for _, cp := range state.Providers {
 		if !cfg.LocalProvidersAllowed() && providerKind(cp) == "local" {
 			continue
 		}
-		preset, hasPreset := builtInProviderForControlPlaneProvider(presetByID, cp)
+		preset, hasPreset := builtInProviderForControlPlaneProvider(cp)
 		record := ProviderRecord{
 			ID:             cp.ID,
 			Name:           cp.Name,
@@ -440,16 +435,9 @@ func buildProviderRecords(cfg config.Config, state controlplane.State) []Provide
 	return records
 }
 
-func builtInProviderForControlPlaneProvider(
-	presetByID map[string]config.BuiltInProvider,
-	provider controlplane.Provider,
-) (config.BuiltInProvider, bool) {
+func builtInProviderForControlPlaneProvider(provider controlplane.Provider) (config.BuiltInProvider, bool) {
 	for _, candidate := range []string{provider.PresetID, provider.Name, provider.ID} {
-		candidate = strings.TrimSpace(candidate)
-		if candidate == "" {
-			continue
-		}
-		if preset, ok := presetByID[candidate]; ok {
+		if preset, ok := config.BuiltInProviderByID(candidate); ok {
 			return preset, true
 		}
 	}

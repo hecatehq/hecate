@@ -587,6 +587,7 @@ func (p *OpenAICompatibleProvider) discoverLMStudioCapabilities(ctx context.Cont
 func (p *OpenAICompatibleProvider) discoverFireworksCapabilities(ctx context.Context, endpoint string) (Capabilities, error) {
 	items := make([]fireworksModel, 0)
 	pageToken := ""
+	seenPageTokens := make(map[string]struct{})
 	for page := 0; page < fireworksModelDiscoveryMaxPages; page++ {
 		pageEndpoint, err := fireworksModelsPageURL(endpoint, pageToken)
 		if err != nil {
@@ -623,6 +624,10 @@ func (p *OpenAICompatibleProvider) discoverFireworksCapabilities(ctx context.Con
 		if pageToken == "" {
 			break
 		}
+		if _, seen := seenPageTokens[pageToken]; seen {
+			break
+		}
+		seenPageTokens[pageToken] = struct{}{}
 	}
 
 	models := make([]string, 0, len(items))
