@@ -649,9 +649,6 @@ require_contains() {
 original_args="$*"
 while true; do
   case "$1" in
-    --ask-for-approval)
-      shift 2
-      ;;
     --search)
       shift
       ;;
@@ -675,7 +672,6 @@ case "$1" in
     exit 0
     ;;
   exec)
-    require_contains " --ask-for-approval never " "$original_args"
     require_contains " --search " "$original_args"
     require_contains " --sandbox read-only " "$@"
     require_contains " --model gpt-5-codex " "$@"
@@ -753,19 +749,32 @@ require_absent() {
   esac
 }
 
+require_claude_session_flag() {
+  resumed_id="$(arg_value --resume "$@")" && {
+    if [ -z "$resumed_id" ]; then
+      echo "claude prompt used empty --resume" >&2
+      exit 65
+    fi
+    require_absent " --session-id " "$@"
+    return 0
+  }
+  session_id="$(arg_value --session-id "$@")" && {
+    if [ -z "$session_id" ]; then
+      echo "claude prompt used empty --session-id" >&2
+      exit 65
+    fi
+    require_absent " --resume " "$@"
+    return 0
+  }
+  echo "claude prompt must use --resume or --session-id" >&2
+  exit 65
+}
+
 require_claude_session_mode() {
   prompt_args="$*"
-  state_dir="${HECATE_ACP_RELEASE_FAKE_CLI_STATE_DIR:-${TMPDIR:-/tmp}}"
-  mkdir -p "$state_dir"
-  state_file="$state_dir/claude_prompt_seen"
-
   case "$prompt_args" in
     *"hello claude_code"*)
-      if [ -f "$state_file" ]; then
-        expected="resume"
-      else
-        expected="fresh"
-      fi
+      expected="valid"
       ;;
     *)
       expected="resume"
@@ -784,6 +793,9 @@ require_claude_session_mode() {
       fi
       require_absent " --resume " "$@"
       ;;
+    valid)
+      require_claude_session_flag "$@"
+      ;;
     resume)
       resumed_id="$(arg_value --resume "$@")" || {
         echo "continued claude prompt must use --resume" >&2
@@ -796,7 +808,6 @@ require_claude_session_mode() {
       require_absent " --session-id " "$@"
       ;;
   esac
-  printf 'seen\n' > "$state_file"
 }
 
 case "$1" in
