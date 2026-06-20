@@ -276,12 +276,15 @@ installed and visible on `PATH`. Hecate does not pin an external-agent model by
 default. When an ACP agent reports model state, the agent-provided model list and
 current model become the chat model control.
 
-Hecate's adapter integration tests exercise the Go Codex and Claude Code adapter
-packages through the same stdio ACP boundary that production uses, with fake
-`codex` and `claude` CLIs standing in for the vendor binaries. Those tests cover
+Hecate's default adapter integration tests exercise Hecate's stdio ACP boundary
+through a repo-local fake ACP peer. Provider-specific Codex and Claude Code
+adapter parity lives in the standalone adapter repositories. When packaging
+drift needs coverage, run `just test-acp-release-smoke`; it downloads the
+Dockerfile-pinned Go adapter release binaries, verifies checksums, and smokes
 probe capability discovery, ACP authenticate/logout, session config selectors,
-advertised slash commands, prompt streaming, and usage mapping. npm adapter
-wrappers are not part of the supported test path.
+advertised slash commands, prompt streaming, and usage mapping with fake
+`codex` and `claude` CLIs. npm adapter wrappers are not part of the supported
+test path.
 
 ## Setup checks
 

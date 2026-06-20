@@ -9,3 +9,9 @@
 # Docker smoke test for the production compose image.
 test-docker-smoke: _go-cache
 	{{go_env}} go test -tags 'e2e docker' -count=1 -timeout 10m ./e2e/...
+
+# Download the pinned Codex/Claude Go ACP adapter release binaries and smoke
+# them through Hecate's ACP boundary with fake vendor CLIs. Requires network.
+# Smoke test packaged Go ACP adapter release binaries.
+test-acp-release-smoke: _go-cache
+	{{go_env}} go test -tags acp_release -count=1 -run TestACPAdapterReleaseBinariesSmoke -timeout 5m ./internal/agentadapters
