@@ -25,7 +25,7 @@ after an adapter process restart. Codex does not yet claim vendor-native
 durable history across adapter process restarts; if a load is stale, Hecate
 falls back to a fresh native session. Hecate treats `codex-acp-adapter` versions
 older than `v0.1.0-alpha.15` and `claude-code-acp-adapter` versions older than
-`v0.1.0-alpha.16` as outside the tested range because those older releases lack
+`v0.1.0-alpha.17` as outside the tested range because those older releases lack
 the current continuity, permission-control, structured stream, session metadata,
 and external MCP handoff surface. The
 `v0.1.0-alpha.8` adapters added supported Codex and Claude Code JSON stream
@@ -61,6 +61,9 @@ operators who intentionally want the full-access Claude Code boundary.
 Claude Code adapter `v0.1.0-alpha.16` classifies more provider-native tool
 updates as ACP tool kinds, including web/fetch, task, and memory updates, so the
 External Agent transcript can show those activities more clearly.
+Claude Code adapter `v0.1.0-alpha.17` advertises additional prompt-backed
+commands (`/compact`, `/debug`, `/run`, and `/verify`) so Hecate can show them
+in the External Agent command picker.
 
 ## Supported External Agents
 
