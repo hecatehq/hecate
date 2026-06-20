@@ -24,10 +24,10 @@ transcript prelude for multi-turn continuity. Claude Code adapter
 after an adapter process restart. Codex does not yet claim vendor-native
 durable history across adapter process restarts; if a load is stale, Hecate
 falls back to a fresh native session. Hecate treats `codex-acp-adapter` versions
-older than `v0.1.0-alpha.15` and `claude-code-acp-adapter` versions older than
-`v0.1.0-alpha.17` as outside the tested range because those older releases lack
+older than `v0.1.0-alpha.16` and `claude-code-acp-adapter` versions older than
+`v0.1.0-alpha.18` as outside the tested range because those older releases lack
 the current continuity, permission-control, structured stream, session metadata,
-and external MCP handoff surface. The
+external MCP handoff surface, and ACP logout mapping. The
 `v0.1.0-alpha.8` adapters added supported Codex and Claude Code JSON stream
 translation into ACP assistant-message, thought, tool-call, tool-result, and
 usage updates, so Hecate can render External Agent activity without exposing raw
@@ -47,6 +47,8 @@ Codex adapter `v0.1.0-alpha.15` classifies more provider-native tool updates as
 ACP tool kinds, including file, web/fetch, MCP, image, plan, TODO, goal, and
 review updates, so the External Agent transcript can show those activities more
 clearly.
+Codex adapter `v0.1.0-alpha.16` maps ACP `logout` to the native `codex logout`
+command.
 Claude Code adapter `v0.1.0-alpha.11` adds command-backed stdio/HTTP MCP server
 config propagation into Claude `--mcp-config`, and `v0.1.0-alpha.12` adds
 Claude-native `--session-id` reload after adapter restarts. Claude Code adapter
@@ -64,6 +66,8 @@ External Agent transcript can show those activities more clearly.
 Claude Code adapter `v0.1.0-alpha.17` advertises additional prompt-backed
 commands (`/compact`, `/debug`, `/run`, and `/verify`) so Hecate can show them
 in the External Agent command picker.
+Claude Code adapter `v0.1.0-alpha.18` maps ACP `logout` to the native
+`claude auth logout` command.
 
 ## Supported External Agents
 
