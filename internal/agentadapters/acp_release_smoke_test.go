@@ -18,6 +18,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 func TestACPAdapterReleaseBinariesSmoke(t *testing.T) {
@@ -60,9 +62,10 @@ func TestACPAdapterReleaseBinariesSmoke(t *testing.T) {
 			})
 			workspace := t.TempDir()
 			prepared, err := manager.PrepareSession(context.Background(), PrepareSessionRequest{
-				SessionID: "release_" + tt.adapterID,
-				AdapterID: tt.adapterID,
-				Workspace: workspace,
+				SessionID:  "release_" + tt.adapterID,
+				AdapterID:  tt.adapterID,
+				Workspace:  workspace,
+				MCPServers: tt.mcpServers,
 			})
 			if err != nil {
 				t.Fatalf("PrepareSession(%s): %v", tt.adapterID, err)
@@ -100,6 +103,7 @@ func TestACPAdapterReleaseBinariesSmoke(t *testing.T) {
 				AdapterID:      tt.adapterID,
 				Workspace:      workspace,
 				Prompt:         "hello " + tt.adapterID,
+				MCPServers:     tt.mcpServers,
 				Timeout:        5 * time.Second,
 				MaxOutputBytes: 64 * 1024,
 			})
@@ -125,6 +129,7 @@ func TestACPAdapterReleaseBinariesSmoke(t *testing.T) {
 					AdapterID:      tt.adapterID,
 					Workspace:      workspace,
 					Prompt:         commandRun.prompt,
+					MCPServers:     tt.mcpServers,
 					Timeout:        5 * time.Second,
 					MaxOutputBytes: 64 * 1024,
 				})
@@ -166,6 +171,7 @@ type acpReleaseSmokeTestCase struct {
 	setConfigOptions    []acpReleaseConfigOption
 	wantCommands        []string
 	commandRuns         []acpReleaseCommandRun
+	mcpServers          []types.MCPServerConfig
 }
 
 type acpReleaseConfigOption struct {
@@ -182,6 +188,13 @@ type acpReleaseCommandRun struct {
 func acpReleaseSmokeTestCases(t *testing.T) []acpReleaseSmokeTestCase {
 	t.Helper()
 	dev := readDockerfile(t, "Dockerfile")
+	mcpServers := []types.MCPServerConfig{{
+		Name: "docs",
+		URL:  "https://docs.example.com/mcp",
+		Headers: map[string]string{
+			"Authorization": "Bearer token",
+		},
+	}}
 	return []acpReleaseSmokeTestCase{
 		{
 			adapterID:      "codex",
@@ -205,6 +218,7 @@ func acpReleaseSmokeTestCases(t *testing.T) []acpReleaseSmokeTestCase {
 				{id: "web_search", value: "enabled"},
 			},
 			wantCommands: []string{"review", "init"},
+			mcpServers:   mcpServers,
 			commandRuns: []acpReleaseCommandRun{
 				{
 					prompt:         "/review focus on tests",
@@ -238,6 +252,7 @@ func acpReleaseSmokeTestCases(t *testing.T) []acpReleaseSmokeTestCase {
 				{id: "permission_mode", value: "plan"},
 			},
 			wantCommands: []string{"init", "review", "code-review", "security-review", "compact", "debug", "run", "verify"},
+			mcpServers:   mcpServers,
 			commandRuns: []acpReleaseCommandRun{
 				{
 					prompt:         "/verify release smoke",
@@ -374,6 +389,7 @@ case "$1" in
     require_contains " --sandbox read-only " "$@"
     require_contains " --model gpt-5-codex " "$@"
     require_contains " --config model_reasoning_effort=\"high\" " "$@"
+    require_contains " --config mcp_servers.hecate_01_docs={url=\"https://docs.example.com/mcp\",http_headers={\"Authorization\"=\"Bearer token\"}} " "$@"
     require_contains " --search " "$@"
     case "$*" in
       *"/init focus on repo guidance"*) message="go codex init";;
@@ -396,6 +412,7 @@ case "$1" in
     require_contains " --uncommitted " "$@"
     require_contains " --config model=\"gpt-5-codex\" " "$@"
     require_contains " --config model_reasoning_effort=\"high\" " "$@"
+    require_contains " --config mcp_servers.hecate_01_docs={url=\"https://docs.example.com/mcp\",http_headers={\"Authorization\"=\"Bearer token\"}} " "$@"
     require_contains " focus on tests " "$@"
     printf '{"method":"item/completed","params":{"item":{"type":"agent_message","id":"msg-review","text":"go codex review"}}}\n'
     printf '{"method":"turn/completed","params":{"finish_reason":"end_turn","usage":{"input_tokens":12,"output_tokens":6,"context_window":100}}}\n'
@@ -435,6 +452,8 @@ case "$1" in
     require_contains " --permission-mode plan " "$@"
     require_contains " --model sonnet " "$@"
     require_contains " --effort high " "$@"
+    require_contains " --strict-mcp-config " "$@"
+    require_contains " --mcp-config {\"mcpServers\":{\"docs\":{\"headers\":{\"Authorization\":\"Bearer token\"},\"type\":\"http\",\"url\":\"https://docs.example.com/mcp\"}}} " "$@"
     case "$*" in
       *"/verify release smoke"*) message="go claude verify"; stop_reason="end_turn";;
       *"hello claude_code"*) message="go claude answer"; stop_reason="error_max_turns";;

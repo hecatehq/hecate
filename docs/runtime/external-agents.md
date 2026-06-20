@@ -295,9 +295,9 @@ adapter parity lives in the standalone adapter repositories. When packaging
 drift needs coverage, run `just test-acp-release-smoke`; it downloads the
 Dockerfile-pinned Go adapter release binaries, verifies checksums, and smokes
 probe capability discovery, ACP authenticate/logout, session config selectors
-and selector changes, advertised slash commands, command-backed prompt
-execution, prompt streaming, usage mapping, and stop-reason mapping with fake
-`codex` and `claude` CLIs.
+and selector changes, session-level MCP propagation, advertised slash commands,
+command-backed prompt execution, prompt streaming, usage mapping, and
+stop-reason mapping with fake `codex` and `claude` CLIs.
 
 ## Setup checks
 
