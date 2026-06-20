@@ -16,13 +16,16 @@ agent's native ACP session id. After restart, the next prompt asks the agent to
 Hecate starts a fresh native session and keeps the Hecate transcript.
 
 The bundled Go Codex and Claude Code adapters use command-backed sessions today.
-They support in-memory `session/load` / `session/resume` / `session/fork` while
+Both support in-memory `session/load` / `session/resume` / `session/fork` while
 the adapter process is alive, and later prompt commands receive a bounded
-transcript prelude for multi-turn continuity. They do not yet claim
-vendor-native durable history across adapter process restarts; if that load is
-stale, Hecate falls back to a fresh native session. Hecate treats
-`codex-acp-adapter` and `claude-code-acp-adapter` versions older than
-`v0.1.0-alpha.11` as outside the tested range because those older releases lack
+transcript prelude for multi-turn continuity. Claude Code adapter
+`v0.1.0-alpha.12` also uses Claude-native UUID session ids with
+`claude --session-id`, so Hecate can reload a stored Claude native session id
+after an adapter process restart. Codex does not yet claim vendor-native
+durable history across adapter process restarts; if a load is stale, Hecate
+falls back to a fresh native session. Hecate treats `codex-acp-adapter` versions
+older than `v0.1.0-alpha.11` and `claude-code-acp-adapter` versions older than
+`v0.1.0-alpha.12` as outside the tested range because those older releases lack
 the current continuity, permission-control, structured stream, and session
 metadata surface. The
 `v0.1.0-alpha.8` adapters added supported Codex and Claude Code JSON stream
@@ -35,7 +38,8 @@ metadata. The `v0.1.0-alpha.10` adapters also publish ACP
 updated-time metadata. Codex adapter `v0.1.0-alpha.11` adds the advertised
 `/review` command backed by `codex review --uncommitted`; Claude Code adapter
 `v0.1.0-alpha.11` adds command-backed stdio/HTTP MCP server config propagation
-into Claude `--mcp-config`.
+into Claude `--mcp-config`, and `v0.1.0-alpha.12` adds Claude-native
+`--session-id` reload after adapter restarts.
 
 ## Supported External Agents
 
