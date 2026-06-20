@@ -58,6 +58,7 @@ var remoteRuntimeAllowedRoutes = []remoteRuntimeRoutePattern{
 	{method: http.MethodPatch, path: "/hecate/v1/projects/{id}/memory/{memory_id}"},
 	{method: http.MethodDelete, path: "/hecate/v1/projects/{id}/memory/{memory_id}"},
 	{method: http.MethodGet, path: "/hecate/v1/projects/{id}/activity"},
+	{method: http.MethodGet, path: "/hecate/v1/projects/{id}/operations/brief"},
 	{method: http.MethodGet, path: "/hecate/v1/projects/{id}/roles"},
 	{method: http.MethodPost, path: "/hecate/v1/projects/{id}/roles"},
 	{method: http.MethodPatch, path: "/hecate/v1/projects/{id}/roles/{role_id}"},

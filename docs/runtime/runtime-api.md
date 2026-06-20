@@ -2394,6 +2394,80 @@ the same source or target assignment. Handoffs that are not assignment-linked
 are still available from the handoff list/detail endpoints; V1 does not create
 standalone activity rows for them.
 
+#### `GET /hecate/v1/projects/{id}/operations/brief`
+
+Returns a read-only Project Operations brief for the selected project. The
+brief is an operator-facing triage layer over existing project state: launch
+defaults, the project activity buckets, work items without assignments, pending
+handoffs, and pending memory candidates. It is bounded and deterministic; it
+does not create tasks, runs, chats, assignments, handoffs, proposals, memory
+entries, or memory candidates, and it never starts queued work.
+
+Each item points at an existing Hecate surface with `target.surface`:
+`project_settings`, `work`, `memory`, or `skills`. Items may include
+`work_item`, `assignment`, or `handoff` summaries copied from the existing
+project APIs so clients can route without reinterpreting raw ids. Items that can
+seed Project Assistant carry a plain `draft_request`; clients must still call
+the normal Project Assistant draft/propose/apply flow, where the operator
+reviews the typed proposal before any durable mutation.
+
+```json
+{
+  "object": "project_operations_brief",
+  "data": {
+    "project_id": "proj_...",
+    "generated_at": "2026-06-20T12:00:00Z",
+    "summary": {
+      "item_count": 2,
+      "high_count": 1,
+      "medium_count": 1,
+      "low_count": 0,
+      "pending_memory_candidate_count": 3,
+      "pending_handoff_count": 1
+    },
+    "items": [
+      {
+        "id": "approve_assignment:proj_...:asgn_...",
+        "kind": "approve_assignment",
+        "priority": "high",
+        "title": "Review pending approval: Backend substrate",
+        "detail": "1 approval pending",
+        "action_label": "Open approval",
+        "status": "awaiting_approval",
+        "target": {
+          "surface": "work",
+          "project_id": "proj_...",
+          "work_item_id": "work_...",
+          "assignment_id": "asgn_...",
+          "activity_bucket": "blocked"
+        }
+      },
+      {
+        "id": "review_memory_candidates:proj_...",
+        "kind": "review_memory_candidates",
+        "priority": "medium",
+        "title": "Review memory candidates",
+        "detail": "Promote, edit, or reject pending memory candidates before they become stale.",
+        "action_label": "Review memory",
+        "status": "pending",
+        "target": {
+          "surface": "memory",
+          "project_id": "proj_..."
+        },
+        "metadata": {
+          "candidate_count": "3"
+        }
+      }
+    ]
+  }
+}
+```
+
+The response is a convenience contract for operator workspaces, not a new
+durable planner. Project Activity remains the source for live assignment
+buckets, Project Assistant remains the proposal author, and assignment start
+still goes through preflight and explicit operator confirmation.
+
 #### `GET /hecate/v1/projects/{id}/skills`
 
 Lists persisted project skills. These are project metadata records, not loaded

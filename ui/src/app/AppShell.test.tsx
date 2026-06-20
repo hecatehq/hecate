@@ -13,6 +13,7 @@ import {
   getProjectActivity,
   getProjectCollaborationArtifacts,
   getProjectHandoffs,
+  getProjectOperationsBrief,
   getProjectWorkItem,
   getProjectWorkItems,
   getProjectWorkRoles,
@@ -35,6 +36,10 @@ vi.mock("../lib/api", async (importOriginal) => {
     getProjectActivity: vi.fn(async () => ({
       object: "project_activity",
       data: emptyActivityData(),
+    })),
+    getProjectOperationsBrief: vi.fn(async () => ({
+      object: "project_operations_brief",
+      data: emptyOperationsBriefData(),
     })),
     getProjectWorkRoles: vi.fn(async () => ({ object: "project_roles", data: [] })),
     getProjectWorkItems: vi.fn(async () => ({ object: "project_work_items", data: [] })),
@@ -69,6 +74,22 @@ function emptyActivityData() {
   };
 }
 
+function emptyOperationsBriefData() {
+  return {
+    project_id: "",
+    generated_at: "",
+    summary: {
+      item_count: 0,
+      high_count: 0,
+      medium_count: 0,
+      low_count: 0,
+      pending_memory_candidate_count: 0,
+      pending_handoff_count: 0,
+    },
+    items: [],
+  };
+}
+
 function resetProjectWorkMocks() {
   const emptyWorkItem: ProjectWorkItemRecord = {
     id: "",
@@ -82,6 +103,10 @@ function resetProjectWorkMocks() {
   vi.mocked(getProjectActivity).mockResolvedValue({
     object: "project_activity",
     data: emptyActivityData(),
+  });
+  vi.mocked(getProjectOperationsBrief).mockResolvedValue({
+    object: "project_operations_brief",
+    data: emptyOperationsBriefData(),
   });
   vi.mocked(getProjectWorkRoles).mockResolvedValue({ object: "project_roles", data: [] });
   vi.mocked(getProjectWorkItems).mockResolvedValue({ object: "project_work_items", data: [] });

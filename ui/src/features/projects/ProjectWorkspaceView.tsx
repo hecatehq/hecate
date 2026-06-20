@@ -9,6 +9,8 @@ import type {
   ProjectHandoffRecord,
   ProjectMemoryCandidateRecord,
   ProjectMemoryRecord,
+  ProjectOperationsBrief,
+  ProjectOperationsBriefItem,
   ProjectRecord,
   ProjectSkillRecord,
   ProjectWorkItemRecord,
@@ -109,6 +111,7 @@ export type ProjectWorkspaceViewProps = {
   onOpenChat?: (request: ProjectAssignmentChatLaunchRequest) => void;
   onOpenConnections?: () => void;
   onOpenSettings: () => void;
+  onOperationAction: (item: ProjectOperationsBriefItem) => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
   onPromoteCandidate: (candidate: ProjectMemoryCandidateRecord) => void;
   onRefreshMemory: () => void;
@@ -125,6 +128,9 @@ export type ProjectWorkspaceViewProps = {
   projectEmptyDetail: string;
   projectEmptyTitle: string;
   projectNeedsOnboarding: boolean;
+  operationsBrief: ProjectOperationsBrief | null;
+  operationsBriefError: string;
+  operationsBriefLoadState: LoadState;
   projectSkills: ProjectSkillRecord[];
   preparingAssignmentID: string;
   rejectingCandidateID: string;
@@ -199,6 +205,7 @@ export function ProjectWorkspaceView({
   onOpenChat,
   onOpenConnections,
   onOpenSettings,
+  onOperationAction,
   onOpenTask,
   onPromoteCandidate,
   onRefreshMemory,
@@ -215,6 +222,9 @@ export function ProjectWorkspaceView({
   projectEmptyDetail,
   projectEmptyTitle,
   projectNeedsOnboarding,
+  operationsBrief,
+  operationsBriefError,
+  operationsBriefLoadState,
   projectSkills,
   preparingAssignmentID,
   rejectingCandidateID,
@@ -310,26 +320,34 @@ export function ProjectWorkspaceView({
             )}
             {!projectNeedsOnboarding && workspaceTab === "work" && (
               <section style={projectTabPanelStyle} aria-label="Work coordination">
-                <ProjectNextAction
-                  activity={activity}
-                  assignments={assignments}
-                  artifacts={artifacts}
-                  handoffs={handoffs}
-                  memoryCandidateCount={memoryCandidates.length}
-                  onAddEvidenceLink={onAddEvidenceLink}
-                  onBucketChange={onActivityBucketChange}
-                  onCloseWorkItem={onCloseWorkItem}
-                  onCreateAssignmentFromHandoff={onCreateAssignmentFromHandoff}
-                  onCreateAssignmentFromReviewArtifact={onCreateAssignmentFromReviewArtifact}
-                  onCreateWork={onCreateWork}
-                  onDraftDefaultAssignment={onDraftDefaultAssignment}
-                  onReviewMemory={() => onWorkspaceTabChange("memory")}
-                  onSelectWorkItem={onSelectWorkItem}
-                  onStartAssignment={onStartAssignment}
-                  onStartHandoff={onStartHandoff}
-                  selectedWorkItem={selectedWorkItem}
-                  startingAssignmentID={startingAssignmentID}
-                  workItems={workItems}
+                <ProjectOperationsBriefPanel
+                  brief={operationsBrief}
+                  error={operationsBriefError}
+                  loading={operationsBriefLoadState === "loading"}
+                  onAction={onOperationAction}
+                  fallback={
+                    <ProjectNextAction
+                      activity={activity}
+                      assignments={assignments}
+                      artifacts={artifacts}
+                      handoffs={handoffs}
+                      memoryCandidateCount={memoryCandidates.length}
+                      onAddEvidenceLink={onAddEvidenceLink}
+                      onBucketChange={onActivityBucketChange}
+                      onCloseWorkItem={onCloseWorkItem}
+                      onCreateAssignmentFromHandoff={onCreateAssignmentFromHandoff}
+                      onCreateAssignmentFromReviewArtifact={onCreateAssignmentFromReviewArtifact}
+                      onCreateWork={onCreateWork}
+                      onDraftDefaultAssignment={onDraftDefaultAssignment}
+                      onReviewMemory={() => onWorkspaceTabChange("memory")}
+                      onSelectWorkItem={onSelectWorkItem}
+                      onStartAssignment={onStartAssignment}
+                      onStartHandoff={onStartHandoff}
+                      selectedWorkItem={selectedWorkItem}
+                      startingAssignmentID={startingAssignmentID}
+                      workItems={workItems}
+                    />
+                  }
                 />
                 <ProjectResumeSummary
                   activity={activity}
@@ -724,6 +742,94 @@ type ProjectNextActionState = {
   status: string;
   title: string;
 };
+
+function ProjectOperationsBriefPanel({
+  brief,
+  error,
+  fallback,
+  loading,
+  onAction,
+}: {
+  brief: ProjectOperationsBrief | null;
+  error: string;
+  fallback: ReactNode;
+  loading: boolean;
+  onAction: (item: ProjectOperationsBriefItem) => void;
+}) {
+  if ((!brief || brief.items.length === 0) && !loading) {
+    return (
+      <>
+        {fallback}
+        {error && <InlineError message={error} />}
+      </>
+    );
+  }
+
+  const items = brief?.items ?? [];
+  const primary = items[0] ?? null;
+  const secondary = items.slice(1, 4);
+  const title = loading && !brief ? "Loading operations..." : primary?.title || "Operations clear";
+  const detail =
+    loading && !brief
+      ? "Checking project work, memory candidates, handoffs, and launch defaults."
+      : primary?.detail || "No queued, blocked, handoff, or memory-review items need attention.";
+
+  return (
+    <section aria-label="Project operations" style={projectOperationsBriefStyle}>
+      <div style={projectOperationsBriefMainStyle}>
+        <div style={sectionLabelStyle}>Project Operations</div>
+        <div style={titleStyle}>{title}</div>
+        <div style={subtleTextStyle}>{detail}</div>
+      </div>
+      <div style={projectOperationsBriefControlsStyle}>
+        {primary ? (
+          <>
+            <Badge
+              status={primary.status || primary.priority}
+              label={projectOperationBadge(primary)}
+            />
+            <button
+              aria-label={`${primary.action_label}: ${primary.title}`}
+              className="btn btn-primary btn-sm"
+              type="button"
+              onClick={() => onAction(primary)}
+            >
+              {primary.action_label}
+            </button>
+          </>
+        ) : (
+          <span className="badge badge-green">clear</span>
+        )}
+      </div>
+      {secondary.length > 0 && (
+        <div style={projectOperationsListStyle}>
+          {secondary.map((item) => (
+            <button
+              aria-label={`${item.action_label}: ${item.title}`}
+              className="btn btn-ghost btn-sm"
+              key={item.id}
+              onClick={() => onAction(item)}
+              style={projectOperationsItemButtonStyle}
+              type="button"
+            >
+              <span className="badge badge-muted">{projectOperationBadge(item)}</span>
+              <span style={projectOperationsItemTitleStyle}>{item.title}</span>
+              <span style={projectOperationsItemActionStyle}>{item.action_label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {error && <InlineError message={error} />}
+    </section>
+  );
+}
+
+function projectOperationBadge(item: ProjectOperationsBriefItem): string {
+  if (item.priority === "high") return "attention";
+  if (item.priority === "medium") return "review";
+  if (item.priority === "low") return "watch";
+  return item.priority || item.status || "operation";
+}
 
 function ProjectNextAction({
   activity,
@@ -1513,6 +1619,58 @@ const projectNextActionStyle: CSSProperties = {
   display: "grid",
   gap: 12,
   gridTemplateColumns: "minmax(0, 1fr) auto",
+};
+
+const projectOperationsBriefStyle: CSSProperties = {
+  ...panelStyle,
+  alignItems: "center",
+  display: "grid",
+  gap: 12,
+  gridTemplateColumns: "minmax(0, 1fr) auto",
+};
+
+const projectOperationsBriefMainStyle: CSSProperties = {
+  display: "grid",
+  gap: 5,
+  minWidth: 0,
+};
+
+const projectOperationsBriefControlsStyle: CSSProperties = {
+  alignItems: "center",
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 8,
+  justifyContent: "flex-end",
+  minWidth: 0,
+};
+
+const projectOperationsListStyle: CSSProperties = {
+  borderTop: "1px solid var(--border)",
+  display: "grid",
+  gap: 4,
+  gridColumn: "1 / -1",
+  paddingTop: 8,
+};
+
+const projectOperationsItemButtonStyle: CSSProperties = {
+  display: "grid",
+  gap: 8,
+  gridTemplateColumns: "auto minmax(0, 1fr) auto",
+  justifyContent: "stretch",
+  minHeight: 32,
+  textAlign: "left",
+};
+
+const projectOperationsItemTitleStyle: CSSProperties = {
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+};
+
+const projectOperationsItemActionStyle: CSSProperties = {
+  color: "var(--t3)",
+  fontSize: 11,
+  whiteSpace: "nowrap",
 };
 
 const projectNextActionControlsStyle: CSSProperties = {

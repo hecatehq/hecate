@@ -42,12 +42,21 @@ For each work item:
 Assignments keep their own execution records. Projects coordinate the work, but
 Tasks, Chats, and External Agents remain the execution surfaces.
 
-The Work Coordination tab starts with a deterministic next action and compact
-resume summary. Use the next action for the single most useful operator step,
-then jump to blocked, active, recent, or memory-review work from the resume
-summary before drilling into the full work queue. Review artifacts that require
-follow-up are surfaced as closeout blockers with direct follow-up creation
-actions.
+The Work Coordination tab starts with Project Operations when the server finds
+actionable project state: missing launch defaults, pending approvals, blocked
+or stale assignments, queued assignments that need preflight, pending handoffs,
+memory candidates awaiting review, or work items that need their first
+assignment. Each operation routes to an existing surface such as Project
+Settings, Work Coordination, Memory/Context, or assignment preflight. Draftable
+operations seed the normal Project Assistant proposal rail; the operator still
+reviews and applies typed changes before Hecate creates durable project records.
+When there is no server-backed operation to show, the tab falls back to the
+deterministic next action and compact resume summary.
+
+Use the top action for the single most useful operator step, then jump to
+blocked, active, recent, or memory-review work from the resume summary before
+drilling into the full work queue. Review artifacts that require follow-up are
+surfaced as closeout blockers with direct follow-up creation actions.
 
 For a new work item with no assignments or artifacts yet, the detail view starts
 with a guided prepare action. Hecate can draft the first assignment from the

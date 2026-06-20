@@ -363,12 +363,16 @@ defaults, handoff summaries, memory candidates, and memory/context metadata so
 operators can separate live assignment buckets from actionable setup gaps,
 waiting approvals, blocked or stale assignments, pending handoffs, memory review
 work, missing provider/model defaults, and context readiness without adding a
-separate persisted health model. Assignment rows now render compact execution
-evidence from canonical assignment/activity refs, while the Context Inspector
-renders the full persisted launch packet with Profile, Instructions, Skills,
-Memory, Project sources, Work context, and Runtime evidence groups. Task and run
-records now carry direct project/work/assignment linkage when created from
-project-scoped surfaces; profiles and presets are not linked to `project_id` yet.
+separate persisted health model. The Project Operations brief now exposes the
+top bounded operator actions from those same records and routes them back into
+existing Project Settings, Work Coordination, Memory/Context, preflight, or
+Project Assistant proposal flows; it does not persist a plan or start work.
+Assignment rows now render compact execution evidence from canonical
+assignment/activity refs, while the Context Inspector renders the full persisted
+launch packet with Profile, Instructions, Skills, Memory, Project sources, Work
+context, and Runtime evidence groups. Task and run records now carry direct
+project/work/assignment linkage when created from project-scoped surfaces;
+profiles and presets are not linked to `project_id` yet.
 
 Persist `project_id` on:
 

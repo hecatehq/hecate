@@ -29,6 +29,7 @@ import {
   getProjectHandoffs,
   getProjectMemory,
   getProjectMemoryCandidates,
+  getProjectOperationsBrief,
   getProjectSkills,
   getProjectWorkItem,
   getProjectWorkItems,
@@ -87,6 +88,8 @@ import type {
   CreateProjectWorktreeRootPayload,
   ProjectHandoffRecord,
   ProjectMemoryRecord,
+  ProjectOperationsBrief,
+  ProjectOperationsBriefItem,
   ProjectContextSourceRecord,
   ProjectSkillRecord,
   ProjectRecord,
@@ -234,6 +237,9 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
   const [workItems, setWorkItems] = useState<ProjectWorkItemRecord[]>([]);
   const [workItemSummaries, setWorkItemSummaries] = useState<Record<string, WorkItemSummary>>({});
   const [activity, setActivity] = useState<ProjectActivityData | null>(null);
+  const [operationsBrief, setOperationsBrief] = useState<ProjectOperationsBrief | null>(null);
+  const [operationsBriefError, setOperationsBriefError] = useState("");
+  const [operationsBriefLoadState, setOperationsBriefLoadState] = useState<LoadState>("idle");
   const [activityBucket, setActivityBucket] = useState<ProjectActivityBucketKey>("all");
   const [workspaceTab, setWorkspaceTab] = useState<ProjectWorkspaceTab>("work");
   const [roles, setRoles] = useState<ProjectWorkRoleRecord[]>([]);
@@ -410,6 +416,8 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     setWorkItems([]);
     setWorkItemSummaries({});
     setActivity(null);
+    setOperationsBrief(null);
+    setOperationsBriefError("");
     if (!preferredWorkItemID) {
       setSelectedWorkItemID("");
       setSelectedWorkItem(null);
@@ -419,21 +427,30 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     }
     if (!projectID) {
       setWorkLoadState("idle");
+      setOperationsBriefLoadState("idle");
       return "";
     }
     setWorkLoadState("loading");
+    setOperationsBriefLoadState("loading");
     try {
       const activityLoad = getProjectActivity(projectID).catch(() => null);
-      const [rolesRes, workRes, activityRes] = await Promise.all([
+      const operationsBriefLoad = getProjectOperationsBrief(projectID).catch((error) => {
+        setOperationsBriefError(errorMessage(error, "Failed to load project operations."));
+        return null;
+      });
+      const [rolesRes, workRes, activityRes, operationsBriefRes] = await Promise.all([
         getProjectWorkRoles(projectID),
         getProjectWorkItems(projectID),
         activityLoad,
+        operationsBriefLoad,
       ]);
       const nextRoles = rolesRes.data ?? [];
       const nextItems = workRes.data ?? [];
       setRoles(nextRoles);
       setWorkItems(nextItems);
       setActivity(activityRes?.data ?? null);
+      setOperationsBrief(operationsBriefRes?.data ?? null);
+      setOperationsBriefLoadState(operationsBriefRes ? "loaded" : "error");
       setWorkItemSummaries(
         Object.fromEntries(
           nextItems.map((item) => [item.id, summarizeAssignments(item.assignments ?? [])] as const),
@@ -447,6 +464,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
       return nextSelectedID;
     } catch (error) {
       setWorkLoadState("error");
+      setOperationsBriefLoadState("error");
       setWorkError(errorMessage(error, "Failed to load project work."));
       return "";
     }
@@ -1142,6 +1160,51 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     });
   }
 
+  function handleOperationsBriefAction(item: ProjectOperationsBriefItem) {
+    const target = item.target;
+    if (item.draft_request) {
+      setWorkspaceTab("work");
+      if (target.work_item_id) {
+        setSelectedWorkItemID(target.work_item_id);
+      }
+      void assistant.propose(
+        {
+          request: item.draft_request,
+          roleID: PROJECT_ASSISTANT_AUTO,
+          driverKind: PROJECT_ASSISTANT_AUTO,
+          draftMode: "deterministic",
+        },
+        target.work_item_id,
+      );
+      return;
+    }
+    if (target.surface === "project_settings") {
+      setDefaultsError("");
+      setSettingsPanelOpen(true);
+      return;
+    }
+    if (target.surface === "memory") {
+      setWorkspaceTab("memory");
+      return;
+    }
+    if (target.surface === "skills") {
+      setWorkspaceTab("skills");
+      return;
+    }
+    setWorkspaceTab("work");
+    const bucket = projectOperationsActivityBucket(target.activity_bucket);
+    if (bucket) {
+      setActivityBucket(bucket);
+    }
+    if (target.work_item_id) {
+      setSelectedWorkItemID(target.work_item_id);
+    }
+    const assignmentID = target.assignment_id;
+    if (item.kind === "start_queued_assignment" && assignmentID) {
+      setPreparingAssignmentID(assignmentID);
+    }
+  }
+
   async function handleUpdateAssignment(form: EditAssignmentForm) {
     if (!selectedProjectID || !selectedWorkItemID) return;
     const roleID = form.roleID.trim();
@@ -1675,6 +1738,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
               setDefaultsError("");
               setSettingsPanelOpen(true);
             }}
+            onOperationAction={handleOperationsBriefAction}
             onOpenTask={onOpenTask}
             onPromoteCandidate={setPromotingCandidate}
             onRefreshMemory={() => void loadProjectMemory(selectedProjectID)}
@@ -1691,6 +1755,9 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
             projectEmptyDetail={projectEmptyDetail}
             projectEmptyTitle={projectEmptyTitle}
             projectNeedsOnboarding={projectNeedsOnboarding}
+            operationsBrief={operationsBrief}
+            operationsBriefError={operationsBriefError}
+            operationsBriefLoadState={operationsBriefLoadState}
             projectSkills={projectSkills}
             preparingAssignmentID={preparingAssignmentID}
             rejectingCandidateID={rejectingCandidateID}
@@ -2460,6 +2527,19 @@ function preferredFirstWorkRole(roles: ProjectWorkRoleRecord[]) {
 
 function contextSourceLabel(source: ProjectContextSourceRecord) {
   return source.title?.trim() || source.path || source.kind;
+}
+
+function projectOperationsActivityBucket(value?: string): ProjectActivityBucketKey | null {
+  switch (value) {
+    case "all":
+    case "active":
+    case "blocked":
+    case "completed":
+    case "recent":
+      return value;
+    default:
+      return null;
+  }
 }
 
 const topbarStyle: CSSProperties = {
