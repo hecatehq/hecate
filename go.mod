@@ -4,9 +4,6 @@ go 1.26.2
 
 require (
 	github.com/coder/acp-go-sdk v0.13.5
-	github.com/hecatehq/acp-adapter-kit v0.1.0-alpha.1
-	github.com/hecatehq/claude-code-acp-adapter v0.1.0-alpha.20
-	github.com/hecatehq/codex-acp-adapter v0.1.0-alpha.18
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/ncruces/zenity v0.10.14
 	github.com/spf13/cobra v1.10.2
