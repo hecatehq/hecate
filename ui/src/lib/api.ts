@@ -14,7 +14,11 @@ import type {
   ProviderPresetResponse,
   ProviderStatusResponse,
 } from "../types/provider";
-import type { AgentAdapterProbeResponse, AgentAdapterResponse } from "../types/agent-adapter";
+import type {
+  AgentAdapterLogoutResponse,
+  AgentAdapterProbeResponse,
+  AgentAdapterResponse,
+} from "../types/agent-adapter";
 import type {
   AgentProfileResponse,
   AgentProfilesResponse,
@@ -364,6 +368,13 @@ export async function getAgentAdapters(): Promise<AgentAdapterResponse> {
 export async function probeAgentAdapter(adapterID: string): Promise<AgentAdapterProbeResponse> {
   return fetchJSON<AgentAdapterProbeResponse>(
     `${HECATE_API}/agent-adapters/${encodeURIComponent(adapterID)}/probe`,
+    { method: "POST" },
+  );
+}
+
+export async function logoutAgentAdapter(adapterID: string): Promise<AgentAdapterLogoutResponse> {
+  return fetchJSON<AgentAdapterLogoutResponse>(
+    `${HECATE_API}/agent-adapters/${encodeURIComponent(adapterID)}/logout`,
     { method: "POST" },
   );
 }

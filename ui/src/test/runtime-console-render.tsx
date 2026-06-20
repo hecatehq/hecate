@@ -246,6 +246,7 @@ function buildOverrides(actions: RuntimeConsoleFixtureActions): CoordinatorOverr
     },
     agentAdapters: {
       probeAgentAdapter: actions.probeAgentAdapter,
+      logoutAgentAdapter: actions.logoutAgentAdapter,
     },
     retention: {
       runRetention: actions.runRetention,

@@ -126,6 +126,9 @@ export function ConnectionsPanel({
   const agentAdapters = providersAndModels.state.agentAdapters;
   const agentAdapterHealthByID = providersAndModels.state.agentAdapterHealthByID;
   const agentAdapterHealthLoadingByID = providersAndModels.state.agentAdapterHealthLoadingByID;
+  const [agentAdapterLogoutLoadingByID, setAgentAdapterLogoutLoadingByID] = useState<
+    Map<string, true>
+  >(() => new Map());
   const chatGrants = approvals.state.grants;
   const chatGrantsLoading = approvals.state.grantsLoading;
   const chatGrantsError = approvals.state.grantsError;
@@ -138,6 +141,7 @@ export function ConnectionsPanel({
   );
   const listChatGrants = approvals.actions.loadGrants;
   const probeAgentAdapter = agentAdapterActions.probeAgentAdapter;
+  const logoutAgentAdapter = agentAdapterActions.logoutAgentAdapter;
 
   useEffect(() => {
     if (liveAnthropicProvider) setRememberedAnthropicProvider(liveAnthropicProvider);
@@ -208,6 +212,24 @@ export function ConnectionsPanel({
   // clipboard writes are side-effects, not session mutations.
   const copyCommand = runtime.actions.copyCommand;
 
+  async function handleLogoutAdapter(adapterID: string) {
+    setAgentAdapterLogoutLoadingByID((current) => {
+      const next = new Map(current);
+      next.set(adapterID, true);
+      return next;
+    });
+    try {
+      await logoutAgentAdapter(adapterID);
+    } finally {
+      setAgentAdapterLogoutLoadingByID((current) => {
+        if (!current.has(adapterID)) return current;
+        const next = new Map(current);
+        next.delete(adapterID);
+        return next;
+      });
+    }
+  }
+
   return (
     <>
       {showProviderSummary && (
@@ -231,9 +253,11 @@ export function ConnectionsPanel({
         agentAdapters={agentAdapters}
         agentAdapterHealthByID={agentAdapterHealthByID}
         agentAdapterHealthLoadingByID={agentAdapterHealthLoadingByID}
+        agentAdapterLogoutLoadingByID={agentAdapterLogoutLoadingByID}
         remoteRuntime={isRemoteRuntimeSession(runtime.state.sessionInfo)}
         copyCommand={copyCommand}
         onProbeAdapter={(adapterID) => void probeAgentAdapter(adapterID)}
+        onLogoutAdapter={(adapterID) => void handleLogoutAdapter(adapterID)}
       />
 
       <SectionHeader
@@ -638,16 +662,20 @@ function AdapterStatusSection({
   agentAdapters,
   agentAdapterHealthByID,
   agentAdapterHealthLoadingByID,
+  agentAdapterLogoutLoadingByID,
   remoteRuntime,
   copyCommand,
   onProbeAdapter,
+  onLogoutAdapter,
 }: {
   agentAdapters: ProvidersAndModelsState["agentAdapters"];
   agentAdapterHealthByID: ProvidersAndModelsState["agentAdapterHealthByID"];
   agentAdapterHealthLoadingByID: ProvidersAndModelsState["agentAdapterHealthLoadingByID"];
+  agentAdapterLogoutLoadingByID: Map<string, true>;
   remoteRuntime: boolean;
   copyCommand: (command: string) => Promise<void>;
   onProbeAdapter: (adapterID: string) => void;
+  onLogoutAdapter: (adapterID: string) => void;
 }) {
   if (!agentAdapters || agentAdapters.length === 0) {
     return null;
@@ -668,8 +696,10 @@ function AdapterStatusSection({
             divider={i < agentAdapters.length - 1}
             health={agentAdapterHealthByID.get(adapter.id) ?? null}
             loading={Boolean(agentAdapterHealthLoadingByID.get(adapter.id))}
+            logoutLoading={Boolean(agentAdapterLogoutLoadingByID.get(adapter.id))}
             onCopyCommand={(command) => void copyCommand(command)}
             onProbeAdapter={(item) => onProbeAdapter(item.id)}
+            onLogoutAdapter={(item) => onLogoutAdapter(item.id)}
           />
         ))}
       </div>
@@ -683,16 +713,20 @@ function AdapterStatusRow({
   divider,
   health,
   loading,
+  logoutLoading,
   onCopyCommand,
   onProbeAdapter,
+  onLogoutAdapter,
 }: {
   adapter: AgentAdapterRecord;
   remoteRuntime: boolean;
   divider: boolean;
   health: AgentAdapterHealthRecord | null;
   loading: boolean;
+  logoutLoading: boolean;
   onCopyCommand: (command: string) => void;
   onProbeAdapter: (adapter: AgentAdapterRecord) => void;
+  onLogoutAdapter: (adapter: AgentAdapterRecord) => void;
 }) {
   const readiness = resolveExternalAgentReadiness(adapter, health);
   const loginCommand = readiness.loginCommand;
@@ -727,6 +761,8 @@ function AdapterStatusRow({
   const showHealthDuration = Boolean(
     health?.duration_ms !== undefined && showHealthDebugMetadata && !showLocalAuthSetup,
   );
+  const showLogoutAction =
+    !remoteRuntime && adapter.available && adapterLogoutSupportedByHecate(adapter);
 
   return (
     <div
@@ -871,21 +907,39 @@ function AdapterStatusRow({
           />
         )}
       </div>
-      {loading && (
-        <span
-          data-testid={`external-agents-checking-${adapter.id}`}
-          style={{
-            fontFamily: "var(--font-mono)",
-            fontSize: 11,
-            color: "var(--t3)",
-            whiteSpace: "nowrap",
-          }}
-        >
-          checking…
-        </span>
-      )}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
+        {loading && (
+          <span
+            data-testid={`external-agents-checking-${adapter.id}`}
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 11,
+              color: "var(--t3)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            checking…
+          </span>
+        )}
+        {showLogoutAction && (
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => onLogoutAdapter(adapter)}
+            disabled={logoutLoading}
+            aria-label={`Sign out ${adapter.name || adapter.id}`}
+            title={`Sign out ${adapter.name || adapter.id}`}
+          >
+            <Icon d={Icons.x} size={12} /> {logoutLoading ? "Signing out..." : "Sign out"}
+          </button>
+        )}
+      </div>
     </div>
   );
+}
+
+function adapterLogoutSupportedByHecate(adapter: AgentAdapterRecord): boolean {
+  return adapter.id === "codex" || adapter.id === "claude_code";
 }
 
 function AdapterRemoteCredentialSetup({

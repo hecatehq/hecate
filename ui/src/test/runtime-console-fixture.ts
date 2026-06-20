@@ -278,6 +278,7 @@ export type RuntimeConsoleFixtureActions = {
   ) => Promise<boolean>;
   setHecateRTKEnabled: (enabled: boolean) => Promise<boolean>;
   probeAgentAdapter: (adapterID: string) => Promise<unknown>;
+  logoutAgentAdapter: (adapterID: string) => Promise<boolean>;
   dismissNotice: () => void;
 };
 
@@ -358,6 +359,7 @@ export function createRuntimeConsoleActions(): RuntimeConsoleFixtureActions {
     setChatConfigOption: async () => true,
     setHecateRTKEnabled: async () => true,
     probeAgentAdapter: async () => null,
+    logoutAgentAdapter: async () => true,
     dismissNotice: () => undefined,
   };
 }

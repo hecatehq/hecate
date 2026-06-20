@@ -73,3 +73,15 @@ export type AgentAdapterProbeResponse = {
     health: AgentAdapterHealthRecord;
   };
 };
+
+export type AgentAdapterLogoutRecord = {
+  adapter_id: string;
+  status: "logged_out" | string;
+  path?: string;
+  duration_ms: number;
+};
+
+export type AgentAdapterLogoutResponse = {
+  object: string;
+  data: AgentAdapterLogoutRecord;
+};

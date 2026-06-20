@@ -348,6 +348,41 @@ describe("Connections external-agent panel", () => {
     expect(within(denyRow).getByText(/always deny/i)).toBeTruthy();
   });
 
+  it("shows logout for logout-capable local adapters", async () => {
+    const logoutAgentAdapter = vi.fn(async () => true);
+    const { state, actions, user } = setup(
+      {
+        agentAdapters: [
+          {
+            id: "codex",
+            name: "Codex",
+            kind: "acp",
+            command: "codex-acp-adapter",
+            available: true,
+            status: "available",
+            auth_status: "ok",
+          },
+          {
+            id: "cursor_agent",
+            name: "Cursor Agent",
+            kind: "acp",
+            command: "cursor-agent",
+            available: true,
+            status: "available",
+            auth_status: "ok",
+          },
+        ],
+      },
+      { logoutAgentAdapter },
+    );
+    render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
+
+    await user.click(await screen.findByRole("button", { name: "Sign out Codex" }));
+
+    expect(logoutAgentAdapter).toHaveBeenCalledWith("codex");
+    expect(screen.queryByRole("button", { name: "Sign out Cursor Agent" })).toBeNull();
+  });
+
   it("revoke asks for inline confirmation before deleting the grant", async () => {
     const deleteChatGrant = vi.fn(async () => true);
     const { state, actions, user } = setup(

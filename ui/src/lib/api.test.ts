@@ -47,6 +47,7 @@ import {
   listChatApprovals,
   listChatGrants,
   listChatMessageFiles,
+  logoutAgentAdapter,
   openWorkspaceTargetViaAPI,
   probeAgentAdapter,
   promoteProjectMemoryCandidate,
@@ -1401,6 +1402,45 @@ describe("api client", () => {
 
       const [url] = fetchMock.mock.lastCall ?? [];
       expect(url).toBe("/hecate/v1/agent-adapters/weird%20id/probe");
+    });
+  });
+
+  describe("logoutAgentAdapter", () => {
+    it("URL-encodes the adapter id and returns the typed payload", async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          object: "agent_adapter_logout",
+          data: {
+            adapter_id: "claude_code",
+            status: "logged_out",
+            path: "/usr/local/bin/claude-code-acp-adapter",
+            duration_ms: 328,
+          },
+        }),
+      );
+
+      const result = await logoutAgentAdapter("claude_code");
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/hecate/v1/agent-adapters/claude_code/logout",
+        expect.objectContaining({ method: "POST" }),
+      );
+      expect(result.data.status).toBe("logged_out");
+      expect(result.data.duration_ms).toBe(328);
+    });
+
+    it("escapes ids with special characters", async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          object: "agent_adapter_logout",
+          data: { adapter_id: "weird id", status: "logged_out", duration_ms: 0 },
+        }),
+      );
+
+      await logoutAgentAdapter("weird id");
+
+      const [url] = fetchMock.mock.lastCall ?? [];
+      expect(url).toBe("/hecate/v1/agent-adapters/weird%20id/logout");
     });
   });
 
