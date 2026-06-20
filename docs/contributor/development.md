@@ -318,7 +318,8 @@ just test-acp-release-smoke
 That opt-in smoke downloads the Codex and Claude Code adapter versions pinned in
 the Dockerfiles, verifies their release checksums, puts fake `codex` / `claude`
 CLIs on `PATH`, and runs Hecate's probe/auth/logout/session/run path against
-the real adapter binaries, including session config selector changes. It
+the real adapter binaries, including session config selector changes and
+command-backed prompt execution. It
 requires network access and is intentionally not part of the normal unit-test
 ladder. The same check is available from GitHub Actions as the manual **ACP
 adapter release smoke** workflow.
