@@ -104,6 +104,9 @@ func TestProjectOperationsBrief_ReadOnlyProjectOperations(t *testing.T) {
 	if response.Data.Summary.PendingMemoryCandidateCount != 1 || response.Data.Summary.PendingHandoffCount != 1 {
 		t.Fatalf("operations summary = %+v, want memory candidate and handoff counts", response.Data.Summary)
 	}
+	if response.Data.Summary.ItemLimit != projectOperationsBriefItemLimit || response.Data.Summary.AvailableItemCount != response.Data.Summary.ItemCount || response.Data.Summary.OmittedItemCount != 0 {
+		t.Fatalf("operations summary = %+v, want untruncated item counts", response.Data.Summary)
+	}
 	assertProjectOperationsItemsHaveActions(t, response.Data.Items)
 
 	defaults := findProjectOperationsItemForTest(t, response.Data.Items, "configure_project_defaults")
@@ -137,6 +140,49 @@ func TestProjectOperationsBrief_ReadOnlyProjectOperations(t *testing.T) {
 	}
 	if len(afterAssignments) != len(beforeAssignments) || len(afterCandidates) != len(beforeCandidates) {
 		t.Fatalf("operations brief mutated project state: assignments %d->%d candidates %d->%d", len(beforeAssignments), len(afterAssignments), len(beforeCandidates), len(afterCandidates))
+	}
+}
+
+func TestProjectOperationsBrief_SummaryReportsBoundedItems(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	if _, err := handler.projects.Create(t.Context(), projects.Project{
+		ID:              "proj_cap",
+		Name:            "Cap",
+		DefaultProvider: "openai",
+		DefaultModel:    "gpt-5",
+	}); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	for idx := 0; idx < projectOperationsBriefItemLimit+3; idx++ {
+		if _, err := handler.projectWork.CreateWorkItem(t.Context(), projectwork.WorkItem{
+			ID:        "work_cap_" + intString(idx),
+			ProjectID: "proj_cap",
+			Title:     "Prepare work " + intString(idx),
+			Status:    projectwork.WorkItemStatusReady,
+			UpdatedAt: time.Date(2026, 6, 20, 12, idx, 0, 0, time.UTC),
+		}); err != nil {
+			t.Fatalf("CreateWorkItem(%d): %v", idx, err)
+		}
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_cap/operations/brief", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("operations brief status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response ProjectOperationsBriefEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode operations brief: %v", err)
+	}
+	if response.Data.Summary.ItemLimit != projectOperationsBriefItemLimit {
+		t.Fatalf("summary item_limit = %d, want %d", response.Data.Summary.ItemLimit, projectOperationsBriefItemLimit)
+	}
+	if response.Data.Summary.AvailableItemCount != projectOperationsBriefItemLimit+3 || response.Data.Summary.ItemCount != projectOperationsBriefItemLimit || response.Data.Summary.OmittedItemCount != 3 {
+		t.Fatalf("summary = %+v, want available %d visible %d omitted 3", response.Data.Summary, projectOperationsBriefItemLimit+3, projectOperationsBriefItemLimit)
+	}
+	if len(response.Data.Items) != projectOperationsBriefItemLimit {
+		t.Fatalf("items len = %d, want %d", len(response.Data.Items), projectOperationsBriefItemLimit)
 	}
 }
 

@@ -60,6 +60,10 @@ project records.
 When there is no server-backed operation to show, the tab keeps only the
 compact resume summary; clients should not derive a second actionable
 next-action cascade from project state.
+The operations brief is intentionally compact. The server sorts operations by
+operator urgency before applying its item cap, and the response summary reports
+how many operations were available, returned, and omitted so the UI can show
+when lower-priority work is hidden by the cap.
 
 Use the top Project Operations action for the single most useful operator step,
 then jump to
