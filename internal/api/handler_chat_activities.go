@@ -65,6 +65,22 @@ func newChatActivity(kind, status, title, detail string) chat.Activity {
 	}
 }
 
+func externalAgentStopReasonActivity(reason string) (chat.Activity, bool) {
+	reason = strings.TrimSpace(reason)
+	switch reason {
+	case "", "end_turn", "cancelled":
+		return chat.Activity{}, false
+	case "max_tokens":
+		return newChatActivity("stop_reason", "completed", "Agent stop reason", "The external agent stopped because it reached its token limit."), true
+	case "max_turn_requests":
+		return newChatActivity("stop_reason", "completed", "Agent stop reason", "The external agent stopped because it reached its turn limit."), true
+	case "refusal":
+		return newChatActivity("stop_reason", "completed", "Agent stop reason", "The external agent refused to continue this turn."), true
+	default:
+		return newChatActivity("stop_reason", "completed", "Agent stop reason", "ACP stop reason: "+reason), true
+	}
+}
+
 func agentChatActivityFromAdapter(activity agentadapters.Activity) chat.Activity {
 	return chat.Activity{
 		ID:              strings.TrimSpace(activity.ID),

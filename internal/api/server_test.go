@@ -1358,6 +1358,38 @@ func TestAgentChatRunsExternalAdapter(t *testing.T) {
 	}
 }
 
+func TestAgentChatSurfacesExternalAgentStopReason(t *testing.T) {
+	dir := t.TempDir()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{
+		output:     "partial answer\n",
+		stopReason: "max_tokens",
+	})
+	handler := NewServer(logger, apiHandler)
+	client := newAPITestClient(t, handler)
+
+	created := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions", fmt.Sprintf(`{"agent_id":"codex","workspace":%q}`, dir))
+	updated := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions/"+created.Data.ID+"/messages", `{"content":"answer until the context limit"}`)
+	if len(updated.Data.Messages) != 2 {
+		t.Fatalf("message count = %d, want 2", len(updated.Data.Messages))
+	}
+	assistant := updated.Data.Messages[1]
+	var found *ChatActivityItem
+	for i := range assistant.Activities {
+		if assistant.Activities[i].Type == "stop_reason" {
+			found = &assistant.Activities[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("activities = %#v, want stop_reason activity", assistant.Activities)
+	}
+	if found.Status != "completed" || found.Title != "Agent stop reason" || !strings.Contains(found.Detail, "token limit") {
+		t.Fatalf("stop reason activity = %#v, want completed token-limit detail", *found)
+	}
+}
+
 func TestUpdateChatSessionRenamesSession(t *testing.T) {
 	t.Parallel()
 
@@ -2754,6 +2786,7 @@ type fakeAgentChatRunner struct {
 	sessionStarted         bool
 	sessionResumed         bool
 	sessionRecovery        string
+	stopReason             string
 	seenPreviousID         string
 	usage                  agentadapters.Usage
 	diffStat               string
@@ -2866,6 +2899,7 @@ func (r *fakeAgentChatRunner) result(req agentadapters.RunRequest, output string
 		Adapter:                adapter,
 		DriverKind:             agentadapters.DriverKindACP,
 		NativeSessionID:        nativeSessionID,
+		StopReason:             r.stopReason,
 		SessionStarted:         r.sessionStarted,
 		SessionResumed:         r.sessionResumed,
 		SessionRecovery:        r.sessionRecovery,

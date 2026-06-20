@@ -101,6 +101,9 @@ func TestACPAdapterReleaseBinariesSmoke(t *testing.T) {
 			if run.Usage.ContextSize == 0 || run.Usage.ContextUsed == 0 {
 				t.Fatalf("Run(%s) usage = %#v, want adapter-reported usage", tt.adapterID, run.Usage)
 			}
+			if run.StopReason != tt.wantStopReason {
+				t.Fatalf("Run(%s) stop reason = %q, want %q", tt.adapterID, run.StopReason, tt.wantStopReason)
+			}
 
 			logout, err := Logout(context.Background(), tt.adapterID)
 			if err != nil {
@@ -121,6 +124,7 @@ type acpReleaseSmokeTestCase struct {
 	vendorCommand       string
 	vendorScript        string
 	wantOutput          string
+	wantStopReason      string
 	wantConfigOptionIDs []string
 	wantCommands        []string
 }
@@ -130,13 +134,14 @@ func acpReleaseSmokeTestCases(t *testing.T) []acpReleaseSmokeTestCase {
 	dev := readDockerfile(t, "Dockerfile")
 	return []acpReleaseSmokeTestCase{
 		{
-			adapterID:     "codex",
-			repo:          "codex-acp-adapter",
-			binary:        "codex-acp-adapter",
-			version:       dockerfileArgValue(dev, "CODEX_ACP_ADAPTER_VERSION"),
-			vendorCommand: "codex",
-			vendorScript:  fakeCodexCLIScript,
-			wantOutput:    "go codex answer",
+			adapterID:      "codex",
+			repo:           "codex-acp-adapter",
+			binary:         "codex-acp-adapter",
+			version:        dockerfileArgValue(dev, "CODEX_ACP_ADAPTER_VERSION"),
+			vendorCommand:  "codex",
+			vendorScript:   fakeCodexCLIScript,
+			wantOutput:     "go codex answer",
+			wantStopReason: "max_tokens",
 			wantConfigOptionIDs: []string{
 				"model",
 				"reasoning_effort",
@@ -146,13 +151,14 @@ func acpReleaseSmokeTestCases(t *testing.T) []acpReleaseSmokeTestCase {
 			wantCommands: []string{"review", "init"},
 		},
 		{
-			adapterID:     "claude_code",
-			repo:          "claude-code-acp-adapter",
-			binary:        "claude-code-acp-adapter",
-			version:       dockerfileArgValue(dev, "CLAUDE_CODE_ACP_ADAPTER_VERSION"),
-			vendorCommand: "claude",
-			vendorScript:  fakeClaudeCodeCLIScript,
-			wantOutput:    "go claude answer",
+			adapterID:      "claude_code",
+			repo:           "claude-code-acp-adapter",
+			binary:         "claude-code-acp-adapter",
+			version:        dockerfileArgValue(dev, "CLAUDE_CODE_ACP_ADAPTER_VERSION"),
+			vendorCommand:  "claude",
+			vendorScript:   fakeClaudeCodeCLIScript,
+			wantOutput:     "go claude answer",
+			wantStopReason: "max_turn_requests",
 			wantConfigOptionIDs: []string{
 				"model",
 				"effort",
@@ -279,7 +285,7 @@ case "$1" in
     printf '{"method":"item/started","params":{"item":{"type":"local_shell_call","id":"tool-1","command":"go test ./..."}}}\n'
     printf '{"method":"item/reasoning/textDelta","params":{"item_id":"thought-1","delta":"checking"}}\n'
     printf '{"method":"item/completed","params":{"item":{"type":"agent_message","id":"msg-1","text":"go codex answer"}}}\n'
-    printf '{"method":"turn/completed","params":{"usage":{"input_tokens":10,"output_tokens":5,"context_window":100}}}\n'
+    printf '{"method":"turn/completed","params":{"finish_reason":"max_tokens","usage":{"input_tokens":10,"output_tokens":5,"context_window":100}}}\n'
     printf '{"method":"item/completed","params":{"item":{"type":"local_shell_call","id":"tool-1","status":"completed","stdout":"ok"}}}\n'
     exit 0
     ;;
@@ -307,7 +313,7 @@ case "$1" in
   --print)
     printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tool-1","name":"Bash","input":{"command":"go test ./..."}}]}}\n'
     printf '{"type":"assistant","message":{"content":[{"type":"thinking","id":"thought-1","thinking":"checking"},{"type":"text","text":"go claude answer"}]}}\n'
-    printf '{"type":"result","usage":{"input_tokens":10,"output_tokens":5,"context_window":100}}\n'
+    printf '{"type":"result","subtype":"error_max_turns","usage":{"input_tokens":10,"output_tokens":5,"context_window":100}}\n'
     printf '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tool-1","content":"ok"}]}}\n'
     exit 0
     ;;
