@@ -70,6 +70,26 @@ func TestDockerfilesPinSameGoACPAdapterVersions(t *testing.T) {
 	}
 }
 
+func TestDockerfilesPinSameCursorInstallerChecksum(t *testing.T) {
+	t.Parallel()
+
+	dev := readDockerfile(t, "Dockerfile")
+	release := readDockerfile(t, "Dockerfile.release")
+	const want = "05d42095f24db4289feff7a08934a23ce68d5a6cf9e9d85e4c538939671b33ea"
+
+	devChecksum := dockerfileArgValue(dev, "CURSOR_INSTALL_SHA256")
+	releaseChecksum := dockerfileArgValue(release, "CURSOR_INSTALL_SHA256")
+	if devChecksum == "" || releaseChecksum == "" {
+		t.Fatalf("CURSOR_INSTALL_SHA256 = dev:%q release:%q, want both Dockerfiles pinned", devChecksum, releaseChecksum)
+	}
+	if devChecksum != releaseChecksum {
+		t.Fatalf("CURSOR_INSTALL_SHA256 drifted: Dockerfile=%s Dockerfile.release=%s", devChecksum, releaseChecksum)
+	}
+	if devChecksum != want {
+		t.Fatalf("CURSOR_INSTALL_SHA256 = %s, want %s", devChecksum, want)
+	}
+}
+
 func readDockerfile(t testing.TB, name string) string {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join("..", "..", name))
