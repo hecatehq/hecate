@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { formatInteger } from "../../lib/format";
 import type {
   ChatContextSummaryRecord,
+  ChatMCPServerRecord,
   ChatSessionRecord,
   ChatUsageRecord,
 } from "../../types/chat";
@@ -133,6 +134,15 @@ export function ChatSettingsPanel({
             />
           </ChatSettingsSection>
         ) : null}
+        {!showHecateControls && externalSession?.mcp_servers?.length ? (
+          <ChatSettingsSection title="MCP servers">
+            <div style={{ display: "grid", gap: 6 }}>
+              {externalSession.mcp_servers.map((server, index) => (
+                <ChatSettingsMCPServer key={`${server.name}-${index}`} server={server} />
+              ))}
+            </div>
+          </ChatSettingsSection>
+        ) : null}
         {externalRTK && (
           <ChatSettingsSection title="RTK setup">
             <ChatSettingsExternalRTKRow info={externalRTK} onCopyCommand={onCopyCommand} />
@@ -207,6 +217,45 @@ export function ChatSettingsPanel({
           </div>
         </ChatSettingsSection>
       </div>
+    </div>
+  );
+}
+
+function ChatSettingsMCPServer({ server }: { server: ChatMCPServerRecord }) {
+  const transport = server.url ? "HTTP" : "stdio";
+  return (
+    <div
+      style={{
+        border: "1px solid var(--border)",
+        borderRadius: 12,
+        background: "var(--bg1)",
+        padding: 10,
+        display: "grid",
+        gap: 5,
+      }}
+    >
+      <ChatSettingsField label="Name" value={server.name || "unnamed"} mono />
+      <ChatSettingsField label="Transport" value={transport} mono />
+      {server.url ? (
+        <ChatSettingsField label="URL" value={server.url} mono title={server.url} />
+      ) : (
+        <ChatSettingsField
+          label="Command"
+          value={[server.command, ...(server.args ?? [])].filter(Boolean).join(" ")}
+          mono
+          title={[server.command, ...(server.args ?? [])].filter(Boolean).join(" ")}
+        />
+      )}
+      {Object.keys(server.env ?? {}).length > 0 && (
+        <ChatSettingsField label="Env" value={Object.keys(server.env ?? {}).join(", ")} mono />
+      )}
+      {Object.keys(server.headers ?? {}).length > 0 && (
+        <ChatSettingsField
+          label="Headers"
+          value={Object.keys(server.headers ?? {}).join(", ")}
+          mono
+        />
+      )}
     </div>
   );
 }

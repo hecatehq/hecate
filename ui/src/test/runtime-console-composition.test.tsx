@@ -3,7 +3,7 @@ import { type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApprovalsProvider } from "../app/state/approvals";
-import { ChatProvider } from "../app/state/chat";
+import { ChatProvider, type ChatState } from "../app/state/chat";
 import { ProvidersAndModelsProvider } from "../app/state/providersAndModels";
 import { ProjectsProvider } from "../app/state/projects";
 import { RetentionProvider } from "../app/state/retention";
@@ -21,9 +21,11 @@ import type { ProjectRecord } from "../types/project";
 // test bodies don't have to thread it through every call.
 function SliceProviders({
   children,
+  chatInitialState,
   projects,
 }: {
   children: ReactNode;
+  chatInitialState?: Partial<ChatState>;
   projects?: ProjectRecord[];
 }) {
   return (
@@ -31,7 +33,7 @@ function SliceProviders({
       <UsageProvider>
         <ProvidersAndModelsProvider>
           <ProjectsProvider initialState={projects ? { projects } : undefined}>
-            <ChatProvider>
+            <ChatProvider initialState={chatInitialState}>
               <RetentionProvider>
                 <ApprovalsProvider>
                   <SettingsProvider>{children}</SettingsProvider>
@@ -46,13 +48,18 @@ function SliceProviders({
 }
 
 type RuntimeConsoleHookOptions = Omit<RenderHookOptions<unknown>, "wrapper"> & {
+  chatInitialState?: Partial<ChatState>;
   projects?: ProjectRecord[];
 };
 
 function renderRuntimeConsoleHook(options?: RuntimeConsoleHookOptions) {
-  const { projects, ...renderOptions } = options ?? {};
+  const { chatInitialState, projects, ...renderOptions } = options ?? {};
   function Wrapper({ children }: { children: ReactNode }) {
-    return <SliceProviders projects={projects}>{children}</SliceProviders>;
+    return (
+      <SliceProviders chatInitialState={chatInitialState} projects={projects}>
+        {children}
+      </SliceProviders>
+    );
   }
   return renderHook(() => useRuntimeConsole(), { ...renderOptions, wrapper: Wrapper });
 }
@@ -1043,6 +1050,90 @@ describe("useRuntimeConsole", () => {
       project_id: "proj_1",
     });
     expect(result.current.state.activeChatSession?.project_id).toBe("proj_1");
+  });
+
+  it("passes draft MCP servers when creating an external-agent chat", async () => {
+    let createBody: any = null;
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/agent-adapters": () =>
+          jsonResponse({
+            object: "agent_adapters",
+            data: [{ id: "codex", name: "Codex", kind: "acp", available: true }],
+          }),
+        "/hecate/v1/chat/sessions": (init) => {
+          if (init?.method === "POST") {
+            createBody = JSON.parse(String(init.body ?? "{}"));
+            return jsonResponse({
+              object: "chat_session",
+              data: {
+                id: "chat_codex_mcp",
+                title: "Codex chat",
+                agent_id: "codex",
+                workspace: "/tmp/hecate",
+                status: "idle",
+                mcp_servers: createBody.mcp_servers,
+                messages: [],
+              },
+            });
+          }
+          return jsonResponse({ object: "chat_sessions", data: [] });
+        },
+      }),
+    );
+
+    const { result } = renderRuntimeConsoleHook({
+      chatInitialState: {
+        agentWorkspace: "/tmp/hecate",
+        agentMCPServers: [
+          {
+            name: "filesystem",
+            transport: "stdio",
+            command: "mcp-fs",
+            argsRaw: "--root /tmp/hecate",
+            envRaw: "TOKEN=$MCP_TOKEN",
+            url: "",
+            headersRaw: "",
+            approvalPolicy: "require_approval",
+          },
+          {
+            name: "remote",
+            transport: "http",
+            command: "",
+            argsRaw: "",
+            envRaw: "",
+            url: "https://mcp.example.com/mcp",
+            headersRaw: "Authorization=Bearer $MCP_TOKEN",
+            approvalPolicy: "block",
+          },
+        ],
+      },
+    });
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.actions.createChatSession({ agentID: "codex" });
+    });
+
+    expect(createBody).toMatchObject({
+      agent_id: "codex",
+      workspace: "/tmp/hecate",
+      mcp_servers: [
+        {
+          name: "filesystem",
+          command: "mcp-fs",
+          args: ["--root", "/tmp/hecate"],
+          env: { TOKEN: "$MCP_TOKEN" },
+        },
+        {
+          name: "remote",
+          url: "https://mcp.example.com/mcp",
+          headers: { Authorization: "Bearer $MCP_TOKEN" },
+        },
+      ],
+    });
+    expect(createBody.mcp_servers[0].approval_policy).toBeUndefined();
+    expect(createBody.mcp_servers[1].approval_policy).toBeUndefined();
   });
 
   it("shows workspace guidance when creating an external-agent chat without a workspace", async () => {

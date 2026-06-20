@@ -35,6 +35,7 @@ import {
 
 import { applyOverride, CoordinatorOverridesContext } from "./coordinators/overrides";
 import { ApiError, type ChatMessage } from "../../lib/api";
+import type { MCPServerFormEntry } from "../../lib/mcp-server-form";
 import { parseStoredJSON, parseStoredString, usePersistedState } from "../../lib/persistedState";
 import type { ModelFilter } from "../../types/model";
 import type { ProviderFilter } from "../../types/provider";
@@ -84,6 +85,7 @@ export type ChatState = {
   chatToolsEnabledBySessionID: Map<string, boolean>;
   agentAdapterID: string;
   agentConfigOptions: ChatConfigOptionRecord[];
+  agentMCPServers: MCPServerFormEntry[];
   agentWorkspace: string;
   agentWorkspaceBranch: string;
   chatSessions: ChatSessionsResponse["data"];
@@ -118,6 +120,7 @@ export type ChatActions = {
   setChatToolsEnabledBySessionID: Setter<Map<string, boolean>>;
   setAgentAdapterID: Setter<string>;
   setAgentConfigOptions: Setter<ChatConfigOptionRecord[]>;
+  setAgentMCPServers: Setter<MCPServerFormEntry[]>;
   setAgentWorkspace: Setter<string>;
   setAgentWorkspaceBranch: Setter<string>;
   setChatSessions: Setter<ChatSessionsResponse["data"]>;
@@ -199,6 +202,9 @@ export function ChatProvider({
   );
   const [agentConfigOptions, setAgentConfigOptions] = useState<ChatConfigOptionRecord[]>(
     initialState?.agentConfigOptions ?? [],
+  );
+  const [agentMCPServers, setAgentMCPServers] = useState<MCPServerFormEntry[]>(
+    initialState?.agentMCPServers ?? [],
   );
   const [agentWorkspace, setAgentWorkspace] = useState(initialState?.agentWorkspace ?? "");
   const [agentWorkspaceBranch, setAgentWorkspaceBranch] = useState(
@@ -338,6 +344,7 @@ export function ChatProvider({
       chatToolsEnabledBySessionID,
       agentAdapterID,
       agentConfigOptions,
+      agentMCPServers,
       agentWorkspace,
       agentWorkspaceBranch,
       chatSessions,
@@ -368,6 +375,7 @@ export function ChatProvider({
       chatToolsEnabledBySessionID,
       agentAdapterID,
       agentConfigOptions,
+      agentMCPServers,
       agentWorkspace,
       agentWorkspaceBranch,
       chatSessions,
@@ -401,6 +409,7 @@ export function ChatProvider({
       setChatToolsEnabledBySessionID,
       setAgentAdapterID,
       setAgentConfigOptions,
+      setAgentMCPServers,
       setAgentWorkspace,
       setAgentWorkspaceBranch,
       setChatSessions,
@@ -431,6 +440,7 @@ export function ChatProvider({
       setChatToolsEnabledBySessionID,
       setAgentAdapterID,
       setAgentConfigOptions,
+      setAgentMCPServers,
       setAgentWorkspace,
       setChatSessions,
       setActiveChatSessionID,

@@ -51,6 +51,7 @@ import {
   isModelValidForProvider,
   renderChatSessionSummary,
 } from "../../runtimeConsoleChatHelpers";
+import { mcpServerFormEntriesToPayload } from "../../../lib/mcp-server-form";
 import { modelSelectionHasNoToolCalling } from "../../../lib/chat-setup-readiness";
 import { projectByID, projectDefaultWorkspace } from "../../../lib/project-workspace";
 import {
@@ -375,6 +376,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     chatToolsEnabledBySessionID,
     agentAdapterID,
     agentConfigOptions,
+    agentMCPServers,
     agentWorkspace,
     activeChatSessionID,
     activeChatSession,
@@ -391,6 +393,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     setChatToolsEnabledBySessionID,
     setAgentAdapterID,
     setAgentConfigOptions,
+    setAgentMCPServers,
     setAgentWorkspace,
     setAgentWorkspaceBranch,
     setChatSessions,
@@ -542,6 +545,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
   function setNewChatAgent(nextAgentID: string) {
     if (nextAgentID === "hecate") {
       setAgentConfigOptions([]);
+      setAgentMCPServers([]);
       setDefaultChatTarget("agent");
       return;
     }
@@ -556,6 +560,10 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       return agentConfigOptions;
     }
     return agentAdapters.find((item) => item.id === agentID)?.config_options ?? [];
+  }
+
+  function mcpServersForExternalAgent() {
+    return mcpServerFormEntriesToPayload(agentMCPServers, { includeApprovalPolicy: false });
   }
 
   async function submitChat(event: SyntheticEvent<HTMLFormElement>) {
@@ -705,6 +713,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       }
       if (!sessionID) {
         const configOptions = isExternalAgent ? configOptionsForExternalAgent(turnAgentID) : [];
+        const mcpServers = isExternalAgent ? mcpServersForExternalAgent() : [];
         const created = await createChatSessionRequest({
           title: deriveChatSessionTitle(content),
           ...(activeProjectID ? { project_id: activeProjectID } : {}),
@@ -718,6 +727,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
           ...(!isDirectModelTurn ? { workspace: turnWorkspace } : {}),
           ...(!isExternalAgent && turnToolsEnabled ? { rtk_enabled: hecateRTKEnabled } : {}),
           ...(isExternalAgent && configOptions.length > 0 ? { config_options: configOptions } : {}),
+          ...(isExternalAgent && mcpServers.length > 0 ? { mcp_servers: mcpServers } : {}),
         });
         sessionID = created.data.id;
         setActiveChatSessionID(sessionID);
@@ -964,12 +974,14 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       try {
         const adapter = agentAdapters.find((item) => item.id === externalAgentID);
         const configOptions = configOptionsForExternalAgent(externalAgentID);
+        const mcpServers = mcpServersForExternalAgent();
         const created = await createChatSessionRequest({
           title: requestedTitle || (adapter ? `${adapter.name} chat` : "External agent chat"),
           ...(createProjectID ? { project_id: createProjectID } : {}),
           agent_id: externalAgentID,
           workspace,
           ...(configOptions.length > 0 ? { config_options: configOptions } : {}),
+          ...(mcpServers.length > 0 ? { mcp_servers: mcpServers } : {}),
         });
         setActiveChatSessionID(created.data.id);
         applyChatSession(created.data);

@@ -29,6 +29,7 @@ import type {
   ProviderRecord,
 } from "../../types/provider";
 import { Icon, Icons, InlineError } from "../shared/ui";
+import { MCPServerEditor } from "../shared/MCPServerEditor";
 
 import {
   ExternalAgentConfigControls,
@@ -38,6 +39,7 @@ import {
 } from "./ChatAgentControls";
 import { ChatNoticeInline } from "./ChatNotice";
 import { mergeAgentConfigOptions } from "./agentConfigOptions";
+import { mcpServerFormEntriesToPayload } from "../../lib/mcp-server-form";
 
 const COMPOSER_TEXTAREA_MAX_LINES = 10;
 const COMPOSER_TEXTAREA_MIN_HEIGHT = 42;
@@ -300,6 +302,9 @@ export function ChatComposer(props: ChatComposerProps) {
           config_options: draftAgentConfigOptions,
         }
       : null;
+  const draftMCPServerCount = mcpServerFormEntriesToPayload(chat.state.agentMCPServers, {
+    includeApprovalPolicy: false,
+  }).length;
   const chatError = suppressChatError ? "" : rawChatError;
   const composerNoticeVisible = Boolean(
     composerRepair || chatError || (isHecateChat && selectedModelIssue),
@@ -730,11 +735,45 @@ export function ChatComposer(props: ChatComposerProps) {
           }}
         >
           {isExternalAgentChat ? (
-            <ExternalAgentConfigControls
-              session={externalConfigSession}
-              onChange={handleExternalAgentConfigChange}
-              placement="composer"
-            />
+            <>
+              <ExternalAgentConfigControls
+                session={externalConfigSession}
+                onChange={handleExternalAgentConfigChange}
+                placement="composer"
+              />
+              {!activeExternalAgentID && (
+                <details
+                  style={{
+                    width: "100%",
+                    maxWidth: 520,
+                    border: "1px solid var(--border)",
+                    borderRadius: "var(--radius-sm)",
+                    background: "var(--bg1)",
+                    padding: "6px 8px",
+                  }}
+                >
+                  <summary
+                    style={{
+                      cursor: "pointer",
+                      color: "var(--t2)",
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 11,
+                    }}
+                  >
+                    MCP servers{draftMCPServerCount > 0 ? ` x ${draftMCPServerCount}` : ""}
+                  </summary>
+                  <div style={{ marginTop: 8 }}>
+                    <MCPServerEditor
+                      entries={chat.state.agentMCPServers}
+                      onChange={chat.actions.setAgentMCPServers}
+                      label=""
+                      includeApprovalPolicy={false}
+                      compact
+                    />
+                  </div>
+                </details>
+              )}
+            </>
           ) : hecateAgentModelLocked ? (
             <LockedHecateModelSnapshot
               provider={providerLabelForHecateChat(

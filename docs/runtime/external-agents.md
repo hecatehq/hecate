@@ -168,6 +168,10 @@ exposed inside its own runtime. Hecate-owned Chat tool turns use per-message
 `mcp_servers` instead, because each tool-backed turn creates or continues an
 explicit task segment with its own recorded server set.
 
+In the operator UI, expand **MCP servers** in the new External Agent composer
+controls before the session is created. Session-level MCP config is fixed at
+ACP session start; existing chats show the configured servers in Chat settings.
+
 ACP agents may also advertise **available slash commands** with
 `available_commands_update`. Hecate stores the latest advertised command
 metadata on the chat session as `available_commands` so clients can render

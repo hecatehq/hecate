@@ -9,6 +9,12 @@ import {
   SlideOver,
   type ProviderOption,
 } from "../shared/ui";
+import { MCPServerEditor } from "../shared/MCPServerEditor";
+import {
+  mcpServerFormEntriesToPayload,
+  type MCPApprovalPolicy,
+  type MCPServerFormEntry,
+} from "../../lib/mcp-server-form";
 
 export type ExecutionKind = "shell" | "git" | "file" | "agent_loop";
 
@@ -84,38 +90,8 @@ export type CreateTaskPayload = {
     env?: Record<string, string>;
     url?: string;
     headers?: Record<string, string>;
-    approval_policy?: McpApprovalPolicy;
+    approval_policy?: MCPApprovalPolicy;
   }>;
-};
-
-// McpServerTransport selects which set of fields the operator fills
-// in. stdio (default) = subprocess via command + args + env. http =
-// remote via url + headers. The two are mutually exclusive at the
-// gateway, so the form enforces one-or-the-other on a per-row basis.
-type McpServerTransport = "stdio" | "http";
-
-// McpApprovalPolicy mirrors pkg/types.MCPApproval*. Empty string
-// (only used in form state, not on the wire) means "no explicit
-// choice" → the gateway interprets that as auto. The form normalizes
-// to omitting the field on submit when the operator left it at the
-// default.
-export type McpApprovalPolicy = "auto" | "require_approval" | "block";
-
-// McpServerFormEntry is the in-form representation of one MCP server
-// row. Args / env / headers stay as raw text in state so the operator
-// can edit them as freeform input; we parse to arrays/maps on submit.
-type McpServerFormEntry = {
-  name: string;
-  transport: McpServerTransport;
-  // stdio transport
-  command: string;
-  argsRaw: string; // whitespace-separated tokens
-  envRaw: string; // KEY=VALUE per line
-  // http transport
-  url: string;
-  headersRaw: string; // KEY=VALUE per line — same parser as envRaw
-  // common
-  approvalPolicy: McpApprovalPolicy;
 };
 
 type Props = {
@@ -253,7 +229,7 @@ export function NewTaskSlideOver({
   // External MCP servers — only meaningful for agent_loop. Edited
   // as raw text rows in the form; parsed into the API shape on
   // submit. Empty array = no external MCP host (built-in tools only).
-  const [mcpServers, setMcpServers] = useState<McpServerFormEntry[]>([]);
+  const [mcpServers, setMcpServers] = useState<MCPServerFormEntry[]>([]);
 
   useEffect(() => {
     if (!open) return;
@@ -266,28 +242,6 @@ export function NewTaskSlideOver({
     });
     setLastDefaultWorkspace(normalizedDefaultWorkspace);
   }, [lastDefaultWorkspace, normalizedDefaultWorkspace, open]);
-
-  function updateMcpServer(index: number, patch: Partial<McpServerFormEntry>) {
-    setMcpServers((prev) => prev.map((entry, i) => (i === index ? { ...entry, ...patch } : entry)));
-  }
-  function addMcpServer() {
-    setMcpServers((prev) => [
-      ...prev,
-      {
-        name: "",
-        transport: "stdio",
-        command: "",
-        argsRaw: "",
-        envRaw: "",
-        url: "",
-        headersRaw: "",
-        approvalPolicy: "auto",
-      },
-    ]);
-  }
-  function removeMcpServer(index: number) {
-    setMcpServers((prev) => prev.filter((_, i) => i !== index));
-  }
 
   function formIsValid(): boolean {
     if (taskKind === "shell") return taskCommand.trim() !== "";
@@ -316,34 +270,7 @@ export function NewTaskSlideOver({
     // mixing command + url is a hard error at the gateway, so we
     // never send both even if the operator's stale state for the
     // inactive side is still in memory.
-    const mcpPayload =
-      taskKind === "agent_loop"
-        ? mcpServers
-            .filter((e) => e.name.trim() !== "" || e.command.trim() !== "" || e.url.trim() !== "")
-            .map((e) => {
-              const base: NonNullable<CreateTaskPayload["mcp_servers"]>[number] = {
-                name: e.name.trim(),
-              };
-              if (e.transport === "stdio") {
-                base.command = e.command.trim();
-                if (e.argsRaw.trim() !== "") base.args = e.argsRaw.trim().split(/\s+/);
-                const env = parseKeyValueLines(e.envRaw);
-                if (env) base.env = env;
-              } else {
-                base.url = e.url.trim();
-                const headers = parseKeyValueLines(e.headersRaw);
-                if (headers) base.headers = headers;
-              }
-              // Omit approval_policy when it's the default ("auto")
-              // — the gateway treats absence as auto, and sending it
-              // explicitly on every row would make API responses
-              // noisier without changing behavior.
-              if (e.approvalPolicy && e.approvalPolicy !== "auto") {
-                base.approval_policy = e.approvalPolicy;
-              }
-              return base;
-            })
-        : [];
+    const mcpPayload = taskKind === "agent_loop" ? mcpServerFormEntriesToPayload(mcpServers) : [];
 
     onCreate({
       prompt:
@@ -778,152 +705,12 @@ export function NewTaskSlideOver({
         )}
 
         {taskKind === "agent_loop" && (
-          <div>
-            <label
-              style={{
-                fontSize: 11,
-                color: "var(--t2)",
-                display: "block",
-                marginBottom: 4,
-                fontFamily: "var(--font-mono)",
-              }}
-            >
-              MCP SERVERS{" "}
-              <span style={{ color: "var(--t3)" }}>
-                (optional, exposes external tools as mcp__&lt;name&gt;__&lt;tool&gt;)
-              </span>
-            </label>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {mcpServers.map((entry, i) => (
-                <div
-                  key={i}
-                  style={{
-                    border: "1px solid var(--border)",
-                    borderRadius: "var(--radius-sm)",
-                    padding: 8,
-                    background: "var(--bg0)",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 6,
-                  }}
-                >
-                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                    <input
-                      className="input"
-                      aria-label={`MCP server ${i + 1} name`}
-                      placeholder="name (e.g. filesystem)"
-                      value={entry.name}
-                      onChange={(e) => updateMcpServer(i, { name: e.target.value })}
-                      style={{ flex: 1 }}
-                    />
-                    <button
-                      className="btn btn-ghost btn-sm"
-                      style={{ padding: "3px 6px" }}
-                      onClick={() => removeMcpServer(i)}
-                      title="Remove this server"
-                      aria-label={`Remove MCP server ${entry.name || i + 1}`}
-                      type="button"
-                    >
-                      <Icon d={Icons.x} size={12} />
-                    </button>
-                  </div>
-                  {/* Transport pill — stdio (subprocess) vs http
-                        (remote MCP). Switching between them swaps
-                        the field set below. We keep both sides'
-                        state around so flipping back doesn't lose
-                        the operator's typing. */}
-                  <PillToggle
-                    ariaLabel={`Server ${i + 1} transport`}
-                    options={[
-                      { value: "stdio", label: "stdio" },
-                      { value: "http", label: "HTTP" },
-                    ]}
-                    value={entry.transport}
-                    onChange={(v) => updateMcpServer(i, { transport: v as McpServerTransport })}
-                  />
-                  {entry.transport === "stdio" && (
-                    <>
-                      <input
-                        className="input"
-                        aria-label={`MCP server ${i + 1} command`}
-                        placeholder="command (e.g. npx)"
-                        value={entry.command}
-                        onChange={(e) => updateMcpServer(i, { command: e.target.value })}
-                      />
-                      <input
-                        className="input"
-                        aria-label={`MCP server ${i + 1} args`}
-                        placeholder="args (space-separated, e.g. -y @modelcontextprotocol/server-filesystem /workspace)"
-                        value={entry.argsRaw}
-                        onChange={(e) => updateMcpServer(i, { argsRaw: e.target.value })}
-                      />
-                      <textarea
-                        className="input"
-                        aria-label={`MCP server ${i + 1} environment`}
-                        placeholder="env (KEY=VALUE per line — encrypted at rest when a settings key is configured; $VAR_NAME refers to gateway env)"
-                        rows={2}
-                        style={{ resize: "vertical" }}
-                        value={entry.envRaw}
-                        onChange={(e) => updateMcpServer(i, { envRaw: e.target.value })}
-                      />
-                    </>
-                  )}
-                  {entry.transport === "http" && (
-                    <>
-                      <input
-                        className="input"
-                        aria-label={`MCP server ${i + 1} URL`}
-                        placeholder="url (e.g. https://api.example.com/mcp)"
-                        value={entry.url}
-                        onChange={(e) => updateMcpServer(i, { url: e.target.value })}
-                      />
-                      <textarea
-                        className="input"
-                        aria-label={`MCP server ${i + 1} headers`}
-                        placeholder="headers (KEY=VALUE per line, e.g. Authorization=Bearer $GITHUB_TOKEN — same secret rules as env)"
-                        rows={2}
-                        style={{ resize: "vertical" }}
-                        value={entry.headersRaw}
-                        onChange={(e) => updateMcpServer(i, { headersRaw: e.target.value })}
-                      />
-                    </>
-                  )}
-                  {/* Approval policy: auto (default) dispatches
-                        immediately; require_approval pauses every
-                        tool call until the operator approves;
-                        block refuses every call (the LLM sees a
-                        tool error and can pick a different path). */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
-                    <span
-                      style={{ fontSize: 10, color: "var(--t3)", fontFamily: "var(--font-mono)" }}
-                    >
-                      APPROVAL
-                    </span>
-                    <PillToggle
-                      ariaLabel={`Server ${i + 1} approval policy`}
-                      options={[
-                        { value: "auto", label: "auto" },
-                        { value: "require_approval", label: "require approval" },
-                        { value: "block", label: "block" },
-                      ]}
-                      value={entry.approvalPolicy}
-                      onChange={(v) =>
-                        updateMcpServer(i, { approvalPolicy: v as McpApprovalPolicy })
-                      }
-                    />
-                  </div>
-                </div>
-              ))}
-              <button
-                className="btn btn-ghost btn-sm"
-                style={{ alignSelf: "flex-start" }}
-                onClick={addMcpServer}
-                type="button"
-              >
-                Add MCP server
-              </button>
-            </div>
-          </div>
+          <MCPServerEditor
+            entries={mcpServers}
+            onChange={setMcpServers}
+            label="MCP SERVERS"
+            description="(optional, exposes external tools as mcp__<name>__<tool>)"
+          />
         )}
 
         <div>
@@ -1042,88 +829,6 @@ function WorkspacePreview({ workingDir, inPlace }: { workingDir: string; inPlace
           · cloned from <span style={{ color: "var(--t2)" }}>{trimmed}</span>
         </>
       )}
-    </div>
-  );
-}
-
-// parseKeyValueLines turns a freeform `KEY=VALUE` block into a flat
-// map. Used for both MCP env and HTTP headers — the wire shape is
-// identical (Record<string,string>) and the rules are the same:
-// empty lines skipped, lines without `=` dropped, values can contain
-// `=` (we split on the FIRST one only). No error reporting at this
-// layer — we trust the gateway to surface a 400 with a useful
-// message if the resulting payload is unusable.
-function parseKeyValueLines(raw: string): Record<string, string> | undefined {
-  const trimmed = raw.trim();
-  if (trimmed === "") return undefined;
-  const out: Record<string, string> = {};
-  for (const line of trimmed.split(/\r?\n/)) {
-    const idx = line.indexOf("=");
-    if (idx <= 0) continue;
-    const key = line.slice(0, idx).trim();
-    const value = line.slice(idx + 1);
-    if (key === "") continue;
-    out[key] = value;
-  }
-  return Object.keys(out).length === 0 ? undefined : out;
-}
-
-// PillToggle is a horizontal segmented control. Mirrors the
-// KindTab pattern used at the top of the form (selected = teal
-// background; idle = transparent), but parameterized so we can
-// reuse it for both the per-row MCP transport (stdio/http) and the
-// approval policy (auto/require_approval/block) without inventing
-// new visual treatments. Same border / radius tokens as the
-// EXECUTION KIND tab strip up top.
-function PillToggle<T extends string>({
-  ariaLabel,
-  options,
-  value,
-  onChange,
-}: {
-  ariaLabel: string;
-  options: Array<{ value: T; label: string }>;
-  value: T;
-  onChange: (next: T) => void;
-}) {
-  return (
-    <div
-      role="group"
-      aria-label={ariaLabel}
-      style={{
-        display: "inline-flex",
-        gap: 4,
-        background: "var(--bg2)",
-        borderRadius: "var(--radius)",
-        padding: 3,
-        border: "1px solid var(--border)",
-      }}
-    >
-      {options.map((opt) => {
-        const selected = value === opt.value;
-        return (
-          <button
-            key={opt.value}
-            type="button"
-            aria-pressed={selected}
-            onClick={() => onChange(opt.value)}
-            style={{
-              padding: "4px 10px",
-              fontSize: 11,
-              fontFamily: "var(--font-mono)",
-              background: selected ? "var(--teal)" : "transparent",
-              color: selected ? "var(--bg0)" : "var(--t2)",
-              border: "none",
-              borderRadius: "var(--radius-sm)",
-              cursor: "pointer",
-              transition: "background 0.1s, color 0.1s",
-              fontWeight: selected ? 600 : 400,
-            }}
-          >
-            {opt.label}
-          </button>
-        );
-      })}
     </div>
   );
 }
