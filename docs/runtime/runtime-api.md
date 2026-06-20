@@ -2965,6 +2965,55 @@ without a stored packet or execution link, or older runs that predate snapshots 
 instructions, memory, project sources, work context, runtime refs, and skipped
 or inspect-only items without reopening the raw task or chat transcript.
 
+#### `GET /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments/{assignment_id}/launch-readiness`
+
+Returns a typed, read-only assignment launch readiness projection. The endpoint
+does not create a Task, Run, Chat session, memory entry, artifact, or assignment
+update. Hecate verifies the same launch shape used by preflight/start: project,
+work item, assignment, and role identity; queued/startable status; stored driver
+support; active execution; workspace/root resolution; profile and skills
+resolution; native provider/model readiness; and External Agent adapter/options
+resolution.
+
+The response envelope is:
+
+```json
+{
+  "object": "project_assignment_launch_readiness",
+  "data": {
+    "project_id": "proj_123",
+    "work_item_id": "work_123",
+    "assignment_id": "asgn_123",
+    "ready": false,
+    "status": "blocked",
+    "title": "Launch is blocked",
+    "detail": "Resolve the listed launch blockers before starting or preparing this assignment.",
+    "blockers": ["No routable provider reports model \"dogfood-model\"."],
+    "warnings": [],
+    "driver_kind": "hecate_task",
+    "workspace": "/Users/alice/dev/hecate",
+    "root_id": "root_main",
+    "provider": "",
+    "model": "dogfood-model",
+    "execution_profile": "implementation",
+    "model_readiness": {
+      "ready": false,
+      "status": "blocked",
+      "reason": "model_not_discovered",
+      "message": "No routable provider reports model \"dogfood-model\".",
+      "operator_action": "Pick one of the discovered models."
+    }
+  }
+}
+```
+
+Native Hecate Task assignments may include `model_readiness`, using the same
+reason and repair vocabulary as `metadata.readiness` on `/v1/models`. External
+Agent assignments include `external_agent_id`, `external_agent`, and
+`session_title` when the adapter/options resolve. `ready=false` is the UI gate
+for `Start assignment`, `Prepare chat`, and `Start from handoff`; operators
+must still confirm the separate start mutation after reviewing preflight.
+
 #### `GET /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments/{assignment_id}/preflight`
 
 Returns a launch context packet for a queued assignment without creating or
@@ -2982,22 +3031,17 @@ The response is a normal `context_packet` envelope with assignment refs only;
 task, run, chat session, and message refs remain empty because preflight is
 inspect-only. The packet includes a `runtime` / `launch_preflight` item with
 `included=false` describing what will be created on confirm. For native Hecate
-task assignments, the packet also includes a `runtime` / `launch_readiness`
-item when the gateway is wired. That item snapshots the resolved provider/model
-readiness using the same reason and repair vocabulary as `metadata.readiness`
-on `/v1/models`: `Ready: false` means the selected model is not currently
-routable through the configured providers and should be repaired before start.
-Its body is human-readable, and `metadata` carries stable keys such as `ready`,
-`status`, `provider`, `model`, `matched_provider`, `reason`, `message`, and
-`operator_action` for clients that need to gate UI actions without parsing
-copy. It is operator evidence, not injected prompt content.
+task assignments, the packet can also include a `runtime` / `launch_readiness`
+item when the gateway is wired. That item is operator evidence, not the UI
+authority; clients should gate launch confirmation with the typed
+`/launch-readiness` projection rather than parsing context item copy.
 
 The Projects cockpit uses this endpoint before `Start assignment`, `Prepare
 chat`, and `Start from handoff` so the operator can review the effective launch
-context before dispatch. The UI disables native assignment confirmation when
-preflight reports blocked provider/model readiness and offers repair actions for
-Project Settings, Roles, Agent Profiles, and Connections. Project-local actions
-repair defaults that feed assignment resolution; Connections remains the
+context before dispatch. The UI disables confirmation when
+`/launch-readiness` reports blockers and offers repair actions for Project
+Settings, Roles, Agent Profiles, and Connections. Project-local actions repair
+defaults that feed assignment resolution; Connections remains the
 provider/model readiness surface. `POST /start` remains the authoritative
 mutation path and the task runner/gateway still performs the actual route
 checks during execution.

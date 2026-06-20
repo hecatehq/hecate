@@ -1,3 +1,5 @@
+import type { ModelReadinessRecord } from "./model";
+
 export type ProjectRootRecord = {
   id: string;
   path: string;
@@ -542,6 +544,30 @@ export type ProjectWorkItemReadinessRecord = {
   missing_evidence_assignment_ids?: string[];
 };
 
+export type ProjectAssignmentLaunchReadinessRecord = {
+  project_id: string;
+  work_item_id: string;
+  assignment_id: string;
+  generated_at: string;
+  ready: boolean;
+  status: "blocked" | "ready" | (string & {});
+  title: string;
+  detail: string;
+  blockers: string[];
+  warnings: string[];
+  driver_kind: ProjectAssignmentDriverKind | string;
+  workspace?: string;
+  root_id?: string;
+  root_path?: string;
+  provider?: string;
+  model?: string;
+  execution_profile?: string;
+  external_agent_id?: string;
+  external_agent?: string;
+  session_title?: string;
+  model_readiness?: ModelReadinessRecord;
+};
+
 export type ProjectAssignmentStatus =
   | "queued"
   | "running"
@@ -1029,6 +1055,11 @@ export type ProjectWorkItemResponse = {
 export type ProjectWorkItemReadinessResponse = {
   object: string;
   data: ProjectWorkItemReadinessRecord;
+};
+
+export type ProjectAssignmentLaunchReadinessResponse = {
+  object: string;
+  data: ProjectAssignmentLaunchReadinessRecord;
 };
 
 export type ProjectAssignmentsResponse = {

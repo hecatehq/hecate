@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ContextPacketRecord } from "../../types/context";
 import type {
+  ProjectAssignmentLaunchReadinessRecord,
   ProjectAssignmentRecord,
   ProjectCollaborationArtifactRecord,
   ProjectHandoffRecord,
@@ -13,17 +14,19 @@ import type {
   ProjectWorkRoleRecord,
 } from "../../types/project";
 import { ProjectWorkItemDetail, type ProjectWorkItemDetailProps } from "./ProjectWorkItemDetail";
-import { getProjectAssignmentPreflight } from "../../lib/api";
+import { getProjectAssignmentLaunchReadiness, getProjectAssignmentPreflight } from "../../lib/api";
 
 vi.mock("../../lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../lib/api")>();
   return {
     ...actual,
     getProjectAssignmentContext: vi.fn(),
+    getProjectAssignmentLaunchReadiness: vi.fn(),
     getProjectAssignmentPreflight: vi.fn(),
   };
 });
 
+const getProjectAssignmentLaunchReadinessMock = vi.mocked(getProjectAssignmentLaunchReadiness);
 const getProjectAssignmentPreflightMock = vi.mocked(getProjectAssignmentPreflight);
 
 function project(overrides: Partial<ProjectRecord> = {}): ProjectRecord {
@@ -179,14 +182,44 @@ function preflightPacket(): ContextPacketRecord {
     id: "ctx_preflight",
     items: [
       {
-        kind: "launch_readiness",
-        title: "Ready",
+        kind: "launch_preflight",
+        title: "Launch preflight",
         trust_level: "runtime",
-        origin: "hecate",
-        included: true,
-        metadata: { ready: "true" },
+        origin: "project_assignment.preflight",
+        included: false,
+        body: "Preview only: no task, run, chat session, memory entry, artifact, or assignment update has been created.",
       },
     ],
+  };
+}
+
+function launchReadiness(
+  overrides: Partial<ProjectAssignmentLaunchReadinessRecord> = {},
+): ProjectAssignmentLaunchReadinessRecord {
+  return {
+    project_id: "proj_1",
+    work_item_id: "work_1",
+    assignment_id: "assign_1",
+    generated_at: "2026-06-20T12:00:00Z",
+    ready: true,
+    status: "ready",
+    title: "Ready to start assignment",
+    detail: "Launch checks are clear.",
+    blockers: [],
+    warnings: [],
+    driver_kind: "hecate_task",
+    workspace: "/workspace/hecate",
+    root_id: "root_main",
+    provider: "openai",
+    model: "gpt-5",
+    execution_profile: "implementation",
+    model_readiness: {
+      ready: true,
+      status: "ok",
+      provider: "openai",
+      model: "gpt-5",
+    },
+    ...overrides,
   };
 }
 
@@ -255,6 +288,10 @@ function renderDetail(overrides: Partial<ProjectWorkItemDetailProps> = {}) {
 describe("ProjectWorkItemDetail", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getProjectAssignmentLaunchReadinessMock.mockResolvedValue({
+      object: "project_assignment_launch_readiness",
+      data: launchReadiness(),
+    });
     getProjectAssignmentPreflightMock.mockResolvedValue({
       object: "context_packet",
       data: preflightPacket(),
@@ -481,6 +518,11 @@ describe("ProjectWorkItemDetail", () => {
     const { handlers } = renderDetail();
 
     await userEvent.click(screen.getByRole("button", { name: "Start" }));
+    expect(getProjectAssignmentLaunchReadinessMock).toHaveBeenCalledWith(
+      "proj_1",
+      "work_1",
+      "assign_1",
+    );
     expect(getProjectAssignmentPreflightMock).toHaveBeenCalledWith("proj_1", "work_1", "assign_1");
 
     await userEvent.click(await screen.findByRole("button", { name: "Start assignment" }));
@@ -507,7 +549,48 @@ describe("ProjectWorkItemDetail", () => {
       "work_1",
       "assign_prepared",
     );
+    expect(getProjectAssignmentLaunchReadinessMock).toHaveBeenCalledWith(
+      "proj_1",
+      "work_1",
+      "assign_prepared",
+    );
     expect(handlers.onPreparedAssignmentPreflightOpened).toHaveBeenCalledWith("assign_prepared");
+    expect(handlers.onStartAssignment).not.toHaveBeenCalled();
+  });
+
+  it("blocks assignment launch confirmation from typed readiness", async () => {
+    getProjectAssignmentLaunchReadinessMock.mockResolvedValueOnce({
+      object: "project_assignment_launch_readiness",
+      data: launchReadiness({
+        ready: false,
+        status: "blocked",
+        title: "Launch is blocked",
+        detail: "Resolve launch blockers before starting this assignment.",
+        blockers: ['No routable provider reports model "dogfood-model".'],
+        model: "dogfood-model",
+        model_readiness: {
+          ready: false,
+          status: "blocked",
+          provider: "auto",
+          model: "dogfood-model",
+          reason: "model_not_discovered",
+          message: 'No routable provider reports model "dogfood-model".',
+          operator_action: "Pick one of the discovered models.",
+        },
+      }),
+    });
+    const { handlers } = renderDetail();
+
+    await userEvent.click(screen.getByRole("button", { name: "Start" }));
+    const preflight = await screen.findByRole("dialog", {
+      name: "Assignment assign_1 launch preflight",
+    });
+
+    expect(within(preflight).getByText("Provider/model not ready")).toBeTruthy();
+    expect(within(preflight).getByRole("status").textContent).toContain(
+      'No routable provider reports model "dogfood-model"',
+    );
+    expect(within(preflight).getByRole("button", { name: "Start assignment" })).toBeDisabled();
     expect(handlers.onStartAssignment).not.toHaveBeenCalled();
   });
 

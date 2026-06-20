@@ -85,6 +85,7 @@ import type {
   ProjectAssistantDraftPayload,
   ProjectAssistantProposalResponse,
   ProjectAssistantProposePayload,
+  ProjectAssignmentLaunchReadinessResponse,
   ProjectAssignmentResponse,
   ProjectAssignmentsResponse,
   ProjectActivityResponse,
@@ -798,6 +799,16 @@ export async function getProjectAssignmentPreflight(
 ): Promise<ContextPacketResponse> {
   return fetchJSON<ContextPacketResponse>(
     `${HECATE_API}/projects/${encodeURIComponent(projectID)}/work-items/${encodeURIComponent(workItemID)}/assignments/${encodeURIComponent(assignmentID)}/preflight`,
+  );
+}
+
+export async function getProjectAssignmentLaunchReadiness(
+  projectID: string,
+  workItemID: string,
+  assignmentID: string,
+): Promise<ProjectAssignmentLaunchReadinessResponse> {
+  return fetchJSON<ProjectAssignmentLaunchReadinessResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/work-items/${encodeURIComponent(workItemID)}/assignments/${encodeURIComponent(assignmentID)}/launch-readiness`,
   );
 }
 

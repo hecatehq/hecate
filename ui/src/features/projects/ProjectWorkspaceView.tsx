@@ -34,6 +34,7 @@ import {
 import { toProjectAssignmentExecutionViewModel } from "./projectAssignmentViewModels";
 import { formatProjectRowRelativeTime, workStatusLabel } from "./projectDisplay";
 import { projectActivityWorkItemToWorkItem } from "./projectInsights";
+import { projectVisibilityDetail } from "./projectVisibilityDetail";
 import { useProjectAssistantController } from "./useProjectAssistantController";
 
 export type WorkItemSummary = {
@@ -750,12 +751,15 @@ function projectOperationsLimitDetail(
     brief.summary.omitted_item_count ?? availableItemCount - returnedItemCount,
     0,
   );
-  const hiddenItemCount = Math.max(availableItemCount - shownItemCount, 0);
-  if (hiddenItemCount === 0) return "";
-  const operationLabel = availableItemCount === 1 ? "operation" : "operations";
-  const hiddenLabel = hiddenItemCount === 1 ? "operation is" : "operations are";
-  const capDetail = omittedItemCount > 0 ? ` (${omittedItemCount} capped by the server)` : "";
-  return `Showing ${shownItemCount} of ${availableItemCount} ${operationLabel}; ${hiddenItemCount} lower-priority ${hiddenLabel} hidden${capDetail}.`;
+  return projectVisibilityDetail({
+    shownCount: shownItemCount,
+    totalCount: availableItemCount,
+    itemLabelSingular: "operation",
+    itemLabelPlural: "operations",
+    hiddenLabelSingular: "operation",
+    hiddenLabelPlural: "operations",
+    serverOmittedCount: omittedItemCount,
+  });
 }
 
 function projectOperationBadge(item: ProjectOperationsBriefItem): string {

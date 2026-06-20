@@ -31,6 +31,7 @@ import {
   getProjectOperationsBrief,
   getAgentProfiles,
   getProjectAssignmentContext,
+  getProjectAssignmentLaunchReadiness,
   getProjectAssignmentPreflight,
   getProjectAssignments,
   getProjectAssistantContext,
@@ -69,6 +70,7 @@ import {
 import launchContextContractRaw from "../../test/fixtures/launch-context-v1-contract.json";
 import { withRuntimeConsole } from "../../test/runtime-console-render";
 import type {
+  ProjectAssignmentLaunchReadinessRecord,
   ProjectAssignmentRecord,
   ProjectActivityData,
   ProjectHealthAttention,
@@ -244,6 +246,22 @@ vi.mock("../../lib/api", async (importOriginal) => {
     })),
     getProjectAssignments: vi.fn(async () => ({ object: "project_assignments", data: [] })),
     getProjectAssignmentContext: vi.fn(async () => ({ object: "context_packet", data: null })),
+    getProjectAssignmentLaunchReadiness: vi.fn(async () => ({
+      object: "project_assignment_launch_readiness",
+      data: {
+        project_id: "proj_1",
+        work_item_id: "work_1",
+        assignment_id: "asgn_1",
+        generated_at: "2026-06-20T12:00:00Z",
+        ready: true,
+        status: "ready",
+        title: "Ready to start assignment",
+        detail: "Launch checks are clear.",
+        blockers: [],
+        warnings: [],
+        driver_kind: "hecate_task",
+      },
+    })),
     getProjectAssignmentPreflight: vi.fn(async () => ({
       object: "context_packet",
       data: null,
@@ -474,6 +492,36 @@ function workItemReadiness(overrides = {}) {
     assignment_count: 1,
     completed_assignments: 0,
     review_follow_up_count: 0,
+    ...overrides,
+  };
+}
+
+function assignmentLaunchReadiness(
+  overrides: Partial<ProjectAssignmentLaunchReadinessRecord> = {},
+): ProjectAssignmentLaunchReadinessRecord {
+  return {
+    project_id: project.id,
+    work_item_id: workItem.id,
+    assignment_id: hecateAssignment.id,
+    generated_at: "2026-06-20T12:00:00Z",
+    ready: true,
+    status: "ready",
+    title: "Ready to start assignment",
+    detail: "Launch checks are clear.",
+    blockers: [],
+    warnings: [],
+    driver_kind: "hecate_task",
+    workspace: "/tmp/hecate-project",
+    root_id: "root_1",
+    provider: "ollama",
+    model: "qwen2.5-coder",
+    execution_profile: "implementation",
+    model_readiness: {
+      ready: true,
+      status: "ok",
+      provider: "ollama",
+      model: "qwen2.5-coder",
+    },
     ...overrides,
   };
 }
@@ -718,6 +766,10 @@ function resetProjectWorkMocks() {
         },
       ],
     },
+  });
+  vi.mocked(getProjectAssignmentLaunchReadiness).mockResolvedValue({
+    object: "project_assignment_launch_readiness",
+    data: assignmentLaunchReadiness(),
   });
   vi.mocked(getProjectAssignmentPreflight).mockResolvedValue({
     object: "context_packet",
@@ -1180,6 +1232,7 @@ afterEach(() => {
   vi.mocked(getProjectWorkItemReadiness).mockReset();
   vi.mocked(getProjectAssignments).mockReset();
   vi.mocked(getProjectAssignmentContext).mockReset();
+  vi.mocked(getProjectAssignmentLaunchReadiness).mockReset();
   vi.mocked(getProjectAssignmentPreflight).mockReset();
   vi.mocked(getProjectAssistantContext).mockReset();
   vi.mocked(getProjectCollaborationArtifacts).mockReset();
@@ -6393,6 +6446,27 @@ describe("ProjectsView cockpit", () => {
       object: "project_assignments",
       data: [queuedAssignment],
     });
+    vi.mocked(getProjectAssignmentLaunchReadiness).mockResolvedValueOnce({
+      object: "project_assignment_launch_readiness",
+      data: assignmentLaunchReadiness({
+        ready: false,
+        status: "blocked",
+        title: "Launch is blocked",
+        detail: "Resolve launch blockers before starting this assignment.",
+        blockers: ['No routable provider reports model "dogfood-model".'],
+        provider: "",
+        model: "dogfood-model",
+        model_readiness: {
+          ready: false,
+          status: "blocked",
+          provider: "auto",
+          model: "dogfood-model",
+          reason: "model_not_discovered",
+          message: 'No routable provider reports model "dogfood-model".',
+          operator_action: "Pick one of the discovered models.",
+        },
+      }),
+    });
     vi.mocked(getProjectAssignmentPreflight).mockResolvedValueOnce({
       object: "context_packet",
       data: {
@@ -6409,32 +6483,6 @@ describe("ProjectsView cockpit", () => {
           role_id: role.id,
         },
         items: [
-          {
-            section: "runtime",
-            kind: "launch_readiness",
-            trust_level: "runtime_state",
-            origin: "project_assignment.launch_readiness",
-            title: "Launch readiness",
-            body: [
-              "Ready: false",
-              "Status: blocked",
-              "Provider: auto",
-              "Model: dogfood-model",
-              "Reason: model_not_discovered",
-              'Message: No routable provider reports model "dogfood-model".',
-              "Operator action: Pick one of the discovered models.",
-            ].join("\n"),
-            included: false,
-            metadata: {
-              ready: "false",
-              status: "blocked",
-              provider: "auto",
-              model: "dogfood-model",
-              reason: "model_not_discovered",
-              message: 'No routable provider reports model "dogfood-model".',
-              operator_action: "Pick one of the discovered models.",
-            },
-          },
           {
             section: "runtime",
             kind: "launch_preflight",
@@ -6461,6 +6509,11 @@ describe("ProjectsView cockpit", () => {
     );
 
     await userEvent.click(await screen.findByRole("button", { name: "Start" }));
+    expect(getProjectAssignmentLaunchReadiness).toHaveBeenCalledWith(
+      project.id,
+      workItem.id,
+      queuedAssignment.id,
+    );
     const preflight = await screen.findByRole("dialog", {
       name: "Assignment asgn_1 launch preflight",
     });

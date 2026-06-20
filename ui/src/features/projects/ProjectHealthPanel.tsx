@@ -10,6 +10,7 @@ import { Badge, Icon, Icons } from "../shared/ui";
 import { useFloatingMenu } from "../shared/useFloatingMenu";
 import { routeProjectHealthAttention, type ProjectActionRoute } from "./projectActionRouting";
 import { activitySignalLabel } from "./projectInsights";
+import { projectVisibilityDetail } from "./projectVisibilityDetail";
 
 export type ProjectHealthPanelProps = {
   attentionItems: ProjectHealthAttention[];
@@ -57,6 +58,14 @@ export function ProjectHealthPanel({
   const totalAttentionCount =
     summary?.available_attention_count ?? attentionCount + omittedAttentionCount;
   const hiddenAttentionCount = Math.max(0, totalAttentionCount - attentionCount);
+  const hiddenAttentionDetail = projectVisibilityDetail({
+    shownCount: attentionCount,
+    totalCount: totalAttentionCount,
+    itemLabelSingular: "attention item",
+    itemLabelPlural: "attention items",
+    hiddenLabelSingular: "item",
+    hiddenLabelPlural: "items",
+  });
   const attentionLabel =
     totalAttentionCount > 0
       ? `Project attention: ${attentionCount}${hiddenAttentionCount > 0 ? `, ${hiddenAttentionCount} hidden` : ""}`
@@ -157,13 +166,7 @@ export function ProjectHealthPanel({
               ))}
             </div>
           )}
-          {hiddenAttentionCount > 0 && (
-            <div style={subtleTextStyle}>
-              Showing {attentionCount} of {totalAttentionCount} attention{" "}
-              {totalAttentionCount === 1 ? "item" : "items"}; {hiddenAttentionCount} lower-priority{" "}
-              {hiddenAttentionCount === 1 ? "item is" : "items are"} hidden.
-            </div>
-          )}
+          {hiddenAttentionDetail && <div style={subtleTextStyle}>{hiddenAttentionDetail}</div>}
           {attentionItems.length === 0 ? (
             <div style={subtleTextStyle}>No project attention items detected.</div>
           ) : (
