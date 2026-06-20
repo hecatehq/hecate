@@ -54,6 +54,11 @@ func TestACPAdapterReleaseBinariesSmoke(t *testing.T) {
 			}
 
 			manager := NewSessionManager()
+			approvalStore := NewMemoryApprovalStore()
+			manager.SetApprovalCoordinator(NewApprovalCoordinator(CoordinatorOptions{
+				Mode:  ModeAuto,
+				Store: approvalStore,
+			}))
 			t.Cleanup(func() {
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
@@ -128,6 +133,7 @@ func TestACPAdapterReleaseBinariesSmoke(t *testing.T) {
 				t.Fatalf("Run(%s) stop reason = %q, want %q", tt.adapterID, run.StopReason, tt.wantStopReason)
 			}
 			assertReleaseToolActivities(t, tt.adapterID, activityCapture.snapshot(), tt.wantToolActivityTitle)
+			assertReleaseApprovalRecorded(t, approvalStore, "release_"+tt.adapterID, tt.adapterID, tt.wantApprovalToolName, tt.wantApprovalToolKind)
 
 			for _, commandRun := range tt.commandRuns {
 				run, err := manager.Run(context.Background(), RunRequest{
@@ -247,6 +253,8 @@ type acpReleaseSmokeTestCase struct {
 	wantReloadSameNative   bool
 	wantReloadRecovery     bool
 	wantToolActivityTitle  string
+	wantApprovalToolName   string
+	wantApprovalToolKind   string
 }
 
 type acpReleaseConfigOption struct {
@@ -302,6 +310,8 @@ func acpReleaseSmokeTestCases(t *testing.T) []acpReleaseSmokeTestCase {
 			wantReloadSameNative:   false,
 			wantReloadRecovery:     true,
 			wantToolActivityTitle:  "go test ./...",
+			wantApprovalToolName:   "Run tests",
+			wantApprovalToolKind:   "shell_exec",
 			commandRuns: []acpReleaseCommandRun{
 				{
 					prompt:         "/review focus on tests",
@@ -344,6 +354,8 @@ func acpReleaseSmokeTestCases(t *testing.T) []acpReleaseSmokeTestCase {
 			wantReloadSameNative:   true,
 			wantReloadRecovery:     false,
 			wantToolActivityTitle:  "Bash",
+			wantApprovalToolName:   "Bash",
+			wantApprovalToolKind:   "shell_exec",
 			commandRuns: []acpReleaseCommandRun{
 				{
 					prompt:         "/verify release smoke",
@@ -391,6 +403,25 @@ func assertReleaseToolActivities(t *testing.T, adapterID string, activities []Ac
 	if !sawStart || !sawFinish {
 		t.Fatalf("Run(%s) activities = %#v, want running execute %q and completed output", adapterID, activities, wantTitle)
 	}
+}
+
+func assertReleaseApprovalRecorded(t *testing.T, store *MemoryApprovalStore, sessionID, adapterID, wantName, wantKind string) {
+	t.Helper()
+	rows, err := store.ListApprovals(context.Background(), sessionID, "")
+	if err != nil {
+		t.Fatalf("ListApprovals(%s): %v", adapterID, err)
+	}
+	for _, row := range rows {
+		if row.AdapterID == adapterID &&
+			row.ToolName == wantName &&
+			row.ToolKind == wantKind &&
+			row.Status == ApprovalStatusApproved &&
+			row.Path == PathDefaultMode &&
+			row.SelectedOption != "" {
+			return
+		}
+	}
+	t.Fatalf("approvals(%s) = %#v, want approved %s %q via default mode", adapterID, rows, wantKind, wantName)
 }
 
 func downloadACPAdapterReleaseBinary(t *testing.T, repo, binary, version, binDir string) {
@@ -532,6 +563,7 @@ case "$1" in
     printf '{"method":"item/completed","params":{"item":{"type":"agent_message","id":"msg-1","text":"%s"}}}\n' "$message"
     if [ "$message" = "go codex answer" ]; then
       finish_reason="max_tokens"
+      printf '{"method":"permission/requested","params":{"toolCall":{"toolCallId":"permission-1","title":"Run tests","kind":"execute","rawInput":{"command":"go test ./..."}},"options":[{"optionId":"allow","name":"Allow","kind":"allow_once"},{"optionId":"reject","name":"Reject","kind":"reject_once"}]}}\n'
     else
       finish_reason="end_turn"
     fi
@@ -592,6 +624,9 @@ case "$1" in
       *"hello claude_code"*) message="go claude answer"; stop_reason="error_max_turns";;
       *) echo "unexpected claude prompt: $*" >&2; exit 66 ;;
     esac
+    if [ "$message" = "go claude answer" ]; then
+      printf '{"type":"permission_request","toolUse":{"toolUseId":"permission-1","name":"Bash","input":{"command":"go test ./..."}},"options":[{"optionId":"allow","name":"Allow","kind":"allow_once"},{"optionId":"reject","name":"Reject","kind":"reject_once"}]}\n'
+    fi
     printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tool-1","name":"Bash","input":{"command":"go test ./..."}}]}}\n'
     printf '{"type":"assistant","message":{"content":[{"type":"thinking","id":"thought-1","thinking":"checking"},{"type":"text","text":"%s"}]}}\n' "$message"
     printf '{"type":"result","subtype":"%s","usage":{"input_tokens":10,"output_tokens":5,"context_window":100}}\n' "$stop_reason"

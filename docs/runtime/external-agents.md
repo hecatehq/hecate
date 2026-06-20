@@ -24,8 +24,8 @@ transcript prelude for multi-turn continuity. Claude Code adapter
 after an adapter process restart. Codex does not yet claim vendor-native
 durable history across adapter process restarts; if a load is stale, Hecate
 falls back to a fresh native session. Hecate treats `codex-acp-adapter` versions
-older than `v0.1.0-alpha.20` and `claude-code-acp-adapter` versions older than
-`v0.1.0-alpha.22` as outside the tested range because those older releases lack
+older than `v0.1.0-alpha.21` and `claude-code-acp-adapter` versions older than
+`v0.1.0-alpha.23` as outside the tested range because those older releases lack
 the current continuity, permission-control, structured stream, session metadata,
 external MCP handoff surface, ACP authenticate/logout mapping, and prompt auth
 failure/stop-reason classification. The
@@ -60,6 +60,9 @@ a generic prompt command failure.
 Codex adapter `v0.1.0-alpha.20` propagates terminal stop reasons from the
 structured Codex stream so Hecate can show actionable stops such as token limits
 or refusals in the chat activity timeline.
+Codex adapter `v0.1.0-alpha.21` maps parsed Codex stream permission requests to
+ACP `session/request_permission`, so Hecate can record and resolve adapter tool
+approvals instead of silently auto-continuing parsed permission events.
 Claude Code adapter `v0.1.0-alpha.11` adds command-backed stdio/HTTP MCP server
 config propagation into Claude `--mcp-config`, and `v0.1.0-alpha.12` adds
 Claude-native `--session-id` reload after adapter restarts. Claude Code adapter
@@ -89,6 +92,10 @@ instead of a generic prompt command failure.
 Claude Code adapter `v0.1.0-alpha.22` propagates terminal stop reasons from the
 structured Claude result stream so Hecate can show actionable stops such as turn
 limits or refusals in the chat activity timeline.
+Claude Code adapter `v0.1.0-alpha.23` maps parsed Claude Code stream permission
+requests to ACP `session/request_permission`, so Hecate can record and resolve
+adapter tool approvals instead of silently auto-continuing parsed permission
+events.
 
 ## Supported External Agents
 
