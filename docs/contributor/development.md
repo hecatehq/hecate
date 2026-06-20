@@ -320,10 +320,10 @@ the Dockerfiles, verifies their release checksums, puts fake `codex` / `claude`
 CLIs on `PATH`, and runs Hecate's probe/auth/logout/session/run path against
 the real adapter binaries, including session config selector changes and
 session-level MCP propagation, command-backed prompt execution, prompt
-auth-required mapping, and native session reload/recovery. It requires network
-access and is intentionally not part of the normal unit-test ladder. The same
-check is available from GitHub Actions as the manual **ACP adapter release
-smoke** workflow.
+auth-required mapping, structured activity mapping, and native session
+reload/recovery. It requires network access and is intentionally not part of the
+normal unit-test ladder. The same check is available from GitHub Actions as the
+manual **ACP adapter release smoke** workflow.
 
 There is also a narrower discovery-only fixture env var,
 `HECATE_AGENT_ADAPTER_DISCOVERY_OVERRIDES`, used by backend tests that only
