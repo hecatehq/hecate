@@ -562,16 +562,25 @@ describe("ProjectWorkItemDetail", () => {
 
     expect(screen.getByText("Changes requested")).toBeTruthy();
     expect(screen.getByText("risk Medium")).toBeTruthy();
-    expect(screen.getAllByText("follow-up required")).toHaveLength(2);
+    expect(screen.getAllByText("follow-up required")).toHaveLength(1);
   });
 
-  it("surfaces review follow-up as a closeout notice", async () => {
+  it("surfaces server readiness review follow-up as a closeout notice", async () => {
     const reviewArtifact = artifact({
       review_verdict: "blocked",
       review_follow_up_required: true,
     });
     const { handlers } = renderDetail({
       artifacts: [reviewArtifact],
+      closeoutReadiness: closeoutReadiness({
+        ready: false,
+        status: "blocked",
+        title: "Closeout is blocked",
+        detail: "Resolve the listed review follow-up items before marking this work done.",
+        blockers: ['Review follow-up "Architect review" is not triaged'],
+        review_follow_up_count: 1,
+        review_follow_up_artifact_ids: [reviewArtifact.id],
+      }),
     });
 
     const notice = screen.getByRole("region", { name: "Review follow-up required" });
@@ -583,7 +592,7 @@ describe("ProjectWorkItemDetail", () => {
     expect(handlers.onCreateAssignmentFromReviewArtifact).toHaveBeenCalledWith(reviewArtifact);
   });
 
-  it("does not surface review follow-up notice after a handoff is linked", () => {
+  it("does not derive review follow-up notice from client artifact fields", () => {
     renderDetail({
       artifacts: [
         artifact({
@@ -592,7 +601,10 @@ describe("ProjectWorkItemDetail", () => {
           review_follow_up_required: true,
         }),
       ],
-      handoffs: [handoff({ linked_artifact_ids: ["art_review"] })],
+      closeoutReadiness: closeoutReadiness({
+        review_follow_up_count: 0,
+        review_follow_up_artifact_ids: [],
+      }),
     });
 
     expect(screen.queryByRole("region", { name: "Review follow-up required" })).toBeNull();
