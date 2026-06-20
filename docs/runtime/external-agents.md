@@ -24,10 +24,11 @@ transcript prelude for multi-turn continuity. Claude Code adapter
 after an adapter process restart. Codex does not yet claim vendor-native
 durable history across adapter process restarts; if a load is stale, Hecate
 falls back to a fresh native session. Hecate treats `codex-acp-adapter` versions
-older than `v0.1.0-alpha.18` and `claude-code-acp-adapter` versions older than
-`v0.1.0-alpha.20` as outside the tested range because those older releases lack
+older than `v0.1.0-alpha.19` and `claude-code-acp-adapter` versions older than
+`v0.1.0-alpha.21` as outside the tested range because those older releases lack
 the current continuity, permission-control, structured stream, session metadata,
-external MCP handoff surface, and ACP authenticate/logout mapping. The
+external MCP handoff surface, ACP authenticate/logout mapping, and prompt auth
+failure classification. The
 `v0.1.0-alpha.8` adapters added supported Codex and Claude Code JSON stream
 translation into ACP assistant-message, thought, tool-call, tool-result, and
 usage updates, so Hecate can render External Agent activity without exposing raw
@@ -53,6 +54,9 @@ Codex adapter `v0.1.0-alpha.17` maps ACP `authenticate` to the native
 `codex login` command.
 Codex adapter `v0.1.0-alpha.18` pins the shared Go ACP adapter kit to its
 first tagged alpha release.
+Codex adapter `v0.1.0-alpha.19` classifies prompt command auth failures as ACP
+authentication-required errors so Hecate can surface the login action instead of
+a generic prompt command failure.
 Claude Code adapter `v0.1.0-alpha.11` adds command-backed stdio/HTTP MCP server
 config propagation into Claude `--mcp-config`, and `v0.1.0-alpha.12` adds
 Claude-native `--session-id` reload after adapter restarts. Claude Code adapter
@@ -76,6 +80,9 @@ Claude Code adapter `v0.1.0-alpha.19` maps ACP `authenticate` to the native
 `claude /login` command.
 Claude Code adapter `v0.1.0-alpha.20` pins the shared Go ACP adapter kit to its
 first tagged alpha release.
+Claude Code adapter `v0.1.0-alpha.21` classifies prompt command auth failures
+as ACP authentication-required errors so Hecate can surface the login action
+instead of a generic prompt command failure.
 
 ## Supported External Agents
 
