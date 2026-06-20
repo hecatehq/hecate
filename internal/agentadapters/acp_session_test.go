@@ -15,6 +15,7 @@ import (
 	acp "github.com/coder/acp-go-sdk"
 
 	"github.com/hecatehq/hecate/internal/agentcontrols"
+	"github.com/hecatehq/hecate/internal/remoteruntime"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -440,6 +441,7 @@ func TestSessionManagerAppliesSelectedACPModelDuringPrepare(t *testing.T) {
 func TestLogoutCallsACPLogout(t *testing.T) {
 	logoutFile := filepath.Join(t.TempDir(), "logout.called")
 	t.Setenv("HECATE_FAKE_ACP_LOGOUT_FILE", logoutFile)
+	t.Setenv("HECATE_FAKE_ACP_SUPPORTS_LOGOUT", "1")
 	installFakeACPExecutable(t, "codex-acp-adapter")
 
 	result, err := Logout(context.Background(), "codex")
@@ -456,6 +458,7 @@ func TestLogoutCallsACPLogout(t *testing.T) {
 
 func TestLogoutReturnsACPLogoutError(t *testing.T) {
 	t.Setenv("HECATE_FAKE_ACP_LOGOUT_ERROR", "logout refused")
+	t.Setenv("HECATE_FAKE_ACP_SUPPORTS_LOGOUT", "1")
 	installFakeACPExecutable(t, "codex-acp-adapter")
 
 	_, err := Logout(context.Background(), "codex")
@@ -467,9 +470,27 @@ func TestLogoutReturnsACPLogoutError(t *testing.T) {
 	}
 }
 
+func TestLogoutRequiresAdvertisedCapability(t *testing.T) {
+	logoutFile := filepath.Join(t.TempDir(), "logout.called")
+	t.Setenv("HECATE_FAKE_ACP_LOGOUT_FILE", logoutFile)
+	installFakeACPExecutable(t, "codex-acp-adapter")
+
+	_, err := Logout(context.Background(), "codex")
+	if err == nil {
+		t.Fatal("Logout error = nil, want unsupported capability error")
+	}
+	if got := err.Error(); !strings.Contains(got, `adapter "codex" does not advertise ACP logout`) {
+		t.Fatalf("Logout error = %q, want advertised logout diagnostic", got)
+	}
+	if _, err := os.Stat(logoutFile); !os.IsNotExist(err) {
+		t.Fatalf("logout marker exists after unsupported logout: %v", err)
+	}
+}
+
 func TestAuthenticateCallsACPAuthenticate(t *testing.T) {
 	authFile := filepath.Join(t.TempDir(), "authenticate.called")
 	t.Setenv("HECATE_FAKE_ACP_AUTHENTICATE_FILE", authFile)
+	t.Setenv("HECATE_FAKE_ACP_AUTH_AGENT_LOGIN", "1")
 	installFakeACPExecutable(t, "codex-acp-adapter")
 
 	result, err := Authenticate(context.Background(), "codex")
@@ -489,6 +510,7 @@ func TestAuthenticateCallsACPAuthenticate(t *testing.T) {
 }
 
 func TestAuthenticateReturnsACPAuthenticateError(t *testing.T) {
+	t.Setenv("HECATE_FAKE_ACP_AUTH_AGENT_LOGIN", "1")
 	t.Setenv("HECATE_FAKE_ACP_AUTHENTICATE_ERROR", "login refused")
 	installFakeACPExecutable(t, "codex-acp-adapter")
 
@@ -498,6 +520,42 @@ func TestAuthenticateReturnsACPAuthenticateError(t *testing.T) {
 	}
 	if got := err.Error(); !strings.Contains(got, `authenticate ACP adapter "codex"`) || !strings.Contains(got, "login refused") {
 		t.Fatalf("Authenticate error = %q, want adapter authenticate failure with diagnostic", got)
+	}
+}
+
+func TestAuthenticateRequiresAdvertisedAgentLoginMethod(t *testing.T) {
+	authFile := filepath.Join(t.TempDir(), "authenticate.called")
+	t.Setenv("HECATE_FAKE_ACP_AUTHENTICATE_FILE", authFile)
+	t.Setenv("HECATE_FAKE_ACP_AUTH_AGENT_OTHER", "1")
+	t.Setenv("HECATE_FAKE_ACP_AUTH_ENV_VAR", "1")
+	installFakeACPExecutable(t, "codex-acp-adapter")
+
+	_, err := Authenticate(context.Background(), "codex")
+	if err == nil {
+		t.Fatal("Authenticate error = nil, want unsupported method error")
+	}
+	if got := err.Error(); !strings.Contains(got, `adapter "codex" does not advertise ACP auth method "agent-login"`) {
+		t.Fatalf("Authenticate error = %q, want advertised method diagnostic", got)
+	}
+	if _, err := os.Stat(authFile); !os.IsNotExist(err) {
+		t.Fatalf("authenticate marker exists after unsupported method: %v", err)
+	}
+}
+
+func TestAuthenticateRejectsRemoteRuntimeContext(t *testing.T) {
+	ctx := remoteruntime.WithIdentity(context.Background(), remoteruntime.Identity{
+		ActorID:   "actor_test",
+		OrgID:     "org_test",
+		ProjectID: "project_test",
+		RuntimeID: "runtime_test",
+	})
+
+	_, err := Authenticate(ctx, "codex")
+	if err == nil {
+		t.Fatal("Authenticate error = nil, want remote runtime rejection")
+	}
+	if got := err.Error(); !strings.Contains(got, "ACP authenticate is local-only in remote runtime mode") {
+		t.Fatalf("Authenticate error = %q, want local-only diagnostic", got)
 	}
 }
 

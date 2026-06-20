@@ -261,7 +261,9 @@ support; the probe tells the UI what this installed agent actually advertised
 today (`supports_authenticate`, `supports_logout`, `supports_load_session`, and
 non-secret `auth_methods`). Hecate shows the local **Sign in** action only when
 the live agent advertises ACP auth method `agent-login`, which is the method the
-Hecate `/authenticate` endpoint calls.
+Hecate `/authenticate` endpoint calls. It shows **Sign out** only when the live
+agent advertises ACP `auth.logout`; direct API calls enforce the same Initialize
+capability checks before invoking ACP `authenticate` or `logout`.
 
 Codex and Claude Code use standalone Go ACP adapter binaries backed by the
 operator's local vendor CLI. Cursor and Grok ship ACP mode inside the vendor CLI
@@ -339,7 +341,9 @@ runtime mode this narrows further to the declared remote-safe env keys plus
 runtime essentials such as `PATH`, locale, temp, and certificate variables.
 The Hecate-managed ACP `authenticate` action is local-only; hosted runtimes use
 these declared env-key credential modes instead of starting an interactive CLI
-login.
+login. Hosted adapter probes and chat starts still run ACP `Initialize`, but
+they authenticate the underlying vendor CLI through the remote-safe environment
+Hecate passed to the adapter process.
 
 If discovery cannot find a direct CLI adapter, install the vendor CLI and
 restart Hecate from an environment where the command is on `PATH`. If a run

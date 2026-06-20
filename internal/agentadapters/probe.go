@@ -278,8 +278,8 @@ func applyInitializeCapabilities(res *ProbeResult, initResp acp.InitializeRespon
 	res.SupportsLoadSession = initResp.AgentCapabilities.LoadSession
 	res.SupportsLogout = initResp.AgentCapabilities.Auth.Logout != nil
 	res.AuthMethods = probeAuthMethods(initResp.AuthMethods)
-	for _, method := range res.AuthMethods {
-		if method.Kind == "agent" && method.ID == ACPAuthMethodAgentLogin {
+	for _, method := range initResp.AuthMethods {
+		if authMethodSupportsHecateAuthenticate(method) {
 			res.SupportsAuthenticate = true
 			break
 		}
@@ -317,6 +317,10 @@ func probeAuthMethods(methods []acp.AuthMethod) []ProbeAuthMethod {
 		}
 	}
 	return out
+}
+
+func authMethodSupportsHecateAuthenticate(method acp.AuthMethod) bool {
+	return method.Agent != nil && strings.TrimSpace(method.Agent.Id) == ACPAuthMethodAgentLogin
 }
 
 func trimStringPtr(value *string) string {

@@ -1254,12 +1254,12 @@ on prompt completion see no charge.
 ### `POST /hecate/v1/agent-adapters/{id}/authenticate`
 
 Asks one registered ACP adapter to start its own local login flow. Hecate
-spawns the adapter, performs ACP `Initialize`, calls ACP `authenticate` with
-method id `agent-login`, and then terminates the process. This is an
-adapter-account action: it does not create or mutate Hecate chat sessions,
-approvals, or transcripts. Remote runtime mode treats this as local-only;
-hosted deployments should use the adapter's declared remote-safe env-key
-credential modes instead.
+spawns the adapter, performs ACP `Initialize`, verifies that the adapter
+advertised agent auth method id `agent-login`, calls ACP `authenticate` with
+that method id, and then terminates the process. This is an adapter-account
+action: it does not create or mutate Hecate chat sessions, approvals, or
+transcripts. Remote runtime mode treats this as local-only; hosted deployments
+should use the adapter's declared remote-safe env-key credential modes instead.
 
 ```json
 POST /hecate/v1/agent-adapters/codex/authenticate
@@ -1281,15 +1281,16 @@ Status codes:
 - `200 OK` when the adapter accepted ACP `authenticate`.
 - `404 not_found` when the adapter id is not registered.
 - `502 chat.adapter_unavailable` when the adapter binary cannot start,
-  initialize, or complete ACP `authenticate`.
+  initialize, does not advertise ACP `agent-login`, or cannot complete ACP
+  `authenticate`.
 
 ### `POST /hecate/v1/agent-adapters/{id}/logout`
 
 Asks one registered ACP adapter to clear its own account/session state. Hecate
-spawns the adapter, performs ACP `Initialize`, calls ACP `logout`, and then
-terminates the process. This is an adapter-account action: it does not delete
-Hecate chat sessions, close live adapter sessions, revoke approvals, or mutate
-transcripts.
+spawns the adapter, performs ACP `Initialize`, verifies that the adapter
+advertised ACP `auth.logout`, calls ACP `logout`, and then terminates the
+process. This is an adapter-account action: it does not delete Hecate chat
+sessions, close live adapter sessions, revoke approvals, or mutate transcripts.
 
 ```json
 POST /hecate/v1/agent-adapters/codex/logout
@@ -1310,7 +1311,8 @@ Status codes:
 - `200 OK` when the adapter accepted ACP `logout`.
 - `404 not_found` when the adapter id is not registered.
 - `502 chat.adapter_unavailable` when the adapter binary cannot start,
-  initialize, or complete ACP `logout`.
+  initialize, does not advertise ACP `auth.logout`, or cannot complete ACP
+  `logout`.
 
 ## Plugin registry endpoints
 

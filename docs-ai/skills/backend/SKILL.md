@@ -217,9 +217,14 @@ the offline fallback for expected support; after an explicit probe,
 ACP `Initialize` capabilities are authoritative for that adapter row. Keep
 `ProbeResult.CapabilitiesKnown` explicit so a successful initialize with no
 auth/logout support can override stale static flags. Hecate's local
-`authenticate` endpoint currently calls ACP method `agent-login`, so only that
-agent auth method should set `supports_authenticate=true`; other auth methods
-may be surfaced as non-secret health diagnostics without enabling the button.
+`authenticate` endpoint calls ACP method `agent-login` after Initialize, so only
+that agent auth method should set `supports_authenticate=true`; other auth
+methods may be surfaced as non-secret health diagnostics without enabling the
+button. Keep action execution aligned with the same live capability contract:
+do not call ACP `authenticate` unless `agent-login` was advertised, and do not
+call ACP `logout` unless `agentCapabilities.auth.logout` was advertised. Remote
+runtime mode blocks local ACP `authenticate`; hosted runs authenticate adapters
+through declared remote-safe env-key credential modes.
 
 Chat session lifecycle orchestration starts in `internal/chatapp.Application`.
 Session create, external-agent prepare, native session metadata persistence,
