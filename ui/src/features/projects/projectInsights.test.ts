@@ -381,6 +381,31 @@ describe("projectInsights", () => {
         },
       ]),
     ).toBe(false);
+    expect(
+      reviewArtifactNeedsFollowUpPath(review, [
+        {
+          ...handoff("handoff_review", "accepted"),
+          linked_artifact_ids: [review.id],
+        },
+      ]),
+    ).toBe(true);
+    expect(
+      reviewArtifactNeedsFollowUpPath(review, [
+        {
+          ...handoff("handoff_review", "accepted"),
+          linked_artifact_ids: [review.id],
+          target_assignment_id: "asgn_followup",
+        },
+      ]),
+    ).toBe(false);
+    expect(
+      reviewArtifactNeedsFollowUpPath(review, [
+        {
+          ...handoff("handoff_review", "dismissed"),
+          linked_artifact_ids: [review.id],
+        },
+      ]),
+    ).toBe(false);
     expect(reviewArtifactRequiresFollowUp(reviewArtifact({ review_verdict: "approved" }))).toBe(
       false,
     );

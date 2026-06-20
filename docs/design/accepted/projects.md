@@ -364,9 +364,15 @@ operators can separate live assignment buckets from actionable setup gaps,
 waiting approvals, blocked or stale assignments, pending handoffs, memory review
 work, missing provider/model defaults, and context readiness without adding a
 separate persisted health model. The Project Operations brief now exposes the
-top bounded operator actions from those same records and routes them back into
-existing Project Settings, Work Coordination, Memory/Context, preflight, or
-Project Assistant proposal flows; it does not persist a plan or start work.
+top bounded operator actions from those same records with typed `action`
+routing back into existing Project Settings, Work Coordination, Memory/Context,
+preflight, selected-work follow-through, or Project Assistant proposal flows.
+Review follow-up, missing completion evidence, and closeout-ready work items
+open the existing selected-work detail surface; the brief does not persist a
+plan, mark work done, or start work.
+The selected-work detail card still computes its closeout gate locally for V1;
+the next convergence step is a read-only backend closeout readiness contract
+that both Project Operations and the detail card reflect.
 Assignment rows now render compact execution evidence from canonical
 assignment/activity refs, while the Context Inspector renders the full persisted
 launch packet with Profile, Instructions, Skills, Memory, Project sources, Work

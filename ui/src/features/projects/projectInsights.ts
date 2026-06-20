@@ -669,7 +669,14 @@ export function reviewArtifactNeedsFollowUpPath(
   handoffs: ProjectHandoffRecord[],
 ): boolean {
   if (!reviewArtifactRequiresFollowUp(artifact)) return false;
-  return !handoffs.some((handoff) => (handoff.linked_artifact_ids ?? []).includes(artifact.id));
+  return !handoffs.some(
+    (handoff) =>
+      (handoff.linked_artifact_ids ?? []).includes(artifact.id) &&
+      (handoff.status === "pending" ||
+        handoff.status === "dismissed" ||
+        handoff.status === "superseded" ||
+        Boolean(handoff.target_assignment_id)),
+  );
 }
 
 function closeoutReviewFollowUpBlocker(

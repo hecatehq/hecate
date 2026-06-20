@@ -45,21 +45,25 @@ Tasks, Chats, and External Agents remain the execution surfaces.
 The Work Coordination tab starts with Project Operations when the server finds
 actionable project state: missing launch defaults, pending approvals, blocked
 or stale assignments, queued assignments that need preflight, pending handoffs,
-memory candidates awaiting review, or work items that need their first
-assignment. Each operation routes to an existing surface such as Project
-Settings, Work Coordination, Memory/Context, or assignment preflight. Draftable
-operations seed the normal Project Assistant proposal rail; the operator still
-reviews and applies typed changes before Hecate creates durable project records.
-When there is no server-backed operation to show, the tab falls back to the
-deterministic next action and compact resume summary.
-That fallback is transitional: new project-operations prioritization should
-land in the server brief first so clients do not maintain competing next-action
-cascades.
+memory candidates awaiting review, review artifacts that need follow-up,
+missing completion evidence, work items ready for closeout, or work items that
+need their first assignment. Each operation routes to an existing surface such
+as Project Settings, Work Coordination, Memory/Context, or assignment preflight.
+Clients route these items through the server-provided `action.type`; `kind`
+explains why the item appears, while `action` is the follow-through contract.
+Draftable operations seed the normal Project Assistant proposal rail; the
+operator still reviews and applies typed changes before Hecate creates durable
+project records.
+When there is no server-backed operation to show, the tab keeps only the compact
+resume summary; clients should not derive a second actionable next-action
+cascade from project state.
 
-Use the top action for the single most useful operator step, then jump to
+Use the top Project Operations action for the single most useful operator step,
+then jump to
 blocked, active, recent, or memory-review work from the resume summary before
-drilling into the full work queue. Review artifacts that require follow-up are
-surfaced as closeout blockers with direct follow-up creation actions.
+drilling into the full work queue. Review follow-up and closeout operations
+open selected-work detail; the operator still creates follow-up paths or marks
+work done explicitly from that surface.
 
 For a new work item with no assignments or artifacts yet, the detail view starts
 with a guided prepare action. Hecate can draft the first assignment from the

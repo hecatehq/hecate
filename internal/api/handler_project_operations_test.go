@@ -103,26 +103,27 @@ func TestProjectOperationsBrief_ReadOnlyProjectOperations(t *testing.T) {
 	if response.Data.Summary.PendingMemoryCandidateCount != 1 || response.Data.Summary.PendingHandoffCount != 1 {
 		t.Fatalf("operations summary = %+v, want memory candidate and handoff counts", response.Data.Summary)
 	}
+	assertProjectOperationsItemsHaveActions(t, response.Data.Items)
 
 	defaults := findProjectOperationsItemForTest(t, response.Data.Items, "configure_project_defaults")
-	if defaults.Target.Surface != "project_settings" || defaults.ActionLabel != "Project settings" {
+	if defaults.Target.Surface != "project_settings" || defaults.Action.Type != projectOperationsActionOpenProjectSettings || defaults.ActionLabel != "Project settings" {
 		t.Fatalf("defaults item = %+v, want project settings target", defaults)
 	}
 	approval := findProjectOperationsItemForTest(t, response.Data.Items, "approve_assignment")
-	if approval.Target.WorkItemID != "work_review" || approval.Target.AssignmentID != "asgn_approval" || approval.Target.ActivityBucket != "blocked" {
+	if approval.Target.WorkItemID != "work_review" || approval.Target.AssignmentID != "asgn_approval" || approval.Target.ActivityBucket != "blocked" || approval.Action.Type != projectOperationsActionOpenWorkItem {
 		t.Fatalf("approval item = %+v, want blocked assignment target", approval)
 	}
 	handoff := findProjectOperationsItemForTest(t, response.Data.Items, "review_pending_handoff")
-	if handoff.Handoff == nil || handoff.Handoff.ID != "handoff_review" || handoff.Target.HandoffID != "handoff_review" {
+	if handoff.Handoff == nil || handoff.Handoff.ID != "handoff_review" || handoff.Target.HandoffID != "handoff_review" || handoff.Action.Type != projectOperationsActionOpenWorkItem {
 		t.Fatalf("handoff item = %+v, want rendered handoff target", handoff)
 	}
 	memoryItem := findProjectOperationsItemForTest(t, response.Data.Items, "review_memory_candidates")
-	if memoryItem.Target.Surface != "memory" {
+	if memoryItem.Target.Surface != "memory" || memoryItem.Action.Type != projectOperationsActionOpenMemoryReview {
 		t.Fatalf("memory item = %+v, want memory target", memoryItem)
 	}
 	assignmentGap := findProjectOperationsItemForTest(t, response.Data.Items, "prepare_first_assignment")
-	if assignmentGap.Target.WorkItemID != "work_empty" || assignmentGap.DraftRequest == "" {
-		t.Fatalf("assignment gap item = %+v, want draft request for empty work item", assignmentGap)
+	if assignmentGap.Target.WorkItemID != "work_empty" || assignmentGap.Action.Type != projectOperationsActionDraftProjectProposal || assignmentGap.Action.Request == "" {
+		t.Fatalf("assignment gap item = %+v, want draft action for empty work item", assignmentGap)
 	}
 
 	afterAssignments, err := handler.projectWork.ListAssignments(t.Context(), projectwork.AssignmentFilter{ProjectID: "proj_ops"})
@@ -135,6 +136,165 @@ func TestProjectOperationsBrief_ReadOnlyProjectOperations(t *testing.T) {
 	}
 	if len(afterAssignments) != len(beforeAssignments) || len(afterCandidates) != len(beforeCandidates) {
 		t.Fatalf("operations brief mutated project state: assignments %d->%d candidates %d->%d", len(beforeAssignments), len(afterAssignments), len(beforeCandidates), len(afterCandidates))
+	}
+}
+
+func TestProjectOperationItemFromActivity_StartQueuedUsesPreflightAction(t *testing.T) {
+	t.Parallel()
+	item := projectOperationItemFromActivity(ProjectActivityItemResponse{
+		ProjectID:       "proj_ops",
+		BlockingSignal:  "not_started",
+		StatusSummary:   "queued",
+		UpdatedAt:       "2026-06-20T12:00:00Z",
+		WorkItem:        ProjectActivityWorkItemResponse{ID: "work_ops", Title: "Prepare release"},
+		Assignment:      ProjectWorkAssignmentResponse{ID: "asgn_ops", ProjectID: "proj_ops", WorkItemID: "work_ops"},
+		ArtifactSummary: ProjectActivityArtifactSummaryResponse{},
+	}, "start_queued_assignment", projectOperationsPriorityHigh, "Review queued assignment", "Open launch preflight before starting this assignment.", "Review start")
+
+	if item.Action.Type != projectOperationsActionOpenAssignmentPreflight {
+		t.Fatalf("operation action = %+v, want assignment preflight action", item.Action)
+	}
+	if item.Action.ProjectID != "proj_ops" || item.Action.WorkItemID != "work_ops" || item.Action.AssignmentID != "asgn_ops" || item.Action.ActivityBucket != "blocked" {
+		t.Fatalf("operation action = %+v, want project/work/assignment/bucket refs", item.Action)
+	}
+}
+
+func TestProjectOperationsBrief_SelectedWorkFollowThrough(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	if _, err := handler.projects.Create(t.Context(), projects.Project{
+		ID:              "proj_follow",
+		Name:            "Follow Through",
+		DefaultProvider: "ollama",
+		DefaultModel:    "qwen2.5-coder",
+	}); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	for _, item := range []projectwork.WorkItem{
+		{ID: "work_review_followup", ProjectID: "proj_follow", Title: "Review requested changes", Status: projectwork.WorkItemStatusReview},
+		{ID: "work_missing_evidence", ProjectID: "proj_follow", Title: "Record release evidence", Status: projectwork.WorkItemStatusReview},
+		{ID: "work_close", ProjectID: "proj_follow", Title: "Ship operator brief", Status: projectwork.WorkItemStatusReview},
+	} {
+		if _, err := handler.projectWork.CreateWorkItem(t.Context(), item); err != nil {
+			t.Fatalf("CreateWorkItem(%s): %v", item.ID, err)
+		}
+	}
+	for _, assignment := range []projectwork.Assignment{
+		{ID: "asgn_review_followup", ProjectID: "proj_follow", WorkItemID: "work_review_followup", RoleID: "reviewer", Status: projectwork.AssignmentStatusCompleted},
+		{ID: "asgn_missing_evidence", ProjectID: "proj_follow", WorkItemID: "work_missing_evidence", RoleID: "developer", Status: projectwork.AssignmentStatusCompleted},
+		{ID: "asgn_close", ProjectID: "proj_follow", WorkItemID: "work_close", RoleID: "developer", Status: projectwork.AssignmentStatusCompleted},
+	} {
+		if _, err := handler.projectWork.CreateAssignment(t.Context(), assignment); err != nil {
+			t.Fatalf("CreateAssignment(%s): %v", assignment.ID, err)
+		}
+	}
+	if _, err := handler.projectWork.CreateArtifact(t.Context(), projectwork.CollaborationArtifact{
+		ID:                     "artifact_review_followup",
+		ProjectID:              "proj_follow",
+		WorkItemID:             "work_review_followup",
+		AssignmentID:           "asgn_review_followup",
+		Kind:                   "review",
+		Title:                  "Architecture review",
+		Body:                   "Needs a follow-up assignment.",
+		ReviewVerdict:          "changes_requested",
+		ReviewFollowUpRequired: true,
+	}); err != nil {
+		t.Fatalf("CreateArtifact(review): %v", err)
+	}
+	if _, err := handler.projectWork.CreateArtifact(t.Context(), projectwork.CollaborationArtifact{
+		ID:                 "artifact_close_evidence",
+		ProjectID:          "proj_follow",
+		WorkItemID:         "work_close",
+		AssignmentID:       "asgn_close",
+		Kind:               "evidence_link",
+		Title:              "Release evidence",
+		Body:               "Evidence recorded.",
+		EvidenceURL:        "https://example.com/evidence",
+		EvidenceTrustLabel: "operator_reviewed",
+	}); err != nil {
+		t.Fatalf("CreateArtifact(evidence): %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_follow/operations/brief", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("operations brief status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response ProjectOperationsBriefEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode operations brief: %v", err)
+	}
+	assertProjectOperationsItemsHaveActions(t, response.Data.Items)
+
+	review := findProjectOperationsItemForTest(t, response.Data.Items, "review_follow_up")
+	if review.Target.WorkItemID != "work_review_followup" || review.Action.Type != projectOperationsActionOpenWorkItem || review.Metadata["artifact_id"] != "artifact_review_followup" {
+		t.Fatalf("review follow-up item = %+v, want review follow-up work target", review)
+	}
+	reviewEvidence := findProjectOperationsItemForWorkItemForTest(t, response.Data.Items, "record_completion_evidence", "work_review_followup")
+	if reviewEvidence.Target.AssignmentID != "asgn_review_followup" || reviewEvidence.Action.Type != projectOperationsActionOpenWorkItem {
+		t.Fatalf("review evidence item = %+v, want review artifact not to satisfy evidence", reviewEvidence)
+	}
+	evidence := findProjectOperationsItemForWorkItemForTest(t, response.Data.Items, "record_completion_evidence", "work_missing_evidence")
+	if evidence.Target.WorkItemID != "work_missing_evidence" || evidence.Target.AssignmentID != "asgn_missing_evidence" || evidence.Action.Type != projectOperationsActionOpenWorkItem {
+		t.Fatalf("evidence item = %+v, want missing-evidence work target", evidence)
+	}
+	closeout := findProjectOperationsItemForTest(t, response.Data.Items, "close_work_item")
+	if closeout.Target.WorkItemID != "work_close" || closeout.Status != "ready" || closeout.Action.Type != projectOperationsActionOpenWorkItem || closeout.Metadata["assignment_count"] != "1" {
+		t.Fatalf("closeout item = %+v, want ready closeout work target", closeout)
+	}
+	requireProjectOperationsItemAbsentForTest(t, response.Data.Items, "prepare_first_assignment")
+}
+
+func TestProjectOperationsReviewFollowUpPathAndBlockerSemantics(t *testing.T) {
+	t.Parallel()
+	artifact := projectwork.CollaborationArtifact{
+		ID:                     "artifact_review",
+		Kind:                   projectwork.ArtifactKindReview,
+		ReviewVerdict:          projectwork.ReviewVerdictChangesRequested,
+		ReviewFollowUpRequired: true,
+	}
+
+	acceptedWithoutTarget := []projectwork.Handoff{{
+		ID:                "handoff_accepted",
+		Status:            projectwork.HandoffStatusAccepted,
+		LinkedArtifactIDs: []string{artifact.ID},
+	}}
+	if projectOperationsArtifactHasLinkedFollowUpPath(artifact.ID, acceptedWithoutTarget) {
+		t.Fatal("accepted handoff without target assignment should not hide review follow-up operation")
+	}
+	if !projectOperationsReviewFollowUpBlocker(artifact, acceptedWithoutTarget, nil) {
+		t.Fatal("accepted handoff without target assignment should still block closeout")
+	}
+
+	pending := []projectwork.Handoff{{
+		ID:                "handoff_pending",
+		Status:            projectwork.HandoffStatusPending,
+		LinkedArtifactIDs: []string{artifact.ID},
+	}}
+	if !projectOperationsArtifactHasLinkedFollowUpPath(artifact.ID, pending) || !projectOperationsReviewFollowUpBlocker(artifact, pending, nil) {
+		t.Fatal("pending handoff should route through handoff review and block closeout")
+	}
+
+	dismissed := []projectwork.Handoff{{
+		ID:                "handoff_dismissed",
+		Status:            projectwork.HandoffStatusDismissed,
+		LinkedArtifactIDs: []string{artifact.ID},
+	}}
+	if !projectOperationsArtifactHasLinkedFollowUpPath(artifact.ID, dismissed) || projectOperationsReviewFollowUpBlocker(artifact, dismissed, nil) {
+		t.Fatal("dismissed handoff should clear review follow-up without blocking closeout")
+	}
+
+	completedTarget := []projectwork.Handoff{{
+		ID:                 "handoff_completed",
+		Status:             projectwork.HandoffStatusAccepted,
+		TargetAssignmentID: "asgn_followup",
+		LinkedArtifactIDs:  []string{artifact.ID},
+	}}
+	assignmentsByID := map[string]projectwork.Assignment{
+		"asgn_followup": {ID: "asgn_followup", Status: projectwork.AssignmentStatusCompleted},
+	}
+	if !projectOperationsArtifactHasLinkedFollowUpPath(artifact.ID, completedTarget) || projectOperationsReviewFollowUpBlocker(artifact, completedTarget, assignmentsByID) {
+		t.Fatal("completed target assignment should clear review follow-up closeout blocker")
 	}
 }
 
@@ -189,6 +349,21 @@ func TestSortProjectOperationsItems_UsesExplicitUrgencyBeforeRecency(t *testing.
 	}
 }
 
+func assertProjectOperationsItemsHaveActions(t *testing.T, items []ProjectOperationsBriefItemResponse) {
+	t.Helper()
+	if len(items) == 0 {
+		t.Fatal("expected operation items")
+	}
+	for _, item := range items {
+		if item.Action.Type == "" || item.Action.ProjectID == "" {
+			t.Fatalf("operation item %q has incomplete action: %+v", item.Kind, item.Action)
+		}
+		if item.Action.Type == projectOperationsActionDraftProjectProposal && item.Action.Request == "" {
+			t.Fatalf("draft operation item %q has empty action request: %+v", item.Kind, item.Action)
+		}
+	}
+}
+
 func findProjectOperationsItemForTest(t *testing.T, items []ProjectOperationsBriefItemResponse, kind string) ProjectOperationsBriefItemResponse {
 	t.Helper()
 	for _, item := range items {
@@ -198,4 +373,24 @@ func findProjectOperationsItemForTest(t *testing.T, items []ProjectOperationsBri
 	}
 	t.Fatalf("operations item kind %q missing from %+v", kind, items)
 	return ProjectOperationsBriefItemResponse{}
+}
+
+func findProjectOperationsItemForWorkItemForTest(t *testing.T, items []ProjectOperationsBriefItemResponse, kind, workItemID string) ProjectOperationsBriefItemResponse {
+	t.Helper()
+	for _, item := range items {
+		if item.Kind == kind && item.Target.WorkItemID == workItemID {
+			return item
+		}
+	}
+	t.Fatalf("operations item kind %q for work item %q missing from %+v", kind, workItemID, items)
+	return ProjectOperationsBriefItemResponse{}
+}
+
+func requireProjectOperationsItemAbsentForTest(t *testing.T, items []ProjectOperationsBriefItemResponse, kind string) {
+	t.Helper()
+	for _, item := range items {
+		if item.Kind == kind {
+			t.Fatalf("operations item kind %q unexpectedly present in %+v", kind, items)
+		}
+	}
 }

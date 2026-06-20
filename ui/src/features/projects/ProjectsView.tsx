@@ -89,6 +89,7 @@ import type {
   ProjectHandoffRecord,
   ProjectMemoryRecord,
   ProjectOperationsBrief,
+  ProjectOperationsBriefAction,
   ProjectOperationsBriefItem,
   ProjectContextSourceRecord,
   ProjectSkillRecord,
@@ -1161,47 +1162,71 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
   }
 
   function handleOperationsBriefAction(item: ProjectOperationsBriefItem) {
-    const target = item.target;
-    if (item.draft_request) {
+    const action = item.action;
+    if (!action?.type) {
+      setWorkError("Project operation is missing an action. Refresh project work and try again.");
+      return;
+    }
+    if (action.project_id && selectedProjectID && action.project_id !== selectedProjectID) {
+      setWorkError("Project operation target changed. Refresh project work and try again.");
+      return;
+    }
+    if (action.type === "draft_project_proposal") {
+      const request = action.request?.trim();
+      if (!request) {
+        setWorkError("Project operation is missing a Project Assistant draft request.");
+        return;
+      }
       setWorkspaceTab("work");
-      if (target.work_item_id) {
-        setSelectedWorkItemID(target.work_item_id);
+      if (action.work_item_id) {
+        setSelectedWorkItemID(action.work_item_id);
       }
       void assistant.propose(
         {
-          request: item.draft_request,
+          request,
           roleID: PROJECT_ASSISTANT_AUTO,
           driverKind: PROJECT_ASSISTANT_AUTO,
           draftMode: "deterministic",
         },
-        target.work_item_id,
+        action.work_item_id,
       );
       return;
     }
-    if (target.surface === "project_settings") {
-      setDefaultsError("");
-      setSettingsPanelOpen(true);
-      return;
+
+    switch (action.type) {
+      case "open_project_settings":
+        setDefaultsError("");
+        setSettingsPanelOpen(true);
+        return;
+      case "open_memory_review":
+        setWorkspaceTab("memory");
+        return;
+      case "open_assignment_preflight":
+        selectOperationWorkTarget(action);
+        if (action.assignment_id) {
+          setPreparingAssignmentID(action.assignment_id);
+        } else {
+          setWorkError("Project operation is missing an assignment preflight target.");
+        }
+        return;
+      case "open_work_item":
+        selectOperationWorkTarget(action);
+        return;
+      default:
+        setWorkError(
+          "Project operation action is not supported. Refresh project work and try again.",
+        );
     }
-    if (target.surface === "memory") {
-      setWorkspaceTab("memory");
-      return;
-    }
-    if (target.surface === "skills") {
-      setWorkspaceTab("skills");
-      return;
-    }
+  }
+
+  function selectOperationWorkTarget(action: ProjectOperationsBriefAction) {
     setWorkspaceTab("work");
-    const bucket = projectOperationsActivityBucket(target.activity_bucket);
+    const bucket = projectOperationsActivityBucket(action.activity_bucket);
     if (bucket) {
       setActivityBucket(bucket);
     }
-    if (target.work_item_id) {
-      setSelectedWorkItemID(target.work_item_id);
-    }
-    const assignmentID = target.assignment_id;
-    if (item.kind === "start_queued_assignment" && assignmentID) {
-      setPreparingAssignmentID(assignmentID);
+    if (action.work_item_id) {
+      setSelectedWorkItemID(action.work_item_id);
     }
   }
 
