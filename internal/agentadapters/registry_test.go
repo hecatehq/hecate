@@ -32,20 +32,32 @@ func TestBuiltInsIncludeInitialExternalAgents(t *testing.T) {
 	if got := found["codex"]; got.SupportedRange != ">=0.1.0-alpha.16" {
 		t.Fatalf("codex supported range = %q, want current Go adapter alpha range", got.SupportedRange)
 	}
+	if got := found["codex"]; !got.SupportsLogout {
+		t.Fatalf("codex supports logout = false, want true")
+	}
 	if got := found["claude_code"]; got.Command != "claude-code-acp-adapter" || got.Kind != DriverKindACP || got.CostMode != "external" {
 		t.Fatalf("claude_code adapter = %#v", got)
 	}
 	if got := found["claude_code"]; got.SupportedRange != ">=0.1.0-alpha.18" {
 		t.Fatalf("claude_code supported range = %q, want current Go adapter alpha range", got.SupportedRange)
 	}
+	if got := found["claude_code"]; !got.SupportsLogout {
+		t.Fatalf("claude_code supports logout = false, want true")
+	}
 	if got := found["cursor_agent"]; got.Command != "cursor-agent" || got.Kind != DriverKindACP || got.CostMode != "external" {
 		t.Fatalf("cursor_agent adapter = %#v", got)
+	}
+	if got := found["cursor_agent"]; got.SupportsLogout {
+		t.Fatalf("cursor_agent supports logout = true, want false until the adapter advertises ACP logout")
 	}
 	if got := found["cursor_agent"]; len(got.Args) != 1 || got.Args[0] != "acp" {
 		t.Fatalf("cursor_agent adapter = %#v", got)
 	}
 	if got := found["grok_build"]; got.Command != "grok" || got.Kind != DriverKindACP || got.CostMode != "external" {
 		t.Fatalf("grok_build adapter = %#v", got)
+	}
+	if got := found["grok_build"]; got.SupportsLogout {
+		t.Fatalf("grok_build supports logout = true, want false until the adapter advertises ACP logout")
 	}
 	if got := found["grok_build"]; strings.Join(got.Args, " ") != "agent stdio" || len(got.LaunchSuffixArgs) != 0 {
 		t.Fatalf("grok_build adapter args = %#v", got.Args)

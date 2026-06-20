@@ -17,6 +17,7 @@ export type AgentAdapterRecord = {
   agent_version?: string;
   supported_range?: string;
   version_outside_range?: boolean;
+  supports_logout: boolean;
   auth_status?: "ok" | "unauthenticated" | "billing" | "unknown" | string;
   auth_error?: string;
   credential_modes?: AgentAdapterCredentialMode[];

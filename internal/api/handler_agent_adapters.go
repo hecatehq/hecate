@@ -103,6 +103,7 @@ func renderAgentAdapterItem(ctx context.Context, item agentadapters.Status) Agen
 		AgentVersion:         item.AgentVersion,
 		SupportedRange:       item.SupportedRange,
 		VersionOutsideRange:  item.VersionOutsideRange,
+		SupportsLogout:       item.SupportsLogout,
 		AuthStatus:           item.AuthStatus,
 		AuthError:            item.AuthError,
 		CredentialModes:      renderAgentAdapterCredentialModes(item.CredentialModes),

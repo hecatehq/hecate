@@ -18,6 +18,7 @@ function adapter(id: string, overrides: Partial<AgentAdapterRecord> = {}): Agent
     available: true,
     status: "available",
     cost_mode: "external",
+    supports_logout: false,
     ...overrides,
   };
 }

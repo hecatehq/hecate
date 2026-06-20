@@ -848,6 +848,7 @@ describe("ProvidersView table renders", () => {
           available: true,
           status: "available",
           cost_mode: "external",
+          supports_logout: true,
         },
       ],
       chatGrants: [
@@ -895,6 +896,7 @@ describe("ProvidersView table renders", () => {
           available: false,
           status: "missing",
           cost_mode: "external",
+          supports_logout: true,
           remote_credential_hint: "Set OPENAI_API_KEY or CODEX_API_KEY for hosted Codex.",
           credential_modes: [
             {

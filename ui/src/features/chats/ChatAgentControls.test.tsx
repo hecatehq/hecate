@@ -20,6 +20,7 @@ function makeAdapter(overrides: Partial<AgentAdapterRecord> = {}): AgentAdapterR
     available: true,
     status: "available",
     auth_status: "ok",
+    supports_logout: false,
     ...overrides,
   };
 }

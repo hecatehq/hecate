@@ -78,6 +78,7 @@ type Adapter struct {
 	CostMode         string
 	DocsURL          string
 	SupportedRange   string
+	SupportsLogout   bool
 	CredentialModes  []CredentialMode
 }
 
@@ -268,6 +269,7 @@ func BuiltIns() []Adapter {
 			CostMode:       "external",
 			DocsURL:        "https://github.com/hecatehq/codex-acp-adapter",
 			SupportedRange: ">=0.1.0-alpha.16",
+			SupportsLogout: true,
 			CredentialModes: []CredentialMode{
 				{
 					ID:          CredentialModeLocalLogin,
@@ -307,6 +309,7 @@ func BuiltIns() []Adapter {
 			CostMode:       "external",
 			DocsURL:        "https://github.com/hecatehq/claude-code-acp-adapter",
 			SupportedRange: ">=0.1.0-alpha.18",
+			SupportsLogout: true,
 			CredentialModes: []CredentialMode{
 				{
 					ID:          CredentialModeLocalLogin,

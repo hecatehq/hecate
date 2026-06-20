@@ -764,6 +764,7 @@ describe("AgentAdapterPicker", () => {
       available: true,
       status: "available",
       cost_mode: "external",
+      supports_logout: true,
     },
     {
       id: "claude_code",
@@ -773,6 +774,7 @@ describe("AgentAdapterPicker", () => {
       available: true,
       status: "available",
       cost_mode: "external",
+      supports_logout: true,
     },
   ];
 
@@ -808,6 +810,7 @@ describe("AgentAdapterPicker", () => {
             available: true,
             status: "available",
             cost_mode: "external",
+            supports_logout: true,
             auth_status: "unknown",
             auth_error: "Claude Code config is present on disk.",
           },
@@ -841,6 +844,7 @@ describe("AgentAdapterPicker", () => {
             available: true,
             status: "available",
             cost_mode: "external",
+            supports_logout: false,
             auth_status: "unknown",
           },
         ]}
@@ -887,6 +891,7 @@ describe("AgentAdapterPicker", () => {
             available: true,
             status: "available",
             cost_mode: "external",
+            supports_logout: false,
             auth_status: "ok",
           },
         ]}

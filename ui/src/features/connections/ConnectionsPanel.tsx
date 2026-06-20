@@ -939,7 +939,7 @@ function AdapterStatusRow({
 }
 
 function adapterLogoutSupportedByHecate(adapter: AgentAdapterRecord): boolean {
-  return adapter.id === "codex" || adapter.id === "claude_code";
+  return adapter.supports_logout === true;
 }
 
 function AdapterRemoteCredentialSetup({

@@ -1004,6 +1004,7 @@ GET /hecate/v1/agent-adapters
       "agent_version": "0.48.0",
       "supported_range": ">=0.0.0-dev",
       "version_outside_range": false,
+      "supports_logout": true,
       "auth_status": "ok",
       "credential_modes": [
         {
@@ -1031,6 +1032,7 @@ GET /hecate/v1/agent-adapters
       "cost_mode": "external",
       "docs_url": "https://docs.x.ai/build/cli/headless-scripting#acp",
       "supported_range": ">=0.1.0",
+      "supports_logout": false,
       "auth_status": "ok"
     },
     {
@@ -1046,6 +1048,7 @@ GET /hecate/v1/agent-adapters
       "agent_version": "0.0.9",
       "supported_range": ">=0.1.0",
       "version_outside_range": true,
+      "supports_logout": false,
       "auth_status": "unauthenticated",
       "auth_error": "Run cursor-agent login, or set CURSOR_API_KEY for the agent environment."
     },
@@ -1059,6 +1062,7 @@ GET /hecate/v1/agent-adapters
       "error": "exec: \"claude-code-acp-adapter\": executable file not found in $PATH",
       "cost_mode": "external",
       "supported_range": ">=0.0.0-dev",
+      "supports_logout": true,
       "auth_status": "unknown",
       "auth_error": "Open Connections and test Claude Code. If it reports a sign-in error, run `claude /login` in Terminal."
     }
@@ -1081,6 +1085,11 @@ amber "outside tested range" chip in that case.
 `ok`, `unauthenticated`, `billing`, or `unknown`. It is derived from known env
 vars and login files without spawning the agent. Use `POST
 /hecate/v1/agent-adapters/{id}/probe` for the full ACP handshake.
+
+`supports_logout` tells clients whether Hecate can call ACP `logout` for this
+adapter. UIs should use this catalog field instead of hard-coding adapter IDs;
+the action is currently enabled for the standalone Go Codex and Claude Code
+adapters.
 
 `credential_modes` describes how the adapter can authenticate. `local_login`
 means operator-local CLI/browser login state and is not sufficient for remote

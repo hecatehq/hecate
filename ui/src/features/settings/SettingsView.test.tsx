@@ -361,6 +361,7 @@ describe("Connections external-agent panel", () => {
             available: true,
             status: "available",
             auth_status: "ok",
+            supports_logout: true,
           },
           {
             id: "cursor_agent",
@@ -370,6 +371,7 @@ describe("Connections external-agent panel", () => {
             available: true,
             status: "available",
             auth_status: "ok",
+            supports_logout: false,
           },
         ],
       },

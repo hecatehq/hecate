@@ -93,6 +93,7 @@ describe("resolveDashboardSnapshot", () => {
           command: "codex-acp-adapter",
           available: true,
           status: "available",
+          supports_logout: true,
         },
       ],
     });
@@ -130,6 +131,7 @@ describe("resolveDashboardSnapshot", () => {
           command: "codex-acp-adapter",
           available: true,
           status: "available",
+          supports_logout: true,
         },
       ],
     };
