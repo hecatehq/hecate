@@ -2223,15 +2223,10 @@ items, assignments, projected task/run execution summaries, linked chat/task
 identifiers, and recent collaboration artifact signals without mutating any
 project-work or task rows.
 
-The Projects UI also derives client-side operator surfaces from this response
-plus the project defaults, memory candidates, and memory/context-source lists.
-Activity Inbox stays focused on live assignment buckets; Needs Attention
-surfaces actionable setup gaps, blocked/failed/cancelled assignments, pending
-handoffs, stale or missing linked execution, memory candidates awaiting review,
-missing provider/model defaults, missing profile references, skill registry
-conflicts or unresolved/disabled referenced skills, and memory/context
-readiness. These views do not add a separate recommendation engine, dependency
-model, persisted health record, or new API contract.
+Activity Inbox stays focused on live assignment buckets. The compact
+Needs Attention header uses the server-owned project health endpoint below so
+clients do not rederive a second attention cascade from activity, memory,
+skills, and project defaults.
 
 The top-level envelope follows the Hecate-native convention:
 
@@ -2397,6 +2392,81 @@ structured handoff records attached to the same work item and, when present,
 the same source or target assignment. Handoffs that are not assignment-linked
 are still available from the handoff list/detail endpoints; V1 does not create
 standalone activity rows for them.
+
+#### `GET /hecate/v1/projects/{id}/health`
+
+Returns a read-only Project attention summary for the selected project. The
+endpoint derives compact operator rows from existing project state: missing
+provider/model defaults, missing active roots, missing agent profile refs,
+project skill registry conflicts or unresolved/disabled referenced skills,
+pending handoffs, review artifacts that need a follow-up path, stale or missing
+linked assignment execution, failed/cancelled External Agent assignments,
+empty memory/context posture, and pending memory candidates.
+
+This endpoint does not create tasks, runs, chats, assignments, handoffs,
+proposals, memory entries, or memory candidates. It is a bounded projection over
+durable project state; durable changes still go through the typed project,
+memory, work, role, skill, and Project Assistant apply endpoints.
+
+The five-item cap is applied after the server's attention derivation order. The
+summary reports returned, available, omitted, and limit counts so clients can
+show when lower-priority attention rows are hidden.
+
+```json
+{
+  "object": "project_health",
+  "data": {
+    "project_id": "proj_...",
+    "generated_at": "2026-06-20T12:00:00Z",
+    "summary": {
+      "attention_count": 2,
+      "available_attention_count": 2,
+      "omitted_attention_count": 0,
+      "attention_limit": 5,
+      "missing_defaults": true,
+      "missing_project_root": false,
+      "enabled_memory_count": 0,
+      "saved_memory_count": 1,
+      "enabled_context_source_count": 0,
+      "pending_memory_candidate_count": 1,
+      "promoted_memory_candidate_count": 0,
+      "rejected_memory_candidate_count": 0,
+      "pending_handoff_count": 1,
+      "accepted_handoff_count": 0,
+      "superseded_handoff_count": 0,
+      "dismissed_handoff_count": 0,
+      "review_follow_up_count": 0,
+      "blocked_review_count": 0,
+      "changes_requested_review_count": 0,
+      "stale_or_unknown_assignment_count": 0
+    },
+    "attention": [
+      {
+        "id": "proj_...:defaults",
+        "title": "Provider/model defaults missing",
+        "detail": "Native project starts and assignment chats need a default provider and model.",
+        "status": "awaiting_approval",
+        "action": "settings"
+      },
+      {
+        "id": "memcand_...:memory-candidate",
+        "title": "Memory candidate pending review",
+        "detail": "Remember project convention - generated_summary",
+        "status": "awaiting_approval",
+        "action": "memory",
+        "candidate_id": "memcand_..."
+      }
+    ]
+  }
+}
+```
+
+Attention rows route to existing surfaces. `action` is used for project-wide
+targets (`settings`, `memory`, `profiles`, `roles`, `skills`); `work_item_id`,
+`task_id`, `run_id`, `chat_id`, `candidate_id`, and `bucket` point the operator
+to existing work, task, chat, memory-review, or activity surfaces. Clients
+should not mutate project state directly from a row; they open the referenced
+surface and use that surface's explicit typed mutation.
 
 #### `GET /hecate/v1/projects/{id}/operations/brief`
 

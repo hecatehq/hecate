@@ -1,18 +1,19 @@
 import type { CSSProperties } from "react";
 
-import type { ProjectMemoryCandidateRecord } from "../../types/project";
+import type {
+  ProjectActivityBucketKey,
+  ProjectHealthAttention,
+  ProjectMemoryCandidateRecord,
+} from "../../types/project";
 import { Badge, Icon, Icons } from "../shared/ui";
 import { useFloatingMenu } from "../shared/useFloatingMenu";
-import {
-  activitySignalLabel,
-  type ProjectActivityBucketKey,
-  type ProjectHealthAttention,
-} from "./projectInsights";
+import { activitySignalLabel } from "./projectInsights";
 
 export type ProjectHealthPanelProps = {
   attentionItems: ProjectHealthAttention[];
   disabled?: boolean;
   memoryCandidates: ProjectMemoryCandidateRecord[];
+  omittedAttentionCount?: number;
   onAttentionBucket: (bucket: ProjectActivityBucketKey) => void;
   onAttentionDefaults: () => void;
   onAttentionMemory: () => void;
@@ -29,6 +30,7 @@ export function ProjectHealthPanel({
   attentionItems,
   disabled = false,
   memoryCandidates,
+  omittedAttentionCount = 0,
   onAttentionBucket,
   onAttentionDefaults,
   onAttentionMemory,
@@ -44,6 +46,12 @@ export function ProjectHealthPanel({
     portalSelector: null,
   });
   const attentionCount = attentionItems.length;
+  const totalAttentionCount = attentionCount + omittedAttentionCount;
+  const attentionLabel =
+    totalAttentionCount > 0
+      ? `Project attention: ${attentionCount}${omittedAttentionCount > 0 ? `, ${omittedAttentionCount} hidden` : ""}`
+      : "Project attention";
+  const attentionBadge = omittedAttentionCount > 0 ? `${attentionCount}+` : `${attentionCount}`;
   const closeMenu = () => attentionMenu.close();
   const handleAttentionAction = (item: ProjectHealthAttention) => {
     if (item.action === "settings" || item.id.endsWith(":defaults")) {
@@ -54,14 +62,14 @@ export function ProjectHealthPanel({
       onAttentionProfiles();
     } else if (item.action === "roles") {
       onAttentionRoles();
-    } else if (item.candidateID) {
-      const candidate = memoryCandidates.find((candidate) => candidate.id === item.candidateID);
+    } else if (item.candidate_id) {
+      const candidate = memoryCandidates.find((candidate) => candidate.id === item.candidate_id);
       if (candidate) onAttentionReviewCandidate(candidate);
       else onAttentionMemory();
-    } else if (item.workItemID) {
-      onAttentionWorkItem(item.workItemID);
-    } else if (item.taskID) {
-      onAttentionTask?.(item.taskID, item.runID);
+    } else if (item.work_item_id) {
+      onAttentionWorkItem(item.work_item_id);
+    } else if (item.task_id) {
+      onAttentionTask?.(item.task_id, item.run_id);
     } else if (item.bucket) {
       onAttentionBucket(item.bucket);
     } else if (item.action === "memory" || item.id.endsWith(":context")) {
@@ -76,7 +84,7 @@ export function ProjectHealthPanel({
         className="btn btn-ghost btn-sm"
         type="button"
         aria-expanded={attentionMenu.open}
-        aria-label={`Project attention${attentionCount > 0 ? `: ${attentionCount}` : ""}`}
+        aria-label={attentionLabel}
         title="Project attention"
         onClick={attentionMenu.toggle}
         disabled={disabled}
@@ -86,7 +94,7 @@ export function ProjectHealthPanel({
         }}
       >
         <Icon d={Icons.warning} size={13} />
-        {attentionCount > 0 && <span style={projectAttentionCountStyle}>{attentionCount}</span>}
+        {attentionCount > 0 && <span style={projectAttentionCountStyle}>{attentionBadge}</span>}
       </button>
       {attentionMenu.open && !disabled && (
         <div
@@ -97,8 +105,14 @@ export function ProjectHealthPanel({
         >
           <div style={projectAttentionPopoverHeaderStyle}>
             <div style={sectionLabelStyle}>Needs Attention</div>
-            <span className="badge badge-muted">{attentionCount}</span>
+            <span className="badge badge-muted">{attentionBadge}</span>
           </div>
+          {omittedAttentionCount > 0 && (
+            <div style={subtleTextStyle}>
+              {omittedAttentionCount} lower-priority{" "}
+              {omittedAttentionCount === 1 ? "item is" : "items are"} hidden by the server cap.
+            </div>
+          )}
           {attentionItems.length === 0 ? (
             <div style={subtleTextStyle}>No project attention items detected.</div>
           ) : (
@@ -125,7 +139,7 @@ export function ProjectHealthPanel({
                     closeMenu();
                   }}
                   reviewCandidate={memoryCandidates.find(
-                    (candidate) => candidate.id === item.candidateID,
+                    (candidate) => candidate.id === item.candidate_id,
                   )}
                 />
               ))}
@@ -183,34 +197,34 @@ function ProjectHealthAttentionRow({
               onBucketChange(item.bucket!);
             }}
           >
-            {item.actionLabel ?? "Inbox"}
+            {item.action_label ?? "Inbox"}
           </button>
         )}
-        {item.workItemID && (
+        {item.work_item_id && (
           <button
             className="btn btn-ghost btn-sm project-attention-item-action"
             type="button"
             aria-label={
               item.bucket
                 ? "Open attention details"
-                : (item.actionLabel ?? "Open attention details")
+                : (item.action_label ?? "Open attention details")
             }
             onClick={(event) => {
               event.stopPropagation();
-              onSelectWorkItem(item.workItemID!);
+              onSelectWorkItem(item.work_item_id!);
             }}
           >
-            {item.bucket ? "Details" : (item.actionLabel ?? "Details")}
+            {item.bucket ? "Details" : (item.action_label ?? "Details")}
           </button>
         )}
-        {item.taskID && (
+        {item.task_id && (
           <button
             className="btn btn-ghost btn-sm project-attention-item-action"
             type="button"
             aria-label="Open attention task"
             onClick={(event) => {
               event.stopPropagation();
-              onOpenTask?.(item.taskID!, item.runID);
+              onOpenTask?.(item.task_id!, item.run_id);
             }}
             disabled={!onOpenTask}
           >

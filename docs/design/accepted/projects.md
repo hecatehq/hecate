@@ -357,12 +357,13 @@ does not create arbitrary sibling or nested workspaces.
 The Projects UI also derives a compact project timeline / decision log from
 activity rows, structured handoffs, collaboration artifacts, project memory
 entries, and memory candidates; explicit decisions are only shown when existing
-`decision_note` artifacts are present. The Projects cockpit derives Activity
-Inbox and Needs Attention surfaces from that activity response plus project
-defaults, handoff summaries, memory candidates, and memory/context metadata so
-operators can separate live assignment buckets from actionable setup gaps,
-waiting approvals, blocked or stale assignments, pending handoffs, memory review
-work, missing provider/model defaults, and context readiness without adding a
+`decision_note` artifacts are present. The Projects cockpit keeps Activity
+Inbox focused on live assignment buckets from the activity response. Needs
+Attention is derived by the server project health endpoint from existing
+project defaults, roots, profile/skill refs, handoffs, review artifacts,
+assignment execution links, memory candidates, and memory/context metadata so
+operators can separate actionable setup gaps, blocked or stale assignments,
+pending handoffs, memory review work, and context readiness without adding a
 separate persisted health model. The Project Operations brief now exposes the
 top bounded operator actions from those same records with typed `action`
 routing back into existing Project Settings, Work Coordination, Memory/Context,

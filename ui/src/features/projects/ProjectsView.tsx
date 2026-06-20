@@ -27,6 +27,7 @@ import {
   getProjectAssignments,
   getProjectCollaborationArtifacts,
   getProjectHandoffs,
+  getProjectHealth,
   getProjectMemory,
   getProjectMemoryCandidates,
   getProjectOperationsBrief,
@@ -56,11 +57,6 @@ import {
 } from "../../lib/project-assistant-chat-handoff";
 import { providerDisplayName } from "../../lib/provider-utils";
 import { ChatRightPanel } from "../chats/ChatRightPanel";
-import {
-  buildProjectHealthSummary,
-  type ProjectActivityBucketKey,
-  type ProjectHealthAttention,
-} from "./projectInsights";
 import { EditAssignmentModal, NewAssignmentModal } from "./ProjectAssignmentModals";
 import { CreateProjectModal } from "./CreateProjectModal";
 import { CreateProjectWorktreeModal } from "./CreateProjectWorktreeModal";
@@ -82,12 +78,15 @@ import { EditWorkItemModal, NewWorkItemModal } from "./ProjectWorkItemModals";
 import { RolesModal } from "./RolesModal";
 import { useProjectAssistantController } from "./useProjectAssistantController";
 import type {
+  ProjectActivityBucketKey,
   ProjectAssignmentRecord,
   ProjectActivityData,
   ProjectMemoryCandidateRecord,
   ProjectCollaborationArtifactRecord,
   CreateProjectWorktreeRootPayload,
   ProjectHandoffRecord,
+  ProjectHealth,
+  ProjectHealthAttention,
   ProjectMemoryRecord,
   ProjectOperationsBrief,
   ProjectOperationsBriefAction,
@@ -240,6 +239,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
   const [workItems, setWorkItems] = useState<ProjectWorkItemRecord[]>([]);
   const [workItemSummaries, setWorkItemSummaries] = useState<Record<string, WorkItemSummary>>({});
   const [activity, setActivity] = useState<ProjectActivityData | null>(null);
+  const [projectHealth, setProjectHealth] = useState<ProjectHealth | null>(null);
   const [operationsBrief, setOperationsBrief] = useState<ProjectOperationsBrief | null>(null);
   const [operationsBriefError, setOperationsBriefError] = useState("");
   const [operationsBriefLoadState, setOperationsBriefLoadState] = useState<LoadState>("idle");
@@ -311,6 +311,28 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
       selectProject: projects.actions.selectProject,
     });
 
+  const loadProjectHealth = useCallback(async (projectID: string) => {
+    if (!projectID) {
+      setProjectHealth(null);
+      return;
+    }
+    const payload = await getProjectHealth(projectID);
+    setProjectHealth(payload.data ?? null);
+  }, []);
+
+  const refreshProjectHealth = useCallback(
+    (projectID: string) => {
+      if (!projectID) {
+        setProjectHealth(null);
+        return;
+      }
+      void loadProjectHealth(projectID).catch(() => {
+        setProjectHealth(null);
+      });
+    },
+    [loadProjectHealth],
+  );
+
   const loadAgentProfiles = useCallback(async (cancelled?: () => boolean) => {
     try {
       const payload = await getAgentProfiles();
@@ -343,33 +365,6 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     ];
     return new Map(items.map((item) => [item.assignment.id, item]));
   }, [activity]);
-  const projectHealth = useMemo(
-    () =>
-      buildProjectHealthSummary(
-        selectedProject,
-        activity,
-        workItems,
-        memoryEntries,
-        memoryCandidates,
-        {
-          agentProfiles,
-          artifacts,
-          roles,
-          skills: projectSkills,
-        },
-      ),
-    [
-      activity,
-      agentProfiles,
-      artifacts,
-      memoryCandidates,
-      memoryEntries,
-      projectSkills,
-      roles,
-      selectedProject,
-      workItems,
-    ],
-  );
   const providerPresets = providersAndModels.state.providerPresets;
   const providerOptions = useMemo<ProviderOption[]>(() => {
     const configuredProviders = settings.state.config?.providers ?? [];
@@ -421,6 +416,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     setWorkItems([]);
     setWorkItemSummaries({});
     setActivity(null);
+    setProjectHealth(null);
     setOperationsBrief(null);
     setOperationsBriefError("");
     if (!preferredWorkItemID) {
@@ -444,10 +440,12 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
         setOperationsBriefError(errorMessage(error, "Failed to load project operations."));
         return null;
       });
-      const [rolesRes, workRes, activityRes, operationsBriefRes] = await Promise.all([
+      const healthLoad = getProjectHealth(projectID).catch(() => null);
+      const [rolesRes, workRes, activityRes, healthRes, operationsBriefRes] = await Promise.all([
         getProjectWorkRoles(projectID),
         getProjectWorkItems(projectID),
         activityLoad,
+        healthLoad,
         operationsBriefLoad,
       ]);
       const nextRoles = rolesRes.data ?? [];
@@ -455,6 +453,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
       setRoles(nextRoles);
       setWorkItems(nextItems);
       setActivity(activityRes?.data ?? null);
+      setProjectHealth(healthRes?.data ?? null);
       setOperationsBrief(operationsBriefRes?.data ?? null);
       setOperationsBriefLoadState(operationsBriefRes ? "loaded" : "error");
       setWorkItemSummaries(
@@ -471,61 +470,70 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     } catch (error) {
       setWorkLoadState("error");
       setOperationsBriefLoadState("error");
+      setProjectHealth(null);
       setWorkError(errorMessage(error, "Failed to load project work."));
       return "";
     }
   }, []);
 
-  const loadProjectMemory = useCallback(async (projectID: string) => {
-    setMemoryError("");
-    if (!projectID) {
+  const loadProjectMemory = useCallback(
+    async (projectID: string) => {
+      setMemoryError("");
+      if (!projectID) {
+        setMemoryEntries([]);
+        setMemoryCandidates([]);
+        setEditingMemory(null);
+        setPromotingCandidate(null);
+        setDeleteMemory(null);
+        setMemoryLoadState("idle");
+        return;
+      }
       setMemoryEntries([]);
       setMemoryCandidates([]);
       setEditingMemory(null);
       setPromotingCandidate(null);
       setDeleteMemory(null);
-      setMemoryLoadState("idle");
-      return;
-    }
-    setMemoryEntries([]);
-    setMemoryCandidates([]);
-    setEditingMemory(null);
-    setPromotingCandidate(null);
-    setDeleteMemory(null);
-    setMemoryLoadState("loading");
-    try {
-      const [memoryPayload, candidatePayload] = await Promise.all([
-        getProjectMemory(projectID, true),
-        getProjectMemoryCandidates(projectID, true),
-      ]);
-      setMemoryEntries(memoryPayload.data ?? []);
-      setMemoryCandidates(candidatePayload.data ?? []);
-      setMemoryLoadState("loaded");
-    } catch (error) {
-      setMemoryLoadState("error");
-      setMemoryError(errorMessage(error, "Failed to load project memory."));
-    }
-  }, []);
+      setMemoryLoadState("loading");
+      try {
+        const [memoryPayload, candidatePayload] = await Promise.all([
+          getProjectMemory(projectID, true),
+          getProjectMemoryCandidates(projectID, true),
+        ]);
+        setMemoryEntries(memoryPayload.data ?? []);
+        setMemoryCandidates(candidatePayload.data ?? []);
+        setMemoryLoadState("loaded");
+        refreshProjectHealth(projectID);
+      } catch (error) {
+        setMemoryLoadState("error");
+        setMemoryError(errorMessage(error, "Failed to load project memory."));
+      }
+    },
+    [refreshProjectHealth],
+  );
 
-  const loadProjectSkills = useCallback(async (projectID: string) => {
-    setSkillsError("");
-    setUpdatingSkillID("");
-    if (!projectID) {
+  const loadProjectSkills = useCallback(
+    async (projectID: string) => {
+      setSkillsError("");
+      setUpdatingSkillID("");
+      if (!projectID) {
+        setProjectSkills([]);
+        setSkillsLoadState("idle");
+        return;
+      }
       setProjectSkills([]);
-      setSkillsLoadState("idle");
-      return;
-    }
-    setProjectSkills([]);
-    setSkillsLoadState("loading");
-    try {
-      const payload = await getProjectSkills(projectID);
-      setProjectSkills(payload.data ?? []);
-      setSkillsLoadState("loaded");
-    } catch (error) {
-      setSkillsLoadState("error");
-      setSkillsError(errorMessage(error, "Failed to load project skills."));
-    }
-  }, []);
+      setSkillsLoadState("loading");
+      try {
+        const payload = await getProjectSkills(projectID);
+        setProjectSkills(payload.data ?? []);
+        setSkillsLoadState("loaded");
+        refreshProjectHealth(projectID);
+      } catch (error) {
+        setSkillsLoadState("error");
+        setSkillsError(errorMessage(error, "Failed to load project skills."));
+      }
+    },
+    [refreshProjectHealth],
+  );
 
   const loadWorkItemDetail = useCallback(async (projectID: string, workItemID: string) => {
     setDetailError("");
@@ -671,6 +679,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     try {
       const payload = await updateProject(selectedProject.id, patch);
       projects.actions.setProjects((current) => upsertProject(current, payload.data));
+      refreshProjectHealth(selectedProject.id);
       setSettingsPanelOpen(false);
     } catch (error) {
       setDefaultsError(errorMessage(error, "Failed to update project defaults."));
@@ -686,6 +695,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     try {
       const payload = await discoverProjectRoots(selectedProject.id);
       projects.actions.setProjects((current) => upsertProject(current, payload.data));
+      refreshProjectHealth(selectedProject.id);
     } catch (error) {
       setDefaultsError(errorMessage(error, "Failed to discover project roots."));
     } finally {
@@ -710,6 +720,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     try {
       const result = await createProjectWorktreeRoot(selectedProject.id, payload);
       projects.actions.setProjects((current) => upsertProject(current, result.data));
+      refreshProjectHealth(selectedProject.id);
       setCreateWorktreeOpen(false);
     } catch (error) {
       setCreateWorktreeError(errorMessage(error, "Failed to create project worktree."));
@@ -751,6 +762,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     try {
       const payload = await discoverProjectContextSources(selectedProjectID);
       projects.actions.setProjects((current) => upsertProject(current, payload.data));
+      refreshProjectHealth(selectedProjectID);
     } catch (error) {
       setMemoryError(errorMessage(error, "Failed to discover workspace guidance."));
     } finally {
@@ -766,6 +778,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
       const payload = await discoverProjectSkills(selectedProjectID);
       setProjectSkills(payload.data ?? []);
       setSkillsLoadState("loaded");
+      refreshProjectHealth(selectedProjectID);
     } catch (error) {
       setSkillsError(errorMessage(error, "Failed to discover project skills."));
     } finally {
@@ -783,6 +796,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     try {
       const payload = await updateProjectSkill(selectedProjectID, skill.id, patch);
       setProjectSkills((current) => upsertProjectSkill(current, payload.data));
+      refreshProjectHealth(selectedProjectID);
     } catch (error) {
       setSkillsError(errorMessage(error, "Failed to update project skill."));
     } finally {
@@ -798,6 +812,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     try {
       const payload = await createAgentProfile(profileCreatePayloadFromForm(form));
       setAgentProfiles((current) => upsertAgentProfile(current, payload.data));
+      refreshProjectHealth(selectedProjectID);
       return payload.data;
     } catch (error) {
       setProfilesError(errorMessage(error, "Failed to create agent profile."));
@@ -815,6 +830,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     try {
       const payload = await updateAgentProfile(profileID, profileUpdatePayloadFromForm(form));
       setAgentProfiles((current) => upsertAgentProfile(current, payload.data));
+      refreshProjectHealth(selectedProjectID);
       return payload.data;
     } catch (error) {
       setProfilesError(errorMessage(error, "Failed to update agent profile."));
@@ -830,6 +846,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     try {
       await deleteAgentProfile(profile.id);
       setAgentProfiles((current) => current.filter((item) => item.id !== profile.id));
+      refreshProjectHealth(selectedProjectID);
       return true;
     } catch (error) {
       setProfilesError(errorMessage(error, "Failed to delete agent profile."));
@@ -857,6 +874,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
           ? await createProjectMemory(selectedProjectID, payload)
           : await updateProjectMemory(selectedProjectID, editingMemory.id, payload);
       setMemoryEntries((current) => upsertMemory(current, res.data));
+      refreshProjectHealth(selectedProjectID);
       setEditingMemory(null);
     } catch (error) {
       setMemoryError(errorMessage(error, "Failed to save project memory."));
@@ -890,6 +908,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
       );
       const payload = await updateProject(selectedProject.id, { context_sources: contextSources });
       projects.actions.setProjects((current) => upsertProject(current, payload.data));
+      refreshProjectHealth(selectedProject.id);
       setEditingSource(null);
     } catch (error) {
       setSourceError(errorMessage(error, "Failed to save project source."));
@@ -909,6 +928,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
       );
       const payload = await updateProject(selectedProject.id, { context_sources: contextSources });
       projects.actions.setProjects((current) => upsertProject(current, payload.data));
+      refreshProjectHealth(selectedProject.id);
       setDeleteSource(null);
     } catch (error) {
       setSourceError(errorMessage(error, "Failed to delete project source."));
@@ -924,6 +944,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     try {
       await deleteProjectMemory(selectedProjectID, deleteMemory.id);
       setMemoryEntries((current) => current.filter((item) => item.id !== deleteMemory.id));
+      refreshProjectHealth(selectedProjectID);
       setDeleteMemory(null);
     } catch (error) {
       setMemoryError(errorMessage(error, "Failed to delete project memory."));
@@ -947,6 +968,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     try {
       const payload = await createProjectWorkRole(selectedProjectID, rolePayloadFromForm(form));
       setRoles((current) => upsertRole(current, payload.data));
+      refreshProjectHealth(selectedProjectID);
       return payload.data;
     } catch (error) {
       setRolesError(errorMessage(error, "Failed to create role."));
@@ -969,6 +991,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
         rolePayloadFromForm(form),
       );
       setRoles((current) => upsertRole(current, payload.data));
+      refreshProjectHealth(selectedProjectID);
       return payload.data;
     } catch (error) {
       setRolesError(errorMessage(error, "Failed to update role."));
@@ -985,6 +1008,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     try {
       await deleteProjectWorkRole(selectedProjectID, role.id);
       await reloadRoles(selectedProjectID);
+      refreshProjectHealth(selectedProjectID);
       return true;
     } catch (error) {
       setRolesError(errorMessage(error, "Failed to delete role."));
@@ -1029,6 +1053,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     try {
       const res = await rejectProjectMemoryCandidate(selectedProjectID, candidate.id, {});
       setMemoryCandidates((current) => current.filter((item) => item.id !== res.data.id));
+      refreshProjectHealth(selectedProjectID);
     } catch (error) {
       setMemoryError(errorMessage(error, "Failed to reject memory candidate."));
     } finally {
@@ -1597,7 +1622,8 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
 
       <div style={projectMainStyle}>
         <ProjectHeader
-          attentionItems={projectHealth.attention}
+          attentionItems={projectHealth?.attention ?? []}
+          omittedAttentionCount={projectHealth?.summary?.omitted_attention_count ?? 0}
           memoryCandidates={memoryCandidates}
           project={selectedProject}
           onAttentionBucket={(bucket) => {
@@ -2255,6 +2281,7 @@ function ProjectIndexRow({
 
 function ProjectHeader({
   attentionItems,
+  omittedAttentionCount,
   memoryCandidates,
   project,
   settingsOpen,
@@ -2273,6 +2300,7 @@ function ProjectHeader({
   onRefresh,
 }: {
   attentionItems: ProjectHealthAttention[];
+  omittedAttentionCount: number;
   memoryCandidates: ProjectMemoryCandidateRecord[];
   project: ProjectRecord | null;
   settingsOpen: boolean;
@@ -2313,6 +2341,7 @@ function ProjectHeader({
             attentionItems={attentionItems}
             disabled={!project}
             memoryCandidates={memoryCandidates}
+            omittedAttentionCount={omittedAttentionCount}
             onAttentionBucket={onAttentionBucket}
             onAttentionDefaults={onAttentionDefaults}
             onAttentionMemory={onAttentionMemory}
