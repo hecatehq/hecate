@@ -644,6 +644,21 @@ require_contains() {
   esac
 }
 
+original_args="$*"
+while true; do
+  case "$1" in
+    --ask-for-approval)
+      shift 2
+      ;;
+    --search)
+      shift
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
 case "$1" in
   --version)
     printf 'codex 9.8.7\n'
@@ -658,11 +673,12 @@ case "$1" in
     exit 0
     ;;
   exec)
+    require_contains " --ask-for-approval never " "$original_args"
+    require_contains " --search " "$original_args"
     require_contains " --sandbox read-only " "$@"
     require_contains " --model gpt-5-codex " "$@"
     require_contains " --config model_reasoning_effort=\"high\" " "$@"
     require_contains " --config mcp_servers.hecate_01_docs={url=\"https://docs.example.com/mcp\",http_headers={\"Authorization\"=\"Bearer token\"}} " "$@"
-    require_contains " --search " "$@"
     case "$*" in
       *"/auth-fail"*) echo "Authentication required: run codex login" >&2; exit 67;;
       *"/init focus on repo guidance"*) message="go codex init";;
