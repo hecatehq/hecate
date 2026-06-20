@@ -293,6 +293,7 @@ func (s *acpSession) RunTurn(ctx context.Context, req RunRequest) (RunResult, er
 		SessionId: acp.SessionId(s.nativeID),
 		Prompt:    []acp.ContentBlock{acp.TextBlock(req.Prompt)},
 	})
+	stopReason := string(resp.StopReason)
 	if runErr == nil && resp.StopReason == acp.StopReasonCancelled {
 		runErr = context.Canceled
 	}
@@ -314,7 +315,7 @@ func (s *acpSession) RunTurn(ctx context.Context, req RunRequest) (RunResult, er
 		}
 	}
 	output, raw, usage := turn.snapshot()
-	result, err := captureACPTurnResult(ctx, s.adapter, req, s.nativeID, output, raw, usage, exitCode, started, completed, initialDiffStat, initialDiff, runErr)
+	result, err := captureACPTurnResult(ctx, s.adapter, req, s.nativeID, stopReason, output, raw, usage, exitCode, started, completed, initialDiffStat, initialDiff, runErr)
 	result.ConfigOptions = s.configOptionsSnapshot()
 	result.AvailableCommands, result.AvailableCommandsKnown = s.availableCommandsSnapshot()
 	return result, err
@@ -774,7 +775,7 @@ func (s *acpSession) cancelActiveTurn(ctx context.Context) error {
 	}
 }
 
-func captureACPTurnResult(ctx context.Context, adapter Adapter, req RunRequest, nativeSessionID, output, rawOutput string, usage Usage, exitCode int, started, completed time.Time, initialDiffStat, initialDiff string, runErr error) (RunResult, error) {
+func captureACPTurnResult(ctx context.Context, adapter Adapter, req RunRequest, nativeSessionID, stopReason, output, rawOutput string, usage Usage, exitCode int, started, completed time.Time, initialDiffStat, initialDiff string, runErr error) (RunResult, error) {
 	maxOutput := maxTurnOutputBytes(req)
 	diffStat, diff := captureGitDiff(ctx, req.Workspace, maxOutput)
 	if sameCapturedDiff(initialDiffStat, initialDiff, diffStat, diff) {
@@ -785,6 +786,7 @@ func captureACPTurnResult(ctx context.Context, adapter Adapter, req RunRequest, 
 		Adapter:         adapter,
 		DriverKind:      DriverKindACP,
 		NativeSessionID: nativeSessionID,
+		StopReason:      strings.TrimSpace(stopReason),
 		Output:          normalizeOutput(adapter.ID, output),
 		RawOutput:       rawOutput,
 		ExitCode:        exitCode,

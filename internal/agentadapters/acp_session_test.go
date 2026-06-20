@@ -76,8 +76,35 @@ func TestSessionManagerRunsTurnsThroughACP(t *testing.T) {
 	if !strings.Contains(second.Output, "turn 2: second turn") {
 		t.Fatalf("second output = %q", second.Output)
 	}
+	if first.StopReason != string(acp.StopReasonEndTurn) || second.StopReason != string(acp.StopReasonEndTurn) {
+		t.Fatalf("stop reasons = %q / %q, want end_turn", first.StopReason, second.StopReason)
+	}
 	if second.Usage.ContextSize != 200_000 || second.Usage.ContextUsed != 20_000 {
 		t.Fatalf("second usage = %+v, want turn 2 context usage", second.Usage)
+	}
+}
+
+func TestSessionManagerPreservesACPStopReason(t *testing.T) {
+	installFakeACPExecutable(t, "codex-acp-adapter")
+	workspace := t.TempDir()
+
+	manager := NewSessionManager()
+	result, err := manager.Run(context.Background(), RunRequest{
+		SessionID:      "chat_stop_reason",
+		AdapterID:      "codex",
+		Workspace:      workspace,
+		Prompt:         "max_tokens",
+		Timeout:        5 * time.Second,
+		MaxOutputBytes: 64 * 1024,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if result.StopReason != string(acp.StopReasonMaxTokens) {
+		t.Fatalf("StopReason = %q, want max_tokens", result.StopReason)
+	}
+	if !strings.Contains(result.Output, "partial due to token limit") {
+		t.Fatalf("output = %q, want partial token-limit output", result.Output)
 	}
 }
 
@@ -2261,6 +2288,15 @@ func (a *fakeACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (ac
 			return acp.PromptResponse{}, err
 		}
 		select {}
+	}
+	if prompt == "max_tokens" {
+		if err := a.conn.SessionUpdate(turnCtx, acp.SessionNotification{
+			SessionId: params.SessionId,
+			Update:    acp.UpdateAgentMessageText("partial due to token limit"),
+		}); err != nil {
+			return acp.PromptResponse{}, err
+		}
+		return acp.PromptResponse{StopReason: acp.StopReasonMaxTokens}, nil
 	}
 
 	if err := a.conn.SessionUpdate(turnCtx, acp.SessionNotification{

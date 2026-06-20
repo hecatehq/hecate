@@ -815,6 +815,9 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 		telemetry.AttrHecateAgentNativeSessionID: result.NativeSessionID,
 		"process.exit.code":                      result.ExitCode,
 	})
+	if strings.TrimSpace(result.StopReason) != "" {
+		terminalAttrs["hecate.agent.stop_reason"] = result.StopReason
+	}
 	if runErr != nil {
 		terminalAttrs[telemetry.AttrHecateResult] = telemetry.ResultError
 		terminalAttrs[telemetry.AttrHecateErrorKind] = telemetry.ErrorKindOther
@@ -878,6 +881,9 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 		}
 		if result.DiffStat != "" {
 			message.Activities = append(message.Activities, newChatActivity("files_changed", "completed", "Files changed", result.DiffStat))
+		}
+		if activity, ok := externalAgentStopReasonActivity(result.StopReason); ok {
+			message.Activities = append(message.Activities, activity)
 		}
 		message.Context = chatcontext.Normalize(message.Context, chatcontext.MergeRefs(
 			chatcontext.ChatMessageRefs(session.ID, assistantID, session.ProjectID),

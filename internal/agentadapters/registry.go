@@ -208,6 +208,7 @@ type RunResult struct {
 	Adapter                Adapter
 	DriverKind             string
 	NativeSessionID        string
+	StopReason             string
 	SessionStarted         bool
 	SessionResumed         bool
 	SessionRecovery        string
@@ -270,7 +271,7 @@ func BuiltIns() []Adapter {
 			Description:          "Run Codex through the standalone Go ACP adapter as an external coding-agent session supervised by Hecate.",
 			CostMode:             "external",
 			DocsURL:              "https://github.com/hecatehq/codex-acp-adapter",
-			SupportedRange:       ">=0.1.0-alpha.19",
+			SupportedRange:       ">=0.1.0-alpha.20",
 			SupportsAuthenticate: true,
 			SupportsLogout:       true,
 			CredentialModes: []CredentialMode{
@@ -311,7 +312,7 @@ func BuiltIns() []Adapter {
 			Description:          "Run Claude Code through the standalone Go ACP adapter as an external coding-agent session supervised by Hecate.",
 			CostMode:             "external",
 			DocsURL:              "https://github.com/hecatehq/claude-code-acp-adapter",
-			SupportedRange:       ">=0.1.0-alpha.21",
+			SupportedRange:       ">=0.1.0-alpha.22",
 			SupportsAuthenticate: true,
 			SupportsLogout:       true,
 			CredentialModes: []CredentialMode{
