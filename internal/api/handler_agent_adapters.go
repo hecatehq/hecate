@@ -70,6 +70,29 @@ func (h *Handler) HandleAgentAdapterLogout(w http.ResponseWriter, r *http.Reques
 	})
 }
 
+func (h *Handler) HandleAgentAdapterAuthenticate(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "adapter id is required")
+		return
+	}
+	adapter, ok := agentadapters.FindAdapter(id)
+	if !ok {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "adapter not found")
+		return
+	}
+	result, err := h.authenticateAgentAdapter(ctx, id)
+	if err != nil {
+		WriteError(w, http.StatusBadGateway, errCodeAgentAdapterUnavailable, agentadapters.NormalizeError(adapter.Name, err))
+		return
+	}
+	WriteJSON(w, http.StatusOK, AgentAdapterAuthenticateResponse{
+		Object: "agent_adapter_authenticate",
+		Data:   result,
+	})
+}
+
 type AgentAdapterProbeResponse struct {
 	Object string                `json:"object"`
 	Data   AgentAdapterProbeData `json:"data"`
@@ -83,6 +106,11 @@ type AgentAdapterProbeData struct {
 type AgentAdapterLogoutResponse struct {
 	Object string                     `json:"object"`
 	Data   agentadapters.LogoutResult `json:"data"`
+}
+
+type AgentAdapterAuthenticateResponse struct {
+	Object string                           `json:"object"`
+	Data   agentadapters.AuthenticateResult `json:"data"`
 }
 
 func renderAgentAdapterItem(ctx context.Context, item agentadapters.Status) AgentAdapterResponseItem {
@@ -103,6 +131,7 @@ func renderAgentAdapterItem(ctx context.Context, item agentadapters.Status) Agen
 		AgentVersion:         item.AgentVersion,
 		SupportedRange:       item.SupportedRange,
 		VersionOutsideRange:  item.VersionOutsideRange,
+		SupportsAuthenticate: item.SupportsAuthenticate,
 		SupportsLogout:       item.SupportsLogout,
 		AuthStatus:           item.AuthStatus,
 		AuthError:            item.AuthError,

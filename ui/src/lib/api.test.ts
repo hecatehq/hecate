@@ -4,6 +4,7 @@ import {
   buildRequestOptions,
   cancelChatApproval,
   chatCompletions,
+  authenticateAgentAdapter,
   createProjectCollaborationArtifact,
   createProjectAssignment,
   createProjectHandoff,
@@ -1441,6 +1442,52 @@ describe("api client", () => {
 
       const [url] = fetchMock.mock.lastCall ?? [];
       expect(url).toBe("/hecate/v1/agent-adapters/weird%20id/logout");
+    });
+  });
+
+  describe("authenticateAgentAdapter", () => {
+    it("URL-encodes the adapter id and returns the typed payload", async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          object: "agent_adapter_authenticate",
+          data: {
+            adapter_id: "codex",
+            status: "authenticated",
+            method_id: "agent-login",
+            path: "/usr/local/bin/codex-acp-adapter",
+            duration_ms: 512,
+          },
+        }),
+      );
+
+      const result = await authenticateAgentAdapter("codex");
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/hecate/v1/agent-adapters/codex/authenticate",
+        expect.objectContaining({ method: "POST" }),
+      );
+      expect(result.data.status).toBe("authenticated");
+      expect(result.data.method_id).toBe("agent-login");
+      expect(result.data.duration_ms).toBe(512);
+    });
+
+    it("escapes ids with special characters", async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          object: "agent_adapter_authenticate",
+          data: {
+            adapter_id: "weird id",
+            status: "authenticated",
+            method_id: "agent-login",
+            duration_ms: 0,
+          },
+        }),
+      );
+
+      await authenticateAgentAdapter("weird id");
+
+      const [url] = fetchMock.mock.lastCall ?? [];
+      expect(url).toBe("/hecate/v1/agent-adapters/weird%20id/authenticate");
     });
   });
 

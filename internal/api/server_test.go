@@ -1109,24 +1109,36 @@ func TestAgentAdaptersReturnsBuiltIns(t *testing.T) {
 	for _, item := range response.Data {
 		if item.ID == "codex" && item.Kind == "acp" && item.Command == "codex-acp-adapter" && item.CostMode == "external" {
 			foundCodex = true
+			if !item.SupportsAuthenticate {
+				t.Fatalf("codex supports_authenticate = false, want true")
+			}
 			if !item.SupportsLogout {
 				t.Fatalf("codex supports_logout = false, want true")
 			}
 		}
 		if item.ID == "claude_code" && item.Kind == "acp" && item.Command == "claude-code-acp-adapter" && item.CostMode == "external" {
 			foundClaude = true
+			if !item.SupportsAuthenticate {
+				t.Fatalf("claude_code supports_authenticate = false, want true")
+			}
 			if !item.SupportsLogout {
 				t.Fatalf("claude_code supports_logout = false, want true")
 			}
 		}
 		if item.ID == "cursor_agent" && item.Kind == "acp" && item.Command == "cursor-agent" && item.CostMode == "external" {
 			foundCursor = true
+			if item.SupportsAuthenticate {
+				t.Fatalf("cursor_agent supports_authenticate = true, want false")
+			}
 			if item.SupportsLogout {
 				t.Fatalf("cursor_agent supports_logout = true, want false")
 			}
 		}
 		if item.ID == "grok_build" && item.Kind == "acp" && item.Command == "grok" && item.CostMode == "external" {
 			foundGrok = true
+			if item.SupportsAuthenticate {
+				t.Fatalf("grok_build supports_authenticate = true, want false")
+			}
 			if item.SupportsLogout {
 				t.Fatalf("grok_build supports_logout = true, want false")
 			}

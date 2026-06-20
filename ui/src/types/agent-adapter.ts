@@ -17,6 +17,7 @@ export type AgentAdapterRecord = {
   agent_version?: string;
   supported_range?: string;
   version_outside_range?: boolean;
+  supports_authenticate: boolean;
   supports_logout: boolean;
   auth_status?: "ok" | "unauthenticated" | "billing" | "unknown" | string;
   auth_error?: string;
@@ -85,4 +86,17 @@ export type AgentAdapterLogoutRecord = {
 export type AgentAdapterLogoutResponse = {
   object: string;
   data: AgentAdapterLogoutRecord;
+};
+
+export type AgentAdapterAuthenticateRecord = {
+  adapter_id: string;
+  status: "authenticated" | string;
+  method_id: string;
+  path?: string;
+  duration_ms: number;
+};
+
+export type AgentAdapterAuthenticateResponse = {
+  object: string;
+  data: AgentAdapterAuthenticateRecord;
 };

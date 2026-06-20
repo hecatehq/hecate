@@ -129,6 +129,9 @@ export function ConnectionsPanel({
   const [agentAdapterLogoutLoadingByID, setAgentAdapterLogoutLoadingByID] = useState<
     Map<string, true>
   >(() => new Map());
+  const [agentAdapterAuthenticateLoadingByID, setAgentAdapterAuthenticateLoadingByID] = useState<
+    Map<string, true>
+  >(() => new Map());
   const chatGrants = approvals.state.grants;
   const chatGrantsLoading = approvals.state.grantsLoading;
   const chatGrantsError = approvals.state.grantsError;
@@ -141,6 +144,7 @@ export function ConnectionsPanel({
   );
   const listChatGrants = approvals.actions.loadGrants;
   const probeAgentAdapter = agentAdapterActions.probeAgentAdapter;
+  const authenticateAgentAdapter = agentAdapterActions.authenticateAgentAdapter;
   const logoutAgentAdapter = agentAdapterActions.logoutAgentAdapter;
 
   useEffect(() => {
@@ -230,6 +234,24 @@ export function ConnectionsPanel({
     }
   }
 
+  async function handleAuthenticateAdapter(adapterID: string) {
+    setAgentAdapterAuthenticateLoadingByID((current) => {
+      const next = new Map(current);
+      next.set(adapterID, true);
+      return next;
+    });
+    try {
+      await authenticateAgentAdapter(adapterID);
+    } finally {
+      setAgentAdapterAuthenticateLoadingByID((current) => {
+        if (!current.has(adapterID)) return current;
+        const next = new Map(current);
+        next.delete(adapterID);
+        return next;
+      });
+    }
+  }
+
   return (
     <>
       {showProviderSummary && (
@@ -253,10 +275,12 @@ export function ConnectionsPanel({
         agentAdapters={agentAdapters}
         agentAdapterHealthByID={agentAdapterHealthByID}
         agentAdapterHealthLoadingByID={agentAdapterHealthLoadingByID}
+        agentAdapterAuthenticateLoadingByID={agentAdapterAuthenticateLoadingByID}
         agentAdapterLogoutLoadingByID={agentAdapterLogoutLoadingByID}
         remoteRuntime={isRemoteRuntimeSession(runtime.state.sessionInfo)}
         copyCommand={copyCommand}
         onProbeAdapter={(adapterID) => void probeAgentAdapter(adapterID)}
+        onAuthenticateAdapter={(adapterID) => void handleAuthenticateAdapter(adapterID)}
         onLogoutAdapter={(adapterID) => void handleLogoutAdapter(adapterID)}
       />
 
@@ -662,19 +686,23 @@ function AdapterStatusSection({
   agentAdapters,
   agentAdapterHealthByID,
   agentAdapterHealthLoadingByID,
+  agentAdapterAuthenticateLoadingByID,
   agentAdapterLogoutLoadingByID,
   remoteRuntime,
   copyCommand,
   onProbeAdapter,
+  onAuthenticateAdapter,
   onLogoutAdapter,
 }: {
   agentAdapters: ProvidersAndModelsState["agentAdapters"];
   agentAdapterHealthByID: ProvidersAndModelsState["agentAdapterHealthByID"];
   agentAdapterHealthLoadingByID: ProvidersAndModelsState["agentAdapterHealthLoadingByID"];
+  agentAdapterAuthenticateLoadingByID: Map<string, true>;
   agentAdapterLogoutLoadingByID: Map<string, true>;
   remoteRuntime: boolean;
   copyCommand: (command: string) => Promise<void>;
   onProbeAdapter: (adapterID: string) => void;
+  onAuthenticateAdapter: (adapterID: string) => void;
   onLogoutAdapter: (adapterID: string) => void;
 }) {
   if (!agentAdapters || agentAdapters.length === 0) {
@@ -696,9 +724,11 @@ function AdapterStatusSection({
             divider={i < agentAdapters.length - 1}
             health={agentAdapterHealthByID.get(adapter.id) ?? null}
             loading={Boolean(agentAdapterHealthLoadingByID.get(adapter.id))}
+            authenticateLoading={Boolean(agentAdapterAuthenticateLoadingByID.get(adapter.id))}
             logoutLoading={Boolean(agentAdapterLogoutLoadingByID.get(adapter.id))}
             onCopyCommand={(command) => void copyCommand(command)}
             onProbeAdapter={(item) => onProbeAdapter(item.id)}
+            onAuthenticateAdapter={(item) => onAuthenticateAdapter(item.id)}
             onLogoutAdapter={(item) => onLogoutAdapter(item.id)}
           />
         ))}
@@ -713,9 +743,11 @@ function AdapterStatusRow({
   divider,
   health,
   loading,
+  authenticateLoading,
   logoutLoading,
   onCopyCommand,
   onProbeAdapter,
+  onAuthenticateAdapter,
   onLogoutAdapter,
 }: {
   adapter: AgentAdapterRecord;
@@ -723,9 +755,11 @@ function AdapterStatusRow({
   divider: boolean;
   health: AgentAdapterHealthRecord | null;
   loading: boolean;
+  authenticateLoading: boolean;
   logoutLoading: boolean;
   onCopyCommand: (command: string) => void;
   onProbeAdapter: (adapter: AgentAdapterRecord) => void;
+  onAuthenticateAdapter: (adapter: AgentAdapterRecord) => void;
   onLogoutAdapter: (adapter: AgentAdapterRecord) => void;
 }) {
   const readiness = resolveExternalAgentReadiness(adapter, health);
@@ -761,8 +795,16 @@ function AdapterStatusRow({
   const showHealthDuration = Boolean(
     health?.duration_ms !== undefined && showHealthDebugMetadata && !showLocalAuthSetup,
   );
+  const showAuthenticateAction =
+    !remoteRuntime &&
+    adapter.available &&
+    adapterAuthenticateSupportedByHecate(adapter) &&
+    readiness.kind === "sign_in";
   const showLogoutAction =
-    !remoteRuntime && adapter.available && adapterLogoutSupportedByHecate(adapter);
+    !remoteRuntime &&
+    adapter.available &&
+    adapterLogoutSupportedByHecate(adapter) &&
+    !showAuthenticateAction;
 
   return (
     <div
@@ -921,6 +963,18 @@ function AdapterStatusRow({
             checking…
           </span>
         )}
+        {showAuthenticateAction && (
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => onAuthenticateAdapter(adapter)}
+            disabled={authenticateLoading}
+            aria-label={`Sign in ${adapter.name || adapter.id}`}
+            title={`Sign in ${adapter.name || adapter.id}`}
+          >
+            <Icon d={Icons.keys} size={12} /> {authenticateLoading ? "Signing in..." : "Sign in"}
+          </button>
+        )}
         {showLogoutAction && (
           <button
             type="button"
@@ -940,6 +994,10 @@ function AdapterStatusRow({
 
 function adapterLogoutSupportedByHecate(adapter: AgentAdapterRecord): boolean {
   return adapter.supports_logout === true;
+}
+
+function adapterAuthenticateSupportedByHecate(adapter: AgentAdapterRecord): boolean {
+  return adapter.supports_authenticate === true;
 }
 
 function AdapterRemoteCredentialSetup({

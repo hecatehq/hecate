@@ -11,7 +11,11 @@ import (
 	acp "github.com/coder/acp-go-sdk"
 )
 
-const LogoutStatusLoggedOut = "logged_out"
+const (
+	AuthenticateStatusAuthenticated = "authenticated"
+	LogoutStatusLoggedOut           = "logged_out"
+	ACPAuthMethodAgentLogin         = "agent-login"
+)
 
 type LogoutResult struct {
 	AdapterID  string `json:"adapter_id"`
@@ -20,13 +24,64 @@ type LogoutResult struct {
 	DurationMS int64  `json:"duration_ms"`
 }
 
+type AuthenticateResult struct {
+	AdapterID  string `json:"adapter_id"`
+	Status     string `json:"status"`
+	MethodID   string `json:"method_id"`
+	Path       string `json:"path,omitempty"`
+	DurationMS int64  `json:"duration_ms"`
+}
+
+type acpAuthActionResult struct {
+	Adapter    Adapter
+	Path       string
+	DurationMS int64
+}
+
+type acpAuthAction func(context.Context, *acp.ClientSideConnection) error
+
+func Authenticate(ctx context.Context, adapterID string) (AuthenticateResult, error) {
+	action, err := runACPAuthAction(ctx, adapterID, "authenticate", "hecate-adapter-authenticate-*", "hecate-authenticate", func(ctx context.Context, conn *acp.ClientSideConnection) error {
+		_, err := conn.Authenticate(ctx, acp.AuthenticateRequest{MethodId: ACPAuthMethodAgentLogin})
+		return err
+	})
+	res := AuthenticateResult{
+		AdapterID:  action.Adapter.ID,
+		MethodID:   ACPAuthMethodAgentLogin,
+		Path:       action.Path,
+		DurationMS: action.DurationMS,
+	}
+	if err != nil {
+		return res, err
+	}
+	res.Status = AuthenticateStatusAuthenticated
+	return res, nil
+}
+
 func Logout(ctx context.Context, adapterID string) (LogoutResult, error) {
+	action, err := runACPAuthAction(ctx, adapterID, "logout", "hecate-adapter-logout-*", "hecate-logout", func(ctx context.Context, conn *acp.ClientSideConnection) error {
+		_, err := conn.Logout(ctx, acp.LogoutRequest{})
+		return err
+	})
+	res := LogoutResult{
+		AdapterID:  action.Adapter.ID,
+		Path:       action.Path,
+		DurationMS: action.DurationMS,
+	}
+	if err != nil {
+		return res, err
+	}
+	res.Status = LogoutStatusLoggedOut
+	return res, nil
+}
+
+func runACPAuthAction(ctx context.Context, adapterID, operation, workspacePattern, clientName string, action acpAuthAction) (acpAuthActionResult, error) {
 	start := time.Now()
 	adapter, ok := BuiltInByID(adapterID)
 	if !ok {
-		return LogoutResult{}, fmt.Errorf("agent adapter %q not found", strings.TrimSpace(adapterID))
+		return acpAuthActionResult{}, fmt.Errorf("agent adapter %q not found", strings.TrimSpace(adapterID))
 	}
-	res := LogoutResult{AdapterID: adapter.ID}
+	res := acpAuthActionResult{Adapter: adapter}
 
 	path, err := resolveExecutable(adapter, exec.LookPath)
 	if err != nil {
@@ -35,13 +90,13 @@ func Logout(ctx context.Context, adapterID string) (LogoutResult, error) {
 	}
 	res.Path = path
 
-	logoutCtx, cancel := context.WithTimeout(ctx, probeTimeout)
+	actionCtx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
 
-	workspace, err := os.MkdirTemp("", "hecate-adapter-logout-*")
+	workspace, err := os.MkdirTemp("", workspacePattern)
 	if err != nil {
 		res.DurationMS = elapsedMS(start)
-		return res, fmt.Errorf("create logout workspace: %w", err)
+		return res, fmt.Errorf("create %s workspace: %w", operation, err)
 	}
 	defer func() { _ = os.RemoveAll(workspace) }()
 
@@ -88,11 +143,11 @@ func Logout(ctx context.Context, adapterID string) (LogoutResult, error) {
 	defer cleanupProcess()
 
 	conn := acp.NewClientSideConnection(probeClient{}, stdin, stdout)
-	initCtx, initCancel := context.WithTimeout(logoutCtx, 10*time.Second)
+	initCtx, initCancel := context.WithTimeout(actionCtx, 10*time.Second)
 	_, err = conn.Initialize(initCtx, acp.InitializeRequest{
 		ProtocolVersion: acp.ProtocolVersionNumber,
 		ClientInfo: &acp.Implementation{
-			Name:    "hecate-logout",
+			Name:    clientName,
 			Version: "alpha",
 		},
 		ClientCapabilities: acp.ClientCapabilities{
@@ -110,15 +165,14 @@ func Logout(ctx context.Context, adapterID string) (LogoutResult, error) {
 		return res, fmt.Errorf("initialize ACP adapter %q: %w%s", adapter.ID, err, stderrSuffix(stderr.String()))
 	}
 
-	callCtx, callCancel := context.WithTimeout(logoutCtx, 10*time.Second)
-	_, err = conn.Logout(callCtx, acp.LogoutRequest{})
+	callCtx, callCancel := context.WithTimeout(actionCtx, 10*time.Second)
+	err = action(callCtx, conn)
 	callCancel()
 	if err != nil {
 		cleanupProcess()
 		res.DurationMS = elapsedMS(start)
-		return res, fmt.Errorf("logout ACP adapter %q: %w%s", adapter.ID, err, stderrSuffix(stderr.String()))
+		return res, fmt.Errorf("%s ACP adapter %q: %w%s", operation, adapter.ID, err, stderrSuffix(stderr.String()))
 	}
-	res.Status = LogoutStatusLoggedOut
 	res.DurationMS = elapsedMS(start)
 	return res, nil
 }

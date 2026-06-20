@@ -467,6 +467,40 @@ func TestLogoutReturnsACPLogoutError(t *testing.T) {
 	}
 }
 
+func TestAuthenticateCallsACPAuthenticate(t *testing.T) {
+	authFile := filepath.Join(t.TempDir(), "authenticate.called")
+	t.Setenv("HECATE_FAKE_ACP_AUTHENTICATE_FILE", authFile)
+	installFakeACPExecutable(t, "codex-acp-adapter")
+
+	result, err := Authenticate(context.Background(), "codex")
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+	if result.AdapterID != "codex" || result.Status != AuthenticateStatusAuthenticated || result.MethodID != ACPAuthMethodAgentLogin || result.Path == "" {
+		t.Fatalf("authenticate result = %#v, want codex authenticated with method/path", result)
+	}
+	raw, err := os.ReadFile(authFile)
+	if err != nil {
+		t.Fatalf("authenticate marker missing: %v", err)
+	}
+	if got := strings.TrimSpace(string(raw)); got != ACPAuthMethodAgentLogin {
+		t.Fatalf("authenticate marker = %q, want method id %q", got, ACPAuthMethodAgentLogin)
+	}
+}
+
+func TestAuthenticateReturnsACPAuthenticateError(t *testing.T) {
+	t.Setenv("HECATE_FAKE_ACP_AUTHENTICATE_ERROR", "login refused")
+	installFakeACPExecutable(t, "codex-acp-adapter")
+
+	_, err := Authenticate(context.Background(), "codex")
+	if err == nil {
+		t.Fatal("Authenticate error = nil, want ACP authenticate failure")
+	}
+	if got := err.Error(); !strings.Contains(got, `authenticate ACP adapter "codex"`) || !strings.Contains(got, "login refused") {
+		t.Fatalf("Authenticate error = %q, want adapter authenticate failure with diagnostic", got)
+	}
+}
+
 func TestLogoutRejectsUnknownAdapter(t *testing.T) {
 	_, err := Logout(context.Background(), "no_such_adapter")
 	if err == nil || !strings.Contains(err.Error(), `agent adapter "no_such_adapter" not found`) {
@@ -1935,7 +1969,7 @@ func installFakeACPExecutable(t *testing.T, name string) {
 	}
 	exe := filepath.Join(bin, name)
 	script := fmt.Sprintf(
-		"#!/bin/sh\nHECATE_FAKE_ACP_AGENT=1 HECATE_FAKE_ACP_LOAD_SESSION_FAIL=%q HECATE_FAKE_ACP_NEW_SESSION_DELAY=%q HECATE_FAKE_ACP_COMMANDS_DELAY=%q HECATE_FAKE_ACP_MODELS=%q HECATE_FAKE_ACP_CONFIG_OPTIONS=%q HECATE_FAKE_ACP_SET_MODEL_ERROR=%q HECATE_FAKE_ACP_EXPECT_MCP_METHOD=%q HECATE_FAKE_ACP_EXPECT_MCP_JSON=%q HECATE_FAKE_ACP_LOGOUT_FILE=%q HECATE_FAKE_ACP_LOGOUT_ERROR=%q exec %q -test.run '^TestFakeACPAgentProcess$'\n",
+		"#!/bin/sh\nHECATE_FAKE_ACP_AGENT=1 HECATE_FAKE_ACP_LOAD_SESSION_FAIL=%q HECATE_FAKE_ACP_NEW_SESSION_DELAY=%q HECATE_FAKE_ACP_COMMANDS_DELAY=%q HECATE_FAKE_ACP_MODELS=%q HECATE_FAKE_ACP_CONFIG_OPTIONS=%q HECATE_FAKE_ACP_SET_MODEL_ERROR=%q HECATE_FAKE_ACP_EXPECT_MCP_METHOD=%q HECATE_FAKE_ACP_EXPECT_MCP_JSON=%q HECATE_FAKE_ACP_AUTHENTICATE_FILE=%q HECATE_FAKE_ACP_AUTHENTICATE_ERROR=%q HECATE_FAKE_ACP_LOGOUT_FILE=%q HECATE_FAKE_ACP_LOGOUT_ERROR=%q exec %q -test.run '^TestFakeACPAgentProcess$'\n",
 		os.Getenv("HECATE_FAKE_ACP_LOAD_SESSION_FAIL"),
 		os.Getenv("HECATE_FAKE_ACP_NEW_SESSION_DELAY"),
 		os.Getenv("HECATE_FAKE_ACP_COMMANDS_DELAY"),
@@ -1944,6 +1978,8 @@ func installFakeACPExecutable(t *testing.T, name string) {
 		os.Getenv("HECATE_FAKE_ACP_SET_MODEL_ERROR"),
 		os.Getenv("HECATE_FAKE_ACP_EXPECT_MCP_METHOD"),
 		os.Getenv("HECATE_FAKE_ACP_EXPECT_MCP_JSON"),
+		os.Getenv("HECATE_FAKE_ACP_AUTHENTICATE_FILE"),
+		os.Getenv("HECATE_FAKE_ACP_AUTHENTICATE_ERROR"),
 		os.Getenv("HECATE_FAKE_ACP_LOGOUT_FILE"),
 		os.Getenv("HECATE_FAKE_ACP_LOGOUT_ERROR"),
 		os.Args[0],
@@ -1972,7 +2008,15 @@ func newFakeACPAgent() *fakeACPAgent {
 	return &fakeACPAgent{sessions: make(map[string]*fakeACPSession)}
 }
 
-func (a *fakeACPAgent) Authenticate(context.Context, acp.AuthenticateRequest) (acp.AuthenticateResponse, error) {
+func (a *fakeACPAgent) Authenticate(_ context.Context, params acp.AuthenticateRequest) (acp.AuthenticateResponse, error) {
+	if message := strings.TrimSpace(os.Getenv("HECATE_FAKE_ACP_AUTHENTICATE_ERROR")); message != "" {
+		return acp.AuthenticateResponse{}, fmt.Errorf("%s", message)
+	}
+	if path := strings.TrimSpace(os.Getenv("HECATE_FAKE_ACP_AUTHENTICATE_FILE")); path != "" {
+		if err := os.WriteFile(path, []byte(params.MethodId+"\n"), 0o644); err != nil {
+			return acp.AuthenticateResponse{}, err
+		}
+	}
 	return acp.AuthenticateResponse{}, nil
 }
 

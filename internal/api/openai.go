@@ -830,6 +830,7 @@ type AgentAdapterResponseItem struct {
 	AgentVersion         string                              `json:"agent_version,omitempty"`
 	SupportedRange       string                              `json:"supported_range,omitempty"`
 	VersionOutsideRange  bool                                `json:"version_outside_range,omitempty"`
+	SupportsAuthenticate bool                                `json:"supports_authenticate"`
 	SupportsLogout       bool                                `json:"supports_logout"`
 	AuthStatus           string                              `json:"auth_status,omitempty"`
 	AuthError            string                              `json:"auth_error,omitempty"`

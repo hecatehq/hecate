@@ -132,6 +132,7 @@ func registerHecateAgentRoutes(mux *http.ServeMux, handler *Handler) {
 	mux.HandleFunc("GET /hecate/v1/agent-adapters", handler.HandleAgentAdapters)
 	mux.HandleFunc("POST /hecate/v1/agent-adapters/{id}/probe", handler.HandleAgentAdapterProbe)
 	mux.HandleFunc("GET /hecate/v1/agent-adapters/{id}/health", handler.HandleAgentAdapterHealth)
+	mux.HandleFunc("POST /hecate/v1/agent-adapters/{id}/authenticate", handler.HandleAgentAdapterAuthenticate)
 	mux.HandleFunc("POST /hecate/v1/agent-adapters/{id}/logout", handler.HandleAgentAdapterLogout)
 	mux.HandleFunc("GET /hecate/v1/chat/sessions", handler.HandleChatSessions)
 	mux.HandleFunc("POST /hecate/v1/chat/sessions", handler.HandleCreateChatSession)

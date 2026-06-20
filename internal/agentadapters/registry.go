@@ -64,22 +64,23 @@ const (
 )
 
 type Adapter struct {
-	ID               string
-	Name             string
-	Command          string
-	Args             []string
-	CandidatePaths   []string
-	AgentVersion     VersionProbe
-	LaunchSuffixArgs []string
-	LaunchModel      LaunchModelConfig
-	LaunchOptions    []LaunchSelectConfig
-	Kind             string
-	Description      string
-	CostMode         string
-	DocsURL          string
-	SupportedRange   string
-	SupportsLogout   bool
-	CredentialModes  []CredentialMode
+	ID                   string
+	Name                 string
+	Command              string
+	Args                 []string
+	CandidatePaths       []string
+	AgentVersion         VersionProbe
+	LaunchSuffixArgs     []string
+	LaunchModel          LaunchModelConfig
+	LaunchOptions        []LaunchSelectConfig
+	Kind                 string
+	Description          string
+	CostMode             string
+	DocsURL              string
+	SupportedRange       string
+	SupportsAuthenticate bool
+	SupportsLogout       bool
+	CredentialModes      []CredentialMode
 }
 
 type CredentialMode struct {
@@ -264,12 +265,13 @@ func BuiltIns() []Adapter {
 					"/usr/local/bin/codex",
 				},
 			},
-			Kind:           "acp",
-			Description:    "Run Codex through the standalone Go ACP adapter as an external coding-agent session supervised by Hecate.",
-			CostMode:       "external",
-			DocsURL:        "https://github.com/hecatehq/codex-acp-adapter",
-			SupportedRange: ">=0.1.0-alpha.16",
-			SupportsLogout: true,
+			Kind:                 "acp",
+			Description:          "Run Codex through the standalone Go ACP adapter as an external coding-agent session supervised by Hecate.",
+			CostMode:             "external",
+			DocsURL:              "https://github.com/hecatehq/codex-acp-adapter",
+			SupportedRange:       ">=0.1.0-alpha.17",
+			SupportsAuthenticate: true,
+			SupportsLogout:       true,
 			CredentialModes: []CredentialMode{
 				{
 					ID:          CredentialModeLocalLogin,
@@ -304,12 +306,13 @@ func BuiltIns() []Adapter {
 					"/usr/local/bin/claude",
 				},
 			},
-			Kind:           "acp",
-			Description:    "Run Claude Code through the standalone Go ACP adapter as an external coding-agent session supervised by Hecate.",
-			CostMode:       "external",
-			DocsURL:        "https://github.com/hecatehq/claude-code-acp-adapter",
-			SupportedRange: ">=0.1.0-alpha.18",
-			SupportsLogout: true,
+			Kind:                 "acp",
+			Description:          "Run Claude Code through the standalone Go ACP adapter as an external coding-agent session supervised by Hecate.",
+			CostMode:             "external",
+			DocsURL:              "https://github.com/hecatehq/claude-code-acp-adapter",
+			SupportedRange:       ">=0.1.0-alpha.19",
+			SupportsAuthenticate: true,
+			SupportsLogout:       true,
 			CredentialModes: []CredentialMode{
 				{
 					ID:          CredentialModeLocalLogin,

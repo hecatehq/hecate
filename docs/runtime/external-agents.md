@@ -24,10 +24,10 @@ transcript prelude for multi-turn continuity. Claude Code adapter
 after an adapter process restart. Codex does not yet claim vendor-native
 durable history across adapter process restarts; if a load is stale, Hecate
 falls back to a fresh native session. Hecate treats `codex-acp-adapter` versions
-older than `v0.1.0-alpha.16` and `claude-code-acp-adapter` versions older than
-`v0.1.0-alpha.18` as outside the tested range because those older releases lack
+older than `v0.1.0-alpha.17` and `claude-code-acp-adapter` versions older than
+`v0.1.0-alpha.19` as outside the tested range because those older releases lack
 the current continuity, permission-control, structured stream, session metadata,
-external MCP handoff surface, and ACP logout mapping. The
+external MCP handoff surface, and ACP authenticate/logout mapping. The
 `v0.1.0-alpha.8` adapters added supported Codex and Claude Code JSON stream
 translation into ACP assistant-message, thought, tool-call, tool-result, and
 usage updates, so Hecate can render External Agent activity without exposing raw
@@ -49,6 +49,8 @@ review updates, so the External Agent transcript can show those activities more
 clearly.
 Codex adapter `v0.1.0-alpha.16` maps ACP `logout` to the native `codex logout`
 command.
+Codex adapter `v0.1.0-alpha.17` maps ACP `authenticate` to the native
+`codex login` command.
 Claude Code adapter `v0.1.0-alpha.11` adds command-backed stdio/HTTP MCP server
 config propagation into Claude `--mcp-config`, and `v0.1.0-alpha.12` adds
 Claude-native `--session-id` reload after adapter restarts. Claude Code adapter
@@ -68,6 +70,8 @@ commands (`/compact`, `/debug`, `/run`, and `/verify`) so Hecate can show them
 in the External Agent command picker.
 Claude Code adapter `v0.1.0-alpha.18` maps ACP `logout` to the native
 `claude auth logout` command.
+Claude Code adapter `v0.1.0-alpha.19` maps ACP `authenticate` to the native
+`claude /login` command.
 
 ## Supported External Agents
 
@@ -325,6 +329,9 @@ process: Codex receives `CODEX_` / `OPENAI_`, Claude Code receives `CLAUDE_` /
 Provider or gateway-scoped secrets are not shared across adapters. In remote
 runtime mode this narrows further to the declared remote-safe env keys plus
 runtime essentials such as `PATH`, locale, temp, and certificate variables.
+The Hecate-managed ACP `authenticate` action is local-only; hosted runtimes use
+these declared env-key credential modes instead of starting an interactive CLI
+login.
 
 If discovery cannot find a direct CLI adapter, install the vendor CLI and
 restart Hecate from an environment where the command is on `PATH`. If a run

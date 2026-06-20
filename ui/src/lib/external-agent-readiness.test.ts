@@ -12,6 +12,7 @@ function adapter(overrides: Partial<AgentAdapterRecord> = {}): AgentAdapterRecor
     available: true,
     status: "available",
     cost_mode: "external",
+    supports_authenticate: false,
     supports_logout: false,
     ...overrides,
   };

@@ -361,6 +361,7 @@ describe("Connections external-agent panel", () => {
             available: true,
             status: "available",
             auth_status: "ok",
+            supports_authenticate: true,
             supports_logout: true,
           },
           {
@@ -371,6 +372,7 @@ describe("Connections external-agent panel", () => {
             available: true,
             status: "available",
             auth_status: "ok",
+            supports_authenticate: false,
             supports_logout: false,
           },
         ],
@@ -383,6 +385,46 @@ describe("Connections external-agent panel", () => {
 
     expect(logoutAgentAdapter).toHaveBeenCalledWith("codex");
     expect(screen.queryByRole("button", { name: "Sign out Cursor Agent" })).toBeNull();
+  });
+
+  it("shows authenticate for local adapters that need sign-in", async () => {
+    const authenticateAgentAdapter = vi.fn(async () => true);
+    const { state, actions, user } = setup(
+      {
+        agentAdapters: [
+          {
+            id: "codex",
+            name: "Codex",
+            kind: "acp",
+            command: "codex-acp-adapter",
+            available: true,
+            status: "available",
+            auth_status: "unauthenticated",
+            supports_authenticate: true,
+            supports_logout: true,
+          },
+          {
+            id: "cursor_agent",
+            name: "Cursor Agent",
+            kind: "acp",
+            command: "cursor-agent",
+            available: true,
+            status: "available",
+            auth_status: "unauthenticated",
+            supports_authenticate: false,
+            supports_logout: false,
+          },
+        ],
+      },
+      { authenticateAgentAdapter },
+    );
+    render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
+
+    await user.click(await screen.findByRole("button", { name: "Sign in Codex" }));
+
+    expect(authenticateAgentAdapter).toHaveBeenCalledWith("codex");
+    expect(screen.queryByRole("button", { name: "Sign in Cursor Agent" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Sign out Codex" })).toBeNull();
   });
 
   it("revoke asks for inline confirmation before deleting the grant", async () => {

@@ -4,7 +4,10 @@ import { useContext } from "react";
 
 import { applyOverride, CoordinatorOverridesContext } from "./overrides";
 import { useProvidersAndModels } from "../providersAndModels";
-import { logoutAgentAdapter as logoutAgentAdapterRequest } from "../../../lib/api";
+import {
+  authenticateAgentAdapter as authenticateAgentAdapterRequest,
+  logoutAgentAdapter as logoutAgentAdapterRequest,
+} from "../../../lib/api";
 import type { AgentAdapterHealthRecord } from "../../../types/agent-adapter";
 import type { SettingsActions } from "./settings";
 
@@ -49,6 +52,28 @@ export function useAgentAdapterActions(params: UseAgentAdapterActionsParams) {
     }
   }
 
+  async function authenticateAgentAdapter(adapterID: string): Promise<boolean> {
+    if (!adapterID) {
+      params.setNoticeMessage("error", "Adapter id required to sign in.");
+      return false;
+    }
+    try {
+      await authenticateAgentAdapterRequest(adapterID);
+      providersAndModels.actions.clearAgentAdapterHealth(adapterID);
+      params.setNoticeMessage("success", "External agent sign-in completed.");
+      return true;
+    } catch (error) {
+      params.setNoticeMessage(
+        "error",
+        error instanceof Error ? error.message : "Failed to sign in external agent.",
+      );
+      return false;
+    }
+  }
+
   const overrides = useContext(CoordinatorOverridesContext);
-  return applyOverride({ probeAgentAdapter, logoutAgentAdapter }, overrides?.agentAdapters);
+  return applyOverride(
+    { probeAgentAdapter, authenticateAgentAdapter, logoutAgentAdapter },
+    overrides?.agentAdapters,
+  );
 }

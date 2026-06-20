@@ -48,7 +48,7 @@ context, exposed from `GET /hecate/v1/whoami` as `data.remote_identity`, added t
 the top-level HTTP span attributes, and accepted in place of the local
 runtime/inference shared tokens. Remote mode rejects local-only endpoints for
 workspace picker/open, reset-data, shutdown, MCP probe, plugin-registry
-management, and local provider and MCP registry discovery. Hecate-native `/hecate/v1/*` routes are explicitly
+management, agent-adapter authenticate, and local provider and MCP registry discovery. Hecate-native `/hecate/v1/*` routes are explicitly
 classified for remote mode, and route coverage tests fail when a new registered
 route is not marked remote-safe or local-only.
 
@@ -1004,6 +1004,7 @@ GET /hecate/v1/agent-adapters
       "agent_version": "0.48.0",
       "supported_range": ">=0.0.0-dev",
       "version_outside_range": false,
+      "supports_authenticate": true,
       "supports_logout": true,
       "auth_status": "ok",
       "credential_modes": [
@@ -1032,6 +1033,7 @@ GET /hecate/v1/agent-adapters
       "cost_mode": "external",
       "docs_url": "https://docs.x.ai/build/cli/headless-scripting#acp",
       "supported_range": ">=0.1.0",
+      "supports_authenticate": false,
       "supports_logout": false,
       "auth_status": "ok"
     },
@@ -1048,6 +1050,7 @@ GET /hecate/v1/agent-adapters
       "agent_version": "0.0.9",
       "supported_range": ">=0.1.0",
       "version_outside_range": true,
+      "supports_authenticate": false,
       "supports_logout": false,
       "auth_status": "unauthenticated",
       "auth_error": "Run cursor-agent login, or set CURSOR_API_KEY for the agent environment."
@@ -1062,6 +1065,7 @@ GET /hecate/v1/agent-adapters
       "error": "exec: \"claude-code-acp-adapter\": executable file not found in $PATH",
       "cost_mode": "external",
       "supported_range": ">=0.0.0-dev",
+      "supports_authenticate": true,
       "supports_logout": true,
       "auth_status": "unknown",
       "auth_error": "Open Connections and test Claude Code. If it reports a sign-in error, run `claude /login` in Terminal."
@@ -1086,10 +1090,10 @@ amber "outside tested range" chip in that case.
 vars and login files without spawning the agent. Use `POST
 /hecate/v1/agent-adapters/{id}/probe` for the full ACP handshake.
 
-`supports_logout` tells clients whether Hecate can call ACP `logout` for this
-adapter. UIs should use this catalog field instead of hard-coding adapter IDs;
-the action is currently enabled for the standalone Go Codex and Claude Code
-adapters.
+`supports_authenticate` and `supports_logout` tell clients whether Hecate can
+call ACP `authenticate` or `logout` for this adapter. UIs should use these
+catalog fields instead of hard-coding adapter IDs; the actions are currently
+enabled for the standalone Go Codex and Claude Code adapters.
 
 `credential_modes` describes how the adapter can authenticate. `local_login`
 means operator-local CLI/browser login state and is not sufficient for remote
@@ -1208,6 +1212,38 @@ Status codes:
 The probe creates and immediately abandons a fresh ACP session, so agents that
 bill on session creation will see one no-op session per call. Agents that bill
 on prompt completion see no charge.
+
+### `POST /hecate/v1/agent-adapters/{id}/authenticate`
+
+Asks one registered ACP adapter to start its own local login flow. Hecate
+spawns the adapter, performs ACP `Initialize`, calls ACP `authenticate` with
+method id `agent-login`, and then terminates the process. This is an
+adapter-account action: it does not create or mutate Hecate chat sessions,
+approvals, or transcripts. Remote runtime mode treats this as local-only;
+hosted deployments should use the adapter's declared remote-safe env-key
+credential modes instead.
+
+```json
+POST /hecate/v1/agent-adapters/codex/authenticate
+→ 200
+{
+  "object": "agent_adapter_authenticate",
+  "data": {
+    "adapter_id": "codex",
+    "status": "authenticated",
+    "method_id": "agent-login",
+    "path": "/Users/alice/.local/bin/codex-acp-adapter",
+    "duration_ms": 328
+  }
+}
+```
+
+Status codes:
+
+- `200 OK` when the adapter accepted ACP `authenticate`.
+- `404 not_found` when the adapter id is not registered.
+- `502 chat.adapter_unavailable` when the adapter binary cannot start,
+  initialize, or complete ACP `authenticate`.
 
 ### `POST /hecate/v1/agent-adapters/{id}/logout`
 

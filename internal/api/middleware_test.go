@@ -603,6 +603,7 @@ func TestRemoteRuntimeLocalEndpointGuardMiddleware(t *testing.T) {
 		{name: "blocks mcp probe", enabled: true, method: http.MethodPost, path: "/hecate/v1/mcp/probe", want: http.StatusForbidden},
 		{name: "blocks mcp registry discovery", enabled: true, method: http.MethodGet, path: "/hecate/v1/mcp/registry/servers", want: http.StatusForbidden},
 		{name: "blocks local provider discovery", enabled: true, method: http.MethodGet, path: "/hecate/v1/settings/providers/local-discovery", want: http.StatusForbidden},
+		{name: "blocks adapter authenticate", enabled: true, method: http.MethodPost, path: "/hecate/v1/agent-adapters/codex/authenticate", want: http.StatusForbidden},
 		{name: "blocks unclassified hecate endpoint", enabled: true, method: http.MethodPost, path: "/hecate/v1/future-local-only", want: http.StatusForbidden},
 		{name: "allows normal endpoint", enabled: true, method: http.MethodGet, path: "/hecate/v1/whoami", want: http.StatusNoContent},
 		{name: "allows adapter logout", enabled: true, method: http.MethodPost, path: "/hecate/v1/agent-adapters/codex/logout", want: http.StatusNoContent},

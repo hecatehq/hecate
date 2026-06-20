@@ -18,6 +18,7 @@ var remoteRuntimeLocalOnlyRoutes = []remoteRuntimeRoutePattern{
 	{method: http.MethodPost, path: "/hecate/v1/mcp/probe"},
 	{method: http.MethodGet, path: "/hecate/v1/mcp/registry/servers"},
 	{method: http.MethodGet, path: "/hecate/v1/settings/providers/local-discovery"},
+	{method: http.MethodPost, path: "/hecate/v1/agent-adapters/{id}/authenticate"},
 	{method: http.MethodGet, path: "/hecate/v1/plugins"},
 	{method: http.MethodPost, path: "/hecate/v1/plugins/install-local"},
 	{method: http.MethodGet, path: "/hecate/v1/plugins/{id}"},

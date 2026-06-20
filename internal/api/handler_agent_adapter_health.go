@@ -20,6 +20,12 @@ type AgentAdapterProbe func(ctx context.Context, adapterID string) agentadapters
 // adapter binaries.
 type AgentAdapterLogout func(ctx context.Context, adapterID string) (agentadapters.LogoutResult, error)
 
+// AgentAdapterAuthenticate is the function shape the handler calls to ask an
+// adapter to run its own local login flow. Production wiring uses
+// agentadapters.Authenticate directly; tests inject a fake to avoid spawning
+// real adapter binaries.
+type AgentAdapterAuthenticate func(ctx context.Context, adapterID string) (agentadapters.AuthenticateResult, error)
+
 // SetAgentAdapterProbe overrides the probe used by HandleAgentAdapterHealth.
 // Pass nil to restore the default (agentadapters.Probe). Test-only.
 func (h *Handler) SetAgentAdapterProbe(p AgentAdapterProbe) {
@@ -31,6 +37,13 @@ func (h *Handler) SetAgentAdapterProbe(p AgentAdapterProbe) {
 // (agentadapters.Logout). Test-only.
 func (h *Handler) SetAgentAdapterLogout(fn AgentAdapterLogout) {
 	h.agentAdapterLogout = fn
+}
+
+// SetAgentAdapterAuthenticate overrides the authenticate call used by
+// HandleAgentAdapterAuthenticate. Pass nil to restore the default
+// (agentadapters.Authenticate). Test-only.
+func (h *Handler) SetAgentAdapterAuthenticate(fn AgentAdapterAuthenticate) {
+	h.agentAdapterAuthenticate = fn
 }
 
 // HandleAgentAdapterHealth probes a single adapter to confirm it can
@@ -82,6 +95,13 @@ func (h *Handler) logoutAgentAdapter(ctx context.Context, id string) (agentadapt
 		return h.agentAdapterLogout(ctx, id)
 	}
 	return agentadapters.Logout(ctx, id)
+}
+
+func (h *Handler) authenticateAgentAdapter(ctx context.Context, id string) (agentadapters.AuthenticateResult, error) {
+	if h != nil && h.agentAdapterAuthenticate != nil {
+		return h.agentAdapterAuthenticate(ctx, id)
+	}
+	return agentadapters.Authenticate(ctx, id)
 }
 
 // AgentAdapterHealthResponse wraps the probe result. Object is the
