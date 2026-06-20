@@ -204,6 +204,20 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 				nativeID = ""
 				resumed = false
 			}
+			if nativeID != "" {
+				configOptions, loadErr = applySelectedACPConfigOptions(loadCtx, conn, nativeID, adapter, configOptions, selectedOptions)
+				if loadErr != nil {
+					recovery = fmt.Sprintf("could not restore ACP session %s: %v", previousNativeSessionID, loadErr)
+					if sessionLogger != nil {
+						sessionLogger.Warn("previous ACP session config selection failed",
+							slog.String("native_session_id", previousNativeSessionID),
+							slog.Any("error", loadErr),
+						)
+					}
+					nativeID = ""
+					resumed = false
+				}
+			}
 		}
 		cancel()
 		if loadErr == nil && nativeID != "" {
@@ -244,13 +258,22 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 		configOptions = agentcontrols.FromACPOptions(created.ConfigOptions)
 		configOptions, managedConfig = appendLaunchConfigOptions(ctx, command, adapter, configOptions, selectedOptions)
 		configOptions, err = applySelectedACPModel(newCtx, conn, nativeID, adapter, configOptions, selectedOptions)
-		cancel()
 		if err != nil {
+			cancel()
 			if sessionLogger != nil {
 				sessionLogger.Warn("ACP session model selection failed", slog.Any("error", err))
 			}
 			terminateProcess(cmd)
 			return nil, false, "", fmt.Errorf("select ACP model for %q: %w%s", adapter.ID, err, stderrSuffix(stderr.String()))
+		}
+		configOptions, err = applySelectedACPConfigOptions(newCtx, conn, nativeID, adapter, configOptions, selectedOptions)
+		cancel()
+		if err != nil {
+			if sessionLogger != nil {
+				sessionLogger.Warn("ACP session config selection failed", slog.Any("error", err))
+			}
+			terminateProcess(cmd)
+			return nil, false, "", fmt.Errorf("select ACP config for %q: %w%s", adapter.ID, err, stderrSuffix(stderr.String()))
 		}
 		if sessionLogger != nil {
 			sessionLogger.Info("ACP session created",
@@ -607,6 +630,10 @@ func cloneConfigOptions(options []agentcontrols.ConfigOption) []agentcontrols.Co
 	return out
 }
 
+func cloneConfigOption(option agentcontrols.ConfigOption) agentcontrols.ConfigOption {
+	return cloneConfigOptions([]agentcontrols.ConfigOption{option})[0]
+}
+
 func cloneCommands(commands []agentcontrols.Command) []agentcontrols.Command {
 	if commands == nil {
 		return nil
@@ -622,7 +649,7 @@ func preserveACPModelConfigOption(options, previous []agentcontrols.ConfigOption
 	}
 	for _, option := range previous {
 		if option.Source == agentcontrols.ConfigOptionSourceACPModel {
-			return append(options, cloneConfigOptions([]agentcontrols.ConfigOption{option})...)
+			return append(options, cloneConfigOption(option))
 		}
 	}
 	return options
@@ -644,7 +671,7 @@ func preserveManagedConfigOptions(options, previous []agentcontrols.ConfigOption
 		if _, ok := present[option.ID]; ok {
 			continue
 		}
-		out = append(out, cloneConfigOptions([]agentcontrols.ConfigOption{option})...)
+		out = append(out, cloneConfigOption(option))
 	}
 	return out
 }
@@ -685,6 +712,117 @@ func applySelectedACPModel(ctx context.Context, conn *acp.ClientSideConnection, 
 		return out, nil
 	}
 	return options, nil
+}
+
+func applySelectedACPConfigOptions(ctx context.Context, conn *acp.ClientSideConnection, nativeID string, adapter Adapter, options, selected []agentcontrols.ConfigOption) ([]agentcontrols.ConfigOption, error) {
+	if len(selected) == 0 || conn == nil || strings.TrimSpace(nativeID) == "" {
+		return options, nil
+	}
+	out := cloneConfigOptions(options)
+	for _, selectedOption := range selected {
+		index := configOptionIndex(out, selectedOption.ID)
+		if index < 0 {
+			continue
+		}
+		current := out[index]
+		if current.Source == agentcontrols.ConfigOptionSourceLaunch {
+			continue
+		}
+		if current.ID == "model" && current.Source == agentcontrols.ConfigOptionSourceACPModel {
+			continue
+		}
+		var (
+			req agentcontrols.SetConfigOptionRequest
+			ok  bool
+		)
+		switch current.Type {
+		case agentcontrols.ConfigOptionTypeSelect:
+			value := strings.TrimSpace(selectedOption.CurrentValue)
+			if value == "" || strings.HasPrefix(value, "__hecate_no_") || value == current.CurrentValue {
+				continue
+			}
+			if !configOptionAllowsValue(current, value) {
+				return nil, fmt.Errorf("value %q is not available for %s %s", value, adapter.Name, current.Name)
+			}
+			req = agentcontrols.SetConfigOptionRequest{
+				SessionID: nativeID,
+				ConfigID:  current.ID,
+				Value:     value,
+			}
+			ok = true
+		case agentcontrols.ConfigOptionTypeBoolean:
+			if selectedOption.CurrentBool == nil {
+				continue
+			}
+			if current.CurrentBool != nil && *current.CurrentBool == *selectedOption.CurrentBool {
+				continue
+			}
+			req = agentcontrols.SetConfigOptionRequest{
+				SessionID: nativeID,
+				ConfigID:  current.ID,
+				BoolValue: selectedOption.CurrentBool,
+			}
+			ok = true
+		}
+		if !ok {
+			continue
+		}
+		acpReq, err := agentcontrols.BuildACPSetRequest(req)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := conn.SetSessionConfigOption(ctx, acpReq)
+		if err != nil {
+			return nil, fmt.Errorf("select ACP config option %q for %q: %w", current.ID, adapter.ID, err)
+		}
+		out = applyACPConfigOptionSetResponse(out, resp, req)
+	}
+	return out, nil
+}
+
+func configOptionIndex(options []agentcontrols.ConfigOption, id string) int {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return -1
+	}
+	for i := range options {
+		if options[i].ID == id {
+			return i
+		}
+	}
+	return -1
+}
+
+func applyACPConfigOptionSetResponse(previous []agentcontrols.ConfigOption, resp acp.SetSessionConfigOptionResponse, req agentcontrols.SetConfigOptionRequest) []agentcontrols.ConfigOption {
+	if resp.ConfigOptions != nil {
+		updated := agentcontrols.FromACPOptions(resp.ConfigOptions)
+		if updated == nil {
+			updated = []agentcontrols.ConfigOption{}
+		}
+		return mergeConfigOptions(previous, updated)
+	}
+	out := cloneConfigOptions(previous)
+	if i := configOptionIndex(out, req.ConfigID); i >= 0 {
+		if req.BoolValue != nil {
+			value := *req.BoolValue
+			out[i].CurrentBool = &value
+		} else {
+			out[i].CurrentValue = strings.TrimSpace(req.Value)
+		}
+	}
+	return out
+}
+
+func mergeConfigOptions(previous, updated []agentcontrols.ConfigOption) []agentcontrols.ConfigOption {
+	out := cloneConfigOptions(previous)
+	for _, option := range updated {
+		if i := configOptionIndex(out, option.ID); i >= 0 {
+			out[i] = cloneConfigOption(option)
+			continue
+		}
+		out = append(out, cloneConfigOption(option))
+	}
+	return out
 }
 
 func selectedConfigOptionValue(options []agentcontrols.ConfigOption, id string) string {

@@ -73,6 +73,7 @@ func TestACPAdapterReleaseBinariesSmoke(t *testing.T) {
 			if prepared.DriverKind != DriverKindACP || prepared.NativeSessionID == "" || !prepared.SessionStarted {
 				t.Fatalf("PrepareSession(%s) = %#v, want started ACP session", tt.adapterID, prepared)
 			}
+			currentConfigOptions := prepared.ConfigOptions
 			for _, id := range tt.wantConfigOptionIDs {
 				if findConfigOption(prepared.ConfigOptions, id) == nil {
 					t.Fatalf("PrepareSession(%s) options = %#v, want %q", tt.adapterID, prepared.ConfigOptions, id)
@@ -96,6 +97,7 @@ func TestACPAdapterReleaseBinariesSmoke(t *testing.T) {
 				if got == nil || got.CurrentValue != option.value {
 					t.Fatalf("SetSessionConfigOption(%s, %s) options = %#v, want current value %q", tt.adapterID, option.id, updated.ConfigOptions, option.value)
 				}
+				currentConfigOptions = updated.ConfigOptions
 			}
 
 			run, err := manager.Run(context.Background(), RunRequest{
@@ -147,6 +149,67 @@ func TestACPAdapterReleaseBinariesSmoke(t *testing.T) {
 				}
 			}
 
+			if tt.authFailurePrompt != "" {
+				_, err := manager.Run(context.Background(), RunRequest{
+					SessionID:      "release_" + tt.adapterID,
+					AdapterID:      tt.adapterID,
+					Workspace:      workspace,
+					Prompt:         tt.authFailurePrompt,
+					MCPServers:     tt.mcpServers,
+					Timeout:        5 * time.Second,
+					MaxOutputBytes: 64 * 1024,
+				})
+				if err == nil {
+					t.Fatalf("Run(%s, %q) succeeded, want auth-required error", tt.adapterID, tt.authFailurePrompt)
+				}
+				normalized := NormalizeError(prepared.Adapter.Name, err)
+				for _, marker := range tt.wantAuthFailureMarkers {
+					if !strings.Contains(normalized, marker) {
+						t.Fatalf("Run(%s, %q) normalized error = %q, want marker %q", tt.adapterID, tt.authFailurePrompt, normalized, marker)
+					}
+				}
+			}
+
+			if tt.reloadPrompt != "" {
+				reloadManager := NewSessionManager()
+				t.Cleanup(func() {
+					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					if err := reloadManager.Shutdown(ctx); err != nil {
+						t.Errorf("Shutdown reload manager (%s): %v", tt.adapterID, err)
+					}
+				})
+				reloaded, err := reloadManager.Run(context.Background(), RunRequest{
+					SessionID:               "release_reload_" + tt.adapterID,
+					AdapterID:               tt.adapterID,
+					Workspace:               workspace,
+					PreviousNativeSessionID: prepared.NativeSessionID,
+					Prompt:                  tt.reloadPrompt,
+					ConfigOptions:           currentConfigOptions,
+					MCPServers:              tt.mcpServers,
+					Timeout:                 5 * time.Second,
+					MaxOutputBytes:          64 * 1024,
+				})
+				if err != nil {
+					t.Fatalf("Run(%s reload): %v", tt.adapterID, err)
+				}
+				if !strings.Contains(reloaded.Output, tt.wantReloadOutput) {
+					t.Fatalf("Run(%s reload) output = %q, want %q", tt.adapterID, reloaded.Output, tt.wantReloadOutput)
+				}
+				if reloaded.SessionStarted != true || reloaded.SessionResumed != tt.wantReloadResumed {
+					t.Fatalf("Run(%s reload) session flags = started:%v resumed:%v, want started:true resumed:%v", tt.adapterID, reloaded.SessionStarted, reloaded.SessionResumed, tt.wantReloadResumed)
+				}
+				if tt.wantReloadSameNative && reloaded.NativeSessionID != prepared.NativeSessionID {
+					t.Fatalf("Run(%s reload) native session = %q, want previous %q", tt.adapterID, reloaded.NativeSessionID, prepared.NativeSessionID)
+				}
+				if tt.wantReloadRecovery && !strings.Contains(reloaded.SessionRecovery, prepared.NativeSessionID) {
+					t.Fatalf("Run(%s reload) recovery = %q, want previous native session id %q", tt.adapterID, reloaded.SessionRecovery, prepared.NativeSessionID)
+				}
+				if !tt.wantReloadRecovery && reloaded.SessionRecovery != "" {
+					t.Fatalf("Run(%s reload) recovery = %q, want empty recovery", tt.adapterID, reloaded.SessionRecovery)
+				}
+			}
+
 			logout, err := Logout(context.Background(), tt.adapterID)
 			if err != nil {
 				t.Fatalf("Logout(%s): %v", tt.adapterID, err)
@@ -159,19 +222,26 @@ func TestACPAdapterReleaseBinariesSmoke(t *testing.T) {
 }
 
 type acpReleaseSmokeTestCase struct {
-	adapterID           string
-	repo                string
-	binary              string
-	version             string
-	vendorCommand       string
-	vendorScript        string
-	wantOutput          string
-	wantStopReason      string
-	wantConfigOptionIDs []string
-	setConfigOptions    []acpReleaseConfigOption
-	wantCommands        []string
-	commandRuns         []acpReleaseCommandRun
-	mcpServers          []types.MCPServerConfig
+	adapterID              string
+	repo                   string
+	binary                 string
+	version                string
+	vendorCommand          string
+	vendorScript           string
+	wantOutput             string
+	wantStopReason         string
+	wantConfigOptionIDs    []string
+	setConfigOptions       []acpReleaseConfigOption
+	wantCommands           []string
+	commandRuns            []acpReleaseCommandRun
+	mcpServers             []types.MCPServerConfig
+	authFailurePrompt      string
+	wantAuthFailureMarkers []string
+	reloadPrompt           string
+	wantReloadOutput       string
+	wantReloadResumed      bool
+	wantReloadSameNative   bool
+	wantReloadRecovery     bool
 }
 
 type acpReleaseConfigOption struct {
@@ -217,8 +287,15 @@ func acpReleaseSmokeTestCases(t *testing.T) []acpReleaseSmokeTestCase {
 				{id: "sandbox", value: "read-only"},
 				{id: "web_search", value: "enabled"},
 			},
-			wantCommands: []string{"review", "init"},
-			mcpServers:   mcpServers,
+			wantCommands:           []string{"review", "init"},
+			mcpServers:             mcpServers,
+			authFailurePrompt:      "/auth-fail",
+			wantAuthFailureMarkers: []string{"Codex error: Authentication required"},
+			reloadPrompt:           "reload codex",
+			wantReloadOutput:       "go codex reload",
+			wantReloadResumed:      false,
+			wantReloadSameNative:   false,
+			wantReloadRecovery:     true,
 			commandRuns: []acpReleaseCommandRun{
 				{
 					prompt:         "/review focus on tests",
@@ -251,8 +328,15 @@ func acpReleaseSmokeTestCases(t *testing.T) []acpReleaseSmokeTestCase {
 				{id: "effort", value: "high"},
 				{id: "permission_mode", value: "plan"},
 			},
-			wantCommands: []string{"init", "review", "code-review", "security-review", "compact", "debug", "run", "verify"},
-			mcpServers:   mcpServers,
+			wantCommands:           []string{"init", "review", "code-review", "security-review", "compact", "debug", "run", "verify"},
+			mcpServers:             mcpServers,
+			authFailurePrompt:      "/auth-fail",
+			wantAuthFailureMarkers: []string{"isn't signed in", "claude_code_auth_required"},
+			reloadPrompt:           "reload claude_code",
+			wantReloadOutput:       "go claude reload",
+			wantReloadResumed:      true,
+			wantReloadSameNative:   true,
+			wantReloadRecovery:     false,
 			commandRuns: []acpReleaseCommandRun{
 				{
 					prompt:         "/verify release smoke",
@@ -392,7 +476,9 @@ case "$1" in
     require_contains " --config mcp_servers.hecate_01_docs={url=\"https://docs.example.com/mcp\",http_headers={\"Authorization\"=\"Bearer token\"}} " "$@"
     require_contains " --search " "$@"
     case "$*" in
+      *"/auth-fail"*) echo "Authentication required: run codex login" >&2; exit 67;;
       *"/init focus on repo guidance"*) message="go codex init";;
+      *"reload codex"*) message="go codex reload";;
       *"hello codex"*) message="go codex answer";;
       *) echo "unexpected codex exec prompt: $*" >&2; exit 66 ;;
     esac
@@ -455,7 +541,9 @@ case "$1" in
     require_contains " --strict-mcp-config " "$@"
     require_contains " --mcp-config {\"mcpServers\":{\"docs\":{\"headers\":{\"Authorization\":\"Bearer token\"},\"type\":\"http\",\"url\":\"https://docs.example.com/mcp\"}}} " "$@"
     case "$*" in
+      *"/auth-fail"*) echo "Authentication required: run claude /login" >&2; exit 67;;
       *"/verify release smoke"*) message="go claude verify"; stop_reason="end_turn";;
+      *"reload claude_code"*) message="go claude reload"; stop_reason="end_turn";;
       *"hello claude_code"*) message="go claude answer"; stop_reason="error_max_turns";;
       *) echo "unexpected claude prompt: $*" >&2; exit 66 ;;
     esac
