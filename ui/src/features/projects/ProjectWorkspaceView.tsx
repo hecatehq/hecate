@@ -801,18 +801,12 @@ function projectOperationsLimitDetail(
     brief.summary.omitted_item_count ?? availableItemCount - returnedItemCount,
     0,
   );
-  const returnedLabel = `${returnedItemCount} returned ${returnedItemCount === 1 ? "operation" : "operations"}`;
-  const shownLabel =
-    shownItemCount >= returnedItemCount
-      ? `Showing all ${returnedLabel}`
-      : `Showing top ${shownItemCount} of ${returnedLabel}`;
-  if (omittedItemCount > 0) {
-    return `${shownLabel} (${availableItemCount} available; ${omittedItemCount} lower-priority ${omittedItemCount === 1 ? "operation was" : "operations were"} capped by the server).`;
-  }
-  if (returnedItemCount > shownItemCount) {
-    return `${shownLabel}.`;
-  }
-  return "";
+  const hiddenItemCount = Math.max(availableItemCount - shownItemCount, 0);
+  if (hiddenItemCount === 0) return "";
+  const operationLabel = availableItemCount === 1 ? "operation" : "operations";
+  const hiddenLabel = hiddenItemCount === 1 ? "operation is" : "operations are";
+  const capDetail = omittedItemCount > 0 ? ` (${omittedItemCount} capped by the server)` : "";
+  return `Showing ${shownItemCount} of ${availableItemCount} ${operationLabel}; ${hiddenItemCount} lower-priority ${hiddenLabel} hidden${capDetail}.`;
 }
 
 function projectOperationBadge(item: ProjectOperationsBriefItem): string {

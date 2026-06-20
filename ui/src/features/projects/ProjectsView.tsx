@@ -1624,6 +1624,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
         <ProjectHeader
           attentionItems={projectHealth?.attention ?? []}
           omittedAttentionCount={projectHealth?.summary?.omitted_attention_count ?? 0}
+          healthSummary={projectHealth?.summary}
           memoryCandidates={memoryCandidates}
           project={selectedProject}
           onAttentionBucket={(bucket) => {
@@ -2281,6 +2282,7 @@ function ProjectIndexRow({
 
 function ProjectHeader({
   attentionItems,
+  healthSummary,
   omittedAttentionCount,
   memoryCandidates,
   project,
@@ -2300,6 +2302,7 @@ function ProjectHeader({
   onRefresh,
 }: {
   attentionItems: ProjectHealthAttention[];
+  healthSummary?: ProjectHealth["summary"];
   omittedAttentionCount: number;
   memoryCandidates: ProjectMemoryCandidateRecord[];
   project: ProjectRecord | null;
@@ -2342,6 +2345,7 @@ function ProjectHeader({
             disabled={!project}
             memoryCandidates={memoryCandidates}
             omittedAttentionCount={omittedAttentionCount}
+            summary={healthSummary}
             onAttentionBucket={onAttentionBucket}
             onAttentionDefaults={onAttentionDefaults}
             onAttentionMemory={onAttentionMemory}

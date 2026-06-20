@@ -4246,6 +4246,10 @@ describe("ProjectsView cockpit", () => {
 
     await screen.findByText("Work Queue");
     const health = await openProjectAttentionMenu();
+    expect(within(health).getByLabelText("Project health summary")).toBeTruthy();
+    expect(within(health).getByText("1 candidate pending")).toBeTruthy();
+    expect(within(health).getByText("1 follow-up")).toBeTruthy();
+    expect(within(health).getByText("1 handoff")).toBeTruthy();
     expect(within(health).getByText(/Pending handoff: Build cockpit UI/i)).toBeTruthy();
     expect(within(health).getByText(/QA handoff/i)).toBeTruthy();
     expect(within(health).getByText("Memory candidate pending review")).toBeTruthy();

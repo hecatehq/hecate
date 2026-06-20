@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 import type {
   ProjectActivityBucketKey,
   ProjectHealthAttention,
+  ProjectHealthSummary,
   ProjectMemoryCandidateRecord,
 } from "../../types/project";
 import { Badge, Icon, Icons } from "../shared/ui";
@@ -14,6 +15,7 @@ export type ProjectHealthPanelProps = {
   disabled?: boolean;
   memoryCandidates: ProjectMemoryCandidateRecord[];
   omittedAttentionCount?: number;
+  summary?: ProjectHealthSummary;
   onAttentionBucket: (bucket: ProjectActivityBucketKey) => void;
   onAttentionDefaults: () => void;
   onAttentionMemory: () => void;
@@ -31,6 +33,7 @@ export function ProjectHealthPanel({
   disabled = false,
   memoryCandidates,
   omittedAttentionCount = 0,
+  summary,
   onAttentionBucket,
   onAttentionDefaults,
   onAttentionMemory,
@@ -46,12 +49,15 @@ export function ProjectHealthPanel({
     portalSelector: null,
   });
   const attentionCount = attentionItems.length;
-  const totalAttentionCount = attentionCount + omittedAttentionCount;
+  const totalAttentionCount =
+    summary?.available_attention_count ?? attentionCount + omittedAttentionCount;
+  const hiddenAttentionCount = Math.max(0, totalAttentionCount - attentionCount);
   const attentionLabel =
     totalAttentionCount > 0
-      ? `Project attention: ${attentionCount}${omittedAttentionCount > 0 ? `, ${omittedAttentionCount} hidden` : ""}`
+      ? `Project attention: ${attentionCount}${hiddenAttentionCount > 0 ? `, ${hiddenAttentionCount} hidden` : ""}`
       : "Project attention";
-  const attentionBadge = omittedAttentionCount > 0 ? `${attentionCount}+` : `${attentionCount}`;
+  const attentionBadge = hiddenAttentionCount > 0 ? `${attentionCount}+` : `${attentionCount}`;
+  const postureRows = projectHealthPostureRows(summary);
   const closeMenu = () => attentionMenu.close();
   const handleAttentionAction = (item: ProjectHealthAttention) => {
     if (item.action === "settings" || item.id.endsWith(":defaults")) {
@@ -107,10 +113,22 @@ export function ProjectHealthPanel({
             <div style={sectionLabelStyle}>Needs Attention</div>
             <span className="badge badge-muted">{attentionBadge}</span>
           </div>
-          {omittedAttentionCount > 0 && (
+          {postureRows.length > 0 && (
+            <div style={projectPostureGridStyle} aria-label="Project health summary">
+              {postureRows.map((row) => (
+                <div key={row.id} style={projectPostureRowStyle}>
+                  <div style={projectPostureTitleStyle}>{row.title}</div>
+                  <div style={projectPostureValueStyle}>{row.value}</div>
+                  {row.detail && <div style={subtleTextStyle}>{row.detail}</div>}
+                </div>
+              ))}
+            </div>
+          )}
+          {hiddenAttentionCount > 0 && (
             <div style={subtleTextStyle}>
-              {omittedAttentionCount} lower-priority{" "}
-              {omittedAttentionCount === 1 ? "item is" : "items are"} hidden by the server cap.
+              Showing {attentionCount} of {totalAttentionCount} attention{" "}
+              {totalAttentionCount === 1 ? "item" : "items"}; {hiddenAttentionCount} lower-priority{" "}
+              {hiddenAttentionCount === 1 ? "item is" : "items are"} hidden.
             </div>
           )}
           {attentionItems.length === 0 ? (
@@ -251,6 +269,77 @@ function ProjectHealthAttentionRow({
   );
 }
 
+type ProjectHealthPostureRow = {
+  id: string;
+  title: string;
+  value: string;
+  detail?: string;
+};
+
+function projectHealthPostureRows(summary?: ProjectHealthSummary): ProjectHealthPostureRow[] {
+  if (!summary) return [];
+  const setupGaps = [
+    summary.missing_defaults ? "defaults" : "",
+    summary.missing_project_root ? "root" : "",
+  ].filter(Boolean);
+  const pendingMemory = summary.pending_memory_candidate_count;
+  const workFollowUp =
+    summary.pending_handoff_count +
+    summary.review_follow_up_count +
+    summary.stale_or_unknown_assignment_count;
+  return [
+    {
+      id: "setup",
+      title: "Setup",
+      value: setupGaps.length > 0 ? `${setupGaps.length} gap${plural(setupGaps.length)}` : "Ready",
+      detail: setupGaps.length > 0 ? setupGaps.join(", ") : undefined,
+    },
+    {
+      id: "memory",
+      title: "Memory",
+      value:
+        summary.saved_memory_count === 0
+          ? "No memory yet"
+          : `${summary.enabled_memory_count}/${summary.saved_memory_count} enabled`,
+      detail:
+        pendingMemory > 0
+          ? `${pendingMemory} candidate${plural(pendingMemory)} pending`
+          : undefined,
+    },
+    {
+      id: "context",
+      title: "Context",
+      value: `${summary.enabled_context_source_count} source${plural(
+        summary.enabled_context_source_count,
+      )}`,
+    },
+    {
+      id: "work",
+      title: "Work",
+      value: workFollowUp > 0 ? `${workFollowUp} follow-up${plural(workFollowUp)}` : "Clear",
+      detail: projectHealthWorkDetail(summary),
+    },
+  ];
+}
+
+function projectHealthWorkDetail(summary: ProjectHealthSummary): string | undefined {
+  const parts = [
+    countLabel(summary.pending_handoff_count, "handoff"),
+    countLabel(summary.review_follow_up_count, "review"),
+    countLabel(summary.stale_or_unknown_assignment_count, "assignment link"),
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(", ") : undefined;
+}
+
+function countLabel(count: number, label: string): string {
+  if (count <= 0) return "";
+  return `${count} ${label}${plural(count)}`;
+}
+
+function plural(count: number): string {
+  return count === 1 ? "" : "s";
+}
+
 const projectAttentionMenuStyle: CSSProperties = {
   position: "relative",
 };
@@ -297,6 +386,38 @@ const projectAttentionPopoverHeaderStyle: CSSProperties = {
   gap: 8,
   justifyContent: "space-between",
   minWidth: 0,
+};
+
+const projectPostureGridStyle: CSSProperties = {
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-sm)",
+  display: "grid",
+  gap: 0,
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  overflow: "hidden",
+};
+
+const projectPostureRowStyle: CSSProperties = {
+  borderBottom: "1px solid var(--border)",
+  borderRight: "1px solid var(--border)",
+  display: "grid",
+  gap: 3,
+  minWidth: 0,
+  padding: "8px 9px",
+};
+
+const projectPostureTitleStyle: CSSProperties = {
+  color: "var(--t3)",
+  fontSize: 11,
+};
+
+const projectPostureValueStyle: CSSProperties = {
+  color: "var(--t0)",
+  fontSize: 12,
+  fontWeight: 700,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
 };
 
 const sectionLabelStyle: CSSProperties = {

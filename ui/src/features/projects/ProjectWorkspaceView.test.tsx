@@ -423,7 +423,7 @@ describe("ProjectWorkspaceView", () => {
     const operations = screen.getByRole("region", { name: "Project operations" });
     expect(
       within(operations).getByText(
-        "Showing top 4 of 8 returned operations (9 available; 1 lower-priority operation was capped by the server).",
+        "Showing 4 of 9 operations; 5 lower-priority operations are hidden (1 capped by the server).",
       ),
     ).toBeTruthy();
   });
