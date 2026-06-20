@@ -25,7 +25,7 @@ after an adapter process restart. Codex does not yet claim vendor-native
 durable history across adapter process restarts; if a load is stale, Hecate
 falls back to a fresh native session. Hecate treats `codex-acp-adapter` versions
 older than `v0.1.0-alpha.14` and `claude-code-acp-adapter` versions older than
-`v0.1.0-alpha.14` as outside the tested range because those older releases lack
+`v0.1.0-alpha.15` as outside the tested range because those older releases lack
 the current continuity, permission-control, structured stream, session metadata,
 and external MCP handoff surface. The
 `v0.1.0-alpha.8` adapters added supported Codex and Claude Code JSON stream
@@ -51,6 +51,9 @@ path so operators can ask Claude Code to inspect the workspace and create or
 update `CLAUDE.md` from Hecate. Claude Code adapter `v0.1.0-alpha.14` also
 advertises `/review`, `/code-review`, and `/security-review` as normal prompt
 commands backed by Claude Code's native slash-command handling.
+Claude Code adapter `v0.1.0-alpha.15` exposes Claude Code's
+`bypassPermissions` permission mode as an ACP session config option for
+operators who intentionally want the full-access Claude Code boundary.
 
 ## Supported External Agents
 
