@@ -795,6 +795,9 @@ function AdapterStatusRow({
   const showHealthDuration = Boolean(
     health?.duration_ms !== undefined && showHealthDebugMetadata && !showLocalAuthSetup,
   );
+  const showHealthCapabilities = Boolean(
+    health?.capabilities_known && showHealthDebugMetadata && !showLocalAuthSetup,
+  );
   const showAuthenticateAction =
     !remoteRuntime &&
     adapter.available &&
@@ -890,6 +893,14 @@ function AdapterStatusRow({
           )}
           {showHealthDuration && health?.duration_ms !== undefined && (
             <span>{health.duration_ms} ms</span>
+          )}
+          {showHealthCapabilities && health && (
+            <span>
+              load session{" "}
+              <span style={{ color: "var(--t1)" }}>
+                {health.supports_load_session === true ? "yes" : "no"}
+              </span>
+            </span>
           )}
         </div>
         {showHealthDetail && health && detail && (

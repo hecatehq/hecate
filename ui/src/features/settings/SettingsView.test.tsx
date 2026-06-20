@@ -709,6 +709,32 @@ describe("Connections external-agent panel", () => {
       expect(row).not.toHaveTextContent("auth unknown");
     });
 
+    it("shows live load-session capability from a ready probe", async () => {
+      const { state, actions } = setup(
+        withAdapter({
+          agentAdapterHealthByID: new Map([
+            [
+              "codex",
+              {
+                adapter_id: "codex",
+                status: "ready",
+                stage: "ready",
+                path: "/usr/local/bin/codex-acp-adapter",
+                capabilities_known: true,
+                supports_authenticate: true,
+                supports_logout: true,
+                supports_load_session: true,
+                duration_ms: 73,
+              },
+            ],
+          ]),
+        }),
+      );
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
+      const row = await screen.findByTestId("external-agents-adapter-codex");
+      expect(row).toHaveTextContent("load session yes");
+    });
+
     it("shows missing adapters as setup notifications", async () => {
       const { state, actions } = setup(
         withAdapter({
