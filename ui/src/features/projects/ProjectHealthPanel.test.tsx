@@ -2,7 +2,11 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import type { ProjectHealthAttention, ProjectMemoryCandidateRecord } from "../../types/project";
+import type {
+  ProjectHealthAttention,
+  ProjectHealthSummary,
+  ProjectMemoryCandidateRecord,
+} from "../../types/project";
 import { ProjectHealthPanel } from "./ProjectHealthPanel";
 
 function memoryCandidate(overrides: Partial<ProjectMemoryCandidateRecord> = {}) {
@@ -18,6 +22,32 @@ function memoryCandidate(overrides: Partial<ProjectMemoryCandidateRecord> = {}) 
     updated_at: "2026-06-12T00:00:00Z",
     ...overrides,
   } satisfies ProjectMemoryCandidateRecord;
+}
+
+function healthSummary(overrides: Partial<ProjectHealthSummary> = {}) {
+  return {
+    attention_count: 5,
+    available_attention_count: 5,
+    omitted_attention_count: 0,
+    attention_limit: 5,
+    missing_defaults: false,
+    missing_project_root: false,
+    enabled_memory_count: 0,
+    saved_memory_count: 0,
+    enabled_context_source_count: 0,
+    pending_memory_candidate_count: 0,
+    promoted_memory_candidate_count: 0,
+    rejected_memory_candidate_count: 0,
+    pending_handoff_count: 0,
+    accepted_handoff_count: 0,
+    superseded_handoff_count: 0,
+    dismissed_handoff_count: 0,
+    review_follow_up_count: 0,
+    blocked_review_count: 0,
+    changes_requested_review_count: 0,
+    stale_or_unknown_assignment_count: 0,
+    ...overrides,
+  } satisfies ProjectHealthSummary;
 }
 
 function renderPanel(overrides: Partial<Parameters<typeof ProjectHealthPanel>[0]> = {}) {
@@ -141,7 +171,47 @@ describe("ProjectHealthPanel", () => {
     await userEvent.click(screen.getByRole("button", { name: "Project attention: 5, 2 hidden" }));
 
     expect(screen.getAllByText("5+").length).toBeGreaterThan(0);
-    expect(screen.getByText("2 lower-priority items are hidden by the server cap.")).toBeTruthy();
+    expect(
+      screen.getByText("Showing 5 of 7 attention items; 2 lower-priority items are hidden."),
+    ).toBeTruthy();
+  });
+
+  it("shows the server project health summary without deriving attention", async () => {
+    renderPanel({
+      summary: healthSummary({
+        available_attention_count: 8,
+        omitted_attention_count: 3,
+        missing_defaults: true,
+        missing_project_root: true,
+        enabled_memory_count: 2,
+        saved_memory_count: 3,
+        enabled_context_source_count: 4,
+        pending_memory_candidate_count: 1,
+        pending_handoff_count: 1,
+        review_follow_up_count: 2,
+        stale_or_unknown_assignment_count: 1,
+      }),
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Project attention: 5, 3 hidden" }));
+
+    expect(screen.getByLabelText("Project health summary")).toBeTruthy();
+    expect(screen.getByText("2 gaps")).toBeTruthy();
+    expect(screen.getByText("defaults, root")).toBeTruthy();
+    expect(screen.getByText("2/3 enabled")).toBeTruthy();
+    expect(screen.getByText("1 candidate pending")).toBeTruthy();
+    expect(screen.getByText("4 sources")).toBeTruthy();
+    expect(screen.getByText("4 follow-ups")).toBeTruthy();
+    expect(screen.getByText("1 handoff, 2 reviews, 1 assignment link")).toBeTruthy();
+  });
+
+  it("uses cleaner summary copy when the project has no saved memory", async () => {
+    renderPanel({ summary: healthSummary() });
+
+    await openMenu();
+
+    expect(screen.getByText("No memory yet")).toBeTruthy();
+    expect(screen.queryByText("0/0 enabled")).toBeNull();
   });
 
   it("shows empty guidance when there are no attention items", async () => {
