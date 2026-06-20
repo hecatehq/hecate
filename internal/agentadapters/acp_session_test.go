@@ -465,6 +465,59 @@ func TestSessionManagerAppliesSelectedACPModelDuringPrepare(t *testing.T) {
 	}
 }
 
+func TestSessionManagerAppliesSelectedACPConfigOptionDuringPrepare(t *testing.T) {
+	t.Setenv("HECATE_FAKE_ACP_CONFIG_OPTIONS", "1")
+	installFakeACPExecutable(t, "cursor-agent")
+
+	manager := NewSessionManager()
+	prepared, err := manager.PrepareSession(context.Background(), PrepareSessionRequest{
+		SessionID: "chat_cursor_preselected_mode",
+		AdapterID: "cursor_agent",
+		Workspace: t.TempDir(),
+		ConfigOptions: []agentcontrols.ConfigOption{{
+			ID:           "mode",
+			CurrentValue: "auto",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("PrepareSession: %v", err)
+	}
+	mode := findConfigOption(prepared.ConfigOptions, "mode")
+	if mode == nil || mode.CurrentValue != "auto" {
+		t.Fatalf("config options = %#v, want preselected mode=auto", prepared.ConfigOptions)
+	}
+}
+
+func TestSessionManagerAppliesSelectedACPConfigOptionDuringLoad(t *testing.T) {
+	t.Setenv("HECATE_FAKE_ACP_CONFIG_OPTIONS", "1")
+	installFakeACPExecutable(t, "cursor-agent")
+
+	manager := NewSessionManager()
+	run, err := manager.Run(context.Background(), RunRequest{
+		SessionID:               "chat_cursor_load_mode",
+		AdapterID:               "cursor_agent",
+		Workspace:               t.TempDir(),
+		PreviousNativeSessionID: "fake_session_existing",
+		Prompt:                  "restored mode",
+		Timeout:                 5 * time.Second,
+		MaxOutputBytes:          64 * 1024,
+		ConfigOptions: []agentcontrols.ConfigOption{{
+			ID:           "mode",
+			CurrentValue: "auto",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !run.SessionStarted || !run.SessionResumed {
+		t.Fatalf("session flags = started:%v resumed:%v, want loaded previous session", run.SessionStarted, run.SessionResumed)
+	}
+	mode := findConfigOption(run.ConfigOptions, "mode")
+	if mode == nil || mode.CurrentValue != "auto" {
+		t.Fatalf("config options = %#v, want restored mode=auto", run.ConfigOptions)
+	}
+}
+
 func TestLogoutCallsACPLogout(t *testing.T) {
 	logoutFile := filepath.Join(t.TempDir(), "logout.called")
 	t.Setenv("HECATE_FAKE_ACP_LOGOUT_FILE", logoutFile)

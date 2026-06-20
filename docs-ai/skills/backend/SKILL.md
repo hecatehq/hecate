@@ -229,10 +229,11 @@ through declared remote-safe env-key credential modes.
 Hecate owns the ACP process/session boundary, not provider-specific adapter
 implementation parity. Tests in this repository should use the repo-local fake
 ACP peer to cover probing, auth/logout, session prepare/load, config options,
-commands, usage, and run output. Do not import standalone adapter source modules
-or `acp-adapter-kit` into Hecate just to test Codex/Claude adapter behavior;
-that parity belongs in the adapter repositories, with optional release-binary
-smokes (`just test-acp-release-smoke`) when packaging drift needs coverage.
+commands, usage, auth-required prompt errors, native session reload/recovery,
+and run output. Do not import standalone adapter source modules or
+`acp-adapter-kit` into Hecate just to test Codex/Claude adapter behavior; that
+parity belongs in the adapter repositories, with optional release-binary smokes
+(`just test-acp-release-smoke`) when packaging drift needs coverage.
 
 Chat session lifecycle orchestration starts in `internal/chatapp.Application`.
 Session create, external-agent prepare, native session metadata persistence,
