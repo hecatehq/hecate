@@ -798,12 +798,12 @@ function AdapterStatusRow({
   const showAuthenticateAction =
     !remoteRuntime &&
     adapter.available &&
-    adapterAuthenticateSupportedByHecate(adapter) &&
+    adapterAuthenticateSupportedByHecate(adapter, health) &&
     readiness.kind === "sign_in";
   const showLogoutAction =
     !remoteRuntime &&
     adapter.available &&
-    adapterLogoutSupportedByHecate(adapter) &&
+    adapterLogoutSupportedByHecate(adapter, health) &&
     !showAuthenticateAction;
 
   return (
@@ -992,11 +992,23 @@ function AdapterStatusRow({
   );
 }
 
-function adapterLogoutSupportedByHecate(adapter: AgentAdapterRecord): boolean {
+function adapterLogoutSupportedByHecate(
+  adapter: AgentAdapterRecord,
+  health: AgentAdapterHealthRecord | null,
+): boolean {
+  if (health?.capabilities_known) {
+    return health.supports_logout === true;
+  }
   return adapter.supports_logout === true;
 }
 
-function adapterAuthenticateSupportedByHecate(adapter: AgentAdapterRecord): boolean {
+function adapterAuthenticateSupportedByHecate(
+  adapter: AgentAdapterRecord,
+  health: AgentAdapterHealthRecord | null,
+): boolean {
+  if (health?.capabilities_known) {
+    return health.supports_authenticate === true;
+  }
   return adapter.supports_authenticate === true;
 }
 

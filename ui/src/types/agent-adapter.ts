@@ -60,7 +60,19 @@ export type AgentAdapterHealthRecord = {
   error?: string;
   stderr?: string;
   hint?: string;
+  capabilities_known?: boolean;
+  supports_authenticate?: boolean;
+  supports_logout?: boolean;
+  supports_load_session?: boolean;
+  auth_methods?: AgentAdapterAuthMethodRecord[];
   duration_ms: number;
+};
+
+export type AgentAdapterAuthMethodRecord = {
+  id: string;
+  kind: string;
+  name?: string;
+  description?: string;
 };
 
 export type AgentAdapterHealthResponse = {

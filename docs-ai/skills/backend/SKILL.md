@@ -212,6 +212,15 @@ External Agent has two live/persistence layers:
    in memory, SQLite, or Postgres.
 2. `internal/agentadapters` owns the live ACP/process session manager.
 
+Adapter action visibility uses a two-step contract. The built-in registry is
+the offline fallback for expected support; after an explicit probe,
+ACP `Initialize` capabilities are authoritative for that adapter row. Keep
+`ProbeResult.CapabilitiesKnown` explicit so a successful initialize with no
+auth/logout support can override stale static flags. Hecate's local
+`authenticate` endpoint currently calls ACP method `agent-login`, so only that
+agent auth method should set `supports_authenticate=true`; other auth methods
+may be surfaced as non-secret health diagnostics without enabling the button.
+
 Chat session lifecycle orchestration starts in `internal/chatapp.Application`.
 Session create, external-agent prepare, native session metadata persistence,
 native close/delete, adapter config option writes, Hecate Chat settings, and

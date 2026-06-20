@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1169,6 +1170,26 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 		b.onWrite(string(accepted[:n]))
 	}
 	return n, err
+}
+
+func (b *limitedBuffer) ReadFrom(r io.Reader) (int64, error) {
+	var total int64
+	buf := make([]byte, 32*1024)
+	for {
+		n, readErr := r.Read(buf)
+		if n > 0 {
+			total += int64(n)
+			if _, err := b.Write(buf[:n]); err != nil {
+				return total, err
+			}
+		}
+		if readErr == io.EOF {
+			return total, nil
+		}
+		if readErr != nil {
+			return total, readErr
+		}
+	}
 }
 
 func (b *limitedBuffer) String() string {

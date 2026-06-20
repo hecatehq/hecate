@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	acp "github.com/coder/acp-go-sdk"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
@@ -131,6 +132,116 @@ func TestClaudeCodeErrorNeedsAdapterVisibleAuth(t *testing.T) {
 	}
 }
 
+func TestApplyInitializeCapabilities(t *testing.T) {
+	t.Parallel()
+
+	description := "Run native login"
+	res := ProbeResult{AdapterID: "codex"}
+	applyInitializeCapabilities(&res, acp.InitializeResponse{
+		AgentCapabilities: acp.AgentCapabilities{
+			Auth:        acp.AgentAuthCapabilities{Logout: &acp.LogoutCapabilities{}},
+			LoadSession: true,
+		},
+		AuthMethods: []acp.AuthMethod{
+			{
+				Agent: &acp.AuthMethodAgent{
+					Id:          ACPAuthMethodAgentLogin,
+					Name:        "Agent login",
+					Description: &description,
+				},
+			},
+			{
+				EnvVar: &acp.AuthMethodEnvVarInline{
+					Id:   "api-key",
+					Name: "API key",
+					Type: "env_var",
+					Vars: []acp.AuthEnvVar{{Name: "FAKE_API_KEY"}},
+				},
+			},
+			{
+				Terminal: &acp.AuthMethodTerminalInline{
+					Id:   "terminal-login",
+					Name: "Terminal login",
+					Type: "terminal",
+				},
+			},
+		},
+	})
+
+	if !res.CapabilitiesKnown {
+		t.Fatalf("CapabilitiesKnown = false, want true")
+	}
+	if !res.SupportsAuthenticate {
+		t.Fatalf("SupportsAuthenticate = false, want true for %s", ACPAuthMethodAgentLogin)
+	}
+	if !res.SupportsLogout {
+		t.Fatalf("SupportsLogout = false, want true")
+	}
+	if !res.SupportsLoadSession {
+		t.Fatalf("SupportsLoadSession = false, want true")
+	}
+	if len(res.AuthMethods) != 3 {
+		t.Fatalf("AuthMethods len = %d, want 3: %#v", len(res.AuthMethods), res.AuthMethods)
+	}
+	if got := res.AuthMethods[0]; got.ID != ACPAuthMethodAgentLogin || got.Kind != "agent" || got.Name != "Agent login" || got.Description != description {
+		t.Fatalf("agent auth method = %#v, want agent-login metadata", got)
+	}
+	if got := res.AuthMethods[1]; got.ID != "api-key" || got.Kind != "env_var" {
+		t.Fatalf("env auth method = %#v, want safe env_var summary", got)
+	}
+	if got := res.AuthMethods[2]; got.ID != "terminal-login" || got.Kind != "terminal" {
+		t.Fatalf("terminal auth method = %#v, want terminal summary", got)
+	}
+}
+
+func TestApplyInitializeCapabilitiesRequiresAgentLoginForAuthenticate(t *testing.T) {
+	t.Parallel()
+
+	res := ProbeResult{AdapterID: "codex"}
+	applyInitializeCapabilities(&res, acp.InitializeResponse{
+		AuthMethods: []acp.AuthMethod{
+			{Agent: &acp.AuthMethodAgent{Id: "browser-login", Name: "Browser login"}},
+			{
+				EnvVar: &acp.AuthMethodEnvVarInline{
+					Id:   "api-key",
+					Name: "API key",
+					Type: "env_var",
+					Vars: []acp.AuthEnvVar{{Name: "FAKE_API_KEY"}},
+				},
+			},
+		},
+	})
+
+	if !res.CapabilitiesKnown {
+		t.Fatalf("CapabilitiesKnown = false, want true")
+	}
+	if res.SupportsAuthenticate {
+		t.Fatalf("SupportsAuthenticate = true, want false without %s", ACPAuthMethodAgentLogin)
+	}
+	if len(res.AuthMethods) != 2 {
+		t.Fatalf("AuthMethods len = %d, want 2", len(res.AuthMethods))
+	}
+}
+
+func TestApplyProbeCapabilitiesUsesLiveInitializeResult(t *testing.T) {
+	t.Parallel()
+
+	status := Status{Adapter: Adapter{ID: "codex", SupportsAuthenticate: true, SupportsLogout: true}}
+	withoutCapabilities := ApplyProbeCapabilities(status, ProbeResult{})
+	if !withoutCapabilities.SupportsAuthenticate || !withoutCapabilities.SupportsLogout {
+		t.Fatalf("status without live capabilities = %#v, want static auth flags preserved", withoutCapabilities)
+	}
+
+	withCapabilities := ApplyProbeCapabilities(status, ProbeResult{
+		CapabilitiesKnown:    true,
+		SupportsAuthenticate: false,
+		SupportsLogout:       false,
+	})
+	if withCapabilities.SupportsAuthenticate || withCapabilities.SupportsLogout {
+		t.Fatalf("status with live capabilities = %#v, want live false flags", withCapabilities)
+	}
+}
+
 // TestProbeUnknownAdapter ensures we surface a clean error rather than
 // crashing or attempting to spawn a phantom binary.
 func TestProbeUnknownAdapter(t *testing.T) {
@@ -147,6 +258,39 @@ func TestProbeUnknownAdapter(t *testing.T) {
 	}
 	if res.AdapterID != "no-such-adapter" {
 		t.Fatalf("AdapterID = %q, want round-tripped id", res.AdapterID)
+	}
+}
+
+func TestProbeCapturesInitializeCapabilities(t *testing.T) {
+	t.Setenv("HECATE_FAKE_ACP_AUTH_AGENT_LOGIN", "1")
+	t.Setenv("HECATE_FAKE_ACP_AUTH_ENV_VAR", "1")
+	t.Setenv("HECATE_FAKE_ACP_SUPPORTS_LOGOUT", "1")
+	installFakeACPExecutable(t, "codex-acp-adapter")
+
+	res := Probe(context.Background(), "codex")
+	if res.Status != ProbeStatusReady {
+		t.Fatalf("Status = %q, want ready; error=%q stderr=%q", res.Status, res.Error, res.Stderr)
+	}
+	if !res.CapabilitiesKnown {
+		t.Fatalf("CapabilitiesKnown = false, want true")
+	}
+	if !res.SupportsAuthenticate {
+		t.Fatalf("SupportsAuthenticate = false, want true")
+	}
+	if !res.SupportsLogout {
+		t.Fatalf("SupportsLogout = false, want true")
+	}
+	if !res.SupportsLoadSession {
+		t.Fatalf("SupportsLoadSession = false, want true")
+	}
+	if len(res.AuthMethods) != 2 {
+		t.Fatalf("AuthMethods len = %d, want 2: %#v", len(res.AuthMethods), res.AuthMethods)
+	}
+	if got := res.AuthMethods[0]; got.ID != ACPAuthMethodAgentLogin || got.Kind != "agent" {
+		t.Fatalf("first auth method = %#v, want agent-login", got)
+	}
+	if got := res.AuthMethods[1]; got.ID != "api-key" || got.Kind != "env_var" {
+		t.Fatalf("second auth method = %#v, want env_var api-key", got)
 	}
 }
 

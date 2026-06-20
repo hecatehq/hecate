@@ -427,6 +427,72 @@ describe("Connections external-agent panel", () => {
     expect(screen.queryByRole("button", { name: "Sign out Codex" })).toBeNull();
   });
 
+  it("uses live probe capabilities for authenticate visibility", async () => {
+    const authenticateAgentAdapter = vi.fn(async () => true);
+    const { state, actions, user } = setup(
+      {
+        agentAdapters: [
+          {
+            id: "codex",
+            name: "Codex",
+            kind: "acp",
+            command: "codex-acp-adapter",
+            available: true,
+            status: "available",
+            auth_status: "unauthenticated",
+            supports_authenticate: true,
+            supports_logout: true,
+          },
+          {
+            id: "cursor_agent",
+            name: "Cursor Agent",
+            kind: "acp",
+            command: "cursor-agent",
+            available: true,
+            status: "available",
+            auth_status: "unauthenticated",
+            supports_authenticate: false,
+            supports_logout: false,
+          },
+        ],
+        agentAdapterHealthByID: new Map([
+          [
+            "codex",
+            {
+              adapter_id: "codex",
+              status: "auth_required",
+              stage: "initialize",
+              capabilities_known: true,
+              supports_authenticate: false,
+              supports_logout: false,
+              supports_load_session: true,
+              duration_ms: 42,
+            },
+          ],
+          [
+            "cursor_agent",
+            {
+              adapter_id: "cursor_agent",
+              status: "auth_required",
+              stage: "initialize",
+              capabilities_known: true,
+              supports_authenticate: true,
+              supports_logout: true,
+              supports_load_session: true,
+              duration_ms: 41,
+            },
+          ],
+        ]),
+      },
+      { authenticateAgentAdapter },
+    );
+    render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
+
+    expect(screen.queryByRole("button", { name: "Sign in Codex" })).toBeNull();
+    await user.click(await screen.findByRole("button", { name: "Sign in Cursor Agent" }));
+    expect(authenticateAgentAdapter).toHaveBeenCalledWith("cursor_agent");
+  });
+
   it("revoke asks for inline confirmation before deleting the grant", async () => {
     const deleteChatGrant = vi.fn(async () => true);
     const { state, actions, user } = setup(

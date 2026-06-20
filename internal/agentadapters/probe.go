@@ -45,14 +45,29 @@ const (
 // auth failures inconsistently and any forced normalization would
 // destroy operator-actionable detail.
 type ProbeResult struct {
-	AdapterID  string `json:"adapter_id"`
-	Status     string `json:"status"`
-	Stage      string `json:"stage"`
-	Path       string `json:"path,omitempty"`
-	Error      string `json:"error,omitempty"`
-	Stderr     string `json:"stderr,omitempty"`
-	Hint       string `json:"hint,omitempty"`
-	DurationMS int64  `json:"duration_ms"`
+	AdapterID            string            `json:"adapter_id"`
+	Status               string            `json:"status"`
+	Stage                string            `json:"stage"`
+	Path                 string            `json:"path,omitempty"`
+	Error                string            `json:"error,omitempty"`
+	Stderr               string            `json:"stderr,omitempty"`
+	Hint                 string            `json:"hint,omitempty"`
+	CapabilitiesKnown    bool              `json:"capabilities_known,omitempty"`
+	SupportsAuthenticate bool              `json:"supports_authenticate"`
+	SupportsLogout       bool              `json:"supports_logout"`
+	SupportsLoadSession  bool              `json:"supports_load_session"`
+	AuthMethods          []ProbeAuthMethod `json:"auth_methods,omitempty"`
+	DurationMS           int64             `json:"duration_ms"`
+}
+
+// ProbeAuthMethod is the non-secret subset of ACP Initialize authMethods that
+// Hecate can safely surface in health responses. Env var names and terminal env
+// payloads intentionally stay inside the adapter process boundary.
+type ProbeAuthMethod struct {
+	ID          string `json:"id"`
+	Kind        string `json:"kind"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
 // probeTimeout caps the spawn + Initialize + NewSession + cleanup
@@ -203,7 +218,7 @@ func Probe(ctx context.Context, adapterID string) (res ProbeResult) {
 
 	res.Stage = ProbeStageInitialize
 	initCtx, initCancel := context.WithTimeout(probeCtx, 10*time.Second)
-	_, err = conn.Initialize(initCtx, acp.InitializeRequest{
+	initResp, err := conn.Initialize(initCtx, acp.InitializeRequest{
 		ProtocolVersion: acp.ProtocolVersionNumber,
 		ClientInfo: &acp.Implementation{
 			Name:    "hecate-probe",
@@ -228,6 +243,7 @@ func Probe(ctx context.Context, adapterID string) (res ProbeResult) {
 		res.DurationMS = elapsedMS(start)
 		return res
 	}
+	applyInitializeCapabilities(&res, initResp)
 
 	res.Stage = ProbeStageNewSession
 	newCtx, newCancel := context.WithTimeout(probeCtx, 10*time.Second)
@@ -252,6 +268,74 @@ func Probe(ctx context.Context, adapterID string) (res ProbeResult) {
 	res.Stderr = strings.TrimSpace(stderr.String())
 	res.DurationMS = elapsedMS(start)
 	return res
+}
+
+func applyInitializeCapabilities(res *ProbeResult, initResp acp.InitializeResponse) {
+	if res == nil {
+		return
+	}
+	res.CapabilitiesKnown = true
+	res.SupportsLoadSession = initResp.AgentCapabilities.LoadSession
+	res.SupportsLogout = initResp.AgentCapabilities.Auth.Logout != nil
+	res.AuthMethods = probeAuthMethods(initResp.AuthMethods)
+	for _, method := range res.AuthMethods {
+		if method.Kind == "agent" && method.ID == ACPAuthMethodAgentLogin {
+			res.SupportsAuthenticate = true
+			break
+		}
+	}
+}
+
+func probeAuthMethods(methods []acp.AuthMethod) []ProbeAuthMethod {
+	if len(methods) == 0 {
+		return nil
+	}
+	out := make([]ProbeAuthMethod, 0, len(methods))
+	for _, method := range methods {
+		switch {
+		case method.Agent != nil:
+			out = append(out, ProbeAuthMethod{
+				ID:          strings.TrimSpace(method.Agent.Id),
+				Kind:        "agent",
+				Name:        strings.TrimSpace(method.Agent.Name),
+				Description: trimStringPtr(method.Agent.Description),
+			})
+		case method.EnvVar != nil:
+			out = append(out, ProbeAuthMethod{
+				ID:          strings.TrimSpace(method.EnvVar.Id),
+				Kind:        "env_var",
+				Name:        strings.TrimSpace(method.EnvVar.Name),
+				Description: trimStringPtr(method.EnvVar.Description),
+			})
+		case method.Terminal != nil:
+			out = append(out, ProbeAuthMethod{
+				ID:          strings.TrimSpace(method.Terminal.Id),
+				Kind:        "terminal",
+				Name:        strings.TrimSpace(method.Terminal.Name),
+				Description: trimStringPtr(method.Terminal.Description),
+			})
+		}
+	}
+	return out
+}
+
+func trimStringPtr(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(*value)
+}
+
+// ApplyProbeCapabilities makes live ACP Initialize capabilities authoritative
+// for a freshly probed adapter row. Static registry flags remain the fallback
+// before a probe has successfully completed Initialize.
+func ApplyProbeCapabilities(status Status, result ProbeResult) Status {
+	if !result.CapabilitiesKnown {
+		return status
+	}
+	status.SupportsAuthenticate = result.SupportsAuthenticate
+	status.SupportsLogout = result.SupportsLogout
+	return status
 }
 
 func claudeCodeErrorNeedsAdapterVisibleAuth(errText, stderr string) bool {

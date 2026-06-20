@@ -255,6 +255,14 @@ call the probe endpoint for a full spawn + ACP handshake + no-op session check:
 curl -X POST http://127.0.0.1:8765/hecate/v1/agent-adapters/codex/probe | jq
 ```
 
+Probe results make ACP `Initialize` capabilities authoritative for the tested
+adapter row. The catalog tells Hecate what the built-in adapter is expected to
+support; the probe tells the UI what this installed agent actually advertised
+today (`supports_authenticate`, `supports_logout`, `supports_load_session`, and
+non-secret `auth_methods`). Hecate shows the local **Sign in** action only when
+the live agent advertises ACP auth method `agent-login`, which is the method the
+Hecate `/authenticate` endpoint calls.
+
 Codex and Claude Code use standalone Go ACP adapter binaries backed by the
 operator's local vendor CLI. Cursor and Grok ship ACP mode inside the vendor CLI
 itself. The selected adapter command and the underlying vendor CLI must be

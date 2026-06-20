@@ -1969,7 +1969,7 @@ func installFakeACPExecutable(t *testing.T, name string) {
 	}
 	exe := filepath.Join(bin, name)
 	script := fmt.Sprintf(
-		"#!/bin/sh\nHECATE_FAKE_ACP_AGENT=1 HECATE_FAKE_ACP_LOAD_SESSION_FAIL=%q HECATE_FAKE_ACP_NEW_SESSION_DELAY=%q HECATE_FAKE_ACP_COMMANDS_DELAY=%q HECATE_FAKE_ACP_MODELS=%q HECATE_FAKE_ACP_CONFIG_OPTIONS=%q HECATE_FAKE_ACP_SET_MODEL_ERROR=%q HECATE_FAKE_ACP_EXPECT_MCP_METHOD=%q HECATE_FAKE_ACP_EXPECT_MCP_JSON=%q HECATE_FAKE_ACP_AUTHENTICATE_FILE=%q HECATE_FAKE_ACP_AUTHENTICATE_ERROR=%q HECATE_FAKE_ACP_LOGOUT_FILE=%q HECATE_FAKE_ACP_LOGOUT_ERROR=%q exec %q -test.run '^TestFakeACPAgentProcess$'\n",
+		"#!/bin/sh\nHECATE_FAKE_ACP_AGENT=1 HECATE_FAKE_ACP_LOAD_SESSION_FAIL=%q HECATE_FAKE_ACP_NEW_SESSION_DELAY=%q HECATE_FAKE_ACP_COMMANDS_DELAY=%q HECATE_FAKE_ACP_MODELS=%q HECATE_FAKE_ACP_CONFIG_OPTIONS=%q HECATE_FAKE_ACP_SET_MODEL_ERROR=%q HECATE_FAKE_ACP_EXPECT_MCP_METHOD=%q HECATE_FAKE_ACP_EXPECT_MCP_JSON=%q HECATE_FAKE_ACP_AUTHENTICATE_FILE=%q HECATE_FAKE_ACP_AUTHENTICATE_ERROR=%q HECATE_FAKE_ACP_LOGOUT_FILE=%q HECATE_FAKE_ACP_LOGOUT_ERROR=%q HECATE_FAKE_ACP_AUTH_AGENT_LOGIN=%q HECATE_FAKE_ACP_AUTH_AGENT_OTHER=%q HECATE_FAKE_ACP_AUTH_ENV_VAR=%q HECATE_FAKE_ACP_AUTH_TERMINAL=%q HECATE_FAKE_ACP_SUPPORTS_LOGOUT=%q exec %q -test.run '^TestFakeACPAgentProcess$'\n",
 		os.Getenv("HECATE_FAKE_ACP_LOAD_SESSION_FAIL"),
 		os.Getenv("HECATE_FAKE_ACP_NEW_SESSION_DELAY"),
 		os.Getenv("HECATE_FAKE_ACP_COMMANDS_DELAY"),
@@ -1982,6 +1982,11 @@ func installFakeACPExecutable(t *testing.T, name string) {
 		os.Getenv("HECATE_FAKE_ACP_AUTHENTICATE_ERROR"),
 		os.Getenv("HECATE_FAKE_ACP_LOGOUT_FILE"),
 		os.Getenv("HECATE_FAKE_ACP_LOGOUT_ERROR"),
+		os.Getenv("HECATE_FAKE_ACP_AUTH_AGENT_LOGIN"),
+		os.Getenv("HECATE_FAKE_ACP_AUTH_AGENT_OTHER"),
+		os.Getenv("HECATE_FAKE_ACP_AUTH_ENV_VAR"),
+		os.Getenv("HECATE_FAKE_ACP_AUTH_TERMINAL"),
+		os.Getenv("HECATE_FAKE_ACP_SUPPORTS_LOGOUT"),
 		os.Args[0],
 	)
 	if err := os.WriteFile(exe, []byte(script), 0o755); err != nil {
@@ -2033,13 +2038,62 @@ func (a *fakeACPAgent) Logout(context.Context, acp.LogoutRequest) (acp.LogoutRes
 }
 
 func (a *fakeACPAgent) Initialize(context.Context, acp.InitializeRequest) (acp.InitializeResponse, error) {
+	authMethods := fakeACPAuthMethods()
+	authCaps := acp.AgentAuthCapabilities{}
+	if os.Getenv("HECATE_FAKE_ACP_SUPPORTS_LOGOUT") == "1" {
+		authCaps.Logout = &acp.LogoutCapabilities{}
+	}
 	return acp.InitializeResponse{
 		ProtocolVersion: acp.ProtocolVersionNumber,
 		AgentCapabilities: acp.AgentCapabilities{
+			Auth:                authCaps,
 			LoadSession:         true,
 			SessionCapabilities: acp.SessionCapabilities{Close: &acp.SessionCloseCapabilities{}},
 		},
+		AuthMethods: authMethods,
 	}, nil
+}
+
+func fakeACPAuthMethods() []acp.AuthMethod {
+	var methods []acp.AuthMethod
+	if os.Getenv("HECATE_FAKE_ACP_AUTH_AGENT_LOGIN") == "1" {
+		description := "Run the agent's local login flow"
+		methods = append(methods, acp.AuthMethod{
+			Agent: &acp.AuthMethodAgent{
+				Id:          ACPAuthMethodAgentLogin,
+				Name:        "Agent login",
+				Description: &description,
+			},
+		})
+	}
+	if os.Getenv("HECATE_FAKE_ACP_AUTH_AGENT_OTHER") == "1" {
+		methods = append(methods, acp.AuthMethod{
+			Agent: &acp.AuthMethodAgent{
+				Id:   "browser-login",
+				Name: "Browser login",
+			},
+		})
+	}
+	if os.Getenv("HECATE_FAKE_ACP_AUTH_ENV_VAR") == "1" {
+		methods = append(methods, acp.AuthMethod{
+			EnvVar: &acp.AuthMethodEnvVarInline{
+				Id:   "api-key",
+				Name: "API key",
+				Type: "env_var",
+				Vars: []acp.AuthEnvVar{{Name: "FAKE_API_KEY"}},
+			},
+		})
+	}
+	if os.Getenv("HECATE_FAKE_ACP_AUTH_TERMINAL") == "1" {
+		methods = append(methods, acp.AuthMethod{
+			Terminal: &acp.AuthMethodTerminalInline{
+				Id:   "terminal-login",
+				Name: "Terminal login",
+				Type: "terminal",
+			},
+		})
+	}
+	return methods
 }
 
 func (a *fakeACPAgent) NewSession(_ context.Context, params acp.NewSessionRequest) (acp.NewSessionResponse, error) {

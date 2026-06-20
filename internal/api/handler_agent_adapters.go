@@ -34,6 +34,7 @@ func (h *Handler) HandleAgentAdapterProbe(w http.ResponseWriter, r *http.Request
 	}
 	result := h.probeAgentAdapter(ctx, id)
 	status, _ := agentadapters.StatusForAdapterAfterExplicitProbe(ctx, id, nil)
+	status = agentadapters.ApplyProbeCapabilities(status, result)
 	item := renderAgentAdapterItem(ctx, status)
 	if !agentadapters.DevOverrideActive(id) {
 		item.AuthStatus, item.AuthError = authStatusFromProbe(result, item.AuthStatus, item.AuthError)

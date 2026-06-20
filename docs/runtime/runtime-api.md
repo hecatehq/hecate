@@ -1144,12 +1144,25 @@ POST /hecate/v1/agent-adapters/codex/probe
       "command": "codex-acp-adapter",
       "available": true,
       "status": "available",
+      "supports_authenticate": true,
+      "supports_logout": true,
       "auth_status": "ok"
     },
     "health": {
       "adapter_id": "codex",
       "status": "ready",
       "stage": "ready",
+      "capabilities_known": true,
+      "supports_authenticate": true,
+      "supports_logout": true,
+      "supports_load_session": true,
+      "auth_methods": [
+        {
+          "id": "agent-login",
+          "kind": "agent",
+          "name": "Agent login"
+        }
+      ],
       "duration_ms": 412
     }
   }
@@ -1161,6 +1174,13 @@ Status codes:
 - `200 OK` when the adapter id is registered; `health.status` carries
   `ready`, `not_installed`, `auth_required`, or `error`.
 - `404 not_found` when the adapter id is not registered.
+
+When ACP `Initialize` succeeds, `health.capabilities_known` is true and the
+probe response uses the live capabilities advertised by the adapter to refresh
+`data.adapter.supports_authenticate` and `data.adapter.supports_logout`.
+Catalog discovery remains the offline fallback before a probe runs. Hecate only
+marks `supports_authenticate` true for ACP auth method `agent-login`, because
+that is the method the local `/authenticate` endpoint invokes.
 
 ### `GET /hecate/v1/agent-adapters/{id}/health`
 
@@ -1182,6 +1202,17 @@ GET /hecate/v1/agent-adapters/codex/health
     "path": "/Users/alice/.local/bin/codex-acp-adapter",
     "error": "Authentication required",
     "hint": "Adapter started but failed authentication. Try the adapter's CLI login flow or set its API-key env var.",
+    "capabilities_known": true,
+    "supports_authenticate": true,
+    "supports_logout": true,
+    "supports_load_session": true,
+    "auth_methods": [
+      {
+        "id": "agent-login",
+        "kind": "agent",
+        "name": "Agent login"
+      }
+    ],
     "duration_ms": 412
   }
 }
@@ -1201,6 +1232,13 @@ GET /hecate/v1/agent-adapters/codex/health
 
 `stage` reports which step in the sequence completed (on success) or failed (on
 error): `lookup` / `spawn` / `initialize` / `new_session` / `ready`.
+
+If ACP `Initialize` succeeds, the health payload also includes
+`capabilities_known`, `supports_authenticate`, `supports_logout`,
+`supports_load_session`, and a non-secret `auth_methods` summary. These fields
+can be present even when `status` is `auth_required` because auth failures may
+occur after `Initialize` during `NewSession`. Env-var names and terminal env
+payloads are intentionally not exposed through health responses.
 
 Status codes:
 

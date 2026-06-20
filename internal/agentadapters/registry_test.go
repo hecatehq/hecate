@@ -103,6 +103,32 @@ func TestBuiltInsIncludeInitialExternalAgents(t *testing.T) {
 	}
 }
 
+func TestLimitedBufferReadFromUsesLimitedWritePath(t *testing.T) {
+	t.Parallel()
+
+	var writes []string
+	buf := limitedBuffer{
+		limit:   4,
+		onWrite: func(chunk string) { writes = append(writes, chunk) },
+	}
+	n, err := buf.ReadFrom(strings.NewReader("abcdef"))
+	if err != nil {
+		t.Fatalf("ReadFrom: %v", err)
+	}
+	if n != 6 {
+		t.Fatalf("ReadFrom bytes = %d, want 6", n)
+	}
+	if got := buf.String(); got != "abcd" {
+		t.Fatalf("buffer = %q, want abcd", got)
+	}
+	if !buf.truncated {
+		t.Fatalf("truncated = false, want true")
+	}
+	if len(writes) != 1 || writes[0] != "abcd" {
+		t.Fatalf("onWrite chunks = %#v, want [abcd]", writes)
+	}
+}
+
 func TestBuiltInGoAdaptersUseReleasedBinaries(t *testing.T) {
 	t.Parallel()
 

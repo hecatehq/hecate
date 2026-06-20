@@ -173,6 +173,75 @@ func TestAgentAdapterProbeEndpointReturnsFreshAdapterAndHealth(t *testing.T) {
 	}
 }
 
+func TestAgentAdapterProbeAppliesLiveCapabilitiesToAdapterRow(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name             string
+		adapterID        string
+		result           agentadapters.ProbeResult
+		wantAuthenticate bool
+		wantLogout       bool
+	}{
+		{
+			name:      "live capabilities can disable static authenticate",
+			adapterID: "codex",
+			result: agentadapters.ProbeResult{
+				AdapterID:            "codex",
+				Status:               agentadapters.ProbeStatusReady,
+				Stage:                agentadapters.ProbeStageReady,
+				CapabilitiesKnown:    true,
+				SupportsAuthenticate: false,
+				SupportsLogout:       false,
+			},
+			wantAuthenticate: false,
+			wantLogout:       false,
+		},
+		{
+			name:      "live capabilities can enable future adapter authenticate",
+			adapterID: "cursor_agent",
+			result: agentadapters.ProbeResult{
+				AdapterID:            "cursor_agent",
+				Status:               agentadapters.ProbeStatusReady,
+				Stage:                agentadapters.ProbeStageReady,
+				CapabilitiesKnown:    true,
+				SupportsAuthenticate: true,
+				SupportsLogout:       true,
+			},
+			wantAuthenticate: true,
+			wantLogout:       true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+			apiHandler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+			apiHandler.SetAgentAdapterProbe(func(_ context.Context, id string) agentadapters.ProbeResult {
+				if id != tc.adapterID {
+					t.Fatalf("probe called for %q, want %s", id, tc.adapterID)
+				}
+				return tc.result
+			})
+			server := NewServer(logger, apiHandler)
+			client := newAPITestClient(t, server)
+
+			resp := mustRequestJSON[AgentAdapterProbeResponse](client, http.MethodPost, "/hecate/v1/agent-adapters/"+tc.adapterID+"/probe", "")
+			if resp.Data.Adapter.SupportsAuthenticate != tc.wantAuthenticate {
+				t.Fatalf("adapter supports_authenticate = %v, want %v", resp.Data.Adapter.SupportsAuthenticate, tc.wantAuthenticate)
+			}
+			if resp.Data.Adapter.SupportsLogout != tc.wantLogout {
+				t.Fatalf("adapter supports_logout = %v, want %v", resp.Data.Adapter.SupportsLogout, tc.wantLogout)
+			}
+			if !resp.Data.Health.CapabilitiesKnown {
+				t.Fatalf("health capabilities_known = false, want true")
+			}
+		})
+	}
+}
+
 func TestAgentAdapterProbePromotesClaudeHandshakeToAuthOK(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
