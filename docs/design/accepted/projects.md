@@ -371,6 +371,12 @@ preflight, selected-work follow-through, or Project Assistant proposal flows.
 Review follow-up, missing completion evidence, and closeout-ready work items
 open the existing selected-work detail surface; the brief does not persist a
 plan, mark work done, or start work.
+Project setup readiness is also a server-owned projection: onboarding,
+setup-started, and first-work-ready states come from
+`GET /hecate/v1/projects/{id}/setup-readiness`, while checklist actions route
+to Project Settings, Project Assistant setup, or explicit work-item creation.
+Clients should not recreate setup readiness from local context-source, memory,
+role, or work-item heuristics.
 The selected-work detail card now reflects the same read-only backend closeout
 readiness contract as Project Operations, so Mark done is enabled from the
 server-owned assignment/evidence/handoff/review-follow-up decision rather than

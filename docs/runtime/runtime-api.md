@@ -1615,6 +1615,10 @@ written only through explicit operator API/UI actions. Enabled project memory
 entries appear as itemized chat context-packet metadata with their
 `trust_label`, but Hecate still does not perform automatic memory extraction,
 embeddings, retrieval ranking, or source-content injection.
+Project setup readiness, project health, and Project Operations are read-only
+cockpit projections over these existing records. They help the operator choose
+the next surface to open, but they do not create durable project records or
+start supervised work.
 
 ### `GET /hecate/v1/projects`
 
@@ -2467,6 +2471,73 @@ targets (`settings`, `memory`, `profiles`, `roles`, `skills`); `work_item_id`,
 to existing work, task, chat, memory-review, or activity surfaces. Clients
 should not mutate project state directly from a row; they open the referenced
 surface and use that surface's explicit typed mutation.
+
+#### `GET /hecate/v1/projects/{id}/setup-readiness`
+
+Returns a read-only Project setup readiness projection for the selected
+project. The endpoint decides whether the project should show first-run
+onboarding, whether setup has started, and whether the empty project is ready
+for first-work creation. It derives those flags from existing project roots,
+defaults, context sources, custom roles, skills metadata, project memory, memory
+candidates, and work items.
+
+The endpoint does not create tasks, runs, chats, proposals, roles, work items,
+memory entries, memory candidates, or skills. Checklist actions route the
+operator to existing typed surfaces: Project Settings, Project Assistant setup,
+or explicit work-item creation.
+
+```json
+{
+  "object": "project_setup_readiness",
+  "data": {
+    "project_id": "proj_...",
+    "generated_at": "2026-06-20T12:00:00Z",
+    "show_onboarding": true,
+    "setup_started": false,
+    "first_work_ready": false,
+    "summary": {
+      "work_item_count": 0,
+      "role_count": 0,
+      "skill_count": 0,
+      "enabled_context_source_count": 0,
+      "saved_memory_count": 0,
+      "pending_memory_candidate_count": 0,
+      "has_purpose": true,
+      "has_active_root": true,
+      "missing_defaults": false
+    },
+    "primary_action": {
+      "type": "bootstrap_project",
+      "project_id": "proj_...",
+      "label": "Set up project"
+    },
+    "checks": [
+      {
+        "id": "workspace_source",
+        "label": "Workspace source",
+        "detail": "/Users/alice/src/hecate",
+        "status": "ready"
+      },
+      {
+        "id": "first_work_item",
+        "label": "First work item",
+        "detail": "Create the first reviewable task after setup.",
+        "status": "todo",
+        "action": {
+          "type": "create_work_item",
+          "project_id": "proj_...",
+          "label": "Create work"
+        }
+      }
+    ]
+  }
+}
+```
+
+Known setup action types are `bootstrap_project`, `create_work_item`, and
+`open_project_settings`. Clients should dispatch on `action.type` and validate
+`project_id` before routing the operator. A stale or unsupported action should
+surface a refresh error rather than performing a guessed fallback.
 
 #### `GET /hecate/v1/projects/{id}/operations/brief`
 

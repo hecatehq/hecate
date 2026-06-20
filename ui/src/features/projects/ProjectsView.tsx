@@ -31,6 +31,7 @@ import {
   getProjectMemory,
   getProjectMemoryCandidates,
   getProjectOperationsBrief,
+  getProjectSetupReadiness,
   getProjectSkills,
   getProjectWorkItem,
   getProjectWorkItemReadiness,
@@ -62,6 +63,11 @@ import { CreateProjectModal } from "./CreateProjectModal";
 import { CreateProjectWorktreeModal } from "./CreateProjectWorktreeModal";
 import { ProjectHandoffModal } from "./ProjectHandoffModal";
 import { ProjectHealthPanel } from "./ProjectHealthPanel";
+import {
+  routeProjectOperationAction,
+  routeProjectSetupAction,
+  type ProjectActionRoute,
+} from "./projectActionRouting";
 import { ProjectMemoryModal, ProjectSourceModal, type MemoryForm } from "./ProjectMemoryPanel";
 import { ProjectReviewArtifactModal } from "./ProjectReviewArtifactModal";
 import { type ProjectAssignmentChatLaunchRequest } from "./ProjectWorkItemDetail";
@@ -89,8 +95,8 @@ import type {
   ProjectHealthAttention,
   ProjectMemoryRecord,
   ProjectOperationsBrief,
-  ProjectOperationsBriefAction,
   ProjectOperationsBriefItem,
+  ProjectSetupReadiness,
   ProjectContextSourceRecord,
   ProjectSkillRecord,
   ProjectRecord,
@@ -240,6 +246,9 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
   const [workItemSummaries, setWorkItemSummaries] = useState<Record<string, WorkItemSummary>>({});
   const [activity, setActivity] = useState<ProjectActivityData | null>(null);
   const [projectHealth, setProjectHealth] = useState<ProjectHealth | null>(null);
+  const [projectSetupReadiness, setProjectSetupReadiness] = useState<ProjectSetupReadiness | null>(
+    null,
+  );
   const [operationsBrief, setOperationsBrief] = useState<ProjectOperationsBrief | null>(null);
   const [operationsBriefError, setOperationsBriefError] = useState("");
   const [operationsBriefLoadState, setOperationsBriefLoadState] = useState<LoadState>("idle");
@@ -320,17 +329,30 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     setProjectHealth(payload.data ?? null);
   }, []);
 
+  const loadProjectSetupReadiness = useCallback(async (projectID: string) => {
+    if (!projectID) {
+      setProjectSetupReadiness(null);
+      return;
+    }
+    const payload = await getProjectSetupReadiness(projectID);
+    setProjectSetupReadiness(payload.data ?? null);
+  }, []);
+
   const refreshProjectHealth = useCallback(
     (projectID: string) => {
       if (!projectID) {
         setProjectHealth(null);
+        setProjectSetupReadiness(null);
         return;
       }
       void loadProjectHealth(projectID).catch(() => {
         setProjectHealth(null);
       });
+      void loadProjectSetupReadiness(projectID).catch(() => {
+        setProjectSetupReadiness(null);
+      });
     },
-    [loadProjectHealth],
+    [loadProjectHealth, loadProjectSetupReadiness],
   );
 
   const loadAgentProfiles = useCallback(async (cancelled?: () => boolean) => {
@@ -417,6 +439,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     setWorkItemSummaries({});
     setActivity(null);
     setProjectHealth(null);
+    setProjectSetupReadiness(null);
     setOperationsBrief(null);
     setOperationsBriefError("");
     if (!preferredWorkItemID) {
@@ -430,6 +453,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     if (!projectID) {
       setWorkLoadState("idle");
       setOperationsBriefLoadState("idle");
+      setProjectSetupReadiness(null);
       return "";
     }
     setWorkLoadState("loading");
@@ -441,19 +465,23 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
         return null;
       });
       const healthLoad = getProjectHealth(projectID).catch(() => null);
-      const [rolesRes, workRes, activityRes, healthRes, operationsBriefRes] = await Promise.all([
-        getProjectWorkRoles(projectID),
-        getProjectWorkItems(projectID),
-        activityLoad,
-        healthLoad,
-        operationsBriefLoad,
-      ]);
+      const setupReadinessLoad = getProjectSetupReadiness(projectID).catch(() => null);
+      const [rolesRes, workRes, activityRes, healthRes, operationsBriefRes, setupReadinessRes] =
+        await Promise.all([
+          getProjectWorkRoles(projectID),
+          getProjectWorkItems(projectID),
+          activityLoad,
+          healthLoad,
+          operationsBriefLoad,
+          setupReadinessLoad,
+        ]);
       const nextRoles = rolesRes.data ?? [];
       const nextItems = workRes.data ?? [];
       setRoles(nextRoles);
       setWorkItems(nextItems);
       setActivity(activityRes?.data ?? null);
       setProjectHealth(healthRes?.data ?? null);
+      setProjectSetupReadiness(setupReadinessRes?.data ?? null);
       setOperationsBrief(operationsBriefRes?.data ?? null);
       setOperationsBriefLoadState(operationsBriefRes ? "loaded" : "error");
       setWorkItemSummaries(
@@ -471,6 +499,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
       setWorkLoadState("error");
       setOperationsBriefLoadState("error");
       setProjectHealth(null);
+      setProjectSetupReadiness(null);
       setWorkError(errorMessage(error, "Failed to load project work."));
       return "";
     }
@@ -1099,6 +1128,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
       setSelectedWorkItemID(payload.data.id);
       setNewWorkModalOpen(false);
       setNewWorkDraft(undefined);
+      await loadProjectSetupReadiness(selectedProjectID);
       await loadWorkItemDetail(selectedProjectID, payload.data.id);
     } catch (error) {
       setNewWorkError(errorMessage(error, "Failed to create work item."));
@@ -1197,38 +1227,33 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
   }
 
   function handleOperationsBriefAction(item: ProjectOperationsBriefItem) {
-    const action = item.action;
-    if (!action?.type) {
-      setWorkError("Project operation is missing an action. Refresh project work and try again.");
-      return;
-    }
-    if (action.project_id && selectedProjectID && action.project_id !== selectedProjectID) {
-      setWorkError("Project operation target changed. Refresh project work and try again.");
-      return;
-    }
-    if (action.type === "draft_project_proposal") {
-      const request = action.request?.trim();
-      if (!request) {
-        setWorkError("Project operation is missing a Project Assistant draft request.");
-        return;
-      }
-      setWorkspaceTab("work");
-      if (action.work_item_id) {
-        setSelectedWorkItemID(action.work_item_id);
-      }
-      void assistant.propose(
-        {
-          request,
-          roleID: PROJECT_ASSISTANT_AUTO,
-          driverKind: PROJECT_ASSISTANT_AUTO,
-          draftMode: "deterministic",
-        },
-        action.work_item_id,
-      );
-      return;
-    }
+    handleProjectActionRoute(routeProjectOperationAction(item, selectedProjectID));
+  }
 
-    switch (action.type) {
+  function handleSetupReadinessAction(action: ProjectSetupReadiness["primary_action"]) {
+    handleProjectActionRoute(routeProjectSetupAction(action, selectedProjectID));
+  }
+
+  function handleProjectActionRoute(route: ProjectActionRoute) {
+    switch (route.kind) {
+      case "error":
+        setWorkError(route.message);
+        return;
+      case "draft_project_proposal":
+        setWorkspaceTab("work");
+        if (route.workItemID) {
+          setSelectedWorkItemID(route.workItemID);
+        }
+        void assistant.propose(
+          {
+            request: route.request,
+            roleID: PROJECT_ASSISTANT_AUTO,
+            driverKind: PROJECT_ASSISTANT_AUTO,
+            draftMode: "deterministic",
+          },
+          route.workItemID,
+        );
+        return;
       case "open_project_settings":
         setDefaultsError("");
         setSettingsPanelOpen(true);
@@ -1237,31 +1262,32 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
         setWorkspaceTab("memory");
         return;
       case "open_assignment_preflight":
-        selectOperationWorkTarget(action);
-        if (action.assignment_id) {
-          setPreparingAssignmentID(action.assignment_id);
-        } else {
-          setWorkError("Project operation is missing an assignment preflight target.");
-        }
+        selectProjectWorkRoute(route);
+        setPreparingAssignmentID(route.assignmentID);
         return;
       case "open_work_item":
-        selectOperationWorkTarget(action);
+        selectProjectWorkRoute(route);
+        return;
+      case "bootstrap_project":
+        void assistant.bootstrap();
+        return;
+      case "create_work_item":
+        openNewWorkItemModal();
         return;
       default:
-        setWorkError(
-          "Project operation action is not supported. Refresh project work and try again.",
-        );
+        return;
     }
   }
 
-  function selectOperationWorkTarget(action: ProjectOperationsBriefAction) {
+  function selectProjectWorkRoute(
+    route: Extract<ProjectActionRoute, { kind: "open_assignment_preflight" | "open_work_item" }>,
+  ) {
     setWorkspaceTab("work");
-    const bucket = projectOperationsActivityBucket(action.activity_bucket);
-    if (bucket) {
-      setActivityBucket(bucket);
+    if (route.bucket) {
+      setActivityBucket(route.bucket);
     }
-    if (action.work_item_id) {
-      setSelectedWorkItemID(action.work_item_id);
+    if (route.workItemID) {
+      setSelectedWorkItemID(route.workItemID);
     }
   }
 
@@ -1535,19 +1561,9 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
 
   const hasWorkItemDetail =
     Boolean(selectedWorkItemID) || detailLoadState === "loading" || Boolean(detailError);
-  const selectedProjectEnabledSourceCount =
-    selectedProject?.context_sources?.filter((source) => source.enabled).length ?? 0;
-  const projectHasSetupState =
-    selectedProjectEnabledSourceCount > 0 ||
-    roles.length > 0 ||
-    projectSkills.length > 0 ||
-    memoryEntries.length > 0 ||
-    memoryCandidates.length > 0;
   const projectNeedsOnboarding =
-    Boolean(selectedProject) &&
+    Boolean(selectedProject && projectSetupReadiness?.show_onboarding) &&
     workLoadState === "loaded" &&
-    workItems.length === 0 &&
-    !projectHasSetupState &&
     !assistant.proposal &&
     !assistant.applyResult;
   const projectEmptyTitle =
@@ -1634,6 +1650,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
             setDefaultsError("");
             setSettingsPanelOpen(true);
           }}
+          onAttentionError={setWorkError}
           onAttentionMemory={() => setWorkspaceTab("memory")}
           onAttentionProfiles={() => {
             setProfilesError("");
@@ -1811,12 +1828,14 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
             onSetHandoffStatus={(handoff, status) => void handleSetHandoffStatus(handoff, status)}
             onStartAssignment={handleStartAssignment}
             onStartHandoff={(handoff) => void handleStartHandoff(handoff)}
+            onSetupReadinessAction={handleSetupReadinessAction}
             onUpdateProjectSkill={(skill, patch) => void handleUpdateProjectSkill(skill, patch)}
             onWorkspaceTabChange={setWorkspaceTab}
             project={selectedProject}
             projectEmptyDetail={projectEmptyDetail}
             projectEmptyTitle={projectEmptyTitle}
             projectNeedsOnboarding={projectNeedsOnboarding}
+            projectSetupReadiness={projectSetupReadiness}
             operationsBrief={operationsBrief}
             operationsBriefError={operationsBriefError}
             operationsBriefLoadState={operationsBriefLoadState}
@@ -2289,6 +2308,7 @@ function ProjectHeader({
   settingsOpen,
   onAttentionBucket,
   onAttentionDefaults,
+  onAttentionError,
   onAttentionMemory,
   onAttentionProfiles,
   onAttentionReviewCandidate,
@@ -2309,6 +2329,7 @@ function ProjectHeader({
   settingsOpen: boolean;
   onAttentionBucket: (bucket: ProjectActivityBucketKey) => void;
   onAttentionDefaults: () => void;
+  onAttentionError?: (message: string) => void;
   onAttentionMemory: () => void;
   onAttentionProfiles: () => void;
   onAttentionReviewCandidate: (candidate: ProjectMemoryCandidateRecord) => void;
@@ -2345,9 +2366,11 @@ function ProjectHeader({
             disabled={!project}
             memoryCandidates={memoryCandidates}
             omittedAttentionCount={omittedAttentionCount}
+            selectedProjectID={project.id}
             summary={healthSummary}
             onAttentionBucket={onAttentionBucket}
             onAttentionDefaults={onAttentionDefaults}
+            onAttentionError={onAttentionError}
             onAttentionMemory={onAttentionMemory}
             onAttentionProfiles={onAttentionProfiles}
             onAttentionReviewCandidate={onAttentionReviewCandidate}
@@ -2596,19 +2619,6 @@ function preferredFirstWorkRole(roles: ProjectWorkRoleRecord[]) {
 
 function contextSourceLabel(source: ProjectContextSourceRecord) {
   return source.title?.trim() || source.path || source.kind;
-}
-
-function projectOperationsActivityBucket(value?: string): ProjectActivityBucketKey | null {
-  switch (value) {
-    case "all":
-    case "active":
-    case "blocked":
-    case "completed":
-    case "recent":
-      return value;
-    default:
-      return null;
-  }
 }
 
 const topbarStyle: CSSProperties = {

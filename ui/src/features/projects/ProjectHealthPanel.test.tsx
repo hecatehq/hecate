@@ -96,6 +96,7 @@ function renderPanel(overrides: Partial<Parameters<typeof ProjectHealthPanel>[0]
   const handlers = {
     onAttentionBucket: vi.fn(),
     onAttentionDefaults: vi.fn(),
+    onAttentionError: vi.fn(),
     onAttentionMemory: vi.fn(),
     onAttentionProfiles: vi.fn(),
     onAttentionReviewCandidate: vi.fn(),
@@ -163,6 +164,32 @@ describe("ProjectHealthPanel", () => {
     );
 
     expect(handlers.onAttentionMemory).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports stale project attention targets without navigating", async () => {
+    const { handlers } = renderPanel({
+      attentionItems: [
+        {
+          id: "proj_other:defaults",
+          project_id: "proj_other",
+          title: "Provider/model defaults missing",
+          detail: "Set defaults before starting assignments.",
+          status: "awaiting_approval",
+          action: "settings",
+        },
+      ],
+      selectedProjectID: "proj_1",
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Project attention: 1" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Open attention item Provider/model defaults missing" }),
+    );
+
+    expect(handlers.onAttentionError).toHaveBeenCalledWith(
+      "Project attention target changed. Refresh project work and try again.",
+    );
+    expect(handlers.onAttentionDefaults).not.toHaveBeenCalled();
   });
 
   it("shows when lower-priority attention items are hidden", async () => {

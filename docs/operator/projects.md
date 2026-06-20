@@ -23,8 +23,12 @@ register local skills, or launch work against files.
 Setup is reviewable. Hecate may propose roles or memory candidates, but the
 operator applies or dismisses them. Setup does not launch agents, write project
 memory automatically, install skills, or inject skill bodies into prompts.
-Use the onboarding checklist for missing settings or first-work creation; use
-the primary **Set up project** action for discovery and role/memory suggestions.
+The onboarding checklist is backed by
+`GET /hecate/v1/projects/{id}/setup-readiness`, a read-only server projection
+over project defaults, roots, context sources, memory, memory candidates,
+skills, roles, and work items. Use the checklist for missing settings or
+first-work creation; use the primary **Set up project** action for discovery
+and role/memory suggestions.
 When setup context exists and the project has no work items yet, first-work
 creation opens with a draft title, brief, and owner role for operator review.
 
