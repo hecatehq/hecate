@@ -2467,6 +2467,10 @@ The response is a convenience contract for operator workspaces, not a new
 durable planner. Project Activity remains the source for live assignment
 buckets, Project Assistant remains the proposal author, and assignment start
 still goes through preflight and explicit operator confirmation.
+Items are capped after sorting by priority, then an explicit operation-kind
+urgency rank, then recency, then id. This keeps blocked or waiting work ahead of
+setup gaps, handoffs ahead of memory triage, and active/completion hygiene below
+operator-gated work when the brief has more candidates than it can show.
 
 #### `GET /hecate/v1/projects/{id}/skills`
 

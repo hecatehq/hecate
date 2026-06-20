@@ -138,6 +138,57 @@ func TestProjectOperationsBrief_ReadOnlyProjectOperations(t *testing.T) {
 	}
 }
 
+func TestSortProjectOperationsItems_UsesExplicitUrgencyBeforeRecency(t *testing.T) {
+	t.Parallel()
+	items := []ProjectOperationsBriefItemResponse{
+		{
+			ID:        "memory",
+			Kind:      "review_memory_candidates",
+			Priority:  projectOperationsPriorityMedium,
+			UpdatedAt: "2026-06-20T12:04:00Z",
+		},
+		{
+			ID:        "defaults",
+			Kind:      "configure_project_defaults",
+			Priority:  projectOperationsPriorityHigh,
+			UpdatedAt: "2026-06-20T12:05:00Z",
+		},
+		{
+			ID:        "handoff",
+			Kind:      "review_pending_handoff",
+			Priority:  projectOperationsPriorityMedium,
+			UpdatedAt: "2026-06-20T12:00:00Z",
+		},
+		{
+			ID:        "active",
+			Kind:      "inspect_active_assignment",
+			Priority:  projectOperationsPriorityLow,
+			UpdatedAt: "2026-06-20T12:06:00Z",
+		},
+		{
+			ID:        "approval",
+			Kind:      "approve_assignment",
+			Priority:  projectOperationsPriorityHigh,
+			UpdatedAt: "2026-06-20T12:01:00Z",
+		},
+	}
+
+	sortProjectOperationsItems(items)
+	got := make([]string, 0, len(items))
+	for _, item := range boundedProjectOperationsItems(items, 3) {
+		got = append(got, item.Kind)
+	}
+	want := []string{"approve_assignment", "configure_project_defaults", "review_pending_handoff"}
+	if len(got) != len(want) {
+		t.Fatalf("bounded sorted operations = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("bounded sorted operations = %v, want %v", got, want)
+		}
+	}
+}
+
 func findProjectOperationsItemForTest(t *testing.T, items []ProjectOperationsBriefItemResponse, kind string) ProjectOperationsBriefItemResponse {
 	t.Helper()
 	for _, item := range items {

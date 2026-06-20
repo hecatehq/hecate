@@ -325,6 +325,8 @@ export function ProjectWorkspaceView({
                   error={operationsBriefError}
                   loading={operationsBriefLoadState === "loading"}
                   onAction={onOperationAction}
+                  // Transitional fallback: keep Project Operations as the server-backed source of truth
+                  // for new next-action derivation once the brief has proven out.
                   fallback={
                     <ProjectNextAction
                       activity={activity}
