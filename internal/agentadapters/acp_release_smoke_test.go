@@ -623,6 +623,7 @@ func extractSingleBinary(t *testing.T, archive []byte, binary, dst string) {
 func installFakeVendorCLI(t *testing.T, name, body string) {
 	t.Helper()
 	bin := filepath.Join(t.TempDir(), "bin")
+	stateDir := t.TempDir()
 	if err := os.Mkdir(bin, 0o755); err != nil {
 		t.Fatalf("mkdir vendor bin: %v", err)
 	}
@@ -631,6 +632,7 @@ func installFakeVendorCLI(t *testing.T, name, body string) {
 	if err := os.WriteFile(exe, []byte(script), 0o755); err != nil {
 		t.Fatalf("write fake %s CLI: %v", name, err)
 	}
+	t.Setenv("HECATE_ACP_RELEASE_FAKE_CLI_STATE_DIR", stateDir)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
@@ -680,7 +682,7 @@ case "$1" in
     require_contains " --config model_reasoning_effort=\"high\" " "$@"
     require_contains " --config mcp_servers.hecate_01_docs={url=\"https://docs.example.com/mcp\",http_headers={\"Authorization\"=\"Bearer token\"}} " "$@"
     case "$*" in
-      *"/auth-fail"*) echo "Authentication required: run codex login" >&2; exit 67;;
+      *"/auth-fail"*) echo "Error: 401 Unauthorized: Missing bearer or basic authentication" >&2; exit 1;;
       *"/init focus on repo guidance"*) message="go codex init";;
       *"reload codex"*) message="go codex reload";;
       *"hello codex"*) message="go codex answer";;
@@ -724,6 +726,79 @@ require_contains() {
   esac
 }
 
+arg_value() {
+  key="$1"
+  shift
+  while [ "$#" -gt 0 ]; do
+    if [ "$1" = "$key" ]; then
+      shift
+      if [ "$#" -eq 0 ]; then
+        echo "missing value for claude argument: $key" >&2
+        exit 65
+      fi
+      printf '%s\n' "$1"
+      return 0
+    fi
+    shift
+  done
+  return 1
+}
+
+require_absent() {
+  pattern="$1"
+  shift
+  case " $* " in
+    *"$pattern"*) echo "unexpected claude argument pattern: $pattern in $*" >&2; exit 65 ;;
+    *) ;;
+  esac
+}
+
+require_claude_session_mode() {
+  prompt_args="$*"
+  state_dir="${HECATE_ACP_RELEASE_FAKE_CLI_STATE_DIR:-${TMPDIR:-/tmp}}"
+  mkdir -p "$state_dir"
+  state_file="$state_dir/claude_prompt_seen"
+
+  case "$prompt_args" in
+    *"hello claude_code"*)
+      if [ -f "$state_file" ]; then
+        expected="resume"
+      else
+        expected="fresh"
+      fi
+      ;;
+    *)
+      expected="resume"
+      ;;
+  esac
+
+  case "$expected" in
+    fresh)
+      session_id="$(arg_value --session-id "$@")" || {
+        echo "first claude prompt must use --session-id" >&2
+        exit 65
+      }
+      if [ -z "$session_id" ]; then
+        echo "first claude prompt used empty --session-id" >&2
+        exit 65
+      fi
+      require_absent " --resume " "$@"
+      ;;
+    resume)
+      resumed_id="$(arg_value --resume "$@")" || {
+        echo "continued claude prompt must use --resume" >&2
+        exit 65
+      }
+      if [ -z "$resumed_id" ]; then
+        echo "continued claude prompt used empty --resume" >&2
+        exit 65
+      fi
+      require_absent " --session-id " "$@"
+      ;;
+  esac
+  printf 'seen\n' > "$state_file"
+}
+
 case "$1" in
   --version)
     printf 'claude 9.8.7\n'
@@ -745,6 +820,7 @@ case "$1" in
     require_contains " --effort high " "$@"
     require_contains " --strict-mcp-config " "$@"
     require_contains " --mcp-config {\"mcpServers\":{\"docs\":{\"headers\":{\"Authorization\":\"Bearer token\"},\"type\":\"http\",\"url\":\"https://docs.example.com/mcp\"}}} " "$@"
+    require_claude_session_mode "$@"
     case "$*" in
       *"/auth-fail"*) echo "Authentication required: run claude /login" >&2; exit 67;;
       *"/verify release smoke"*) message="go claude verify"; stop_reason="end_turn";;

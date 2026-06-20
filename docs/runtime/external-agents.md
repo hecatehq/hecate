@@ -319,8 +319,11 @@ Dockerfile-pinned Go adapter release binaries, verifies checksums, and smokes
 probe capability discovery, ACP authenticate/logout, session config selectors
 and selector changes, session-level MCP propagation, advertised slash commands,
 command-backed prompt execution, prompt auth-required mapping, prompt streaming,
-usage mapping, structured activity mapping, stop-reason mapping, and native
-session reload/recovery with fake `codex` and `claude` CLIs.
+usage mapping, structured activity mapping, stop-reason mapping, repeated
+prompt continuation, and native session reload/recovery with fake `codex` and
+`claude` CLIs. The fake CLIs intentionally use real-world failure shapes, such
+as Codex's 401 auth wording and Claude Code's first-prompt versus resume flags,
+so adapter bumps prove Hecate still sees the same operator-facing behavior.
 
 ## Setup checks
 

@@ -321,10 +321,12 @@ CLIs on `PATH`, and runs Hecate's probe/auth/logout/session/run path against
 the real adapter binaries, including session config selector changes and
 session-level MCP propagation, command-backed prompt execution, prompt
 auth-required mapping, structured activity mapping, prompt-mode permission
-approval, session-scoped grant reuse, and native session reload/recovery. It
-requires network access and is intentionally not part of the normal unit-test
-ladder. The same check is available from GitHub Actions as the manual **ACP
-adapter release smoke** workflow.
+approval, session-scoped grant reuse, repeated prompt continuation, and native
+session reload/recovery. Its fake CLIs are strict about auth-error wording and
+native continuation flags so packaging bumps catch drift before an operator hits
+it. It requires network access and is intentionally not part of the normal
+unit-test ladder. The same check is available from GitHub Actions as the manual
+**ACP adapter release smoke** workflow.
 
 There is also a narrower discovery-only fixture env var,
 `HECATE_AGENT_ADAPTER_DISCOVERY_OVERRIDES`, used by backend tests that only
