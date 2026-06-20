@@ -15,6 +15,7 @@ import (
 	acp "github.com/coder/acp-go-sdk"
 
 	"github.com/hecatehq/hecate/internal/agentcontrols"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 func TestFakeACPAgentProcess(t *testing.T) {
@@ -557,6 +558,78 @@ func TestSessionManagerLoadsPersistedNativeSession(t *testing.T) {
 	}
 }
 
+func TestSessionManagerPrepareSessionPassesMCPServersToNewSession(t *testing.T) {
+	mcpServers := fakeMCPServerConfigs()
+	expectFakeACPMCPServers(t, "new", mcpServers)
+	installFakeACPExecutable(t, "codex-acp-adapter")
+
+	manager := NewSessionManager()
+	_, err := manager.PrepareSession(context.Background(), PrepareSessionRequest{
+		SessionID:  "chat_mcp_new",
+		AdapterID:  "codex",
+		Workspace:  t.TempDir(),
+		MCPServers: mcpServers,
+	})
+	if err != nil {
+		t.Fatalf("PrepareSession: %v", err)
+	}
+}
+
+func TestSessionManagerPrepareSessionResolvesMCPSecretsBeforeACP(t *testing.T) {
+	cipher := newAgentAdapterTestCipher(t)
+	token, err := cipher.Encrypt("secret-token")
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+	t.Setenv("MCP_HEADER", "header-token")
+	requestMCPServers := []types.MCPServerConfig{{
+		Name:    "secure",
+		Command: "node",
+		Env:     map[string]string{"TOKEN": types.MCPEnvEncPrefix + token},
+		Headers: map[string]string{"Authorization": "$MCP_HEADER"},
+	}}
+	expectFakeACPMCPServers(t, "new", []types.MCPServerConfig{{
+		Name:    "secure",
+		Command: "node",
+		Env:     map[string]string{"TOKEN": "secret-token"},
+		Headers: map[string]string{"Authorization": "header-token"},
+	}})
+	installFakeACPExecutable(t, "codex-acp-adapter")
+
+	manager := NewSessionManager()
+	manager.SetSecretCipher(cipher)
+	_, err = manager.PrepareSession(context.Background(), PrepareSessionRequest{
+		SessionID:  "chat_mcp_secret",
+		AdapterID:  "codex",
+		Workspace:  t.TempDir(),
+		MCPServers: requestMCPServers,
+	})
+	if err != nil {
+		t.Fatalf("PrepareSession: %v", err)
+	}
+	if strings.HasPrefix(requestMCPServers[0].Env["TOKEN"], types.MCPEnvEncPrefix) == false || requestMCPServers[0].Headers["Authorization"] != "$MCP_HEADER" {
+		t.Fatalf("request MCP servers mutated: %#v", requestMCPServers)
+	}
+}
+
+func TestSessionManagerLoadSessionPassesMCPServers(t *testing.T) {
+	mcpServers := fakeMCPServerConfigs()
+	expectFakeACPMCPServers(t, "load", mcpServers)
+	installFakeACPExecutable(t, "codex-acp-adapter")
+
+	manager := NewSessionManager()
+	_, err := manager.PrepareSession(context.Background(), PrepareSessionRequest{
+		SessionID:               "chat_mcp_load",
+		AdapterID:               "codex",
+		Workspace:               t.TempDir(),
+		PreviousNativeSessionID: "fake_session_existing",
+		MCPServers:              mcpServers,
+	})
+	if err != nil {
+		t.Fatalf("PrepareSession: %v", err)
+	}
+}
+
 func TestSessionManagerStartsFreshWhenPersistedNativeSessionIsStale(t *testing.T) {
 	t.Setenv("HECATE_FAKE_ACP_LOAD_SESSION_FAIL", "1")
 	installFakeACPExecutable(t, "codex-acp-adapter")
@@ -587,6 +660,32 @@ func TestSessionManagerStartsFreshWhenPersistedNativeSessionIsStale(t *testing.T
 	if !strings.Contains(run.Output, "fresh turn") {
 		t.Fatalf("output = %q, want fresh turn", run.Output)
 	}
+}
+
+func fakeMCPServerConfigs() []types.MCPServerConfig {
+	return []types.MCPServerConfig{
+		{
+			Name:    "weather",
+			URL:     "https://example.com/mcp",
+			Headers: map[string]string{"X-Token": "token"},
+		},
+		{
+			Name:    "fs",
+			Command: "node",
+			Args:    []string{"server.js"},
+			Env:     map[string]string{"DEBUG": "1"},
+		},
+	}
+}
+
+func expectFakeACPMCPServers(t *testing.T, method string, configs []types.MCPServerConfig) {
+	t.Helper()
+	expected, err := json.Marshal(acpMCPServers(configs))
+	if err != nil {
+		t.Fatalf("marshal expected ACP MCP servers: %v", err)
+	}
+	t.Setenv("HECATE_FAKE_ACP_EXPECT_MCP_METHOD", method)
+	t.Setenv("HECATE_FAKE_ACP_EXPECT_MCP_JSON", string(expected))
 }
 
 func TestSessionManagerCancelsACPPrompt(t *testing.T) {
@@ -1799,13 +1898,15 @@ func installFakeACPExecutable(t *testing.T, name string) {
 	}
 	exe := filepath.Join(bin, name)
 	script := fmt.Sprintf(
-		"#!/bin/sh\nHECATE_FAKE_ACP_AGENT=1 HECATE_FAKE_ACP_LOAD_SESSION_FAIL=%q HECATE_FAKE_ACP_NEW_SESSION_DELAY=%q HECATE_FAKE_ACP_COMMANDS_DELAY=%q HECATE_FAKE_ACP_MODELS=%q HECATE_FAKE_ACP_CONFIG_OPTIONS=%q HECATE_FAKE_ACP_SET_MODEL_ERROR=%q exec %q -test.run '^TestFakeACPAgentProcess$'\n",
+		"#!/bin/sh\nHECATE_FAKE_ACP_AGENT=1 HECATE_FAKE_ACP_LOAD_SESSION_FAIL=%q HECATE_FAKE_ACP_NEW_SESSION_DELAY=%q HECATE_FAKE_ACP_COMMANDS_DELAY=%q HECATE_FAKE_ACP_MODELS=%q HECATE_FAKE_ACP_CONFIG_OPTIONS=%q HECATE_FAKE_ACP_SET_MODEL_ERROR=%q HECATE_FAKE_ACP_EXPECT_MCP_METHOD=%q HECATE_FAKE_ACP_EXPECT_MCP_JSON=%q exec %q -test.run '^TestFakeACPAgentProcess$'\n",
 		os.Getenv("HECATE_FAKE_ACP_LOAD_SESSION_FAIL"),
 		os.Getenv("HECATE_FAKE_ACP_NEW_SESSION_DELAY"),
 		os.Getenv("HECATE_FAKE_ACP_COMMANDS_DELAY"),
 		os.Getenv("HECATE_FAKE_ACP_MODELS"),
 		os.Getenv("HECATE_FAKE_ACP_CONFIG_OPTIONS"),
 		os.Getenv("HECATE_FAKE_ACP_SET_MODEL_ERROR"),
+		os.Getenv("HECATE_FAKE_ACP_EXPECT_MCP_METHOD"),
+		os.Getenv("HECATE_FAKE_ACP_EXPECT_MCP_JSON"),
 		os.Args[0],
 	)
 	if err := os.WriteFile(exe, []byte(script), 0o755); err != nil {
@@ -1850,7 +1951,10 @@ func (a *fakeACPAgent) Initialize(context.Context, acp.InitializeRequest) (acp.I
 	}, nil
 }
 
-func (a *fakeACPAgent) NewSession(context.Context, acp.NewSessionRequest) (acp.NewSessionResponse, error) {
+func (a *fakeACPAgent) NewSession(_ context.Context, params acp.NewSessionRequest) (acp.NewSessionResponse, error) {
+	if err := a.checkMCPServers("new", params.McpServers); err != nil {
+		return acp.NewSessionResponse{}, err
+	}
 	if delay, err := time.ParseDuration(os.Getenv("HECATE_FAKE_ACP_NEW_SESSION_DELAY")); err == nil && delay > 0 {
 		time.Sleep(delay)
 	}
@@ -1866,6 +1970,9 @@ func (a *fakeACPAgent) NewSession(context.Context, acp.NewSessionRequest) (acp.N
 }
 
 func (a *fakeACPAgent) LoadSession(_ context.Context, params acp.LoadSessionRequest) (acp.LoadSessionResponse, error) {
+	if err := a.checkMCPServers("load", params.McpServers); err != nil {
+		return acp.LoadSessionResponse{}, err
+	}
 	if os.Getenv("HECATE_FAKE_ACP_LOAD_SESSION_FAIL") == "1" {
 		return acp.LoadSessionResponse{}, fmt.Errorf("fake persisted session %s not found", params.SessionId)
 	}
@@ -1876,6 +1983,25 @@ func (a *fakeACPAgent) LoadSession(_ context.Context, params acp.LoadSessionRequ
 	return acp.LoadSessionResponse{
 		ConfigOptions: fakeACPConfigOptions("ask", "model-a"),
 	}, nil
+}
+
+func (a *fakeACPAgent) checkMCPServers(method string, servers []acp.McpServer) error {
+	wantMethod := strings.TrimSpace(os.Getenv("HECATE_FAKE_ACP_EXPECT_MCP_METHOD"))
+	if wantMethod == "" {
+		return nil
+	}
+	if wantMethod != method {
+		return fmt.Errorf("unexpected ACP session method %q while expecting %q", method, wantMethod)
+	}
+	wantJSON := strings.TrimSpace(os.Getenv("HECATE_FAKE_ACP_EXPECT_MCP_JSON"))
+	got, err := json.Marshal(servers)
+	if err != nil {
+		return fmt.Errorf("marshal fake ACP MCP servers: %w", err)
+	}
+	if string(got) != wantJSON {
+		return fmt.Errorf("ACP %s MCP servers = %s, want %s", method, got, wantJSON)
+	}
+	return nil
 }
 
 func (a *fakeACPAgent) publishAvailableCommandsAfterDelay(sessionID acp.SessionId) {

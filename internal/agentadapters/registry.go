@@ -15,6 +15,7 @@ import (
 	"github.com/hecatehq/hecate/internal/agentcontrols"
 	"github.com/hecatehq/hecate/internal/gitrunner"
 	"github.com/hecatehq/hecate/internal/remoteruntime"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 const (
@@ -153,6 +154,7 @@ type RunRequest struct {
 	PreviousNativeSessionID string
 	Prompt                  string
 	ConfigOptions           []agentcontrols.ConfigOption
+	MCPServers              []types.MCPServerConfig
 	Timeout                 time.Duration
 	MaxOutputBytes          int64
 	OnOutput                func(string)
@@ -165,6 +167,7 @@ type PrepareSessionRequest struct {
 	Workspace               string
 	PreviousNativeSessionID string
 	ConfigOptions           []agentcontrols.ConfigOption
+	MCPServers              []types.MCPServerConfig
 }
 
 type PrepareSessionResult struct {

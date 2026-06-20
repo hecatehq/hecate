@@ -40,9 +40,20 @@ export type ChatSessionSummaryRecord = {
   workspace: string;
   workspace_branch?: string;
   status: string;
+  mcp_servers?: ChatMCPServerRecord[];
   message_count: number;
   created_at?: string;
   updated_at?: string;
+};
+
+export type ChatMCPServerRecord = {
+  name: string;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+  approval_policy?: "auto" | "require_approval" | "block" | string;
 };
 
 export type ChatMessageRecord = {
@@ -216,6 +227,7 @@ export type ChatSessionRecord = {
   updated_at?: string;
   config_options?: ChatConfigOptionRecord[];
   available_commands?: ChatAvailableCommandRecord[];
+  mcp_servers?: ChatMCPServerRecord[];
   context_summary?: ChatContextSummaryRecord;
   segments?: ChatSegmentRecord[];
   messages?: ChatMessageRecord[];

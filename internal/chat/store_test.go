@@ -391,6 +391,65 @@ func runStoreDeepCopiesConfigOptions(t *testing.T, store Store) {
 	}
 }
 
+func runStoreMCPServersRoundTrip(t *testing.T, store Store) {
+	t.Helper()
+	ctx := context.Background()
+	created, err := store.Create(ctx, Session{
+		ID:        "chat_mcp_servers",
+		AgentID:   "codex",
+		Workspace: "/tmp/hecate",
+		MCPServers: []types.MCPServerConfig{
+			{
+				Name:    "weather",
+				URL:     "https://example.com/mcp",
+				Headers: map[string]string{"Authorization": "$MCP_TOKEN"},
+			},
+			{
+				Name:           "fs",
+				Command:        "node",
+				Args:           []string{"server.js"},
+				Env:            map[string]string{"DEBUG": "1"},
+				ApprovalPolicy: types.MCPApprovalRequireApproval,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	created.MCPServers[0].Headers["Authorization"] = "mutated"
+	created.MCPServers[1].Args[0] = "mutated.js"
+
+	got, ok, err := store.Get(ctx, "chat_mcp_servers")
+	if err != nil || !ok {
+		t.Fatalf("Get: ok=%v err=%v", ok, err)
+	}
+	if got.MCPServers[0].Headers["Authorization"] != "$MCP_TOKEN" || got.MCPServers[1].Args[0] != "server.js" {
+		t.Fatalf("stored MCP servers mutated through create snapshot: %#v", got.MCPServers)
+	}
+	got.MCPServers[1].Env["DEBUG"] = "0"
+	got.MCPServers[1].Args[0] = "again.js"
+
+	got, ok, err = store.Get(ctx, "chat_mcp_servers")
+	if err != nil || !ok {
+		t.Fatalf("Get after mutation: ok=%v err=%v", ok, err)
+	}
+	if got.MCPServers[1].Env["DEBUG"] != "1" || got.MCPServers[1].Args[0] != "server.js" {
+		t.Fatalf("stored MCP servers mutated through get snapshot: %#v", got.MCPServers)
+	}
+	list, err := store.List(ctx)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	list[0].MCPServers[0].URL = "https://mutated.invalid/mcp"
+	got, ok, err = store.Get(ctx, "chat_mcp_servers")
+	if err != nil || !ok {
+		t.Fatalf("Get after list mutation: ok=%v err=%v", ok, err)
+	}
+	if got.MCPServers[0].URL != "https://example.com/mcp" {
+		t.Fatalf("stored MCP servers mutated through list snapshot: %#v", got.MCPServers)
+	}
+}
+
 func runStoreAvailableCommandsRoundTrip(t *testing.T, store Store) {
 	t.Helper()
 	ctx := context.Background()

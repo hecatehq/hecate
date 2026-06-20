@@ -3135,6 +3135,13 @@ starting the agent process. After the ACP session exists, agent-owned
 the first prompt. If the adapter binary is missing, unauthenticated, missing a
 required launch option, or fails its ACP handshake, session creation fails and
 Hecate removes the empty chat record.
+External Agent session creation may also include `mcp_servers`, using the same
+stdio/HTTP server shape as task-create `mcp_servers`. Hecate stores the server
+list on the chat session and passes it to the adapter during ACP `session/new`
+or `session/load`; support beyond transport propagation depends on the selected
+adapter and upstream agent. Hecate-owned chats do not accept session-level
+`mcp_servers`; pass them on `POST /hecate/v1/chat/sessions/{id}/messages` so
+the backing task segment records the exact server set for that run.
 If an ACP agent advertises native slash commands with
 `available_commands_update`, Hecate stores the latest command metadata on the
 session as `available_commands`. Clients send those commands back as ordinary
@@ -3182,6 +3189,14 @@ POST /hecate/v1/chat/sessions
 {
   "agent_id": "grok_build",
   "workspace": "/Users/alice/src/my-app",
+  "mcp_servers": [
+    {
+      "name": "filesystem",
+      "command": "node",
+      "args": ["./mcp-filesystem-server.js"],
+      "approval_policy": "require_approval"
+    }
+  ],
   "config_options": [
     {
       "id": "model",
@@ -3203,6 +3218,14 @@ POST /hecate/v1/chat/sessions
     "workspace": "/Users/alice/src/my-app",
     "driver_kind": "acp",
     "status": "idle",
+    "mcp_servers": [
+      {
+        "name": "filesystem",
+        "command": "node",
+        "args": ["./mcp-filesystem-server.js"],
+        "approval_policy": "require_approval"
+      }
+    ],
     "config_options": [
       {
         "id": "model",

@@ -350,6 +350,7 @@ func (app *Application) CreateSession(ctx context.Context, cmd CreateSessionComm
 		Workspace:               session.Workspace,
 		PreviousNativeSessionID: session.NativeSessionID,
 		ConfigOptions:           session.ConfigOptions,
+		MCPServers:              session.MCPServers,
 	})
 	cancel()
 	if prepareErr != nil {

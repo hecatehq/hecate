@@ -32,6 +32,7 @@ type Session struct {
 	Capabilities      types.ModelCapabilities
 	ConfigOptions     []agentcontrols.ConfigOption
 	AvailableCommands []agentcontrols.Command
+	MCPServers        []types.MCPServerConfig
 	RTKEnabled        bool
 	// TurnsUsed counts how many user→assistant round-trips have completed
 	// (successfully or with failure) in this session. Used to enforce the
@@ -450,6 +451,7 @@ func (s *MemoryStore) UpdateMessage(_ context.Context, sessionID string, message
 func cloneSession(session Session) Session {
 	session.ConfigOptions = cloneConfigOptions(session.ConfigOptions)
 	session.AvailableCommands = cloneCommands(session.AvailableCommands)
+	session.MCPServers = cloneMCPServerConfigs(session.MCPServers)
 	session.ContextSummary = cloneContextSummary(session.ContextSummary)
 	session.Messages = append([]Message(nil), session.Messages...)
 	for i := range session.Messages {
@@ -479,6 +481,20 @@ func cloneStringMap(in map[string]string) map[string]string {
 	out := make(map[string]string, len(in))
 	for key, value := range in {
 		out[key] = value
+	}
+	return out
+}
+
+func cloneMCPServerConfigs(values []types.MCPServerConfig) []types.MCPServerConfig {
+	if values == nil {
+		return nil
+	}
+	out := make([]types.MCPServerConfig, len(values))
+	for i, value := range values {
+		out[i] = value
+		out[i].Args = append([]string(nil), value.Args...)
+		out[i].Env = cloneStringMap(value.Env)
+		out[i].Headers = cloneStringMap(value.Headers)
 	}
 	return out
 }

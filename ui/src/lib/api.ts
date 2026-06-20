@@ -214,6 +214,7 @@ export type CreateChatSessionPayload = {
   workspace?: string;
   rtk_enabled?: boolean;
   config_options?: ChatConfigOptionRecord[];
+  mcp_servers?: ChatMCPServerPayload[];
 };
 
 export type ChatMCPServerPayload = {

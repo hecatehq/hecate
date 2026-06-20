@@ -2973,7 +2973,7 @@ func TestAgentChatExternalConfigOptionsRoundTrip(t *testing.T) {
 	apiHandler.SetAgentChatRunner(runner)
 	handler := NewServer(logger, apiHandler)
 
-	created := decodeRecorder[ChatSessionResponse](t, performRequest(t, handler, http.MethodPost, "/hecate/v1/chat/sessions", fmt.Sprintf(`{"agent_id":"codex","workspace":%q,"config_options":[{"id":"model","type":"select","current_value":"smart"}]}`, dir)))
+	created := decodeRecorder[ChatSessionResponse](t, performRequest(t, handler, http.MethodPost, "/hecate/v1/chat/sessions", fmt.Sprintf(`{"agent_id":"codex","workspace":%q,"config_options":[{"id":"model","type":"select","current_value":"smart"}],"mcp_servers":[{"name":"weather","url":"https://example.com/mcp","headers":{"Authorization":"$MCP_TOKEN"}}]}`, dir)))
 	if len(runner.prepareRequests) != 1 {
 		t.Fatalf("prepare requests = %d, want 1", len(runner.prepareRequests))
 	}
@@ -2994,8 +2994,14 @@ func TestAgentChatExternalConfigOptionsRoundTrip(t *testing.T) {
 	if got := runner.prepareRequests[0].ConfigOptions; len(got) != 1 || got[0].ID != "model" || got[0].CurrentValue != "smart" {
 		t.Fatalf("prepare config options = %#v, want selected draft model", got)
 	}
+	if got := runner.prepareRequests[0].MCPServers; len(got) != 1 || got[0].Name != "weather" || got[0].URL != "https://example.com/mcp" || got[0].Headers["Authorization"] != "$MCP_TOKEN" {
+		t.Fatalf("prepare MCP servers = %#v, want weather server", got)
+	}
 	if got := created.Data.ConfigOptions; len(got) != 2 || got[0].CurrentValue != "fast" || got[1].CurrentBool == nil || *got[1].CurrentBool {
 		t.Fatalf("config options after create = %#v, want fast model and auto_approve false", got)
+	}
+	if got := created.Data.MCPServers; len(got) != 1 || got[0].Name != "weather" || got[0].Headers["Authorization"] != "$MCP_TOKEN" {
+		t.Fatalf("MCP servers after create = %#v, want rendered weather server", got)
 	}
 	if got := created.Data.AvailableCommands; len(got) != 2 || got[0].Name != "web" || got[0].InputHint != "query" {
 		t.Fatalf("available commands after create = %#v, want web and plan", got)
@@ -3009,6 +3015,9 @@ func TestAgentChatExternalConfigOptionsRoundTrip(t *testing.T) {
 	}
 	if got := runner.runRequests[0].ConfigOptions; len(got) != 2 || got[0].CurrentValue != "fast" {
 		t.Fatalf("run request config options = %#v, want fast model", got)
+	}
+	if got := runner.runRequests[0].MCPServers; len(got) != 1 || got[0].Name != "weather" || got[0].URL != "https://example.com/mcp" {
+		t.Fatalf("run request MCP servers = %#v, want weather server", got)
 	}
 
 	updated := decodeRecorder[ChatSessionResponse](t, performRequest(t, handler, http.MethodPost, "/hecate/v1/chat/sessions/"+created.Data.ID+"/config-options/model", `{"value":"smart"}`))
@@ -3032,6 +3041,9 @@ func TestAgentChatExternalConfigOptionsRoundTrip(t *testing.T) {
 	}
 	if got := runner.runRequests[1].ConfigOptions; len(got) != 2 || got[0].CurrentValue != "smart" || got[1].CurrentBool == nil || !*got[1].CurrentBool {
 		t.Fatalf("second run request config options = %#v, want updated options", got)
+	}
+	if got := runner.runRequests[1].MCPServers; len(got) != 1 || got[0].Name != "weather" || got[0].Headers["Authorization"] != "$MCP_TOKEN" {
+		t.Fatalf("second run request MCP servers = %#v, want persisted weather server", got)
 	}
 }
 

@@ -539,6 +539,7 @@ func (app *Application) StartExternalAgentAssignment(ctx context.Context, cmd St
 		AdapterID:     session.AgentID,
 		Workspace:     session.Workspace,
 		ConfigOptions: session.ConfigOptions,
+		MCPServers:    session.MCPServers,
 	})
 	cancel()
 	if prepareErr != nil {

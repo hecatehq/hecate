@@ -863,6 +863,10 @@ type CreateChatSessionRequest struct {
 	Workspace     string                       `json:"workspace"`
 	RTKEnabled    bool                         `json:"rtk_enabled,omitempty"`
 	ConfigOptions []agentcontrols.ConfigOption `json:"config_options,omitempty"`
+	// MCPServers configures MCP servers for an External Agent session.
+	// Hecate-owned tool turns keep their existing per-message
+	// mcp_servers field so each backing task segment remains explicit.
+	MCPServers []MCPServerConfigItem `json:"mcp_servers,omitempty"`
 }
 
 type CreateChatMessageRequest struct {
@@ -913,6 +917,7 @@ type ChatSessionSummaryItem struct {
 	Workspace       string                  `json:"workspace"`
 	WorkspaceBranch string                  `json:"workspace_branch,omitempty"`
 	Status          string                  `json:"status"`
+	MCPServers      []MCPServerConfigItem   `json:"mcp_servers,omitempty"`
 	MessageCount    int                     `json:"message_count"`
 	CreatedAt       string                  `json:"created_at,omitempty"`
 	UpdatedAt       string                  `json:"updated_at,omitempty"`
@@ -941,6 +946,7 @@ type ChatSessionItem struct {
 	IdleTimeoutMS        int64                        `json:"idle_timeout_ms,omitempty"`
 	ConfigOptions        []agentcontrols.ConfigOption `json:"config_options,omitempty"`
 	AvailableCommands    []agentcontrols.Command      `json:"available_commands,omitempty"`
+	MCPServers           []MCPServerConfigItem        `json:"mcp_servers,omitempty"`
 	ContextSummary       *ChatContextSummaryItem      `json:"context_summary,omitempty"`
 	CreatedAt            string                       `json:"created_at,omitempty"`
 	UpdatedAt            string                       `json:"updated_at,omitempty"`

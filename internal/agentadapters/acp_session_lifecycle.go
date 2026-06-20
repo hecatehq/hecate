@@ -15,6 +15,7 @@ import (
 
 	"github.com/hecatehq/hecate/internal/agentcontrols"
 	"github.com/hecatehq/hecate/internal/telemetry"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 const (
@@ -27,6 +28,7 @@ type acpSession struct {
 	sessionID           string
 	adapter             Adapter
 	workspace           string
+	mcpServers          []types.MCPServerConfig
 	cmd                 *exec.Cmd
 	conn                *acp.ClientSideConnection
 	client              *acpChatClient
@@ -51,7 +53,7 @@ type acpSession struct {
 	activeDone   chan struct{}
 }
 
-func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace, previousNativeSessionID string, selectedOptions []agentcontrols.ConfigOption, logger *slog.Logger, coordinator *ApprovalCoordinator, metrics *telemetry.AgentAdapterMetrics, onAvailableCommands func(AvailableCommandsUpdate)) (*acpSession, bool, string, error) {
+func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace, previousNativeSessionID string, selectedOptions []agentcontrols.ConfigOption, mcpServers []types.MCPServerConfig, logger *slog.Logger, coordinator *ApprovalCoordinator, metrics *telemetry.AgentAdapterMetrics, onAvailableCommands func(AvailableCommandsUpdate)) (*acpSession, bool, string, error) {
 	command, err := resolveExecutable(adapter, exec.LookPath)
 	if err != nil {
 		return nil, false, "", err
@@ -117,6 +119,7 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 		sessionID:           sessionID,
 		adapter:             adapter,
 		workspace:           workspace,
+		mcpServers:          cloneMCPServerConfigs(mcpServers),
 		cmd:                 cmd,
 		client:              client,
 		logger:              sessionLogger,
@@ -182,7 +185,7 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 		loaded, loadErr := conn.LoadSession(loadCtx, acp.LoadSessionRequest{
 			SessionId:  acp.SessionId(previousNativeSessionID),
 			Cwd:        workspace,
-			McpServers: []acp.McpServer{},
+			McpServers: acpMCPServers(mcpServers),
 		})
 		if loadErr == nil {
 			nativeID = previousNativeSessionID
@@ -227,7 +230,7 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 		newCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		created, err := conn.NewSession(newCtx, acp.NewSessionRequest{
 			Cwd:        workspace,
-			McpServers: []acp.McpServer{},
+			McpServers: acpMCPServers(mcpServers),
 		})
 		if err != nil {
 			cancel()

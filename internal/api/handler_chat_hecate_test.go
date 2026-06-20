@@ -1702,6 +1702,31 @@ func TestHecateAgentChatRejectsInvalidMCPServers(t *testing.T) {
 	}
 }
 
+func TestHecateAgentChatRejectsSessionLevelMCPServers(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	provider := &fakeProvider{name: "openai"}
+	handler := newTestHTTPHandlerWithSettings(logger, []providers.Provider{provider}, config.Config{}, controlplane.NewMemoryStore())
+	client := newTaskTestClient(t, handler)
+	workspace := t.TempDir()
+
+	recorder := client.mustRequestStatus(http.StatusBadRequest, http.MethodPost, "/hecate/v1/chat/sessions",
+		fmt.Sprintf(`{"agent_id":"hecate","workspace":%q,"provider":"openai","model":"gpt-4o-mini","mcp_servers":[{"name":"weather","command":"node"}]}`, workspace))
+	payload := decodeRecorder[struct {
+		Error struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}](t, recorder)
+	if payload.Error.Type != errCodeInvalidRequest {
+		t.Fatalf("error type = %q, want %s", payload.Error.Type, errCodeInvalidRequest)
+	}
+	if !strings.Contains(payload.Error.Message, "chat session mcp_servers are only supported for external agents") {
+		t.Fatalf("error message = %q, want session-level MCP guidance", payload.Error.Message)
+	}
+}
+
 func TestExternalAgentChatRejectsDirectModelExecutionMode(t *testing.T) {
 	t.Parallel()
 

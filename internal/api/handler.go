@@ -514,6 +514,9 @@ func (h *Handler) SetSecretCipher(cipher secrets.Cipher) {
 		return
 	}
 	h.secretCipher = cipher
+	if mgr, ok := h.agentChatRunner.(*agentadapters.SessionManager); ok {
+		mgr.SetSecretCipher(cipher)
+	}
 	h.rebuildMCPHostFactory()
 }
 

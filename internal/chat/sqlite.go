@@ -67,9 +67,9 @@ func (s *SQLiteStore) Create(ctx context.Context, session Session) (Session, err
 		fmt.Sprintf(
 			`INSERT INTO %s (
 				id, title, project_id, agent_id, driver_kind, native_session_id, workspace, workspace_branch,
-				status, task_id, latest_run_id, provider, model, capabilities, config_options, available_commands, rtk_enabled, turns_used, context_summary, created_at, updated_at
+				status, task_id, latest_run_id, provider, model, capabilities, config_options, available_commands, mcp_servers, rtk_enabled, turns_used, context_summary, created_at, updated_at
 			 )
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			 ON CONFLICT(id) DO UPDATE SET
 			   title = excluded.title,
 			   project_id = excluded.project_id,
@@ -86,6 +86,7 @@ func (s *SQLiteStore) Create(ctx context.Context, session Session) (Session, err
 			   capabilities = excluded.capabilities,
 			   config_options = excluded.config_options,
 			   available_commands = excluded.available_commands,
+			   mcp_servers = excluded.mcp_servers,
 			   rtk_enabled = excluded.rtk_enabled,
 			   context_summary = excluded.context_summary,
 			   updated_at = excluded.updated_at`,
@@ -107,6 +108,7 @@ func (s *SQLiteStore) Create(ctx context.Context, session Session) (Session, err
 		marshalModelCapabilities(session.Capabilities),
 		marshalConfigOptions(session.ConfigOptions),
 		marshalCommands(session.AvailableCommands),
+		marshalMCPServers(session.MCPServers),
 		boolToSQLiteInt(session.RTKEnabled),
 		session.TurnsUsed,
 		marshalContextSummary(session.ContextSummary),
@@ -135,12 +137,12 @@ func (s *SQLiteStore) List(ctx context.Context) ([]Session, error) {
 		ctx,
 		fmt.Sprintf(
 			`SELECT s.id, s.title, s.project_id, s.agent_id, s.driver_kind, s.native_session_id, s.workspace, s.workspace_branch,
-			        s.status, s.task_id, s.latest_run_id, s.provider, s.model, s.capabilities, s.config_options, s.available_commands, s.rtk_enabled, s.turns_used, s.context_summary, s.created_at, s.updated_at,
+			        s.status, s.task_id, s.latest_run_id, s.provider, s.model, s.capabilities, s.config_options, s.available_commands, s.mcp_servers, s.rtk_enabled, s.turns_used, s.context_summary, s.created_at, s.updated_at,
 			        COUNT(m.id) AS message_count
 			 FROM %s AS s
 			 LEFT JOIN %s AS m ON m.session_id = s.id
 			 GROUP BY s.id, s.title, s.project_id, s.agent_id, s.driver_kind, s.native_session_id, s.workspace, s.workspace_branch,
-			          s.status, s.task_id, s.latest_run_id, s.provider, s.model, s.capabilities, s.config_options, s.available_commands, s.rtk_enabled, s.turns_used, s.context_summary, s.created_at, s.updated_at
+			          s.status, s.task_id, s.latest_run_id, s.provider, s.model, s.capabilities, s.config_options, s.available_commands, s.mcp_servers, s.rtk_enabled, s.turns_used, s.context_summary, s.created_at, s.updated_at
 			 ORDER BY s.updated_at DESC, s.created_at DESC`,
 			s.sessionsTable,
 			s.messagesTable,
@@ -158,6 +160,7 @@ func (s *SQLiteStore) List(ctx context.Context) ([]Session, error) {
 		var capabilities string
 		var configOptions string
 		var availableCommands string
+		var mcpServers string
 		var contextSummary string
 		var rtkEnabled int
 		if err := rows.Scan(
@@ -177,6 +180,7 @@ func (s *SQLiteStore) List(ctx context.Context) ([]Session, error) {
 			&capabilities,
 			&configOptions,
 			&availableCommands,
+			&mcpServers,
 			&rtkEnabled,
 			&session.TurnsUsed,
 			&contextSummary,
@@ -189,6 +193,7 @@ func (s *SQLiteStore) List(ctx context.Context) ([]Session, error) {
 		session.Capabilities = unmarshalModelCapabilities(capabilities)
 		session.ConfigOptions = unmarshalConfigOptions(configOptions)
 		session.AvailableCommands = unmarshalCommands(availableCommands)
+		session.MCPServers = unmarshalMCPServers(mcpServers)
 		session.ContextSummary = unmarshalContextSummary(contextSummary)
 		session.RTKEnabled = rtkEnabled != 0
 		if session.AgentID == "" {
@@ -258,7 +263,7 @@ func (s *SQLiteStore) UpdateSession(ctx context.Context, id string, update func(
 		fmt.Sprintf(
 			`UPDATE %s SET
 			   title = ?, project_id = ?, agent_id = ?, driver_kind = ?, native_session_id = ?, workspace = ?, workspace_branch = ?,
-			   status = ?, task_id = ?, latest_run_id = ?, provider = ?, model = ?, capabilities = ?, config_options = ?, available_commands = ?, rtk_enabled = ?, turns_used = ?, context_summary = ?, updated_at = ?
+			   status = ?, task_id = ?, latest_run_id = ?, provider = ?, model = ?, capabilities = ?, config_options = ?, available_commands = ?, mcp_servers = ?, rtk_enabled = ?, turns_used = ?, context_summary = ?, updated_at = ?
 			 WHERE id = ?`,
 			s.sessionsTable,
 		),
@@ -277,6 +282,7 @@ func (s *SQLiteStore) UpdateSession(ctx context.Context, id string, update func(
 		marshalModelCapabilities(session.Capabilities),
 		marshalConfigOptions(session.ConfigOptions),
 		marshalCommands(session.AvailableCommands),
+		marshalMCPServers(session.MCPServers),
 		boolToSQLiteInt(session.RTKEnabled),
 		session.TurnsUsed,
 		marshalContextSummary(session.ContextSummary),
@@ -465,6 +471,8 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 				model TEXT NOT NULL DEFAULT '',
 				capabilities TEXT NOT NULL DEFAULT '{}',
 				config_options TEXT NOT NULL DEFAULT '[]',
+				available_commands TEXT NOT NULL DEFAULT '[]',
+				mcp_servers TEXT NOT NULL DEFAULT '[]',
 				context_summary TEXT NOT NULL DEFAULT '{}',
 				rtk_enabled INTEGER NOT NULL DEFAULT 0,
 				turns_used INTEGER NOT NULL DEFAULT 0,
@@ -549,6 +557,7 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 		{name: "capabilities", definition: "TEXT NOT NULL DEFAULT '{}'"},
 		{name: "config_options", definition: "TEXT NOT NULL DEFAULT '[]'"},
 		{name: "available_commands", definition: "TEXT NOT NULL DEFAULT '[]'"},
+		{name: "mcp_servers", definition: "TEXT NOT NULL DEFAULT '[]'"},
 		{name: "context_summary", definition: "TEXT NOT NULL DEFAULT '{}'"},
 		{name: "rtk_enabled", definition: "INTEGER NOT NULL DEFAULT 0"},
 	} {
@@ -613,13 +622,14 @@ func (s *SQLiteStore) loadSession(ctx context.Context, id string) (Session, erro
 	var capabilities string
 	var configOptions string
 	var availableCommands string
+	var mcpServers string
 	var contextSummary string
 	var rtkEnabled int
 	err := s.client.DB().QueryRowContext(
 		ctx,
 		fmt.Sprintf(
 			`SELECT id, title, project_id, agent_id, driver_kind, native_session_id, workspace, workspace_branch,
-			        status, task_id, latest_run_id, provider, model, capabilities, config_options, available_commands, rtk_enabled, turns_used, context_summary, created_at, updated_at
+			        status, task_id, latest_run_id, provider, model, capabilities, config_options, available_commands, mcp_servers, rtk_enabled, turns_used, context_summary, created_at, updated_at
 			 FROM %s WHERE id = ?`,
 			s.sessionsTable,
 		),
@@ -641,6 +651,7 @@ func (s *SQLiteStore) loadSession(ctx context.Context, id string) (Session, erro
 		&capabilities,
 		&configOptions,
 		&availableCommands,
+		&mcpServers,
 		&rtkEnabled,
 		&session.TurnsUsed,
 		&contextSummary,
@@ -659,6 +670,7 @@ func (s *SQLiteStore) loadSession(ctx context.Context, id string) (Session, erro
 	session.Capabilities = unmarshalModelCapabilities(capabilities)
 	session.ConfigOptions = unmarshalConfigOptions(configOptions)
 	session.AvailableCommands = unmarshalCommands(availableCommands)
+	session.MCPServers = unmarshalMCPServers(mcpServers)
 	session.ContextSummary = unmarshalContextSummary(contextSummary)
 	session.RTKEnabled = rtkEnabled != 0
 	messages, err := s.loadMessages(ctx, id)
@@ -1077,6 +1089,29 @@ func unmarshalCommands(raw string) []agentcontrols.Command {
 		return nil
 	}
 	return commands
+}
+
+func marshalMCPServers(configs []types.MCPServerConfig) string {
+	if len(configs) == 0 {
+		return "[]"
+	}
+	data, err := json.Marshal(configs)
+	if err != nil {
+		return "[]"
+	}
+	return string(data)
+}
+
+func unmarshalMCPServers(raw string) []types.MCPServerConfig {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var configs []types.MCPServerConfig
+	if err := json.Unmarshal([]byte(raw), &configs); err != nil {
+		return nil
+	}
+	return configs
 }
 
 func updateSessionAfterMessage(ctx context.Context, tx txRunner, table string, sessionID string, message Message) error {

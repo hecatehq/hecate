@@ -9,15 +9,18 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/secrets"
 	"github.com/hecatehq/hecate/internal/telemetry"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 type SessionManager struct {
-	mu          sync.Mutex
-	sessions    map[string]*acpSession
-	starts      map[string]*sessionStart
-	logger      *slog.Logger
-	coordinator *ApprovalCoordinator
+	mu           sync.Mutex
+	sessions     map[string]*acpSession
+	starts       map[string]*sessionStart
+	logger       *slog.Logger
+	coordinator  *ApprovalCoordinator
+	secretCipher secrets.Cipher
 	// metrics carries the AgentAdapterMetrics used by every
 	// acpChatClient created from this manager. Optional — nil is
 	// safe (every Record* method is nil-tolerant) and matches the
@@ -41,6 +44,12 @@ func (m *SessionManager) SetLogger(logger *slog.Logger) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.logger = logger
+}
+
+func (m *SessionManager) SetSecretCipher(cipher secrets.Cipher) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.secretCipher = cipher
 }
 
 // SetApprovalCoordinator installs the coordinator used to handle ACP
@@ -121,12 +130,18 @@ func (m *SessionManager) PrepareSession(ctx context.Context, req PrepareSessionR
 	if strings.TrimSpace(req.SessionID) == "" {
 		return PrepareSessionResult{}, fmt.Errorf("agent chat session id is required")
 	}
+	mcpServers, err := m.resolveMCPServerConfigs(req.MCPServers)
+	if err != nil {
+		return PrepareSessionResult{}, err
+	}
+	req.MCPServers = mcpServers
 	session, started, resumed, recovery, err := m.session(ctx, adapter, RunRequest{
 		SessionID:               req.SessionID,
 		AdapterID:               req.AdapterID,
 		Workspace:               req.Workspace,
 		PreviousNativeSessionID: req.PreviousNativeSessionID,
 		ConfigOptions:           req.ConfigOptions,
+		MCPServers:              req.MCPServers,
 	})
 	if err != nil {
 		return PrepareSessionResult{}, err
@@ -173,6 +188,11 @@ func (m *SessionManager) Run(ctx context.Context, req RunRequest) (RunResult, er
 	if req.SessionID == "" {
 		return RunResult{}, fmt.Errorf("agent chat session id is required")
 	}
+	mcpServers, err := m.resolveMCPServerConfigs(req.MCPServers)
+	if err != nil {
+		return RunResult{}, err
+	}
+	req.MCPServers = mcpServers
 	if req.Timeout <= 0 {
 		req.Timeout = 10 * time.Minute
 	}
@@ -190,6 +210,16 @@ func (m *SessionManager) Run(ctx context.Context, req RunRequest) (RunResult, er
 	return result, err
 }
 
+func (m *SessionManager) resolveMCPServerConfigs(configs []types.MCPServerConfig) ([]types.MCPServerConfig, error) {
+	if len(configs) == 0 {
+		return configs, nil
+	}
+	m.mu.Lock()
+	cipher := m.secretCipher
+	m.mu.Unlock()
+	return resolveMCPServerConfigs(configs, cipher)
+}
+
 type sessionStart struct {
 	done   chan struct{}
 	cancel context.CancelFunc
@@ -203,7 +233,7 @@ func (m *SessionManager) session(ctx context.Context, adapter Adapter, req RunRe
 			return nil, false, false, "", fmt.Errorf("agent session manager is shut down")
 		}
 		existing := m.sessions[req.SessionID]
-		if existing != nil && existing.adapter.ID == adapter.ID && existing.workspace == req.Workspace && sameArgs(existing.adapter.Args, adapter.Args) {
+		if existing != nil && existing.adapter.ID == adapter.ID && existing.workspace == req.Workspace && sameArgs(existing.adapter.Args, adapter.Args) && sameMCPServerConfigs(existing.mcpServers, req.MCPServers) {
 			m.mu.Unlock()
 			return existing, false, false, "", nil
 		}
@@ -229,7 +259,7 @@ func (m *SessionManager) session(ctx context.Context, adapter Adapter, req RunRe
 		onAvailableCommands := m.onAvailableCommands
 		m.mu.Unlock()
 
-		started, resumed, recovery, err := startACPSession(startCtx, adapter, req.SessionID, req.Workspace, req.PreviousNativeSessionID, req.ConfigOptions, logger, coordinator, metrics, onAvailableCommands)
+		started, resumed, recovery, err := startACPSession(startCtx, adapter, req.SessionID, req.Workspace, req.PreviousNativeSessionID, req.ConfigOptions, req.MCPServers, logger, coordinator, metrics, onAvailableCommands)
 		startCancel()
 
 		var previous *acpSession

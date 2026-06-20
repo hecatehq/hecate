@@ -19,6 +19,7 @@ import (
 	"github.com/hecatehq/hecate/internal/gitrunner"
 	"github.com/hecatehq/hecate/internal/modelcaps"
 	"github.com/hecatehq/hecate/internal/requestscope"
+	"github.com/hecatehq/hecate/internal/taskapp"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -92,6 +93,19 @@ func (h *Handler) HandleCreateChatSession(w http.ResponseWriter, r *http.Request
 	}
 	workspaceBranch := workspaceGitBranch(workspace)
 	title := strings.TrimSpace(req.Title)
+	var mcpServers []types.MCPServerConfig
+	if len(req.MCPServers) > 0 {
+		if !isExternalAgent {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "chat session mcp_servers are only supported for external agents; pass mcp_servers on Hecate tool turns")
+			return
+		}
+		var err error
+		mcpServers, err = taskapp.NormalizeMCPServerConfigs(taskMCPServerCommandsFromRequest(req.MCPServers), h.secretCipher, h.config.Server.TaskMaxMCPServersPerTask)
+		if err != nil {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+			return
+		}
+	}
 
 	session := chat.Session{
 		ID:              newChatID("chat"),
@@ -101,6 +115,7 @@ func (h *Handler) HandleCreateChatSession(w http.ResponseWriter, r *http.Request
 		Workspace:       workspace,
 		WorkspaceBranch: workspaceBranch,
 		RTKEnabled:      req.RTKEnabled,
+		MCPServers:      mcpServers,
 	}
 	var err error
 	var externalAdapter agentadapters.Adapter
@@ -717,7 +732,9 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 		// has no approval coordinator installed and falls back to
 		// auto-approve. Tighten in a follow-up if the fallback remains
 		// in use.
-		runner = agentadapters.NewSessionManager()
+		fallback := agentadapters.NewSessionManager()
+		fallback.SetSecretCipher(h.secretCipher)
+		runner = fallback
 	}
 	// streamFlush persists a coalesced batch of streamed updates in a
 	// single chat.UpdateMessage and publishes once. Content is
@@ -764,6 +781,7 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 		Workspace:               session.Workspace,
 		PreviousNativeSessionID: session.NativeSessionID,
 		ConfigOptions:           session.ConfigOptions,
+		MCPServers:              session.MCPServers,
 		Prompt:                  plan.Content,
 		Timeout:                 agentChatTimeout,
 		MaxOutputBytes:          agentChatMaxOutputBytes,

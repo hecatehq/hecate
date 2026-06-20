@@ -158,6 +158,15 @@ different agent. Hecate stores the latest reported control state with the chat
 session and sends ACP-owned changes back with ACP `session/set_config_option`;
 it does not translate those controls into Hecate provider/model settings.
 
+External Agent chat sessions can also carry session-level `mcp_servers`
+configuration. Hecate persists the configured stdio/HTTP server list with the
+chat session and passes it to the adapter during ACP `session/new` and
+`session/load`. That is a transport handoff, not Hecate-owned MCP dispatch:
+the selected external agent decides whether and how those MCP servers are
+exposed inside its own runtime. Hecate-owned Chat tool turns use per-message
+`mcp_servers` instead, because each tool-backed turn creates or continues an
+explicit task segment with its own recorded server set.
+
 ACP agents may also advertise **available slash commands** with
 `available_commands_update`. Hecate stores the latest advertised command
 metadata on the chat session as `available_commands` so clients can render

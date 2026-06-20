@@ -251,6 +251,11 @@ func TestApplication_CreateSessionPreparesExternalSession(t *testing.T) {
 			AgentID:         "codex",
 			Workspace:       "/tmp/hecate",
 			NativeSessionID: "native_previous",
+			MCPServers: []types.MCPServerConfig{{
+				Name:    "weather",
+				URL:     "https://example.com/mcp",
+				Headers: map[string]string{"Authorization": "$MCP_TOKEN"},
+			}},
 			ConfigOptions: []agentcontrols.ConfigOption{{
 				ID:           "model",
 				Name:         "Model",
@@ -266,6 +271,9 @@ func TestApplication_CreateSessionPreparesExternalSession(t *testing.T) {
 	}
 	if runner.prepareReq.SessionID != "chat_ext" || runner.prepareReq.AdapterID != "codex" || runner.prepareReq.PreviousNativeSessionID != "native_previous" {
 		t.Fatalf("prepare request = %+v, want session/adapter/previous native id", runner.prepareReq)
+	}
+	if got := runner.prepareReq.MCPServers; len(got) != 1 || got[0].Name != "weather" || got[0].Headers["Authorization"] != "$MCP_TOKEN" {
+		t.Fatalf("prepare MCP servers = %+v, want weather server", got)
 	}
 	if result.Session.DriverKind != agentadapters.DriverKindACP || result.Session.NativeSessionID != "native_chat_ext" {
 		t.Fatalf("prepared session = %+v, want native metadata", result.Session)

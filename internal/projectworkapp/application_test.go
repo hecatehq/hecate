@@ -358,10 +358,12 @@ type recordingAgentRunner struct {
 	prepareCalls int
 	closeCalls   int
 	prepareErr   error
+	prepareReq   agentadapters.PrepareSessionRequest
 }
 
 func (r *recordingAgentRunner) PrepareSession(_ context.Context, req agentadapters.PrepareSessionRequest) (agentadapters.PrepareSessionResult, error) {
 	r.prepareCalls++
+	r.prepareReq = req
 	if r.prepareErr != nil {
 		return agentadapters.PrepareSessionResult{}, r.prepareErr
 	}
@@ -426,6 +428,11 @@ func TestApplication_StartExternalAgentAssignmentPreparesAndLinksSession(t *test
 			ProjectID: "proj_1",
 			AgentID:   "codex",
 			Workspace: "/tmp/hecate",
+			MCPServers: []types.MCPServerConfig{{
+				Name:    "fs",
+				Command: "node",
+				Args:    []string{"server.js"},
+			}},
 		},
 	})
 	if err != nil {
@@ -433,6 +440,9 @@ func TestApplication_StartExternalAgentAssignmentPreparesAndLinksSession(t *test
 	}
 	if runner.prepareCalls != 1 || runner.closeCalls != 0 {
 		t.Fatalf("runner prepare/close = %d/%d, want 1/0", runner.prepareCalls, runner.closeCalls)
+	}
+	if got := runner.prepareReq.MCPServers; len(got) != 1 || got[0].Name != "fs" || got[0].Args[0] != "server.js" {
+		t.Fatalf("prepare MCP servers = %+v, want fs server", got)
 	}
 	if result.Assignment.ExecutionRef.ChatSessionID != "chat_ext" || result.Assignment.ExecutionRef.ContextSnapshotID != "ctx_ext" || result.Assignment.Status != projectwork.AssignmentStatusRunning {
 		t.Fatalf("assignment = %+v, want linked running session", result.Assignment)
