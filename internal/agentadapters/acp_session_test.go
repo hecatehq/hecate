@@ -2411,8 +2411,9 @@ func installFakeACPExecutable(t *testing.T, name string) {
 type fakeACPAgent struct {
 	conn *acp.AgentSideConnection
 
-	mu       sync.Mutex
-	sessions map[string]*fakeACPSession
+	mu            sync.Mutex
+	nextSessionID int
+	sessions      map[string]*fakeACPSession
 }
 
 type fakeACPSession struct {
@@ -2516,8 +2517,9 @@ func (a *fakeACPAgent) NewSession(_ context.Context, params acp.NewSessionReques
 	if delay, err := time.ParseDuration(os.Getenv("HECATE_FAKE_ACP_NEW_SESSION_DELAY")); err == nil && delay > 0 {
 		time.Sleep(delay)
 	}
-	id := fmt.Sprintf("fake_session_%d", time.Now().UnixNano())
 	a.mu.Lock()
+	a.nextSessionID++
+	id := fmt.Sprintf("fake_session_%d_%d", os.Getpid(), a.nextSessionID)
 	a.sessions[id] = &fakeACPSession{model: "model-a", mode: "ask"}
 	a.mu.Unlock()
 	a.publishAvailableCommandsAfterDelay(acp.SessionId(id))

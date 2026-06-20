@@ -24,7 +24,7 @@ transcript prelude for multi-turn continuity. Claude Code adapter
 after an adapter process restart. Codex does not yet claim vendor-native
 durable history across adapter process restarts; if a load is stale, Hecate
 falls back to a fresh native session. Hecate treats `codex-acp-adapter` versions
-older than `v0.1.0-alpha.23` and `claude-code-acp-adapter` versions older than
+older than `v0.1.0-alpha.24` and `claude-code-acp-adapter` versions older than
 `v0.1.0-alpha.25` as outside the tested range because those older releases lack
 the current continuity, permission-control, structured stream, session metadata,
 external MCP handoff surface, ACP authenticate/logout mapping, and prompt auth
@@ -70,6 +70,9 @@ environment, and the release is covered by the opt-in real CLI smoke suite.
 Codex adapter `v0.1.0-alpha.23` classifies native Codex HTTP 401 prompt
 failures as ACP authentication-required errors so Hecate can surface the login
 action instead of a generic prompt command failure.
+Codex adapter `v0.1.0-alpha.24` removes a stale Codex CLI approval flag that is
+not accepted by current Codex CLI releases; command approvals continue through
+Codex sandbox behavior and parsed permission-request events.
 Claude Code adapter `v0.1.0-alpha.11` adds command-backed stdio/HTTP MCP server
 config propagation into Claude `--mcp-config`, and `v0.1.0-alpha.12` adds
 Claude-native `--session-id` reload after adapter restarts. Claude Code adapter
