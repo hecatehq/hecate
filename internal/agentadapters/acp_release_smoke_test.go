@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -100,6 +101,7 @@ func TestACPAdapterReleaseBinariesSmoke(t *testing.T) {
 				currentConfigOptions = updated.ConfigOptions
 			}
 
+			var activityCapture acpReleaseActivityCapture
 			run, err := manager.Run(context.Background(), RunRequest{
 				SessionID:      "release_" + tt.adapterID,
 				AdapterID:      tt.adapterID,
@@ -108,6 +110,7 @@ func TestACPAdapterReleaseBinariesSmoke(t *testing.T) {
 				MCPServers:     tt.mcpServers,
 				Timeout:        5 * time.Second,
 				MaxOutputBytes: 64 * 1024,
+				OnActivity:     activityCapture.record,
 			})
 			if err != nil {
 				t.Fatalf("Run(%s): %v", tt.adapterID, err)
@@ -124,6 +127,7 @@ func TestACPAdapterReleaseBinariesSmoke(t *testing.T) {
 			if run.StopReason != tt.wantStopReason {
 				t.Fatalf("Run(%s) stop reason = %q, want %q", tt.adapterID, run.StopReason, tt.wantStopReason)
 			}
+			assertReleaseToolActivities(t, tt.adapterID, activityCapture.snapshot(), tt.wantToolActivityTitle)
 
 			for _, commandRun := range tt.commandRuns {
 				run, err := manager.Run(context.Background(), RunRequest{
@@ -242,6 +246,7 @@ type acpReleaseSmokeTestCase struct {
 	wantReloadResumed      bool
 	wantReloadSameNative   bool
 	wantReloadRecovery     bool
+	wantToolActivityTitle  string
 }
 
 type acpReleaseConfigOption struct {
@@ -296,6 +301,7 @@ func acpReleaseSmokeTestCases(t *testing.T) []acpReleaseSmokeTestCase {
 			wantReloadResumed:      false,
 			wantReloadSameNative:   false,
 			wantReloadRecovery:     true,
+			wantToolActivityTitle:  "go test ./...",
 			commandRuns: []acpReleaseCommandRun{
 				{
 					prompt:         "/review focus on tests",
@@ -337,6 +343,7 @@ func acpReleaseSmokeTestCases(t *testing.T) []acpReleaseSmokeTestCase {
 			wantReloadResumed:      true,
 			wantReloadSameNative:   true,
 			wantReloadRecovery:     false,
+			wantToolActivityTitle:  "Bash",
 			commandRuns: []acpReleaseCommandRun{
 				{
 					prompt:         "/verify release smoke",
@@ -345,6 +352,44 @@ func acpReleaseSmokeTestCases(t *testing.T) []acpReleaseSmokeTestCase {
 				},
 			},
 		},
+	}
+}
+
+type acpReleaseActivityCapture struct {
+	mu         sync.Mutex
+	activities []Activity
+}
+
+func (c *acpReleaseActivityCapture) record(activity Activity) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.activities = append(c.activities, activity)
+}
+
+func (c *acpReleaseActivityCapture) snapshot() []Activity {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make([]Activity, len(c.activities))
+	copy(out, c.activities)
+	return out
+}
+
+func assertReleaseToolActivities(t *testing.T, adapterID string, activities []Activity, wantTitle string) {
+	t.Helper()
+	var sawStart, sawFinish bool
+	for _, activity := range activities {
+		if activity.Type != "tool_call" || activity.Kind != "execute" {
+			continue
+		}
+		if activity.Status == "running" && strings.Contains(activity.Title, wantTitle) {
+			sawStart = true
+		}
+		if activity.Status == "completed" && (strings.Contains(activity.ArtifactPreview, "ok") || strings.Contains(activity.Detail, "ok")) {
+			sawFinish = true
+		}
+	}
+	if !sawStart || !sawFinish {
+		t.Fatalf("Run(%s) activities = %#v, want running execute %q and completed output", adapterID, activities, wantTitle)
 	}
 }
 

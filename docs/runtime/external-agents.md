@@ -297,8 +297,8 @@ Dockerfile-pinned Go adapter release binaries, verifies checksums, and smokes
 probe capability discovery, ACP authenticate/logout, session config selectors
 and selector changes, session-level MCP propagation, advertised slash commands,
 command-backed prompt execution, prompt auth-required mapping, prompt streaming,
-usage mapping, stop-reason mapping, and native session reload/recovery with
-fake `codex` and `claude` CLIs.
+usage mapping, structured activity mapping, stop-reason mapping, and native
+session reload/recovery with fake `codex` and `claude` CLIs.
 
 ## Setup checks
 
