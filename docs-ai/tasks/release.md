@@ -144,6 +144,16 @@ Acceptance:
 - **`ui/dist/.gitkeep` must be tracked.** The `//go:embed all:ui/dist` directive in `embed.go` fails at compile time if `ui/dist` is completely absent from the tree. `.gitignore` keeps `ui/dist/*` but un-ignores `.gitkeep` via negation — the negation only works if `/dist/` (not `dist/`) is the rule anchoring the goreleaser output directory. If `go build` fails with `pattern all:ui/dist: no matching files found`, check that `ui/dist/.gitkeep` is tracked (`git ls-files ui/dist/`) and that `.gitignore` anchors the root dist rule with a leading `/`.
 - **`Dockerfile.release` is what goreleaser uses, not `Dockerfile`.** `Dockerfile` is the source-build image used by `docker compose up --build`; `Dockerfile.release` copies the prebuilt binary into the published GHCR image. They are two build paths for the same runtime shape, so any runtime package, bundled External Agent CLI/adapter, `ENV` var, volume, or default must land in both.
 - **Bundled External Agent versions are deliberate.** The Dockerfiles pin the top-level npm package versions for the upstream Codex CLI, Claude Code CLI, and Grok Build CLI. The Codex and Claude Code ACP adapters are bundled as checksum-verified GitHub release binaries, not npm packages. Cursor Agent comes from Cursor's official installer; because that script has no version flag, the Dockerfiles pin the installer SHA-256 and fail the build when Cursor rotates it. Review the new script, confirm the hardcoded Cursor package it installs, then update both Dockerfiles together.
+- **ACP adapter bumps are a three-file contract.** When cutting a new
+  `codex-acp-adapter` or `claude-code-acp-adapter` release for Hecate, update
+  both `Dockerfile` and `Dockerfile.release`, then update the matching
+  `SupportedRange` in `internal/agentadapters/registry.go`. The
+  `internal/agentadapters/dockerfile_test.go` guard fails if those three drift.
+  After the bump, run `just test-acp-release-smoke` locally when network access
+  is available, or dispatch the manual **ACP adapter release smoke** workflow;
+  that check downloads the pinned release binaries and exercises probe, auth,
+  config selectors, MCP propagation, prompt execution, stream activity,
+  permission approvals, and grant reuse through Hecate.
 - **CI's `e2e-ollama` job runs under `-tags 'e2e ollama'`** — `just verify` only covers `-tags 'e2e docker'` locally, so an ollama-only regression sails through the local gate. The `v0.1.0-alpha.7` cut hit this with the env-PRECONFIGURED gate: `gateway_test.go` was patched but `ollama_test.go` was missed. Before tagging, also run `OLLAMA_BASE_URL=http://127.0.0.1:11434 OLLAMA_MODEL=smollm2:135m go test -tags 'e2e ollama' -count=1 ./e2e/...` if any e2e helper has changed.
 - **Lychee link-check runs only on master pushes**, not on tag pushes — a broken markdown link in `AGENTS.md` / `docs-ai/**` won't block a release, but it'll blink red on the next master push. Run `just check-links` (or grep for the suspected dangling target) before tagging when the change set is doc-heavy.
 

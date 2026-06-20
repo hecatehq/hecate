@@ -77,6 +77,7 @@ export function AgentApprovalModal({
   const buttonLabel = decision === "allow" ? "Allow" : "Deny";
   const submitLabel =
     isBroadScope && !confirmingBroadScope ? `${buttonLabel} (broad scope)` : buttonLabel;
+  const scopeDescription = approvalScopeDescription(scope);
 
   async function handleSubmit() {
     if (!row || busy) return;
@@ -209,6 +210,17 @@ export function AgentApprovalModal({
             >
               Decision
             </label>
+            <p
+              style={{
+                margin: "0 0 6px",
+                color: "var(--t3)",
+                fontSize: 11,
+                lineHeight: 1.4,
+              }}
+            >
+              Deny sends the selected reject option to the agent. Cancel returns ACP Cancelled
+              without selecting an agent option.
+            </p>
             <div
               style={{
                 display: "flex",
@@ -307,7 +319,7 @@ export function AgentApprovalModal({
                       <span
                         style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}
                       >
-                        {opt.kind}
+                        {approvalOptionKindLabel(opt.kind)}
                       </span>
                     </label>
                   );
@@ -339,6 +351,7 @@ export function AgentApprovalModal({
                     key={s}
                     type="button"
                     onClick={() => setScope(s)}
+                    title={approvalScopeDescription(s)}
                     data-testid={`agent-approval-modal-scope-${s}`}
                     style={{
                       padding: "4px 10px",
@@ -355,6 +368,19 @@ export function AgentApprovalModal({
                   </button>
                 ))}
               </div>
+              {scopeDescription && (
+                <div
+                  data-testid="agent-approval-modal-scope-description"
+                  style={{
+                    marginTop: 8,
+                    color: "var(--t3)",
+                    fontSize: 11,
+                    lineHeight: 1.45,
+                  }}
+                >
+                  {scopeDescription}
+                </div>
+              )}
               {isBroadScope && (
                 <div
                   data-testid="agent-approval-modal-broad-warning"
@@ -368,9 +394,9 @@ export function AgentApprovalModal({
                     fontSize: 11,
                   }}
                 >
-                  <Icon d={Icons.warning} size={12} /> <strong>Broad scope:</strong> the agent-tool
-                  scope grants this decision to every future call to this tool from this agent.
-                  Click {buttonLabel} once to arm, then again to confirm.
+                  <Icon d={Icons.warning} size={12} /> <strong>Broad scope:</strong> this creates a
+                  durable grant for every future call to this tool from this agent. Click{" "}
+                  {buttonLabel} once to arm, then again to confirm.
                 </div>
               )}
             </div>
@@ -425,6 +451,36 @@ function approvalScopeLabel(scope: string): string {
       return "agent tool";
     default:
       return scope.replaceAll("_", " ");
+  }
+}
+
+function approvalScopeDescription(scope: string): string {
+  switch (scope) {
+    case "once":
+      return "Only this pending request will use the selected ACP option.";
+    case "session":
+      return "Matching requests in this external-agent chat session can reuse this decision.";
+    case "workspace_tool":
+      return "Matching calls to this tool in this workspace can reuse this decision.";
+    case "adapter_tool":
+      return "Every future call to this tool from this agent can reuse this decision.";
+    default:
+      return "";
+  }
+}
+
+function approvalOptionKindLabel(kind: string): string {
+  switch (kind) {
+    case "allow_once":
+      return "allow once";
+    case "allow_always":
+      return "allow always";
+    case "reject_once":
+      return "reject once";
+    case "reject_always":
+      return "reject always";
+    default:
+      return kind.replaceAll("_", " ");
   }
 }
 

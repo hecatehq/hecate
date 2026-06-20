@@ -88,6 +88,33 @@ describe("AgentApprovalModal", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it("explains deny/cancel semantics and selected grant scope", async () => {
+    const { fetchApproval, onResolve, onCancel, onClose } = setup();
+    render(
+      <AgentApprovalModal
+        sessionID="s"
+        approvalID="ap-1"
+        onClose={onClose}
+        fetchApproval={fetchApproval}
+        onResolve={onResolve}
+        onCancel={onCancel}
+      />,
+    );
+    await waitFor(() => expect(fetchApproval).toHaveBeenCalled());
+
+    expect(await screen.findByText(/Deny sends the selected reject option/)).toBeTruthy();
+    expect(screen.getByText("allow always")).toBeTruthy();
+    expect(screen.getByTestId("agent-approval-modal-scope-description").textContent).toContain(
+      "Only this pending request",
+    );
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("agent-approval-modal-scope-session"));
+    expect(screen.getByTestId("agent-approval-modal-scope-description").textContent).toContain(
+      "external-agent chat session",
+    );
+  });
+
   it("requires a confirm step when the broad agent-tool scope is picked", async () => {
     const { fetchApproval, onResolve, onCancel, onClose } = setup();
     render(
@@ -107,6 +134,9 @@ describe("AgentApprovalModal", () => {
     await user.click(await screen.findByTestId("agent-approval-modal-scope-adapter_tool"));
     expect(screen.getByTestId("agent-approval-modal-broad-warning")).toBeTruthy();
     expect(screen.getByText("agent tool")).toBeTruthy();
+    expect(screen.getByTestId("agent-approval-modal-scope-description").textContent).toContain(
+      "Every future call",
+    );
     expect(screen.queryByText("adapter_tool")).toBeNull();
 
     // First submit click only arms — must not have called onResolve yet.
