@@ -2,6 +2,7 @@ import type { Page, Route } from "@playwright/test";
 import { expect, mockGatewayAPIs, MOCK_SETTINGS_CONFIG_WITH_PROVIDERS, test } from "./fixtures";
 import type {
   ProjectActivityData,
+  ProjectAssignmentLaunchReadinessRecord,
   ProjectAssignmentRecord,
   ProjectCollaborationArtifactRecord,
   ProjectContextSourceRecord,
@@ -63,7 +64,7 @@ test("Projects journey: setup, first work, assignment, evidence, closeout", asyn
   await expect(page.getByRole("button", { name: "Start" })).toBeVisible();
   await page.getByRole("button", { name: "Start" }).click();
   await expect(page.getByRole("dialog", { name: /launch preflight/i })).toBeVisible();
-  await expect(page.getByText("Launch readiness")).toBeVisible();
+  await expect(page.getByText("Launch readiness", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Start assignment" }).click();
 
   await expect(page.getByText("completed", { exact: true })).toBeVisible();
@@ -444,6 +445,15 @@ async function handleWorkItemRoute(
       return;
     }
     const assignment = state.assignments.find((candidate) => candidate.id === assignmentID);
+    if (parts[5] === "launch-readiness" && method === "GET") {
+      await route.fulfill(
+        ok({
+          object: "project_assignment_launch_readiness",
+          data: assignmentLaunchReadiness(projectID, workItemID, assignmentID),
+        }),
+      );
+      return;
+    }
     if (parts[5] === "preflight") {
       await route.fulfill(
         ok({
@@ -651,6 +661,29 @@ function assignmentPreflight(projectID: string, workItemID: string, assignmentID
         included: true,
       },
     ],
+  };
+}
+
+function assignmentLaunchReadiness(
+  projectID: string,
+  workItemID: string,
+  assignmentID: string,
+): ProjectAssignmentLaunchReadinessRecord {
+  return {
+    project_id: projectID,
+    work_item_id: workItemID,
+    assignment_id: assignmentID,
+    generated_at: NOW,
+    ready: true,
+    status: "ready",
+    title: "Ready to start",
+    detail: "Assignment can start after operator confirmation.",
+    blockers: [],
+    warnings: [],
+    driver_kind: "hecate_task",
+    provider: "anthropic",
+    model: "claude-sonnet-4-6",
+    execution_profile: "implementation",
   };
 }
 
