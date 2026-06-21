@@ -1149,6 +1149,13 @@ func TestAgentAdaptersReturnsBuiltIns(t *testing.T) {
 		if item.SupportedRange == "" {
 			t.Fatalf("adapter %q missing supported_range: %#v", item.ID, item)
 		}
+		if len(item.Capabilities) == 0 {
+			t.Fatalf("adapter %q missing capabilities: %#v", item.ID, item)
+		}
+		assertAgentAdapterResponseCapability(t, item, agentadapters.CapabilityPromptSession, agentadapters.CapabilityStatusSupported)
+		assertAgentAdapterResponseCapability(t, item, agentadapters.CapabilityCancel, agentadapters.CapabilityStatusSupported)
+		assertAgentAdapterResponseCapability(t, item, agentadapters.CapabilityPermissions, agentadapters.CapabilityStatusSupported)
+		assertAgentAdapterResponseCapability(t, item, agentadapters.CapabilityTerminalRPC, agentadapters.CapabilityStatusOperatorOptIn)
 	}
 	if !foundCodex {
 		t.Fatalf("missing codex adapter: %#v", response.Data)
@@ -1162,6 +1169,23 @@ func TestAgentAdaptersReturnsBuiltIns(t *testing.T) {
 	if !foundGrok {
 		t.Fatalf("missing grok_build adapter: %#v", response.Data)
 	}
+}
+
+func assertAgentAdapterResponseCapability(t *testing.T, item AgentAdapterResponseItem, id, status string) {
+	t.Helper()
+	for _, cap := range item.Capabilities {
+		if cap.ID != id {
+			continue
+		}
+		if cap.Status != status {
+			t.Fatalf("adapter %q capability %q status = %q, want %q", item.ID, id, cap.Status, status)
+		}
+		if cap.Name == "" || cap.Description == "" {
+			t.Fatalf("adapter %q capability %q missing copy: %#v", item.ID, id, cap)
+		}
+		return
+	}
+	t.Fatalf("adapter %q missing capability %q in %#v", item.ID, id, item.Capabilities)
 }
 
 func TestAgentAdaptersListDoesNotRunAdapterDiagnostics(t *testing.T) {

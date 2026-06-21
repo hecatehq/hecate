@@ -846,8 +846,16 @@ type AgentAdapterResponseItem struct {
 	RemoteCredentialMode string                              `json:"remote_credential_mode,omitempty"`
 	RemoteCredentialOK   *bool                               `json:"remote_credential_ok,omitempty"`
 	RemoteCredentialHint string                              `json:"remote_credential_hint,omitempty"`
+	Capabilities         []AgentAdapterCapabilityItem        `json:"capabilities,omitempty"`
 	ConfigOptions        []agentcontrols.ConfigOption        `json:"config_options,omitempty"`
 	ClaudeCodeCLI        *AgentAdapterSetupCommandStatusItem `json:"claude_code_cli,omitempty"`
+}
+
+type AgentAdapterCapabilityItem struct {
+	ID          string `json:"id"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+	Status      string `json:"status"`
 }
 
 type AgentAdapterCredentialModeItem struct {

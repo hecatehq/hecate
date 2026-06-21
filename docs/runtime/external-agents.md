@@ -154,6 +154,30 @@ stream chunks delivered after a prompt has been cancelled.
 | Cursor Agent   | `cursor-agent acp`        | Operator-owned Cursor Agent auth visible to `cursor-agent` | `CURSOR_API_KEY`                                 |
 | Grok Build     | `grok agent ... stdio`    | Operator-owned Grok login visible to `grok`                | `XAI_API_KEY` or Hecate's `PROVIDER_XAI_API_KEY` |
 
+## Hecate ACP Capability Contract
+
+`GET /hecate/v1/agent-adapters` includes a `capabilities` array for each
+adapter. This is Hecate's contract for the surfaces it knows how to supervise;
+the explicit probe still decides which live ACP Initialize features are
+available from the installed adapter today.
+
+| Capability          | Catalog status                                                       | What Hecate does                                                                                                                                                           |
+| ------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prompt_session`    | `supported`                                                          | Starts, reuses, closes, and recovers ACP sessions while keeping the Hecate transcript durable.                                                                             |
+| `structured_stream` | `supported`                                                          | Converts ACP assistant messages, thoughts, tool calls/results, terminal rows, usage, and stop reasons into External Agent activity.                                        |
+| `cancel`            | `supported`                                                          | Sends operator stop/cancel through the ACP session boundary and ignores late stream chunks after cancellation.                                                             |
+| `permissions`       | `supported`                                                          | Turns ACP permission requests into External Agent approvals and durable grants.                                                                                            |
+| `mcp_servers`       | `supported`                                                          | Passes configured stdio/HTTP MCP servers to ACP `session/new` and `session/load`.                                                                                          |
+| `config_options`    | `adapter_dependent`                                                  | Renders and persists agent-owned model, effort, mode, and similar selectors when the adapter reports them.                                                                 |
+| `terminal_rpc`      | `operator_opt_in`                                                    | Enables ACP terminal callbacks only when the operator opts in with `HECATE_AGENT_ADAPTER_TERMINALS=1`; remote runtime also requires `HECATE_REMOTE_ALLOW_ACP_TERMINALS=1`. |
+| `authenticate`      | `supported` for Codex and Claude Code, otherwise `adapter_dependent` | Calls ACP `agent-login` only when the live adapter advertises that method.                                                                                                 |
+| `logout`            | `supported` for Codex and Claude Code, otherwise `adapter_dependent` | Calls ACP `auth.logout` only when the live adapter advertises logout.                                                                                                      |
+
+Connections renders this matrix as compact chips on each adapter row. If a
+probe succeeds, live ACP Initialize capabilities override the static login and
+logout expectation for that row so the UI does not show actions the installed
+adapter did not advertise.
+
 The Docker runtime image includes the supported agent CLIs and ACP adapters so
 local/self-host Docker deployments can use External Agents without installing
 those binaries into the container at runtime. Bare binary and desktop

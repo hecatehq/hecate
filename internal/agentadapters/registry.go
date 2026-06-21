@@ -82,7 +82,34 @@ type Adapter struct {
 	SupportsAuthenticate bool
 	SupportsLogout       bool
 	CredentialModes      []CredentialMode
+	Capabilities         []Capability
 }
+
+type Capability struct {
+	ID          string
+	Name        string
+	Description string
+	Status      string
+}
+
+const (
+	CapabilityPromptSession    = "prompt_session"
+	CapabilityStructuredStream = "structured_stream"
+	CapabilityCancel           = "cancel"
+	CapabilityPermissions      = "permissions"
+	CapabilityMCPServers       = "mcp_servers"
+	CapabilityConfigOptions    = "config_options"
+	CapabilityTerminalRPC      = "terminal_rpc"
+	CapabilityAuthenticate     = "authenticate"
+	CapabilityLogout           = "logout"
+)
+
+const (
+	CapabilityStatusSupported        = "supported"
+	CapabilityStatusAdapterDependent = "adapter_dependent"
+	CapabilityStatusOperatorOptIn    = "operator_opt_in"
+	CapabilityStatusNotSupported     = "not_supported"
+)
 
 type CredentialMode struct {
 	ID            string
@@ -276,6 +303,10 @@ func BuiltIns() []Adapter {
 			SupportedRange:       ">=0.1.0-alpha.29",
 			SupportsAuthenticate: true,
 			SupportsLogout:       true,
+			Capabilities: acpCapabilityMatrix(
+				CapabilityStatusSupported,
+				CapabilityStatusSupported,
+			),
 			CredentialModes: []CredentialMode{
 				{
 					ID:          CredentialModeLocalLogin,
@@ -317,6 +348,10 @@ func BuiltIns() []Adapter {
 			SupportedRange:       ">=0.1.0-alpha.30",
 			SupportsAuthenticate: true,
 			SupportsLogout:       true,
+			Capabilities: acpCapabilityMatrix(
+				CapabilityStatusSupported,
+				CapabilityStatusSupported,
+			),
 			CredentialModes: []CredentialMode{
 				{
 					ID:          CredentialModeLocalLogin,
@@ -347,6 +382,10 @@ func BuiltIns() []Adapter {
 			CostMode:       "external",
 			DocsURL:        "https://cursor.com/cli",
 			SupportedRange: ">=0.1.0",
+			Capabilities: acpCapabilityMatrix(
+				CapabilityStatusAdapterDependent,
+				CapabilityStatusAdapterDependent,
+			),
 			CredentialModes: []CredentialMode{
 				{
 					ID:          CredentialModeLocalLogin,
@@ -377,6 +416,10 @@ func BuiltIns() []Adapter {
 			CostMode:       "external",
 			DocsURL:        "https://docs.x.ai/build/cli/headless-scripting#acp",
 			SupportedRange: ">=0.1.0",
+			Capabilities: acpCapabilityMatrix(
+				CapabilityStatusAdapterDependent,
+				CapabilityStatusAdapterDependent,
+			),
 			CredentialModes: []CredentialMode{
 				{
 					ID:          CredentialModeLocalLogin,
@@ -393,6 +436,65 @@ func BuiltIns() []Adapter {
 			},
 		},
 	})
+}
+
+func acpCapabilityMatrix(authenticateStatus, logoutStatus string) []Capability {
+	return []Capability{
+		{
+			ID:          CapabilityPromptSession,
+			Name:        "sessions",
+			Status:      CapabilityStatusSupported,
+			Description: "Prepare, reuse, and recover ACP sessions while keeping Hecate transcript continuity.",
+		},
+		{
+			ID:          CapabilityStructuredStream,
+			Name:        "activity",
+			Status:      CapabilityStatusSupported,
+			Description: "Render structured assistant, thought, tool, terminal, and usage updates in the transcript.",
+		},
+		{
+			ID:          CapabilityCancel,
+			Name:        "cancel",
+			Status:      CapabilityStatusSupported,
+			Description: "Stop active external-agent work and suppress late stream output after cancellation.",
+		},
+		{
+			ID:          CapabilityPermissions,
+			Name:        "permissions",
+			Status:      CapabilityStatusSupported,
+			Description: "Turn ACP permission requests into External Agent approvals and reusable grants.",
+		},
+		{
+			ID:          CapabilityMCPServers,
+			Name:        "MCP",
+			Status:      CapabilityStatusSupported,
+			Description: "Pass configured stdio or HTTP MCP servers into ACP sessions.",
+		},
+		{
+			ID:          CapabilityConfigOptions,
+			Name:        "config",
+			Status:      CapabilityStatusAdapterDependent,
+			Description: "Render and persist ACP session config options such as model, effort, or permission mode when the adapter advertises them.",
+		},
+		{
+			ID:          CapabilityTerminalRPC,
+			Name:        "terminal RPC",
+			Status:      CapabilityStatusOperatorOptIn,
+			Description: "Run ACP terminal callbacks only when explicitly enabled by the operator and approval policy.",
+		},
+		{
+			ID:          CapabilityAuthenticate,
+			Name:        "login",
+			Status:      authenticateStatus,
+			Description: "Call ACP agent-login when the adapter advertises a Hecate-compatible login action.",
+		},
+		{
+			ID:          CapabilityLogout,
+			Name:        "logout",
+			Status:      logoutStatus,
+			Description: "Call ACP auth logout when the adapter advertises a logout action.",
+		},
+	}
 }
 
 func adaptersForBuild(items []Adapter) []Adapter {

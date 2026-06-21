@@ -26,7 +26,15 @@ export type AgentAdapterRecord = {
   remote_credential_ok?: boolean;
   remote_credential_hint?: string;
   config_options?: ChatConfigOptionRecord[];
+  capabilities?: AgentAdapterCapability[];
   claude_code_cli?: AgentAdapterSetupCommandStatus;
+};
+
+export type AgentAdapterCapability = {
+  id: string;
+  name?: string;
+  description?: string;
+  status: "supported" | "adapter_dependent" | "operator_opt_in" | "not_supported" | string;
 };
 
 export type AgentAdapterCredentialMode = {

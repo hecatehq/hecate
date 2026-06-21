@@ -38,6 +38,17 @@ func TestBuiltInsIncludeInitialExternalAgents(t *testing.T) {
 	if got := found["codex"]; !got.SupportsLogout {
 		t.Fatalf("codex supports logout = false, want true")
 	}
+	assertAdapterCapabilities(t, found["codex"], map[string]string{
+		CapabilityPromptSession:    CapabilityStatusSupported,
+		CapabilityStructuredStream: CapabilityStatusSupported,
+		CapabilityCancel:           CapabilityStatusSupported,
+		CapabilityPermissions:      CapabilityStatusSupported,
+		CapabilityMCPServers:       CapabilityStatusSupported,
+		CapabilityConfigOptions:    CapabilityStatusAdapterDependent,
+		CapabilityTerminalRPC:      CapabilityStatusOperatorOptIn,
+		CapabilityAuthenticate:     CapabilityStatusSupported,
+		CapabilityLogout:           CapabilityStatusSupported,
+	})
 	if got := found["claude_code"]; got.Command != "claude-code-acp-adapter" || got.Kind != DriverKindACP || got.CostMode != "external" {
 		t.Fatalf("claude_code adapter = %#v", got)
 	}
@@ -50,6 +61,17 @@ func TestBuiltInsIncludeInitialExternalAgents(t *testing.T) {
 	if got := found["claude_code"]; !got.SupportsLogout {
 		t.Fatalf("claude_code supports logout = false, want true")
 	}
+	assertAdapterCapabilities(t, found["claude_code"], map[string]string{
+		CapabilityPromptSession:    CapabilityStatusSupported,
+		CapabilityStructuredStream: CapabilityStatusSupported,
+		CapabilityCancel:           CapabilityStatusSupported,
+		CapabilityPermissions:      CapabilityStatusSupported,
+		CapabilityMCPServers:       CapabilityStatusSupported,
+		CapabilityConfigOptions:    CapabilityStatusAdapterDependent,
+		CapabilityTerminalRPC:      CapabilityStatusOperatorOptIn,
+		CapabilityAuthenticate:     CapabilityStatusSupported,
+		CapabilityLogout:           CapabilityStatusSupported,
+	})
 	if got := found["cursor_agent"]; got.Command != "cursor-agent" || got.Kind != DriverKindACP || got.CostMode != "external" {
 		t.Fatalf("cursor_agent adapter = %#v", got)
 	}
@@ -62,6 +84,17 @@ func TestBuiltInsIncludeInitialExternalAgents(t *testing.T) {
 	if got := found["cursor_agent"]; len(got.Args) != 1 || got.Args[0] != "acp" {
 		t.Fatalf("cursor_agent adapter = %#v", got)
 	}
+	assertAdapterCapabilities(t, found["cursor_agent"], map[string]string{
+		CapabilityPromptSession:    CapabilityStatusSupported,
+		CapabilityStructuredStream: CapabilityStatusSupported,
+		CapabilityCancel:           CapabilityStatusSupported,
+		CapabilityPermissions:      CapabilityStatusSupported,
+		CapabilityMCPServers:       CapabilityStatusSupported,
+		CapabilityConfigOptions:    CapabilityStatusAdapterDependent,
+		CapabilityTerminalRPC:      CapabilityStatusOperatorOptIn,
+		CapabilityAuthenticate:     CapabilityStatusAdapterDependent,
+		CapabilityLogout:           CapabilityStatusAdapterDependent,
+	})
 	if got := found["grok_build"]; got.Command != "grok" || got.Kind != DriverKindACP || got.CostMode != "external" {
 		t.Fatalf("grok_build adapter = %#v", got)
 	}
@@ -80,6 +113,17 @@ func TestBuiltInsIncludeInitialExternalAgents(t *testing.T) {
 	if got := found["grok_build"]; len(got.LaunchOptions) != 0 {
 		t.Fatalf("grok_build launch options = %#v, want ACP-owned controls only", got.LaunchOptions)
 	}
+	assertAdapterCapabilities(t, found["grok_build"], map[string]string{
+		CapabilityPromptSession:    CapabilityStatusSupported,
+		CapabilityStructuredStream: CapabilityStatusSupported,
+		CapabilityCancel:           CapabilityStatusSupported,
+		CapabilityPermissions:      CapabilityStatusSupported,
+		CapabilityMCPServers:       CapabilityStatusSupported,
+		CapabilityConfigOptions:    CapabilityStatusAdapterDependent,
+		CapabilityTerminalRPC:      CapabilityStatusOperatorOptIn,
+		CapabilityAuthenticate:     CapabilityStatusAdapterDependent,
+		CapabilityLogout:           CapabilityStatusAdapterDependent,
+	})
 	for _, tc := range []struct {
 		id      string
 		envKeys []string
@@ -100,6 +144,35 @@ func TestBuiltInsIncludeInitialExternalAgents(t *testing.T) {
 		} else if !hasCredentialMode(adapter, CredentialModeLocalLogin, false) {
 			t.Fatalf("%s credential modes = %#v, want local login mode in default build", tc.id, adapter.CredentialModes)
 		}
+	}
+}
+
+func assertAdapterCapabilities(t *testing.T, adapter Adapter, want map[string]string) {
+	t.Helper()
+	got := make(map[string]Capability, len(adapter.Capabilities))
+	for _, cap := range adapter.Capabilities {
+		if cap.ID == "" {
+			t.Fatalf("%s has capability without id: %#v", adapter.ID, cap)
+		}
+		if cap.Name == "" || cap.Description == "" {
+			t.Fatalf("%s capability %q missing operator copy: %#v", adapter.ID, cap.ID, cap)
+		}
+		if _, exists := got[cap.ID]; exists {
+			t.Fatalf("%s capability %q duplicated: %#v", adapter.ID, cap.ID, adapter.Capabilities)
+		}
+		got[cap.ID] = cap
+	}
+	for id, status := range want {
+		cap, ok := got[id]
+		if !ok {
+			t.Fatalf("%s missing capability %q in %#v", adapter.ID, id, adapter.Capabilities)
+		}
+		if cap.Status != status {
+			t.Fatalf("%s capability %q status = %q, want %q", adapter.ID, id, cap.Status, status)
+		}
+	}
+	if len(got) != len(want) {
+		t.Fatalf("%s capabilities = %#v, want ids %#v", adapter.ID, adapter.Capabilities, want)
 	}
 }
 
