@@ -753,14 +753,8 @@ func (h *Handler) HandleCreateProjectWorkArtifact(w http.ResponseWriter, r *http
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	id := strings.TrimSpace(req.ID)
-	if id == "" {
-		id = newOpaqueTaskResourceID("art")
-	}
-	item, err := h.projectWork.CreateArtifact(r.Context(), projectwork.CollaborationArtifact{
-		ID:                     id,
-		ProjectID:              projectID,
-		WorkItemID:             workItemID,
+	item, err := h.projectWorkApplication().CreateArtifact(r.Context(), projectID, workItemID, projectworkapp.CreateArtifactCommand{
+		ID:                     req.ID,
 		AssignmentID:           req.AssignmentID,
 		Kind:                   req.Kind,
 		Title:                  req.Title,
@@ -923,7 +917,7 @@ func (h *Handler) HandleDeleteProjectHandoff(w http.ResponseWriter, r *http.Requ
 	if !h.requireProjectWorkItem(w, r, projectID, workItemID) {
 		return
 	}
-	if err := h.projectWork.DeleteHandoff(r.Context(), projectID, workItemID, handoffID); !writeProjectWorkError(w, err) {
+	if err := h.projectWorkApplication().DeleteHandoff(r.Context(), projectID, workItemID, handoffID); !writeProjectWorkError(w, err) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

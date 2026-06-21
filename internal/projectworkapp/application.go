@@ -142,6 +142,24 @@ type UpdateAssignmentCommand struct {
 	CompletedAt  *time.Time
 }
 
+type CreateArtifactCommand struct {
+	ID                     string
+	AssignmentID           string
+	Kind                   string
+	Title                  string
+	Body                   string
+	AuthorRoleID           string
+	EvidenceSourceKind     string
+	EvidenceURL            string
+	EvidenceExternalID     string
+	EvidenceProvider       string
+	EvidenceTrustLabel     string
+	ReviewedAssignmentID   string
+	ReviewVerdict          string
+	ReviewRisk             string
+	ReviewFollowUpRequired bool
+}
+
 type CreateHandoffCommand struct {
 	ID                    string
 	SourceAssignmentID    string
@@ -446,6 +464,35 @@ func (app *Application) DeleteAssignment(ctx context.Context, projectID, workIte
 	return app.store.DeleteAssignment(ctx, projectID, workItemID, assignmentID)
 }
 
+func (app *Application) CreateArtifact(ctx context.Context, projectID, workItemID string, cmd CreateArtifactCommand) (projectwork.CollaborationArtifact, error) {
+	if app == nil || app.store == nil {
+		return projectwork.CollaborationArtifact{}, ErrStoreNotConfigured
+	}
+	id := strings.TrimSpace(cmd.ID)
+	if id == "" {
+		id = app.idgen("art")
+	}
+	return app.store.CreateArtifact(ctx, projectwork.CollaborationArtifact{
+		ID:                     id,
+		ProjectID:              projectID,
+		WorkItemID:             workItemID,
+		AssignmentID:           cmd.AssignmentID,
+		Kind:                   cmd.Kind,
+		Title:                  cmd.Title,
+		Body:                   cmd.Body,
+		AuthorRoleID:           cmd.AuthorRoleID,
+		EvidenceSourceKind:     cmd.EvidenceSourceKind,
+		EvidenceURL:            cmd.EvidenceURL,
+		EvidenceExternalID:     cmd.EvidenceExternalID,
+		EvidenceProvider:       cmd.EvidenceProvider,
+		EvidenceTrustLabel:     cmd.EvidenceTrustLabel,
+		ReviewedAssignmentID:   cmd.ReviewedAssignmentID,
+		ReviewVerdict:          cmd.ReviewVerdict,
+		ReviewRisk:             cmd.ReviewRisk,
+		ReviewFollowUpRequired: cmd.ReviewFollowUpRequired,
+	})
+}
+
 func (app *Application) CreateHandoff(ctx context.Context, projectID, workItemID string, cmd CreateHandoffCommand) (projectwork.Handoff, error) {
 	if app == nil || app.store == nil {
 		return projectwork.Handoff{}, ErrStoreNotConfigured
@@ -535,6 +582,13 @@ func (app *Application) UpdateHandoff(ctx context.Context, projectID, workItemID
 			item.CreatedByRoleID = *cmd.CreatedByRoleID
 		}
 	})
+}
+
+func (app *Application) DeleteHandoff(ctx context.Context, projectID, workItemID, handoffID string) error {
+	if app == nil || app.store == nil {
+		return ErrStoreNotConfigured
+	}
+	return app.store.DeleteHandoff(ctx, projectID, workItemID, handoffID)
 }
 
 func (app *Application) StartTaskAssignment(ctx context.Context, cmd StartTaskAssignmentCommand) (*StartTaskAssignmentResult, error) {

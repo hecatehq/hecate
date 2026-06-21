@@ -205,6 +205,44 @@ func TestApplication_UpdateAssignmentAppliesOptionalFields(t *testing.T) {
 	}
 }
 
+func TestApplication_CreateArtifactGeneratesIDAndPreservesReviewMetadata(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := projectwork.NewMemoryStore()
+	app := newTestApplication(store)
+	if _, err := app.CreateWorkItem(ctx, "proj_1", CreateWorkItemCommand{ID: "work_1", Title: "Build"}); err != nil {
+		t.Fatalf("CreateWorkItem() error = %v", err)
+	}
+	if _, err := app.CreateAssignment(ctx, "proj_1", "work_1", CreateAssignmentCommand{ID: "asgn_impl", RoleID: "software_developer"}); err != nil {
+		t.Fatalf("CreateAssignment(impl) error = %v", err)
+	}
+	if _, err := app.CreateAssignment(ctx, "proj_1", "work_1", CreateAssignmentCommand{ID: "asgn_review", RoleID: "reviewer_qa"}); err != nil {
+		t.Fatalf("CreateAssignment(review) error = %v", err)
+	}
+
+	artifact, err := app.CreateArtifact(ctx, "proj_1", "work_1", CreateArtifactCommand{
+		AssignmentID:           "asgn_review",
+		Kind:                   projectwork.ArtifactKindReview,
+		Title:                  "Review",
+		Body:                   "Changes requested.",
+		AuthorRoleID:           "reviewer_qa",
+		ReviewedAssignmentID:   "asgn_impl",
+		ReviewVerdict:          projectwork.ReviewVerdictChangesRequested,
+		ReviewRisk:             projectwork.ReviewRiskMedium,
+		ReviewFollowUpRequired: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateArtifact() error = %v", err)
+	}
+	if artifact.ID != "art_fixed" || artifact.ProjectID != "proj_1" || artifact.WorkItemID != "work_1" {
+		t.Fatalf("artifact = %+v, want generated id and scope", artifact)
+	}
+	if artifact.ReviewedAssignmentID != "asgn_impl" || artifact.ReviewVerdict != projectwork.ReviewVerdictChangesRequested || artifact.ReviewRisk != projectwork.ReviewRiskMedium || !artifact.ReviewFollowUpRequired {
+		t.Fatalf("artifact review metadata = %+v, want review follow-up metadata", artifact)
+	}
+}
+
 func TestApplication_CreateAndUpdateHandoffAppliesOptionalFields(t *testing.T) {
 	t.Parallel()
 
@@ -263,6 +301,16 @@ func TestApplication_CreateAndUpdateHandoffAppliesOptionalFields(t *testing.T) {
 	updateArtifacts[0] = "mutated"
 	if updated.LinkedArtifactIDs[0] != "artifact_2" {
 		t.Fatalf("updated handoff linked artifacts mutated through command: %+v", updated.LinkedArtifactIDs)
+	}
+	if err := app.DeleteHandoff(ctx, "proj_1", "work_1", handoff.ID); err != nil {
+		t.Fatalf("DeleteHandoff() error = %v", err)
+	}
+	handoffs, err := store.ListHandoffs(ctx, projectwork.HandoffFilter{ProjectID: "proj_1", WorkItemID: "work_1"})
+	if err != nil {
+		t.Fatalf("ListHandoffs() error = %v", err)
+	}
+	if len(handoffs) != 0 {
+		t.Fatalf("handoffs after delete = %+v, want none", handoffs)
 	}
 }
 
