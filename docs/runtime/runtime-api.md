@@ -1775,7 +1775,9 @@ Updates project metadata and defaults. Fields are optional. When `roots` is
 present, it replaces the full root list; use this for root add/remove/reorder
 until narrower root endpoints exist.
 When `context_sources` is present, it replaces the full source-metadata list;
-use this for add/remove/reorder until narrower context-source endpoints exist.
+this remains available for compatibility and admin-style bulk replacement.
+Operator source edits should use the source-specific endpoints below so a
+single source create, update, or delete is typed and auditable.
 When `default_root_id` is supplied, it must match the replacement root list or,
 if `roots` is omitted, one of the existing roots. Renames and root replacements
 preserve the same catalog uniqueness rules as creation: duplicate project names
@@ -1787,6 +1789,91 @@ PATCH /hecate/v1/projects/proj_...
   "name": "Hecate runtime",
   "last_opened_at": "2026-05-20T12:45:00Z",
   "default_compact_tool_output": true
+}
+```
+
+### `POST /hecate/v1/projects/{id}/context-sources`
+
+Creates one context-source metadata record and returns the updated project. The
+request is explicit metadata only: Hecate does not read file bodies, fetch URLs,
+promote memory, inject prompt context, or change profile policy.
+
+If `id` is omitted, the server generates one. Duplicate source IDs return
+`409 conflict`; invalid source metadata returns `400 invalid_request`.
+
+```json
+POST /hecate/v1/projects/proj_.../context-sources
+{
+  "kind": "url",
+  "title": "Launch brief",
+  "path": "https://example.invalid/brief",
+  "enabled": true,
+  "format": "url",
+  "trust_label": "operator_source",
+  "source_category": "operator_source",
+  "metadata": {
+    "note": "Reviewed source for launch planning."
+  }
+}
+
+→ 201
+{
+  "object": "project",
+  "data": {
+    "id": "proj_...",
+    "context_sources": [
+      {
+        "id": "ctxsrc_...",
+        "kind": "url",
+        "title": "Launch brief",
+        "path": "https://example.invalid/brief",
+        "enabled": true
+      }
+    ]
+  }
+}
+```
+
+### `PATCH /hecate/v1/projects/{id}/context-sources/{source_id}`
+
+Replaces one context-source metadata record and returns the updated project.
+The path `source_id` is authoritative; any `id` in the request body is ignored
+for the updated record. The payload is the full replacement metadata, so
+omitted optional fields clear or default through the normal project-source
+validation rules.
+
+Missing projects or sources return `404 not_found`; invalid source metadata
+returns `400 invalid_request`.
+
+```json
+PATCH /hecate/v1/projects/proj_.../context-sources/ctxsrc_...
+{
+  "kind": "doc",
+  "title": "Architecture notes",
+  "path": "docs/architecture.md",
+  "enabled": true,
+  "format": "markdown",
+  "trust_label": "operator_source",
+  "source_category": "operator_source"
+}
+```
+
+### `DELETE /hecate/v1/projects/{id}/context-sources/{source_id}`
+
+Deletes one context-source metadata record and returns the updated project so
+clients can reconcile against the server state. Deleting a source only removes
+the project metadata reference; it does not delete local files, remote content,
+memory records, work items, assignments, chats, tasks, or external-agent runs.
+
+```json
+DELETE /hecate/v1/projects/proj_.../context-sources/ctxsrc_...
+→ 200
+{
+  "object": "project",
+  "data": {
+    "id": "proj_...",
+    "context_sources": []
+  }
 }
 ```
 

@@ -257,6 +257,113 @@ func TestApplication_DeleteProjectMapsMissingProject(t *testing.T) {
 	}
 }
 
+func TestApplication_ContextSourceMutations(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	projectStore := projects.NewMemoryStore()
+	projectID := "proj_sources"
+	if _, err := projectStore.Create(ctx, projects.Project{ID: projectID, Name: "Sources"}); err != nil {
+		t.Fatalf("Create(project): %v", err)
+	}
+	app := New(Options{Projects: projectStore})
+
+	project, created, err := app.CreateContextSource(ctx, projectID, projects.ContextSource{
+		ID:             "ctx_design",
+		Kind:           "url",
+		Title:          "Design brief",
+		Path:           "https://example.invalid/design",
+		Enabled:        true,
+		Format:         "url",
+		TrustLabel:     "operator_source",
+		SourceCategory: "operator_source",
+		Metadata:       map[string]string{"note": "Reviewed by operator"},
+	})
+	if err != nil {
+		t.Fatalf("CreateContextSource(): %v", err)
+	}
+	if created.ID != "ctx_design" || created.Kind != "url" || created.Metadata["note"] != "Reviewed by operator" {
+		t.Fatalf("created source = %+v, want normalized url source", created)
+	}
+	if len(project.ContextSources) != 1 {
+		t.Fatalf("project sources after create = %+v, want one", project.ContextSources)
+	}
+	createdAt := created.CreatedAt
+
+	project, updated, err := app.UpdateContextSource(ctx, projectID, "ctx_design", projects.ContextSource{
+		Kind:           "url",
+		Title:          "Design brief v2",
+		Path:           "https://example.invalid/design-v2",
+		Enabled:        false,
+		Format:         "url",
+		TrustLabel:     "operator_source",
+		SourceCategory: "operator_source",
+	})
+	if err != nil {
+		t.Fatalf("UpdateContextSource(): %v", err)
+	}
+	if updated.ID != "ctx_design" || updated.Title != "Design brief v2" || updated.Enabled {
+		t.Fatalf("updated source = %+v, want patched source with stable id", updated)
+	}
+	if !updated.CreatedAt.Equal(createdAt) {
+		t.Fatalf("updated CreatedAt = %s, want original %s", updated.CreatedAt, createdAt)
+	}
+	if !updated.UpdatedAt.After(createdAt) {
+		t.Fatalf("updated UpdatedAt = %s, want after original %s", updated.UpdatedAt, createdAt)
+	}
+	if len(project.ContextSources) != 1 {
+		t.Fatalf("project sources after update = %+v, want one", project.ContextSources)
+	}
+
+	project, deleted, err := app.DeleteContextSource(ctx, projectID, "ctx_design")
+	if err != nil {
+		t.Fatalf("DeleteContextSource(): %v", err)
+	}
+	if deleted.ID != "ctx_design" {
+		t.Fatalf("deleted source = %+v, want ctx_design", deleted)
+	}
+	if len(project.ContextSources) != 0 {
+		t.Fatalf("project sources after delete = %+v, want none", project.ContextSources)
+	}
+}
+
+func TestApplication_ContextSourceMutationsValidateTargets(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	projectStore := projects.NewMemoryStore()
+	projectID := "proj_sources"
+	if _, err := projectStore.Create(ctx, projects.Project{
+		ID:   projectID,
+		Name: "Sources",
+		ContextSources: []projects.ContextSource{{
+			ID:      "ctx_existing",
+			Title:   "Existing",
+			Path:    "README.md",
+			Enabled: true,
+		}},
+	}); err != nil {
+		t.Fatalf("Create(project): %v", err)
+	}
+	app := New(Options{Projects: projectStore})
+
+	if _, _, err := app.CreateContextSource(ctx, "proj_missing", projects.ContextSource{ID: "ctx_new", Path: "README.md"}); !errors.Is(err, ErrProjectNotFound) {
+		t.Fatalf("CreateContextSource(missing project) error = %v, want ErrProjectNotFound", err)
+	}
+	if _, _, err := app.CreateContextSource(ctx, projectID, projects.ContextSource{ID: "ctx_existing", Path: "README.md"}); !errors.Is(err, ErrProjectContextSourceConflict) {
+		t.Fatalf("CreateContextSource(duplicate) error = %v, want ErrProjectContextSourceConflict", err)
+	}
+	if _, _, err := app.CreateContextSource(ctx, projectID, projects.ContextSource{ID: "ctx_empty_path"}); !errors.Is(err, projects.ErrInvalid) {
+		t.Fatalf("CreateContextSource(invalid) error = %v, want projects.ErrInvalid", err)
+	}
+	if _, _, err := app.UpdateContextSource(ctx, projectID, "ctx_missing", projects.ContextSource{Path: "README.md"}); !errors.Is(err, ErrProjectContextSourceNotFound) {
+		t.Fatalf("UpdateContextSource(missing) error = %v, want ErrProjectContextSourceNotFound", err)
+	}
+	if _, _, err := app.DeleteContextSource(ctx, projectID, "ctx_missing"); !errors.Is(err, ErrProjectContextSourceNotFound) {
+		t.Fatalf("DeleteContextSource(missing) error = %v, want ErrProjectContextSourceNotFound", err)
+	}
+}
+
 type failingProjectSkillStore struct {
 	err error
 }

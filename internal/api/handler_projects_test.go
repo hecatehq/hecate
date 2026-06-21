@@ -231,6 +231,132 @@ func TestProjectsAPI_ContextSourcesSupportRootlessOperatorSources(t *testing.T) 
 	}
 }
 
+func TestProjectsAPI_ContextSourceMutations(t *testing.T) {
+	t.Parallel()
+	server := newProjectsTestServer()
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects", bytes.NewReader([]byte(`{
+		"name":"Research plan"
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	var project ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &project); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/context-sources", bytes.NewReader([]byte(`{
+		"kind":"url",
+		"title":"Design brief",
+		"path":"https://example.invalid/design",
+		"enabled":true,
+		"format":"url",
+		"trust_label":"operator_source",
+		"source_category":"operator_source",
+		"metadata":{"note":"Reviewed by the operator"}
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create source status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	var withSource ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &withSource); err != nil {
+		t.Fatalf("decode source create response: %v", err)
+	}
+	if len(withSource.Data.ContextSources) != 1 {
+		t.Fatalf("sources after create = %+v, want one", withSource.Data.ContextSources)
+	}
+	source := withSource.Data.ContextSources[0]
+	if source.ID == "" || source.Kind != "url" || source.Metadata["note"] != "Reviewed by the operator" {
+		t.Fatalf("created source = %+v, want generated url source", source)
+	}
+	createdAt := source.CreatedAt
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+project.Data.ID+"/context-sources/"+source.ID, bytes.NewReader([]byte(`{
+		"kind":"note",
+		"title":"Research goals",
+		"path":"note:research-goals",
+		"format":"text",
+		"enabled":false,
+		"metadata":{"note":"Keep as source metadata"}
+	}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update source status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var updated ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &updated); err != nil {
+		t.Fatalf("decode source update response: %v", err)
+	}
+	if len(updated.Data.ContextSources) != 1 {
+		t.Fatalf("sources after update = %+v, want one", updated.Data.ContextSources)
+	}
+	source = updated.Data.ContextSources[0]
+	if source.ID == "" || source.ID != withSource.Data.ContextSources[0].ID || source.Kind != "note" || source.Enabled {
+		t.Fatalf("updated source = %+v, want same id disabled note source", source)
+	}
+	if source.CreatedAt != createdAt {
+		t.Fatalf("updated source created_at = %q, want original %q", source.CreatedAt, createdAt)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/projects/"+project.Data.ID+"/context-sources/"+source.ID, nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete source status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var deleted ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &deleted); err != nil {
+		t.Fatalf("decode source delete response: %v", err)
+	}
+	if len(deleted.Data.ContextSources) != 0 {
+		t.Fatalf("sources after delete = %+v, want none", deleted.Data.ContextSources)
+	}
+}
+
+func TestProjectsAPI_ContextSourceMutationValidation(t *testing.T) {
+	t.Parallel()
+	server := newProjectsTestServer()
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects", bytes.NewReader([]byte(`{
+		"name":"Research plan",
+		"context_sources":[{"id":"ctx_existing","path":"README.md"}]
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	var project ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &project); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/context-sources", bytes.NewReader([]byte(`{"title":"Broken","path":" "}`))))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("blank source path status = %d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/context-sources", bytes.NewReader([]byte(`{"id":"ctx_existing","path":"docs/README.md"}`))))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("duplicate source status = %d body=%s, want 409", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+project.Data.ID+"/context-sources/ctx_missing", bytes.NewReader([]byte(`{"path":"README.md"}`))))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing source patch status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/projects/"+project.Data.ID+"/context-sources/ctx_missing", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing source delete status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+}
+
 func TestProjectsAPI_RejectsDuplicateProjectIdentity(t *testing.T) {
 	t.Parallel()
 	server := newProjectsTestServer()

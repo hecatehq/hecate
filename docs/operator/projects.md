@@ -81,6 +81,12 @@ operator urgency before applying its item cap, and the response summary reports
 how many operations were available, returned, and omitted so the UI can show
 when lower-priority work is hidden by the cap.
 
+Memory/Context source edits use typed server mutations per source. Adding,
+editing, or deleting a source changes project source metadata only; it does not
+read local files, fetch remote content, write memory, or change launch context
+policy until the operator separately chooses a launch/profile posture that
+includes enabled sources.
+
 Use the top Project Operations action for the single most useful operator step,
 then jump to
 blocked, active, recent, or memory-review work from the resume summary before

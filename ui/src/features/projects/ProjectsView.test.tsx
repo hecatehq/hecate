@@ -13,6 +13,7 @@ import {
   createProjectCollaborationArtifact,
   createProjectAssignment,
   createProjectHandoff,
+  createProjectContextSource,
   createProjectMemory,
   createProjectWorktreeRoot,
   createProjectWorkRole,
@@ -20,6 +21,7 @@ import {
   deleteProjectAssignment,
   deleteAgentProfile,
   deleteProjectHandoff,
+  deleteProjectContextSource,
   deleteProjectMemory,
   deleteProjectWorkRole,
   deleteProjectWorkItem,
@@ -51,6 +53,7 @@ import {
   startProjectAssignment,
   updateProject,
   updateAgentProfile,
+  updateProjectContextSource,
   updateProjectAssignment,
   updateProjectHandoff,
   updateProjectHandoffStatus,
@@ -410,6 +413,9 @@ vi.mock("../../lib/api", async (importOriginal) => {
     updateProjectHandoffStatus: vi.fn(async () => ({ object: "project_handoff", data: null })),
     deleteProjectHandoff: vi.fn(async () => undefined),
     createProjectMemory: vi.fn(async () => ({ object: "project_memory_entry", data: null })),
+    createProjectContextSource: vi.fn(async () => ({ object: "project", data: null })),
+    updateProjectContextSource: vi.fn(async () => ({ object: "project", data: null })),
+    deleteProjectContextSource: vi.fn(async () => ({ object: "project", data: null })),
     updateProjectMemory: vi.fn(async () => ({ object: "project_memory_entry", data: null })),
     discoverProjectSkills: vi.fn(async () => ({ object: "project_skills", data: [] })),
     updateProjectSkill: vi.fn(async () => ({ object: "project_skill", data: null })),
@@ -2514,16 +2520,25 @@ describe("ProjectsView cockpit", () => {
       created_at: "2026-06-08T10:01:00Z",
       updated_at: "2026-06-08T10:01:00Z",
     };
+    const updatedSource = {
+      ...existingSource,
+      title: "Design brief v2",
+      path: "https://example.invalid/design-v2",
+      updated_at: "2026-06-08T10:02:00Z",
+    };
     const projectWithSource = { ...project, context_sources: [existingSource] };
-    vi.mocked(updateProject)
-      .mockResolvedValueOnce({
-        object: "project",
-        data: { ...projectWithSource, context_sources: [existingSource, createdSource] },
-      })
-      .mockResolvedValueOnce({
-        object: "project",
-        data: { ...projectWithSource, context_sources: [createdSource] },
-      });
+    vi.mocked(updateProjectContextSource).mockResolvedValueOnce({
+      object: "project",
+      data: { ...projectWithSource, context_sources: [updatedSource] },
+    });
+    vi.mocked(createProjectContextSource).mockResolvedValueOnce({
+      object: "project",
+      data: { ...projectWithSource, context_sources: [updatedSource, createdSource] },
+    });
+    vi.mocked(deleteProjectContextSource).mockResolvedValueOnce({
+      object: "project",
+      data: { ...projectWithSource, context_sources: [createdSource] },
+    });
     const user = userEvent.setup();
     const state = createRuntimeConsoleFixture({
       projects: [projectWithSource],
@@ -2536,6 +2551,30 @@ describe("ProjectsView cockpit", () => {
     expect(screen.getByRole("link", { name: "https://example.invalid/design" })).toBeTruthy();
     expect(screen.getByText("Reviewed source.")).toBeTruthy();
 
+    await user.click(screen.getByRole("button", { name: "Edit source Design brief" }));
+    const editDialog = await screen.findByRole("dialog", { name: "Edit project source" });
+    await user.clear(within(editDialog).getByLabelText("Title"));
+    await user.type(within(editDialog).getByLabelText("Title"), "Design brief v2");
+    await user.clear(within(editDialog).getByLabelText("Locator"));
+    await user.type(
+      within(editDialog).getByLabelText("Locator"),
+      "https://example.invalid/design-v2",
+    );
+    await user.click(within(editDialog).getByRole("button", { name: "Save source" }));
+
+    expect(updateProjectContextSource).toHaveBeenCalledWith(project.id, "ctx_design", {
+      id: "ctx_design",
+      kind: "url",
+      title: "Design brief v2",
+      path: "https://example.invalid/design-v2",
+      enabled: true,
+      format: "url",
+      trust_label: "operator_source",
+      source_category: "operator_source",
+      metadata: { note: "Reviewed source." },
+    });
+    expect(await screen.findByText("Design brief v2")).toBeTruthy();
+
     await user.click(screen.getByRole("button", { name: "Source" }));
     const dialog = await screen.findByRole("dialog", { name: "New project source" });
     await user.selectOptions(within(dialog).getByLabelText("Kind"), "note");
@@ -2543,49 +2582,24 @@ describe("ProjectsView cockpit", () => {
     await user.type(within(dialog).getByLabelText("Note"), "Keep source notes as metadata.");
     await user.click(within(dialog).getByRole("button", { name: "Create source" }));
 
-    expect(updateProject).toHaveBeenNthCalledWith(1, project.id, {
-      context_sources: [
-        {
-          id: "ctx_design",
-          kind: "url",
-          title: "Design brief",
-          path: "https://example.invalid/design",
-          enabled: true,
-          format: "url",
-          trust_label: "operator_source",
-          source_category: "operator_source",
-          metadata: { note: "Reviewed source." },
-        },
-        {
-          kind: "note",
-          title: "Research goals",
-          path: "note:research-goals",
-          enabled: true,
-          format: "text",
-          trust_label: "operator_source",
-          source_category: "operator_source",
-          metadata: { note: "Keep source notes as metadata." },
-        },
-      ],
+    expect(createProjectContextSource).toHaveBeenCalledWith(project.id, {
+      kind: "note",
+      title: "Research goals",
+      path: "note:research-goals",
+      enabled: true,
+      format: "text",
+      trust_label: "operator_source",
+      source_category: "operator_source",
+      metadata: { note: "Keep source notes as metadata." },
     });
+    expect(updateProject).not.toHaveBeenCalledWith(
+      project.id,
+      expect.objectContaining({ context_sources: expect.any(Array) }),
+    );
 
-    await user.click(screen.getByRole("button", { name: "Delete source Design brief" }));
+    await user.click(screen.getByRole("button", { name: "Delete source Design brief v2" }));
     await user.click(screen.getByRole("button", { name: "Delete source" }));
-    expect(updateProject).toHaveBeenNthCalledWith(2, project.id, {
-      context_sources: [
-        {
-          id: "ctx_research_goals",
-          kind: "note",
-          title: "Research goals",
-          path: "note:research-goals",
-          enabled: true,
-          format: "text",
-          trust_label: "operator_source",
-          source_category: "operator_source",
-          metadata: { note: "Keep source notes as metadata." },
-        },
-      ],
-    });
+    expect(deleteProjectContextSource).toHaveBeenCalledWith(project.id, "ctx_design");
   });
 
   it("discovers workspace guidance sources from the memory context panel", async () => {

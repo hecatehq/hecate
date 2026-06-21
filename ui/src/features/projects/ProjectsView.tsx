@@ -10,6 +10,7 @@ import {
   createProjectAssignment,
   createProjectCollaborationArtifact,
   createProjectHandoff,
+  createProjectContextSource,
   discoverProjectContextSources,
   discoverProjectRoots,
   discoverProjectSkills,
@@ -19,6 +20,7 @@ import {
   createProjectWorkItem,
   deleteProjectAssignment,
   deleteProjectHandoff,
+  deleteProjectContextSource,
   deleteProjectMemory,
   deleteProjectWorkRole,
   deleteProjectWorkItem,
@@ -43,6 +45,7 @@ import {
   rejectProjectMemoryCandidate,
   updateProject,
   updateAgentProfile,
+  updateProjectContextSource,
   updateProjectAssignment,
   updateProjectHandoff,
   updateProjectHandoffStatus,
@@ -124,11 +127,7 @@ import {
   type AgentProfileForm,
   type RoleForm,
 } from "./projectProfilesRoles";
-import {
-  projectContextSourcesWithSavedSource,
-  projectContextSourcesWithoutSource,
-  type ProjectSourceForm,
-} from "./projectSources";
+import { projectSourcePayloadFromForm, type ProjectSourceForm } from "./projectSources";
 import {
   assignmentCreatePayloadFromForm,
   assignmentUpdatePayloadFromForm,
@@ -930,12 +929,14 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     setSourcePending(true);
     setSourceError("");
     try {
-      const contextSources = projectContextSourcesWithSavedSource(
-        selectedProject.context_sources ?? [],
-        editingSource,
+      const sourcePayload = projectSourcePayloadFromForm(
         form,
+        editingSource === "new" ? null : editingSource,
       );
-      const payload = await updateProject(selectedProject.id, { context_sources: contextSources });
+      const payload =
+        editingSource === "new"
+          ? await createProjectContextSource(selectedProject.id, sourcePayload)
+          : await updateProjectContextSource(selectedProject.id, editingSource.id, sourcePayload);
       projects.actions.setProjects((current) => upsertProject(current, payload.data));
       refreshProjectHealth(selectedProject.id);
       setEditingSource(null);
@@ -951,11 +952,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     setDeleteSourcePending(true);
     setSourceError("");
     try {
-      const contextSources = projectContextSourcesWithoutSource(
-        selectedProject.context_sources ?? [],
-        deleteSource.id,
-      );
-      const payload = await updateProject(selectedProject.id, { context_sources: contextSources });
+      const payload = await deleteProjectContextSource(selectedProject.id, deleteSource.id);
       projects.actions.setProjects((current) => upsertProject(current, payload.data));
       refreshProjectHealth(selectedProject.id);
       setDeleteSource(null);
