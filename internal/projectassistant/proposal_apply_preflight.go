@@ -259,11 +259,32 @@ func (p *applyPreflight) updateWorkItem(ctx context.Context, action Action) erro
 	if err := decodePatch(action, &patch); err != nil {
 		return err
 	}
+	if patch.Status != nil && strings.TrimSpace(*patch.Status) == projectwork.WorkItemStatusDone {
+		readiness, err := p.workItemReadiness(ctx, item)
+		if err != nil {
+			return err
+		}
+		if readiness.Status != "done" && !readiness.Ready {
+			return fmt.Errorf("%w: %w", ErrConflict, projectwork.WorkItemCloseoutBlockedError{Readiness: readiness})
+		}
+	}
 	if patch.Title != nil {
 		item.Title = *patch.Title
 	}
+	if patch.Brief != nil {
+		item.Brief = *patch.Brief
+	}
 	if patch.Status != nil {
 		item.Status = *patch.Status
+	}
+	if patch.Priority != nil {
+		item.Priority = *patch.Priority
+	}
+	if patch.OwnerRoleID != nil {
+		item.OwnerRoleID = *patch.OwnerRoleID
+	}
+	if patch.ReviewerRoleIDs != nil {
+		item.ReviewerRoleIDs = append([]string(nil), patch.ReviewerRoleIDs...)
 	}
 	p.workItems[scopedKey(projectID, workItemID)] = item
 	return nil
@@ -293,15 +314,20 @@ func (p *applyPreflight) createAssignment(ctx context.Context, action Action) er
 		}
 	}
 	id := strings.TrimSpace(patch.ID)
-	if id == "" {
-		return nil
+	if id != "" {
+		if exists, err := p.assignmentExists(ctx, projectID, id); err != nil {
+			return err
+		} else if exists {
+			return fmt.Errorf("%w: assignment %q already exists", ErrConflict, id)
+		}
+	} else {
+		id = preflightSyntheticID("assignment", len(p.assignments))
 	}
-	if exists, err := p.assignmentExists(ctx, projectID, id); err != nil {
-		return err
-	} else if exists {
-		return fmt.Errorf("%w: assignment %q already exists", ErrConflict, id)
+	status := strings.TrimSpace(patch.Status)
+	if status == "" {
+		status = projectwork.AssignmentStatusQueued
 	}
-	p.assignments[scopedKey(projectID, id)] = projectwork.Assignment{ID: id, ProjectID: projectID, WorkItemID: item.ID, RoleID: patch.RoleID}
+	p.assignments[scopedKey(projectID, id)] = projectwork.Assignment{ID: id, ProjectID: projectID, WorkItemID: item.ID, RoleID: patch.RoleID, RootID: strings.TrimSpace(patch.RootID), DriverKind: strings.TrimSpace(patch.DriverKind), Status: status}
 	return nil
 }
 
@@ -338,15 +364,29 @@ func (p *applyPreflight) createHandoff(ctx context.Context, action Action) error
 		}
 	}
 	id := strings.TrimSpace(patch.ID)
-	if id == "" {
-		return nil
+	if id != "" {
+		if exists, err := p.handoffExists(ctx, projectID, id); err != nil {
+			return err
+		} else if exists {
+			return fmt.Errorf("%w: handoff %q already exists", ErrConflict, id)
+		}
+	} else {
+		id = preflightSyntheticID("handoff", len(p.handoffs))
 	}
-	if exists, err := p.handoffExists(ctx, projectID, id); err != nil {
-		return err
-	} else if exists {
-		return fmt.Errorf("%w: handoff %q already exists", ErrConflict, id)
+	status := strings.TrimSpace(patch.Status)
+	if status == "" {
+		status = projectwork.HandoffStatusPending
 	}
-	p.handoffs[scopedKey(projectID, id)] = projectwork.Handoff{ID: id, ProjectID: projectID, WorkItemID: item.ID, TargetWorkItemID: patch.TargetWorkItemID}
+	p.handoffs[scopedKey(projectID, id)] = projectwork.Handoff{
+		ID:                 id,
+		ProjectID:          projectID,
+		WorkItemID:         item.ID,
+		TargetRoleID:       strings.TrimSpace(patch.TargetRoleID),
+		TargetAssignmentID: strings.TrimSpace(patch.TargetAssignmentID),
+		TargetWorkItemID:   strings.TrimSpace(patch.TargetWorkItemID),
+		LinkedArtifactIDs:  append([]string(nil), patch.LinkedArtifactIDs...),
+		Status:             status,
+	}
 	return nil
 }
 
@@ -383,6 +423,19 @@ func (p *applyPreflight) updateHandoff(ctx context.Context, action Action) error
 			return fmt.Errorf("%w: target assignment %q", ErrNotFound, *patch.TargetAssignmentID)
 		}
 		handoff.TargetAssignmentID = strings.TrimSpace(*patch.TargetAssignmentID)
+	}
+	if patch.TargetAssignmentID != nil && strings.TrimSpace(*patch.TargetAssignmentID) == "" {
+		handoff.TargetAssignmentID = ""
+	}
+	if patch.TargetRoleID != nil {
+		handoff.TargetRoleID = strings.TrimSpace(*patch.TargetRoleID)
+	}
+	if patch.Status != nil {
+		status := strings.TrimSpace(*patch.Status)
+		if status == "" {
+			status = projectwork.HandoffStatusPending
+		}
+		handoff.Status = status
 	}
 	p.handoffs[scopedKey(projectID, handoffID)] = handoff
 	return nil
@@ -471,6 +524,68 @@ func (p *applyPreflight) requireWorkItem(ctx context.Context, projectID, workIte
 	}
 	p.workItems[key] = item
 	return item, nil
+}
+
+func (p *applyPreflight) workItemReadiness(ctx context.Context, item projectwork.WorkItem) (projectwork.WorkItemReadiness, error) {
+	assignments, err := p.assignmentsForWorkItem(ctx, item.ProjectID, item.ID)
+	if err != nil {
+		return projectwork.WorkItemReadiness{}, err
+	}
+	artifacts, err := p.service.work.ListArtifacts(ctx, projectwork.ArtifactFilter{ProjectID: item.ProjectID, WorkItemID: item.ID})
+	if err != nil {
+		return projectwork.WorkItemReadiness{}, err
+	}
+	handoffs, err := p.handoffsForWorkItem(ctx, item.ProjectID, item.ID)
+	if err != nil {
+		return projectwork.WorkItemReadiness{}, err
+	}
+	return projectwork.EvaluateWorkItemReadiness(item, assignments, artifacts, handoffs), nil
+}
+
+func (p *applyPreflight) assignmentsForWorkItem(ctx context.Context, projectID, workItemID string) ([]projectwork.Assignment, error) {
+	items, err := p.service.work.ListAssignments(ctx, projectwork.AssignmentFilter{ProjectID: projectID, WorkItemID: workItemID})
+	if err != nil {
+		return nil, err
+	}
+	indexByID := make(map[string]int, len(items)+len(p.assignments))
+	for idx, assignment := range items {
+		indexByID[assignment.ID] = idx
+	}
+	for _, assignment := range p.assignments {
+		if assignment.ProjectID != projectID || assignment.WorkItemID != workItemID {
+			continue
+		}
+		if idx, ok := indexByID[assignment.ID]; ok {
+			items[idx] = assignment
+			continue
+		}
+		indexByID[assignment.ID] = len(items)
+		items = append(items, assignment)
+	}
+	return items, nil
+}
+
+func (p *applyPreflight) handoffsForWorkItem(ctx context.Context, projectID, workItemID string) ([]projectwork.Handoff, error) {
+	items, err := p.service.work.ListHandoffs(ctx, projectwork.HandoffFilter{ProjectID: projectID, WorkItemID: workItemID})
+	if err != nil {
+		return nil, err
+	}
+	indexByID := make(map[string]int, len(items)+len(p.handoffs))
+	for idx, handoff := range items {
+		indexByID[handoff.ID] = idx
+	}
+	for _, handoff := range p.handoffs {
+		if handoff.ProjectID != projectID || handoff.WorkItemID != workItemID {
+			continue
+		}
+		if idx, ok := indexByID[handoff.ID]; ok {
+			items[idx] = handoff
+			continue
+		}
+		indexByID[handoff.ID] = len(items)
+		items = append(items, handoff)
+	}
+	return items, nil
 }
 
 func (p *applyPreflight) workItemExists(ctx context.Context, projectID, workItemID string) (bool, error) {
@@ -654,4 +769,8 @@ func preflightRootFromPatch(patch rootPatch) projects.Root {
 
 func scopedKey(scope, id string) string {
 	return strings.TrimSpace(scope) + "\x00" + strings.TrimSpace(id)
+}
+
+func preflightSyntheticID(kind string, count int) string {
+	return fmt.Sprintf("__preflight_%s_%d", strings.TrimSpace(kind), count+1)
 }

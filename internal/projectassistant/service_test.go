@@ -1912,6 +1912,75 @@ func TestService_ApplyPreflightBlocksStaleTargetsBeforeMutatingAcrossStores(t *t
 	}
 }
 
+func TestService_ApplyPreflightBlocksCloseoutBeforeMutatingAcrossStores(t *testing.T) {
+	t.Parallel()
+	for _, builder := range assistantFixtureBuilders() {
+		t.Run(builder.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			fixture := builder.build(t)
+			project := createTestProject(t, ctx, fixture.projects)
+			workItem, err := fixture.work.CreateWorkItem(ctx, projectwork.WorkItem{
+				ID:        "work_closeout_preflight",
+				ProjectID: project.ID,
+				Title:     "Closeout preflight",
+				Status:    projectwork.WorkItemStatusReview,
+			})
+			if err != nil {
+				t.Fatalf("CreateWorkItem: %v", err)
+			}
+			proposal := Proposal{
+				ID:                   "pa_closeout_preflight",
+				RequiresConfirmation: true,
+				Actions: []Action{
+					{
+						Kind: ActionCreateHandoff,
+						Patch: rawPatch(t, map[string]any{
+							"id":                      "handoff_pending",
+							"project_id":              project.ID,
+							"work_item_id":            workItem.ID,
+							"title":                   "Pending follow-up",
+							"summary":                 "Follow-up should block closeout.",
+							"recommended_next_action": "Resolve before marking done.",
+						}),
+					},
+					{
+						Kind:   ActionUpdateWorkItem,
+						Target: map[string]string{"project_id": project.ID, "work_item_id": workItem.ID},
+						Patch:  rawPatch(t, map[string]string{"status": projectwork.WorkItemStatusDone}),
+					},
+				},
+			}
+
+			result, err := fixture.service.Apply(ctx, proposal, true)
+			if !errors.Is(err, ErrConflict) || !errors.Is(err, projectwork.ErrWorkItemCloseoutBlocked) {
+				t.Fatalf("Apply err = %v result=%+v, want closeout conflict", err, result)
+			}
+			var applyErr *ApplyError
+			if !errors.As(err, &applyErr) {
+				t.Fatalf("Apply err = %T %v, want ApplyError", err, err)
+			}
+			if applyErr.FailedActionIndex != 1 || len(applyErr.Result.Actions) != 0 {
+				t.Fatalf("apply error = %+v, want preflight failure at done action with no committed actions", applyErr)
+			}
+			handoffs, err := fixture.work.ListHandoffs(ctx, projectwork.HandoffFilter{ProjectID: project.ID, WorkItemID: workItem.ID})
+			if err != nil {
+				t.Fatalf("ListHandoffs: %v", err)
+			}
+			if len(handoffs) != 0 {
+				t.Fatalf("handoffs = %+v, want no durable handoff after preflight closeout block", handoffs)
+			}
+			stored, ok, err := fixture.work.GetWorkItem(ctx, project.ID, workItem.ID)
+			if err != nil || !ok {
+				t.Fatalf("GetWorkItem ok=%v err=%v, want stored item", ok, err)
+			}
+			if stored.Status == projectwork.WorkItemStatusDone {
+				t.Fatalf("work item status = %q, want not done after preflight closeout block", stored.Status)
+			}
+		})
+	}
+}
+
 func TestService_ApplyPreflightBlocksMissingHandoffTargetBeforeMutatingAcrossStores(t *testing.T) {
 	t.Parallel()
 	for _, builder := range assistantFixtureBuilders() {

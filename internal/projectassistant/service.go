@@ -48,6 +48,7 @@ type Service struct {
 	projects         projects.Store
 	chats            chat.Store
 	work             projectwork.Store
+	workAuthority    WorkAuthority
 	projectSkills    projectskills.Store
 	memory           memory.Store
 	memoryCandidates memory.CandidateStore
@@ -60,6 +61,7 @@ type Stores struct {
 	Projects         projects.Store
 	Chats            chat.Store
 	Work             projectwork.Store
+	WorkAuthority    WorkAuthority
 	ProjectSkills    projectskills.Store
 	Memory           memory.Store
 	MemoryCandidates memory.CandidateStore
@@ -174,6 +176,7 @@ func NewService(stores Stores, idgen IDGenerator) *Service {
 		projects:         stores.Projects,
 		chats:            stores.Chats,
 		work:             stores.Work,
+		workAuthority:    workAuthorityForStores(stores),
 		projectSkills:    stores.ProjectSkills,
 		memory:           stores.Memory,
 		memoryCandidates: stores.MemoryCandidates,

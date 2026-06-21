@@ -9,6 +9,7 @@ import (
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
+	"github.com/hecatehq/hecate/internal/projectworkapp"
 )
 
 type Application struct {
@@ -19,6 +20,7 @@ type Options struct {
 	Projects         projects.Store
 	Chats            chat.Store
 	Work             projectwork.Store
+	WorkApplication  *projectworkapp.Application
 	ProjectSkills    projectskills.Store
 	Memory           memory.Store
 	MemoryCandidates memory.CandidateStore
@@ -62,11 +64,16 @@ type ApplyCommand struct {
 }
 
 func New(options Options) *Application {
+	var workAuthority projectassistant.WorkAuthority
+	if options.WorkApplication != nil {
+		workAuthority = projectWorkAuthority{app: options.WorkApplication}
+	}
 	return &Application{
 		service: projectassistant.NewService(projectassistant.Stores{
 			Projects:         options.Projects,
 			Chats:            options.Chats,
 			Work:             options.Work,
+			WorkAuthority:    workAuthority,
 			ProjectSkills:    options.ProjectSkills,
 			Memory:           options.Memory,
 			MemoryCandidates: options.MemoryCandidates,
