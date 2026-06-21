@@ -543,6 +543,27 @@ describe("ProjectWorkItemDetail", () => {
     );
   });
 
+  it("shows server-backed launch readiness inline before opening preflight", async () => {
+    renderDetail();
+
+    const readiness = screen.getByRole("region", { name: "Assignment launch readiness" });
+    expect(within(readiness).getByText("not checked")).toBeTruthy();
+
+    await userEvent.click(within(readiness).getByRole("button", { name: "Check readiness" }));
+
+    expect(getProjectAssignmentLaunchReadinessMock).toHaveBeenCalledWith(
+      "proj_1",
+      "work_1",
+      "assign_1",
+    );
+    expect(await within(readiness).findByText("ready")).toBeTruthy();
+    expect(within(readiness).getByText("Hecate task")).toBeTruthy();
+    expect(within(readiness).getByText("/workspace/hecate")).toBeTruthy();
+    expect(within(readiness).getByText("openai / gpt-5")).toBeTruthy();
+    expect(within(readiness).getByText("implementation")).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
   it("shows External Agent launch posture before preparing chat", async () => {
     getProjectAssignmentLaunchReadinessMock.mockResolvedValueOnce({
       object: "project_assignment_launch_readiness",

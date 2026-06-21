@@ -63,9 +63,10 @@ test("Projects journey: setup, first work, assignment, evidence, closeout", asyn
 
   await expect(page.getByRole("button", { name: "Start" })).toBeVisible();
   await page.getByRole("button", { name: "Start" }).click();
-  await expect(page.getByRole("dialog", { name: /launch preflight/i })).toBeVisible();
-  await expect(page.getByText("Launch readiness", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Start assignment" }).click();
+  const preflight = page.getByRole("dialog", { name: /launch preflight/i });
+  await expect(preflight).toBeVisible();
+  await expect(preflight.getByText("Launch readiness", { exact: true })).toBeVisible();
+  await preflight.getByRole("button", { name: "Start assignment" }).click();
 
   await expect(page.getByText("completed", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Add evidence" }).click();
