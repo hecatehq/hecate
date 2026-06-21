@@ -1342,14 +1342,17 @@ func TestSessionManagerACPApprovalApproveCreatesGrantAndReusesSession(t *testing
 	resolved, err := coord.Resolve(context.Background(), pending.ID, ResolveRequest{
 		Decision:       ApprovalDecisionApprove,
 		Scope:          ApprovalScopeSession,
-		SelectedOption: "allow_once_id",
+		SelectedOption: "allow_always_id",
 		Note:           "safe for this session",
 	})
 	if err != nil {
 		t.Fatalf("Resolve approve: %v", err)
 	}
-	if resolved.Status != ApprovalStatusApproved || resolved.Path != PathOperator {
-		t.Fatalf("resolved approval = %+v, want approved via operator", resolved)
+	if resolved.Status != ApprovalStatusApproved ||
+		resolved.Path != PathOperator ||
+		resolved.SelectedOption != "allow_always_id" ||
+		resolved.Scope != ApprovalScopeSession {
+		t.Fatalf("resolved approval = %+v, want session-scoped allow_always via operator", resolved)
 	}
 
 	first := awaitRunResult(t, firstDone)
