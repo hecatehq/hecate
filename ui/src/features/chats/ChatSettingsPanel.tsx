@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { formatInteger } from "../../lib/format";
 import type {
+  ChatAgentInfoRecord,
   ChatContextSummaryRecord,
   ChatMCPServerRecord,
   ChatSessionRecord,
@@ -75,6 +76,9 @@ export function ChatSettingsPanel({
   const externalRTK = !showHecateControls
     ? externalAgentRTKInfo(externalAgentID || "", rtkAvailable, rtkPath)
     : null;
+  const externalAgentInfoLabel = !showHecateControls
+    ? formatAgentInfoLabel(externalSession?.agent_info)
+    : "";
   return (
     <div
       style={{
@@ -195,7 +199,12 @@ export function ChatSettingsPanel({
                 <ChatSettingsField label="Model" value={model || "not selected"} mono />
               </>
             ) : (
-              <ChatSettingsField label="Agent" value={agentName || "External agent"} />
+              <>
+                <ChatSettingsField label="Agent" value={agentName || "External agent"} />
+                {externalAgentInfoLabel && (
+                  <ChatSettingsField label="Implementation" value={externalAgentInfoLabel} mono />
+                )}
+              </>
             )}
             <ChatSettingsField
               label="Workspace"
@@ -499,6 +508,13 @@ function externalAgentRTKInfo(
     default:
       return null;
   }
+}
+
+function formatAgentInfoLabel(info: ChatAgentInfoRecord | undefined): string {
+  const name = info?.title?.trim() || info?.name?.trim() || "";
+  const version = info?.version?.trim() || "";
+  if (!name) return version;
+  return version ? `${name} ${version}` : name;
 }
 
 function ChatSettingsExternalRTKRow({

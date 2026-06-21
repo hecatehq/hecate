@@ -33,6 +33,29 @@ const baseProps = {
 };
 
 describe("ChatSettingsPanel external-agent MCP servers", () => {
+  it("renders adapter-reported implementation metadata", () => {
+    render(
+      <ChatSettingsPanel
+        {...baseProps}
+        externalSession={{
+          id: "chat_1",
+          title: "Codex chat",
+          agent_id: "codex",
+          workspace: "/tmp/hecate",
+          status: "idle",
+          agent_info: {
+            name: "codex-acp-adapter",
+            title: "Codex ACP Adapter",
+            version: "0.1.0-alpha.28",
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Implementation")).toBeTruthy();
+    expect(screen.getByText("Codex ACP Adapter 0.1.0-alpha.28")).toBeTruthy();
+  });
+
   it("renders configured stdio and HTTP MCP servers", () => {
     render(
       <ChatSettingsPanel
