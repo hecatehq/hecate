@@ -528,6 +528,22 @@ func List(ctx context.Context) []Status {
 }
 
 func ListWithLookup(ctx context.Context, lookup LookupFunc) []Status {
+	return listWithLookup(ctx, lookup, statusDiagnosticsFull)
+}
+
+// ListCatalog returns the built-in adapter catalog using only cheap local
+// discovery. It intentionally avoids version/auth subprocess probes so app
+// startup and the Connections list can render immediately; explicit probe
+// endpoints refresh the expensive health details on demand.
+func ListCatalog(ctx context.Context) []Status {
+	return ListCatalogWithLookup(ctx, exec.LookPath)
+}
+
+func ListCatalogWithLookup(ctx context.Context, lookup LookupFunc) []Status {
+	return listWithLookup(ctx, lookup, statusDiagnosticsCatalog)
+}
+
+func listWithLookup(ctx context.Context, lookup LookupFunc, diagnostics statusDiagnosticsMode) []Status {
 	if lookup == nil {
 		lookup = exec.LookPath
 	}
@@ -535,7 +551,7 @@ func ListWithLookup(ctx context.Context, lookup LookupFunc) []Status {
 	items := BuiltIns()
 	out := make([]Status, 0, len(items))
 	for _, item := range items {
-		out = append(out, statusForAdapter(ctx, item, lookup))
+		out = append(out, statusForAdapterWithDiagnostics(ctx, item, lookup, diagnostics))
 	}
 	return out
 }
@@ -562,6 +578,17 @@ func statusForAdapterByID(ctx context.Context, id string, lookup LookupFunc) (St
 }
 
 func statusForAdapter(ctx context.Context, item Adapter, lookup LookupFunc) Status {
+	return statusForAdapterWithDiagnostics(ctx, item, lookup, statusDiagnosticsFull)
+}
+
+type statusDiagnosticsMode int
+
+const (
+	statusDiagnosticsFull statusDiagnosticsMode = iota
+	statusDiagnosticsCatalog
+)
+
+func statusForAdapterWithDiagnostics(ctx context.Context, item Adapter, lookup LookupFunc, diagnostics statusDiagnosticsMode) Status {
 	status := Status{
 		Adapter:    item,
 		Status:     StatusMissing,
@@ -601,9 +628,11 @@ func statusForAdapter(ctx context.Context, item Adapter, lookup LookupFunc) Stat
 	status.Available = true
 	status.Status = StatusAvailable
 	status.Path = path
-	status.AdapterVersion, status.AgentVersion = detectAdapterAndAgentVersionsForStatus(ctx, item, path, lookup)
-	status.VersionOutsideRange = !satisfiesRange(firstNonEmptyVersion(status.AdapterVersion, status.AgentVersion), item.SupportedRange)
-	status.AuthStatus, status.AuthError = DetectAuthStatus(item)
+	if diagnostics == statusDiagnosticsFull {
+		status.AdapterVersion, status.AgentVersion = detectAdapterAndAgentVersionsForStatus(ctx, item, path, lookup)
+		status.VersionOutsideRange = !satisfiesRange(firstNonEmptyVersion(status.AdapterVersion, status.AgentVersion), item.SupportedRange)
+		status.AuthStatus, status.AuthError = DetectAuthStatus(item)
+	}
 	return status
 }
 

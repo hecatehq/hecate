@@ -2,7 +2,9 @@
 
 > **Status:** partially implemented.
 > **Current source of truth:** [`cmd/hecate/cli.go`](../../../cmd/hecate/cli.go), [`cmd/hecate/main.go`](../../../cmd/hecate/main.go), and [`docs/runtime/mcp.md`](../../runtime/mcp.md).
-> **Next action:** make bare `hecate` the terminal operator UI, then add `hecate ui`, `status`, `about`, and `doctor` in focused follow-up PRs.
+> **Next action:** grow bare `hecate` from the lightweight operator shell into
+> the terminal operator UI, then add `hecate ui`, `status`, `about`, and
+> `doctor` in focused follow-up PRs.
 
 ## Implementation status
 
@@ -11,10 +13,11 @@ The first command-tree slice is implemented with Cobra:
 - `hecate serve` starts the runtime / HTTP API / embedded UI server.
 - `hecate mcp serve` starts the stdio MCP server.
 - `hecate version`, `hecate --version`, and `hecate -v` print the version.
-- Bare `hecate` still starts the runtime as a temporary compatibility alias.
+- Bare `hecate` opens a lightweight operator shell. The shell keeps the process
+  interactive until `quit` / `exit` / `q`; it does not start the runtime.
 - `hecate mcp-server` still works as a hidden compatibility alias.
 
-Not implemented yet: the terminal operator UI for bare `hecate`, `hecate ui`,
+Not implemented yet: the full terminal operator UI for bare `hecate`, `hecate ui`,
 `status`, `about`, `doctor`, auth commands, ACP server commands, and
 `migrate`.
 

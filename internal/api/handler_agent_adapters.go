@@ -9,10 +9,10 @@ import (
 )
 
 func (h *Handler) HandleAgentAdapters(w http.ResponseWriter, r *http.Request) {
-	items := agentadapters.List(r.Context())
+	items := agentadapters.ListCatalog(r.Context())
 	data := make([]AgentAdapterResponseItem, 0, len(items))
 	for _, item := range items {
-		data = append(data, renderAgentAdapterItem(r.Context(), item))
+		data = append(data, renderAgentAdapterCatalogItem(r.Context(), item))
 	}
 
 	WriteJSON(w, http.StatusOK, AgentAdapterResponse{
@@ -115,6 +115,14 @@ type AgentAdapterAuthenticateResponse struct {
 }
 
 func renderAgentAdapterItem(ctx context.Context, item agentadapters.Status) AgentAdapterResponseItem {
+	return renderAgentAdapterItemWithOptions(ctx, item, true)
+}
+
+func renderAgentAdapterCatalogItem(ctx context.Context, item agentadapters.Status) AgentAdapterResponseItem {
+	return renderAgentAdapterItemWithOptions(ctx, item, false)
+}
+
+func renderAgentAdapterItemWithOptions(ctx context.Context, item agentadapters.Status, includeConfigOptions bool) AgentAdapterResponseItem {
 	rendered := AgentAdapterResponseItem{
 		ID:                   item.ID,
 		Name:                 item.Name,
@@ -139,7 +147,9 @@ func renderAgentAdapterItem(ctx context.Context, item agentadapters.Status) Agen
 		CredentialModes:      renderAgentAdapterCredentialModes(item.CredentialModes),
 		RemoteCredentialMode: item.RemoteCredentialMode,
 		RemoteCredentialHint: item.RemoteCredentialHint,
-		ConfigOptions:        agentadapters.LaunchConfigOptions(ctx, item),
+	}
+	if includeConfigOptions {
+		rendered.ConfigOptions = agentadapters.LaunchConfigOptions(ctx, item)
 	}
 	if item.RemoteCredentialHint != "" || item.RemoteCredentialMode != "" {
 		remoteCredentialOK := item.RemoteCredentialOK

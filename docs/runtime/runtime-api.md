@@ -982,8 +982,10 @@ use `reason`, `provider_status`, `provider_blocked_reason`, and
 
 External coding-agent catalog. This is the first discovery surface for
 External Agent chats: it reports the agent runtimes Hecate knows how to
-supervise, whether their command can be started, and any launch
-`config_options` that can be selected before a concrete chat session exists.
+supervise and whether their command can be found. This endpoint is deliberately
+cheap so the app can render startup state without spawning coding-agent CLIs.
+Use `POST /hecate/v1/agent-adapters/{id}/probe` for live version, auth,
+capability, and launch-control discovery.
 
 ```json
 GET /hecate/v1/agent-adapters
@@ -1000,13 +1002,11 @@ GET /hecate/v1/agent-adapters
       "status": "available",
       "path": "/Users/alice/.local/bin/codex-acp-adapter",
       "cost_mode": "external",
-      "adapter_version": "0.0.0-dev",
-      "agent_version": "0.48.0",
-      "supported_range": ">=0.0.0-dev",
+      "supported_range": ">=0.1.0-alpha.24",
       "version_outside_range": false,
       "supports_authenticate": true,
       "supports_logout": true,
-      "auth_status": "ok",
+      "auth_status": "unknown",
       "credential_modes": [
         {
           "id": "local_login",
@@ -1026,7 +1026,7 @@ GET /hecate/v1/agent-adapters
       "name": "Grok Build",
       "kind": "acp",
       "command": "grok",
-      "args": ["agent"],
+      "args": ["agent", "stdio"],
       "available": true,
       "status": "available",
       "path": "/Users/alice/.local/bin/grok",
@@ -1035,7 +1035,7 @@ GET /hecate/v1/agent-adapters
       "supported_range": ">=0.1.0",
       "supports_authenticate": false,
       "supports_logout": false,
-      "auth_status": "ok"
+      "auth_status": "unknown"
     },
     {
       "id": "cursor_agent",
@@ -1047,13 +1047,11 @@ GET /hecate/v1/agent-adapters
       "status": "available",
       "path": "/Users/alice/.local/bin/cursor-agent",
       "cost_mode": "external",
-      "agent_version": "0.0.9",
       "supported_range": ">=0.1.0",
-      "version_outside_range": true,
+      "version_outside_range": false,
       "supports_authenticate": false,
       "supports_logout": false,
-      "auth_status": "unauthenticated",
-      "auth_error": "Run cursor-agent login, or set CURSOR_API_KEY for the agent environment."
+      "auth_status": "unknown"
     },
     {
       "id": "claude_code",
@@ -1064,31 +1062,29 @@ GET /hecate/v1/agent-adapters
       "status": "missing",
       "error": "exec: \"claude-code-acp-adapter\": executable file not found in $PATH",
       "cost_mode": "external",
-      "supported_range": ">=0.0.0-dev",
+      "supported_range": ">=0.1.0-alpha.25",
       "supports_authenticate": true,
       "supports_logout": true,
       "auth_status": "unknown",
-      "auth_error": "Open Connections and test Claude Code. If it reports a sign-in error, run `claude /login` in Terminal."
+      "claude_code_cli": {
+        "available": true,
+        "command": "/Users/alice/.local/bin/claude",
+        "executable_path": "/Users/alice/.local/bin/claude"
+      }
     }
   ]
 }
 ```
 
-`adapter_version` is the ACP bridge version when Hecate uses a separate binary
-to speak ACP. The standalone Go Codex and Claude Code adapters report
-`0.0.0-dev` when installed directly with `go install`; Hecate container images
-bundle release-built adapter binaries so they report their stamped tag.
-`agent_version` is the underlying coding-agent CLI version, such as `codex`,
-`claude`, `cursor-agent`, or `grok`. Both fields are extracted from `--version`
-output and omitted when the command is missing or does not print a recognisable
-semver string. `version_outside_range` is `true` when the version subject to
-`supported_range` does not satisfy the constraint — the Connections UI shows an
-amber "outside tested range" chip in that case.
+`adapter_version` and `agent_version` are omitted from the catalog response.
+They are populated by the explicit probe response after Hecate starts the ACP
+adapter and runs the live diagnostics. `version_outside_range` remains `false`
+until a probed version is known to fall outside `supported_range`.
 
-`auth_status` is a lightweight dashboard hint, not a full login check. Values:
-`ok`, `unauthenticated`, `billing`, or `unknown`. It is derived from known env
-vars and login files without spawning the agent. Use `POST
-/hecate/v1/agent-adapters/{id}/probe` for the full ACP handshake.
+`auth_status` is `unknown` on the cheap catalog path unless a dev or remote
+runtime override can classify it without spawning a CLI. Use `POST
+/hecate/v1/agent-adapters/{id}/probe` for the full ACP handshake and login /
+billing classification.
 
 `supports_authenticate` and `supports_logout` tell clients whether Hecate can
 call ACP `authenticate` or `logout` for this adapter. UIs should use these
@@ -1112,17 +1108,15 @@ These are **external agents**, not model providers. They run ACP-compatible
 coding agents under Hecate supervision; cost is reported as `external`
 until an agent can supply structured usage.
 
-`config_options` on a catalog row are Hecate-managed launch controls. Clients
-can render them before creating an External Agent chat and pass the selected
-options to `POST /hecate/v1/chat/sessions`. Values prefixed with
-`__hecate_no_` are explicit "not selected" sentinels. Some options are optional;
-launch-model options can be required by the adapter definition and cause
-`400 chat.model_required` at session creation until a real value is selected.
-Agent-owned ACP model state appears on the prepared chat session instead of
-the catalog row and is updated with ACP `session/set_model`. When an agent
-uses CLI help or model-list commands to populate launch controls, the catalog
-endpoint reuses a short in-process cache instead of spawning the CLI on every
-refresh.
+`config_options` are omitted from the catalog response. Hecate returns
+launch-control options on explicit probe responses and prepared chat sessions,
+where it is acceptable to run the adapter's help/model discovery or consume the
+ACP session's own controls. Values prefixed with `__hecate_no_` are explicit
+"not selected" sentinels. Some options are optional; launch-model options can
+be required by the adapter definition and cause `400 chat.model_required` at
+session creation until a real value is selected. Agent-owned ACP model state
+appears on the prepared chat session and is updated with ACP
+`session/set_model`.
 
 ### `POST /hecate/v1/agent-adapters/{id}/probe`
 

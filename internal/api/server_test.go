@@ -1164,6 +1164,57 @@ func TestAgentAdaptersReturnsBuiltIns(t *testing.T) {
 	}
 }
 
+func TestAgentAdaptersListDoesNotRunAdapterDiagnostics(t *testing.T) {
+	if os.PathSeparator == '\\' {
+		t.Skip("shell-script subprocess fixture is POSIX-only")
+	}
+	dir := t.TempDir()
+	countFile := filepath.Join(dir, "executed")
+	for _, name := range []string{
+		"codex-acp-adapter",
+		"codex",
+		"claude-code-acp-adapter",
+		"claude",
+		"cursor-agent",
+		"grok",
+	} {
+		path := filepath.Join(dir, name)
+		body := "#!/bin/sh\n" +
+			"echo \"$0 $@\" >> " + strconv.Quote(countFile) + "\n" +
+			"echo " + strconv.Quote(name+" 9.9.9") + "\n"
+		if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+			t.Fatalf("write fake executable %s: %v", name, err)
+		}
+	}
+	t.Setenv("PATH", dir)
+	t.Setenv("HOME", t.TempDir())
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	handler := NewServer(logger, NewHandler(config.Config{}, logger, nil, nil, nil, nil))
+	client := newAPITestClient(t, handler)
+	response := mustRequestJSON[AgentAdapterResponse](client, http.MethodGet, "/hecate/v1/agent-adapters", "")
+
+	if len(response.Data) != 4 {
+		t.Fatalf("adapter count = %d, want 4", len(response.Data))
+	}
+	for _, item := range response.Data {
+		if item.AdapterVersion != "" || item.AgentVersion != "" {
+			t.Fatalf("adapter %q versions = %q/%q, want lazy empty versions", item.ID, item.AdapterVersion, item.AgentVersion)
+		}
+		if item.AuthStatus != agentadapters.AuthStatusUnknown {
+			t.Fatalf("adapter %q auth_status = %q, want lazy unknown", item.ID, item.AuthStatus)
+		}
+		if len(item.ConfigOptions) != 0 {
+			t.Fatalf("adapter %q config_options = %#v, want lazy empty options", item.ID, item.ConfigOptions)
+		}
+	}
+	if raw, err := os.ReadFile(countFile); err == nil {
+		t.Fatalf("adapter list executed diagnostics:\n%s", string(raw))
+	} else if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("read diagnostics count file: %v", err)
+	}
+}
+
 func TestAgentAdaptersOmitsCatalogConfigOptionsForGrok(t *testing.T) {
 	t.Setenv("HECATE_AGENT_ADAPTER_DEV_OVERRIDES", "grok_build=ready")
 
