@@ -153,7 +153,7 @@ func runACPAuthAction(ctx context.Context, adapterID, operation, workspacePatter
 	}
 	defer cleanupProcess()
 
-	conn := acp.NewClientSideConnection(probeClient{}, stdin, stdout)
+	conn := acp.NewClientSideConnection(probeClient{workspace: workspace}, stdin, stdout)
 	initCtx, initCancel := context.WithTimeout(actionCtx, 10*time.Second)
 	initResp, err := conn.Initialize(initCtx, acp.InitializeRequest{
 		ProtocolVersion: acp.ProtocolVersionNumber,
