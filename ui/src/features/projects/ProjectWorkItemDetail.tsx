@@ -62,6 +62,11 @@ type AssignmentPreflightState =
     }
   | { status: "error"; detail: string };
 
+type AssignmentLaunchReadinessPreviewState =
+  | { status: "idle" | "loading" }
+  | { status: "ready"; readiness: ProjectAssignmentLaunchReadinessRecord }
+  | { status: "error"; detail: string };
+
 type AssignmentLaunchReadinessNoticeRecord = {
   title: string;
   detail: string;
@@ -926,6 +931,9 @@ function AssignmentRow({
   const [preflightState, setPreflightState] = useState<AssignmentPreflightState>({
     status: "idle",
   });
+  const [readinessPreview, setReadinessPreview] = useState<AssignmentLaunchReadinessPreviewState>({
+    status: "idle",
+  });
   const execution = assignment.execution;
   const assignmentExecution = toProjectAssignmentExecutionViewModel(assignment);
   const activityView = activityItem ? toProjectActivityItemViewModel(activityItem) : null;
@@ -947,6 +955,20 @@ function AssignmentRow({
   const startedAt = activityView?.startedAt || execution?.started_at || assignment.started_at;
   const finishedAt = activityView?.finishedAt || execution?.finished_at || assignment.completed_at;
 
+  const loadReadinessPreview = useCallback(async () => {
+    if (!loadReadiness) return;
+    setReadinessPreview({ status: "loading" });
+    try {
+      const readiness = await loadReadiness();
+      setReadinessPreview({ status: "ready", readiness });
+    } catch (error) {
+      setReadinessPreview({
+        status: "error",
+        detail: projectErrorMessage(error, "Failed to load assignment launch readiness."),
+      });
+    }
+  }, [loadReadiness]);
+
   const openPreflight = useCallback(async () => {
     if (!loadPreflight || !loadReadiness) {
       onStart();
@@ -956,6 +978,7 @@ function AssignmentRow({
     setPreflightState({ status: "loading" });
     try {
       const [readiness, packet] = await Promise.all([loadReadiness(), loadPreflight()]);
+      setReadinessPreview({ status: "ready", readiness });
       setPreflightState({ status: "ready", packet, readiness });
     } catch (error) {
       setPreflightState({
@@ -1142,6 +1165,12 @@ function AssignmentRow({
           </button>
         )}
       </div>
+      {startable && loadReadiness && (
+        <AssignmentLaunchReadinessPreview
+          onCheck={() => void loadReadinessPreview()}
+          state={readinessPreview}
+        />
+      )}
       {evidence.hasEvidence && <ProjectAssignmentEvidence evidence={evidence} />}
       {activityView?.statusSummary &&
         activityView.statusSummary !== projectedStatus &&
@@ -1181,6 +1210,74 @@ function AssignmentRow({
         />
       )}
     </div>
+  );
+}
+
+function AssignmentLaunchReadinessPreview({
+  onCheck,
+  state,
+}: {
+  onCheck: () => void;
+  state: AssignmentLaunchReadinessPreviewState;
+}) {
+  const loading = state.status === "loading";
+  const readiness = state.status === "ready" ? state.readiness : null;
+  const rows = readiness ? assignmentLaunchPostureRows(readiness) : [];
+  const statusLabel = readiness?.status || (readiness?.ready ? "ready" : "not checked");
+  const firstBlocker = readiness?.blockers?.[0];
+  const firstWarning = readiness?.warnings?.[0];
+  return (
+    <section aria-label="Assignment launch readiness" style={launchReadinessPreviewStyle}>
+      <div style={launchReadinessPreviewHeaderStyle}>
+        <div style={sectionLabelStyle}>Launch readiness</div>
+        <span
+          className={
+            readiness ? (readiness.ready ? "badge badge-green" : "badge badge-amber") : "badge"
+          }
+        >
+          {loading ? "checking" : statusLabel}
+        </span>
+        <button
+          className="btn btn-ghost btn-sm"
+          type="button"
+          onClick={onCheck}
+          disabled={loading}
+          style={{ marginLeft: "auto" }}
+        >
+          <Icon d={Icons.refresh} size={12} />
+          {readiness ? "Refresh" : "Check readiness"}
+        </button>
+      </div>
+      {state.status === "idle" && (
+        <div style={subtleTextStyle}>
+          Check the resolved driver, workspace, profile, and launch target before opening the full
+          preflight.
+        </div>
+      )}
+      {state.status === "loading" && (
+        <div style={subtleTextStyle}>Loading typed launch readiness…</div>
+      )}
+      {state.status === "error" && <InlineError message={state.detail} />}
+      {readiness && (
+        <>
+          <div style={launchReadinessPreviewGridStyle}>
+            {rows.map((row) => (
+              <div key={row.label} style={launchReadinessPreviewItemStyle}>
+                <span style={launchPostureLabelStyle}>{row.label}</span>
+                <span style={launchReadinessPreviewValueStyle} title={row.value}>
+                  {row.value}
+                </span>
+              </div>
+            ))}
+          </div>
+          {(firstBlocker || firstWarning || readiness.detail) && (
+            <div style={readiness.ready ? subtleTextStyle : launchReadinessBlockerStyle}>
+              {firstBlocker || firstWarning || readiness.detail}
+            </div>
+          )}
+        </>
+      )}
+    </section>
   );
 }
 
@@ -2174,6 +2271,54 @@ const assignmentStyle: CSSProperties = {
   background: "var(--bg2)",
   borderRadius: "var(--radius-sm)",
   padding: 10,
+};
+
+const launchReadinessPreviewStyle: CSSProperties = {
+  background: "var(--bg1)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-sm)",
+  display: "grid",
+  gap: 8,
+  marginTop: 9,
+  minWidth: 0,
+  padding: "9px 10px",
+};
+
+const launchReadinessPreviewHeaderStyle: CSSProperties = {
+  alignItems: "center",
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 8,
+  minWidth: 0,
+};
+
+const launchReadinessPreviewGridStyle: CSSProperties = {
+  display: "grid",
+  gap: "7px 10px",
+  gridTemplateColumns: "repeat(auto-fit, minmax(135px, 1fr))",
+  minWidth: 0,
+};
+
+const launchReadinessPreviewItemStyle: CSSProperties = {
+  display: "grid",
+  gap: 2,
+  minWidth: 0,
+};
+
+const launchReadinessPreviewValueStyle: CSSProperties = {
+  color: "var(--t1)",
+  fontSize: 12,
+  lineHeight: 1.35,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+};
+
+const launchReadinessBlockerStyle: CSSProperties = {
+  color: "var(--amber)",
+  fontSize: 12,
+  lineHeight: 1.4,
+  overflowWrap: "anywhere",
 };
 
 const assignmentEvidenceStyle: CSSProperties = {
