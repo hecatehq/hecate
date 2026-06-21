@@ -36,7 +36,12 @@ func (r *recordingAgentRunner) PrepareSession(_ context.Context, req agentadapte
 	return agentadapters.PrepareSessionResult{
 		DriverKind:      agentadapters.DriverKindACP,
 		NativeSessionID: "native_" + req.SessionID,
-		ConfigOptions:   r.configOptions,
+		AgentInfo: &agentcontrols.ImplementationInfo{
+			Name:    "codex-acp-adapter",
+			Title:   "Codex ACP Adapter",
+			Version: "0.1.0-alpha.28",
+		},
+		ConfigOptions: r.configOptions,
 	}, nil
 }
 
@@ -286,6 +291,9 @@ func TestApplication_CreateSessionPreparesExternalSession(t *testing.T) {
 	if result.Session.DriverKind != agentadapters.DriverKindACP || result.Session.NativeSessionID != "native_chat_ext" {
 		t.Fatalf("prepared session = %+v, want native metadata", result.Session)
 	}
+	if result.Session.AgentInfo == nil || result.Session.AgentInfo.Title != "Codex ACP Adapter" || result.Session.AgentInfo.Version != "0.1.0-alpha.28" {
+		t.Fatalf("agent info = %#v, want prepared adapter metadata", result.Session.AgentInfo)
+	}
 	if len(result.Session.ConfigOptions) != 1 || result.Session.ConfigOptions[0].CurrentValue != "sonnet" {
 		t.Fatalf("config options = %+v, want prepared options", result.Session.ConfigOptions)
 	}
@@ -390,6 +398,7 @@ func TestApplication_DeleteSessionDeletesNativeSessionWhenRequested(t *testing.T
 		AgentID:         "codex",
 		DriverKind:      agentadapters.DriverKindACP,
 		NativeSessionID: "native_chat_ext",
+		AgentInfo:       &agentcontrols.ImplementationInfo{Name: "codex-acp-adapter"},
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -452,8 +461,8 @@ func TestApplication_CloseNativeSessionClearsRuntimeHandles(t *testing.T) {
 	if runner.closeCalls != 1 || runner.closedSessions[0] != "chat_ext" {
 		t.Fatalf("closed sessions = %+v closeCalls=%d, want chat_ext closed once", runner.closedSessions, runner.closeCalls)
 	}
-	if result.Session.DriverKind != "" || result.Session.NativeSessionID != "" {
-		t.Fatalf("session runtime handles = %q/%q, want cleared", result.Session.DriverKind, result.Session.NativeSessionID)
+	if result.Session.DriverKind != "" || result.Session.NativeSessionID != "" || result.Session.AgentInfo != nil {
+		t.Fatalf("session runtime handles = %q/%q/%#v, want cleared", result.Session.DriverKind, result.Session.NativeSessionID, result.Session.AgentInfo)
 	}
 }
 

@@ -50,6 +50,15 @@ type Command struct {
 	InputHint   string `json:"input_hint,omitempty"`
 }
 
+// ImplementationInfo is Hecate's stable projection of ACP implementation
+// metadata. ACP owns the raw initialize shape; Hecate persists this trimmed
+// subset so operators can see which agent implementation handled a session.
+type ImplementationInfo struct {
+	Name    string `json:"name,omitempty"`
+	Title   string `json:"title,omitempty"`
+	Version string `json:"version,omitempty"`
+}
+
 type SetConfigOptionRequest struct {
 	SessionID string
 	ConfigID  string
@@ -106,6 +115,25 @@ func FromACPCommands(commands []acp.AvailableCommand) []Command {
 		return nil
 	}
 	return out
+}
+
+// FromACPImplementation converts ACP initialize implementation metadata to the
+// stable Hecate projection. Empty metadata is omitted.
+func FromACPImplementation(info *acp.Implementation) *ImplementationInfo {
+	if info == nil {
+		return nil
+	}
+	out := ImplementationInfo{
+		Name:    trimString(info.Name),
+		Version: trimString(info.Version),
+	}
+	if info.Title != nil {
+		out.Title = trimString(*info.Title)
+	}
+	if out.Name == "" && out.Title == "" && out.Version == "" {
+		return nil
+	}
+	return &out
 }
 
 // BuildACPSetRequest converts a SetConfigOptionRequest to the ACP wire shape.

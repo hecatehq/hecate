@@ -12,6 +12,7 @@ import (
 
 	acp "github.com/coder/acp-go-sdk"
 
+	"github.com/hecatehq/hecate/internal/agentcontrols"
 	"github.com/hecatehq/hecate/internal/telemetry"
 )
 
@@ -61,14 +62,9 @@ type ProbeResult struct {
 	DurationMS           int64             `json:"duration_ms"`
 }
 
-// ProbeAgentInfo is the safe subset of ACP Initialize agentInfo that Hecate
-// can surface in health responses. It helps operators verify the process that
-// answered the ACP handshake without parsing stderr or shelling out again.
-type ProbeAgentInfo struct {
-	Name    string `json:"name,omitempty"`
-	Title   string `json:"title,omitempty"`
-	Version string `json:"version,omitempty"`
-}
+// ProbeAgentInfo keeps the health-probe name for the shared ACP implementation
+// metadata projection.
+type ProbeAgentInfo = agentcontrols.ImplementationInfo
 
 // ProbeAuthMethod is the non-secret subset of ACP Initialize authMethods that
 // Hecate can safely surface in health responses. Env var names and terminal env
@@ -285,7 +281,7 @@ func applyInitializeCapabilities(res *ProbeResult, initResp acp.InitializeRespon
 		return
 	}
 	res.CapabilitiesKnown = true
-	res.AgentInfo = probeAgentInfo(initResp.AgentInfo)
+	res.AgentInfo = agentcontrols.FromACPImplementation(initResp.AgentInfo)
 	res.SupportsLoadSession = initResp.AgentCapabilities.LoadSession
 	res.SupportsLogout = initResp.AgentCapabilities.Auth.Logout != nil
 	res.AuthMethods = probeAuthMethods(initResp.AuthMethods)
@@ -295,23 +291,6 @@ func applyInitializeCapabilities(res *ProbeResult, initResp acp.InitializeRespon
 			break
 		}
 	}
-}
-
-func probeAgentInfo(info *acp.Implementation) *ProbeAgentInfo {
-	if info == nil {
-		return nil
-	}
-	out := ProbeAgentInfo{
-		Name:    strings.TrimSpace(info.Name),
-		Version: strings.TrimSpace(info.Version),
-	}
-	if info.Title != nil {
-		out.Title = strings.TrimSpace(*info.Title)
-	}
-	if out.Name == "" && out.Title == "" && out.Version == "" {
-		return nil
-	}
-	return &out
 }
 
 func probeAuthMethods(methods []acp.AuthMethod) []ProbeAuthMethod {

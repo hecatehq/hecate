@@ -363,6 +363,7 @@ func (app *Application) CreateSession(ctx context.Context, cmd CreateSessionComm
 	session, err = app.store.UpdateSession(ctx, session.ID, func(item *chat.Session) {
 		item.DriverKind = prepared.DriverKind
 		item.NativeSessionID = prepared.NativeSessionID
+		item.AgentInfo = prepared.AgentInfo
 		item.ConfigOptions = prepared.ConfigOptions
 		if prepared.AvailableCommandsKnown {
 			item.AvailableCommands = prepared.AvailableCommands
@@ -395,6 +396,7 @@ func (app *Application) CloseNativeSession(ctx context.Context, cmd CloseNativeS
 	session, err := app.store.UpdateSession(ctx, cmd.Session.ID, func(item *chat.Session) {
 		item.DriverKind = ""
 		item.NativeSessionID = ""
+		item.AgentInfo = nil
 	})
 	if err != nil {
 		return nil, err

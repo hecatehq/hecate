@@ -567,6 +567,10 @@ Adapter health probes also preserve ACP `initialize.agentInfo` in
 `/hecate/v1/agent-adapters/{id}/health` as `agent_info`. Connections renders
 that live self-reported agent name/version alongside the static binary version
 checks so operators can confirm which ACP implementation answered the handshake.
+When a chat session is prepared or a turn runs, Hecate stores the same
+`agent_info` snapshot on the External Agent chat session and assistant message.
+This keeps transcript/project views explainable after restart even if no fresh
+health probe is available.
 
 ![Chats workspace with an external-agent file-write approval waiting for operator review](../screenshots/chat-agent-approval.png)
 

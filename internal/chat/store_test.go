@@ -492,6 +492,77 @@ func runStoreAvailableCommandsRoundTrip(t *testing.T, store Store) {
 	}
 }
 
+func runStoreAgentInfoRoundTrip(t *testing.T, store Store) {
+	t.Helper()
+	ctx := context.Background()
+	created, err := store.Create(ctx, Session{
+		ID:              "chat_agent_info",
+		Title:           "Agent info",
+		AgentID:         "codex",
+		DriverKind:      "acp",
+		NativeSessionID: "native_agent_info",
+		Workspace:       "/tmp/hecate",
+		AgentInfo: &agentcontrols.ImplementationInfo{
+			Name:    "codex-acp-adapter",
+			Title:   "Codex ACP Adapter",
+			Version: "0.1.0-alpha.28",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	created.AgentInfo.Title = "mutated"
+
+	got, ok, err := store.Get(ctx, "chat_agent_info")
+	if err != nil || !ok {
+		t.Fatalf("Get: ok=%v err=%v", ok, err)
+	}
+	if got.AgentInfo == nil || got.AgentInfo.Title != "Codex ACP Adapter" || got.AgentInfo.Version != "0.1.0-alpha.28" {
+		t.Fatalf("session agent info = %#v, want stored adapter metadata", got.AgentInfo)
+	}
+	got.AgentInfo.Version = "mutated"
+
+	withMessage, err := store.AppendMessage(ctx, "chat_agent_info", Message{
+		ID:      "msg_agent_info",
+		Role:    "assistant",
+		Content: "hello",
+		Status:  "completed",
+	})
+	if err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+	var appended Message
+	for _, message := range withMessage.Messages {
+		if message.ID == "msg_agent_info" {
+			appended = message
+			break
+		}
+	}
+	if appended.AgentInfo == nil || appended.AgentInfo.Name != "codex-acp-adapter" {
+		t.Fatalf("hydrated message agent info = %#v, want session metadata", appended.AgentInfo)
+	}
+
+	if _, err := store.UpdateMessage(ctx, "chat_agent_info", "msg_agent_info", func(message *Message) {
+		message.AgentInfo = &agentcontrols.ImplementationInfo{
+			Name:    "claude-code-acp-adapter",
+			Title:   "Claude Code ACP Adapter",
+			Version: "0.1.0-alpha.29",
+		}
+	}); err != nil {
+		t.Fatalf("UpdateMessage: %v", err)
+	}
+	again, ok, err := store.Get(ctx, "chat_agent_info")
+	if err != nil || !ok {
+		t.Fatalf("Get after update: ok=%v err=%v", ok, err)
+	}
+	if again.AgentInfo == nil || again.AgentInfo.Version != "0.1.0-alpha.28" {
+		t.Fatalf("session agent info after mutation/update = %#v, want original session metadata", again.AgentInfo)
+	}
+	if len(again.Messages) != 1 || again.Messages[0].AgentInfo == nil || again.Messages[0].AgentInfo.Name != "claude-code-acp-adapter" {
+		t.Fatalf("message agent info after update = %#v, want updated message metadata", again.Messages)
+	}
+}
+
 func runStoreContextSummaryRoundTrip(t *testing.T, store Store) {
 	t.Helper()
 	ctx := context.Background()

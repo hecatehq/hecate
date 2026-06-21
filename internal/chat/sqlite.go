@@ -66,16 +66,17 @@ func (s *SQLiteStore) Create(ctx context.Context, session Session) (Session, err
 		ctx,
 		fmt.Sprintf(
 			`INSERT INTO %s (
-				id, title, project_id, agent_id, driver_kind, native_session_id, workspace, workspace_branch,
+				id, title, project_id, agent_id, driver_kind, native_session_id, agent_info, workspace, workspace_branch,
 				status, task_id, latest_run_id, provider, model, capabilities, config_options, available_commands, mcp_servers, rtk_enabled, turns_used, context_summary, created_at, updated_at
 			 )
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			 ON CONFLICT(id) DO UPDATE SET
 			   title = excluded.title,
 			   project_id = excluded.project_id,
 			   agent_id = excluded.agent_id,
 			   driver_kind = excluded.driver_kind,
 			   native_session_id = excluded.native_session_id,
+			   agent_info = excluded.agent_info,
 			   workspace = excluded.workspace,
 			   workspace_branch = excluded.workspace_branch,
 			   status = excluded.status,
@@ -98,6 +99,7 @@ func (s *SQLiteStore) Create(ctx context.Context, session Session) (Session, err
 		normalizeAgentID(session),
 		session.DriverKind,
 		session.NativeSessionID,
+		marshalImplementationInfo(session.AgentInfo),
 		session.Workspace,
 		session.WorkspaceBranch,
 		session.Status,
@@ -136,12 +138,12 @@ func (s *SQLiteStore) List(ctx context.Context) ([]Session, error) {
 	rows, err := s.client.DB().QueryContext(
 		ctx,
 		fmt.Sprintf(
-			`SELECT s.id, s.title, s.project_id, s.agent_id, s.driver_kind, s.native_session_id, s.workspace, s.workspace_branch,
+			`SELECT s.id, s.title, s.project_id, s.agent_id, s.driver_kind, s.native_session_id, s.agent_info, s.workspace, s.workspace_branch,
 			        s.status, s.task_id, s.latest_run_id, s.provider, s.model, s.capabilities, s.config_options, s.available_commands, s.mcp_servers, s.rtk_enabled, s.turns_used, s.context_summary, s.created_at, s.updated_at,
 			        COUNT(m.id) AS message_count
 			 FROM %s AS s
 			 LEFT JOIN %s AS m ON m.session_id = s.id
-			 GROUP BY s.id, s.title, s.project_id, s.agent_id, s.driver_kind, s.native_session_id, s.workspace, s.workspace_branch,
+			 GROUP BY s.id, s.title, s.project_id, s.agent_id, s.driver_kind, s.native_session_id, s.agent_info, s.workspace, s.workspace_branch,
 			          s.status, s.task_id, s.latest_run_id, s.provider, s.model, s.capabilities, s.config_options, s.available_commands, s.mcp_servers, s.rtk_enabled, s.turns_used, s.context_summary, s.created_at, s.updated_at
 			 ORDER BY s.updated_at DESC, s.created_at DESC`,
 			s.sessionsTable,
@@ -160,6 +162,7 @@ func (s *SQLiteStore) List(ctx context.Context) ([]Session, error) {
 		var capabilities string
 		var configOptions string
 		var availableCommands string
+		var agentInfo string
 		var mcpServers string
 		var contextSummary string
 		var rtkEnabled int
@@ -170,6 +173,7 @@ func (s *SQLiteStore) List(ctx context.Context) ([]Session, error) {
 			&session.AgentID,
 			&session.DriverKind,
 			&session.NativeSessionID,
+			&agentInfo,
 			&session.Workspace,
 			&session.WorkspaceBranch,
 			&session.Status,
@@ -193,6 +197,7 @@ func (s *SQLiteStore) List(ctx context.Context) ([]Session, error) {
 		session.Capabilities = unmarshalModelCapabilities(capabilities)
 		session.ConfigOptions = unmarshalConfigOptions(configOptions)
 		session.AvailableCommands = unmarshalCommands(availableCommands)
+		session.AgentInfo = unmarshalImplementationInfo(agentInfo)
 		session.MCPServers = unmarshalMCPServers(mcpServers)
 		session.ContextSummary = unmarshalContextSummary(contextSummary)
 		session.RTKEnabled = rtkEnabled != 0
@@ -262,7 +267,7 @@ func (s *SQLiteStore) UpdateSession(ctx context.Context, id string, update func(
 		ctx,
 		fmt.Sprintf(
 			`UPDATE %s SET
-			   title = ?, project_id = ?, agent_id = ?, driver_kind = ?, native_session_id = ?, workspace = ?, workspace_branch = ?,
+			   title = ?, project_id = ?, agent_id = ?, driver_kind = ?, native_session_id = ?, agent_info = ?, workspace = ?, workspace_branch = ?,
 			   status = ?, task_id = ?, latest_run_id = ?, provider = ?, model = ?, capabilities = ?, config_options = ?, available_commands = ?, mcp_servers = ?, rtk_enabled = ?, turns_used = ?, context_summary = ?, updated_at = ?
 			 WHERE id = ?`,
 			s.sessionsTable,
@@ -272,6 +277,7 @@ func (s *SQLiteStore) UpdateSession(ctx context.Context, id string, update func(
 		normalizeAgentID(session),
 		session.DriverKind,
 		session.NativeSessionID,
+		marshalImplementationInfo(session.AgentInfo),
 		session.Workspace,
 		session.WorkspaceBranch,
 		session.Status,
@@ -328,10 +334,10 @@ func (s *SQLiteStore) AppendMessage(ctx context.Context, sessionID string, messa
 		fmt.Sprintf(
 			`INSERT INTO %s (
 				id, session_id, sequence, execution_mode, tools_enabled, segment_id, task_id, run_id, request_id, trace_id, span_id,
-				role, content, raw_output, agent_id, agent_name, driver_kind, native_session_id, status, exit_code,
+				role, content, raw_output, agent_id, agent_name, driver_kind, native_session_id, agent_info, status, exit_code,
 				cost_mode, provider, model, capabilities, workspace, diff_stat, diff, created_at, started_at, completed_at,
 				error, activities, usage, timing, context_packet
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			s.messagesTable,
 		),
 		message.ID,
@@ -352,6 +358,7 @@ func (s *SQLiteStore) AppendMessage(ctx context.Context, sessionID string, messa
 		message.AgentName,
 		message.DriverKind,
 		message.NativeSessionID,
+		marshalImplementationInfo(message.AgentInfo),
 		message.Status,
 		message.ExitCode,
 		message.CostMode,
@@ -399,7 +406,7 @@ func (s *SQLiteStore) UpdateMessage(ctx context.Context, sessionID string, messa
 		fmt.Sprintf(
 			`UPDATE %s SET
 			   execution_mode = ?, tools_enabled = ?, segment_id = ?, task_id = ?, run_id = ?, request_id = ?, trace_id = ?, span_id = ?, role = ?, content = ?, raw_output = ?, agent_id = ?, agent_name = ?,
-			   driver_kind = ?, native_session_id = ?, status = ?, exit_code = ?,
+			   driver_kind = ?, native_session_id = ?, agent_info = ?, status = ?, exit_code = ?,
 			   cost_mode = ?, provider = ?, model = ?, capabilities = ?, workspace = ?, diff_stat = ?, diff = ?, created_at = ?,
 			   started_at = ?, completed_at = ?, error = ?, activities = ?, usage = ?, timing = ?, context_packet = ?
 			 WHERE id = ? AND session_id = ?`,
@@ -420,6 +427,7 @@ func (s *SQLiteStore) UpdateMessage(ctx context.Context, sessionID string, messa
 		message.AgentName,
 		message.DriverKind,
 		message.NativeSessionID,
+		marshalImplementationInfo(message.AgentInfo),
 		message.Status,
 		message.ExitCode,
 		message.CostMode,
@@ -462,6 +470,7 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 				agent_id TEXT NOT NULL DEFAULT 'hecate',
 				driver_kind TEXT NOT NULL DEFAULT '',
 				native_session_id TEXT NOT NULL DEFAULT '',
+				agent_info TEXT NOT NULL DEFAULT '{}',
 				workspace TEXT NOT NULL,
 				workspace_branch TEXT NOT NULL DEFAULT '',
 				status TEXT NOT NULL,
@@ -501,6 +510,7 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 				agent_name TEXT NOT NULL,
 				driver_kind TEXT NOT NULL DEFAULT '',
 				native_session_id TEXT NOT NULL DEFAULT '',
+				agent_info TEXT NOT NULL DEFAULT '{}',
 				status TEXT NOT NULL,
 				exit_code INTEGER NOT NULL,
 				run_id TEXT NOT NULL DEFAULT '',
@@ -540,6 +550,9 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 		return err
 	}
 	if err := s.ensureSessionColumn(ctx, "native_session_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := s.ensureSessionColumn(ctx, "agent_info", "TEXT NOT NULL DEFAULT '{}'"); err != nil {
 		return err
 	}
 	if err := s.ensureSessionColumn(ctx, "turns_used", "INTEGER NOT NULL DEFAULT 0"); err != nil {
@@ -583,6 +596,7 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 		{name: "span_id", definition: "TEXT NOT NULL DEFAULT ''"},
 		{name: "driver_kind", definition: "TEXT NOT NULL DEFAULT ''"},
 		{name: "native_session_id", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "agent_info", definition: "TEXT NOT NULL DEFAULT '{}'"},
 		{name: "started_at", definition: "TIMESTAMP"},
 		{name: "completed_at", definition: "TIMESTAMP"},
 		{name: "error", definition: "TEXT NOT NULL DEFAULT ''"},
@@ -622,13 +636,14 @@ func (s *SQLiteStore) loadSession(ctx context.Context, id string) (Session, erro
 	var capabilities string
 	var configOptions string
 	var availableCommands string
+	var agentInfo string
 	var mcpServers string
 	var contextSummary string
 	var rtkEnabled int
 	err := s.client.DB().QueryRowContext(
 		ctx,
 		fmt.Sprintf(
-			`SELECT id, title, project_id, agent_id, driver_kind, native_session_id, workspace, workspace_branch,
+			`SELECT id, title, project_id, agent_id, driver_kind, native_session_id, agent_info, workspace, workspace_branch,
 			        status, task_id, latest_run_id, provider, model, capabilities, config_options, available_commands, mcp_servers, rtk_enabled, turns_used, context_summary, created_at, updated_at
 			 FROM %s WHERE id = ?`,
 			s.sessionsTable,
@@ -641,6 +656,7 @@ func (s *SQLiteStore) loadSession(ctx context.Context, id string) (Session, erro
 		&session.AgentID,
 		&session.DriverKind,
 		&session.NativeSessionID,
+		&agentInfo,
 		&session.Workspace,
 		&session.WorkspaceBranch,
 		&session.Status,
@@ -670,6 +686,7 @@ func (s *SQLiteStore) loadSession(ctx context.Context, id string) (Session, erro
 	session.Capabilities = unmarshalModelCapabilities(capabilities)
 	session.ConfigOptions = unmarshalConfigOptions(configOptions)
 	session.AvailableCommands = unmarshalCommands(availableCommands)
+	session.AgentInfo = unmarshalImplementationInfo(agentInfo)
 	session.MCPServers = unmarshalMCPServers(mcpServers)
 	session.ContextSummary = unmarshalContextSummary(contextSummary)
 	session.RTKEnabled = rtkEnabled != 0
@@ -688,7 +705,7 @@ func (s *SQLiteStore) loadMessages(ctx context.Context, sessionID string) ([]Mes
 	rows, err := s.client.DB().QueryContext(
 		ctx,
 		fmt.Sprintf(
-			`SELECT id, execution_mode, tools_enabled, segment_id, task_id, run_id, request_id, trace_id, span_id, role, content, raw_output, agent_id, agent_name, driver_kind, native_session_id, status, exit_code, cost_mode,
+			`SELECT id, execution_mode, tools_enabled, segment_id, task_id, run_id, request_id, trace_id, span_id, role, content, raw_output, agent_id, agent_name, driver_kind, native_session_id, agent_info, status, exit_code, cost_mode,
 			        provider, model, capabilities, workspace, diff_stat, diff, created_at, started_at, completed_at, error, activities, usage, timing, context_packet
 			 FROM %s
 			 WHERE session_id = ?
@@ -711,6 +728,7 @@ func (s *SQLiteStore) loadMessages(ctx context.Context, sessionID string) ([]Mes
 		var timing string
 		var capabilities string
 		var contextPacket string
+		var agentInfo string
 		var toolsEnabledInt int64
 		if err := rows.Scan(
 			&message.ID,
@@ -729,6 +747,7 @@ func (s *SQLiteStore) loadMessages(ctx context.Context, sessionID string) ([]Mes
 			&message.AgentName,
 			&message.DriverKind,
 			&message.NativeSessionID,
+			&agentInfo,
 			&message.Status,
 			&message.ExitCode,
 			&message.CostMode,
@@ -760,6 +779,7 @@ func (s *SQLiteStore) loadMessages(ctx context.Context, sessionID string) ([]Mes
 		message.Timing = unmarshalTiming(timing)
 		message.Capabilities = unmarshalModelCapabilities(capabilities)
 		message.Context = unmarshalContextPacket(contextPacket)
+		message.AgentInfo = unmarshalImplementationInfo(agentInfo)
 		message.ToolsEnabled = toolsEnabledInt != 0
 		messages = append(messages, message)
 	}
@@ -825,11 +845,12 @@ func loadMessage(ctx context.Context, tx txRunner, table string, sessionID strin
 	var timing string
 	var capabilities string
 	var contextPacket string
+	var agentInfo string
 	var toolsEnabledInt int64
 	err := tx.QueryRowContext(
 		ctx,
 		fmt.Sprintf(
-			`SELECT id, execution_mode, tools_enabled, segment_id, task_id, run_id, request_id, trace_id, span_id, role, content, raw_output, agent_id, agent_name, driver_kind, native_session_id, status, exit_code, cost_mode,
+			`SELECT id, execution_mode, tools_enabled, segment_id, task_id, run_id, request_id, trace_id, span_id, role, content, raw_output, agent_id, agent_name, driver_kind, native_session_id, agent_info, status, exit_code, cost_mode,
 			        provider, model, capabilities, workspace, diff_stat, diff, created_at, started_at, completed_at, error, activities, usage, timing, context_packet
 			 FROM %s
 			 WHERE id = ? AND session_id = ?`,
@@ -854,6 +875,7 @@ func loadMessage(ctx context.Context, tx txRunner, table string, sessionID strin
 		&message.AgentName,
 		&message.DriverKind,
 		&message.NativeSessionID,
+		&agentInfo,
 		&message.Status,
 		&message.ExitCode,
 		&message.CostMode,
@@ -889,6 +911,7 @@ func loadMessage(ctx context.Context, tx txRunner, table string, sessionID strin
 	message.Timing = unmarshalTiming(timing)
 	message.Capabilities = unmarshalModelCapabilities(capabilities)
 	message.Context = unmarshalContextPacket(contextPacket)
+	message.AgentInfo = unmarshalImplementationInfo(agentInfo)
 	message.ToolsEnabled = toolsEnabledInt != 0
 	return message, nil
 }
@@ -1089,6 +1112,29 @@ func unmarshalCommands(raw string) []agentcontrols.Command {
 		return nil
 	}
 	return commands
+}
+
+func marshalImplementationInfo(info *agentcontrols.ImplementationInfo) string {
+	if info == nil || (info.Name == "" && info.Title == "" && info.Version == "") {
+		return "{}"
+	}
+	data, err := json.Marshal(info)
+	if err != nil {
+		return "{}"
+	}
+	return string(data)
+}
+
+func unmarshalImplementationInfo(raw string) *agentcontrols.ImplementationInfo {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "{}" {
+		return nil
+	}
+	var info agentcontrols.ImplementationInfo
+	if err := json.Unmarshal([]byte(raw), &info); err != nil {
+		return nil
+	}
+	return cloneImplementationInfo(&info)
 }
 
 func marshalMCPServers(configs []types.MCPServerConfig) string {

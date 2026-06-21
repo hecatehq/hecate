@@ -40,6 +40,7 @@ type acpSession struct {
 	conn                *acp.ClientSideConnection
 	client              *acpChatClient
 	nativeID            string
+	agentInfo           *agentcontrols.ImplementationInfo
 	logger              *slog.Logger
 	envCleanup          func()
 	onAvailableCommands func(AvailableCommandsUpdate)
@@ -178,6 +179,7 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 			slog.Bool("load_session_supported", initResp.AgentCapabilities.LoadSession),
 		)
 	}
+	session.agentInfo = agentcontrols.FromACPImplementation(initResp.AgentInfo)
 
 	nativeID := ""
 	resumed := false
@@ -350,6 +352,7 @@ func (s *acpSession) RunTurn(ctx context.Context, req RunRequest) (RunResult, er
 	}
 	output, raw, usage := turn.snapshot()
 	result, err := captureACPTurnResult(ctx, s.adapter, req, s.nativeID, stopReason, output, raw, usage, exitCode, started, completed, initialDiffStat, initialDiff, runErr)
+	result.AgentInfo = s.agentInfoSnapshot()
 	result.ConfigOptions = s.configOptionsSnapshot()
 	result.AvailableCommands, result.AvailableCommandsKnown = s.availableCommandsSnapshot()
 	return result, err
@@ -574,6 +577,14 @@ func (s *acpSession) configOptionsSnapshot() []agentcontrols.ConfigOption {
 		return nil
 	}
 	return cloneConfigOptions(s.configOptions)
+}
+
+func (s *acpSession) agentInfoSnapshot() *agentcontrols.ImplementationInfo {
+	if s.agentInfo == nil {
+		return nil
+	}
+	out := *s.agentInfo
+	return &out
 }
 
 func (s *acpSession) setAvailableCommands(commands []agentcontrols.Command) {

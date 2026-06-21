@@ -209,7 +209,9 @@ task-backed turn per session.
 External Agent has two live/persistence layers:
 
 1. `internal/chat` stores the Hecate transcript and native ACP session id
-   in memory, SQLite, or Postgres.
+   in memory, SQLite, or Postgres. It also stores the adapter-reported
+   ACP `initialize.agentInfo` projection as `agent_info`; do not invent a
+   parallel implementation-metadata shape.
 2. `internal/agentadapters` owns the live ACP/process session manager.
 
 Adapter action visibility uses a two-step contract. The built-in registry is

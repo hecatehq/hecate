@@ -206,27 +206,6 @@ func TestApplyInitializeCapabilities(t *testing.T) {
 	}
 }
 
-func TestProbeAgentInfoTrimsAndOmitsEmptyValues(t *testing.T) {
-	t.Parallel()
-
-	if got := probeAgentInfo(nil); got != nil {
-		t.Fatalf("probeAgentInfo(nil) = %#v, want nil", got)
-	}
-	blankTitle := " "
-	if got := probeAgentInfo(&acp.Implementation{Name: " ", Title: &blankTitle, Version: " "}); got != nil {
-		t.Fatalf("probeAgentInfo(blank) = %#v, want nil", got)
-	}
-	title := " Claude Code "
-	got := probeAgentInfo(&acp.Implementation{
-		Name:    " claude-code-acp-adapter ",
-		Title:   &title,
-		Version: " 0.1.0-alpha.29 ",
-	})
-	if got == nil || got.Name != "claude-code-acp-adapter" || got.Title != "Claude Code" || got.Version != "0.1.0-alpha.29" {
-		t.Fatalf("probeAgentInfo() = %#v, want trimmed agent info", got)
-	}
-}
-
 func TestApplyInitializeCapabilitiesRequiresAgentLoginForAuthenticate(t *testing.T) {
 	t.Parallel()
 
