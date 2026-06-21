@@ -23,6 +23,7 @@ const (
 	ToolKindFileDelete = "file_delete"
 	ToolKindSearch     = "search"
 	ToolKindThink      = "think"
+	ToolKindMCP        = "mcp"
 	ToolKindOther      = "other"
 )
 
@@ -89,6 +90,8 @@ func mapACPToolKind(k acp.ToolKind) string {
 		return ToolKindSearch
 	case acp.ToolKindThink:
 		return ToolKindThink
+	case acp.ToolKind("mcp"):
+		return ToolKindMCP
 	case acp.ToolKindOther, acp.ToolKindSwitchMode:
 		return ""
 	}
@@ -102,6 +105,8 @@ func mapACPToolKind(k acp.ToolKind) string {
 func mapTitleToToolKind(title string) string {
 	t := " " + strings.ToLower(title) + " "
 	switch {
+	case containsAny(t, " mcp "):
+		return ToolKindMCP
 	case containsAny(t, " delete ", " remove ", " rm "):
 		return ToolKindFileDelete
 	case containsAny(t, " move ", " rename "):

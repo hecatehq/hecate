@@ -140,25 +140,38 @@ recorded as an `chat_approval` row with `status=approved/denied` and
 
 ### Tool-kind extraction
 
-ACP's `RequestPermissionRequest` doesn't carry a clean tool name. v1 derives
-`tool_kind` from the embedded `tool_call.tool_name` field (always present in
-the ACP shape we've observed across Codex / Claude Code / Cursor / Grok Build)
-and falls back to the option `kind` when the tool field is missing. The mapping:
+Hecate records a normalized `tool_kind` for grant matching and telemetry. The
+adapter's raw tool name stays on the approval row for display/audit, but grants
+use the stable kind so "allow this adapter's MCP tools" does not depend on a
+vendor-specific tool label.
+
+Extraction order:
+
+1. Use ACP `tool_call.kind` when it maps to Hecate's closed taxonomy.
+2. If the typed kind is missing or `other`, infer from the adapter title.
+3. Fall back to `other`.
+
+Current mapping:
 
 ```
-tool_call.tool_name → tool_kind
-─────────────────────────────────
-write_file, edit_file, str_replace, multi_edit  → file_write
-read_file, read_text_file                       → file_read
-shell, bash, run_command, execute               → shell_exec
-fetch, http_get, web_search                     → network
-*                                               → other
+ACP kind / title hint         → tool_kind
+────────────────────────────────────────
+edit / write / patch / apply  → file_write
+read / open / view            → file_read
+execute / run / shell / bash  → shell_exec
+fetch / http / request        → network
+move / rename                 → file_move
+delete / remove               → file_delete
+search / grep / find          → search
+think                         → think
+mcp                           → mcp
+*                             → other
 ```
 
-Adapters can emit tool names not in this list; the fallback is the literal
-adapter-supplied name, recorded as `tool_kind=<adapter>:<raw>`. Frontends
-render it as "unknown tool: …" so the operator sees what the adapter is
-actually asking for, not a sanitized lie.
+The title heuristic is intentionally lenient and only runs after the typed ACP
+kind. MCP titles such as `docs/search` still record `tool_kind=mcp` when the
+adapter supplies `kind=mcp`; without that typed signal, a title containing the
+word `MCP` also maps to `mcp`.
 
 ### Default behavior
 
@@ -390,12 +403,12 @@ These need resolution before this draft can become v1.0 stable.
    per-Hecate-chat.
    - Status: open
 
-2. **Tool-kind extraction reliability.** `tool_call.tool_name` isn't a
-   strict ACP-required field. If an adapter sends a `RequestPermission`
-   without it, all grants degrade to `tool_kind=other`, which makes the
-   `adapter_tool` scope coarser than operators expect. Should we require
-   adapters to emit `tool_name`? Push for an ACP spec change?
-   - Status: open
+2. **Tool-kind extraction reliability.** `tool_call.kind` is now the primary
+   signal and title matching is fallback-only. The Go adapters preserve MCP
+   permission requests as `kind=mcp`, and Hecate records them as `tool_kind=mcp`
+   for grant matching.
+   - Status: resolved for current Codex / Claude Code adapters; keep provider
+     fixtures for new adapters.
 
 3. **What happens to in-flight grants when an adapter is removed from
    `BuiltIns`?** Probably orphan and surface in Connections as "stale grants

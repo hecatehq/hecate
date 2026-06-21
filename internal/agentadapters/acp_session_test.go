@@ -1383,6 +1383,57 @@ func TestSessionManagerACPApprovalApproveCreatesGrantAndReusesSession(t *testing
 	assertApprovalPathForSession(t, store, sessionID, PathGrant, ApprovalStatusApproved)
 }
 
+func TestSessionManagerACPApprovalRecordsMCPToolKind(t *testing.T) {
+	installFakeACPExecutable(t, "codex-acp-adapter")
+	workspace := t.TempDir()
+
+	store := NewMemoryApprovalStore()
+	coord := NewApprovalCoordinator(CoordinatorOptions{
+		Mode:    ModePrompt,
+		Store:   store,
+		Timeout: 5 * time.Second,
+	})
+	manager := NewSessionManager()
+	manager.SetApprovalCoordinator(coord)
+	t.Cleanup(func() { _ = manager.Shutdown(context.Background()) })
+
+	const sessionID = "chat_permission_mcp"
+	done := make(chan runResultAndError, 1)
+	go func() {
+		run, err := manager.Run(context.Background(), RunRequest{
+			SessionID:      sessionID,
+			AdapterID:      "codex",
+			Workspace:      workspace,
+			Prompt:         "mcp permission prompt",
+			Timeout:        10 * time.Second,
+			MaxOutputBytes: 64 * 1024,
+		})
+		done <- runResultAndError{run: run, err: err}
+	}()
+
+	pending := waitForPendingACPApproval(t, store, sessionID)
+	if pending.ToolKind != ToolKindMCP || pending.ToolName != "docs/search" || pending.Workspace != canonicalTestPath(t, workspace) {
+		t.Fatalf("pending approval = %+v, want mcp docs/search in workspace %q", pending, canonicalTestPath(t, workspace))
+	}
+	if _, err := coord.Resolve(context.Background(), pending.ID, ResolveRequest{
+		Decision:       ApprovalDecisionApprove,
+		Scope:          ApprovalScopeOnce,
+		SelectedOption: "allow_once_id",
+		Note:           "safe MCP read",
+	}); err != nil {
+		t.Fatalf("Resolve approve: %v", err)
+	}
+
+	first := awaitRunResult(t, done)
+	if first.err != nil {
+		t.Fatalf("Run after MCP approval: %v", first.err)
+	}
+	if !strings.Contains(first.run.Output, "permission approved") {
+		t.Fatalf("Run output = %q, want permission approved", first.run.Output)
+	}
+	assertApprovalPathForSession(t, store, sessionID, PathOperator, ApprovalStatusApproved)
+}
+
 func TestSessionManagerACPApprovalRejectLeavesSessionReusable(t *testing.T) {
 	installFakeACPExecutable(t, "codex-acp-adapter")
 	workspace := t.TempDir()
@@ -2898,14 +2949,18 @@ func (a *fakeACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (ac
 		}
 		return acp.PromptResponse{StopReason: acp.StopReasonMaxTokens}, nil
 	}
-	if strings.HasPrefix(prompt, "permission prompt") {
+	if strings.HasPrefix(prompt, "permission prompt") || strings.HasPrefix(prompt, "mcp permission prompt") {
 		if err := a.conn.SessionUpdate(turnCtx, acp.SessionNotification{
 			SessionId: params.SessionId,
 			Update:    acp.UpdateAgentMessageText("waiting for permission"),
 		}); err != nil {
 			return acp.PromptResponse{}, err
 		}
-		resp, err := a.conn.RequestPermission(turnCtx, fakeACPRequestPermission())
+		req := fakeACPRequestPermission()
+		if strings.HasPrefix(prompt, "mcp permission prompt") {
+			req = fakeACPMCPRequestPermission()
+		}
+		resp, err := a.conn.RequestPermission(turnCtx, req)
 		if err != nil {
 			return acp.PromptResponse{}, err
 		}
@@ -3024,6 +3079,23 @@ func fakeACPRequestPermission() acp.RequestPermissionRequest {
 			Title:      &title,
 			Kind:       &kind,
 			RawInput:   map[string]any{"path": "README.md"},
+		},
+	}
+}
+
+func fakeACPMCPRequestPermission() acp.RequestPermissionRequest {
+	title := "docs/search"
+	kind := acp.ToolKind("mcp")
+	return acp.RequestPermissionRequest{
+		Options: []acp.PermissionOption{
+			{OptionId: "allow_once_id", Kind: acp.PermissionOptionKindAllowOnce, Name: "Allow once"},
+			{OptionId: "reject_once_id", Kind: acp.PermissionOptionKindRejectOnce, Name: "Reject once"},
+		},
+		ToolCall: acp.ToolCallUpdate{
+			ToolCallId: acp.ToolCallId("mcp-permission-call"),
+			Title:      &title,
+			Kind:       &kind,
+			RawInput:   map[string]any{"server": "docs", "tool": "search", "query": "permissions"},
 		},
 	}
 }
