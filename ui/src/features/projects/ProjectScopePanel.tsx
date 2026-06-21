@@ -3,7 +3,7 @@ import { useState, type CSSProperties, type ReactNode } from "react";
 import { useProjects } from "../../app/state/projects";
 import { chooseWorkspaceDirectory } from "../../lib/api";
 import { projectDefaultWorkspace } from "../../lib/project-workspace";
-import type { ProjectRecord } from "../../types/project";
+import type { ProjectDeleteRecord, ProjectRecord } from "../../types/project";
 import { ConfirmModal, Icon, Icons } from "../shared/ui";
 import { CreateProjectModal } from "./CreateProjectModal";
 import { createProjectPayloadFromForm, type CreateProjectForm } from "./projectSettings";
@@ -12,7 +12,7 @@ type ProjectScopePanelProps = {
   noProjectDetail: string;
   emptyHint: string;
   deleteMessage: (project: ProjectRecord) => ReactNode;
-  onProjectDeleted?: (projectID: string) => void;
+  onProjectDeleted?: (projectID: string, result: ProjectDeleteRecord) => void;
   onProjectSelected?: (projectID: string, project: ProjectRecord | null) => void;
 };
 
@@ -193,7 +193,7 @@ export function ProjectScopePanel({
             const projectID = pendingDeleteProject.id;
             const deleted = await projects.actions.deleteProject(projectID);
             if (!deleted) return;
-            onProjectDeleted?.(projectID);
+            onProjectDeleted?.(projectID, deleted);
             setDeleteProjectID(null);
           }}
         />

@@ -1,7 +1,7 @@
 import { ApiError } from "../../lib/api";
 import { projectRootOptionLabel } from "./projectSettings";
 import { shortID } from "./projectUtils";
-import type { ProjectRecord } from "../../types/project";
+import type { ProjectDeleteRecord, ProjectRecord } from "../../types/project";
 
 export function formatProjectRowRelativeTime(iso: string): string {
   const parsed = Date.parse(iso);
@@ -70,4 +70,23 @@ export function projectRootTitle(project: ProjectRecord, rootID: string): string
   const root = project.roots.find((item) => item.id === rootID);
   if (!root) return rootID;
   return projectRootOptionLabel(root);
+}
+
+export function formatProjectDeleteSummary(result: ProjectDeleteRecord): string {
+  const projectName = result.project_name?.trim() || result.project_id;
+  const cleaned = [
+    countLabel(result.chat_sessions_deleted, "chat"),
+    countLabel(result.project_work_rows_deleted, "work row"),
+    countLabel(result.project_skills_deleted, "skill"),
+    countLabel(result.memory_entries_deleted, "memory entry", "memory entries"),
+    countLabel(result.memory_candidates_deleted, "memory candidate"),
+  ].filter(Boolean);
+  if (cleaned.length === 0) {
+    return `Deleted ${projectName}. No scoped project records needed cleanup.`;
+  }
+  return `Deleted ${projectName}. Cleaned up ${cleaned.join(", ")}.`;
+}
+
+function countLabel(count: number, singular: string, plural = `${singular}s`): string {
+  return count > 0 ? `${count} ${count === 1 ? singular : plural}` : "";
 }

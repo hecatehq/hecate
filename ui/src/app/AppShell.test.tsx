@@ -85,6 +85,16 @@ vi.mock("../lib/api", async (importOriginal) => {
   };
 });
 
+const projectDeleteResult = {
+  project_id: "proj_1",
+  project_name: "Hecate",
+  chat_sessions_deleted: 1,
+  project_work_rows_deleted: 2,
+  project_skills_deleted: 1,
+  memory_entries_deleted: 3,
+  memory_candidates_deleted: 4,
+};
+
 function emptyActivityData() {
   return {
     project_id: "",
@@ -1073,7 +1083,7 @@ describe("ConsoleShell navigation", () => {
   });
 
   it("confirms project deletion from the chat sidebar", async () => {
-    const deleteProject = vi.fn(async () => true);
+    const deleteProject = vi.fn(async () => projectDeleteResult);
     const state = createRuntimeConsoleFixture({
       projects: [
         {
@@ -1114,13 +1124,18 @@ describe("ConsoleShell navigation", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Delete project$/i }));
 
     expect(deleteProject).toHaveBeenCalledWith("proj_1");
+    expect(
+      await screen.findByText(
+        "Deleted Hecate. Cleaned up 1 chat, 2 work rows, 1 skill, 3 memory entries, 4 memory candidates.",
+      ),
+    ).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.queryByText("Project chat")).toBeNull();
     });
   });
 
   it("keeps project chats visible when project deletion fails", async () => {
-    const deleteProject = vi.fn(async () => false);
+    const deleteProject = vi.fn(async () => null);
     const state = createRuntimeConsoleFixture({
       projects: [
         {

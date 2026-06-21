@@ -274,6 +274,21 @@ type ProjectResponse struct {
 	Data   ProjectResponseItem `json:"data"`
 }
 
+type ProjectDeleteResponse struct {
+	Object string                    `json:"object"`
+	Data   ProjectDeleteResponseItem `json:"data"`
+}
+
+type ProjectDeleteResponseItem struct {
+	ProjectID               string `json:"project_id"`
+	ProjectName             string `json:"project_name,omitempty"`
+	ChatSessionsDeleted     int    `json:"chat_sessions_deleted"`
+	ProjectWorkRowsDeleted  int    `json:"project_work_rows_deleted"`
+	ProjectSkillsDeleted    int    `json:"project_skills_deleted"`
+	MemoryEntriesDeleted    int    `json:"memory_entries_deleted"`
+	MemoryCandidatesDeleted int    `json:"memory_candidates_deleted"`
+}
+
 type AgentProfileResponse struct {
 	Object string                   `json:"object"`
 	Data   AgentProfileResponseItem `json:"data"`

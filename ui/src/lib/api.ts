@@ -92,6 +92,7 @@ import type {
   ProjectCollaborationArtifactResponse,
   ProjectCollaborationArtifactsResponse,
   ProjectContextSourcePayload,
+  ProjectDeleteResponse,
   ProjectHandoffResponse,
   ProjectHandoffsResponse,
   ProjectHealthResponse,
@@ -518,8 +519,8 @@ export async function createProjectWorktreeRoot(
   );
 }
 
-export async function deleteProject(id: string): Promise<void> {
-  return fetchJSON<void>(`${HECATE_API}/projects/${encodeURIComponent(id)}`, {
+export async function deleteProject(id: string): Promise<ProjectDeleteResponse> {
+  return fetchJSON<ProjectDeleteResponse>(`${HECATE_API}/projects/${encodeURIComponent(id)}`, {
     method: "DELETE",
   });
 }

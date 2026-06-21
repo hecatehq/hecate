@@ -12,6 +12,7 @@ import type { AgentAdapterRecord } from "../../types/agent-adapter";
 import type { ChatSessionRecord } from "../../types/chat";
 import { ProjectScopePanel } from "../projects/ProjectScopePanel";
 import { BrandAvatar, ConfirmModal, Icon, Icons } from "../shared/ui";
+import { formatProjectDeleteSummary } from "../projects/projectDisplay";
 
 import { NewChatAgentButton, chatAgentOption, chatAgentOptionStatus } from "./ChatAgentControls";
 import type { ChatAgentOptionID } from "./ChatAgentControls";
@@ -145,7 +146,7 @@ export function ChatSidebar({
             </>
           )}
           onProjectSelected={(projectID) => selectProjectScope(projectID)}
-          onProjectDeleted={(projectID) => {
+          onProjectDeleted={(projectID, result) => {
             const activeDeletedSession = chat.state.chatSessions.some(
               (session) =>
                 session.id === chat.state.activeChatSessionID && session.project_id === projectID,
@@ -156,6 +157,7 @@ export function ChatSidebar({
             if (activeDeletedSession || chat.state.activeChatSession?.project_id === projectID) {
               chatActions.startNewChat();
             }
+            settingsActions.setNoticeMessage("success", formatProjectDeleteSummary(result));
           }}
         />
         <div

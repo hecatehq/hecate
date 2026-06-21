@@ -1765,11 +1765,20 @@ describe("ProjectsView index", () => {
   it("uses existing project actions for create, rename, and delete", async () => {
     resetProjectWorkMocks();
     const user = userEvent.setup();
+    const deleteResult = {
+      project_id: project.id,
+      project_name: project.name,
+      chat_sessions_deleted: 1,
+      project_work_rows_deleted: 2,
+      project_skills_deleted: 1,
+      memory_entries_deleted: 3,
+      memory_candidates_deleted: 4,
+    };
     const actions = {
       ...createRuntimeConsoleActions(),
       createProject: vi.fn(async () => project),
       renameProject: vi.fn(async () => undefined),
-      deleteProject: vi.fn(async () => true),
+      deleteProject: vi.fn(async () => deleteResult),
       selectProject: vi.fn(async () => undefined),
     };
     const state = createRuntimeConsoleFixture({

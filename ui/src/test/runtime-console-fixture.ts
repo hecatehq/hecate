@@ -29,7 +29,7 @@ import type {
   ProviderPresetRecord,
   ProviderRecord,
 } from "../types/provider";
-import type { CreateProjectPayload, ProjectRecord } from "../types/project";
+import type { CreateProjectPayload, ProjectDeleteRecord, ProjectRecord } from "../types/project";
 import type { RetentionRunData } from "../types/retention";
 import type { HealthResponse, RuntimeHeaders, SessionResponse } from "../types/runtime";
 import type { UsageEventRecord, UsageSummaryResponse } from "../types/usage";
@@ -249,7 +249,7 @@ export type RuntimeConsoleFixtureActions = {
   selectProject: (id: string) => Promise<void>;
   createProject: (payload: CreateProjectPayload) => Promise<ProjectRecord | null>;
   renameProject: (id: string, name: string) => Promise<void>;
-  deleteProject: (id: string) => Promise<boolean>;
+  deleteProject: (id: string) => Promise<ProjectDeleteRecord | null>;
   getChatApproval: (sessionID: string, approvalID: string) => Promise<unknown>;
   listChatMessageFiles: (sessionID: string, messageID: string) => Promise<unknown[]>;
   getChatWorkspaceDiff: (sessionID: string) => Promise<unknown>;
@@ -328,7 +328,14 @@ export function createRuntimeConsoleActions(): RuntimeConsoleFixtureActions {
     selectProject: async () => undefined,
     createProject: async () => null,
     renameProject: async () => undefined,
-    deleteProject: async () => true,
+    deleteProject: async () => ({
+      project_id: "",
+      chat_sessions_deleted: 0,
+      project_work_rows_deleted: 0,
+      project_skills_deleted: 0,
+      memory_entries_deleted: 0,
+      memory_candidates_deleted: 0,
+    }),
     getChatApproval: async () => null,
     listChatMessageFiles: async () => [],
     getChatWorkspaceDiff: async () => ({

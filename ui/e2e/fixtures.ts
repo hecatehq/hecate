@@ -430,9 +430,42 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
     r.fulfill(ok({ object: "list", data: MOCK_FULL_PRESETS })),
   );
 
-  await page.route("/hecate/v1/projects*", (r) =>
-    r.fulfill(ok({ object: "projects", data: projects })),
-  );
+  await page.route("/hecate/v1/projects*", async (route) => {
+    const request = route.request();
+    const method = request.method();
+    const url = new URL(request.url());
+    const suffix = url.pathname.replace("/hecate/v1/projects", "").replace(/^\/+/, "");
+    const parts = suffix ? suffix.split("/").map((part) => decodeURIComponent(part)) : [];
+    const projectID = parts[0] || "";
+
+    if (parts.length === 1 && projectID && method === "DELETE") {
+      const index = projects.findIndex((project) => project.id === projectID);
+      const [project] = index >= 0 ? projects.splice(index, 1) : [];
+      const chatSessionsDeleted = chatSessions.filter(
+        (session) => session.project_id === projectID,
+      ).length;
+      for (let i = chatSessions.length - 1; i >= 0; i -= 1) {
+        if (chatSessions[i]?.project_id === projectID) chatSessions.splice(i, 1);
+      }
+      await route.fulfill(
+        ok({
+          object: "project_delete",
+          data: {
+            project_id: projectID,
+            project_name: project?.name || "",
+            chat_sessions_deleted: chatSessionsDeleted,
+            project_work_rows_deleted: 0,
+            project_skills_deleted: 0,
+            memory_entries_deleted: 0,
+            memory_candidates_deleted: 0,
+          },
+        }),
+      );
+      return;
+    }
+
+    await route.fulfill(ok({ object: "projects", data: projects }));
+  });
 
   await page.route("/hecate/v1/agent-adapters*", (r) =>
     r.fulfill(ok({ object: "agent_adapters", data: MOCK_AGENT_ADAPTERS })),

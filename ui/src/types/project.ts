@@ -55,6 +55,21 @@ export type ProjectResponse = {
   data: ProjectRecord;
 };
 
+export type ProjectDeleteRecord = {
+  project_id: string;
+  project_name?: string;
+  chat_sessions_deleted: number;
+  project_work_rows_deleted: number;
+  project_skills_deleted: number;
+  memory_entries_deleted: number;
+  memory_candidates_deleted: number;
+};
+
+export type ProjectDeleteResponse = {
+  object: string;
+  data: ProjectDeleteRecord;
+};
+
 export type ProjectAssistantAction = {
   kind: string;
   target?: Record<string, string>;
