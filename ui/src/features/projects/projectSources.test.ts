@@ -1,12 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ProjectContextSourceRecord } from "../../types/project";
-import {
-  isLinkableSourceLocator,
-  projectContextSourcesWithSavedSource,
-  projectContextSourcesWithoutSource,
-  projectSourcePayloadFromForm,
-} from "./projectSources";
+import { isLinkableSourceLocator, projectSourcePayloadFromForm } from "./projectSources";
 
 const source: ProjectContextSourceRecord = {
   id: "ctx_1",
@@ -78,35 +73,6 @@ describe("projectSources", () => {
       source_category: "workspace_guidance",
       metadata: { root_id: "root_1", host: "portable", note: "Reviewed by operator." },
     });
-  });
-
-  it("replaces and removes sources by id", () => {
-    const next = projectContextSourcesWithSavedSource([source], source, {
-      kind: "url",
-      title: "Design brief",
-      locator: "https://example.invalid/design",
-      enabled: true,
-      format: "",
-      scope: "",
-      trustLabel: "",
-      sourceCategory: "",
-      note: "",
-    });
-
-    expect(next).toEqual([
-      {
-        id: "ctx_1",
-        kind: "url",
-        title: "Design brief",
-        path: "https://example.invalid/design",
-        enabled: true,
-        format: "url",
-        trust_label: "operator_source",
-        source_category: "operator_source",
-        metadata: { root_id: "root_1", host: "portable" },
-      },
-    ]);
-    expect(projectContextSourcesWithoutSource([source], "ctx_1")).toEqual([]);
   });
 
   it("only treats http and https locators as linkable", () => {

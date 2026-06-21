@@ -63,47 +63,6 @@ export function projectSourcePayloadFromForm(
   return payload;
 }
 
-export function projectContextSourcePayloadFromRecord(
-  source: ProjectContextSourceRecord,
-): ProjectContextSourcePayload {
-  return {
-    id: source.id,
-    kind: source.kind,
-    title: source.title,
-    path: source.path,
-    enabled: source.enabled,
-    format: source.format,
-    scope: source.scope,
-    trust_label: source.trust_label,
-    source_category: source.source_category,
-    metadata: source.metadata ? { ...source.metadata } : undefined,
-  };
-}
-
-// V1 source edits PATCH the project-level source list until the API has per-source mutations.
-export function projectContextSourcesWithSavedSource(
-  current: ProjectContextSourceRecord[],
-  editing: ProjectContextSourceRecord | "new",
-  form: ProjectSourceForm,
-): ProjectContextSourcePayload[] {
-  const existing = editing === "new" ? null : editing;
-  const saved = projectSourcePayloadFromForm(form, existing);
-  const currentPayloads = current.map(projectContextSourcePayloadFromRecord);
-  if (editing === "new") {
-    return [...currentPayloads, saved];
-  }
-  return currentPayloads.map((source) => (source.id === editing.id ? saved : source));
-}
-
-export function projectContextSourcesWithoutSource(
-  current: ProjectContextSourceRecord[],
-  sourceID: string,
-): ProjectContextSourcePayload[] {
-  return current
-    .filter((source) => source.id !== sourceID)
-    .map(projectContextSourcePayloadFromRecord);
-}
-
 export function sourceKindLabel(kind: string): string {
   switch (kind) {
     case "url":

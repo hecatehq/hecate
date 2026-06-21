@@ -91,6 +91,7 @@ import type {
   ProjectActivityResponse,
   ProjectCollaborationArtifactResponse,
   ProjectCollaborationArtifactsResponse,
+  ProjectContextSourcePayload,
   ProjectHandoffResponse,
   ProjectHandoffsResponse,
   ProjectHealthResponse,
@@ -429,6 +430,37 @@ export async function updateProject(
     method: "PATCH",
     body: patch,
   });
+}
+
+export async function createProjectContextSource(
+  projectID: string,
+  payload: ProjectContextSourcePayload,
+): Promise<ProjectResponse> {
+  return fetchJSON<ProjectResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/context-sources`,
+    { method: "POST", body: payload },
+  );
+}
+
+export async function updateProjectContextSource(
+  projectID: string,
+  sourceID: string,
+  payload: ProjectContextSourcePayload,
+): Promise<ProjectResponse> {
+  return fetchJSON<ProjectResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/context-sources/${encodeURIComponent(sourceID)}`,
+    { method: "PATCH", body: payload },
+  );
+}
+
+export async function deleteProjectContextSource(
+  projectID: string,
+  sourceID: string,
+): Promise<ProjectResponse> {
+  return fetchJSON<ProjectResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/context-sources/${encodeURIComponent(sourceID)}`,
+    { method: "DELETE" },
+  );
 }
 
 export async function discoverProjectRoots(id: string): Promise<ProjectResponse> {

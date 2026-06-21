@@ -10,6 +10,7 @@ import {
   createProjectHandoff,
   createProjectMemory,
   createProjectMemoryCandidate,
+  createProjectContextSource,
   createProjectWorktreeRoot,
   createProjectWorkRole,
   createProjectWorkItem,
@@ -18,6 +19,7 @@ import {
   deleteProjectAssignment,
   deleteProjectHandoff,
   deleteProjectMemory,
+  deleteProjectContextSource,
   deleteProjectWorkRole,
   deleteProjectWorkItem,
   discoverLocalProviders,
@@ -69,6 +71,7 @@ import {
   upsertPolicyRule,
   updateChatSession,
   updateProject,
+  updateProjectContextSource,
   updateProjectAssignment,
   updateProjectHandoff,
   updateProjectHandoffStatus,
@@ -871,6 +874,64 @@ describe("api client", () => {
           default_workspace_mode: "in_place",
         }),
       }),
+    );
+  });
+
+  it("mutates project context sources through source-specific endpoints", async () => {
+    fetchMock.mockClear();
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ object: "project", data: { id: "proj_1" } }))
+      .mockResolvedValueOnce(jsonResponse({ object: "project", data: { id: "proj_1" } }))
+      .mockResolvedValueOnce(jsonResponse({ object: "project", data: { id: "proj_1" } }));
+
+    await createProjectContextSource("proj/1", {
+      kind: "url",
+      title: "Design",
+      path: "https://example.invalid/design",
+      enabled: true,
+      format: "url",
+    });
+    await updateProjectContextSource("proj/1", "ctx/source", {
+      kind: "note",
+      title: "Research",
+      path: "note:research",
+      enabled: false,
+      format: "text",
+    });
+    await deleteProjectContextSource("proj/1", "ctx/source");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/hecate/v1/projects/proj%2F1/context-sources",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          kind: "url",
+          title: "Design",
+          path: "https://example.invalid/design",
+          enabled: true,
+          format: "url",
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/hecate/v1/projects/proj%2F1/context-sources/ctx%2Fsource",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({
+          kind: "note",
+          title: "Research",
+          path: "note:research",
+          enabled: false,
+          format: "text",
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/hecate/v1/projects/proj%2F1/context-sources/ctx%2Fsource",
+      expect.objectContaining({ method: "DELETE" }),
     );
   });
 

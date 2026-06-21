@@ -274,6 +274,42 @@ func (h *Handler) HandleUpdateProject(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, http.StatusOK, ProjectResponse{Object: "project", Data: renderProject(project)})
 }
 
+func (h *Handler) HandleCreateProjectContextSource(w http.ResponseWriter, r *http.Request) {
+	var req projectContextSourceRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	source, err := contextSourceFromRequest(req)
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+		return
+	}
+	if source.ID == "" {
+		source.ID = newOpaqueTaskResourceID("ctxsrc")
+	}
+	project, _, err := h.projectApplication().CreateContextSource(r.Context(), r.PathValue("id"), source)
+	writeProjectContextSourceMutationResponse(w, http.StatusCreated, project, err)
+}
+
+func (h *Handler) HandleUpdateProjectContextSource(w http.ResponseWriter, r *http.Request) {
+	var req projectContextSourceRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	source, err := contextSourceFromRequest(req)
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+		return
+	}
+	project, _, err := h.projectApplication().UpdateContextSource(r.Context(), r.PathValue("id"), r.PathValue("source_id"), source)
+	writeProjectContextSourceMutationResponse(w, http.StatusOK, project, err)
+}
+
+func (h *Handler) HandleDeleteProjectContextSource(w http.ResponseWriter, r *http.Request) {
+	project, _, err := h.projectApplication().DeleteContextSource(r.Context(), r.PathValue("id"), r.PathValue("source_id"))
+	writeProjectContextSourceMutationResponse(w, http.StatusOK, project, err)
+}
+
 func (h *Handler) HandleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	_, err := h.projectApplication().DeleteProject(r.Context(), r.PathValue("id"))
 	if errors.Is(err, projectapp.ErrProjectNotFound) {
@@ -289,6 +325,30 @@ func (h *Handler) HandleDeleteProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func writeProjectContextSourceMutationResponse(w http.ResponseWriter, status int, project projects.Project, err error) {
+	if errors.Is(err, projectapp.ErrProjectNotFound) {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
+		return
+	}
+	if errors.Is(err, projectapp.ErrProjectContextSourceNotFound) {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "project context source not found")
+		return
+	}
+	if errors.Is(err, projectapp.ErrProjectContextSourceConflict) || errors.Is(err, projects.ErrAlreadyExists) {
+		WriteError(w, http.StatusConflict, errCodeConflict, err.Error())
+		return
+	}
+	if errors.Is(err, projects.ErrInvalid) {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+		return
+	}
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	WriteJSON(w, status, ProjectResponse{Object: "project", Data: renderProject(project)})
 }
 
 func (h *Handler) deleteProjectChatSession(ctx context.Context, session chat.Session) (bool, error) {
@@ -371,28 +431,36 @@ func rootsFromRequest(req []projectRootRequest) ([]projects.Root, error) {
 func contextSourcesFromRequest(req []projectContextSourceRequest) ([]projects.ContextSource, error) {
 	sources := make([]projects.ContextSource, 0, len(req))
 	for _, item := range req {
-		path := strings.TrimSpace(item.Path)
-		if path == "" {
-			return nil, errors.New("project context source path is required")
+		source, err := contextSourceFromRequest(item)
+		if err != nil {
+			return nil, err
 		}
-		enabled := true
-		if item.Enabled != nil {
-			enabled = *item.Enabled
-		}
-		sources = append(sources, projects.ContextSource{
-			ID:             strings.TrimSpace(item.ID),
-			Kind:           strings.TrimSpace(item.Kind),
-			Title:          strings.TrimSpace(item.Title),
-			Path:           path,
-			Enabled:        enabled,
-			Format:         strings.TrimSpace(item.Format),
-			Scope:          strings.TrimSpace(item.Scope),
-			TrustLabel:     strings.TrimSpace(item.TrustLabel),
-			SourceCategory: strings.TrimSpace(item.SourceCategory),
-			Metadata:       item.Metadata,
-		})
+		sources = append(sources, source)
 	}
 	return sources, nil
+}
+
+func contextSourceFromRequest(item projectContextSourceRequest) (projects.ContextSource, error) {
+	path := strings.TrimSpace(item.Path)
+	if path == "" {
+		return projects.ContextSource{}, errors.New("project context source path is required")
+	}
+	enabled := true
+	if item.Enabled != nil {
+		enabled = *item.Enabled
+	}
+	return projects.ContextSource{
+		ID:             strings.TrimSpace(item.ID),
+		Kind:           strings.TrimSpace(item.Kind),
+		Title:          strings.TrimSpace(item.Title),
+		Path:           path,
+		Enabled:        enabled,
+		Format:         strings.TrimSpace(item.Format),
+		Scope:          strings.TrimSpace(item.Scope),
+		TrustLabel:     strings.TrimSpace(item.TrustLabel),
+		SourceCategory: strings.TrimSpace(item.SourceCategory),
+		Metadata:       item.Metadata,
+	}, nil
 }
 
 func validateProjectDefaultRoot(defaultRootID string, roots []projects.Root) error {
