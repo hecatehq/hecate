@@ -75,6 +75,103 @@ func TestApplication_CreateAssignmentUsesRoleDefaultDriver(t *testing.T) {
 	}
 }
 
+func TestApplication_UpdateWorkItemDoneRequiresCloseoutReadiness(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := projectwork.NewMemoryStore()
+	app := newTestApplication(store)
+	if _, err := app.CreateWorkItem(ctx, "proj_1", CreateWorkItemCommand{ID: "work_1", Title: "Build", Status: projectwork.WorkItemStatusReview}); err != nil {
+		t.Fatalf("CreateWorkItem() error = %v", err)
+	}
+	if _, err := app.CreateAssignment(ctx, "proj_1", "work_1", CreateAssignmentCommand{
+		ID:     "asgn_1",
+		RoleID: "software_developer",
+		Status: projectwork.AssignmentStatusCompleted,
+	}); err != nil {
+		t.Fatalf("CreateAssignment() error = %v", err)
+	}
+
+	statusDone := projectwork.WorkItemStatusDone
+	_, err := app.UpdateWorkItem(ctx, "proj_1", "work_1", UpdateWorkItemCommand{Status: &statusDone})
+	if !errors.Is(err, ErrWorkItemCloseoutBlocked) {
+		t.Fatalf("UpdateWorkItem(done) error = %v, want ErrWorkItemCloseoutBlocked", err)
+	}
+	var blocked WorkItemCloseoutBlockedError
+	if !errors.As(err, &blocked) {
+		t.Fatalf("UpdateWorkItem(done) error = %T, want WorkItemCloseoutBlockedError", err)
+	}
+	if blocked.Readiness.Ready || len(blocked.Readiness.MissingEvidenceAssignmentIDs) != 1 || blocked.Readiness.MissingEvidenceAssignmentIDs[0] != "asgn_1" {
+		t.Fatalf("blocked readiness = %+v, want missing evidence blocker", blocked.Readiness)
+	}
+	stored, ok, err := store.GetWorkItem(ctx, "proj_1", "work_1")
+	if err != nil || !ok {
+		t.Fatalf("GetWorkItem() ok=%v err=%v, want stored work item", ok, err)
+	}
+	if stored.Status == projectwork.WorkItemStatusDone {
+		t.Fatalf("stored work item status = %q, want not done after blocked closeout", stored.Status)
+	}
+
+	priority := "high"
+	updated, err := app.UpdateWorkItem(ctx, "proj_1", "work_1", UpdateWorkItemCommand{Priority: &priority})
+	if err != nil {
+		t.Fatalf("UpdateWorkItem(priority) error = %v", err)
+	}
+	if updated.Priority != priority {
+		t.Fatalf("updated priority = %q, want %q", updated.Priority, priority)
+	}
+
+	if _, err := store.CreateArtifact(ctx, projectwork.CollaborationArtifact{
+		ID:           "artifact_evidence",
+		ProjectID:    "proj_1",
+		WorkItemID:   "work_1",
+		AssignmentID: "asgn_1",
+		Kind:         projectwork.ArtifactKindEvidenceLink,
+		Title:        "Evidence",
+		Body:         "Evidence recorded.",
+		EvidenceURL:  "https://example.com/evidence",
+	}); err != nil {
+		t.Fatalf("CreateArtifact(evidence) error = %v", err)
+	}
+	updated, err = app.UpdateWorkItem(ctx, "proj_1", "work_1", UpdateWorkItemCommand{Status: &statusDone})
+	if err != nil {
+		t.Fatalf("UpdateWorkItem(done with evidence) error = %v", err)
+	}
+	if updated.Status != projectwork.WorkItemStatusDone {
+		t.Fatalf("updated status = %q, want done", updated.Status)
+	}
+}
+
+func TestApplication_UpdateWorkItemDoneAllowsManualEmptyCloseoutAndAlreadyDone(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := projectwork.NewMemoryStore()
+	app := newTestApplication(store)
+	statusDone := projectwork.WorkItemStatusDone
+	if _, err := app.CreateWorkItem(ctx, "proj_1", CreateWorkItemCommand{ID: "work_empty", Title: "Manual closeout", Status: projectwork.WorkItemStatusReady}); err != nil {
+		t.Fatalf("CreateWorkItem(empty) error = %v", err)
+	}
+	updated, err := app.UpdateWorkItem(ctx, "proj_1", "work_empty", UpdateWorkItemCommand{Status: &statusDone})
+	if err != nil {
+		t.Fatalf("UpdateWorkItem(empty done) error = %v", err)
+	}
+	if updated.Status != projectwork.WorkItemStatusDone {
+		t.Fatalf("empty closeout status = %q, want done", updated.Status)
+	}
+
+	if _, err := app.CreateWorkItem(ctx, "proj_1", CreateWorkItemCommand{ID: "work_done", Title: "Already done", Status: projectwork.WorkItemStatusDone}); err != nil {
+		t.Fatalf("CreateWorkItem(done) error = %v", err)
+	}
+	updated, err = app.UpdateWorkItem(ctx, "proj_1", "work_done", UpdateWorkItemCommand{Status: &statusDone})
+	if err != nil {
+		t.Fatalf("UpdateWorkItem(already done) error = %v", err)
+	}
+	if updated.Status != projectwork.WorkItemStatusDone {
+		t.Fatalf("already-done status = %q, want done", updated.Status)
+	}
+}
+
 func TestApplication_UpdateAssignmentAppliesOptionalFields(t *testing.T) {
 	t.Parallel()
 

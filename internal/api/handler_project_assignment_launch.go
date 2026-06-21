@@ -286,8 +286,8 @@ func (h *Handler) renderProjectAssignmentLaunchReadiness(ctx context.Context, pr
 		readiness.Blockers = append(readiness.Blockers, fmt.Sprintf("Assignment driver_kind %q is not supported.", driverKind))
 	}
 
-	readiness.Blockers = projectWorkReadinessUniqueStrings(readiness.Blockers)
-	readiness.Warnings = projectWorkReadinessUniqueStrings(readiness.Warnings)
+	readiness.Blockers = projectworkapp.UniqueReadinessStrings(readiness.Blockers)
+	readiness.Warnings = projectworkapp.UniqueReadinessStrings(readiness.Warnings)
 	readiness.Ready = len(readiness.Blockers) == 0
 	if !readiness.Ready {
 		readiness.Status = projectAssignmentLaunchReadinessStatusBlocked

@@ -297,6 +297,15 @@ func (app *Application) UpdateWorkItem(ctx context.Context, projectID, workItemI
 	if app == nil || app.store == nil {
 		return projectwork.WorkItem{}, ErrStoreNotConfigured
 	}
+	if cmd.Status != nil && strings.TrimSpace(*cmd.Status) == projectwork.WorkItemStatusDone {
+		readiness, err := app.WorkItemReadiness(ctx, projectID, workItemID)
+		if err != nil {
+			return projectwork.WorkItem{}, err
+		}
+		if readiness.Status != "done" && !readiness.Ready {
+			return projectwork.WorkItem{}, WorkItemCloseoutBlockedError{Readiness: readiness}
+		}
+	}
 	return app.store.UpdateWorkItem(ctx, projectID, workItemID, func(item *projectwork.WorkItem) {
 		if cmd.Title != nil {
 			item.Title = *cmd.Title

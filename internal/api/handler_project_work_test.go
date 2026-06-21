@@ -486,6 +486,100 @@ func TestProjectWorkAPI_CRUD(t *testing.T) {
 	}
 }
 
+func TestProjectWorkAPI_PatchDoneRequiresCloseoutReadiness(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	if _, err := handler.projects.Create(t.Context(), projects.Project{
+		ID:   "proj_closeout_guard",
+		Name: "Closeout Guard",
+	}); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	if _, err := handler.projectWork.CreateWorkItem(t.Context(), projectwork.WorkItem{
+		ID:        "work_guard",
+		ProjectID: "proj_closeout_guard",
+		Title:     "Guard closeout",
+		Status:    projectwork.WorkItemStatusReview,
+	}); err != nil {
+		t.Fatalf("CreateWorkItem: %v", err)
+	}
+	if _, err := handler.projectWork.CreateAssignment(t.Context(), projectwork.Assignment{
+		ID:         "asgn_guard",
+		ProjectID:  "proj_closeout_guard",
+		WorkItemID: "work_guard",
+		RoleID:     "software_developer",
+		Status:     projectwork.AssignmentStatusCompleted,
+	}); err != nil {
+		t.Fatalf("CreateAssignment: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/proj_closeout_guard/work-items/work_guard", bytes.NewReader([]byte(`{"status":"done"}`))))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("patch done status = %d body=%s, want 409", rec.Code, rec.Body.String())
+	}
+	var blocked struct {
+		Error struct {
+			Type      string                           `json:"type"`
+			Message   string                           `json:"message"`
+			Readiness ProjectWorkItemReadinessResponse `json:"readiness"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &blocked); err != nil {
+		t.Fatalf("decode blocked closeout: %v", err)
+	}
+	if blocked.Error.Type != errCodeConflict || blocked.Error.Message != projectworkapp.ErrWorkItemCloseoutBlocked.Error() {
+		t.Fatalf("blocked error = %+v, want closeout conflict", blocked.Error)
+	}
+	if blocked.Error.Readiness.Ready || blocked.Error.Readiness.Status != "blocked" || len(blocked.Error.Readiness.MissingEvidenceAssignmentIDs) != 1 || blocked.Error.Readiness.MissingEvidenceAssignmentIDs[0] != "asgn_guard" {
+		t.Fatalf("blocked readiness = %+v, want missing evidence blocker", blocked.Error.Readiness)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/proj_closeout_guard/work-items/work_guard", bytes.NewReader([]byte(`{"priority":"high"}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("patch priority status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var patched ProjectWorkItemEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &patched); err != nil {
+		t.Fatalf("decode patched work item: %v", err)
+	}
+	if patched.Data.Priority != "high" {
+		t.Fatalf("patched item = %+v, want priority update", patched.Data)
+	}
+	stored, ok, err := handler.projectWork.GetWorkItem(t.Context(), "proj_closeout_guard", "work_guard")
+	if err != nil || !ok {
+		t.Fatalf("GetWorkItem() ok=%v err=%v, want stored work item", ok, err)
+	}
+	if stored.Status == projectwork.WorkItemStatusDone {
+		t.Fatalf("stored status = %q, want not done after priority-only update", stored.Status)
+	}
+
+	if _, err := handler.projectWork.CreateArtifact(t.Context(), projectwork.CollaborationArtifact{
+		ID:           "artifact_guard_evidence",
+		ProjectID:    "proj_closeout_guard",
+		WorkItemID:   "work_guard",
+		AssignmentID: "asgn_guard",
+		Kind:         projectwork.ArtifactKindEvidenceLink,
+		Title:        "Evidence",
+		Body:         "Evidence recorded.",
+		EvidenceURL:  "https://example.com/evidence",
+	}); err != nil {
+		t.Fatalf("CreateArtifact(evidence): %v", err)
+	}
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/proj_closeout_guard/work-items/work_guard", bytes.NewReader([]byte(`{"status":"done"}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("patch done with evidence status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &patched); err != nil {
+		t.Fatalf("decode closed work item: %v", err)
+	}
+	if patched.Data.Status != projectwork.WorkItemStatusDone {
+		t.Fatalf("closed item status = %q, want done", patched.Data.Status)
+	}
+}
+
 func TestProjectWorkAPI_WorkAndAssignmentRootIDs(t *testing.T) {
 	t.Parallel()
 	_, server := newProjectWorkTestServer()

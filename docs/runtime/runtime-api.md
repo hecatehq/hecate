@@ -2203,15 +2203,15 @@ status is returned.
 The Projects UI also exposes an operator closeout action for selected work
 items. The read-only
 `GET /hecate/v1/projects/{id}/work-items/{work_item_id}/readiness` contract is
-the shared closeout authority for Project Operations and selected-work detail:
-it derives blockers from assignments, completion evidence, handoffs, and review
-follow-up without mutating project state. The guided action still uses the
-normal work-item `PATCH` path with `status="done"` only after the operator
-clicks Mark done. Hecate does not auto-mutate stored work-item status from
-review verdicts, handoffs, or assignment rollups without an explicit operator
-update. The guided closeout action is disabled while blockers remain; operators
-can still make an intentional manual override through the normal work-item edit
-flow.
+the shared closeout authority for Project Operations, selected-work detail, and
+`PATCH` requests that set `status="done"`: it derives blockers from
+assignments, completion evidence, handoffs, and review follow-up without
+mutating project state. The guided action still uses the normal work-item
+`PATCH` path only after the operator clicks Mark done. Hecate does not
+auto-mutate stored work-item status from review verdicts, handoffs, or
+assignment rollups without an explicit operator update. Updates that do not mark
+the work item done continue to use the normal edit flow while closeout blockers
+remain.
 
 #### `GET /hecate/v1/projects/{id}/activity`
 
@@ -2906,6 +2906,11 @@ artifact-id consumers.
 
 Updates `title`, `brief`, `status`, `priority`, `owner_role_id`, `root_id`, or
 `reviewer_role_ids`. An empty `root_id` clears the work-item root override.
+When `status` is set to `done`, the server validates the same closeout readiness
+contract returned by
+`GET /hecate/v1/projects/{id}/work-items/{work_item_id}/readiness`. If blockers
+remain, the update returns `409 conflict` with a `readiness` object in the error
+body. Other work-item edits are not blocked by closeout readiness.
 
 #### `DELETE /hecate/v1/projects/{id}/work-items/{work_item_id}`
 
