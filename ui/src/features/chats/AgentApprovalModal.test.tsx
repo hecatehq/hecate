@@ -133,9 +133,9 @@ describe("AgentApprovalModal", () => {
     // Pick the broad scope.
     await user.click(await screen.findByTestId("agent-approval-modal-scope-adapter_tool"));
     expect(screen.getByTestId("agent-approval-modal-broad-warning")).toBeTruthy();
-    expect(screen.getByText("agent tool")).toBeTruthy();
+    expect(screen.getByText("agent tool kind")).toBeTruthy();
     expect(screen.getByTestId("agent-approval-modal-scope-description").textContent).toContain(
-      "Every future call",
+      "Every future fs request",
     );
     expect(screen.queryByText("adapter_tool")).toBeNull();
 
@@ -150,6 +150,39 @@ describe("AgentApprovalModal", () => {
       "s",
       "ap-1",
       expect.objectContaining({ decision: "approve", scope: "adapter_tool" }),
+    );
+  });
+
+  it("renders MCP approvals and broad MCP scopes without raw tool-kind leakage", async () => {
+    const { fetchApproval, onResolve, onCancel, onClose } = setup(
+      approvalRecord({
+        tool_kind: "mcp",
+        tool_name: "docs/search",
+        scope_choices: ["once", "workspace_tool", "adapter_tool"],
+      }),
+    );
+    render(
+      <AgentApprovalModal
+        sessionID="s"
+        approvalID="ap-1"
+        onClose={onClose}
+        fetchApproval={fetchApproval}
+        onResolve={onResolve}
+        onCancel={onCancel}
+      />,
+    );
+    await waitFor(() => expect(fetchApproval).toHaveBeenCalled());
+    expect(await screen.findByText("MCP tool · docs/search")).toBeTruthy();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("agent-approval-modal-scope-adapter_tool"));
+
+    expect(screen.getByText("agent MCP tools")).toBeTruthy();
+    expect(screen.getByTestId("agent-approval-modal-scope-description").textContent).toContain(
+      "Every future MCP tool request",
+    );
+    expect(screen.getByTestId("agent-approval-modal-broad-warning").textContent).toContain(
+      "future MCP tool requests",
     );
   });
 

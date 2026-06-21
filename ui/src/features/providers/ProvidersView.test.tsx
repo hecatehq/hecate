@@ -869,6 +869,7 @@ describe("ProvidersView table renders", () => {
     expect(await screen.findByTestId("external-agents-adapters")).toBeTruthy();
     expect(screen.getByTestId("external-agents-adapter-codex")).toBeTruthy();
     expect(screen.getByTestId("external-agents-row-grant-1")).toBeTruthy();
+    expect(screen.getByText("file write")).toBeTruthy();
     expect(listChatGrants).toHaveBeenCalled();
   });
 

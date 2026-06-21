@@ -63,6 +63,16 @@ describe("AgentApprovalsBanner", () => {
     expect(screen.queryByTestId("agent-approval-banner-more")).toBeNull();
   });
 
+  it("labels MCP approvals with the normalized tool kind and raw tool name", () => {
+    render(
+      <AgentApprovalsBanner
+        pending={[approval({ approval_id: "ap-mcp", tool_kind: "mcp", tool_name: "docs/search" })]}
+        onSelect={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/MCP tool · docs\/search/)).toBeTruthy();
+  });
+
   it("collapses to two visible rows + an overflow button when there are three or more", () => {
     render(
       <AgentApprovalsBanner

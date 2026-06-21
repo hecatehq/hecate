@@ -1,5 +1,11 @@
 import { useEffect, useState } from "react";
 import type { ResolveChatApprovalPayload } from "../../lib/api";
+import {
+  agentApprovalScopeDescription,
+  agentApprovalScopeLabel,
+  agentApprovalToolKindLabel,
+  agentApprovalToolLabel,
+} from "../../lib/agent-approval-labels";
 import type { ChatApprovalOption, ChatApprovalRecord } from "../../types/chat";
 import { Icon, Icons, Modal } from "../shared/ui";
 
@@ -12,7 +18,7 @@ import { Icon, Icons, Modal } from "../shared/ui";
 //   - Full row is fetched on open (not held in the pending map) so the
 //     banner stays cheap. While the fetch is in flight we show a
 //     spinner; on failure we close.
-//   - The broad agent-tool scope requires an explicit
+//   - The broad agent tool-kind scope requires an explicit
 //     "Confirm" step before sending the resolve to avoid one-click
 //     blanket-allow mistakes.
 //   - There's no diff preview surface today — the `agentApprovalItem`
@@ -77,7 +83,7 @@ export function AgentApprovalModal({
   const buttonLabel = decision === "allow" ? "Allow" : "Deny";
   const submitLabel =
     isBroadScope && !confirmingBroadScope ? `${buttonLabel} (broad scope)` : buttonLabel;
-  const scopeDescription = approvalScopeDescription(scope);
+  const scopeDescription = agentApprovalScopeDescription(scope, row?.tool_kind);
 
   async function handleSubmit() {
     if (!row || busy) return;
@@ -192,7 +198,7 @@ export function AgentApprovalModal({
               {row.workspace ? ` · ${row.workspace}` : ""}
             </span>
             <span style={{ fontSize: 13, color: "var(--t0)", fontWeight: 500 }}>
-              {row.tool_name ? `${row.tool_kind} · ${row.tool_name}` : row.tool_kind}
+              {agentApprovalToolLabel(row)}
             </span>
           </div>
 
@@ -351,7 +357,7 @@ export function AgentApprovalModal({
                     key={s}
                     type="button"
                     onClick={() => setScope(s)}
-                    title={approvalScopeDescription(s)}
+                    title={agentApprovalScopeDescription(s, row.tool_kind)}
                     data-testid={`agent-approval-modal-scope-${s}`}
                     style={{
                       padding: "4px 10px",
@@ -364,7 +370,7 @@ export function AgentApprovalModal({
                       cursor: "pointer",
                     }}
                   >
-                    {approvalScopeLabel(s)}
+                    {agentApprovalScopeLabel(s, row.tool_kind)}
                   </button>
                 ))}
               </div>
@@ -395,8 +401,8 @@ export function AgentApprovalModal({
                   }}
                 >
                   <Icon d={Icons.warning} size={12} /> <strong>Broad scope:</strong> this creates a
-                  durable grant for every future call to this tool from this agent. Click{" "}
-                  {buttonLabel} once to arm, then again to confirm.
+                  durable grant for future {agentApprovalToolKindLabel(row.tool_kind)} requests from
+                  this agent. Click {buttonLabel} once to arm, then again to confirm.
                 </div>
               )}
             </div>
@@ -441,32 +447,6 @@ export function AgentApprovalModal({
       )}
     </Modal>
   );
-}
-
-function approvalScopeLabel(scope: string): string {
-  switch (scope) {
-    case "workspace_tool":
-      return "workspace tool";
-    case "adapter_tool":
-      return "agent tool";
-    default:
-      return scope.replaceAll("_", " ");
-  }
-}
-
-function approvalScopeDescription(scope: string): string {
-  switch (scope) {
-    case "once":
-      return "Only this pending request will use the selected ACP option.";
-    case "session":
-      return "Matching requests in this external-agent chat session can reuse this decision.";
-    case "workspace_tool":
-      return "Matching calls to this tool in this workspace can reuse this decision.";
-    case "adapter_tool":
-      return "Every future call to this tool from this agent can reuse this decision.";
-    default:
-      return "";
-  }
 }
 
 function approvalOptionKindLabel(kind: string): string {
