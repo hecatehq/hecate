@@ -236,7 +236,9 @@ coordinator before spawning anything. Terminal callback lifecycle should remain
 operator-visible through External Agent chat activities (`type="terminal"`):
 record command/cwd/status/exit output previews from the active ACP turn, and
 reuse retained terminal output for ACP tool-call terminal refs when available,
-instead of adding an operator-facing embedded terminal API/UI.
+instead of adding an operator-facing embedded terminal API/UI. Session shutdown
+cleanup should mark unreleased ACP terminals as cancelled and retain their
+bounded output preview before removing them from the client terminal map.
 
 Hecate owns the ACP process/session boundary, not provider-specific adapter
 implementation parity. Tests in this repository should use the repo-local fake

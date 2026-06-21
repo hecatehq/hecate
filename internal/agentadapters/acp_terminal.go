@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unicode/utf8"
 
 	acp "github.com/coder/acp-go-sdk"
@@ -493,11 +494,30 @@ func (c *acpChatClient) closeTerminals(ctx context.Context) error {
 
 	var firstErr error
 	for _, item := range items {
+		item.killed.Store(true)
 		if err := item.term.Close(ctx); err != nil && firstErr == nil {
 			firstErr = err
 		}
+		waitForACPTerminalDone(ctx, item)
+		c.rememberTerminalPreview(item)
+		c.emitTerminalExitActivity(item)
 	}
 	return firstErr
+}
+
+func waitForACPTerminalDone(ctx context.Context, item *acpTerminal) {
+	if item == nil {
+		return
+	}
+	if terminalDone(item) {
+		return
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	select {
+	case <-item.done:
+	case <-waitCtx.Done():
+	}
 }
 
 func (t *acpTerminal) watch() {
