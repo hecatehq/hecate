@@ -1481,25 +1481,12 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     }
   }
 
-  async function handleCreateAssignmentFromReviewArtifact(
-    artifact: ProjectCollaborationArtifactRecord,
-  ) {
-    if (!selectedProjectID || !selectedWorkItemID || !selectedWorkItem) return;
-    const payload = handoffPayloadFromForm(
-      handoffFormFromReviewArtifact(artifact, selectedWorkItem),
-    );
-    setArtifactActionID(artifact.id);
+  async function handleCreateAssignmentFromReviewArtifact(artifactID: string) {
+    if (!selectedProjectID || !selectedWorkItemID) return;
+    setArtifactActionID(artifactID);
     setHandoffError("");
     try {
-      const handoff = await createProjectHandoff(selectedProjectID, selectedWorkItemID, payload);
-      setHandoffs((current) => upsertHandoff(current, handoff.data));
-      await handleCreateAssignmentFromHandoff(handoff.data, {
-        failureMessage:
-          "Created the follow-up handoff, but failed to create its assignment. Finish it from the handoff card to avoid duplicating the handoff.",
-        prefixFailureMessage: true,
-      });
-    } catch (error) {
-      setHandoffError(errorMessage(error, "Failed to create follow-up handoff."));
+      await assistant.draftReviewFollowUp(artifactID, selectedWorkItemID);
     } finally {
       setArtifactActionID("");
     }
@@ -1767,8 +1754,8 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
             onPreparedAssignmentPreflightOpened={(assignmentID) => {
               setPreparingAssignmentID((current) => (current === assignmentID ? "" : current));
             }}
-            onCreateAssignmentFromReviewArtifact={(artifact) =>
-              void handleCreateAssignmentFromReviewArtifact(artifact)
+            onCreateAssignmentFromReviewArtifact={(artifactID) =>
+              void handleCreateAssignmentFromReviewArtifact(artifactID)
             }
             onCreateAssignmentFromHandoff={handleCreateAssignmentFromHandoff}
             onCreateWork={openNewWorkItemModal}

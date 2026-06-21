@@ -14,7 +14,7 @@ func validateActionShape(action Action) error {
 	switch kind {
 	case ActionCreateProject, ActionUpdateProject, ActionAttachProjectRoot, ActionRemoveProjectRoot,
 		ActionSetProjectDefaults, ActionMoveChatSession, ActionCreateRole, ActionCreateWorkItem, ActionUpdateWorkItem,
-		ActionCreateAssignment, ActionCreateHandoff, ActionCreateMemoryCandidate:
+		ActionCreateAssignment, ActionCreateHandoff, ActionUpdateHandoff, ActionCreateMemoryCandidate:
 		if len(action.Patch) == 0 && kind != ActionRemoveProjectRoot {
 			return fmt.Errorf("%w: action %q patch is required", ErrInvalid, kind)
 		}

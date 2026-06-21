@@ -83,6 +83,36 @@ export function useProjectAssistantController(options: Options) {
     [options.project, options.selectedWorkItem],
   );
 
+  const draftReviewFollowUp = useCallback(
+    async (reviewArtifactID: string, workItemID?: string) => {
+      if (!options.project) return;
+      const targetWorkItemID = workItemID ?? options.selectedWorkItem?.id ?? "";
+      if (!targetWorkItemID || !reviewArtifactID) return;
+      setStatus("proposing");
+      setError("");
+      setApplyResult(null);
+      setContext(null);
+      setContextError("");
+      setContextStatus("idle");
+      try {
+        const payload = await draftProjectAssistant({
+          project_id: options.project.id,
+          work_item_id: targetWorkItemID,
+          request: "Create review follow-up",
+          draft_mode: "review_follow_up",
+          review_artifact_id: reviewArtifactID,
+        });
+        setProposal(payload.data);
+        setChatDraftSource(null);
+        setStatus("idle");
+      } catch (err) {
+        setStatus("idle");
+        setError(errorMessage(err, "Failed to draft review follow-up proposal."));
+      }
+    },
+    [options.project, options.selectedWorkItem],
+  );
+
   const bootstrap = useCallback(async () => {
     if (!options.selectedProjectID) return;
     const projectID = options.selectedProjectID;
@@ -223,6 +253,7 @@ export function useProjectAssistantController(options: Options) {
     contextError,
     contextStatus,
     dismiss,
+    draftReviewFollowUp,
     error,
     inspectContext,
     loadProposal,
@@ -298,7 +329,54 @@ function projectAssistantPartialApplyErrorMessage(
   if (failedActionIndex === null || !partialResult) return "";
   const appliedCount = partialResult.actions.length;
   const totalCount = proposal?.actions.length ?? Math.max(appliedCount, failedActionIndex + 1);
-  return `Project Assistant applied ${appliedCount} of ${totalCount} actions, then failed at action ${failedActionIndex + 1}. Apply the same proposal again after fixing the target state to resume from the next unapplied action.`;
+  const landed = projectAssistantAppliedActionsSummary(partialResult.actions);
+  const failed = projectAssistantFailedActionSummary(proposal, failedActionIndex);
+  return `Project Assistant applied ${appliedCount} of ${totalCount} actions${landed}. It then failed at action ${failedActionIndex + 1}${failed}. Apply the same proposal again after fixing the target state to resume from the next unapplied action.`;
+}
+
+function projectAssistantAppliedActionsSummary(actions: ProjectAssistantApplyResult["actions"]) {
+  if (actions.length === 0) return "";
+  const labels = actions.map(projectAssistantAppliedActionSummary).filter(Boolean);
+  if (labels.length === 0) return "";
+  return ` (${labels.join("; ")})`;
+}
+
+function projectAssistantAppliedActionSummary(
+  action: ProjectAssistantApplyResult["actions"][number],
+) {
+  const kind = projectAssistantActionKindLabel(action.kind);
+  const id = firstProjectAssistantActionID(action);
+  return id ? `${kind} ${id}` : kind;
+}
+
+function projectAssistantFailedActionSummary(
+  proposal: ProjectAssistantProposal | undefined,
+  failedActionIndex: number,
+) {
+  const action = proposal?.actions[failedActionIndex];
+  if (!action) return "";
+  return ` (${projectAssistantActionKindLabel(action.kind)})`;
+}
+
+function firstProjectAssistantActionID(action: ProjectAssistantApplyResult["actions"][number]) {
+  for (const key of [
+    "assignment_id",
+    "handoff_id",
+    "work_item_id",
+    "candidate_id",
+    "memory_candidate_id",
+    "role_id",
+    "project_id",
+    "chat_session_id",
+  ]) {
+    const value = action.data?.[key];
+    if (value) return value;
+  }
+  return action.id ?? "";
+}
+
+function projectAssistantActionKindLabel(kind: string) {
+  return kind.replace(/_/g, " ");
 }
 
 function projectAssistantFailedActionIndex(value: unknown): number | null {

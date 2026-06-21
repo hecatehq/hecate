@@ -110,6 +110,132 @@ func TestService_DraftCreatesAssignmentProposalAcrossStores(t *testing.T) {
 	}
 }
 
+func TestService_DraftReviewFollowUpCreatesLinkedProposalAcrossStores(t *testing.T) {
+	t.Parallel()
+	for _, builder := range assistantFixtureBuilders() {
+		t.Run(builder.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			fixture := builder.build(t)
+			project := createTestProject(t, ctx, fixture.projects)
+			workItem, err := fixture.work.CreateWorkItem(ctx, projectwork.WorkItem{
+				ID:          "work_review",
+				ProjectID:   project.ID,
+				Title:       "Review requested changes",
+				Brief:       "Follow up on review findings.",
+				Status:      projectwork.WorkItemStatusReview,
+				OwnerRoleID: "product_manager",
+				RootID:      "root_a",
+			})
+			if err != nil {
+				t.Fatalf("CreateWorkItem: %v", err)
+			}
+			if _, err := fixture.work.CreateAssignment(ctx, projectwork.Assignment{
+				ID:         "asgn_impl",
+				ProjectID:  project.ID,
+				WorkItemID: workItem.ID,
+				RoleID:     "software_developer",
+				DriverKind: projectwork.AssignmentDriverHecateTask,
+				Status:     projectwork.AssignmentStatusCompleted,
+			}); err != nil {
+				t.Fatalf("CreateAssignment(impl): %v", err)
+			}
+			if _, err := fixture.work.CreateAssignment(ctx, projectwork.Assignment{
+				ID:         "asgn_review",
+				ProjectID:  project.ID,
+				WorkItemID: workItem.ID,
+				RoleID:     "reviewer_qa",
+				DriverKind: projectwork.AssignmentDriverHecateTask,
+				Status:     projectwork.AssignmentStatusCompleted,
+			}); err != nil {
+				t.Fatalf("CreateAssignment(review): %v", err)
+			}
+			if _, err := fixture.work.CreateArtifact(ctx, projectwork.CollaborationArtifact{
+				ID:                     "artifact_review",
+				ProjectID:              project.ID,
+				WorkItemID:             workItem.ID,
+				AssignmentID:           "asgn_review",
+				Kind:                   projectwork.ArtifactKindReview,
+				Title:                  "QA reviewer review",
+				Body:                   "Verdict: Changes requested\n\nFollow-up:\nUpdate empty-state spacing.",
+				ReviewedAssignmentID:   "asgn_impl",
+				ReviewVerdict:          projectwork.ReviewVerdictChangesRequested,
+				ReviewRisk:             projectwork.ReviewRiskMedium,
+				ReviewFollowUpRequired: true,
+			}); err != nil {
+				t.Fatalf("CreateArtifact(review): %v", err)
+			}
+
+			proposal, err := fixture.service.Draft(ctx, DraftInput{
+				ProjectID:        project.ID,
+				WorkItemID:       workItem.ID,
+				DraftMode:        DraftModeReviewFollowUp,
+				ReviewArtifactID: "artifact_review",
+				TraceID:          "trace_review_followup",
+			})
+			if err != nil {
+				t.Fatalf("Draft review follow-up: %v", err)
+			}
+			if proposal.TraceID != "trace_review_followup" || len(proposal.Actions) != 3 {
+				t.Fatalf("proposal = %+v, want traced three-action proposal", proposal)
+			}
+			if proposal.Actions[0].Kind != ActionCreateHandoff || proposal.Actions[1].Kind != ActionCreateAssignment || proposal.Actions[2].Kind != ActionUpdateHandoff {
+				t.Fatalf("actions = %+v, want create_handoff/create_assignment/update_handoff", proposal.Actions)
+			}
+			var handoff handoffPatch
+			if err := json.Unmarshal(proposal.Actions[0].Patch, &handoff); err != nil {
+				t.Fatalf("decode handoff patch: %v", err)
+			}
+			var assignment assignmentPatch
+			if err := json.Unmarshal(proposal.Actions[1].Patch, &assignment); err != nil {
+				t.Fatalf("decode assignment patch: %v", err)
+			}
+			var handoffUpdate updateHandoffPatch
+			if err := json.Unmarshal(proposal.Actions[2].Patch, &handoffUpdate); err != nil {
+				t.Fatalf("decode handoff update patch: %v", err)
+			}
+			if handoff.ID == "" || assignment.ID == "" || handoffUpdate.TargetAssignmentID == nil || *handoffUpdate.TargetAssignmentID != assignment.ID {
+				t.Fatalf("generated ids handoff=%+v assignment=%+v update=%+v, want linked ids", handoff, assignment, handoffUpdate)
+			}
+			if handoff.SourceAssignmentID != "asgn_review" || handoff.TargetRoleID != "software_developer" || len(handoff.LinkedArtifactIDs) != 1 || handoff.LinkedArtifactIDs[0] != "artifact_review" {
+				t.Fatalf("handoff patch = %+v, want review source and reviewed-assignment role", handoff)
+			}
+			if assignment.RoleID != "software_developer" || assignment.Status != projectwork.AssignmentStatusQueued || assignment.RootID != "root_a" {
+				t.Fatalf("assignment patch = %+v, want queued reviewed-role assignment with root", assignment)
+			}
+
+			result, err := fixture.service.Apply(ctx, proposal, true)
+			if err != nil {
+				t.Fatalf("Apply review follow-up proposal: %v", err)
+			}
+			if !result.Applied || len(result.Actions) != 3 {
+				t.Fatalf("apply result = %+v, want three applied actions", result)
+			}
+			assignments, err := fixture.work.ListAssignments(ctx, projectwork.AssignmentFilter{ProjectID: project.ID, WorkItemID: workItem.ID})
+			if err != nil {
+				t.Fatalf("ListAssignments: %v", err)
+			}
+			var createdAssignment projectwork.Assignment
+			for _, item := range assignments {
+				if item.ID == assignment.ID {
+					createdAssignment = item
+					break
+				}
+			}
+			if createdAssignment.ID == "" || createdAssignment.Status != projectwork.AssignmentStatusQueued {
+				t.Fatalf("created assignment = %+v, want queued follow-up assignment", createdAssignment)
+			}
+			handoffs, err := fixture.work.ListHandoffs(ctx, projectwork.HandoffFilter{ProjectID: project.ID, WorkItemID: workItem.ID})
+			if err != nil {
+				t.Fatalf("ListHandoffs: %v", err)
+			}
+			if len(handoffs) != 1 || handoffs[0].Status != projectwork.HandoffStatusAccepted || handoffs[0].TargetAssignmentID != assignment.ID {
+				t.Fatalf("handoffs = %+v, want accepted linked follow-up handoff", handoffs)
+			}
+		})
+	}
+}
+
 func TestService_DraftCreatesWorkItemProposalAcrossStores(t *testing.T) {
 	t.Parallel()
 	for _, builder := range assistantFixtureBuilders() {

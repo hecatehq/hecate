@@ -15,6 +15,7 @@ import type {
   ProjectHandoffRecord,
   ProjectRecord,
   ProjectWorkItemReadinessRecord,
+  ProjectWorkItemReviewFollowUpRecord,
   ProjectWorkItemRecord,
   ProjectWorkRoleRecord,
 } from "../../types/project";
@@ -104,7 +105,7 @@ export type ProjectWorkItemDetailProps = {
   onAddHandoffFromReviewArtifact: (artifact: ProjectCollaborationArtifactRecord) => void;
   onDraftDefaultAssignment: (item: ProjectWorkItemRecord) => void;
   onPreparedAssignmentPreflightOpened: (assignmentID: string) => void;
-  onCreateAssignmentFromReviewArtifact: (artifact: ProjectCollaborationArtifactRecord) => void;
+  onCreateAssignmentFromReviewArtifact: (artifactID: string) => void;
   onCreateAssignmentFromHandoff: (handoff: ProjectHandoffRecord) => void;
   onDeleteAssignment: (assignment: ProjectAssignmentRecord) => void;
   onDeleteHandoff: (handoff: ProjectHandoffRecord) => void;
@@ -193,10 +194,7 @@ export function ProjectWorkItemDetail({
     artifacts.length === 0 &&
     handoffs.length === 0 &&
     workItem.status !== "done";
-  const reviewFollowUpArtifactIDs = new Set(closeout.review_follow_up_artifact_ids ?? []);
-  const reviewFollowUps = artifacts.filter((artifact) =>
-    reviewFollowUpArtifactIDs.has(artifact.id),
-  );
+  const reviewFollowUps = closeout.review_follow_ups ?? [];
   const suggestedAssignmentRole = assignmentRoleForWorkItem(workItem, roleByID);
   const canAddWorkRecords = !emptyWorkItem && workItem.status !== "done";
   return (
@@ -295,10 +293,12 @@ export function ProjectWorkItemDetail({
         )}
         {reviewFollowUps.length > 0 && (
           <ReviewFollowUpNotice
-            artifact={reviewFollowUps[0]}
+            followUp={reviewFollowUps[0]}
             count={reviewFollowUps.length}
-            pending={artifactActionID === reviewFollowUps[0].id}
-            onCreateAssignment={() => onCreateAssignmentFromReviewArtifact(reviewFollowUps[0])}
+            pending={artifactActionID === reviewFollowUps[0].artifact_id}
+            onCreateAssignment={() =>
+              onCreateAssignmentFromReviewArtifact(reviewFollowUps[0].artifact_id)
+            }
           />
         )}
         {(!emptyWorkItem || assignments.length > 0) && (
@@ -473,15 +473,15 @@ export function ProjectWorkItemDetail({
                               Follow-up
                             </button>
                             <button
-                              aria-label={`Create follow-up assignment from review artifact ${artifact.id}`}
+                              aria-label={`Draft follow-up assignment from review artifact ${artifact.id}`}
                               className="btn btn-ghost btn-sm"
                               type="button"
-                              onClick={() => onCreateAssignmentFromReviewArtifact(artifact)}
+                              onClick={() => onCreateAssignmentFromReviewArtifact(artifact.id)}
                               disabled={artifactActionPending}
-                              title="Create a handoff and queued follow-up assignment from this review."
+                              title="Draft a Project Assistant proposal for a handoff and queued follow-up assignment."
                             >
                               <Icon d={Icons.tasks} size={12} />
-                              Assignment
+                              Draft
                             </button>
                           </>
                         )}
@@ -797,12 +797,12 @@ function WorkItemCloseoutPanel({
 }
 
 function ReviewFollowUpNotice({
-  artifact,
+  followUp,
   count,
   onCreateAssignment,
   pending,
 }: {
-  artifact: ProjectCollaborationArtifactRecord;
+  followUp: ProjectWorkItemReviewFollowUpRecord;
   count: number;
   onCreateAssignment: () => void;
   pending: boolean;
@@ -820,12 +820,13 @@ function ReviewFollowUpNotice({
           style={{ marginLeft: "auto" }}
         >
           <Icon d={Icons.tasks} size={12} />
-          {pending ? "Creating..." : "Create follow-up"}
+          {pending ? "Drafting..." : "Draft follow-up"}
         </button>
       </div>
-      <div style={{ ...titleStyle, marginTop: 8 }}>{artifact.title || "Review follow-up"}</div>
+      <div style={{ ...titleStyle, marginTop: 8 }}>{followUp.title || "Review follow-up"}</div>
       <div style={{ ...subtleTextStyle, marginTop: 4 }}>
-        Review outcome blocks closeout until the operator creates and completes a follow-up path.
+        Review outcome blocks closeout until the operator reviews a follow-up proposal and completes
+        the resulting assignment.
       </div>
     </section>
   );

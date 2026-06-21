@@ -383,6 +383,78 @@ func TestProjectWorkItemReadiness_ReadOnlyCloseoutContract(t *testing.T) {
 	}
 }
 
+func TestProjectWorkItemReadiness_ReviewFollowUpsAreTyped(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	if _, err := handler.projects.Create(t.Context(), projects.Project{
+		ID:   "proj_review_readiness",
+		Name: "Review Readiness",
+	}); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	if _, err := handler.projectWork.CreateWorkItem(t.Context(), projectwork.WorkItem{
+		ID:        "work_review_readiness",
+		ProjectID: "proj_review_readiness",
+		Title:     "Review closeout",
+		Status:    projectwork.WorkItemStatusReview,
+	}); err != nil {
+		t.Fatalf("CreateWorkItem: %v", err)
+	}
+	if _, err := handler.projectWork.CreateAssignment(t.Context(), projectwork.Assignment{
+		ID:         "asgn_impl",
+		ProjectID:  "proj_review_readiness",
+		WorkItemID: "work_review_readiness",
+		RoleID:     "software_developer",
+		Status:     projectwork.AssignmentStatusCompleted,
+	}); err != nil {
+		t.Fatalf("CreateAssignment: %v", err)
+	}
+	if _, err := handler.projectWork.CreateAssignment(t.Context(), projectwork.Assignment{
+		ID:         "asgn_review",
+		ProjectID:  "proj_review_readiness",
+		WorkItemID: "work_review_readiness",
+		RoleID:     "reviewer_qa",
+		Status:     projectwork.AssignmentStatusCompleted,
+	}); err != nil {
+		t.Fatalf("CreateAssignment(review): %v", err)
+	}
+	if _, err := handler.projectWork.CreateArtifact(t.Context(), projectwork.CollaborationArtifact{
+		ID:                     "artifact_review",
+		ProjectID:              "proj_review_readiness",
+		WorkItemID:             "work_review_readiness",
+		AssignmentID:           "asgn_review",
+		Kind:                   projectwork.ArtifactKindReview,
+		Title:                  "Architecture review",
+		Body:                   "Verdict: Changes requested.",
+		ReviewedAssignmentID:   "asgn_impl",
+		ReviewVerdict:          projectwork.ReviewVerdictChangesRequested,
+		ReviewRisk:             projectwork.ReviewRiskHigh,
+		ReviewFollowUpRequired: true,
+	}); err != nil {
+		t.Fatalf("CreateArtifact(review): %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_review_readiness/work-items/work_review_readiness/readiness", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("readiness status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response ProjectWorkItemReadinessEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode readiness: %v", err)
+	}
+	if len(response.Data.ReviewFollowUpArtifactIDs) != 1 || response.Data.ReviewFollowUpArtifactIDs[0] != "artifact_review" {
+		t.Fatalf("review follow-up ids = %+v, want artifact_review", response.Data.ReviewFollowUpArtifactIDs)
+	}
+	if len(response.Data.ReviewFollowUps) != 1 {
+		t.Fatalf("review follow-ups = %+v, want one typed follow-up", response.Data.ReviewFollowUps)
+	}
+	followUp := response.Data.ReviewFollowUps[0]
+	if followUp.ArtifactID != "artifact_review" || followUp.Status != "needs_path" || followUp.Title != "Architecture review" || followUp.ReviewedAssignmentID != "asgn_impl" || followUp.ReviewVerdict != projectwork.ReviewVerdictChangesRequested || followUp.ReviewRisk != projectwork.ReviewRiskHigh || followUp.Blocker == "" {
+		t.Fatalf("review follow-up = %+v, want typed missing-path record", followUp)
+	}
+}
+
 func TestProjectOperationsBrief_OpenLatestWorkWhenNoOperations(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectWorkTestServer()

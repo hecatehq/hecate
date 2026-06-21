@@ -95,6 +95,7 @@ describe("Project Assistant controller helpers", () => {
       proposal,
     );
     expect(partial).toContain("applied 1 of 2 actions");
-    expect(partial).toContain("failed at action 2");
+    expect(partial).toContain("create assignment asgn_1");
+    expect(partial).toContain("failed at action 2 (create memory candidate)");
   });
 });

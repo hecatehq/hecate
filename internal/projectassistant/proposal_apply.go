@@ -94,6 +94,8 @@ func (s *Service) applyAction(ctx context.Context, action Action) (ActionResult,
 		return s.applyCreateAssignment(ctx, action)
 	case ActionCreateHandoff:
 		return s.applyCreateHandoff(ctx, action)
+	case ActionUpdateHandoff:
+		return s.applyUpdateHandoff(ctx, action)
 	case ActionCreateMemoryCandidate:
 		return s.applyCreateMemoryCandidate(ctx, action)
 	default:

@@ -2429,7 +2429,7 @@ describe("ProjectsView cockpit", () => {
 
     expect(
       await within(assistant).findByText(
-        "Project Assistant applied 1 of 2 actions, then failed at action 2. Apply the same proposal again after fixing the target state to resume from the next unapplied action.",
+        "Project Assistant applied 1 of 2 actions (create assignment asgn_partial). It then failed at action 2 (create memory candidate). Apply the same proposal again after fixing the target state to resume from the next unapplied action.",
       ),
     ).toBeTruthy();
     expect(getProjectWorkItems).toHaveBeenLastCalledWith(project.id);
@@ -3626,7 +3626,7 @@ describe("ProjectsView cockpit", () => {
     });
   });
 
-  it("creates queued follow-up assignments directly from review artifacts", async () => {
+  it("drafts Project Assistant follow-up proposals from review artifacts", async () => {
     resetProjectWorkMocks();
     vi.mocked(getProjectCollaborationArtifacts).mockResolvedValue({
       object: "project_collaboration_artifacts",
@@ -3658,40 +3658,28 @@ describe("ProjectsView cockpit", () => {
     });
     await userEvent.click(
       within(detail).getByRole("button", {
-        name: "Create follow-up assignment from review artifact art_review",
+        name: "Draft follow-up assignment from review artifact art_review",
       }),
     );
 
     await waitFor(() => {
-      expect(createProjectHandoff).toHaveBeenCalledWith(
-        project.id,
-        workItem.id,
-        expect.objectContaining({
-          source_assignment_id: "asgn_review",
-          target_role_id: "software_developer",
-          linked_artifact_ids: ["art_review"],
-          title: "QA reviewer review follow-up",
-        }),
-      );
+      expect(draftProjectAssistant).toHaveBeenCalledWith({
+        project_id: project.id,
+        work_item_id: workItem.id,
+        request: "Create review follow-up",
+        draft_mode: "review_follow_up",
+        review_artifact_id: "art_review",
+      });
     });
-    expect(createProjectAssignment).toHaveBeenCalledWith(project.id, workItem.id, {
-      role_id: "software_developer",
-      driver_kind: "hecate_task",
-    });
-    expect(updateProjectHandoff).toHaveBeenCalledWith(
-      project.id,
-      workItem.id,
-      "handoff_new",
-      expect.objectContaining({
-        target_assignment_id: "asgn_new",
-        target_role_id: "software_developer",
-        status: "accepted",
-      }),
-    );
+    const assistant = await screen.findByRole("region", { name: "Project Assistant" });
+    expect(within(assistant).getByText("Create assignment")).toBeTruthy();
+    expect(createProjectHandoff).not.toHaveBeenCalled();
+    expect(createProjectAssignment).not.toHaveBeenCalled();
+    expect(updateProjectHandoff).not.toHaveBeenCalled();
     expect(startProjectAssignment).not.toHaveBeenCalled();
   });
 
-  it("keeps created review follow-up handoffs recoverable when assignment creation fails", async () => {
+  it("does not create partial review follow-up records when proposal drafting fails", async () => {
     resetProjectWorkMocks();
     vi.mocked(getProjectCollaborationArtifacts).mockResolvedValue({
       object: "project_collaboration_artifacts",
@@ -3710,7 +3698,7 @@ describe("ProjectsView cockpit", () => {
         },
       ],
     });
-    vi.mocked(createProjectAssignment).mockRejectedValueOnce(new Error("assignment store down"));
+    vi.mocked(draftProjectAssistant).mockRejectedValueOnce(new Error("assistant unavailable"));
     window.localStorage.setItem("hecate.project", project.id);
     const state = createRuntimeConsoleFixture({
       projects: [project],
@@ -3724,25 +3712,21 @@ describe("ProjectsView cockpit", () => {
     });
     await userEvent.click(
       within(detail).getByRole("button", {
-        name: "Create follow-up assignment from review artifact art_review",
+        name: "Draft follow-up assignment from review artifact art_review",
       }),
     );
 
     await waitFor(() => {
-      expect(createProjectHandoff).toHaveBeenCalledWith(
-        project.id,
-        workItem.id,
-        expect.objectContaining({
-          linked_artifact_ids: ["art_review"],
-          title: "QA reviewer review follow-up",
-        }),
-      );
+      expect(draftProjectAssistant).toHaveBeenCalledWith({
+        project_id: project.id,
+        work_item_id: workItem.id,
+        request: "Create review follow-up",
+        draft_mode: "review_follow_up",
+        review_artifact_id: "art_review",
+      });
     });
-    await screen.findByText(/Created the follow-up handoff, but failed to create its assignment/);
-    expect(createProjectAssignment).toHaveBeenCalledWith(project.id, workItem.id, {
-      role_id: "software_developer",
-      driver_kind: "hecate_task",
-    });
+    expect(createProjectHandoff).not.toHaveBeenCalled();
+    expect(createProjectAssignment).not.toHaveBeenCalled();
     expect(updateProjectHandoff).not.toHaveBeenCalled();
     expect(startProjectAssignment).not.toHaveBeenCalled();
   });

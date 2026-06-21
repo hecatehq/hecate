@@ -28,6 +28,7 @@ const (
 	ActionUpdateWorkItem        = "update_work_item"
 	ActionCreateAssignment      = "create_assignment"
 	ActionCreateHandoff         = "create_handoff"
+	ActionUpdateHandoff         = "update_handoff"
 	ActionCreateMemoryCandidate = "create_memory_candidate"
 )
 
@@ -74,16 +75,17 @@ type ProposalInput struct {
 }
 
 type DraftInput struct {
-	ProjectID  string
-	WorkItemID string
-	Request    string
-	RoleID     string
-	DriverKind string
-	DraftMode  string
-	Provider   string
-	Model      string
-	RequestID  string
-	TraceID    string
+	ProjectID        string
+	WorkItemID       string
+	Request          string
+	RoleID           string
+	DriverKind       string
+	DraftMode        string
+	ReviewArtifactID string
+	Provider         string
+	Model            string
+	RequestID        string
+	TraceID          string
 }
 
 type ContextInput struct {
@@ -213,6 +215,14 @@ func (s *Service) Propose(_ context.Context, input ProposalInput) (Proposal, err
 }
 
 func (s *Service) Draft(ctx context.Context, input DraftInput) (Proposal, error) {
+	mode := normalizeDraftMode(input.DraftMode)
+	if mode == DraftModeReviewFollowUp && strings.TrimSpace(input.RoleID) == "" {
+		roleID, err := s.defaultReviewFollowUpRoleID(ctx, input)
+		if err != nil {
+			return Proposal{}, err
+		}
+		input.RoleID = roleID
+	}
 	draftContext, err := s.Context(ctx, ContextInput{
 		ProjectID:  input.ProjectID,
 		WorkItemID: input.WorkItemID,
@@ -223,11 +233,13 @@ func (s *Service) Draft(ctx context.Context, input DraftInput) (Proposal, error)
 	if err != nil {
 		return Proposal{}, err
 	}
-	switch normalizeDraftMode(input.DraftMode) {
+	switch mode {
 	case "", DraftModeDeterministic:
 		return s.draftDeterministic(ctx, input, draftContext)
 	case DraftModeBootstrap:
 		return s.draftBootstrap(ctx, input, draftContext)
+	case DraftModeReviewFollowUp:
+		return s.draftReviewFollowUp(ctx, input, draftContext)
 	case DraftModeModel:
 		return s.draftWithModel(ctx, input, draftContext)
 	default:
