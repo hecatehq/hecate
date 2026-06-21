@@ -327,7 +327,10 @@ non-secret `auth_methods`). Hecate shows the local **Sign in** action only when
 the live agent advertises ACP auth method `agent-login`, which is the method the
 Hecate `/authenticate` endpoint calls. It shows **Sign out** only when the live
 agent advertises ACP `auth.logout`; direct API calls enforce the same Initialize
-capability checks before invoking ACP `authenticate` or `logout`.
+capability checks before invoking ACP `authenticate` or `logout`. Probes stay
+short so the UI can classify broken adapters quickly, while the managed local
+`authenticate` action allows a longer native sign-in flow because Codex and
+Claude Code may open a browser or terminal login.
 
 Codex and Claude Code use standalone Go ACP adapter binaries backed by the
 operator's local vendor CLI. Cursor and Grok ship ACP mode inside the vendor CLI

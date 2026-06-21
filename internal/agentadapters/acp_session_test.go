@@ -865,6 +865,40 @@ func TestAuthenticateCallsACPAuthenticate(t *testing.T) {
 	}
 }
 
+func TestAuthenticateActionTimeoutCanExceedProbeTimeout(t *testing.T) {
+	if acpAuthenticateActionTimeout <= probeTimeout {
+		t.Fatalf("acpAuthenticateActionTimeout = %s, want longer than probe timeout %s", acpAuthenticateActionTimeout, probeTimeout)
+	}
+}
+
+func TestAuthenticateAllowsSlowAgentLoginFlow(t *testing.T) {
+	restore := overrideACPAuthTimeouts(t, 500*time.Millisecond, acpLogoutActionTimeout, acpAuthInitializeTimeout)
+	defer restore()
+	t.Setenv("HECATE_FAKE_ACP_AUTHENTICATE_DELAY", "75ms")
+	t.Setenv("HECATE_FAKE_ACP_AUTH_AGENT_LOGIN", "1")
+	installFakeACPExecutable(t, "codex-acp-adapter")
+
+	if _, err := Authenticate(context.Background(), "codex"); err != nil {
+		t.Fatalf("Authenticate with delayed login flow: %v", err)
+	}
+}
+
+func TestAuthenticateActionTimeoutCancelsSlowAgentLoginFlow(t *testing.T) {
+	restore := overrideACPAuthTimeouts(t, 200*time.Millisecond, acpLogoutActionTimeout, acpAuthInitializeTimeout)
+	defer restore()
+	t.Setenv("HECATE_FAKE_ACP_AUTHENTICATE_DELAY", "1s")
+	t.Setenv("HECATE_FAKE_ACP_AUTH_AGENT_LOGIN", "1")
+	installFakeACPExecutable(t, "codex-acp-adapter")
+
+	_, err := Authenticate(context.Background(), "codex")
+	if err == nil {
+		t.Fatal("Authenticate error = nil, want timeout")
+	}
+	if got := err.Error(); !strings.Contains(got, `authenticate ACP adapter "codex"`) || !strings.Contains(got, "context deadline exceeded") {
+		t.Fatalf("Authenticate error = %q, want context deadline diagnostic", got)
+	}
+}
+
 func TestAuthenticateSupportsFilesystemCallbacks(t *testing.T) {
 	t.Setenv("HECATE_FAKE_ACP_AUTH_FS", "1")
 	t.Setenv("HECATE_FAKE_ACP_AUTH_AGENT_LOGIN", "1")
@@ -929,6 +963,21 @@ func TestLogoutRejectsUnknownAdapter(t *testing.T) {
 	_, err := Logout(context.Background(), "no_such_adapter")
 	if err == nil || !strings.Contains(err.Error(), `agent adapter "no_such_adapter" not found`) {
 		t.Fatalf("Logout error = %v, want unknown adapter", err)
+	}
+}
+
+func overrideACPAuthTimeouts(t *testing.T, authenticate, logout, initialize time.Duration) func() {
+	t.Helper()
+	oldAuthenticate := acpAuthenticateActionTimeout
+	oldLogout := acpLogoutActionTimeout
+	oldInitialize := acpAuthInitializeTimeout
+	acpAuthenticateActionTimeout = authenticate
+	acpLogoutActionTimeout = logout
+	acpAuthInitializeTimeout = initialize
+	return func() {
+		acpAuthenticateActionTimeout = oldAuthenticate
+		acpLogoutActionTimeout = oldLogout
+		acpAuthInitializeTimeout = oldInitialize
 	}
 }
 
@@ -2828,7 +2877,7 @@ func installFakeACPExecutable(t *testing.T, name string) {
 	}
 	exe := filepath.Join(bin, name)
 	script := fmt.Sprintf(
-		"#!/bin/sh\nHECATE_FAKE_ACP_AGENT=1 HECATE_FAKE_ACP_LOAD_SESSION_FAIL=%q HECATE_FAKE_ACP_NEW_SESSION_DELAY=%q HECATE_FAKE_ACP_NEW_SESSION_FS=%q HECATE_FAKE_ACP_COMMANDS_DELAY=%q HECATE_FAKE_ACP_MODELS=%q HECATE_FAKE_ACP_CONFIG_OPTIONS=%q HECATE_FAKE_ACP_SET_MODEL_ERROR=%q HECATE_FAKE_ACP_EXPECT_MCP_METHOD=%q HECATE_FAKE_ACP_EXPECT_MCP_JSON=%q HECATE_FAKE_ACP_AUTHENTICATE_FILE=%q HECATE_FAKE_ACP_AUTHENTICATE_ERROR=%q HECATE_FAKE_ACP_LOGOUT_FILE=%q HECATE_FAKE_ACP_LOGOUT_ERROR=%q HECATE_FAKE_ACP_AUTH_FS=%q HECATE_FAKE_ACP_AUTH_AGENT_LOGIN=%q HECATE_FAKE_ACP_AUTH_AGENT_OTHER=%q HECATE_FAKE_ACP_AUTH_ENV_VAR=%q HECATE_FAKE_ACP_AUTH_TERMINAL=%q HECATE_FAKE_ACP_SUPPORTS_LOGOUT=%q HECATE_FAKE_ACP_CLOSE_UNSUPPORTED=%q HECATE_FAKE_ACP_CLOSE_FILE=%q HECATE_FAKE_ACP_DELETE_UNSUPPORTED=%q HECATE_FAKE_ACP_DELETE_FILE=%q HECATE_FAKE_ACP_INIT_FILE=%q exec %q -test.run '^TestFakeACPAgentProcess$'\n",
+		"#!/bin/sh\nHECATE_FAKE_ACP_AGENT=1 HECATE_FAKE_ACP_LOAD_SESSION_FAIL=%q HECATE_FAKE_ACP_NEW_SESSION_DELAY=%q HECATE_FAKE_ACP_NEW_SESSION_FS=%q HECATE_FAKE_ACP_COMMANDS_DELAY=%q HECATE_FAKE_ACP_MODELS=%q HECATE_FAKE_ACP_CONFIG_OPTIONS=%q HECATE_FAKE_ACP_SET_MODEL_ERROR=%q HECATE_FAKE_ACP_EXPECT_MCP_METHOD=%q HECATE_FAKE_ACP_EXPECT_MCP_JSON=%q HECATE_FAKE_ACP_AUTHENTICATE_FILE=%q HECATE_FAKE_ACP_AUTHENTICATE_ERROR=%q HECATE_FAKE_ACP_AUTHENTICATE_DELAY=%q HECATE_FAKE_ACP_LOGOUT_FILE=%q HECATE_FAKE_ACP_LOGOUT_ERROR=%q HECATE_FAKE_ACP_AUTH_FS=%q HECATE_FAKE_ACP_AUTH_AGENT_LOGIN=%q HECATE_FAKE_ACP_AUTH_AGENT_OTHER=%q HECATE_FAKE_ACP_AUTH_ENV_VAR=%q HECATE_FAKE_ACP_AUTH_TERMINAL=%q HECATE_FAKE_ACP_SUPPORTS_LOGOUT=%q HECATE_FAKE_ACP_CLOSE_UNSUPPORTED=%q HECATE_FAKE_ACP_CLOSE_FILE=%q HECATE_FAKE_ACP_DELETE_UNSUPPORTED=%q HECATE_FAKE_ACP_DELETE_FILE=%q HECATE_FAKE_ACP_INIT_FILE=%q exec %q -test.run '^TestFakeACPAgentProcess$'\n",
 		os.Getenv("HECATE_FAKE_ACP_LOAD_SESSION_FAIL"),
 		os.Getenv("HECATE_FAKE_ACP_NEW_SESSION_DELAY"),
 		os.Getenv("HECATE_FAKE_ACP_NEW_SESSION_FS"),
@@ -2840,6 +2889,7 @@ func installFakeACPExecutable(t *testing.T, name string) {
 		os.Getenv("HECATE_FAKE_ACP_EXPECT_MCP_JSON"),
 		os.Getenv("HECATE_FAKE_ACP_AUTHENTICATE_FILE"),
 		os.Getenv("HECATE_FAKE_ACP_AUTHENTICATE_ERROR"),
+		os.Getenv("HECATE_FAKE_ACP_AUTHENTICATE_DELAY"),
 		os.Getenv("HECATE_FAKE_ACP_LOGOUT_FILE"),
 		os.Getenv("HECATE_FAKE_ACP_LOGOUT_ERROR"),
 		os.Getenv("HECATE_FAKE_ACP_AUTH_FS"),
@@ -2884,6 +2934,15 @@ func newFakeACPAgent() *fakeACPAgent {
 func (a *fakeACPAgent) Authenticate(ctx context.Context, params acp.AuthenticateRequest) (acp.AuthenticateResponse, error) {
 	if message := strings.TrimSpace(os.Getenv("HECATE_FAKE_ACP_AUTHENTICATE_ERROR")); message != "" {
 		return acp.AuthenticateResponse{}, fmt.Errorf("%s", message)
+	}
+	if delay, err := time.ParseDuration(os.Getenv("HECATE_FAKE_ACP_AUTHENTICATE_DELAY")); err == nil && delay > 0 {
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return acp.AuthenticateResponse{}, ctx.Err()
+		case <-timer.C:
+		}
 	}
 	if err := a.checkAuthFilesystemCallbacks(ctx, "authenticate"); err != nil {
 		return acp.AuthenticateResponse{}, err
