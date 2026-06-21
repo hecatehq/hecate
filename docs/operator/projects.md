@@ -130,6 +130,11 @@ project can include a main checkout and linked Git worktrees. Work items and
 assignments may select a root; launch resolution uses assignment root, then
 work-item root, then project default root, then the first active root.
 
+Root edits use typed server mutations per root. Adding, editing, or deleting a
+root changes project metadata only; it does not create or delete folders,
+branches, files, assignments, chats, tasks, or external-agent runs. Worktree
+creation remains a separate explicit action.
+
 Worktree creation is an explicit operator action. In V1, Hecate creates
 worktrees under the selected root's `.worktrees/` directory and does not create
 sibling workspaces outside the registered project root.

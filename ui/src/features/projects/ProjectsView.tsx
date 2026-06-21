@@ -11,6 +11,7 @@ import {
   createProjectCollaborationArtifact,
   createProjectHandoff,
   createProjectContextSource,
+  createProjectRoot,
   discoverProjectContextSources,
   discoverProjectRoots,
   discoverProjectSkills,
@@ -22,6 +23,7 @@ import {
   deleteProjectHandoff,
   deleteProjectContextSource,
   deleteProjectMemory,
+  deleteProjectRoot,
   deleteProjectWorkRole,
   deleteProjectWorkItem,
   getProjectActivity,
@@ -46,6 +48,7 @@ import {
   updateProject,
   updateAgentProfile,
   updateProjectContextSource,
+  updateProjectRoot,
   updateProjectAssignment,
   updateProjectHandoff,
   updateProjectHandoffStatus,
@@ -115,6 +118,8 @@ import { ProjectSettingsPanel } from "./ProjectSettingsPanel";
 import { ProjectEvidenceLinkModal } from "./ProjectEvidenceLinkModal";
 import {
   createProjectPayloadFromForm,
+  projectRootPayloadFromRecord,
+  projectRootPayloadsEqual,
   type CreateProjectForm,
   type CreateWorktreeForm,
   type ProjectDefaultsForm,
@@ -702,10 +707,32 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
       default_agent_profile: form.defaultAgentProfile.trim(),
       default_workspace_mode: form.workspaceMode.trim(),
       default_root_id: form.defaultRootID.trim(),
-      roots: form.roots,
     };
     try {
-      const payload = await updateProject(selectedProject.id, patch);
+      const existingRootsByID = new Map(selectedProject.roots.map((root) => [root.id, root]));
+      const nextRootIDs = new Set(form.roots.map((root) => root.id?.trim() ?? "").filter(Boolean));
+      let currentProject = selectedProject;
+      const applyRootProject = (project: ProjectRecord) => {
+        currentProject = project;
+        projects.actions.setProjects((current) => upsertProject(current, project));
+      };
+      for (const root of form.roots) {
+        const rootID = root.id?.trim() ?? "";
+        const existing = rootID ? existingRootsByID.get(rootID) : undefined;
+        let payload: { data: ProjectRecord } | null = null;
+        if (!existing) {
+          payload = await createProjectRoot(selectedProject.id, root);
+        } else if (!projectRootPayloadsEqual(projectRootPayloadFromRecord(existing), root)) {
+          payload = await updateProjectRoot(selectedProject.id, rootID, root);
+        }
+        if (payload) applyRootProject(payload.data);
+      }
+      for (const root of selectedProject.roots) {
+        if (nextRootIDs.has(root.id)) continue;
+        const payload = await deleteProjectRoot(selectedProject.id, root.id);
+        applyRootProject(payload.data);
+      }
+      const payload = await updateProject(currentProject.id, patch);
       projects.actions.setProjects((current) => upsertProject(current, payload.data));
       refreshProjectHealth(selectedProject.id);
       setSettingsPanelOpen(false);

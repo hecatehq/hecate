@@ -274,6 +274,42 @@ func (h *Handler) HandleUpdateProject(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, http.StatusOK, ProjectResponse{Object: "project", Data: renderProject(project)})
 }
 
+func (h *Handler) HandleCreateProjectRoot(w http.ResponseWriter, r *http.Request) {
+	var req projectRootRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	root, err := rootFromRequest(req)
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+		return
+	}
+	if root.ID == "" {
+		root.ID = newOpaqueTaskResourceID("root")
+	}
+	project, _, err := h.projectApplication().CreateRoot(r.Context(), r.PathValue("id"), root)
+	writeProjectRootMutationResponse(w, http.StatusCreated, project, err)
+}
+
+func (h *Handler) HandleUpdateProjectRoot(w http.ResponseWriter, r *http.Request) {
+	var req projectRootRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	root, err := rootFromRequest(req)
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+		return
+	}
+	project, _, err := h.projectApplication().UpdateRoot(r.Context(), r.PathValue("id"), r.PathValue("root_id"), root)
+	writeProjectRootMutationResponse(w, http.StatusOK, project, err)
+}
+
+func (h *Handler) HandleDeleteProjectRoot(w http.ResponseWriter, r *http.Request) {
+	project, _, err := h.projectApplication().DeleteRoot(r.Context(), r.PathValue("id"), r.PathValue("root_id"))
+	writeProjectRootMutationResponse(w, http.StatusOK, project, err)
+}
+
 func (h *Handler) HandleCreateProjectContextSource(w http.ResponseWriter, r *http.Request) {
 	var req projectContextSourceRequest
 	if !decodeJSON(w, r, &req) {
@@ -325,6 +361,30 @@ func (h *Handler) HandleDeleteProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func writeProjectRootMutationResponse(w http.ResponseWriter, status int, project projects.Project, err error) {
+	if errors.Is(err, projectapp.ErrProjectNotFound) {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
+		return
+	}
+	if errors.Is(err, projectapp.ErrProjectRootNotFound) {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "project root not found")
+		return
+	}
+	if errors.Is(err, projectapp.ErrProjectRootConflict) || errors.Is(err, projects.ErrAlreadyExists) {
+		WriteError(w, http.StatusConflict, errCodeConflict, err.Error())
+		return
+	}
+	if errors.Is(err, projects.ErrInvalid) {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+		return
+	}
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	WriteJSON(w, status, ProjectResponse{Object: "project", Data: renderProject(project)})
 }
 
 func writeProjectContextSourceMutationResponse(w http.ResponseWriter, status int, project projects.Project, err error) {
@@ -408,24 +468,32 @@ func projectFromCreateRequest(req createProjectRequest) (projects.Project, error
 func rootsFromRequest(req []projectRootRequest) ([]projects.Root, error) {
 	roots := make([]projects.Root, 0, len(req))
 	for _, item := range req {
-		path := strings.TrimSpace(item.Path)
-		if path == "" {
-			return nil, errors.New("project root path is required")
+		root, err := rootFromRequest(item)
+		if err != nil {
+			return nil, err
 		}
-		active := true
-		if item.Active != nil {
-			active = *item.Active
-		}
-		roots = append(roots, projects.Root{
-			ID:        strings.TrimSpace(item.ID),
-			Path:      path,
-			Kind:      strings.TrimSpace(item.Kind),
-			GitRemote: strings.TrimSpace(item.GitRemote),
-			GitBranch: strings.TrimSpace(item.GitBranch),
-			Active:    active,
-		})
+		roots = append(roots, root)
 	}
 	return roots, nil
+}
+
+func rootFromRequest(item projectRootRequest) (projects.Root, error) {
+	path := strings.TrimSpace(item.Path)
+	if path == "" {
+		return projects.Root{}, errors.New("project root path is required")
+	}
+	active := true
+	if item.Active != nil {
+		active = *item.Active
+	}
+	return projects.Root{
+		ID:        strings.TrimSpace(item.ID),
+		Path:      path,
+		Kind:      strings.TrimSpace(item.Kind),
+		GitRemote: strings.TrimSpace(item.GitRemote),
+		GitBranch: strings.TrimSpace(item.GitBranch),
+		Active:    active,
+	}, nil
 }
 
 func contextSourcesFromRequest(req []projectContextSourceRequest) ([]projects.ContextSource, error) {

@@ -257,6 +257,108 @@ func TestApplication_DeleteProjectMapsMissingProject(t *testing.T) {
 	}
 }
 
+func TestApplication_RootMutations(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	projectStore := projects.NewMemoryStore()
+	projectID := "proj_roots"
+	if _, err := projectStore.Create(ctx, projects.Project{ID: projectID, Name: "Roots"}); err != nil {
+		t.Fatalf("Create(project): %v", err)
+	}
+	app := New(Options{Projects: projectStore})
+
+	project, created, err := app.CreateRoot(ctx, projectID, projects.Root{
+		ID:        "root_main",
+		Path:      "/workspace/main",
+		Kind:      "git",
+		GitBranch: "main",
+		Active:    true,
+	})
+	if err != nil {
+		t.Fatalf("CreateRoot(): %v", err)
+	}
+	if created.ID != "root_main" || created.Kind != "git" || created.GitBranch != "main" || !created.Active {
+		t.Fatalf("created root = %+v, want normalized git root", created)
+	}
+	if len(project.Roots) != 1 || project.DefaultRootID != "root_main" {
+		t.Fatalf("project roots/default after create = %+v default=%q, want created default root", project.Roots, project.DefaultRootID)
+	}
+	createdAt := created.CreatedAt
+
+	project, updated, err := app.UpdateRoot(ctx, projectID, "root_main", projects.Root{
+		Path:      "/workspace/main-renamed",
+		Kind:      "git_worktree",
+		GitBranch: "feature/root",
+		Active:    false,
+	})
+	if err != nil {
+		t.Fatalf("UpdateRoot(): %v", err)
+	}
+	if updated.ID != "root_main" || updated.Path != "/workspace/main-renamed" || updated.Kind != "git_worktree" || updated.Active {
+		t.Fatalf("updated root = %+v, want patched root with stable id", updated)
+	}
+	if !updated.CreatedAt.Equal(createdAt) {
+		t.Fatalf("updated CreatedAt = %s, want original %s", updated.CreatedAt, createdAt)
+	}
+	if !updated.UpdatedAt.After(createdAt) {
+		t.Fatalf("updated UpdatedAt = %s, want after original %s", updated.UpdatedAt, createdAt)
+	}
+	if len(project.Roots) != 1 || project.DefaultRootID != "root_main" {
+		t.Fatalf("project roots/default after update = %+v default=%q, want stable default root", project.Roots, project.DefaultRootID)
+	}
+
+	if _, _, err := app.CreateRoot(ctx, projectID, projects.Root{ID: "root_other", Path: "/workspace/other", Active: true}); err != nil {
+		t.Fatalf("CreateRoot(other): %v", err)
+	}
+	project, deleted, err := app.DeleteRoot(ctx, projectID, "root_main")
+	if err != nil {
+		t.Fatalf("DeleteRoot(): %v", err)
+	}
+	if deleted.ID != "root_main" {
+		t.Fatalf("deleted root = %+v, want root_main", deleted)
+	}
+	if len(project.Roots) != 1 || project.Roots[0].ID != "root_other" || project.DefaultRootID != "root_other" {
+		t.Fatalf("project roots/default after delete = %+v default=%q, want remaining root as default", project.Roots, project.DefaultRootID)
+	}
+}
+
+func TestApplication_RootMutationsValidateTargets(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	projectStore := projects.NewMemoryStore()
+	projectID := "proj_roots"
+	if _, err := projectStore.Create(ctx, projects.Project{
+		ID:   projectID,
+		Name: "Roots",
+		Roots: []projects.Root{{
+			ID:     "root_existing",
+			Path:   "/workspace/main",
+			Active: true,
+		}},
+	}); err != nil {
+		t.Fatalf("Create(project): %v", err)
+	}
+	app := New(Options{Projects: projectStore})
+
+	if _, _, err := app.CreateRoot(ctx, "proj_missing", projects.Root{ID: "root_new", Path: "/workspace/new"}); !errors.Is(err, ErrProjectNotFound) {
+		t.Fatalf("CreateRoot(missing project) error = %v, want ErrProjectNotFound", err)
+	}
+	if _, _, err := app.CreateRoot(ctx, projectID, projects.Root{ID: "root_existing", Path: "/workspace/other"}); !errors.Is(err, ErrProjectRootConflict) {
+		t.Fatalf("CreateRoot(duplicate) error = %v, want ErrProjectRootConflict", err)
+	}
+	if _, _, err := app.CreateRoot(ctx, projectID, projects.Root{ID: "root_empty_path"}); !errors.Is(err, projects.ErrInvalid) {
+		t.Fatalf("CreateRoot(invalid) error = %v, want projects.ErrInvalid", err)
+	}
+	if _, _, err := app.UpdateRoot(ctx, projectID, "root_missing", projects.Root{Path: "/workspace/new"}); !errors.Is(err, ErrProjectRootNotFound) {
+		t.Fatalf("UpdateRoot(missing) error = %v, want ErrProjectRootNotFound", err)
+	}
+	if _, _, err := app.DeleteRoot(ctx, projectID, "root_missing"); !errors.Is(err, ErrProjectRootNotFound) {
+		t.Fatalf("DeleteRoot(missing) error = %v, want ErrProjectRootNotFound", err)
+	}
+}
+
 func TestApplication_ContextSourceMutations(t *testing.T) {
 	t.Parallel()
 

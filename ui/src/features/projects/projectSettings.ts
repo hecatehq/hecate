@@ -61,7 +61,7 @@ export function projectDefaultsFormFromProject(project: ProjectRecord): ProjectD
   };
 }
 
-function projectRootPayloadFromRecord(root: ProjectRootRecord): ProjectRootPayload {
+export function projectRootPayloadFromRecord(root: ProjectRootRecord): ProjectRootPayload {
   const payload: ProjectRootPayload = {
     id: root.id,
     path: root.path,
@@ -71,6 +71,20 @@ function projectRootPayloadFromRecord(root: ProjectRootRecord): ProjectRootPaylo
   if (root.git_remote) payload.git_remote = root.git_remote;
   if (root.git_branch) payload.git_branch = root.git_branch;
   return payload;
+}
+
+export function projectRootPayloadsEqual(
+  a: ProjectRootPayload | ProjectRootRecord,
+  b: ProjectRootPayload | ProjectRootRecord,
+) {
+  return (
+    (a.id ?? "").trim() === (b.id ?? "").trim() &&
+    a.path.trim() === b.path.trim() &&
+    (a.kind ?? "").trim() === (b.kind ?? "").trim() &&
+    (a.git_remote ?? "").trim() === (b.git_remote ?? "").trim() &&
+    (a.git_branch ?? "").trim() === (b.git_branch ?? "").trim() &&
+    Boolean(a.active) === Boolean(b.active)
+  );
 }
 
 export function projectRootOptionLabel(root: ProjectRootPayload | ProjectRootRecord) {
