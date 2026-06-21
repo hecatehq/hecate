@@ -14,15 +14,17 @@ import (
 )
 
 type recordingAgentRunner struct {
-	prepareCalls   int
-	closeCalls     int
-	prepareErr     error
-	setCalls       int
-	setErr         error
-	prepareReq     agentadapters.PrepareSessionRequest
-	setReq         agentadapters.SetSessionConfigOptionRequest
-	closedSessions []string
-	configOptions  []agentcontrols.ConfigOption
+	prepareCalls    int
+	closeCalls      int
+	deleteCalls     int
+	prepareErr      error
+	setCalls        int
+	setErr          error
+	prepareReq      agentadapters.PrepareSessionRequest
+	setReq          agentadapters.SetSessionConfigOptionRequest
+	closedSessions  []string
+	deletedSessions []string
+	configOptions   []agentcontrols.ConfigOption
 }
 
 func (r *recordingAgentRunner) PrepareSession(_ context.Context, req agentadapters.PrepareSessionRequest) (agentadapters.PrepareSessionResult, error) {
@@ -53,6 +55,12 @@ func (r *recordingAgentRunner) CloseSession(_ context.Context, sessionID string)
 	return nil
 }
 
+func (r *recordingAgentRunner) DeleteSession(_ context.Context, sessionID string) error {
+	r.deleteCalls++
+	r.deletedSessions = append(r.deletedSessions, sessionID)
+	return nil
+}
+
 func TestApplication_CreateSessionPersistsBuiltInSession(t *testing.T) {
 	t.Parallel()
 
@@ -75,8 +83,8 @@ func TestApplication_CreateSessionPersistsBuiltInSession(t *testing.T) {
 	if result.Session.ID != "chat_hecate" || result.Session.AgentID != chat.DefaultAgentID {
 		t.Fatalf("session = %+v, want persisted built-in session", result.Session)
 	}
-	if runner.prepareCalls != 0 || runner.closeCalls != 0 {
-		t.Fatalf("runner prepare/close = %d/%d, want unused", runner.prepareCalls, runner.closeCalls)
+	if runner.prepareCalls != 0 || runner.closeCalls != 0 || runner.deleteCalls != 0 {
+		t.Fatalf("runner prepare/close/delete = %d/%d/%d, want unused", runner.prepareCalls, runner.closeCalls, runner.deleteCalls)
 	}
 	if _, ok, err := store.Get(ctx, "chat_hecate"); err != nil || !ok {
 		t.Fatalf("Get(chat_hecate) ok=%v err=%v, want persisted session", ok, err)
@@ -299,8 +307,8 @@ func TestApplication_CreateSessionPrepareFailureDeletesSession(t *testing.T) {
 	if !errors.As(err, &prepareErr) || !errors.Is(prepareErr.Unwrap(), runner.prepareErr) {
 		t.Fatalf("CreateSession(prepare failure) error = %v, want ExternalPrepareError", err)
 	}
-	if runner.closeCalls != 0 {
-		t.Fatalf("closeCalls = %d, want no close after failed prepare", runner.closeCalls)
+	if runner.closeCalls != 0 || runner.deleteCalls != 0 {
+		t.Fatalf("close/delete calls = %d/%d, want no cleanup after failed prepare", runner.closeCalls, runner.deleteCalls)
 	}
 	if _, ok, err := store.Get(ctx, "chat_ext"); err != nil || ok {
 		t.Fatalf("Get(chat_ext) ok=%v err=%v, want deleted session", ok, err)
@@ -338,8 +346,11 @@ func TestApplication_CreateSessionUpdateFailureCleansPreparedSession(t *testing.
 	if err == nil || !errors.Is(err, store.err) {
 		t.Fatalf("CreateSession(update failure) error = %v, want update error", err)
 	}
-	if runner.closeCalls != 1 || len(runner.closedSessions) != 1 || runner.closedSessions[0] != "chat_ext" {
-		t.Fatalf("closed sessions = %+v closeCalls=%d, want chat_ext closed once", runner.closedSessions, runner.closeCalls)
+	if runner.deleteCalls != 1 || len(runner.deletedSessions) != 1 || runner.deletedSessions[0] != "chat_ext" {
+		t.Fatalf("deleted sessions = %+v deleteCalls=%d, want chat_ext deleted once", runner.deletedSessions, runner.deleteCalls)
+	}
+	if runner.closeCalls != 0 {
+		t.Fatalf("closeCalls = %d, want no non-destructive close during failed create cleanup", runner.closeCalls)
 	}
 	if len(store.deletedIDs) != 1 || store.deletedIDs[0] != "chat_ext" {
 		t.Fatalf("deleted ids = %+v, want chat_ext", store.deletedIDs)
@@ -367,7 +378,7 @@ func TestApplication_CreateSessionNilDependencies(t *testing.T) {
 	}
 }
 
-func TestApplication_DeleteSessionClosesNativeSessionWhenRequested(t *testing.T) {
+func TestApplication_DeleteSessionDeletesNativeSessionWhenRequested(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -384,11 +395,14 @@ func TestApplication_DeleteSessionClosesNativeSessionWhenRequested(t *testing.T)
 		t.Fatalf("Create: %v", err)
 	}
 
-	if err := app.DeleteSession(ctx, DeleteSessionCommand{Session: session, CloseNative: true}); err != nil {
+	if err := app.DeleteSession(ctx, DeleteSessionCommand{Session: session, DeleteNative: true}); err != nil {
 		t.Fatalf("DeleteSession() error = %v", err)
 	}
-	if runner.closeCalls != 1 || runner.closedSessions[0] != "chat_ext" {
-		t.Fatalf("closed sessions = %+v closeCalls=%d, want chat_ext closed once", runner.closedSessions, runner.closeCalls)
+	if runner.deleteCalls != 1 || runner.deletedSessions[0] != "chat_ext" {
+		t.Fatalf("deleted sessions = %+v deleteCalls=%d, want chat_ext deleted once", runner.deletedSessions, runner.deleteCalls)
+	}
+	if runner.closeCalls != 0 {
+		t.Fatalf("closeCalls = %d, want delete path not close", runner.closeCalls)
 	}
 	if _, ok, err := store.Get(ctx, "chat_ext"); err != nil || ok {
 		t.Fatalf("Get(chat_ext) ok=%v err=%v, want deleted session", ok, err)
@@ -406,7 +420,7 @@ func TestApplication_DeleteSessionWithoutRunnerStillDeletes(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 
-	if err := app.DeleteSession(ctx, DeleteSessionCommand{Session: session, CloseNative: true}); err != nil {
+	if err := app.DeleteSession(ctx, DeleteSessionCommand{Session: session, DeleteNative: true}); err != nil {
 		t.Fatalf("DeleteSession(no runner) error = %v", err)
 	}
 	if _, ok, err := store.Get(ctx, "chat_ext"); err != nil || ok {

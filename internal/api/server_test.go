@@ -2800,11 +2800,11 @@ func TestAgentChatCreateExternalSessionCleansUpPreparedSessionOnPersistFailure(t
 	if !strings.Contains(rec.Body.String(), "update failed") {
 		t.Fatalf("response body = %s, want update error", rec.Body.String())
 	}
-	if len(runner.closedSessions) != 1 {
-		t.Fatalf("closed sessions = %#v, want one prepared session closed", runner.closedSessions)
+	if len(runner.deletedSessions) != 1 {
+		t.Fatalf("deleted sessions = %#v, want one prepared session deleted", runner.deletedSessions)
 	}
-	if len(store.deletedIDs) != 1 || store.deletedIDs[0] != runner.closedSessions[0] {
-		t.Fatalf("deleted ids = %#v, closed = %#v, want persisted session deleted after close", store.deletedIDs, runner.closedSessions)
+	if len(store.deletedIDs) != 1 || store.deletedIDs[0] != runner.deletedSessions[0] {
+		t.Fatalf("deleted ids = %#v, native deletes = %#v, want persisted session deleted after native delete", store.deletedIDs, runner.deletedSessions)
 	}
 	if _, ok, err := baseStore.Get(context.Background(), store.deletedIDs[0]); err != nil || ok {
 		t.Fatalf("base store Get after cleanup: ok=%v err=%v, want missing", ok, err)
@@ -2850,6 +2850,7 @@ type fakeAgentChatRunner struct {
 	prepareDeadline        time.Time
 	prepareHasDeadline     bool
 	closedSessions         []string
+	deletedSessions        []string
 	closeErr               error
 	configOptions          []agentcontrols.ConfigOption
 	availableCommands      []agentcontrols.Command
@@ -2994,6 +2995,11 @@ func (r *fakeAgentChatRunner) SetSessionConfigOption(_ context.Context, req agen
 func (r *fakeAgentChatRunner) CloseSession(_ context.Context, sessionID string) error {
 	r.closedSessions = append(r.closedSessions, sessionID)
 	return r.closeErr
+}
+
+func (r *fakeAgentChatRunner) DeleteSession(_ context.Context, sessionID string) error {
+	r.deletedSessions = append(r.deletedSessions, sessionID)
+	return nil
 }
 
 func (r *fakeAgentChatRunner) Shutdown(context.Context) error { return nil }
@@ -3654,8 +3660,11 @@ func TestAgentChatDeleteCancelsRunBeforeDeletingSession(t *testing.T) {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("delete status = %d, want 204, body=%s", resp.StatusCode, string(body))
 	}
-	if len(runner.closedSessions) != 1 || runner.closedSessions[0] != created.Data.ID {
-		t.Fatalf("closed sessions = %#v, want %q", runner.closedSessions, created.Data.ID)
+	if len(runner.deletedSessions) != 1 || runner.deletedSessions[0] != created.Data.ID {
+		t.Fatalf("deleted sessions = %#v, want %q", runner.deletedSessions, created.Data.ID)
+	}
+	if len(runner.closedSessions) != 0 {
+		t.Fatalf("closed sessions = %#v, want delete path not close", runner.closedSessions)
 	}
 	select {
 	case updated := <-done:
@@ -3690,8 +3699,11 @@ func TestAgentChatDeleteClosesIdleExternalSession(t *testing.T) {
 	}
 
 	client.mustRequestStatus(http.StatusNoContent, http.MethodDelete, "/hecate/v1/chat/sessions/"+created.Data.ID, "")
-	if len(runner.closedSessions) != 1 || runner.closedSessions[0] != created.Data.ID {
-		t.Fatalf("closed sessions = %#v, want %q", runner.closedSessions, created.Data.ID)
+	if len(runner.deletedSessions) != 1 || runner.deletedSessions[0] != created.Data.ID {
+		t.Fatalf("deleted sessions = %#v, want %q", runner.deletedSessions, created.Data.ID)
+	}
+	if len(runner.closedSessions) != 0 {
+		t.Fatalf("closed sessions = %#v, want delete path not close", runner.closedSessions)
 	}
 	client.mustRequestStatus(http.StatusNotFound, http.MethodGet, "/hecate/v1/chat/sessions/"+created.Data.ID, "")
 }
@@ -3785,6 +3797,9 @@ func TestAgentChatCloseKeepsHistoryAndClosesNativeSession(t *testing.T) {
 	closed := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions/"+created.Data.ID+"/close", `{}`)
 	if len(runner.closedSessions) != 1 || runner.closedSessions[0] != created.Data.ID {
 		t.Fatalf("closed sessions = %#v, want %q", runner.closedSessions, created.Data.ID)
+	}
+	if len(runner.deletedSessions) != 0 {
+		t.Fatalf("deleted sessions = %#v, want close path not delete", runner.deletedSessions)
 	}
 	if len(closed.Data.Messages) != 2 {
 		t.Fatalf("closed session messages = %d, want preserved history", len(closed.Data.Messages))

@@ -304,14 +304,30 @@ func (m *SessionManager) CloseSession(ctx context.Context, sessionID string) err
 	if m == nil {
 		return nil
 	}
-	m.mu.Lock()
-	session := m.sessions[sessionID]
-	delete(m.sessions, sessionID)
-	m.mu.Unlock()
+	session := m.takeSession(sessionID)
 	if session == nil {
 		return nil
 	}
 	return session.Close(ctx)
+}
+
+func (m *SessionManager) DeleteSession(ctx context.Context, sessionID string) error {
+	if m == nil {
+		return nil
+	}
+	session := m.takeSession(sessionID)
+	if session == nil {
+		return nil
+	}
+	return session.Delete(ctx)
+}
+
+func (m *SessionManager) takeSession(sessionID string) *acpSession {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	session := m.sessions[sessionID]
+	delete(m.sessions, sessionID)
+	return session
 }
 
 func (m *SessionManager) Shutdown(ctx context.Context) error {

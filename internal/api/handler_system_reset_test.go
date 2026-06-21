@@ -141,8 +141,11 @@ func TestSystemResetDataMemoryBackendDeletesStateAndClosesAgentSessions(t *testi
 	if reset.Data.ProjectsDeleted != 1 || reset.Data.ProjectWorkRowsDeleted != 2 || reset.Data.PluginsDeleted != 1 || reset.Data.AgentProfilesDeleted != 1 || reset.Data.ChatSessionsDeleted != 2 || reset.Data.TasksDeleted != 1 || reset.Data.ProvidersDeleted != 1 || reset.Data.PolicyRulesDeleted != 1 {
 		t.Fatalf("reset stats = %+v, want one project, one plugin, one profile, two project-work rows, one task, provider, rule and two chats", reset.Data)
 	}
-	if len(runner.closedSessions) != 2 {
-		t.Fatalf("closed sessions = %#v, want two external chats closed", runner.closedSessions)
+	if len(runner.deletedSessions) != 2 {
+		t.Fatalf("deleted sessions = %#v, want two external chats deleted", runner.deletedSessions)
+	}
+	if len(runner.closedSessions) != 0 {
+		t.Fatalf("closed sessions = %#v, want reset delete path not close", runner.closedSessions)
 	}
 
 	chats, err := chatStore.List(ctx)
@@ -362,8 +365,11 @@ func TestSystemResetDataSQLiteBackendClearsRemainingRows(t *testing.T) {
 	if reset.Data.PluginsDeleted != 1 {
 		t.Fatalf("plugins deleted = %d, want 1", reset.Data.PluginsDeleted)
 	}
-	if len(runner.closedSessions) != 1 || runner.closedSessions[0] != "chat_sqlite_external" {
-		t.Fatalf("closed sessions = %#v, want sqlite external chat closed", runner.closedSessions)
+	if len(runner.deletedSessions) != 1 || runner.deletedSessions[0] != "chat_sqlite_external" {
+		t.Fatalf("deleted sessions = %#v, want sqlite external chat deleted", runner.deletedSessions)
+	}
+	if len(runner.closedSessions) != 0 {
+		t.Fatalf("closed sessions = %#v, want reset delete path not close", runner.closedSessions)
 	}
 	assertSQLiteTableCount(t, client, client.QualifiedTable("memory_entries"), 0)
 	assertSQLiteTableCount(t, client, client.QualifiedTable("agent_profiles"), 0)

@@ -360,8 +360,8 @@ func (h *Handler) deleteExistingChatSession(ctx context.Context, session chat.Se
 		return true, nil
 	}
 	if err := h.chatApplication().DeleteSession(ctx, chatapp.DeleteSessionCommand{
-		Session:     session,
-		CloseNative: isExternalChatSession(session),
+		Session:      session,
+		DeleteNative: isExternalChatSession(session),
 	}); err != nil {
 		return false, err
 	}

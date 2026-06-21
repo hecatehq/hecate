@@ -2015,8 +2015,11 @@ func TestProjectWorkAPI_StartExternalAgentAssignmentConcurrentRequestsCreateOneC
 	if got := runner.prepareCount(); got != 2 {
 		t.Fatalf("prepare requests = %d, want both requests to reach prepare", got)
 	}
-	if got := runner.closedCount(); got != 1 {
-		t.Fatalf("closed sessions = %d, want losing prepared chat closed", got)
+	if got := runner.deletedCount(); got != 1 {
+		t.Fatalf("deleted sessions = %d, want losing prepared chat deleted", got)
+	}
+	if got := runner.closedCount(); got != 0 {
+		t.Fatalf("closed sessions = %d, want destructive rollback to use delete", got)
 	}
 }
 
@@ -3610,6 +3613,7 @@ type concurrentProjectExternalPrepareRunner struct {
 	releasePrepare  chan struct{}
 	prepareRequests []agentadapters.PrepareSessionRequest
 	closedSessions  []string
+	deletedSessions []string
 }
 
 func newConcurrentProjectExternalPrepareRunner() *concurrentProjectExternalPrepareRunner {
@@ -3652,6 +3656,13 @@ func (r *concurrentProjectExternalPrepareRunner) CloseSession(_ context.Context,
 	return nil
 }
 
+func (r *concurrentProjectExternalPrepareRunner) DeleteSession(_ context.Context, sessionID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.deletedSessions = append(r.deletedSessions, sessionID)
+	return nil
+}
+
 func (r *concurrentProjectExternalPrepareRunner) Shutdown(context.Context) error {
 	return nil
 }
@@ -3666,6 +3677,12 @@ func (r *concurrentProjectExternalPrepareRunner) closedCount() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return len(r.closedSessions)
+}
+
+func (r *concurrentProjectExternalPrepareRunner) deletedCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.deletedSessions)
 }
 
 func findProjectActivityItemForTest(t *testing.T, items []ProjectActivityItemResponse, assignmentID string) ProjectActivityItemResponse {
