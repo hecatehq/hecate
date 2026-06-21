@@ -52,12 +52,22 @@ type ProbeResult struct {
 	Error                string            `json:"error,omitempty"`
 	Stderr               string            `json:"stderr,omitempty"`
 	Hint                 string            `json:"hint,omitempty"`
+	AgentInfo            *ProbeAgentInfo   `json:"agent_info,omitempty"`
 	CapabilitiesKnown    bool              `json:"capabilities_known,omitempty"`
 	SupportsAuthenticate bool              `json:"supports_authenticate"`
 	SupportsLogout       bool              `json:"supports_logout"`
 	SupportsLoadSession  bool              `json:"supports_load_session"`
 	AuthMethods          []ProbeAuthMethod `json:"auth_methods,omitempty"`
 	DurationMS           int64             `json:"duration_ms"`
+}
+
+// ProbeAgentInfo is the safe subset of ACP Initialize agentInfo that Hecate
+// can surface in health responses. It helps operators verify the process that
+// answered the ACP handshake without parsing stderr or shelling out again.
+type ProbeAgentInfo struct {
+	Name    string `json:"name,omitempty"`
+	Title   string `json:"title,omitempty"`
+	Version string `json:"version,omitempty"`
 }
 
 // ProbeAuthMethod is the non-secret subset of ACP Initialize authMethods that
@@ -275,6 +285,7 @@ func applyInitializeCapabilities(res *ProbeResult, initResp acp.InitializeRespon
 		return
 	}
 	res.CapabilitiesKnown = true
+	res.AgentInfo = probeAgentInfo(initResp.AgentInfo)
 	res.SupportsLoadSession = initResp.AgentCapabilities.LoadSession
 	res.SupportsLogout = initResp.AgentCapabilities.Auth.Logout != nil
 	res.AuthMethods = probeAuthMethods(initResp.AuthMethods)
@@ -284,6 +295,23 @@ func applyInitializeCapabilities(res *ProbeResult, initResp acp.InitializeRespon
 			break
 		}
 	}
+}
+
+func probeAgentInfo(info *acp.Implementation) *ProbeAgentInfo {
+	if info == nil {
+		return nil
+	}
+	out := ProbeAgentInfo{
+		Name:    strings.TrimSpace(info.Name),
+		Version: strings.TrimSpace(info.Version),
+	}
+	if info.Title != nil {
+		out.Title = strings.TrimSpace(*info.Title)
+	}
+	if out.Name == "" && out.Title == "" && out.Version == "" {
+		return nil
+	}
+	return &out
 }
 
 func probeAuthMethods(methods []acp.AuthMethod) []ProbeAuthMethod {

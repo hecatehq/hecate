@@ -799,6 +799,8 @@ function AdapterStatusRow({
   const showHealthCapabilities = Boolean(
     health?.capabilities_known && showHealthDebugMetadata && !showLocalAuthSetup,
   );
+  const agentInfoLabel = formatAgentInfoLabel(health?.agent_info);
+  const showAgentInfo = Boolean(agentInfoLabel && showHealthDebugMetadata && !showLocalAuthSetup);
   const showAuthenticateAction =
     !remoteRuntime &&
     adapter.available &&
@@ -894,6 +896,11 @@ function AdapterStatusRow({
           )}
           {showHealthDuration && health?.duration_ms !== undefined && (
             <span>{health.duration_ms} ms</span>
+          )}
+          {showAgentInfo && (
+            <span>
+              reports <span style={{ color: "var(--t1)" }}>{agentInfoLabel}</span>
+            </span>
           )}
           {showHealthCapabilities && health && (
             <span>
@@ -1222,6 +1229,13 @@ function remoteCredentialKeys(adapter: AgentAdapterRecord): string[] {
 
 function isDevOverridePath(path: string): boolean {
   return path.startsWith("dev-override://");
+}
+
+function formatAgentInfoLabel(info: AgentAdapterHealthRecord["agent_info"]): string {
+  const name = info?.title?.trim() || info?.name?.trim() || "";
+  const version = info?.version?.trim() || "";
+  if (!name) return version;
+  return version ? `${name} ${version}` : name;
 }
 
 type ChipTone = ExternalAgentReadinessTone;

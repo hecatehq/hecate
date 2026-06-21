@@ -60,12 +60,19 @@ export type AgentAdapterHealthRecord = {
   error?: string;
   stderr?: string;
   hint?: string;
+  agent_info?: AgentAdapterAgentInfoRecord;
   capabilities_known?: boolean;
   supports_authenticate?: boolean;
   supports_logout?: boolean;
   supports_load_session?: boolean;
   auth_methods?: AgentAdapterAuthMethodRecord[];
   duration_ms: number;
+};
+
+export type AgentAdapterAgentInfoRecord = {
+  name?: string;
+  title?: string;
+  version?: string;
 };
 
 export type AgentAdapterAuthMethodRecord = {
