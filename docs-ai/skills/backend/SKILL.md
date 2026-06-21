@@ -234,8 +234,9 @@ is configured, require `HECATE_REMOTE_ALLOW_ACP_TERMINALS=1` in remote runtime
 mode, and route `terminal/create` through the External Agent approval
 coordinator before spawning anything. Terminal callback lifecycle should remain
 operator-visible through External Agent chat activities (`type="terminal"`):
-record command/cwd/status/exit output previews from the active ACP turn instead
-of adding an operator-facing embedded terminal API/UI.
+record command/cwd/status/exit output previews from the active ACP turn, and
+reuse retained terminal output for ACP tool-call terminal refs when available,
+instead of adding an operator-facing embedded terminal API/UI.
 
 Hecate owns the ACP process/session boundary, not provider-specific adapter
 implementation parity. Tests in this repository should use the repo-local fake

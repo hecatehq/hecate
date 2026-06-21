@@ -32,9 +32,13 @@ type acpChatClient struct {
 	terminalMu       sync.Mutex
 	terminalsEnabled bool
 	terminals        map[string]*acpTerminal
+	terminalPreviews map[string]string
 }
 
 func (c *acpChatClient) setTurn(turn *acpTurn) {
+	if turn != nil {
+		turn.setTerminalOutputLookup(c.terminalToolOutputPreview)
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.turn = turn

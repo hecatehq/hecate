@@ -35,6 +35,7 @@ type acpTerminal struct {
 	done         chan struct{}
 	killed       atomic.Bool
 	exitReported atomic.Bool
+	onExit       func(*acpTerminal)
 	exitCode     *int
 	waitErr      error
 }
@@ -86,6 +87,7 @@ func (c *acpChatClient) CreateTerminal(ctx context.Context, params acp.CreateTer
 		term:        term,
 		output:      newACPTerminalOutputBuffer(limit),
 		done:        make(chan struct{}),
+		onExit:      c.emitTerminalExitActivity,
 	}
 	c.storeTerminal(item)
 	go item.watch()
@@ -143,6 +145,7 @@ func (c *acpChatClient) ReleaseTerminal(ctx context.Context, params acp.ReleaseT
 	if err := item.term.Close(ctx); err != nil {
 		return acp.ReleaseTerminalResponse{}, err
 	}
+	c.rememberTerminalPreview(item)
 	if doneBeforeClose {
 		c.emitTerminalExitActivity(item)
 	} else {
@@ -340,6 +343,43 @@ func terminalOutputPreview(item *acpTerminal) string {
 	return capToolOutputPreview(output)
 }
 
+func (c *acpChatClient) terminalToolOutputPreview(terminalID string) (string, bool) {
+	terminalID = strings.TrimSpace(terminalID)
+	if terminalID == "" {
+		return "", false
+	}
+	c.terminalMu.Lock()
+	item := c.terminals[terminalID]
+	preview := ""
+	if c.terminalPreviews != nil {
+		preview = c.terminalPreviews[terminalID]
+	}
+	c.terminalMu.Unlock()
+	if item != nil {
+		preview = terminalOutputPreview(item)
+	}
+	if strings.TrimSpace(preview) == "" {
+		return "", false
+	}
+	return preview, true
+}
+
+func (c *acpChatClient) rememberTerminalPreview(item *acpTerminal) {
+	if item == nil {
+		return
+	}
+	preview := terminalOutputPreview(item)
+	if strings.TrimSpace(preview) == "" {
+		return
+	}
+	c.terminalMu.Lock()
+	defer c.terminalMu.Unlock()
+	if c.terminalPreviews == nil {
+		c.terminalPreviews = make(map[string]string)
+	}
+	c.terminalPreviews[item.id] = preview
+}
+
 func terminalDone(item *acpTerminal) bool {
 	if item == nil {
 		return false
@@ -408,6 +448,9 @@ func (c *acpChatClient) storeTerminal(item *acpTerminal) {
 		c.terminals = make(map[string]*acpTerminal)
 	}
 	c.terminals[item.id] = item
+	if c.terminalPreviews != nil {
+		delete(c.terminalPreviews, item.id)
+	}
 }
 
 func (c *acpChatClient) lookupTerminal(id string) (*acpTerminal, error) {
@@ -470,6 +513,9 @@ func (t *acpTerminal) watch() {
 	code := result.ExitCode
 	t.exitCode = &code
 	t.waitErr = err
+	if t.onExit != nil {
+		t.onExit(t)
+	}
 	close(t.done)
 }
 

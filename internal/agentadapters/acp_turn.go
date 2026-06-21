@@ -63,6 +63,8 @@ const toolOutputPreviewMaxBytes = 64 * 1024
 
 const toolOutputPreviewTruncatedSuffix = "\n… (tool output truncated)"
 
+type acpTerminalOutputLookup func(terminalID string) (string, bool)
+
 type acpTurn struct {
 	output         limitedBuffer
 	raw            limitedBuffer
@@ -102,6 +104,7 @@ type acpTurn struct {
 	postToolText   bool
 	onOutput       func(string)
 	onActivity     func(Activity)
+	terminalOutput acpTerminalOutputLookup
 
 	mu sync.Mutex
 }
@@ -120,6 +123,22 @@ func (t *acpTurn) setActivityCallback(onActivity func(Activity)) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.onActivity = onActivity
+}
+
+func (t *acpTurn) setTerminalOutputLookup(lookup acpTerminalOutputLookup) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.terminalOutput = lookup
+}
+
+func (t *acpTurn) lookupTerminalOutput(terminalID string) (string, bool) {
+	t.mu.Lock()
+	lookup := t.terminalOutput
+	t.mu.Unlock()
+	if lookup == nil {
+		return "", false
+	}
+	return lookup(terminalID)
 }
 
 func (t *acpTurn) recordUpdate(params acp.SessionNotification) {
@@ -314,14 +333,15 @@ func (t *acpTurn) recordToolCall(update *acp.SessionUpdateToolCall) {
 	t.markToolSeen()
 	status := acpToolStatus(string(update.Status))
 	t.rememberToolKind(string(update.ToolCallId), update.Kind)
+	terminalOutput := t.lookupTerminalOutput
 	t.emitActivity(Activity{
 		ID:              "tool:" + string(update.ToolCallId),
 		Type:            "tool_call",
 		Status:          status,
 		Kind:            string(update.Kind),
 		Title:           firstNonEmpty(update.Title, string(update.ToolCallId)),
-		Detail:          toolCallDetail(update.Kind, update.Locations, update.Content, update.RawInput),
-		ArtifactPreview: toolOutputPreview(update.Content, update.RawOutput),
+		Detail:          toolCallDetail(update.Kind, update.Locations, update.Content, update.RawInput, terminalOutput),
+		ArtifactPreview: toolOutputPreview(update.Content, update.RawOutput, terminalOutput),
 	})
 	t.emitFileChangeActivities(string(update.ToolCallId), update.Kind, status, update.Locations)
 }
@@ -368,14 +388,15 @@ func (t *acpTurn) recordToolCallUpdate(update *acp.SessionToolCallUpdate) {
 		kind = t.lookupToolKind(string(update.ToolCallId))
 	}
 	normalizedStatus := acpToolStatus(status)
+	terminalOutput := t.lookupTerminalOutput
 	t.emitActivity(Activity{
 		ID:              "tool:" + string(update.ToolCallId),
 		Type:            "tool_call",
 		Status:          normalizedStatus,
 		Kind:            string(kind),
 		Title:           title,
-		Detail:          toolCallDetail(kind, update.Locations, update.Content, update.RawInput),
-		ArtifactPreview: toolOutputPreview(update.Content, update.RawOutput),
+		Detail:          toolCallDetail(kind, update.Locations, update.Content, update.RawInput, terminalOutput),
+		ArtifactPreview: toolOutputPreview(update.Content, update.RawOutput, terminalOutput),
 	})
 	t.emitFileChangeActivities(string(update.ToolCallId), kind, normalizedStatus, update.Locations)
 }
@@ -603,7 +624,7 @@ func acpToolStatus(status string) string {
 	}
 }
 
-func toolCallDetail(kind acp.ToolKind, locations []acp.ToolCallLocation, content []acp.ToolCallContent, rawInput any) string {
+func toolCallDetail(kind acp.ToolKind, locations []acp.ToolCallLocation, content []acp.ToolCallContent, rawInput any, terminalOutput acpTerminalOutputLookup) string {
 	parts := make([]string, 0, 3)
 	if kind != "" {
 		parts = append(parts, string(kind))
@@ -615,7 +636,7 @@ func toolCallDetail(kind acp.ToolKind, locations []acp.ToolCallLocation, content
 		parts = append(parts, summarizeToolLocations(locations))
 	}
 	if len(content) > 0 {
-		if summary := summarizeToolContent(content); summary != "" {
+		if summary := summarizeToolContent(content, terminalOutput); summary != "" {
 			parts = append(parts, summary)
 		}
 	}
@@ -708,9 +729,10 @@ func summarizeToolLocations(locations []acp.ToolCallLocation) string {
 	return strings.Join(parts, ", ")
 }
 
-func summarizeToolContent(content []acp.ToolCallContent) string {
+func summarizeToolContent(content []acp.ToolCallContent, terminalOutput acpTerminalOutputLookup) string {
 	var diffs, terminals int
 	var textPreview string
+	var terminalPreview string
 	var textCount int
 	for _, item := range content {
 		switch {
@@ -718,6 +740,11 @@ func summarizeToolContent(content []acp.ToolCallContent) string {
 			diffs++
 		case item.Terminal != nil:
 			terminals++
+			if terminalPreview == "" && terminalOutput != nil {
+				if preview, ok := terminalOutput(item.Terminal.TerminalId); ok {
+					terminalPreview = preview
+				}
+			}
 		case item.Content != nil:
 			textCount++
 			if textPreview == "" {
@@ -731,6 +758,9 @@ func summarizeToolContent(content []acp.ToolCallContent) string {
 	}
 	if terminals > 0 {
 		parts = append(parts, pluralize(terminals, "terminal"))
+	}
+	if terminalPreview != "" {
+		parts = append(parts, fmt.Sprintf("terminal output: %s", trimToolSummary(terminalPreview)))
 	}
 	if textPreview != "" {
 		label := "output"
@@ -753,14 +783,20 @@ func trimToolSummary(value string) string {
 	return string(runes[:117]) + "..."
 }
 
-func toolOutputPreview(content []acp.ToolCallContent, rawOutput any) string {
+func toolOutputPreview(content []acp.ToolCallContent, rawOutput any, terminalOutput acpTerminalOutputLookup) string {
 	parts := make([]string, 0, len(content)+1)
 	for _, item := range content {
-		if item.Content == nil {
-			continue
-		}
-		if text := contentBlockText(item.Content.Content); strings.TrimSpace(text) != "" {
+		switch {
+		case item.Content != nil:
+			text := contentBlockText(item.Content.Content)
+			if strings.TrimSpace(text) == "" {
+				continue
+			}
 			parts = append(parts, text)
+		case item.Terminal != nil && terminalOutput != nil:
+			if preview, ok := terminalOutput(item.Terminal.TerminalId); ok && strings.TrimSpace(preview) != "" {
+				parts = append(parts, preview)
+			}
 		}
 	}
 	if len(parts) == 0 {
