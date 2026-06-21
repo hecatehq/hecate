@@ -317,19 +317,35 @@ func TestAcpChatClientCloseTerminalsReleasesRunningChildren(t *testing.T) {
 
 	workspace := t.TempDir()
 	client, _ := newTerminalTestClient(workspace, ModeAuto)
+	activities := attachTerminalActivityCapture(client)
 	resp, err := client.CreateTerminal(context.Background(), acp.CreateTerminalRequest{
-		Command: "sleep",
-		Args:    []string{"60"},
+		Command: "sh",
+		Args:    []string{"-c", "printf 'started\n'; exec sleep 60"},
 		Cwd:     &workspace,
 	})
 	if err != nil {
 		t.Fatalf("CreateTerminal: %v", err)
 	}
+	waitForTerminalOutput(t, client, resp.TerminalId, "started")
 	if err := client.closeTerminals(context.Background()); err != nil {
 		t.Fatalf("closeTerminals: %v", err)
 	}
 	if _, err := client.TerminalOutput(context.Background(), acp.TerminalOutputRequest{TerminalId: resp.TerminalId}); err == nil {
 		t.Fatal("TerminalOutput after closeTerminals succeeded; want not found")
+	}
+	cancelled := findTerminalActivity(activities.snapshot(), resp.TerminalId, "cancelled")
+	if cancelled == nil {
+		t.Fatalf("terminal activities = %+v, want cancelled activity", activities.snapshot())
+	}
+	if !strings.Contains(cancelled.Detail, "killed") {
+		t.Fatalf("cancelled terminal detail = %q, want killed reason", cancelled.Detail)
+	}
+	if !strings.Contains(cancelled.ArtifactPreview, "started") {
+		t.Fatalf("cancelled terminal preview = %q, want retained output", cancelled.ArtifactPreview)
+	}
+	preview, ok := client.terminalToolOutputPreview(resp.TerminalId)
+	if !ok || !strings.Contains(preview, "started") {
+		t.Fatalf("terminalToolOutputPreview after closeTerminals = %q, %v; want retained output", preview, ok)
 	}
 }
 
