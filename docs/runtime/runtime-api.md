@@ -3629,9 +3629,12 @@ selected from the agent catalog when a catalog row exposes Hecate-managed
 launch controls; Hecate validates required launch options and uses them when
 starting the agent process. After the ACP session exists, agent-owned
 `config_options` are returned with the session so clients can render them before
-the first prompt. If the adapter binary is missing, unauthenticated, missing a
-required launch option, or fails its ACP handshake, session creation fails and
-Hecate removes the empty chat record.
+the first prompt. If the agent reports ACP `initialize.agentInfo`, Hecate returns
+the trimmed implementation metadata as `agent_info` on the chat session and on
+assistant messages produced by that session. If the adapter binary is missing,
+unauthenticated, missing a required launch option, or fails its ACP handshake,
+session creation fails and Hecate removes the empty chat record.
+
 External Agent session creation may also include `mcp_servers`, using the same
 stdio/HTTP server shape as task-create `mcp_servers`. Hecate stores the server
 list on the chat session and passes it to the adapter during ACP `session/new`
@@ -3714,6 +3717,11 @@ POST /hecate/v1/chat/sessions
     "agent_id": "grok_build",
     "workspace": "/Users/alice/src/my-app",
     "driver_kind": "acp",
+    "agent_info": {
+      "name": "grok-build-acp-adapter",
+      "title": "Grok Build ACP Adapter",
+      "version": "0.1.0-alpha.1"
+    },
     "status": "idle",
     "mcp_servers": [
       {
@@ -3793,6 +3801,9 @@ available slash command list advertised by the agent. Each item has `name`,
 optional `description`, and optional `input_hint`. The `name` is agent-owned;
 clients should render it as a slash command hint but submit the chosen command
 as normal prompt text.
+
+External Agent sessions and assistant messages may include `agent_info`, the
+adapter-reported ACP implementation metadata from `initialize.agentInfo`.
 
 Hecate-owned sessions may include `context_summary` when older direct-model
 chat transcript turns have been compacted. The original messages remain in the
@@ -4024,6 +4035,11 @@ POST /hecate/v1/chat/sessions/chat_.../messages
         "agent_name": "Codex",
         "driver_kind": "acp",
         "native_session_id": "session_...",
+        "agent_info": {
+          "name": "codex-acp-adapter",
+          "title": "Codex ACP Adapter",
+          "version": "0.1.0-alpha.28"
+        },
         "status": "completed",
         "cost_mode": "external",
         "workspace": "/Users/alice/project",

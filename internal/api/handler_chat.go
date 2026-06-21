@@ -862,6 +862,7 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 		}
 		message.DriverKind = result.DriverKind
 		message.NativeSessionID = result.NativeSessionID
+		message.AgentInfo = result.AgentInfo
 		message.Status = status
 		message.ExitCode = result.ExitCode
 		message.DiffStat = result.DiffStat
@@ -895,13 +896,16 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	if result.DriverKind != "" || result.NativeSessionID != "" || result.ConfigOptions != nil || result.AvailableCommandsKnown {
+	if result.DriverKind != "" || result.NativeSessionID != "" || result.AgentInfo != nil || result.ConfigOptions != nil || result.AvailableCommandsKnown {
 		updated, err = h.agentChat.UpdateSession(r.Context(), session.ID, func(item *chat.Session) {
 			if result.DriverKind != "" {
 				item.DriverKind = result.DriverKind
 			}
 			if result.NativeSessionID != "" {
 				item.NativeSessionID = result.NativeSessionID
+			}
+			if result.AgentInfo != nil {
+				item.AgentInfo = result.AgentInfo
 			}
 			if result.ConfigOptions != nil {
 				item.ConfigOptions = result.ConfigOptions

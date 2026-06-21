@@ -161,6 +161,7 @@ func (m *SessionManager) PrepareSession(ctx context.Context, req PrepareSessionR
 		Adapter:                adapter,
 		DriverKind:             DriverKindACP,
 		NativeSessionID:        session.nativeID,
+		AgentInfo:              session.agentInfoSnapshot(),
 		SessionStarted:         started,
 		SessionResumed:         resumed,
 		SessionRecovery:        recovery,
@@ -214,6 +215,7 @@ func (m *SessionManager) Run(ctx context.Context, req RunRequest) (RunResult, er
 		return RunResult{}, err
 	}
 	result, err := session.RunTurn(ctx, req)
+	result.AgentInfo = session.agentInfoSnapshot()
 	result.SessionStarted = started
 	result.SessionResumed = resumed
 	result.SessionRecovery = recovery

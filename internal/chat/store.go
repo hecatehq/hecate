@@ -32,6 +32,7 @@ type Session struct {
 	Capabilities      types.ModelCapabilities
 	ConfigOptions     []agentcontrols.ConfigOption
 	AvailableCommands []agentcontrols.Command
+	AgentInfo         *agentcontrols.ImplementationInfo
 	MCPServers        []types.MCPServerConfig
 	RTKEnabled        bool
 	// TurnsUsed counts how many user→assistant round-trips have completed
@@ -65,6 +66,7 @@ type Message struct {
 	AgentName       string
 	DriverKind      string
 	NativeSessionID string
+	AgentInfo       *agentcontrols.ImplementationInfo
 	Status          string
 	ExitCode        int
 	CostMode        string
@@ -451,10 +453,12 @@ func (s *MemoryStore) UpdateMessage(_ context.Context, sessionID string, message
 func cloneSession(session Session) Session {
 	session.ConfigOptions = cloneConfigOptions(session.ConfigOptions)
 	session.AvailableCommands = cloneCommands(session.AvailableCommands)
+	session.AgentInfo = cloneImplementationInfo(session.AgentInfo)
 	session.MCPServers = cloneMCPServerConfigs(session.MCPServers)
 	session.ContextSummary = cloneContextSummary(session.ContextSummary)
 	session.Messages = append([]Message(nil), session.Messages...)
 	for i := range session.Messages {
+		session.Messages[i].AgentInfo = cloneImplementationInfo(session.Messages[i].AgentInfo)
 		session.Messages[i].Activities = append([]Activity(nil), session.Messages[i].Activities...)
 		for j := range session.Messages[i].Activities {
 			session.Messages[i].Activities[j].MCPApp = cloneMCPApp(session.Messages[i].Activities[j].MCPApp)
@@ -466,6 +470,14 @@ func cloneSession(session Session) Session {
 		}
 	}
 	return session
+}
+
+func cloneImplementationInfo(info *agentcontrols.ImplementationInfo) *agentcontrols.ImplementationInfo {
+	if info == nil {
+		return nil
+	}
+	out := *info
+	return &out
 }
 
 func cloneContextSummary(summary ContextSummary) ContextSummary {
@@ -560,6 +572,9 @@ func hydrateMessageRuntimeFromSession(message *Message, session Session) {
 	}
 	if message.Capabilities.ToolCalling == "" && !message.Capabilities.Streaming && message.Capabilities.MaxContextTokens == 0 && message.Capabilities.Source == "" {
 		message.Capabilities = session.Capabilities
+	}
+	if message.AgentInfo == nil {
+		message.AgentInfo = cloneImplementationInfo(session.AgentInfo)
 	}
 	if message.SegmentID == "" {
 		switch {

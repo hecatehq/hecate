@@ -116,6 +116,25 @@ func TestFromACPCommands_NormalizesAvailableCommands(t *testing.T) {
 	}
 }
 
+func TestFromACPImplementation_TrimsAndOmitsEmptyValues(t *testing.T) {
+	if got := FromACPImplementation(nil); got != nil {
+		t.Fatalf("FromACPImplementation(nil) = %#v, want nil", got)
+	}
+	blankTitle := " "
+	if got := FromACPImplementation(&acp.Implementation{Name: " ", Title: &blankTitle, Version: " "}); got != nil {
+		t.Fatalf("FromACPImplementation(blank) = %#v, want nil", got)
+	}
+	title := " Codex ACP Adapter "
+	got := FromACPImplementation(&acp.Implementation{
+		Name:    " codex-acp-adapter ",
+		Title:   &title,
+		Version: " 0.1.0-alpha.28 ",
+	})
+	if got == nil || got.Name != "codex-acp-adapter" || got.Title != "Codex ACP Adapter" || got.Version != "0.1.0-alpha.28" {
+		t.Fatalf("FromACPImplementation() = %#v, want trimmed implementation info", got)
+	}
+}
+
 func TestBuildACPSetRequest_SelectAndBoolean(t *testing.T) {
 	selectReq, err := BuildACPSetRequest(SetConfigOptionRequest{SessionID: "sess", ConfigID: "model", Value: "smart"})
 	if err != nil {

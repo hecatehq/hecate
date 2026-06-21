@@ -2837,6 +2837,7 @@ type fakeAgentChatRunner struct {
 	sessionStarted         bool
 	sessionResumed         bool
 	sessionRecovery        string
+	agentInfo              *agentcontrols.ImplementationInfo
 	stopReason             string
 	seenPreviousID         string
 	usage                  agentadapters.Usage
@@ -2877,6 +2878,7 @@ func (r *fakeAgentChatRunner) PrepareSession(ctx context.Context, req agentadapt
 		Adapter:                adapter,
 		DriverKind:             agentadapters.DriverKindACP,
 		NativeSessionID:        nativeSessionID,
+		AgentInfo:              r.agentInfoResult(),
 		SessionStarted:         r.sessionStarted,
 		SessionResumed:         r.sessionResumed,
 		SessionRecovery:        r.sessionRecovery,
@@ -2951,6 +2953,7 @@ func (r *fakeAgentChatRunner) result(req agentadapters.RunRequest, output string
 		Adapter:                adapter,
 		DriverKind:             agentadapters.DriverKindACP,
 		NativeSessionID:        nativeSessionID,
+		AgentInfo:              r.agentInfoResult(),
 		StopReason:             r.stopReason,
 		SessionStarted:         r.sessionStarted,
 		SessionResumed:         r.sessionResumed,
@@ -2966,6 +2969,18 @@ func (r *fakeAgentChatRunner) result(req agentadapters.RunRequest, output string
 		ConfigOptions:          r.configOptions,
 		AvailableCommands:      r.availableCommands,
 		AvailableCommandsKnown: r.availableCommandsKnown,
+	}
+}
+
+func (r *fakeAgentChatRunner) agentInfoResult() *agentcontrols.ImplementationInfo {
+	if r.agentInfo != nil {
+		out := *r.agentInfo
+		return &out
+	}
+	return &agentcontrols.ImplementationInfo{
+		Name:    "codex-acp-adapter",
+		Title:   "Codex ACP Adapter",
+		Version: "0.1.0-alpha.28",
 	}
 }
 
@@ -3121,12 +3136,21 @@ func TestAgentChatExternalConfigOptionsRoundTrip(t *testing.T) {
 	if got := created.Data.AvailableCommands; len(got) != 2 || got[0].Name != "web" || got[0].InputHint != "query" {
 		t.Fatalf("available commands after create = %#v, want web and plan", got)
 	}
+	if created.Data.AgentInfo == nil || created.Data.AgentInfo.Title != "Codex ACP Adapter" || created.Data.AgentInfo.Version != "0.1.0-alpha.28" {
+		t.Fatalf("agent info after create = %#v, want prepared adapter metadata", created.Data.AgentInfo)
+	}
 	afterRun := decodeRecorder[ChatSessionResponse](t, performRequest(t, handler, http.MethodPost, "/hecate/v1/chat/sessions/"+created.Data.ID+"/messages", `{"content":"hello"}`))
 	if got := afterRun.Data.ConfigOptions; len(got) != 2 || got[0].CurrentValue != "fast" || got[1].CurrentBool == nil || *got[1].CurrentBool {
 		t.Fatalf("config options after run = %#v, want fast model and auto_approve false", got)
 	}
 	if got := afterRun.Data.AvailableCommands; len(got) != 2 || got[1].Name != "plan" {
 		t.Fatalf("available commands after run = %#v, want persisted commands", got)
+	}
+	if afterRun.Data.AgentInfo == nil || afterRun.Data.AgentInfo.Name != "codex-acp-adapter" {
+		t.Fatalf("agent info after run = %#v, want adapter metadata", afterRun.Data.AgentInfo)
+	}
+	if len(afterRun.Data.Messages) < 2 || afterRun.Data.Messages[1].AgentInfo == nil || afterRun.Data.Messages[1].AgentInfo.Version != "0.1.0-alpha.28" {
+		t.Fatalf("assistant message agent info = %#v, want adapter metadata", afterRun.Data.Messages)
 	}
 	if got := runner.runRequests[0].ConfigOptions; len(got) != 2 || got[0].CurrentValue != "fast" {
 		t.Fatalf("run request config options = %#v, want fast model", got)

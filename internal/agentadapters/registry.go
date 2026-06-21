@@ -177,6 +177,7 @@ type PrepareSessionResult struct {
 	Adapter                Adapter
 	DriverKind             string
 	NativeSessionID        string
+	AgentInfo              *agentcontrols.ImplementationInfo
 	SessionStarted         bool
 	SessionResumed         bool
 	SessionRecovery        string
@@ -208,6 +209,7 @@ type RunResult struct {
 	Adapter                Adapter
 	DriverKind             string
 	NativeSessionID        string
+	AgentInfo              *agentcontrols.ImplementationInfo
 	StopReason             string
 	SessionStarted         bool
 	SessionResumed         bool

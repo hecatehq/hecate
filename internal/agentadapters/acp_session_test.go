@@ -65,6 +65,12 @@ func TestSessionManagerRunsTurnsThroughACP(t *testing.T) {
 	if first.NativeSessionID == "" || second.NativeSessionID == "" || first.NativeSessionID != second.NativeSessionID {
 		t.Fatalf("native sessions = %q / %q, want same non-empty session", first.NativeSessionID, second.NativeSessionID)
 	}
+	if first.AgentInfo == nil || first.AgentInfo.Name != "fake-acp-agent" || first.AgentInfo.Title != "Fake ACP Agent" || first.AgentInfo.Version != "0.0.0-test" {
+		t.Fatalf("first AgentInfo = %#v, want fake ACP agent metadata", first.AgentInfo)
+	}
+	if second.AgentInfo == nil || second.AgentInfo.Name != "fake-acp-agent" {
+		t.Fatalf("second AgentInfo = %#v, want reused session metadata", second.AgentInfo)
+	}
 	if !first.SessionStarted {
 		t.Fatalf("first SessionStarted = false, want true")
 	}
@@ -82,6 +88,28 @@ func TestSessionManagerRunsTurnsThroughACP(t *testing.T) {
 	}
 	if second.Usage.ContextSize != 200_000 || second.Usage.ContextUsed != 20_000 {
 		t.Fatalf("second usage = %+v, want turn 2 context usage", second.Usage)
+	}
+}
+
+func TestSessionManagerPrepareSessionPropagatesAgentInfo(t *testing.T) {
+	installFakeACPExecutable(t, "codex-acp-adapter")
+
+	manager := NewSessionManager()
+	t.Cleanup(func() { _ = manager.Shutdown(context.Background()) })
+
+	prepared, err := manager.PrepareSession(context.Background(), PrepareSessionRequest{
+		SessionID: "chat_agent_info_prepare",
+		AdapterID: "codex",
+		Workspace: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("PrepareSession: %v", err)
+	}
+	if prepared.AgentInfo == nil ||
+		prepared.AgentInfo.Name != "fake-acp-agent" ||
+		prepared.AgentInfo.Title != "Fake ACP Agent" ||
+		prepared.AgentInfo.Version != "0.0.0-test" {
+		t.Fatalf("AgentInfo = %#v, want fake ACP agent metadata", prepared.AgentInfo)
 	}
 }
 
@@ -2780,6 +2808,11 @@ func (a *fakeACPAgent) Initialize(_ context.Context, params acp.InitializeReques
 	}
 	return acp.InitializeResponse{
 		ProtocolVersion: acp.ProtocolVersionNumber,
+		AgentInfo: &acp.Implementation{
+			Name:    "fake-acp-agent",
+			Title:   acp.Ptr("Fake ACP Agent"),
+			Version: "0.0.0-test",
+		},
 		AgentCapabilities: acp.AgentCapabilities{
 			Auth:        authCaps,
 			LoadSession: true,
