@@ -108,12 +108,12 @@ to land that yet.
 When the operator resolves an approval, they pick a **scope** alongside the
 decision. v1 supports four scopes, in increasing breadth:
 
-| Scope            | Re-prompts when…                                                                                     | ACP option this maps to                                      |
-| ---------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| `once`           | every subsequent matching request                                                                    | explicitly selected `allow_once`-style option                |
-| `session`        | re-asked next session, but auto-applied within this one                                              | `allow_always` (when adapter scopes "always" to its session) |
-| `workspace_tool` | re-asked for the same `(adapter, tool_name)` in a different workspace                                | Hecate-side approval grant                                   |
-| `adapter_tool`   | re-asked for a different tool, but auto-applied for this `(adapter, tool_name)` pair across sessions | Hecate-side approval grant                                   |
+| Scope            | Re-prompts when…                                                                                          | ACP option this maps to                                      |
+| ---------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `once`           | every subsequent matching request                                                                         | explicitly selected `allow_once`-style option                |
+| `session`        | re-asked next session, but auto-applied within this one                                                   | `allow_always` (when adapter scopes "always" to its session) |
+| `workspace_tool` | re-asked for the same `(adapter, tool_kind)` in a different workspace                                     | Hecate-side approval grant                                   |
+| `adapter_tool`   | re-asked for a different tool kind, but auto-applied for this `(adapter, tool_kind)` pair across sessions | Hecate-side approval grant                                   |
 
 Decisions broader than `once` persist in a new `chat_approval_grants`
 table:

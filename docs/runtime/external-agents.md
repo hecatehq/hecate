@@ -557,6 +557,11 @@ are listed from `GET /hecate/v1/chat/grants`; the operator can revoke them from
 Connections. Pending approvals from a dead process are not
 replayed as actionable prompts — startup reconcile marks them `timed_out` with
 `path=startup_reconcile` before Hecate accepts traffic.
+Grant matching uses Hecate's normalized `tool_kind` (`file_write`, `shell_exec`,
+`mcp`, and so on), while the adapter's raw tool name stays on the approval row
+for display and audit. That means a broad `mcp` grant applies to MCP tool
+requests from that adapter within the chosen session/workspace/adapter scope,
+not only to one vendor-specific `server/tool` label.
 
 ![Chats workspace with an external-agent file-write approval waiting for operator review](../screenshots/chat-agent-approval.png)
 
