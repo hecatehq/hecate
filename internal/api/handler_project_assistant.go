@@ -19,14 +19,15 @@ type projectAssistantProposeRequest struct {
 }
 
 type projectAssistantDraftRequest struct {
-	ProjectID  string `json:"project_id"`
-	WorkItemID string `json:"work_item_id,omitempty"`
-	Request    string `json:"request"`
-	RoleID     string `json:"role_id,omitempty"`
-	DriverKind string `json:"driver_kind,omitempty"`
-	DraftMode  string `json:"draft_mode,omitempty"`
-	Provider   string `json:"provider,omitempty"`
-	Model      string `json:"model,omitempty"`
+	ProjectID        string `json:"project_id"`
+	WorkItemID       string `json:"work_item_id,omitempty"`
+	Request          string `json:"request"`
+	RoleID           string `json:"role_id,omitempty"`
+	DriverKind       string `json:"driver_kind,omitempty"`
+	DraftMode        string `json:"draft_mode,omitempty"`
+	ReviewArtifactID string `json:"review_artifact_id,omitempty"`
+	Provider         string `json:"provider,omitempty"`
+	Model            string `json:"model,omitempty"`
 }
 
 type chatProjectAssistantDraftRequest struct {
@@ -79,16 +80,17 @@ func (h *Handler) HandleProjectAssistantDraft(w http.ResponseWriter, r *http.Req
 		return
 	}
 	proposal, err := h.projectAssistantApplication().Draft(r.Context(), projectassistantapp.DraftCommand{
-		ProjectID:  req.ProjectID,
-		WorkItemID: req.WorkItemID,
-		Request:    req.Request,
-		RoleID:     req.RoleID,
-		DriverKind: req.DriverKind,
-		DraftMode:  req.DraftMode,
-		Provider:   req.Provider,
-		Model:      req.Model,
-		RequestID:  RequestIDFromContext(r.Context()),
-		TraceID:    requestTraceID(r),
+		ProjectID:        req.ProjectID,
+		WorkItemID:       req.WorkItemID,
+		Request:          req.Request,
+		RoleID:           req.RoleID,
+		DriverKind:       req.DriverKind,
+		DraftMode:        req.DraftMode,
+		ReviewArtifactID: req.ReviewArtifactID,
+		Provider:         req.Provider,
+		Model:            req.Model,
+		RequestID:        RequestIDFromContext(r.Context()),
+		TraceID:          requestTraceID(r),
 	})
 	if err != nil {
 		writeProjectAssistantError(w, err)

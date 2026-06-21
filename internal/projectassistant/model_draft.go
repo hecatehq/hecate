@@ -12,9 +12,10 @@ import (
 )
 
 const (
-	DraftModeDeterministic = "deterministic"
-	DraftModeModel         = "model"
-	DraftModeBootstrap     = "bootstrap"
+	DraftModeDeterministic  = "deterministic"
+	DraftModeModel          = "model"
+	DraftModeBootstrap      = "bootstrap"
+	DraftModeReviewFollowUp = "review_follow_up"
 
 	modelDraftMaxTokens = 1600
 )

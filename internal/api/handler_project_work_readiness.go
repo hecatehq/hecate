@@ -18,19 +18,30 @@ type ProjectWorkItemReadinessEnvelope struct {
 }
 
 type ProjectWorkItemReadinessResponse struct {
-	ProjectID                    string   `json:"project_id"`
-	WorkItemID                   string   `json:"work_item_id"`
-	Ready                        bool     `json:"ready"`
-	Status                       string   `json:"status"`
-	Title                        string   `json:"title"`
-	Detail                       string   `json:"detail"`
-	Blockers                     []string `json:"blockers"`
-	Warnings                     []string `json:"warnings"`
-	AssignmentCount              int      `json:"assignment_count"`
-	CompletedAssignments         int      `json:"completed_assignments"`
-	ReviewFollowUpCount          int      `json:"review_follow_up_count"`
-	ReviewFollowUpArtifactIDs    []string `json:"review_follow_up_artifact_ids,omitempty"`
-	MissingEvidenceAssignmentIDs []string `json:"missing_evidence_assignment_ids,omitempty"`
+	ProjectID                    string                                  `json:"project_id"`
+	WorkItemID                   string                                  `json:"work_item_id"`
+	Ready                        bool                                    `json:"ready"`
+	Status                       string                                  `json:"status"`
+	Title                        string                                  `json:"title"`
+	Detail                       string                                  `json:"detail"`
+	Blockers                     []string                                `json:"blockers"`
+	Warnings                     []string                                `json:"warnings"`
+	AssignmentCount              int                                     `json:"assignment_count"`
+	CompletedAssignments         int                                     `json:"completed_assignments"`
+	ReviewFollowUpCount          int                                     `json:"review_follow_up_count"`
+	ReviewFollowUpArtifactIDs    []string                                `json:"review_follow_up_artifact_ids,omitempty"`
+	ReviewFollowUps              []ProjectWorkItemReviewFollowUpResponse `json:"review_follow_ups,omitempty"`
+	MissingEvidenceAssignmentIDs []string                                `json:"missing_evidence_assignment_ids,omitempty"`
+}
+
+type ProjectWorkItemReviewFollowUpResponse struct {
+	ArtifactID           string `json:"artifact_id"`
+	Title                string `json:"title"`
+	Status               string `json:"status"`
+	Blocker              string `json:"blocker,omitempty"`
+	ReviewedAssignmentID string `json:"reviewed_assignment_id,omitempty"`
+	ReviewVerdict        string `json:"review_verdict,omitempty"`
+	ReviewRisk           string `json:"review_risk,omitempty"`
 }
 
 func (h *Handler) HandleProjectWorkItemReadiness(w http.ResponseWriter, r *http.Request) {
@@ -147,7 +158,9 @@ func renderProjectWorkItemReadiness(workItem projectwork.WorkItem, assignments [
 	}
 	for _, artifact := range artifacts {
 		if projectWorkReadinessReviewArtifactNeedsPath(artifact, handoffs) {
+			blocker := projectWorkReadinessReviewFollowUpBlocker(artifact, handoffs, assignmentsByID)
 			readiness.ReviewFollowUpArtifactIDs = append(readiness.ReviewFollowUpArtifactIDs, artifact.ID)
+			readiness.ReviewFollowUps = append(readiness.ReviewFollowUps, renderProjectWorkItemReviewFollowUp(artifact, blocker))
 		}
 		if blocker := projectWorkReadinessReviewFollowUpBlocker(artifact, handoffs, assignmentsByID); blocker != "" {
 			readiness.Blockers = append(readiness.Blockers, blocker)
@@ -163,6 +176,18 @@ func renderProjectWorkItemReadiness(workItem projectwork.WorkItem, assignments [
 	}
 	readiness.Ready = readiness.Status == "ready"
 	return readiness
+}
+
+func renderProjectWorkItemReviewFollowUp(artifact projectwork.CollaborationArtifact, blocker string) ProjectWorkItemReviewFollowUpResponse {
+	return ProjectWorkItemReviewFollowUpResponse{
+		ArtifactID:           artifact.ID,
+		Title:                firstNonEmpty(artifact.Title, artifact.ID),
+		Status:               "needs_path",
+		Blocker:              strings.TrimSpace(blocker),
+		ReviewedAssignmentID: artifact.ReviewedAssignmentID,
+		ReviewVerdict:        artifact.ReviewVerdict,
+		ReviewRisk:           artifact.ReviewRisk,
+	}
 }
 
 func projectWorkReadinessReviewFollowUpArtifact(artifacts []projectwork.CollaborationArtifact, handoffs []projectwork.Handoff) *projectwork.CollaborationArtifact {
@@ -183,38 +208,15 @@ func projectWorkReadinessReviewFollowUpArtifact(artifacts []projectwork.Collabor
 }
 
 func projectWorkReadinessReviewArtifactNeedsPath(artifact projectwork.CollaborationArtifact, handoffs []projectwork.Handoff) bool {
-	if !projectWorkReadinessReviewArtifactRequiresFollowUp(artifact) {
-		return false
-	}
-	return !projectWorkReadinessArtifactHasLinkedFollowUpPath(artifact.ID, handoffs)
+	return projectwork.ReviewArtifactNeedsFollowUpPath(artifact, handoffs)
 }
 
 func projectWorkReadinessReviewArtifactRequiresFollowUp(artifact projectwork.CollaborationArtifact) bool {
-	if artifact.Kind != projectwork.ArtifactKindReview {
-		return false
-	}
-	return artifact.ReviewFollowUpRequired || artifact.ReviewVerdict == projectwork.ReviewVerdictBlocked || artifact.ReviewVerdict == projectwork.ReviewVerdictChangesRequested
+	return projectwork.ReviewArtifactRequiresFollowUp(artifact)
 }
 
 func projectWorkReadinessArtifactHasLinkedFollowUpPath(artifactID string, handoffs []projectwork.Handoff) bool {
-	artifactID = strings.TrimSpace(artifactID)
-	if artifactID == "" {
-		return false
-	}
-	for _, handoff := range handoffs {
-		for _, linkedID := range handoff.LinkedArtifactIDs {
-			if strings.TrimSpace(linkedID) != artifactID {
-				continue
-			}
-			if handoff.Status == projectwork.HandoffStatusPending ||
-				handoff.Status == projectwork.HandoffStatusDismissed ||
-				handoff.Status == projectwork.HandoffStatusSuperseded ||
-				strings.TrimSpace(handoff.TargetAssignmentID) != "" {
-				return true
-			}
-		}
-	}
-	return false
+	return projectwork.ReviewArtifactHasLinkedFollowUpPath(artifactID, handoffs)
 }
 
 func projectWorkReadinessReviewFollowUpBlocker(artifact projectwork.CollaborationArtifact, handoffs []projectwork.Handoff, assignmentsByID map[string]projectwork.Assignment) string {

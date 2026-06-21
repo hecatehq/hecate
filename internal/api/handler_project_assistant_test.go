@@ -234,6 +234,94 @@ func TestProjectAssistantAPI_DraftCreatesAssignmentProposal(t *testing.T) {
 	}
 }
 
+func TestProjectAssistantAPI_DraftReviewFollowUpProposal(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectAssistantTestHandler()
+	project, err := handler.projects.Create(t.Context(), projects.Project{ID: "proj_review_api", Name: "Review API"})
+	if err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	workItem, err := handler.projectWork.CreateWorkItem(t.Context(), projectwork.WorkItem{
+		ID:          "work_review_api",
+		ProjectID:   project.ID,
+		Title:       "Review requested changes",
+		Status:      projectwork.WorkItemStatusReview,
+		OwnerRoleID: "product_manager",
+	})
+	if err != nil {
+		t.Fatalf("Create work item: %v", err)
+	}
+	if _, err := handler.projectWork.CreateAssignment(t.Context(), projectwork.Assignment{
+		ID:         "asgn_impl",
+		ProjectID:  project.ID,
+		WorkItemID: workItem.ID,
+		RoleID:     "software_developer",
+		DriverKind: projectwork.AssignmentDriverHecateTask,
+		Status:     projectwork.AssignmentStatusCompleted,
+	}); err != nil {
+		t.Fatalf("CreateAssignment(impl): %v", err)
+	}
+	if _, err := handler.projectWork.CreateAssignment(t.Context(), projectwork.Assignment{
+		ID:         "asgn_review",
+		ProjectID:  project.ID,
+		WorkItemID: workItem.ID,
+		RoleID:     "reviewer_qa",
+		DriverKind: projectwork.AssignmentDriverHecateTask,
+		Status:     projectwork.AssignmentStatusCompleted,
+	}); err != nil {
+		t.Fatalf("CreateAssignment(review): %v", err)
+	}
+	if _, err := handler.projectWork.CreateArtifact(t.Context(), projectwork.CollaborationArtifact{
+		ID:                     "artifact_review",
+		ProjectID:              project.ID,
+		WorkItemID:             workItem.ID,
+		AssignmentID:           "asgn_review",
+		Kind:                   projectwork.ArtifactKindReview,
+		Title:                  "Architecture review",
+		Body:                   "Verdict: Changes requested.",
+		ReviewedAssignmentID:   "asgn_impl",
+		ReviewVerdict:          projectwork.ReviewVerdictChangesRequested,
+		ReviewFollowUpRequired: true,
+	}); err != nil {
+		t.Fatalf("CreateArtifact(review): %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/project-assistant/draft", bytes.NewReader([]byte(`{
+		"project_id":"proj_review_api",
+		"work_item_id":"work_review_api",
+		"draft_mode":"review_follow_up",
+		"review_artifact_id":"artifact_review"
+	}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("draft review follow-up status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var proposed projectAssistantProposalResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &proposed); err != nil {
+		t.Fatalf("decode draft response: %v", err)
+	}
+	if proposed.Object != "project_assistant.proposal" || len(proposed.Data.Actions) != 3 {
+		t.Fatalf("draft response = %+v, want three-action review follow-up proposal", proposed)
+	}
+	if proposed.Data.Actions[0].Kind != projectassistant.ActionCreateHandoff || proposed.Data.Actions[1].Kind != projectassistant.ActionCreateAssignment || proposed.Data.Actions[2].Kind != projectassistant.ActionUpdateHandoff {
+		t.Fatalf("actions = %+v, want create_handoff/create_assignment/update_handoff", proposed.Data.Actions)
+	}
+	var assignmentPatch map[string]string
+	if err := json.Unmarshal(proposed.Data.Actions[1].Patch, &assignmentPatch); err != nil {
+		t.Fatalf("decode assignment patch: %v", err)
+	}
+	if assignmentPatch["work_item_id"] != workItem.ID || assignmentPatch["role_id"] != "software_developer" || assignmentPatch["status"] != projectwork.AssignmentStatusQueued {
+		t.Fatalf("assignment patch = %+v, want queued reviewed-role assignment", assignmentPatch)
+	}
+	assignments, err := handler.projectWork.ListAssignments(t.Context(), projectwork.AssignmentFilter{ProjectID: project.ID, WorkItemID: workItem.ID})
+	if err != nil {
+		t.Fatalf("ListAssignments: %v", err)
+	}
+	if len(assignments) != 2 {
+		t.Fatalf("assignments = %+v, want draft route not to mutate project work", assignments)
+	}
+}
+
 func TestProjectAssistantAPI_ChatDraftDerivesProjectFromSession(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectAssistantTestHandler()

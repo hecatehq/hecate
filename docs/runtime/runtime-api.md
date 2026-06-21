@@ -2872,15 +2872,35 @@ operator still applies the durable `status="done"` mutation through
     "status": "blocked",
     "title": "Closeout is blocked",
     "detail": "Resolve the listed assignment, evidence, handoff, or review follow-up items before marking this work done.",
-    "blockers": ["1 completed assignment is missing evidence"],
+    "blockers": [
+      "1 completed assignment is missing evidence",
+      "Review follow-up \"Architecture review\" is not triaged"
+    ],
     "warnings": [],
     "assignment_count": 1,
     "completed_assignments": 1,
-    "review_follow_up_count": 0,
+    "review_follow_up_count": 1,
+    "review_follow_ups": [
+      {
+        "artifact_id": "artifact_...",
+        "title": "Architecture review",
+        "status": "needs_path",
+        "blocker": "Review follow-up \"Architecture review\" is not triaged",
+        "reviewed_assignment_id": "asgn_...",
+        "review_verdict": "changes_requested",
+        "review_risk": "medium"
+      }
+    ],
     "missing_evidence_assignment_ids": ["asgn_..."]
   }
 }
 ```
+
+`review_follow_ups` lists review artifacts that still need an explicit
+follow-up path. Clients should use this server field for closeout notices and
+Project Assistant draft shortcuts instead of deriving readiness from raw
+artifact fields. `review_follow_up_artifact_ids` may also be present for compact
+artifact-id consumers.
 
 #### `PATCH /hecate/v1/projects/{id}/work-items/{work_item_id}`
 
@@ -3366,6 +3386,8 @@ sequential and resumable within the current process: on a mid-sequence failure
 the error includes `failed_action_index` and `partial_result`; retrying the
 unchanged proposal id resumes after the committed actions, while changing the
 action set or reapplying a fully applied proposal returns `409 conflict`.
+Clients should present the landed action kinds and ids from
+`partial_result.actions` so the operator can recover from visible partial state.
 
 Endpoints:
 
@@ -3400,6 +3422,10 @@ branch/worktree selection survives the proposal/apply step. See
 [`project-assistant.md`](project-assistant.md) for the context and draft
 requests, proposal schema, supported action kinds, confirmation behavior, and
 safety model.
+`draft_mode: "review_follow_up"` is a deterministic selected-work shortcut that
+requires `review_artifact_id` and returns a proposal to create a follow-up
+handoff, create a queued assignment, and link the handoff to that assignment.
+It does not start the assignment or mutate project work before apply.
 
 `POST /hecate/v1/chat/sessions/{id}/project-assistant/draft` is the Chat
 handoff variant for project-linked Hecate Chat sessions. The request body

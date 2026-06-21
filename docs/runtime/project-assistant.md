@@ -38,6 +38,10 @@ selected work item, the draft queues an assignment for that work. Without a
 selected work item, the draft creates a new project work item. In both cases
 `Draft proposal` creates reviewable data only; it does not create a chat, task,
 run, assignment, or agent session.
+Selected-work review follow-up shortcuts use a separate deterministic
+`review_follow_up` draft mode. That mode creates a proposal to record a linked
+handoff, queue a follow-up assignment, and link the handoff to that assignment;
+it still does not mutate project work until the operator applies the proposal.
 
 Project Operations brief items may seed this same draft flow with a typed
 `draft_project_proposal` action, `action.request`, and an optional work-item
@@ -131,6 +135,10 @@ permission model.
   execution evidence or links such as `execution_ref`, `task_id`, `run_id`,
   `chat_session_id`, `message_id`, or `context_snapshot_id`; linking existing
   execution later needs a separate explicit same-project action.
+- Review follow-up drafts create typed proposals only. The generated action set
+  can create a handoff, create a queued assignment, and update that handoff with
+  the target assignment id; it does not start the assignment or auto-resolve
+  closeout.
 - Assistant code does not perform raw filesystem, shell, or Git access.
   Workspace-bound behavior must use WorkspaceFS, ProcessRunner, GitRunner, or
   existing task-runtime paths.
@@ -145,7 +153,9 @@ actions have already mutated durable stores, the API returns the partial action
 results and `failed_action_index`. Retrying the exact same proposal resumes at
 the next unapplied action. Retrying the same proposal id with a changed action
 set returns `409 conflict`, and retrying a fully applied proposal also returns
-`409 conflict`.
+`409 conflict`. Clients should show the landed action kinds and ids from
+`partial_result.actions` so the operator can clean up, retry, or re-draft from
+the visible partial state.
 
 Future versions may persist proposal ids server-side so reviewed actions,
 confirmation, and resumable progress survive process restarts. In v0 the
@@ -281,6 +291,15 @@ with explicit follow-up actions such as reviewing memory candidates, reviewing
 roles, opening the work queue, or creating the first work item. These actions
 only navigate or open the normal operator-controlled editors; they do not
 auto-promote memory, auto-start assignments, or bypass proposal review.
+
+`draft_mode: "review_follow_up"` creates a deterministic proposal for one
+selected-work review artifact. The request must include `project_id`,
+`work_item_id`, and `review_artifact_id`. The artifact must be a review that
+requires follow-up and must not already have a linked follow-up path. The server
+chooses the reviewed assignment's role when available, then the selected work
+owner, then the normal role fallback. The proposal creates a handoff, creates a
+queued assignment, and updates the handoff with the queued assignment id. It
+does not start the assignment.
 
 `draft_mode: "model"` asks the configured gateway model to author the proposal
 from the same context packet. The request may provide `model` and `provider`;
@@ -500,6 +519,7 @@ Every action has the same envelope:
 | `update_work_item`        | `internal/projectwork` | Updates one existing work item.                                                                                                         |
 | `create_assignment`       | `internal/projectwork` | Creates an assignment for existing project work; supplied `root_id` must match one of the project's roots.                              |
 | `create_handoff`          | `internal/projectwork` | Creates a handoff record; does not launch follow-up work.                                                                               |
+| `update_handoff`          | `internal/projectwork` | Updates a handoff target assignment, target role, or status; used by review follow-up proposals to link the queued assignment.          |
 | `create_memory_candidate` | `internal/memory`      | Creates a candidate with provenance; never a durable memory entry.                                                                      |
 
 ## UI contract

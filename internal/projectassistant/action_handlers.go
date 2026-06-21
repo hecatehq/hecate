@@ -419,6 +419,52 @@ func (s *Service) applyCreateHandoff(ctx context.Context, action Action) (Action
 	return ActionResult{Kind: ActionCreateHandoff, ID: handoff.ID, Data: map[string]string{"project_id": handoff.ProjectID, "handoff_id": handoff.ID}}, nil
 }
 
+func (s *Service) applyUpdateHandoff(ctx context.Context, action Action) (ActionResult, error) {
+	if s.work == nil {
+		return ActionResult{}, ErrStoreNotConfigured
+	}
+	projectID := targetValue(action, "project_id")
+	workItemID := targetValue(action, "work_item_id")
+	handoffID := targetValue(action, "handoff_id")
+	if projectID == "" || workItemID == "" || handoffID == "" {
+		return ActionResult{}, fmt.Errorf("%w: target.project_id, target.work_item_id, and target.handoff_id are required", ErrInvalid)
+	}
+	if _, err := s.requireWorkItem(ctx, projectID, workItemID); err != nil {
+		return ActionResult{}, err
+	}
+	var patch updateHandoffPatch
+	if err := decodePatch(action, &patch); err != nil {
+		return ActionResult{}, err
+	}
+	if patch.TargetAssignmentID == nil && patch.TargetRoleID == nil && patch.Status == nil {
+		return ActionResult{}, fmt.Errorf("%w: update_handoff patch must set at least one mutable field", ErrInvalid)
+	}
+	handoff, err := s.work.UpdateHandoff(ctx, projectID, workItemID, handoffID, func(item *projectwork.Handoff) {
+		if patch.TargetAssignmentID != nil {
+			item.TargetAssignmentID = *patch.TargetAssignmentID
+		}
+		if patch.TargetRoleID != nil {
+			item.TargetRoleID = *patch.TargetRoleID
+		}
+		if patch.Status != nil {
+			item.Status = *patch.Status
+		}
+	})
+	if err != nil {
+		return ActionResult{}, mapProjectWorkErr(err)
+	}
+	return ActionResult{
+		Kind: ActionUpdateHandoff,
+		ID:   handoff.ID,
+		Data: map[string]string{
+			"project_id":           handoff.ProjectID,
+			"work_item_id":         handoff.WorkItemID,
+			"handoff_id":           handoff.ID,
+			"target_assignment_id": handoff.TargetAssignmentID,
+		},
+	}, nil
+}
+
 func (s *Service) applyCreateMemoryCandidate(ctx context.Context, action Action) (ActionResult, error) {
 	if s.memoryCandidates == nil {
 		return ActionResult{}, ErrStoreNotConfigured
@@ -604,6 +650,12 @@ type handoffPatch struct {
 	ProvenanceKind        string   `json:"provenance_kind,omitempty"`
 	TrustLabel            string   `json:"trust_label,omitempty"`
 	CreatedByRoleID       string   `json:"created_by_role_id,omitempty"`
+}
+
+type updateHandoffPatch struct {
+	TargetAssignmentID *string `json:"target_assignment_id,omitempty"`
+	TargetRoleID       *string `json:"target_role_id,omitempty"`
+	Status             *string `json:"status,omitempty"`
 }
 
 type memoryCandidatePatch struct {

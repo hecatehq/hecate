@@ -720,6 +720,8 @@ function projectAssistantActionLabel(kind: string): string {
       return "Create assignment";
     case "create_handoff":
       return "Create handoff";
+    case "update_handoff":
+      return "Update handoff";
     case "create_memory_candidate":
       return "Create memory candidate";
     default:

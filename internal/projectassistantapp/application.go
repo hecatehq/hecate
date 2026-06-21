@@ -35,16 +35,17 @@ type ContextCommand struct {
 }
 
 type DraftCommand struct {
-	ProjectID  string
-	WorkItemID string
-	Request    string
-	RoleID     string
-	DriverKind string
-	DraftMode  string
-	Provider   string
-	Model      string
-	RequestID  string
-	TraceID    string
+	ProjectID        string
+	WorkItemID       string
+	Request          string
+	RoleID           string
+	DriverKind       string
+	DraftMode        string
+	ReviewArtifactID string
+	Provider         string
+	Model            string
+	RequestID        string
+	TraceID          string
 }
 
 type ProposeCommand struct {
@@ -92,16 +93,17 @@ func (app *Application) Draft(ctx context.Context, command DraftCommand) (projec
 		return projectassistant.Proposal{}, projectassistant.ErrStoreNotConfigured
 	}
 	return app.service.Draft(ctx, projectassistant.DraftInput{
-		ProjectID:  command.ProjectID,
-		WorkItemID: command.WorkItemID,
-		Request:    command.Request,
-		RoleID:     command.RoleID,
-		DriverKind: command.DriverKind,
-		DraftMode:  command.DraftMode,
-		Provider:   command.Provider,
-		Model:      command.Model,
-		RequestID:  command.RequestID,
-		TraceID:    command.TraceID,
+		ProjectID:        command.ProjectID,
+		WorkItemID:       command.WorkItemID,
+		Request:          command.Request,
+		RoleID:           command.RoleID,
+		DriverKind:       command.DriverKind,
+		DraftMode:        command.DraftMode,
+		ReviewArtifactID: command.ReviewArtifactID,
+		Provider:         command.Provider,
+		Model:            command.Model,
+		RequestID:        command.RequestID,
+		TraceID:          command.TraceID,
 	})
 }
 

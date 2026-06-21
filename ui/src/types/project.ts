@@ -277,10 +277,15 @@ export type ProjectAssistantContextPayload = {
   driver_kind?: string;
 };
 
-export type ProjectAssistantDraftMode = "deterministic" | "model" | "bootstrap";
+export type ProjectAssistantDraftMode =
+  | "deterministic"
+  | "model"
+  | "bootstrap"
+  | "review_follow_up";
 
 export type ProjectAssistantDraftPayload = ProjectAssistantContextPayload & {
   draft_mode?: ProjectAssistantDraftMode;
+  review_artifact_id?: string;
   provider?: string;
   model?: string;
 };
@@ -541,7 +546,18 @@ export type ProjectWorkItemReadinessRecord = {
   completed_assignments: number;
   review_follow_up_count: number;
   review_follow_up_artifact_ids?: string[];
+  review_follow_ups?: ProjectWorkItemReviewFollowUpRecord[];
   missing_evidence_assignment_ids?: string[];
+};
+
+export type ProjectWorkItemReviewFollowUpRecord = {
+  artifact_id: string;
+  title: string;
+  status: "needs_path" | (string & {});
+  blocker?: string;
+  reviewed_assignment_id?: string;
+  review_verdict?: string;
+  review_risk?: string;
 };
 
 export type ProjectAssignmentLaunchReadinessRecord = {

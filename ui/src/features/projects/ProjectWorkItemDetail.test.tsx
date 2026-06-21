@@ -655,7 +655,7 @@ describe("ProjectWorkItemDetail", () => {
     expect(handlers.onCreateAssignmentFromHandoff).toHaveBeenCalledWith(pendingHandoff);
   });
 
-  it("delegates direct follow-up assignment creation from review artifacts", async () => {
+  it("delegates follow-up assignment drafting from review artifacts", async () => {
     const reviewArtifact = artifact();
     const { handlers } = renderDetail({
       assignments: [],
@@ -664,11 +664,11 @@ describe("ProjectWorkItemDetail", () => {
 
     await userEvent.click(
       screen.getByRole("button", {
-        name: "Create follow-up assignment from review artifact art_review",
+        name: "Draft follow-up assignment from review artifact art_review",
       }),
     );
 
-    expect(handlers.onCreateAssignmentFromReviewArtifact).toHaveBeenCalledWith(reviewArtifact);
+    expect(handlers.onCreateAssignmentFromReviewArtifact).toHaveBeenCalledWith(reviewArtifact.id);
   });
 
   it("renders structured review artifact outcome badges", () => {
@@ -703,6 +703,15 @@ describe("ProjectWorkItemDetail", () => {
         blockers: ['Review follow-up "Architect review" is not triaged'],
         review_follow_up_count: 1,
         review_follow_up_artifact_ids: [reviewArtifact.id],
+        review_follow_ups: [
+          {
+            artifact_id: reviewArtifact.id,
+            title: "Architect review",
+            status: "needs_path",
+            blocker: 'Review follow-up "Architect review" is not triaged',
+            review_verdict: "blocked",
+          },
+        ],
       }),
     });
 
@@ -710,9 +719,9 @@ describe("ProjectWorkItemDetail", () => {
     expect(within(notice).getByText("Architect review")).toBeTruthy();
     expect(within(notice).getByText("follow-up required")).toBeTruthy();
 
-    await userEvent.click(within(notice).getByRole("button", { name: "Create follow-up" }));
+    await userEvent.click(within(notice).getByRole("button", { name: "Draft follow-up" }));
 
-    expect(handlers.onCreateAssignmentFromReviewArtifact).toHaveBeenCalledWith(reviewArtifact);
+    expect(handlers.onCreateAssignmentFromReviewArtifact).toHaveBeenCalledWith(reviewArtifact.id);
   });
 
   it("does not derive review follow-up notice from client artifact fields", () => {
@@ -792,7 +801,7 @@ describe("ProjectWorkItemDetail", () => {
     ).toBeDisabled();
     expect(
       screen.getByRole("button", {
-        name: "Create follow-up assignment from review artifact art_review",
+        name: "Draft follow-up assignment from review artifact art_review",
       }),
     ).toBeDisabled();
   });
