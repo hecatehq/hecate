@@ -22,6 +22,7 @@ func TestExtractToolKindACPKindPriority(t *testing.T) {
 		{"delete maps to file_delete", acp.ToolKindDelete, ToolKindFileDelete},
 		{"search maps to search", acp.ToolKindSearch, ToolKindSearch},
 		{"think maps to think", acp.ToolKindThink, ToolKindThink},
+		{"mcp maps to mcp", acp.ToolKind("mcp"), ToolKindMCP},
 	}
 	for _, tc := range tests {
 		tc := tc
@@ -52,6 +53,7 @@ func TestExtractToolKindFallsBackToTitle(t *testing.T) {
 		{"Execute shell", ToolKindShellExec},
 		{"Fetch https://...", ToolKindNetwork},
 		{"HTTP request", ToolKindNetwork},
+		{"MCP search docs", ToolKindMCP},
 		{"Search the docs", ToolKindSearch},
 		{"Delete file", ToolKindFileDelete},
 		{"Rename file", ToolKindFileMove},
