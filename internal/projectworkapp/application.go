@@ -142,6 +142,47 @@ type UpdateAssignmentCommand struct {
 	CompletedAt  *time.Time
 }
 
+type CreateHandoffCommand struct {
+	ID                    string
+	SourceAssignmentID    string
+	SourceRunID           string
+	SourceChatSessionID   string
+	SourceMessageID       string
+	TargetRoleID          string
+	TargetAssignmentID    string
+	TargetWorkItemID      string
+	Title                 string
+	Summary               string
+	RecommendedNextAction string
+	LinkedArtifactIDs     []string
+	LinkedMemoryIDs       []string
+	ContextRefs           []string
+	Status                string
+	ProvenanceKind        string
+	TrustLabel            string
+	CreatedByRoleID       string
+}
+
+type UpdateHandoffCommand struct {
+	SourceAssignmentID    *string
+	SourceRunID           *string
+	SourceChatSessionID   *string
+	SourceMessageID       *string
+	TargetRoleID          *string
+	TargetAssignmentID    *string
+	TargetWorkItemID      *string
+	Title                 *string
+	Summary               *string
+	RecommendedNextAction *string
+	LinkedArtifactIDs     *[]string
+	LinkedMemoryIDs       *[]string
+	ContextRefs           *[]string
+	Status                *string
+	ProvenanceKind        *string
+	TrustLabel            *string
+	CreatedByRoleID       *string
+}
+
 type StartTaskAssignmentCommand struct {
 	ProjectID         string
 	WorkItemID        string
@@ -403,6 +444,97 @@ func (app *Application) DeleteAssignment(ctx context.Context, projectID, workIte
 		return ErrStoreNotConfigured
 	}
 	return app.store.DeleteAssignment(ctx, projectID, workItemID, assignmentID)
+}
+
+func (app *Application) CreateHandoff(ctx context.Context, projectID, workItemID string, cmd CreateHandoffCommand) (projectwork.Handoff, error) {
+	if app == nil || app.store == nil {
+		return projectwork.Handoff{}, ErrStoreNotConfigured
+	}
+	id := strings.TrimSpace(cmd.ID)
+	if id == "" {
+		id = app.idgen("handoff")
+	}
+	return app.store.CreateHandoff(ctx, projectwork.Handoff{
+		ID:                    id,
+		ProjectID:             projectID,
+		WorkItemID:            workItemID,
+		SourceAssignmentID:    cmd.SourceAssignmentID,
+		SourceRunID:           cmd.SourceRunID,
+		SourceChatSessionID:   cmd.SourceChatSessionID,
+		SourceMessageID:       cmd.SourceMessageID,
+		TargetRoleID:          cmd.TargetRoleID,
+		TargetAssignmentID:    cmd.TargetAssignmentID,
+		TargetWorkItemID:      cmd.TargetWorkItemID,
+		Title:                 cmd.Title,
+		Summary:               cmd.Summary,
+		RecommendedNextAction: cmd.RecommendedNextAction,
+		LinkedArtifactIDs:     append([]string(nil), cmd.LinkedArtifactIDs...),
+		LinkedMemoryIDs:       append([]string(nil), cmd.LinkedMemoryIDs...),
+		ContextRefs:           append([]string(nil), cmd.ContextRefs...),
+		Status:                cmd.Status,
+		ProvenanceKind:        cmd.ProvenanceKind,
+		TrustLabel:            cmd.TrustLabel,
+		CreatedByRoleID:       cmd.CreatedByRoleID,
+	})
+}
+
+func (app *Application) UpdateHandoff(ctx context.Context, projectID, workItemID, handoffID string, cmd UpdateHandoffCommand) (projectwork.Handoff, error) {
+	if app == nil || app.store == nil {
+		return projectwork.Handoff{}, ErrStoreNotConfigured
+	}
+	return app.store.UpdateHandoff(ctx, projectID, workItemID, handoffID, func(item *projectwork.Handoff) {
+		if cmd.SourceAssignmentID != nil {
+			item.SourceAssignmentID = *cmd.SourceAssignmentID
+		}
+		if cmd.SourceRunID != nil {
+			item.SourceRunID = *cmd.SourceRunID
+		}
+		if cmd.SourceChatSessionID != nil {
+			item.SourceChatSessionID = *cmd.SourceChatSessionID
+		}
+		if cmd.SourceMessageID != nil {
+			item.SourceMessageID = *cmd.SourceMessageID
+		}
+		if cmd.TargetRoleID != nil {
+			item.TargetRoleID = *cmd.TargetRoleID
+		}
+		if cmd.TargetAssignmentID != nil {
+			item.TargetAssignmentID = *cmd.TargetAssignmentID
+		}
+		if cmd.TargetWorkItemID != nil {
+			item.TargetWorkItemID = *cmd.TargetWorkItemID
+		}
+		if cmd.Title != nil {
+			item.Title = *cmd.Title
+		}
+		if cmd.Summary != nil {
+			item.Summary = *cmd.Summary
+		}
+		if cmd.RecommendedNextAction != nil {
+			item.RecommendedNextAction = *cmd.RecommendedNextAction
+		}
+		if cmd.LinkedArtifactIDs != nil {
+			item.LinkedArtifactIDs = append([]string(nil), *cmd.LinkedArtifactIDs...)
+		}
+		if cmd.LinkedMemoryIDs != nil {
+			item.LinkedMemoryIDs = append([]string(nil), *cmd.LinkedMemoryIDs...)
+		}
+		if cmd.ContextRefs != nil {
+			item.ContextRefs = append([]string(nil), *cmd.ContextRefs...)
+		}
+		if cmd.Status != nil {
+			item.Status = *cmd.Status
+		}
+		if cmd.ProvenanceKind != nil {
+			item.ProvenanceKind = *cmd.ProvenanceKind
+		}
+		if cmd.TrustLabel != nil {
+			item.TrustLabel = *cmd.TrustLabel
+		}
+		if cmd.CreatedByRoleID != nil {
+			item.CreatedByRoleID = *cmd.CreatedByRoleID
+		}
+	})
 }
 
 func (app *Application) StartTaskAssignment(ctx context.Context, cmd StartTaskAssignmentCommand) (*StartTaskAssignmentResult, error) {

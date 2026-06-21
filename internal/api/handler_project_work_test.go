@@ -486,6 +486,51 @@ func TestProjectWorkAPI_CRUD(t *testing.T) {
 	}
 }
 
+func TestProjectWorkAPI_CreateHandoffGeneratesOpaqueHandoffID(t *testing.T) {
+	t.Parallel()
+	_, server := newProjectWorkTestServer()
+	project := createProjectForWorkTest(t, server)
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/work-items", bytes.NewReader([]byte(`{
+		"id":"work_generated_handoff",
+		"title":"Generated handoff"
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create work item status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_generated_handoff/handoffs", bytes.NewReader([]byte(`{
+		"title":"Generated handoff",
+		"summary":"Ready for the next operator step.",
+		"recommended_next_action":"Review the generated handoff ID."
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create handoff status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	var created ProjectHandoffEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode handoff: %v", err)
+	}
+	if !strings.HasPrefix(created.Data.ID, "handoff_") {
+		t.Fatalf("generated handoff id = %q, want handoff_ prefix", created.Data.ID)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_generated_handoff/handoffs", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list handoffs status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var handoffs ProjectHandoffsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &handoffs); err != nil {
+		t.Fatalf("decode handoffs: %v", err)
+	}
+	if len(handoffs.Data) != 1 || handoffs.Data[0].ID != created.Data.ID {
+		t.Fatalf("handoffs = %+v, want generated handoff id %q", handoffs.Data, created.Data.ID)
+	}
+}
+
 func TestProjectWorkAPI_PatchDoneRequiresCloseoutReadiness(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectWorkTestServer()

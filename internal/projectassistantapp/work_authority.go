@@ -81,6 +81,45 @@ func (authority projectWorkAuthority) CreateAssignment(ctx context.Context, proj
 	return assignment, nil
 }
 
+func (authority projectWorkAuthority) CreateHandoff(ctx context.Context, projectID, workItemID string, cmd projectassistant.WorkHandoffCommand) (projectwork.Handoff, error) {
+	handoff, err := authority.app.CreateHandoff(ctx, projectID, workItemID, projectworkapp.CreateHandoffCommand{
+		ID:                    cmd.ID,
+		SourceAssignmentID:    cmd.SourceAssignmentID,
+		SourceRunID:           cmd.SourceRunID,
+		SourceChatSessionID:   cmd.SourceChatSessionID,
+		SourceMessageID:       cmd.SourceMessageID,
+		TargetRoleID:          cmd.TargetRoleID,
+		TargetAssignmentID:    cmd.TargetAssignmentID,
+		TargetWorkItemID:      cmd.TargetWorkItemID,
+		Title:                 cmd.Title,
+		Summary:               cmd.Summary,
+		RecommendedNextAction: cmd.RecommendedNextAction,
+		LinkedArtifactIDs:     append([]string(nil), cmd.LinkedArtifactIDs...),
+		LinkedMemoryIDs:       append([]string(nil), cmd.LinkedMemoryIDs...),
+		ContextRefs:           append([]string(nil), cmd.ContextRefs...),
+		Status:                cmd.Status,
+		ProvenanceKind:        cmd.ProvenanceKind,
+		TrustLabel:            cmd.TrustLabel,
+		CreatedByRoleID:       cmd.CreatedByRoleID,
+	})
+	if err != nil {
+		return projectwork.Handoff{}, mapProjectWorkApplicationErr(err)
+	}
+	return handoff, nil
+}
+
+func (authority projectWorkAuthority) UpdateHandoff(ctx context.Context, projectID, workItemID, handoffID string, cmd projectassistant.WorkHandoffUpdateCommand) (projectwork.Handoff, error) {
+	handoff, err := authority.app.UpdateHandoff(ctx, projectID, workItemID, handoffID, projectworkapp.UpdateHandoffCommand{
+		TargetAssignmentID: cmd.TargetAssignmentID,
+		TargetRoleID:       cmd.TargetRoleID,
+		Status:             cmd.Status,
+	})
+	if err != nil {
+		return projectwork.Handoff{}, mapProjectWorkApplicationErr(err)
+	}
+	return handoff, nil
+}
+
 func mapProjectWorkApplicationErr(err error) error {
 	if err == nil {
 		return nil

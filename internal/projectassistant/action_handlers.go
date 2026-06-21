@@ -361,7 +361,7 @@ func (s *Service) applyCreateAssignment(ctx context.Context, action Action) (Act
 }
 
 func (s *Service) applyCreateHandoff(ctx context.Context, action Action) (ActionResult, error) {
-	if s.work == nil {
+	if s.workAuthority == nil {
 		return ActionResult{}, ErrStoreNotConfigured
 	}
 	var patch handoffPatch
@@ -379,10 +379,8 @@ func (s *Service) applyCreateHandoff(ctx context.Context, action Action) (Action
 	if id == "" {
 		id = s.idgen("handoff")
 	}
-	handoff, err := s.work.CreateHandoff(ctx, projectwork.Handoff{
+	handoff, err := s.workAuthority.CreateHandoff(ctx, projectID, patch.WorkItemID, WorkHandoffCommand{
 		ID:                    id,
-		ProjectID:             projectID,
-		WorkItemID:            patch.WorkItemID,
 		SourceAssignmentID:    patch.SourceAssignmentID,
 		SourceRunID:           patch.SourceRunID,
 		SourceChatSessionID:   patch.SourceChatSessionID,
@@ -408,7 +406,7 @@ func (s *Service) applyCreateHandoff(ctx context.Context, action Action) (Action
 }
 
 func (s *Service) applyUpdateHandoff(ctx context.Context, action Action) (ActionResult, error) {
-	if s.work == nil {
+	if s.workAuthority == nil {
 		return ActionResult{}, ErrStoreNotConfigured
 	}
 	projectID := targetValue(action, "project_id")
@@ -427,16 +425,10 @@ func (s *Service) applyUpdateHandoff(ctx context.Context, action Action) (Action
 	if patch.TargetAssignmentID == nil && patch.TargetRoleID == nil && patch.Status == nil {
 		return ActionResult{}, fmt.Errorf("%w: update_handoff patch must set at least one mutable field", ErrInvalid)
 	}
-	handoff, err := s.work.UpdateHandoff(ctx, projectID, workItemID, handoffID, func(item *projectwork.Handoff) {
-		if patch.TargetAssignmentID != nil {
-			item.TargetAssignmentID = *patch.TargetAssignmentID
-		}
-		if patch.TargetRoleID != nil {
-			item.TargetRoleID = *patch.TargetRoleID
-		}
-		if patch.Status != nil {
-			item.Status = *patch.Status
-		}
+	handoff, err := s.workAuthority.UpdateHandoff(ctx, projectID, workItemID, handoffID, WorkHandoffUpdateCommand{
+		TargetAssignmentID: patch.TargetAssignmentID,
+		TargetRoleID:       patch.TargetRoleID,
+		Status:             patch.Status,
 	})
 	if err != nil {
 		return ActionResult{}, mapProjectWorkErr(err)
