@@ -19,6 +19,12 @@ const (
 	ACPAuthMethodAgentLogin         = "agent-login"
 )
 
+var (
+	acpAuthenticateActionTimeout = 5 * time.Minute
+	acpLogoutActionTimeout       = 30 * time.Second
+	acpAuthInitializeTimeout     = 10 * time.Second
+)
+
 type LogoutResult struct {
 	AdapterID  string `json:"adapter_id"`
 	Status     string `json:"status"`
@@ -46,7 +52,7 @@ func Authenticate(ctx context.Context, adapterID string) (AuthenticateResult, er
 	if _, ok := remoteruntime.FromContext(ctx); ok {
 		return AuthenticateResult{AdapterID: strings.TrimSpace(adapterID), MethodID: ACPAuthMethodAgentLogin}, fmt.Errorf("ACP authenticate is local-only in remote runtime mode; configure a remote-safe credential environment variable instead")
 	}
-	action, err := runACPAuthAction(ctx, adapterID, "authenticate", "hecate-adapter-authenticate-*", "hecate-authenticate", func(ctx context.Context, conn *acp.ClientSideConnection, initResp acp.InitializeResponse) error {
+	action, err := runACPAuthAction(ctx, adapterID, "authenticate", "hecate-adapter-authenticate-*", "hecate-authenticate", acpAuthenticateActionTimeout, func(ctx context.Context, conn *acp.ClientSideConnection, initResp acp.InitializeResponse) error {
 		if !initializeSupportsHecateAuthenticate(initResp) {
 			return fmt.Errorf("adapter %q does not advertise ACP auth method %q", adapterID, ACPAuthMethodAgentLogin)
 		}
@@ -67,7 +73,7 @@ func Authenticate(ctx context.Context, adapterID string) (AuthenticateResult, er
 }
 
 func Logout(ctx context.Context, adapterID string) (LogoutResult, error) {
-	action, err := runACPAuthAction(ctx, adapterID, "logout", "hecate-adapter-logout-*", "hecate-logout", func(ctx context.Context, conn *acp.ClientSideConnection, initResp acp.InitializeResponse) error {
+	action, err := runACPAuthAction(ctx, adapterID, "logout", "hecate-adapter-logout-*", "hecate-logout", acpLogoutActionTimeout, func(ctx context.Context, conn *acp.ClientSideConnection, initResp acp.InitializeResponse) error {
 		if initResp.AgentCapabilities.Auth.Logout == nil {
 			return fmt.Errorf("adapter %q does not advertise ACP logout", adapterID)
 		}
@@ -86,7 +92,7 @@ func Logout(ctx context.Context, adapterID string) (LogoutResult, error) {
 	return res, nil
 }
 
-func runACPAuthAction(ctx context.Context, adapterID, operation, workspacePattern, clientName string, action acpAuthAction) (acpAuthActionResult, error) {
+func runACPAuthAction(ctx context.Context, adapterID, operation, workspacePattern, clientName string, actionTimeout time.Duration, action acpAuthAction) (acpAuthActionResult, error) {
 	start := time.Now()
 	adapter, ok := BuiltInByID(adapterID)
 	if !ok {
@@ -101,9 +107,9 @@ func runACPAuthAction(ctx context.Context, adapterID, operation, workspacePatter
 	}
 	res.Path = path
 
-	actionCtx, cancel := context.WithTimeout(ctx, probeTimeout)
-	defer cancel()
-
+	if actionTimeout <= 0 {
+		actionTimeout = probeTimeout
+	}
 	workspace, err := os.MkdirTemp("", workspacePattern)
 	if err != nil {
 		res.DurationMS = elapsedMS(start)
@@ -154,7 +160,7 @@ func runACPAuthAction(ctx context.Context, adapterID, operation, workspacePatter
 	defer cleanupProcess()
 
 	conn := acp.NewClientSideConnection(probeClient{workspace: workspace}, stdin, stdout)
-	initCtx, initCancel := context.WithTimeout(actionCtx, 10*time.Second)
+	initCtx, initCancel := context.WithTimeout(ctx, acpAuthInitializeTimeout)
 	initResp, err := conn.Initialize(initCtx, acp.InitializeRequest{
 		ProtocolVersion: acp.ProtocolVersionNumber,
 		ClientInfo: &acp.Implementation{
@@ -176,7 +182,7 @@ func runACPAuthAction(ctx context.Context, adapterID, operation, workspacePatter
 		return res, fmt.Errorf("initialize ACP adapter %q: %w%s", adapter.ID, err, stderrSuffix(stderr.String()))
 	}
 
-	callCtx, callCancel := context.WithTimeout(actionCtx, 10*time.Second)
+	callCtx, callCancel := context.WithTimeout(ctx, actionTimeout)
 	err = action(callCtx, conn, initResp)
 	callCancel()
 	if err != nil {
