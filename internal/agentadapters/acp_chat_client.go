@@ -99,6 +99,17 @@ func (c *acpChatClient) RequestPermission(ctx context.Context, params acp.Reques
 	return acp.RequestPermissionResponse{Outcome: acp.RequestPermissionOutcome{Cancelled: &acp.RequestPermissionOutcomeCancelled{}}}, nil
 }
 
+func (c *acpChatClient) UnstableCreateElicitation(context.Context, acp.UnstableCreateElicitationRequest) (acp.UnstableCreateElicitationResponse, error) {
+	// Hecate does not advertise elicitation support yet. Return the ACP
+	// "cancel" outcome so experimental agents degrade gracefully instead of
+	// seeing JSON-RPC method-not-found.
+	return acp.NewUnstableCreateElicitationResponseCancel(), nil
+}
+
+func (c *acpChatClient) UnstableCompleteElicitation(context.Context, acp.UnstableCompleteElicitationNotification) error {
+	return nil
+}
+
 func (c *acpChatClient) ReadTextFile(_ context.Context, params acp.ReadTextFileRequest) (acp.ReadTextFileResponse, error) {
 	fsys, path, err := c.workspaceFS(params.Path)
 	if err != nil {

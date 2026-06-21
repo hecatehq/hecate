@@ -236,6 +236,30 @@ func TestACPChatClientCapturesConfigOptionsWithoutActiveTurn(t *testing.T) {
 	}
 }
 
+func TestACPChatClientCancelsUnsupportedElicitation(t *testing.T) {
+	client := &acpChatClient{}
+	resp, err := client.UnstableCreateElicitation(context.Background(), acp.NewUnstableCreateElicitationRequestUrl(
+		acp.UnstableElicitationId("oauth-1"),
+		"https://example.com/oauth",
+	))
+	if err != nil {
+		t.Fatalf("UnstableCreateElicitation: %v", err)
+	}
+	if resp.Cancel == nil || resp.Cancel.Action != "cancel" {
+		t.Fatalf("elicitation response = %#v, want cancel action", resp)
+	}
+}
+
+func TestACPChatClientIgnoresElicitationComplete(t *testing.T) {
+	client := &acpChatClient{}
+	err := client.UnstableCompleteElicitation(context.Background(), acp.UnstableCompleteElicitationNotification{
+		ElicitationId: acp.UnstableElicitationId("oauth-1"),
+	})
+	if err != nil {
+		t.Fatalf("UnstableCompleteElicitation: %v", err)
+	}
+}
+
 func TestACPSessionConfigOptionUpdatePreservesManagedLaunchOptions(t *testing.T) {
 	session := &acpSession{
 		managedConfig: map[string]struct{}{"sandbox": {}},

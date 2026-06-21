@@ -502,6 +502,10 @@ destructive: Hecate asks the ACP peer to delete the native session with
 `session/delete` before removing the persisted Hecate transcript. If an adapter
 does not implement `session/delete`, Hecate falls back to `session/close` and
 still terminates the owned process group.
+Hecate does not advertise ACP elicitation UI support yet. If an experimental
+adapter still sends unstable `elicitation/create`, Hecate replies with the ACP
+`cancel` outcome instead of surfacing a JSON-RPC method-not-found error; unstable
+`elicitation/complete` notifications are ignored.
 
 Every prompt also gets OTel-shaped observability. The message response includes
 `request_id`, `trace_id`, and `span_id`, and `GET
