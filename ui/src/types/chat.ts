@@ -31,6 +31,7 @@ export type ChatSessionSummaryRecord = {
   agent_id?: string;
   driver_kind?: string;
   native_session_id?: string;
+  agent_info?: ChatAgentInfoRecord;
   task_id?: string;
   latest_run_id?: string;
   provider?: string;
@@ -76,6 +77,7 @@ export type ChatMessageRecord = {
   agent_name?: string;
   driver_kind?: string;
   native_session_id?: string;
+  agent_info?: ChatAgentInfoRecord;
   status?: string;
   exit_code?: number;
   cost_mode?: string;
@@ -176,6 +178,12 @@ export type ChatMCPAppRecord = {
   error?: string;
 };
 
+export type ChatAgentInfoRecord = {
+  name?: string;
+  title?: string;
+  version?: string;
+};
+
 export type ChatConfigSelectOptionRecord = {
   value: string;
   name: string;
@@ -209,6 +217,7 @@ export type ChatSessionRecord = {
   agent_id?: string;
   driver_kind?: string;
   native_session_id?: string;
+  agent_info?: ChatAgentInfoRecord;
   task_id?: string;
   latest_run_id?: string;
   provider?: string;
