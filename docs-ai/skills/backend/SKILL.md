@@ -226,7 +226,10 @@ button. Keep action execution aligned with the same live capability contract:
 do not call ACP `authenticate` unless `agent-login` was advertised, and do not
 call ACP `logout` unless `agentCapabilities.auth.logout` was advertised. Remote
 runtime mode blocks local ACP `authenticate`; hosted runs authenticate adapters
-through declared remote-safe env-key credential modes.
+through declared remote-safe env-key credential modes. Probe/auth helper
+clients that advertise filesystem callbacks must pass their temporary
+workspace into the callback implementation; otherwise adapters can fail inside
+Initialize/auth/logout when they use a capability Hecate claimed to support.
 
 ACP terminal callbacks are a command-execution surface. Keep
 `clientCapabilities.terminal` false unless `HECATE_AGENT_ADAPTER_TERMINALS=1`

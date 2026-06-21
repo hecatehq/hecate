@@ -802,6 +802,16 @@ func TestLogoutCallsACPLogout(t *testing.T) {
 	}
 }
 
+func TestLogoutSupportsFilesystemCallbacks(t *testing.T) {
+	t.Setenv("HECATE_FAKE_ACP_AUTH_FS", "1")
+	t.Setenv("HECATE_FAKE_ACP_SUPPORTS_LOGOUT", "1")
+	installFakeACPExecutable(t, "codex-acp-adapter")
+
+	if _, err := Logout(context.Background(), "codex"); err != nil {
+		t.Fatalf("Logout with filesystem callbacks: %v", err)
+	}
+}
+
 func TestLogoutReturnsACPLogoutError(t *testing.T) {
 	t.Setenv("HECATE_FAKE_ACP_LOGOUT_ERROR", "logout refused")
 	t.Setenv("HECATE_FAKE_ACP_SUPPORTS_LOGOUT", "1")
@@ -852,6 +862,16 @@ func TestAuthenticateCallsACPAuthenticate(t *testing.T) {
 	}
 	if got := strings.TrimSpace(string(raw)); got != ACPAuthMethodAgentLogin {
 		t.Fatalf("authenticate marker = %q, want method id %q", got, ACPAuthMethodAgentLogin)
+	}
+}
+
+func TestAuthenticateSupportsFilesystemCallbacks(t *testing.T) {
+	t.Setenv("HECATE_FAKE_ACP_AUTH_FS", "1")
+	t.Setenv("HECATE_FAKE_ACP_AUTH_AGENT_LOGIN", "1")
+	installFakeACPExecutable(t, "codex-acp-adapter")
+
+	if _, err := Authenticate(context.Background(), "codex"); err != nil {
+		t.Fatalf("Authenticate with filesystem callbacks: %v", err)
 	}
 }
 
@@ -2808,7 +2828,7 @@ func installFakeACPExecutable(t *testing.T, name string) {
 	}
 	exe := filepath.Join(bin, name)
 	script := fmt.Sprintf(
-		"#!/bin/sh\nHECATE_FAKE_ACP_AGENT=1 HECATE_FAKE_ACP_LOAD_SESSION_FAIL=%q HECATE_FAKE_ACP_NEW_SESSION_DELAY=%q HECATE_FAKE_ACP_NEW_SESSION_FS=%q HECATE_FAKE_ACP_COMMANDS_DELAY=%q HECATE_FAKE_ACP_MODELS=%q HECATE_FAKE_ACP_CONFIG_OPTIONS=%q HECATE_FAKE_ACP_SET_MODEL_ERROR=%q HECATE_FAKE_ACP_EXPECT_MCP_METHOD=%q HECATE_FAKE_ACP_EXPECT_MCP_JSON=%q HECATE_FAKE_ACP_AUTHENTICATE_FILE=%q HECATE_FAKE_ACP_AUTHENTICATE_ERROR=%q HECATE_FAKE_ACP_LOGOUT_FILE=%q HECATE_FAKE_ACP_LOGOUT_ERROR=%q HECATE_FAKE_ACP_AUTH_AGENT_LOGIN=%q HECATE_FAKE_ACP_AUTH_AGENT_OTHER=%q HECATE_FAKE_ACP_AUTH_ENV_VAR=%q HECATE_FAKE_ACP_AUTH_TERMINAL=%q HECATE_FAKE_ACP_SUPPORTS_LOGOUT=%q HECATE_FAKE_ACP_CLOSE_UNSUPPORTED=%q HECATE_FAKE_ACP_CLOSE_FILE=%q HECATE_FAKE_ACP_DELETE_UNSUPPORTED=%q HECATE_FAKE_ACP_DELETE_FILE=%q HECATE_FAKE_ACP_INIT_FILE=%q exec %q -test.run '^TestFakeACPAgentProcess$'\n",
+		"#!/bin/sh\nHECATE_FAKE_ACP_AGENT=1 HECATE_FAKE_ACP_LOAD_SESSION_FAIL=%q HECATE_FAKE_ACP_NEW_SESSION_DELAY=%q HECATE_FAKE_ACP_NEW_SESSION_FS=%q HECATE_FAKE_ACP_COMMANDS_DELAY=%q HECATE_FAKE_ACP_MODELS=%q HECATE_FAKE_ACP_CONFIG_OPTIONS=%q HECATE_FAKE_ACP_SET_MODEL_ERROR=%q HECATE_FAKE_ACP_EXPECT_MCP_METHOD=%q HECATE_FAKE_ACP_EXPECT_MCP_JSON=%q HECATE_FAKE_ACP_AUTHENTICATE_FILE=%q HECATE_FAKE_ACP_AUTHENTICATE_ERROR=%q HECATE_FAKE_ACP_LOGOUT_FILE=%q HECATE_FAKE_ACP_LOGOUT_ERROR=%q HECATE_FAKE_ACP_AUTH_FS=%q HECATE_FAKE_ACP_AUTH_AGENT_LOGIN=%q HECATE_FAKE_ACP_AUTH_AGENT_OTHER=%q HECATE_FAKE_ACP_AUTH_ENV_VAR=%q HECATE_FAKE_ACP_AUTH_TERMINAL=%q HECATE_FAKE_ACP_SUPPORTS_LOGOUT=%q HECATE_FAKE_ACP_CLOSE_UNSUPPORTED=%q HECATE_FAKE_ACP_CLOSE_FILE=%q HECATE_FAKE_ACP_DELETE_UNSUPPORTED=%q HECATE_FAKE_ACP_DELETE_FILE=%q HECATE_FAKE_ACP_INIT_FILE=%q exec %q -test.run '^TestFakeACPAgentProcess$'\n",
 		os.Getenv("HECATE_FAKE_ACP_LOAD_SESSION_FAIL"),
 		os.Getenv("HECATE_FAKE_ACP_NEW_SESSION_DELAY"),
 		os.Getenv("HECATE_FAKE_ACP_NEW_SESSION_FS"),
@@ -2822,6 +2842,7 @@ func installFakeACPExecutable(t *testing.T, name string) {
 		os.Getenv("HECATE_FAKE_ACP_AUTHENTICATE_ERROR"),
 		os.Getenv("HECATE_FAKE_ACP_LOGOUT_FILE"),
 		os.Getenv("HECATE_FAKE_ACP_LOGOUT_ERROR"),
+		os.Getenv("HECATE_FAKE_ACP_AUTH_FS"),
 		os.Getenv("HECATE_FAKE_ACP_AUTH_AGENT_LOGIN"),
 		os.Getenv("HECATE_FAKE_ACP_AUTH_AGENT_OTHER"),
 		os.Getenv("HECATE_FAKE_ACP_AUTH_ENV_VAR"),
@@ -2860,9 +2881,12 @@ func newFakeACPAgent() *fakeACPAgent {
 	return &fakeACPAgent{sessions: make(map[string]*fakeACPSession)}
 }
 
-func (a *fakeACPAgent) Authenticate(_ context.Context, params acp.AuthenticateRequest) (acp.AuthenticateResponse, error) {
+func (a *fakeACPAgent) Authenticate(ctx context.Context, params acp.AuthenticateRequest) (acp.AuthenticateResponse, error) {
 	if message := strings.TrimSpace(os.Getenv("HECATE_FAKE_ACP_AUTHENTICATE_ERROR")); message != "" {
 		return acp.AuthenticateResponse{}, fmt.Errorf("%s", message)
+	}
+	if err := a.checkAuthFilesystemCallbacks(ctx, "authenticate"); err != nil {
+		return acp.AuthenticateResponse{}, err
 	}
 	if path := strings.TrimSpace(os.Getenv("HECATE_FAKE_ACP_AUTHENTICATE_FILE")); path != "" {
 		if err := os.WriteFile(path, []byte(params.MethodId+"\n"), 0o644); err != nil {
@@ -2872,9 +2896,12 @@ func (a *fakeACPAgent) Authenticate(_ context.Context, params acp.AuthenticateRe
 	return acp.AuthenticateResponse{}, nil
 }
 
-func (a *fakeACPAgent) Logout(context.Context, acp.LogoutRequest) (acp.LogoutResponse, error) {
+func (a *fakeACPAgent) Logout(ctx context.Context, _ acp.LogoutRequest) (acp.LogoutResponse, error) {
 	if message := strings.TrimSpace(os.Getenv("HECATE_FAKE_ACP_LOGOUT_ERROR")); message != "" {
 		return acp.LogoutResponse{}, fmt.Errorf("%s", message)
+	}
+	if err := a.checkAuthFilesystemCallbacks(ctx, "logout"); err != nil {
+		return acp.LogoutResponse{}, err
 	}
 	if path := strings.TrimSpace(os.Getenv("HECATE_FAKE_ACP_LOGOUT_FILE")); path != "" {
 		if err := os.WriteFile(path, []byte("logout\n"), 0o644); err != nil {
@@ -2882,6 +2909,28 @@ func (a *fakeACPAgent) Logout(context.Context, acp.LogoutRequest) (acp.LogoutRes
 		}
 	}
 	return acp.LogoutResponse{}, nil
+}
+
+func (a *fakeACPAgent) checkAuthFilesystemCallbacks(ctx context.Context, operation string) error {
+	if os.Getenv("HECATE_FAKE_ACP_AUTH_FS") != "1" {
+		return nil
+	}
+	content := operation + " ok"
+	path := "auth/" + operation + ".txt"
+	if _, err := a.conn.WriteTextFile(ctx, acp.WriteTextFileRequest{
+		Path:    path,
+		Content: content,
+	}); err != nil {
+		return fmt.Errorf("fake %s write_text_file: %w", operation, err)
+	}
+	read, err := a.conn.ReadTextFile(ctx, acp.ReadTextFileRequest{Path: path})
+	if err != nil {
+		return fmt.Errorf("fake %s read_text_file: %w", operation, err)
+	}
+	if read.Content != content {
+		return fmt.Errorf("fake %s read_text_file = %q, want %s", operation, read.Content, content)
+	}
+	return nil
 }
 
 func (a *fakeACPAgent) Initialize(_ context.Context, params acp.InitializeRequest) (acp.InitializeResponse, error) {
