@@ -104,6 +104,7 @@ func TestProjectHealth_ReadOnlyAttention(t *testing.T) {
 	if response.Object != "project_health" || response.Data.ProjectID != "proj_health" {
 		t.Fatalf("health envelope = %+v, want project_health for project", response)
 	}
+	assertProjectHealthItemsHaveActions(t, response.Data.Attention, "proj_health")
 	if response.Data.Summary.AttentionLimit != projectHealthAttentionLimit || response.Data.Summary.AttentionCount != 5 || response.Data.Summary.OmittedAttentionCount != 0 {
 		t.Fatalf("health summary = %+v, want bounded attention counts", response.Data.Summary)
 	}
@@ -200,6 +201,7 @@ func TestProjectHealth_ProfileAndSkillReferences(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode health: %v", err)
 	}
+	assertProjectHealthItemsHaveActions(t, response.Data.Attention, "proj_refs")
 	profiles := findProjectHealthAttentionForTest(t, response.Data.Attention, "Agent profile reference missing")
 	assertProjectHealthActionForTest(t, profiles, projectActionOpenProfiles, "proj_refs")
 	if !strings.Contains(profiles.Detail, "missing_profile") {
@@ -265,6 +267,7 @@ func TestProjectHealth_StandalonePendingHandoffAttention(t *testing.T) {
 	if response.Data.Summary.PendingHandoffCount != 1 {
 		t.Fatalf("PendingHandoffCount = %d, want 1", response.Data.Summary.PendingHandoffCount)
 	}
+	assertProjectHealthItemsHaveActions(t, response.Data.Attention, "proj_standalone_handoff")
 	handoff := findProjectHealthAttentionForTest(t, response.Data.Attention, "Pending handoff: Review standalone handoff")
 	if handoff.WorkItemID != "work_standalone_handoff" || handoff.ActionLabel != "Open handoff" || handoff.Bucket != "" {
 		t.Fatalf("handoff attention = %+v, want standalone work target", handoff)
@@ -312,6 +315,7 @@ func TestProjectHealth_AttentionCapReportsOmittedItems(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode health: %v", err)
 	}
+	assertProjectHealthItemsHaveActions(t, response.Data.Attention, "proj_cap_health")
 	if response.Data.Summary.AttentionCount != projectHealthAttentionLimit || response.Data.Summary.AvailableAttentionCount <= projectHealthAttentionLimit || response.Data.Summary.OmittedAttentionCount == 0 {
 		t.Fatalf("health summary = %+v, want omitted attention count", response.Data.Summary)
 	}
@@ -329,6 +333,27 @@ func findProjectHealthAttentionForTest(t *testing.T, items []ProjectHealthAttent
 	}
 	t.Fatalf("project health attention %q not found in %+v", title, items)
 	return ProjectHealthAttentionItem{}
+}
+
+func assertProjectHealthItemsHaveActions(t *testing.T, items []ProjectHealthAttentionItem, projectID string) {
+	t.Helper()
+	for _, item := range items {
+		if strings.TrimSpace(item.ProjectID) == "" {
+			t.Fatalf("attention item %q has empty project_id: %+v", item.ID, item)
+		}
+		if item.ProjectID != projectID {
+			t.Fatalf("attention item %q project_id = %q, want %q", item.ID, item.ProjectID, projectID)
+		}
+		if strings.TrimSpace(item.Action.Type) == "" {
+			t.Fatalf("attention item %q has empty action type: %+v", item.ID, item.Action)
+		}
+		if strings.TrimSpace(item.Action.ProjectID) == "" {
+			t.Fatalf("attention item %q has empty action project_id: %+v", item.ID, item.Action)
+		}
+		if item.Action.ProjectID != item.ProjectID {
+			t.Fatalf("attention item %q action project_id = %q, want item project_id %q", item.ID, item.Action.ProjectID, item.ProjectID)
+		}
+	}
 }
 
 func assertProjectHealthActionForTest(t *testing.T, item ProjectHealthAttentionItem, actionType, projectID string) {
