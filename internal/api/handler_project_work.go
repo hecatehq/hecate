@@ -834,14 +834,8 @@ func (h *Handler) HandleCreateProjectHandoff(w http.ResponseWriter, r *http.Requ
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	id := strings.TrimSpace(req.ID)
-	if id == "" {
-		id = newOpaqueTaskResourceID("handoff")
-	}
-	item, err := h.projectWork.CreateHandoff(r.Context(), projectwork.Handoff{
-		ID:                    id,
-		ProjectID:             projectID,
-		WorkItemID:            workItemID,
+	item, err := h.projectWorkApplication().CreateHandoff(r.Context(), projectID, workItemID, projectworkapp.CreateHandoffCommand{
+		ID:                    req.ID,
 		SourceAssignmentID:    req.SourceAssignmentID,
 		SourceRunID:           req.SourceRunID,
 		SourceChatSessionID:   req.SourceChatSessionID,
@@ -877,8 +871,24 @@ func (h *Handler) HandleUpdateProjectHandoff(w http.ResponseWriter, r *http.Requ
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	item, err := h.projectWork.UpdateHandoff(r.Context(), projectID, workItemID, handoffID, func(item *projectwork.Handoff) {
-		applyProjectHandoffPatch(item, req)
+	item, err := h.projectWorkApplication().UpdateHandoff(r.Context(), projectID, workItemID, handoffID, projectworkapp.UpdateHandoffCommand{
+		SourceAssignmentID:    req.SourceAssignmentID,
+		SourceRunID:           req.SourceRunID,
+		SourceChatSessionID:   req.SourceChatSessionID,
+		SourceMessageID:       req.SourceMessageID,
+		TargetRoleID:          req.TargetRoleID,
+		TargetAssignmentID:    req.TargetAssignmentID,
+		TargetWorkItemID:      req.TargetWorkItemID,
+		Title:                 req.Title,
+		Summary:               req.Summary,
+		RecommendedNextAction: req.RecommendedNextAction,
+		LinkedArtifactIDs:     req.LinkedArtifactIDs,
+		LinkedMemoryIDs:       req.LinkedMemoryIDs,
+		ContextRefs:           req.ContextRefs,
+		Status:                req.Status,
+		ProvenanceKind:        req.ProvenanceKind,
+		TrustLabel:            req.TrustLabel,
+		CreatedByRoleID:       req.CreatedByRoleID,
 	})
 	if !writeProjectWorkError(w, err) {
 		return
@@ -897,8 +907,8 @@ func (h *Handler) HandleUpdateProjectHandoffStatus(w http.ResponseWriter, r *htt
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	item, err := h.projectWork.UpdateHandoff(r.Context(), projectID, workItemID, handoffID, func(item *projectwork.Handoff) {
-		item.Status = req.Status
+	item, err := h.projectWorkApplication().UpdateHandoff(r.Context(), projectID, workItemID, handoffID, projectworkapp.UpdateHandoffCommand{
+		Status: &req.Status,
 	})
 	if !writeProjectWorkError(w, err) {
 		return
@@ -917,60 +927,6 @@ func (h *Handler) HandleDeleteProjectHandoff(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-func applyProjectHandoffPatch(item *projectwork.Handoff, req updateProjectHandoffRequest) {
-	if req.SourceAssignmentID != nil {
-		item.SourceAssignmentID = *req.SourceAssignmentID
-	}
-	if req.SourceRunID != nil {
-		item.SourceRunID = *req.SourceRunID
-	}
-	if req.SourceChatSessionID != nil {
-		item.SourceChatSessionID = *req.SourceChatSessionID
-	}
-	if req.SourceMessageID != nil {
-		item.SourceMessageID = *req.SourceMessageID
-	}
-	if req.TargetRoleID != nil {
-		item.TargetRoleID = *req.TargetRoleID
-	}
-	if req.TargetAssignmentID != nil {
-		item.TargetAssignmentID = *req.TargetAssignmentID
-	}
-	if req.TargetWorkItemID != nil {
-		item.TargetWorkItemID = *req.TargetWorkItemID
-	}
-	if req.Title != nil {
-		item.Title = *req.Title
-	}
-	if req.Summary != nil {
-		item.Summary = *req.Summary
-	}
-	if req.RecommendedNextAction != nil {
-		item.RecommendedNextAction = *req.RecommendedNextAction
-	}
-	if req.LinkedArtifactIDs != nil {
-		item.LinkedArtifactIDs = *req.LinkedArtifactIDs
-	}
-	if req.LinkedMemoryIDs != nil {
-		item.LinkedMemoryIDs = *req.LinkedMemoryIDs
-	}
-	if req.ContextRefs != nil {
-		item.ContextRefs = *req.ContextRefs
-	}
-	if req.Status != nil {
-		item.Status = *req.Status
-	}
-	if req.ProvenanceKind != nil {
-		item.ProvenanceKind = *req.ProvenanceKind
-	}
-	if req.TrustLabel != nil {
-		item.TrustLabel = *req.TrustLabel
-	}
-	if req.CreatedByRoleID != nil {
-		item.CreatedByRoleID = *req.CreatedByRoleID
-	}
 }
 
 func (h *Handler) requireProject(w http.ResponseWriter, r *http.Request, projectID string) bool {

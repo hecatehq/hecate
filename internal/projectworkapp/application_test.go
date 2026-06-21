@@ -205,6 +205,67 @@ func TestApplication_UpdateAssignmentAppliesOptionalFields(t *testing.T) {
 	}
 }
 
+func TestApplication_CreateAndUpdateHandoffAppliesOptionalFields(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := projectwork.NewMemoryStore()
+	app := newTestApplication(store)
+	if _, err := app.CreateWorkItem(ctx, "proj_1", CreateWorkItemCommand{ID: "work_1", Title: "Build"}); err != nil {
+		t.Fatalf("CreateWorkItem() error = %v", err)
+	}
+	if _, err := app.CreateAssignment(ctx, "proj_1", "work_1", CreateAssignmentCommand{ID: "asgn_source", RoleID: "software_developer"}); err != nil {
+		t.Fatalf("CreateAssignment(source) error = %v", err)
+	}
+	if _, err := app.CreateAssignment(ctx, "proj_1", "work_1", CreateAssignmentCommand{ID: "asgn_target", RoleID: "reviewer_qa"}); err != nil {
+		t.Fatalf("CreateAssignment(target) error = %v", err)
+	}
+	linkedArtifacts := []string{"artifact_1", "artifact_1"}
+	contextRefs := []string{"ctx_1"}
+
+	handoff, err := app.CreateHandoff(ctx, "proj_1", "work_1", CreateHandoffCommand{
+		SourceAssignmentID:    "asgn_source",
+		TargetRoleID:          "reviewer_qa",
+		Title:                 "Review follow-up",
+		Summary:               "Review needs follow-up.",
+		RecommendedNextAction: "Queue the reviewer.",
+		LinkedArtifactIDs:     linkedArtifacts,
+		ContextRefs:           contextRefs,
+	})
+	if err != nil {
+		t.Fatalf("CreateHandoff() error = %v", err)
+	}
+	if handoff.ID != "handoff_fixed" || handoff.ProjectID != "proj_1" || handoff.WorkItemID != "work_1" || handoff.Status != projectwork.HandoffStatusPending {
+		t.Fatalf("handoff = %+v, want generated id, scope, and pending default", handoff)
+	}
+	linkedArtifacts[0] = "mutated"
+	contextRefs[0] = "mutated"
+	if handoff.LinkedArtifactIDs[0] != "artifact_1" || handoff.ContextRefs[0] != "ctx_1" {
+		t.Fatalf("handoff slices mutated through command: %+v/%+v", handoff.LinkedArtifactIDs, handoff.ContextRefs)
+	}
+
+	status := projectwork.HandoffStatusAccepted
+	action := "Start the target assignment."
+	targetAssignmentID := "asgn_target"
+	updateArtifacts := []string{"artifact_2"}
+	updated, err := app.UpdateHandoff(ctx, "proj_1", "work_1", handoff.ID, UpdateHandoffCommand{
+		TargetAssignmentID:    &targetAssignmentID,
+		RecommendedNextAction: &action,
+		LinkedArtifactIDs:     &updateArtifacts,
+		Status:                &status,
+	})
+	if err != nil {
+		t.Fatalf("UpdateHandoff() error = %v", err)
+	}
+	if updated.TargetAssignmentID != "asgn_target" || updated.RecommendedNextAction != action || updated.Status != projectwork.HandoffStatusAccepted {
+		t.Fatalf("updated handoff = %+v, want target assignment, action, accepted status", updated)
+	}
+	updateArtifacts[0] = "mutated"
+	if updated.LinkedArtifactIDs[0] != "artifact_2" {
+		t.Fatalf("updated handoff linked artifacts mutated through command: %+v", updated.LinkedArtifactIDs)
+	}
+}
+
 func TestApplication_ReconcileChatSessionAssignmentsUpdatesLinkedExternalAssignment(t *testing.T) {
 	t.Parallel()
 
