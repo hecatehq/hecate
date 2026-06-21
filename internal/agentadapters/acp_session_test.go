@@ -128,6 +128,59 @@ func TestSessionManagerAdvertisesACPTerminalsOnlyWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestSessionManagerRunsACPTerminalCallbackThroughAdapterProcess(t *testing.T) {
+	if os.Getenv("HECATE_FAKE_ACP_AGENT") == "1" {
+		return
+	}
+	installFakeACPExecutable(t, "codex-acp-adapter")
+	workspace := t.TempDir()
+	store := NewMemoryApprovalStore()
+
+	manager := NewSessionManager()
+	manager.SetTerminalSupportEnabled(true)
+	manager.SetApprovalCoordinator(NewApprovalCoordinator(CoordinatorOptions{
+		Mode:  ModeAuto,
+		Store: store,
+	}))
+	t.Cleanup(func() { _ = manager.Shutdown(context.Background()) })
+
+	result, err := manager.Run(context.Background(), RunRequest{
+		SessionID:      "chat_terminal_callback",
+		AdapterID:      "codex",
+		Workspace:      workspace,
+		Prompt:         "terminal command",
+		Timeout:        5 * time.Second,
+		MaxOutputBytes: 64 * 1024,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !strings.Contains(result.Output, "terminal output: terminal ok") {
+		t.Fatalf("Run output = %q, want terminal output", result.Output)
+	}
+	cwdRaw, err := os.ReadFile(filepath.Join(workspace, "terminal-cwd.txt"))
+	if err != nil {
+		t.Fatalf("read terminal cwd marker: %v", err)
+	}
+	wantWorkspace, err := filepath.EvalSymlinks(workspace)
+	if err != nil {
+		t.Fatalf("canonicalize workspace: %v", err)
+	}
+	if got := strings.TrimSpace(string(cwdRaw)); got != wantWorkspace {
+		t.Fatalf("terminal cwd marker = %q, want workspace %q", got, wantWorkspace)
+	}
+	rows, err := store.ListApprovals(context.Background(), "chat_terminal_callback", "")
+	if err != nil {
+		t.Fatalf("ListApprovals: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("approvals = %d, want 1", len(rows))
+	}
+	if rows[0].Status != ApprovalStatusApproved || rows[0].ToolKind != ToolKindShellExec {
+		t.Fatalf("approval = %+v, want approved shell_exec", rows[0])
+	}
+}
+
 func TestSessionManagerPreservesACPStopReason(t *testing.T) {
 	installFakeACPExecutable(t, "codex-acp-adapter")
 	workspace := t.TempDir()
@@ -2623,6 +2676,7 @@ type fakeACPAgent struct {
 type fakeACPSession struct {
 	turns  int
 	cancel context.CancelFunc
+	cwd    string
 	model  string
 	mode   string
 }
@@ -2736,7 +2790,7 @@ func (a *fakeACPAgent) NewSession(_ context.Context, params acp.NewSessionReques
 	a.mu.Lock()
 	a.nextSessionID++
 	id := fmt.Sprintf("fake_session_%d_%d", os.Getpid(), a.nextSessionID)
-	a.sessions[id] = &fakeACPSession{model: "model-a", mode: "ask"}
+	a.sessions[id] = &fakeACPSession{cwd: params.Cwd, model: "model-a", mode: "ask"}
 	a.mu.Unlock()
 	a.publishAvailableCommandsAfterDelay(acp.SessionId(id))
 	return acp.NewSessionResponse{
@@ -2753,7 +2807,7 @@ func (a *fakeACPAgent) LoadSession(_ context.Context, params acp.LoadSessionRequ
 		return acp.LoadSessionResponse{}, fmt.Errorf("fake persisted session %s not found", params.SessionId)
 	}
 	a.mu.Lock()
-	a.sessions[string(params.SessionId)] = &fakeACPSession{model: "model-a", mode: "ask"}
+	a.sessions[string(params.SessionId)] = &fakeACPSession{cwd: params.Cwd, model: "model-a", mode: "ask"}
 	a.mu.Unlock()
 	a.publishAvailableCommandsAfterDelay(params.SessionId)
 	return acp.LoadSessionResponse{
@@ -2888,6 +2942,50 @@ func (a *fakeACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (ac
 		default:
 			return acp.PromptResponse{StopReason: acp.StopReasonCancelled}, fmt.Errorf("permission response missing outcome")
 		}
+	}
+	if prompt == "terminal command" {
+		cwd := session.cwd
+		terminal, err := a.conn.CreateTerminal(turnCtx, acp.CreateTerminalRequest{
+			SessionId: params.SessionId,
+			Command:   "sh",
+			Args:      []string{"-c", "printf 'terminal ok'; pwd > terminal-cwd.txt"},
+			Cwd:       &cwd,
+		})
+		if err != nil {
+			return acp.PromptResponse{}, err
+		}
+		if terminal.TerminalId != "" {
+			defer func() {
+				_, _ = a.conn.ReleaseTerminal(context.Background(), acp.ReleaseTerminalRequest{
+					SessionId:  params.SessionId,
+					TerminalId: terminal.TerminalId,
+				})
+			}()
+		}
+		wait, err := a.conn.WaitForTerminalExit(turnCtx, acp.WaitForTerminalExitRequest{
+			SessionId:  params.SessionId,
+			TerminalId: terminal.TerminalId,
+		})
+		if err != nil {
+			return acp.PromptResponse{}, err
+		}
+		if wait.ExitCode == nil || *wait.ExitCode != 0 {
+			return acp.PromptResponse{}, fmt.Errorf("terminal exit code = %v, want 0", wait.ExitCode)
+		}
+		output, err := a.conn.TerminalOutput(turnCtx, acp.TerminalOutputRequest{
+			SessionId:  params.SessionId,
+			TerminalId: terminal.TerminalId,
+		})
+		if err != nil {
+			return acp.PromptResponse{}, err
+		}
+		if err := a.conn.SessionUpdate(turnCtx, acp.SessionNotification{
+			SessionId: params.SessionId,
+			Update:    acp.UpdateAgentMessageText("terminal output: " + strings.TrimSpace(output.Output)),
+		}); err != nil {
+			return acp.PromptResponse{}, err
+		}
+		return acp.PromptResponse{StopReason: acp.StopReasonEndTurn}, nil
 	}
 
 	if err := a.conn.SessionUpdate(turnCtx, acp.SessionNotification{
