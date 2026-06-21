@@ -266,6 +266,7 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 		configOptions, managedConfig = appendLaunchConfigOptions(ctx, command, adapter, configOptions, selectedOptions)
 		configOptions, err = applySelectedACPModel(newCtx, conn, nativeID, adapter, configOptions, selectedOptions)
 		if err != nil {
+			deleteOrCloseNativeACPSession(ctx, conn, nativeID, sessionLogger)
 			cancel()
 			if sessionLogger != nil {
 				sessionLogger.Warn("ACP session model selection failed", slog.Any("error", err))
@@ -274,14 +275,16 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 			return nil, false, "", fmt.Errorf("select ACP model for %q: %w%s", adapter.ID, err, stderrSuffix(stderr.String()))
 		}
 		configOptions, err = applySelectedACPConfigOptions(newCtx, conn, nativeID, adapter, configOptions, selectedOptions)
-		cancel()
 		if err != nil {
+			deleteOrCloseNativeACPSession(ctx, conn, nativeID, sessionLogger)
+			cancel()
 			if sessionLogger != nil {
 				sessionLogger.Warn("ACP session config selection failed", slog.Any("error", err))
 			}
 			terminateProcess(cmd)
 			return nil, false, "", fmt.Errorf("select ACP config for %q: %w%s", adapter.ID, err, stderrSuffix(stderr.String()))
 		}
+		cancel()
 		if sessionLogger != nil {
 			sessionLogger.Info("ACP session created",
 				slog.String("native_session_id", nativeID),
@@ -871,12 +874,9 @@ func (s *acpSession) shutdown(ctx context.Context, mode acpSessionShutdownMode) 
 	cancel()
 	if s.conn != nil && s.nativeID != "" {
 		if mode == acpSessionShutdownDelete {
-			deleted := s.deleteNativeSession(ctx)
-			if !deleted {
-				s.closeNativeSession(ctx)
-			}
+			deleteOrCloseNativeACPSession(ctx, s.conn, s.nativeID, s.logger)
 		} else {
-			s.closeNativeSession(ctx)
+			closeNativeACPSession(ctx, s.conn, s.nativeID, s.logger)
 		}
 	}
 	if s.cmd != nil {
@@ -895,32 +895,45 @@ func (s *acpSession) shutdown(ctx context.Context, mode acpSessionShutdownMode) 
 	return nil
 }
 
-func (s *acpSession) closeNativeSession(ctx context.Context) {
+func closeNativeACPSession(ctx context.Context, conn *acp.ClientSideConnection, nativeID string, logger *slog.Logger) {
+	if conn == nil || strings.TrimSpace(nativeID) == "" {
+		return
+	}
 	closeCtx, cancel := context.WithTimeout(ctx, acpShutdownCloseTimeout)
 	defer cancel()
-	if _, err := s.conn.CloseSession(closeCtx, acp.CloseSessionRequest{SessionId: acp.SessionId(s.nativeID)}); err != nil && s.logger != nil {
+	if _, err := conn.CloseSession(closeCtx, acp.CloseSessionRequest{SessionId: acp.SessionId(nativeID)}); err != nil && logger != nil {
 		if isACPMethodNotFound(err, acp.AgentMethodSessionClose) {
-			s.logger.Debug("ACP session close RPC unsupported", slog.String("native_session_id", s.nativeID))
+			logger.Debug("ACP session close RPC unsupported", slog.String("native_session_id", nativeID))
 		} else {
-			s.logger.Warn("close ACP session RPC failed", slog.String("native_session_id", s.nativeID), slog.Any("error", err))
+			logger.Warn("close ACP session RPC failed", slog.String("native_session_id", nativeID), slog.Any("error", err))
 		}
 	}
 }
 
-func (s *acpSession) deleteNativeSession(ctx context.Context) bool {
+func deleteNativeACPSession(ctx context.Context, conn *acp.ClientSideConnection, nativeID string, logger *slog.Logger) bool {
+	if conn == nil || strings.TrimSpace(nativeID) == "" {
+		return false
+	}
 	deleteCtx, cancel := context.WithTimeout(ctx, acpShutdownCloseTimeout)
 	defer cancel()
-	if _, err := s.conn.UnstableDeleteSession(deleteCtx, acp.UnstableDeleteSessionRequest{SessionId: acp.SessionId(s.nativeID)}); err != nil {
-		if s.logger != nil {
+	if _, err := conn.UnstableDeleteSession(deleteCtx, acp.UnstableDeleteSessionRequest{SessionId: acp.SessionId(nativeID)}); err != nil {
+		if logger != nil {
 			if isACPMethodNotFound(err, acp.AgentMethodSessionDelete) {
-				s.logger.Debug("ACP session delete RPC unsupported", slog.String("native_session_id", s.nativeID))
+				logger.Debug("ACP session delete RPC unsupported", slog.String("native_session_id", nativeID))
 			} else {
-				s.logger.Warn("delete ACP session RPC failed", slog.String("native_session_id", s.nativeID), slog.Any("error", err))
+				logger.Warn("delete ACP session RPC failed", slog.String("native_session_id", nativeID), slog.Any("error", err))
 			}
 		}
 		return false
 	}
 	return true
+}
+
+func deleteOrCloseNativeACPSession(ctx context.Context, conn *acp.ClientSideConnection, nativeID string, logger *slog.Logger) {
+	if deleted := deleteNativeACPSession(ctx, conn, nativeID, logger); deleted {
+		return
+	}
+	closeNativeACPSession(ctx, conn, nativeID, logger)
 }
 
 func isACPMethodNotFound(err error, method string) bool {

@@ -332,6 +332,69 @@ func TestSessionManagerUsesACPModelStateForBuiltInACPAdapters(t *testing.T) {
 	}
 }
 
+func TestSessionManagerPrepareDeletesCreatedACPSessionWhenSelectedModelFails(t *testing.T) {
+	deleteFile := filepath.Join(t.TempDir(), "delete.txt")
+	t.Setenv("HECATE_FAKE_ACP_MODELS", "1")
+	t.Setenv("HECATE_FAKE_ACP_SET_MODEL_ERROR", "adapter rejected model switch")
+	t.Setenv("HECATE_FAKE_ACP_DELETE_FILE", deleteFile)
+	installFakeACPExecutable(t, "grok")
+
+	manager := NewSessionManager()
+	_, err := manager.PrepareSession(context.Background(), PrepareSessionRequest{
+		SessionID: "chat_prepare_model_error",
+		AdapterID: "grok_build",
+		Workspace: t.TempDir(),
+		ConfigOptions: []agentcontrols.ConfigOption{{
+			ID:           "model",
+			CurrentValue: "model-b",
+		}},
+	})
+	if err == nil {
+		t.Fatal("PrepareSession succeeded, want selected model error")
+	}
+	errText := err.Error()
+	if !strings.Contains(errText, `select ACP model for "grok_build":`) || !strings.Contains(errText, "adapter rejected model switch") {
+		t.Fatalf("error = %q, want wrapped ACP model selection context", errText)
+	}
+	got, err := os.ReadFile(deleteFile)
+	if err != nil {
+		t.Fatalf("read delete file: %v", err)
+	}
+	if strings.TrimSpace(string(got)) == "" {
+		t.Fatalf("deleted native session id is empty")
+	}
+}
+
+func TestSessionManagerPrepareClosesCreatedACPSessionWhenSelectedModelFailsAndDeleteUnsupported(t *testing.T) {
+	closeFile := filepath.Join(t.TempDir(), "close.txt")
+	t.Setenv("HECATE_FAKE_ACP_MODELS", "1")
+	t.Setenv("HECATE_FAKE_ACP_SET_MODEL_ERROR", "adapter rejected model switch")
+	t.Setenv("HECATE_FAKE_ACP_DELETE_UNSUPPORTED", "1")
+	t.Setenv("HECATE_FAKE_ACP_CLOSE_FILE", closeFile)
+	installFakeACPExecutable(t, "grok")
+
+	manager := NewSessionManager()
+	_, err := manager.PrepareSession(context.Background(), PrepareSessionRequest{
+		SessionID: "chat_prepare_model_error_close_fallback",
+		AdapterID: "grok_build",
+		Workspace: t.TempDir(),
+		ConfigOptions: []agentcontrols.ConfigOption{{
+			ID:           "model",
+			CurrentValue: "model-b",
+		}},
+	})
+	if err == nil {
+		t.Fatal("PrepareSession succeeded, want selected model error")
+	}
+	got, err := os.ReadFile(closeFile)
+	if err != nil {
+		t.Fatalf("read close file: %v", err)
+	}
+	if strings.TrimSpace(string(got)) == "" {
+		t.Fatalf("fallback closed native session id is empty")
+	}
+}
+
 func TestSessionManagerChangesACPModelWithoutRestartingSession(t *testing.T) {
 	t.Setenv("HECATE_FAKE_ACP_MODELS", "1")
 	installFakeACPExecutable(t, "grok")
