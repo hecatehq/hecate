@@ -46,11 +46,7 @@ func (s *Service) Apply(ctx context.Context, proposal Proposal, confirmed bool) 
 		return ApplyResult{}, fmt.Errorf("%w: proposal %q action set changed after partial apply", ErrConflict, proposal.ID)
 	}
 	if failedActionIndex, err := s.preflightApply(ctx, proposal.Actions, len(progress.results)); err != nil {
-		partial := ApplyResult{
-			ProposalID: proposal.ID,
-			Applied:    false,
-			Actions:    cloneActionResults(progress.results),
-		}
+		partial := applyResult(proposal.ID, false, len(proposal.Actions), &failedActionIndex, progress.results)
 		return partial, &ApplyError{
 			ProposalID:        proposal.ID,
 			FailedActionIndex: failedActionIndex,
@@ -63,11 +59,7 @@ func (s *Service) Apply(ctx context.Context, proposal Proposal, confirmed bool) 
 		action := proposal.Actions[idx]
 		result, err := s.applyAction(ctx, action)
 		if err != nil {
-			partial := ApplyResult{
-				ProposalID: proposal.ID,
-				Applied:    false,
-				Actions:    cloneActionResults(progress.results),
-			}
+			partial := applyResult(proposal.ID, false, len(proposal.Actions), &idx, progress.results)
 			return partial, &ApplyError{
 				ProposalID:        proposal.ID,
 				FailedActionIndex: idx,
@@ -80,7 +72,7 @@ func (s *Service) Apply(ctx context.Context, proposal Proposal, confirmed bool) 
 
 	progress.complete = true
 
-	return ApplyResult{ProposalID: proposal.ID, Applied: true, Actions: cloneActionResults(progress.results)}, nil
+	return applyResult(proposal.ID, true, len(proposal.Actions), nil, progress.results), nil
 }
 
 type applyActionSpec struct {
@@ -139,4 +131,27 @@ func cloneActionResults(results []ActionResult) []ActionResult {
 		}
 	}
 	return cloned
+}
+
+func applyResult(proposalID string, applied bool, totalActionCount int, failedActionIndex *int, results []ActionResult) ApplyResult {
+	committedActionCount := len(results)
+	resumeActionIndex := committedActionCount
+	failed := cloneIntPtr(failedActionIndex)
+	return ApplyResult{
+		ProposalID:           proposalID,
+		Applied:              applied,
+		Actions:              cloneActionResults(results),
+		TotalActionCount:     totalActionCount,
+		CommittedActionCount: committedActionCount,
+		FailedActionIndex:    failed,
+		ResumeActionIndex:    resumeActionIndex,
+	}
+}
+
+func cloneIntPtr(value *int) *int {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
 }

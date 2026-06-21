@@ -324,11 +324,20 @@ function projectAssistantPartialApplyErrorMessage(
   error: ApiError,
   proposal?: ProjectAssistantProposal,
 ): string {
-  const failedActionIndex = projectAssistantFailedActionIndex(error.fields.failed_action_index);
   const partialResult = projectAssistantPartialResult(error.fields.partial_result);
+  const failedActionIndex =
+    projectAssistantNonNegativeInteger(error.fields.failed_action_index) ??
+    (partialResult ? projectAssistantNonNegativeInteger(partialResult.failed_action_index) : null);
   if (failedActionIndex === null || !partialResult) return "";
-  const appliedCount = partialResult.actions.length;
-  const totalCount = proposal?.actions.length ?? Math.max(appliedCount, failedActionIndex + 1);
+  const appliedCount =
+    projectAssistantNonNegativeInteger(error.fields.committed_action_count) ??
+    projectAssistantNonNegativeInteger(partialResult.committed_action_count) ??
+    partialResult.actions.length;
+  const totalCount =
+    projectAssistantNonNegativeInteger(error.fields.total_action_count) ??
+    projectAssistantNonNegativeInteger(partialResult.total_action_count) ??
+    proposal?.actions.length ??
+    Math.max(appliedCount, failedActionIndex + 1);
   const landed = projectAssistantAppliedActionsSummary(partialResult.actions);
   const failed = projectAssistantFailedActionSummary(proposal, failedActionIndex);
   return `Project Assistant applied ${appliedCount} of ${totalCount} actions${landed}. It then failed at action ${failedActionIndex + 1}${failed}. Apply the same proposal again after fixing the target state to resume from the next unapplied action.`;
@@ -379,7 +388,7 @@ function projectAssistantActionKindLabel(kind: string) {
   return kind.replace(/_/g, " ");
 }
 
-function projectAssistantFailedActionIndex(value: unknown): number | null {
+function projectAssistantNonNegativeInteger(value: unknown): number | null {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
 }
 
@@ -397,6 +406,13 @@ function projectAssistantPartialResult(value: unknown): ProjectAssistantApplyRes
     proposal_id: result.proposal_id,
     applied: result.applied,
     actions: result.actions,
+    total_action_count: projectAssistantNonNegativeInteger(result.total_action_count) ?? undefined,
+    committed_action_count:
+      projectAssistantNonNegativeInteger(result.committed_action_count) ?? undefined,
+    failed_action_index:
+      projectAssistantNonNegativeInteger(result.failed_action_index) ?? undefined,
+    resume_action_index:
+      projectAssistantNonNegativeInteger(result.resume_action_index) ?? undefined,
   };
 }
 

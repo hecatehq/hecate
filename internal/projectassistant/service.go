@@ -116,9 +116,13 @@ type Action struct {
 }
 
 type ApplyResult struct {
-	ProposalID string         `json:"proposal_id"`
-	Applied    bool           `json:"applied"`
-	Actions    []ActionResult `json:"actions"`
+	ProposalID           string         `json:"proposal_id"`
+	Applied              bool           `json:"applied"`
+	Actions              []ActionResult `json:"actions"`
+	TotalActionCount     int            `json:"total_action_count"`
+	CommittedActionCount int            `json:"committed_action_count"`
+	FailedActionIndex    *int           `json:"failed_action_index,omitempty"`
+	ResumeActionIndex    int            `json:"resume_action_index"`
 }
 
 type ActionResult struct {

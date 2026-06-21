@@ -82,6 +82,10 @@ export type ProjectAssistantApplyResult = {
   proposal_id: string;
   applied: boolean;
   actions: ProjectAssistantActionResult[];
+  total_action_count?: number;
+  committed_action_count?: number;
+  failed_action_index?: number;
+  resume_action_index?: number;
 };
 
 export type ProjectAssistantProposalResponse = {
