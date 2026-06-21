@@ -264,12 +264,8 @@ const (
 
 	// External-adapter runtime metrics — the sibling to
 	// AgentAdapterApprovalMetrics. probe is fired once per
-	// agentadapters.Probe call and labeled by the final classification;
-	// terminal_rpc_unsupported is fired every time an adapter calls a
-	// terminal method we don't implement so operators can spot
-	// adapters silently degrading on shell-via-terminal.
-	MetricAgentAdapterProbeTotal                  = "hecate.agent_adapter.probe"
-	MetricAgentAdapterTerminalRPCUnsupportedTotal = "hecate.agent_adapter.terminal_rpc_unsupported"
+	// agentadapters.Probe call and labeled by the final classification.
+	MetricAgentAdapterProbeTotal = "hecate.agent_adapter.probe"
 
 	// External-adapter approval metrics — see docs/design/external-adapter-approvals-v1.md.
 	MetricAgentAdapterApprovalRequestedTotal = "hecate.agent_adapter.approval.requested"

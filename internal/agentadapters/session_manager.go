@@ -27,6 +27,7 @@ type SessionManager struct {
 	// pre-existing constructor surface that older tests rely on.
 	metrics             *telemetry.AgentAdapterMetrics
 	onAvailableCommands func(AvailableCommandsUpdate)
+	terminalSupport     bool
 	closed              bool
 }
 
@@ -77,6 +78,15 @@ func (m *SessionManager) SetAvailableCommandsUpdateHook(hook func(AvailableComma
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.onAvailableCommands = hook
+}
+
+// SetTerminalSupportEnabled controls whether ACP sessions advertise and honor
+// client-side terminal/* callbacks. It is intentionally opt-in because
+// terminal/create is a command-execution surface.
+func (m *SessionManager) SetTerminalSupportEnabled(enabled bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.terminalSupport = enabled
 }
 
 // shutdownCancelHook is invoked once per adapter id torn down via
@@ -257,9 +267,10 @@ func (m *SessionManager) session(ctx context.Context, adapter Adapter, req RunRe
 		coordinator := m.coordinator
 		metrics := m.metrics
 		onAvailableCommands := m.onAvailableCommands
+		terminalSupport := m.terminalSupport
 		m.mu.Unlock()
 
-		started, resumed, recovery, err := startACPSession(startCtx, adapter, req.SessionID, req.Workspace, req.PreviousNativeSessionID, req.ConfigOptions, req.MCPServers, logger, coordinator, metrics, onAvailableCommands)
+		started, resumed, recovery, err := startACPSession(startCtx, adapter, req.SessionID, req.Workspace, req.PreviousNativeSessionID, req.ConfigOptions, req.MCPServers, logger, coordinator, metrics, onAvailableCommands, terminalSupport)
 		startCancel()
 
 		var previous *acpSession

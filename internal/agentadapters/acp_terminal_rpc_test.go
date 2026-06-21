@@ -5,142 +5,275 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	acp "github.com/coder/acp-go-sdk"
-	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
-	"go.opentelemetry.io/otel/sdk/metric/metricdata"
-
-	"github.com/hecatehq/hecate/internal/telemetry"
 )
 
-// TestAcpChatClientTerminalRPCsReturnTypedSentinel pins both the
-// typed-error and counter contract for the five ACP terminal stubs.
-// Adapters detect the case via errors.Is(err, ErrTerminalRPCUnsupported);
-// dashboards count the case via the terminal_rpc_unsupported counter.
-// A single test exercises every method so a regression on any one
-// stub fails loudly.
-func TestAcpChatClientTerminalRPCsReturnTypedSentinel(t *testing.T) {
+func TestAcpChatClientTerminalRPCsDisabledByDefault(t *testing.T) {
 	t.Parallel()
-
-	reader := sdkmetric.NewManualReader()
-	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
-	metrics, err := telemetry.NewAgentAdapterMetricsWithMeterProvider(provider)
-	if err != nil {
-		t.Fatalf("NewAgentAdapterMetricsWithMeterProvider: %v", err)
-	}
 
 	client := &acpChatClient{
 		sessionID: "chat_test",
 		adapterID: "codex",
 		workspace: t.TempDir(),
-		metrics:   metrics,
 	}
-
-	ctx := context.Background()
-	cases := []struct {
-		name   string
-		method string
-		call   func() error
-	}{
-		{
-			name:   "CreateTerminal",
-			method: "create",
-			call: func() error {
-				_, err := client.CreateTerminal(ctx, acp.CreateTerminalRequest{})
-				return err
-			},
-		},
-		{
-			name:   "KillTerminal",
-			method: "kill",
-			call: func() error {
-				_, err := client.KillTerminal(ctx, acp.KillTerminalRequest{})
-				return err
-			},
-		},
-		{
-			name:   "TerminalOutput",
-			method: "output",
-			call: func() error {
-				_, err := client.TerminalOutput(ctx, acp.TerminalOutputRequest{})
-				return err
-			},
-		},
-		{
-			name:   "ReleaseTerminal",
-			method: "release",
-			call: func() error {
-				_, err := client.ReleaseTerminal(ctx, acp.ReleaseTerminalRequest{})
-				return err
-			},
-		},
-		{
-			name:   "WaitForTerminalExit",
-			method: "wait",
-			call: func() error {
-				_, err := client.WaitForTerminalExit(ctx, acp.WaitForTerminalExitRequest{})
-				return err
-			},
-		},
+	_, err := client.CreateTerminal(context.Background(), acp.CreateTerminalRequest{Command: "true"})
+	if err == nil {
+		t.Fatal("CreateTerminal succeeded while terminal support disabled; want method not found")
 	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			err := tc.call()
-			if err == nil {
-				t.Fatalf("%s: want error, got nil", tc.name)
-			}
-			if !errors.Is(err, ErrTerminalRPCUnsupported) {
-				t.Fatalf("%s: errors.Is(err, ErrTerminalRPCUnsupported) = false; err = %v", tc.name, err)
-			}
-			var rpcErr *acp.RequestError
-			if !errors.As(err, &rpcErr) {
-				t.Fatalf("%s: errors.As(err, *acp.RequestError) = false; err = %v", tc.name, err)
-			}
-			if rpcErr.Code != -32601 {
-				t.Fatalf("%s: RequestError.Code = %d, want -32601", tc.name, rpcErr.Code)
-			}
-			// The wrapped JSON-RPC code must surface so adapters that
-			// don't know about Hecate's sentinel still classify via the
-			// standard method-not-found code (-32601).
-			if !strings.Contains(err.Error(), "-32601") {
-				t.Errorf("%s: error message %q missing JSON-RPC -32601 method-not-found code", tc.name, err.Error())
-			}
-		})
-	}
-
-	var rm metricdata.ResourceMetrics
-	if err := reader.Collect(ctx, &rm); err != nil {
-		t.Fatalf("Collect: %v", err)
-	}
-
-	counts := terminalRPCCountsByMethod(t, rm)
-	for _, tc := range cases {
-		if counts[tc.method] != 1 {
-			t.Errorf("method %q counter = %d, want exactly 1", tc.method, counts[tc.method])
-		}
+	var rpcErr *acp.RequestError
+	if !errors.As(err, &rpcErr) || rpcErr.Code != -32601 {
+		t.Fatalf("CreateTerminal error = %T %v, want JSON-RPC method not found", err, err)
 	}
 }
 
-// TestAcpChatClientTerminalRPCsTolerateNilMetrics ensures the
-// stubs are safe to invoke before metrics have been wired (e.g. in
-// tests that build SessionManager directly without
-// SetAdapterMetrics). The typed error must still fire — only the
-// counter is suppressed.
-func TestAcpChatClientTerminalRPCsTolerateNilMetrics(t *testing.T) {
+func TestAcpChatClientTerminalRPCLifecycle(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix shell semantics")
+	}
 	t.Parallel()
 
-	client := &acpChatClient{
-		sessionID: "chat_test",
-		adapterID: "codex",
-		workspace: t.TempDir(),
+	workspace := t.TempDir()
+	client, _ := newTerminalTestClient(workspace, ModeAuto)
+
+	ctx := context.Background()
+	resp, err := client.CreateTerminal(ctx, acp.CreateTerminalRequest{
+		Command: "sh",
+		Args:    []string{"-c", "printf 'hello '; printf \"$ACP_TEST_VALUE\"; printf ' err' 1>&2"},
+		Cwd:     &workspace,
+		Env:     []acp.EnvVariable{{Name: "ACP_TEST_VALUE", Value: "world"}},
+	})
+	if err != nil {
+		t.Fatalf("CreateTerminal: %v", err)
 	}
-	if _, err := client.CreateTerminal(context.Background(), acp.CreateTerminalRequest{}); err == nil {
-		t.Fatal("CreateTerminal: want error, got nil")
-	} else if !errors.Is(err, ErrTerminalRPCUnsupported) {
-		t.Fatalf("CreateTerminal: errors.Is(err, ErrTerminalRPCUnsupported) = false; err = %v", err)
+	if resp.TerminalId == "" {
+		t.Fatal("CreateTerminal returned empty terminal id")
+	}
+	t.Cleanup(func() {
+		_, _ = client.ReleaseTerminal(context.Background(), acp.ReleaseTerminalRequest{TerminalId: resp.TerminalId})
+	})
+
+	wait, err := client.WaitForTerminalExit(ctx, acp.WaitForTerminalExitRequest{TerminalId: resp.TerminalId})
+	if err != nil {
+		t.Fatalf("WaitForTerminalExit: %v", err)
+	}
+	if wait.ExitCode == nil || *wait.ExitCode != 0 {
+		t.Fatalf("WaitForTerminalExit exit = %v, want 0", wait.ExitCode)
+	}
+	output, err := client.TerminalOutput(ctx, acp.TerminalOutputRequest{TerminalId: resp.TerminalId})
+	if err != nil {
+		t.Fatalf("TerminalOutput: %v", err)
+	}
+	if !strings.Contains(output.Output, "hello world") {
+		t.Fatalf("TerminalOutput output = %q, want stdout", output.Output)
+	}
+	if !strings.Contains(output.Output, "err") {
+		t.Fatalf("TerminalOutput output = %q, want stderr", output.Output)
+	}
+	if output.ExitStatus == nil || output.ExitStatus.ExitCode == nil || *output.ExitStatus.ExitCode != 0 {
+		t.Fatalf("TerminalOutput exit status = %+v, want exit code 0", output.ExitStatus)
+	}
+	if _, err := client.ReleaseTerminal(ctx, acp.ReleaseTerminalRequest{TerminalId: resp.TerminalId}); err != nil {
+		t.Fatalf("ReleaseTerminal: %v", err)
+	}
+	if _, err := client.TerminalOutput(ctx, acp.TerminalOutputRequest{TerminalId: resp.TerminalId}); err == nil {
+		t.Fatal("TerminalOutput after release succeeded; want not found")
+	}
+}
+
+func TestAcpChatClientTerminalRPCOutputTruncatesFromBeginning(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix shell semantics")
+	}
+	t.Parallel()
+
+	workspace := t.TempDir()
+	client, _ := newTerminalTestClient(workspace, ModeAuto)
+	limit := 8
+	resp, err := client.CreateTerminal(context.Background(), acp.CreateTerminalRequest{
+		Command:         "sh",
+		Args:            []string{"-c", "printf 0123456789"},
+		Cwd:             &workspace,
+		OutputByteLimit: &limit,
+	})
+	if err != nil {
+		t.Fatalf("CreateTerminal: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = client.ReleaseTerminal(context.Background(), acp.ReleaseTerminalRequest{TerminalId: resp.TerminalId})
+	})
+	if _, err := client.WaitForTerminalExit(context.Background(), acp.WaitForTerminalExitRequest{TerminalId: resp.TerminalId}); err != nil {
+		t.Fatalf("WaitForTerminalExit: %v", err)
+	}
+	output, err := client.TerminalOutput(context.Background(), acp.TerminalOutputRequest{TerminalId: resp.TerminalId})
+	if err != nil {
+		t.Fatalf("TerminalOutput: %v", err)
+	}
+	if output.Output != "3456789\n" {
+		t.Fatalf("TerminalOutput output = %q, want retained tail", output.Output)
+	}
+	if !output.Truncated {
+		t.Fatal("TerminalOutput truncated = false, want true")
+	}
+}
+
+func TestAcpChatClientTerminalRPCKillKeepsTerminalReadable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix signal semantics")
+	}
+	t.Parallel()
+
+	workspace := t.TempDir()
+	client, _ := newTerminalTestClient(workspace, ModeAuto)
+	resp, err := client.CreateTerminal(context.Background(), acp.CreateTerminalRequest{
+		Command: "sh",
+		Args:    []string{"-c", "printf 'started\n'; exec sleep 60"},
+		Cwd:     &workspace,
+	})
+	if err != nil {
+		t.Fatalf("CreateTerminal: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = client.ReleaseTerminal(context.Background(), acp.ReleaseTerminalRequest{TerminalId: resp.TerminalId})
+	})
+	waitForTerminalOutput(t, client, resp.TerminalId, "started")
+	if _, err := client.KillTerminal(context.Background(), acp.KillTerminalRequest{TerminalId: resp.TerminalId}); err != nil {
+		t.Fatalf("KillTerminal: %v", err)
+	}
+	waitCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if _, err := client.WaitForTerminalExit(waitCtx, acp.WaitForTerminalExitRequest{TerminalId: resp.TerminalId}); err != nil {
+		t.Fatalf("WaitForTerminalExit after kill: %v", err)
+	}
+	output, err := client.TerminalOutput(context.Background(), acp.TerminalOutputRequest{TerminalId: resp.TerminalId})
+	if err != nil {
+		t.Fatalf("TerminalOutput after kill: %v", err)
+	}
+	if !strings.Contains(output.Output, "started") {
+		t.Fatalf("TerminalOutput output = %q, want retained output after kill", output.Output)
+	}
+}
+
+func waitForTerminalOutput(t *testing.T, client *acpChatClient, terminalID string, want string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		output, err := client.TerminalOutput(context.Background(), acp.TerminalOutputRequest{TerminalId: terminalID})
+		if err == nil && strings.Contains(output.Output, want) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	output, _ := client.TerminalOutput(context.Background(), acp.TerminalOutputRequest{TerminalId: terminalID})
+	t.Fatalf("terminal output = %q, want %q before deadline", output.Output, want)
+}
+
+func TestAcpChatClientTerminalRPCRejectsWorkspaceEscape(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	outside := t.TempDir()
+	client, _ := newTerminalTestClient(workspace, ModeAuto)
+	_, err := client.CreateTerminal(context.Background(), acp.CreateTerminalRequest{
+		Command: "true",
+		Cwd:     &outside,
+	})
+	if err == nil {
+		t.Fatal("CreateTerminal succeeded outside workspace; want sandbox rejection")
+	}
+	if !strings.Contains(err.Error(), "escapes allowed root") {
+		t.Fatalf("CreateTerminal error = %v, want workspace escape rejection", err)
+	}
+}
+
+func TestAcpChatClientCloseTerminalsReleasesRunningChildren(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix signal semantics")
+	}
+	t.Parallel()
+
+	workspace := t.TempDir()
+	client, _ := newTerminalTestClient(workspace, ModeAuto)
+	resp, err := client.CreateTerminal(context.Background(), acp.CreateTerminalRequest{
+		Command: "sleep",
+		Args:    []string{"60"},
+		Cwd:     &workspace,
+	})
+	if err != nil {
+		t.Fatalf("CreateTerminal: %v", err)
+	}
+	if err := client.closeTerminals(context.Background()); err != nil {
+		t.Fatalf("closeTerminals: %v", err)
+	}
+	if _, err := client.TerminalOutput(context.Background(), acp.TerminalOutputRequest{TerminalId: resp.TerminalId}); err == nil {
+		t.Fatal("TerminalOutput after closeTerminals succeeded; want not found")
+	}
+}
+
+func TestAcpChatClientTerminalRPCRejectsBeforeSpawn(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	client, store := newTerminalTestClient(workspace, ModeDeny)
+	_, err := client.CreateTerminal(context.Background(), acp.CreateTerminalRequest{
+		Command: "sh",
+		Args:    []string{"-c", "printf should-not-run > denied.txt"},
+		Cwd:     &workspace,
+		Env:     []acp.EnvVariable{{Name: "SECRET_VALUE", Value: "super-secret"}},
+	})
+	if err == nil {
+		t.Fatal("CreateTerminal succeeded with deny-mode coordinator; want cancellation")
+	}
+	var rpcErr *acp.RequestError
+	if !errors.As(err, &rpcErr) || rpcErr.Code != -32800 {
+		t.Fatalf("CreateTerminal error = %T %v, want JSON-RPC request cancelled", err, err)
+	}
+	if _, statErr := os.Stat(filepath.Join(workspace, "denied.txt")); !os.IsNotExist(statErr) {
+		t.Fatalf("denied command output stat error = %v, want file not created", statErr)
+	}
+	rows, err := store.ListApprovals(context.Background(), "chat_test", "")
+	if err != nil {
+		t.Fatalf("ListApprovals: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("approvals = %d, want 1", len(rows))
+	}
+	if rows[0].ToolKind != ToolKindShellExec || rows[0].Status != ApprovalStatusDenied {
+		t.Fatalf("approval = %+v, want denied shell_exec", rows[0])
+	}
+	payload := string(rows[0].ACPPayload)
+	if !strings.Contains(payload, "SECRET_VALUE") {
+		t.Fatalf("approval payload = %s, want env name for operator context", payload)
+	}
+	if strings.Contains(payload, "super-secret") {
+		t.Fatalf("approval payload leaked env value: %s", payload)
+	}
+}
+
+func TestAcpChatClientTerminalRPCRequiresApprovalCoordinator(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	client := &acpChatClient{
+		sessionID:        "chat_test",
+		adapterID:        "codex",
+		workspace:        workspace,
+		terminalsEnabled: true,
+	}
+	_, err := client.CreateTerminal(context.Background(), acp.CreateTerminalRequest{
+		Command: "true",
+		Cwd:     &workspace,
+	})
+	if err == nil {
+		t.Fatal("CreateTerminal succeeded without approval coordinator; want cancellation")
+	}
+	var rpcErr *acp.RequestError
+	if !errors.As(err, &rpcErr) || rpcErr.Code != -32800 {
+		t.Fatalf("CreateTerminal error = %T %v, want JSON-RPC request cancelled", err, err)
 	}
 }
 
@@ -170,6 +303,20 @@ func TestAcpChatClientReadTextFileRejectsSymlinkEscape(t *testing.T) {
 	}
 }
 
+func newTerminalTestClient(workspace string, mode ApprovalMode) (*acpChatClient, *MemoryApprovalStore) {
+	store := NewMemoryApprovalStore()
+	return &acpChatClient{
+		sessionID:        "chat_test",
+		adapterID:        "codex",
+		workspace:        workspace,
+		terminalsEnabled: true,
+		coordinator: NewApprovalCoordinator(CoordinatorOptions{
+			Mode:  mode,
+			Store: store,
+		}),
+	}, store
+}
+
 func TestAcpChatClientWriteTextFileRejectsSymlinkEscape(t *testing.T) {
 	t.Parallel()
 
@@ -197,25 +344,4 @@ func TestAcpChatClientWriteTextFileRejectsSymlinkEscape(t *testing.T) {
 	if _, statErr := os.Stat(filepath.Join(outside, "escape.txt")); !os.IsNotExist(statErr) {
 		t.Fatalf("outside file stat error = %v, want not exist", statErr)
 	}
-}
-
-func terminalRPCCountsByMethod(t *testing.T, rm metricdata.ResourceMetrics) map[string]int64 {
-	t.Helper()
-	out := make(map[string]int64)
-	for _, scope := range rm.ScopeMetrics {
-		for _, m := range scope.Metrics {
-			if m.Name != telemetry.MetricAgentAdapterTerminalRPCUnsupportedTotal {
-				continue
-			}
-			sum, ok := m.Data.(metricdata.Sum[int64])
-			if !ok {
-				t.Fatalf("metric %q has unexpected data type %T", m.Name, m.Data)
-			}
-			for _, dp := range sum.DataPoints {
-				method, _ := dp.Attributes.Value(telemetry.AttrHecateAgentTerminalMethod)
-				out[method.AsString()] += dp.Value
-			}
-		}
-	}
-	return out
 }

@@ -383,9 +383,7 @@ func (m *AgentChatMetrics) RecordChatCancelled(ctx context.Context, rec AgentCha
 
 // ---------------------------------------------------------------------------
 // AgentAdapterMetrics — adapter-runtime concerns sibling to
-// AgentAdapterApprovalMetrics. probe is fired once per Probe call;
-// terminal_rpc_unsupported is fired every time an adapter calls one
-// of the five ACP terminal methods we don't implement.
+// AgentAdapterApprovalMetrics. probe is fired once per Probe call.
 // ---------------------------------------------------------------------------
 
 // AgentAdapterProbeRecord labels the outcome of a single Probe.
@@ -397,8 +395,7 @@ type AgentAdapterProbeRecord struct {
 }
 
 type AgentAdapterMetrics struct {
-	probeTotal                  otmetric.Int64Counter
-	terminalRPCUnsupportedTotal otmetric.Int64Counter
+	probeTotal otmetric.Int64Counter
 }
 
 func NewAgentAdapterMetrics() *AgentAdapterMetrics {
@@ -424,18 +421,8 @@ func NewAgentAdapterMetricsWithMeterProvider(provider otmetric.MeterProvider) (*
 		return nil, err
 	}
 
-	terminalRPCUnsupportedTotal, err := meter.Int64Counter(
-		MetricAgentAdapterTerminalRPCUnsupportedTotal,
-		otmetric.WithDescription("Total ACP terminal RPC calls received from external agent adapters that Hecate does not implement, grouped by adapter and method (create | kill | output | release | wait)."),
-		otmetric.WithUnit("{call}"),
-	)
-	if err != nil {
-		return nil, err
-	}
-
 	return &AgentAdapterMetrics{
-		probeTotal:                  probeTotal,
-		terminalRPCUnsupportedTotal: terminalRPCUnsupportedTotal,
+		probeTotal: probeTotal,
 	}, nil
 }
 
@@ -454,27 +441,6 @@ func (m *AgentAdapterMetrics) RecordProbe(ctx context.Context, rec AgentAdapterP
 		attrs = append(attrs, attribute.String(AttrHecateAgentProbeStatus, NormalizeAgentAdapterProbeStatus(rec.Status)))
 	}
 	m.probeTotal.Add(ctx, 1, otmetric.WithAttributes(attrs...))
-}
-
-// RecordTerminalRPCUnsupported fires whenever an adapter calls one
-// of the five ACP terminal methods Hecate does not implement. The
-// matching error returned to the adapter is
-// agentadapters.ErrTerminalRPCUnsupported (wrapping a JSON-RPC
-// method-not-found RequestError); this counter exists so operators
-// can dashboard "is this adapter being silently degraded?" without
-// scanning logs for the typed error.
-func (m *AgentAdapterMetrics) RecordTerminalRPCUnsupported(ctx context.Context, adapterID, method string) {
-	if m == nil || m.terminalRPCUnsupportedTotal == nil {
-		return
-	}
-	attrs := make([]attribute.KeyValue, 0, 2)
-	if adapterID != "" {
-		attrs = append(attrs, attribute.String(AttrHecateAgentAdapterID, NormalizeMetricLabel(adapterID)))
-	}
-	if method != "" {
-		attrs = append(attrs, attribute.String(AttrHecateAgentTerminalMethod, NormalizeAgentAdapterTerminalMethod(method)))
-	}
-	m.terminalRPCUnsupportedTotal.Add(ctx, 1, otmetric.WithAttributes(attrs...))
 }
 
 // ---------------------------------------------------------------------------

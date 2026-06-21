@@ -179,12 +179,16 @@ The runtime stage defaults to `node:24-trixie-slim` through the `NODE_IMAGE`
 build arg so the image has a maintained Debian userspace for shell, npm, and
 project dependency workflows.
 
-Hecate does not expose an embedded terminal over the runtime API. Configure
-container and remote instances through environment variables, mounted secrets,
-the persisted settings UI/API, or your deployment platform's own administrative
-shell (`ssh`, `docker exec`, `kubectl exec`, provider console, or equivalent).
-Direct platform shells bypass Hecate approvals and audit trails; use
-task-runtime tools when command execution should remain governed by Hecate.
+Hecate does not expose an embedded operator terminal over the runtime API.
+Configure container and remote instances through environment variables, mounted
+secrets, the persisted settings UI/API, or your deployment platform's own
+administrative shell (`ssh`, `docker exec`, `kubectl exec`, provider console, or
+equivalent). Direct platform shells bypass Hecate approvals and audit trails;
+use task-runtime tools when command execution should remain governed by Hecate.
+External Agent ACP terminal callbacks are separate: they are scoped to the
+selected workspace, owned by the supervised adapter session, disabled unless
+`HECATE_AGENT_ADAPTER_TERMINALS=1`, and approval-gated before command spawn.
+Remote runtime mode also requires `HECATE_REMOTE_ALLOW_ACP_TERMINALS=1`.
 
 The bundled External Agent CLIs are pinned by Docker build args so a Hecate
 release does not silently move to a newer top-level agent package. The Cursor

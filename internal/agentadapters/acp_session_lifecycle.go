@@ -60,7 +60,7 @@ type acpSession struct {
 	activeDone   chan struct{}
 }
 
-func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace, previousNativeSessionID string, selectedOptions []agentcontrols.ConfigOption, mcpServers []types.MCPServerConfig, logger *slog.Logger, coordinator *ApprovalCoordinator, metrics *telemetry.AgentAdapterMetrics, onAvailableCommands func(AvailableCommandsUpdate)) (*acpSession, bool, string, error) {
+func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace, previousNativeSessionID string, selectedOptions []agentcontrols.ConfigOption, mcpServers []types.MCPServerConfig, logger *slog.Logger, coordinator *ApprovalCoordinator, metrics *telemetry.AgentAdapterMetrics, onAvailableCommands func(AvailableCommandsUpdate), terminalSupport bool) (*acpSession, bool, string, error) {
 	command, err := resolveExecutable(adapter, exec.LookPath)
 	if err != nil {
 		return nil, false, "", err
@@ -122,6 +122,7 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 		coordinator: coordinator,
 		metrics:     metrics,
 	}
+	client.terminalsEnabled = terminalSupport
 	session := &acpSession{
 		sessionID:           sessionID,
 		adapter:             adapter,
@@ -162,7 +163,7 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 				ReadTextFile:  true,
 				WriteTextFile: true,
 			},
-			Terminal: false,
+			Terminal: terminalSupport,
 		},
 	})
 	if err != nil {
@@ -872,6 +873,13 @@ func (s *acpSession) shutdown(ctx context.Context, mode acpSessionShutdownMode) 
 		s.logger.Warn("cancel active ACP turn during close failed", slog.Any("error", err))
 	}
 	cancel()
+	if s.client != nil {
+		closeCtx, closeCancel := context.WithTimeout(ctx, acpShutdownCloseTimeout)
+		if err := s.client.closeTerminals(closeCtx); err != nil && s.logger != nil {
+			s.logger.Warn("close ACP terminals during session close failed", slog.Any("error", err))
+		}
+		closeCancel()
+	}
 	if s.conn != nil && s.nativeID != "" {
 		if mode == acpSessionShutdownDelete {
 			deleteOrCloseNativeACPSession(ctx, s.conn, s.nativeID, s.logger)

@@ -1108,6 +1108,13 @@ These are **external agents**, not model providers. They run ACP-compatible
 coding agents under Hecate supervision; cost is reported as `external`
 until an agent can supply structured usage.
 
+ACP terminal callbacks are not advertised by default. Operators must set
+`HECATE_AGENT_ADAPTER_TERMINALS=1` before External Agent sessions include
+`clientCapabilities.terminal=true`; remote runtime mode also requires
+`HECATE_REMOTE_ALLOW_ACP_TERMINALS=1`. Approved `terminal/create` requests are
+scoped to the selected workspace and routed through the External Agent approval
+coordinator before command spawn.
+
 `config_options` are omitted from the catalog response. Hecate returns
 launch-control options on explicit probe responses and prepared chat sessions,
 where it is acceptable to run the adapter's help/model discovery or consume the

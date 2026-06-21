@@ -204,6 +204,19 @@ func TestLoadFromEnvPersonalRemoteExternalAgentLoginsOptIn(t *testing.T) {
 	}
 }
 
+func TestLoadFromEnvAgentAdapterTerminalsOptIn(t *testing.T) {
+	cfg := LoadFromEnv()
+	if cfg.Server.AgentAdapterTerminals {
+		t.Fatal("AgentAdapterTerminals = true, want default false")
+	}
+
+	t.Setenv("HECATE_AGENT_ADAPTER_TERMINALS", "true")
+	cfg = LoadFromEnv()
+	if !cfg.Server.AgentAdapterTerminals {
+		t.Fatal("AgentAdapterTerminals = false, want true with explicit opt-in")
+	}
+}
+
 func TestListenAddressIsLoopback(t *testing.T) {
 	t.Parallel()
 
@@ -471,6 +484,34 @@ func TestValidateRejectsRemoteRuntimeModeWithoutStrongSecret(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "HECATE_REMOTE_RUNTIME_SECRET") {
 		t.Fatalf("Validate() error = %q, want HECATE_REMOTE_RUNTIME_SECRET", err)
+	}
+}
+
+func TestValidateRejectsRemoteRuntimeACPTerminalsWithoutRemoteOptIn(t *testing.T) {
+	cfg := LoadFromEnv()
+	cfg.Server.RemoteRuntimeMode = true
+	cfg.Server.RemoteRuntimeSecret = "cloud-runtime-secret-123456"
+	cfg.Server.AgentAdapterTerminals = true
+	cfg.Server.RemoteAllowACPTerminals = false
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() error = nil, want remote ACP terminal opt-in error")
+	}
+	if !strings.Contains(err.Error(), "HECATE_REMOTE_ALLOW_ACP_TERMINALS") {
+		t.Fatalf("Validate() error = %q, want HECATE_REMOTE_ALLOW_ACP_TERMINALS", err)
+	}
+}
+
+func TestValidateAllowsRemoteRuntimeACPTerminalsWithRemoteOptIn(t *testing.T) {
+	cfg := LoadFromEnv()
+	cfg.Server.RemoteRuntimeMode = true
+	cfg.Server.RemoteRuntimeSecret = "cloud-runtime-secret-123456"
+	cfg.Server.AgentAdapterTerminals = true
+	cfg.Server.RemoteAllowACPTerminals = true
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v, want nil with explicit remote ACP terminal opt-in", err)
 	}
 }
 

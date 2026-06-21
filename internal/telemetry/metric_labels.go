@@ -98,17 +98,6 @@ var knownAgentAdapterProbeStatuses = map[string]struct{}{
 	"error":         {},
 }
 
-// knownAgentAdapterTerminalMethods covers the five ACP terminal
-// methods. Adapter calls into any other method don't reach
-// RecordTerminalRPCUnsupported, so the closed set here is exact.
-var knownAgentAdapterTerminalMethods = map[string]struct{}{
-	"create":  {},
-	"kill":    {},
-	"output":  {},
-	"release": {},
-	"wait":    {},
-}
-
 // knownAgentChatCancelReasons covers the three cancellation paths
 // the handler/runtime distinguishes. New paths require a label here
 // so unknown reasons collapse to "other" instead of polluting
@@ -185,10 +174,6 @@ func NormalizeMCPCacheEvent(value string) string {
 
 func NormalizeAgentAdapterProbeStatus(value string) string {
 	return normalizeKnownLabel(value, knownAgentAdapterProbeStatuses)
-}
-
-func NormalizeAgentAdapterTerminalMethod(value string) string {
-	return normalizeKnownLabel(value, knownAgentAdapterTerminalMethods)
 }
 
 func NormalizeAgentChatCancelReason(value string) string {

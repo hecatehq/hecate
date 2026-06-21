@@ -41,6 +41,7 @@ type ServerConfig struct {
 	RemoteRuntimeMode                 bool
 	RemoteRuntimeSecret               string
 	RemoteAllowLocalProviders         bool
+	RemoteAllowACPTerminals           bool
 	PersonalRemoteExternalAgentLogins bool
 	PublicURL                         string
 	DataDir                           string
@@ -145,6 +146,11 @@ type ServerConfig struct {
 	// before resolving to ACP `Cancelled`. Default 5m. Set via
 	// HECATE_AGENT_ADAPTER_APPROVAL_TIMEOUT (Go duration string).
 	AgentAdapterApprovalTimeout time.Duration
+	// AgentAdapterTerminals enables ACP terminal/* callbacks for External
+	// Agents. Off by default because it is a command-execution surface. Local
+	// self-host runtimes opt in with HECATE_AGENT_ADAPTER_TERMINALS=1; remote
+	// runtimes must also set HECATE_REMOTE_ALLOW_ACP_TERMINALS=1.
+	AgentAdapterTerminals bool
 	// ChatMaxTurnsPerSession caps how many user→assistant round-trips
 	// a single agent-chat session may execute. 0 (default) means unlimited.
 	// When the ceiling is reached, POST
@@ -373,6 +379,7 @@ func LoadFromEnv() Config {
 	providersCfg := loadProvidersFromEnv()
 	remoteRuntimeMode := getEnvBool("HECATE_REMOTE_RUNTIME_MODE", false)
 	remoteAllowLocalProviders := getEnvBool("HECATE_REMOTE_ALLOW_LOCAL_PROVIDERS", false)
+	remoteAllowACPTerminals := getEnvBool("HECATE_REMOTE_ALLOW_ACP_TERMINALS", false)
 	personalRemoteExternalAgentLogins := getEnvBool("HECATE_PERSONAL_REMOTE_EXTERNAL_AGENT_LOGINS", false)
 	allowedProviderKinds := splitCSV(getEnv("HECATE_ALLOWED_PROVIDER_KINDS", ""))
 	if remoteRuntimeMode && !remoteAllowLocalProviders && len(allowedProviderKinds) == 0 {
@@ -390,6 +397,7 @@ func LoadFromEnv() Config {
 			// Hosted runtimes deny local model servers by default. Operators
 			// running an isolated sidecar can opt in explicitly.
 			RemoteAllowLocalProviders:         remoteAllowLocalProviders,
+			RemoteAllowACPTerminals:           remoteAllowACPTerminals,
 			PersonalRemoteExternalAgentLogins: personalRemoteExternalAgentLogins,
 			// PublicURL is written to hecate.runtime.json for local
 			// diagnostics. Empty means derive from Address.
@@ -424,6 +432,7 @@ func LoadFromEnv() Config {
 			TaskShellAllowedHosts:          splitCSV(getEnv("HECATE_TASK_SHELL_ALLOWED_HOSTS", "")),
 			AgentAdapterApprovalMode:       getEnv("HECATE_AGENT_ADAPTER_APPROVAL_MODE", "prompt"),
 			AgentAdapterApprovalTimeout:    getEnvDuration("HECATE_AGENT_ADAPTER_APPROVAL_TIMEOUT", 5*time.Minute),
+			AgentAdapterTerminals:          getEnvBool("HECATE_AGENT_ADAPTER_TERMINALS", false),
 			ChatMaxTurnsPerSession:         getEnvInt("HECATE_CHAT_MAX_TURNS_PER_SESSION", 0),
 			ChatMaxSessionDuration:         getEnvDuration("HECATE_CHAT_MAX_SESSION_DURATION", 0),
 			ChatIdleTimeout:                getEnvDuration("HECATE_CHAT_IDLE_TIMEOUT", 0),
@@ -564,6 +573,9 @@ func (c Config) Validate() error {
 		}
 		if !c.Server.RemoteAllowLocalProviders && stringSliceContainsFold(c.Governor.AllowedProviderKinds, "local") {
 			errs = append(errs, errors.New("HECATE_REMOTE_ALLOW_LOCAL_PROVIDERS=1 is required before allowing local provider kind in remote runtime mode"))
+		}
+		if c.Server.AgentAdapterTerminals && !c.Server.RemoteAllowACPTerminals {
+			errs = append(errs, errors.New("HECATE_REMOTE_ALLOW_ACP_TERMINALS=1 is required before enabling HECATE_AGENT_ADAPTER_TERMINALS in remote runtime mode"))
 		}
 	}
 

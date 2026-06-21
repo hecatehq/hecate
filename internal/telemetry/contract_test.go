@@ -262,7 +262,6 @@ func TestMetricNameConstantsMatchInstruments(t *testing.T) {
 	apm.RecordGrantCreated(ctx)
 	apm.RecordGrantDeleted(ctx)
 	adm.RecordProbe(ctx, AgentAdapterProbeRecord{AdapterID: "codex", Status: "ready"})
-	adm.RecordTerminalRPCUnsupported(ctx, "codex", "create")
 	am.RecordChatCancelled(ctx, AgentChatCancelledRecord{AdapterID: "codex", Reason: "operator"})
 
 	var rm metricdata.ResourceMetrics
@@ -303,7 +302,6 @@ func TestMetricNameConstantsMatchInstruments(t *testing.T) {
 		MetricAgentAdapterApprovalGrantsActive,
 		// External-adapter runtime
 		MetricAgentAdapterProbeTotal,
-		MetricAgentAdapterTerminalRPCUnsupportedTotal,
 		// Orchestrator
 		MetricOrchestratorRunsTotal,
 		MetricOrchestratorRunDuration,
