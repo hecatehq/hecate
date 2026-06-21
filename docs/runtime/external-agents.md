@@ -24,8 +24,8 @@ transcript prelude for multi-turn continuity. Claude Code adapter
 after an adapter process restart. Codex does not yet claim vendor-native
 durable history across adapter process restarts; if a load is stale, Hecate
 falls back to a fresh native session. Hecate treats `codex-acp-adapter` versions
-older than `v0.1.0-alpha.30` and `claude-code-acp-adapter` versions older than
-`v0.1.0-alpha.31` as outside the tested range because those older releases lack
+older than `v0.1.0-alpha.31` and `claude-code-acp-adapter` versions older than
+`v0.1.0-alpha.32` as outside the tested range because those older releases lack
 the current continuity, permission-control, structured stream, session metadata,
 external MCP handoff surface, ACP authenticate/logout mapping, and prompt auth
 failure/stop-reason classification, local-login environment contract,
@@ -92,6 +92,9 @@ prompt has been cancelled.
 Codex adapter `v0.1.0-alpha.30` advertises stable ACP session capabilities for
 list, resume, close, delete, and additional directories during initialization,
 so hosts can discover the supported lifecycle surface without probing calls.
+Codex adapter `v0.1.0-alpha.31` adds GitHub artifact attestations for release
+archives and documents the stable-readiness parity gate that remains before a
+stable adapter tag.
 Claude Code adapter `v0.1.0-alpha.11` adds command-backed stdio/HTTP MCP server
 config propagation into Claude `--mcp-config`, and `v0.1.0-alpha.12` adds
 Claude-native `--session-id` reload after adapter restarts. Claude Code adapter
@@ -151,6 +154,9 @@ Claude Code adapter `v0.1.0-alpha.31` advertises stable ACP session
 capabilities for list, resume, close, delete, and additional directories during
 initialization, so hosts can discover the supported lifecycle surface without
 probing calls.
+Claude Code adapter `v0.1.0-alpha.32` adds GitHub artifact attestations for
+release archives and documents the stable-readiness parity gate that remains
+before a stable adapter tag.
 
 ## Supported External Agents
 
