@@ -54,6 +54,8 @@ CREATE TABLE IF NOT EXISTS `+s.table+` (
 	path TEXT NOT NULL DEFAULT '',
 	root_id TEXT NOT NULL DEFAULT '',
 	format TEXT NOT NULL DEFAULT 'skill_md',
+	suggested_tools TEXT NOT NULL DEFAULT '[]',
+	required_permissions TEXT NOT NULL DEFAULT '{}',
 	enabled INTEGER NOT NULL DEFAULT 1,
 	status TEXT NOT NULL DEFAULT 'available',
 	trust_label TEXT NOT NULL DEFAULT 'workspace_skill',
@@ -64,7 +66,16 @@ CREATE TABLE IF NOT EXISTS `+s.table+` (
 	updated_at `+timestampColumn+`,
 	PRIMARY KEY(project_id, id)
 )`)
-	return err
+	if err != nil {
+		return err
+	}
+	if err := s.ensureColumn(ctx, "suggested_tools", `TEXT NOT NULL DEFAULT '[]'`); err != nil {
+		return err
+	}
+	if err := s.ensureColumn(ctx, "required_permissions", `TEXT NOT NULL DEFAULT '{}'`); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *SQLiteStore) List(ctx context.Context, projectID string) ([]Skill, error) {
@@ -229,14 +240,17 @@ func (s *SQLiteStore) upsertWith(ctx context.Context, execer sqliteExecer, item 
 	_, err := execer.ExecContext(ctx, fmt.Sprintf(`
 INSERT INTO %s (
 	id, project_id, title, description, path, root_id, format, enabled, status,
-	trust_label, source_context_source_ids, warnings, discovered_at, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	suggested_tools, required_permissions, trust_label, source_context_source_ids, warnings,
+	discovered_at, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(project_id, id) DO UPDATE SET
 	title = excluded.title,
 	description = excluded.description,
 	path = excluded.path,
 	root_id = excluded.root_id,
 	format = excluded.format,
+	suggested_tools = excluded.suggested_tools,
+	required_permissions = excluded.required_permissions,
 	enabled = excluded.enabled,
 	status = excluded.status,
 	trust_label = excluded.trust_label,
@@ -253,6 +267,8 @@ ON CONFLICT(project_id, id) DO UPDATE SET
 		item.Format,
 		boolToDB(item.Enabled),
 		item.Status,
+		encodeStringSlice(item.SuggestedTools),
+		encodeRequiredPermissions(item.RequiredPermissions),
 		item.TrustLabel,
 		encodeStringSlice(item.SourceContextSourceIDs),
 		encodeStringSlice(item.Warnings),
@@ -270,7 +286,8 @@ type skillScanner interface {
 func selectProjectSkillSQL(table string) string {
 	return fmt.Sprintf(`
 SELECT id, project_id, title, description, path, root_id, format, enabled, status,
-	trust_label, source_context_source_ids, warnings, discovered_at, created_at, updated_at
+	suggested_tools, required_permissions, trust_label, source_context_source_ids, warnings,
+	discovered_at, created_at, updated_at
 FROM %s
 `, table)
 }
@@ -278,7 +295,7 @@ FROM %s
 func scanSkill(row skillScanner) (Skill, error) {
 	var item Skill
 	var enabled int
-	var sourceIDsRaw, warningsRaw string
+	var suggestedToolsRaw, permissionsRaw, sourceIDsRaw, warningsRaw string
 	var discoveredAt, createdAt, updatedAt string
 	if err := row.Scan(
 		&item.ID,
@@ -290,6 +307,8 @@ func scanSkill(row skillScanner) (Skill, error) {
 		&item.Format,
 		&enabled,
 		&item.Status,
+		&suggestedToolsRaw,
+		&permissionsRaw,
 		&item.TrustLabel,
 		&sourceIDsRaw,
 		&warningsRaw,
@@ -300,6 +319,8 @@ func scanSkill(row skillScanner) (Skill, error) {
 		return Skill{}, err
 	}
 	item.Enabled = enabled != 0
+	item.SuggestedTools = decodeStringSlice(suggestedToolsRaw)
+	item.RequiredPermissions = decodeRequiredPermissions(permissionsRaw)
 	item.SourceContextSourceIDs = decodeStringSlice(sourceIDsRaw)
 	item.Warnings = decodeStringSlice(warningsRaw)
 	var err error
@@ -313,6 +334,20 @@ func scanSkill(row skillScanner) (Skill, error) {
 		return Skill{}, err
 	}
 	return normalizeSkill(item, item.UpdatedAt), nil
+}
+
+func (s *SQLiteStore) ensureColumn(ctx context.Context, column, definition string) error {
+	exists, err := storage.ColumnExists(ctx, s.client, strings.Trim(s.table, `"`), column)
+	if err != nil {
+		return fmt.Errorf("inspect %s project skill columns: %w", s.backend, err)
+	}
+	if exists {
+		return nil
+	}
+	if _, err := s.client.DB().ExecContext(ctx, fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`, s.table, column, definition)); err != nil {
+		return fmt.Errorf("migrate %s project skills %s: %w", s.backend, column, err)
+	}
+	return nil
 }
 
 func boolToDB(value bool) int {
@@ -336,6 +371,25 @@ func decodeStringSlice(raw string) []string {
 		return nil
 	}
 	return normalizeStringSlice(items)
+}
+
+func encodeRequiredPermissions(permissions RequiredPermissions) string {
+	if permissions.Empty() {
+		return "{}"
+	}
+	raw, err := json.Marshal(permissions)
+	if err != nil {
+		return "{}"
+	}
+	return string(raw)
+}
+
+func decodeRequiredPermissions(raw string) RequiredPermissions {
+	var permissions RequiredPermissions
+	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &permissions); err != nil {
+		return RequiredPermissions{}
+	}
+	return cloneRequiredPermissions(permissions)
 }
 
 func formatTime(value time.Time) string {

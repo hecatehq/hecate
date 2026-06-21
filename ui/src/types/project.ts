@@ -174,6 +174,8 @@ export type ProjectAssistantContextSkill = {
   path: string;
   root_id?: string;
   format: string;
+  suggested_tools?: string[];
+  required_permissions?: ProjectSkillRequiredPermissionsRecord;
   enabled: boolean;
   status: string;
   trust_label: string;
@@ -481,6 +483,8 @@ export type ProjectSkillRecord = {
   path: string;
   root_id?: string;
   format: string;
+  suggested_tools?: string[];
+  required_permissions?: ProjectSkillRequiredPermissionsRecord;
   enabled: boolean;
   status: "available" | "missing" | "invalid" | "conflict" | (string & {});
   trust_label: string;
@@ -489,6 +493,12 @@ export type ProjectSkillRecord = {
   discovered_at: string;
   created_at: string;
   updated_at: string;
+};
+
+export type ProjectSkillRequiredPermissionsRecord = {
+  tools?: boolean;
+  writes?: boolean;
+  network?: boolean;
 };
 
 export type UpdateProjectSkillPayload = {

@@ -113,20 +113,28 @@ type RoleContext struct {
 }
 
 type ProjectSkillContext struct {
-	ID                     string    `json:"id"`
-	Title                  string    `json:"title"`
-	Description            string    `json:"description,omitempty"`
-	Path                   string    `json:"path"`
-	RootID                 string    `json:"root_id,omitempty"`
-	Format                 string    `json:"format"`
-	Enabled                bool      `json:"enabled"`
-	Status                 string    `json:"status"`
-	TrustLabel             string    `json:"trust_label"`
-	SourceContextSourceIDs []string  `json:"source_context_source_ids,omitempty"`
-	Warnings               []string  `json:"warnings,omitempty"`
-	DiscoveredAt           time.Time `json:"discovered_at"`
-	CreatedAt              time.Time `json:"created_at"`
-	UpdatedAt              time.Time `json:"updated_at"`
+	ID                     string                                  `json:"id"`
+	Title                  string                                  `json:"title"`
+	Description            string                                  `json:"description,omitempty"`
+	Path                   string                                  `json:"path"`
+	RootID                 string                                  `json:"root_id,omitempty"`
+	Format                 string                                  `json:"format"`
+	SuggestedTools         []string                                `json:"suggested_tools,omitempty"`
+	RequiredPermissions    *ProjectSkillRequiredPermissionsContext `json:"required_permissions,omitempty"`
+	Enabled                bool                                    `json:"enabled"`
+	Status                 string                                  `json:"status"`
+	TrustLabel             string                                  `json:"trust_label"`
+	SourceContextSourceIDs []string                                `json:"source_context_source_ids,omitempty"`
+	Warnings               []string                                `json:"warnings,omitempty"`
+	DiscoveredAt           time.Time                               `json:"discovered_at"`
+	CreatedAt              time.Time                               `json:"created_at"`
+	UpdatedAt              time.Time                               `json:"updated_at"`
+}
+
+type ProjectSkillRequiredPermissionsContext struct {
+	Tools   *bool `json:"tools,omitempty"`
+	Writes  *bool `json:"writes,omitempty"`
+	Network *bool `json:"network,omitempty"`
 }
 
 type AssignmentContext struct {
@@ -532,6 +540,8 @@ func projectSkillContext(item projectskills.Skill) ProjectSkillContext {
 		Path:                   item.Path,
 		RootID:                 item.RootID,
 		Format:                 item.Format,
+		SuggestedTools:         append([]string(nil), item.SuggestedTools...),
+		RequiredPermissions:    projectSkillRequiredPermissionsContext(item.RequiredPermissions),
 		Enabled:                item.Enabled,
 		Status:                 item.Status,
 		TrustLabel:             item.TrustLabel,
@@ -541,6 +551,25 @@ func projectSkillContext(item projectskills.Skill) ProjectSkillContext {
 		CreatedAt:              item.CreatedAt,
 		UpdatedAt:              item.UpdatedAt,
 	}
+}
+
+func projectSkillRequiredPermissionsContext(permissions projectskills.RequiredPermissions) *ProjectSkillRequiredPermissionsContext {
+	if permissions.Empty() {
+		return nil
+	}
+	return &ProjectSkillRequiredPermissionsContext{
+		Tools:   cloneProjectSkillBool(permissions.Tools),
+		Writes:  cloneProjectSkillBool(permissions.Writes),
+		Network: cloneProjectSkillBool(permissions.Network),
+	}
+}
+
+func cloneProjectSkillBool(value *bool) *bool {
+	if value == nil {
+		return nil
+	}
+	out := *value
+	return &out
 }
 
 func assignmentContext(item projectwork.Assignment) AssignmentContext {

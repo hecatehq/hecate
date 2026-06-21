@@ -25,6 +25,8 @@ function skill(overrides: Partial<ProjectSkillRecord> = {}): ProjectSkillRecord 
     path: ".hecate/skills/backend/SKILL.md",
     root_id: "root_1",
     format: "skill_md",
+    suggested_tools: ["git.diff", "file.read"],
+    required_permissions: { tools: true, writes: false, network: false },
     enabled: true,
     status: "available",
     trust_label: "workspace_skill",
@@ -62,6 +64,11 @@ describe("ProjectSkillsPanel", () => {
     expect(screen.getByText(/\.hecate\/skills\/backend\/SKILL\.md/)).toBeTruthy();
     expect(screen.getByText(/root root_1/)).toBeTruthy();
     expect(screen.getByText(/sources ctx_agents/)).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Suggested tools: git.diff, file.read · Required posture: tools on, writes off, network off",
+      ),
+    ).toBeTruthy();
 
     await userEvent.click(screen.getByRole("button", { name: "Refresh project skills" }));
     await userEvent.click(screen.getByRole("button", { name: "Discover" }));
@@ -107,6 +114,43 @@ describe("ProjectSkillsPanel", () => {
     expect(
       screen.getByText(
         "Discover skills from AGENTS.md / CLAUDE.md references, .agents/skills, or .hecate/skills.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("caps long suggested tool summaries", () => {
+    render(
+      <ProjectSkillsPanel
+        discovering={false}
+        error=""
+        loading={false}
+        onDiscover={vi.fn()}
+        onRefresh={vi.fn()}
+        onUpdate={vi.fn()}
+        project={project()}
+        skills={[
+          skill({
+            suggested_tools: [
+              "tool.00",
+              "tool.01",
+              "tool.02",
+              "tool.03",
+              "tool.04",
+              "tool.05",
+              "tool.06",
+              "tool.07",
+              "tool.08",
+              "tool.09",
+            ],
+          }),
+        ]}
+        updatingSkillID=""
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        "Suggested tools: tool.00, tool.01, tool.02, tool.03, tool.04, tool.05, tool.06, tool.07, +2 more · Required posture: tools on, writes off, network off",
       ),
     ).toBeTruthy();
   });

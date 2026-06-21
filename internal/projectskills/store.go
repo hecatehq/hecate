@@ -3,6 +3,7 @@ package projectskills
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -11,6 +12,9 @@ import (
 
 const (
 	FormatSkillMD = "skill_md"
+
+	suggestedToolsMaxItems        = 16
+	suggestedToolsSummaryMaxItems = 8
 
 	StatusAvailable = "available"
 	StatusMissing   = "missing"
@@ -33,6 +37,8 @@ type Skill struct {
 	Path                   string
 	RootID                 string
 	Format                 string
+	SuggestedTools         []string
+	RequiredPermissions    RequiredPermissions
 	Enabled                bool
 	Status                 string
 	TrustLabel             string
@@ -41,6 +47,16 @@ type Skill struct {
 	DiscoveredAt           time.Time
 	CreatedAt              time.Time
 	UpdatedAt              time.Time
+}
+
+type RequiredPermissions struct {
+	Tools   *bool `json:"tools,omitempty"`
+	Writes  *bool `json:"writes,omitempty"`
+	Network *bool `json:"network,omitempty"`
+}
+
+func (permissions RequiredPermissions) Empty() bool {
+	return permissions.Tools == nil && permissions.Writes == nil && permissions.Network == nil
 }
 
 type Store interface {
@@ -203,6 +219,11 @@ func normalizeSkill(skill Skill, now time.Time) Skill {
 	skill.Format = strings.TrimSpace(skill.Format)
 	skill.Status = strings.TrimSpace(skill.Status)
 	skill.TrustLabel = strings.TrimSpace(skill.TrustLabel)
+	var omittedSuggestedTools int
+	skill.SuggestedTools, omittedSuggestedTools = normalizeSuggestedTools(skill.SuggestedTools)
+	if omittedSuggestedTools > 0 {
+		skill.Warnings = append(skill.Warnings, fmt.Sprintf("Suggested tools list was capped at %d entries (+%d more omitted).", suggestedToolsMaxItems, omittedSuggestedTools))
+	}
 	if skill.Format == "" {
 		skill.Format = FormatSkillMD
 	}
@@ -266,9 +287,27 @@ func skillsFromMap(items map[string]Skill) []Skill {
 }
 
 func cloneSkill(skill Skill) Skill {
+	skill.SuggestedTools = append([]string(nil), skill.SuggestedTools...)
+	skill.RequiredPermissions = cloneRequiredPermissions(skill.RequiredPermissions)
 	skill.SourceContextSourceIDs = append([]string(nil), skill.SourceContextSourceIDs...)
 	skill.Warnings = append([]string(nil), skill.Warnings...)
 	return skill
+}
+
+func cloneRequiredPermissions(permissions RequiredPermissions) RequiredPermissions {
+	return RequiredPermissions{
+		Tools:   cloneBoolPointer(permissions.Tools),
+		Writes:  cloneBoolPointer(permissions.Writes),
+		Network: cloneBoolPointer(permissions.Network),
+	}
+}
+
+func cloneBoolPointer(value *bool) *bool {
+	if value == nil {
+		return nil
+	}
+	out := *value
+	return &out
 }
 
 func sortSkills(items []Skill) {
@@ -320,6 +359,32 @@ func normalizeStringSlice(items []string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func normalizeSuggestedTools(items []string) ([]string, int) {
+	items = normalizeStringSlice(items)
+	if len(items) <= suggestedToolsMaxItems {
+		return items, 0
+	}
+	omitted := len(items) - suggestedToolsMaxItems
+	return append([]string(nil), items[:suggestedToolsMaxItems]...), omitted
+}
+
+func SuggestedToolsSummary(items []string) string {
+	items = normalizeStringSlice(items)
+	if len(items) == 0 {
+		return ""
+	}
+	omitted := 0
+	if len(items) > suggestedToolsSummaryMaxItems {
+		omitted = len(items) - suggestedToolsSummaryMaxItems
+		items = items[:suggestedToolsSummaryMaxItems]
+	}
+	summary := strings.Join(items, ", ")
+	if omitted > 0 {
+		summary += fmt.Sprintf(", +%d more", omitted)
+	}
+	return summary
 }
 
 func appendUniqueStrings(items []string, values ...string) []string {

@@ -921,7 +921,14 @@ func appendResolvedProjectSkills(packet *chat.ContextPacket, skills projectworka
 	if len(skills.Resolved) > 0 {
 		var resolved []string
 		for _, skill := range skills.Resolved {
-			resolved = append(resolved, fmt.Sprintf("%s (%s)", skill.ID, skill.Path))
+			detail := fmt.Sprintf("%s (%s)", skill.ID, skill.Path)
+			if toolsSummary := projectskills.SuggestedToolsSummary(skill.SuggestedTools); toolsSummary != "" {
+				detail += "; suggested tools: " + toolsSummary
+			}
+			if permissions := projectSkillRequiredPermissionsSummary(skill.RequiredPermissions); permissions != "" {
+				detail += "; required permissions: " + permissions
+			}
+			resolved = append(resolved, detail)
 		}
 		body = append(body, "Resolved enabled skills: "+strings.Join(resolved, ", "))
 	} else {
@@ -951,6 +958,24 @@ func appendResolvedProjectSkills(packet *chat.ContextPacket, skills projectworka
 		Included:        len(skills.Resolved) > 0,
 		InclusionReason: "Skill metadata resolved for this assignment; skill bodies are not injected",
 	})
+}
+
+func projectSkillRequiredPermissionsSummary(permissions projectskills.RequiredPermissions) string {
+	var parts []string
+	appendPermission := func(label string, value *bool) {
+		if value == nil {
+			return
+		}
+		state := "off"
+		if *value {
+			state = "on"
+		}
+		parts = append(parts, label+" "+state)
+	}
+	appendPermission("tools", permissions.Tools)
+	appendPermission("writes", permissions.Writes)
+	appendPermission("network", permissions.Network)
+	return strings.Join(parts, ", ")
 }
 
 func appendProjectAssignmentPromptContext(packet *chat.ContextPacket, promptContext projectworkapp.AssignmentPromptContext) {

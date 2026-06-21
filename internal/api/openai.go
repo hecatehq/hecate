@@ -402,21 +402,29 @@ type ProjectSkillResponse struct {
 }
 
 type ProjectSkillResponseItem struct {
-	ID                     string   `json:"id"`
-	ProjectID              string   `json:"project_id"`
-	Title                  string   `json:"title"`
-	Description            string   `json:"description,omitempty"`
-	Path                   string   `json:"path,omitempty"`
-	RootID                 string   `json:"root_id,omitempty"`
-	Format                 string   `json:"format"`
-	Enabled                bool     `json:"enabled"`
-	Status                 string   `json:"status"`
-	TrustLabel             string   `json:"trust_label"`
-	SourceContextSourceIDs []string `json:"source_context_source_ids,omitempty"`
-	Warnings               []string `json:"warnings,omitempty"`
-	DiscoveredAt           string   `json:"discovered_at,omitempty"`
-	CreatedAt              string   `json:"created_at"`
-	UpdatedAt              string   `json:"updated_at"`
+	ID                     string                                       `json:"id"`
+	ProjectID              string                                       `json:"project_id"`
+	Title                  string                                       `json:"title"`
+	Description            string                                       `json:"description,omitempty"`
+	Path                   string                                       `json:"path,omitempty"`
+	RootID                 string                                       `json:"root_id,omitempty"`
+	Format                 string                                       `json:"format"`
+	SuggestedTools         []string                                     `json:"suggested_tools,omitempty"`
+	RequiredPermissions    *ProjectSkillRequiredPermissionsResponseItem `json:"required_permissions,omitempty"`
+	Enabled                bool                                         `json:"enabled"`
+	Status                 string                                       `json:"status"`
+	TrustLabel             string                                       `json:"trust_label"`
+	SourceContextSourceIDs []string                                     `json:"source_context_source_ids,omitempty"`
+	Warnings               []string                                     `json:"warnings,omitempty"`
+	DiscoveredAt           string                                       `json:"discovered_at,omitempty"`
+	CreatedAt              string                                       `json:"created_at"`
+	UpdatedAt              string                                       `json:"updated_at"`
+}
+
+type ProjectSkillRequiredPermissionsResponseItem struct {
+	Tools   *bool `json:"tools,omitempty"`
+	Writes  *bool `json:"writes,omitempty"`
+	Network *bool `json:"network,omitempty"`
 }
 
 type PluginsResponse struct {

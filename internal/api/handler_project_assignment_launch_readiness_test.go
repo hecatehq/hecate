@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/hecatehq/hecate/internal/projects"
+	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
 )
 
@@ -24,6 +25,26 @@ func TestProjectWorkAPI_AssignmentLaunchReadinessReturnsNativePlanWithoutSideEff
 		project.DefaultModel = "gpt-4o-mini"
 	}); err != nil {
 		t.Fatalf("Update project defaults: %v", err)
+	}
+	if _, err := handler.projectWork.UpdateRole(t.Context(), "proj_start", "role_backend", func(role *projectwork.AgentRoleProfile) {
+		role.SkillIDs = []string{"network"}
+	}); err != nil {
+		t.Fatalf("Update role skills: %v", err)
+	}
+	if _, err := handler.projectSkills.UpsertDiscovered(t.Context(), "proj_start", []projectskills.Skill{{
+		ID:         "network",
+		ProjectID:  "proj_start",
+		Title:      "Network",
+		Path:       ".hecate/skills/network/SKILL.md",
+		Format:     projectskills.FormatSkillMD,
+		Enabled:    true,
+		Status:     projectskills.StatusAvailable,
+		TrustLabel: projectskills.TrustWorkspaceSkill,
+		RequiredPermissions: projectskills.RequiredPermissions{
+			Network: boolForLaunchReadinessTest(true),
+		},
+	}}); err != nil {
+		t.Fatalf("UpsertDiscovered skills: %v", err)
 	}
 
 	readiness := mustRequestJSON[ProjectAssignmentLaunchReadinessEnvelope](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/launch-readiness", "")
@@ -45,6 +66,9 @@ func TestProjectWorkAPI_AssignmentLaunchReadinessReturnsNativePlanWithoutSideEff
 	if readiness.Data.ModelReadiness == nil || !readiness.Data.ModelReadiness.Ready {
 		t.Fatalf("model_readiness = %+v, want ready", readiness.Data.ModelReadiness)
 	}
+	if !launchReadinessWarningContains(readiness.Data.Warnings, "Project skill Network (network) declares network enabled") {
+		t.Fatalf("warnings = %+v, want project skill network posture warning", readiness.Data.Warnings)
+	}
 	tasks, err := handler.taskStore.ListTasks(t.Context(), taskstateFilterAll())
 	if err != nil {
 		t.Fatalf("ListTasks: %v", err)
@@ -52,6 +76,19 @@ func TestProjectWorkAPI_AssignmentLaunchReadinessReturnsNativePlanWithoutSideEff
 	if len(tasks) != 0 {
 		t.Fatalf("tasks = %+v, want no task created by launch readiness", tasks)
 	}
+}
+
+func boolForLaunchReadinessTest(value bool) *bool {
+	return &value
+}
+
+func launchReadinessWarningContains(items []string, want string) bool {
+	for _, item := range items {
+		if len(item) >= len(want) && item[:len(want)] == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestProjectWorkAPI_AssignmentLaunchReadinessSurfacesBlockedModel(t *testing.T) {

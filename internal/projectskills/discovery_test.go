@@ -167,6 +167,60 @@ func TestDiscoverMarksDuplicateSkillIDsAsConflict(t *testing.T) {
 	}
 }
 
+func TestDiscoverParsesHecateCapabilityHints(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeSkillFile(t, root, ".hecate/skills/review/SKILL.md", `---
+title: Review
+description: Review implementation output.
+suggested_tools:
+  - shell.exec
+required_permissions:
+  network: true
+hecate:
+  suggested_tools:
+    - git.diff
+    - file.read
+  required_permissions:
+    tools: true
+    writes: false
+    network: false
+---
+# Ignored
+`)
+
+	skills, warnings := Discover(context.Background(), projects.Project{
+		ID: "proj_capabilities",
+		Roots: []projects.Root{{
+			ID:     "root_a",
+			Path:   root,
+			Active: true,
+		}},
+	})
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %+v, want none", warnings)
+	}
+	review := findSkillForTest(skills, "review")
+	if review == nil {
+		t.Fatalf("skills = %+v, missing review", skills)
+	}
+	if review.Title != "Review" || review.Description != "Review implementation output." {
+		t.Fatalf("review metadata = %+v, want frontmatter title and description", review)
+	}
+	if strings.Join(review.SuggestedTools, ",") != "file.read,git.diff" {
+		t.Fatalf("suggested tools = %+v, want sorted frontmatter tools", review.SuggestedTools)
+	}
+	if review.RequiredPermissions.Tools == nil || !*review.RequiredPermissions.Tools {
+		t.Fatalf("required tools = %+v, want true", review.RequiredPermissions.Tools)
+	}
+	if review.RequiredPermissions.Writes == nil || *review.RequiredPermissions.Writes {
+		t.Fatalf("required writes = %+v, want false", review.RequiredPermissions.Writes)
+	}
+	if review.RequiredPermissions.Network == nil || *review.RequiredPermissions.Network {
+		t.Fatalf("required network = %+v, want false", review.RequiredPermissions.Network)
+	}
+}
+
 func TestDiscoverBoundsGuidanceAndSkillMetadata(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

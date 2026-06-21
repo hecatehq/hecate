@@ -365,9 +365,37 @@ func (app *Application) ResolveAssignmentSkills(ctx context.Context, projectID s
 			result.Skipped = append(result.Skipped, ResolvedProjectSkillSkip{ID: id, Reason: item.Status, Status: item.Status})
 		default:
 			result.Resolved = append(result.Resolved, item)
+			result.Warnings = append(result.Warnings, projectSkillCapabilityWarnings(item, profile)...)
 		}
 	}
+	result.Warnings = normalizeStringList(result.Warnings)
 	return result
+}
+
+func projectSkillCapabilityWarnings(skill projectskills.Skill, profile ResolvedAgentProfile) []string {
+	var warnings []string
+	label := labelWithID(firstNonEmpty(skill.Title, skill.ID), skill.ID)
+	appendPermissionWarning := func(name string, required *bool, actual bool) {
+		if required == nil || *required == actual {
+			return
+		}
+		wanted := "disabled"
+		if *required {
+			wanted = "enabled"
+		}
+		got := "disabled"
+		if actual {
+			got = "enabled"
+		}
+		warnings = append(warnings, fmt.Sprintf("Project skill %s declares %s %s, but resolved profile %s has %s %s.", label, name, wanted, firstNonEmpty(profile.ID, "unknown"), name, got))
+	}
+	appendPermissionWarning("tools", skill.RequiredPermissions.Tools, profile.ToolsEnabled)
+	appendPermissionWarning("writes", skill.RequiredPermissions.Writes, profile.WritesAllowed)
+	appendPermissionWarning("network", skill.RequiredPermissions.Network, profile.NetworkAllowed)
+	if toolsSummary := projectskills.SuggestedToolsSummary(skill.SuggestedTools); toolsSummary != "" && skill.RequiredPermissions.Tools == nil && !profile.ToolsEnabled {
+		warnings = append(warnings, fmt.Sprintf("Project skill %s suggests tools (%s), but resolved profile %s has tools disabled.", label, toolsSummary, firstNonEmpty(profile.ID, "unknown")))
+	}
+	return warnings
 }
 
 func (app *Application) AssignmentPromptContext(ctx context.Context, project projects.Project, profile ResolvedAgentProfile, workingDirectory string) AssignmentPromptContext {

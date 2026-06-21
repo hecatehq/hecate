@@ -2684,6 +2684,12 @@ runtime instructions. Bodies are never returned.
       "path": ".hecate/skills/backend/SKILL.md",
       "root_id": "root_...",
       "format": "skill_md",
+      "suggested_tools": ["git.diff", "file.read"],
+      "required_permissions": {
+        "tools": true,
+        "writes": false,
+        "network": false
+      },
       "enabled": true,
       "status": "available",
       "trust_label": "workspace_skill",
@@ -2712,11 +2718,20 @@ Discovery ignores nested worktree containers such as `.worktrees` and
 worktree as its own project root when the operator wants it represented.
 
 Only safe metadata is parsed from bounded `SKILL.md` files: frontmatter
-`name`/`title` and `description`, then H1/title fallback and directory id.
-Duplicate ids become `status: "conflict"` records with warnings. Previously
-persisted skills not found in the latest discovery become `status: "missing"`.
-Operator edits to `enabled`, `title`, `description`, and `trust_label` are
-preserved across rediscovery.
+`name`/`title`, `description`, optional `hecate.suggested_tools`, optional
+`hecate.required_permissions.{tools,writes,network}`, then H1/title fallback and
+directory id. Suggested-tool lists are normalized, de-duplicated, capped before
+storage/API exposure, and summarized in operator-facing text. Duplicate ids
+become `status: "conflict"` records with warnings. Previously persisted skills
+not found in the latest discovery become `status: "missing"`. Operator edits to
+`enabled`, `title`, `description`, and `trust_label` are preserved across
+rediscovery.
+
+Skill capability metadata is advisory. Skills do not grant tools, writes,
+network access, approval bypasses, script execution, or memory writes. During
+assignment launch planning, Hecate compares resolved project skills with the
+resolved agent profile and surfaces mismatches as launch-readiness and
+context-inspector warnings for operator review.
 
 #### `PATCH /hecate/v1/projects/{id}/skills/{skill_id}`
 

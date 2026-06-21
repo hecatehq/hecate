@@ -20,6 +20,8 @@ type ProjectSkillsPanelProps = {
   updatingSkillID: string;
 };
 
+const suggestedToolsSummaryLimit = 8;
+
 export function ProjectSkillsPanel({
   discovering,
   error,
@@ -119,6 +121,7 @@ function ProjectSkillRow({
     draft.description.trim() !== (skill.description ?? "") ||
     draft.trustLabel.trim() !== skill.trust_label;
   const statusClass = skill.status === "available" ? "badge badge-green" : "badge badge-amber";
+  const capabilitySummary = projectSkillCapabilitySummary(skill);
 
   return (
     <div style={memoryEntryStyle}>
@@ -194,6 +197,7 @@ function ProjectSkillRow({
               : ""}
             {skill.discovered_at ? ` · discovered ${formatAbsoluteTime(skill.discovered_at)}` : ""}
           </div>
+          {capabilitySummary && <div style={skillCapabilityStyle}>{capabilitySummary}</div>}
           {skill.warnings?.length ? (
             <div style={{ display: "grid", gap: 3 }}>
               {skill.warnings.map((warning) => (
@@ -231,6 +235,42 @@ function skillFormFromRecord(skill: ProjectSkillRecord): SkillForm {
   };
 }
 
+function projectSkillCapabilitySummary(skill: ProjectSkillRecord): string {
+  const parts: string[] = [];
+  const suggestedTools = projectSkillSuggestedToolsSummary(skill.suggested_tools);
+  if (suggestedTools) {
+    parts.push(`Suggested tools: ${suggestedTools}`);
+  }
+  const permissions = projectSkillRequiredPermissionsSummary(skill);
+  if (permissions) {
+    parts.push(`Required posture: ${permissions}`);
+  }
+  return parts.join(" · ");
+}
+
+function projectSkillSuggestedToolsSummary(tools: string[] | undefined): string {
+  if (!tools?.length) return "";
+  const shown = tools.slice(0, suggestedToolsSummaryLimit);
+  const omitted = tools.length - shown.length;
+  return `${shown.join(", ")}${omitted > 0 ? `, +${omitted} more` : ""}`;
+}
+
+function projectSkillRequiredPermissionsSummary(skill: ProjectSkillRecord): string {
+  const permissions = skill.required_permissions;
+  if (!permissions) return "";
+  const parts: string[] = [];
+  for (const [label, value] of [
+    ["tools", permissions.tools],
+    ["writes", permissions.writes],
+    ["network", permissions.network],
+  ] as const) {
+    if (typeof value === "boolean") {
+      parts.push(`${label} ${value ? "on" : "off"}`);
+    }
+  }
+  return parts.join(", ");
+}
+
 function EmptyBlock({ title, detail }: { title: string; detail: string }) {
   return (
     <div
@@ -256,6 +296,13 @@ const subtleTextStyle: CSSProperties = {
   color: "var(--t3)",
   fontSize: 12,
   lineHeight: 1.4,
+};
+
+const skillCapabilityStyle: CSSProperties = {
+  color: "var(--t2)",
+  fontFamily: "var(--font-mono)",
+  fontSize: 11,
+  lineHeight: 1.5,
 };
 
 const fieldStyle: CSSProperties = {
