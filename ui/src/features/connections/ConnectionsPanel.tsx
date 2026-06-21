@@ -14,6 +14,7 @@ import {
 import { useRuntime } from "../../app/state/runtime";
 import { useSettings } from "../../app/state/settings";
 import { formatLocaleDateTime } from "../../lib/format";
+import { agentApprovalToolKindLabel } from "../../lib/agent-approval-labels";
 import {
   humanizeProbeError,
   resolveExternalAgentReadiness,
@@ -1305,7 +1306,7 @@ function GrantRow({
             ·
           </span>
           <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t1)" }}>
-            {grant.tool_kind}
+            {agentApprovalToolKindLabel(grant.tool_kind)}
           </span>
           <span
             style={{

@@ -1,4 +1,5 @@
 import type { PendingAgentApproval } from "../../types/chat";
+import { agentApprovalToolLabel } from "../../lib/agent-approval-labels";
 import { Icon, Icons } from "../shared/ui";
 import { ChatNoticeFrame, ChatNoticeHeader, ChatNoticeRow } from "./ChatNotice";
 
@@ -103,7 +104,7 @@ function PendingApprovalRow({
   row: PendingAgentApproval;
   onSelect: (approvalID: string) => void;
 }) {
-  const label = row.tool_name ? `${row.tool_kind} · ${row.tool_name}` : row.tool_kind;
+  const label = agentApprovalToolLabel(row);
   const expiresIn = formatExpiresIn(row.expires_at);
   return (
     <ChatNoticeRow
