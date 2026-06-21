@@ -63,6 +63,9 @@ func TestProjectWorkAPI_AssignmentLaunchReadinessReturnsNativePlanWithoutSideEff
 	if readiness.Data.Provider != "anthropic" || readiness.Data.Model != "gpt-4o-mini" || readiness.Data.ExecutionProfile != "coding_agent" {
 		t.Fatalf("launch hints = provider/model/profile %q/%q/%q, want anthropic/gpt-4o-mini/coding_agent", readiness.Data.Provider, readiness.Data.Model, readiness.Data.ExecutionProfile)
 	}
+	if readiness.Data.ProfilePosture == nil || readiness.Data.ProfilePosture.ID != "project_assignment" || !readiness.Data.ProfilePosture.ToolsEnabled || !readiness.Data.ProfilePosture.WritesAllowed || readiness.Data.ProfilePosture.NetworkAllowed {
+		t.Fatalf("profile_posture = %+v, want project_assignment posture with tools/writes on and network off", readiness.Data.ProfilePosture)
+	}
 	if readiness.Data.ModelReadiness == nil || !readiness.Data.ModelReadiness.Ready {
 		t.Fatalf("model_readiness = %+v, want ready", readiness.Data.ModelReadiness)
 	}

@@ -213,6 +213,17 @@ function launchReadiness(
     provider: "openai",
     model: "gpt-5",
     execution_profile: "implementation",
+    profile_posture: {
+      id: "implementation",
+      name: "Implementation",
+      source: "role_default",
+      tools_enabled: true,
+      writes_allowed: true,
+      network_allowed: false,
+      approval_policy: "require",
+      project_memory_policy: "include",
+      context_source_policy: "include_enabled",
+    },
     model_readiness: {
       ready: true,
       status: "ok",
@@ -561,7 +572,36 @@ describe("ProjectWorkItemDetail", () => {
     expect(within(readiness).getByText("/workspace/hecate")).toBeTruthy();
     expect(within(readiness).getByText("openai / gpt-5")).toBeTruthy();
     expect(within(readiness).getByText("implementation")).toBeTruthy();
+    expect(within(readiness).getByText("tools on · writes on · network off")).toBeTruthy();
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("marks missing launch profiles in the posture preview", async () => {
+    getProjectAssignmentLaunchReadinessMock.mockResolvedValueOnce({
+      object: "project_assignment_launch_readiness",
+      data: launchReadiness({
+        execution_profile: "missing_profile",
+        profile_posture: {
+          id: "missing_profile",
+          name: "missing_profile",
+          source: "project_default",
+          missing: true,
+          tools_enabled: false,
+          writes_allowed: false,
+          network_allowed: false,
+        },
+        warnings: [
+          'Referenced agent profile "missing_profile" was not found; using stored profile id as execution_profile hint.',
+        ],
+      }),
+    });
+    renderDetail();
+
+    const readiness = screen.getByRole("region", { name: "Assignment launch readiness" });
+    await userEvent.click(within(readiness).getByRole("button", { name: "Check readiness" }));
+
+    expect(await within(readiness).findByText("missing_profile (profile missing)")).toBeTruthy();
+    expect(within(readiness).getByText("tools off · writes off · network off")).toBeTruthy();
   });
 
   it("shows External Agent launch posture before preparing chat", async () => {
@@ -574,6 +614,9 @@ describe("ProjectWorkItemDetail", () => {
         external_agent: "Codex",
         external_agent_id: "codex",
         session_title: "Implementation follow-up",
+        warnings: [
+          "Project skill Review (review) declares network enabled, but resolved profile implementation has network disabled.",
+        ],
       }),
     });
     renderDetail({
@@ -589,6 +632,11 @@ describe("ProjectWorkItemDetail", () => {
     expect(within(posture).getAllByText("External Agent").length).toBeGreaterThan(0);
     expect(within(posture).getByText("Codex (codex)")).toBeTruthy();
     expect(within(posture).getByText("Implementation follow-up")).toBeTruthy();
+    expect(within(posture).getByText("tools on · writes on · network off")).toBeTruthy();
+    expect(
+      within(preflight).getByRole("status", { name: "Launch readiness warnings" }),
+    ).toBeTruthy();
+    expect(within(preflight).getByText(/Project skill Review/)).toBeTruthy();
     expect(within(posture).queryByText("openai / gpt-5")).toBeNull();
   });
 
