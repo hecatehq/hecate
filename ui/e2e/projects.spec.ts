@@ -5,10 +5,12 @@ import type {
   ProjectAssignmentLaunchReadinessRecord,
   ProjectAssignmentRecord,
   ProjectCollaborationArtifactRecord,
+  ProjectContextSourcePayload,
   ProjectContextSourceRecord,
   ProjectHealth,
   ProjectMemoryCandidateRecord,
   ProjectRecord,
+  ProjectRootPayload,
   ProjectSetupReadiness,
   ProjectSkillRecord,
   ProjectWorkItemRecord,
@@ -146,6 +148,113 @@ test("Projects rootless journey: plan work without setup or workspace", async ({
   expect(state.artifacts).toHaveLength(1);
 });
 
+test("Projects settings and memory use typed root and source mutations", async ({ page }) => {
+  const state = await mockProjectJourneyAPIs(page);
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.workspace", "projects");
+  });
+
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+
+  await page.getByRole("button", { name: "Add" }).click();
+  await page.getByLabel("Name").fill("Typed operations");
+  await page.getByLabel("Purpose").fill("Exercise typed project metadata mutations.");
+  await page.getByRole("button", { name: "Create project" }).click();
+
+  const projectSettingsButton = page.locator('button[aria-label="Project settings"]');
+  await projectSettingsButton.click();
+  let settings = page.getByRole("complementary", { name: "Project settings panel" });
+  await settings.getByRole("button", { name: "Add folder" }).click();
+  await expect(settings.getByTitle("/tmp/hecate-e2e-project")).toBeVisible();
+  await settings.getByRole("button", { name: "Save defaults" }).click();
+  await expect.poll(() => state.rootMutationCalls.map((call) => call.method)).toEqual(["POST"]);
+  await expect(settings).toBeHidden();
+
+  await projectSettingsButton.click();
+  settings = page.getByRole("complementary", { name: "Project settings panel" });
+  await settings
+    .getByRole("checkbox", { name: "Active project root /tmp/hecate-e2e-project" })
+    .uncheck();
+  await settings.getByRole("button", { name: "Save defaults" }).click();
+  await expect
+    .poll(() => state.rootMutationCalls.map((call) => call.method))
+    .toEqual(["POST", "PATCH"]);
+  await expect(settings).toBeHidden();
+
+  await page
+    .getByRole("region", { name: "Project onboarding" })
+    .getByRole("button", { name: "Set up project" })
+    .first()
+    .click();
+  await page.getByRole("button", { name: "Apply proposal" }).click();
+  await expect(page.getByText("Applied 3 actions")).toBeVisible();
+  await page.getByRole("button", { name: "Dismiss" }).click();
+
+  await page.getByRole("tab", { name: /Memory \/ Context/ }).click();
+  await page.getByRole("button", { name: "Source", exact: true }).click();
+  let sourceDialog = page.getByRole("dialog", { name: "New project source" });
+  await sourceDialog.getByLabel("Title").fill("Launch brief");
+  await sourceDialog.getByLabel("Locator").fill("https://example.test/brief");
+  await sourceDialog.getByRole("button", { name: "Create source" }).click();
+  await expect(page.getByText("Launch brief", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Edit source Launch brief" }).click();
+  sourceDialog = page.getByRole("dialog", { name: "Edit project source" });
+  await sourceDialog.getByLabel("Title").fill("Launch brief v2");
+  await sourceDialog.getByLabel("Locator").fill("https://example.test/brief-v2");
+  await sourceDialog.getByRole("button", { name: "Save source" }).click();
+  await expect(page.getByText("Launch brief v2", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Delete source Launch brief v2" }).click();
+  await page.getByRole("button", { name: "Delete source", exact: true }).click();
+  await expect(page.getByText("Launch brief v2", { exact: true })).toHaveCount(0);
+
+  expect(state.rootMutationCalls).toEqual([
+    {
+      method: "POST",
+      body: expect.objectContaining({
+        path: "/tmp/hecate-e2e-project",
+        kind: "local",
+        git_branch: "main",
+        active: true,
+      }),
+    },
+    {
+      method: "PATCH",
+      rootID: "root_e2e_project",
+      body: expect.objectContaining({
+        path: "/tmp/hecate-e2e-project",
+        kind: "local",
+        git_branch: "main",
+        active: false,
+      }),
+    },
+  ]);
+  expect(state.sourceMutationCalls.map((call) => call.method)).toEqual(["POST", "PATCH", "DELETE"]);
+  expect(state.sourceMutationCalls[0]?.body).toEqual(
+    expect.objectContaining({
+      kind: "url",
+      title: "Launch brief",
+      path: "https://example.test/brief",
+      enabled: true,
+      format: "url",
+    }),
+  );
+  expect(state.sourceMutationCalls[1]).toEqual({
+    method: "PATCH",
+    sourceID: "ctx_source_1",
+    body: expect.objectContaining({
+      title: "Launch brief v2",
+      path: "https://example.test/brief-v2",
+    }),
+  });
+  expect(state.sourceMutationCalls[2]).toEqual({ method: "DELETE", sourceID: "ctx_source_1" });
+  expect(
+    state.projectPatchBodies.every((body) => !("roots" in body) && !("context_sources" in body)),
+  ).toBe(true);
+});
+
 async function mockProjectJourneyAPIs(page: Page) {
   const state = {
     projects: [] as ProjectRecord[],
@@ -156,6 +265,17 @@ async function mockProjectJourneyAPIs(page: Page) {
     workItems: [] as ProjectWorkItemRecord[],
     assignments: [] as ProjectAssignmentRecord[],
     artifacts: [] as ProjectCollaborationArtifactRecord[],
+    projectPatchBodies: [] as Record<string, unknown>[],
+    rootMutationCalls: [] as Array<{
+      method: string;
+      rootID?: string;
+      body?: Partial<ProjectRootPayload>;
+    }>,
+    sourceMutationCalls: [] as Array<{
+      method: string;
+      sourceID?: string;
+      body?: Partial<ProjectContextSourcePayload>;
+    }>,
   };
   const ok = (body: unknown, status = 200) => ({
     status,
@@ -174,6 +294,15 @@ async function mockProjectJourneyAPIs(page: Page) {
 
   await page.route(/\/hecate\/v1\/agent-profiles(?:\?.*)?$/, (route) =>
     route.fulfill(ok({ object: "agent_profiles", data: [] })),
+  );
+
+  await page.route("/hecate/v1/workspace-dialog", (route) =>
+    route.fulfill(
+      ok({
+        object: "workspace_dialog",
+        data: { path: "/tmp/hecate-e2e-project", branch: "main" },
+      }),
+    ),
   );
 
   await page.route(/\/hecate\/v1\/project-assistant\/(?:draft|context|apply)$/, async (route) => {
@@ -282,6 +411,21 @@ async function mockProjectJourneyAPIs(page: Page) {
     }
 
     const resource = parts[1];
+    if (!resource && method === "PATCH") {
+      const patch = JSON.parse(request.postData() || "{}") as Record<string, unknown>;
+      state.projectPatchBodies.push(patch);
+      state.projects[0] = { ...state.projects[0], ...patch, updated_at: NOW };
+      await route.fulfill(ok({ object: "project", data: state.projects[0] }));
+      return;
+    }
+    if (resource === "roots") {
+      await handleProjectRootRoute(route, state, parts, method, ok);
+      return;
+    }
+    if (resource === "context-sources" && parts[2] !== "discover") {
+      await handleProjectContextSourceRoute(route, state, parts, method, ok);
+      return;
+    }
     if (resource === "context-sources" && parts[2] === "discover" && method === "POST") {
       state.sources = [
         {
@@ -367,6 +511,142 @@ async function mockProjectJourneyAPIs(page: Page) {
   });
 
   return state;
+}
+
+async function handleProjectRootRoute(
+  route: Route,
+  state: ProjectJourneyState,
+  parts: string[],
+  method: string,
+  ok: (body: unknown, status?: number) => { status: number; contentType: string; body: string },
+) {
+  const request = route.request();
+  const project = state.projects[0];
+  const rootID = parts[2] || "";
+  if (!project) {
+    await route.fulfill(ok({ object: "project", data: null }, 404));
+    return;
+  }
+  if (!rootID && method === "POST") {
+    const body = JSON.parse(request.postData() || "{}") as ProjectRootPayload;
+    state.rootMutationCalls.push({ method, body });
+    const root = {
+      id: "root_e2e_project",
+      path: body.path,
+      kind: body.kind || "local",
+      git_remote: body.git_remote,
+      git_branch: body.git_branch,
+      active: body.active ?? true,
+      created_at: NOW,
+      updated_at: NOW,
+    };
+    project.roots = [...project.roots, root];
+    project.updated_at = NOW;
+    await route.fulfill(ok({ object: "project", data: project }, 201));
+    return;
+  }
+  if (rootID && method === "PATCH") {
+    const body = JSON.parse(request.postData() || "{}") as ProjectRootPayload;
+    state.rootMutationCalls.push({ method, rootID, body });
+    project.roots = project.roots.map((root) =>
+      root.id === rootID
+        ? {
+            ...root,
+            path: body.path,
+            kind: body.kind || root.kind,
+            git_remote: body.git_remote,
+            git_branch: body.git_branch,
+            active: body.active ?? root.active,
+            updated_at: NOW,
+          }
+        : root,
+    );
+    project.updated_at = NOW;
+    await route.fulfill(ok({ object: "project", data: project }));
+    return;
+  }
+  if (rootID && method === "DELETE") {
+    state.rootMutationCalls.push({ method, rootID });
+    project.roots = project.roots.filter((root) => root.id !== rootID);
+    if (project.default_root_id === rootID) project.default_root_id = "";
+    project.updated_at = NOW;
+    await route.fulfill(ok({ object: "project", data: project }));
+    return;
+  }
+  await route.fallback();
+}
+
+async function handleProjectContextSourceRoute(
+  route: Route,
+  state: ProjectJourneyState,
+  parts: string[],
+  method: string,
+  ok: (body: unknown, status?: number) => { status: number; contentType: string; body: string },
+) {
+  const request = route.request();
+  const project = state.projects[0];
+  const sourceID = parts[2] || "";
+  if (!project) {
+    await route.fulfill(ok({ object: "project", data: null }, 404));
+    return;
+  }
+  if (!sourceID && method === "POST") {
+    const body = JSON.parse(request.postData() || "{}") as ProjectContextSourcePayload;
+    state.sourceMutationCalls.push({ method, body });
+    const source = {
+      id: "ctx_source_1",
+      kind: body.kind || "url",
+      title: body.title,
+      path: body.path,
+      enabled: body.enabled ?? true,
+      format: body.format,
+      scope: body.scope,
+      trust_label: body.trust_label,
+      source_category: body.source_category,
+      metadata: body.metadata,
+      created_at: NOW,
+      updated_at: NOW,
+    };
+    state.sources = [...state.sources, source];
+    project.context_sources = state.sources;
+    project.updated_at = NOW;
+    await route.fulfill(ok({ object: "project", data: project }, 201));
+    return;
+  }
+  if (sourceID && method === "PATCH") {
+    const body = JSON.parse(request.postData() || "{}") as ProjectContextSourcePayload;
+    state.sourceMutationCalls.push({ method, sourceID, body });
+    state.sources = state.sources.map((source) =>
+      source.id === sourceID
+        ? {
+            ...source,
+            kind: body.kind || source.kind,
+            title: body.title,
+            path: body.path,
+            enabled: body.enabled ?? source.enabled,
+            format: body.format,
+            scope: body.scope,
+            trust_label: body.trust_label,
+            source_category: body.source_category,
+            metadata: body.metadata,
+            updated_at: NOW,
+          }
+        : source,
+    );
+    project.context_sources = state.sources;
+    project.updated_at = NOW;
+    await route.fulfill(ok({ object: "project", data: project }));
+    return;
+  }
+  if (sourceID && method === "DELETE") {
+    state.sourceMutationCalls.push({ method, sourceID });
+    state.sources = state.sources.filter((source) => source.id !== sourceID);
+    project.context_sources = state.sources;
+    project.updated_at = NOW;
+    await route.fulfill(ok({ object: "project", data: project }));
+    return;
+  }
+  await route.fallback();
 }
 
 async function handleWorkItemRoute(
