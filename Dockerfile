@@ -34,8 +34,8 @@ RUN bun run build
 FROM alpine:${ALPINE_VERSION} AS adapter-downloader
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
-ARG CODEX_ACP_ADAPTER_VERSION=v0.1.0-alpha.27
-ARG CLAUDE_CODE_ACP_ADAPTER_VERSION=v0.1.0-alpha.28
+ARG CODEX_ACP_ADAPTER_VERSION=v0.1.0-alpha.28
+ARG CLAUDE_CODE_ACP_ADAPTER_VERSION=v0.1.0-alpha.29
 
 RUN apk add --no-cache ca-certificates curl tar \
     && set -eux; \
