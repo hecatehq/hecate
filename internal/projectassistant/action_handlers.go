@@ -213,7 +213,7 @@ func (s *Service) applyMoveChatSession(ctx context.Context, action Action) (Acti
 }
 
 func (s *Service) applyCreateRole(ctx context.Context, action Action) (ActionResult, error) {
-	if s.work == nil {
+	if s.workAuthority == nil {
 		return ActionResult{}, ErrStoreNotConfigured
 	}
 	var patch rolePatch
@@ -231,9 +231,8 @@ func (s *Service) applyCreateRole(ctx context.Context, action Action) (ActionRes
 	if id == "" {
 		id = s.idgen("role")
 	}
-	role, err := s.work.CreateRole(ctx, projectwork.AgentRoleProfile{
+	role, err := s.workAuthority.CreateRole(ctx, projectID, WorkRoleCommand{
 		ID:                  id,
-		ProjectID:           projectID,
 		Name:                patch.Name,
 		Description:         patch.Description,
 		Instructions:        patch.Instructions,
@@ -250,7 +249,7 @@ func (s *Service) applyCreateRole(ctx context.Context, action Action) (ActionRes
 }
 
 func (s *Service) applyCreateWorkItem(ctx context.Context, action Action) (ActionResult, error) {
-	if s.work == nil {
+	if s.workAuthority == nil {
 		return ActionResult{}, ErrStoreNotConfigured
 	}
 	var patch workItemPatch
@@ -268,9 +267,8 @@ func (s *Service) applyCreateWorkItem(ctx context.Context, action Action) (Actio
 	if id == "" {
 		id = s.idgen("work")
 	}
-	item, err := s.work.CreateWorkItem(ctx, projectwork.WorkItem{
+	item, err := s.workAuthority.CreateWorkItem(ctx, projectID, WorkItemCommand{
 		ID:              id,
-		ProjectID:       projectID,
 		Title:           patch.Title,
 		Brief:           patch.Brief,
 		Status:          patch.Status,
@@ -285,7 +283,7 @@ func (s *Service) applyCreateWorkItem(ctx context.Context, action Action) (Actio
 }
 
 func (s *Service) applyUpdateWorkItem(ctx context.Context, action Action) (ActionResult, error) {
-	if s.work == nil {
+	if s.workAuthority == nil {
 		return ActionResult{}, ErrStoreNotConfigured
 	}
 	projectID := targetValue(action, "project_id")
@@ -300,26 +298,18 @@ func (s *Service) applyUpdateWorkItem(ctx context.Context, action Action) (Actio
 	if err := decodePatch(action, &patch); err != nil {
 		return ActionResult{}, err
 	}
-	item, err := s.work.UpdateWorkItem(ctx, projectID, workItemID, func(item *projectwork.WorkItem) {
-		if patch.Title != nil {
-			item.Title = *patch.Title
-		}
-		if patch.Brief != nil {
-			item.Brief = *patch.Brief
-		}
-		if patch.Status != nil {
-			item.Status = *patch.Status
-		}
-		if patch.Priority != nil {
-			item.Priority = *patch.Priority
-		}
-		if patch.OwnerRoleID != nil {
-			item.OwnerRoleID = *patch.OwnerRoleID
-		}
-		if patch.ReviewerRoleIDs != nil {
-			item.ReviewerRoleIDs = append([]string(nil), patch.ReviewerRoleIDs...)
-		}
-	})
+	update := WorkItemUpdateCommand{
+		Title:       patch.Title,
+		Brief:       patch.Brief,
+		Status:      patch.Status,
+		Priority:    patch.Priority,
+		OwnerRoleID: patch.OwnerRoleID,
+	}
+	if patch.ReviewerRoleIDs != nil {
+		reviewerRoleIDs := append([]string(nil), patch.ReviewerRoleIDs...)
+		update.ReviewerRoleIDs = &reviewerRoleIDs
+	}
+	item, err := s.workAuthority.UpdateWorkItem(ctx, projectID, workItemID, update)
 	if err != nil {
 		return ActionResult{}, mapProjectWorkErr(err)
 	}
@@ -327,7 +317,7 @@ func (s *Service) applyUpdateWorkItem(ctx context.Context, action Action) (Actio
 }
 
 func (s *Service) applyCreateAssignment(ctx context.Context, action Action) (ActionResult, error) {
-	if s.work == nil {
+	if s.workAuthority == nil {
 		return ActionResult{}, ErrStoreNotConfigured
 	}
 	var patch assignmentPatch
@@ -357,10 +347,8 @@ func (s *Service) applyCreateAssignment(ctx context.Context, action Action) (Act
 	if id == "" {
 		id = s.idgen("asgn")
 	}
-	assignment, err := s.work.CreateAssignment(ctx, projectwork.Assignment{
+	assignment, err := s.workAuthority.CreateAssignment(ctx, projectID, item.ID, WorkAssignmentCommand{
 		ID:         id,
-		ProjectID:  projectID,
-		WorkItemID: item.ID,
 		RoleID:     patch.RoleID,
 		RootID:     rootID,
 		DriverKind: patch.DriverKind,

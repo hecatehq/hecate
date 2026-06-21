@@ -82,6 +82,7 @@ func (h *Handler) projectAssistantApplication() *projectassistantapp.Application
 			Projects:         h.projects,
 			Chats:            h.agentChat,
 			Work:             h.projectWork,
+			WorkApplication:  h.projectWorkApplication(),
 			ProjectSkills:    h.projectSkills,
 			Memory:           h.memory,
 			MemoryCandidates: h.memoryCandidates,

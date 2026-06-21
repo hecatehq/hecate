@@ -9,6 +9,7 @@ import (
 	"github.com/hecatehq/hecate/internal/projectassistant"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectwork"
+	"github.com/hecatehq/hecate/internal/projectworkapp"
 )
 
 func TestApplication_ContextDelegatesToProjectAssistantService(t *testing.T) {
@@ -112,6 +113,61 @@ func TestApplication_ApplyKeepsProgressInCachedApplication(t *testing.T) {
 	}
 	if _, err := app.Apply(ctx, ApplyCommand{Proposal: proposal, Confirm: true}); !errors.Is(err, projectassistant.ErrConflict) {
 		t.Fatalf("Apply(repeated) error = %v, want ErrConflict", err)
+	}
+}
+
+func TestApplication_ApplyWorkItemDoneUsesProjectWorkAuthority(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	projectStore := projects.NewMemoryStore()
+	workStore := projectwork.NewMemoryStore()
+	if _, err := projectStore.Create(ctx, projects.Project{ID: "proj_closeout", Name: "Closeout"}); err != nil {
+		t.Fatalf("Create(project) error = %v", err)
+	}
+	if _, err := workStore.CreateWorkItem(ctx, projectwork.WorkItem{
+		ID:        "work_closeout",
+		ProjectID: "proj_closeout",
+		Title:     "Closeout gated work",
+		Status:    projectwork.WorkItemStatusReview,
+	}); err != nil {
+		t.Fatalf("CreateWorkItem() error = %v", err)
+	}
+	if _, err := workStore.CreateAssignment(ctx, projectwork.Assignment{
+		ID:         "asgn_closeout",
+		ProjectID:  "proj_closeout",
+		WorkItemID: "work_closeout",
+		RoleID:     "software_developer",
+		Status:     projectwork.AssignmentStatusCompleted,
+	}); err != nil {
+		t.Fatalf("CreateAssignment() error = %v", err)
+	}
+	app := New(Options{
+		Projects:        projectStore,
+		Work:            workStore,
+		WorkApplication: projectworkapp.New(projectworkapp.Options{Store: workStore}),
+	})
+	proposal := projectassistant.Proposal{
+		ID:                   "pa_closeout",
+		Title:                "Mark done",
+		RequiresConfirmation: true,
+		Actions: []projectassistant.Action{{
+			Kind:   projectassistant.ActionUpdateWorkItem,
+			Target: map[string]string{"project_id": "proj_closeout", "work_item_id": "work_closeout"},
+			Patch:  rawJSON(t, map[string]string{"status": projectwork.WorkItemStatusDone}),
+		}},
+	}
+
+	result, err := app.Apply(ctx, ApplyCommand{Proposal: proposal, Confirm: true})
+	if !errors.Is(err, projectassistant.ErrConflict) || !errors.Is(err, projectworkapp.ErrWorkItemCloseoutBlocked) {
+		t.Fatalf("Apply(done) result=%+v error=%v, want Project Assistant conflict wrapping closeout blocker", result, err)
+	}
+	stored, ok, err := workStore.GetWorkItem(ctx, "proj_closeout", "work_closeout")
+	if err != nil || !ok {
+		t.Fatalf("GetWorkItem() ok=%v err=%v, want stored work item", ok, err)
+	}
+	if stored.Status == projectwork.WorkItemStatusDone {
+		t.Fatalf("stored status = %q, want closeout guard to keep item open", stored.Status)
 	}
 }
 

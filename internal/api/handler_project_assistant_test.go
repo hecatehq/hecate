@@ -703,6 +703,85 @@ func TestProjectAssistantAPI_ApplyPreflightFailureIncludesEmptyProgress(t *testi
 	}
 }
 
+func TestProjectAssistantAPI_ApplyDoneReturnsCloseoutReadiness(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectAssistantTestHandler()
+	if _, err := handler.projects.Create(t.Context(), projects.Project{
+		ID:   "proj_assistant_closeout",
+		Name: "Assistant Closeout",
+	}); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	if _, err := handler.projectWork.CreateWorkItem(t.Context(), projectwork.WorkItem{
+		ID:        "work_assistant_closeout",
+		ProjectID: "proj_assistant_closeout",
+		Title:     "Guard assistant closeout",
+		Status:    projectwork.WorkItemStatusReview,
+	}); err != nil {
+		t.Fatalf("CreateWorkItem: %v", err)
+	}
+	if _, err := handler.projectWork.CreateAssignment(t.Context(), projectwork.Assignment{
+		ID:         "asgn_assistant_closeout",
+		ProjectID:  "proj_assistant_closeout",
+		WorkItemID: "work_assistant_closeout",
+		RoleID:     "software_developer",
+		Status:     projectwork.AssignmentStatusCompleted,
+	}); err != nil {
+		t.Fatalf("CreateAssignment: %v", err)
+	}
+	proposal := projectassistant.Proposal{
+		ID:                   "pa_assistant_closeout",
+		Title:                "Mark done",
+		RequiresConfirmation: true,
+		Actions: []projectassistant.Action{{
+			Kind:   projectassistant.ActionUpdateWorkItem,
+			Target: map[string]string{"project_id": "proj_assistant_closeout", "work_item_id": "work_assistant_closeout"},
+			Patch:  json.RawMessage(`{"status":"done"}`),
+		}},
+	}
+	applyBody, err := json.Marshal(map[string]any{"proposal": proposal, "confirm": true})
+	if err != nil {
+		t.Fatalf("marshal apply body: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/project-assistant/apply", bytes.NewReader(applyBody)))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("assistant closeout apply status = %d body=%s, want 409", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		Error struct {
+			Type              string                           `json:"type"`
+			Message           string                           `json:"message"`
+			OperatorAction    string                           `json:"operator_action"`
+			FailedActionIndex int                              `json:"failed_action_index"`
+			PartialResult     projectassistant.ApplyResult     `json:"partial_result"`
+			Readiness         ProjectWorkItemReadinessResponse `json:"readiness"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode assistant closeout error: %v", err)
+	}
+	if payload.Error.Type != errCodeConflict || payload.Error.FailedActionIndex != 0 || payload.Error.OperatorAction == "" {
+		t.Fatalf("assistant closeout error = %+v, want conflict at action 0 with operator action", payload.Error)
+	}
+	if payload.Error.PartialResult.ProposalID != "pa_assistant_closeout" || payload.Error.PartialResult.Applied || len(payload.Error.PartialResult.Actions) != 0 {
+		t.Fatalf("partial_result = %+v, want no committed assistant actions", payload.Error.PartialResult)
+	}
+	if payload.Error.Readiness.Ready || payload.Error.Readiness.Status != "blocked" ||
+		len(payload.Error.Readiness.MissingEvidenceAssignmentIDs) != 1 ||
+		payload.Error.Readiness.MissingEvidenceAssignmentIDs[0] != "asgn_assistant_closeout" {
+		t.Fatalf("assistant closeout readiness = %+v, want missing evidence blocker", payload.Error.Readiness)
+	}
+	stored, ok, err := handler.projectWork.GetWorkItem(t.Context(), "proj_assistant_closeout", "work_assistant_closeout")
+	if err != nil || !ok {
+		t.Fatalf("GetWorkItem() ok=%v err=%v, want stored work item", ok, err)
+	}
+	if stored.Status == projectwork.WorkItemStatusDone {
+		t.Fatalf("stored status = %q, want closeout guard to keep item open", stored.Status)
+	}
+}
+
 func TestProjectAssistantAPI_RepeatedApplyConflicts(t *testing.T) {
 	t.Parallel()
 	server := newProjectAssistantTestServer()

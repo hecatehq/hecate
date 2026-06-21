@@ -8,6 +8,7 @@ import (
 
 	"github.com/hecatehq/hecate/internal/projectassistant"
 	"github.com/hecatehq/hecate/internal/projectassistantapp"
+	"github.com/hecatehq/hecate/internal/projectworkapp"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -201,11 +202,19 @@ func writeProjectAssistantApplyError(w http.ResponseWriter, err error) {
 		return
 	}
 	status, code := projectAssistantErrorStatusCode(err)
+	fields := map[string]any{
+		"failed_action_index": applyErr.FailedActionIndex,
+		"partial_result":      applyErr.Result,
+	}
+	operatorAction := ""
+	var closeoutErr projectworkapp.WorkItemCloseoutBlockedError
+	if errors.As(err, &closeoutErr) {
+		operatorAction = "Resolve closeout readiness blockers, refresh the work item, then retry."
+		fields["readiness"] = renderProjectWorkItemReadiness(closeoutErr.Readiness)
+	}
 	WriteErrorDetails(w, status, code, err.Error(), ErrorDetails{
-		Fields: map[string]any{
-			"failed_action_index": applyErr.FailedActionIndex,
-			"partial_result":      applyErr.Result,
-		},
+		OperatorAction: operatorAction,
+		Fields:         fields,
 	})
 }
 
