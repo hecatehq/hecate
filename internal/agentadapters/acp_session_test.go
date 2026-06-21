@@ -1054,6 +1054,76 @@ func TestSessionManagerCloseTreatsUnsupportedACPCloseAsOptional(t *testing.T) {
 	}
 }
 
+func TestSessionManagerDeleteSendsACPDelete(t *testing.T) {
+	deleteFile := filepath.Join(t.TempDir(), "delete.txt")
+	t.Setenv("HECATE_FAKE_ACP_DELETE_FILE", deleteFile)
+	installFakeACPExecutable(t, "codex-acp-adapter")
+
+	manager := NewSessionManager()
+	sessionID := "chat_delete_native"
+	run, err := manager.Run(context.Background(), RunRequest{
+		SessionID:      sessionID,
+		AdapterID:      "codex",
+		Workspace:      t.TempDir(),
+		Prompt:         "delete me",
+		Timeout:        5 * time.Second,
+		MaxOutputBytes: 64 * 1024,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if strings.TrimSpace(run.NativeSessionID) == "" {
+		t.Fatalf("NativeSessionID is empty")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := manager.DeleteSession(ctx, sessionID); err != nil {
+		t.Fatalf("DeleteSession: %v", err)
+	}
+	got, err := os.ReadFile(deleteFile)
+	if err != nil {
+		t.Fatalf("read delete file: %v", err)
+	}
+	if strings.TrimSpace(string(got)) != run.NativeSessionID {
+		t.Fatalf("deleted native session = %q, want %q", strings.TrimSpace(string(got)), run.NativeSessionID)
+	}
+}
+
+func TestSessionManagerDeleteFallsBackToCloseWhenACPDeleteUnsupported(t *testing.T) {
+	closeFile := filepath.Join(t.TempDir(), "close.txt")
+	t.Setenv("HECATE_FAKE_ACP_DELETE_UNSUPPORTED", "1")
+	t.Setenv("HECATE_FAKE_ACP_CLOSE_FILE", closeFile)
+	installFakeACPExecutable(t, "codex-acp-adapter")
+
+	manager := NewSessionManager()
+	sessionID := "chat_delete_fallback_close"
+	run, err := manager.Run(context.Background(), RunRequest{
+		SessionID:      sessionID,
+		AdapterID:      "codex",
+		Workspace:      t.TempDir(),
+		Prompt:         "delete fallback",
+		Timeout:        5 * time.Second,
+		MaxOutputBytes: 64 * 1024,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := manager.DeleteSession(ctx, sessionID); err != nil {
+		t.Fatalf("DeleteSession: %v", err)
+	}
+	got, err := os.ReadFile(closeFile)
+	if err != nil {
+		t.Fatalf("read close file: %v", err)
+	}
+	if strings.TrimSpace(string(got)) != run.NativeSessionID {
+		t.Fatalf("fallback closed native session = %q, want %q", strings.TrimSpace(string(got)), run.NativeSessionID)
+	}
+}
+
 func TestSessionManagerACPApprovalApproveCreatesGrantAndReusesSession(t *testing.T) {
 	installFakeACPExecutable(t, "codex-acp-adapter")
 	workspace := t.TempDir()
@@ -2381,7 +2451,7 @@ func installFakeACPExecutable(t *testing.T, name string) {
 	}
 	exe := filepath.Join(bin, name)
 	script := fmt.Sprintf(
-		"#!/bin/sh\nHECATE_FAKE_ACP_AGENT=1 HECATE_FAKE_ACP_LOAD_SESSION_FAIL=%q HECATE_FAKE_ACP_NEW_SESSION_DELAY=%q HECATE_FAKE_ACP_COMMANDS_DELAY=%q HECATE_FAKE_ACP_MODELS=%q HECATE_FAKE_ACP_CONFIG_OPTIONS=%q HECATE_FAKE_ACP_SET_MODEL_ERROR=%q HECATE_FAKE_ACP_EXPECT_MCP_METHOD=%q HECATE_FAKE_ACP_EXPECT_MCP_JSON=%q HECATE_FAKE_ACP_AUTHENTICATE_FILE=%q HECATE_FAKE_ACP_AUTHENTICATE_ERROR=%q HECATE_FAKE_ACP_LOGOUT_FILE=%q HECATE_FAKE_ACP_LOGOUT_ERROR=%q HECATE_FAKE_ACP_AUTH_AGENT_LOGIN=%q HECATE_FAKE_ACP_AUTH_AGENT_OTHER=%q HECATE_FAKE_ACP_AUTH_ENV_VAR=%q HECATE_FAKE_ACP_AUTH_TERMINAL=%q HECATE_FAKE_ACP_SUPPORTS_LOGOUT=%q HECATE_FAKE_ACP_CLOSE_UNSUPPORTED=%q exec %q -test.run '^TestFakeACPAgentProcess$'\n",
+		"#!/bin/sh\nHECATE_FAKE_ACP_AGENT=1 HECATE_FAKE_ACP_LOAD_SESSION_FAIL=%q HECATE_FAKE_ACP_NEW_SESSION_DELAY=%q HECATE_FAKE_ACP_COMMANDS_DELAY=%q HECATE_FAKE_ACP_MODELS=%q HECATE_FAKE_ACP_CONFIG_OPTIONS=%q HECATE_FAKE_ACP_SET_MODEL_ERROR=%q HECATE_FAKE_ACP_EXPECT_MCP_METHOD=%q HECATE_FAKE_ACP_EXPECT_MCP_JSON=%q HECATE_FAKE_ACP_AUTHENTICATE_FILE=%q HECATE_FAKE_ACP_AUTHENTICATE_ERROR=%q HECATE_FAKE_ACP_LOGOUT_FILE=%q HECATE_FAKE_ACP_LOGOUT_ERROR=%q HECATE_FAKE_ACP_AUTH_AGENT_LOGIN=%q HECATE_FAKE_ACP_AUTH_AGENT_OTHER=%q HECATE_FAKE_ACP_AUTH_ENV_VAR=%q HECATE_FAKE_ACP_AUTH_TERMINAL=%q HECATE_FAKE_ACP_SUPPORTS_LOGOUT=%q HECATE_FAKE_ACP_CLOSE_UNSUPPORTED=%q HECATE_FAKE_ACP_CLOSE_FILE=%q HECATE_FAKE_ACP_DELETE_UNSUPPORTED=%q HECATE_FAKE_ACP_DELETE_FILE=%q exec %q -test.run '^TestFakeACPAgentProcess$'\n",
 		os.Getenv("HECATE_FAKE_ACP_LOAD_SESSION_FAIL"),
 		os.Getenv("HECATE_FAKE_ACP_NEW_SESSION_DELAY"),
 		os.Getenv("HECATE_FAKE_ACP_COMMANDS_DELAY"),
@@ -2400,6 +2470,9 @@ func installFakeACPExecutable(t *testing.T, name string) {
 		os.Getenv("HECATE_FAKE_ACP_AUTH_TERMINAL"),
 		os.Getenv("HECATE_FAKE_ACP_SUPPORTS_LOGOUT"),
 		os.Getenv("HECATE_FAKE_ACP_CLOSE_UNSUPPORTED"),
+		os.Getenv("HECATE_FAKE_ACP_CLOSE_FILE"),
+		os.Getenv("HECATE_FAKE_ACP_DELETE_UNSUPPORTED"),
+		os.Getenv("HECATE_FAKE_ACP_DELETE_FILE"),
 		os.Args[0],
 	)
 	if err := os.WriteFile(exe, []byte(script), 0o755); err != nil {
@@ -2460,9 +2533,12 @@ func (a *fakeACPAgent) Initialize(context.Context, acp.InitializeRequest) (acp.I
 	return acp.InitializeResponse{
 		ProtocolVersion: acp.ProtocolVersionNumber,
 		AgentCapabilities: acp.AgentCapabilities{
-			Auth:                authCaps,
-			LoadSession:         true,
-			SessionCapabilities: acp.SessionCapabilities{Close: &acp.SessionCloseCapabilities{}},
+			Auth:        authCaps,
+			LoadSession: true,
+			SessionCapabilities: acp.SessionCapabilities{
+				Close:  &acp.SessionCloseCapabilities{},
+				Delete: &acp.SessionDeleteCapabilities{},
+			},
 		},
 		AuthMethods: authMethods,
 	}, nil
@@ -2722,11 +2798,28 @@ func (a *fakeACPAgent) Cancel(_ context.Context, params acp.CancelNotification) 
 	return nil
 }
 
-func (a *fakeACPAgent) CloseSession(context.Context, acp.CloseSessionRequest) (acp.CloseSessionResponse, error) {
+func (a *fakeACPAgent) CloseSession(_ context.Context, params acp.CloseSessionRequest) (acp.CloseSessionResponse, error) {
 	if os.Getenv("HECATE_FAKE_ACP_CLOSE_UNSUPPORTED") == "1" {
 		return acp.CloseSessionResponse{}, acp.NewMethodNotFound(acp.AgentMethodSessionClose)
 	}
+	if path := strings.TrimSpace(os.Getenv("HECATE_FAKE_ACP_CLOSE_FILE")); path != "" {
+		if err := os.WriteFile(path, []byte(string(params.SessionId)+"\n"), 0o644); err != nil {
+			return acp.CloseSessionResponse{}, err
+		}
+	}
 	return acp.CloseSessionResponse{}, nil
+}
+
+func (a *fakeACPAgent) UnstableDeleteSession(_ context.Context, params acp.UnstableDeleteSessionRequest) (acp.UnstableDeleteSessionResponse, error) {
+	if os.Getenv("HECATE_FAKE_ACP_DELETE_UNSUPPORTED") == "1" {
+		return acp.UnstableDeleteSessionResponse{}, acp.NewMethodNotFound(acp.AgentMethodSessionDelete)
+	}
+	if path := strings.TrimSpace(os.Getenv("HECATE_FAKE_ACP_DELETE_FILE")); path != "" {
+		if err := os.WriteFile(path, []byte(string(params.SessionId)+"\n"), 0o644); err != nil {
+			return acp.UnstableDeleteSessionResponse{}, err
+		}
+	}
+	return acp.UnstableDeleteSessionResponse{}, nil
 }
 
 func (a *fakeACPAgent) ListSessions(context.Context, acp.ListSessionsRequest) (acp.ListSessionsResponse, error) {

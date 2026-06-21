@@ -619,7 +619,7 @@ POST /hecate/v1/mcp/probe
 
 Tool names come back un-namespaced — the operator wants to see what the upstream itself calls them, not the gateway's runtime alias. MCP Apps metadata is preserved when present: `_meta` is the raw upstream object, `ui_resource_uri` and `ui_visibility` are derived convenience fields, and `model_visible: false` means the tool is app-only and will not be shown to the agent-loop model. Bounded by a 10-second deadline; a stuck upstream surfaces as a 400 with the diagnostic rather than wedging the request.
 
-`POST /hecate/v1/system/reset-data` resets local operator state without restarting the gateway. It deletes chat sessions, projects, project memory entries and candidates, project work-coordination rows, plugin registry records, agent profiles, tasks, configured providers, policy rules, and saved external-agent approval grants. Chat sessions are deleted through the normal chat-delete path first, so live external-agent sessions are closed before their rows disappear. When SQLite or Postgres is configured, it then clears remaining Hecate-prefixed database table rows while preserving schemas. Workspace files and external CLI auth files are not touched. The endpoint is local-only and blocked in remote runtime mode: non-loopback sockets and forwarded-client headers are rejected.
+`POST /hecate/v1/system/reset-data` resets local operator state without restarting the gateway. It deletes chat sessions, projects, project memory entries and candidates, project work-coordination rows, plugin registry records, agent profiles, tasks, configured providers, policy rules, and saved external-agent approval grants. Chat sessions are deleted through the normal chat-delete path first, so live external-agent sessions are asked to delete their native ACP session before their rows disappear. If an adapter does not support `session/delete`, Hecate falls back to `session/close` and still tears down the owned process. When SQLite or Postgres is configured, it then clears remaining Hecate-prefixed database table rows while preserving schemas. Workspace files and external CLI auth files are not touched. The endpoint is local-only and blocked in remote runtime mode: non-loopback sockets and forwarded-client headers are rejected.
 
 ```json
 → 200
@@ -1931,10 +1931,12 @@ POST /hecate/v1/projects/proj_.../context-sources/discover
 
 Deletes the project catalog entry, its roots, and chat sessions scoped to that
 project. It also deletes project memory entries, memory candidates, and project work-coordination
-rows for that project. This does not delete workspace files. Unprojected chats
-and chats scoped to other projects stay untouched. Assignment links to task/chat
-IDs are metadata only; the linked tasks or unprojected chat sessions are not
-deleted through assignment cleanup.
+rows for that project. Project-scoped External Agent chats are deleted through
+the normal chat-delete path, so Hecate asks the adapter to delete the native ACP
+session where supported. This does not delete workspace files. Unprojected
+chats and chats scoped to other projects stay untouched. Assignment links to
+task/chat IDs are metadata only; the linked tasks or unprojected chat sessions
+are not deleted through assignment cleanup.
 
 ### Project Memory
 
@@ -4473,13 +4475,16 @@ currently running, the endpoint returns `409 invalid_request`.
 
 Closes the native ACP agent session while keeping the Hecate chat history.
 If a turn is currently running, Hecate cancels and waits briefly before closing
-the external session.
+the external session. This uses ACP `session/close` and does not delete the
+provider-side native session from the adapter's session list.
 
 ### `DELETE /hecate/v1/chat/sessions/{id}`
 
 Deletes a chat session from the configured chat-session backend.
-If the session has an active native ACP agent process, Hecate closes the
-native session and terminates the owned process as part of deletion.
+If the session has an active native ACP agent process, Hecate asks the adapter
+to delete the native session with ACP `session/delete` and terminates the owned
+process as part of deletion. If the adapter does not support `session/delete`,
+Hecate falls back to `session/close` before tearing down the process.
 If the session is a task-backed Hecate Chat with a non-terminal backing run,
 Hecate cancels that run before removing the chat transcript. The backing Task
 record remains available from Tasks.

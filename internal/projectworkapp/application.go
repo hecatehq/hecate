@@ -38,6 +38,7 @@ type TaskRunner interface {
 type AgentRunner interface {
 	PrepareSession(context.Context, agentadapters.PrepareSessionRequest) (agentadapters.PrepareSessionResult, error)
 	CloseSession(context.Context, string) error
+	DeleteSession(context.Context, string) error
 }
 
 type ChatSessionStore interface {
@@ -626,7 +627,7 @@ func (app *Application) cleanupExternalSession(sessionID string) {
 	if app.prepareTimeout > 0 {
 		cleanupCtx, cancel = context.WithTimeout(cleanupCtx, app.prepareTimeout)
 	}
-	_ = app.agentRunner.CloseSession(cleanupCtx, sessionID)
+	_ = app.agentRunner.DeleteSession(cleanupCtx, sessionID)
 	cancel()
 	_ = app.chatStore.Delete(context.Background(), sessionID)
 }

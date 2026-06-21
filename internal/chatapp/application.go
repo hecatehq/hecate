@@ -57,6 +57,7 @@ type TaskStore interface {
 type AgentRunner interface {
 	PrepareSession(context.Context, agentadapters.PrepareSessionRequest) (agentadapters.PrepareSessionResult, error)
 	CloseSession(context.Context, string) error
+	DeleteSession(context.Context, string) error
 	SetSessionConfigOption(context.Context, agentadapters.SetSessionConfigOptionRequest) (agentadapters.SetSessionConfigOptionResult, error)
 }
 
@@ -86,8 +87,8 @@ type CreateSessionResult struct {
 }
 
 type DeleteSessionCommand struct {
-	Session     chat.Session
-	CloseNative bool
+	Session      chat.Session
+	DeleteNative bool
 }
 
 type CloseNativeSessionCommand struct {
@@ -378,8 +379,8 @@ func (app *Application) DeleteSession(ctx context.Context, cmd DeleteSessionComm
 	if app == nil || app.store == nil {
 		return ErrStoreNotConfigured
 	}
-	if cmd.CloseNative && app.runner != nil {
-		_ = app.runner.CloseSession(ctx, cmd.Session.ID)
+	if cmd.DeleteNative && app.runner != nil {
+		_ = app.runner.DeleteSession(ctx, cmd.Session.ID)
 	}
 	return app.store.Delete(ctx, cmd.Session.ID)
 }
@@ -582,7 +583,7 @@ func (app *Application) cleanupExternalSession(sessionID string) {
 	if app.prepareTimeout > 0 {
 		cleanupCtx, cancel = context.WithTimeout(cleanupCtx, app.prepareTimeout)
 	}
-	_ = app.runner.CloseSession(cleanupCtx, sessionID)
+	_ = app.runner.DeleteSession(cleanupCtx, sessionID)
 	cancel()
 	_ = app.store.Delete(context.Background(), sessionID)
 }

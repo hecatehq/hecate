@@ -74,6 +74,10 @@ func (r failingShutdownAgentChatRunner) CloseSession(context.Context, string) er
 	return nil
 }
 
+func (r failingShutdownAgentChatRunner) DeleteSession(context.Context, string) error {
+	return nil
+}
+
 func (r failingShutdownAgentChatRunner) Shutdown(context.Context) error {
 	return r.err
 }

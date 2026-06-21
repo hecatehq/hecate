@@ -573,7 +573,10 @@ func TestProjectsAPI_DeleteProjectDeletesProjectChats(t *testing.T) {
 	if !ids["chat_other"] || !ids["chat_unprojected"] {
 		t.Fatalf("unrelated chats = %v, want other project and unprojected chats retained", ids)
 	}
-	if len(runner.closedSessions) != 1 || runner.closedSessions[0] != "chat_project_external" {
-		t.Fatalf("closed sessions = %#v, want project external chat closed", runner.closedSessions)
+	if len(runner.deletedSessions) != 1 || runner.deletedSessions[0] != "chat_project_external" {
+		t.Fatalf("deleted sessions = %#v, want project external chat deleted", runner.deletedSessions)
+	}
+	if len(runner.closedSessions) != 0 {
+		t.Fatalf("closed sessions = %#v, want project delete not close", runner.closedSessions)
 	}
 }

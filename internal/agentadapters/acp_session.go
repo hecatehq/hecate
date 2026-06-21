@@ -14,5 +14,6 @@ type Runner interface {
 	Run(context.Context, RunRequest) (RunResult, error)
 	SetSessionConfigOption(context.Context, SetSessionConfigOptionRequest) (SetSessionConfigOptionResult, error)
 	CloseSession(context.Context, string) error
+	DeleteSession(context.Context, string) error
 	Shutdown(context.Context) error
 }

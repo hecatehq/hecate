@@ -496,9 +496,12 @@ quit / restart from leaving Codex, Claude Code, Cursor Agent, or Grok Build
 processes behind. If an ACP peer does not implement `session/close`, Hecate
 treats that as an optional shutdown method and still terminates the owned
 process group.
-Operators can also close an External Agent chat session manually to release the external
-agent process while keeping the Hecate chat history. Deleting a chat performs
-the same release step and then removes the persisted history.
+Operators can also close an External Agent chat session manually to release the
+external agent process while keeping the Hecate chat history. Deleting a chat is
+destructive: Hecate asks the ACP peer to delete the native session with
+`session/delete` before removing the persisted Hecate transcript. If an adapter
+does not implement `session/delete`, Hecate falls back to `session/close` and
+still terminates the owned process group.
 
 Every prompt also gets OTel-shaped observability. The message response includes
 `request_id`, `trace_id`, and `span_id`, and `GET

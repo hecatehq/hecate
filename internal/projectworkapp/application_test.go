@@ -454,6 +454,7 @@ func TestApplication_StartTaskAssignmentRunnerFailureMarksFailed(t *testing.T) {
 type recordingAgentRunner struct {
 	prepareCalls int
 	closeCalls   int
+	deleteCalls  int
 	prepareErr   error
 	prepareReq   agentadapters.PrepareSessionRequest
 }
@@ -473,6 +474,11 @@ func (r *recordingAgentRunner) PrepareSession(_ context.Context, req agentadapte
 
 func (r *recordingAgentRunner) CloseSession(_ context.Context, _ string) error {
 	r.closeCalls++
+	return nil
+}
+
+func (r *recordingAgentRunner) DeleteSession(_ context.Context, _ string) error {
+	r.deleteCalls++
 	return nil
 }
 
@@ -535,8 +541,8 @@ func TestApplication_StartExternalAgentAssignmentPreparesAndLinksSession(t *test
 	if err != nil {
 		t.Fatalf("StartExternalAgentAssignment() error = %v", err)
 	}
-	if runner.prepareCalls != 1 || runner.closeCalls != 0 {
-		t.Fatalf("runner prepare/close = %d/%d, want 1/0", runner.prepareCalls, runner.closeCalls)
+	if runner.prepareCalls != 1 || runner.closeCalls != 0 || runner.deleteCalls != 0 {
+		t.Fatalf("runner prepare/close/delete = %d/%d/%d, want 1/0/0", runner.prepareCalls, runner.closeCalls, runner.deleteCalls)
 	}
 	if got := runner.prepareReq.MCPServers; len(got) != 1 || got[0].Name != "fs" || got[0].Args[0] != "server.js" {
 		t.Fatalf("prepare MCP servers = %+v, want fs server", got)
@@ -657,8 +663,11 @@ func TestApplication_StartExternalAgentAssignmentCleansPreparedSessionWhenClaimL
 	if result == nil || result.Assignment.ExecutionRef.ChatSessionID != "chat_winner" {
 		t.Fatalf("result = %+v, want winning assignment", result)
 	}
-	if runner.prepareCalls != 1 || runner.closeCalls != 1 {
-		t.Fatalf("runner prepare/close = %d/%d, want 1/1 cleanup", runner.prepareCalls, runner.closeCalls)
+	if runner.prepareCalls != 1 || runner.deleteCalls != 1 {
+		t.Fatalf("runner prepare/delete = %d/%d, want 1/1 cleanup", runner.prepareCalls, runner.deleteCalls)
+	}
+	if runner.closeCalls != 0 {
+		t.Fatalf("closeCalls = %d, want destructive cleanup to use delete", runner.closeCalls)
 	}
 	if _, ok, err := chatStore.Get(ctx, "chat_ext"); err != nil || ok {
 		t.Fatalf("Get(chat_ext) ok=%v err=%v, want cleaned session", ok, err)
