@@ -520,7 +520,12 @@ retains bounded merged stdout/stderr for `terminal/output`, supports
 `terminal/release`. Terminal output retention truncates from the beginning at a
 valid UTF-8 boundary when the agent supplies `outputByteLimit`. Env variable
 names are included in approval context; env values are not persisted in the
-approval payload.
+approval payload. Terminal lifecycle callbacks are also projected into the
+chat activity timeline as `terminal` rows: Hecate records the command, working
+directory, running/completed/failed/cancelled status, exit code when available,
+and a bounded output preview after the process exits. This makes approved
+client-side commands visible after refresh even though Hecate does not expose
+an embedded operator terminal UI.
 
 On Hecate shutdown, active External Agent turns are cancelled first. Hecate waits
 briefly for the ACP turn to drain, closes any unreleased ACP terminals, asks the

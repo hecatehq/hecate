@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -31,6 +32,16 @@ func TestAcpChatClientTerminalRPCsDisabledByDefault(t *testing.T) {
 	}
 }
 
+func TestTerminalCommandLineQuotesDisplayArgs(t *testing.T) {
+	t.Parallel()
+
+	got := terminalCommandLine("my cmd", []string{"-c", "printf 'hello world'", ""})
+	want := `'my cmd' -c 'printf '\''hello world'\''' ''`
+	if got != want {
+		t.Fatalf("terminalCommandLine = %q, want %q", got, want)
+	}
+}
+
 func TestAcpChatClientTerminalRPCLifecycle(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("unix shell semantics")
@@ -39,6 +50,7 @@ func TestAcpChatClientTerminalRPCLifecycle(t *testing.T) {
 
 	workspace := t.TempDir()
 	client, _ := newTerminalTestClient(workspace, ModeAuto)
+	activities := attachTerminalActivityCapture(client)
 
 	ctx := context.Background()
 	resp, err := client.CreateTerminal(ctx, acp.CreateTerminalRequest{
@@ -77,8 +89,31 @@ func TestAcpChatClientTerminalRPCLifecycle(t *testing.T) {
 	if output.ExitStatus == nil || output.ExitStatus.ExitCode == nil || *output.ExitStatus.ExitCode != 0 {
 		t.Fatalf("TerminalOutput exit status = %+v, want exit code 0", output.ExitStatus)
 	}
+	running := findTerminalActivity(activities.snapshot(), resp.TerminalId, "running")
+	if running == nil {
+		t.Fatalf("terminal activities = %+v, want running activity", activities.snapshot())
+	}
+	if running.Type != "terminal" || running.Kind != "execute" || running.Title != "Terminal command" {
+		t.Fatalf("running terminal activity = %+v, want terminal execute title", *running)
+	}
+	if !strings.Contains(running.Detail, "cwd "+workspace) || !strings.Contains(running.Detail, "sh -c") {
+		t.Fatalf("running terminal detail = %q, want command and cwd", running.Detail)
+	}
+	completed := findTerminalActivity(activities.snapshot(), resp.TerminalId, "completed")
+	if completed == nil {
+		t.Fatalf("terminal activities = %+v, want completed activity", activities.snapshot())
+	}
+	if !strings.Contains(completed.Detail, "exit code 0") {
+		t.Fatalf("completed terminal detail = %q, want exit code", completed.Detail)
+	}
+	if !strings.Contains(completed.ArtifactPreview, "hello world") || !strings.Contains(completed.ArtifactPreview, "err") {
+		t.Fatalf("completed terminal preview = %q, want retained output", completed.ArtifactPreview)
+	}
 	if _, err := client.ReleaseTerminal(ctx, acp.ReleaseTerminalRequest{TerminalId: resp.TerminalId}); err != nil {
 		t.Fatalf("ReleaseTerminal: %v", err)
+	}
+	if got := countTerminalActivities(activities.snapshot(), resp.TerminalId, "completed"); got != 1 {
+		t.Fatalf("completed terminal activity count = %d, want 1 after wait+release", got)
 	}
 	if _, err := client.TerminalOutput(ctx, acp.TerminalOutputRequest{TerminalId: resp.TerminalId}); err == nil {
 		t.Fatal("TerminalOutput after release succeeded; want not found")
@@ -129,6 +164,7 @@ func TestAcpChatClientTerminalRPCKillKeepsTerminalReadable(t *testing.T) {
 
 	workspace := t.TempDir()
 	client, _ := newTerminalTestClient(workspace, ModeAuto)
+	activities := attachTerminalActivityCapture(client)
 	resp, err := client.CreateTerminal(context.Background(), acp.CreateTerminalRequest{
 		Command: "sh",
 		Args:    []string{"-c", "printf 'started\n'; exec sleep 60"},
@@ -156,6 +192,62 @@ func TestAcpChatClientTerminalRPCKillKeepsTerminalReadable(t *testing.T) {
 	if !strings.Contains(output.Output, "started") {
 		t.Fatalf("TerminalOutput output = %q, want retained output after kill", output.Output)
 	}
+	cancelled := findTerminalActivity(activities.snapshot(), resp.TerminalId, "cancelled")
+	if cancelled == nil {
+		t.Fatalf("terminal activities = %+v, want cancelled activity", activities.snapshot())
+	}
+	if !strings.Contains(cancelled.Detail, "killed") {
+		t.Fatalf("cancelled terminal detail = %q, want kill reason", cancelled.Detail)
+	}
+}
+
+type terminalActivityCapture struct {
+	mu         sync.Mutex
+	activities []Activity
+}
+
+func attachTerminalActivityCapture(client *acpChatClient) *terminalActivityCapture {
+	capture := &terminalActivityCapture{}
+	turn := newACPTurn(64*1024, nil)
+	turn.setActivityCallback(capture.record)
+	client.setTurn(turn)
+	return capture
+}
+
+func (c *terminalActivityCapture) record(activity Activity) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.activities = append(c.activities, activity)
+}
+
+func (c *terminalActivityCapture) snapshot() []Activity {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make([]Activity, len(c.activities))
+	copy(out, c.activities)
+	return out
+}
+
+func findTerminalActivity(activities []Activity, terminalID, status string) *Activity {
+	id := "terminal:" + terminalID
+	for i := len(activities) - 1; i >= 0; i-- {
+		activity := activities[i]
+		if activity.ID == id && activity.Status == status {
+			return &activity
+		}
+	}
+	return nil
+}
+
+func countTerminalActivities(activities []Activity, terminalID, status string) int {
+	id := "terminal:" + terminalID
+	var count int
+	for _, activity := range activities {
+		if activity.ID == id && activity.Status == status {
+			count++
+		}
+	}
+	return count
 }
 
 func waitForTerminalOutput(t *testing.T, client *acpChatClient, terminalID string, want string) {
