@@ -88,6 +88,10 @@ describe("Project Assistant controller helpers", () => {
           partial_result: {
             proposal_id: "pa_partial",
             applied: false,
+            total_action_count: 2,
+            committed_action_count: 1,
+            failed_action_index: 1,
+            resume_action_index: 1,
             actions: [{ kind: "create_assignment", id: "asgn_1" }],
           },
         },
@@ -97,5 +101,26 @@ describe("Project Assistant controller helpers", () => {
     expect(partial).toContain("applied 1 of 2 actions");
     expect(partial).toContain("create assignment asgn_1");
     expect(partial).toContain("failed at action 2 (create memory candidate)");
+
+    const serverCountedPartial = projectAssistantApplyErrorMessage(
+      new ApiError("partial", 409, "conflict", {
+        fields: {
+          failed_action_index: 1,
+          total_action_count: 3,
+          committed_action_count: 1,
+          resume_action_index: 1,
+          partial_result: {
+            proposal_id: "pa_partial",
+            applied: false,
+            total_action_count: 3,
+            committed_action_count: 1,
+            failed_action_index: 1,
+            resume_action_index: 1,
+            actions: [{ kind: "create_assignment", id: "asgn_1" }],
+          },
+        },
+      }),
+    );
+    expect(serverCountedPartial).toContain("applied 1 of 3 actions");
   });
 });

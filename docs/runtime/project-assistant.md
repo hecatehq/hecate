@@ -158,8 +158,10 @@ partial action results and `failed_action_index`. Retrying the exact same
 proposal resumes at the next unapplied action. Retrying the same proposal id
 with a changed action set returns `409 conflict`, and retrying a fully applied
 proposal also returns `409 conflict`. Clients should show the landed action
-kinds and ids from `partial_result.actions`; an empty list means preflight
-blocked the proposal before anything landed.
+kinds and ids from `partial_result.actions`; `committed_action_count`,
+`failed_action_index`, `resume_action_index`, and `total_action_count` are the
+server-owned progress counters. An empty list and `committed_action_count: 0`
+mean preflight blocked the proposal before anything landed.
 
 Future versions may persist proposal ids server-side so reviewed actions,
 confirmation, and resumable progress survive process restarts. In v0 the
@@ -438,6 +440,9 @@ POST /hecate/v1/project-assistant/apply
   "data": {
     "proposal_id": "pa_...",
     "applied": true,
+    "total_action_count": 1,
+    "committed_action_count": 1,
+    "resume_action_index": 1,
     "actions": [
       {
         "kind": "create_project",
@@ -467,9 +472,16 @@ same field lists the landed action kinds and ids:
     "type": "not_found",
     "message": "project assistant apply failed at action 1: project assistant target not found: project \"proj_missing\"",
     "failed_action_index": 1,
+    "total_action_count": 2,
+    "committed_action_count": 1,
+    "resume_action_index": 1,
     "partial_result": {
       "proposal_id": "pa_...",
       "applied": false,
+      "total_action_count": 2,
+      "committed_action_count": 1,
+      "failed_action_index": 1,
+      "resume_action_index": 1,
       "actions": [
         {
           "kind": "create_project",

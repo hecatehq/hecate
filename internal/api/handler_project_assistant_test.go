@@ -36,10 +36,13 @@ type projectAssistantContextResponse struct {
 
 type projectAssistantErrorResponse struct {
 	Error struct {
-		Type              string                       `json:"type"`
-		Message           string                       `json:"message"`
-		FailedActionIndex int                          `json:"failed_action_index"`
-		PartialResult     projectassistant.ApplyResult `json:"partial_result"`
+		Type                 string                       `json:"type"`
+		Message              string                       `json:"message"`
+		FailedActionIndex    int                          `json:"failed_action_index"`
+		TotalActionCount     int                          `json:"total_action_count"`
+		CommittedActionCount int                          `json:"committed_action_count"`
+		ResumeActionIndex    int                          `json:"resume_action_index"`
+		PartialResult        projectassistant.ApplyResult `json:"partial_result"`
 	} `json:"error"`
 }
 
@@ -633,6 +636,9 @@ func TestProjectAssistantAPI_ProposeAndApplyCreateProject(t *testing.T) {
 	if applied.Object != "project_assistant.apply_result" || !applied.Data.Applied || applied.Data.ProposalID != "pa_api" {
 		t.Fatalf("apply response = %+v, want applied project assistant result", applied)
 	}
+	if applied.Data.TotalActionCount != 1 || applied.Data.CommittedActionCount != 1 || applied.Data.ResumeActionIndex != 1 || applied.Data.FailedActionIndex != nil {
+		t.Fatalf("apply progress = %+v, want applied counts for one action", applied.Data)
+	}
 
 	rec = httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_api", nil))
@@ -694,9 +700,15 @@ func TestProjectAssistantAPI_ApplyPreflightFailureIncludesEmptyProgress(t *testi
 	if payload.Error.Type != errCodeNotFound || payload.Error.FailedActionIndex != 1 {
 		t.Fatalf("error = %+v, want not_found at action index 1", payload.Error)
 	}
+	if payload.Error.TotalActionCount != 2 || payload.Error.CommittedActionCount != 0 || payload.Error.ResumeActionIndex != 0 {
+		t.Fatalf("error progress = %+v, want failed action 1 and resume action 0", payload.Error)
+	}
 	partial := payload.Error.PartialResult
 	if partial.ProposalID != "pa_preflight_api" || partial.Applied || len(partial.Actions) != 0 {
 		t.Fatalf("partial_result = %+v, want no action results before preflight failure", partial)
+	}
+	if partial.TotalActionCount != 2 || partial.CommittedActionCount != 0 || partial.ResumeActionIndex != 0 || partial.FailedActionIndex == nil || *partial.FailedActionIndex != 1 {
+		t.Fatalf("partial_result progress = %+v, want failed action 1 and resume action 0", partial)
 	}
 	if _, ok, err := handler.projects.Get(t.Context(), "proj_preflight_api"); err != nil || ok {
 		t.Fatalf("Get preflight-blocked project ok=%v err=%v, want no durable mutation", ok, err)
@@ -751,12 +763,15 @@ func TestProjectAssistantAPI_ApplyDoneReturnsCloseoutReadiness(t *testing.T) {
 	}
 	var payload struct {
 		Error struct {
-			Type              string                           `json:"type"`
-			Message           string                           `json:"message"`
-			OperatorAction    string                           `json:"operator_action"`
-			FailedActionIndex int                              `json:"failed_action_index"`
-			PartialResult     projectassistant.ApplyResult     `json:"partial_result"`
-			Readiness         ProjectWorkItemReadinessResponse `json:"readiness"`
+			Type                 string                           `json:"type"`
+			Message              string                           `json:"message"`
+			OperatorAction       string                           `json:"operator_action"`
+			FailedActionIndex    int                              `json:"failed_action_index"`
+			TotalActionCount     int                              `json:"total_action_count"`
+			CommittedActionCount int                              `json:"committed_action_count"`
+			ResumeActionIndex    int                              `json:"resume_action_index"`
+			PartialResult        projectassistant.ApplyResult     `json:"partial_result"`
+			Readiness            ProjectWorkItemReadinessResponse `json:"readiness"`
 		} `json:"error"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
@@ -765,8 +780,14 @@ func TestProjectAssistantAPI_ApplyDoneReturnsCloseoutReadiness(t *testing.T) {
 	if payload.Error.Type != errCodeConflict || payload.Error.FailedActionIndex != 0 || payload.Error.OperatorAction == "" {
 		t.Fatalf("assistant closeout error = %+v, want conflict at action 0 with operator action", payload.Error)
 	}
+	if payload.Error.TotalActionCount != 1 || payload.Error.CommittedActionCount != 0 || payload.Error.ResumeActionIndex != 0 {
+		t.Fatalf("assistant closeout progress = %+v, want failed action 0 and resume action 0", payload.Error)
+	}
 	if payload.Error.PartialResult.ProposalID != "pa_assistant_closeout" || payload.Error.PartialResult.Applied || len(payload.Error.PartialResult.Actions) != 0 {
 		t.Fatalf("partial_result = %+v, want no committed assistant actions", payload.Error.PartialResult)
+	}
+	if payload.Error.PartialResult.TotalActionCount != 1 || payload.Error.PartialResult.CommittedActionCount != 0 || payload.Error.PartialResult.ResumeActionIndex != 0 || payload.Error.PartialResult.FailedActionIndex == nil || *payload.Error.PartialResult.FailedActionIndex != 0 {
+		t.Fatalf("partial_result progress = %+v, want failed action 0 and resume action 0", payload.Error.PartialResult)
 	}
 	if payload.Error.Readiness.Ready || payload.Error.Readiness.Status != "blocked" ||
 		len(payload.Error.Readiness.MissingEvidenceAssignmentIDs) != 1 ||

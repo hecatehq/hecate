@@ -1185,9 +1185,16 @@ describe("api client", () => {
               type: "conflict",
               message: "project assistant apply failed",
               failed_action_index: 1,
+              total_action_count: 2,
+              committed_action_count: 1,
+              resume_action_index: 1,
               partial_result: {
                 proposal_id: "pa_partial",
                 applied: false,
+                total_action_count: 2,
+                committed_action_count: 1,
+                failed_action_index: 1,
+                resume_action_index: 1,
                 actions: [{ kind: "create_assignment", id: "asgn_1" }],
               },
             },
@@ -1199,9 +1206,16 @@ describe("api client", () => {
       await expect(getUsageSummary("?scope=global")).rejects.toMatchObject({
         fields: {
           failed_action_index: 1,
+          total_action_count: 2,
+          committed_action_count: 1,
+          resume_action_index: 1,
           partial_result: {
             proposal_id: "pa_partial",
             applied: false,
+            total_action_count: 2,
+            committed_action_count: 1,
+            failed_action_index: 1,
+            resume_action_index: 1,
             actions: [{ kind: "create_assignment", id: "asgn_1" }],
           },
         },

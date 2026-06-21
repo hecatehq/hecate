@@ -203,8 +203,11 @@ func writeProjectAssistantApplyError(w http.ResponseWriter, err error) {
 	}
 	status, code := projectAssistantErrorStatusCode(err)
 	fields := map[string]any{
-		"failed_action_index": applyErr.FailedActionIndex,
-		"partial_result":      applyErr.Result,
+		"failed_action_index":    applyErr.FailedActionIndex,
+		"total_action_count":     applyErr.Result.TotalActionCount,
+		"committed_action_count": applyErr.Result.CommittedActionCount,
+		"resume_action_index":    applyErr.Result.ResumeActionIndex,
+		"partial_result":         applyErr.Result,
 	}
 	operatorAction := ""
 	var closeoutErr projectworkapp.WorkItemCloseoutBlockedError

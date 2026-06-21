@@ -437,6 +437,7 @@ function ProjectAssistantApplyResultPanel({
   setupFirst: boolean;
   workItemCount: number;
 }) {
+  const appliedCount = result.committed_action_count ?? result.actions.length;
   const resultActions = projectAssistantFollowUpActions({
     memoryCandidateCount,
     onCreateWork,
@@ -456,7 +457,7 @@ function ProjectAssistantApplyResultPanel({
         <span className="badge badge-green">applied</span>
         <div style={assistantResultCopyStyle}>
           <strong style={{ color: "var(--t1)" }}>
-            Applied {result.actions.length} action{result.actions.length === 1 ? "" : "s"}
+            Applied {appliedCount} action{appliedCount === 1 ? "" : "s"}
           </strong>
           <span style={subtleTextStyle}>Proposal {result.proposal_id} is applied.</span>
         </div>
