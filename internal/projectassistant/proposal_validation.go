@@ -11,33 +11,27 @@ import (
 
 func validateActionShape(action Action) error {
 	kind := normalizeKind(action.Kind)
-	switch kind {
-	case ActionCreateProject, ActionUpdateProject, ActionAttachProjectRoot, ActionRemoveProjectRoot,
-		ActionSetProjectDefaults, ActionMoveChatSession, ActionCreateRole, ActionCreateWorkItem, ActionUpdateWorkItem,
-		ActionCreateAssignment, ActionCreateHandoff, ActionUpdateHandoff, ActionCreateMemoryCandidate:
-		if len(action.Patch) == 0 && kind != ActionRemoveProjectRoot {
-			return fmt.Errorf("%w: action %q patch is required", ErrInvalid, kind)
-		}
-		if kind == ActionCreateAssignment {
-			hasRuntimeLinks, err := assignmentPatchHasRuntimeLinks(action.Patch)
-			if err != nil {
-				return err
-			}
-			if hasRuntimeLinks {
-				return fmt.Errorf("%w: create_assignment proposals cannot bind chats, tasks, runs, messages, or snapshots", ErrInvalid)
-			}
-			var patch assignmentPatch
-			if err := decodePatch(action, &patch); err != nil {
-				return err
-			}
-			if err := validateAssignmentProposalBoundary(patch); err != nil {
-				return err
-			}
-		}
-		return nil
-	default:
+	if _, ok := lookupApplyActionSpec(kind); !ok {
 		return fmt.Errorf("%w: %s", ErrUnknownActionKind, action.Kind)
 	}
+	if len(action.Patch) == 0 && kind != ActionRemoveProjectRoot {
+		return fmt.Errorf("%w: action %q patch is required", ErrInvalid, kind)
+	}
+	if kind != ActionCreateAssignment {
+		return nil
+	}
+	hasRuntimeLinks, err := assignmentPatchHasRuntimeLinks(action.Patch)
+	if err != nil {
+		return err
+	}
+	if hasRuntimeLinks {
+		return fmt.Errorf("%w: create_assignment proposals cannot bind chats, tasks, runs, messages, or snapshots", ErrInvalid)
+	}
+	var patch assignmentPatch
+	if err := decodePatch(action, &patch); err != nil {
+		return err
+	}
+	return validateAssignmentProposalBoundary(patch)
 }
 
 func validateAssignmentProposalBoundary(patch assignmentPatch) error {

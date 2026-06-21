@@ -45,6 +45,19 @@ func (s *Service) Apply(ctx context.Context, proposal Proposal, confirmed bool) 
 	if progress.fingerprint != fingerprint {
 		return ApplyResult{}, fmt.Errorf("%w: proposal %q action set changed after partial apply", ErrConflict, proposal.ID)
 	}
+	if failedActionIndex, err := s.preflightApply(ctx, proposal.Actions, len(progress.results)); err != nil {
+		partial := ApplyResult{
+			ProposalID: proposal.ID,
+			Applied:    false,
+			Actions:    cloneActionResults(progress.results),
+		}
+		return partial, &ApplyError{
+			ProposalID:        proposal.ID,
+			FailedActionIndex: failedActionIndex,
+			Result:            partial,
+			Err:               err,
+		}
+	}
 
 	for idx := len(progress.results); idx < len(proposal.Actions); idx++ {
 		action := proposal.Actions[idx]
@@ -70,37 +83,47 @@ func (s *Service) Apply(ctx context.Context, proposal Proposal, confirmed bool) 
 	return ApplyResult{ProposalID: proposal.ID, Applied: true, Actions: cloneActionResults(progress.results)}, nil
 }
 
+type applyActionSpec struct {
+	kind      string
+	preflight func(*applyPreflight, context.Context, Action) error
+	apply     func(*Service, context.Context, Action) (ActionResult, error)
+}
+
+// applyActionSpecs is the maintenance contract between preflight and durable
+// apply. Add new Project Assistant mutation kinds here so the stale-target
+// preflight and the store-writing handler stay visibly paired.
+var applyActionSpecs = []applyActionSpec{
+	{kind: ActionCreateProject, preflight: (*applyPreflight).createProject, apply: (*Service).applyCreateProject},
+	{kind: ActionUpdateProject, preflight: (*applyPreflight).updateProject, apply: (*Service).applyUpdateProject},
+	{kind: ActionAttachProjectRoot, preflight: (*applyPreflight).attachProjectRoot, apply: (*Service).applyAttachProjectRoot},
+	{kind: ActionRemoveProjectRoot, preflight: (*applyPreflight).removeProjectRoot, apply: (*Service).applyRemoveProjectRoot},
+	{kind: ActionSetProjectDefaults, preflight: (*applyPreflight).setProjectDefaults, apply: (*Service).applySetProjectDefaults},
+	{kind: ActionMoveChatSession, preflight: (*applyPreflight).moveChatSession, apply: (*Service).applyMoveChatSession},
+	{kind: ActionCreateRole, preflight: (*applyPreflight).createRole, apply: (*Service).applyCreateRole},
+	{kind: ActionCreateWorkItem, preflight: (*applyPreflight).createWorkItem, apply: (*Service).applyCreateWorkItem},
+	{kind: ActionUpdateWorkItem, preflight: (*applyPreflight).updateWorkItem, apply: (*Service).applyUpdateWorkItem},
+	{kind: ActionCreateAssignment, preflight: (*applyPreflight).createAssignment, apply: (*Service).applyCreateAssignment},
+	{kind: ActionCreateHandoff, preflight: (*applyPreflight).createHandoff, apply: (*Service).applyCreateHandoff},
+	{kind: ActionUpdateHandoff, preflight: (*applyPreflight).updateHandoff, apply: (*Service).applyUpdateHandoff},
+	{kind: ActionCreateMemoryCandidate, preflight: (*applyPreflight).createMemoryCandidate, apply: (*Service).applyCreateMemoryCandidate},
+}
+
+func lookupApplyActionSpec(kind string) (applyActionSpec, bool) {
+	kind = normalizeKind(kind)
+	for _, spec := range applyActionSpecs {
+		if spec.kind == kind {
+			return spec, true
+		}
+	}
+	return applyActionSpec{}, false
+}
+
 func (s *Service) applyAction(ctx context.Context, action Action) (ActionResult, error) {
-	switch normalizeKind(action.Kind) {
-	case ActionCreateProject:
-		return s.applyCreateProject(ctx, action)
-	case ActionUpdateProject:
-		return s.applyUpdateProject(ctx, action)
-	case ActionAttachProjectRoot:
-		return s.applyAttachProjectRoot(ctx, action)
-	case ActionRemoveProjectRoot:
-		return s.applyRemoveProjectRoot(ctx, action)
-	case ActionSetProjectDefaults:
-		return s.applySetProjectDefaults(ctx, action)
-	case ActionMoveChatSession:
-		return s.applyMoveChatSession(ctx, action)
-	case ActionCreateRole:
-		return s.applyCreateRole(ctx, action)
-	case ActionCreateWorkItem:
-		return s.applyCreateWorkItem(ctx, action)
-	case ActionUpdateWorkItem:
-		return s.applyUpdateWorkItem(ctx, action)
-	case ActionCreateAssignment:
-		return s.applyCreateAssignment(ctx, action)
-	case ActionCreateHandoff:
-		return s.applyCreateHandoff(ctx, action)
-	case ActionUpdateHandoff:
-		return s.applyUpdateHandoff(ctx, action)
-	case ActionCreateMemoryCandidate:
-		return s.applyCreateMemoryCandidate(ctx, action)
-	default:
+	spec, ok := lookupApplyActionSpec(action.Kind)
+	if !ok {
 		return ActionResult{}, fmt.Errorf("%w: %s", ErrUnknownActionKind, action.Kind)
 	}
+	return spec.apply(s, ctx, action)
 }
 
 func cloneActionResults(results []ActionResult) []ActionResult {

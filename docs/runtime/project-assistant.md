@@ -147,15 +147,19 @@ permission model.
   model-callable tool; chat or agent integrations must route durable mutations
   through an explicit blocking operator confirmation first.
 
-Apply is sequential across existing stores. A proposal id plus its canonical
-action set is the in-process progress boundary. If action N fails after earlier
-actions have already mutated durable stores, the API returns the partial action
-results and `failed_action_index`. Retrying the exact same proposal resumes at
-the next unapplied action. Retrying the same proposal id with a changed action
-set returns `409 conflict`, and retrying a fully applied proposal also returns
-`409 conflict`. Clients should show the landed action kinds and ids from
-`partial_result.actions` so the operator can clean up, retry, or re-draft from
-the visible partial state.
+Apply first preflights the remaining actions against current project, work,
+handoff, memory-candidate, and chat targets, including explicit resources
+created earlier in the same proposal. Deterministic stale-target failures
+therefore return `failed_action_index` with no new durable writes. After
+preflight, apply remains sequential across existing stores. A proposal id plus
+its canonical action set is the in-process progress boundary. If action N fails
+after earlier actions have already mutated durable stores, the API returns the
+partial action results and `failed_action_index`. Retrying the exact same
+proposal resumes at the next unapplied action. Retrying the same proposal id
+with a changed action set returns `409 conflict`, and retrying a fully applied
+proposal also returns `409 conflict`. Clients should show the landed action
+kinds and ids from `partial_result.actions`; an empty list means preflight
+blocked the proposal before anything landed.
 
 Future versions may persist proposal ids server-side so reviewed actions,
 confirmation, and resumable progress survive process restarts. In v0 the
@@ -452,8 +456,10 @@ Stale ids, missing projects, missing chats, missing work items, or missing
 memory candidates return `404 not_found` or `409 conflict` depending on the
 state transition.
 
-When a multi-action apply fails after earlier actions were committed, the error
-includes progress metadata:
+When a multi-action apply fails, the error includes progress metadata. If
+preflight caught the failure before mutation, `partial_result.actions` is empty.
+If a later store/race failure happens after earlier actions were committed, the
+same field lists the landed action kinds and ids:
 
 ```json
 {

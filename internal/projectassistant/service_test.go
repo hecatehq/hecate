@@ -1156,6 +1156,30 @@ func TestService_ApplyRequiresConfirmation(t *testing.T) {
 	}
 }
 
+func TestApplyActionSpecsPairPreflightAndApplyHandlers(t *testing.T) {
+	t.Parallel()
+	seen := make(map[string]struct{}, len(applyActionSpecs))
+	for _, spec := range applyActionSpecs {
+		if strings.TrimSpace(spec.kind) == "" {
+			t.Fatal("apply action spec has empty kind")
+		}
+		if spec.preflight == nil {
+			t.Fatalf("apply action spec %q has nil preflight handler", spec.kind)
+		}
+		if spec.apply == nil {
+			t.Fatalf("apply action spec %q has nil apply handler", spec.kind)
+		}
+		if _, ok := seen[spec.kind]; ok {
+			t.Fatalf("apply action spec %q is duplicated", spec.kind)
+		}
+		seen[spec.kind] = struct{}{}
+		lookup, ok := lookupApplyActionSpec(spec.kind)
+		if !ok || lookup.kind != spec.kind {
+			t.Fatalf("lookupApplyActionSpec(%q) = %+v/%v, want same spec kind", spec.kind, lookup, ok)
+		}
+	}
+}
+
 func TestService_ApplyCreateAndUpdateProjectAcrossStores(t *testing.T) {
 	t.Parallel()
 	for _, builder := range assistantFixtureBuilders() {
@@ -1803,7 +1827,7 @@ func TestService_ApplyRepeatedProposalConflicts(t *testing.T) {
 	}
 }
 
-func TestService_ApplyPartialFailureReturnsProgressAndResumesAcrossStores(t *testing.T) {
+func TestService_ApplyPreflightBlocksStaleTargetsBeforeMutatingAcrossStores(t *testing.T) {
 	t.Parallel()
 	for _, builder := range assistantFixtureBuilders() {
 		t.Run(builder.name, func(t *testing.T) {
@@ -1811,12 +1835,12 @@ func TestService_ApplyPartialFailureReturnsProgressAndResumesAcrossStores(t *tes
 			ctx := context.Background()
 			fixture := builder.build(t)
 			proposal := Proposal{
-				ID:                   "pa_partial_resume",
+				ID:                   "pa_preflight_resume",
 				RequiresConfirmation: true,
 				Actions: []Action{
 					{
 						Kind:  ActionCreateProject,
-						Patch: rawPatch(t, map[string]string{"id": "proj_partial", "name": "Partial"}),
+						Patch: rawPatch(t, map[string]string{"id": "proj_preflight", "name": "Preflight"}),
 					},
 					{
 						Kind: ActionCreateWorkItem,
@@ -1840,14 +1864,14 @@ func TestService_ApplyPartialFailureReturnsProgressAndResumesAcrossStores(t *tes
 			if applyErr.FailedActionIndex != 1 {
 				t.Fatalf("failed_action_index = %d, want 1", applyErr.FailedActionIndex)
 			}
-			if result.Applied || len(result.Actions) != 1 || result.Actions[0].ID != "proj_partial" {
-				t.Fatalf("partial result = %+v, want first action only", result)
+			if result.Applied || len(result.Actions) != 0 {
+				t.Fatalf("partial result = %+v, want no action results before preflight failure", result)
 			}
 			if applyErr.Result.ProposalID != result.ProposalID || len(applyErr.Result.Actions) != len(result.Actions) {
 				t.Fatalf("apply error result = %+v, want returned partial result %+v", applyErr.Result, result)
 			}
-			if _, ok, err := fixture.projects.Get(ctx, "proj_partial"); err != nil || !ok {
-				t.Fatalf("get partially-created project ok=%v err=%v", ok, err)
+			if _, ok, err := fixture.projects.Get(ctx, "proj_preflight"); err != nil || ok {
+				t.Fatalf("get preflight-blocked project ok=%v err=%v, want no durable mutation", ok, err)
 			}
 
 			if _, err := fixture.projects.Create(ctx, projects.Project{ID: "proj_after_retry", Name: "After retry"}); err != nil {
@@ -1859,6 +1883,9 @@ func TestService_ApplyPartialFailureReturnsProgressAndResumesAcrossStores(t *tes
 			}
 			if !result.Applied || len(result.Actions) != 2 {
 				t.Fatalf("retry result = %+v, want both actions applied", result)
+			}
+			if _, ok, err := fixture.projects.Get(ctx, "proj_preflight"); err != nil || !ok {
+				t.Fatalf("get project after retry ok=%v err=%v, want created project", ok, err)
 			}
 			item, ok, err := fixture.work.GetWorkItem(ctx, "proj_after_retry", "work_after_retry")
 			if err != nil || !ok {
@@ -1872,20 +1899,86 @@ func TestService_ApplyPartialFailureReturnsProgressAndResumesAcrossStores(t *tes
 			if err != nil {
 				t.Fatalf("list projects: %v", err)
 			}
-			var partialProjectCount int
+			var preflightProjectCount int
 			for _, project := range projectsAfterRetry {
-				if project.ID == "proj_partial" {
-					partialProjectCount++
+				if project.ID == "proj_preflight" {
+					preflightProjectCount++
 				}
 			}
-			if partialProjectCount != 1 {
-				t.Fatalf("proj_partial count = %d, want one non-duplicated project", partialProjectCount)
+			if preflightProjectCount != 1 {
+				t.Fatalf("proj_preflight count = %d, want one non-duplicated project", preflightProjectCount)
 			}
 		})
 	}
 }
 
-func TestService_ApplyChangedProposalAfterPartialFailureConflictsAcrossStores(t *testing.T) {
+func TestService_ApplyPreflightBlocksMissingHandoffTargetBeforeMutatingAcrossStores(t *testing.T) {
+	t.Parallel()
+	for _, builder := range assistantFixtureBuilders() {
+		t.Run(builder.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			fixture := builder.build(t)
+			project := createTestProject(t, ctx, fixture.projects)
+			workItem, err := fixture.work.CreateWorkItem(ctx, projectwork.WorkItem{
+				ID:        "work_handoff_preflight",
+				ProjectID: project.ID,
+				Title:     "Handoff preflight",
+				Status:    projectwork.WorkItemStatusReview,
+			})
+			if err != nil {
+				t.Fatalf("CreateWorkItem: %v", err)
+			}
+
+			proposal := Proposal{
+				ID:                   "pa_handoff_preflight",
+				RequiresConfirmation: true,
+				Actions: []Action{
+					{
+						Kind: ActionCreateHandoff,
+						Patch: rawPatch(t, map[string]any{
+							"id":                      "handoff_preflight",
+							"project_id":              project.ID,
+							"work_item_id":            workItem.ID,
+							"title":                   "Needs follow-up",
+							"summary":                 "A follow-up is required.",
+							"recommended_next_action": "Create the missing assignment.",
+						}),
+					},
+					{
+						Kind:   ActionUpdateHandoff,
+						Target: map[string]string{"project_id": project.ID, "work_item_id": workItem.ID, "handoff_id": "handoff_preflight"},
+						Patch:  rawPatch(t, map[string]string{"target_assignment_id": "asgn_missing"}),
+					},
+				},
+			}
+
+			result, err := fixture.service.Apply(ctx, proposal, true)
+			if !errors.Is(err, ErrNotFound) {
+				t.Fatalf("Apply err = %v, want ErrNotFound", err)
+			}
+			var applyErr *ApplyError
+			if !errors.As(err, &applyErr) {
+				t.Fatalf("Apply err = %T %v, want ApplyError", err, err)
+			}
+			if applyErr.FailedActionIndex != 1 {
+				t.Fatalf("failed_action_index = %d, want 1", applyErr.FailedActionIndex)
+			}
+			if result.Applied || len(result.Actions) != 0 {
+				t.Fatalf("result = %+v, want no partial action results", result)
+			}
+			handoffs, err := fixture.work.ListHandoffs(ctx, projectwork.HandoffFilter{ProjectID: project.ID, WorkItemID: workItem.ID})
+			if err != nil {
+				t.Fatalf("ListHandoffs: %v", err)
+			}
+			if len(handoffs) != 0 {
+				t.Fatalf("handoffs = %+v, want no durable handoff after preflight failure", handoffs)
+			}
+		})
+	}
+}
+
+func TestService_ApplyChangedProposalAfterPreflightFailureConflictsAcrossStores(t *testing.T) {
 	t.Parallel()
 	for _, builder := range assistantFixtureBuilders() {
 		t.Run(builder.name, func(t *testing.T) {
@@ -1893,12 +1986,12 @@ func TestService_ApplyChangedProposalAfterPartialFailureConflictsAcrossStores(t 
 			ctx := context.Background()
 			fixture := builder.build(t)
 			proposal := Proposal{
-				ID:                   "pa_partial_changed",
+				ID:                   "pa_preflight_changed",
 				RequiresConfirmation: true,
 				Actions: []Action{
 					{
 						Kind:  ActionCreateProject,
-						Patch: rawPatch(t, map[string]string{"id": "proj_partial_changed", "name": "Partial"}),
+						Patch: rawPatch(t, map[string]string{"id": "proj_preflight_changed", "name": "Preflight"}),
 					},
 					{
 						Kind: ActionCreateWorkItem,
