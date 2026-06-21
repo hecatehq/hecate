@@ -731,8 +731,15 @@ func TestProjectWorkAPI_ProjectDeletionCleansRows(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/projects/"+project.Data.ID, nil))
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("delete project status = %d body=%s, want 204", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete project status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var deleted ProjectDeleteResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &deleted); err != nil {
+		t.Fatalf("decode delete response: %v", err)
+	}
+	if deleted.Data.ProjectID != project.Data.ID || deleted.Data.ProjectWorkRowsDeleted != 4 {
+		t.Fatalf("delete response = %+v, want project id and 4 project work rows", deleted)
 	}
 	if items, err := handler.projectWork.ListWorkItems(ctx, project.Data.ID); err != nil || len(items) != 0 {
 		t.Fatalf("project work items after project delete = %+v err=%v, want none", items, err)

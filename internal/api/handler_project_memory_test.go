@@ -440,8 +440,15 @@ func TestProjectMemoryAPI_ProjectDeleteRemovesMemory(t *testing.T) {
 
 	rec = httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/projects/"+project.Data.ID, nil))
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("delete project status = %d body=%s, want 204", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete project status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var deleted ProjectDeleteResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &deleted); err != nil {
+		t.Fatalf("decode delete response: %v", err)
+	}
+	if deleted.Data.ProjectID != project.Data.ID || deleted.Data.MemoryEntriesDeleted != 1 {
+		t.Fatalf("delete response = %+v, want project id and 1 memory entry", deleted)
 	}
 	items, err := memoryStore.List(t.Context(), memory.Filter{ProjectID: project.Data.ID, IncludeDisabled: true})
 	if err != nil {

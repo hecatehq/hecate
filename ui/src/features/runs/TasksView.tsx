@@ -44,6 +44,7 @@ import { TaskList } from "./TaskList";
 import { TaskDetail } from "./TaskDetail";
 import { NewTaskSlideOver, type CreateTaskPayload } from "./NewTaskSlideOver";
 import { ProjectScopePanel } from "../projects/ProjectScopePanel";
+import { formatProjectDeleteSummary } from "../projects/projectDisplay";
 
 type StreamState = "idle" | "connecting" | "live" | "closed" | "error";
 type TaskFocusRequest = { taskID: string; runID?: string; nonce: number };
@@ -588,6 +589,9 @@ export function TasksView({
             )}
             onProjectSelected={(projectID) => {
               void loadTasks("", "", projectID);
+            }}
+            onProjectDeleted={(_, result) => {
+              setNotice({ tone: "success", message: formatProjectDeleteSummary(result) });
             }}
           />
         }

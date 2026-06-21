@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ProjectsProvider, useProjects } from "./projects";
 import { createProject, deleteProject, getProjects, updateProject } from "../../lib/api";
-import type { ProjectRecord } from "../../types/project";
+import type { ProjectDeleteRecord, ProjectRecord } from "../../types/project";
 
 vi.mock("../../lib/api", () => ({
   createProject: vi.fn(),
@@ -28,6 +28,19 @@ const project: ProjectRecord = {
   ],
   created_at: "2026-05-21T10:00:00Z",
   updated_at: "2026-05-21T10:00:00Z",
+};
+
+const deleteResult = {
+  object: "project_delete",
+  data: {
+    project_id: project.id,
+    project_name: project.name,
+    chat_sessions_deleted: 1,
+    project_work_rows_deleted: 2,
+    project_skills_deleted: 1,
+    memory_entries_deleted: 3,
+    memory_candidates_deleted: 4,
+  },
 };
 
 function wrapper({ children }: { children: ReactNode }) {
@@ -144,24 +157,26 @@ describe("ProjectsProvider", () => {
 
   it("deletes a project and clears the active project when needed", async () => {
     window.localStorage.setItem("hecate.project", project.id);
-    vi.mocked(deleteProject).mockResolvedValue();
+    vi.mocked(deleteProject).mockResolvedValue(deleteResult);
     const { result } = renderHook(() => useProjects(), {
       wrapper: ({ children }) => (
         <ProjectsProvider initialState={{ projects: [project] }}>{children}</ProjectsProvider>
       ),
     });
 
+    let deleted: ProjectDeleteRecord | null = null;
     await act(async () => {
-      await result.current.actions.deleteProject(project.id);
+      deleted = await result.current.actions.deleteProject(project.id);
     });
 
     expect(deleteProject).toHaveBeenCalledWith(project.id);
+    expect(deleted).toEqual(deleteResult.data);
     expect(result.current.state.projects).toEqual([]);
     expect(result.current.activeProjectID).toBe("");
     expect(window.localStorage.getItem("hecate.project")).toBeNull();
   });
 
-  it("returns false and keeps local state when project deletion fails", async () => {
+  it("returns null and keeps local state when project deletion fails", async () => {
     window.localStorage.setItem("hecate.project", project.id);
     vi.mocked(deleteProject).mockRejectedValue(new Error("delete failed"));
     const { result } = renderHook(() => useProjects(), {
@@ -170,12 +185,12 @@ describe("ProjectsProvider", () => {
       ),
     });
 
-    let deleted = true;
+    let deleted: ProjectDeleteRecord | null = deleteResult.data;
     await act(async () => {
       deleted = await result.current.actions.deleteProject(project.id);
     });
 
-    expect(deleted).toBe(false);
+    expect(deleted).toBeNull();
     expect(result.current.state.projects).toEqual([project]);
     expect(result.current.activeProjectID).toBe(project.id);
     expect(result.current.state.error).toBe("delete failed");

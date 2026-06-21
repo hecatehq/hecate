@@ -13,7 +13,7 @@ import {
   updateProject as updateProjectRequest,
 } from "../../lib/api";
 import { parseStoredString, usePersistedState } from "../../lib/persistedState";
-import type { CreateProjectPayload, ProjectRecord } from "../../types/project";
+import type { CreateProjectPayload, ProjectDeleteRecord, ProjectRecord } from "../../types/project";
 
 const ACTIVE_PROJECT_STORAGE_KEY = "hecate.project";
 
@@ -34,7 +34,7 @@ export type ProjectsActions = {
   selectProject: (id: string) => Promise<void>;
   createProject: (payload: CreateProjectPayload) => Promise<ProjectRecord | null>;
   renameProject: (id: string, name: string) => Promise<void>;
-  deleteProject: (id: string) => Promise<boolean>;
+  deleteProject: (id: string) => Promise<ProjectDeleteRecord | null>;
 };
 
 type ProjectsContextValue = {
@@ -191,12 +191,12 @@ export function ProjectsProvider({
   }, []);
 
   const deleteProject = useCallback(
-    async (id: string): Promise<boolean> => {
+    async (id: string): Promise<ProjectDeleteRecord | null> => {
       const projectID = id.trim();
-      if (!projectID) return false;
+      if (!projectID) return null;
       dispatch({ type: "error/set", value: "" });
       try {
-        await deleteProjectRequest(projectID);
+        const payload = await deleteProjectRequest(projectID);
         dispatch({
           type: "projects/set",
           next: (current) => current.filter((project) => project.id !== projectID),
@@ -204,13 +204,13 @@ export function ProjectsProvider({
         if (activeProjectID === projectID) {
           setActiveProjectIDState("");
         }
-        return true;
+        return payload.data;
       } catch (error) {
         dispatch({
           type: "error/set",
           value: error instanceof Error ? error.message : "Failed to delete project.",
         });
-        return false;
+        return null;
       }
     },
     [activeProjectID, setActiveProjectIDState],

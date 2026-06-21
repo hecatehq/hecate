@@ -347,7 +347,7 @@ func (h *Handler) HandleDeleteProjectContextSource(w http.ResponseWriter, r *htt
 }
 
 func (h *Handler) HandleDeleteProject(w http.ResponseWriter, r *http.Request) {
-	_, err := h.projectApplication().DeleteProject(r.Context(), r.PathValue("id"))
+	result, err := h.projectApplication().DeleteProject(r.Context(), r.PathValue("id"))
 	if errors.Is(err, projectapp.ErrProjectNotFound) {
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
 		return
@@ -360,7 +360,7 @@ func (h *Handler) HandleDeleteProject(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	WriteJSON(w, http.StatusOK, ProjectDeleteResponse{Object: "project_delete", Data: renderProjectDeleteResult(result)})
 }
 
 func writeProjectRootMutationResponse(w http.ResponseWriter, status int, project projects.Project, err error) {
@@ -631,6 +631,18 @@ func renderProject(project projects.Project) ProjectResponseItem {
 		CreatedAt:                formatOptionalTime(project.CreatedAt),
 		UpdatedAt:                formatOptionalTime(project.UpdatedAt),
 		LastOpenedAt:             formatOptionalTime(project.LastOpenedAt),
+	}
+}
+
+func renderProjectDeleteResult(result projectapp.DeleteProjectResult) ProjectDeleteResponseItem {
+	return ProjectDeleteResponseItem{
+		ProjectID:               result.Project.ID,
+		ProjectName:             result.Project.Name,
+		ChatSessionsDeleted:     result.ChatSessionsDeleted,
+		ProjectWorkRowsDeleted:  result.ProjectWorkRowsDeleted,
+		ProjectSkillsDeleted:    result.ProjectSkillsDeleted,
+		MemoryEntriesDeleted:    result.MemoryEntriesDeleted,
+		MemoryCandidatesDeleted: result.MemoryCandidatesDeleted,
 	}
 }
 

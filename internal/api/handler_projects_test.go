@@ -106,8 +106,17 @@ func TestProjectsAPI_CRUD(t *testing.T) {
 
 	rec = httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/projects/"+created.Data.ID, nil))
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("delete status = %d body=%s, want 204", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var deleted ProjectDeleteResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &deleted); err != nil {
+		t.Fatalf("decode delete response: %v", err)
+	}
+	if deleted.Object != "project_delete" ||
+		deleted.Data.ProjectID != created.Data.ID ||
+		deleted.Data.ProjectName != "Renamed" {
+		t.Fatalf("delete response = %+v, want project id/name", deleted)
 	}
 }
 
@@ -818,8 +827,18 @@ func TestProjectsAPI_DeleteProjectDeletesProjectChats(t *testing.T) {
 
 	rec = httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/projects/"+created.Data.ID, nil))
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("delete status = %d body=%s, want 204", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var deleted ProjectDeleteResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &deleted); err != nil {
+		t.Fatalf("decode delete response: %v", err)
+	}
+	if deleted.Object != "project_delete" ||
+		deleted.Data.ProjectID != created.Data.ID ||
+		deleted.Data.ProjectName != "Hecate" ||
+		deleted.Data.ChatSessionsDeleted != 2 {
+		t.Fatalf("delete response = %+v, want project id/name and 2 deleted chats", deleted)
 	}
 
 	sessions, err := chatStore.List(ctx)

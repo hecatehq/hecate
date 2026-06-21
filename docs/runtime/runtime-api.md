@@ -2166,6 +2166,23 @@ chats and chats scoped to other projects stay untouched. Assignment links to
 task/chat IDs are metadata only; the linked tasks or unprojected chat sessions
 are not deleted through assignment cleanup.
 
+The response reports the scoped records Hecate cleaned up:
+
+```json
+{
+  "object": "project_delete",
+  "data": {
+    "project_id": "proj_...",
+    "project_name": "Launch operations",
+    "chat_sessions_deleted": 2,
+    "project_work_rows_deleted": 8,
+    "project_skills_deleted": 1,
+    "memory_entries_deleted": 3,
+    "memory_candidates_deleted": 4
+  }
+}
+```
+
 ### Project Memory
 
 Project memory is explicit operator-approved context. Hecate never writes these

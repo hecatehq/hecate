@@ -154,6 +154,7 @@ import {
   workItemUpdatePayloadFromForm,
 } from "./projectWorkForms";
 import {
+  formatProjectDeleteSummary,
   formatProjectRowRelativeTime,
   projectErrorMessage as errorMessage,
 } from "./projectDisplay";
@@ -688,6 +689,10 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
       const deleted = await projects.actions.deleteProject(pendingDeleteProject.id);
       if (deleted) {
         setDeleteProjectID("");
+        settings.actions.setNotice({
+          kind: "success",
+          message: formatProjectDeleteSummary(deleted),
+        });
         if (selectedProjectID === pendingDeleteProject.id) {
           clearSelectedProject();
         }
