@@ -3388,13 +3388,16 @@ explicitly apply the proposal. Apply revalidates current server state before
 mutating projects, chats, project work, or memory candidates.
 
 Apply is a human-gated operation. Do not wire it as a direct model-callable tool
-without an explicit blocking operator confirmation. Multi-action apply is
-sequential and resumable within the current process: on a mid-sequence failure
-the error includes `failed_action_index` and `partial_result`; retrying the
-unchanged proposal id resumes after the committed actions, while changing the
-action set or reapplying a fully applied proposal returns `409 conflict`.
-Clients should present the landed action kinds and ids from
-`partial_result.actions` so the operator can recover from visible partial state.
+without an explicit blocking operator confirmation. Before mutating durable
+stores, apply preflights the remaining typed actions against current project,
+work, handoff, memory-candidate, and chat targets, including explicit resources
+created earlier in the same proposal. Multi-action apply is sequential and
+resumable within the current process: on a failure the error includes
+`failed_action_index` and `partial_result`. An empty
+`partial_result.actions` list means preflight blocked the proposal before any
+new durable write; a non-empty list means those actions landed and the unchanged
+proposal id can resume after them. Changing the action set or reapplying a fully
+applied proposal returns `409 conflict`.
 
 Endpoints:
 

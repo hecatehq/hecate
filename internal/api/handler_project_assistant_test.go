@@ -655,17 +655,17 @@ func TestProjectAssistantAPI_ProposeAndApplyCreateProject(t *testing.T) {
 	}
 }
 
-func TestProjectAssistantAPI_ApplyPartialFailureIncludesProgress(t *testing.T) {
+func TestProjectAssistantAPI_ApplyPreflightFailureIncludesEmptyProgress(t *testing.T) {
 	t.Parallel()
-	server := newProjectAssistantTestServer()
+	handler, server := newProjectAssistantTestHandler()
 	proposal := projectassistant.Proposal{
-		ID:                   "pa_partial_api",
-		Title:                "Partial apply",
+		ID:                   "pa_preflight_api",
+		Title:                "Preflight apply",
 		RequiresConfirmation: true,
 		Actions: []projectassistant.Action{
 			{
 				Kind:  projectassistant.ActionCreateProject,
-				Patch: json.RawMessage(`{"id":"proj_partial_api","name":"Partial API"}`),
+				Patch: json.RawMessage(`{"id":"proj_preflight_api","name":"Preflight API"}`),
 			},
 			{
 				Kind: projectassistant.ActionCreateWorkItem,
@@ -685,21 +685,21 @@ func TestProjectAssistantAPI_ApplyPartialFailureIncludesProgress(t *testing.T) {
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/project-assistant/apply", bytes.NewReader(applyBody)))
 	if rec.Code != http.StatusNotFound {
-		t.Fatalf("partial apply status = %d body=%s, want 404", rec.Code, rec.Body.String())
+		t.Fatalf("preflight apply status = %d body=%s, want 404", rec.Code, rec.Body.String())
 	}
 	var payload projectAssistantErrorResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
-		t.Fatalf("decode partial apply error: %v", err)
+		t.Fatalf("decode preflight apply error: %v", err)
 	}
 	if payload.Error.Type != errCodeNotFound || payload.Error.FailedActionIndex != 1 {
 		t.Fatalf("error = %+v, want not_found at action index 1", payload.Error)
 	}
 	partial := payload.Error.PartialResult
-	if partial.ProposalID != "pa_partial_api" || partial.Applied || len(partial.Actions) != 1 {
-		t.Fatalf("partial_result = %+v, want one unapplied partial result", partial)
+	if partial.ProposalID != "pa_preflight_api" || partial.Applied || len(partial.Actions) != 0 {
+		t.Fatalf("partial_result = %+v, want no action results before preflight failure", partial)
 	}
-	if partial.Actions[0].Kind != projectassistant.ActionCreateProject || partial.Actions[0].ID != "proj_partial_api" {
-		t.Fatalf("partial action = %+v, want created project action", partial.Actions[0])
+	if _, ok, err := handler.projects.Get(t.Context(), "proj_preflight_api"); err != nil || ok {
+		t.Fatalf("Get preflight-blocked project ok=%v err=%v, want no durable mutation", ok, err)
 	}
 }
 

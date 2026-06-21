@@ -2577,23 +2577,30 @@ func TestProjectWorkAPI_StartAssignmentRepeatedReturnsCurrentAssignment(t *testi
 func TestProjectWorkAPI_StartAssignmentActiveConflictBeatsModelValidation(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectWorkTestServer()
+	taskID := "task_active_start"
+	runID := "run_active_start"
 	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
 		Workspace: t.TempDir(),
 		Driver:    projectwork.AssignmentDriverHecateTask,
+		Status:    projectwork.AssignmentStatusQueued,
+		TaskID:    taskID,
+		RunID:     runID,
 	})
-
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{}`))))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("first start status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	if _, err := handler.taskStore.CreateTask(t.Context(), types.Task{
+		ID:          taskID,
+		Title:       "Active assignment",
+		Status:      "running",
+		LatestRunID: runID,
+	}); err != nil {
+		t.Fatalf("CreateTask: %v", err)
 	}
-	var first ProjectWorkAssignmentEnvelope
-	if err := json.Unmarshal(rec.Body.Bytes(), &first); err != nil {
-		t.Fatalf("decode first assignment: %v", err)
-	}
-	firstRef := assignmentExecutionRefForTest(t, first.Data)
-	if firstRef.TaskID == "" || firstRef.RunID == "" {
-		t.Fatalf("first assignment execution_ref = %+v, want task and run", firstRef)
+	if _, err := handler.taskStore.CreateRun(t.Context(), types.TaskRun{
+		ID:     runID,
+		TaskID: taskID,
+		Number: 1,
+		Status: "running",
+	}); err != nil {
+		t.Fatalf("CreateRun: %v", err)
 	}
 
 	handler.config.Router.DefaultModel = ""
@@ -2610,18 +2617,18 @@ func TestProjectWorkAPI_StartAssignmentActiveConflictBeatsModelValidation(t *tes
 		t.Fatalf("Update role defaults: %v", err)
 	}
 
-	rec = httptest.NewRecorder()
+	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{}`))))
 	if rec.Code != http.StatusConflict {
-		t.Fatalf("second start status = %d body=%s, want 409 before model validation", rec.Code, rec.Body.String())
+		t.Fatalf("start status = %d body=%s, want 409 before model validation", rec.Code, rec.Body.String())
 	}
-	var second ProjectWorkAssignmentEnvelope
-	if err := json.Unmarshal(rec.Body.Bytes(), &second); err != nil {
-		t.Fatalf("decode second assignment: %v", err)
+	var response ProjectWorkAssignmentEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode assignment: %v", err)
 	}
-	secondRef := assignmentExecutionRefForTest(t, second.Data)
-	if secondRef.TaskID != firstRef.TaskID || secondRef.RunID != firstRef.RunID {
-		t.Fatalf("second assignment execution_ref = %+v, want existing %+v", secondRef, firstRef)
+	ref := assignmentExecutionRefForTest(t, response.Data)
+	if ref.TaskID != taskID || ref.RunID != runID {
+		t.Fatalf("assignment execution_ref = %+v, want existing task/run %s/%s", ref, taskID, runID)
 	}
 }
 
