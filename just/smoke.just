@@ -14,4 +14,4 @@ test-docker-smoke: _go-cache
 # them through Hecate's ACP boundary with fake vendor CLIs. Requires network.
 # Smoke test packaged Go ACP adapter release binaries.
 test-acp-release-smoke: _go-cache
-	{{go_env}} go test -tags acp_release -count=1 -run TestACPAdapterReleaseBinariesSmoke -timeout 5m ./internal/agentadapters
+	{{go_env}} go test -tags acp_release -count=1 -run TestACPAdapterReleaseBinaries -timeout 5m ./internal/agentadapters
