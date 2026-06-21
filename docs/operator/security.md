@@ -73,7 +73,11 @@ Approvals are safety gates, not a sandbox.
 - Durable external-agent grants can be reviewed and revoked from Connections.
 - Auto-approval modes are dangerous for interactive use because they let tool requests proceed without operator review.
 
-Review broad grants carefully, especially workspace-wide or adapter-wide grants for file writes, shell commands, Git commands, and network access.
+Review broad grants carefully, especially workspace-wide or adapter-wide grants
+for file writes, shell commands, Git commands, network access, and MCP tools.
+External-agent grants match Hecate's normalized `tool_kind`, not a vendor's
+raw tool label, so an `mcp` grant applies to matching MCP tool requests from
+that adapter within the selected scope.
 
 ## Secrets and local state
 
