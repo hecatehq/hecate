@@ -3051,6 +3051,17 @@ The response envelope is:
     "provider": "",
     "model": "dogfood-model",
     "execution_profile": "implementation",
+    "profile_posture": {
+      "id": "implementation",
+      "name": "Implementation",
+      "source": "role_default",
+      "tools_enabled": true,
+      "writes_allowed": true,
+      "network_allowed": false,
+      "approval_policy": "require",
+      "project_memory_policy": "include",
+      "context_source_policy": "include_enabled"
+    },
     "model_readiness": {
       "ready": false,
       "status": "blocked",
@@ -3065,9 +3076,11 @@ The response envelope is:
 Native Hecate Task assignments may include `model_readiness`, using the same
 reason and repair vocabulary as `metadata.readiness` on `/v1/models`. External
 Agent assignments include `external_agent_id`, `external_agent`, and
-`session_title` when the adapter/options resolve. `ready=false` is the UI gate
-for `Start assignment`, `Prepare chat`, and `Start from handoff`; operators
-must still confirm the separate start mutation after reviewing preflight.
+`session_title` when the adapter/options resolve. Assignments with a resolved
+profile include `profile_posture`, a read-only summary of the selected profile's
+tools, writes, network, approval, memory, and context-source posture. `ready=false`
+is the UI gate for `Start assignment`, `Prepare chat`, and `Start from handoff`;
+operators must still confirm the separate start mutation after reviewing preflight.
 
 #### `GET /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments/{assignment_id}/preflight`
 

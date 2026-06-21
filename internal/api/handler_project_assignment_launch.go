@@ -33,27 +33,41 @@ type ProjectAssignmentLaunchReadinessEnvelope struct {
 }
 
 type ProjectAssignmentLaunchReadinessResponse struct {
-	ProjectID        string                      `json:"project_id"`
-	WorkItemID       string                      `json:"work_item_id"`
-	AssignmentID     string                      `json:"assignment_id"`
-	GeneratedAt      string                      `json:"generated_at"`
-	Ready            bool                        `json:"ready"`
-	Status           string                      `json:"status"`
-	Title            string                      `json:"title"`
-	Detail           string                      `json:"detail"`
-	Blockers         []string                    `json:"blockers"`
-	Warnings         []string                    `json:"warnings"`
-	DriverKind       string                      `json:"driver_kind"`
-	Workspace        string                      `json:"workspace,omitempty"`
-	RootID           string                      `json:"root_id,omitempty"`
-	RootPath         string                      `json:"root_path,omitempty"`
-	Provider         string                      `json:"provider,omitempty"`
-	Model            string                      `json:"model,omitempty"`
-	ExecutionProfile string                      `json:"execution_profile,omitempty"`
-	ExternalAgentID  string                      `json:"external_agent_id,omitempty"`
-	ExternalAgent    string                      `json:"external_agent,omitempty"`
-	SessionTitle     string                      `json:"session_title,omitempty"`
-	ModelReadiness   *ModelReadinessResponseItem `json:"model_readiness,omitempty"`
+	ProjectID        string                                             `json:"project_id"`
+	WorkItemID       string                                             `json:"work_item_id"`
+	AssignmentID     string                                             `json:"assignment_id"`
+	GeneratedAt      string                                             `json:"generated_at"`
+	Ready            bool                                               `json:"ready"`
+	Status           string                                             `json:"status"`
+	Title            string                                             `json:"title"`
+	Detail           string                                             `json:"detail"`
+	Blockers         []string                                           `json:"blockers"`
+	Warnings         []string                                           `json:"warnings"`
+	DriverKind       string                                             `json:"driver_kind"`
+	Workspace        string                                             `json:"workspace,omitempty"`
+	RootID           string                                             `json:"root_id,omitempty"`
+	RootPath         string                                             `json:"root_path,omitempty"`
+	Provider         string                                             `json:"provider,omitempty"`
+	Model            string                                             `json:"model,omitempty"`
+	ExecutionProfile string                                             `json:"execution_profile,omitempty"`
+	ProfilePosture   *ProjectAssignmentLaunchProfilePostureResponseItem `json:"profile_posture,omitempty"`
+	ExternalAgentID  string                                             `json:"external_agent_id,omitempty"`
+	ExternalAgent    string                                             `json:"external_agent,omitempty"`
+	SessionTitle     string                                             `json:"session_title,omitempty"`
+	ModelReadiness   *ModelReadinessResponseItem                        `json:"model_readiness,omitempty"`
+}
+
+type ProjectAssignmentLaunchProfilePostureResponseItem struct {
+	ID                  string `json:"id,omitempty"`
+	Name                string `json:"name,omitempty"`
+	Source              string `json:"source,omitempty"`
+	Missing             bool   `json:"missing,omitempty"`
+	ToolsEnabled        bool   `json:"tools_enabled"`
+	WritesAllowed       bool   `json:"writes_allowed"`
+	NetworkAllowed      bool   `json:"network_allowed"`
+	ApprovalPolicy      string `json:"approval_policy,omitempty"`
+	ProjectMemoryPolicy string `json:"project_memory_policy,omitempty"`
+	ContextSourcePolicy string `json:"context_source_policy,omitempty"`
 }
 
 func (h *Handler) HandleProjectWorkAssignmentLaunchReadiness(w http.ResponseWriter, r *http.Request) {
@@ -309,6 +323,7 @@ func (h *Handler) populateTaskAssignmentLaunchReadiness(ctx context.Context, pro
 	readiness.Provider = plan.RequestedProvider
 	readiness.Model = plan.RequestedModel
 	readiness.ExecutionProfile = plan.ExecutionProfile
+	readiness.ProfilePosture = renderProjectAssignmentLaunchProfilePosture(plan.Profile)
 	readiness.Warnings = append(readiness.Warnings, projectAssignmentLaunchPlanWarnings(plan.Profile, plan.ResolvedSkills)...)
 	if h.service == nil {
 		return nil
@@ -335,6 +350,7 @@ func (h *Handler) populateExternalAgentAssignmentLaunchReadiness(ctx context.Con
 	readiness.RootID = plan.Root.ID
 	readiness.RootPath = plan.Root.Path
 	readiness.ExecutionProfile = plan.ExecutionProfile
+	readiness.ProfilePosture = renderProjectAssignmentLaunchProfilePosture(plan.Profile)
 	readiness.ExternalAgentID = plan.AdapterID
 	readiness.ExternalAgent = firstNonEmptyString(plan.Adapter.Name, plan.AdapterID)
 	readiness.SessionTitle = plan.SessionTitle
@@ -342,6 +358,21 @@ func (h *Handler) populateExternalAgentAssignmentLaunchReadiness(ctx context.Con
 	readiness.Detail = "Launch checks are clear. Review the preflight context before preparing this supervised External Agent chat."
 	readiness.Warnings = append(readiness.Warnings, projectAssignmentLaunchPlanWarnings(plan.Profile, plan.ResolvedSkills)...)
 	return nil
+}
+
+func renderProjectAssignmentLaunchProfilePosture(profile projectworkapp.ResolvedAgentProfile) *ProjectAssignmentLaunchProfilePostureResponseItem {
+	return &ProjectAssignmentLaunchProfilePostureResponseItem{
+		ID:                  profile.ID,
+		Name:                profile.Name,
+		Source:              profile.Source,
+		Missing:             profile.Missing,
+		ToolsEnabled:        profile.ToolsEnabled,
+		WritesAllowed:       profile.WritesAllowed,
+		NetworkAllowed:      profile.NetworkAllowed,
+		ApprovalPolicy:      profile.ApprovalPolicy,
+		ProjectMemoryPolicy: profile.ProjectMemoryPolicy,
+		ContextSourcePolicy: profile.ContextSourcePolicy,
+	}
 }
 
 func projectAssignmentLaunchPlanBlocker(err error) string {

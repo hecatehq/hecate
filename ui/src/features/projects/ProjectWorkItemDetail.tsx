@@ -1304,6 +1304,7 @@ function AssignmentLaunchPreflightModal({
 }) {
   const ready = state.status === "ready";
   const readinessNotice = ready ? assignmentLaunchReadinessNotice(state.readiness) : null;
+  const readinessWarnings = ready ? (state.readiness.warnings ?? []) : [];
   const canConfirm = ready && !readinessNotice;
   const runRepairAction = useCallback(
     (action?: () => void) => {
@@ -1361,6 +1362,9 @@ function AssignmentLaunchPreflightModal({
                 repairActions={repairActions}
               />
             )}
+            {!readinessNotice && readinessWarnings.length > 0 && (
+              <AssignmentLaunchWarnings warnings={readinessWarnings} />
+            )}
             <AssignmentLaunchPosture readiness={state.readiness} />
             <ContextInspectorPanel
               packet={state.packet}
@@ -1370,6 +1374,22 @@ function AssignmentLaunchPreflightModal({
         ) : null}
       </div>
     </Modal>
+  );
+}
+
+function AssignmentLaunchWarnings({ warnings }: { warnings: string[] }) {
+  return (
+    <div aria-label="Launch readiness warnings" role="status" style={launchWarningNoticeStyle}>
+      <div style={launchWarningNoticeTitleStyle}>
+        <Icon d={Icons.warning} size={13} />
+        Launch warnings
+      </div>
+      <ul style={{ margin: "2px 0 0 18px", padding: 0 }}>
+        {warnings.map((warning) => (
+          <li key={warning}>{warning}</li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -1937,8 +1957,13 @@ function assignmentLaunchPostureRows(
       value: `${firstNonEmpty(readiness.provider, "auto")} / ${firstNonEmpty(readiness.model, "auto")}`,
     });
   }
-  if (readiness.execution_profile) {
-    rows.push({ label: "Profile", value: readiness.execution_profile });
+  const profile = assignmentLaunchProfilePosture(readiness);
+  if (profile) {
+    rows.push({ label: "Profile", value: profile });
+  }
+  const capabilities = assignmentLaunchCapabilityPosture(readiness);
+  if (capabilities) {
+    rows.push({ label: "Capabilities", value: capabilities });
   }
   if (
     readiness.driver_kind === "external_agent" ||
@@ -1968,6 +1993,28 @@ function assignmentLaunchDriverLabel(kind: string): string {
     default:
       return kind || "unknown";
   }
+}
+
+function assignmentLaunchProfilePosture(readiness: ProjectAssignmentLaunchReadinessRecord): string {
+  const posture = readiness.profile_posture;
+  const profile = firstNonEmpty(
+    readiness.execution_profile,
+    labelWithID(posture?.name, posture?.id ?? ""),
+  );
+  if (!profile) return "";
+  return posture?.missing ? `${profile} (profile missing)` : profile;
+}
+
+function assignmentLaunchCapabilityPosture(
+  readiness: ProjectAssignmentLaunchReadinessRecord,
+): string {
+  const posture = readiness.profile_posture;
+  if (!posture) return "";
+  return [
+    `tools ${posture.tools_enabled ? "on" : "off"}`,
+    `writes ${posture.writes_allowed ? "on" : "off"}`,
+    `network ${posture.network_allowed ? "on" : "off"}`,
+  ].join(" · ");
 }
 
 function assignmentLaunchReadinessNotice(
@@ -2319,6 +2366,26 @@ const launchReadinessBlockerStyle: CSSProperties = {
   fontSize: 12,
   lineHeight: 1.4,
   overflowWrap: "anywhere",
+};
+
+const launchWarningNoticeStyle: CSSProperties = {
+  background: "var(--amber-bg)",
+  border: "1px solid var(--amber-border)",
+  borderRadius: "var(--radius-sm)",
+  color: "var(--amber-lo)",
+  display: "grid",
+  fontSize: 12,
+  gap: 6,
+  lineHeight: 1.45,
+  padding: "10px 12px",
+};
+
+const launchWarningNoticeTitleStyle: CSSProperties = {
+  alignItems: "center",
+  color: "var(--amber)",
+  display: "flex",
+  fontWeight: 600,
+  gap: 8,
 };
 
 const assignmentEvidenceStyle: CSSProperties = {

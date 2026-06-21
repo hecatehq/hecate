@@ -592,10 +592,24 @@ export type ProjectAssignmentLaunchReadinessRecord = {
   provider?: string;
   model?: string;
   execution_profile?: string;
+  profile_posture?: ProjectAssignmentLaunchProfilePostureRecord;
   external_agent_id?: string;
   external_agent?: string;
   session_title?: string;
   model_readiness?: ModelReadinessRecord;
+};
+
+export type ProjectAssignmentLaunchProfilePostureRecord = {
+  id?: string;
+  name?: string;
+  source?: string;
+  missing?: boolean;
+  tools_enabled: boolean;
+  writes_allowed: boolean;
+  network_allowed: boolean;
+  approval_policy?: string;
+  project_memory_policy?: string;
+  context_source_policy?: string;
 };
 
 export type ProjectAssignmentStatus =
