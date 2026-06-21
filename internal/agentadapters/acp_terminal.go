@@ -27,12 +27,16 @@ const (
 var nextACPTerminalApprovalID atomic.Uint64
 
 type acpTerminal struct {
-	id       string
-	term     workspace.Terminal
-	output   *acpTerminalOutputBuffer
-	done     chan struct{}
-	exitCode *int
-	waitErr  error
+	id           string
+	commandLine  string
+	cwd          string
+	term         workspace.Terminal
+	output       *acpTerminalOutputBuffer
+	done         chan struct{}
+	killed       atomic.Bool
+	exitReported atomic.Bool
+	exitCode     *int
+	waitErr      error
 }
 
 func (c *acpChatClient) CreateTerminal(ctx context.Context, params acp.CreateTerminalRequest) (acp.CreateTerminalResponse, error) {
@@ -55,6 +59,7 @@ func (c *acpChatClient) CreateTerminal(ctx context.Context, params acp.CreateTer
 	if params.OutputByteLimit != nil && *params.OutputByteLimit > 0 {
 		limit = *params.OutputByteLimit
 	}
+	commandLine := terminalCommandLine(command, params.Args)
 	if err := c.approveTerminalCreate(ctx, params, cwd, limit); err != nil {
 		return acp.CreateTerminalResponse{}, err
 	}
@@ -70,17 +75,21 @@ func (c *acpChatClient) CreateTerminal(ctx context.Context, params acp.CreateTer
 		Env: env,
 	})
 	if err != nil {
+		c.emitCurrentTurnActivity(terminalActivity("", commandLine, cwd, "failed", terminalFailureDetail(err), ""))
 		return acp.CreateTerminalResponse{}, err
 	}
 
 	item := &acpTerminal{
-		id:     term.ID(),
-		term:   term,
-		output: newACPTerminalOutputBuffer(limit),
-		done:   make(chan struct{}),
+		id:          term.ID(),
+		commandLine: commandLine,
+		cwd:         cwd,
+		term:        term,
+		output:      newACPTerminalOutputBuffer(limit),
+		done:        make(chan struct{}),
 	}
 	c.storeTerminal(item)
 	go item.watch()
+	c.emitTerminalActivity(item, "running", "", "")
 	return acp.CreateTerminalResponse{TerminalId: item.id}, nil
 }
 
@@ -92,9 +101,12 @@ func (c *acpChatClient) KillTerminal(ctx context.Context, params acp.KillTermina
 	if err != nil {
 		return acp.KillTerminalResponse{}, err
 	}
+	item.killed.Store(true)
 	if err := item.term.Kill(ctx); err != nil {
+		item.killed.Store(false)
 		return acp.KillTerminalResponse{}, err
 	}
+	c.emitTerminalActivity(item, "cancelled", "killed", "")
 	return acp.KillTerminalResponse{}, nil
 }
 
@@ -127,8 +139,15 @@ func (c *acpChatClient) ReleaseTerminal(ctx context.Context, params acp.ReleaseT
 	if err != nil {
 		return acp.ReleaseTerminalResponse{}, err
 	}
+	doneBeforeClose := terminalDone(item)
 	if err := item.term.Close(ctx); err != nil {
 		return acp.ReleaseTerminalResponse{}, err
+	}
+	if doneBeforeClose {
+		c.emitTerminalExitActivity(item)
+	} else {
+		item.killed.Store(true)
+		c.emitTerminalActivity(item, "cancelled", "released before exit", "")
 	}
 	return acp.ReleaseTerminalResponse{}, nil
 }
@@ -146,6 +165,7 @@ func (c *acpChatClient) WaitForTerminalExit(ctx context.Context, params acp.Wait
 	case <-ctx.Done():
 		return acp.WaitForTerminalExitResponse{}, ctx.Err()
 	}
+	c.emitTerminalExitActivity(item)
 	return acp.WaitForTerminalExitResponse{ExitCode: item.exitCode}, item.waitErr
 }
 
@@ -201,16 +221,135 @@ func (c *acpChatClient) approveTerminalCreate(ctx context.Context, params acp.Cr
 }
 
 func terminalCommandLine(command string, args []string) string {
-	parts := make([]string, 0, len(args)+1)
+	parts := make([]string, 0, len(args))
 	if command = strings.TrimSpace(command); command != "" {
-		parts = append(parts, command)
+		parts = append(parts, shellDisplayQuote(command))
 	}
 	for _, arg := range args {
-		if arg = strings.TrimSpace(arg); arg != "" {
-			parts = append(parts, arg)
-		}
+		parts = append(parts, shellDisplayQuote(arg))
 	}
 	return strings.Join(parts, " ")
+}
+
+func shellDisplayQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') ||
+			(r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') ||
+			strings.ContainsRune("_@%+=:,./-", r) {
+			continue
+		}
+		return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+	}
+	return value
+}
+
+func (c *acpChatClient) emitTerminalExitActivity(item *acpTerminal) {
+	if item == nil {
+		return
+	}
+	if !item.exitReported.CompareAndSwap(false, true) {
+		return
+	}
+	status := "completed"
+	extra := "exit code unavailable"
+	if item.exitCode != nil {
+		extra = fmt.Sprintf("exit code %d", *item.exitCode)
+		if *item.exitCode != 0 {
+			status = "failed"
+		}
+	}
+	if item.waitErr != nil {
+		status = "failed"
+		extra = item.waitErr.Error()
+	}
+	if item.killed.Load() {
+		status = "cancelled"
+		extra = "killed"
+	}
+	c.emitTerminalActivity(item, status, extra, terminalOutputPreview(item))
+}
+
+func (c *acpChatClient) emitTerminalActivity(item *acpTerminal, status, extra, preview string) {
+	if item == nil {
+		return
+	}
+	c.emitCurrentTurnActivity(terminalActivity(item.id, item.commandLine, item.cwd, status, extra, preview))
+}
+
+func (c *acpChatClient) emitCurrentTurnActivity(activity Activity) {
+	turn := c.currentTurn()
+	if turn == nil {
+		return
+	}
+	turn.emitActivity(activity)
+}
+
+func terminalActivity(terminalID, commandLine, cwd, status, extra, preview string) Activity {
+	id := ""
+	if terminalID = strings.TrimSpace(terminalID); terminalID != "" {
+		id = "terminal:" + terminalID
+	}
+	return Activity{
+		ID:              id,
+		Type:            "terminal",
+		Status:          strings.TrimSpace(status),
+		Kind:            "execute",
+		Title:           "Terminal command",
+		Detail:          terminalActivityDetail(commandLine, cwd, extra),
+		ArtifactPreview: preview,
+	}
+}
+
+func terminalActivityDetail(commandLine, cwd, extra string) string {
+	parts := make([]string, 0, 3)
+	if commandLine = strings.TrimSpace(commandLine); commandLine != "" {
+		parts = append(parts, commandLine)
+	}
+	if cwd = strings.TrimSpace(cwd); cwd != "" {
+		parts = append(parts, "cwd "+cwd)
+	}
+	if extra = strings.TrimSpace(extra); extra != "" {
+		parts = append(parts, extra)
+	}
+	return strings.Join(parts, " · ")
+}
+
+func terminalFailureDetail(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+func terminalOutputPreview(item *acpTerminal) string {
+	if item == nil || item.output == nil {
+		return ""
+	}
+	output, truncated := item.output.snapshot()
+	output = strings.TrimRight(output, "\r\n")
+	if output == "" {
+		return ""
+	}
+	if truncated {
+		output = "[terminal output truncated]\n" + output
+	}
+	return capToolOutputPreview(output)
+}
+
+func terminalDone(item *acpTerminal) bool {
+	if item == nil {
+		return false
+	}
+	select {
+	case <-item.done:
+		return true
+	default:
+		return false
+	}
 }
 
 func (c *acpChatClient) terminalWorkingDirectory(cwd *string) (string, error) {

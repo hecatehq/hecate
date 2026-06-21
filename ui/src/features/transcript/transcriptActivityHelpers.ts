@@ -266,6 +266,12 @@ export function activityDisplay(activity: ChatActivityRecord): { title: string; 
   if (activity.type === "tool_group") {
     return { title: activity.title, detail: cleanActivityDetail(activity) };
   }
+  if (activity.type === "terminal") {
+    return {
+      title: activity.title || "Terminal command",
+      detail: cleanActivityDetail(activity),
+    };
+  }
   if (activity.type === "thinking" && isModelTurnActivity(activity)) {
     return { title: "Thinking", detail: modelTurnDetail(activity) };
   }
@@ -334,6 +340,8 @@ export function activityLinePrefix(activity: ChatActivityRecord): string | undef
       return "model";
     case "approval":
       return "approval";
+    case "terminal":
+      return "terminal";
     default:
       return undefined;
   }
@@ -417,11 +425,12 @@ function toolActivityDetail(
 }
 
 export function capturedToolOutput(activity: ChatActivityRecord): string | undefined {
-  if (activity.type !== "tool_call") return undefined;
+  if (activity.type !== "tool_call" && activity.type !== "terminal") return undefined;
   const preview = activity.artifact_preview;
   const hasPreview = typeof preview === "string" && preview.trim().length > 0;
   const detail = activity.detail?.trim();
-  const parsed = detail ? parseToolOutputDetail(detail)?.output : undefined;
+  const parsed =
+    activity.type === "tool_call" && detail ? parseToolOutputDetail(detail)?.output : undefined;
   if (hasPreview && parsed) return parsed.length > preview.length ? parsed : preview;
   return hasPreview ? preview : parsed;
 }
@@ -730,15 +739,16 @@ function activitySortPhase(activity: ChatActivityRecord): number {
   if (activity.type === "thinking" || activity.type === "model_turns") return 4;
   if (activity.type === "approval") return 5;
   if (activity.type === "tool_call") return 6;
-  if (activity.type === "files_changed") return 7;
+  if (activity.type === "terminal") return 7;
+  if (activity.type === "files_changed") return 8;
   if (
     activity.type === "failed" ||
     activity.type === "cancelled" ||
     activity.type === "completed" ||
     activity.type === "run_result"
   )
-    return 9;
-  return 8;
+    return 10;
+  return 9;
 }
 
 export function activityStatusColor(status?: string) {

@@ -449,7 +449,13 @@ function renderAgentActivityAdvanced(
   if (toolOutput) {
     return (
       <ToolOutputPreview
-        title={activity.kind === "read" ? "Read output" : "Tool output"}
+        title={
+          activity.type === "terminal"
+            ? "Terminal output"
+            : activity.kind === "read"
+              ? "Read output"
+              : "Tool output"
+        }
         output={toolOutput}
       />
     );

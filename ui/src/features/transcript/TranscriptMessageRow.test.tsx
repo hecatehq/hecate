@@ -811,6 +811,31 @@ describe("TranscriptMessageRow", () => {
     expect(screen.getByText(/drwxr-xr-x@ 20 chicoxyzzy staff 640/)).toBeInTheDocument();
   });
 
+  it("shows terminal output from terminal activity previews", async () => {
+    const user = userEvent.setup();
+    const activities: ChatActivityRecord[] = [
+      {
+        id: "terminal:term_123",
+        type: "terminal",
+        status: "completed",
+        kind: "execute",
+        title: "Terminal command",
+        detail: "sh -c 'printf ok' · cwd /repo · exit code 0",
+        artifact_preview: "ok\nall good",
+      },
+    ];
+
+    render(<TranscriptMessageRow {...baseProps} activities={activities} />);
+
+    expect(screen.getByText(/1 terminal/)).toBeInTheDocument();
+    expect(screen.queryByText(/all good/)).toBeNull();
+
+    await user.click(screen.getByText("Output"));
+
+    expect(screen.getByText("Terminal output")).toBeInTheDocument();
+    expect(screen.getByText(/all good/)).toBeInTheDocument();
+  });
+
   it("renders a Project Assistant proposal activity action", async () => {
     const user = userEvent.setup();
     const onOpenProjectProposal = vi.fn();

@@ -130,6 +130,7 @@ export function TranscriptActivityTimeline({
 
   const plan = primaryRaw.filter((activity) => activity.type === "plan");
   const tools = primaryRaw.filter((activity) => activity.type === "tool_call");
+  const terminals = primaryRaw.filter((activity) => activity.type === "terminal");
   const proposals = primaryRaw.filter(isProjectAssistantProposalActivity);
   const failedTools = tools.filter(
     (activity) => activityEffectiveStatus(activity) === "failed",
@@ -146,6 +147,7 @@ export function TranscriptActivityTimeline({
           ? `${failedTools} failed tool${failedTools === 1 ? "" : "s"}`
           : `${tools.length} tool${tools.length === 1 ? "" : "s"}`
       : "",
+    terminals.length > 0 ? `${terminals.length} terminal${terminals.length === 1 ? "" : "s"}` : "",
     proposals.length > 0
       ? `${proposals.length} proposal${proposals.length === 1 ? "" : "s"} ready`
       : "",
@@ -369,6 +371,7 @@ function advancedSummaryLabel(activity: ChatActivityRecord): string {
     /\boutput(?:\s+captured)?\s*(?::|·)/i.test(activity.detail ?? "")
   )
     return "Output";
+  if (activity.type === "terminal" && activity.artifact_preview?.trim()) return "Output";
   return "Advanced";
 }
 

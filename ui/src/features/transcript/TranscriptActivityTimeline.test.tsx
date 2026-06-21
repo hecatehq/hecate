@@ -186,6 +186,25 @@ describe("TranscriptActivityTimeline", () => {
     expect(screen.getByText("src/index.ts")).toBeInTheDocument();
   });
 
+  it("renders terminal activities with a terminal summary and prefix", () => {
+    const activities: ChatActivityRecord[] = [
+      {
+        id: "terminal:term_123",
+        type: "terminal",
+        status: "completed",
+        kind: "execute",
+        title: "Terminal command",
+        detail: "sh -c 'go test ./...' · cwd /repo · exit code 0",
+      },
+      { type: "completed", title: "Final answer", status: "completed" },
+    ];
+    render(<TranscriptActivityTimeline activities={activities} />);
+    expect(screen.getByText(/completed · 1 terminal/)).toBeInTheDocument();
+    expect(screen.getByText("terminal")).toBeInTheDocument();
+    expect(screen.getByText("Terminal command")).toBeInTheDocument();
+    expect(screen.getByText("sh -c 'go test ./...' · cwd /repo · exit code 0")).toBeInTheDocument();
+  });
+
   it("removes duplicate tool details that repeat title and status", () => {
     const activities: ChatActivityRecord[] = [
       {

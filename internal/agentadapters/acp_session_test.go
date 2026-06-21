@@ -171,6 +171,7 @@ func TestSessionManagerRunsACPTerminalCallbackThroughAdapterProcess(t *testing.T
 		Store: store,
 	}))
 	t.Cleanup(func() { _ = manager.Shutdown(context.Background()) })
+	var activityCapture acpSessionActivityCapture
 
 	result, err := manager.Run(context.Background(), RunRequest{
 		SessionID:      "chat_terminal_callback",
@@ -179,6 +180,7 @@ func TestSessionManagerRunsACPTerminalCallbackThroughAdapterProcess(t *testing.T
 		Prompt:         "terminal command",
 		Timeout:        5 * time.Second,
 		MaxOutputBytes: 64 * 1024,
+		OnActivity:     activityCapture.record,
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -207,6 +209,42 @@ func TestSessionManagerRunsACPTerminalCallbackThroughAdapterProcess(t *testing.T
 	if rows[0].Status != ApprovalStatusApproved || rows[0].ToolKind != ToolKindShellExec {
 		t.Fatalf("approval = %+v, want approved shell_exec", rows[0])
 	}
+	activities := activityCapture.snapshot()
+	completed := findTerminalActivity(activities, firstTerminalActivityID(activities), "completed")
+	if completed == nil {
+		t.Fatalf("Run activities = %+v, want completed terminal activity", activities)
+	}
+	if !strings.Contains(completed.ArtifactPreview, "terminal ok") {
+		t.Fatalf("terminal activity preview = %q, want command output", completed.ArtifactPreview)
+	}
+}
+
+type acpSessionActivityCapture struct {
+	mu         sync.Mutex
+	activities []Activity
+}
+
+func (c *acpSessionActivityCapture) record(activity Activity) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.activities = append(c.activities, activity)
+}
+
+func (c *acpSessionActivityCapture) snapshot() []Activity {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make([]Activity, len(c.activities))
+	copy(out, c.activities)
+	return out
+}
+
+func firstTerminalActivityID(activities []Activity) string {
+	for _, activity := range activities {
+		if strings.HasPrefix(activity.ID, "terminal:") {
+			return strings.TrimPrefix(activity.ID, "terminal:")
+		}
+	}
+	return ""
 }
 
 func TestSessionManagerPreservesACPStopReason(t *testing.T) {
