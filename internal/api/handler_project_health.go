@@ -13,6 +13,7 @@ import (
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
+	"github.com/hecatehq/hecate/internal/projectworkapp"
 )
 
 const (
@@ -226,7 +227,7 @@ func projectHealthSummary(project projects.Project, entries []memory.Entry, cand
 		if artifact.Kind != projectwork.ArtifactKindReview {
 			continue
 		}
-		if projectWorkReadinessReviewArtifactRequiresFollowUp(artifact) {
+		if projectworkapp.ReviewArtifactRequiresFollowUp(artifact) {
 			summary.ReviewFollowUpCount++
 		}
 		switch artifact.ReviewVerdict {
@@ -526,7 +527,7 @@ func projectHealthReviewFollowUpAttention(projectID string, workItems []projectw
 		return items[i].ID < items[j].ID
 	})
 	for _, artifact := range items {
-		if !projectWorkReadinessReviewArtifactNeedsPath(artifact, handoffsByWorkItem[artifact.WorkItemID]) {
+		if !projectworkapp.ReviewArtifactNeedsFollowUpPath(artifact, handoffsByWorkItem[artifact.WorkItemID]) {
 			continue
 		}
 		workItem := workByID[artifact.WorkItemID]
@@ -598,7 +599,7 @@ func projectHealthStaleAssignments(project projects.Project, activity ProjectAct
 		workByID[workItem.ID] = workItem
 	}
 	for _, assignment := range assignments {
-		status := projectWorkReadinessAssignmentStatus(assignment)
+		status := projectworkapp.AssignmentReadinessStatus(assignment)
 		if !projectHealthAssignmentIsStale(assignment, status, now) {
 			continue
 		}
@@ -625,7 +626,7 @@ func projectHealthProjectedStaleAssignment(project projects.Project, workItem pr
 		WorkItem:       renderProjectActivityWorkItem(renderProjectWorkItem(workItem)),
 		Assignment:     renderedAssignment,
 		Role:           ProjectWorkRoleResponse{ID: assignment.RoleID, ProjectID: project.ID, Name: assignment.RoleID},
-		Status:         projectWorkReadinessAssignmentStatus(assignment),
+		Status:         projectworkapp.AssignmentReadinessStatus(assignment),
 		BlockingSignal: "stale_unknown",
 		StatusSummary:  "active assignment has not changed recently",
 		LinkedTaskID:   taskID,
@@ -743,7 +744,7 @@ func projectHealthAssignmentExecutionMissing(item ProjectActivityItemResponse) b
 }
 
 func projectHealthAssignmentIsStale(assignment projectwork.Assignment, status string, now time.Time) bool {
-	if !projectWorkReadinessActiveAssignmentStatus(status) {
+	if !projectworkapp.IsActiveAssignmentStatus(status) {
 		return false
 	}
 	updated := projectworkTime(assignment.UpdatedAt, assignment.StartedAt)

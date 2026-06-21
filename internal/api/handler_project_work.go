@@ -1047,6 +1047,16 @@ func writeProjectWorkError(w http.ResponseWriter, err error) bool {
 	if err == nil {
 		return true
 	}
+	var closeoutErr projectworkapp.WorkItemCloseoutBlockedError
+	if errors.As(err, &closeoutErr) {
+		WriteErrorDetails(w, http.StatusConflict, errCodeConflict, err.Error(), ErrorDetails{
+			OperatorAction: "Resolve closeout readiness blockers, refresh the work item, then retry.",
+			Fields: map[string]any{
+				"readiness": renderProjectWorkItemReadiness(closeoutErr.Readiness),
+			},
+		})
+		return false
+	}
 	writeAppErrorWithFallback(w, err, projectWorkErrorMappings, http.StatusInternalServerError, errCodeGatewayError)
 	return false
 }

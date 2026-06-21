@@ -11,6 +11,7 @@ import (
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectwork"
+	"github.com/hecatehq/hecate/internal/projectworkapp"
 )
 
 const (
@@ -301,19 +302,19 @@ func handoffOperationItems(projectID string, handoffs []projectwork.Handoff) []P
 
 func selectedWorkFollowThroughOperationItems(projectID string, workItems []projectwork.WorkItem, assignments []projectwork.Assignment, artifacts []projectwork.CollaborationArtifact, handoffs []projectwork.Handoff) []ProjectOperationsBriefItemResponse {
 	assignmentsByWorkItem := groupProjectWorkAssignmentsByWorkItem(assignments)
-	assignmentsByID := projectWorkReadinessAssignmentsByID(assignments)
+	assignmentsByID := projectworkapp.AssignmentsByID(assignments)
 	allArtifactsByWorkItem := projectOperationsArtifactsByWorkItem(artifacts)
 	handoffsByWorkItem := projectOperationsHandoffsByWorkItem(handoffs)
 	items := make([]ProjectOperationsBriefItemResponse, 0, len(workItems))
 	for _, workItem := range workItems {
-		if projectWorkItemClosed(workItem.Status) {
+		if projectworkapp.WorkItemClosed(workItem.Status) {
 			continue
 		}
 		workItemAssignments := assignmentsByWorkItem[workItem.ID]
 		workItemArtifacts := allArtifactsByWorkItem[workItem.ID]
 		workItemHandoffs := handoffsByWorkItem[workItem.ID]
-		readiness := renderProjectWorkItemReadiness(workItem, workItemAssignments, workItemArtifacts, workItemHandoffs)
-		if review := projectWorkReadinessReviewFollowUpArtifact(workItemArtifacts, workItemHandoffs); review != nil {
+		readiness := projectworkapp.EvaluateWorkItemReadiness(workItem, workItemAssignments, workItemArtifacts, workItemHandoffs)
+		if review := projectworkapp.ReviewFollowUpArtifact(workItemArtifacts, workItemHandoffs); review != nil {
 			items = append(items, reviewFollowUpOperationItem(projectID, workItem, *review))
 		}
 		for _, assignmentID := range readiness.MissingEvidenceAssignmentIDs {
@@ -454,7 +455,7 @@ func assignmentGapOperationItems(projectID string, workItems []projectwork.WorkI
 		return items
 	}
 	for _, workItem := range workItems {
-		if projectWorkItemClosed(workItem.Status) || len(assignmentsByWorkItem[workItem.ID]) > 0 {
+		if projectworkapp.WorkItemClosed(workItem.Status) || len(assignmentsByWorkItem[workItem.ID]) > 0 {
 			continue
 		}
 		rendered := renderProjectActivityWorkItem(renderProjectWorkItem(workItem))
@@ -632,15 +633,6 @@ func projectHasActiveRoot(project projects.Project) bool {
 		}
 	}
 	return false
-}
-
-func projectWorkItemClosed(status string) bool {
-	switch strings.TrimSpace(status) {
-	case projectwork.WorkItemStatusDone, projectwork.WorkItemStatusCancelled:
-		return true
-	default:
-		return false
-	}
 }
 
 func projectOperationsArtifactsByWorkItem(artifacts []projectwork.CollaborationArtifact) map[string][]projectwork.CollaborationArtifact {

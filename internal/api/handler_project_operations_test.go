@@ -10,6 +10,7 @@ import (
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectwork"
+	"github.com/hecatehq/hecate/internal/projectworkapp"
 )
 
 func TestProjectOperationsBrief_ReadOnlyProjectOperations(t *testing.T) {
@@ -509,10 +510,10 @@ func TestProjectOperationsReviewFollowUpPathAndBlockerSemantics(t *testing.T) {
 		Status:            projectwork.HandoffStatusAccepted,
 		LinkedArtifactIDs: []string{artifact.ID},
 	}}
-	if projectWorkReadinessArtifactHasLinkedFollowUpPath(artifact.ID, acceptedWithoutTarget) {
+	if projectworkapp.ReviewArtifactHasLinkedFollowUpPath(artifact.ID, acceptedWithoutTarget) {
 		t.Fatal("accepted handoff without target assignment should not hide review follow-up operation")
 	}
-	if projectWorkReadinessReviewFollowUpBlocker(artifact, acceptedWithoutTarget, nil) == "" {
+	if projectworkapp.ReviewFollowUpBlocker(artifact, acceptedWithoutTarget, nil) == "" {
 		t.Fatal("accepted handoff without target assignment should still block closeout")
 	}
 
@@ -521,7 +522,7 @@ func TestProjectOperationsReviewFollowUpPathAndBlockerSemantics(t *testing.T) {
 		Status:            projectwork.HandoffStatusPending,
 		LinkedArtifactIDs: []string{artifact.ID},
 	}}
-	if !projectWorkReadinessArtifactHasLinkedFollowUpPath(artifact.ID, pending) || projectWorkReadinessReviewFollowUpBlocker(artifact, pending, nil) == "" {
+	if !projectworkapp.ReviewArtifactHasLinkedFollowUpPath(artifact.ID, pending) || projectworkapp.ReviewFollowUpBlocker(artifact, pending, nil) == "" {
 		t.Fatal("pending handoff should route through handoff review and block closeout")
 	}
 
@@ -530,7 +531,7 @@ func TestProjectOperationsReviewFollowUpPathAndBlockerSemantics(t *testing.T) {
 		Status:            projectwork.HandoffStatusDismissed,
 		LinkedArtifactIDs: []string{artifact.ID},
 	}}
-	if !projectWorkReadinessArtifactHasLinkedFollowUpPath(artifact.ID, dismissed) || projectWorkReadinessReviewFollowUpBlocker(artifact, dismissed, nil) != "" {
+	if !projectworkapp.ReviewArtifactHasLinkedFollowUpPath(artifact.ID, dismissed) || projectworkapp.ReviewFollowUpBlocker(artifact, dismissed, nil) != "" {
 		t.Fatal("dismissed handoff should clear review follow-up without blocking closeout")
 	}
 
@@ -543,7 +544,7 @@ func TestProjectOperationsReviewFollowUpPathAndBlockerSemantics(t *testing.T) {
 	assignmentsByID := map[string]projectwork.Assignment{
 		"asgn_followup": {ID: "asgn_followup", Status: projectwork.AssignmentStatusCompleted},
 	}
-	if !projectWorkReadinessArtifactHasLinkedFollowUpPath(artifact.ID, completedTarget) || projectWorkReadinessReviewFollowUpBlocker(artifact, completedTarget, assignmentsByID) != "" {
+	if !projectworkapp.ReviewArtifactHasLinkedFollowUpPath(artifact.ID, completedTarget) || projectworkapp.ReviewFollowUpBlocker(artifact, completedTarget, assignmentsByID) != "" {
 		t.Fatal("completed target assignment should clear review follow-up closeout blocker")
 	}
 }
