@@ -4,6 +4,7 @@ import (
 	"github.com/hecatehq/hecate/internal/chatapp"
 	"github.com/hecatehq/hecate/internal/modelapp"
 	"github.com/hecatehq/hecate/internal/pluginregistryapp"
+	"github.com/hecatehq/hecate/internal/projectapp"
 	"github.com/hecatehq/hecate/internal/projectassistantapp"
 	"github.com/hecatehq/hecate/internal/projectworkapp"
 	"github.com/hecatehq/hecate/internal/providerapp"
@@ -49,6 +50,21 @@ func (h *Handler) providerApplication() *providerapp.Application {
 		ControlPlane: h.controlPlane,
 		Runtime:      h.providerRuntime,
 		Config:       h.config,
+	})
+}
+
+func (h *Handler) projectApplication() *projectapp.Application {
+	if h == nil {
+		return projectapp.New(projectapp.Options{})
+	}
+	return projectapp.New(projectapp.Options{
+		Projects:         h.projects,
+		Chats:            h.agentChat,
+		DeleteChat:       h.deleteProjectChatSession,
+		ProjectWork:      h.projectWork,
+		ProjectSkills:    h.projectSkills,
+		Memory:           h.memory,
+		MemoryCandidates: h.memoryCandidates,
 	})
 }
 

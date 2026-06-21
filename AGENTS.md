@@ -85,6 +85,8 @@ internal/
   chatcontext/          pure context-packet lookup/decode/normalize helpers and
                           canonical ref builders shared by API context endpoints
   projects/             durable project identity store (memory / sqlite / postgres)
+  projectapp/           project lifecycle application layer used by API handlers:
+                          project delete cascade boundaries and cleanup authority
   projectskills/        project-scoped SKILL.md metadata registry
                           (memory / sqlite / postgres; no body injection or execution)
   projectwork/          project roles, work items, assignments, handoffs, and

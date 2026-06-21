@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/projectapp"
 	"github.com/hecatehq/hecate/internal/projects"
 )
 
@@ -273,49 +275,13 @@ func (h *Handler) HandleUpdateProject(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleDeleteProject(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if _, ok, err := h.projects.Get(r.Context(), id); err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	} else if !ok {
+	_, err := h.projectApplication().DeleteProject(r.Context(), r.PathValue("id"))
+	if errors.Is(err, projectapp.ErrProjectNotFound) {
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
 		return
 	}
-	if err := h.deleteProjectChats(r.Context(), id); err != nil {
-		if errors.Is(err, errChatSessionDeleteConflict) {
-			WriteError(w, http.StatusConflict, errCodeConflict, err.Error())
-			return
-		}
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
-	if h.projectWork != nil {
-		if _, err := h.projectWork.DeleteProject(r.Context(), id); err != nil {
-			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-			return
-		}
-	}
-	if h.projectSkills != nil {
-		if _, err := h.projectSkills.DeleteProject(r.Context(), id); err != nil {
-			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-			return
-		}
-	}
-	if h.memory != nil {
-		if _, err := h.memory.DeleteByProjectID(r.Context(), id); err != nil {
-			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-			return
-		}
-	}
-	if h.memoryCandidates != nil {
-		if _, err := h.memoryCandidates.DeleteCandidatesByProjectID(r.Context(), id); err != nil {
-			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-			return
-		}
-	}
-	err := h.projects.Delete(r.Context(), id)
-	if errors.Is(err, projects.ErrNotFound) {
-		WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
+	if errors.Is(err, projectapp.ErrProjectDeleteConflict) {
+		WriteError(w, http.StatusConflict, errCodeConflict, err.Error())
 		return
 	}
 	if err != nil {
@@ -325,27 +291,12 @@ func (h *Handler) HandleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *Handler) deleteProjectChats(ctx context.Context, projectID string) error {
-	if h.agentChat == nil {
-		return nil
+func (h *Handler) deleteProjectChatSession(ctx context.Context, session chat.Session) (bool, error) {
+	stopping, err := h.deleteExistingChatSession(ctx, session)
+	if errors.Is(err, errChatSessionDeleteConflict) {
+		return stopping, fmt.Errorf("%w: %v", projectapp.ErrProjectDeleteConflict, err)
 	}
-	sessions, err := h.agentChat.List(ctx)
-	if err != nil {
-		return err
-	}
-	for _, session := range sessions {
-		if session.ProjectID != projectID {
-			continue
-		}
-		stopping, err := h.deleteExistingChatSession(ctx, session)
-		if err != nil {
-			return err
-		}
-		if stopping {
-			return fmt.Errorf("%w: chat session %q is still stopping", errChatSessionDeleteConflict, session.ID)
-		}
-	}
-	return nil
+	return stopping, err
 }
 
 func projectFromCreateRequest(req createProjectRequest) (projects.Project, error) {
