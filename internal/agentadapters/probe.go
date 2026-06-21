@@ -220,7 +220,7 @@ func Probe(ctx context.Context, adapterID string) (res ProbeResult) {
 
 	defer terminateProcess(cmd)
 
-	conn := acp.NewClientSideConnection(probeClient{}, stdin, stdout)
+	conn := acp.NewClientSideConnection(probeClient{workspace: workspace}, stdin, stdout)
 
 	res.Stage = ProbeStageInitialize
 	initCtx, initCancel := context.WithTimeout(probeCtx, 10*time.Second)
@@ -477,10 +477,13 @@ func elapsedMS(start time.Time) int64 {
 	return time.Since(start).Milliseconds()
 }
 
-// probeClient is a no-op ACP client. The probe never receives turns
-// or activity from the adapter — we just need to satisfy the
-// interface so the protocol handshake can complete.
-type probeClient struct{}
+// probeClient is the minimal ACP client used during health probes.
+// It implements the same filesystem callbacks advertised during
+// Initialize against the temporary probe workspace; everything else
+// either no-ops or fails closed because probes never drive turns.
+type probeClient struct {
+	workspace string
+}
 
 func (probeClient) SessionUpdate(context.Context, acp.SessionNotification) error {
 	return nil
@@ -496,12 +499,12 @@ func (probeClient) RequestPermission(context.Context, acp.RequestPermissionReque
 	}, nil
 }
 
-func (probeClient) ReadTextFile(context.Context, acp.ReadTextFileRequest) (acp.ReadTextFileResponse, error) {
-	return acp.ReadTextFileResponse{}, errors.New("probe: read_text_file not supported")
+func (c probeClient) ReadTextFile(ctx context.Context, params acp.ReadTextFileRequest) (acp.ReadTextFileResponse, error) {
+	return (&acpChatClient{workspace: c.workspace}).ReadTextFile(ctx, params)
 }
 
-func (probeClient) WriteTextFile(context.Context, acp.WriteTextFileRequest) (acp.WriteTextFileResponse, error) {
-	return acp.WriteTextFileResponse{}, errors.New("probe: write_text_file not supported")
+func (c probeClient) WriteTextFile(ctx context.Context, params acp.WriteTextFileRequest) (acp.WriteTextFileResponse, error) {
+	return (&acpChatClient{workspace: c.workspace}).WriteTextFile(ctx, params)
 }
 
 func (probeClient) CreateTerminal(context.Context, acp.CreateTerminalRequest) (acp.CreateTerminalResponse, error) {

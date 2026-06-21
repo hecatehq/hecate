@@ -306,6 +306,16 @@ func TestProbeCapturesInitializeCapabilities(t *testing.T) {
 	}
 }
 
+func TestProbeSupportsFilesystemCallbacksDuringNewSession(t *testing.T) {
+	t.Setenv("HECATE_FAKE_ACP_NEW_SESSION_FS", "1")
+	installFakeACPExecutable(t, "codex-acp-adapter")
+
+	res := Probe(context.Background(), "codex")
+	if res.Status != ProbeStatusReady {
+		t.Fatalf("Status = %q, want ready; stage=%q error=%q stderr=%q", res.Status, res.Stage, res.Error, res.Stderr)
+	}
+}
+
 func TestProbeHonorsDevOverrideMatrix(t *testing.T) {
 	cases := []struct {
 		name       string
