@@ -217,6 +217,22 @@ func TestSessionManagerRunsACPTerminalCallbackThroughAdapterProcess(t *testing.T
 	if !strings.Contains(completed.ArtifactPreview, "terminal ok") {
 		t.Fatalf("terminal activity preview = %q, want command output", completed.ArtifactPreview)
 	}
+	var terminalTool *Activity
+	for i := range activities {
+		if activities[i].ID == "tool:terminal_ref" {
+			terminalTool = &activities[i]
+			break
+		}
+	}
+	if terminalTool == nil {
+		t.Fatalf("Run activities = %+v, want terminal-ref tool activity", activities)
+	}
+	if !strings.Contains(terminalTool.Detail, "terminal output: terminal ok") {
+		t.Fatalf("terminal-ref tool detail = %q, want terminal output summary", terminalTool.Detail)
+	}
+	if !strings.Contains(terminalTool.ArtifactPreview, "terminal ok") {
+		t.Fatalf("terminal-ref tool preview = %q, want terminal output", terminalTool.ArtifactPreview)
+	}
 }
 
 type acpSessionActivityCapture struct {
@@ -2640,6 +2656,44 @@ func TestACPTurnSurfacesToolContentPreview(t *testing.T) {
 	}
 }
 
+func TestACPTurnSurfacesTerminalContentPreview(t *testing.T) {
+	var activities []Activity
+	turn := newACPTurn(64*1024, nil)
+	turn.setTerminalOutputLookup(func(terminalID string) (string, bool) {
+		if terminalID != "term_123" {
+			return "", false
+		}
+		return "go test ./...\nok", true
+	})
+	turn.setActivityCallback(func(activity Activity) {
+		activities = append(activities, activity)
+	})
+	status := acp.ToolCallStatusCompleted
+	turn.recordUpdate(acp.SessionNotification{
+		SessionId: acp.SessionId("session_1"),
+		Update: acp.SessionUpdate{
+			ToolCallUpdate: &acp.SessionToolCallUpdate{
+				ToolCallId: acp.ToolCallId("call_terminal"),
+				Status:     &status,
+				Kind:       acp.Ptr(acp.ToolKindExecute),
+				Content: []acp.ToolCallContent{
+					acp.ToolTerminalRef("term_123"),
+				},
+			},
+		},
+	})
+
+	if len(activities) != 1 {
+		t.Fatalf("activities = %#v, want 1", activities)
+	}
+	if got := activities[0].Detail; got != "execute · 1 terminal, terminal output: go test ./... ok" {
+		t.Fatalf("activity detail = %q", got)
+	}
+	if got := activities[0].ArtifactPreview; got != "go test ./...\nok" {
+		t.Fatalf("artifact preview = %q", got)
+	}
+}
+
 func TestACPTurnDecodesCommandBridgeToolActivityShape(t *testing.T) {
 	var activities []Activity
 	turn := newACPTurn(64*1024, nil)
@@ -3106,6 +3160,24 @@ func (a *fakeACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (ac
 			TerminalId: terminal.TerminalId,
 		})
 		if err != nil {
+			return acp.PromptResponse{}, err
+		}
+		status := acp.ToolCallStatusCompleted
+		kind := acp.ToolKindExecute
+		if err := a.conn.SessionUpdate(turnCtx, acp.SessionNotification{
+			SessionId: params.SessionId,
+			Update: acp.SessionUpdate{
+				ToolCallUpdate: &acp.SessionToolCallUpdate{
+					ToolCallId: acp.ToolCallId("terminal_ref"),
+					Status:     &status,
+					Kind:       &kind,
+					Title:      acp.Ptr("Terminal command"),
+					Content: []acp.ToolCallContent{
+						acp.ToolTerminalRef(terminal.TerminalId),
+					},
+				},
+			},
+		}); err != nil {
 			return acp.PromptResponse{}, err
 		}
 		if err := a.conn.SessionUpdate(turnCtx, acp.SessionNotification{

@@ -120,6 +120,33 @@ func TestAcpChatClientTerminalRPCLifecycle(t *testing.T) {
 	}
 }
 
+func TestAcpChatClientTerminalToolOutputPreviewSurvivesRemoval(t *testing.T) {
+	t.Parallel()
+
+	client := &acpChatClient{}
+	item := &acpTerminal{
+		id:     "term_123",
+		output: newACPTerminalOutputBuffer(1024),
+	}
+	item.output.append("terminal output\n")
+	client.storeTerminal(item)
+
+	preview, ok := client.terminalToolOutputPreview("term_123")
+	if !ok || preview != "terminal output" {
+		t.Fatalf("terminalToolOutputPreview(active) = %q, %v; want retained active output", preview, ok)
+	}
+	removed, err := client.removeTerminal("term_123")
+	if err != nil {
+		t.Fatalf("removeTerminal: %v", err)
+	}
+	client.rememberTerminalPreview(removed)
+
+	preview, ok = client.terminalToolOutputPreview("term_123")
+	if !ok || preview != "terminal output" {
+		t.Fatalf("terminalToolOutputPreview(removed) = %q, %v; want retained removed output", preview, ok)
+	}
+}
+
 func TestAcpChatClientTerminalRPCOutputTruncatesFromBeginning(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("unix shell semantics")

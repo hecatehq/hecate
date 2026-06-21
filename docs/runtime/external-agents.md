@@ -523,9 +523,11 @@ names are included in approval context; env values are not persisted in the
 approval payload. Terminal lifecycle callbacks are also projected into the
 chat activity timeline as `terminal` rows: Hecate records the command, working
 directory, running/completed/failed/cancelled status, exit code when available,
-and a bounded output preview after the process exits. This makes approved
-client-side commands visible after refresh even though Hecate does not expose
-an embedded operator terminal UI.
+and a bounded output preview after the process exits. When an ACP tool-call
+update references a terminal, Hecate also reuses the retained terminal output
+preview in the `tool_call` activity detail and artifact preview when available.
+This makes approved client-side commands visible after refresh even though
+Hecate does not expose an embedded operator terminal UI.
 
 On Hecate shutdown, active External Agent turns are cancelled first. Hecate waits
 briefly for the ACP turn to drain, closes any unreleased ACP terminals, asks the
