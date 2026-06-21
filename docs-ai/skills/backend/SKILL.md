@@ -248,7 +248,10 @@ native session reload/recovery, and run output. Do not import standalone adapter
 source modules or
 `acp-adapter-kit` into Hecate just to test Codex/Claude adapter behavior; that
 parity belongs in the adapter repositories, with optional release-binary smokes
-(`just test-acp-release-smoke`) when packaging drift needs coverage.
+(`just test-acp-release-smoke`) when packaging drift needs coverage. Keep probe
+clients honest: any ACP client capability the probe advertises should be
+implemented by the probe client against its temporary workspace rather than
+returning "not supported" during `session/new`.
 
 Chat session lifecycle orchestration starts in `internal/chatapp.Application`.
 Session create, external-agent prepare, native session metadata persistence,
