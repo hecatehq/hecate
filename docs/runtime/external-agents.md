@@ -337,10 +337,11 @@ Hecate.
 Use this order when troubleshooting:
 
 1. **Discovery** — `GET /hecate/v1/agent-adapters` tells you whether Hecate can
-   find the adapter command and whether the installed version is inside
-   Hecate's tested range.
+   find the adapter command. This catalog path is intentionally cheap: it does
+   not spawn adapter CLIs for version, auth, or launch-control discovery.
 2. **Probe** — `POST /hecate/v1/agent-adapters/{id}/probe` actually starts the
-   agent bridge and opens a temporary ACP session. This is the best "will it run?"
+   agent bridge and opens a temporary ACP session. This refreshes version,
+   auth/capability, and launch-control details and is the best "will it run?"
    check.
 3. **Chat run** — send a real prompt only after discovery/probe are green. If
    the agent still fails, open the message's raw diagnostics disclosure; the

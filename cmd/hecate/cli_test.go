@@ -60,6 +60,39 @@ func TestCLI_HelpListsCommandTree(t *testing.T) {
 	}
 }
 
+func TestCLI_BareCommandRunsInteractiveShellUntilQuit(t *testing.T) {
+	t.Parallel()
+
+	var stdout bytes.Buffer
+	cmd := newRootCommand()
+	cmd.SetArgs(nil)
+	cmd.SetIn(strings.NewReader("help\nserve\nstatus\nq\n"))
+	cmd.SetOut(&stdout)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute(bare): %v", err)
+	}
+
+	output := stdout.String()
+	for _, want := range []string{
+		"Hecate operator shell",
+		"Commands: status, serve, ui, help, quit",
+		"Start the runtime with: hecate serve",
+		"Runtime status is available",
+		"bye",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("interactive output does not contain %q:\n%s", want, output)
+		}
+	}
+	if got := strings.Count(output, "hecate> "); got != 4 {
+		t.Fatalf("prompt count = %d, want 4; output:\n%s", got, output)
+	}
+	if strings.Contains(output, "hecate ·") {
+		t.Fatalf("interactive shell printed serve banner, likely started runtime:\n%s", output)
+	}
+}
+
 func TestCLI_MCPHelpListsServeOnly(t *testing.T) {
 	t.Parallel()
 

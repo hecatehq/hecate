@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -25,12 +27,12 @@ func newRootCommand() *cobra.Command {
 		Short:         "Local AI runtime console",
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		Run: func(cmd *cobra.Command, args []string) {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			if printVersion {
 				printVersionString(cmd.OutOrStdout())
-				return
+				return nil
 			}
-			runServe()
+			return runInteractiveShell(cmd.InOrStdin(), cmd.OutOrStdout())
 		},
 	}
 	root.CompletionOptions.DisableDefaultCmd = true
@@ -96,4 +98,34 @@ func newLegacyMCPServerCommand() *cobra.Command {
 
 func printVersionString(w io.Writer) {
 	fmt.Fprintln(w, version.Version)
+}
+
+func runInteractiveShell(in io.Reader, out io.Writer) error {
+	fmt.Fprintln(out, "Hecate operator shell")
+	fmt.Fprintln(out, "Type help for commands. Use `hecate serve` to start the runtime.")
+	fmt.Fprintln(out)
+
+	scanner := bufio.NewScanner(in)
+	for {
+		fmt.Fprint(out, "hecate> ")
+		if !scanner.Scan() {
+			fmt.Fprintln(out)
+			return scanner.Err()
+		}
+		switch strings.ToLower(strings.TrimSpace(scanner.Text())) {
+		case "", "status":
+			fmt.Fprintln(out, "Runtime status is available from the browser UI or `hecate serve` logs.")
+		case "help", "h", "?":
+			fmt.Fprintln(out, "Commands: status, serve, ui, help, quit")
+		case "serve":
+			fmt.Fprintln(out, "Start the runtime with: hecate serve")
+		case "ui":
+			fmt.Fprintln(out, "Start the runtime with `hecate serve`, then open http://127.0.0.1:8765")
+		case "quit", "exit", "q":
+			fmt.Fprintln(out, "bye")
+			return nil
+		default:
+			fmt.Fprintln(out, "Unknown command. Type help for commands.")
+		}
+	}
 }
