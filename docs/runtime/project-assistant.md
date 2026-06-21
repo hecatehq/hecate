@@ -278,10 +278,12 @@ metadata from `.agents/skills`, `.hecate/skills`, and enabled `AGENTS.md` /
 `CLAUDE.md` context-source references. The refresh ignores nested worktree
 containers such as `.worktrees` and `.claude/worktrees`; linked worktrees should
 be explicit project roots, not inherited onboarding input. Bootstrap itself does
-not perform a second filesystem scan. It deduplicates against existing role ids
-and existing memory/candidate source refs. It does not treat host-specific
-guidance as Hecate policy authority, call a model, create durable memory, start
-tasks, or launch agents.
+not perform a second filesystem scan. Skill capability hints such as suggested
+tools and required tools/writes/network posture remain advisory metadata for
+launch-readiness warnings; they do not grant capabilities. Bootstrap deduplicates
+against existing role ids and existing memory/candidate source refs. It does
+not treat host-specific guidance as Hecate policy authority, call a model,
+create durable memory, start tasks, or launch agents.
 
 In the operator UI, **Set up project** is the project onboarding action, not a
 regular draft mode. It refreshes workspace guidance context sources, refreshes

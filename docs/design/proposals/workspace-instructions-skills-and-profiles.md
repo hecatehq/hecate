@@ -287,8 +287,14 @@ Implemented registry behavior:
 - Discovery ignores nested worktree containers such as `.worktrees` and
   `.claude/worktrees`; worktrees should be explicit project roots when the
   operator wants them represented.
-- Discovery parses bounded metadata only: frontmatter `name`/`title` and
-  `description`, then H1/title fallback and directory id.
+- Discovery parses bounded metadata only: frontmatter `name`/`title`,
+  `description`, `hecate.suggested_tools`, and
+  `hecate.required_permissions.{tools,writes,network}`, then H1/title fallback
+  and directory id. Suggested-tool lists are normalized, de-duplicated, capped,
+  and summarized in operator-facing text.
+- Assignment launch planning compares resolved project skills with the resolved
+  profile and surfaces suggested-tool / required-permission mismatches as
+  operator warnings. It does not grant or revoke capabilities.
 - Hecate does not return, store, inject, execute, install, or fetch skill
   bodies.
 - Duplicate ids become `conflict` records with warnings. Missing rediscovered

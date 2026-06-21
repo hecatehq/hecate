@@ -19,7 +19,18 @@ func TestProjectSkillsAPI_DiscoverListAndPatch(t *testing.T) {
 	handler.SetProjectStore(projects.NewMemoryStore())
 	server := NewServer(quietLogger(), handler)
 	root := t.TempDir()
-	writeProjectSkillAPITestFile(t, root, ".hecate/skills/backend/SKILL.md", "---\nname: Backend\ndescription: Build backend changes.\n---\n")
+	writeProjectSkillAPITestFile(t, root, ".hecate/skills/backend/SKILL.md", `---
+name: Backend
+description: Build backend changes.
+hecate:
+  suggested_tools:
+    - git.diff
+  required_permissions:
+    tools: true
+    writes: true
+    network: false
+---
+`)
 	writeProjectSkillAPITestFile(t, root, ".agents/skills/qa/SKILL.md", "# QA\n")
 	if _, err := handler.projects.Create(t.Context(), projects.Project{
 		ID:   "proj_skills_api",
@@ -44,6 +55,13 @@ func TestProjectSkillsAPI_DiscoverListAndPatch(t *testing.T) {
 	}
 	if discovered.Object != "project_skills" || len(discovered.Data) != 2 {
 		t.Fatalf("discover response = %+v, want two project skills", discovered)
+	}
+	backend := projectSkillResponseFor(discovered.Data, "backend")
+	if backend == nil || len(backend.SuggestedTools) != 1 || backend.SuggestedTools[0] != "git.diff" {
+		t.Fatalf("backend suggested tools = %+v, want git.diff", backend)
+	}
+	if backend.RequiredPermissions == nil || backend.RequiredPermissions.Tools == nil || !*backend.RequiredPermissions.Tools || backend.RequiredPermissions.Writes == nil || !*backend.RequiredPermissions.Writes || backend.RequiredPermissions.Network == nil || *backend.RequiredPermissions.Network {
+		t.Fatalf("backend required permissions = %+v, want tools/writes on and network off", backend.RequiredPermissions)
 	}
 
 	patchRec := httptest.NewRecorder()
@@ -125,6 +143,15 @@ func projectSkillResponseHas(items []ProjectSkillResponseItem, id string, enable
 		}
 	}
 	return false
+}
+
+func projectSkillResponseFor(items []ProjectSkillResponseItem, id string) *ProjectSkillResponseItem {
+	for idx := range items {
+		if items[idx].ID == id {
+			return &items[idx]
+		}
+	}
+	return nil
 }
 
 func projectSkillAPITestJSONBody(t *testing.T, payload any) *bytes.Reader {

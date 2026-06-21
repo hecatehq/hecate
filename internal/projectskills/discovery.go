@@ -173,70 +173,121 @@ func discoverInBaseDir(fsys *workspacefs.FS, rootID string, base skillBaseDir, w
 		if err != nil || info.IsDir() {
 			continue
 		}
-		title, description, skillWarnings, status := readSkillMetadata(fsys, skillID, skillPath, info.Size())
-		if status == StatusInvalid && warnings != nil {
-			*warnings = append(*warnings, skillWarnings...)
+		metadata := readSkillMetadata(fsys, skillID, skillPath, info.Size())
+		if metadata.Status == StatusInvalid && warnings != nil {
+			*warnings = append(*warnings, metadata.Warnings...)
 		}
 		out = append(out, Skill{
 			ID:                     skillID,
-			Title:                  title,
-			Description:            description,
+			Title:                  metadata.Title,
+			Description:            metadata.Description,
 			Path:                   skillPath,
 			RootID:                 rootID,
 			Format:                 FormatSkillMD,
+			SuggestedTools:         metadata.SuggestedTools,
+			RequiredPermissions:    metadata.RequiredPermissions,
 			Enabled:                true,
-			Status:                 status,
+			Status:                 metadata.Status,
 			TrustLabel:             TrustWorkspaceSkill,
 			SourceContextSourceIDs: base.SourceContextSourceIDs,
-			Warnings:               skillWarnings,
+			Warnings:               metadata.Warnings,
 		})
 	}
 	return out
 }
 
-func readSkillMetadata(fsys *workspacefs.FS, skillID, skillPath string, size int64) (string, string, []string, string) {
-	title := titleFromID(skillID)
-	var warnings []string
-	status := StatusAvailable
+type skillMetadata struct {
+	Title               string
+	Description         string
+	SuggestedTools      []string
+	RequiredPermissions RequiredPermissions
+	Warnings            []string
+	Status              string
+}
+
+func readSkillMetadata(fsys *workspacefs.FS, skillID, skillPath string, size int64) skillMetadata {
+	metadata := skillMetadata{
+		Title:  titleFromID(skillID),
+		Status: StatusAvailable,
+	}
 	if size > skillMaxBytes {
-		warnings = append(warnings, fmt.Sprintf("Skipped metadata parsing for %s because it is larger than %d bytes.", skillPath, skillMaxBytes))
-		return title, "", warnings, StatusInvalid
+		metadata.Warnings = append(metadata.Warnings, fmt.Sprintf("Skipped metadata parsing for %s because it is larger than %d bytes.", skillPath, skillMaxBytes))
+		metadata.Status = StatusInvalid
+		return metadata
 	}
 	file, _, err := fsys.Open(skillPath)
 	if err != nil {
-		warnings = append(warnings, fmt.Sprintf("Failed to read skill metadata from %s: %v.", skillPath, err))
-		return title, "", warnings, StatusInvalid
+		metadata.Warnings = append(metadata.Warnings, fmt.Sprintf("Failed to read skill metadata from %s: %v.", skillPath, err))
+		metadata.Status = StatusInvalid
+		return metadata
 	}
 	defer file.Close()
 	raw, err := io.ReadAll(io.LimitReader(file, skillMaxBytes+1))
 	if err != nil {
-		warnings = append(warnings, fmt.Sprintf("Failed to read skill metadata from %s: %v.", skillPath, err))
-		return title, "", warnings, StatusInvalid
+		metadata.Warnings = append(metadata.Warnings, fmt.Sprintf("Failed to read skill metadata from %s: %v.", skillPath, err))
+		metadata.Status = StatusInvalid
+		return metadata
 	}
 	body := string(raw)
-	if name, description := parseFrontmatterMetadata(body); name != "" || description != "" {
-		if name != "" {
-			title = name
-		}
-		return title, description, warnings, status
+	frontmatter := parseFrontmatterMetadata(body)
+	if frontmatter.Title != "" {
+		metadata.Title = frontmatter.Title
+	}
+	metadata.Description = frontmatter.Description
+	metadata.SuggestedTools = frontmatter.SuggestedTools
+	metadata.RequiredPermissions = frontmatter.RequiredPermissions
+	if frontmatter.HasMetadata() {
+		return metadata
 	}
 	if heading := firstMarkdownHeading(body); heading != "" {
-		title = heading
+		metadata.Title = heading
 	}
-	return title, "", warnings, status
+	return metadata
 }
 
-func parseFrontmatterMetadata(body string) (string, string) {
+type skillFrontmatterMetadata struct {
+	Title               string
+	Description         string
+	SuggestedTools      []string
+	RequiredPermissions RequiredPermissions
+}
+
+func (metadata skillFrontmatterMetadata) HasMetadata() bool {
+	return metadata.Title != "" ||
+		metadata.Description != "" ||
+		len(metadata.SuggestedTools) > 0 ||
+		!metadata.RequiredPermissions.Empty()
+}
+
+func parseFrontmatterMetadata(body string) skillFrontmatterMetadata {
 	body = strings.TrimPrefix(body, "\ufeff")
 	if !strings.HasPrefix(body, "---\n") && !strings.HasPrefix(body, "---\r\n") {
-		return "", ""
+		return skillFrontmatterMetadata{}
 	}
 	lines := strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n")
-	var name, description string
+	var metadata skillFrontmatterMetadata
+	activeList := ""
+	activeMap := ""
+	inHecate := false
+	hecateIndent := -1
 	for idx := 1; idx < len(lines); idx++ {
+		rawLine := lines[idx]
 		line := strings.TrimSpace(lines[idx])
 		if line == "---" {
 			break
+		}
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		indent := frontmatterIndent(rawLine)
+		if inHecate && indent <= hecateIndent {
+			inHecate = false
+			activeList = ""
+			activeMap = ""
+		}
+		if inHecate && activeList == "suggested_tools" && strings.HasPrefix(line, "- ") {
+			metadata.SuggestedTools = append(metadata.SuggestedTools, strings.Trim(strings.TrimSpace(strings.TrimPrefix(line, "- ")), `"'`))
+			continue
 		}
 		key, value, ok := strings.Cut(line, ":")
 		if !ok {
@@ -245,12 +296,111 @@ func parseFrontmatterMetadata(body string) (string, string) {
 		value = strings.Trim(strings.TrimSpace(value), `"'`)
 		switch strings.ToLower(strings.TrimSpace(key)) {
 		case "name", "title":
-			name = value
+			if indent == 0 {
+				metadata.Title = value
+			}
 		case "description":
-			description = value
+			if indent == 0 {
+				metadata.Description = value
+			}
+		case "hecate":
+			inHecate = value == ""
+			hecateIndent = indent
+			activeList = ""
+			activeMap = ""
+		case "suggested_tools":
+			if !inHecate || indent <= hecateIndent {
+				activeList = ""
+				activeMap = ""
+				continue
+			}
+			activeMap = ""
+			if value == "" {
+				activeList = "suggested_tools"
+			} else {
+				activeList = ""
+				metadata.SuggestedTools = append(metadata.SuggestedTools, parseFrontmatterListValue(value)...)
+			}
+		case "required_permissions":
+			if !inHecate || indent <= hecateIndent {
+				activeList = ""
+				activeMap = ""
+				continue
+			}
+			activeList = ""
+			activeMap = "required_permissions"
+		case "tools", "writes", "network":
+			if inHecate && activeMap == "required_permissions" && indent > hecateIndent {
+				setRequiredPermission(&metadata.RequiredPermissions, strings.ToLower(strings.TrimSpace(key)), value)
+			}
+		default:
+			activeList = ""
+			activeMap = ""
 		}
 	}
-	return name, description
+	metadata.SuggestedTools = normalizeStringSlice(metadata.SuggestedTools)
+	return metadata
+}
+
+func frontmatterIndent(line string) int {
+	indent := 0
+	for _, char := range line {
+		switch char {
+		case ' ':
+			indent++
+		case '\t':
+			indent += 2
+		default:
+			return indent
+		}
+	}
+	return indent
+}
+
+func parseFrontmatterListValue(value string) []string {
+	value = strings.TrimSpace(value)
+	value = strings.TrimPrefix(value, "[")
+	value = strings.TrimSuffix(value, "]")
+	if value == "" {
+		return nil
+	}
+	if !strings.Contains(value, ",") {
+		return []string{strings.Trim(value, `"'`)}
+	}
+	var out []string
+	for _, item := range strings.Split(value, ",") {
+		item = strings.Trim(strings.TrimSpace(item), `"'`)
+		if item != "" {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func setRequiredPermission(permissions *RequiredPermissions, key, value string) {
+	parsed, ok := parseFrontmatterBool(value)
+	if !ok {
+		return
+	}
+	switch key {
+	case "tools":
+		permissions.Tools = &parsed
+	case "writes":
+		permissions.Writes = &parsed
+	case "network":
+		permissions.Network = &parsed
+	}
+}
+
+func parseFrontmatterBool(value string) (bool, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "true", "yes", "on", "1":
+		return true, true
+	case "false", "no", "off", "0":
+		return false, true
+	default:
+		return false, false
+	}
 }
 
 func firstMarkdownHeading(body string) string {

@@ -133,6 +133,75 @@ func TestApplication_ResolveTaskAssignmentLaunchPlanRejectsMissingModel(t *testi
 	}
 }
 
+func TestApplication_ResolveAssignmentSkillsWarnsForProfileCapabilityMismatch(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	skills := projectskills.NewMemoryStore()
+	if _, err := skills.UpsertDiscovered(ctx, "proj_1", []projectskills.Skill{
+		{
+			ID:         "review",
+			Title:      "Review",
+			Path:       ".hecate/skills/review/SKILL.md",
+			Format:     projectskills.FormatSkillMD,
+			Enabled:    true,
+			Status:     projectskills.StatusAvailable,
+			TrustLabel: projectskills.TrustWorkspaceSkill,
+			RequiredPermissions: projectskills.RequiredPermissions{
+				Tools:   boolForLaunchPlanTest(true),
+				Writes:  boolForLaunchPlanTest(false),
+				Network: boolForLaunchPlanTest(false),
+			},
+		},
+		{
+			ID:         "research",
+			Title:      "Research",
+			Path:       ".hecate/skills/research/SKILL.md",
+			Format:     projectskills.FormatSkillMD,
+			Enabled:    true,
+			Status:     projectskills.StatusAvailable,
+			TrustLabel: projectskills.TrustWorkspaceSkill,
+			SuggestedTools: []string{
+				"tool.00",
+				"tool.01",
+				"tool.02",
+				"tool.03",
+				"tool.04",
+				"tool.05",
+				"tool.06",
+				"tool.07",
+				"tool.08",
+				"tool.09",
+			},
+		},
+	}); err != nil {
+		t.Fatalf("UpsertDiscovered() error = %v", err)
+	}
+	app := New(Options{SkillStore: skills})
+
+	resolved := app.ResolveAssignmentSkills(ctx, "proj_1", projectwork.AgentRoleProfile{
+		SkillIDs: []string{"review", "research"},
+	}, ResolvedAgentProfile{
+		ID:             "safe_review",
+		ToolsEnabled:   false,
+		WritesAllowed:  false,
+		NetworkAllowed: true,
+	})
+
+	if len(resolved.Resolved) != 2 {
+		t.Fatalf("resolved skills = %+v, want both skills resolved", resolved.Resolved)
+	}
+	if !launchPlanWarningContains(resolved.Warnings, "Project skill Review (review) declares tools enabled") {
+		t.Fatalf("warnings = %+v, want tools mismatch", resolved.Warnings)
+	}
+	if !launchPlanWarningContains(resolved.Warnings, "Project skill Review (review) declares network disabled") {
+		t.Fatalf("warnings = %+v, want network mismatch", resolved.Warnings)
+	}
+	if !launchPlanWarningContains(resolved.Warnings, "Project skill Research (research) suggests tools (tool.00, tool.01, tool.02, tool.03, tool.04, tool.05, tool.06, tool.07, +2 more)") {
+		t.Fatalf("warnings = %+v, want suggested tools mismatch", resolved.Warnings)
+	}
+}
+
 func TestApplication_ResolveTaskAssignmentLaunchPlanUsesRuntimeDefaultModel(t *testing.T) {
 	t.Parallel()
 
@@ -342,4 +411,17 @@ func launchPlanTestAssignment() projectwork.Assignment {
 		Status:     projectwork.AssignmentStatusQueued,
 		DriverKind: projectwork.AssignmentDriverHecateTask,
 	}
+}
+
+func boolForLaunchPlanTest(value bool) *bool {
+	return &value
+}
+
+func launchPlanWarningContains(items []string, want string) bool {
+	for _, item := range items {
+		if strings.Contains(item, want) {
+			return true
+		}
+	}
+	return false
 }

@@ -129,6 +129,8 @@ func renderProjectSkill(item projectskills.Skill) ProjectSkillResponseItem {
 		Path:                   item.Path,
 		RootID:                 item.RootID,
 		Format:                 item.Format,
+		SuggestedTools:         append([]string(nil), item.SuggestedTools...),
+		RequiredPermissions:    renderProjectSkillRequiredPermissions(item.RequiredPermissions),
 		Enabled:                item.Enabled,
 		Status:                 item.Status,
 		TrustLabel:             item.TrustLabel,
@@ -138,6 +140,25 @@ func renderProjectSkill(item projectskills.Skill) ProjectSkillResponseItem {
 		CreatedAt:              formatProjectSkillTime(item.CreatedAt),
 		UpdatedAt:              formatProjectSkillTime(item.UpdatedAt),
 	}
+}
+
+func renderProjectSkillRequiredPermissions(permissions projectskills.RequiredPermissions) *ProjectSkillRequiredPermissionsResponseItem {
+	if permissions.Empty() {
+		return nil
+	}
+	return &ProjectSkillRequiredPermissionsResponseItem{
+		Tools:   cloneBoolResponseValue(permissions.Tools),
+		Writes:  cloneBoolResponseValue(permissions.Writes),
+		Network: cloneBoolResponseValue(permissions.Network),
+	}
+}
+
+func cloneBoolResponseValue(value *bool) *bool {
+	if value == nil {
+		return nil
+	}
+	out := *value
+	return &out
 }
 
 func appendUniqueProjectSkillWarnings(items []string, values ...string) []string {

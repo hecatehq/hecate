@@ -3,6 +3,7 @@ package projectskills
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -32,9 +33,17 @@ func TestStoreConformance_ProjectSkillsLifecycle(t *testing.T) {
 					Path:        ".hecate/skills/backend/SKILL.md",
 					RootID:      "root_a",
 					Format:      FormatSkillMD,
-					Enabled:     true,
-					Status:      StatusAvailable,
-					TrustLabel:  TrustWorkspaceSkill,
+					SuggestedTools: []string{
+						"git.diff",
+						"file.read",
+					},
+					RequiredPermissions: RequiredPermissions{
+						Tools:  boolForSkillTest(true),
+						Writes: boolForSkillTest(false),
+					},
+					Enabled:    true,
+					Status:     StatusAvailable,
+					TrustLabel: TrustWorkspaceSkill,
 				},
 				{
 					ID:       "qa",
@@ -54,6 +63,9 @@ func TestStoreConformance_ProjectSkillsLifecycle(t *testing.T) {
 			}
 			if items[0].ProjectID != "proj_alpha" || !items[0].Enabled || items[0].Status != StatusAvailable {
 				t.Fatalf("backend skill = %+v, want normalized project skill", items[0])
+			}
+			if len(items[0].SuggestedTools) != 2 || items[0].RequiredPermissions.Tools == nil || !*items[0].RequiredPermissions.Tools || items[0].RequiredPermissions.Writes == nil || *items[0].RequiredPermissions.Writes {
+				t.Fatalf("backend capability metadata = %+v / %+v, want persisted tools and permissions", items[0].SuggestedTools, items[0].RequiredPermissions)
 			}
 
 			updated, err := store.Update(ctx, "proj_alpha", "backend", func(skill *Skill) {
@@ -113,6 +125,106 @@ func TestStoreConformance_ProjectSkillsLifecycle(t *testing.T) {
 	}
 }
 
+func TestSQLiteStore_AddsCapabilityColumnsToExistingTable(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	client, err := storage.NewSQLiteClient(ctx, storage.SQLiteConfig{
+		Path:        filepath.Join(t.TempDir(), "hecate.db"),
+		TablePrefix: "test",
+	})
+	if err != nil {
+		t.Fatalf("new sqlite client: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := client.Close(); err != nil {
+			t.Fatalf("close sqlite client: %v", err)
+		}
+	})
+	table := client.QualifiedTable("project_skills")
+	timestampColumn := storage.TimestampColumnDefaultZero(client)
+	if _, err := client.DB().ExecContext(ctx, `
+CREATE TABLE IF NOT EXISTS `+table+` (
+	id TEXT NOT NULL,
+	project_id TEXT NOT NULL,
+	title TEXT NOT NULL DEFAULT '',
+	description TEXT NOT NULL DEFAULT '',
+	path TEXT NOT NULL DEFAULT '',
+	root_id TEXT NOT NULL DEFAULT '',
+	format TEXT NOT NULL DEFAULT 'skill_md',
+	enabled INTEGER NOT NULL DEFAULT 1,
+	status TEXT NOT NULL DEFAULT 'available',
+	trust_label TEXT NOT NULL DEFAULT 'workspace_skill',
+	source_context_source_ids TEXT NOT NULL DEFAULT '[]',
+	warnings TEXT NOT NULL DEFAULT '[]',
+	discovered_at `+timestampColumn+`,
+	created_at `+timestampColumn+`,
+	updated_at `+timestampColumn+`,
+	PRIMARY KEY(project_id, id)
+)`); err != nil {
+		t.Fatalf("create old project_skills table: %v", err)
+	}
+	store, err := NewSQLiteStore(ctx, client)
+	if err != nil {
+		t.Fatalf("new sqlite project skill store: %v", err)
+	}
+	items, err := store.UpsertDiscovered(ctx, "proj_old", []Skill{{
+		ID:         "review",
+		Title:      "Review",
+		Path:       ".hecate/skills/review/SKILL.md",
+		Format:     FormatSkillMD,
+		Enabled:    true,
+		Status:     StatusAvailable,
+		TrustLabel: TrustWorkspaceSkill,
+		SuggestedTools: []string{
+			"git.diff",
+		},
+		RequiredPermissions: RequiredPermissions{Writes: boolForSkillTest(false)},
+	}})
+	if err != nil {
+		t.Fatalf("UpsertDiscovered: %v", err)
+	}
+	review := findSkillForTest(items, "review")
+	if review == nil || len(review.SuggestedTools) != 1 || review.RequiredPermissions.Writes == nil || *review.RequiredPermissions.Writes {
+		t.Fatalf("review skill = %+v, want migrated capability metadata", review)
+	}
+}
+
+func TestStore_CapsSuggestedToolsAndSummarizesOverflow(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := NewMemoryStore()
+	items, err := store.UpsertDiscovered(ctx, "proj_tools", []Skill{{
+		ID:         "review",
+		Title:      "Review",
+		Path:       ".hecate/skills/review/SKILL.md",
+		Format:     FormatSkillMD,
+		Enabled:    true,
+		Status:     StatusAvailable,
+		TrustLabel: TrustWorkspaceSkill,
+		SuggestedTools: append(
+			suggestedToolsForSkillTest(suggestedToolsMaxItems+2),
+			"tool.00",
+		),
+	}})
+	if err != nil {
+		t.Fatalf("UpsertDiscovered: %v", err)
+	}
+	review := findSkillForTest(items, "review")
+	if review == nil {
+		t.Fatalf("items = %+v, missing review skill", items)
+	}
+	if len(review.SuggestedTools) != suggestedToolsMaxItems {
+		t.Fatalf("suggested tools = %+v, want cap of %d", review.SuggestedTools, suggestedToolsMaxItems)
+	}
+	wantWarning := fmt.Sprintf("Suggested tools list was capped at %d entries (+2 more omitted).", suggestedToolsMaxItems)
+	if !containsStringForTest(review.Warnings, wantWarning) {
+		t.Fatalf("warnings = %+v, want suggested tools cap warning", review.Warnings)
+	}
+	if got, want := SuggestedToolsSummary(review.SuggestedTools), "tool.00, tool.01, tool.02, tool.03, tool.04, tool.05, tool.06, tool.07, +8 more"; got != want {
+		t.Fatalf("SuggestedToolsSummary() = %q, want %q", got, want)
+	}
+}
+
 func newSQLiteSkillTestStore(t *testing.T) Store {
 	t.Helper()
 	ctx := context.Background()
@@ -151,4 +263,16 @@ func containsStringForTest(items []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func boolForSkillTest(value bool) *bool {
+	return &value
+}
+
+func suggestedToolsForSkillTest(count int) []string {
+	out := make([]string, 0, count)
+	for idx := 0; idx < count; idx++ {
+		out = append(out, fmt.Sprintf("tool.%02d", idx))
+	}
+	return out
 }
