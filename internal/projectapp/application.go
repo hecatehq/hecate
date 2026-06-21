@@ -14,6 +14,8 @@ var (
 	ErrProjectStoreNotConfigured    = errors.New("project store is not configured")
 	ErrProjectNotFound              = errors.New("project not found")
 	ErrProjectDeleteConflict        = errors.New("project delete conflicts with current state")
+	ErrProjectRootNotFound          = errors.New("project root not found")
+	ErrProjectRootConflict          = errors.New("project root conflict")
 	ErrProjectContextSourceNotFound = errors.New("project context source not found")
 	ErrProjectContextSourceConflict = errors.New("project context source conflict")
 	ErrChatDeleteNotConfigured      = errors.New("project chat delete authority is not configured")
@@ -86,6 +88,115 @@ func New(opts Options) *Application {
 		memory:           opts.Memory,
 		memoryCandidates: opts.MemoryCandidates,
 	}
+}
+
+func (app *Application) CreateRoot(ctx context.Context, projectID string, root projects.Root) (projects.Project, projects.Root, error) {
+	if app == nil || app.projects == nil {
+		return projects.Project{}, projects.Root{}, ErrProjectStoreNotConfigured
+	}
+	projectID = strings.TrimSpace(projectID)
+	root.ID = strings.TrimSpace(root.ID)
+	if root.ID == "" {
+		return projects.Project{}, projects.Root{}, fmt.Errorf("%w: project root id is required", projects.ErrInvalid)
+	}
+	project, ok, err := app.projects.Get(ctx, projectID)
+	if err != nil {
+		return projects.Project{}, projects.Root{}, err
+	}
+	if !ok {
+		return projects.Project{}, projects.Root{}, ErrProjectNotFound
+	}
+	if projectRootExists(project.Roots, root.ID) {
+		return projects.Project{}, projects.Root{}, fmt.Errorf("%w: project root %q already exists", ErrProjectRootConflict, root.ID)
+	}
+	updated, err := app.projects.Update(ctx, projectID, func(item *projects.Project) {
+		item.Roots = append(append([]projects.Root(nil), item.Roots...), root)
+	})
+	if err != nil {
+		return projects.Project{}, projects.Root{}, mapProjectStoreError(err)
+	}
+	created, ok := findProjectRoot(updated.Roots, root.ID)
+	if !ok {
+		return projects.Project{}, projects.Root{}, ErrProjectRootNotFound
+	}
+	return updated, created, nil
+}
+
+func (app *Application) UpdateRoot(ctx context.Context, projectID, rootID string, root projects.Root) (projects.Project, projects.Root, error) {
+	if app == nil || app.projects == nil {
+		return projects.Project{}, projects.Root{}, ErrProjectStoreNotConfigured
+	}
+	projectID = strings.TrimSpace(projectID)
+	rootID = strings.TrimSpace(rootID)
+	if rootID == "" {
+		return projects.Project{}, projects.Root{}, ErrProjectRootNotFound
+	}
+	project, ok, err := app.projects.Get(ctx, projectID)
+	if err != nil {
+		return projects.Project{}, projects.Root{}, err
+	}
+	if !ok {
+		return projects.Project{}, projects.Root{}, ErrProjectNotFound
+	}
+	if _, ok := findProjectRoot(project.Roots, rootID); !ok {
+		return projects.Project{}, projects.Root{}, ErrProjectRootNotFound
+	}
+	root.ID = rootID
+	updated, err := app.projects.Update(ctx, projectID, func(item *projects.Project) {
+		for idx := range item.Roots {
+			if strings.TrimSpace(item.Roots[idx].ID) == rootID {
+				item.Roots[idx] = root
+				return
+			}
+		}
+	})
+	if err != nil {
+		return projects.Project{}, projects.Root{}, mapProjectStoreError(err)
+	}
+	next, ok := findProjectRoot(updated.Roots, rootID)
+	if !ok {
+		return projects.Project{}, projects.Root{}, ErrProjectRootNotFound
+	}
+	return updated, next, nil
+}
+
+func (app *Application) DeleteRoot(ctx context.Context, projectID, rootID string) (projects.Project, projects.Root, error) {
+	if app == nil || app.projects == nil {
+		return projects.Project{}, projects.Root{}, ErrProjectStoreNotConfigured
+	}
+	projectID = strings.TrimSpace(projectID)
+	rootID = strings.TrimSpace(rootID)
+	if rootID == "" {
+		return projects.Project{}, projects.Root{}, ErrProjectRootNotFound
+	}
+	project, ok, err := app.projects.Get(ctx, projectID)
+	if err != nil {
+		return projects.Project{}, projects.Root{}, err
+	}
+	if !ok {
+		return projects.Project{}, projects.Root{}, ErrProjectNotFound
+	}
+	deleted, ok := findProjectRoot(project.Roots, rootID)
+	if !ok {
+		return projects.Project{}, projects.Root{}, ErrProjectRootNotFound
+	}
+	updated, err := app.projects.Update(ctx, projectID, func(item *projects.Project) {
+		next := item.Roots[:0]
+		for _, root := range item.Roots {
+			if strings.TrimSpace(root.ID) == rootID {
+				continue
+			}
+			next = append(next, root)
+		}
+		item.Roots = append([]projects.Root(nil), next...)
+		if strings.TrimSpace(item.DefaultRootID) == rootID {
+			item.DefaultRootID = ""
+		}
+	})
+	if err != nil {
+		return projects.Project{}, projects.Root{}, mapProjectStoreError(err)
+	}
+	return updated, deleted, nil
 }
 
 func (app *Application) CreateContextSource(ctx context.Context, projectID string, source projects.ContextSource) (projects.Project, projects.ContextSource, error) {
@@ -248,6 +359,21 @@ func (app *Application) DeleteProject(ctx context.Context, id string) (DeletePro
 		return result, err
 	}
 	return result, nil
+}
+
+func findProjectRoot(roots []projects.Root, id string) (projects.Root, bool) {
+	id = strings.TrimSpace(id)
+	for _, root := range roots {
+		if strings.TrimSpace(root.ID) == id {
+			return root, true
+		}
+	}
+	return projects.Root{}, false
+}
+
+func projectRootExists(roots []projects.Root, id string) bool {
+	_, ok := findProjectRoot(roots, id)
+	return ok
 }
 
 func findProjectContextSource(sources []projects.ContextSource, id string) (projects.ContextSource, bool) {

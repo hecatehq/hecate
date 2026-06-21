@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createProjectPayloadFromForm } from "./projectSettings";
+import { createProjectPayloadFromForm, projectRootPayloadsEqual } from "./projectSettings";
 
 describe("projectSettings", () => {
   it("maps rootless project creation forms without roots", () => {
@@ -36,5 +36,32 @@ describe("projectSettings", () => {
         },
       ],
     });
+  });
+
+  it("compares root payloads by normalized persisted fields", () => {
+    expect(
+      projectRootPayloadsEqual(
+        {
+          id: " root_1 ",
+          path: " /workspace/main ",
+          kind: "git",
+          git_branch: "main",
+          active: true,
+        },
+        {
+          id: "root_1",
+          path: "/workspace/main",
+          kind: "git",
+          git_branch: "main",
+          active: true,
+        },
+      ),
+    ).toBe(true);
+    expect(
+      projectRootPayloadsEqual(
+        { id: "root_1", path: "/workspace/main", kind: "git", active: true },
+        { id: "root_1", path: "/workspace/main", kind: "git", active: false },
+      ),
+    ).toBe(false);
   });
 });

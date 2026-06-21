@@ -1823,8 +1823,10 @@ Returns one project or `404 not_found`.
 ### `PATCH /hecate/v1/projects/{id}`
 
 Updates project metadata and defaults. Fields are optional. When `roots` is
-present, it replaces the full root list; use this for root add/remove/reorder
-until narrower root endpoints exist.
+present, it replaces the full root list; this remains available for
+compatibility and admin-style bulk replacement. Operator root edits should use
+the root-specific endpoints below so a single root create, update, or delete is
+typed and auditable.
 When `context_sources` is present, it replaces the full source-metadata list;
 this remains available for compatibility and admin-style bulk replacement.
 Operator source edits should use the source-specific endpoints below so a
@@ -1840,6 +1842,87 @@ PATCH /hecate/v1/projects/proj_...
   "name": "Hecate runtime",
   "last_opened_at": "2026-05-20T12:45:00Z",
   "default_compact_tool_output": true
+}
+```
+
+### `POST /hecate/v1/projects/{id}/roots`
+
+Creates one project-root metadata record and returns the updated project. This
+does not create a directory, create a Git worktree, scan the workspace, or
+launch work. Use `POST /roots/worktrees` when Hecate should explicitly create a
+Git worktree.
+
+If `id` is omitted, the server generates one. Duplicate root IDs return
+`409 conflict`; invalid root metadata returns `400 invalid_request`.
+
+```json
+POST /hecate/v1/projects/proj_.../roots
+{
+  "path": "/Users/alice/src/hecate",
+  "kind": "git",
+  "git_branch": "main",
+  "active": true
+}
+
+→ 201
+{
+  "object": "project",
+  "data": {
+    "id": "proj_...",
+    "roots": [
+      {
+        "id": "root_...",
+        "path": "/Users/alice/src/hecate",
+        "kind": "git",
+        "git_branch": "main",
+        "active": true
+      }
+    ],
+    "default_root_id": "root_..."
+  }
+}
+```
+
+### `PATCH /hecate/v1/projects/{id}/roots/{root_id}`
+
+Replaces one project-root metadata record and returns the updated project. The
+path `root_id` is authoritative; any `id` in the request body is ignored for
+the updated record. The payload is the full replacement metadata, so omitted
+optional fields clear or default through the normal project-root validation
+rules.
+
+Missing projects or roots return `404 not_found`; invalid root metadata returns
+`400 invalid_request`.
+
+```json
+PATCH /hecate/v1/projects/proj_.../roots/root_...
+{
+  "path": "/Users/alice/src/hecate/.worktrees/feature-a",
+  "kind": "git_worktree",
+  "git_branch": "feature/a",
+  "active": true
+}
+```
+
+### `DELETE /hecate/v1/projects/{id}/roots/{root_id}`
+
+Deletes one project-root metadata record and returns the updated project so
+clients can reconcile against the server state. Deleting a root only removes
+the project metadata reference; it does not delete local folders, Git
+worktrees, branches, files, work items, assignments, chats, tasks, or
+external-agent runs. If the deleted root was the default root, the store
+normalizes the updated project to the first remaining root or to no default
+when no roots remain.
+
+```json
+DELETE /hecate/v1/projects/proj_.../roots/root_...
+→ 200
+{
+  "object": "project",
+  "data": {
+    "id": "proj_...",
+    "roots": []
+  }
 }
 ```
 

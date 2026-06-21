@@ -11,6 +11,7 @@ import {
   createProjectMemory,
   createProjectMemoryCandidate,
   createProjectContextSource,
+  createProjectRoot,
   createProjectWorktreeRoot,
   createProjectWorkRole,
   createProjectWorkItem,
@@ -20,6 +21,7 @@ import {
   deleteProjectHandoff,
   deleteProjectMemory,
   deleteProjectContextSource,
+  deleteProjectRoot,
   deleteProjectWorkRole,
   deleteProjectWorkItem,
   discoverLocalProviders,
@@ -72,6 +74,7 @@ import {
   updateChatSession,
   updateProject,
   updateProjectContextSource,
+  updateProjectRoot,
   updateProjectAssignment,
   updateProjectHandoff,
   updateProjectHandoffStatus,
@@ -874,6 +877,60 @@ describe("api client", () => {
           default_workspace_mode: "in_place",
         }),
       }),
+    );
+  });
+
+  it("mutates project roots through root-specific endpoints", async () => {
+    fetchMock.mockClear();
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ object: "project", data: { id: "proj_1" } }))
+      .mockResolvedValueOnce(jsonResponse({ object: "project", data: { id: "proj_1" } }))
+      .mockResolvedValueOnce(jsonResponse({ object: "project", data: { id: "proj_1" } }));
+
+    await createProjectRoot("proj/1", {
+      path: "/workspace/main",
+      kind: "git",
+      git_branch: "main",
+      active: true,
+    });
+    await updateProjectRoot("proj/1", "root/main", {
+      path: "/workspace/main-renamed",
+      kind: "git_worktree",
+      git_branch: "feature/root",
+      active: false,
+    });
+    await deleteProjectRoot("proj/1", "root/main");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/hecate/v1/projects/proj%2F1/roots",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          path: "/workspace/main",
+          kind: "git",
+          git_branch: "main",
+          active: true,
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/hecate/v1/projects/proj%2F1/roots/root%2Fmain",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({
+          path: "/workspace/main-renamed",
+          kind: "git_worktree",
+          git_branch: "feature/root",
+          active: false,
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/hecate/v1/projects/proj%2F1/roots/root%2Fmain",
+      expect.objectContaining({ method: "DELETE" }),
     );
   });
 

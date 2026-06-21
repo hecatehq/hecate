@@ -9,12 +9,14 @@ import { SettingsProvider } from "../../app/state/settings";
 import {
   ApiError,
   applyProjectAssistant,
+  chooseWorkspaceDirectory,
   createAgentProfile,
   createProjectCollaborationArtifact,
   createProjectAssignment,
   createProjectHandoff,
   createProjectContextSource,
   createProjectMemory,
+  createProjectRoot,
   createProjectWorktreeRoot,
   createProjectWorkRole,
   createProjectWorkItem,
@@ -23,6 +25,7 @@ import {
   deleteProjectHandoff,
   deleteProjectContextSource,
   deleteProjectMemory,
+  deleteProjectRoot,
   deleteProjectWorkRole,
   deleteProjectWorkItem,
   discoverProjectContextSources,
@@ -54,6 +57,7 @@ import {
   updateProject,
   updateAgentProfile,
   updateProjectContextSource,
+  updateProjectRoot,
   updateProjectAssignment,
   updateProjectHandoff,
   updateProjectHandoffStatus,
@@ -404,6 +408,10 @@ vi.mock("../../lib/api", async (importOriginal) => {
         ],
       },
     })),
+    chooseWorkspaceDirectory: vi.fn(async () => ({
+      object: "workspace_dialog",
+      data: { path: "", branch: "" },
+    })),
     createProjectHandoff: vi.fn(async () => ({ object: "project_handoff", data: null })),
     createProjectCollaborationArtifact: vi.fn(async () => ({
       object: "project_collaboration_artifact",
@@ -413,6 +421,9 @@ vi.mock("../../lib/api", async (importOriginal) => {
     updateProjectHandoffStatus: vi.fn(async () => ({ object: "project_handoff", data: null })),
     deleteProjectHandoff: vi.fn(async () => undefined),
     createProjectMemory: vi.fn(async () => ({ object: "project_memory_entry", data: null })),
+    createProjectRoot: vi.fn(async () => ({ object: "project", data: null })),
+    updateProjectRoot: vi.fn(async () => ({ object: "project", data: null })),
+    deleteProjectRoot: vi.fn(async () => ({ object: "project", data: null })),
     createProjectContextSource: vi.fn(async () => ({ object: "project", data: null })),
     updateProjectContextSource: vi.fn(async () => ({ object: "project", data: null })),
     deleteProjectContextSource: vi.fn(async () => ({ object: "project", data: null })),
@@ -1260,12 +1271,16 @@ afterEach(() => {
   vi.mocked(deleteAgentProfile).mockReset();
   vi.mocked(draftProjectAssistant).mockReset();
   vi.mocked(applyProjectAssistant).mockReset();
+  vi.mocked(chooseWorkspaceDirectory).mockReset();
   vi.mocked(createProjectHandoff).mockReset();
   vi.mocked(createProjectCollaborationArtifact).mockReset();
   vi.mocked(updateProjectHandoff).mockReset();
   vi.mocked(updateProjectHandoffStatus).mockReset();
   vi.mocked(deleteProjectHandoff).mockReset();
   vi.mocked(createProjectMemory).mockReset();
+  vi.mocked(createProjectRoot).mockReset();
+  vi.mocked(updateProjectRoot).mockReset();
+  vi.mocked(deleteProjectRoot).mockReset();
   vi.mocked(updateProjectMemory).mockReset();
   vi.mocked(discoverProjectSkills).mockReset();
   vi.mocked(updateProjectSkill).mockReset();
@@ -6233,16 +6248,10 @@ describe("ProjectsView cockpit", () => {
       default_agent_profile: "",
       default_workspace_mode: "ephemeral",
       default_root_id: "root_1",
-      roots: [
-        {
-          id: "root_1",
-          path: "/Users/alice/dev/hecate",
-          kind: "git",
-          git_branch: "main",
-          active: true,
-        },
-      ],
     });
+    expect(createProjectRoot).not.toHaveBeenCalled();
+    expect(updateProjectRoot).not.toHaveBeenCalled();
+    expect(deleteProjectRoot).not.toHaveBeenCalled();
   });
 
   it("preserves inherited project model defaults when saving settings", async () => {
@@ -6305,15 +6314,73 @@ describe("ProjectsView cockpit", () => {
       default_agent_profile: "",
       default_workspace_mode: "ephemeral",
       default_root_id: "root_1",
+    });
+    expect(createProjectRoot).not.toHaveBeenCalled();
+    expect(updateProjectRoot).not.toHaveBeenCalled();
+    expect(deleteProjectRoot).not.toHaveBeenCalled();
+  });
+
+  it("creates project roots through root-specific settings mutations", async () => {
+    resetProjectWorkMocks();
+    const rootlessProject: ProjectRecord = {
+      ...project,
+      roots: [],
+      default_root_id: "",
+    };
+    const projectWithCreatedRoot: ProjectRecord = {
+      ...rootlessProject,
       roots: [
         {
-          id: "root_1",
+          id: "root_created",
           path: "/Users/alice/dev/hecate",
-          kind: "git",
+          kind: "local",
           git_branch: "main",
           active: true,
+          created_at: "2026-06-20T12:00:00Z",
+          updated_at: "2026-06-20T12:00:00Z",
         },
       ],
+      default_root_id: "root_created",
+    };
+    window.localStorage.setItem("hecate.project", rootlessProject.id);
+    vi.mocked(chooseWorkspaceDirectory).mockResolvedValue({
+      object: "workspace_dialog",
+      data: { path: "/Users/alice/dev/hecate", branch: "main" },
+    });
+    vi.mocked(createProjectRoot).mockResolvedValue({
+      object: "project",
+      data: projectWithCreatedRoot,
+    });
+    vi.mocked(updateProject).mockResolvedValue({
+      object: "project",
+      data: projectWithCreatedRoot,
+    });
+    const state = createRuntimeConsoleFixture({
+      projects: [rootlessProject],
+      activeProjectID: rootlessProject.id,
+      providers: [],
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Project settings" }));
+    await userEvent.click(screen.getByRole("button", { name: "Add folder" }));
+    expect(await screen.findAllByText("/Users/alice/dev/hecate")).toHaveLength(2);
+    await userEvent.click(screen.getByRole("button", { name: "Save defaults" }));
+
+    expect(createProjectRoot).toHaveBeenCalledWith(rootlessProject.id, {
+      path: "/Users/alice/dev/hecate",
+      kind: "local",
+      git_branch: "main",
+      active: true,
+    });
+    expect(updateProjectRoot).not.toHaveBeenCalled();
+    expect(deleteProjectRoot).not.toHaveBeenCalled();
+    expect(updateProject).toHaveBeenCalledWith(rootlessProject.id, {
+      default_provider: "ollama",
+      default_model: "qwen2.5-coder",
+      default_agent_profile: "",
+      default_workspace_mode: "in_place",
+      default_root_id: "",
     });
   });
 

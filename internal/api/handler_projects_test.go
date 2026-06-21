@@ -231,6 +231,149 @@ func TestProjectsAPI_ContextSourcesSupportRootlessOperatorSources(t *testing.T) 
 	}
 }
 
+func TestProjectsAPI_RootMutations(t *testing.T) {
+	t.Parallel()
+	server := newProjectsTestServer()
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects", bytes.NewReader([]byte(`{
+		"name":"Workspace plan"
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	var project ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &project); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/roots", bytes.NewReader([]byte(`{
+		"path":"/workspace/main",
+		"kind":"git",
+		"git_branch":"main",
+		"active":true
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create root status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	var withRoot ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &withRoot); err != nil {
+		t.Fatalf("decode root create response: %v", err)
+	}
+	if len(withRoot.Data.Roots) != 1 || withRoot.Data.Roots[0].ID == "" || withRoot.Data.DefaultRootID != withRoot.Data.Roots[0].ID {
+		t.Fatalf("project after root create = %+v, want generated default root", withRoot.Data)
+	}
+	root := withRoot.Data.Roots[0]
+	if root.Kind != "git" || root.GitBranch != "main" || !root.Active {
+		t.Fatalf("created root = %+v, want active git main root", root)
+	}
+	createdAt := root.CreatedAt
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/roots", bytes.NewReader([]byte(`{
+		"id":"root_other",
+		"path":"/workspace/other",
+		"active":true
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create second root status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+project.Data.ID+"/roots/"+root.ID, bytes.NewReader([]byte(`{
+		"path":"/workspace/main-renamed",
+		"kind":"git_worktree",
+		"git_branch":"feature/root",
+		"active":false
+	}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update root status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var updated ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &updated); err != nil {
+		t.Fatalf("decode root update response: %v", err)
+	}
+	if len(updated.Data.Roots) != 2 {
+		t.Fatalf("roots after update = %+v, want two", updated.Data.Roots)
+	}
+	root = updated.Data.Roots[0]
+	if root.ID != withRoot.Data.Roots[0].ID || root.Path != "/workspace/main-renamed" || root.Kind != "git_worktree" || root.Active {
+		t.Fatalf("updated root = %+v, want same id inactive worktree root", root)
+	}
+	if root.CreatedAt != createdAt {
+		t.Fatalf("updated root created_at = %q, want original %q", root.CreatedAt, createdAt)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/projects/"+project.Data.ID+"/roots/"+root.ID, nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete root status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var deleted ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &deleted); err != nil {
+		t.Fatalf("decode root delete response: %v", err)
+	}
+	if len(deleted.Data.Roots) != 1 || deleted.Data.Roots[0].ID != "root_other" || deleted.Data.DefaultRootID != "root_other" {
+		t.Fatalf("roots after delete = %+v default=%q, want remaining root as default", deleted.Data.Roots, deleted.Data.DefaultRootID)
+	}
+}
+
+func TestProjectsAPI_RootMutationValidation(t *testing.T) {
+	t.Parallel()
+	server := newProjectsTestServer()
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects", bytes.NewReader([]byte(`{
+		"name":"Workspace plan",
+		"roots":[{"id":"root_existing","path":"/workspace/main"}]
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	var project ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &project); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/roots", bytes.NewReader([]byte(`{"path":" "}`))))
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "project root path is required") {
+		t.Fatalf("blank root path response = %d %s, want 400 path required", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/roots", bytes.NewReader([]byte(`{
+		"id":"root_existing",
+		"path":"/workspace/other"
+	}`))))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("duplicate root status = %d body=%s, want 409", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+project.Data.ID+"/roots/root_missing", bytes.NewReader([]byte(`{
+		"path":"/workspace/new"
+	}`))))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing update root status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/projects/"+project.Data.ID+"/roots/root_missing", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing delete root status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_missing/roots", bytes.NewReader([]byte(`{
+		"path":"/workspace/new"
+	}`))))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing project root create status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+}
+
 func TestProjectsAPI_ContextSourceMutations(t *testing.T) {
 	t.Parallel()
 	server := newProjectsTestServer()
