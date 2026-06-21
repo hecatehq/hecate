@@ -489,13 +489,29 @@ selected workspace; this is not equivalent to the task runtime sandbox.
 Read [Security](../operator/security.md) for the full runtime-boundary and workspace-safety
 model.
 
+When `HECATE_AGENT_ADAPTER_TERMINALS=1`, live External Agent chat sessions
+advertise ACP client terminal support during `Initialize`. This is disabled by
+default because ACP `terminal/create` runs a command in the selected workspace.
+Remote runtime mode also requires `HECATE_REMOTE_ALLOW_ACP_TERMINALS=1` before
+startup accepts the setting. `terminal/create` is routed through the same
+External Agent approval coordinator as adapter `RequestPermission`: prompt mode
+pauses before spawn, deny mode rejects before spawn, and auto mode remains an
+explicit operator opt-in. If approved, Hecate starts the requested command in
+the selected workspace, rejects working directories outside that workspace,
+retains bounded merged stdout/stderr for `terminal/output`, supports
+`terminal/wait_for_exit`, `terminal/kill`, and invalidates the terminal after
+`terminal/release`. Terminal output retention truncates from the beginning at a
+valid UTF-8 boundary when the agent supplies `outputByteLimit`. Env variable
+names are included in approval context; env values are not persisted in the
+approval payload.
+
 On Hecate shutdown, active External Agent turns are cancelled first. Hecate waits
-briefly for the ACP turn to drain, asks the native ACP session to close, and
-then kills the owned agent process group if it is still alive. This keeps app
-quit / restart from leaving Codex, Claude Code, Cursor Agent, or Grok Build
-processes behind. If an ACP peer does not implement `session/close`, Hecate
-treats that as an optional shutdown method and still terminates the owned
-process group.
+briefly for the ACP turn to drain, closes any unreleased ACP terminals, asks the
+native ACP session to close, and then kills the owned agent process group if it
+is still alive. This keeps app quit / restart from leaving Codex, Claude Code,
+Cursor Agent, or Grok Build processes behind. If an ACP peer does not implement
+`session/close`, Hecate treats that as an optional shutdown method and still
+terminates the owned process group.
 Operators can also close an External Agent chat session manually to release the
 external agent process while keeping the Hecate chat history. Deleting a chat is
 destructive: Hecate asks the ACP peer to delete the native session with

@@ -269,6 +269,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 	agentChatRunner := agentadapters.NewSessionManager()
 	agentChatRunner.SetLogger(logger)
 	agentChatRunner.SetAdapterMetrics(agentAdapterMetrics)
+	agentChatRunner.SetTerminalSupportEnabled(cfg.Server.AgentAdapterTerminals)
 	// Approval coordinator: applies HECATE_AGENT_ADAPTER_APPROVAL_MODE
 	// to each ACP RequestPermission, records the approval row, exposes
 	// it to the operator UI/API, and emits approval.* metrics. Default

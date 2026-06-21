@@ -226,6 +226,13 @@ call ACP `logout` unless `agentCapabilities.auth.logout` was advertised. Remote
 runtime mode blocks local ACP `authenticate`; hosted runs authenticate adapters
 through declared remote-safe env-key credential modes.
 
+ACP terminal callbacks are a command-execution surface. Keep
+`clientCapabilities.terminal` false unless `HECATE_AGENT_ADAPTER_TERMINALS=1`
+is configured, require `HECATE_REMOTE_ALLOW_ACP_TERMINALS=1` in remote runtime
+mode, and route `terminal/create` through the External Agent approval
+coordinator before spawning anything. Do not add an operator-facing embedded
+terminal API/UI while working on ACP terminal support.
+
 Hecate owns the ACP process/session boundary, not provider-specific adapter
 implementation parity. Tests in this repository should use the repo-local fake
 ACP peer to cover probing, auth/logout, session prepare/load, config options,

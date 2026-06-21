@@ -28,17 +28,10 @@ type acpChatClient struct {
 
 	mu   sync.Mutex
 	turn *acpTurn
-}
 
-// terminalRPCUnsupported builds the typed JSON-RPC error returned by
-// every terminal stub. The acp.RequestError carries code -32601
-// ("Method not found") so JSON-RPC tooling that doesn't know about
-// Hecate's sentinel can still classify the failure correctly; the
-// wrap with ErrTerminalRPCUnsupported lets adapter callers detect
-// the case via errors.Is without string-matching.
-func terminalRPCUnsupported(method string) error {
-	rpcErr := acp.NewMethodNotFound(method)
-	return fmt.Errorf("%w: %w", ErrTerminalRPCUnsupported, rpcErr)
+	terminalMu       sync.Mutex
+	terminalsEnabled bool
+	terminals        map[string]*acpTerminal
 }
 
 func (c *acpChatClient) setTurn(turn *acpTurn) {
@@ -144,31 +137,6 @@ func (c *acpChatClient) WriteTextFile(_ context.Context, params acp.WriteTextFil
 		return acp.WriteTextFileResponse{}, err
 	}
 	return acp.WriteTextFileResponse{}, nil
-}
-
-func (c *acpChatClient) CreateTerminal(ctx context.Context, _ acp.CreateTerminalRequest) (acp.CreateTerminalResponse, error) {
-	c.metrics.RecordTerminalRPCUnsupported(ctx, c.adapterID, "create")
-	return acp.CreateTerminalResponse{}, terminalRPCUnsupported("terminal/create")
-}
-
-func (c *acpChatClient) KillTerminal(ctx context.Context, _ acp.KillTerminalRequest) (acp.KillTerminalResponse, error) {
-	c.metrics.RecordTerminalRPCUnsupported(ctx, c.adapterID, "kill")
-	return acp.KillTerminalResponse{}, terminalRPCUnsupported("terminal/kill")
-}
-
-func (c *acpChatClient) TerminalOutput(ctx context.Context, _ acp.TerminalOutputRequest) (acp.TerminalOutputResponse, error) {
-	c.metrics.RecordTerminalRPCUnsupported(ctx, c.adapterID, "output")
-	return acp.TerminalOutputResponse{}, terminalRPCUnsupported("terminal/output")
-}
-
-func (c *acpChatClient) ReleaseTerminal(ctx context.Context, _ acp.ReleaseTerminalRequest) (acp.ReleaseTerminalResponse, error) {
-	c.metrics.RecordTerminalRPCUnsupported(ctx, c.adapterID, "release")
-	return acp.ReleaseTerminalResponse{}, terminalRPCUnsupported("terminal/release")
-}
-
-func (c *acpChatClient) WaitForTerminalExit(ctx context.Context, _ acp.WaitForTerminalExitRequest) (acp.WaitForTerminalExitResponse, error) {
-	c.metrics.RecordTerminalRPCUnsupported(ctx, c.adapterID, "wait")
-	return acp.WaitForTerminalExitResponse{}, terminalRPCUnsupported("terminal/wait")
 }
 
 func (c *acpChatClient) workspaceFS(path string) (*workspacefs.FS, string, error) {
