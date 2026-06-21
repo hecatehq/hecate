@@ -33,6 +33,11 @@ func TestAgentAdapterHealthSurfacesProbeResult(t *testing.T) {
 				Status:    agentadapters.ProbeStatusReady,
 				Stage:     agentadapters.ProbeStageReady,
 				Path:      "/usr/local/bin/codex-acp-adapter",
+				AgentInfo: &agentadapters.ProbeAgentInfo{
+					Name:    "codex-acp-adapter",
+					Title:   "Codex ACP Adapter",
+					Version: "0.1.0-alpha.28",
+				},
 			},
 		},
 		{
@@ -100,6 +105,11 @@ func TestAgentAdapterHealthSurfacesProbeResult(t *testing.T) {
 			}
 			if resp.Data.AdapterID != "codex" {
 				t.Fatalf("AdapterID = %q, want codex", resp.Data.AdapterID)
+			}
+			if tc.name == "ready" {
+				if resp.Data.AgentInfo == nil || resp.Data.AgentInfo.Name != "codex-acp-adapter" || resp.Data.AgentInfo.Version != "0.1.0-alpha.28" {
+					t.Fatalf("AgentInfo = %#v, want initialized adapter metadata", resp.Data.AgentInfo)
+				}
 			}
 		})
 	}

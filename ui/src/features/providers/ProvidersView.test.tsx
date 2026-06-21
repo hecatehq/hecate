@@ -852,6 +852,26 @@ describe("ProvidersView table renders", () => {
           supports_logout: true,
         },
       ],
+      agentAdapterHealthByID: new Map([
+        [
+          "codex",
+          {
+            adapter_id: "codex",
+            status: "ready",
+            stage: "ready",
+            capabilities_known: true,
+            supports_authenticate: true,
+            supports_logout: true,
+            supports_load_session: true,
+            agent_info: {
+              name: "codex-acp-adapter",
+              title: "Codex ACP Adapter",
+              version: "0.1.0-alpha.28",
+            },
+            duration_ms: 42,
+          },
+        ],
+      ]),
       chatGrants: [
         {
           id: "grant-1",
@@ -870,6 +890,7 @@ describe("ProvidersView table renders", () => {
     expect(screen.getByTestId("external-agents-adapter-codex")).toBeTruthy();
     expect(screen.getByTestId("external-agents-row-grant-1")).toBeTruthy();
     expect(screen.getByText("file write")).toBeTruthy();
+    expect(screen.getByText("Codex ACP Adapter 0.1.0-alpha.28")).toBeTruthy();
     expect(listChatGrants).toHaveBeenCalled();
   });
 

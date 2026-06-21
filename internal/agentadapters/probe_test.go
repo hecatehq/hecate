@@ -136,8 +136,14 @@ func TestApplyInitializeCapabilities(t *testing.T) {
 	t.Parallel()
 
 	description := "Run native login"
+	title := "Codex ACP Adapter"
 	res := ProbeResult{AdapterID: "codex"}
 	applyInitializeCapabilities(&res, acp.InitializeResponse{
+		AgentInfo: &acp.Implementation{
+			Name:    "codex-acp-adapter",
+			Title:   &title,
+			Version: "0.1.0-alpha.28",
+		},
 		AgentCapabilities: acp.AgentCapabilities{
 			Auth:        acp.AgentAuthCapabilities{Logout: &acp.LogoutCapabilities{}},
 			LoadSession: true,
@@ -171,6 +177,12 @@ func TestApplyInitializeCapabilities(t *testing.T) {
 	if !res.CapabilitiesKnown {
 		t.Fatalf("CapabilitiesKnown = false, want true")
 	}
+	if res.AgentInfo == nil ||
+		res.AgentInfo.Name != "codex-acp-adapter" ||
+		res.AgentInfo.Title != title ||
+		res.AgentInfo.Version != "0.1.0-alpha.28" {
+		t.Fatalf("AgentInfo = %#v, want initialize agent metadata", res.AgentInfo)
+	}
 	if !res.SupportsAuthenticate {
 		t.Fatalf("SupportsAuthenticate = false, want true for %s", ACPAuthMethodAgentLogin)
 	}
@@ -191,6 +203,27 @@ func TestApplyInitializeCapabilities(t *testing.T) {
 	}
 	if got := res.AuthMethods[2]; got.ID != "terminal-login" || got.Kind != "terminal" {
 		t.Fatalf("terminal auth method = %#v, want terminal summary", got)
+	}
+}
+
+func TestProbeAgentInfoTrimsAndOmitsEmptyValues(t *testing.T) {
+	t.Parallel()
+
+	if got := probeAgentInfo(nil); got != nil {
+		t.Fatalf("probeAgentInfo(nil) = %#v, want nil", got)
+	}
+	blankTitle := " "
+	if got := probeAgentInfo(&acp.Implementation{Name: " ", Title: &blankTitle, Version: " "}); got != nil {
+		t.Fatalf("probeAgentInfo(blank) = %#v, want nil", got)
+	}
+	title := " Claude Code "
+	got := probeAgentInfo(&acp.Implementation{
+		Name:    " claude-code-acp-adapter ",
+		Title:   &title,
+		Version: " 0.1.0-alpha.29 ",
+	})
+	if got == nil || got.Name != "claude-code-acp-adapter" || got.Title != "Claude Code" || got.Version != "0.1.0-alpha.29" {
+		t.Fatalf("probeAgentInfo() = %#v, want trimmed agent info", got)
 	}
 }
 

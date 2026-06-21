@@ -563,6 +563,11 @@ for display and audit. That means a broad `mcp` grant applies to MCP tool
 requests from that adapter within the chosen session/workspace/adapter scope,
 not only to one vendor-specific `server/tool` label.
 
+Adapter health probes also preserve ACP `initialize.agentInfo` in
+`/hecate/v1/agent-adapters/{id}/health` as `agent_info`. Connections renders
+that live self-reported agent name/version alongside the static binary version
+checks so operators can confirm which ACP implementation answered the handshake.
+
 ![Chats workspace with an external-agent file-write approval waiting for operator review](../screenshots/chat-agent-approval.png)
 
 ![Agent approval modal with ACP options, scope choices, and audit note](../screenshots/chat-agent-approval-modal.png)
