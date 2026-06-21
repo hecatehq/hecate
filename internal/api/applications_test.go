@@ -20,6 +20,9 @@ func TestHandlerApplicationHelpersAreNilSafe(t *testing.T) {
 	if handler.providerApplication() == nil {
 		t.Fatal("providerApplication() returned nil")
 	}
+	if handler.projectApplication() == nil {
+		t.Fatal("projectApplication() returned nil")
+	}
 	if handler.projectWorkApplication() == nil {
 		t.Fatal("projectWorkApplication() returned nil")
 	}
