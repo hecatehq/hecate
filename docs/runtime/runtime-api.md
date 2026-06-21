@@ -1002,11 +1002,28 @@ GET /hecate/v1/agent-adapters
       "status": "available",
       "path": "/Users/alice/.local/bin/codex-acp-adapter",
       "cost_mode": "external",
-      "supported_range": ">=0.1.0-alpha.28",
+      "supported_range": ">=0.1.0-alpha.29",
       "version_outside_range": false,
       "supports_authenticate": true,
       "supports_logout": true,
       "auth_status": "unknown",
+      "capabilities": [
+        {
+          "id": "prompt_session",
+          "name": "sessions",
+          "status": "supported"
+        },
+        {
+          "id": "permissions",
+          "name": "permissions",
+          "status": "supported"
+        },
+        {
+          "id": "terminal_rpc",
+          "name": "terminal RPC",
+          "status": "operator_opt_in"
+        }
+      ],
       "credential_modes": [
         {
           "id": "local_login",
@@ -1062,10 +1079,27 @@ GET /hecate/v1/agent-adapters
       "status": "missing",
       "error": "exec: \"claude-code-acp-adapter\": executable file not found in $PATH",
       "cost_mode": "external",
-      "supported_range": ">=0.1.0-alpha.29",
+      "supported_range": ">=0.1.0-alpha.30",
       "supports_authenticate": true,
       "supports_logout": true,
       "auth_status": "unknown",
+      "capabilities": [
+        {
+          "id": "prompt_session",
+          "name": "sessions",
+          "status": "supported"
+        },
+        {
+          "id": "permissions",
+          "name": "permissions",
+          "status": "supported"
+        },
+        {
+          "id": "terminal_rpc",
+          "name": "terminal RPC",
+          "status": "operator_opt_in"
+        }
+      ],
       "claude_code_cli": {
         "available": true,
         "command": "/Users/alice/.local/bin/claude",
@@ -1090,6 +1124,23 @@ billing classification.
 call ACP `authenticate` or `logout` for this adapter. UIs should use these
 catalog fields instead of hard-coding adapter IDs; the actions are currently
 enabled for the standalone Go Codex and Claude Code adapters.
+
+`capabilities` is Hecate's catalog-level ACP contract for the row. It describes
+the features Hecate knows how to supervise for that adapter family, such as
+sessions, structured activity, cancellation, permission approvals, MCP server
+handoff, config options, terminal callbacks, authenticate, and logout. Capability
+`status` is one of:
+
+| Status              | Meaning                                                                   |
+| ------------------- | ------------------------------------------------------------------------- |
+| `supported`         | Hecate supports the surface for this adapter family.                      |
+| `adapter_dependent` | Hecate will use the surface only when the live ACP adapter advertises it. |
+| `operator_opt_in`   | Hecate supports the surface only behind an explicit operator setting.     |
+| `not_supported`     | Hecate should not show or invoke this surface.                            |
+
+Probe results remain authoritative for live ACP Initialize features. For
+example, a probed adapter can turn `supports_authenticate` or `supports_logout`
+off even when the catalog expected them.
 
 `credential_modes` describes how the adapter can authenticate. `local_login`
 means operator-local CLI/browser login state and is not sufficient for remote

@@ -24,6 +24,15 @@ function setup(stateOverrides = {}, actionOverrides = {}) {
   return { state, actions, user };
 }
 
+function capability(id: string, name: string, status = "supported") {
+  return {
+    id,
+    name,
+    status,
+    description: `${name} support`,
+  };
+}
+
 beforeEach(() => {
   vi.mocked(getPlugins).mockReset();
   vi.mocked(getPlugins).mockResolvedValue({ object: "plugins", data: [] });
@@ -491,6 +500,57 @@ describe("Connections external-agent panel", () => {
     expect(screen.queryByRole("button", { name: "Sign in Codex" })).toBeNull();
     await user.click(await screen.findByRole("button", { name: "Sign in Cursor Agent" }));
     expect(authenticateAgentAdapter).toHaveBeenCalledWith("cursor_agent");
+  });
+
+  it("shows the ACP capability matrix and applies live auth capability overrides", async () => {
+    const { state, actions } = setup({
+      agentAdapters: [
+        {
+          id: "codex",
+          name: "Codex",
+          kind: "acp",
+          command: "codex-acp-adapter",
+          available: true,
+          status: "available",
+          auth_status: "ok",
+          supports_authenticate: true,
+          supports_logout: true,
+          capabilities: [
+            capability("prompt_session", "sessions"),
+            capability("cancel", "cancel"),
+            capability("permissions", "permissions"),
+            capability("config_options", "config", "adapter_dependent"),
+            capability("terminal_rpc", "terminal RPC", "operator_opt_in"),
+            capability("authenticate", "login"),
+            capability("logout", "logout"),
+          ],
+        },
+      ],
+      agentAdapterHealthByID: new Map([
+        [
+          "codex",
+          {
+            adapter_id: "codex",
+            status: "ready",
+            stage: "ready",
+            capabilities_known: true,
+            supports_authenticate: false,
+            supports_logout: false,
+            supports_load_session: true,
+            duration_ms: 42,
+          },
+        ],
+      ]),
+    });
+    render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
+
+    const capabilities = await screen.findByTestId("external-agents-adapter-codex-capabilities");
+    expect(within(capabilities).getByText("sessions")).toBeTruthy();
+    expect(within(capabilities).getByText("permissions")).toBeTruthy();
+    expect(within(capabilities).getByText(/config/)).toHaveTextContent("if advertised");
+    expect(within(capabilities).getByText(/terminal RPC/)).toHaveTextContent("opt-in");
+    expect(within(capabilities).queryByText("login")).toBeNull();
+    expect(within(capabilities).queryByText("logout")).toBeNull();
   });
 
   it("revoke asks for inline confirmation before deleting the grant", async () => {

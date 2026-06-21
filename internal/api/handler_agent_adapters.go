@@ -147,6 +147,7 @@ func renderAgentAdapterItemWithOptions(ctx context.Context, item agentadapters.S
 		CredentialModes:      renderAgentAdapterCredentialModes(item.CredentialModes),
 		RemoteCredentialMode: item.RemoteCredentialMode,
 		RemoteCredentialHint: item.RemoteCredentialHint,
+		Capabilities:         renderAgentAdapterCapabilities(item.Capabilities),
 	}
 	if includeConfigOptions {
 		rendered.ConfigOptions = agentadapters.LaunchConfigOptions(ctx, item)
@@ -163,6 +164,25 @@ func renderAgentAdapterItemWithOptions(ctx context.Context, item agentadapters.S
 		}
 	}
 	return rendered
+}
+
+func renderAgentAdapterCapabilities(caps []agentadapters.Capability) []AgentAdapterCapabilityItem {
+	if len(caps) == 0 {
+		return nil
+	}
+	out := make([]AgentAdapterCapabilityItem, 0, len(caps))
+	for _, cap := range caps {
+		if strings.TrimSpace(cap.ID) == "" || strings.TrimSpace(cap.Status) == "" {
+			continue
+		}
+		out = append(out, AgentAdapterCapabilityItem{
+			ID:          cap.ID,
+			Name:        cap.Name,
+			Description: cap.Description,
+			Status:      cap.Status,
+		})
+	}
+	return out
 }
 
 func renderAgentAdapterCredentialModes(modes []agentadapters.CredentialMode) []AgentAdapterCredentialModeItem {

@@ -27,7 +27,11 @@ import {
   providerRepairActionLabel,
 } from "../../lib/provider-readiness";
 import { isRemoteRuntimeSession } from "../../lib/runtime-utils";
-import type { AgentAdapterHealthRecord, AgentAdapterRecord } from "../../types/agent-adapter";
+import type {
+  AgentAdapterCapability,
+  AgentAdapterHealthRecord,
+  AgentAdapterRecord,
+} from "../../types/agent-adapter";
 import type { ChatGrantRecord } from "../../types/chat";
 import type { ModelRecord } from "../../types/model";
 import type {
@@ -911,6 +915,7 @@ function AdapterStatusRow({
             </span>
           )}
         </div>
+        <AdapterCapabilitiesSummary adapter={adapter} health={health} />
         {showHealthDetail && health && detail && (
           <div
             data-testid={`external-agents-adapter-${adapter.id}-detail`}
@@ -1009,6 +1014,87 @@ function AdapterStatusRow({
       </div>
     </div>
   );
+}
+
+function AdapterCapabilitiesSummary({
+  adapter,
+  health,
+}: {
+  adapter: AgentAdapterRecord;
+  health: AgentAdapterHealthRecord | null;
+}) {
+  const capabilities = visibleAdapterCapabilities(adapter, health);
+  if (!capabilities.length) return null;
+  return (
+    <div
+      data-testid={`external-agents-adapter-${adapter.id}-capabilities`}
+      aria-label={`${adapter.name || adapter.id} ACP capabilities`}
+      style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 7 }}
+    >
+      {capabilities.map((capability) => {
+        const suffix = capabilityStatusSuffix(capability.status);
+        return (
+          <span
+            key={capability.id}
+            title={capability.description}
+            style={{
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              color: "var(--t2)",
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              lineHeight: 1.25,
+              padding: "3px 6px",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {capability.name || capability.id}
+            {suffix && <span style={{ color: "var(--t3)" }}> · {suffix}</span>}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function visibleAdapterCapabilities(
+  adapter: AgentAdapterRecord,
+  health: AgentAdapterHealthRecord | null,
+): AgentAdapterCapability[] {
+  return (adapter.capabilities ?? [])
+    .map((capability) => resolveLiveCapability(capability, health))
+    .filter((capability) => capability.status !== "not_supported");
+}
+
+function resolveLiveCapability(
+  capability: AgentAdapterCapability,
+  health: AgentAdapterHealthRecord | null,
+): AgentAdapterCapability {
+  if (!health?.capabilities_known) return capability;
+  if (capability.id === "authenticate") {
+    return {
+      ...capability,
+      status: health.supports_authenticate === true ? "supported" : "not_supported",
+    };
+  }
+  if (capability.id === "logout") {
+    return {
+      ...capability,
+      status: health.supports_logout === true ? "supported" : "not_supported",
+    };
+  }
+  return capability;
+}
+
+function capabilityStatusSuffix(status: string): string {
+  switch (status) {
+    case "adapter_dependent":
+      return "if advertised";
+    case "operator_opt_in":
+      return "opt-in";
+    default:
+      return "";
+  }
 }
 
 function adapterLogoutSupportedByHecate(
