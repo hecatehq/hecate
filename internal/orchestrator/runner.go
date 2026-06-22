@@ -147,6 +147,10 @@ type Runner struct {
 	projectAssistantDraftTool ProjectAssistantDraftTool
 }
 
+type agentTerminalRunCloser interface {
+	CloseTerminalsForRun(ctx context.Context, runID string)
+}
+
 type StartTaskResult struct {
 	Task      types.Task
 	Run       types.TaskRun
@@ -346,13 +350,15 @@ func (r *Runner) hasPolicy(name string) bool {
 func agentLoopGatedTools(policies map[string]struct{}) []string {
 	// all_tools gates every tool the agent can call — no need to enumerate.
 	if _, ok := policies["all_tools"]; ok {
-		return []string{"shell_exec", "git_exec", "git_status", "git_diff", "file_write", "file_edit", "apply_patch", "read_file", "grep", "glob", "artifact_read", "list_dir", "http_request", AgentToolDraftProjectProposal}
+		out := []string{"shell_exec", "git_exec", "git_status", "git_diff", "file_write", "file_edit", "apply_patch", "read_file", "grep", "glob", "artifact_read", "list_dir", "http_request", AgentToolDraftProjectProposal}
+		return append(out, agentLoopTerminalToolNames()...)
 	}
 	out := make([]string, 0, len(policies))
 	for p := range policies {
 		switch p {
 		case "shell_exec":
 			out = append(out, p)
+			out = append(out, agentLoopTerminalToolNames()...)
 		case "git_exec":
 			out = append(out, "git_exec", "git_status", "git_diff")
 		case "file_write":
@@ -785,6 +791,9 @@ func (r *Runner) cancelRunWithMessage(ctx context.Context, task types.Task, run 
 	}
 
 	r.cancelInFlightJob(run.ID)
+	if closer, ok := r.agent.(agentTerminalRunCloser); ok {
+		closer.CloseTerminalsForRun(ctx, run.ID)
+	}
 
 	now := time.Now().UTC()
 	result, err := r.applyTerminalRunTransition(ctx, cancelRunTerminalTransition(task, run, message, requestID, traceID, trace, now))

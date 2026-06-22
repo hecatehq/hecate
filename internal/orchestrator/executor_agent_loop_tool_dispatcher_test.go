@@ -27,7 +27,7 @@ func TestAgentLoopToolDispatcher_DispatchShellExecRoutesToShellExecutor(t *testi
 		"call-shell",
 		"shell_exec",
 		`{"command":"printf agent-loop-dispatch","working_directory":"subdir"}`,
-	), 5, nil)
+	), 5, nil, nil)
 	if err != nil {
 		t.Fatalf("Dispatch() error = %v", err)
 	}
@@ -73,7 +73,7 @@ func TestAgentLoopToolDispatcher_ShellExecInheritsWorkingDirectoryWhenArgOmitted
 		"call-shell",
 		"shell_exec",
 		`{"command":"pwd"}`,
-	), 1, nil)
+	), 1, nil, nil)
 	if err != nil {
 		t.Fatalf("Dispatch() error = %v", err)
 	}
@@ -93,7 +93,7 @@ func TestAgentLoopToolDispatcher_InvalidShellArgsReturnsToolErrorText(t *testing
 		"call-shell",
 		"shell_exec",
 		`not-json`,
-	), 1, nil)
+	), 1, nil, nil)
 	if err != nil {
 		t.Fatalf("Dispatch() error = %v", err)
 	}

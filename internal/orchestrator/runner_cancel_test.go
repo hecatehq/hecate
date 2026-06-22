@@ -80,6 +80,47 @@ func TestCancelRunWithMessageAlignsStartedTraceID(t *testing.T) {
 	}
 }
 
+func TestCancelRunWithMessageClosesAgentTerminals(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := taskstate.NewMemoryStore()
+	agent := &terminalCloseRecordingAgent{}
+	runner := &Runner{
+		logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		store:  store,
+		tracer: profiler.NewInMemoryTracer(nil),
+		agent:  agent,
+	}
+
+	now := time.Now().UTC()
+	task := types.Task{
+		ID:        "task-terminal-close",
+		Status:    "awaiting_approval",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	run := types.TaskRun{
+		ID:        "run-terminal-close",
+		TaskID:    task.ID,
+		Status:    "awaiting_approval",
+		StartedAt: now,
+	}
+	if _, err := store.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := store.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+
+	if _, err := runner.cancelRunWithMessage(ctx, task, run, "run cancelled", "request-close-terminals", "trace-close-terminals"); err != nil {
+		t.Fatalf("cancelRunWithMessage: %v", err)
+	}
+	if len(agent.closed) != 1 || agent.closed[0] != run.ID {
+		t.Fatalf("closed terminal runs = %v, want [%s]", agent.closed, run.ID)
+	}
+}
+
 func TestCancelRunWithMessageAlignsExistingTraceID(t *testing.T) {
 	t.Parallel()
 
@@ -144,4 +185,16 @@ func TestCancelRunWithMessageAlignsExistingTraceID(t *testing.T) {
 	if events[0].TraceID != existing.TraceID {
 		t.Fatalf("first run event trace id = %q, want %q", events[0].TraceID, existing.TraceID)
 	}
+}
+
+type terminalCloseRecordingAgent struct {
+	closed []string
+}
+
+func (a *terminalCloseRecordingAgent) Execute(context.Context, ExecutionSpec) (*ExecutionResult, error) {
+	return &ExecutionResult{Status: "completed"}, nil
+}
+
+func (a *terminalCloseRecordingAgent) CloseTerminalsForRun(_ context.Context, runID string) {
+	a.closed = append(a.closed, runID)
 }

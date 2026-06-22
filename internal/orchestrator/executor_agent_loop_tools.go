@@ -34,7 +34,7 @@ func (d *agentLoopToolDispatcher) SetMetrics(m *telemetry.OrchestratorMetrics) {
 	d.metrics = m
 }
 
-func (d *agentLoopToolDispatcher) Dispatch(ctx context.Context, spec ExecutionSpec, call types.ToolCall, stepIndex int, mcpHost AgentMCPHost) (agentLoopToolDispatchResult, error) {
+func (d *agentLoopToolDispatcher) Dispatch(ctx context.Context, spec ExecutionSpec, call types.ToolCall, stepIndex int, mcpHost AgentMCPHost, terminals *agentLoopTerminals) (agentLoopToolDispatchResult, error) {
 	startedAt := time.Now().UTC()
 
 	// External MCP tools surface under names of the form
@@ -62,6 +62,41 @@ func (d *agentLoopToolDispatcher) Dispatch(ctx context.Context, spec ExecutionSp
 			taskCopy.WorkingDirectory = args.WorkingDirectory
 		}
 		return d.runSubExecutor(ctx, spec, d.shell, taskCopy, stepIndex, startedAt, call.ID, call.Function.Name)
+
+	case AgentToolTerminalOpen:
+		var args terminalOpenArgs
+		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
+			return agentLoopToolDispatchResult{Text: fmt.Sprintf("invalid arguments for %s: %v", AgentToolTerminalOpen, err)}, nil
+		}
+		return dispatchResult(dispatchTerminalOpenTool(ctx, spec, args, stepIndex, startedAt, call.ID, call.Function.Name, terminals))
+
+	case AgentToolTerminalWrite:
+		var args terminalWriteArgs
+		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
+			return agentLoopToolDispatchResult{Text: fmt.Sprintf("invalid arguments for %s: %v", AgentToolTerminalWrite, err)}, nil
+		}
+		return dispatchResult(dispatchTerminalWriteTool(ctx, spec, args, stepIndex, startedAt, call.Function.Name, terminals))
+
+	case AgentToolTerminalRead:
+		var args terminalReadArgs
+		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
+			return agentLoopToolDispatchResult{Text: fmt.Sprintf("invalid arguments for %s: %v", AgentToolTerminalRead, err)}, nil
+		}
+		return dispatchResult(dispatchTerminalReadTool(spec, args, stepIndex, startedAt, call.Function.Name, terminals))
+
+	case AgentToolTerminalWait:
+		var args terminalWaitArgs
+		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
+			return agentLoopToolDispatchResult{Text: fmt.Sprintf("invalid arguments for %s: %v", AgentToolTerminalWait, err)}, nil
+		}
+		return dispatchResult(dispatchTerminalWaitTool(ctx, spec, args, stepIndex, startedAt, call.Function.Name, terminals))
+
+	case AgentToolTerminalKill:
+		var args terminalKillArgs
+		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
+			return agentLoopToolDispatchResult{Text: fmt.Sprintf("invalid arguments for %s: %v", AgentToolTerminalKill, err)}, nil
+		}
+		return dispatchResult(dispatchTerminalKillTool(ctx, spec, args, stepIndex, startedAt, call.Function.Name, terminals))
 
 	case "git_exec":
 		var args gitExecArgs

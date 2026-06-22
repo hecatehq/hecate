@@ -63,7 +63,7 @@ func TestAgentLoop_ProjectAssistantDraftToolCreatesProposalArtifact(t *testing.T
 		"call-proposal",
 		AgentToolDraftProjectProposal,
 		`{"request":"Plan next work","role_id":"role_pm","driver_kind":"hecate_task"}`,
-	), 3, nil)
+	), 3, nil, nil)
 	if err != nil {
 		t.Fatalf("Dispatch() error = %v", err)
 	}
@@ -107,7 +107,7 @@ func TestAgentLoop_ProjectAssistantDraftToolRejectsNonProjectChatTask(t *testing
 		"call-proposal",
 		AgentToolDraftProjectProposal,
 		`{"request":"Plan next work"}`,
-	), 2, nil)
+	), 2, nil, nil)
 	if err != nil {
 		t.Fatalf("Dispatch() error = %v", err)
 	}

@@ -243,7 +243,7 @@ func TestAgentLoopGatedTools(t *testing.T) {
 		{
 			name:     "all_tools short-circuits to full set",
 			policies: []string{"all_tools"},
-			want:     []string{"apply_patch", "artifact_read", "draft_project_proposal", "file_edit", "file_write", "git_diff", "git_exec", "git_status", "glob", "grep", "http_request", "list_dir", "read_file", "shell_exec"},
+			want:     []string{"apply_patch", "artifact_read", "draft_project_proposal", "file_edit", "file_write", "git_diff", "git_exec", "git_status", "glob", "grep", "http_request", "list_dir", "read_file", "shell_exec", "terminal_kill", "terminal_open", "terminal_read", "terminal_wait", "terminal_write"},
 		},
 		{
 			name:     "file_write gates write and exact edit tools",
@@ -263,7 +263,7 @@ func TestAgentLoopGatedTools(t *testing.T) {
 		{
 			name:     "shell_exec and git_exec pass through",
 			policies: []string{"shell_exec", "git_exec"},
-			want:     []string{"git_diff", "git_exec", "git_status", "shell_exec"},
+			want:     []string{"git_diff", "git_exec", "git_status", "shell_exec", "terminal_kill", "terminal_open", "terminal_read", "terminal_wait", "terminal_write"},
 		},
 		{
 			name:     "unknown policy produces no tools",
