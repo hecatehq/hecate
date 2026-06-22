@@ -148,6 +148,17 @@ export function resolveExternalAgentReadiness(
   };
 }
 
+export function shouldAutoProbeExternalAgentReadiness(
+  adapter: AgentAdapterRecord,
+  health: AgentAdapterHealthRecord | null,
+  loading: boolean,
+  remoteRuntime: boolean,
+): boolean {
+  if (!adapter.available || health || loading) return false;
+  if (remoteRuntime && adapter.remote_credential_ok !== true) return false;
+  return adapter.auth_status === "ok" || adapter.auth_status === "unknown" || !adapter.auth_status;
+}
+
 export function externalAgentLoginCommand(adapter: AgentAdapterRecord): string {
   switch (adapter.id) {
     case "codex":

@@ -19,6 +19,7 @@ import {
   humanizeProbeError,
   resolveExternalAgentReadiness,
   shouldShowProbeError,
+  shouldAutoProbeExternalAgentReadiness,
   type ExternalAgentReadinessTone,
 } from "../../lib/external-agent-readiness";
 import {
@@ -168,7 +169,7 @@ export function ConnectionsPanel({
   useEffect(() => {
     for (const adapter of agentAdapters) {
       if (
-        !shouldAutoProbeAdapter(
+        !shouldAutoProbeExternalAgentReadiness(
           adapter,
           agentAdapterHealthByID.get(adapter.id) ?? null,
           Boolean(agentAdapterHealthLoadingByID.get(adapter.id)),
@@ -766,17 +767,6 @@ function AdapterStatusSection({
       </div>
     </div>
   );
-}
-
-function shouldAutoProbeAdapter(
-  adapter: AgentAdapterRecord,
-  health: AgentAdapterHealthRecord | null,
-  loading: boolean,
-  remoteRuntime: boolean,
-): boolean {
-  if (!adapter.available || health || loading) return false;
-  if (remoteRuntime && adapter.remote_credential_ok !== true) return false;
-  return adapter.auth_status === "ok" || adapter.auth_status === "unknown" || !adapter.auth_status;
 }
 
 function AdapterStatusRow({

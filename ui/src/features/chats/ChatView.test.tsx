@@ -4481,6 +4481,38 @@ describe("ChatView external-agent target", () => {
     expect(setNewChatAgent).toHaveBeenCalledWith("claude_code");
   });
 
+  it("checks available external agents when Chats opens", async () => {
+    const probeAgentAdapter = vi.fn(async () => null);
+    const { state, actions } = setup(
+      {
+        chatTarget: "external_agent",
+        newChatAgentID: "codex",
+        agentAdapterID: "codex",
+        activeChatSessionID: "",
+        activeChatSession: null,
+        agentWorkspace: "/tmp/hecate",
+        agentAdapters: [
+          {
+            id: "codex",
+            name: "Codex",
+            kind: "acp",
+            command: "codex-acp-adapter",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+            auth_status: "unknown",
+          },
+        ],
+      },
+      { probeAgentAdapter },
+    );
+
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    await waitFor(() => expect(probeAgentAdapter).toHaveBeenCalledWith("codex"));
+    expect(probeAgentAdapter).toHaveBeenCalledTimes(1);
+  });
+
   it("shows Claude Code local auth repair when the agent reports auth required", async () => {
     const onNavigate = vi.fn();
     const { state, actions } = setup({

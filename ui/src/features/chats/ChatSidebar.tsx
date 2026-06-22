@@ -1,13 +1,17 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useChat } from "../../app/state/chat";
 import { useProvidersAndModels } from "../../app/state/providersAndModels";
 import { useProjects } from "../../app/state/projects";
+import { useAgentAdapterActions } from "../../app/state/coordinators/agentAdapters";
 import { useChatActions } from "../../app/state/coordinators/chat";
 import { useNewChatAgentID, useChatTarget } from "../../app/state/derived";
 import { useWiredSettingsActions } from "../../app/state/coordinators/wired";
+import { useRuntime } from "../../app/state/runtime";
+import { shouldAutoProbeExternalAgentReadiness } from "../../lib/external-agent-readiness";
 import { formatAbsoluteTime } from "../../lib/format";
 import { projectDefaultWorkspace } from "../../lib/project-workspace";
+import { isRemoteRuntimeSession } from "../../lib/runtime-utils";
 import type { AgentAdapterRecord } from "../../types/agent-adapter";
 import type { ChatSessionRecord } from "../../types/chat";
 import { ProjectScopePanel } from "../projects/ProjectScopePanel";
@@ -53,8 +57,13 @@ export function ChatSidebar({
   const chat = useChat();
   const providersAndModels = useProvidersAndModels();
   const projects = useProjects();
+  const runtime = useRuntime();
   const chatTarget = useChatTarget();
   const { actions: settingsActions } = useWiredSettingsActions();
+  const agentAdapterActions = useAgentAdapterActions({
+    setNoticeMessage: settingsActions.setNoticeMessage,
+  });
+  const probeAgentAdapter = agentAdapterActions.probeAgentAdapter;
   const chatActions = useChatActions({
     chatTarget,
     setNoticeMessage: settingsActions.setNoticeMessage,
@@ -64,6 +73,8 @@ export function ChatSidebar({
   const activeChatSessionID = chat.state.activeChatSessionID;
   const agentAdapters = providersAndModels.state.agentAdapters;
   const agentAdapterHealthByID = providersAndModels.state.agentAdapterHealthByID;
+  const agentAdapterHealthLoadingByID = providersAndModels.state.agentAdapterHealthLoadingByID;
+  const autoProbedAdapterIDs = useRef(new Set<string>());
   const [sidebarQuery, setSidebarQuery] = useState("");
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -108,6 +119,31 @@ export function ChatSidebar({
     const health = agentID === "hecate" ? undefined : agentAdapterHealthByID.get(agentID);
     return chatAgentOptionStatus(agentID, adapter, health);
   }
+
+  useEffect(() => {
+    const remoteRuntime = isRemoteRuntimeSession(runtime.state.sessionInfo);
+    for (const adapter of agentAdapters) {
+      if (
+        !shouldAutoProbeExternalAgentReadiness(
+          adapter,
+          agentAdapterHealthByID.get(adapter.id) ?? null,
+          Boolean(agentAdapterHealthLoadingByID.get(adapter.id)),
+          remoteRuntime,
+        )
+      ) {
+        continue;
+      }
+      if (autoProbedAdapterIDs.current.has(adapter.id)) continue;
+      autoProbedAdapterIDs.current.add(adapter.id);
+      void probeAgentAdapter(adapter.id);
+    }
+  }, [
+    agentAdapters,
+    agentAdapterHealthByID,
+    agentAdapterHealthLoadingByID,
+    probeAgentAdapter,
+    runtime.state.sessionInfo,
+  ]);
 
   function selectProjectScope(projectID: string) {
     const scopedSessions = filterSidebarSessionsByProject(sessions, projectID);
