@@ -28,8 +28,16 @@ const TERMINAL_TOOL_LABELS = {
 
 export type AgentTerminalToolName = keyof typeof TERMINAL_TOOL_LABELS;
 
-const TERMINAL_TOOL_NAMES = new Set<string>(Object.keys(TERMINAL_TOOL_LABELS));
-const TERMINAL_TOOL_MENTION_RE = /\bterminal_(?:open|write|read|wait|kill)\b/i;
+const TERMINAL_TOOL_NAME_LIST = Object.keys(TERMINAL_TOOL_LABELS);
+const TERMINAL_TOOL_NAMES = new Set<string>(TERMINAL_TOOL_NAME_LIST);
+const TERMINAL_TOOL_MENTION_RE = new RegExp(
+  `\\b(?:${TERMINAL_TOOL_NAME_LIST.map(escapeRegExp).join("|")})\\b`,
+  "i",
+);
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 export function isAgentTerminalToolName(value?: string): value is AgentTerminalToolName {
   return TERMINAL_TOOL_NAMES.has((value ?? "").trim());
