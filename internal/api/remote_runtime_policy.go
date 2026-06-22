@@ -40,6 +40,7 @@ var remoteRuntimeAllowedRoutes = []remoteRuntimeRoutePattern{
 	{method: http.MethodPost, path: "/hecate/v1/project-assistant/draft"},
 	{method: http.MethodPost, path: "/hecate/v1/project-assistant/propose"},
 	{method: http.MethodPost, path: "/hecate/v1/project-assistant/apply"},
+	{method: http.MethodGet, path: "/hecate/v1/project-assistant/proposals/{id}"},
 	{method: http.MethodGet, path: "/hecate/v1/projects/{id}"},
 	{method: http.MethodPatch, path: "/hecate/v1/projects/{id}"},
 	{method: http.MethodDelete, path: "/hecate/v1/projects/{id}"},

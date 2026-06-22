@@ -280,13 +280,14 @@ type ProjectDeleteResponse struct {
 }
 
 type ProjectDeleteResponseItem struct {
-	ProjectID               string `json:"project_id"`
-	ProjectName             string `json:"project_name,omitempty"`
-	ChatSessionsDeleted     int    `json:"chat_sessions_deleted"`
-	ProjectWorkRowsDeleted  int    `json:"project_work_rows_deleted"`
-	ProjectSkillsDeleted    int    `json:"project_skills_deleted"`
-	MemoryEntriesDeleted    int    `json:"memory_entries_deleted"`
-	MemoryCandidatesDeleted int    `json:"memory_candidates_deleted"`
+	ProjectID                        string `json:"project_id"`
+	ProjectName                      string `json:"project_name,omitempty"`
+	ChatSessionsDeleted              int    `json:"chat_sessions_deleted"`
+	ProjectWorkRowsDeleted           int    `json:"project_work_rows_deleted"`
+	ProjectSkillsDeleted             int    `json:"project_skills_deleted"`
+	ProjectAssistantProposalsDeleted int    `json:"project_assistant_proposals_deleted"`
+	MemoryEntriesDeleted             int    `json:"memory_entries_deleted"`
+	MemoryCandidatesDeleted          int    `json:"memory_candidates_deleted"`
 }
 
 type AgentProfileResponse struct {
@@ -1378,17 +1379,18 @@ type SystemResetDataResponse struct {
 }
 
 type SystemResetDataResponseItem struct {
-	ProjectsDeleted            int `json:"projects_deleted"`
-	ProjectSkillsDeleted       int `json:"project_skills_deleted"`
-	ProjectWorkRowsDeleted     int `json:"project_work_rows_deleted"`
-	PluginsDeleted             int `json:"plugins_deleted"`
-	AgentProfilesDeleted       int `json:"agent_profiles_deleted"`
-	ChatSessionsDeleted        int `json:"chat_sessions_deleted"`
-	TasksDeleted               int `json:"tasks_deleted"`
-	ProvidersDeleted           int `json:"providers_deleted"`
-	PolicyRulesDeleted         int `json:"policy_rules_deleted"`
-	AgentApprovalGrantsDeleted int `json:"agent_approval_grants_deleted"`
-	DatabaseRowsDeleted        int `json:"database_rows_deleted"`
+	ProjectsDeleted                  int `json:"projects_deleted"`
+	ProjectSkillsDeleted             int `json:"project_skills_deleted"`
+	ProjectWorkRowsDeleted           int `json:"project_work_rows_deleted"`
+	ProjectAssistantProposalsDeleted int `json:"project_assistant_proposals_deleted"`
+	PluginsDeleted                   int `json:"plugins_deleted"`
+	AgentProfilesDeleted             int `json:"agent_profiles_deleted"`
+	ChatSessionsDeleted              int `json:"chat_sessions_deleted"`
+	TasksDeleted                     int `json:"tasks_deleted"`
+	ProvidersDeleted                 int `json:"providers_deleted"`
+	PolicyRulesDeleted               int `json:"policy_rules_deleted"`
+	AgentApprovalGrantsDeleted       int `json:"agent_approval_grants_deleted"`
+	DatabaseRowsDeleted              int `json:"database_rows_deleted"`
 }
 
 type UsageSummaryResponseItem struct {

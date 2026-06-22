@@ -28,6 +28,7 @@ type assistantFixture struct {
 	projectSkills    projectskills.Store
 	memoryEntries    memory.Store
 	memoryCandidates memory.CandidateStore
+	proposals        ProposalStore
 }
 
 type assistantFixtureBuilder struct {
@@ -71,6 +72,48 @@ func TestService_ProposeRejectsUnknownActionKind(t *testing.T) {
 	})
 	if !errors.Is(err, ErrUnknownActionKind) {
 		t.Fatalf("Propose err = %v, want ErrUnknownActionKind", err)
+	}
+}
+
+func TestService_ProposeStoresProposalRecordAcrossStores(t *testing.T) {
+	t.Parallel()
+	for _, builder := range assistantFixtureBuilders() {
+		t.Run(builder.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			fixture := builder.build(t)
+
+			proposal, err := fixture.service.Propose(ctx, ProposalInput{
+				ProjectID: "proj_store",
+				Source:    ProposalSourceAPI,
+				Title:     "Create stored work",
+				Summary:   "Persist the proposal record.",
+				Actions: []Action{{
+					Kind:   ActionCreateWorkItem,
+					Target: map[string]string{"project_id": "proj_store"},
+					Patch:  rawPatch(t, map[string]string{"project_id": "proj_store", "title": "Stored work"}),
+				}},
+				Warnings: []string{"review before applying"},
+				TraceID:  "trace_store",
+			})
+			if err != nil {
+				t.Fatalf("Propose: %v", err)
+			}
+
+			record, ok, err := fixture.service.Proposal(ctx, proposal.ID)
+			if err != nil || !ok {
+				t.Fatalf("Proposal ok=%v err=%v, want stored record", ok, err)
+			}
+			if record.ID != proposal.ID || record.ProjectID != "proj_store" || record.Source != ProposalSourceAPI || record.Status != ProposalStatusProposed {
+				t.Fatalf("record = %+v, want proposed API record scoped to project", record)
+			}
+			if record.Proposal.TraceID != "trace_store" || len(record.Proposal.Warnings) != 1 || record.Proposal.Warnings[0] != "review before applying" {
+				t.Fatalf("stored proposal = %+v, want trace and warnings", record.Proposal)
+			}
+			if record.Fingerprint == "" {
+				t.Fatalf("fingerprint is empty")
+			}
+		})
 	}
 }
 
@@ -1752,6 +1795,44 @@ func TestService_ApplyLoopFailureReportsCommittedProgressAcrossStores(t *testing
 			if len(assignments) != 0 {
 				t.Fatalf("assignments = %+v, want no assignment after injected apply failure", assignments)
 			}
+			record, ok, err := fixture.service.Proposal(ctx, proposal.ID)
+			if err != nil || !ok {
+				t.Fatalf("Proposal ok=%v err=%v, want partial record", ok, err)
+			}
+			if record.Status != ApplyStatusPartialDueToRuntimeFailure || record.LatestResult == nil || record.LatestResult.CommittedActionCount != 1 || len(record.ApplyAttempts) != 1 {
+				t.Fatalf("record = %+v, want partial latest result and one attempt", record)
+			}
+
+			resumed := NewService(Stores{
+				Projects:         fixture.projects,
+				Chats:            fixture.chats,
+				Work:             fixture.work,
+				ProjectSkills:    fixture.projectSkills,
+				Memory:           fixture.memoryEntries,
+				MemoryCandidates: fixture.memoryCandidates,
+				Proposals:        fixture.proposals,
+			}, func(prefix string) string { return prefix + "_resume" })
+			result, err = resumed.Apply(ctx, proposal, true)
+			if err != nil {
+				t.Fatalf("resumed Apply: %v", err)
+			}
+			if !result.Applied || result.CommittedActionCount != 2 || len(result.Actions) != 2 {
+				t.Fatalf("resumed result = %+v, want second action applied from ledger progress", result)
+			}
+			assignments, err = fixture.work.ListAssignments(ctx, projectwork.AssignmentFilter{ProjectID: project.ID, WorkItemID: "work_loop_partial"})
+			if err != nil {
+				t.Fatalf("ListAssignments after resume: %v", err)
+			}
+			if len(assignments) != 1 || assignments[0].ID != "asgn_loop_partial" {
+				t.Fatalf("assignments after resume = %+v, want one resumed assignment", assignments)
+			}
+			record, ok, err = resumed.Proposal(ctx, proposal.ID)
+			if err != nil || !ok {
+				t.Fatalf("Proposal after resume ok=%v err=%v, want record", ok, err)
+			}
+			if record.Status != ApplyStatusApplied || record.LatestResult == nil || !record.LatestResult.Applied || len(record.ApplyAttempts) != 2 {
+				t.Fatalf("record after resume = %+v, want applied latest result and two attempts", record)
+			}
 		})
 	}
 }
@@ -2201,14 +2282,16 @@ func newMemoryAssistantFixture(t *testing.T) assistantFixture {
 	workStore := projectwork.NewMemoryStore()
 	projectSkillStore := projectskills.NewMemoryStore()
 	memoryStore := memory.NewMemoryStore()
+	proposalStore := NewMemoryProposalStore()
 	return assistantFixture{
-		service:          projectassistantService(projectStore, chatStore, workStore, projectSkillStore, memoryStore),
+		service:          projectassistantService(projectStore, chatStore, workStore, projectSkillStore, memoryStore, proposalStore),
 		projects:         projectStore,
 		chats:            chatStore,
 		work:             workStore,
 		projectSkills:    projectSkillStore,
 		memoryEntries:    memoryStore,
 		memoryCandidates: memoryStore,
+		proposals:        proposalStore,
 	}
 }
 
@@ -2247,18 +2330,23 @@ func newSQLiteAssistantFixture(t *testing.T) assistantFixture {
 	if err != nil {
 		t.Fatalf("new memory sqlite store: %v", err)
 	}
+	proposalStore, err := NewSQLiteProposalStore(ctx, client)
+	if err != nil {
+		t.Fatalf("new project assistant proposal sqlite store: %v", err)
+	}
 	return assistantFixture{
-		service:          projectassistantService(projectStore, chatStore, workStore, projectSkillStore, memoryStore),
+		service:          projectassistantService(projectStore, chatStore, workStore, projectSkillStore, memoryStore, proposalStore),
 		projects:         projectStore,
 		chats:            chatStore,
 		work:             workStore,
 		projectSkills:    projectSkillStore,
 		memoryEntries:    memoryStore,
 		memoryCandidates: memoryStore,
+		proposals:        proposalStore,
 	}
 }
 
-func projectassistantService(projectStore projects.Store, chatStore chat.Store, workStore projectwork.Store, projectSkillStore projectskills.Store, memoryStore memory.Store) *Service {
+func projectassistantService(projectStore projects.Store, chatStore chat.Store, workStore projectwork.Store, projectSkillStore projectskills.Store, memoryStore memory.Store, proposalStore ProposalStore) *Service {
 	var candidateStore memory.CandidateStore
 	if candidates, ok := memoryStore.(memory.CandidateStore); ok {
 		candidateStore = candidates
@@ -2270,6 +2358,7 @@ func projectassistantService(projectStore projects.Store, chatStore chat.Store, 
 		ProjectSkills:    projectSkillStore,
 		Memory:           memoryStore,
 		MemoryCandidates: candidateStore,
+		Proposals:        proposalStore,
 	}, sequenceIDGenerator())
 }
 

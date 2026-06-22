@@ -152,26 +152,32 @@ handoff, memory-candidate, and chat targets, including explicit resources
 created earlier in the same proposal. Deterministic stale-target failures
 therefore return `failed_action_index` with no new durable writes. After
 preflight, apply remains sequential across existing stores. A proposal id plus
-its canonical action set is the in-process progress boundary. If action N fails
-after earlier actions have already mutated durable stores, the API returns the
-partial action results and `failed_action_index`. Retrying the exact same
-proposal resumes at the next unapplied action. Retrying the same proposal id
-with a changed action set returns `409 conflict`, and retrying a fully applied
-proposal also returns `409 conflict`. Clients should show `status` first, then
-the landed action kinds and ids from `partial_result.actions`. The status is
-`applied` after a successful apply, `blocked_before_apply` when preflight
-stopped the current apply attempt before writing another action, or
+its canonical action set is the durable progress boundary. The proposal ledger
+is stored with the project operations backend (`memory`, `sqlite`, or
+`postgres`) and records the typed proposal, source metadata, latest apply
+result, and apply attempts. If action N fails after earlier actions have
+already mutated durable stores, the API returns the partial action results and
+`failed_action_index`, then records the failed attempt. Retrying the exact same
+proposal resumes at the next unapplied action, including after a runtime
+restart when the same durable backend is still available. Retrying the same
+proposal id with a changed action set returns `409 conflict`, and retrying a
+fully applied proposal also returns `409 conflict`. Clients should show
+`status` first, then the landed action kinds and ids from
+`partial_result.actions` or the proposal record's `latest_result.actions`.
+The status is `applied` after a successful apply, `blocked_before_apply` when
+preflight stopped the current apply attempt before writing another action, or
 `partial_due_to_runtime_failure` when a post-preflight store/runtime failure
 happened after apply began. `committed_action_count`, `failed_action_index`,
 `resume_action_index`, and `total_action_count` are the server-owned progress
 counters.
 
-Future versions may persist proposal ids server-side so reviewed actions,
-confirmation, and resumable progress survive process restarts. In v0 the
-progress map is process-local; a runtime restart between a partial apply and a
-retry loses that resume point, so clients should refresh the proposal before
-retrying after restart. The v0 API keeps the persisted shape possible without
-requiring it.
+The ledger is an audit and recovery surface, not an auto-apply queue. It does
+not grant agents authority, does not start assignments, and does not promote
+memory candidates. Durable project mutations still require the typed proposal
+body plus explicit operator confirmation through `/project-assistant/apply`.
+Project deletion removes scoped proposal records before deleting the project
+row; "No project" proposals remain valid and are not deleted by a project
+cascade.
 
 ## Endpoints
 
@@ -420,6 +426,58 @@ POST /hecate/v1/project-assistant/propose
 ```
 
 Unknown action kinds return `400 invalid_request`.
+
+### `GET /hecate/v1/project-assistant/proposals/{id}`
+
+Returns the durable proposal record for reload and recovery flows.
+
+```json
+GET /hecate/v1/project-assistant/proposals/pa_...
+→ 200
+{
+  "object": "project_assistant.proposal_record",
+  "data": {
+    "id": "pa_...",
+    "project_id": "proj_hecate",
+    "source": "draft",
+    "source_id": "deterministic",
+    "proposal": {
+      "id": "pa_...",
+      "title": "Create project work item",
+      "summary": "Create a ready work item from the current assistant draft.",
+      "actions": [],
+      "requires_confirmation": true
+    },
+    "status": "partial_due_to_runtime_failure",
+    "latest_result": {
+      "proposal_id": "pa_...",
+      "status": "partial_due_to_runtime_failure",
+      "applied": false,
+      "total_action_count": 2,
+      "committed_action_count": 1,
+      "failed_action_index": 1,
+      "resume_action_index": 1,
+      "actions": [
+        {
+          "kind": "create_work_item",
+          "id": "work_...",
+          "data": {
+            "project_id": "proj_hecate",
+            "work_item_id": "work_..."
+          }
+        }
+      ]
+    },
+    "apply_attempts": [],
+    "created_at": "2026-06-22T10:00:00Z",
+    "updated_at": "2026-06-22T10:01:00Z"
+  }
+}
+```
+
+Missing proposal ids return `404 not_found`. The endpoint is read-only; clients
+must still call `POST /hecate/v1/project-assistant/apply` with `confirm: true`
+to mutate durable project state.
 
 ### `POST /hecate/v1/project-assistant/apply`
 

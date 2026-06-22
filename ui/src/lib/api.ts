@@ -83,6 +83,7 @@ import type {
   ProjectAssistantContextPayload,
   ProjectAssistantContextResponse,
   ProjectAssistantDraftPayload,
+  ProjectAssistantProposalRecordResponse,
   ProjectAssistantProposalResponse,
   ProjectAssistantProposePayload,
   ProjectAssignmentLaunchReadinessResponse,
@@ -572,6 +573,14 @@ export async function applyProjectAssistant(
     method: "POST",
     body: payload,
   });
+}
+
+export async function getProjectAssistantProposal(
+  proposalID: string,
+): Promise<ProjectAssistantProposalRecordResponse> {
+  return fetchJSON<ProjectAssistantProposalRecordResponse>(
+    `${HECATE_API}/project-assistant/proposals/${encodeURIComponent(proposalID)}`,
+  );
 }
 
 export async function getProjectMemory(

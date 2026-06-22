@@ -78,6 +78,7 @@ export function formatProjectDeleteSummary(result: ProjectDeleteRecord): string 
     countLabel(result.chat_sessions_deleted, "chat"),
     countLabel(result.project_work_rows_deleted, "work row"),
     countLabel(result.project_skills_deleted, "skill"),
+    countLabel(result.project_assistant_proposals_deleted ?? 0, "assistant proposal"),
     countLabel(result.memory_entries_deleted, "memory entry", "memory entries"),
     countLabel(result.memory_candidates_deleted, "memory candidate"),
   ].filter(Boolean);

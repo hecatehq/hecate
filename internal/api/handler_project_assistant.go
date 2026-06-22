@@ -175,6 +175,22 @@ func (h *Handler) HandleProjectAssistantPropose(w http.ResponseWriter, r *http.R
 	})
 }
 
+func (h *Handler) HandleProjectAssistantProposal(w http.ResponseWriter, r *http.Request) {
+	record, ok, err := h.projectAssistantApplication().Proposal(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeProjectAssistantError(w, err)
+		return
+	}
+	if !ok {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "project assistant proposal not found")
+		return
+	}
+	WriteJSON(w, http.StatusOK, map[string]any{
+		"object": "project_assistant.proposal_record",
+		"data":   record,
+	})
+}
+
 func (h *Handler) HandleProjectAssistantApply(w http.ResponseWriter, r *http.Request) {
 	var req projectAssistantApplyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

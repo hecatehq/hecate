@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   ApiError,
@@ -7,6 +7,7 @@ import {
   discoverProjectSkills,
   draftProjectAssistant,
   getProjectAssistantContext,
+  getProjectAssistantProposal,
 } from "../../lib/api";
 import type {
   ProjectAssistantApplyResult,
@@ -15,6 +16,7 @@ import type {
   ProjectAssistantContextRecord,
   ProjectAssistantDraftPayload,
   ProjectAssistantProposal,
+  ProjectAssistantProposalRecord,
   ProjectRecord,
   ProjectSkillRecord,
   ProjectWorkItemRecord,
@@ -27,6 +29,7 @@ import {
 
 type LoadState = "idle" | "loading" | "loaded" | "error";
 type ProjectAssistantStatus = "idle" | "proposing" | "applying" | "applied";
+const PROJECT_ASSISTANT_LAST_PROPOSAL_PREFIX = "hecate.projectAssistant.lastProposal.";
 
 type Options = {
   project: ProjectRecord | null;
@@ -58,6 +61,65 @@ export function useProjectAssistantController(options: Options) {
   const [status, setStatus] = useState<ProjectAssistantStatus>("idle");
   const [error, setError] = useState("");
   const [bootstrapPending, setBootstrapPending] = useState(false);
+  const previousProjectID = useRef("");
+
+  useEffect(() => {
+    const projectID = options.project?.id || options.selectedProjectID;
+    if (previousProjectID.current === projectID) return;
+    previousProjectID.current = projectID;
+    setProposal(null);
+    setChatDraftSource(null);
+    setApplyResult(null);
+    setContext(null);
+    setContextError("");
+    setContextStatus("idle");
+    setError("");
+    setStatus("idle");
+  }, [options.project?.id, options.selectedProjectID]);
+
+  useEffect(() => {
+    const projectID = options.project?.id || options.selectedProjectID;
+    if (!projectID || proposal || applyResult || status !== "idle") return;
+    const proposalID = readProjectAssistantProposalID(projectID);
+    if (!proposalID) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const payload = await getProjectAssistantProposal(proposalID);
+        if (cancelled) return;
+        const record = payload.data;
+        if (!projectAssistantProposalRecordMatchesProject(record, projectID)) {
+          clearProjectAssistantProposalID(projectID);
+          return;
+        }
+        if (record.latest_result?.applied) {
+          setApplyResult(record.latest_result);
+          setProposal(null);
+          setChatDraftSource(null);
+          setError("");
+          setStatus("applied");
+          return;
+        }
+        if (record.status === "applied") {
+          clearProjectAssistantProposalID(projectID);
+          return;
+        }
+        setProposal(record.proposal);
+        setChatDraftSource(null);
+        setApplyResult(null);
+        setError(projectAssistantProposalRecordError(record));
+        setStatus("idle");
+      } catch (err) {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 404) {
+          clearProjectAssistantProposalID(projectID);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [applyResult, options.project?.id, options.selectedProjectID, proposal, status]);
 
   const propose = useCallback(
     async (form: ProjectAssistantDraftForm, workItemID?: string) => {
@@ -73,6 +135,7 @@ export function useProjectAssistantController(options: Options) {
             workItemID ?? options.selectedWorkItem?.id,
           ),
         );
+        rememberProjectAssistantProposalID(options.project.id, payload.data.id);
         setProposal(payload.data);
         setChatDraftSource(null);
         setStatus("idle");
@@ -103,6 +166,7 @@ export function useProjectAssistantController(options: Options) {
           draft_mode: "review_follow_up",
           review_artifact_id: reviewArtifactID,
         });
+        rememberProjectAssistantProposalID(options.project.id, payload.data.id);
         setProposal(payload.data);
         setChatDraftSource(null);
         setStatus("idle");
@@ -144,6 +208,7 @@ export function useProjectAssistantController(options: Options) {
           projectID,
         ),
       );
+      rememberProjectAssistantProposalID(projectID, payload.data.id);
       setProposal(payload.data);
       setChatDraftSource(null);
       setContext(null);
@@ -184,6 +249,9 @@ export function useProjectAssistantController(options: Options) {
       nextProposal: ProjectAssistantProposal,
       sourceOptions?: { chatDraftSource?: ProjectAssistantChatDraftSource | null },
     ) => {
+      if (options.selectedProjectID) {
+        rememberProjectAssistantProposalID(options.selectedProjectID, nextProposal.id);
+      }
       setProposal(nextProposal);
       setChatDraftSource(sourceOptions?.chatDraftSource ?? null);
       setApplyResult(null);
@@ -193,7 +261,7 @@ export function useProjectAssistantController(options: Options) {
       setError("");
       setStatus("idle");
     },
-    [],
+    [options.selectedProjectID],
   );
 
   const apply = useCallback(async () => {
@@ -203,6 +271,7 @@ export function useProjectAssistantController(options: Options) {
     setError("");
     try {
       const payload = await applyProjectAssistant({ proposal: currentProposal, confirm: true });
+      rememberProjectAssistantProposalID(options.selectedProjectID, currentProposal.id);
       setApplyResult(payload.data);
       setProposal(null);
       setChatDraftSource(null);
@@ -234,6 +303,9 @@ export function useProjectAssistantController(options: Options) {
   }, [options, proposal]);
 
   const dismiss = useCallback(() => {
+    if (options.selectedProjectID) {
+      clearProjectAssistantProposalID(options.selectedProjectID);
+    }
     setProposal(null);
     setChatDraftSource(null);
     setApplyResult(null);
@@ -242,7 +314,7 @@ export function useProjectAssistantController(options: Options) {
     setContextStatus("idle");
     setError("");
     setStatus("idle");
-  }, []);
+  }, [options.selectedProjectID]);
 
   return {
     apply,
@@ -339,11 +411,61 @@ function projectAssistantPartialApplyErrorMessage(
     projectAssistantNonNegativeInteger(partialResult.total_action_count) ??
     proposal?.actions.length ??
     Math.max(appliedCount, failedActionIndex + 1);
-  const landed = projectAssistantAppliedActionsSummary(partialResult.actions);
-  const failed = projectAssistantFailedActionSummary(proposal, failedActionIndex);
   const status =
     projectAssistantApplyStatus(error.fields.apply_status) ??
     projectAssistantApplyStatus(partialResult.status);
+  if (status !== "blocked_before_apply" && status !== "partial_due_to_runtime_failure") return "";
+  return projectAssistantApplyProgressMessage({
+    status,
+    partialResult,
+    proposal,
+    failedActionIndex,
+    appliedCount,
+    totalCount,
+  });
+}
+
+function projectAssistantProposalRecordError(record: ProjectAssistantProposalRecord): string {
+  const partialResult = record.latest_result;
+  if (!partialResult || partialResult.applied) return "";
+  const status = projectAssistantApplyStatus(partialResult.status);
+  if (status !== "blocked_before_apply" && status !== "partial_due_to_runtime_failure") return "";
+  const failedActionIndex = projectAssistantNonNegativeInteger(partialResult.failed_action_index);
+  if (failedActionIndex === null) return "";
+  const appliedCount =
+    projectAssistantNonNegativeInteger(partialResult.committed_action_count) ??
+    partialResult.actions.length;
+  const totalCount =
+    projectAssistantNonNegativeInteger(partialResult.total_action_count) ??
+    record.proposal.actions.length ??
+    Math.max(appliedCount, failedActionIndex + 1);
+  return projectAssistantApplyProgressMessage({
+    status,
+    partialResult,
+    proposal: record.proposal,
+    failedActionIndex,
+    appliedCount,
+    totalCount,
+  });
+}
+
+function projectAssistantApplyProgressMessage({
+  status,
+  partialResult,
+  proposal,
+  failedActionIndex,
+  appliedCount,
+  totalCount,
+}: {
+  status: "blocked_before_apply" | "partial_due_to_runtime_failure";
+  partialResult: ProjectAssistantApplyResult;
+  proposal?: ProjectAssistantProposal;
+  failedActionIndex: number;
+  appliedCount: number;
+  totalCount: number;
+}): string {
+  const landed = projectAssistantAppliedActionsSummary(partialResult.actions);
+  const failed = projectAssistantFailedActionSummary(proposal, failedActionIndex);
   if (status === "blocked_before_apply") {
     if (appliedCount > 0) {
       return `Project Assistant blocked this proposal before applying additional actions. ${appliedCount} of ${totalCount} action${totalCount === 1 ? "" : "s"} ${appliedCount === 1 ? "was" : "were"} already committed${landed}. It failed at action ${failedActionIndex + 1}${failed}. Fix the target state, then apply the same proposal again.`;
@@ -351,6 +473,35 @@ function projectAssistantPartialApplyErrorMessage(
     return `Project Assistant blocked this proposal before applying any actions. It failed at action ${failedActionIndex + 1}${failed}. Fix the target state, then apply the same proposal again.`;
   }
   return `Project Assistant applied ${appliedCount} of ${totalCount} actions${landed}. It then failed at action ${failedActionIndex + 1}${failed}. Apply the same proposal again after fixing the target state to resume from the next unapplied action.`;
+}
+
+function projectAssistantProposalRecordMatchesProject(
+  record: ProjectAssistantProposalRecord,
+  projectID: string,
+): boolean {
+  const recordProjectID = record.project_id?.trim();
+  return !recordProjectID || recordProjectID === projectID;
+}
+
+function projectAssistantProposalStorageKey(projectID: string): string {
+  return `${PROJECT_ASSISTANT_LAST_PROPOSAL_PREFIX}${projectID}`;
+}
+
+function rememberProjectAssistantProposalID(projectID: string, proposalID: string) {
+  const scopedProjectID = projectID.trim();
+  const id = proposalID.trim();
+  if (!scopedProjectID || !id || typeof window === "undefined") return;
+  window.sessionStorage.setItem(projectAssistantProposalStorageKey(scopedProjectID), id);
+}
+
+function readProjectAssistantProposalID(projectID: string): string {
+  if (!projectID.trim() || typeof window === "undefined") return "";
+  return window.sessionStorage.getItem(projectAssistantProposalStorageKey(projectID.trim())) ?? "";
+}
+
+function clearProjectAssistantProposalID(projectID: string) {
+  if (!projectID.trim() || typeof window === "undefined") return;
+  window.sessionStorage.removeItem(projectAssistantProposalStorageKey(projectID.trim()));
 }
 
 function projectAssistantAppliedActionsSummary(actions: ProjectAssistantApplyResult["actions"]) {
@@ -403,7 +554,8 @@ function projectAssistantNonNegativeInteger(value: unknown): number | null {
 }
 
 function projectAssistantApplyStatus(value: unknown): ProjectAssistantApplyStatus | undefined {
-  return value === "applied" ||
+  return value === "applying" ||
+    value === "applied" ||
     value === "blocked_before_apply" ||
     value === "partial_due_to_runtime_failure"
     ? value

@@ -58,9 +58,9 @@ type Service struct {
 	projectSkills    projectskills.Store
 	memory           memory.Store
 	memoryCandidates memory.CandidateStore
+	proposals        ProposalStore
 	llm              LLMClient
 	idgen            IDGenerator
-	applyProgress    map[string]*applyProgress
 }
 
 type Stores struct {
@@ -71,15 +71,20 @@ type Stores struct {
 	ProjectSkills    projectskills.Store
 	Memory           memory.Store
 	MemoryCandidates memory.CandidateStore
+	Proposals        ProposalStore
 	LLM              LLMClient
 }
 
 type ProposalInput struct {
-	ID      string
-	Title   string
-	Summary string
-	Actions []Action
-	TraceID string
+	ID        string
+	ProjectID string
+	Source    string
+	SourceID  string
+	Title     string
+	Summary   string
+	Actions   []Action
+	Warnings  []string
+	TraceID   string
 }
 
 type DraftInput struct {
@@ -162,12 +167,6 @@ func (e *ApplyError) Unwrap() error {
 	return e.Err
 }
 
-type applyProgress struct {
-	fingerprint string
-	complete    bool
-	results     []ActionResult
-}
-
 type actionFingerprint struct {
 	Kind   string            `json:"kind"`
 	Target map[string]string `json:"target,omitempty"`
@@ -183,6 +182,10 @@ func NewService(stores Stores, idgen IDGenerator) *Service {
 			return fmt.Sprintf("%s_%d", strings.TrimSpace(prefix), defaultIDCounter.Add(1))
 		}
 	}
+	proposals := stores.Proposals
+	if proposals == nil {
+		proposals = NewMemoryProposalStore()
+	}
 	return &Service{
 		projects:         stores.Projects,
 		chats:            stores.Chats,
@@ -191,13 +194,32 @@ func NewService(stores Stores, idgen IDGenerator) *Service {
 		projectSkills:    stores.ProjectSkills,
 		memory:           stores.Memory,
 		memoryCandidates: stores.MemoryCandidates,
+		proposals:        proposals,
 		llm:              stores.LLM,
 		idgen:            idgen,
-		applyProgress:    make(map[string]*applyProgress),
 	}
 }
 
-func (s *Service) Propose(_ context.Context, input ProposalInput) (Proposal, error) {
+func (s *Service) Propose(ctx context.Context, input ProposalInput) (Proposal, error) {
+	proposal, err := s.buildProposal(input)
+	if err != nil {
+		return Proposal{}, err
+	}
+	record, err := s.storeProposal(ctx, proposal, input.ProjectID, input.Source, input.SourceID)
+	if err != nil {
+		return Proposal{}, err
+	}
+	return record.Proposal, nil
+}
+
+func (s *Service) Proposal(ctx context.Context, id string) (ProposalRecord, bool, error) {
+	if s == nil || s.proposals == nil {
+		return ProposalRecord{}, false, ErrStoreNotConfigured
+	}
+	return s.proposals.GetProposal(ctx, id)
+}
+
+func (s *Service) buildProposal(input ProposalInput) (Proposal, error) {
 	if s == nil {
 		return Proposal{}, ErrStoreNotConfigured
 	}
@@ -223,9 +245,29 @@ func (s *Service) Propose(_ context.Context, input ProposalInput) (Proposal, err
 		Title:                title,
 		Summary:              strings.TrimSpace(input.Summary),
 		Actions:              actions,
+		Warnings:             append([]string(nil), input.Warnings...),
 		RequiresConfirmation: true,
 		TraceID:              strings.TrimSpace(input.TraceID),
 	}, nil
+}
+
+func (s *Service) storeProposal(ctx context.Context, proposal Proposal, projectID, source, sourceID string) (ProposalRecord, error) {
+	if s == nil || s.proposals == nil {
+		return ProposalRecord{}, ErrStoreNotConfigured
+	}
+	fingerprint, err := actionSetFingerprint(proposal.Actions)
+	if err != nil {
+		return ProposalRecord{}, err
+	}
+	return s.proposals.UpsertProposal(ctx, ProposalRecord{
+		ID:          proposal.ID,
+		ProjectID:   strings.TrimSpace(projectID),
+		Source:      strings.TrimSpace(source),
+		SourceID:    strings.TrimSpace(sourceID),
+		Proposal:    proposal,
+		Status:      ProposalStatusProposed,
+		Fingerprint: fingerprint,
+	})
 }
 
 func (s *Service) Draft(ctx context.Context, input DraftInput) (Proposal, error) {
@@ -280,8 +322,11 @@ func (s *Service) draftDeterministic(ctx context.Context, input DraftInput, draf
 			patch["root_id"] = rootID
 		}
 		proposalInput = ProposalInput{
-			Title:   firstNonEmpty(request.title, fmt.Sprintf("Queue %s for %s", roleLabel, draftContext.SelectedWork.Title)),
-			Summary: fmt.Sprintf("Create a queued %s assignment on the selected work item.", draftContext.Selection.DriverKind),
+			ProjectID: draftContext.Project.ID,
+			Source:    ProposalSourceDraft,
+			SourceID:  DraftModeDeterministic,
+			Title:     firstNonEmpty(request.title, fmt.Sprintf("Queue %s for %s", roleLabel, draftContext.SelectedWork.Title)),
+			Summary:   fmt.Sprintf("Create a queued %s assignment on the selected work item.", draftContext.Selection.DriverKind),
 			Actions: []Action{{
 				Kind:   ActionCreateAssignment,
 				Target: map[string]string{"project_id": draftContext.Project.ID},
@@ -302,8 +347,11 @@ func (s *Service) draftDeterministic(ctx context.Context, input DraftInput, draf
 			patch["owner_role_id"] = draftContext.Selection.RoleID
 		}
 		proposalInput = ProposalInput{
-			Title:   firstNonEmpty(request.title, "Create project work item"),
-			Summary: "Create a ready work item from the current assistant draft.",
+			ProjectID: draftContext.Project.ID,
+			Source:    ProposalSourceDraft,
+			SourceID:  DraftModeDeterministic,
+			Title:     firstNonEmpty(request.title, "Create project work item"),
+			Summary:   "Create a ready work item from the current assistant draft.",
 			Actions: []Action{{
 				Kind:   ActionCreateWorkItem,
 				Target: map[string]string{"project_id": draftContext.Project.ID},

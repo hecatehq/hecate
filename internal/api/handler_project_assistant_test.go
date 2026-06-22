@@ -24,6 +24,11 @@ type projectAssistantProposalResponse struct {
 	Data   projectassistant.Proposal `json:"data"`
 }
 
+type projectAssistantProposalRecordResponse struct {
+	Object string                          `json:"object"`
+	Data   projectassistant.ProposalRecord `json:"data"`
+}
+
 type projectAssistantApplyResponse struct {
 	Object string                       `json:"object"`
 	Data   projectassistant.ApplyResult `json:"data"`
@@ -611,6 +616,22 @@ func TestProjectAssistantAPI_ProposeAndApplyCreateProject(t *testing.T) {
 		t.Fatalf("proposal actions = %+v, want create_project action", proposed.Data.Actions)
 	}
 
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/project-assistant/proposals/pa_api", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get proposal status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var proposalRecord projectAssistantProposalRecordResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &proposalRecord); err != nil {
+		t.Fatalf("decode proposal record response: %v", err)
+	}
+	if proposalRecord.Object != "project_assistant.proposal_record" || proposalRecord.Data.ID != "pa_api" || proposalRecord.Data.Status != projectassistant.ProposalStatusProposed {
+		t.Fatalf("proposal record = %+v, want proposed record", proposalRecord)
+	}
+	if proposalRecord.Data.ProjectID != "proj_api" || proposalRecord.Data.Source != projectassistant.ProposalSourceAPI {
+		t.Fatalf("proposal record project/source = %q/%q, want proj_api/api", proposalRecord.Data.ProjectID, proposalRecord.Data.Source)
+	}
+
 	applyBody, err := json.Marshal(map[string]any{"proposal": proposed.Data})
 	if err != nil {
 		t.Fatalf("marshal apply body: %v", err)
@@ -639,6 +660,18 @@ func TestProjectAssistantAPI_ProposeAndApplyCreateProject(t *testing.T) {
 	}
 	if applied.Data.TotalActionCount != 1 || applied.Data.CommittedActionCount != 1 || applied.Data.ResumeActionIndex != 1 || applied.Data.FailedActionIndex != nil {
 		t.Fatalf("apply progress = %+v, want applied counts for one action", applied.Data)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/project-assistant/proposals/pa_api", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get applied proposal status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &proposalRecord); err != nil {
+		t.Fatalf("decode applied proposal record response: %v", err)
+	}
+	if proposalRecord.Data.Status != projectassistant.ApplyStatusApplied || proposalRecord.Data.LatestResult == nil || !proposalRecord.Data.LatestResult.Applied || len(proposalRecord.Data.ApplyAttempts) != 1 {
+		t.Fatalf("applied proposal record = %+v, want applied latest result with one attempt", proposalRecord.Data)
 	}
 
 	rec = httptest.NewRecorder()

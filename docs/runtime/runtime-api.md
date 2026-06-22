@@ -3682,6 +3682,7 @@ Endpoints:
 - `POST /hecate/v1/project-assistant/draft`
 - `POST /hecate/v1/project-assistant/propose`
 - `POST /hecate/v1/project-assistant/apply`
+- `GET /hecate/v1/project-assistant/proposals/{id}`
 - `POST /hecate/v1/chat/sessions/{id}/project-assistant/draft`
 
 `context` returns the v0 item-limited and body-budgeted project packet plus the
@@ -3713,6 +3714,13 @@ safety model.
 requires `review_artifact_id` and returns a proposal to create a follow-up
 handoff, create a queued assignment, and link the handoff to that assignment.
 It does not start the assignment or mutate project work before apply.
+
+`GET /hecate/v1/project-assistant/proposals/{id}` returns the durable proposal
+record for reload/recovery flows: typed proposal, project/source metadata,
+latest apply result, and apply attempts. Proposal records follow the project
+operations backend and are read-only through this endpoint. Applying still
+requires `POST /hecate/v1/project-assistant/apply` with `confirm: true`; the
+record endpoint does not grant model-callable mutation authority.
 
 `POST /hecate/v1/chat/sessions/{id}/project-assistant/draft` is the Chat
 handoff variant for project-linked Hecate Chat sessions. The request body

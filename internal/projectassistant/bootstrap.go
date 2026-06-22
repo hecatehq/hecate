@@ -30,15 +30,18 @@ func (s *Service) draftBootstrap(ctx context.Context, input DraftInput, draftCon
 	}
 
 	proposal, err := s.Propose(ctx, ProposalInput{
-		Title:   fmt.Sprintf("Set up %s guidance", firstNonEmpty(draftContext.Project.Name, projectID)),
-		Summary: "Create reviewable memory candidates from discovered guidance metadata and suggest project roles from local skill files.",
-		Actions: actions,
-		TraceID: strings.TrimSpace(input.TraceID),
+		ProjectID: projectID,
+		Source:    ProposalSourceBootstrap,
+		SourceID:  DraftModeBootstrap,
+		Title:     fmt.Sprintf("Set up %s guidance", firstNonEmpty(draftContext.Project.Name, projectID)),
+		Summary:   "Create reviewable memory candidates from discovered guidance metadata and suggest project roles from local skill files.",
+		Actions:   actions,
+		Warnings:  warnings,
+		TraceID:   strings.TrimSpace(input.TraceID),
 	})
 	if err != nil {
 		return Proposal{}, err
 	}
-	proposal.Warnings = warnings
 	return proposal, nil
 }
 

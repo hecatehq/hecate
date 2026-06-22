@@ -61,6 +61,7 @@ export type ProjectDeleteRecord = {
   chat_sessions_deleted: number;
   project_work_rows_deleted: number;
   project_skills_deleted: number;
+  project_assistant_proposals_deleted?: number;
   memory_entries_deleted: number;
   memory_candidates_deleted: number;
 };
@@ -94,9 +95,12 @@ export type ProjectAssistantActionResult = {
 };
 
 export type ProjectAssistantApplyStatus =
+  | "applying"
   | "applied"
   | "blocked_before_apply"
   | "partial_due_to_runtime_failure";
+
+export type ProjectAssistantProposalStatus = "proposed" | ProjectAssistantApplyStatus;
 
 export type ProjectAssistantApplyResult = {
   proposal_id: string;
@@ -117,6 +121,36 @@ export type ProjectAssistantProposalResponse = {
 export type ProjectAssistantApplyResponse = {
   object: string;
   data: ProjectAssistantApplyResult;
+};
+
+export type ProjectAssistantApplyAttempt = {
+  id: string;
+  proposal_id: string;
+  status: ProjectAssistantApplyStatus;
+  confirmed: boolean;
+  result: ProjectAssistantApplyResult;
+  error_type?: string;
+  error_message?: string;
+  created_at: string;
+};
+
+export type ProjectAssistantProposalRecord = {
+  id: string;
+  project_id?: string;
+  source?: string;
+  source_id?: string;
+  proposal: ProjectAssistantProposal;
+  status: ProjectAssistantProposalStatus;
+  latest_result?: ProjectAssistantApplyResult;
+  apply_attempts?: ProjectAssistantApplyAttempt[];
+  created_at: string;
+  updated_at: string;
+  applied_at?: string;
+};
+
+export type ProjectAssistantProposalRecordResponse = {
+  object: string;
+  data: ProjectAssistantProposalRecord;
 };
 
 export type ProjectAssistantContextSelection = {

@@ -70,8 +70,11 @@ func (s *Service) draftReviewFollowUp(ctx context.Context, input DraftInput, dra
 	}
 
 	return s.Propose(ctx, ProposalInput{
-		Title:   title,
-		Summary: fmt.Sprintf("Create a review follow-up handoff and queued %s assignment for %q.", driverKind, target.workItem.Title),
+		ProjectID: target.workItem.ProjectID,
+		Source:    ProposalSourceReviewFollowUp,
+		SourceID:  target.artifact.ID,
+		Title:     title,
+		Summary:   fmt.Sprintf("Create a review follow-up handoff and queued %s assignment for %q.", driverKind, target.workItem.Title),
 		Actions: []Action{
 			{
 				Kind:   ActionCreateHandoff,

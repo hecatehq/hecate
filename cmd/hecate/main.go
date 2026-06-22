@@ -30,6 +30,7 @@ import (
 	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/pluginregistry"
 	"github.com/hecatehq/hecate/internal/profiler"
+	"github.com/hecatehq/hecate/internal/projectassistant"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
@@ -214,6 +215,7 @@ func runServe() {
 	memoryStore := buildMemoryStore(cfg, logger, sqliteClient, postgresClient)
 	projectWorkStore := buildProjectWorkStore(cfg, logger, sqliteClient, postgresClient)
 	projectSkillStore := buildProjectSkillStore(cfg, logger, sqliteClient, postgresClient)
+	projectAssistantProposalStore := buildProjectAssistantProposalStore(cfg, logger, sqliteClient, postgresClient)
 	pluginRegistryStore := buildPluginRegistryStore(cfg, logger, sqliteClient, postgresClient)
 	agentProfileStore := buildAgentProfileStore(cfg, logger, sqliteClient, postgresClient)
 	// Approval state follows HECATE_BACKEND so chat transcripts, grants,
@@ -287,6 +289,7 @@ func runServe() {
 	handler.SetMemoryStore(memoryStore)
 	handler.SetProjectWorkStore(projectWorkStore)
 	handler.SetProjectSkillStore(projectSkillStore)
+	handler.SetProjectAssistantProposalStore(projectAssistantProposalStore)
 	handler.SetPluginRegistryStore(pluginRegistryStore)
 	handler.SetAgentProfileStore(agentProfileStore)
 	handler.SetAgentApprovalStore(approvalStore)
@@ -894,6 +897,27 @@ func buildProjectSkillStore(cfg config.Config, logger *slog.Logger, sqliteClient
 		return store
 	default:
 		return projectskills.NewMemoryStore()
+	}
+}
+
+func buildProjectAssistantProposalStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient, postgresClient *storage.PostgresClient) projectassistant.ProposalStore {
+	switch cfg.Projects.Backend {
+	case "sqlite":
+		store, err := projectassistant.NewSQLiteProposalStore(context.Background(), sqliteClient)
+		if err != nil {
+			logger.Error("project assistant proposal store init failed", slog.Any("error", err))
+			os.Exit(1)
+		}
+		return store
+	case "postgres":
+		store, err := projectassistant.NewPostgresProposalStore(context.Background(), postgresClient)
+		if err != nil {
+			logger.Error("project assistant proposal store init failed", slog.Any("error", err))
+			os.Exit(1)
+		}
+		return store
+	default:
+		return projectassistant.NewMemoryProposalStore()
 	}
 }
 
