@@ -244,7 +244,10 @@ record command/cwd/status/exit output previews from the active ACP turn, and
 reuse retained terminal output for ACP tool-call terminal refs when available,
 instead of adding an operator-facing embedded terminal API/UI. Session shutdown
 cleanup should mark unreleased ACP terminals as cancelled and retain their
-bounded output preview before removing them from the client terminal map.
+bounded output preview before removing them from the client terminal map. Keep
+terminal spawning on the same safety path as one-shot shell execution:
+`LocalWorkspace.OpenTerminal` must reject policy-invalid commands before spawn
+and apply the sandbox OS wrapper when one is available.
 
 Hecate owns the ACP process/session boundary, not provider-specific adapter
 implementation parity. Tests in this repository should use the repo-local fake
