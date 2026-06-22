@@ -3666,12 +3666,15 @@ stores, apply preflights the remaining typed actions against current project,
 work, handoff, memory-candidate, and chat targets, including explicit resources
 created earlier in the same proposal. Multi-action apply is sequential and
 resumable within the current process: on a failure the error includes
-`failed_action_index`, `total_action_count`, `committed_action_count`,
-`resume_action_index`, and `partial_result`. An empty
-`partial_result.actions` list with `committed_action_count: 0` means preflight
-blocked the proposal before any new durable write; a non-empty list means those
-actions landed and the unchanged proposal id can resume after them. Changing the
-action set or reapplying a fully applied proposal returns `409 conflict`.
+`apply_status`, `failed_action_index`, `total_action_count`,
+`committed_action_count`, `resume_action_index`, and `partial_result`.
+`apply_status` matches `partial_result.status`: `blocked_before_apply` or
+`partial_due_to_runtime_failure`. Successful apply results use `status:
+applied`. A `blocked_before_apply` result means preflight blocked the current
+apply attempt before writing another action. A
+`partial_due_to_runtime_failure` result means the unchanged proposal id can
+resume after the committed actions. Changing the action set or reapplying a
+fully applied proposal returns `409 conflict`.
 
 Endpoints:
 

@@ -32,6 +32,12 @@ const (
 	ActionCreateMemoryCandidate = "create_memory_candidate"
 )
 
+const (
+	ApplyStatusApplied                    = "applied"
+	ApplyStatusBlockedBeforeApply         = "blocked_before_apply"
+	ApplyStatusPartialDueToRuntimeFailure = "partial_due_to_runtime_failure"
+)
+
 var (
 	ErrInvalid              = errors.New("invalid project assistant proposal")
 	ErrUnknownActionKind    = errors.New("unknown project assistant action kind")
@@ -117,6 +123,7 @@ type Action struct {
 
 type ApplyResult struct {
 	ProposalID           string         `json:"proposal_id"`
+	Status               string         `json:"status"`
 	Applied              bool           `json:"applied"`
 	Actions              []ActionResult `json:"actions"`
 	TotalActionCount     int            `json:"total_action_count"`

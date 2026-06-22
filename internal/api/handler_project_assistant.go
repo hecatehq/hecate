@@ -203,6 +203,7 @@ func writeProjectAssistantApplyError(w http.ResponseWriter, err error) {
 	}
 	status, code := projectAssistantErrorStatusCode(err)
 	fields := map[string]any{
+		"apply_status":           applyErr.Result.Status,
 		"failed_action_index":    applyErr.FailedActionIndex,
 		"total_action_count":     applyErr.Result.TotalActionCount,
 		"committed_action_count": applyErr.Result.CommittedActionCount,

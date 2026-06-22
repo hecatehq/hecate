@@ -1251,7 +1251,7 @@ func TestService_ApplyCreateAndUpdateProjectAcrossStores(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Apply setup: %v", err)
 			}
-			if !result.Applied || len(result.Actions) != len(proposal.Actions) {
+			if result.Status != ApplyStatusApplied || !result.Applied || len(result.Actions) != len(proposal.Actions) {
 				t.Fatalf("result = %+v, want all actions applied", result)
 			}
 			project, ok, err := fixture.projects.Get(ctx, "proj_alpha")
@@ -1733,7 +1733,7 @@ func TestService_ApplyLoopFailureReportsCommittedProgressAcrossStores(t *testing
 			if partial.FailedActionIndex != 1 {
 				t.Fatalf("failed_action_index = %d, want 1", partial.FailedActionIndex)
 			}
-			if result.Applied || result.TotalActionCount != 2 || result.CommittedActionCount != 1 || result.ResumeActionIndex != 1 || result.FailedActionIndex == nil || *result.FailedActionIndex != 1 {
+			if result.Status != ApplyStatusPartialDueToRuntimeFailure || result.Applied || result.TotalActionCount != 2 || result.CommittedActionCount != 1 || result.ResumeActionIndex != 1 || result.FailedActionIndex == nil || *result.FailedActionIndex != 1 {
 				t.Fatalf("partial result progress = %+v, want one committed action and failed action 1", result)
 			}
 			if len(result.Actions) != 1 || result.Actions[0].Kind != ActionCreateWorkItem || result.Actions[0].ID != "work_loop_partial" {
@@ -1951,7 +1951,7 @@ func TestService_ApplyPreflightBlocksStaleTargetsBeforeMutatingAcrossStores(t *t
 			if applyErr.FailedActionIndex != 1 {
 				t.Fatalf("failed_action_index = %d, want 1", applyErr.FailedActionIndex)
 			}
-			if result.TotalActionCount != 2 || result.CommittedActionCount != 0 || result.ResumeActionIndex != 0 || result.FailedActionIndex == nil || *result.FailedActionIndex != 1 {
+			if result.Status != ApplyStatusBlockedBeforeApply || result.TotalActionCount != 2 || result.CommittedActionCount != 0 || result.ResumeActionIndex != 0 || result.FailedActionIndex == nil || *result.FailedActionIndex != 1 {
 				t.Fatalf("partial result progress = %+v, want failed action 1 and resume action 0", result)
 			}
 			if result.Applied || len(result.Actions) != 0 {
@@ -2053,7 +2053,7 @@ func TestService_ApplyPreflightBlocksCloseoutBeforeMutatingAcrossStores(t *testi
 			if applyErr.FailedActionIndex != 1 || len(applyErr.Result.Actions) != 0 {
 				t.Fatalf("apply error = %+v, want preflight failure at done action with no committed actions", applyErr)
 			}
-			if applyErr.Result.TotalActionCount != 2 || applyErr.Result.CommittedActionCount != 0 || applyErr.Result.ResumeActionIndex != 0 || applyErr.Result.FailedActionIndex == nil || *applyErr.Result.FailedActionIndex != 1 {
+			if applyErr.Result.Status != ApplyStatusBlockedBeforeApply || applyErr.Result.TotalActionCount != 2 || applyErr.Result.CommittedActionCount != 0 || applyErr.Result.ResumeActionIndex != 0 || applyErr.Result.FailedActionIndex == nil || *applyErr.Result.FailedActionIndex != 1 {
 				t.Fatalf("apply error progress = %+v, want failed action 1 and resume action 0", applyErr.Result)
 			}
 			handoffs, err := fixture.work.ListHandoffs(ctx, projectwork.HandoffFilter{ProjectID: project.ID, WorkItemID: workItem.ID})
@@ -2126,7 +2126,7 @@ func TestService_ApplyPreflightBlocksMissingHandoffTargetBeforeMutatingAcrossSto
 			if applyErr.FailedActionIndex != 1 {
 				t.Fatalf("failed_action_index = %d, want 1", applyErr.FailedActionIndex)
 			}
-			if result.TotalActionCount != 2 || result.CommittedActionCount != 0 || result.ResumeActionIndex != 0 || result.FailedActionIndex == nil || *result.FailedActionIndex != 1 {
+			if result.Status != ApplyStatusBlockedBeforeApply || result.TotalActionCount != 2 || result.CommittedActionCount != 0 || result.ResumeActionIndex != 0 || result.FailedActionIndex == nil || *result.FailedActionIndex != 1 {
 				t.Fatalf("result progress = %+v, want failed action 1 and resume action 0", result)
 			}
 			if result.Applied || len(result.Actions) != 0 {

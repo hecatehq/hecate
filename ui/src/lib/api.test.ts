@@ -1302,12 +1302,14 @@ describe("api client", () => {
             error: {
               type: "conflict",
               message: "project assistant apply failed",
+              apply_status: "partial_due_to_runtime_failure",
               failed_action_index: 1,
               total_action_count: 2,
               committed_action_count: 1,
               resume_action_index: 1,
               partial_result: {
                 proposal_id: "pa_partial",
+                status: "partial_due_to_runtime_failure",
                 applied: false,
                 total_action_count: 2,
                 committed_action_count: 1,
@@ -1323,12 +1325,14 @@ describe("api client", () => {
 
       await expect(getUsageSummary("?scope=global")).rejects.toMatchObject({
         fields: {
+          apply_status: "partial_due_to_runtime_failure",
           failed_action_index: 1,
           total_action_count: 2,
           committed_action_count: 1,
           resume_action_index: 1,
           partial_result: {
             proposal_id: "pa_partial",
+            status: "partial_due_to_runtime_failure",
             applied: false,
             total_action_count: 2,
             committed_action_count: 1,

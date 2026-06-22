@@ -38,6 +38,7 @@ type projectAssistantErrorResponse struct {
 	Error struct {
 		Type                 string                       `json:"type"`
 		Message              string                       `json:"message"`
+		ApplyStatus          string                       `json:"apply_status"`
 		FailedActionIndex    int                          `json:"failed_action_index"`
 		TotalActionCount     int                          `json:"total_action_count"`
 		CommittedActionCount int                          `json:"committed_action_count"`
@@ -633,7 +634,7 @@ func TestProjectAssistantAPI_ProposeAndApplyCreateProject(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &applied); err != nil {
 		t.Fatalf("decode apply response: %v", err)
 	}
-	if applied.Object != "project_assistant.apply_result" || !applied.Data.Applied || applied.Data.ProposalID != "pa_api" {
+	if applied.Object != "project_assistant.apply_result" || applied.Data.Status != projectassistant.ApplyStatusApplied || !applied.Data.Applied || applied.Data.ProposalID != "pa_api" {
 		t.Fatalf("apply response = %+v, want applied project assistant result", applied)
 	}
 	if applied.Data.TotalActionCount != 1 || applied.Data.CommittedActionCount != 1 || applied.Data.ResumeActionIndex != 1 || applied.Data.FailedActionIndex != nil {
@@ -697,8 +698,11 @@ func TestProjectAssistantAPI_ApplyPreflightFailureIncludesEmptyProgress(t *testi
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode preflight apply error: %v", err)
 	}
-	if payload.Error.Type != errCodeNotFound || payload.Error.FailedActionIndex != 1 {
+	if payload.Error.Type != errCodeNotFound || payload.Error.ApplyStatus != projectassistant.ApplyStatusBlockedBeforeApply || payload.Error.FailedActionIndex != 1 {
 		t.Fatalf("error = %+v, want not_found at action index 1", payload.Error)
+	}
+	if payload.Error.PartialResult.Status != projectassistant.ApplyStatusBlockedBeforeApply {
+		t.Fatalf("partial_result status = %q, want %q", payload.Error.PartialResult.Status, projectassistant.ApplyStatusBlockedBeforeApply)
 	}
 	if payload.Error.TotalActionCount != 2 || payload.Error.CommittedActionCount != 0 || payload.Error.ResumeActionIndex != 0 {
 		t.Fatalf("error progress = %+v, want failed action 1 and resume action 0", payload.Error)
@@ -766,6 +770,7 @@ func TestProjectAssistantAPI_ApplyDoneReturnsCloseoutReadiness(t *testing.T) {
 			Type                 string                           `json:"type"`
 			Message              string                           `json:"message"`
 			OperatorAction       string                           `json:"operator_action"`
+			ApplyStatus          string                           `json:"apply_status"`
 			FailedActionIndex    int                              `json:"failed_action_index"`
 			TotalActionCount     int                              `json:"total_action_count"`
 			CommittedActionCount int                              `json:"committed_action_count"`
@@ -777,7 +782,7 @@ func TestProjectAssistantAPI_ApplyDoneReturnsCloseoutReadiness(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode assistant closeout error: %v", err)
 	}
-	if payload.Error.Type != errCodeConflict || payload.Error.FailedActionIndex != 0 || payload.Error.OperatorAction == "" {
+	if payload.Error.Type != errCodeConflict || payload.Error.ApplyStatus != projectassistant.ApplyStatusBlockedBeforeApply || payload.Error.FailedActionIndex != 0 || payload.Error.OperatorAction == "" {
 		t.Fatalf("assistant closeout error = %+v, want conflict at action 0 with operator action", payload.Error)
 	}
 	if payload.Error.TotalActionCount != 1 || payload.Error.CommittedActionCount != 0 || payload.Error.ResumeActionIndex != 0 {
