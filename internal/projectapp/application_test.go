@@ -2,11 +2,13 @@ package projectapp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/memory"
+	"github.com/hecatehq/hecate/internal/projectassistant"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
@@ -20,6 +22,7 @@ func TestApplication_DeleteProjectCleansProjectScopedStores(t *testing.T) {
 	chatStore := chat.NewMemoryStore()
 	workStore := projectwork.NewMemoryStore()
 	skillStore := projectskills.NewMemoryStore()
+	proposalStore := projectassistant.NewMemoryProposalStore()
 	memoryStore := memory.NewMemoryStore()
 	projectID := "proj_delete"
 	otherProjectID := "proj_other"
@@ -66,23 +69,56 @@ func TestApplication_DeleteProjectCleansProjectScopedStores(t *testing.T) {
 	if _, err := memoryStore.CreateCandidate(ctx, memory.Candidate{ID: "cand_keep", ProjectID: otherProjectID, Title: "Keep", Body: "Keep"}); err != nil {
 		t.Fatalf("CreateCandidate(other): %v", err)
 	}
+	if _, err := proposalStore.UpsertProposal(ctx, projectassistant.ProposalRecord{
+		ID:        "pa_delete",
+		ProjectID: projectID,
+		Source:    projectassistant.ProposalSourceAPI,
+		Proposal: projectassistant.Proposal{
+			ID:                   "pa_delete",
+			Title:                "Delete scoped proposal",
+			RequiresConfirmation: true,
+			Actions: []projectassistant.Action{{
+				Kind:  projectassistant.ActionCreateMemoryCandidate,
+				Patch: jsonRaw(t, map[string]string{"project_id": projectID, "title": "Candidate"}),
+			}},
+		},
+	}); err != nil {
+		t.Fatalf("UpsertProposal(project): %v", err)
+	}
+	if _, err := proposalStore.UpsertProposal(ctx, projectassistant.ProposalRecord{
+		ID:        "pa_keep",
+		ProjectID: otherProjectID,
+		Source:    projectassistant.ProposalSourceAPI,
+		Proposal: projectassistant.Proposal{
+			ID:                   "pa_keep",
+			Title:                "Keep proposal",
+			RequiresConfirmation: true,
+			Actions: []projectassistant.Action{{
+				Kind:  projectassistant.ActionCreateMemoryCandidate,
+				Patch: jsonRaw(t, map[string]string{"project_id": otherProjectID, "title": "Candidate"}),
+			}},
+		},
+	}); err != nil {
+		t.Fatalf("UpsertProposal(other): %v", err)
+	}
 
 	deletedChats := make([]string, 0, 1)
 	app := New(Options{
-		Projects:         projectStore,
-		Chats:            chatStore,
-		DeleteChat:       deleteChatFromStore(chatStore, &deletedChats, false),
-		ProjectWork:      workStore,
-		ProjectSkills:    skillStore,
-		Memory:           memoryStore,
-		MemoryCandidates: memoryStore,
+		Projects:                  projectStore,
+		Chats:                     chatStore,
+		DeleteChat:                deleteChatFromStore(chatStore, &deletedChats, false),
+		ProjectWork:               workStore,
+		ProjectSkills:             skillStore,
+		ProjectAssistantProposals: proposalStore,
+		Memory:                    memoryStore,
+		MemoryCandidates:          memoryStore,
 	})
 	result, err := app.DeleteProject(ctx, projectID)
 	if err != nil {
 		t.Fatalf("DeleteProject() error = %v", err)
 	}
 	if result.Project.ID != projectID || result.ChatSessionsDeleted != 1 || result.ProjectWorkRowsDeleted != 2 ||
-		result.ProjectSkillsDeleted != 1 || result.MemoryEntriesDeleted != 1 || result.MemoryCandidatesDeleted != 1 {
+		result.ProjectSkillsDeleted != 1 || result.ProjectAssistantProposalsDeleted != 1 || result.MemoryEntriesDeleted != 1 || result.MemoryCandidatesDeleted != 1 {
 		t.Fatalf("DeleteProject() result = %+v, want project and scoped delete counts", result)
 	}
 	if len(deletedChats) != 1 || deletedChats[0] != "chat_delete" {
@@ -110,6 +146,12 @@ func TestApplication_DeleteProjectCleansProjectScopedStores(t *testing.T) {
 		items, err := skillStore.List(ctx, otherProjectID)
 		return len(items), err
 	}, 1)
+	if _, ok, err := proposalStore.GetProposal(ctx, "pa_delete"); err != nil || ok {
+		t.Fatalf("GetProposal(deleted) ok=%v err=%v, want missing", ok, err)
+	}
+	if _, ok, err := proposalStore.GetProposal(ctx, "pa_keep"); err != nil || !ok {
+		t.Fatalf("GetProposal(other) ok=%v err=%v, want present", ok, err)
+	}
 	assertProjectAppListCount(t, "project memory", func() (int, error) {
 		items, err := memoryStore.List(ctx, memory.Filter{ProjectID: projectID, IncludeDisabled: true})
 		return len(items), err
@@ -493,4 +535,13 @@ func assertProjectAppListCount(t *testing.T, label string, list func() (int, err
 	if got != want {
 		t.Fatalf("%s count = %d, want %d", label, got, want)
 	}
+}
+
+func jsonRaw(t *testing.T, value any) json.RawMessage {
+	t.Helper()
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("Marshal(%#v): %v", value, err)
+	}
+	return raw
 }

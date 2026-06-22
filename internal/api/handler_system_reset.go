@@ -60,6 +60,12 @@ func (h *Handler) resetSystemData(ctx context.Context) (SystemResetDataResponseI
 	}
 	stats.ProjectSkillsDeleted = projectSkillsDeleted
 
+	projectAssistantProposalsDeleted, err := h.resetProjectAssistantProposals(ctx)
+	if err != nil {
+		return stats, err
+	}
+	stats.ProjectAssistantProposalsDeleted = projectAssistantProposalsDeleted
+
 	pluginsDeleted, err := h.resetPlugins(ctx)
 	if err != nil {
 		return stats, err
@@ -165,6 +171,13 @@ func (h *Handler) resetProjectSkills(ctx context.Context) (int, error) {
 		return 0, nil
 	}
 	return h.projectSkills.Clear(ctx)
+}
+
+func (h *Handler) resetProjectAssistantProposals(ctx context.Context) (int, error) {
+	if h.projectAssistantProposals == nil {
+		return 0, nil
+	}
+	return h.projectAssistantProposals.Clear(ctx)
 }
 
 func (h *Handler) resetPlugins(ctx context.Context) (int, error) {

@@ -65,10 +65,13 @@ func (s *Service) draftWithModel(ctx context.Context, input DraftInput, draftCon
 		return Proposal{}, err
 	}
 	return s.Propose(ctx, ProposalInput{
-		Title:   draft.Title,
-		Summary: draft.Summary,
-		Actions: draft.Actions,
-		TraceID: strings.TrimSpace(input.TraceID),
+		ProjectID: draftContext.Project.ID,
+		Source:    ProposalSourceModelDraft,
+		SourceID:  strings.TrimSpace(firstNonEmpty(provider, model)),
+		Title:     draft.Title,
+		Summary:   draft.Summary,
+		Actions:   draft.Actions,
+		TraceID:   strings.TrimSpace(input.TraceID),
 	})
 }
 

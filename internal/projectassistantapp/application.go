@@ -24,6 +24,7 @@ type Options struct {
 	ProjectSkills    projectskills.Store
 	Memory           memory.Store
 	MemoryCandidates memory.CandidateStore
+	Proposals        projectassistant.ProposalStore
 	LLM              projectassistant.LLMClient
 	IDGenerator      projectassistant.IDGenerator
 }
@@ -77,6 +78,7 @@ func New(options Options) *Application {
 			ProjectSkills:    options.ProjectSkills,
 			Memory:           options.Memory,
 			MemoryCandidates: options.MemoryCandidates,
+			Proposals:        options.Proposals,
 			LLM:              options.LLM,
 		}, options.IDGenerator),
 	}
@@ -120,6 +122,7 @@ func (app *Application) Propose(ctx context.Context, command ProposeCommand) (pr
 	}
 	return app.service.Propose(ctx, projectassistant.ProposalInput{
 		ID:      command.ID,
+		Source:  projectassistant.ProposalSourceAPI,
 		Title:   command.Title,
 		Summary: command.Summary,
 		Actions: command.Actions,
@@ -132,4 +135,11 @@ func (app *Application) Apply(ctx context.Context, command ApplyCommand) (projec
 		return projectassistant.ApplyResult{}, projectassistant.ErrStoreNotConfigured
 	}
 	return app.service.Apply(ctx, command.Proposal, command.Confirm)
+}
+
+func (app *Application) Proposal(ctx context.Context, id string) (projectassistant.ProposalRecord, bool, error) {
+	if app == nil || app.service == nil {
+		return projectassistant.ProposalRecord{}, false, projectassistant.ErrStoreNotConfigured
+	}
+	return app.service.Proposal(ctx, id)
 }

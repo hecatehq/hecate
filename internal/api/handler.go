@@ -24,6 +24,7 @@ import (
 	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/pluginregistry"
 	"github.com/hecatehq/hecate/internal/profiler"
+	"github.com/hecatehq/hecate/internal/projectassistant"
 	"github.com/hecatehq/hecate/internal/projectassistantapp"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectskills"
@@ -39,28 +40,29 @@ import (
 )
 
 type Handler struct {
-	config                   config.Config
-	logger                   *slog.Logger
-	service                  *gateway.Service
-	controlPlane             controlplane.Store
-	providerRuntime          ProviderRuntime
-	taskStore                taskstate.Store
-	taskRunner               *orchestrator.Runner
-	tracer                   profiler.Tracer
-	agentChat                chat.Store
-	projects                 projects.Store
-	memory                   memory.Store
-	memoryCandidates         memory.CandidateStore
-	projectWork              projectwork.Store
-	projectSkills            projectskills.Store
-	pluginRegistry           pluginregistry.Store
-	projectAssistantMu       sync.Mutex
-	projectAssistant         *projectassistantapp.Application
-	agentProfiles            agentprofiles.Store
-	agentChatRunner          agentadapters.Runner
-	agentChatLive            *agentChatLive
-	agentChatIdleSweepCancel context.CancelFunc
-	rateLimiter              *ratelimit.Store
+	config                    config.Config
+	logger                    *slog.Logger
+	service                   *gateway.Service
+	controlPlane              controlplane.Store
+	providerRuntime           ProviderRuntime
+	taskStore                 taskstate.Store
+	taskRunner                *orchestrator.Runner
+	tracer                    profiler.Tracer
+	agentChat                 chat.Store
+	projects                  projects.Store
+	memory                    memory.Store
+	memoryCandidates          memory.CandidateStore
+	projectWork               projectwork.Store
+	projectSkills             projectskills.Store
+	projectAssistantProposals projectassistant.ProposalStore
+	pluginRegistry            pluginregistry.Store
+	projectAssistantMu        sync.Mutex
+	projectAssistant          *projectassistantapp.Application
+	agentProfiles             agentprofiles.Store
+	agentChatRunner           agentadapters.Runner
+	agentChatLive             *agentChatLive
+	agentChatIdleSweepCancel  context.CancelFunc
+	rateLimiter               *ratelimit.Store
 	// secretCipher encrypts literal MCP server env values at task-creation
 	// time and wires the matching decrypting factory into the runner. nil
 	// when no settings key is configured — values are stored as-is
@@ -311,28 +313,29 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 
 	memoryStore := memory.NewMemoryStore()
 	h := &Handler{
-		config:              cfg,
-		logger:              logger,
-		service:             service,
-		controlPlane:        cpStore,
-		providerRuntime:     providerRuntime,
-		taskStore:           taskStore,
-		taskRunner:          runner,
-		tracer:              tracer,
-		rateLimiter:         rl,
-		agentChat:           chat.NewMemoryStore(),
-		projects:            projects.NewMemoryStore(),
-		memory:              memoryStore,
-		memoryCandidates:    memoryStore,
-		projectWork:         projectwork.NewMemoryStore(),
-		projectSkills:       projectskills.NewMemoryStore(),
-		pluginRegistry:      pluginregistry.NewMemoryStore(),
-		agentProfiles:       agentprofiles.NewMemoryStore(),
-		agentChatRunner:     agentChatRunner,
-		agentChatLive:       agentChatLive,
-		orchestratorMetrics: orchestratorMetrics,
-		agentChatMetrics:    agentChatMetrics,
-		approvalConfig:      approvalCfg,
+		config:                    cfg,
+		logger:                    logger,
+		service:                   service,
+		controlPlane:              cpStore,
+		providerRuntime:           providerRuntime,
+		taskStore:                 taskStore,
+		taskRunner:                runner,
+		tracer:                    tracer,
+		rateLimiter:               rl,
+		agentChat:                 chat.NewMemoryStore(),
+		projects:                  projects.NewMemoryStore(),
+		memory:                    memoryStore,
+		memoryCandidates:          memoryStore,
+		projectWork:               projectwork.NewMemoryStore(),
+		projectSkills:             projectskills.NewMemoryStore(),
+		projectAssistantProposals: projectassistant.NewMemoryProposalStore(),
+		pluginRegistry:            pluginregistry.NewMemoryStore(),
+		agentProfiles:             agentprofiles.NewMemoryStore(),
+		agentChatRunner:           agentChatRunner,
+		agentChatLive:             agentChatLive,
+		orchestratorMetrics:       orchestratorMetrics,
+		agentChatMetrics:          agentChatMetrics,
+		approvalConfig:            approvalCfg,
 	}
 	h.wireAgentChatRunnerHooks(agentChatRunner)
 	runner.SetProjectAssistantDraftTool(h)
@@ -438,6 +441,16 @@ func (h *Handler) SetProjectSkillStore(store projectskills.Store) {
 		return
 	}
 	h.projectSkills = store
+	h.projectAssistantMu.Lock()
+	h.projectAssistant = nil
+	h.projectAssistantMu.Unlock()
+}
+
+func (h *Handler) SetProjectAssistantProposalStore(store projectassistant.ProposalStore) {
+	if store == nil {
+		return
+	}
+	h.projectAssistantProposals = store
 	h.projectAssistantMu.Lock()
 	h.projectAssistant = nil
 	h.projectAssistantMu.Unlock()

@@ -28,25 +28,28 @@ func (s *Service) Apply(ctx context.Context, proposal Proposal, confirmed bool) 
 	}
 
 	// Hold the apply lock through the mutation sequence so a proposal ID cannot
-	// race itself into duplicate durable writes. Progress is intentionally
-	// in-process for v0; retrying the exact same action set resumes after the
-	// last committed action instead of replaying earlier mutations.
+	// race itself into duplicate durable writes. The proposal ledger records the
+	// latest committed action count so retrying the same action set resumes after
+	// the last ledgered mutation instead of replaying earlier actions.
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	progress, ok := s.applyProgress[proposal.ID]
-	if !ok {
-		progress = &applyProgress{fingerprint: fingerprint}
-		s.applyProgress[proposal.ID] = progress
+	record, err := s.ensureApplyProposalRecord(ctx, proposal, fingerprint)
+	if err != nil {
+		return ApplyResult{}, err
 	}
-	if progress.complete {
+	if record.LatestResult != nil && record.LatestResult.Applied {
 		return ApplyResult{}, fmt.Errorf("%w: proposal %q was already applied", ErrConflict, proposal.ID)
 	}
-	if progress.fingerprint != fingerprint {
-		return ApplyResult{}, fmt.Errorf("%w: proposal %q action set changed after partial apply", ErrConflict, proposal.ID)
+	if record.Status == ApplyStatusApplied {
+		return ApplyResult{}, fmt.Errorf("%w: proposal %q was already applied", ErrConflict, proposal.ID)
 	}
-	if failedActionIndex, err := s.preflightApply(ctx, proposal.Actions, len(progress.results)); err != nil {
-		partial := applyResult(proposal.ID, ApplyStatusBlockedBeforeApply, false, len(proposal.Actions), &failedActionIndex, progress.results)
+	results := applyRecordResults(record)
+	if failedActionIndex, err := s.preflightApply(ctx, proposal.Actions, len(results)); err != nil {
+		partial := applyResult(proposal.ID, ApplyStatusBlockedBeforeApply, false, len(proposal.Actions), &failedActionIndex, results)
+		if _, ledgerErr := s.proposals.RecordApplyAttempt(ctx, applyAttemptForResult(s.idgen("paatt"), confirmed, partial, err)); ledgerErr != nil {
+			err = fmt.Errorf("%v; record apply attempt: %w", err, ledgerErr)
+		}
 		return partial, &ApplyError{
 			ProposalID:        proposal.ID,
 			FailedActionIndex: failedActionIndex,
@@ -55,11 +58,14 @@ func (s *Service) Apply(ctx context.Context, proposal Proposal, confirmed bool) 
 		}
 	}
 
-	for idx := len(progress.results); idx < len(proposal.Actions); idx++ {
+	for idx := len(results); idx < len(proposal.Actions); idx++ {
 		action := proposal.Actions[idx]
 		result, err := s.applyAction(ctx, action)
 		if err != nil {
-			partial := applyResult(proposal.ID, ApplyStatusPartialDueToRuntimeFailure, false, len(proposal.Actions), &idx, progress.results)
+			partial := applyResult(proposal.ID, ApplyStatusPartialDueToRuntimeFailure, false, len(proposal.Actions), &idx, results)
+			if _, ledgerErr := s.proposals.RecordApplyAttempt(ctx, applyAttemptForResult(s.idgen("paatt"), confirmed, partial, err)); ledgerErr != nil {
+				err = fmt.Errorf("%v; record apply attempt: %w", err, ledgerErr)
+			}
 			return partial, &ApplyError{
 				ProposalID:        proposal.ID,
 				FailedActionIndex: idx,
@@ -67,12 +73,48 @@ func (s *Service) Apply(ctx context.Context, proposal Proposal, confirmed bool) 
 				Err:               err,
 			}
 		}
-		progress.results = append(progress.results, result)
+		results = append(results, result)
+		progress := applyResult(proposal.ID, ProposalStatusApplying, false, len(proposal.Actions), nil, results)
+		if _, err := s.proposals.UpdateProposalApplyState(ctx, proposal.ID, progress); err != nil {
+			partial := applyResult(proposal.ID, ApplyStatusPartialDueToRuntimeFailure, false, len(proposal.Actions), &idx, results)
+			return partial, &ApplyError{
+				ProposalID:        proposal.ID,
+				FailedActionIndex: idx,
+				Result:            partial,
+				Err:               err,
+			}
+		}
 	}
 
-	progress.complete = true
+	applied := applyResult(proposal.ID, ApplyStatusApplied, true, len(proposal.Actions), nil, results)
+	if _, err := s.proposals.RecordApplyAttempt(ctx, applyAttemptForResult(s.idgen("paatt"), confirmed, applied, nil)); err != nil {
+		return applied, err
+	}
+	return applied, nil
+}
 
-	return applyResult(proposal.ID, ApplyStatusApplied, true, len(proposal.Actions), nil, progress.results), nil
+func (s *Service) ensureApplyProposalRecord(ctx context.Context, proposal Proposal, fingerprint string) (ProposalRecord, error) {
+	if s == nil || s.proposals == nil {
+		return ProposalRecord{}, ErrStoreNotConfigured
+	}
+	record, ok, err := s.proposals.GetProposal(ctx, proposal.ID)
+	if err != nil {
+		return ProposalRecord{}, err
+	}
+	if ok {
+		if strings.TrimSpace(record.Fingerprint) != fingerprint {
+			return ProposalRecord{}, fmt.Errorf("%w: proposal %q action set changed after partial apply", ErrConflict, proposal.ID)
+		}
+		return record, nil
+	}
+	return s.storeProposal(ctx, proposal, proposalProjectID(proposal), ProposalSourceApplyRequest, "")
+}
+
+func applyRecordResults(record ProposalRecord) []ActionResult {
+	if record.LatestResult == nil {
+		return nil
+	}
+	return cloneActionResults(record.LatestResult.Actions)
 }
 
 type applyActionSpec struct {

@@ -49,44 +49,52 @@ type MemoryCandidateStore interface {
 	DeleteCandidatesByProjectID(ctx context.Context, projectID string) (int, error)
 }
 
+type ProjectAssistantProposalStore interface {
+	DeleteProject(ctx context.Context, projectID string) (int, error)
+}
+
 type Application struct {
-	projects         ProjectStore
-	chats            ChatSessionStore
-	deleteChat       ChatDeleteFunc
-	projectWork      ProjectWorkStore
-	projectSkills    ProjectSkillStore
-	memory           MemoryStore
-	memoryCandidates MemoryCandidateStore
+	projects                  ProjectStore
+	chats                     ChatSessionStore
+	deleteChat                ChatDeleteFunc
+	projectWork               ProjectWorkStore
+	projectSkills             ProjectSkillStore
+	projectAssistantProposals ProjectAssistantProposalStore
+	memory                    MemoryStore
+	memoryCandidates          MemoryCandidateStore
 }
 
 type Options struct {
-	Projects         ProjectStore
-	Chats            ChatSessionStore
-	DeleteChat       ChatDeleteFunc
-	ProjectWork      ProjectWorkStore
-	ProjectSkills    ProjectSkillStore
-	Memory           MemoryStore
-	MemoryCandidates MemoryCandidateStore
+	Projects                  ProjectStore
+	Chats                     ChatSessionStore
+	DeleteChat                ChatDeleteFunc
+	ProjectWork               ProjectWorkStore
+	ProjectSkills             ProjectSkillStore
+	ProjectAssistantProposals ProjectAssistantProposalStore
+	Memory                    MemoryStore
+	MemoryCandidates          MemoryCandidateStore
 }
 
 type DeleteProjectResult struct {
-	Project                 projects.Project
-	ChatSessionsDeleted     int
-	ProjectWorkRowsDeleted  int
-	ProjectSkillsDeleted    int
-	MemoryEntriesDeleted    int
-	MemoryCandidatesDeleted int
+	Project                          projects.Project
+	ChatSessionsDeleted              int
+	ProjectWorkRowsDeleted           int
+	ProjectSkillsDeleted             int
+	ProjectAssistantProposalsDeleted int
+	MemoryEntriesDeleted             int
+	MemoryCandidatesDeleted          int
 }
 
 func New(opts Options) *Application {
 	return &Application{
-		projects:         opts.Projects,
-		chats:            opts.Chats,
-		deleteChat:       opts.DeleteChat,
-		projectWork:      opts.ProjectWork,
-		projectSkills:    opts.ProjectSkills,
-		memory:           opts.Memory,
-		memoryCandidates: opts.MemoryCandidates,
+		projects:                  opts.Projects,
+		chats:                     opts.Chats,
+		deleteChat:                opts.DeleteChat,
+		projectWork:               opts.ProjectWork,
+		projectSkills:             opts.ProjectSkills,
+		projectAssistantProposals: opts.ProjectAssistantProposals,
+		memory:                    opts.Memory,
+		memoryCandidates:          opts.MemoryCandidates,
 	}
 }
 
@@ -335,6 +343,13 @@ func (app *Application) DeleteProject(ctx context.Context, id string) (DeletePro
 			return result, err
 		}
 		result.ProjectSkillsDeleted = deleted
+	}
+	if app.projectAssistantProposals != nil {
+		deleted, err := app.projectAssistantProposals.DeleteProject(ctx, projectID)
+		if err != nil {
+			return result, err
+		}
+		result.ProjectAssistantProposalsDeleted = deleted
 	}
 	if app.memory != nil {
 		deleted, err := app.memory.DeleteByProjectID(ctx, projectID)

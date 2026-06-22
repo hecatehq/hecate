@@ -38,6 +38,7 @@ import {
   getProjectAssignmentPreflight,
   getProjectAssignments,
   getProjectActivity,
+  getProjectAssistantProposal,
   getProjectHealth,
   getProjectCollaborationArtifacts,
   getProjectHandoffs,
@@ -187,6 +188,19 @@ describe("api client", () => {
     );
     expect(result.data.role).toBe("admin");
     expect(result.data.capabilities?.local_providers_allowed).toBe(true);
+  });
+
+  it("fetches Project Assistant proposal records by id", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ object: "project_assistant.proposal_record", data: { id: "pa_1" } }),
+    );
+
+    await getProjectAssistantProposal("pa/1");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/hecate/v1/project-assistant/proposals/pa%2F1",
+      expect.objectContaining({ method: "GET" }),
+    );
   });
 
   it("returns chat payload plus runtime headers", async () => {

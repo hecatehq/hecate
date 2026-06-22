@@ -636,13 +636,14 @@ func renderProject(project projects.Project) ProjectResponseItem {
 
 func renderProjectDeleteResult(result projectapp.DeleteProjectResult) ProjectDeleteResponseItem {
 	return ProjectDeleteResponseItem{
-		ProjectID:               result.Project.ID,
-		ProjectName:             result.Project.Name,
-		ChatSessionsDeleted:     result.ChatSessionsDeleted,
-		ProjectWorkRowsDeleted:  result.ProjectWorkRowsDeleted,
-		ProjectSkillsDeleted:    result.ProjectSkillsDeleted,
-		MemoryEntriesDeleted:    result.MemoryEntriesDeleted,
-		MemoryCandidatesDeleted: result.MemoryCandidatesDeleted,
+		ProjectID:                        result.Project.ID,
+		ProjectName:                      result.Project.Name,
+		ChatSessionsDeleted:              result.ChatSessionsDeleted,
+		ProjectWorkRowsDeleted:           result.ProjectWorkRowsDeleted,
+		ProjectSkillsDeleted:             result.ProjectSkillsDeleted,
+		ProjectAssistantProposalsDeleted: result.ProjectAssistantProposalsDeleted,
+		MemoryEntriesDeleted:             result.MemoryEntriesDeleted,
+		MemoryCandidatesDeleted:          result.MemoryCandidatesDeleted,
 	}
 }
 

@@ -1,15 +1,22 @@
-import { describe, expect, it } from "vitest";
+import { renderHook, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError } from "../../lib/api";
+import * as api from "../../lib/api";
 import type { ProjectAssistantProposal } from "../../types/project";
 import {
   projectAssistantApplyErrorMessage,
   projectAssistantContextPayload,
   projectAssistantDraftPayload,
   projectAssistantResultWorkItemID,
+  useProjectAssistantController,
 } from "./useProjectAssistantController";
 
 describe("Project Assistant controller helpers", () => {
+  afterEach(() => {
+    window.sessionStorage.clear();
+    vi.restoreAllMocks();
+  });
+
   it("builds context and draft payloads from panel form state", () => {
     const form = {
       request: "Queue review",
@@ -68,9 +75,9 @@ describe("Project Assistant controller helpers", () => {
   });
 
   it("renders conflict and partial apply errors with proposal context", () => {
-    expect(projectAssistantApplyErrorMessage(new ApiError("conflict", 409, "conflict"))).toContain(
-      "proposal is stale",
-    );
+    expect(
+      projectAssistantApplyErrorMessage(new api.ApiError("conflict", 409, "conflict")),
+    ).toContain("proposal is stale");
 
     const proposal: ProjectAssistantProposal = {
       id: "pa_partial",
@@ -83,7 +90,7 @@ describe("Project Assistant controller helpers", () => {
       ],
     };
     const partial = projectAssistantApplyErrorMessage(
-      new ApiError("partial", 409, "conflict", {
+      new api.ApiError("partial", 409, "conflict", {
         fields: {
           failed_action_index: 1,
           partial_result: {
@@ -105,7 +112,7 @@ describe("Project Assistant controller helpers", () => {
     expect(partial).toContain("failed at action 2 (create memory candidate)");
 
     const blocked = projectAssistantApplyErrorMessage(
-      new ApiError("blocked", 404, "not_found", {
+      new api.ApiError("blocked", 404, "not_found", {
         fields: {
           apply_status: "blocked_before_apply",
           failed_action_index: 1,
@@ -131,7 +138,7 @@ describe("Project Assistant controller helpers", () => {
     expect(blocked).not.toContain("applied 0 of 2 actions");
 
     const blockedResume = projectAssistantApplyErrorMessage(
-      new ApiError("blocked", 404, "not_found", {
+      new api.ApiError("blocked", 404, "not_found", {
         fields: {
           apply_status: "blocked_before_apply",
           failed_action_index: 1,
@@ -157,7 +164,7 @@ describe("Project Assistant controller helpers", () => {
     expect(blockedResume).toContain("create assignment asgn_1");
 
     const serverCountedPartial = projectAssistantApplyErrorMessage(
-      new ApiError("partial", 409, "conflict", {
+      new api.ApiError("partial", 409, "conflict", {
         fields: {
           apply_status: "partial_due_to_runtime_failure",
           failed_action_index: 1,
@@ -178,5 +185,71 @@ describe("Project Assistant controller helpers", () => {
       }),
     );
     expect(serverCountedPartial).toContain("applied 1 of 3 actions");
+  });
+
+  it("restores the last proposal record for the selected project", async () => {
+    const proposal: ProjectAssistantProposal = {
+      id: "pa_recover",
+      title: "Recover proposal",
+      summary: "",
+      requires_confirmation: true,
+      actions: [
+        { kind: "create_work_item", patch: {} },
+        { kind: "create_assignment", patch: {} },
+      ],
+    };
+    vi.spyOn(api, "getProjectAssistantProposal").mockResolvedValue({
+      object: "project_assistant.proposal_record",
+      data: {
+        id: "pa_recover",
+        project_id: "proj_1",
+        proposal,
+        status: "partial_due_to_runtime_failure",
+        latest_result: {
+          proposal_id: "pa_recover",
+          status: "partial_due_to_runtime_failure",
+          applied: false,
+          actions: [{ kind: "create_work_item", id: "work_1" }],
+          total_action_count: 2,
+          committed_action_count: 1,
+          failed_action_index: 1,
+          resume_action_index: 1,
+        },
+        apply_attempts: [],
+        created_at: "2026-06-22T10:00:00Z",
+        updated_at: "2026-06-22T10:01:00Z",
+      },
+    });
+    window.sessionStorage.setItem("hecate.projectAssistant.lastProposal.proj_1", "pa_recover");
+
+    const { result } = renderHook(() =>
+      useProjectAssistantController({
+        project: {
+          id: "proj_1",
+          name: "Project",
+          roots: [],
+          created_at: "2026-06-22T10:00:00Z",
+          updated_at: "2026-06-22T10:00:00Z",
+        },
+        selectedProjectID: "proj_1",
+        selectedWorkItemID: "",
+        selectedWorkItem: null,
+        onProjectDiscovered: vi.fn(),
+        onSkillsDiscovered: vi.fn(),
+        onSkillsLoadState: vi.fn(),
+        onDiscoveringContext: vi.fn(),
+        onDiscoveringSkills: vi.fn(),
+        onMemoryError: vi.fn(),
+        onSkillsError: vi.fn(),
+        refreshProjects: vi.fn(async () => undefined),
+        loadWorkForProject: vi.fn(async () => ""),
+        loadWorkItemDetail: vi.fn(async () => undefined),
+        loadProjectMemory: vi.fn(async () => undefined),
+      }),
+    );
+
+    await waitFor(() => expect(result.current.proposal?.id).toBe("pa_recover"));
+    expect(result.current.error).toContain("applied 1 of 2 actions");
+    expect(result.current.error).toContain("failed at action 2 (create assignment)");
   });
 });

@@ -58,13 +58,14 @@ func (h *Handler) projectApplication() *projectapp.Application {
 		return projectapp.New(projectapp.Options{})
 	}
 	return projectapp.New(projectapp.Options{
-		Projects:         h.projects,
-		Chats:            h.agentChat,
-		DeleteChat:       h.deleteProjectChatSession,
-		ProjectWork:      h.projectWork,
-		ProjectSkills:    h.projectSkills,
-		Memory:           h.memory,
-		MemoryCandidates: h.memoryCandidates,
+		Projects:                  h.projects,
+		Chats:                     h.agentChat,
+		DeleteChat:                h.deleteProjectChatSession,
+		ProjectWork:               h.projectWork,
+		ProjectSkills:             h.projectSkills,
+		ProjectAssistantProposals: h.projectAssistantProposals,
+		Memory:                    h.memory,
+		MemoryCandidates:          h.memoryCandidates,
 	})
 }
 
@@ -102,6 +103,7 @@ func (h *Handler) projectAssistantApplication() *projectassistantapp.Application
 			ProjectSkills:    h.projectSkills,
 			Memory:           h.memory,
 			MemoryCandidates: h.memoryCandidates,
+			Proposals:        h.projectAssistantProposals,
 			LLM:              gatewayAgentLLMClient{service: h.service},
 			IDGenerator:      newOpaqueTaskResourceID,
 		})
