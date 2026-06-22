@@ -167,6 +167,7 @@ export function ProvidersAndModelsProvider({
     reducer,
     seededState ? { ...initialState, ...seededState } : initialState,
   );
+  const probeAgentAdapterInFlightRef = useRef(new Map<string, Promise<ProbeAdapterResult>>());
 
   const setProviders = useCallback(
     (next: SetStateAction<ProviderStatusResponse["data"]>) =>
@@ -225,24 +226,31 @@ export function ProvidersAndModelsProvider({
 
   const probeAgentAdapter = useCallback(async (adapterID: string): Promise<ProbeAdapterResult> => {
     if (!adapterID) return { ok: false, error: "Adapter id required to probe." };
-    dispatch({ type: "agentAdapterHealthLoading/set", adapterID, loading: true });
-    try {
-      const payload = await probeAgentAdapterRequest(adapterID);
-      dispatch({ type: "agentAdapterHealth/set", adapterID, record: payload.data.health });
-      dispatch({
-        type: "agentAdapters/set",
-        next: (current) =>
-          current.map((item) => (item.id === adapterID ? payload.data.adapter : item)),
-      });
-      return { ok: true, health: payload.data.health };
-    } catch (error) {
-      return {
-        ok: false,
-        error: error instanceof Error ? error.message : "Failed to probe adapter.",
-      };
-    } finally {
-      dispatch({ type: "agentAdapterHealthLoading/set", adapterID, loading: false });
-    }
+    const inFlight = probeAgentAdapterInFlightRef.current.get(adapterID);
+    if (inFlight) return inFlight;
+    const probe: Promise<ProbeAdapterResult> = (async (): Promise<ProbeAdapterResult> => {
+      dispatch({ type: "agentAdapterHealthLoading/set", adapterID, loading: true });
+      try {
+        const payload = await probeAgentAdapterRequest(adapterID);
+        dispatch({ type: "agentAdapterHealth/set", adapterID, record: payload.data.health });
+        dispatch({
+          type: "agentAdapters/set",
+          next: (current) =>
+            current.map((item) => (item.id === adapterID ? payload.data.adapter : item)),
+        });
+        return { ok: true, health: payload.data.health };
+      } catch (error) {
+        return {
+          ok: false,
+          error: error instanceof Error ? error.message : "Failed to probe adapter.",
+        };
+      } finally {
+        probeAgentAdapterInFlightRef.current.delete(adapterID);
+        dispatch({ type: "agentAdapterHealthLoading/set", adapterID, loading: false });
+      }
+    })();
+    probeAgentAdapterInFlightRef.current.set(adapterID, probe);
+    return probe;
   }, []);
 
   const actions = useMemo<ProvidersAndModelsActions>(

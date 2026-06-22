@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -9,14 +9,15 @@ import {
 import type { ReactNode } from "react";
 
 const getProviderPresetsMock = vi.fn();
+const probeAgentAdapterMock = vi.fn();
 const warnMock = vi.fn();
 
 vi.mock("../../lib/api", () => ({
   getProviderPresets: (...args: unknown[]) => getProviderPresetsMock(...args),
+  probeAgentAdapter: (...args: unknown[]) => probeAgentAdapterMock(...args),
   // Stubs for other api symbols the slice imports — unused in these tests.
   getProviders: vi.fn(),
   getModels: vi.fn(),
-  probeAgentAdapter: vi.fn(),
 }));
 
 vi.mock("../../lib/log", () => ({
@@ -31,6 +32,7 @@ function Wrapper({ children }: { children: ReactNode }) {
 
 beforeEach(() => {
   getProviderPresetsMock.mockReset();
+  probeAgentAdapterMock.mockReset();
   warnMock.mockReset();
 });
 
@@ -145,5 +147,57 @@ describe("useEnsureProviderPresetsLoaded", () => {
     await waitFor(() => {
       expect(getProviderPresetsMock).toHaveBeenCalledTimes(2);
     });
+  });
+});
+
+describe("probeAgentAdapter", () => {
+  it("dedupes concurrent probes for the same adapter", async () => {
+    let resolveProbe: (value: unknown) => void = () => {};
+    probeAgentAdapterMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveProbe = resolve;
+      }),
+    );
+    const { result } = renderHook(() => useProvidersAndModels(), { wrapper: Wrapper });
+    let first: Promise<unknown> | undefined;
+    let second: Promise<unknown> | undefined;
+
+    act(() => {
+      first = result.current.actions.probeAgentAdapter("codex");
+      second = result.current.actions.probeAgentAdapter("codex");
+    });
+
+    expect(probeAgentAdapterMock).toHaveBeenCalledTimes(1);
+    expect(probeAgentAdapterMock).toHaveBeenCalledWith("codex");
+
+    await act(async () => {
+      resolveProbe({
+        object: "agent_adapter_probe",
+        data: {
+          adapter: {
+            id: "codex",
+            name: "Codex",
+            kind: "acp",
+            command: "codex-acp-adapter",
+            available: true,
+            status: "available",
+            supports_authenticate: false,
+            supports_logout: false,
+          },
+          health: {
+            adapter_id: "codex",
+            status: "ready",
+            stage: "ready",
+            duration_ms: 42,
+          },
+        },
+      });
+      await Promise.all([first, second]);
+    });
+
+    expect(result.current.state.agentAdapterHealthByID.get("codex")).toMatchObject({
+      status: "ready",
+    });
+    expect(result.current.state.agentAdapterHealthLoadingByID.has("codex")).toBe(false);
   });
 });
