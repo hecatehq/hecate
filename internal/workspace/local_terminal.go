@@ -330,6 +330,10 @@ func terminalPolicyCommand(command string, args []string) string {
 	if command == "" {
 		return ""
 	}
+	// Static policy validation is intentionally best-effort. Join argv into
+	// the same kind of approximate command text validateCommand already
+	// inspects for one-shot shell strings; the OS wrapper is the real
+	// containment layer for exact argv semantics and interactive input.
 	if len(args) == 0 {
 		return command
 	}

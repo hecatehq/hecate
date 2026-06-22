@@ -585,12 +585,14 @@ explicit operator opt-in. If approved, Hecate starts the requested command in
 the selected workspace, rejects working directories outside that workspace,
 applies the same static command policy checks and OS sandbox wrapper path used
 by one-shot shell tasks, retains bounded merged stdout/stderr for
-`terminal/output`, supports
-`terminal/wait_for_exit`, `terminal/kill`, and invalidates the terminal after
-`terminal/release`. Terminal output retention truncates from the beginning at a
-valid UTF-8 boundary when the agent supplies `outputByteLimit`. Env variable
-names are included in approval context; env values are not persisted in the
-approval payload. Terminal lifecycle callbacks are also projected into the
+`terminal/output`, supports `terminal/wait_for_exit`, `terminal/kill`, and
+invalidates the terminal after `terminal/release`. Interactive terminal
+requests without an initial command cannot be statically inspected; they rely
+on the OS sandbox wrapper and approval gate for containment. Terminal output
+retention truncates from the beginning at a valid UTF-8 boundary when the agent
+supplies `outputByteLimit`. Env variable names are included in approval
+context; env values are not persisted in the approval payload. Terminal
+lifecycle callbacks are also projected into the
 chat activity timeline as `terminal` rows: Hecate records the command, working
 directory, running/completed/failed/cancelled status, exit code when available,
 and a bounded output preview after the process exits. When an ACP tool-call
