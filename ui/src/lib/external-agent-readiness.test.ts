@@ -116,11 +116,12 @@ describe("resolveExternalAgentReadiness", () => {
 
     expect(readiness).toMatchObject({
       kind: "unverified",
-      label: "not verified",
+      label: "not tested",
       tone: "muted",
       needsRepair: false,
       verifiedByProbe: false,
     });
+    expect(readiness.detail).toContain("Run a quick check");
   });
 
   it("uses adapter-specific setup guidance for Grok Build", () => {
