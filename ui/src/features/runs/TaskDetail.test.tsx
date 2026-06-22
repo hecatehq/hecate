@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -1470,6 +1470,28 @@ describe("TaskDetail steps timeline — MCP tool distinction", () => {
     });
   }
 
+  function makeTerminalStep(overrides: Partial<TaskStepRecord> = {}): TaskStepRecord {
+    return makeStep({
+      id: "step-terminal",
+      kind: "tool",
+      tool_name: "terminal_open",
+      title: "terminal_open (completed)",
+      input: {
+        command: "python",
+        args: ["watch.py", "--tail"],
+        working_directory: ".",
+      },
+      output_summary: {
+        terminal_id: "term_01HX",
+        running: false,
+        output_bytes: 2048,
+        exit_code: 0,
+        truncated: true,
+      },
+      ...overrides,
+    });
+  }
+
   it("renders an MCP badge on namespaced tool steps", () => {
     const { render } = setup({ steps: [makeMcpStep()] });
     render();
@@ -1507,6 +1529,50 @@ describe("TaskDetail steps timeline — MCP tool distinction", () => {
     expect(screen.queryByLabelText(/mcp tool call/i)).toBeNull();
     // Built-in keeps its title verbatim.
     expect(screen.getByText("shell_exec (completed)")).toBeTruthy();
+  });
+
+  it("renders terminal tool steps as terminal operation rows", () => {
+    const { render } = setup({ steps: [makeTerminalStep()] });
+    render();
+    expect(screen.getByLabelText(/terminal tool call/i)).toBeTruthy();
+    expect(screen.getByText("terminal")).toBeTruthy();
+    expect(screen.getByText("open")).toBeTruthy();
+    expect(screen.queryByText("terminal_open (completed)")).toBeNull();
+  });
+
+  it("expanded StepDetail summarizes terminal command and state", async () => {
+    const { render, user } = setup({ steps: [makeTerminalStep()] });
+    render();
+    await user.click(screen.getByRole("button", { name: /step terminal_open/i }));
+
+    const details = screen.getByLabelText(/terminal tool details/i);
+    expect(within(details).getByText("python watch.py --tail")).toBeTruthy();
+    expect(within(details).getByText("term_01HX")).toBeTruthy();
+    expect(within(details).getByText(".")).toBeTruthy();
+    expect(within(details).getByText("exit 0")).toBeTruthy();
+    expect(within(details).getByText("2.0kb")).toBeTruthy();
+    expect(within(details).getByText("yes")).toBeTruthy();
+  });
+
+  it("expanded StepDetail summarizes terminal writes without inventing a command", async () => {
+    const { render, user } = setup({
+      steps: [
+        makeTerminalStep({
+          tool_name: "terminal_write",
+          title: "terminal_write (completed)",
+          input: { terminal_id: "term_02", input_chars: 12 },
+          output_summary: { terminal_id: "term_02", running: true, output_bytes: 0 },
+        }),
+      ],
+    });
+    render();
+    await user.click(screen.getByRole("button", { name: /step terminal_write/i }));
+
+    const details = screen.getByLabelText(/terminal tool details/i);
+    expect(within(details).queryByText(/^command$/)).toBeNull();
+    expect(within(details).getByText("term_02")).toBeTruthy();
+    expect(within(details).getByText("12 chars")).toBeTruthy();
+    expect(within(details).getByText("running")).toBeTruthy();
   });
 
   it("expanded StepDetail breaks out transport, server, and tool labels for MCP steps", async () => {

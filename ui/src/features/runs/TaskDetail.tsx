@@ -15,6 +15,11 @@ import {
   formatLocaleTime,
   formatMicrosUSD,
 } from "../../lib/format";
+import {
+  agentTerminalToolOperation,
+  agentTerminalToolTitle,
+  isAgentTerminalToolName,
+} from "../../lib/agent-terminal-tools";
 import { providerDisplayName } from "../../lib/provider-utils";
 import { ContextInspectorModalTrigger } from "../shared/ContextInspector";
 import { Badge, BrandAvatar, CopyableID, Dot, Icon, Icons, Modal } from "../shared/ui";
@@ -1328,6 +1333,38 @@ function StepRowTitle({ step }: { step: TaskStepRecord }) {
     flex: 1,
   } as const;
   const mcp = splitNamespacedToolName(step.tool_name);
+  const terminalToolTitle = agentTerminalToolTitle(step.tool_name);
+  const terminalOperation = agentTerminalToolOperation(step.tool_name);
+  if (terminalToolTitle && terminalOperation) {
+    return (
+      <span
+        style={{ ...baseStyle, display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0 }}
+        title={step.tool_name}
+      >
+        <span
+          className="badge badge-muted"
+          aria-label="Terminal tool call"
+          style={{ fontSize: 9, fontFamily: "var(--font-mono)", padding: "1px 5px", flexShrink: 0 }}
+        >
+          TERM
+        </span>
+        <span
+          style={{
+            minWidth: 0,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          <span style={{ color: "var(--t2)" }}>terminal</span>
+          <span style={{ color: "var(--t3)", margin: "0 4px" }}>·</span>
+          <span style={{ color: "var(--t0)", fontFamily: "var(--font-mono)" }}>
+            {terminalOperation}
+          </span>
+        </span>
+      </span>
+    );
+  }
   if (mcp) {
     return (
       <span
@@ -1623,9 +1660,185 @@ function TaskActivityOutputPreview({ artifact }: { artifact: TaskActivityRecord 
   );
 }
 
+function TerminalStepSummary({ step }: { step: TaskStepRecord }) {
+  const input = step.input ?? {};
+  const output = step.output_summary ?? {};
+  const command = terminalCommandPreview(input);
+  const cwd = stringField(input, "working_directory");
+  const terminalID = stringField(output, "terminal_id") || stringField(input, "terminal_id");
+  const inputChars = numberField(input, "input_chars");
+  const timeoutMS = numberField(input, "timeout_ms");
+  const outputBytes = numberField(output, "output_bytes");
+  const error = stringField(output, "error");
+  const state = terminalStateLabel(output);
+  const facts = [
+    terminalID ? { label: "terminal", value: terminalID } : null,
+    cwd ? { label: "cwd", value: cwd } : null,
+    inputChars !== undefined ? { label: "stdin", value: `${inputChars} chars` } : null,
+    timeoutMS !== undefined ? { label: "timeout", value: `${timeoutMS}ms` } : null,
+    state ? { label: "state", value: state, tone: stateTone(state) } : null,
+    outputBytes !== undefined ? { label: "output", value: formatTerminalBytes(outputBytes) } : null,
+    boolField(output, "truncated") ? { label: "truncated", value: "yes" } : null,
+  ].filter((item): item is { label: string; value: string; tone?: "green" | "red" | "amber" } =>
+    Boolean(item),
+  );
+
+  return (
+    <div
+      aria-label="Terminal tool details"
+      style={{
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius-sm)",
+        background: "var(--bg0)",
+        padding: "7px 8px",
+        display: "grid",
+        gap: 7,
+      }}
+    >
+      {command && (
+        <div
+          style={{
+            display: "grid",
+            gap: 3,
+          }}
+        >
+          <span style={{ color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 10 }}>
+            command
+          </span>
+          <code
+            style={{
+              color: "var(--t1)",
+              fontFamily: "var(--font-mono)",
+              fontSize: 11,
+              overflowWrap: "anywhere",
+              whiteSpace: "pre-wrap",
+            }}
+          >
+            {command}
+          </code>
+        </div>
+      )}
+      {facts.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {facts.map((fact) => (
+            <span
+              key={fact.label}
+              style={{
+                border: "1px solid var(--border)",
+                borderRadius: 999,
+                color: "var(--t2)",
+                fontFamily: "var(--font-mono)",
+                fontSize: 10,
+                padding: "3px 7px",
+              }}
+            >
+              <span style={{ color: "var(--t3)" }}>{fact.label}</span>{" "}
+              <span style={{ color: terminalFactValueColor(fact.tone) }}>{fact.value}</span>
+            </span>
+          ))}
+        </div>
+      )}
+      {error && (
+        <pre
+          style={{
+            margin: 0,
+            padding: "6px 8px",
+            fontSize: 11,
+            fontFamily: "var(--font-mono)",
+            color: "var(--red)",
+            background: "var(--bg2)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius-sm)",
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+          }}
+        >
+          {error}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+function terminalCommandPreview(input: Record<string, unknown>): string {
+  const command = stringField(input, "command");
+  const args = stringArrayField(input, "args");
+  const parts = [command, ...args].filter(Boolean);
+  if (parts.length === 0) return "";
+  return parts.map(quoteTerminalCommandPart).join(" ");
+}
+
+function quoteTerminalCommandPart(value: string): string {
+  if (!/[\s"'\\$`]/.test(value)) return value;
+  return JSON.stringify(value);
+}
+
+function terminalStateLabel(output: Record<string, unknown>): string {
+  if (boolField(output, "timeout")) return "timed out";
+  const running = booleanField(output, "running");
+  if (running === true) return "running";
+  const exitCode = numberField(output, "exit_code");
+  if (exitCode !== undefined) return `exit ${exitCode}`;
+  if (running === false) return "closed";
+  return "";
+}
+
+function stateTone(state: string): "green" | "red" | "amber" | undefined {
+  if (state === "running") return "amber";
+  if (state === "timed out") return "amber";
+  if (state === "exit 0" || state === "closed") return "green";
+  if (state.startsWith("exit ")) return "red";
+  return undefined;
+}
+
+function terminalFactValueColor(tone?: "green" | "red" | "amber"): string {
+  switch (tone) {
+    case "green":
+      return "var(--green)";
+    case "red":
+      return "var(--red)";
+    case "amber":
+      return "var(--amber)";
+    default:
+      return "var(--t1)";
+  }
+}
+
+function formatTerminalBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes}b`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)}kb`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}mb`;
+}
+
+function stringField(record: Record<string, unknown>, key: string): string {
+  const value = record[key];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function numberField(record: Record<string, unknown>, key: string): number | undefined {
+  const value = record[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function booleanField(record: Record<string, unknown>, key: string): boolean | undefined {
+  const value = record[key];
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function boolField(record: Record<string, unknown>, key: string): boolean {
+  return booleanField(record, key) === true;
+}
+
+function stringArrayField(record: Record<string, unknown>, key: string): string[] {
+  const value = record[key];
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string" && item.trim() !== "");
+}
+
 function StepDetail({ step }: { step: TaskStepRecord }) {
   const duration = formatDurationRange(step.started_at, step.finished_at);
   const mcp = splitNamespacedToolName(step.tool_name);
+  const isTerminalTool = isAgentTerminalToolName(step.tool_name);
   return (
     <div
       style={{
@@ -1707,6 +1920,7 @@ function StepDetail({ step }: { step: TaskStepRecord }) {
           </span>
         )}
       </div>
+      {isTerminalTool && <TerminalStepSummary step={step} />}
       {/* Hint pointing operators to the conversation viewer where
           the upstream server's full text result is rendered. The
           step's output_summary captures only is_error + text_size

@@ -1,3 +1,5 @@
+import { agentTerminalToolTitle, isAgentTerminalToolName } from "./agent-terminal-tools";
+
 type ApprovalToolLike = {
   tool_kind?: string;
   tool_name?: string;
@@ -12,6 +14,7 @@ const TOOL_KIND_LABELS: Record<string, string> = {
   file_delete: "file delete",
   search: "search",
   think: "thinking",
+  terminal: "terminal tool",
   mcp: "MCP tool",
   other: "other tool",
 };
@@ -19,12 +22,15 @@ const TOOL_KIND_LABELS: Record<string, string> = {
 export function agentApprovalToolKindLabel(toolKind?: string): string {
   const trimmed = (toolKind ?? "").trim();
   if (!trimmed) return "tool";
+  if (isAgentTerminalToolName(trimmed)) return "terminal tool";
   return TOOL_KIND_LABELS[trimmed] ?? trimmed.replaceAll("_", " ");
 }
 
 export function agentApprovalToolLabel(item: ApprovalToolLike): string {
   const kindLabel = agentApprovalToolKindLabel(item.tool_kind);
   const toolName = item.tool_name?.trim();
+  const terminalToolLabel = agentTerminalToolTitle(toolName);
+  if (terminalToolLabel) return `terminal tool · ${terminalToolLabel}`;
   return toolName ? `${kindLabel} · ${toolName}` : kindLabel;
 }
 

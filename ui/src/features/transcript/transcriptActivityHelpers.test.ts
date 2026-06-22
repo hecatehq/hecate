@@ -280,6 +280,15 @@ describe("activityDisplay", () => {
     );
   });
 
+  it("humanizes native terminal tool calls", () => {
+    expect(activityDisplay(activity({ type: "tool_call", title: "terminal_open" })).title).toBe(
+      "Opened terminal",
+    );
+    expect(activityDisplay(activity({ type: "tool_call", title: "terminal_wait" })).title).toBe(
+      "Waited for terminal",
+    );
+  });
+
   it("falls back to 'Used tool' for opaque call ids", () => {
     expect(activityDisplay(activity({ type: "tool_call", title: "call_abc123def456" })).title).toBe(
       "Used tool",

@@ -187,6 +187,8 @@ export function describeApprovalKind(kind: string): string {
   switch (kind) {
     case "shell_command":
       return "Shell execution";
+    case "terminal_tool":
+      return "Terminal tool";
     case "git_exec":
       return "Git execution";
     case "file_write":
