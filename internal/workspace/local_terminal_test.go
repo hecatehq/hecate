@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/hecatehq/hecate/internal/sandbox"
 )
 
 // TestLocalTerminal_OneShotCaptureExit drives a terminal through the
@@ -200,4 +202,56 @@ func TestLocalTerminal_RejectsOutsideAllowedRoot(t *testing.T) {
 	if err == nil {
 		t.Fatal("OpenTerminal succeeded with cwd outside AllowedRoot; expected sandbox refusal")
 	}
+}
+
+func TestBuildTerminalCommandRejectsPolicyViolationsBeforeSpawn(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	_, err := buildTerminalCommand(TerminalOptions{
+		Command:          "touch",
+		Args:             []string{"blocked.txt"},
+		WorkingDirectory: dir,
+		Policy:           Policy{AllowedRoot: dir, ReadOnly: true},
+	})
+	if err == nil {
+		t.Fatal("buildTerminalCommand succeeded with mutating read-only command; want sandbox refusal")
+	}
+	if !strings.Contains(err.Error(), "write access is disabled") {
+		t.Fatalf("buildTerminalCommand error = %v, want read-only policy error", err)
+	}
+}
+
+func TestBuildTerminalCommandAppliesSandboxWrapper(t *testing.T) {
+	reset := sandbox.SetWrapperForTesting(sandbox.WrapperBwrap)
+	defer reset()
+
+	dir := t.TempDir()
+	cmd, err := buildTerminalCommand(TerminalOptions{
+		Command:          "echo",
+		Args:             []string{"hello"},
+		WorkingDirectory: dir,
+		Policy:           Policy{AllowedRoot: dir},
+	})
+	if err != nil {
+		t.Fatalf("buildTerminalCommand: %v", err)
+	}
+	if len(cmd.Args) == 0 || cmd.Args[0] != "/usr/bin/bwrap" {
+		t.Fatalf("terminal argv = %#v, want bwrap wrapper", cmd.Args)
+	}
+	if !containsString(cmd.Args, "--bind") || !containsString(cmd.Args, dir) {
+		t.Fatalf("terminal argv = %#v, want workspace bind", cmd.Args)
+	}
+	if !containsString(cmd.Args, "--unshare-net") {
+		t.Fatalf("terminal argv = %#v, want network isolation by default", cmd.Args)
+	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }

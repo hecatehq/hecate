@@ -583,7 +583,9 @@ External Agent approval coordinator as adapter `RequestPermission`: prompt mode
 pauses before spawn, deny mode rejects before spawn, and auto mode remains an
 explicit operator opt-in. If approved, Hecate starts the requested command in
 the selected workspace, rejects working directories outside that workspace,
-retains bounded merged stdout/stderr for `terminal/output`, supports
+applies the same static command policy checks and OS sandbox wrapper path used
+by one-shot shell tasks, retains bounded merged stdout/stderr for
+`terminal/output`, supports
 `terminal/wait_for_exit`, `terminal/kill`, and invalidates the terminal after
 `terminal/release`. Terminal output retention truncates from the beginning at a
 valid UTF-8 boundary when the agent supplies `outputByteLimit`. Env variable

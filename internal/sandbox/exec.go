@@ -522,6 +522,15 @@ func validateCommand(command string, policy Policy) error {
 	return nil
 }
 
+// ValidateCommand applies the same best-effort static command policy checks
+// used by LocalExecutor before a process is spawned. Workspace-level process
+// surfaces such as terminals call this before constructing their own exec.Cmd
+// so shell tools and long-lived terminals reject the same obvious read-only and
+// network-policy violations.
+func ValidateCommand(command string, policy Policy) error {
+	return validateCommand(command, policy)
+}
+
 // extractCommandURLs pulls out http(s) URLs that appear as
 // whitespace-separated tokens in the command string. Designed
 // for the common cases — `curl https://x`, `wget http://y`,

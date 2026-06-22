@@ -293,6 +293,13 @@ func buildTerminalCommand(opts TerminalOptions) (*exec.Cmd, error) {
 		return nil, err
 	}
 
+	policyCommand := terminalPolicyCommand(opts.Command, opts.Args)
+	if policyCommand != "" {
+		if err := sandbox.ValidateCommand(policyCommand, opts.Policy); err != nil {
+			return nil, err
+		}
+	}
+
 	var cmd *exec.Cmd
 	switch {
 	case opts.Command == "" && runtime.GOOS == "windows":
@@ -304,6 +311,7 @@ func buildTerminalCommand(opts TerminalOptions) (*exec.Cmd, error) {
 	}
 
 	cmd.Dir = resolvedDir
+	sandbox.ApplyWrapper(cmd, resolvedDir, opts.Policy.Network)
 
 	// Build env: sandbox's sanitized base set + caller overrides.
 	// Operators who want to inject secrets should use the credential
@@ -315,4 +323,18 @@ func buildTerminalCommand(opts TerminalOptions) (*exec.Cmd, error) {
 	}
 	cmd.Env = env
 	return cmd, nil
+}
+
+func terminalPolicyCommand(command string, args []string) string {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return ""
+	}
+	if len(args) == 0 {
+		return command
+	}
+	parts := make([]string, 0, 1+len(args))
+	parts = append(parts, command)
+	parts = append(parts, args...)
+	return strings.Join(parts, " ")
 }

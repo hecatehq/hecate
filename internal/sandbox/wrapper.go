@@ -177,6 +177,14 @@ func applyWrapper(cmd *exec.Cmd, workspace string, network bool) {
 	cmd.Args = argv
 }
 
+// ApplyWrapper rewrites cmd in place with the same OS-level sandbox wrapper
+// LocalExecutor uses for one-shot shell execution. Long-lived workspace
+// processes use this to keep terminal and shell execution on the same
+// isolation path when bwrap or sandbox-exec is available.
+func ApplyWrapper(cmd *exec.Cmd, workspace string, network bool) {
+	applyWrapper(cmd, workspace, network)
+}
+
 func equalStringSlices(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
