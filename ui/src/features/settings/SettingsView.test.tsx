@@ -705,12 +705,22 @@ describe("Connections external-agent panel", () => {
       expect(screen.queryByTestId("external-agents-adapters")).toBeNull();
     });
 
-    it("renders one row per adapter without a manual test button", async () => {
+    it("renders one row per adapter with a visible check action", async () => {
       const { state, actions } = setup(withAdapter());
       render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
       expect(await screen.findByTestId("external-agents-adapters")).toBeTruthy();
       expect(screen.getByTestId("external-agents-adapter-codex")).toBeTruthy();
-      expect(screen.queryByTestId("external-agents-test-codex")).toBeNull();
+      expect(screen.getByTestId("external-agents-test-codex")).toHaveTextContent("Check");
+    });
+
+    it("checks available local adapters when Connections opens", async () => {
+      const probeAgentAdapter = vi.fn(async () => null);
+      const { state, actions } = setup(withAdapter(), { probeAgentAdapter });
+
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
+
+      await waitFor(() => expect(probeAgentAdapter).toHaveBeenCalledWith("codex"));
+      expect(probeAgentAdapter).toHaveBeenCalledTimes(1);
     });
 
     it("shows bridge and underlying agent versions separately", async () => {

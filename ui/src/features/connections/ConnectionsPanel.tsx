@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useApprovals } from "../../app/state/approvals";
 import { useChatActions } from "../../app/state/coordinators/chat";
 import { useAgentAdapterActions } from "../../app/state/coordinators/agentAdapters";
@@ -147,6 +147,8 @@ export function ConnectionsPanel({
     () => new Set(agentAdapters.map((adapter) => externalAgentSetupFocusTarget(adapter.id))),
     [agentAdapters],
   );
+  const remoteRuntime = isRemoteRuntimeSession(runtime.state.sessionInfo);
+  const autoProbedAdapterIDs = useRef(new Set<string>());
   const listChatGrants = approvals.actions.loadGrants;
   const probeAgentAdapter = agentAdapterActions.probeAgentAdapter;
   const authenticateAgentAdapter = agentAdapterActions.authenticateAgentAdapter;
@@ -162,6 +164,30 @@ export function ConnectionsPanel({
     // explicit re-fetches.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    for (const adapter of agentAdapters) {
+      if (
+        !shouldAutoProbeAdapter(
+          adapter,
+          agentAdapterHealthByID.get(adapter.id) ?? null,
+          Boolean(agentAdapterHealthLoadingByID.get(adapter.id)),
+          remoteRuntime,
+        )
+      ) {
+        continue;
+      }
+      if (autoProbedAdapterIDs.current.has(adapter.id)) continue;
+      autoProbedAdapterIDs.current.add(adapter.id);
+      void probeAgentAdapter(adapter.id);
+    }
+  }, [
+    agentAdapters,
+    agentAdapterHealthByID,
+    agentAdapterHealthLoadingByID,
+    probeAgentAdapter,
+    remoteRuntime,
+  ]);
 
   // One-shot scroll + highlight when the operator arrived here via
   // an External Agent setup button on a failed agent run.
@@ -282,7 +308,7 @@ export function ConnectionsPanel({
         agentAdapterHealthLoadingByID={agentAdapterHealthLoadingByID}
         agentAdapterAuthenticateLoadingByID={agentAdapterAuthenticateLoadingByID}
         agentAdapterLogoutLoadingByID={agentAdapterLogoutLoadingByID}
-        remoteRuntime={isRemoteRuntimeSession(runtime.state.sessionInfo)}
+        remoteRuntime={remoteRuntime}
         copyCommand={copyCommand}
         onProbeAdapter={(adapterID) => void probeAgentAdapter(adapterID)}
         onAuthenticateAdapter={(adapterID) => void handleAuthenticateAdapter(adapterID)}
@@ -742,6 +768,17 @@ function AdapterStatusSection({
   );
 }
 
+function shouldAutoProbeAdapter(
+  adapter: AgentAdapterRecord,
+  health: AgentAdapterHealthRecord | null,
+  loading: boolean,
+  remoteRuntime: boolean,
+): boolean {
+  if (!adapter.available || health || loading) return false;
+  if (remoteRuntime && adapter.remote_credential_ok !== true) return false;
+  return adapter.auth_status === "ok" || adapter.auth_status === "unknown" || !adapter.auth_status;
+}
+
 function AdapterStatusRow({
   adapter,
   remoteRuntime,
@@ -815,49 +852,43 @@ function AdapterStatusRow({
     adapter.available &&
     adapterLogoutSupportedByHecate(adapter, health) &&
     !showAuthenticateAction;
+  const showProbeAction =
+    adapter.available &&
+    !showLocalAuthSetup &&
+    !showRemoteCredentialSetup &&
+    !showAuthenticateAction;
 
   return (
     <div
       data-testid={`external-agents-adapter-${adapter.id}`}
       style={{
         display: "flex",
-        alignItems: "center",
-        gap: 10,
-        padding: "10px 14px",
+        alignItems: "flex-start",
+        flexWrap: "wrap",
+        gap: 12,
+        padding: "12px 14px",
         borderBottom: divider ? "1px solid var(--border)" : "none",
       }}
     >
-      <BrandAvatar brand={adapter.id} fallback={adapter.name} size={28} />
-      <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
-          <span style={{ fontSize: 12, fontWeight: 500, color: "var(--t0)" }}>{adapter.name}</span>
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t3)" }}>
-            ·
+      <BrandAvatar brand={adapter.id} fallback={adapter.name} size={30} />
+      <div style={{ minWidth: 0, flex: "1 1 260px" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: 7,
+            marginBottom: 4,
+          }}
+        >
+          <span style={{ fontSize: 13, fontWeight: 600, color: "var(--t0)", lineHeight: 1.25 }}>
+            {adapter.name}
           </span>
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t2)" }}>
-            {adapter.id}
-          </span>
-          <span
-            style={{
-              fontFamily: "var(--font-mono)",
-              fontSize: 10,
-              color: chipColor(readiness.tone),
-              textTransform: "uppercase",
-              letterSpacing: "0.04em",
-            }}
-          >
-            {readiness.label}
-          </span>
+          <span className={`badge ${badgeClassForTone(readiness.tone)}`}>{readiness.label}</span>
           {adapter.version_outside_range && (
             <span
+              className="badge badge-amber"
               data-testid={`external-agents-adapter-${adapter.id}-version-warning`}
-              style={{
-                fontFamily: "var(--font-mono)",
-                fontSize: 10,
-                color: chipColor("amber"),
-                textTransform: "uppercase",
-                letterSpacing: "0.04em",
-              }}
             >
               outside tested range
             </span>
@@ -878,6 +909,9 @@ function AdapterStatusRow({
               command <span style={{ color: "var(--t1)" }}>{adapter.command}</span>
             </span>
           )}
+          <span>
+            id <span style={{ color: "var(--t1)" }}>{adapter.id}</span>
+          </span>
           {adapter.adapter_version && (
             <span>
               bridge <span style={{ color: "var(--t1)" }}>{adapter.adapter_version}</span>
@@ -973,7 +1007,16 @@ function AdapterStatusRow({
           />
         )}
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          flexWrap: "wrap",
+          justifyContent: "flex-end",
+          gap: 8,
+          marginLeft: "auto",
+        }}
+      >
         {loading && (
           <span
             data-testid={`external-agents-checking-${adapter.id}`}
@@ -986,6 +1029,22 @@ function AdapterStatusRow({
           >
             checking…
           </span>
+        )}
+        {showProbeAction && (
+          <button
+            type="button"
+            className={
+              readiness.kind === "unverified" ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"
+            }
+            onClick={() => onProbeAdapter(adapter)}
+            disabled={loading}
+            aria-label={`Check ${adapter.name || adapter.id}`}
+            title={`Check ${adapter.name || adapter.id}`}
+            data-testid={`external-agents-test-${adapter.id}`}
+          >
+            <Icon d={Icons.refresh} size={12} />{" "}
+            {loading ? "Checking..." : readiness.verifiedByProbe ? "Check again" : "Check"}
+          </button>
         )}
         {showAuthenticateAction && (
           <button
@@ -1358,6 +1417,19 @@ function chipColor(tone: ChipTone): string {
       return "var(--red)";
     case "muted":
       return "var(--t3)";
+  }
+}
+
+function badgeClassForTone(tone: ChipTone): string {
+  switch (tone) {
+    case "green":
+      return "badge-green";
+    case "amber":
+      return "badge-amber";
+    case "red":
+      return "badge-red";
+    case "muted":
+      return "badge-muted";
   }
 }
 
