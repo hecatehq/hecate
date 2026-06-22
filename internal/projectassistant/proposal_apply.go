@@ -46,7 +46,7 @@ func (s *Service) Apply(ctx context.Context, proposal Proposal, confirmed bool) 
 		return ApplyResult{}, fmt.Errorf("%w: proposal %q action set changed after partial apply", ErrConflict, proposal.ID)
 	}
 	if failedActionIndex, err := s.preflightApply(ctx, proposal.Actions, len(progress.results)); err != nil {
-		partial := applyResult(proposal.ID, false, len(proposal.Actions), &failedActionIndex, progress.results)
+		partial := applyResult(proposal.ID, ApplyStatusBlockedBeforeApply, false, len(proposal.Actions), &failedActionIndex, progress.results)
 		return partial, &ApplyError{
 			ProposalID:        proposal.ID,
 			FailedActionIndex: failedActionIndex,
@@ -59,7 +59,7 @@ func (s *Service) Apply(ctx context.Context, proposal Proposal, confirmed bool) 
 		action := proposal.Actions[idx]
 		result, err := s.applyAction(ctx, action)
 		if err != nil {
-			partial := applyResult(proposal.ID, false, len(proposal.Actions), &idx, progress.results)
+			partial := applyResult(proposal.ID, ApplyStatusPartialDueToRuntimeFailure, false, len(proposal.Actions), &idx, progress.results)
 			return partial, &ApplyError{
 				ProposalID:        proposal.ID,
 				FailedActionIndex: idx,
@@ -72,7 +72,7 @@ func (s *Service) Apply(ctx context.Context, proposal Proposal, confirmed bool) 
 
 	progress.complete = true
 
-	return applyResult(proposal.ID, true, len(proposal.Actions), nil, progress.results), nil
+	return applyResult(proposal.ID, ApplyStatusApplied, true, len(proposal.Actions), nil, progress.results), nil
 }
 
 type applyActionSpec struct {
@@ -133,12 +133,13 @@ func cloneActionResults(results []ActionResult) []ActionResult {
 	return cloned
 }
 
-func applyResult(proposalID string, applied bool, totalActionCount int, failedActionIndex *int, results []ActionResult) ApplyResult {
+func applyResult(proposalID, status string, applied bool, totalActionCount int, failedActionIndex *int, results []ActionResult) ApplyResult {
 	committedActionCount := len(results)
 	resumeActionIndex := committedActionCount
 	failed := cloneIntPtr(failedActionIndex)
 	return ApplyResult{
 		ProposalID:           proposalID,
+		Status:               status,
 		Applied:              applied,
 		Actions:              cloneActionResults(results),
 		TotalActionCount:     totalActionCount,

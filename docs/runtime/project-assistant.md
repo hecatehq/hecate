@@ -157,11 +157,14 @@ after earlier actions have already mutated durable stores, the API returns the
 partial action results and `failed_action_index`. Retrying the exact same
 proposal resumes at the next unapplied action. Retrying the same proposal id
 with a changed action set returns `409 conflict`, and retrying a fully applied
-proposal also returns `409 conflict`. Clients should show the landed action
-kinds and ids from `partial_result.actions`; `committed_action_count`,
-`failed_action_index`, `resume_action_index`, and `total_action_count` are the
-server-owned progress counters. An empty list and `committed_action_count: 0`
-mean preflight blocked the proposal before anything landed.
+proposal also returns `409 conflict`. Clients should show `status` first, then
+the landed action kinds and ids from `partial_result.actions`. The status is
+`applied` after a successful apply, `blocked_before_apply` when preflight
+stopped the current apply attempt before writing another action, or
+`partial_due_to_runtime_failure` when a post-preflight store/runtime failure
+happened after apply began. `committed_action_count`, `failed_action_index`,
+`resume_action_index`, and `total_action_count` are the server-owned progress
+counters.
 
 Future versions may persist proposal ids server-side so reviewed actions,
 confirmation, and resumable progress survive process restarts. In v0 the
@@ -441,6 +444,7 @@ POST /hecate/v1/project-assistant/apply
   "object": "project_assistant.apply_result",
   "data": {
     "proposal_id": "pa_...",
+    "status": "applied",
     "applied": true,
     "total_action_count": 1,
     "committed_action_count": 1,
@@ -463,22 +467,28 @@ Stale ids, missing projects, missing chats, missing work items, or missing
 memory candidates return `404 not_found` or `409 conflict` depending on the
 state transition.
 
-When a multi-action apply fails, the error includes progress metadata. If
-preflight caught the failure before mutation, `partial_result.actions` is empty.
-If a later store/race failure happens after earlier actions were committed, the
-same field lists the landed action kinds and ids:
+When a multi-action apply fails, the error includes progress metadata and
+`apply_status`, which matches `partial_result.status`. If preflight caught the
+failure before mutation, the status is `blocked_before_apply`; on a first attempt
+`partial_result.actions` is empty, and on a resumed proposal it lists the
+actions that had already landed before this attempt. If a later store/race
+failure happens after earlier actions were committed in the current attempt, the
+status is `partial_due_to_runtime_failure` and the same field lists the landed
+action kinds and ids:
 
 ```json
 {
   "error": {
     "type": "not_found",
     "message": "project assistant apply failed at action 1: project assistant target not found: project \"proj_missing\"",
+    "apply_status": "partial_due_to_runtime_failure",
     "failed_action_index": 1,
     "total_action_count": 2,
     "committed_action_count": 1,
     "resume_action_index": 1,
     "partial_result": {
       "proposal_id": "pa_...",
+      "status": "partial_due_to_runtime_failure",
       "applied": false,
       "total_action_count": 2,
       "committed_action_count": 1,

@@ -340,6 +340,15 @@ function projectAssistantPartialApplyErrorMessage(
     Math.max(appliedCount, failedActionIndex + 1);
   const landed = projectAssistantAppliedActionsSummary(partialResult.actions);
   const failed = projectAssistantFailedActionSummary(proposal, failedActionIndex);
+  const status =
+    projectAssistantApplyStatus(error.fields.apply_status) ??
+    projectAssistantApplyStatus(partialResult.status);
+  if (status === "blocked_before_apply") {
+    if (appliedCount > 0) {
+      return `Project Assistant blocked this proposal before applying additional actions. ${appliedCount} of ${totalCount} action${totalCount === 1 ? "" : "s"} ${appliedCount === 1 ? "was" : "were"} already committed${landed}. It failed at action ${failedActionIndex + 1}${failed}. Fix the target state, then apply the same proposal again.`;
+    }
+    return `Project Assistant blocked this proposal before applying any actions. It failed at action ${failedActionIndex + 1}${failed}. Fix the target state, then apply the same proposal again.`;
+  }
   return `Project Assistant applied ${appliedCount} of ${totalCount} actions${landed}. It then failed at action ${failedActionIndex + 1}${failed}. Apply the same proposal again after fixing the target state to resume from the next unapplied action.`;
 }
 
@@ -392,6 +401,14 @@ function projectAssistantNonNegativeInteger(value: unknown): number | null {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
 }
 
+function projectAssistantApplyStatus(value: unknown): ProjectAssistantApplyResult["status"] {
+  return value === "applied" ||
+    value === "blocked_before_apply" ||
+    value === "partial_due_to_runtime_failure"
+    ? value
+    : undefined;
+}
+
 function projectAssistantPartialResult(value: unknown): ProjectAssistantApplyResult | null {
   if (!value || typeof value !== "object") return null;
   const result = value as Partial<ProjectAssistantApplyResult>;
@@ -404,6 +421,7 @@ function projectAssistantPartialResult(value: unknown): ProjectAssistantApplyRes
   }
   return {
     proposal_id: result.proposal_id,
+    status: projectAssistantApplyStatus(result.status),
     applied: result.applied,
     actions: result.actions,
     total_action_count: projectAssistantNonNegativeInteger(result.total_action_count) ?? undefined,

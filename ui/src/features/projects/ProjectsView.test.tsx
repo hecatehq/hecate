@@ -2431,6 +2431,7 @@ describe("ProjectsView cockpit", () => {
           failed_action_index: 1,
           partial_result: {
             proposal_id: "pa_partial",
+            status: "partial_due_to_runtime_failure",
             applied: false,
             actions: [
               {

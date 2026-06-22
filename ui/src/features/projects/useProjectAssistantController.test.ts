@@ -87,6 +87,7 @@ describe("Project Assistant controller helpers", () => {
           failed_action_index: 1,
           partial_result: {
             proposal_id: "pa_partial",
+            status: "partial_due_to_runtime_failure",
             applied: false,
             total_action_count: 2,
             committed_action_count: 1,
@@ -101,6 +102,58 @@ describe("Project Assistant controller helpers", () => {
     expect(partial).toContain("applied 1 of 2 actions");
     expect(partial).toContain("create assignment asgn_1");
     expect(partial).toContain("failed at action 2 (create memory candidate)");
+
+    const blocked = projectAssistantApplyErrorMessage(
+      new ApiError("blocked", 404, "not_found", {
+        fields: {
+          apply_status: "blocked_before_apply",
+          failed_action_index: 1,
+          total_action_count: 2,
+          committed_action_count: 0,
+          resume_action_index: 0,
+          partial_result: {
+            proposal_id: "pa_blocked",
+            status: "blocked_before_apply",
+            applied: false,
+            total_action_count: 2,
+            committed_action_count: 0,
+            failed_action_index: 1,
+            resume_action_index: 0,
+            actions: [],
+          },
+        },
+      }),
+      proposal,
+    );
+    expect(blocked).toContain("blocked this proposal before applying any actions");
+    expect(blocked).toContain("failed at action 2 (create memory candidate)");
+    expect(blocked).not.toContain("applied 0 of 2 actions");
+
+    const blockedResume = projectAssistantApplyErrorMessage(
+      new ApiError("blocked", 404, "not_found", {
+        fields: {
+          apply_status: "blocked_before_apply",
+          failed_action_index: 1,
+          total_action_count: 2,
+          committed_action_count: 1,
+          resume_action_index: 1,
+          partial_result: {
+            proposal_id: "pa_blocked_resume",
+            status: "blocked_before_apply",
+            applied: false,
+            total_action_count: 2,
+            committed_action_count: 1,
+            failed_action_index: 1,
+            resume_action_index: 1,
+            actions: [{ kind: "create_assignment", id: "asgn_1" }],
+          },
+        },
+      }),
+      proposal,
+    );
+    expect(blockedResume).toContain("blocked this proposal before applying additional actions");
+    expect(blockedResume).toContain("1 of 2 actions was already committed");
+    expect(blockedResume).toContain("create assignment asgn_1");
 
     const serverCountedPartial = projectAssistantApplyErrorMessage(
       new ApiError("partial", 409, "conflict", {

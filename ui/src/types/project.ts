@@ -93,8 +93,14 @@ export type ProjectAssistantActionResult = {
   data?: Record<string, string>;
 };
 
+export type ProjectAssistantApplyStatus =
+  | "applied"
+  | "blocked_before_apply"
+  | "partial_due_to_runtime_failure";
+
 export type ProjectAssistantApplyResult = {
   proposal_id: string;
+  status?: ProjectAssistantApplyStatus;
   applied: boolean;
   actions: ProjectAssistantActionResult[];
   total_action_count?: number;
