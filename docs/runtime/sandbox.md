@@ -71,6 +71,11 @@ only workspace abstraction.
 - **ProcessRunner** (`internal/processrunner`) is the bounded process
   seam for command-style subprocesses. It owns cwd, environment,
   timeout, streaming output, and output caps.
+- **Workspace Terminal** (`internal/workspace.OpenTerminal`) owns long-lived
+  terminal command sessions for ACP terminal callbacks and opt-in operator
+  terminals. It reuses sandbox working-directory resolution, command policy
+  validation, sanitized environment construction, and the same OS wrapper path
+  as shell execution where available.
 - **GitRunner** (`internal/gitrunner`) is the Git-specific seam for
   helper-style operations. It validates the workspace, runs Git with a
   sanitised environment, and routes Git through ProcessRunner instead of

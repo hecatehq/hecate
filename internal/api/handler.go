@@ -35,6 +35,7 @@ import (
 	"github.com/hecatehq/hecate/internal/secrets"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/internal/telemetry"
+	"github.com/hecatehq/hecate/internal/terminalapp"
 	"github.com/hecatehq/hecate/internal/version"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -62,6 +63,7 @@ type Handler struct {
 	agentChatRunner           agentadapters.Runner
 	agentChatLive             *agentChatLive
 	agentChatIdleSweepCancel  context.CancelFunc
+	operatorTerminals         *terminalapp.Application
 	rateLimiter               *ratelimit.Store
 	// secretCipher encrypts literal MCP server env values at task-creation
 	// time and wires the matching decrypting factory into the runner. nil
@@ -333,6 +335,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		agentProfiles:             agentprofiles.NewMemoryStore(),
 		agentChatRunner:           agentChatRunner,
 		agentChatLive:             agentChatLive,
+		operatorTerminals:         terminalapp.New(terminalapp.Options{Enabled: cfg.Server.OperatorTerminals}),
 		orchestratorMetrics:       orchestratorMetrics,
 		agentChatMetrics:          agentChatMetrics,
 		approvalConfig:            approvalCfg,
@@ -588,6 +591,10 @@ func (h *Handler) Shutdown(ctx context.Context) error {
 	if h.agentChatRunner != nil {
 		agentChatErr = h.agentChatRunner.Shutdown(ctx)
 	}
+	var terminalErr error
+	if h.operatorTerminals != nil {
+		terminalErr = h.operatorTerminals.Shutdown(ctx)
+	}
 	var shutdownErrs []error
 	if runnerErr != nil {
 		shutdownErrs = append(shutdownErrs, fmt.Errorf("runner shutdown: %w", runnerErr))
@@ -597,6 +604,9 @@ func (h *Handler) Shutdown(ctx context.Context) error {
 	}
 	if agentChatErr != nil {
 		shutdownErrs = append(shutdownErrs, fmt.Errorf("agent chat shutdown: %w", agentChatErr))
+	}
+	if terminalErr != nil {
+		shutdownErrs = append(shutdownErrs, fmt.Errorf("operator terminals shutdown: %w", terminalErr))
 	}
 	return errors.Join(shutdownErrs...)
 }

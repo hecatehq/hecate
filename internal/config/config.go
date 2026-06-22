@@ -151,6 +151,11 @@ type ServerConfig struct {
 	// self-host runtimes opt in with HECATE_AGENT_ADAPTER_TERMINALS=1; remote
 	// runtimes must also set HECATE_REMOTE_ALLOW_ACP_TERMINALS=1.
 	AgentAdapterTerminals bool
+	// OperatorTerminals enables Hecate-owned operator terminal sessions over
+	// the runtime API. Off by default because it is a command-execution surface.
+	// Set via HECATE_OPERATOR_TERMINALS. Remote runtime mode rejects this flag;
+	// use the surrounding hosting shell for remote/container operator access.
+	OperatorTerminals bool
 	// ChatMaxTurnsPerSession caps how many user→assistant round-trips
 	// a single agent-chat session may execute. 0 (default) means unlimited.
 	// When the ceiling is reached, POST
@@ -433,6 +438,7 @@ func LoadFromEnv() Config {
 			AgentAdapterApprovalMode:       getEnv("HECATE_AGENT_ADAPTER_APPROVAL_MODE", "prompt"),
 			AgentAdapterApprovalTimeout:    getEnvDuration("HECATE_AGENT_ADAPTER_APPROVAL_TIMEOUT", 5*time.Minute),
 			AgentAdapterTerminals:          getEnvBool("HECATE_AGENT_ADAPTER_TERMINALS", false),
+			OperatorTerminals:              getEnvBool("HECATE_OPERATOR_TERMINALS", false),
 			ChatMaxTurnsPerSession:         getEnvInt("HECATE_CHAT_MAX_TURNS_PER_SESSION", 0),
 			ChatMaxSessionDuration:         getEnvDuration("HECATE_CHAT_MAX_SESSION_DURATION", 0),
 			ChatIdleTimeout:                getEnvDuration("HECATE_CHAT_IDLE_TIMEOUT", 0),
@@ -576,6 +582,9 @@ func (c Config) Validate() error {
 		}
 		if c.Server.AgentAdapterTerminals && !c.Server.RemoteAllowACPTerminals {
 			errs = append(errs, errors.New("HECATE_REMOTE_ALLOW_ACP_TERMINALS=1 is required before enabling HECATE_AGENT_ADAPTER_TERMINALS in remote runtime mode"))
+		}
+		if c.Server.OperatorTerminals {
+			errs = append(errs, errors.New("HECATE_OPERATOR_TERMINALS cannot be enabled in remote runtime mode"))
 		}
 	}
 
