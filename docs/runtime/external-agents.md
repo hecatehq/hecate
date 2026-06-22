@@ -23,17 +23,17 @@ transcript prelude for multi-turn continuity. Claude Code adapter
 `claude --session-id`, so Hecate can reload a stored Claude native session id
 after an adapter process restart. Codex does not yet claim vendor-native
 durable history across adapter process restarts; if a load is stale, Hecate
-falls back to a fresh native session. Hecate treats `codex-acp-adapter` versions
-older than `v0.1.0-alpha.33` and `claude-code-acp-adapter` versions older than
-`v0.1.0-alpha.33` as outside the tested range because those older releases lack
+falls back to a fresh native session. Hecate treats `codex-acp-adapter` and
+`claude-code-acp-adapter` versions older than `v0.1.0` as outside the tested
+range because the stable release line is the first supported floor that includes
 the current continuity, permission-control, structured stream, session metadata,
-external MCP handoff surface, ACP authenticate/logout mapping, and prompt auth
+external MCP handoff surface, ACP authenticate/logout mapping, prompt auth
 failure/stop-reason classification, local-login environment contract,
-`session/close` cleanup behavior, structured tool output preservation, or
-permission-outcome, rejected-tool-result, post-cancel stream, and MCP
-permission-label hardening that is exercised by the real CLI smoke suite, sparse
-Codex tool-completion metadata carry-over, plus the real-provider stdio MCP
-smoke coverage and current prompt permission selectors.
+`session/close` cleanup behavior, structured tool output preservation,
+permission-outcome, rejected-tool-result, post-cancel stream, MCP
+permission-label hardening, sparse Codex tool-completion metadata carry-over,
+real-provider stdio MCP smoke coverage, and current prompt permission
+selectors.
 The `v0.1.0-alpha.8` adapters added supported Codex and Claude Code JSON stream
 translation into ACP assistant-message, thought, tool-call, tool-result, and
 usage updates, so Hecate can render External Agent activity without exposing raw
@@ -103,6 +103,10 @@ Codex adapter `v0.1.0-alpha.33` carries tool title/kind metadata from start
 events onto sparse completion updates, so Hecate can keep rendering MCP and
 provider tool timeline entries with stable labels even when the completion event
 only carries the result payload.
+Codex adapter `v0.1.0` is the stable supported floor for Hecate's bundled Codex
+adapter path. It keeps the alpha.33 behavior, pins the shared ACP adapter kit to
+its first stable release, and documents draft ACP RFD work as non-blocking
+future work.
 Claude Code adapter `v0.1.0-alpha.11` adds command-backed stdio/HTTP MCP server
 config propagation into Claude `--mcp-config`, and `v0.1.0-alpha.12` adds
 Claude-native `--session-id` reload after adapter restarts. Claude Code adapter
@@ -169,6 +173,10 @@ Claude Code adapter `v0.1.0-alpha.33` expands the opt-in real CLI smoke suite
 to verify a local stdio MCP echo tool call, delimits Claude's variadic
 `--mcp-config` option before prompt text, and preserves provider tool metadata
 on matching result updates.
+Claude Code adapter `v0.1.0` is the stable supported floor for Hecate's bundled
+Claude Code adapter path. It keeps the alpha.33 behavior, pins the shared ACP
+adapter kit to its first stable release, and documents draft ACP RFD work as
+non-blocking future work.
 
 ## Supported External Agents
 

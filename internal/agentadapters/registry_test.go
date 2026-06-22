@@ -29,8 +29,8 @@ func TestBuiltInsIncludeInitialExternalAgents(t *testing.T) {
 	if got := found["codex"]; got.Command != "codex-acp-adapter" || got.Kind != DriverKindACP || got.CostMode != "external" {
 		t.Fatalf("codex adapter = %#v", got)
 	}
-	if got := found["codex"]; got.SupportedRange != ">=0.1.0-alpha.33" {
-		t.Fatalf("codex supported range = %q, want current Go adapter alpha range", got.SupportedRange)
+	if got := found["codex"]; got.SupportedRange != ">=0.1.0" {
+		t.Fatalf("codex supported range = %q, want current Go adapter stable range", got.SupportedRange)
 	}
 	if got := found["codex"]; !got.SupportsAuthenticate {
 		t.Fatalf("codex supports authenticate = false, want true")
@@ -52,8 +52,8 @@ func TestBuiltInsIncludeInitialExternalAgents(t *testing.T) {
 	if got := found["claude_code"]; got.Command != "claude-code-acp-adapter" || got.Kind != DriverKindACP || got.CostMode != "external" {
 		t.Fatalf("claude_code adapter = %#v", got)
 	}
-	if got := found["claude_code"]; got.SupportedRange != ">=0.1.0-alpha.33" {
-		t.Fatalf("claude_code supported range = %q, want current Go adapter alpha range", got.SupportedRange)
+	if got := found["claude_code"]; got.SupportedRange != ">=0.1.0" {
+		t.Fatalf("claude_code supported range = %q, want current Go adapter stable range", got.SupportedRange)
 	}
 	if got := found["claude_code"]; !got.SupportsAuthenticate {
 		t.Fatalf("claude_code supports authenticate = false, want true")
