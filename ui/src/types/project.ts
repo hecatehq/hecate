@@ -100,7 +100,7 @@ export type ProjectAssistantApplyStatus =
 
 export type ProjectAssistantApplyResult = {
   proposal_id: string;
-  status?: ProjectAssistantApplyStatus;
+  status: ProjectAssistantApplyStatus;
   applied: boolean;
   actions: ProjectAssistantActionResult[];
   total_action_count?: number;

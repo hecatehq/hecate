@@ -53,6 +53,7 @@ describe("Project Assistant controller helpers", () => {
     expect(
       projectAssistantResultWorkItemID({
         proposal_id: "pa_1",
+        status: "applied",
         applied: true,
         actions: [
           { kind: "create_role", id: "role_1", data: { project_id: "proj_1" } },
@@ -158,12 +159,14 @@ describe("Project Assistant controller helpers", () => {
     const serverCountedPartial = projectAssistantApplyErrorMessage(
       new ApiError("partial", 409, "conflict", {
         fields: {
+          apply_status: "partial_due_to_runtime_failure",
           failed_action_index: 1,
           total_action_count: 3,
           committed_action_count: 1,
           resume_action_index: 1,
           partial_result: {
             proposal_id: "pa_partial",
+            status: "partial_due_to_runtime_failure",
             applied: false,
             total_action_count: 3,
             committed_action_count: 1,
