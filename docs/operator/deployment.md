@@ -198,7 +198,7 @@ Agent installer is fetched from Cursor's official install URL and checked
 against a pinned SHA-256 before it runs; update the checksum only after
 reviewing the new installer contents.
 
-If a `docker run` (or `docker compose up`) errors with `bind: address already in use` on `:8765`, a previous `just dev` / `just run` / `./hecate` is still listening from another shell. Free the port with `just stop` and retry; `just dev`, `just run`, and `just serve` also auto-run `stop` before starting so successive launches don't pile up.
+If a `docker run` (or `docker compose up`) errors with `bind: address already in use` on `:8765`, a previous `just dev` / `just run` / `./hecate serve` is still listening from another shell. Free the port with `just stop` and retry; `just dev`, `just run`, and `just serve` also auto-run `stop` before starting so successive launches don't pile up.
 
 ## Binary install
 
@@ -208,21 +208,21 @@ The release workflow publishes static, single-file binaries for `linux+darwin ×
 # pick the right tarball for your OS / arch
 curl -LO https://github.com/hecatehq/hecate/releases/download/v0.2.0-alpha.4/hecate_0.2.0-alpha.4_linux_amd64.tar.gz
 tar -xzf hecate_0.2.0-alpha.4_linux_amd64.tar.gz
-./hecate
+./hecate serve
 ```
 
-The `hecate` binary starts the gateway service, embeds the React operator UI, listens on `127.0.0.1:8765` by default, and stores state under `HECATE_DATA_DIR` (default `.data/`). No additional runtime dependencies — the binaries are statically linked and CGO-free.
+The `hecate serve` command starts the gateway service, embeds the React operator UI, listens on `127.0.0.1:8765` by default, and stores state under `HECATE_DATA_DIR` (default `.data/`). No additional runtime dependencies — the binaries are statically linked and CGO-free.
 
 To bind the bare binary beyond loopback, set both variables and provide your own network protection:
 
 ```bash
-HECATE_ADDRESS=0.0.0.0:8765 HECATE_ALLOW_NON_LOOPBACK_BIND=1 ./hecate
+HECATE_ADDRESS=0.0.0.0:8765 HECATE_ALLOW_NON_LOOPBACK_BIND=1 ./hecate serve
 ```
 
 To pin the data directory to a known location:
 
 ```bash
-HECATE_DATA_DIR=/var/lib/hecate ./hecate
+HECATE_DATA_DIR=/var/lib/hecate ./hecate serve
 ```
 
 For systemd, launchd, or supervisor wrappers, the only requirements are: the working directory is writable for `HECATE_DATA_DIR`, port 8765 is available, and `.env` (if used) sits in the working directory or is sourced into the unit file. The binary path itself can live anywhere on `$PATH`.

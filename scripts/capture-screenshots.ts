@@ -5,7 +5,7 @@
 //   just screenshots                     # from repo root
 //
 // Prerequisites:
-//   1. `just reset-dev && ./hecate &` — gateway running on
+//   1. `just reset-dev && ./hecate serve &` — gateway running on
 //      127.0.0.1:8765 with fresh state.
 //   2. ollama running on :11434 with `ollama pull llama3.1:8b` (optional;
 //      used only to seed one realistic trace row for the observability

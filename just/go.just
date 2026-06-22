@@ -53,7 +53,7 @@ coverage: _go-cache
 
 # Free :8765 by killing whatever is listening there. Useful before
 # `docker run -p 8765:8765 ...` or any local relaunch where a stale
-# `just dev` / `just run` / `./hecate` would otherwise produce
+# `just dev` / `just run` / `./hecate serve` would otherwise produce
 # "address already in use".
 # Stop any gateway process listening on :8765.
 stop:
@@ -76,7 +76,7 @@ run *args: _go-cache
 	  esac; \
 	done; \
 	if [ "$needs_reset" = "1" ]; then just reset-dev > /dev/null; else just stop; fi
-	{{go_env}} go run ./cmd/hecate
+	{{go_env}} go run ./cmd/hecate serve
 
 # Run the pre-built ./hecate binary. The `stop` dependency frees :8765 if a
 # stale process is still listening, so a forgotten Ctrl-C never blocks a
@@ -113,7 +113,7 @@ dev *args: _go-cache
 	set +a; \
 	HECATE_ALLOWED_ORIGINS="${HECATE_ALLOWED_ORIGINS:-http://127.0.0.1:5173,http://localhost:5173}"; \
 	export HECATE_ALLOWED_ORIGINS; \
-	{{go_env}} go run ./cmd/hecate
+	{{go_env}} go run ./cmd/hecate serve
 
 # Run the gateway from source with external-agent adapter visuals forced to a
 # known state. This is visual-only: it changes discovery/probe readiness
@@ -137,7 +137,7 @@ dev-agent-adapters overrides *args: _go-cache
 	set +a; \
 	HECATE_ALLOWED_ORIGINS="${HECATE_ALLOWED_ORIGINS:-http://127.0.0.1:5173,http://localhost:5173}"; \
 	export HECATE_ALLOWED_ORIGINS; \
-	HECATE_AGENT_ADAPTER_DEV_OVERRIDES="{{overrides}}" {{go_env}} go run ./cmd/hecate
+	HECATE_AGENT_ADAPTER_DEV_OVERRIDES="{{overrides}}" {{go_env}} go run ./cmd/hecate serve
 
 # Run the gateway with all external-agent adapters shown as not installed.
 # Useful for manually testing first-run External Agent onboarding.
