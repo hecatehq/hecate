@@ -10,6 +10,7 @@ import {
 } from "../../lib/api";
 import type {
   ProjectAssistantApplyResult,
+  ProjectAssistantApplyStatus,
   ProjectAssistantContextPayload,
   ProjectAssistantContextRecord,
   ProjectAssistantDraftPayload,
@@ -401,7 +402,7 @@ function projectAssistantNonNegativeInteger(value: unknown): number | null {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
 }
 
-function projectAssistantApplyStatus(value: unknown): ProjectAssistantApplyResult["status"] {
+function projectAssistantApplyStatus(value: unknown): ProjectAssistantApplyStatus | undefined {
   return value === "applied" ||
     value === "blocked_before_apply" ||
     value === "partial_due_to_runtime_failure"
@@ -412,7 +413,9 @@ function projectAssistantApplyStatus(value: unknown): ProjectAssistantApplyResul
 function projectAssistantPartialResult(value: unknown): ProjectAssistantApplyResult | null {
   if (!value || typeof value !== "object") return null;
   const result = value as Partial<ProjectAssistantApplyResult>;
+  const status = projectAssistantApplyStatus(result.status);
   if (
+    !status ||
     typeof result.proposal_id !== "string" ||
     typeof result.applied !== "boolean" ||
     !Array.isArray(result.actions)
@@ -421,7 +424,7 @@ function projectAssistantPartialResult(value: unknown): ProjectAssistantApplyRes
   }
   return {
     proposal_id: result.proposal_id,
-    status: projectAssistantApplyStatus(result.status),
+    status,
     applied: result.applied,
     actions: result.actions,
     total_action_count: projectAssistantNonNegativeInteger(result.total_action_count) ?? undefined,

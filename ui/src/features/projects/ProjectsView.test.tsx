@@ -395,6 +395,7 @@ vi.mock("../../lib/api", async (importOriginal) => {
       object: "project_assistant.apply_result",
       data: {
         proposal_id: "pa_test",
+        status: "applied",
         applied: true,
         actions: [
           {
@@ -1056,6 +1057,7 @@ function resetProjectWorkMocks() {
     object: "project_assistant.apply_result",
     data: {
       proposal_id: "pa_test",
+      status: "applied",
       applied: true,
       actions: [
         {

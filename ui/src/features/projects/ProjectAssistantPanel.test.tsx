@@ -86,6 +86,7 @@ describe("ProjectAssistantPanel", () => {
     const handlers = renderAssistantPanel({
       applyResult: {
         proposal_id: "pa_setup",
+        status: "applied",
         applied: true,
         actions: [{ kind: "create_memory_candidate" }, { kind: "create_role" }],
       },
@@ -124,6 +125,7 @@ describe("ProjectAssistantPanel", () => {
     const handlers = renderAssistantPanel({
       applyResult: {
         proposal_id: "pa_assignment",
+        status: "applied",
         applied: true,
         actions: [{ kind: "create_assignment" }],
       },
