@@ -24,16 +24,16 @@ transcript prelude for multi-turn continuity. Claude Code adapter
 after an adapter process restart. Codex does not yet claim vendor-native
 durable history across adapter process restarts; if a load is stale, Hecate
 falls back to a fresh native session. Hecate treats `codex-acp-adapter` versions
-older than `v0.1.0-alpha.32` and `claude-code-acp-adapter` versions older than
+older than `v0.1.0-alpha.33` and `claude-code-acp-adapter` versions older than
 `v0.1.0-alpha.33` as outside the tested range because those older releases lack
 the current continuity, permission-control, structured stream, session metadata,
 external MCP handoff surface, ACP authenticate/logout mapping, and prompt auth
 failure/stop-reason classification, local-login environment contract,
 `session/close` cleanup behavior, structured tool output preservation, or
 permission-outcome, rejected-tool-result, post-cancel stream, and MCP
-permission-label hardening that is exercised by the real CLI smoke suite, plus
-the real-provider stdio MCP smoke coverage and current prompt permission
-selectors.
+permission-label hardening that is exercised by the real CLI smoke suite, sparse
+Codex tool-completion metadata carry-over, plus the real-provider stdio MCP
+smoke coverage and current prompt permission selectors.
 The `v0.1.0-alpha.8` adapters added supported Codex and Claude Code JSON stream
 translation into ACP assistant-message, thought, tool-call, tool-result, and
 usage updates, so Hecate can render External Agent activity without exposing raw
@@ -99,6 +99,10 @@ stable adapter tag.
 Codex adapter `v0.1.0-alpha.32` adds an ACP approval-policy config selector,
 including explicit bypass mode, and expands the opt-in real CLI smoke suite to
 verify a local stdio MCP echo tool call.
+Codex adapter `v0.1.0-alpha.33` carries tool title/kind metadata from start
+events onto sparse completion updates, so Hecate can keep rendering MCP and
+provider tool timeline entries with stable labels even when the completion event
+only carries the result payload.
 Claude Code adapter `v0.1.0-alpha.11` adds command-backed stdio/HTTP MCP server
 config propagation into Claude `--mcp-config`, and `v0.1.0-alpha.12` adds
 Claude-native `--session-id` reload after adapter restarts. Claude Code adapter
