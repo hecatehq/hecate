@@ -40,7 +40,7 @@ jobs:
     name: Check Mermaid diagrams
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
 
@@ -51,7 +51,7 @@ jobs:
     name: Check Markdown formatting
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -67,7 +67,7 @@ jobs:
     name: Check relative links (hard fail)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Run lychee (local files only)
         uses: lycheeverse/lychee-action@v2
@@ -96,7 +96,7 @@ jobs:
     # act on these out-of-band. The job result is still visible in the summary.
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Run lychee (external URLs only)
         uses: lycheeverse/lychee-action@v2
