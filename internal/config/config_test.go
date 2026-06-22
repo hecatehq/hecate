@@ -217,6 +217,31 @@ func TestLoadFromEnvAgentAdapterTerminalsOptIn(t *testing.T) {
 	}
 }
 
+func TestLoadFromEnvOperatorTerminalsOptIn(t *testing.T) {
+	cfg := LoadFromEnv()
+	if cfg.Server.OperatorTerminals {
+		t.Fatal("OperatorTerminals = true, want default false")
+	}
+
+	t.Setenv("HECATE_OPERATOR_TERMINALS", "true")
+	cfg = LoadFromEnv()
+	if !cfg.Server.OperatorTerminals {
+		t.Fatal("OperatorTerminals = false, want true with explicit opt-in")
+	}
+}
+
+func TestValidateRejectsOperatorTerminalsInRemoteRuntime(t *testing.T) {
+	t.Setenv("HECATE_REMOTE_RUNTIME_MODE", "true")
+	t.Setenv("HECATE_REMOTE_RUNTIME_SECRET", "cloud-runtime-secret-123456")
+	t.Setenv("HECATE_OPERATOR_TERMINALS", "true")
+
+	cfg := LoadFromEnv()
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "HECATE_OPERATOR_TERMINALS") {
+		t.Fatalf("Validate() error = %v, want HECATE_OPERATOR_TERMINALS rejection", err)
+	}
+}
+
 func TestListenAddressIsLoopback(t *testing.T) {
 	t.Parallel()
 

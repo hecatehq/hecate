@@ -214,6 +214,12 @@ func registerHecateOperationsRoutes(mux *http.ServeMux, handler *Handler) {
 	// Local bridge endpoint used by the desktop app / browser UI.
 	mux.HandleFunc("POST /hecate/v1/workspace-dialog", handler.HandleWorkspaceDialog)
 	mux.HandleFunc("POST /hecate/v1/workspace-open", handler.HandleWorkspaceOpen)
+	mux.HandleFunc("POST /hecate/v1/terminals", handler.HandleCreateTerminal)
+	mux.HandleFunc("GET /hecate/v1/terminals/{terminal_id}/output", handler.HandleTerminalOutput)
+	mux.HandleFunc("POST /hecate/v1/terminals/{terminal_id}/input", handler.HandleWriteTerminalInput)
+	mux.HandleFunc("POST /hecate/v1/terminals/{terminal_id}/wait", handler.HandleWaitTerminal)
+	mux.HandleFunc("POST /hecate/v1/terminals/{terminal_id}/kill", handler.HandleKillTerminal)
+	mux.HandleFunc("DELETE /hecate/v1/terminals/{terminal_id}", handler.HandleReleaseTerminal)
 
 	// Observability and system operations: local traces, request history,
 	// retention, runtime health, and MCP diagnostics.

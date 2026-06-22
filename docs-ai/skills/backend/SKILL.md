@@ -249,6 +249,13 @@ terminal spawning on the same safety path as one-shot shell execution:
 `LocalWorkspace.OpenTerminal` must reject policy-invalid commands before spawn
 and apply the sandbox OS wrapper when one is available.
 
+Operator terminal sessions live in `internal/terminalapp` and are exposed only
+through local-only, opt-in runtime API handlers. Do not put terminal process
+lifecycle in HTTP handlers, and do not enable operator terminals in remote
+runtime mode. New operator-terminal behavior needs app-layer tests, API
+loopback/forwarded-header tests, shutdown cleanup coverage, and docs in
+`docs/operator/security.md` / `docs/runtime/runtime-api.md`.
+
 Hecate owns the ACP process/session boundary, not provider-specific adapter
 implementation parity. Tests in this repository should use the repo-local fake
 ACP peer to cover probing, auth/logout, session prepare/load, config options,

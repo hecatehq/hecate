@@ -4849,6 +4849,53 @@ canonicalizes `path`, requires it to be a directory, and returns `403` for
 non-local callers so a remotely hosted Hecate cannot unexpectedly launch apps
 on the server machine.
 
+### Operator terminals
+
+Operator terminal sessions are disabled by default. Set
+`HECATE_OPERATOR_TERMINALS=1` to enable them on a local runtime. Remote runtime
+mode rejects this flag and the endpoints are local-only: non-loopback sockets
+and forwarded-client headers are rejected.
+
+```json
+POST /hecate/v1/terminals
+{
+  "workspace": "/Users/alice/project",
+  "working_directory": ".",
+  "command": "npm",
+  "args": ["test"],
+  "output_byte_limit": 1048576
+}
+
+→ 201
+{
+  "object": "terminal",
+  "data": {
+    "id": "term_8a7f...",
+    "workspace": "/Users/alice/project",
+    "working_directory": "/Users/alice/project",
+    "command": "npm",
+    "args": ["test"],
+    "output": "",
+    "truncated": false,
+    "running": true,
+    "created_at": "2026-06-22T10:00:00Z",
+    "updated_at": "2026-06-22T10:00:00Z"
+  }
+}
+```
+
+Hecate canonicalizes `workspace`, resolves relative `working_directory` inside
+that workspace, rejects escapes, sanitizes the child environment, applies the
+same static command checks and OS sandbox wrapper path used by shell tasks where
+available, and retains bounded merged stdout/stderr.
+
+Use `GET /hecate/v1/terminals/{terminal_id}/output` to read retained output,
+`POST /hecate/v1/terminals/{terminal_id}/input` with `{"input":"...\n"}` to
+write stdin, `POST /hecate/v1/terminals/{terminal_id}/wait` to wait for exit,
+`POST /hecate/v1/terminals/{terminal_id}/kill` to terminate without releasing,
+and `DELETE /hecate/v1/terminals/{terminal_id}` to release resources. Released
+terminal IDs become invalid for all other terminal endpoints.
+
 `GET /hecate/v1/whoami` also reports
 `capabilities.local_providers_allowed`. Local mode reports `true`; cloud
 runtime mode reports `false` by default and `true` only when

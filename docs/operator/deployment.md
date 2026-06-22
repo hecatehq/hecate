@@ -179,12 +179,14 @@ The runtime stage defaults to `node:24-trixie-slim` through the `NODE_IMAGE`
 build arg so the image has a maintained Debian userspace for shell, npm, and
 project dependency workflows.
 
-Hecate does not expose an embedded operator terminal over the runtime API.
-Configure container and remote instances through environment variables, mounted
-secrets, the persisted settings UI/API, or your deployment platform's own
-administrative shell (`ssh`, `docker exec`, `kubectl exec`, provider console, or
-equivalent). Direct platform shells bypass Hecate approvals and audit trails;
-use task-runtime tools when command execution should remain governed by Hecate.
+Hecate can expose opt-in operator terminal sessions over the local runtime API
+with `HECATE_OPERATOR_TERMINALS=1`. Keep this disabled for remote runtime mode:
+startup rejects it there, and the terminal endpoints are local-only. Configure
+container and remote instances through environment variables, mounted secrets,
+the persisted settings UI/API, or your deployment platform's own administrative
+shell (`ssh`, `docker exec`, `kubectl exec`, provider console, or equivalent).
+Direct platform shells bypass Hecate approvals and audit trails; use
+task-runtime tools when command execution should remain governed by Hecate.
 External Agent ACP terminal callbacks are separate: they are scoped to the
 selected workspace, owned by the supervised adapter session, disabled unless
 `HECATE_AGENT_ADAPTER_TERMINALS=1`, and approval-gated before command spawn.
