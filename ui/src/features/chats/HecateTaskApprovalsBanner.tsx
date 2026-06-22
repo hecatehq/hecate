@@ -1,4 +1,5 @@
 import { formatLocaleTime } from "../../lib/format";
+import { hasAgentTerminalToolMention } from "../../lib/agent-terminal-tools";
 import type { ChatActivityRecord, ChatSegmentRecord, ChatSessionRecord } from "../../types/chat";
 import { ChatNoticeFrame, ChatNoticeHeader, ChatNoticeRow } from "./ChatNotice";
 import { toChatSegmentViewModel } from "./chatTurnViewModels";
@@ -59,6 +60,7 @@ function taskApprovalDisplayKind(activity: ChatActivityRecord): string {
     return kind;
   }
   const haystack = `${activity.title || ""} ${activity.detail || ""}`.toLowerCase();
+  if (hasAgentTerminalToolMention(haystack)) return "terminal_tool";
   if (haystack.includes("shell_exec")) return "shell_command";
   if (haystack.includes("git_exec")) return "git_exec";
   if (haystack.includes("file_write")) return "file_write";
@@ -262,6 +264,8 @@ function describeTaskApprovalKind(kind: string): string {
       return "Approval";
     case "shell_command":
       return "Shell execution";
+    case "terminal_tool":
+      return "Terminal tool";
     case "git_exec":
       return "Git execution";
     case "file_write":

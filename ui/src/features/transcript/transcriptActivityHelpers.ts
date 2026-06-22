@@ -1,4 +1,5 @@
 import type { ChatActivityRecord } from "../../types/chat";
+import { agentTerminalToolActivityTitle } from "../../lib/agent-terminal-tools";
 
 const terminalRunSummaryTypes = new Set(["run_result", "completed", "failed", "cancelled"]);
 
@@ -355,6 +356,8 @@ function toolActivityTitle(activity: ChatActivityRecord): string {
   const normalized = raw.toLowerCase();
   const normalizedKind = (activity.kind || "").trim().toLowerCase();
   const toolHint = `${activity.kind ?? ""} ${activity.detail ?? ""}`.trim().toLowerCase();
+  const terminalTitle = agentTerminalToolActivityTitle(normalized);
+  if (terminalTitle) return terminalTitle;
 
   if (opaqueToolCallID(raw)) {
     if (toolHint.includes("execute") || toolHint.includes("command") || toolHint.includes("shell"))
