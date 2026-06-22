@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hecatehq/hecate/internal/gitrunner"
@@ -77,6 +78,8 @@ type AgentLoopExecutor struct {
 	maxTurns       int
 	approvalGate   agentLoopApprovalGate
 	toolDispatcher *agentLoopToolDispatcher
+	terminalMu     sync.Mutex
+	terminalRuns   map[string]*agentLoopTerminals
 	// mcpFactory builds a per-run MCP host from the task's
 	// MCPServers config. nil = no MCP support; tasks that configure
 	// MCPServers will fail with a clear error.
@@ -161,7 +164,7 @@ func (e *AgentLoopExecutor) SetMCPHostFactory(f AgentMCPHostFactory) {
 // (model thinking + tool execution) are upserted via the spec's
 // callbacks; the final ExecutionResult mirrors the standard executor
 // shape so the runner can persist it identically.
-func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*ExecutionResult, error) {
+func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (res *ExecutionResult, err error) {
 	if spec.NewID == nil {
 		return nil, fmt.Errorf("resource id generator is required")
 	}
@@ -176,6 +179,12 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 	runState := newAgentLoopRunState(spec, e.maxTurns)
 	conversation := newAgentLoopConversation(spec)
 	tools := agentToolDefinitions(projectAssistantDraftToolAvailable(spec.Task, e.toolDispatcher.projectAssistantDraftTool))
+	terminals := e.terminalSessionsForRun(spec.Run.ID)
+	defer func() {
+		if res == nil || res.Status != "awaiting_approval" {
+			e.closeTerminalSessionsForRun(context.Background(), spec.Run.ID)
+		}
+	}()
 
 	// Bring up external MCP servers if the task configured any. Their
 	// tools are appended to the built-in catalog under names of the
@@ -278,7 +287,7 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 		// 5. Dispatch each tool call in order.
 		callsToRun := assistantMsg.ToolCalls
 		for _, toolCall := range callsToRun {
-			dispatch, dispatchErr := e.toolDispatcher.Dispatch(ctx, spec, toolCall, runState.NextStepIndex(), mcpHost)
+			dispatch, dispatchErr := e.toolDispatcher.Dispatch(ctx, spec, toolCall, runState.NextStepIndex(), mcpHost, terminals)
 			if dispatch.Step != nil {
 				if err := runState.AddStep(spec, *dispatch.Step); err != nil {
 					return nil, err
@@ -334,7 +343,7 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 
 	// Hit max turns without a final answer. Mark incomplete; the user
 	// can resume the run if they want more turns.
-	res := runState.Result("failed")
+	res = runState.Result("failed")
 	res.LastError = fmt.Sprintf("agent loop hit maxTurns=%d without producing a final answer", e.maxTurns)
 	res.OtelStatusCode = "error"
 	res.OtelStatusMessage = "max_turns_exceeded"
@@ -439,6 +448,80 @@ func agentToolDefinitions(includeProjectAssistantDraftOpt ...bool) []types.Tool 
 						"working_directory": {"type": "string", "description": "Optional subdirectory under the workspace. Empty = workspace root."}
 					},
 					"required": ["command"]
+				}`),
+			},
+		},
+		{
+			Type: "function",
+			Function: types.ToolFunction{
+				Name:        AgentToolTerminalOpen,
+				Description: "Open a long-lived terminal process in the task workspace. Use this for interactive or incremental commands; prefer shell_exec for simple one-shot commands.",
+				Parameters: json.RawMessage(`{
+					"type": "object",
+					"properties": {
+						"command": {"type": "string", "description": "Program to start, e.g. 'sh', 'python', or 'npm'. Empty starts the default platform shell."},
+						"args": {"type": "array", "items": {"type": "string"}, "description": "Optional argv items passed to command."},
+						"working_directory": {"type": "string", "description": "Optional subdirectory under the workspace. Empty = workspace root."}
+					}
+				}`),
+			},
+		},
+		{
+			Type: "function",
+			Function: types.ToolFunction{
+				Name:        AgentToolTerminalWrite,
+				Description: "Write stdin text to an open terminal. Include trailing newlines when sending commands to a shell or REPL.",
+				Parameters: json.RawMessage(`{
+					"type": "object",
+					"properties": {
+						"terminal_id": {"type": "string", "description": "Terminal id returned by terminal_open."},
+						"input": {"type": "string", "description": "Text to write to stdin."}
+					},
+					"required": ["terminal_id", "input"]
+				}`),
+			},
+		},
+		{
+			Type: "function",
+			Function: types.ToolFunction{
+				Name:        AgentToolTerminalRead,
+				Description: "Read the latest retained output from an open terminal without waiting for it to exit.",
+				Parameters: json.RawMessage(`{
+					"type": "object",
+					"properties": {
+						"terminal_id": {"type": "string", "description": "Terminal id returned by terminal_open."},
+						"max_bytes": {"type": "integer", "minimum": 1, "maximum": 65536, "default": 8192, "description": "Return at most this many bytes from the retained output tail."}
+					},
+					"required": ["terminal_id"]
+				}`),
+			},
+		},
+		{
+			Type: "function",
+			Function: types.ToolFunction{
+				Name:        AgentToolTerminalWait,
+				Description: "Wait for an open terminal to exit, bounded by timeout_ms. If the timeout elapses, the terminal stays running and can be read or killed later.",
+				Parameters: json.RawMessage(`{
+					"type": "object",
+					"properties": {
+						"terminal_id": {"type": "string", "description": "Terminal id returned by terminal_open."},
+						"timeout_ms": {"type": "integer", "minimum": 1, "maximum": 60000, "default": 10000}
+					},
+					"required": ["terminal_id"]
+				}`),
+			},
+		},
+		{
+			Type: "function",
+			Function: types.ToolFunction{
+				Name:        AgentToolTerminalKill,
+				Description: "Terminate an open terminal process and return its latest retained output.",
+				Parameters: json.RawMessage(`{
+					"type": "object",
+					"properties": {
+						"terminal_id": {"type": "string", "description": "Terminal id returned by terminal_open."}
+					},
+					"required": ["terminal_id"]
 				}`),
 			},
 		},
@@ -654,6 +737,49 @@ func agentToolDefinitions(includeProjectAssistantDraftOpt ...bool) []types.Tool 
 type shellExecArgs struct {
 	Command          string `json:"command"`
 	WorkingDirectory string `json:"working_directory,omitempty"`
+}
+
+const (
+	AgentToolTerminalOpen  = "terminal_open"
+	AgentToolTerminalWrite = "terminal_write"
+	AgentToolTerminalRead  = "terminal_read"
+	AgentToolTerminalWait  = "terminal_wait"
+	AgentToolTerminalKill  = "terminal_kill"
+)
+
+func agentLoopTerminalToolNames() []string {
+	return []string{
+		AgentToolTerminalOpen,
+		AgentToolTerminalWrite,
+		AgentToolTerminalRead,
+		AgentToolTerminalWait,
+		AgentToolTerminalKill,
+	}
+}
+
+type terminalOpenArgs struct {
+	Command          string   `json:"command,omitempty"`
+	Args             []string `json:"args,omitempty"`
+	WorkingDirectory string   `json:"working_directory,omitempty"`
+}
+
+type terminalWriteArgs struct {
+	TerminalID string `json:"terminal_id"`
+	Input      string `json:"input"`
+}
+
+type terminalReadArgs struct {
+	TerminalID string `json:"terminal_id"`
+	MaxBytes   int    `json:"max_bytes,omitempty"`
+}
+
+type terminalWaitArgs struct {
+	TerminalID string `json:"terminal_id"`
+	TimeoutMS  int    `json:"timeout_ms,omitempty"`
+}
+
+type terminalKillArgs struct {
+	TerminalID string `json:"terminal_id"`
 }
 
 type gitExecArgs struct {

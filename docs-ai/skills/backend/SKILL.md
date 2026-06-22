@@ -256,6 +256,15 @@ runtime mode. New operator-terminal behavior needs app-layer tests, API
 loopback/forwarded-header tests, shutdown cleanup coverage, and docs in
 `docs/operator/security.md` / `docs/runtime/runtime-api.md`.
 
+Native `agent_loop` terminal tools (`terminal_open`, `terminal_write`,
+`terminal_read`, `terminal_wait`, `terminal_kill`) live behind the
+agent-loop dispatcher and must use `LocalWorkspace.OpenTerminal`, not raw
+`exec.Command`. Keep their handles run-scoped, preserve open handles across
+same-run `awaiting_approval` requeues, close them on terminal run completion,
+and gate them through the existing `shell_exec` / `all_tools` approval policy.
+Add focused orchestrator tests plus an e2e fake-provider run whenever changing
+native terminal tool behavior.
+
 Hecate owns the ACP process/session boundary, not provider-specific adapter
 implementation parity. Tests in this repository should use the repo-local fake
 ACP peer to cover probing, auth/logout, session prepare/load, config options,

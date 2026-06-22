@@ -149,6 +149,94 @@ func TestAgentLoopToolDispatchE2E(t *testing.T) {
 	}
 }
 
+func TestAgentLoopTerminalToolsE2E(t *testing.T) {
+	workDir := t.TempDir()
+	canonicalWorkDir, err := filepath.EvalSymlinks(workDir)
+	if err != nil {
+		t.Fatalf("canonicalize temp dir: %v", err)
+	}
+	workDir = canonicalWorkDir
+	upstream, captured := fakeAgentLoopTerminalUpstream(t)
+	baseURL := gatewayServer(t,
+		"HECATE_TASK_APPROVAL_POLICIES=",
+		"PROVIDER_FAKE_API_KEY=dummy",
+		"PROVIDER_FAKE_BASE_URL="+upstream,
+		"PROVIDER_FAKE_KIND=local",
+		"PROVIDER_FAKE_MODELS="+agentLoopE2EModel,
+	)
+
+	taskBody := fmt.Sprintf(`{
+		"title": "agent loop terminal tools e2e",
+		"prompt": "Use terminal_open and terminal_wait to print terminal-e2e, then summarize the result.",
+		"execution_kind": "agent_loop",
+		"requested_model": %q,
+		"working_directory": %q,
+		"sandbox_allowed_root": %q,
+		"workspace_mode": "in_place",
+		"timeout_ms": 10000
+	}`, agentLoopE2EModel, workDir, workDir)
+	created := postJSONDecode[e2eTaskResponse](t, baseURL+"/hecate/v1/tasks", taskBody)
+	if created.Data.ID == "" {
+		t.Fatal("created task id is empty")
+	}
+
+	started := postJSONDecode[e2eTaskRunResponse](t, baseURL+"/hecate/v1/tasks/"+created.Data.ID+"/start", `{}`)
+	if started.Data.ID == "" {
+		t.Fatal("started run id is empty")
+	}
+	run := waitForE2ETaskRunTerminal(t, baseURL, created.Data.ID, started.Data.ID, 10*time.Second)
+	if run.Status != "completed" {
+		t.Fatalf("run status = %q last_error=%q, want completed", run.Status, run.LastError)
+	}
+
+	steps := getJSON[e2eTaskStepsResponse](t, baseURL+"/hecate/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/steps")
+	foundOpen := false
+	foundWait := false
+	for _, step := range steps.Data {
+		if step.Kind == "tool" && step.ToolName == "terminal_open" && step.Status == "completed" {
+			foundOpen = true
+		}
+		if step.Kind == "tool" && step.ToolName == "terminal_wait" && step.Status == "completed" {
+			foundWait = true
+		}
+	}
+	if !foundOpen || !foundWait {
+		t.Fatalf("terminal tool steps open=%v wait=%v steps=%+v", foundOpen, foundWait, steps.Data)
+	}
+
+	events := getJSON[e2eTaskEventsResponse](t, baseURL+"/hecate/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/events")
+	foundOpenProposal := false
+	foundWaitProposal := false
+	for _, event := range events.Data {
+		if event.Type != "assistant.tool_call_proposed" {
+			continue
+		}
+		switch event.Data["tool_name"] {
+		case "terminal_open":
+			foundOpenProposal = true
+		case "terminal_wait":
+			foundWaitProposal = true
+		}
+	}
+	if !foundOpenProposal || !foundWaitProposal {
+		t.Fatalf("terminal tool proposals open=%v wait=%v events=%+v", foundOpenProposal, foundWaitProposal, events.Data)
+	}
+
+	bodies := capturedBodies(captured)
+	if len(bodies) != 3 {
+		t.Fatalf("upstream chat requests = %d, want 3: %+v", len(bodies), bodies)
+	}
+	if !requestAdvertisedTool(bodies[0], "terminal_open") || !requestAdvertisedTool(bodies[0], "terminal_wait") {
+		t.Fatalf("first upstream request did not advertise terminal tools: %+v", bodies[0])
+	}
+	if !requestHasToolResult(bodies[1], "call-terminal-open", "terminal_id=") {
+		t.Fatalf("second upstream request did not include terminal_open result: %+v", bodies[1])
+	}
+	if !requestHasToolResult(bodies[2], "call-terminal-wait", "terminal-e2e") {
+		t.Fatalf("third upstream request did not include terminal output: %+v", bodies[2])
+	}
+}
+
 func fakeAgentLoopToolCallingUpstream(t *testing.T) (string, *capturedRequests) {
 	t.Helper()
 	captured := &capturedRequests{}
@@ -192,10 +280,68 @@ func fakeAgentLoopToolCallingUpstream(t *testing.T) (string, *capturedRequests) 
 	return srv.URL, captured
 }
 
+func fakeAgentLoopTerminalUpstream(t *testing.T) (string, *capturedRequests) {
+	t.Helper()
+	captured := &capturedRequests{}
+	var chatCalls atomic.Int32
+	openArgs := `{"command":"sh","args":["-c","printf terminal-e2e"]}`
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/models", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"object":"list","data":[{"id":%q,"object":"model"}]}`, agentLoopE2EModel)
+	})
+	mux.HandleFunc("/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		captured.record(body)
+
+		callNumber := chatCalls.Add(1)
+		if streamed, _ := body["stream"].(bool); streamed {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Cache-Control", "no-cache")
+			w.WriteHeader(http.StatusOK)
+			switch callNumber {
+			case 1:
+				writeAgentLoopNamedToolCallStream(t, w, "chatcmpl-agent-loop-terminal-1", "call-terminal-open", "terminal_open", openArgs, "I will open a terminal.")
+			case 2:
+				terminalID := terminalIDFromToolResult(body, "call-terminal-open")
+				waitArgs := fmt.Sprintf(`{"terminal_id":%q,"timeout_ms":2000}`, terminalID)
+				writeAgentLoopNamedToolCallStream(t, w, "chatcmpl-agent-loop-terminal-2", "call-terminal-wait", "terminal_wait", waitArgs, "I will wait for it.")
+			default:
+				writeAgentLoopTerminalFinalAnswerStream(t, w)
+			}
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		switch callNumber {
+		case 1:
+			fmt.Fprintf(w, `{"id":"chatcmpl-agent-loop-terminal-1","object":"chat.completion","created":1700000000,"model":%q,"choices":[{"index":0,"message":{"role":"assistant","content":"I will open a terminal.","tool_calls":[{"id":"call-terminal-open","type":"function","function":{"name":"terminal_open","arguments":%q}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":5,"completion_tokens":5,"total_tokens":10}}`, agentLoopE2EModel, openArgs)
+		case 2:
+			terminalID := terminalIDFromToolResult(body, "call-terminal-open")
+			waitArgs := fmt.Sprintf(`{"terminal_id":%q,"timeout_ms":2000}`, terminalID)
+			fmt.Fprintf(w, `{"id":"chatcmpl-agent-loop-terminal-2","object":"chat.completion","created":1700000001,"model":%q,"choices":[{"index":0,"message":{"role":"assistant","content":"I will wait for it.","tool_calls":[{"id":"call-terminal-wait","type":"function","function":{"name":"terminal_wait","arguments":%q}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":5,"completion_tokens":5,"total_tokens":10}}`, agentLoopE2EModel, waitArgs)
+		default:
+			fmt.Fprintf(w, `{"id":"chatcmpl-agent-loop-terminal-3","object":"chat.completion","created":1700000002,"model":%q,"choices":[{"index":0,"message":{"role":"assistant","content":"Terminal tools completed."},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":5,"total_tokens":10}}`, agentLoopE2EModel)
+		}
+	})
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv.URL, captured
+}
+
 func writeAgentLoopToolCallStream(t *testing.T, w http.ResponseWriter, shellArgs string) {
 	t.Helper()
+	writeAgentLoopNamedToolCallStream(t, w, "chatcmpl-agent-loop-1", "call-shell-e2e", "shell_exec", shellArgs, "I will inspect.")
+}
+
+func writeAgentLoopNamedToolCallStream(t *testing.T, w http.ResponseWriter, completionID, toolCallID, toolName, toolArgs, content string) {
+	t.Helper()
 	writeOpenAIStreamChunk(t, w, map[string]any{
-		"id":      "chatcmpl-agent-loop-1",
+		"id":      completionID,
 		"object":  "chat.completion.chunk",
 		"created": 1700000000,
 		"model":   agentLoopE2EModel,
@@ -203,13 +349,13 @@ func writeAgentLoopToolCallStream(t *testing.T, w http.ResponseWriter, shellArgs
 			"index": 0,
 			"delta": map[string]any{
 				"role":    "assistant",
-				"content": "I will inspect.",
+				"content": content,
 			},
 			"finish_reason": nil,
 		}},
 	})
 	writeOpenAIStreamChunk(t, w, map[string]any{
-		"id":      "chatcmpl-agent-loop-1",
+		"id":      completionID,
 		"object":  "chat.completion.chunk",
 		"created": 1700000000,
 		"model":   agentLoopE2EModel,
@@ -218,11 +364,11 @@ func writeAgentLoopToolCallStream(t *testing.T, w http.ResponseWriter, shellArgs
 			"delta": map[string]any{
 				"tool_calls": []map[string]any{{
 					"index": 0,
-					"id":    "call-shell-e2e",
+					"id":    toolCallID,
 					"type":  "function",
 					"function": map[string]any{
-						"name":      "shell_exec",
-						"arguments": shellArgs,
+						"name":      toolName,
+						"arguments": toolArgs,
 					},
 				}},
 			},
@@ -230,7 +376,7 @@ func writeAgentLoopToolCallStream(t *testing.T, w http.ResponseWriter, shellArgs
 		}},
 	})
 	writeOpenAIStreamChunk(t, w, map[string]any{
-		"id":      "chatcmpl-agent-loop-1",
+		"id":      completionID,
 		"object":  "chat.completion.chunk",
 		"created": 1700000000,
 		"model":   agentLoopE2EModel,
@@ -238,6 +384,37 @@ func writeAgentLoopToolCallStream(t *testing.T, w http.ResponseWriter, shellArgs
 			"index":         0,
 			"delta":         map[string]any{},
 			"finish_reason": "tool_calls",
+		}},
+	})
+	fmt.Fprint(w, "data: [DONE]\n\n")
+	flushSSE(w)
+}
+
+func writeAgentLoopTerminalFinalAnswerStream(t *testing.T, w http.ResponseWriter) {
+	t.Helper()
+	writeOpenAIStreamChunk(t, w, map[string]any{
+		"id":      "chatcmpl-agent-loop-terminal-3",
+		"object":  "chat.completion.chunk",
+		"created": 1700000002,
+		"model":   agentLoopE2EModel,
+		"choices": []map[string]any{{
+			"index": 0,
+			"delta": map[string]any{
+				"role":    "assistant",
+				"content": "Terminal tools completed.",
+			},
+			"finish_reason": nil,
+		}},
+	})
+	writeOpenAIStreamChunk(t, w, map[string]any{
+		"id":      "chatcmpl-agent-loop-terminal-3",
+		"object":  "chat.completion.chunk",
+		"created": 1700000002,
+		"model":   agentLoopE2EModel,
+		"choices": []map[string]any{{
+			"index":         0,
+			"delta":         map[string]any{},
+			"finish_reason": "stop",
 		}},
 	})
 	fmt.Fprint(w, "data: [DONE]\n\n")
@@ -364,4 +541,33 @@ func requestHasToolResult(body map[string]any, toolCallID, contentSubstring stri
 		}
 	}
 	return false
+}
+
+func terminalIDFromToolResult(body map[string]any, toolCallID string) string {
+	content := toolResultContent(body, toolCallID)
+	for _, field := range strings.Fields(content) {
+		if strings.HasPrefix(field, "terminal_id=") {
+			return strings.TrimPrefix(field, "terminal_id=")
+		}
+	}
+	return "missing-terminal-id"
+}
+
+func toolResultContent(body map[string]any, toolCallID string) string {
+	messages, ok := body["messages"].([]any)
+	if !ok {
+		return ""
+	}
+	for _, rawMessage := range messages {
+		msg, ok := rawMessage.(map[string]any)
+		if !ok {
+			continue
+		}
+		if msg["role"] != "tool" || msg["tool_call_id"] != toolCallID {
+			continue
+		}
+		content, _ := msg["content"].(string)
+		return content
+	}
+	return ""
 }
