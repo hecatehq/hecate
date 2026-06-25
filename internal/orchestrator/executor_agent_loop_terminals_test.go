@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/hecatehq/hecate/internal/workspace"
 )
 
 func TestAgentLoopTerminalTools_OpenWaitCapturesOutput(t *testing.T) {
@@ -192,6 +194,60 @@ func TestAgentLoopTerminalTools_WaitTimeoutKeepsTerminalRunning(t *testing.T) {
 	}
 }
 
+func TestAgentLoopTerminalTools_WaitDrainsOutputBeforeSnapshot(t *testing.T) {
+	term := &waitDrainTerminal{
+		output: make(chan workspace.OutputChunk),
+		waited: make(chan struct{}),
+	}
+	session := &agentLoopTerminalSession{
+		id:         "terminal-1",
+		nativeID:   "term_1",
+		command:    "sh",
+		terminal:   term,
+		outputDone: make(chan struct{}),
+		running:    true,
+	}
+	terminals := newAgentLoopTerminals()
+	terminals.sessions[session.id] = session
+	go session.consumeOutput()
+
+	type waitResult struct {
+		snap     agentLoopTerminalSnapshot
+		timedOut bool
+		err      error
+	}
+	done := make(chan waitResult, 1)
+	go func() {
+		snap, timedOut, err := terminals.Wait(context.Background(), session.id, 2000)
+		done <- waitResult{snap: snap, timedOut: timedOut, err: err}
+	}()
+
+	<-term.waited
+	select {
+	case result := <-done:
+		t.Fatalf("Wait returned before output drained: snap=%+v timedOut=%v err=%v", result.snap, result.timedOut, result.err)
+	default:
+	}
+
+	term.output <- workspace.OutputChunk{Stream: "stdout", Text: "drained-output\n"}
+	close(term.output)
+
+	select {
+	case result := <-done:
+		if result.err != nil || result.timedOut {
+			t.Fatalf("Wait result err=%v timedOut=%v, want clean exit", result.err, result.timedOut)
+		}
+		if result.snap.Running || result.snap.ExitCode == nil || *result.snap.ExitCode != 0 {
+			t.Fatalf("Wait snapshot = %+v, want exited terminal", result.snap)
+		}
+		if !strings.Contains(result.snap.Output, "drained-output") {
+			t.Fatalf("Wait snapshot output = %q, want drained output", result.snap.Output)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Wait did not return after output channel drained")
+	}
+}
+
 func newAgentLoopTerminalSpec(t *testing.T) ExecutionSpec {
 	t.Helper()
 	spec := newAgentLoopSpec(t)
@@ -200,3 +256,23 @@ func newAgentLoopTerminalSpec(t *testing.T) ExecutionSpec {
 	spec.Task.SandboxAllowedRoot = dir
 	return spec
 }
+
+type waitDrainTerminal struct {
+	output chan workspace.OutputChunk
+	waited chan struct{}
+}
+
+func (t *waitDrainTerminal) ID() string { return "term_1" }
+
+func (t *waitDrainTerminal) Output() <-chan workspace.OutputChunk { return t.output }
+
+func (t *waitDrainTerminal) Write(context.Context, string) error { return nil }
+
+func (t *waitDrainTerminal) WaitForExit(context.Context) (workspace.Result, error) {
+	close(t.waited)
+	return workspace.Result{ExitCode: 0}, nil
+}
+
+func (t *waitDrainTerminal) Kill(context.Context) error { return nil }
+
+func (t *waitDrainTerminal) Close(context.Context) error { return nil }

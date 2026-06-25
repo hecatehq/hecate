@@ -35,6 +35,7 @@ type agentLoopTerminalSession struct {
 	args       []string
 	workingDir string
 	terminal   workspace.Terminal
+	outputDone chan struct{}
 
 	mu        sync.Mutex
 	output    []byte
@@ -196,6 +197,7 @@ func (t *agentLoopTerminals) Open(ctx context.Context, spec ExecutionSpec, args 
 		args:       append([]string(nil), args.Args...),
 		workingDir: firstNonEmpty(args.WorkingDirectory, "."),
 		terminal:   term,
+		outputDone: make(chan struct{}),
 		running:    true,
 	}
 	t.mu.Lock()
@@ -238,9 +240,11 @@ func (t *agentLoopTerminals) Wait(ctx context.Context, id string, timeoutMS int)
 			return session.Snapshot(agentLoopTerminalDefaultReadBytes), true, nil
 		}
 		session.markDone(result.ExitCode, err)
+		session.waitOutputDrained(waitCtx)
 		return session.Snapshot(agentLoopTerminalDefaultReadBytes), false, err
 	}
 	session.markDone(result.ExitCode, nil)
+	session.waitOutputDrained(waitCtx)
 	return session.Snapshot(agentLoopTerminalDefaultReadBytes), false, nil
 }
 
@@ -257,8 +261,10 @@ func (t *agentLoopTerminals) Kill(ctx context.Context, id string) (agentLoopTerm
 	result, err := session.terminal.WaitForExit(waitCtx)
 	if err == nil {
 		session.markDone(result.ExitCode, nil)
+		session.waitOutputDrained(waitCtx)
 	} else if waitCtx.Err() == nil {
 		session.markDone(result.ExitCode, err)
+		session.waitOutputDrained(waitCtx)
 	}
 	return session.Snapshot(agentLoopTerminalDefaultReadBytes), nil
 }
@@ -285,8 +291,21 @@ func (t *agentLoopTerminals) lookup(id string) (*agentLoopTerminalSession, bool)
 }
 
 func (s *agentLoopTerminalSession) consumeOutput() {
+	if s.outputDone != nil {
+		defer close(s.outputDone)
+	}
 	for chunk := range s.terminal.Output() {
 		s.appendOutput(chunk)
+	}
+}
+
+func (s *agentLoopTerminalSession) waitOutputDrained(ctx context.Context) {
+	if s.outputDone == nil {
+		return
+	}
+	select {
+	case <-s.outputDone:
+	case <-ctx.Done():
 	}
 }
 
