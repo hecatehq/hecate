@@ -135,11 +135,9 @@ func TestAcpChatClientTerminalToolOutputPreviewSurvivesRemoval(t *testing.T) {
 	if !ok || preview != "terminal output" {
 		t.Fatalf("terminalToolOutputPreview(active) = %q, %v; want retained active output", preview, ok)
 	}
-	removed, err := client.removeTerminal("term_123")
-	if err != nil {
+	if _, err := client.removeTerminal("term_123"); err != nil {
 		t.Fatalf("removeTerminal: %v", err)
 	}
-	client.rememberTerminalPreview(removed)
 
 	preview, ok = client.terminalToolOutputPreview("term_123")
 	if !ok || preview != "terminal output" {

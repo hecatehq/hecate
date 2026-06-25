@@ -479,6 +479,12 @@ func (c *acpChatClient) removeTerminal(id string) (*acpTerminal, error) {
 	if item == nil {
 		return nil, fmt.Errorf("terminal %q not found", id)
 	}
+	if preview := terminalOutputPreview(item); strings.TrimSpace(preview) != "" {
+		if c.terminalPreviews == nil {
+			c.terminalPreviews = make(map[string]string)
+		}
+		c.terminalPreviews[item.id] = preview
+	}
 	delete(c.terminals, id)
 	return item, nil
 }
