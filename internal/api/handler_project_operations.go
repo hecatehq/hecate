@@ -100,8 +100,19 @@ func (h *Handler) renderProjectOperationsBrief(ctx context.Context, projectID st
 	if !ok {
 		return ProjectOperationsBriefResponse{}, projects.ErrNotFound
 	}
-	if h.projectOperationsUseCairnlineReadModel() {
+	if h.projectReadRoutesUseCairnlineReadModel() {
 		return h.renderCairnlineProjectOperationsBrief(ctx, project)
+	}
+	return h.renderNativeProjectOperationsBrief(ctx, project)
+}
+
+func (h *Handler) renderNativeProjectOperationsBriefByID(ctx context.Context, projectID string) (ProjectOperationsBriefResponse, error) {
+	project, ok, err := h.projects.Get(ctx, projectID)
+	if err != nil {
+		return ProjectOperationsBriefResponse{}, err
+	}
+	if !ok {
+		return ProjectOperationsBriefResponse{}, projects.ErrNotFound
 	}
 	return h.renderNativeProjectOperationsBrief(ctx, project)
 }

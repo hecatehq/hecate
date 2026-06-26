@@ -32,10 +32,10 @@ func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendS
 		readReady, sourceWarnings := h.cairnlineReadModelReadiness()
 		response.ReadModelSwitchReady = readReady
 		if readReady {
-			response.Status = "cairnline_operations_read_route_ready"
-			response.Detail = "Cairnline is configured as the future Projects coordination backend, and the operations brief read route is served from the Cairnline read model. Hecate stores remain authoritative until the remaining live read routes, writes, and migration are ready."
+			response.Status = "cairnline_read_routes_ready"
+			response.Detail = "Cairnline is configured as the future Projects coordination backend, and the activity and operations brief read routes are served from the Cairnline read model. Hecate stores remain authoritative until the remaining live read routes, writes, and migration are ready."
 			response.Warnings = []string{
-				"Only the project operations brief live read route uses Cairnline.",
+				"Only the project activity and operations brief live read routes use Cairnline.",
 				"Other project APIs still read and write Hecate-native stores.",
 				"Cairnline write adapter and migration path are not ready.",
 			}

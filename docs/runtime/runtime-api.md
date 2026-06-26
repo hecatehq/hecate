@@ -2202,8 +2202,9 @@ flows against Cairnline without UI-local fallback state. When
 `configured_backend=cairnline`, Hecate still serves live Projects APIs from the
 current Hecate-native stores. `read_model_switch_ready=true` means the
 Cairnline read adapter is wired well enough to project the full current Hecate
-project graph. In that state, the project operations brief can be served from
-the Cairnline read model, while other live Projects reads still use Hecate.
+project graph. In that state, the project activity inbox and operations brief
+can be served from the Cairnline read model, while other live Projects reads
+still use Hecate.
 `write_adapter_ready=false` means writes and migration are still Hecate-owned.
 
 Example response:
@@ -2219,10 +2220,10 @@ Example response:
     "cairnline_authoritative": false,
     "read_model_switch_ready": true,
     "write_adapter_ready": false,
-    "status": "cairnline_operations_read_route_ready",
-    "detail": "Cairnline is configured as the future Projects coordination backend, and the operations brief read route is served from the Cairnline read model. Hecate stores remain authoritative until the remaining live read routes, writes, and migration are ready.",
+    "status": "cairnline_read_routes_ready",
+    "detail": "Cairnline is configured as the future Projects coordination backend, and the activity and operations brief read routes are served from the Cairnline read model. Hecate stores remain authoritative until the remaining live read routes, writes, and migration are ready.",
     "warnings": [
-      "Only the project operations brief live read route uses Cairnline.",
+      "Only the project activity and operations brief live read routes use Cairnline.",
       "Other project APIs still read and write Hecate-native stores.",
       "Cairnline write adapter and migration path are not ready."
     ],
@@ -2691,12 +2692,19 @@ The top-level envelope follows the Hecate-native convention:
 
 Activity items are exposed through `data.recent` and the `data.buckets`
 collections. There is no top-level `data.items` list.
+When `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and the backend status
+reports `read_model_switch_ready=true`, this endpoint uses the Cairnline read
+model for the portable assignment activity set and then enriches those rows with
+Hecate runtime, linked chat, artifact, handoff, and cockpit bucket metadata.
+`read_backend` identifies the source of the assignment activity read model, not
+a full Projects backend switch.
 
 ```json
 {
   "object": "project_activity",
   "data": {
     "project_id": "proj_...",
+    "read_backend": "hecate",
     "summary": {
       "work_item_count": 3,
       "assignment_count": 5,
