@@ -141,11 +141,11 @@ func TestProjectCairnlineExportAPI_WritesRefreshableSQLiteExport(t *testing.T) {
 	if readModel.Data.WorkItemCount != 1 || readModel.Data.AssignmentCount != 1 || readModel.Data.ArtifactCount != 2 || readModel.Data.HandoffCount != 1 || readModel.Data.MemoryEntryCount != 1 || readModel.Data.MemoryCandidateCount != 1 {
 		t.Fatalf("read model counts = %+v, want bridged project counts", readModel.Data)
 	}
-	if readModel.Data.Operations.Status != cairnline.ProjectOperationsStatusAttention || readModel.Data.Operations.Counts.ActiveAssignments != 1 || readModel.Data.Operations.Counts.PendingMemoryCandidates != 1 || readModel.Data.Operations.Counts.OpenHandoffs != 1 {
-		t.Fatalf("read model operations = %+v, want active assignment, pending memory, and handoff attention", readModel.Data.Operations)
+	if readModel.Data.Operations.Status != cairnline.ProjectOperationsStatusAttention || readModel.Data.Operations.Counts.ActiveAssignments != 0 || readModel.Data.Operations.Counts.BlockedAssignments != 1 || readModel.Data.Operations.Counts.PendingMemoryCandidates != 1 || readModel.Data.Operations.Counts.OpenHandoffs != 1 {
+		t.Fatalf("read model operations = %+v, want blocked queued assignment, pending memory, and handoff attention", readModel.Data.Operations)
 	}
-	if readModel.Data.Activity.Counts.Assignments != 1 || readModel.Data.Activity.Counts.Active != 1 || readModel.Data.Activity.Counts.Queued != 1 || len(readModel.Data.Activity.Buckets.Active) != 1 || readModel.Data.Activity.Buckets.Active[0].AssignmentID != assignment.Data.ID {
-		t.Fatalf("read model activity = %+v, want queued assignment activity", readModel.Data.Activity)
+	if readModel.Data.Activity.Counts.Assignments != 1 || readModel.Data.Activity.Counts.Active != 0 || readModel.Data.Activity.Counts.Blocked != 1 || readModel.Data.Activity.Counts.Queued != 1 || len(readModel.Data.Activity.Buckets.Blocked) != 1 || readModel.Data.Activity.Buckets.Blocked[0].AssignmentID != assignment.Data.ID {
+		t.Fatalf("read model activity = %+v, want blocked queued assignment activity", readModel.Data.Activity)
 	}
 	if _, err := os.Stat(filepath.Join(dataDir, "cairnline")); !os.IsNotExist(err) {
 		t.Fatalf("read-model export dir stat error = %v, want not exist before export", err)
@@ -154,18 +154,20 @@ func TestProjectCairnlineExportAPI_WritesRefreshableSQLiteExport(t *testing.T) {
 	if parity.Object != "project_cairnline_parity_report" || parity.Data.ProjectID != projectID {
 		t.Fatalf("parity envelope = %+v, want project_cairnline_parity_report for project", parity)
 	}
-	if parity.Data.Match {
-		t.Fatalf("parity report = %+v, want queued-assignment bucket drift surfaced before replacement", parity.Data)
+	if !parity.Data.Match {
+		t.Fatalf("parity report = %+v, want queued-assignment semantics aligned", parity.Data)
 	}
 	if parity.Data.Hecate.Activity.WorkItems != 1 || parity.Data.Hecate.Activity.Assignments != 1 || parity.Data.Cairnline.Activity.WorkItems != 1 || parity.Data.Cairnline.Activity.Assignments != 1 {
 		t.Fatalf("parity activity counts = hecate %+v cairnline %+v, want matching work/assignment counts", parity.Data.Hecate.Activity, parity.Data.Cairnline.Activity)
 	}
+	if parity.Data.Hecate.Activity.Active != 0 || parity.Data.Cairnline.Activity.Active != 0 || parity.Data.Hecate.Activity.Blocked != 1 || parity.Data.Cairnline.Activity.Blocked != 1 {
+		t.Fatalf("parity activity buckets = hecate %+v cairnline %+v, want matching blocked queued assignment counts", parity.Data.Hecate.Activity, parity.Data.Cairnline.Activity)
+	}
 	if parity.Data.Hecate.Operations.PendingMemoryCandidates != 1 || parity.Data.Cairnline.Operations.PendingMemoryCandidates != 1 || parity.Data.Hecate.Operations.OpenHandoffs != 1 || parity.Data.Cairnline.Operations.OpenHandoffs != 1 {
 		t.Fatalf("parity operations counts = hecate %+v cairnline %+v, want matching memory and handoff counts", parity.Data.Hecate.Operations, parity.Data.Cairnline.Operations)
 	}
-	if !hasProjectCairnlineParityDifferenceForTest(parity.Data.Differences, "activity.active", 0, 1) ||
-		!hasProjectCairnlineParityDifferenceForTest(parity.Data.Differences, "activity.blocked", 1, 0) {
-		t.Fatalf("parity differences = %+v, want queued-assignment active/blocked drift", parity.Data.Differences)
+	if len(parity.Data.Differences) != 0 {
+		t.Fatalf("parity differences = %+v, want none for aligned queued assignment semantics", parity.Data.Differences)
 	}
 	if _, err := os.Stat(filepath.Join(dataDir, "cairnline")); !os.IsNotExist(err) {
 		t.Fatalf("parity export dir stat error = %v, want not exist before export", err)
@@ -205,15 +207,15 @@ func TestProjectCairnlineExportAPI_WritesRefreshableSQLiteExport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ProjectOperationsBrief from exported DB: %v", err)
 	}
-	if brief.Status != cairnline.ProjectOperationsStatusAttention || brief.Next == nil || brief.Counts.Assignments != 1 || brief.Counts.ActiveAssignments != 1 || brief.Counts.PendingMemoryCandidates != 1 || brief.Counts.OpenHandoffs != 1 {
-		t.Fatalf("operations brief = %+v, want exported active assignment, pending memory, and handoff attention", brief)
+	if brief.Status != cairnline.ProjectOperationsStatusAttention || brief.Next == nil || brief.Counts.Assignments != 1 || brief.Counts.ActiveAssignments != 0 || brief.Counts.BlockedAssignments != 1 || brief.Counts.PendingMemoryCandidates != 1 || brief.Counts.OpenHandoffs != 1 {
+		t.Fatalf("operations brief = %+v, want exported blocked queued assignment, pending memory, and handoff attention", brief)
 	}
 	activity, err := service.ProjectActivity(t.Context(), projectID)
 	if err != nil {
 		t.Fatalf("ProjectActivity from exported DB: %v", err)
 	}
-	if activity.Counts.Assignments != 1 || activity.Counts.Active != 1 || activity.Counts.Queued != 1 || len(activity.Buckets.Active) != 1 || activity.Buckets.Active[0].AssignmentID != assignment.Data.ID {
-		t.Fatalf("activity = %+v, want exported queued assignment activity", activity)
+	if activity.Counts.Assignments != 1 || activity.Counts.Active != 0 || activity.Counts.Blocked != 1 || activity.Counts.Queued != 1 || len(activity.Buckets.Blocked) != 1 || activity.Buckets.Blocked[0].AssignmentID != assignment.Data.ID {
+		t.Fatalf("activity = %+v, want exported blocked queued assignment activity", activity)
 	}
 }
 
@@ -234,13 +236,4 @@ func TestProjectCairnlineExportAPI_MissingProjectDoesNotCreateExportDir(t *testi
 	if _, err := os.Stat(filepath.Join(dataDir, "cairnline")); !os.IsNotExist(err) {
 		t.Fatalf("export dir stat error = %v, want not exist", err)
 	}
-}
-
-func hasProjectCairnlineParityDifferenceForTest(items []ProjectCairnlineParityDifference, path string, hecate, cairnline int) bool {
-	for _, item := range items {
-		if item.Path == path && item.Hecate == hecate && item.Cairnline == cairnline {
-			return true
-		}
-	}
-	return false
 }
