@@ -2221,9 +2221,9 @@ Example response:
     "read_model_switch_ready": true,
     "write_adapter_ready": false,
     "status": "cairnline_read_routes_ready",
-    "detail": "Cairnline is configured as the future Projects coordination backend, and the work-item, activity, readiness, and operations brief read routes are served from the Cairnline read model. Hecate stores remain authoritative until the remaining live read routes, writes, and migration are ready.",
+    "detail": "Cairnline is configured as the future Projects coordination backend, and the setup-readiness, work-item, activity, closeout-readiness, and operations brief read routes are served from the Cairnline read model. Hecate stores remain authoritative until the remaining live read routes, writes, and migration are ready.",
     "warnings": [
-      "Only the project work-item, activity, readiness, and operations brief live read routes use Cairnline.",
+      "Only the project setup-readiness, work-item, activity, closeout-readiness, and operations brief live read routes use Cairnline.",
       "Other project APIs still read and write Hecate-native stores.",
       "Cairnline write adapter and migration path are not ready."
     ],
@@ -2960,6 +2960,11 @@ The endpoint does not create tasks, runs, chats, proposals, roles, work items,
 memory entries, memory candidates, or skills. Checklist actions route the
 operator to existing typed surfaces: Project Settings, Project Assistant setup,
 or explicit work-item creation.
+When `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and the backend status
+reports `read_model_switch_ready=true`, the portable setup counts are read from
+the Cairnline read model and then projected into Hecate's setup checklist/action
+contract. Hecate still owns Hecate-specific provider/model default checks.
+`read_backend` identifies the setup-state read-model source.
 
 ```json
 {
@@ -2967,6 +2972,7 @@ or explicit work-item creation.
   "data": {
     "project_id": "proj_...",
     "generated_at": "2026-06-20T12:00:00Z",
+    "read_backend": "hecate",
     "show_onboarding": true,
     "setup_started": false,
     "first_work_ready": false,
