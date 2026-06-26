@@ -17,6 +17,7 @@ type ProjectWorkItemReadinessEnvelope struct {
 type ProjectWorkItemReadinessResponse struct {
 	ProjectID                    string                                  `json:"project_id"`
 	WorkItemID                   string                                  `json:"work_item_id"`
+	ReadBackend                  string                                  `json:"read_backend,omitempty"`
 	Ready                        bool                                    `json:"ready"`
 	Status                       string                                  `json:"status"`
 	Title                        string                                  `json:"title"`
@@ -59,6 +60,9 @@ func (h *Handler) HandleProjectWorkItemReadiness(w http.ResponseWriter, r *http.
 }
 
 func (h *Handler) renderProjectWorkItemReadiness(ctx context.Context, projectID, workItemID string) (ProjectWorkItemReadinessResponse, error) {
+	if h.projectReadRoutesUseCairnlineReadModel() {
+		return h.renderCairnlineProjectWorkItemReadiness(ctx, projectID, workItemID)
+	}
 	readiness, err := h.projectWorkApplication().WorkItemReadiness(ctx, projectID, workItemID)
 	if err != nil {
 		return ProjectWorkItemReadinessResponse{}, err
@@ -70,6 +74,7 @@ func renderProjectWorkItemReadiness(readiness projectworkapp.WorkItemReadiness) 
 	return ProjectWorkItemReadinessResponse{
 		ProjectID:                    readiness.ProjectID,
 		WorkItemID:                   readiness.WorkItemID,
+		ReadBackend:                  "hecate",
 		Ready:                        readiness.Ready,
 		Status:                       readiness.Status,
 		Title:                        readiness.Title,
