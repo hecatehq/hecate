@@ -214,6 +214,7 @@ Assignment {
   project_id
   work_item_id
   role_id
+  root_id?
   profile_id?
   execution_profile_id?
   execution_mode: "manual" | "mcp_pull" | "external_adapter" | "orchestrated"
