@@ -79,11 +79,11 @@ func TestSeedMirrorsProjectWorkIntoCairnline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ProjectOperationsBrief() error = %v", err)
 	}
-	if brief.Status != cairnline.ProjectOperationsStatusAttention || brief.Next == nil || brief.Next.Kind != cairnline.ProjectOperationKindReviewFollowUp {
-		t.Fatalf("operations brief = %+v, want review follow-up next", brief)
+	if brief.Status != cairnline.ProjectOperationsStatusAttention || brief.Next == nil || brief.Next.Kind != cairnline.ProjectOperationKindAssignment || brief.Next.AssignmentID != "asgn_bridge" {
+		t.Fatalf("operations brief = %+v, want queued assignment next", brief)
 	}
-	if brief.Counts.Assignments != 2 || brief.Counts.ActiveAssignments != 1 || brief.Counts.PendingMemoryCandidates != 1 || brief.Counts.ReviewFollowUps != 1 || brief.Counts.OpenHandoffs != 1 || brief.Counts.MissingEvidence != 0 {
-		t.Fatalf("operations counts = %+v, want active assignment, memory candidate, review follow-up, and open handoff", brief.Counts)
+	if brief.Counts.Assignments != 2 || brief.Counts.ActiveAssignments != 0 || brief.Counts.BlockedAssignments != 1 || brief.Counts.PendingMemoryCandidates != 1 || brief.Counts.ReviewFollowUps != 1 || brief.Counts.OpenHandoffs != 1 || brief.Counts.MissingEvidence != 0 {
+		t.Fatalf("operations counts = %+v, want blocked queued assignment, memory candidate, review follow-up, and open handoff", brief.Counts)
 	}
 	if !hasCairnlineOperation(brief.Items, cairnline.ProjectOperationKindAssignment, "work_bridge", "asgn_bridge") ||
 		!hasCairnlineOperation(brief.Items, cairnline.ProjectOperationKindHandoff, "work_bridge", "handoff_review") ||
@@ -94,12 +94,12 @@ func TestSeedMirrorsProjectWorkIntoCairnline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ProjectActivity() error = %v", err)
 	}
-	if activity.Counts.Assignments != 2 || activity.Counts.Active != 1 || activity.Counts.Completed != 1 || len(activity.Buckets.Active) != 1 || len(activity.Buckets.Completed) != 1 {
-		t.Fatalf("activity = %+v, want active and completed assignment buckets", activity)
+	if activity.Counts.Assignments != 2 || activity.Counts.Active != 0 || activity.Counts.Blocked != 1 || activity.Counts.Completed != 1 || len(activity.Buckets.Blocked) != 1 || len(activity.Buckets.Completed) != 1 {
+		t.Fatalf("activity = %+v, want blocked and completed assignment buckets", activity)
 	}
-	if !hasCairnlineActivity(activity.Items, cairnline.ProjectActivityBucketActive, "work_bridge", "asgn_bridge") ||
+	if !hasCairnlineActivity(activity.Items, cairnline.ProjectActivityBucketBlocked, "work_bridge", "asgn_bridge") ||
 		!hasCairnlineActivity(activity.Items, cairnline.ProjectActivityBucketCompleted, "work_bridge", "asgn_external") {
-		t.Fatalf("activity items = %+v, want active Hecate task and completed external assignment", activity.Items)
+		t.Fatalf("activity items = %+v, want blocked queued assignment and completed external assignment", activity.Items)
 	}
 	candidates, err := service.ListMemoryCandidates(ctx, cairnline.MemoryCandidateFilter{ProjectID: "proj_hecate", IncludeResolved: true})
 	if err != nil {
@@ -173,12 +173,12 @@ func TestProjectActivityFromStores(t *testing.T) {
 	if loaded.Project.ID != snapshot.Project.ID || len(loaded.Assignments) != len(snapshot.Assignments) {
 		t.Fatalf("loaded snapshot = %+v, want project and assignment state", loaded)
 	}
-	if activity.Counts.Assignments != 2 || activity.Counts.Active != 1 || activity.Counts.Completed != 1 {
-		t.Fatalf("activity counts = %+v, want seeded active/completed assignments", activity.Counts)
+	if activity.Counts.Assignments != 2 || activity.Counts.Active != 0 || activity.Counts.Blocked != 1 || activity.Counts.Completed != 1 {
+		t.Fatalf("activity counts = %+v, want seeded blocked/completed assignments", activity.Counts)
 	}
-	if !hasCairnlineActivity(activity.Items, cairnline.ProjectActivityBucketActive, "work_bridge", "asgn_bridge") ||
+	if !hasCairnlineActivity(activity.Items, cairnline.ProjectActivityBucketBlocked, "work_bridge", "asgn_bridge") ||
 		!hasCairnlineActivity(activity.Items, cairnline.ProjectActivityBucketCompleted, "work_bridge", "asgn_external") {
-		t.Fatalf("activity items = %+v, want active and completed assignment metadata", activity.Items)
+		t.Fatalf("activity items = %+v, want blocked and completed assignment metadata", activity.Items)
 	}
 }
 
@@ -196,10 +196,10 @@ func TestProjectOperationsBriefFromStores(t *testing.T) {
 	if loaded.Project.ID != snapshot.Project.ID || len(loaded.Assignments) != len(snapshot.Assignments) {
 		t.Fatalf("loaded snapshot = %+v, want project and assignment state", loaded)
 	}
-	if brief.Status != cairnline.ProjectOperationsStatusAttention || brief.Next == nil || brief.Next.Kind != cairnline.ProjectOperationKindReviewFollowUp {
-		t.Fatalf("operations brief = %+v, want review follow-up attention from seeded Hecate stores", brief)
+	if brief.Status != cairnline.ProjectOperationsStatusAttention || brief.Next == nil || brief.Next.Kind != cairnline.ProjectOperationKindAssignment || brief.Next.AssignmentID != "asgn_bridge" {
+		t.Fatalf("operations brief = %+v, want queued assignment attention from seeded Hecate stores", brief)
 	}
-	if brief.Counts.Assignments != 2 || brief.Counts.ActiveAssignments != 1 || brief.Counts.PendingMemoryCandidates != 1 || brief.Counts.OpenHandoffs != 1 {
+	if brief.Counts.Assignments != 2 || brief.Counts.ActiveAssignments != 0 || brief.Counts.BlockedAssignments != 1 || brief.Counts.PendingMemoryCandidates != 1 || brief.Counts.OpenHandoffs != 1 {
 		t.Fatalf("operations counts = %+v, want assignment, memory, and handoff parity", brief.Counts)
 	}
 }
@@ -255,14 +255,14 @@ func TestSeedProjectFromStoresPersistsToCairnlineSQLite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopened ProjectOperationsBrief() error = %v", err)
 	}
-	if brief.Counts.Assignments != 2 || brief.Counts.ActiveAssignments != 1 || brief.Counts.PendingMemoryCandidates != 1 || brief.Counts.OpenHandoffs != 1 {
+	if brief.Counts.Assignments != 2 || brief.Counts.ActiveAssignments != 0 || brief.Counts.BlockedAssignments != 1 || brief.Counts.PendingMemoryCandidates != 1 || brief.Counts.OpenHandoffs != 1 {
 		t.Fatalf("reopened operations counts = %+v, want persisted operations parity", brief.Counts)
 	}
 	activity, err := reopened.ProjectActivity(ctx, snapshot.Project.ID)
 	if err != nil {
 		t.Fatalf("reopened ProjectActivity() error = %v", err)
 	}
-	if activity.Counts.Assignments != 2 || activity.Counts.Active != 1 || activity.Counts.Completed != 1 || len(activity.Buckets.Recent) != 2 {
+	if activity.Counts.Assignments != 2 || activity.Counts.Active != 0 || activity.Counts.Blocked != 1 || activity.Counts.Completed != 1 || len(activity.Buckets.Recent) != 2 {
 		t.Fatalf("reopened activity = %+v, want persisted activity parity", activity)
 	}
 }

@@ -118,6 +118,11 @@ SQLite export under Hecate's data directory. Both use the same bridge and are
 useful for inspecting replacement parity, but they are still proofs, not the
 live Projects backend.
 
+Current read-model parity includes queued-assignment attention semantics:
+Hecate and Cairnline both count a queued assignment as blocked/attention rather
+than active work. The parity report remains valuable for finding later drift,
+but this known bucket mismatch is closed.
+
 Hecate is ready to replace its internal Projects backend with Cairnline only
 after these gates are met:
 
