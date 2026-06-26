@@ -300,16 +300,28 @@ func Review(artifact projectwork.CollaborationArtifact) (cairnline.Review, bool)
 
 func Handoff(handoff projectwork.Handoff) cairnline.Handoff {
 	return cairnline.Handoff{
-		ID:         strings.TrimSpace(handoff.ID),
-		ProjectID:  strings.TrimSpace(handoff.ProjectID),
-		WorkItemID: strings.TrimSpace(handoff.WorkItemID),
-		FromRoleID: strings.TrimSpace(handoff.CreatedByRoleID),
-		ToRoleID:   strings.TrimSpace(handoff.TargetRoleID),
-		Title:      strings.TrimSpace(handoff.Title),
-		Body:       handoffBody(handoff),
-		Status:     cairnline.HandoffStatusOpen,
-		CreatedAt:  handoff.CreatedAt,
-		UpdatedAt:  handoff.UpdatedAt,
+		ID:                    strings.TrimSpace(handoff.ID),
+		ProjectID:             strings.TrimSpace(handoff.ProjectID),
+		WorkItemID:            strings.TrimSpace(handoff.WorkItemID),
+		SourceAssignmentID:    strings.TrimSpace(handoff.SourceAssignmentID),
+		SourceRunID:           strings.TrimSpace(handoff.SourceRunID),
+		SourceChatSessionID:   strings.TrimSpace(handoff.SourceChatSessionID),
+		SourceMessageID:       strings.TrimSpace(handoff.SourceMessageID),
+		FromRoleID:            strings.TrimSpace(handoff.CreatedByRoleID),
+		ToRoleID:              strings.TrimSpace(handoff.TargetRoleID),
+		TargetAssignmentID:    strings.TrimSpace(handoff.TargetAssignmentID),
+		TargetWorkItemID:      strings.TrimSpace(handoff.TargetWorkItemID),
+		Title:                 strings.TrimSpace(handoff.Title),
+		Body:                  firstNonEmpty(strings.TrimSpace(handoff.Summary), handoffBody(handoff)),
+		RecommendedNextAction: strings.TrimSpace(handoff.RecommendedNextAction),
+		LinkedArtifactIDs:     compactStrings(handoff.LinkedArtifactIDs),
+		LinkedMemoryIDs:       compactStrings(handoff.LinkedMemoryIDs),
+		ContextRefs:           compactStrings(handoff.ContextRefs),
+		Status:                HandoffStatus(handoff.Status),
+		ProvenanceKind:        strings.TrimSpace(handoff.ProvenanceKind),
+		TrustLabel:            strings.TrimSpace(handoff.TrustLabel),
+		CreatedAt:             handoff.CreatedAt,
+		UpdatedAt:             handoff.UpdatedAt,
 	}
 }
 
@@ -425,6 +437,19 @@ func MemoryCandidateStatus(status string) string {
 		return cairnline.MemoryCandidateRejected
 	default:
 		return cairnline.MemoryCandidatePending
+	}
+}
+
+func HandoffStatus(status string) string {
+	switch strings.TrimSpace(status) {
+	case projectwork.HandoffStatusAccepted:
+		return cairnline.HandoffStatusAccepted
+	case projectwork.HandoffStatusSuperseded:
+		return cairnline.HandoffStatusSuperseded
+	case projectwork.HandoffStatusDismissed:
+		return cairnline.HandoffStatusDismissed
+	default:
+		return cairnline.HandoffStatusOpen
 	}
 }
 
