@@ -171,6 +171,13 @@ func TestProjectCairnlineExportAPI_WritesRefreshableSQLiteExport(t *testing.T) {
 	if brief.Status != cairnline.ProjectOperationsStatusAttention || brief.Next == nil || brief.Counts.Assignments != 1 || brief.Counts.ActiveAssignments != 1 || brief.Counts.PendingMemoryCandidates != 1 || brief.Counts.OpenHandoffs != 1 {
 		t.Fatalf("operations brief = %+v, want exported active assignment, pending memory, and handoff attention", brief)
 	}
+	activity, err := service.ProjectActivity(t.Context(), projectID)
+	if err != nil {
+		t.Fatalf("ProjectActivity from exported DB: %v", err)
+	}
+	if activity.Counts.Assignments != 1 || activity.Counts.Active != 1 || activity.Counts.Queued != 1 || len(activity.Buckets.Active) != 1 || activity.Buckets.Active[0].AssignmentID != assignment.Data.ID {
+		t.Fatalf("activity = %+v, want exported queued assignment activity", activity)
+	}
 }
 
 func TestProjectCairnlineExportAPI_MissingProjectDoesNotCreateExportDir(t *testing.T) {
