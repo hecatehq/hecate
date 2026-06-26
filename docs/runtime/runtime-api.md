@@ -2188,9 +2188,11 @@ The response reports the scoped records Hecate cleaned up:
 Local-only experimental bridge endpoint. It loads the selected project from
 Hecate's authoritative Projects stores, seeds an in-memory Cairnline service,
 and returns Cairnline's portable read projections for the project without
-writing an export database. The seeded project preserves root and
-`default_root_id` metadata so replacement-readiness checks exercise Hecate's
-workspace-resolution inputs.
+writing an export database. The seeded project preserves roots,
+`default_root_id`, and context-source provenance metadata including source
+format, scope, category, trust label, and metadata labels so
+replacement-readiness checks exercise Hecate's workspace and context-control
+inputs.
 
 The response is useful for replacement-readiness checks: it shows whether
 Cairnline can reconstruct the portable operations brief and activity inbox from
@@ -2310,7 +2312,8 @@ Example response:
 
 Local-only experimental bridge endpoint. It loads the selected project from
 Hecate's authoritative Projects stores and writes a refreshable Cairnline SQLite
-export that preserves root and `default_root_id` metadata at:
+export that preserves roots, `default_root_id`, and context-source provenance
+metadata at:
 
 ```text
 {HECATE_DATA_DIR}/cairnline/projects/{safe_project_id}.db
