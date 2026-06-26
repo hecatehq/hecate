@@ -330,6 +330,44 @@ type ProjectCairnlineReadModelResponseItem struct {
 	Activity             cairnline.ProjectActivity        `json:"activity"`
 }
 
+type ProjectCairnlineParityReportResponse struct {
+	Object string                                   `json:"object"`
+	Data   ProjectCairnlineParityReportResponseItem `json:"data"`
+}
+
+type ProjectCairnlineParityReportResponseItem struct {
+	ProjectID   string                             `json:"project_id"`
+	Match       bool                               `json:"match"`
+	Differences []ProjectCairnlineParityDifference `json:"differences,omitempty"`
+	Hecate      ProjectCairnlineParitySnapshot     `json:"hecate"`
+	Cairnline   ProjectCairnlineParitySnapshot     `json:"cairnline"`
+}
+
+type ProjectCairnlineParitySnapshot struct {
+	Activity   ProjectCairnlineActivityParityCounts   `json:"activity"`
+	Operations ProjectCairnlineOperationsParityCounts `json:"operations"`
+}
+
+type ProjectCairnlineActivityParityCounts struct {
+	WorkItems   int `json:"work_items"`
+	Assignments int `json:"assignments"`
+	Active      int `json:"active"`
+	Blocked     int `json:"blocked"`
+	Completed   int `json:"completed"`
+	Recent      int `json:"recent"`
+}
+
+type ProjectCairnlineOperationsParityCounts struct {
+	PendingMemoryCandidates int `json:"pending_memory_candidates"`
+	OpenHandoffs            int `json:"open_handoffs"`
+}
+
+type ProjectCairnlineParityDifference struct {
+	Path      string `json:"path"`
+	Hecate    int    `json:"hecate"`
+	Cairnline int    `json:"cairnline"`
+}
+
 type AgentProfileResponse struct {
 	Object string                   `json:"object"`
 	Data   AgentProfileResponseItem `json:"data"`
