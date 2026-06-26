@@ -182,6 +182,7 @@ type ProjectWorkItemEnvelope struct {
 type ProjectWorkItemResponse struct {
 	ID              string                          `json:"id"`
 	ProjectID       string                          `json:"project_id"`
+	ReadBackend     string                          `json:"read_backend,omitempty"`
 	Title           string                          `json:"title"`
 	Brief           string                          `json:"brief,omitempty"`
 	Status          string                          `json:"status"`
@@ -417,25 +418,10 @@ func (h *Handler) HandleProjectWorkItems(w http.ResponseWriter, r *http.Request)
 	if !h.requireProject(w, r, projectID) {
 		return
 	}
-	items, err := h.projectWork.ListWorkItems(r.Context(), projectID)
+	data, err := h.renderProjectWorkItems(r.Context(), projectID)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
-	}
-	assignments, err := h.projectWork.ListAssignments(r.Context(), projectwork.AssignmentFilter{ProjectID: projectID})
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
-	assignmentsByWorkItem := groupProjectWorkAssignmentsByWorkItem(assignments)
-	data := make([]ProjectWorkItemResponse, 0, len(items))
-	for _, item := range items {
-		projected, err := h.renderProjectedProjectWorkItemWithAssignments(r.Context(), item, assignmentsByWorkItem[item.ID])
-		if err != nil {
-			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-			return
-		}
-		data = append(data, projected)
 	}
 	WriteJSON(w, http.StatusOK, ProjectWorkItemsResponse{Object: "project_work_items", Data: data})
 }
@@ -478,6 +464,19 @@ func (h *Handler) HandleProjectWorkItem(w http.ResponseWriter, r *http.Request) 
 	if !h.requireProject(w, r, projectID) {
 		return
 	}
+	if h.projectReadRoutesUseCairnlineReadModel() {
+		projected, err := h.renderCairnlineProjectWorkItem(r.Context(), projectID, r.PathValue("work_item_id"))
+		if err != nil {
+			if errors.Is(err, projectwork.ErrNotFound) {
+				WriteError(w, http.StatusNotFound, errCodeNotFound, "work item not found")
+				return
+			}
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+			return
+		}
+		WriteJSON(w, http.StatusOK, ProjectWorkItemEnvelope{Object: "project_work_item", Data: projected})
+		return
+	}
 	item, ok, err := h.projectWork.GetWorkItem(r.Context(), projectID, r.PathValue("work_item_id"))
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
@@ -492,6 +491,7 @@ func (h *Handler) HandleProjectWorkItem(w http.ResponseWriter, r *http.Request) 
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
+	projected.ReadBackend = "hecate"
 	WriteJSON(w, http.StatusOK, ProjectWorkItemEnvelope{Object: "project_work_item", Data: projected})
 }
 

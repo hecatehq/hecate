@@ -2221,9 +2221,9 @@ Example response:
     "read_model_switch_ready": true,
     "write_adapter_ready": false,
     "status": "cairnline_read_routes_ready",
-    "detail": "Cairnline is configured as the future Projects coordination backend, and the activity and operations brief read routes are served from the Cairnline read model. Hecate stores remain authoritative until the remaining live read routes, writes, and migration are ready.",
+    "detail": "Cairnline is configured as the future Projects coordination backend, and the work-item, activity, readiness, and operations brief read routes are served from the Cairnline read model. Hecate stores remain authoritative until the remaining live read routes, writes, and migration are ready.",
     "warnings": [
-      "Only the project activity and operations brief live read routes use Cairnline.",
+      "Only the project work-item, activity, readiness, and operations brief live read routes use Cairnline.",
       "Other project APIs still read and write Hecate-native stores.",
       "Cairnline write adapter and migration path are not ready."
     ],
@@ -3298,6 +3298,10 @@ summaries in `assignments` when assignments exist, so callers can render list
 status/count signals without issuing one assignment request per work item.
 The nested assignment objects use the same shape as
 `GET /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments`.
+When `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and the backend status
+reports `read_model_switch_ready=true`, the work-item set is read from the
+Cairnline read model and then enriched with Hecate runtime assignment
+projection. `read_backend` identifies that read-model source.
 
 #### `POST /hecate/v1/projects/{id}/work-items`
 
@@ -3325,6 +3329,7 @@ Returns:
   "data": {
     "id": "work_...",
     "project_id": "proj_...",
+    "read_backend": "hecate",
     "title": "Backend substrate",
     "brief": "Persist coordination metadata only.",
     "status": "ready",
@@ -3340,7 +3345,9 @@ Returns:
 
 #### `GET /hecate/v1/projects/{id}/work-items/{work_item_id}`
 
-Returns one work item or `404 not_found`.
+Returns one work item or `404 not_found`. Under the same Cairnline read-route
+switch described above, the selected work item is read from Cairnline and
+enriched with Hecate assignment runtime projection.
 
 #### `GET /hecate/v1/projects/{id}/work-items/{work_item_id}/readiness`
 
@@ -3359,6 +3366,7 @@ operator still applies the durable `status="done"` mutation through
   "data": {
     "project_id": "proj_...",
     "work_item_id": "work_...",
+    "read_backend": "hecate",
     "ready": false,
     "status": "blocked",
     "title": "Closeout is blocked",
