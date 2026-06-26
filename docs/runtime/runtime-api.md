@@ -2202,9 +2202,10 @@ flows against Cairnline without UI-local fallback state. When
 `configured_backend=cairnline`, Hecate still serves live Projects APIs from the
 current Hecate-native stores. `read_model_switch_ready=true` means the
 Cairnline read adapter is wired well enough to project the full current Hecate
-project graph. In that state, the project activity inbox and operations brief
-can be served from the Cairnline read model, while other live Projects reads
-still use Hecate.
+project graph. In that state, project setup readiness, project health, work
+items, assignment lists, closeout readiness, activity inbox, and operations
+brief can be served from the Cairnline read model, while other live Projects
+reads still use Hecate.
 `write_adapter_ready=false` means writes and migration are still Hecate-owned.
 
 Example response:
@@ -2221,9 +2222,9 @@ Example response:
     "read_model_switch_ready": true,
     "write_adapter_ready": false,
     "status": "cairnline_read_routes_ready",
-    "detail": "Cairnline is configured as the future Projects coordination backend, and the setup-readiness, work-item, assignment-list, activity, closeout-readiness, and operations brief read routes are served from the Cairnline read model. Hecate stores remain authoritative until the remaining live read routes, writes, and migration are ready.",
+    "detail": "Cairnline is configured as the future Projects coordination backend, and the setup-readiness, health, work-item, assignment-list, activity, closeout-readiness, and operations brief read routes are served from the Cairnline read model. Hecate stores remain authoritative until the remaining live read routes, writes, and migration are ready.",
     "warnings": [
-      "Only the project setup-readiness, work-item, assignment-list, activity, closeout-readiness, and operations brief live read routes use Cairnline.",
+      "Only the project setup-readiness, health, work-item, assignment-list, activity, closeout-readiness, and operations brief live read routes use Cairnline.",
       "Other project APIs still read and write Hecate-native stores.",
       "Cairnline write adapter and migration path are not ready."
     ],
@@ -2874,6 +2875,11 @@ This endpoint does not create tasks, runs, chats, assignments, handoffs,
 proposals, memory entries, or memory candidates. It is a bounded projection over
 durable project state; durable changes still go through the typed project,
 memory, work, role, skill, and Project Assistant apply endpoints.
+When `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and the backend status
+reports `read_model_switch_ready=true`, portable health inputs are read from
+the Cairnline read model and then projected into Hecate's health/attention
+contract. Hecate still owns Hecate-specific provider/model default checks and
+action shapes. `read_backend` identifies the health-state read-model source.
 
 The five-item cap is applied after the server's attention derivation order. The
 summary reports returned, available, omitted, and limit counts so clients can
@@ -2885,6 +2891,7 @@ show when lower-priority attention rows are hidden.
   "data": {
     "project_id": "proj_...",
     "generated_at": "2026-06-20T12:00:00Z",
+    "read_backend": "hecate",
     "summary": {
       "attention_count": 2,
       "available_attention_count": 2,
