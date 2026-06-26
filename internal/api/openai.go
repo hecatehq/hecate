@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/agentcontrols"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -307,6 +308,26 @@ type ProjectCairnlineExportResponseItem struct {
 	HandoffCount         int    `json:"handoff_count"`
 	MemoryEntryCount     int    `json:"memory_entry_count"`
 	MemoryCandidateCount int    `json:"memory_candidate_count"`
+}
+
+type ProjectCairnlineReadModelResponse struct {
+	Object string                                `json:"object"`
+	Data   ProjectCairnlineReadModelResponseItem `json:"data"`
+}
+
+type ProjectCairnlineReadModelResponseItem struct {
+	ProjectID            string                           `json:"project_id"`
+	AgentProfileCount    int                              `json:"agent_profile_count"`
+	SkillCount           int                              `json:"skill_count"`
+	RoleCount            int                              `json:"role_count"`
+	WorkItemCount        int                              `json:"work_item_count"`
+	AssignmentCount      int                              `json:"assignment_count"`
+	ArtifactCount        int                              `json:"artifact_count"`
+	HandoffCount         int                              `json:"handoff_count"`
+	MemoryEntryCount     int                              `json:"memory_entry_count"`
+	MemoryCandidateCount int                              `json:"memory_candidate_count"`
+	Operations           cairnline.ProjectOperationsBrief `json:"operations"`
+	Activity             cairnline.ProjectActivity        `json:"activity"`
 }
 
 type AgentProfileResponse struct {

@@ -2183,6 +2183,74 @@ The response reports the scoped records Hecate cleaned up:
 }
 ```
 
+### `GET /hecate/v1/projects/{id}/cairnline/read-model`
+
+Local-only experimental bridge endpoint. It loads the selected project from
+Hecate's authoritative Projects stores, seeds an in-memory Cairnline service,
+and returns Cairnline's portable read projections for the project without
+writing an export database.
+
+The response is useful for replacement-readiness checks: it shows whether
+Cairnline can reconstruct the portable operations brief and activity inbox from
+current Hecate state. It does not make Cairnline authoritative, does not proxy
+live Projects reads or writes, and does not migrate Hecate's stores.
+
+Example response:
+
+```json
+{
+  "object": "project_cairnline_read_model",
+  "data": {
+    "project_id": "proj_...",
+    "agent_profile_count": 4,
+    "skill_count": 3,
+    "role_count": 6,
+    "work_item_count": 2,
+    "assignment_count": 5,
+    "artifact_count": 4,
+    "handoff_count": 1,
+    "memory_entry_count": 3,
+    "memory_candidate_count": 2,
+    "operations": {
+      "project_id": "proj_...",
+      "status": "attention",
+      "title": "Project needs attention",
+      "counts": {
+        "work_items": 2,
+        "open_work_items": 1,
+        "assignments": 5,
+        "active_assignments": 1,
+        "blocked_assignments": 0,
+        "pending_memory_candidates": 2,
+        "review_follow_ups": 0,
+        "missing_evidence": 1,
+        "open_handoffs": 1,
+        "closeout_ready": 0
+      }
+    },
+    "activity": {
+      "project_id": "proj_...",
+      "counts": {
+        "assignments": 5,
+        "queued": 1,
+        "completed": 3,
+        "active": 1
+      },
+      "buckets": {
+        "active": [
+          {
+            "bucket": "active",
+            "assignment_id": "asgn_...",
+            "work_item_id": "work_...",
+            "status": "queued"
+          }
+        ]
+      }
+    }
+  }
+}
+```
+
 ### `POST /hecate/v1/projects/{id}/cairnline/export`
 
 Local-only experimental bridge endpoint. It loads the selected project from
