@@ -36,6 +36,7 @@ type ProjectOperationsBriefEnvelope struct {
 type ProjectOperationsBriefResponse struct {
 	ProjectID   string                                `json:"project_id"`
 	GeneratedAt string                                `json:"generated_at"`
+	ReadBackend string                                `json:"read_backend,omitempty"`
 	Summary     ProjectOperationsBriefSummaryResponse `json:"summary"`
 	Items       []ProjectOperationsBriefItemResponse  `json:"items"`
 }
@@ -99,6 +100,14 @@ func (h *Handler) renderProjectOperationsBrief(ctx context.Context, projectID st
 	if !ok {
 		return ProjectOperationsBriefResponse{}, projects.ErrNotFound
 	}
+	if h.projectOperationsUseCairnlineReadModel() {
+		return h.renderCairnlineProjectOperationsBrief(ctx, project)
+	}
+	return h.renderNativeProjectOperationsBrief(ctx, project)
+}
+
+func (h *Handler) renderNativeProjectOperationsBrief(ctx context.Context, project projects.Project) (ProjectOperationsBriefResponse, error) {
+	projectID := project.ID
 	activity, err := h.renderProjectActivity(ctx, projectID)
 	if err != nil {
 		return ProjectOperationsBriefResponse{}, err
@@ -143,8 +152,9 @@ func (h *Handler) renderProjectOperationsBrief(ctx context.Context, projectID st
 	availableItemCount := len(items)
 	items = boundedProjectOperationsItems(items, projectOperationsBriefItemLimit)
 	response := ProjectOperationsBriefResponse{
-		ProjectID:   projectID,
+		ProjectID:   project.ID,
 		GeneratedAt: formatOptionalTime(time.Now().UTC()),
+		ReadBackend: "hecate",
 		Items:       items,
 	}
 	response.Summary.ItemCount = len(items)

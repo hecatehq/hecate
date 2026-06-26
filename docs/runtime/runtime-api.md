@@ -2202,9 +2202,9 @@ flows against Cairnline without UI-local fallback state. When
 `configured_backend=cairnline`, Hecate still serves live Projects APIs from the
 current Hecate-native stores. `read_model_switch_ready=true` means the
 Cairnline read adapter is wired well enough to project the full current Hecate
-project graph for replacement-readiness checks; it does not mean live Projects
-reads have switched. `write_adapter_ready=false` means writes and migration are
-still Hecate-owned.
+project graph. In that state, the project operations brief can be served from
+the Cairnline read model, while other live Projects reads still use Hecate.
+`write_adapter_ready=false` means writes and migration are still Hecate-owned.
 
 Example response:
 
@@ -2219,10 +2219,11 @@ Example response:
     "cairnline_authoritative": false,
     "read_model_switch_ready": true,
     "write_adapter_ready": false,
-    "status": "cairnline_read_adapter_ready",
-    "detail": "Cairnline is configured as the future Projects coordination backend, and the read adapter can project current Hecate stores. Hecate stores remain authoritative until live read routing, writes, and migration are ready.",
+    "status": "cairnline_operations_read_route_ready",
+    "detail": "Cairnline is configured as the future Projects coordination backend, and the operations brief read route is served from the Cairnline read model. Hecate stores remain authoritative until the remaining live read routes, writes, and migration are ready.",
     "warnings": [
-      "Live project APIs still read and write Hecate-native stores.",
+      "Only the project operations brief live read route uses Cairnline.",
+      "Other project APIs still read and write Hecate-native stores.",
       "Cairnline write adapter and migration path are not ready."
     ],
     "replacement_readiness_url": "/hecate/v1/projects/{id}/cairnline/read-model"
@@ -3049,6 +3050,7 @@ where the operator reviews the typed proposal before any durable mutation.
   "data": {
     "project_id": "proj_...",
     "generated_at": "2026-06-20T12:00:00Z",
+    "read_backend": "hecate",
     "summary": {
       "item_count": 2,
       "available_item_count": 2,
@@ -3113,6 +3115,12 @@ The response is a convenience contract for operator workspaces, not a new
 durable planner. Project Activity remains the source for live assignment
 buckets, Project Assistant remains the proposal author, and assignment start
 still goes through preflight and explicit operator confirmation.
+When `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and the backend status
+reports `read_model_switch_ready=true`, this endpoint uses the Cairnline read
+model for portable work operations and then projects those items into Hecate's
+existing cockpit action contract. Hecate-specific setup/defaults items and
+client actions remain Hecate-owned, so `read_backend` identifies the source of
+the work-operations read model rather than a full Projects backend switch.
 Items are capped after sorting by priority, then an explicit operation-kind
 urgency rank, then recency, then id. This keeps blocked or waiting work ahead of
 setup gaps, handoffs ahead of memory triage, and active/completion hygiene below
