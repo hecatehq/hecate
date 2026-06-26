@@ -94,8 +94,9 @@ Hecate project-shaped records:
 - project identity, roots, and context-source metadata;
 - agent profiles and execution posture;
 - skills metadata, roles, work items, and root-scoped assignments;
-- collaboration evidence links, reviews, handoffs, accepted memory entries, and
-  memory candidates with decision state.
+- collaboration evidence links, reviews, handoffs with source/target refs and
+  linked artifacts/memory/context, accepted memory entries, and memory
+  candidates with decision state.
 
 This bridge proves the portable Cairnline model can receive the core
 coordination graph and produce assignment launch packets with the expected
