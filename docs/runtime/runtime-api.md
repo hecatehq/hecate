@@ -2200,8 +2200,11 @@ being built.
 `authoritative_backend` remains `hecate` until Hecate can run project read/write
 flows against Cairnline without UI-local fallback state. When
 `configured_backend=cairnline`, Hecate still serves live Projects APIs from the
-current Hecate-native stores; the Cairnline bridge endpoints remain
-replacement-readiness proofs.
+current Hecate-native stores. `read_model_switch_ready=true` means the
+Cairnline read adapter is wired well enough to project the full current Hecate
+project graph for replacement-readiness checks; it does not mean live Projects
+reads have switched. `write_adapter_ready=false` means writes and migration are
+still Hecate-owned.
 
 Example response:
 
@@ -2214,13 +2217,13 @@ Example response:
     "storage_backend": "sqlite",
     "cairnline_bridge_ready": true,
     "cairnline_authoritative": false,
-    "read_model_switch_ready": false,
+    "read_model_switch_ready": true,
     "write_adapter_ready": false,
-    "status": "cairnline_configured_inactive",
-    "detail": "Cairnline is configured as the future Projects coordination backend, but Hecate stores remain authoritative until the feature-flagged adapter and migration path land.",
+    "status": "cairnline_read_adapter_ready",
+    "detail": "Cairnline is configured as the future Projects coordination backend, and the read adapter can project current Hecate stores. Hecate stores remain authoritative until live read routing, writes, and migration are ready.",
     "warnings": [
-      "Project reads and writes still use Hecate-native stores.",
-      "Cairnline bridge endpoints are replacement-readiness proofs, not the live backend."
+      "Live project APIs still read and write Hecate-native stores.",
+      "Cairnline write adapter and migration path are not ready."
     ],
     "replacement_readiness_url": "/hecate/v1/projects/{id}/cairnline/read-model"
   }
