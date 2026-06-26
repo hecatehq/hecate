@@ -944,7 +944,11 @@ function AdapterStatusRow({
             </span>
           )}
         </div>
-        <AdapterCapabilitiesSummary adapter={adapter} health={health} />
+        <AdapterCapabilitiesSummary
+          adapter={adapter}
+          health={health}
+          remoteRuntime={remoteRuntime}
+        />
         {showHealthDetail && health && detail && (
           <div
             data-testid={`external-agents-adapter-${adapter.id}-detail`}
@@ -1087,41 +1091,64 @@ function AdapterStatusRow({
 function AdapterCapabilitiesSummary({
   adapter,
   health,
+  remoteRuntime,
 }: {
   adapter: AgentAdapterRecord;
   health: AgentAdapterHealthRecord | null;
+  remoteRuntime: boolean;
 }) {
   const capabilities = visibleAdapterCapabilities(adapter, health);
+  const showTerminalPolicy = capabilities.some(
+    (capability) => capability.id === "terminal_rpc" && capability.status === "operator_opt_in",
+  );
   if (!capabilities.length) return null;
   return (
-    <div
-      data-testid={`external-agents-adapter-${adapter.id}-capabilities`}
-      aria-label={`${adapter.name || adapter.id} ACP capabilities`}
-      style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 7 }}
-    >
-      {capabilities.map((capability) => {
-        const suffix = capabilityStatusSuffix(capability.status);
-        return (
-          <span
-            key={capability.id}
-            title={capability.description}
-            style={{
-              border: "1px solid var(--border)",
-              borderRadius: 6,
-              color: "var(--t2)",
-              fontFamily: "var(--font-mono)",
-              fontSize: 10,
-              lineHeight: 1.25,
-              padding: "3px 6px",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {capability.name || capability.id}
-            {suffix && <span style={{ color: "var(--t3)" }}> · {suffix}</span>}
-          </span>
-        );
-      })}
-    </div>
+    <>
+      <div
+        data-testid={`external-agents-adapter-${adapter.id}-capabilities`}
+        aria-label={`${adapter.name || adapter.id} ACP capabilities`}
+        style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 7 }}
+      >
+        {capabilities.map((capability) => {
+          const suffix = capabilityStatusSuffix(capability.status);
+          return (
+            <span
+              key={capability.id}
+              title={capability.description}
+              style={{
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                color: "var(--t2)",
+                fontFamily: "var(--font-mono)",
+                fontSize: 10,
+                lineHeight: 1.25,
+                padding: "3px 6px",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {capability.name || capability.id}
+              {suffix && <span style={{ color: "var(--t3)" }}> · {suffix}</span>}
+            </span>
+          );
+        })}
+      </div>
+      {showTerminalPolicy && (
+        <div
+          data-testid={`external-agents-adapter-${adapter.id}-terminal-policy`}
+          style={{ marginTop: 5, fontSize: 11, color: "var(--t3)", lineHeight: 1.4 }}
+        >
+          ACP terminals are disabled until policy flags are enabled:{" "}
+          <code>HECATE_AGENT_ADAPTER_TERMINALS=1</code>
+          {remoteRuntime && (
+            <>
+              {" "}
+              and <code>HECATE_REMOTE_ALLOW_ACP_TERMINALS=1</code>
+            </>
+          )}
+          <span>. Terminal creation still requires External Agent approval.</span>
+        </div>
+      )}
+    </>
   );
 }
 

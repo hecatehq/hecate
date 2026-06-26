@@ -544,11 +544,18 @@ describe("Connections external-agent panel", () => {
     });
     render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
 
-    const capabilities = await screen.findByTestId("external-agents-adapter-codex-capabilities");
+    const row = await screen.findByTestId("external-agents-adapter-codex");
+    const capabilities = within(row).getByTestId("external-agents-adapter-codex-capabilities");
     expect(within(capabilities).getByText("sessions")).toBeTruthy();
     expect(within(capabilities).getByText("permissions")).toBeTruthy();
     expect(within(capabilities).getByText(/config/)).toHaveTextContent("if advertised");
     expect(within(capabilities).getByText(/terminal RPC/)).toHaveTextContent("opt-in");
+    expect(
+      within(row).getByTestId("external-agents-adapter-codex-terminal-policy"),
+    ).toHaveTextContent("HECATE_AGENT_ADAPTER_TERMINALS=1");
+    expect(
+      within(row).getByTestId("external-agents-adapter-codex-terminal-policy"),
+    ).not.toHaveTextContent("HECATE_REMOTE_ALLOW_ACP_TERMINALS");
     expect(within(capabilities).queryByText("login")).toBeNull();
     expect(within(capabilities).queryByText("logout")).toBeNull();
   });
@@ -828,6 +835,7 @@ describe("Connections external-agent panel", () => {
               cost_mode: "external",
               supports_authenticate: true,
               supports_logout: true,
+              capabilities: [capability("terminal_rpc", "terminal RPC", "operator_opt_in")],
             },
           ],
         }),
@@ -838,6 +846,9 @@ describe("Connections external-agent panel", () => {
       expect(
         within(row).getByTestId("external-agents-adapter-codex-auth-policy"),
       ).toHaveTextContent("Local ACP login/logout actions are disabled in remote runtime");
+      expect(
+        within(row).getByTestId("external-agents-adapter-codex-terminal-policy"),
+      ).toHaveTextContent("HECATE_REMOTE_ALLOW_ACP_TERMINALS=1");
       expect(within(row).queryByRole("button", { name: /Sign in Codex/i })).toBeNull();
       expect(within(row).queryByRole("button", { name: /Sign out Codex/i })).toBeNull();
     });
