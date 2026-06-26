@@ -266,15 +266,16 @@ func Evidence(artifact projectwork.CollaborationArtifact) (cairnline.Evidence, b
 		return cairnline.Evidence{}, false
 	}
 	return cairnline.Evidence{
-		ID:         strings.TrimSpace(artifact.ID),
-		ProjectID:  strings.TrimSpace(artifact.ProjectID),
-		WorkItemID: strings.TrimSpace(artifact.WorkItemID),
-		Title:      strings.TrimSpace(artifact.Title),
-		Body:       strings.TrimSpace(artifact.Body),
-		Locator:    firstNonEmpty(strings.TrimSpace(artifact.EvidenceURL), strings.TrimSpace(artifact.EvidenceExternalID)),
-		TrustLabel: firstNonEmpty(strings.TrimSpace(artifact.EvidenceTrustLabel), projectwork.EvidenceTrustOperatorProvided),
-		CreatedAt:  artifact.CreatedAt,
-		UpdatedAt:  artifact.UpdatedAt,
+		ID:           strings.TrimSpace(artifact.ID),
+		ProjectID:    strings.TrimSpace(artifact.ProjectID),
+		WorkItemID:   strings.TrimSpace(artifact.WorkItemID),
+		AssignmentID: strings.TrimSpace(artifact.AssignmentID),
+		Title:        strings.TrimSpace(artifact.Title),
+		Body:         strings.TrimSpace(artifact.Body),
+		Locator:      firstNonEmpty(strings.TrimSpace(artifact.EvidenceURL), strings.TrimSpace(artifact.EvidenceExternalID)),
+		TrustLabel:   firstNonEmpty(strings.TrimSpace(artifact.EvidenceTrustLabel), projectwork.EvidenceTrustOperatorProvided),
+		CreatedAt:    artifact.CreatedAt,
+		UpdatedAt:    artifact.UpdatedAt,
 	}, true
 }
 
