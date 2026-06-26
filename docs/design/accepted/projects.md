@@ -106,11 +106,14 @@ state. It deliberately does not switch storage, proxy live API requests, replace
 Hecate task/external-agent execution, migrate existing local data, or make
 Cairnline authoritative.
 
-For operator-triggered experiments, Hecate exposes a local-only
-`POST /hecate/v1/projects/{id}/cairnline/export` endpoint that writes a
-refreshable Cairnline SQLite export under Hecate's data directory. The export
-uses the same bridge and is useful for inspecting replacement parity, but it is
-still an artifact, not the live Projects backend.
+For operator-triggered experiments, Hecate exposes local-only Cairnline bridge
+endpoints. `GET /hecate/v1/projects/{id}/cairnline/read-model` seeds an
+in-memory Cairnline service from the current Hecate stores and returns the
+portable operations brief and activity projection without writing files.
+`POST /hecate/v1/projects/{id}/cairnline/export` writes a refreshable Cairnline
+SQLite export under Hecate's data directory. Both use the same bridge and are
+useful for inspecting replacement parity, but they are still proofs, not the
+live Projects backend.
 
 Hecate is ready to replace its internal Projects backend with Cairnline only
 after these gates are met:
