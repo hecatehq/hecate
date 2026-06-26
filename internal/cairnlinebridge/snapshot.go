@@ -20,6 +20,7 @@ type SnapshotSources struct {
 	AgentProfiles    agentprofiles.Store
 	Skills           projectskills.Store
 	Work             projectwork.Store
+	Memory           memory.Store
 	MemoryCandidates memory.CandidateStore
 }
 
@@ -87,10 +88,19 @@ func LoadSnapshot(ctx context.Context, sources SnapshotSources, projectID string
 		return Snapshot{}, err
 	}
 	var memoryCandidates []memory.Candidate
+	var memoryEntries []memory.Entry
+	if sources.Memory != nil {
+		memoryEntries, err = sources.Memory.List(ctx, memory.Filter{
+			ProjectID:       projectID,
+			IncludeDisabled: true,
+		})
+		if err != nil {
+			return Snapshot{}, err
+		}
+	}
 	if sources.MemoryCandidates != nil {
 		memoryCandidates, err = sources.MemoryCandidates.ListCandidates(ctx, memory.CandidateFilter{
 			ProjectID: projectID,
-			Status:    memory.CandidateStatusPending,
 		})
 		if err != nil {
 			return Snapshot{}, err
@@ -105,6 +115,7 @@ func LoadSnapshot(ctx context.Context, sources SnapshotSources, projectID string
 		Assignments:      assignments,
 		Artifacts:        artifacts,
 		Handoffs:         handoffs,
+		MemoryEntries:    memoryEntries,
 		MemoryCandidates: memoryCandidates,
 	}, nil
 }

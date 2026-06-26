@@ -305,6 +305,7 @@ type ProjectCairnlineExportResponseItem struct {
 	AssignmentCount      int    `json:"assignment_count"`
 	ArtifactCount        int    `json:"artifact_count"`
 	HandoffCount         int    `json:"handoff_count"`
+	MemoryEntryCount     int    `json:"memory_entry_count"`
 	MemoryCandidateCount int    `json:"memory_candidate_count"`
 }
 

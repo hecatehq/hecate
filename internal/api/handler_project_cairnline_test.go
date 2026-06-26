@@ -111,6 +111,19 @@ func TestProjectCairnlineExportAPI_WritesRefreshableSQLiteExport(t *testing.T) {
 		"recommended_next_action": "Inspect the exported launch packet.",
 		"created_by_role_id":      role.Data.ID,
 	}))
+	if _, err := handler.memory.Create(t.Context(), memory.Entry{
+		ID:         "mem_export",
+		Scope:      memory.ScopeProject,
+		ProjectID:  projectID,
+		Title:      "Export replacement gate",
+		Body:       "Cairnline export should preserve accepted project memory.",
+		TrustLabel: memory.TrustLabelOperatorMemory,
+		SourceKind: memory.SourceKindOperator,
+		SourceID:   handoff.Data.ID,
+		Enabled:    true,
+	}); err != nil {
+		t.Fatalf("Create memory entry: %v", err)
+	}
 	mustRequestJSONStatus[ProjectMemoryCandidateResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/memory/candidates", projectJourneyJSON(t, map[string]any{
 		"id":                    "memcand_export",
 		"title":                 "Export gate",
@@ -126,7 +139,7 @@ func TestProjectCairnlineExportAPI_WritesRefreshableSQLiteExport(t *testing.T) {
 	if first.Data.DatabasePath != second.Data.DatabasePath {
 		t.Fatalf("export paths = %q/%q, want refresh to same path", first.Data.DatabasePath, second.Data.DatabasePath)
 	}
-	if second.Data.ProjectID != projectID || second.Data.WorkItemCount != 1 || second.Data.AssignmentCount != 1 || second.Data.ArtifactCount != 2 || second.Data.HandoffCount != 1 || second.Data.MemoryCandidateCount != 1 {
+	if second.Data.ProjectID != projectID || second.Data.WorkItemCount != 1 || second.Data.AssignmentCount != 1 || second.Data.ArtifactCount != 2 || second.Data.HandoffCount != 1 || second.Data.MemoryEntryCount != 1 || second.Data.MemoryCandidateCount != 1 {
 		t.Fatalf("export response = %+v, want project counts", second.Data)
 	}
 	if !filepath.IsAbs(second.Data.DatabasePath) {
@@ -148,8 +161,8 @@ func TestProjectCairnlineExportAPI_WritesRefreshableSQLiteExport(t *testing.T) {
 	if packet.Project.ID != projectID || packet.Assignment.RootID != project.Data.Roots[0].ID {
 		t.Fatalf("packet project/assignment = %+v/%+v, want exported root-scoped assignment", packet.Project, packet.Assignment)
 	}
-	if len(packet.Evidence) != 1 || len(packet.Reviews) != 1 || len(packet.Handoffs) != 1 || len(packet.MemoryCandidates) != 1 {
-		t.Fatalf("packet counts evidence=%d reviews=%d handoffs=%d memory=%d, want all one", len(packet.Evidence), len(packet.Reviews), len(packet.Handoffs), len(packet.MemoryCandidates))
+	if len(packet.Evidence) != 1 || len(packet.Reviews) != 1 || len(packet.Handoffs) != 1 || len(packet.Memory) != 1 || len(packet.MemoryCandidates) != 1 {
+		t.Fatalf("packet counts evidence=%d reviews=%d handoffs=%d memory_entries=%d memory_candidates=%d, want all one", len(packet.Evidence), len(packet.Reviews), len(packet.Handoffs), len(packet.Memory), len(packet.MemoryCandidates))
 	}
 }
 
