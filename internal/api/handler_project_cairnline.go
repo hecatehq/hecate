@@ -96,12 +96,12 @@ func (h *Handler) HandleProjectCairnlineParityReport(w http.ResponseWriter, r *h
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	nativeActivity, err := h.renderProjectActivity(r.Context(), projectID)
+	nativeActivity, err := h.renderNativeProjectActivity(r.Context(), projectID)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	nativeOperations, err := h.renderProjectOperationsBrief(r.Context(), projectID)
+	nativeOperations, err := h.renderNativeProjectOperationsBriefByID(r.Context(), projectID)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return

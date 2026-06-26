@@ -42,7 +42,7 @@ func TestProjectCoordinationBackendStatus_CairnlineConfiguredMissingSources(t *t
 	}
 }
 
-func TestProjectCoordinationBackendStatus_CairnlineConfiguredOperationsReadRouteReady(t *testing.T) {
+func TestProjectCoordinationBackendStatus_CairnlineConfiguredReadRoutesReady(t *testing.T) {
 	handler := NewHandler(config.Config{
 		Projects: config.ProjectsConfig{
 			Backend:             "sqlite",
@@ -51,8 +51,8 @@ func TestProjectCoordinationBackendStatus_CairnlineConfiguredOperationsReadRoute
 	}, quietLogger(), nil, nil, nil, nil)
 
 	status := handler.projectCoordinationBackendStatus()
-	if status.ConfiguredBackend != "cairnline" || status.AuthoritativeBackend != "hecate" || status.Status != "cairnline_operations_read_route_ready" {
-		t.Fatalf("status = %+v, want configured Cairnline with operations read route ready", status)
+	if status.ConfiguredBackend != "cairnline" || status.AuthoritativeBackend != "hecate" || status.Status != "cairnline_read_routes_ready" {
+		t.Fatalf("status = %+v, want configured Cairnline with read routes ready", status)
 	}
 	if status.CairnlineAuthoritative || !status.ReadModelSwitchReady || status.WriteAdapterReady {
 		t.Fatalf("status = %+v, want read adapter ready but Hecate still authoritative", status)
@@ -85,7 +85,7 @@ func TestProjectCoordinationBackendStatusRoute(t *testing.T) {
 	if response.Object != "project_coordination_backend_status" || response.Data.ConfiguredBackend != "cairnline" || response.Data.AuthoritativeBackend != "hecate" {
 		t.Fatalf("response = %+v, want Cairnline configured but Hecate authoritative", response)
 	}
-	if !response.Data.ReadModelSwitchReady || response.Data.Status != "cairnline_operations_read_route_ready" {
-		t.Fatalf("response = %+v, want Cairnline operations read route ready for fully wired test handler", response)
+	if !response.Data.ReadModelSwitchReady || response.Data.Status != "cairnline_read_routes_ready" {
+		t.Fatalf("response = %+v, want Cairnline read routes ready for fully wired test handler", response)
 	}
 }

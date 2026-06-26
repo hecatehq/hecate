@@ -11,7 +11,7 @@ import (
 	"github.com/hecatehq/hecate/internal/projectwork"
 )
 
-func (h *Handler) projectOperationsUseCairnlineReadModel() bool {
+func (h *Handler) projectReadRoutesUseCairnlineReadModel() bool {
 	if h == nil || h.config.ProjectsCoordinationBackend() != "cairnline" {
 		return false
 	}
