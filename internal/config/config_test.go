@@ -432,6 +432,35 @@ func TestValidateRejectsInvalidBackendNames(t *testing.T) {
 	}
 }
 
+func TestLoadFromEnvProjectsCoordinationBackend(t *testing.T) {
+	cfg := LoadFromEnv()
+	if got := cfg.ProjectsCoordinationBackend(); got != "hecate" {
+		t.Fatalf("ProjectsCoordinationBackend() = %q, want hecate", got)
+	}
+
+	t.Setenv("HECATE_PROJECTS_COORDINATION_BACKEND", " Cairnline ")
+	cfg = LoadFromEnv()
+	if got := cfg.ProjectsCoordinationBackend(); got != "cairnline" {
+		t.Fatalf("ProjectsCoordinationBackend() = %q, want cairnline", got)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v, want nil for cairnline coordination backend opt-in", err)
+	}
+}
+
+func TestValidateRejectsInvalidProjectsCoordinationBackend(t *testing.T) {
+	cfg := LoadFromEnv()
+	cfg.Projects.CoordinationBackend = "cairnline_shadow"
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() error = nil, want invalid projects coordination backend error")
+	}
+	if !strings.Contains(err.Error(), "HECATE_PROJECTS_COORDINATION_BACKEND") {
+		t.Fatalf("Validate() error = %q, want HECATE_PROJECTS_COORDINATION_BACKEND", err)
+	}
+}
+
 func TestValidateRejectsPostgresBackendWithoutDatabaseURL(t *testing.T) {
 	cfg := LoadFromEnv()
 	cfg.Server.ControlPlaneBackend = "postgres"

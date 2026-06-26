@@ -226,7 +226,12 @@ type ChatConfig struct {
 }
 
 type ProjectsConfig struct {
-	Backend string
+	Backend             string
+	CoordinationBackend string
+}
+
+func (c Config) ProjectsCoordinationBackend() string {
+	return normalizeProjectsCoordinationBackend(c.Projects.CoordinationBackend)
 }
 
 type OTelSignalConfig struct {
@@ -469,7 +474,8 @@ func LoadFromEnv() Config {
 			SessionsBackend: storageBackend,
 		},
 		Projects: ProjectsConfig{
-			Backend: storageBackend,
+			Backend:             storageBackend,
+			CoordinationBackend: strings.ToLower(strings.TrimSpace(getEnv("HECATE_PROJECTS_COORDINATION_BACKEND", "hecate"))),
 		},
 		OTel: loadOTelFromEnv(),
 		Governor: GovernorConfig{
@@ -553,6 +559,7 @@ func (c Config) Validate() error {
 	for _, backend := range c.storageBackends() {
 		validateBackend("HECATE_BACKEND", backend, "memory", "sqlite", "postgres")
 	}
+	validateBackend("HECATE_PROJECTS_COORDINATION_BACKEND", c.ProjectsCoordinationBackend(), "hecate", "cairnline")
 	if postgresRequired(c) && strings.TrimSpace(c.Postgres.DatabaseURL) == "" {
 		errs = append(errs, errors.New("HECATE_POSTGRES_URL or DATABASE_URL is required when HECATE_BACKEND=postgres"))
 	}
@@ -1126,6 +1133,14 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func normalizeProjectsCoordinationBackend(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return "hecate"
+	}
+	return value
 }
 
 func normalizeValues(values []string) []string {
