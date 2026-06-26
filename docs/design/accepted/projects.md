@@ -91,7 +91,7 @@ It can load Hecate project state from the current project/profile/skills/work
 stores, then seed a memory-backed or SQLite-backed Cairnline service from
 Hecate project-shaped records:
 
-- project identity, roots, and context-source metadata;
+- project identity, roots, default root, and context-source metadata;
 - agent profiles and execution posture;
 - skills metadata, roles, work items, and root-scoped assignments;
 - assignment-scoped collaboration evidence links, reviews, handoffs with

@@ -197,8 +197,8 @@ func TestProjectCairnlineExportAPI_WritesRefreshableSQLiteExport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AssignmentLaunchPacket from exported DB: %v", err)
 	}
-	if packet.Project.ID != projectID || packet.Assignment.RootID != project.Data.Roots[0].ID {
-		t.Fatalf("packet project/assignment = %+v/%+v, want exported root-scoped assignment", packet.Project, packet.Assignment)
+	if packet.Project.ID != projectID || packet.Project.DefaultRootID != project.Data.DefaultRootID || packet.Assignment.RootID != project.Data.Roots[0].ID {
+		t.Fatalf("packet project/assignment = %+v/%+v, want exported default root and root-scoped assignment", packet.Project, packet.Assignment)
 	}
 	if len(packet.Evidence) != 1 || len(packet.Reviews) != 1 || len(packet.Handoffs) != 1 || len(packet.Memory) != 1 || len(packet.MemoryCandidates) != 1 {
 		t.Fatalf("packet counts evidence=%d reviews=%d handoffs=%d memory_entries=%d memory_candidates=%d, want all one", len(packet.Evidence), len(packet.Reviews), len(packet.Handoffs), len(packet.Memory), len(packet.MemoryCandidates))
