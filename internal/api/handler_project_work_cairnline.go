@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/cairnlinebridge"
@@ -29,6 +30,7 @@ func (h *Handler) renderProjectWorkItems(ctx context.Context, projectID string) 
 			return nil, err
 		}
 		projected.ReadBackend = "hecate"
+		markProjectWorkAssignmentReadBackend(projected.Assignments, "hecate")
 		data = append(data, projected)
 	}
 	return data, nil
@@ -51,6 +53,7 @@ func (h *Handler) renderCairnlineProjectWorkItems(ctx context.Context, projectID
 			return nil, err
 		}
 		projected.ReadBackend = "cairnline"
+		markProjectWorkAssignmentReadBackend(projected.Assignments, "cairnline")
 		data = append(data, projected)
 	}
 	return data, nil
@@ -75,9 +78,45 @@ func (h *Handler) renderCairnlineProjectWorkItem(ctx context.Context, projectID,
 			return ProjectWorkItemResponse{}, err
 		}
 		projected.ReadBackend = "cairnline"
+		markProjectWorkAssignmentReadBackend(projected.Assignments, "cairnline")
 		return projected, nil
 	}
 	return ProjectWorkItemResponse{}, projectwork.ErrNotFound
+}
+
+func (h *Handler) renderCairnlineProjectWorkAssignments(ctx context.Context, projectID, workItemID string) ([]ProjectWorkAssignmentResponse, error) {
+	service, snapshot, err := h.cairnlineProjectWorkService(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	items, err := service.ListAssignments(ctx, snapshot.Project.ID)
+	if err != nil {
+		return nil, err
+	}
+	nativeByID := projectWorkAssignmentsByID(snapshot.Assignments)
+	data := make([]ProjectWorkAssignmentResponse, 0, len(items))
+	for _, item := range items {
+		if strings.TrimSpace(item.WorkItemID) != workItemID {
+			continue
+		}
+		assignment := projectWorkAssignmentFromCairnline(item)
+		if native, ok := nativeByID[item.ID]; ok {
+			assignment = native
+		}
+		projected, err := h.renderProjectedProjectWorkAssignment(ctx, assignment)
+		if err != nil {
+			return nil, err
+		}
+		projected.ReadBackend = "cairnline"
+		data = append(data, projected)
+	}
+	return data, nil
+}
+
+func markProjectWorkAssignmentReadBackend(items []ProjectWorkAssignmentResponse, backend string) {
+	for index := range items {
+		items[index].ReadBackend = backend
+	}
 }
 
 func (h *Handler) renderCairnlineProjectWorkItemReadiness(ctx context.Context, projectID, workItemID string) (ProjectWorkItemReadinessResponse, error) {
@@ -117,6 +156,57 @@ func projectWorkItemFromCairnline(item cairnline.WorkItem) projectwork.WorkItem 
 		ReviewerRoleIDs: append([]string(nil), item.ReviewerRoleIDs...),
 		CreatedAt:       item.CreatedAt,
 		UpdatedAt:       item.UpdatedAt,
+	}
+}
+
+func projectWorkAssignmentsByID(items []projectwork.Assignment) map[string]projectwork.Assignment {
+	out := make(map[string]projectwork.Assignment, len(items))
+	for _, item := range items {
+		out[item.ID] = item
+	}
+	return out
+}
+
+func projectWorkAssignmentFromCairnline(item cairnline.Assignment) projectwork.Assignment {
+	return projectwork.Assignment{
+		ID:         item.ID,
+		ProjectID:  item.ProjectID,
+		WorkItemID: item.WorkItemID,
+		RoleID:     item.RoleID,
+		RootID:     item.RootID,
+		DriverKind: projectWorkAssignmentDriverFromCairnline(item.ExecutionMode),
+		Status:     projectWorkAssignmentStatusFromCairnline(item.Status),
+		ExecutionRef: projectwork.NormalizeAssignmentExecutionRef(projectwork.AssignmentExecutionRef{
+			ContextSnapshotID: item.ContextSnapshotID,
+		}),
+		CreatedAt: item.CreatedAt,
+		UpdatedAt: item.UpdatedAt,
+	}
+}
+
+func projectWorkAssignmentDriverFromCairnline(mode string) string {
+	switch strings.TrimSpace(mode) {
+	case cairnline.ExecutionExternalAdapter:
+		return projectwork.AssignmentDriverExternalAgent
+	default:
+		return projectwork.AssignmentDriverHecateTask
+	}
+}
+
+func projectWorkAssignmentStatusFromCairnline(status string) string {
+	switch strings.TrimSpace(status) {
+	case cairnline.AssignmentRunning, cairnline.AssignmentClaimed:
+		return projectwork.AssignmentStatusRunning
+	case cairnline.AssignmentReview:
+		return projectwork.AssignmentStatusAwaitingApproval
+	case cairnline.AssignmentCompleted:
+		return projectwork.AssignmentStatusCompleted
+	case cairnline.AssignmentFailed:
+		return projectwork.AssignmentStatusFailed
+	case cairnline.AssignmentCancelled:
+		return projectwork.AssignmentStatusCancelled
+	default:
+		return projectwork.AssignmentStatusQueued
 	}
 }
 

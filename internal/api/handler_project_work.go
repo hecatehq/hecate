@@ -241,6 +241,7 @@ type ProjectWorkAssignmentResponse struct {
 	ID           string                                     `json:"id"`
 	ProjectID    string                                     `json:"project_id"`
 	WorkItemID   string                                     `json:"work_item_id"`
+	ReadBackend  string                                     `json:"read_backend,omitempty"`
 	RoleID       string                                     `json:"role_id"`
 	RootID       string                                     `json:"root_id,omitempty"`
 	DriverKind   string                                     `json:"driver_kind"`
@@ -492,6 +493,7 @@ func (h *Handler) HandleProjectWorkItem(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	projected.ReadBackend = "hecate"
+	markProjectWorkAssignmentReadBackend(projected.Assignments, "hecate")
 	WriteJSON(w, http.StatusOK, ProjectWorkItemEnvelope{Object: "project_work_item", Data: projected})
 }
 
@@ -544,6 +546,15 @@ func (h *Handler) HandleProjectWorkAssignments(w http.ResponseWriter, r *http.Re
 	if !h.requireProjectWorkItem(w, r, projectID, workItemID) {
 		return
 	}
+	if h.projectReadRoutesUseCairnlineReadModel() {
+		data, err := h.renderCairnlineProjectWorkAssignments(r.Context(), projectID, workItemID)
+		if err != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+			return
+		}
+		WriteJSON(w, http.StatusOK, ProjectWorkAssignmentsResponse{Object: "project_assignments", Data: data})
+		return
+	}
 	items, err := h.projectWork.ListAssignments(r.Context(), projectwork.AssignmentFilter{ProjectID: projectID, WorkItemID: workItemID})
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
@@ -556,6 +567,7 @@ func (h *Handler) HandleProjectWorkAssignments(w http.ResponseWriter, r *http.Re
 			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 			return
 		}
+		projected.ReadBackend = "hecate"
 		data = append(data, projected)
 	}
 	WriteJSON(w, http.StatusOK, ProjectWorkAssignmentsResponse{Object: "project_assignments", Data: data})
