@@ -3143,7 +3143,7 @@ func TestProjectWorkAPI_ProjectWorkItemReadsCairnlineConfiguredUseReadModel(t *t
 	if awaitingListItem.ReadBackend != "cairnline" {
 		t.Fatalf("listed work item read_backend = %q, want cairnline", awaitingListItem.ReadBackend)
 	}
-	if awaitingListItem.Status != projectwork.WorkItemStatusRunning || len(awaitingListItem.Assignments) != 1 || awaitingListItem.Assignments[0].ExecutionRef == nil {
+	if awaitingListItem.Status != projectwork.WorkItemStatusRunning || len(awaitingListItem.Assignments) != 1 || awaitingListItem.Assignments[0].ExecutionRef == nil || awaitingListItem.Assignments[0].ReadBackend != "cairnline" {
 		t.Fatalf("listed work item = %+v, want Hecate runtime projection over Cairnline work item", awaitingListItem)
 	}
 	evidenceListItem := findProjectWorkItemForTest(t, listed.Data, "work_needs_evidence")
@@ -3160,11 +3160,27 @@ func TestProjectWorkAPI_ProjectWorkItemReadsCairnlineConfiguredUseReadModel(t *t
 	if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil {
 		t.Fatalf("decode work item detail: %v", err)
 	}
-	if detail.Data.ReadBackend != "cairnline" || detail.Data.Status != projectwork.WorkItemStatusRunning || len(detail.Data.Assignments) != 1 {
+	if detail.Data.ReadBackend != "cairnline" || detail.Data.Status != projectwork.WorkItemStatusRunning || len(detail.Data.Assignments) != 1 || detail.Data.Assignments[0].ReadBackend != "cairnline" {
 		t.Fatalf("work item detail = %+v, want Cairnline read backend with projected assignment", detail.Data)
 	}
 	if detail.Data.Assignments[0].ExecutionRef == nil || detail.Data.Assignments[0].ExecutionRef.PendingApprovalCount != 1 {
 		t.Fatalf("detail assignment = %+v, want Hecate approval projection", detail.Data.Assignments[0])
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_projection/work-items/work_awaiting/assignments", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list assignments status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var assignments ProjectWorkAssignmentsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &assignments); err != nil {
+		t.Fatalf("decode assignments: %v", err)
+	}
+	if len(assignments.Data) != 1 || assignments.Data[0].ID != "asgn_awaiting" || assignments.Data[0].ReadBackend != "cairnline" {
+		t.Fatalf("assignments = %+v, want Cairnline-backed assignment list", assignments.Data)
+	}
+	if assignments.Data[0].Status != projectwork.AssignmentStatusAwaitingApproval || assignments.Data[0].ExecutionRef == nil || assignments.Data[0].ExecutionRef.PendingApprovalCount != 1 {
+		t.Fatalf("assignment projection = %+v, want Hecate approval projection over Cairnline assignment list", assignments.Data[0])
 	}
 
 	rec = httptest.NewRecorder()
