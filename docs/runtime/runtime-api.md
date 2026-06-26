@@ -2221,9 +2221,9 @@ Example response:
     "read_model_switch_ready": true,
     "write_adapter_ready": false,
     "status": "cairnline_read_routes_ready",
-    "detail": "Cairnline is configured as the future Projects coordination backend, and the setup-readiness, work-item, activity, closeout-readiness, and operations brief read routes are served from the Cairnline read model. Hecate stores remain authoritative until the remaining live read routes, writes, and migration are ready.",
+    "detail": "Cairnline is configured as the future Projects coordination backend, and the setup-readiness, work-item, assignment-list, activity, closeout-readiness, and operations brief read routes are served from the Cairnline read model. Hecate stores remain authoritative until the remaining live read routes, writes, and migration are ready.",
     "warnings": [
-      "Only the project setup-readiness, work-item, activity, closeout-readiness, and operations brief live read routes use Cairnline.",
+      "Only the project setup-readiness, work-item, assignment-list, activity, closeout-readiness, and operations brief live read routes use Cairnline.",
       "Other project APIs still read and write Hecate-native stores.",
       "Cairnline write adapter and migration path are not ready."
     ],
@@ -3424,6 +3424,11 @@ Deletes the work item and its assignments and collaboration artifacts.
 #### `GET /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments`
 
 Lists assignment metadata for a work item.
+When `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and the backend status
+reports `read_model_switch_ready=true`, the assignment set is read from the
+Cairnline read model and then enriched with Hecate runtime execution projection.
+`read_backend` identifies that read-model source. Assignment context,
+preflight, and start/prepare routes remain Hecate-native.
 
 #### `POST /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments`
 
