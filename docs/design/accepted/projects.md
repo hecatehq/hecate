@@ -113,13 +113,14 @@ coordination backend, whether the Cairnline read adapter can project the full
 current Hecate project graph, and whether Cairnline is actually authoritative.
 Today, `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` is a
 replacement-readiness intent flag only: when the current stores are fully wired
-it reports `cairnline_operations_read_route_ready`, and the live project
-operations brief can use the Cairnline read model for portable work operations.
-Hecate stores remain authoritative, Hecate-specific setup/action projection
-remains in Hecate, and other live Projects reads/writes still use the
-Hecate-native API. `GET /hecate/v1/projects/{id}/cairnline/read-model` seeds
-an in-memory Cairnline service from the current Hecate stores and returns the
-portable operations brief and activity projection without writing files.
+it reports `cairnline_read_routes_ready`, and the live project activity inbox
+plus operations brief can use the Cairnline read model for portable assignment
+and work operations. Hecate stores remain authoritative, Hecate-specific
+runtime enrichment and setup/action projection remain in Hecate, and other live
+Projects reads/writes still use the Hecate-native API.
+`GET /hecate/v1/projects/{id}/cairnline/read-model` seeds an in-memory
+Cairnline service from the current Hecate stores and returns the portable
+operations brief and activity projection without writing files.
 `GET /hecate/v1/projects/{id}/cairnline/parity-report` compares Hecate's
 native cockpit counts with that Cairnline read model and returns explicit
 differences, so bucket/status semantics can be fixed before any backend switch.
@@ -141,7 +142,7 @@ after these gates are met:
   artifact, handoff, accepted-memory, and memory-candidate flows.
 - Hecate has feature-flagged adapters that can run all read/write Projects
   flows against Cairnline without UI-local fallback state. The first live read
-  route is the operations brief; activity, setup/context, work detail, and
+  routes are activity and operations brief; setup/context, work detail, and
   write routes still need their own switch points.
 - Import/export or migration covers existing Hecate local stores and can be
   rolled back during alpha.

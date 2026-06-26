@@ -17,10 +17,11 @@ type ProjectActivityEnvelope struct {
 }
 
 type ProjectActivityDataResponse struct {
-	ProjectID string                         `json:"project_id"`
-	Summary   ProjectActivitySummaryResponse `json:"summary"`
-	Buckets   ProjectActivityBucketsResponse `json:"buckets"`
-	Recent    []ProjectActivityItemResponse  `json:"recent"`
+	ProjectID   string                         `json:"project_id"`
+	ReadBackend string                         `json:"read_backend,omitempty"`
+	Summary     ProjectActivitySummaryResponse `json:"summary"`
+	Buckets     ProjectActivityBucketsResponse `json:"buckets"`
+	Recent      []ProjectActivityItemResponse  `json:"recent"`
 }
 
 type ProjectActivitySummaryResponse struct {
@@ -105,6 +106,13 @@ type ProjectActivityHandoffSummaryResponse struct {
 }
 
 func (h *Handler) renderProjectActivity(ctx context.Context, projectID string) (ProjectActivityDataResponse, error) {
+	if h.projectReadRoutesUseCairnlineReadModel() {
+		return h.renderCairnlineProjectActivity(ctx, projectID)
+	}
+	return h.renderNativeProjectActivity(ctx, projectID)
+}
+
+func (h *Handler) renderNativeProjectActivity(ctx context.Context, projectID string) (ProjectActivityDataResponse, error) {
 	roles, err := h.projectWork.ListRoles(ctx, projectID)
 	if err != nil {
 		return ProjectActivityDataResponse{}, err
@@ -161,8 +169,9 @@ func (h *Handler) renderProjectActivity(ctx context.Context, projectID string) (
 	sortProjectActivityItems(items)
 
 	response := ProjectActivityDataResponse{
-		ProjectID: projectID,
-		Recent:    boundedProjectActivityItems(items, 20),
+		ProjectID:   projectID,
+		ReadBackend: "hecate",
+		Recent:      boundedProjectActivityItems(items, 20),
 	}
 	response.Summary.WorkItemCount = len(workItems)
 	response.Summary.AssignmentCount = len(assignments)

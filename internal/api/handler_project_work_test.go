@@ -2967,6 +2967,9 @@ func TestProjectWorkAPI_ProjectActivity(t *testing.T) {
 			if response.Object != "project_activity" || response.Data.ProjectID != "proj_projection" {
 				t.Fatalf("activity envelope = %+v, want project_activity for project", response)
 			}
+			if response.Data.ReadBackend != "hecate" {
+				t.Fatalf("activity read_backend = %q, want hecate", response.Data.ReadBackend)
+			}
 			if response.Data.Summary.WorkItemCount == 0 || response.Data.Summary.AssignmentCount == 0 {
 				t.Fatalf("activity summary = %+v, want work and assignment counts", response.Data.Summary)
 			}
@@ -3063,6 +3066,42 @@ func TestProjectWorkAPI_ProjectActivity(t *testing.T) {
 				t.Fatalf("recent activity = %+v buckets=%+v, want mirrored recent list", response.Data.Recent, response.Data.Buckets.Recent)
 			}
 		})
+	}
+}
+
+func TestProjectWorkAPI_ProjectActivityCairnlineConfiguredUsesReadModel(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{CoordinationBackend: "cairnline"},
+	}, quietLogger(), nil, nil, nil, nil)
+	server := NewServer(quietLogger(), handler)
+	seedProjectWorkProjectionTest(t, handler)
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_projection/activity", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("activity status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response ProjectActivityEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode activity: %v", err)
+	}
+	if response.Data.ReadBackend != "cairnline" {
+		t.Fatalf("activity read_backend = %q, want cairnline", response.Data.ReadBackend)
+	}
+	if response.Data.Summary.WorkItemCount == 0 || response.Data.Summary.AssignmentCount == 0 || response.Data.Summary.RecentCount == 0 {
+		t.Fatalf("activity summary = %+v, want Cairnline-backed activity counts", response.Data.Summary)
+	}
+	awaiting := findProjectActivityItemForTest(t, response.Data.Buckets.Blocked, "asgn_awaiting")
+	if awaiting.BlockingSignal != "awaiting_approval" || awaiting.StatusSummary != "1 approval pending" || awaiting.Assignment.ExecutionRef == nil {
+		t.Fatalf("awaiting activity = %+v, want Hecate approval projection over Cairnline activity", awaiting)
+	}
+	if awaiting.WorkItem.Title != "work_awaiting" || awaiting.Role.Name != "Projection engineer" {
+		t.Fatalf("awaiting context = %+v role=%+v, want work and role enrichment", awaiting.WorkItem, awaiting.Role)
+	}
+	completed := findProjectActivityItemForTest(t, response.Data.Buckets.Completed, "asgn_completed")
+	if completed.ArtifactSummary.Count != 1 || completed.HandoffSummary.Count != 1 {
+		t.Fatalf("completed activity = %+v, want artifact and handoff enrichment", completed)
 	}
 }
 
