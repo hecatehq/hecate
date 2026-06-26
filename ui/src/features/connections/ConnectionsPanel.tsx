@@ -847,6 +847,11 @@ function AdapterStatusRow({
     !showLocalAuthSetup &&
     !showRemoteCredentialSetup &&
     !showAuthenticateAction;
+  const showRemoteAuthPolicy =
+    remoteRuntime &&
+    adapter.available &&
+    (adapterAuthenticateSupportedByHecate(adapter, health) ||
+      adapterLogoutSupportedByHecate(adapter, health));
 
   return (
     <div
@@ -995,6 +1000,20 @@ function AdapterStatusRow({
             onTestAgain={() => onProbeAdapter(adapter)}
             testing={loading}
           />
+        )}
+        {showRemoteAuthPolicy && (
+          <div
+            data-testid={`external-agents-adapter-${adapter.id}-auth-policy`}
+            style={{
+              marginTop: 6,
+              fontSize: 11,
+              color: "var(--t3)",
+              lineHeight: 1.4,
+            }}
+          >
+            Local ACP login/logout actions are disabled in remote runtime. Configure remote
+            credentials for hosted sessions instead.
+          </div>
         )}
       </div>
       <div

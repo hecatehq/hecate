@@ -805,6 +805,43 @@ describe("Connections external-agent panel", () => {
       expect(row).toHaveTextContent("load session yes");
     });
 
+    it("explains local ACP auth actions are disabled in remote runtime", async () => {
+      const { state, actions } = setup(
+        withAdapter({
+          sessionInfo: {
+            role: "operator",
+            remote_identity: {
+              actor_id: "actor_1",
+              org_id: "org_1",
+              project_id: "project_1",
+              runtime_id: "runtime_1",
+            },
+          },
+          agentAdapters: [
+            {
+              id: "codex",
+              name: "Codex",
+              kind: "acp",
+              command: "codex-acp-adapter",
+              available: true,
+              status: "available",
+              cost_mode: "external",
+              supports_authenticate: true,
+              supports_logout: true,
+            },
+          ],
+        }),
+      );
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
+
+      const row = await screen.findByTestId("external-agents-adapter-codex");
+      expect(
+        within(row).getByTestId("external-agents-adapter-codex-auth-policy"),
+      ).toHaveTextContent("Local ACP login/logout actions are disabled in remote runtime");
+      expect(within(row).queryByRole("button", { name: /Sign in Codex/i })).toBeNull();
+      expect(within(row).queryByRole("button", { name: /Sign out Codex/i })).toBeNull();
+    });
+
     it("shows missing adapters as setup notifications", async () => {
       const { state, actions } = setup(
         withAdapter({
