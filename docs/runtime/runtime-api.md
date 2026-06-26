@@ -2219,8 +2219,8 @@ Example response:
         "work_items": 2,
         "open_work_items": 1,
         "assignments": 5,
-        "active_assignments": 1,
-        "blocked_assignments": 0,
+        "active_assignments": 0,
+        "blocked_assignments": 1,
         "pending_memory_candidates": 2,
         "review_follow_ups": 0,
         "missing_evidence": 1,
@@ -2234,12 +2234,13 @@ Example response:
         "assignments": 5,
         "queued": 1,
         "completed": 3,
-        "active": 1
+        "active": 0,
+        "blocked": 1
       },
       "buckets": {
-        "active": [
+        "blocked": [
           {
-            "bucket": "active",
+            "bucket": "blocked",
             "assignment_id": "asgn_...",
             "work_item_id": "work_...",
             "status": "queued"
@@ -2270,19 +2271,7 @@ Example response:
   "object": "project_cairnline_parity_report",
   "data": {
     "project_id": "proj_...",
-    "match": false,
-    "differences": [
-      {
-        "path": "activity.active",
-        "hecate": 0,
-        "cairnline": 1
-      },
-      {
-        "path": "activity.blocked",
-        "hecate": 1,
-        "cairnline": 0
-      }
-    ],
+    "match": true,
     "hecate": {
       "activity": {
         "work_items": 1,
@@ -2301,8 +2290,8 @@ Example response:
       "activity": {
         "work_items": 1,
         "assignments": 1,
-        "active": 1,
-        "blocked": 0,
+        "active": 0,
+        "blocked": 1,
         "completed": 0,
         "recent": 1
       },
