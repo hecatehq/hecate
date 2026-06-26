@@ -12,6 +12,8 @@ import (
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
+
+	"github.com/hecatehq/hecate/internal/workspace"
 )
 
 func TestAcpChatClientTerminalRPCsDisabledByDefault(t *testing.T) {
@@ -142,6 +144,53 @@ func TestAcpChatClientTerminalToolOutputPreviewSurvivesRemoval(t *testing.T) {
 	preview, ok = client.terminalToolOutputPreview("term_123")
 	if !ok || preview != "terminal output" {
 		t.Fatalf("terminalToolOutputPreview(removed) = %q, %v; want retained removed output", preview, ok)
+	}
+}
+
+func TestAcpChatClientReleaseTerminalKeepsHandleWhenCloseFails(t *testing.T) {
+	t.Parallel()
+
+	closeErr := errors.New("close failed")
+	term := &fakeWorkspaceTerminal{
+		id:       "term_close_error",
+		outputCh: make(chan workspace.OutputChunk),
+		closeErr: closeErr,
+	}
+	client := &acpChatClient{terminalsEnabled: true}
+	item := &acpTerminal{
+		id:          term.id,
+		commandLine: "sh -c 'sleep 60'",
+		cwd:         t.TempDir(),
+		term:        term,
+		output:      newACPTerminalOutputBuffer(1024),
+		done:        make(chan struct{}),
+	}
+	item.output.append("still readable\n")
+	client.storeTerminal(item)
+
+	if _, err := client.ReleaseTerminal(context.Background(), acp.ReleaseTerminalRequest{TerminalId: term.id}); !errors.Is(err, closeErr) {
+		t.Fatalf("ReleaseTerminal error = %v, want close failure", err)
+	}
+	output, err := client.TerminalOutput(context.Background(), acp.TerminalOutputRequest{TerminalId: term.id})
+	if err != nil {
+		t.Fatalf("TerminalOutput after failed release: %v", err)
+	}
+	if !strings.Contains(output.Output, "still readable") {
+		t.Fatalf("TerminalOutput after failed release = %q, want retained active output", output.Output)
+	}
+	if preview, ok := client.terminalToolOutputPreview(term.id); !ok || !strings.Contains(preview, "still readable") {
+		t.Fatalf("terminalToolOutputPreview after failed release = %q, %v; want retained active output", preview, ok)
+	}
+
+	term.closeErr = nil
+	if _, err := client.ReleaseTerminal(context.Background(), acp.ReleaseTerminalRequest{TerminalId: term.id}); err != nil {
+		t.Fatalf("ReleaseTerminal retry: %v", err)
+	}
+	if _, err := client.TerminalOutput(context.Background(), acp.TerminalOutputRequest{TerminalId: term.id}); err == nil {
+		t.Fatal("TerminalOutput after successful release succeeded; want not found")
+	}
+	if preview, ok := client.terminalToolOutputPreview(term.id); !ok || !strings.Contains(preview, "still readable") {
+		t.Fatalf("terminalToolOutputPreview after successful release = %q, %v; want retained removed output", preview, ok)
 	}
 }
 
@@ -448,6 +497,36 @@ func newTerminalTestClient(workspace string, mode ApprovalMode) (*acpChatClient,
 			Store: store,
 		}),
 	}, store
+}
+
+type fakeWorkspaceTerminal struct {
+	id       string
+	outputCh chan workspace.OutputChunk
+	closeErr error
+}
+
+func (t *fakeWorkspaceTerminal) ID() string {
+	return t.id
+}
+
+func (t *fakeWorkspaceTerminal) Output() <-chan workspace.OutputChunk {
+	return t.outputCh
+}
+
+func (t *fakeWorkspaceTerminal) Write(context.Context, string) error {
+	return nil
+}
+
+func (t *fakeWorkspaceTerminal) WaitForExit(context.Context) (workspace.Result, error) {
+	return workspace.Result{ExitCode: 0}, nil
+}
+
+func (t *fakeWorkspaceTerminal) Kill(context.Context) error {
+	return nil
+}
+
+func (t *fakeWorkspaceTerminal) Close(context.Context) error {
+	return t.closeErr
 }
 
 func TestAcpChatClientWriteTextFileRejectsSymlinkEscape(t *testing.T) {
