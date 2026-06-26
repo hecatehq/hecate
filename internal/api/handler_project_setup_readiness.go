@@ -31,6 +31,7 @@ type ProjectSetupReadinessEnvelope struct {
 type ProjectSetupReadinessResponse struct {
 	ProjectID      string                               `json:"project_id"`
 	GeneratedAt    string                               `json:"generated_at"`
+	ReadBackend    string                               `json:"read_backend,omitempty"`
 	ShowOnboarding bool                                 `json:"show_onboarding"`
 	SetupStarted   bool                                 `json:"setup_started"`
 	FirstWorkReady bool                                 `json:"first_work_ready"`
@@ -84,6 +85,9 @@ func (h *Handler) HandleProjectSetupReadiness(w http.ResponseWriter, r *http.Req
 }
 
 func (h *Handler) renderProjectSetupReadiness(ctx context.Context, projectID string) (ProjectSetupReadinessResponse, error) {
+	if h.projectReadRoutesUseCairnlineReadModel() {
+		return h.renderCairnlineProjectSetupReadiness(ctx, projectID)
+	}
 	project, ok, err := h.projects.Get(ctx, projectID)
 	if err != nil {
 		return ProjectSetupReadinessResponse{}, err
@@ -122,6 +126,7 @@ func (h *Handler) renderProjectSetupReadiness(ctx context.Context, projectID str
 	return ProjectSetupReadinessResponse{
 		ProjectID:      project.ID,
 		GeneratedAt:    formatOptionalTime(time.Now().UTC()),
+		ReadBackend:    "hecate",
 		ShowOnboarding: summary.WorkItemCount == 0 && !setupStarted,
 		SetupStarted:   setupStarted,
 		FirstWorkReady: firstWorkReady,
