@@ -90,6 +90,17 @@ func TestSeedMirrorsProjectWorkIntoCairnline(t *testing.T) {
 		!hasCairnlineOperation(brief.Items, cairnline.ProjectOperationKindReviewFollowUp, "work_bridge", "art_review") {
 		t.Fatalf("operations items = %+v, want assignment, handoff, and review follow-up items", brief.Items)
 	}
+	activity, err := service.ProjectActivity(ctx, "proj_hecate")
+	if err != nil {
+		t.Fatalf("ProjectActivity() error = %v", err)
+	}
+	if activity.Counts.Assignments != 2 || activity.Counts.Active != 1 || activity.Counts.Completed != 1 || len(activity.Buckets.Active) != 1 || len(activity.Buckets.Completed) != 1 {
+		t.Fatalf("activity = %+v, want active and completed assignment buckets", activity)
+	}
+	if !hasCairnlineActivity(activity.Items, cairnline.ProjectActivityBucketActive, "work_bridge", "asgn_bridge") ||
+		!hasCairnlineActivity(activity.Items, cairnline.ProjectActivityBucketCompleted, "work_bridge", "asgn_external") {
+		t.Fatalf("activity items = %+v, want active Hecate task and completed external assignment", activity.Items)
+	}
 	candidates, err := service.ListMemoryCandidates(ctx, cairnline.MemoryCandidateFilter{ProjectID: "proj_hecate", IncludeResolved: true})
 	if err != nil {
 		t.Fatalf("ListMemoryCandidates(include resolved) error = %v", err)
@@ -145,6 +156,29 @@ func TestLoadSnapshotReadsHecateStores(t *testing.T) {
 	}
 	if len(packet.Evidence) != 1 || len(packet.Reviews) != 1 || len(packet.Handoffs) != 1 || len(packet.Memory) != 1 || len(packet.MemoryCandidates) != 1 {
 		t.Fatalf("loaded launch packet collaboration counts evidence=%d reviews=%d handoffs=%d memory_entries=%d memory_candidates=%d, want all one", len(packet.Evidence), len(packet.Reviews), len(packet.Handoffs), len(packet.Memory), len(packet.MemoryCandidates))
+	}
+}
+
+func TestProjectActivityFromStores(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 6, 26, 12, 0, 0, 0, time.UTC)
+	sources := bridgeMemorySources()
+	snapshot := bridgeSnapshotFixture(now)
+	seedHecateSources(t, ctx, sources, snapshot)
+
+	activity, loaded, err := ProjectActivityFromStores(ctx, sources, snapshot.Project.ID)
+	if err != nil {
+		t.Fatalf("ProjectActivityFromStores() error = %v", err)
+	}
+	if loaded.Project.ID != snapshot.Project.ID || len(loaded.Assignments) != len(snapshot.Assignments) {
+		t.Fatalf("loaded snapshot = %+v, want project and assignment state", loaded)
+	}
+	if activity.Counts.Assignments != 2 || activity.Counts.Active != 1 || activity.Counts.Completed != 1 {
+		t.Fatalf("activity counts = %+v, want seeded active/completed assignments", activity.Counts)
+	}
+	if !hasCairnlineActivity(activity.Items, cairnline.ProjectActivityBucketActive, "work_bridge", "asgn_bridge") ||
+		!hasCairnlineActivity(activity.Items, cairnline.ProjectActivityBucketCompleted, "work_bridge", "asgn_external") {
+		t.Fatalf("activity items = %+v, want active and completed assignment metadata", activity.Items)
 	}
 }
 
@@ -223,6 +257,13 @@ func TestSeedProjectFromStoresPersistsToCairnlineSQLite(t *testing.T) {
 	}
 	if brief.Counts.Assignments != 2 || brief.Counts.ActiveAssignments != 1 || brief.Counts.PendingMemoryCandidates != 1 || brief.Counts.OpenHandoffs != 1 {
 		t.Fatalf("reopened operations counts = %+v, want persisted operations parity", brief.Counts)
+	}
+	activity, err := reopened.ProjectActivity(ctx, snapshot.Project.ID)
+	if err != nil {
+		t.Fatalf("reopened ProjectActivity() error = %v", err)
+	}
+	if activity.Counts.Assignments != 2 || activity.Counts.Active != 1 || activity.Counts.Completed != 1 || len(activity.Buckets.Recent) != 2 {
+		t.Fatalf("reopened activity = %+v, want persisted activity parity", activity)
 	}
 }
 
@@ -558,6 +599,15 @@ func hasCairnlineOperation(items []cairnline.ProjectOperationItem, kind, workIte
 			continue
 		}
 		if item.AssignmentID == refID || item.ArtifactID == refID || item.MemoryCandidateID == refID {
+			return true
+		}
+	}
+	return false
+}
+
+func hasCairnlineActivity(items []cairnline.ProjectActivityItem, bucket, workItemID, assignmentID string) bool {
+	for _, item := range items {
+		if item.Bucket == bucket && item.WorkItemID == workItemID && item.AssignmentID == assignmentID && item.WorkItemTitle != "" && item.RoleName != "" {
 			return true
 		}
 	}
