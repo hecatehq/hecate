@@ -45,6 +45,8 @@ github.com/hecatehq/cairnline v0.0.0-20260626204537-3951231973c8 h1:nDw2o3nK3YEc
 github.com/hecatehq/cairnline v0.0.0-20260626204537-3951231973c8/go.mod h1:T7z7YVObPItUVbNv7LXSkabHpkLIdkonJaOFOwwcXEc=
 github.com/hecatehq/cairnline v0.0.0-20260626212410-4e3929dfa184 h1:xQuGMKOsKiqx0QAbzSFjLGDaIclz2cFEPTbqhqhePGc=
 github.com/hecatehq/cairnline v0.0.0-20260626212410-4e3929dfa184/go.mod h1:T7z7YVObPItUVbNv7LXSkabHpkLIdkonJaOFOwwcXEc=
+github.com/hecatehq/cairnline v0.0.0-20260626214301-4812d93dc3e3 h1:7Is743BjVy9/jJ1Do/ub3xN0PgXmjvadzyxvj85UJWg=
+github.com/hecatehq/cairnline v0.0.0-20260626214301-4812d93dc3e3/go.mod h1:T7z7YVObPItUVbNv7LXSkabHpkLIdkonJaOFOwwcXEc=
 github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2s0bqwp9tc8=
 github.com/inconshreveable/mousetrap v1.1.0/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
 github.com/jackc/pgpassfile v1.0.0 h1:/6Hmqy13Ss2zCq62VdNG8tM1wchn8zjSGOBJ6icpsIM=

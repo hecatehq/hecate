@@ -123,6 +123,7 @@ func Project(project projects.Project) cairnline.Project {
 		Name:           strings.TrimSpace(project.Name),
 		Description:    strings.TrimSpace(project.Description),
 		Roots:          Roots(project.Roots),
+		DefaultRootID:  strings.TrimSpace(project.DefaultRootID),
 		ContextSources: Sources(project.ContextSources),
 		CreatedAt:      project.CreatedAt,
 		UpdatedAt:      project.UpdatedAt,
