@@ -75,6 +75,21 @@ func TestSeedMirrorsProjectWorkIntoCairnline(t *testing.T) {
 	if readiness.CompletedAssignments != 1 || len(readiness.MissingEvidenceAssignmentIDs) != 0 {
 		t.Fatalf("work readiness = %+v, want completed external assignment covered by mapped evidence", readiness)
 	}
+	brief, err := service.ProjectOperationsBrief(ctx, "proj_hecate")
+	if err != nil {
+		t.Fatalf("ProjectOperationsBrief() error = %v", err)
+	}
+	if brief.Status != cairnline.ProjectOperationsStatusAttention || brief.Next == nil || brief.Next.Kind != cairnline.ProjectOperationKindReviewFollowUp {
+		t.Fatalf("operations brief = %+v, want review follow-up next", brief)
+	}
+	if brief.Counts.Assignments != 2 || brief.Counts.ActiveAssignments != 1 || brief.Counts.PendingMemoryCandidates != 1 || brief.Counts.ReviewFollowUps != 1 || brief.Counts.OpenHandoffs != 1 || brief.Counts.MissingEvidence != 0 {
+		t.Fatalf("operations counts = %+v, want active assignment, memory candidate, review follow-up, and open handoff", brief.Counts)
+	}
+	if !hasCairnlineOperation(brief.Items, cairnline.ProjectOperationKindAssignment, "work_bridge", "asgn_bridge") ||
+		!hasCairnlineOperation(brief.Items, cairnline.ProjectOperationKindHandoff, "work_bridge", "handoff_review") ||
+		!hasCairnlineOperation(brief.Items, cairnline.ProjectOperationKindReviewFollowUp, "work_bridge", "art_review") {
+		t.Fatalf("operations items = %+v, want assignment, handoff, and review follow-up items", brief.Items)
+	}
 	candidates, err := service.ListMemoryCandidates(ctx, cairnline.MemoryCandidateFilter{ProjectID: "proj_hecate", IncludeResolved: true})
 	if err != nil {
 		t.Fatalf("ListMemoryCandidates(include resolved) error = %v", err)
@@ -133,6 +148,28 @@ func TestLoadSnapshotReadsHecateStores(t *testing.T) {
 	}
 }
 
+func TestProjectOperationsBriefFromStores(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 6, 26, 12, 0, 0, 0, time.UTC)
+	sources := bridgeMemorySources()
+	snapshot := bridgeSnapshotFixture(now)
+	seedHecateSources(t, ctx, sources, snapshot)
+
+	brief, loaded, err := ProjectOperationsBriefFromStores(ctx, sources, snapshot.Project.ID)
+	if err != nil {
+		t.Fatalf("ProjectOperationsBriefFromStores() error = %v", err)
+	}
+	if loaded.Project.ID != snapshot.Project.ID || len(loaded.Assignments) != len(snapshot.Assignments) {
+		t.Fatalf("loaded snapshot = %+v, want project and assignment state", loaded)
+	}
+	if brief.Status != cairnline.ProjectOperationsStatusAttention || brief.Next == nil || brief.Next.Kind != cairnline.ProjectOperationKindReviewFollowUp {
+		t.Fatalf("operations brief = %+v, want review follow-up attention from seeded Hecate stores", brief)
+	}
+	if brief.Counts.Assignments != 2 || brief.Counts.ActiveAssignments != 1 || brief.Counts.PendingMemoryCandidates != 1 || brief.Counts.OpenHandoffs != 1 {
+		t.Fatalf("operations counts = %+v, want assignment, memory, and handoff parity", brief.Counts)
+	}
+}
+
 func TestSeedProjectFromStoresPersistsToCairnlineSQLite(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 6, 26, 12, 0, 0, 0, time.UTC)
@@ -179,6 +216,13 @@ func TestSeedProjectFromStoresPersistsToCairnlineSQLite(t *testing.T) {
 	}
 	if readiness.CompletedAssignments != 1 || len(readiness.MissingEvidenceAssignmentIDs) != 0 {
 		t.Fatalf("reopened readiness = %+v, want completed external assignment covered by persisted evidence", readiness)
+	}
+	brief, err := reopened.ProjectOperationsBrief(ctx, snapshot.Project.ID)
+	if err != nil {
+		t.Fatalf("reopened ProjectOperationsBrief() error = %v", err)
+	}
+	if brief.Counts.Assignments != 2 || brief.Counts.ActiveAssignments != 1 || brief.Counts.PendingMemoryCandidates != 1 || brief.Counts.OpenHandoffs != 1 {
+		t.Fatalf("reopened operations counts = %+v, want persisted operations parity", brief.Counts)
 	}
 }
 
@@ -506,4 +550,16 @@ func findCairnlineMemoryCandidate(candidates []cairnline.MemoryCandidate, id str
 		}
 	}
 	return nil
+}
+
+func hasCairnlineOperation(items []cairnline.ProjectOperationItem, kind, workItemID, refID string) bool {
+	for _, item := range items {
+		if item.Kind != kind || item.WorkItemID != workItemID {
+			continue
+		}
+		if item.AssignmentID == refID || item.ArtifactID == refID || item.MemoryCandidateID == refID {
+			return true
+		}
+	}
+	return false
 }
