@@ -149,12 +149,18 @@ func Sources(items []projects.ContextSource) []cairnline.Source {
 	out := make([]cairnline.Source, 0, len(items))
 	for _, item := range items {
 		out = append(out, cairnline.Source{
-			ID:         strings.TrimSpace(item.ID),
-			Kind:       strings.TrimSpace(item.Kind),
-			Title:      strings.TrimSpace(item.Title),
-			Locator:    strings.TrimSpace(item.Path),
-			Enabled:    item.Enabled,
-			TrustLabel: strings.TrimSpace(item.TrustLabel),
+			ID:             strings.TrimSpace(item.ID),
+			Kind:           strings.TrimSpace(item.Kind),
+			Title:          strings.TrimSpace(item.Title),
+			Locator:        strings.TrimSpace(item.Path),
+			Enabled:        item.Enabled,
+			Format:         strings.TrimSpace(item.Format),
+			Scope:          strings.TrimSpace(item.Scope),
+			TrustLabel:     strings.TrimSpace(item.TrustLabel),
+			SourceCategory: strings.TrimSpace(item.SourceCategory),
+			Metadata:       stringMapString(item.Metadata),
+			CreatedAt:      item.CreatedAt,
+			UpdatedAt:      item.UpdatedAt,
 		})
 	}
 	return out
@@ -545,6 +551,24 @@ func stringMapAny(items map[string]string) map[string]any {
 			continue
 		}
 		out[key] = strings.TrimSpace(value)
+	}
+	return out
+}
+
+func stringMapString(items map[string]string) map[string]string {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(items))
+	for key, value := range items {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		out[key] = strings.TrimSpace(value)
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }
