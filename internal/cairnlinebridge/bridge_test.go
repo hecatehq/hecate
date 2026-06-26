@@ -7,6 +7,7 @@ import (
 
 	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/agentprofiles"
+	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
@@ -85,6 +86,17 @@ func TestSeedMirrorsProjectWorkIntoCairnline(t *testing.T) {
 			SkillIDs:            []string{"backend", "backend"},
 			CreatedAt:           now,
 			UpdatedAt:           now,
+		}, {
+			ID:                  "reviewer_qa",
+			ProjectID:           "proj_hecate",
+			Name:                "Reviewer QA",
+			Description:         "Reviews behavior, risks, and verification gaps.",
+			Instructions:        "Prioritize concrete defects.",
+			DefaultDriverKind:   projectwork.AssignmentDriverHecateTask,
+			DefaultAgentProfile: "implementation",
+			SkillIDs:            []string{"backend"},
+			CreatedAt:           now,
+			UpdatedAt:           now,
 		}},
 		WorkItems: []projectwork.WorkItem{{
 			ID:              "work_bridge",
@@ -126,6 +138,63 @@ func TestSeedMirrorsProjectWorkIntoCairnline(t *testing.T) {
 			CreatedAt: now,
 			UpdatedAt: now,
 		}},
+		Artifacts: []projectwork.CollaborationArtifact{{
+			ID:                 "art_evidence",
+			ProjectID:          "proj_hecate",
+			WorkItemID:         "work_bridge",
+			AssignmentID:       "asgn_external",
+			Kind:               projectwork.ArtifactKindEvidenceLink,
+			Title:              "CI run",
+			Body:               "Focused bridge tests passed.",
+			EvidenceURL:        "https://github.com/hecatehq/hecate/actions/runs/123",
+			EvidenceProvider:   "github",
+			EvidenceTrustLabel: projectwork.EvidenceTrustOperatorProvided,
+			CreatedAt:          now,
+			UpdatedAt:          now,
+		}, {
+			ID:                   "art_review",
+			ProjectID:            "proj_hecate",
+			WorkItemID:           "work_bridge",
+			Kind:                 projectwork.ArtifactKindReview,
+			Title:                "Bridge review",
+			Body:                 "Needs one follow-up around artifact parity.",
+			AuthorRoleID:         "reviewer_qa",
+			ReviewedAssignmentID: "asgn_external",
+			ReviewVerdict:        projectwork.ReviewVerdictChangesRequested,
+			ReviewRisk:           projectwork.ReviewRiskMedium,
+			CreatedAt:            now,
+			UpdatedAt:            now,
+		}},
+		Handoffs: []projectwork.Handoff{{
+			ID:                    "handoff_review",
+			ProjectID:             "proj_hecate",
+			WorkItemID:            "work_bridge",
+			SourceAssignmentID:    "asgn_external",
+			TargetRoleID:          "reviewer_qa",
+			Title:                 "Review bridge parity",
+			Summary:               "Artifact parity is ready for review.",
+			RecommendedNextAction: "Verify launch packets include evidence, reviews, handoffs, and memory candidates.",
+			LinkedArtifactIDs:     []string{"art_evidence", "art_review"},
+			LinkedMemoryIDs:       []string{"memcand_bridge"},
+			ContextRefs:           []string{"ctx_123"},
+			Status:                projectwork.HandoffStatusPending,
+			CreatedByRoleID:       "software_developer",
+			CreatedAt:             now,
+			UpdatedAt:             now,
+		}},
+		MemoryCandidates: []memory.Candidate{{
+			ID:                  "memcand_bridge",
+			ProjectID:           "proj_hecate",
+			Title:               "Bridge replacement gate",
+			Body:                "Cairnline replacement requires artifact parity before backend migration.",
+			SuggestedKind:       "coordination_note",
+			SuggestedTrustLabel: memory.TrustLabelGenerated,
+			SuggestedSourceKind: "handoff",
+			SuggestedSourceID:   "handoff_review",
+			Status:              memory.CandidateStatusPending,
+			CreatedAt:           now,
+			UpdatedAt:           now,
+		}},
 	}
 
 	if err := Seed(ctx, service, snapshot); err != nil {
@@ -153,6 +222,18 @@ func TestSeedMirrorsProjectWorkIntoCairnline(t *testing.T) {
 	}
 	if len(packet.Skills) != 1 || packet.Skills[0].ID != "backend" || len(packet.Skills[0].SourceRefs) != 1 {
 		t.Fatalf("packet skills = %+v, want mapped backend skill with provenance", packet.Skills)
+	}
+	if len(packet.Evidence) != 1 || packet.Evidence[0].ID != "art_evidence" || packet.Evidence[0].Locator != "https://github.com/hecatehq/hecate/actions/runs/123" {
+		t.Fatalf("packet evidence = %+v, want mapped evidence link", packet.Evidence)
+	}
+	if len(packet.Reviews) != 1 || packet.Reviews[0].ID != "art_review" || packet.Reviews[0].AssignmentID != "asgn_external" || packet.Reviews[0].Verdict != cairnline.ReviewVerdictConcerns || packet.Reviews[0].Risk != cairnline.ReviewRiskMedium {
+		t.Fatalf("packet reviews = %+v, want mapped review with reduced verdict", packet.Reviews)
+	}
+	if len(packet.Handoffs) != 1 || packet.Handoffs[0].ID != "handoff_review" || packet.Handoffs[0].FromRoleID != "software_developer" || packet.Handoffs[0].ToRoleID != "reviewer_qa" {
+		t.Fatalf("packet handoffs = %+v, want mapped handoff roles", packet.Handoffs)
+	}
+	if len(packet.MemoryCandidates) != 1 || packet.MemoryCandidates[0].ID != "memcand_bridge" || packet.MemoryCandidates[0].TrustLabel != memory.TrustLabelGenerated || packet.MemoryCandidates[0].SourceRef != "handoff:handoff_review" {
+		t.Fatalf("packet memory candidates = %+v, want mapped memory candidate provenance", packet.MemoryCandidates)
 	}
 
 	externalPacket, err := service.AssignmentLaunchPacket(ctx, "proj_hecate", "asgn_external")
