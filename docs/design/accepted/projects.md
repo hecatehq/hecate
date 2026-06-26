@@ -114,7 +114,7 @@ current Hecate project graph, and whether Cairnline is actually authoritative.
 Today, `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` is a
 replacement-readiness intent flag only: when the current stores are fully wired
 it reports `cairnline_read_routes_ready`, and the live project activity inbox
-plus setup readiness, work-item list/detail, assignment-list, closeout
+plus setup readiness, health, work-item list/detail, assignment-list, closeout
 readiness, and operations brief can use the Cairnline read model for portable
 setup/work state. Hecate stores remain authoritative, Hecate-specific runtime
 enrichment and setup/action wording remain in Hecate, and other live Projects
@@ -143,7 +143,7 @@ after these gates are met:
   artifact, handoff, accepted-memory, and memory-candidate flows.
 - Hecate has feature-flagged adapters that can run all read/write Projects
   flows against Cairnline without UI-local fallback state. The first live read
-  routes are setup readiness, activity, work-item list/detail, assignment
+  routes are setup readiness, health, activity, work-item list/detail, assignment
   lists, closeout readiness, and operations brief; assignment context and write
   routes still need their own switch points.
 - Import/export or migration covers existing Hecate local stores and can be

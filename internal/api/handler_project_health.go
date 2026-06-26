@@ -28,6 +28,7 @@ type ProjectHealthEnvelope struct {
 type ProjectHealthResponse struct {
 	ProjectID   string                       `json:"project_id"`
 	GeneratedAt string                       `json:"generated_at"`
+	ReadBackend string                       `json:"read_backend,omitempty"`
 	Summary     ProjectHealthSummaryResponse `json:"summary"`
 	Attention   []ProjectHealthAttentionItem `json:"attention"`
 }
@@ -89,6 +90,13 @@ func (h *Handler) HandleProjectHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) renderProjectHealth(ctx context.Context, projectID string) (ProjectHealthResponse, error) {
+	if h.projectReadRoutesUseCairnlineReadModel() {
+		return h.renderCairnlineProjectHealth(ctx, projectID)
+	}
+	return h.renderNativeProjectHealth(ctx, projectID)
+}
+
+func (h *Handler) renderNativeProjectHealth(ctx context.Context, projectID string) (ProjectHealthResponse, error) {
 	project, ok, err := h.projects.Get(ctx, projectID)
 	if err != nil {
 		return ProjectHealthResponse{}, err
@@ -151,6 +159,7 @@ func (h *Handler) renderProjectHealth(ctx context.Context, projectID string) (Pr
 	return ProjectHealthResponse{
 		ProjectID:   project.ID,
 		GeneratedAt: formatOptionalTime(now),
+		ReadBackend: "hecate",
 		Summary:     summary,
 		Attention:   attention,
 	}, nil

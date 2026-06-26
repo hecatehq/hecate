@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectskills"
@@ -104,6 +105,9 @@ func TestProjectHealth_ReadOnlyAttention(t *testing.T) {
 	if response.Object != "project_health" || response.Data.ProjectID != "proj_health" {
 		t.Fatalf("health envelope = %+v, want project_health for project", response)
 	}
+	if response.Data.ReadBackend != "hecate" {
+		t.Fatalf("health read_backend = %q, want hecate", response.Data.ReadBackend)
+	}
 	assertProjectHealthItemsHaveActions(t, response.Data.Attention, "proj_health")
 	if response.Data.Summary.AttentionLimit != projectHealthAttentionLimit || response.Data.Summary.AttentionCount != 5 || response.Data.Summary.OmittedAttentionCount != 0 {
 		t.Fatalf("health summary = %+v, want bounded attention counts", response.Data.Summary)
@@ -150,6 +154,108 @@ func TestProjectHealth_ReadOnlyAttention(t *testing.T) {
 	}
 	if len(afterAssignments) != len(beforeAssignments) || len(afterCandidates) != len(beforeCandidates) {
 		t.Fatalf("health mutated project state: assignments %d->%d candidates %d->%d", len(beforeAssignments), len(afterAssignments), len(beforeCandidates), len(afterCandidates))
+	}
+}
+
+func TestProjectHealth_CairnlineConfiguredUsesReadModel(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{CoordinationBackend: "cairnline"},
+	}, quietLogger(), nil, nil, nil, nil)
+	server := NewServer(quietLogger(), handler)
+	if _, err := handler.projects.Create(t.Context(), projects.Project{
+		ID:    "proj_health_cairnline",
+		Name:  "Health Cairnline",
+		Roots: []projects.Root{{ID: "root_health", Path: t.TempDir(), Kind: "git", Active: true}},
+	}); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	if _, err := handler.projectWork.CreateWorkItem(t.Context(), projectwork.WorkItem{
+		ID:        "work_review",
+		ProjectID: "proj_health_cairnline",
+		Title:     "Review server attention",
+		Status:    projectwork.WorkItemStatusReview,
+		Priority:  "high",
+	}); err != nil {
+		t.Fatalf("CreateWorkItem(work_review): %v", err)
+	}
+	if _, err := handler.projectWork.CreateAssignment(t.Context(), projectwork.Assignment{
+		ID:         "asgn_review",
+		ProjectID:  "proj_health_cairnline",
+		WorkItemID: "work_review",
+		RoleID:     "software_developer",
+		DriverKind: projectwork.AssignmentDriverHecateTask,
+		Status:     projectwork.AssignmentStatusRunning,
+		CreatedAt:  time.Now().UTC(),
+		UpdatedAt:  time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("CreateAssignment(asgn_review): %v", err)
+	}
+	if _, err := handler.projectWork.CreateHandoff(t.Context(), projectwork.Handoff{
+		ID:                    "handoff_review",
+		ProjectID:             "proj_health_cairnline",
+		WorkItemID:            "work_review",
+		SourceAssignmentID:    "asgn_review",
+		TargetRoleID:          "reviewer_qa",
+		Title:                 "QA follow-up",
+		Summary:               "Review needs an operator path.",
+		RecommendedNextAction: "Create a follow-up assignment.",
+		Status:                projectwork.HandoffStatusPending,
+	}); err != nil {
+		t.Fatalf("CreateHandoff: %v", err)
+	}
+	if _, err := handler.projectWork.CreateArtifact(t.Context(), projectwork.CollaborationArtifact{
+		ID:                     "art_review",
+		ProjectID:              "proj_health_cairnline",
+		WorkItemID:             "work_review",
+		AssignmentID:           "asgn_review",
+		Kind:                   projectwork.ArtifactKindReview,
+		Title:                  "QA review",
+		Body:                   "Needs a follow-up path.",
+		ReviewVerdict:          projectwork.ReviewVerdictChangesRequested,
+		ReviewRisk:             projectwork.ReviewRiskMedium,
+		ReviewFollowUpRequired: true,
+	}); err != nil {
+		t.Fatalf("CreateArtifact: %v", err)
+	}
+	if _, err := handler.memoryCandidates.CreateCandidate(t.Context(), memory.Candidate{
+		ID:                  "memcand_health",
+		ProjectID:           "proj_health_cairnline",
+		Title:               "Remember the review boundary",
+		Body:                "Attention derivation stays read-only.",
+		SuggestedTrustLabel: memory.TrustLabelGenerated,
+		Status:              memory.CandidateStatusPending,
+	}); err != nil {
+		t.Fatalf("CreateCandidate: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_health_cairnline/health", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("health status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response ProjectHealthEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode health: %v", err)
+	}
+	if response.Data.ReadBackend != "cairnline" {
+		t.Fatalf("health read_backend = %q, want cairnline", response.Data.ReadBackend)
+	}
+	if response.Data.Summary.PendingMemoryCandidateCount != 1 || response.Data.Summary.PendingHandoffCount != 1 || response.Data.Summary.ReviewFollowUpCount != 1 || response.Data.Summary.ChangesRequestedReviewCount != 1 {
+		t.Fatalf("health summary = %+v, want Cairnline-backed candidate/handoff/review counts", response.Data.Summary)
+	}
+	assertProjectHealthItemsHaveActions(t, response.Data.Attention, "proj_health_cairnline")
+	handoff := findProjectHealthAttentionForTest(t, response.Data.Attention, "Pending handoff: Review server attention")
+	if handoff.Action.Type != projectActionOpenWorkItem || handoff.WorkItemID != "work_review" {
+		t.Fatalf("handoff attention = %+v, want Cairnline-backed work item action", handoff)
+	}
+	review := findProjectHealthAttentionForTest(t, response.Data.Attention, "Review follow-up: Review server attention")
+	if review.Action.Type != projectActionOpenWorkItem || review.WorkItemID != "work_review" || review.Status != "awaiting_approval" {
+		t.Fatalf("review attention = %+v, want Cairnline-backed review follow-up", review)
+	}
+	candidate := findProjectHealthAttentionForTest(t, response.Data.Attention, "Memory candidate pending review")
+	if candidate.CandidateID != "memcand_health" || candidate.Action.CandidateID != "memcand_health" {
+		t.Fatalf("candidate attention = %+v, want Cairnline-backed memory candidate target", candidate)
 	}
 }
 

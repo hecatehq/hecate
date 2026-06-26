@@ -358,7 +358,7 @@ storage backend. The default is `hecate`. `cairnline` records replacement intent
 for local bridge experiments. When the Cairnline read adapter is fully wired,
 `GET /hecate/v1/projects/backend-status` reports
 `read_model_switch_ready=true`, and project setup readiness, work-item
-list/detail, assignment-list, closeout readiness, activity inbox, and
+list/detail, assignment-list, closeout readiness, health, activity inbox, and
 operations brief can be served from the Cairnline read model. Other live
 Projects reads/writes still use Hecate-native stores until the remaining read
 routes, write adapter, and migration path are ready.
