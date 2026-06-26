@@ -164,6 +164,13 @@ func TestProjectCairnlineExportAPI_WritesRefreshableSQLiteExport(t *testing.T) {
 	if len(packet.Evidence) != 1 || len(packet.Reviews) != 1 || len(packet.Handoffs) != 1 || len(packet.Memory) != 1 || len(packet.MemoryCandidates) != 1 {
 		t.Fatalf("packet counts evidence=%d reviews=%d handoffs=%d memory_entries=%d memory_candidates=%d, want all one", len(packet.Evidence), len(packet.Reviews), len(packet.Handoffs), len(packet.Memory), len(packet.MemoryCandidates))
 	}
+	brief, err := service.ProjectOperationsBrief(t.Context(), projectID)
+	if err != nil {
+		t.Fatalf("ProjectOperationsBrief from exported DB: %v", err)
+	}
+	if brief.Status != cairnline.ProjectOperationsStatusAttention || brief.Next == nil || brief.Counts.Assignments != 1 || brief.Counts.ActiveAssignments != 1 || brief.Counts.PendingMemoryCandidates != 1 || brief.Counts.OpenHandoffs != 1 {
+		t.Fatalf("operations brief = %+v, want exported active assignment, pending memory, and handoff attention", brief)
+	}
 }
 
 func TestProjectCairnlineExportAPI_MissingProjectDoesNotCreateExportDir(t *testing.T) {
