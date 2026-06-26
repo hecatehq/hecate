@@ -38,6 +38,19 @@ func SeedProjectFromStores(ctx context.Context, service *cairnline.Service, sour
 	return snapshot, nil
 }
 
+func ProjectOperationsBriefFromStores(ctx context.Context, sources SnapshotSources, projectID string) (cairnline.ProjectOperationsBrief, Snapshot, error) {
+	service := cairnline.NewMemoryService()
+	snapshot, err := SeedProjectFromStores(ctx, service, sources, projectID)
+	if err != nil {
+		return cairnline.ProjectOperationsBrief{}, Snapshot{}, err
+	}
+	brief, err := service.ProjectOperationsBrief(ctx, snapshot.Project.ID)
+	if err != nil {
+		return cairnline.ProjectOperationsBrief{}, Snapshot{}, err
+	}
+	return brief, snapshot, nil
+}
+
 func LoadSnapshot(ctx context.Context, sources SnapshotSources, projectID string) (Snapshot, error) {
 	projectID = strings.TrimSpace(projectID)
 	if sources.Projects == nil {
