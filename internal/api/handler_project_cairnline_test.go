@@ -134,6 +134,23 @@ func TestProjectCairnlineExportAPI_WritesRefreshableSQLiteExport(t *testing.T) {
 		"suggested_source_id":   handoff.Data.ID,
 	}))
 
+	readModel := mustRequestJSON[ProjectCairnlineReadModelResponse](client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/cairnline/read-model", "")
+	if readModel.Object != "project_cairnline_read_model" || readModel.Data.ProjectID != projectID {
+		t.Fatalf("read model envelope = %+v, want project_cairnline_read_model for project", readModel)
+	}
+	if readModel.Data.WorkItemCount != 1 || readModel.Data.AssignmentCount != 1 || readModel.Data.ArtifactCount != 2 || readModel.Data.HandoffCount != 1 || readModel.Data.MemoryEntryCount != 1 || readModel.Data.MemoryCandidateCount != 1 {
+		t.Fatalf("read model counts = %+v, want bridged project counts", readModel.Data)
+	}
+	if readModel.Data.Operations.Status != cairnline.ProjectOperationsStatusAttention || readModel.Data.Operations.Counts.ActiveAssignments != 1 || readModel.Data.Operations.Counts.PendingMemoryCandidates != 1 || readModel.Data.Operations.Counts.OpenHandoffs != 1 {
+		t.Fatalf("read model operations = %+v, want active assignment, pending memory, and handoff attention", readModel.Data.Operations)
+	}
+	if readModel.Data.Activity.Counts.Assignments != 1 || readModel.Data.Activity.Counts.Active != 1 || readModel.Data.Activity.Counts.Queued != 1 || len(readModel.Data.Activity.Buckets.Active) != 1 || readModel.Data.Activity.Buckets.Active[0].AssignmentID != assignment.Data.ID {
+		t.Fatalf("read model activity = %+v, want queued assignment activity", readModel.Data.Activity)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "cairnline")); !os.IsNotExist(err) {
+		t.Fatalf("read-model export dir stat error = %v, want not exist before export", err)
+	}
+
 	first := mustRequestJSON[ProjectCairnlineExportResponse](client, http.MethodPost, "/hecate/v1/projects/"+projectID+"/cairnline/export", "")
 	second := mustRequestJSON[ProjectCairnlineExportResponse](client, http.MethodPost, "/hecate/v1/projects/"+projectID+"/cairnline/export", "")
 	if first.Data.DatabasePath != second.Data.DatabasePath {
@@ -191,6 +208,7 @@ func TestProjectCairnlineExportAPI_MissingProjectDoesNotCreateExportDir(t *testi
 	server := NewServer(quietLogger(), handler)
 	client := newAPITestClient(t, server)
 
+	client.mustRequestStatus(http.StatusNotFound, http.MethodGet, "/hecate/v1/projects/proj_missing/cairnline/read-model", "")
 	client.mustRequestStatus(http.StatusNotFound, http.MethodPost, "/hecate/v1/projects/proj_missing/cairnline/export", "")
 	if _, err := os.Stat(filepath.Join(dataDir, "cairnline")); !os.IsNotExist(err) {
 		t.Fatalf("export dir stat error = %v, want not exist", err)
