@@ -29,8 +29,8 @@ func TestSeedMirrorsProjectWorkIntoCairnline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AssignmentLaunchPacket() error = %v", err)
 	}
-	if packet.Project.ID != "proj_hecate" || packet.WorkItem.RootID != "root_main" {
-		t.Fatalf("packet project/work = %+v/%+v, want Hecate project with root-scoped work", packet.Project, packet.WorkItem)
+	if packet.Project.ID != "proj_hecate" || packet.Project.DefaultRootID != "root_main" || packet.WorkItem.RootID != "root_main" {
+		t.Fatalf("packet project/work = %+v/%+v, want Hecate project with default root and root-scoped work", packet.Project, packet.WorkItem)
 	}
 	if packet.Role == nil || packet.Role.DefaultExecutionMode != cairnline.ExecutionOrchestrated {
 		t.Fatalf("packet role = %+v, want orchestrated role from Hecate task driver", packet.Role)
@@ -232,8 +232,8 @@ func TestSeedProjectFromStoresPersistsToCairnlineSQLite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AssignmentLaunchPacket() reopened error = %v", err)
 	}
-	if packet.Project.ID != snapshot.Project.ID || packet.Assignment.RootID != "root_main" {
-		t.Fatalf("reopened packet project/assignment = %+v/%+v, want persisted root-scoped launch packet", packet.Project, packet.Assignment)
+	if packet.Project.ID != snapshot.Project.ID || packet.Project.DefaultRootID != "root_main" || packet.Assignment.RootID != "root_main" {
+		t.Fatalf("reopened packet project/assignment = %+v/%+v, want persisted default root and root-scoped launch packet", packet.Project, packet.Assignment)
 	}
 	if len(packet.Evidence) != 1 || len(packet.Reviews) != 1 || len(packet.Handoffs) != 1 || len(packet.Memory) != 1 || len(packet.MemoryCandidates) != 1 {
 		t.Fatalf("reopened launch packet collaboration counts evidence=%d reviews=%d handoffs=%d memory_entries=%d memory_candidates=%d, want all one", len(packet.Evidence), len(packet.Reviews), len(packet.Handoffs), len(packet.Memory), len(packet.MemoryCandidates))
@@ -300,6 +300,7 @@ func bridgeSnapshotFixture(now time.Time) Snapshot {
 				GitBranch: "main",
 				Active:    true,
 			}},
+			DefaultRootID: "root_main",
 			ContextSources: []projects.ContextSource{{
 				ID:         "src_agents",
 				Kind:       "workspace_instruction",
