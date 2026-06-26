@@ -47,8 +47,8 @@ func TestSeedMirrorsProjectWorkIntoCairnline(t *testing.T) {
 	if len(packet.Skills) != 1 || packet.Skills[0].ID != "backend" || len(packet.Skills[0].SourceRefs) != 1 {
 		t.Fatalf("packet skills = %+v, want mapped backend skill with provenance", packet.Skills)
 	}
-	if len(packet.Evidence) != 1 || packet.Evidence[0].ID != "art_evidence" || packet.Evidence[0].Locator != "https://github.com/hecatehq/hecate/actions/runs/123" {
-		t.Fatalf("packet evidence = %+v, want mapped evidence link", packet.Evidence)
+	if len(packet.Evidence) != 1 || packet.Evidence[0].ID != "art_evidence" || packet.Evidence[0].AssignmentID != "asgn_external" || packet.Evidence[0].Locator != "https://github.com/hecatehq/hecate/actions/runs/123" {
+		t.Fatalf("packet evidence = %+v, want mapped assignment-scoped evidence link", packet.Evidence)
 	}
 	if len(packet.Reviews) != 1 || packet.Reviews[0].ID != "art_review" || packet.Reviews[0].AssignmentID != "asgn_external" || packet.Reviews[0].Verdict != cairnline.ReviewVerdictConcerns || packet.Reviews[0].Risk != cairnline.ReviewRiskMedium {
 		t.Fatalf("packet reviews = %+v, want mapped review with reduced verdict", packet.Reviews)
@@ -67,6 +67,13 @@ func TestSeedMirrorsProjectWorkIntoCairnline(t *testing.T) {
 	}
 	if len(packet.MemoryCandidates) != 1 || packet.MemoryCandidates[0].ID != "memcand_bridge" || packet.MemoryCandidates[0].SuggestedTrustLabel != memory.TrustLabelGenerated || packet.MemoryCandidates[0].SuggestedSourceID != "handoff_review" || len(packet.MemoryCandidates[0].SourceRefs) != 1 {
 		t.Fatalf("packet memory candidates = %+v, want mapped memory candidate provenance", packet.MemoryCandidates)
+	}
+	readiness, err := service.WorkItemCloseoutReadiness(ctx, "proj_hecate", "work_bridge")
+	if err != nil {
+		t.Fatalf("WorkItemCloseoutReadiness() error = %v", err)
+	}
+	if readiness.CompletedAssignments != 1 || len(readiness.MissingEvidenceAssignmentIDs) != 0 {
+		t.Fatalf("work readiness = %+v, want completed external assignment covered by mapped evidence", readiness)
 	}
 	candidates, err := service.ListMemoryCandidates(ctx, cairnline.MemoryCandidateFilter{ProjectID: "proj_hecate", IncludeResolved: true})
 	if err != nil {
@@ -160,8 +167,18 @@ func TestSeedProjectFromStoresPersistsToCairnlineSQLite(t *testing.T) {
 	if len(packet.Evidence) != 1 || len(packet.Reviews) != 1 || len(packet.Handoffs) != 1 || len(packet.Memory) != 1 || len(packet.MemoryCandidates) != 1 {
 		t.Fatalf("reopened launch packet collaboration counts evidence=%d reviews=%d handoffs=%d memory_entries=%d memory_candidates=%d, want all one", len(packet.Evidence), len(packet.Reviews), len(packet.Handoffs), len(packet.Memory), len(packet.MemoryCandidates))
 	}
+	if packet.Evidence[0].AssignmentID != "asgn_external" {
+		t.Fatalf("reopened evidence = %+v, want persisted assignment-scoped evidence", packet.Evidence[0])
+	}
 	if packet.Handoffs[0].SourceAssignmentID != "asgn_external" || packet.Handoffs[0].TargetAssignmentID != "asgn_bridge" || len(packet.Handoffs[0].LinkedArtifactIDs) != 2 || packet.Handoffs[0].TrustLabel != "operator_reviewed" {
 		t.Fatalf("reopened handoff = %+v, want persisted structured refs and provenance", packet.Handoffs[0])
+	}
+	readiness, err := reopened.WorkItemCloseoutReadiness(ctx, snapshot.Project.ID, "work_bridge")
+	if err != nil {
+		t.Fatalf("reopened WorkItemCloseoutReadiness() error = %v", err)
+	}
+	if readiness.CompletedAssignments != 1 || len(readiness.MissingEvidenceAssignmentIDs) != 0 {
+		t.Fatalf("reopened readiness = %+v, want completed external assignment covered by persisted evidence", readiness)
 	}
 }
 
