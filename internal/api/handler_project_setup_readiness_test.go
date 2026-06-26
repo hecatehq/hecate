@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectskills"
@@ -42,6 +43,9 @@ func TestProjectSetupReadiness_ReadOnlyPristineProject(t *testing.T) {
 	}
 	if response.Object != "project_setup_readiness" || response.Data.ProjectID != "proj_setup" {
 		t.Fatalf("setup readiness envelope = %+v, want project_setup_readiness for project", response)
+	}
+	if response.Data.ReadBackend != "hecate" {
+		t.Fatalf("setup readiness read_backend = %q, want hecate", response.Data.ReadBackend)
 	}
 	if !response.Data.ShowOnboarding || response.Data.SetupStarted || response.Data.FirstWorkReady {
 		t.Fatalf("setup readiness flags = %+v, want onboarding for pristine project", response.Data)
@@ -147,6 +151,9 @@ func TestProjectSetupReadiness_SetupStartedFirstWorkReady(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode setup readiness: %v", err)
 	}
+	if response.Data.ReadBackend != "hecate" {
+		t.Fatalf("setup readiness read_backend = %q, want hecate", response.Data.ReadBackend)
+	}
 	if response.Data.ShowOnboarding || !response.Data.SetupStarted || !response.Data.FirstWorkReady {
 		t.Fatalf("setup readiness flags = %+v, want setup started and first work ready", response.Data)
 	}
@@ -165,6 +172,88 @@ func TestProjectSetupReadiness_SetupStartedFirstWorkReady(t *testing.T) {
 	firstWork := findProjectSetupReadinessCheckForTest(t, response.Data.Checks, "first_work_item")
 	if firstWork.Status != projectSetupReadinessStatusTodo || firstWork.Action == nil || firstWork.Action.Type != projectSetupReadinessActionCreateWorkItem {
 		t.Fatalf("first work check = %+v, want create-work todo", firstWork)
+	}
+}
+
+func TestProjectSetupReadiness_CairnlineConfiguredUsesReadModel(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{CoordinationBackend: "cairnline"},
+	}, quietLogger(), nil, nil, nil, nil)
+	server := NewServer(quietLogger(), handler)
+	root := t.TempDir()
+	if _, err := handler.projects.Create(t.Context(), projects.Project{
+		ID:              "proj_cairnline_setup",
+		Name:            "Cairnline setup",
+		Description:     "Coordinate setup through Cairnline reads.",
+		DefaultProvider: "openai",
+		DefaultModel:    "gpt-5",
+		Roots:           []projects.Root{{ID: "root_cairnline", Path: root, Kind: "git", Active: true}},
+		ContextSources: []projects.ContextSource{{
+			ID:      "ctx_cairnline",
+			Kind:    "workspace_instruction",
+			Title:   "AGENTS.md",
+			Path:    "AGENTS.md",
+			Enabled: true,
+		}},
+	}); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	if _, err := handler.projectWork.CreateRole(t.Context(), projectwork.AgentRoleProfile{
+		ID:        "role_cairnline",
+		ProjectID: "proj_cairnline_setup",
+		Name:      "Coordinator",
+	}); err != nil {
+		t.Fatalf("CreateRole: %v", err)
+	}
+	if _, err := handler.projectSkills.UpsertDiscovered(t.Context(), "proj_cairnline_setup", []projectskills.Skill{{
+		ID:        "skill_cairnline",
+		ProjectID: "proj_cairnline_setup",
+		Path:      "skills/cairnline/SKILL.md",
+		Enabled:   true,
+		Status:    projectskills.StatusAvailable,
+	}}); err != nil {
+		t.Fatalf("UpsertDiscovered: %v", err)
+	}
+	if _, err := handler.memory.Create(t.Context(), memory.Entry{
+		ID:        "mem_cairnline",
+		ProjectID: "proj_cairnline_setup",
+		Title:     "Setup posture",
+		Body:      "Use Cairnline for portable setup reads.",
+		Enabled:   true,
+	}); err != nil {
+		t.Fatalf("Create memory: %v", err)
+	}
+	if _, err := handler.memoryCandidates.CreateCandidate(t.Context(), memory.Candidate{
+		ID:        "memcand_cairnline",
+		ProjectID: "proj_cairnline_setup",
+		Title:     "Candidate",
+		Body:      "Review me.",
+		Status:    memory.CandidateStatusPending,
+	}); err != nil {
+		t.Fatalf("CreateCandidate: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_cairnline_setup/setup-readiness", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("setup readiness status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response ProjectSetupReadinessEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode setup readiness: %v", err)
+	}
+	if response.Data.ReadBackend != "cairnline" {
+		t.Fatalf("setup readiness read_backend = %q, want cairnline", response.Data.ReadBackend)
+	}
+	if response.Data.ShowOnboarding || !response.Data.SetupStarted || !response.Data.FirstWorkReady {
+		t.Fatalf("setup readiness flags = %+v, want Cairnline setup started and first work ready", response.Data)
+	}
+	if response.Data.Summary.EnabledContextSourceCount != 1 || response.Data.Summary.RoleCount != 1 || response.Data.Summary.SkillCount != 1 || response.Data.Summary.SavedMemoryCount != 1 || response.Data.Summary.PendingMemoryCandidateCount != 1 {
+		t.Fatalf("setup readiness summary = %+v, want Cairnline-backed setup counts", response.Data.Summary)
+	}
+	if response.Data.Summary.MissingDefaults || !response.Data.Summary.HasPurpose || !response.Data.Summary.HasActiveRoot {
+		t.Fatalf("setup readiness summary = %+v, want Hecate defaults/purpose/root over Cairnline setup counts", response.Data.Summary)
 	}
 }
 
