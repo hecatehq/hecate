@@ -3105,6 +3105,91 @@ func TestProjectWorkAPI_ProjectActivityCairnlineConfiguredUsesReadModel(t *testi
 	}
 }
 
+func TestProjectWorkAPI_ProjectWorkItemReadsCairnlineConfiguredUseReadModel(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{CoordinationBackend: "cairnline"},
+	}, quietLogger(), nil, nil, nil, nil)
+	server := NewServer(quietLogger(), handler)
+	seedProjectWorkProjectionTest(t, handler)
+	if _, err := handler.projectWork.CreateWorkItem(t.Context(), projectwork.WorkItem{
+		ID:        "work_needs_evidence",
+		ProjectID: "proj_projection",
+		Title:     "Needs evidence",
+		Status:    projectwork.WorkItemStatusReview,
+	}); err != nil {
+		t.Fatalf("CreateWorkItem(work_needs_evidence): %v", err)
+	}
+	if _, err := handler.projectWork.CreateAssignment(t.Context(), projectwork.Assignment{
+		ID:         "asgn_needs_evidence",
+		ProjectID:  "proj_projection",
+		WorkItemID: "work_needs_evidence",
+		RoleID:     "role_projection",
+		Status:     projectwork.AssignmentStatusCompleted,
+	}); err != nil {
+		t.Fatalf("CreateAssignment(asgn_needs_evidence): %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_projection/work-items", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list work items status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var listed ProjectWorkItemsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("decode work items: %v", err)
+	}
+	awaitingListItem := findProjectWorkItemForTest(t, listed.Data, "work_awaiting")
+	if awaitingListItem.ReadBackend != "cairnline" {
+		t.Fatalf("listed work item read_backend = %q, want cairnline", awaitingListItem.ReadBackend)
+	}
+	if awaitingListItem.Status != projectwork.WorkItemStatusRunning || len(awaitingListItem.Assignments) != 1 || awaitingListItem.Assignments[0].ExecutionRef == nil {
+		t.Fatalf("listed work item = %+v, want Hecate runtime projection over Cairnline work item", awaitingListItem)
+	}
+	evidenceListItem := findProjectWorkItemForTest(t, listed.Data, "work_needs_evidence")
+	if evidenceListItem.ReadBackend != "cairnline" || evidenceListItem.Status != projectwork.WorkItemStatusDone {
+		t.Fatalf("listed evidence work item = %+v, want Cairnline item with completed assignment projection", evidenceListItem)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_projection/work-items/work_awaiting", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get work item status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var detail ProjectWorkItemEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil {
+		t.Fatalf("decode work item detail: %v", err)
+	}
+	if detail.Data.ReadBackend != "cairnline" || detail.Data.Status != projectwork.WorkItemStatusRunning || len(detail.Data.Assignments) != 1 {
+		t.Fatalf("work item detail = %+v, want Cairnline read backend with projected assignment", detail.Data)
+	}
+	if detail.Data.Assignments[0].ExecutionRef == nil || detail.Data.Assignments[0].ExecutionRef.PendingApprovalCount != 1 {
+		t.Fatalf("detail assignment = %+v, want Hecate approval projection", detail.Data.Assignments[0])
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_projection/work-items/work_needs_evidence/readiness", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("readiness status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var readiness ProjectWorkItemReadinessEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &readiness); err != nil {
+		t.Fatalf("decode readiness: %v", err)
+	}
+	if readiness.Data.ReadBackend != "cairnline" || readiness.Data.Ready || readiness.Data.Status != "blocked" {
+		t.Fatalf("readiness = %+v, want blocked Cairnline readiness", readiness.Data)
+	}
+	if len(readiness.Data.MissingEvidenceAssignmentIDs) != 1 || readiness.Data.MissingEvidenceAssignmentIDs[0] != "asgn_needs_evidence" {
+		t.Fatalf("missing evidence = %+v, want asgn_needs_evidence", readiness.Data.MissingEvidenceAssignmentIDs)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_projection/work-items/work_missing_from_cairnline", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing work item status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+}
+
 func TestProjectWorkAPI_ProjectActivityShowsFreshQueuedAssignments(t *testing.T) {
 	t.Parallel()
 	_, server := newProjectWorkTestServer()
@@ -3886,6 +3971,17 @@ func findProjectActivityItemForTest(t *testing.T, items []ProjectActivityItemRes
 	}
 	t.Fatalf("activity assignment %s not found in %+v", assignmentID, items)
 	return ProjectActivityItemResponse{}
+}
+
+func findProjectWorkItemForTest(t *testing.T, items []ProjectWorkItemResponse, workItemID string) ProjectWorkItemResponse {
+	t.Helper()
+	for _, item := range items {
+		if item.ID == workItemID {
+			return item
+		}
+	}
+	t.Fatalf("work item %s not found in %+v", workItemID, items)
+	return ProjectWorkItemResponse{}
 }
 
 func allProjectActivityItemsForTest(data ProjectActivityDataResponse) []ProjectActivityItemResponse {
