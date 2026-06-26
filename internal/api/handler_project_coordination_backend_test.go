@@ -25,7 +25,7 @@ func TestProjectCoordinationBackendStatus_DefaultHecateAuthoritative(t *testing.
 	}
 }
 
-func TestProjectCoordinationBackendStatus_CairnlineConfiguredInactive(t *testing.T) {
+func TestProjectCoordinationBackendStatus_CairnlineConfiguredMissingSources(t *testing.T) {
 	handler := &Handler{config: config.Config{
 		Projects: config.ProjectsConfig{
 			Backend:             "sqlite",
@@ -34,11 +34,31 @@ func TestProjectCoordinationBackendStatus_CairnlineConfiguredInactive(t *testing
 	}}
 
 	status := handler.projectCoordinationBackendStatus()
-	if status.ConfiguredBackend != "cairnline" || status.AuthoritativeBackend != "hecate" || status.Status != "cairnline_configured_inactive" {
-		t.Fatalf("status = %+v, want configured Cairnline with Hecate still authoritative", status)
+	if status.ConfiguredBackend != "cairnline" || status.AuthoritativeBackend != "hecate" || status.Status != "cairnline_configured_read_adapter_missing_sources" {
+		t.Fatalf("status = %+v, want configured Cairnline with missing read-adapter sources", status)
 	}
 	if status.CairnlineAuthoritative || status.ReadModelSwitchReady || status.WriteAdapterReady || len(status.Warnings) == 0 {
-		t.Fatalf("status = %+v, want inactive adapter warnings", status)
+		t.Fatalf("status = %+v, want read adapter missing-source warnings", status)
+	}
+}
+
+func TestProjectCoordinationBackendStatus_CairnlineConfiguredReadAdapterReady(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			Backend:             "sqlite",
+			CoordinationBackend: "cairnline",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+
+	status := handler.projectCoordinationBackendStatus()
+	if status.ConfiguredBackend != "cairnline" || status.AuthoritativeBackend != "hecate" || status.Status != "cairnline_read_adapter_ready" {
+		t.Fatalf("status = %+v, want configured Cairnline with read adapter ready", status)
+	}
+	if status.CairnlineAuthoritative || !status.ReadModelSwitchReady || status.WriteAdapterReady {
+		t.Fatalf("status = %+v, want read adapter ready but Hecate still authoritative", status)
+	}
+	if len(status.Warnings) == 0 {
+		t.Fatalf("status = %+v, want write-adapter/migration warning", status)
 	}
 }
 
@@ -64,5 +84,8 @@ func TestProjectCoordinationBackendStatusRoute(t *testing.T) {
 	}
 	if response.Object != "project_coordination_backend_status" || response.Data.ConfiguredBackend != "cairnline" || response.Data.AuthoritativeBackend != "hecate" {
 		t.Fatalf("response = %+v, want Cairnline configured but Hecate authoritative", response)
+	}
+	if !response.Data.ReadModelSwitchReady || response.Data.Status != "cairnline_read_adapter_ready" {
+		t.Fatalf("response = %+v, want Cairnline read adapter ready for fully wired test handler", response)
 	}
 }

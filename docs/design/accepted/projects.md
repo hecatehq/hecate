@@ -109,12 +109,15 @@ Cairnline authoritative.
 
 For operator-triggered experiments, Hecate exposes local-only Cairnline bridge
 endpoints. `GET /hecate/v1/projects/backend-status` reports the configured
-coordination backend and whether Cairnline is actually authoritative. Today,
-`HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` is a replacement-readiness
-intent flag only: it reports `cairnline_configured_inactive`, while Hecate
-stores remain authoritative. `GET /hecate/v1/projects/{id}/cairnline/read-model`
-seeds an in-memory Cairnline service from the current Hecate stores and returns
-the portable operations brief and activity projection without writing files.
+coordination backend, whether the Cairnline read adapter can project the full
+current Hecate project graph, and whether Cairnline is actually authoritative.
+Today, `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` is a
+replacement-readiness intent flag only: when the current stores are fully wired
+it reports `cairnline_read_adapter_ready`, while Hecate stores remain
+authoritative and live Projects reads/writes still use the Hecate-native API.
+`GET /hecate/v1/projects/{id}/cairnline/read-model` seeds an in-memory
+Cairnline service from the current Hecate stores and returns the portable
+operations brief and activity projection without writing files.
 `GET /hecate/v1/projects/{id}/cairnline/parity-report` compares Hecate's
 native cockpit counts with that Cairnline read model and returns explicit
 differences, so bucket/status semantics can be fixed before any backend switch.
