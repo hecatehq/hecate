@@ -39,10 +39,13 @@ Read these in order:
 4. [Workspace instructions, skills, and profiles](proposals/workspace-instructions-skills-and-profiles.md)
 5. [Run evidence and portable memory](proposals/run-evidence-and-portable-memory.md)
 6. [LLM context window management](proposals/llm-context-window-management.md)
+7. [Cairnline: portable project coordination](proposals/cairnline-portable-project-coordination.md)
 
 The invariant: projects provide identity, context assembly decides what enters
 a model or adapter call, memory is operator-approved durable context, and window
 management fits an already-labelled context packet into a model limit.
+Cairnline is a future extraction path for the project coordination substrate,
+not current Hecate runtime behavior.
 
 ### Workflow Runbooks
 
@@ -111,6 +114,7 @@ before implementing Agent Profiles V1, skill registry support, or workspace
 | [Workspace instructions, skills, and profiles](proposals/workspace-instructions-skills-and-profiles.md) | Proposal           | Projects, context, and memory |
 | [Run evidence and portable memory](proposals/run-evidence-and-portable-memory.md)                       | Proposal           | Projects, context, and memory |
 | [LLM context window management](proposals/llm-context-window-management.md)                             | Proposal           | Projects, context, and memory |
+| [Cairnline: portable project coordination](proposals/cairnline-portable-project-coordination.md)        | Proposal           | Projects, context, and memory |
 | [Workflow runbooks v0](proposals/workflow-runbooks-v0.md)                                               | Proposal           | Workflow runbooks             |
 | [Hecate Chat and model capabilities](accepted/hecate-chat-model-capabilities.md)                        | Accepted           | Agent and chat runtime        |
 | [External Agent integrations](accepted/external-agent-integrations.md)                                  | Accepted           | Agent and chat runtime        |
