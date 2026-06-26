@@ -2183,6 +2183,45 @@ The response reports the scoped records Hecate cleaned up:
 }
 ```
 
+### `POST /hecate/v1/projects/{id}/cairnline/export`
+
+Local-only experimental bridge endpoint. It loads the selected project from
+Hecate's authoritative Projects stores and writes a refreshable Cairnline SQLite
+export at:
+
+```text
+{HECATE_DATA_DIR}/cairnline/projects/{safe_project_id}.db
+```
+
+If `HECATE_DATA_DIR` is unset, Hecate uses `.data` relative to the runtime
+process. The caller cannot choose the output path. Re-running the endpoint
+replaces the same project export after the Hecate snapshot has been loaded, so a
+missing project does not wipe an existing export.
+
+This endpoint is an interoperability and replacement-readiness proof only. It
+does not make Cairnline authoritative, does not proxy live Projects reads or
+writes, and does not migrate Hecate's stores.
+
+Example response:
+
+```json
+{
+  "object": "project_cairnline_export",
+  "data": {
+    "project_id": "proj_...",
+    "database_path": "/Users/alice/.hecate/cairnline/projects/proj_....db",
+    "agent_profile_count": 4,
+    "skill_count": 3,
+    "role_count": 6,
+    "work_item_count": 2,
+    "assignment_count": 5,
+    "artifact_count": 4,
+    "handoff_count": 1,
+    "memory_candidate_count": 2
+  }
+}
+```
+
 ### Project Memory
 
 Project memory is explicit operator-approved context. Hecate never writes these
