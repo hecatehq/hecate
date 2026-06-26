@@ -2,6 +2,7 @@ package cairnlinebridge
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -105,6 +106,42 @@ func TestLoadSnapshotReadsHecateStores(t *testing.T) {
 	}
 	if len(packet.Evidence) != 1 || len(packet.Reviews) != 1 || len(packet.Handoffs) != 1 || len(packet.MemoryCandidates) != 1 {
 		t.Fatalf("loaded launch packet collaboration counts evidence=%d reviews=%d handoffs=%d memory=%d, want all one", len(packet.Evidence), len(packet.Reviews), len(packet.Handoffs), len(packet.MemoryCandidates))
+	}
+}
+
+func TestSeedProjectFromStoresPersistsToCairnlineSQLite(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 6, 26, 12, 0, 0, 0, time.UTC)
+	sources := bridgeMemorySources()
+	snapshot := bridgeSnapshotFixture(now)
+	seedHecateSources(t, ctx, sources, snapshot)
+	dbPath := filepath.Join(t.TempDir(), "cairnline.db")
+
+	service, store, err := cairnline.NewSQLiteService(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("NewSQLiteService() error = %v", err)
+	}
+	if _, err := SeedProjectFromStores(ctx, service, sources, snapshot.Project.ID); err != nil {
+		t.Fatalf("SeedProjectFromStores() error = %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close seeded store: %v", err)
+	}
+
+	reopened, reopenedStore, err := cairnline.NewSQLiteService(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("reopen NewSQLiteService() error = %v", err)
+	}
+	defer reopenedStore.Close()
+	packet, err := reopened.AssignmentLaunchPacket(ctx, snapshot.Project.ID, "asgn_bridge")
+	if err != nil {
+		t.Fatalf("AssignmentLaunchPacket() reopened error = %v", err)
+	}
+	if packet.Project.ID != snapshot.Project.ID || packet.Assignment.RootID != "root_main" {
+		t.Fatalf("reopened packet project/assignment = %+v/%+v, want persisted root-scoped launch packet", packet.Project, packet.Assignment)
+	}
+	if len(packet.Evidence) != 1 || len(packet.Reviews) != 1 || len(packet.Handoffs) != 1 || len(packet.MemoryCandidates) != 1 {
+		t.Fatalf("reopened launch packet collaboration counts evidence=%d reviews=%d handoffs=%d memory=%d, want all one", len(packet.Evidence), len(packet.Reviews), len(packet.Handoffs), len(packet.MemoryCandidates))
 	}
 }
 

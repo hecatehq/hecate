@@ -88,7 +88,8 @@ agent supervision, traces, and context-packet rendering.
 
 The current `internal/cairnlinebridge` package is a replacement-readiness proof.
 It can load Hecate project state from the current project/profile/skills/work
-stores, then seed a Cairnline service from Hecate project-shaped records:
+stores, then seed a memory-backed or SQLite-backed Cairnline service from
+Hecate project-shaped records:
 
 - project identity, roots, and context-source metadata;
 - agent profiles and execution posture;
