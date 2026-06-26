@@ -138,12 +138,15 @@ func (c *acpChatClient) ReleaseTerminal(ctx context.Context, params acp.ReleaseT
 	if !c.terminalsEnabled {
 		return acp.ReleaseTerminalResponse{}, acp.NewMethodNotFound(acp.ClientMethodTerminalRelease)
 	}
-	item, err := c.removeTerminal(params.TerminalId)
+	item, err := c.lookupTerminal(params.TerminalId)
 	if err != nil {
 		return acp.ReleaseTerminalResponse{}, err
 	}
 	doneBeforeClose := terminalDone(item)
 	if err := item.term.Close(ctx); err != nil {
+		return acp.ReleaseTerminalResponse{}, err
+	}
+	if _, err := c.removeTerminal(params.TerminalId); err != nil {
 		return acp.ReleaseTerminalResponse{}, err
 	}
 	c.rememberTerminalPreview(item)

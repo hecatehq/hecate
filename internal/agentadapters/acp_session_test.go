@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -235,6 +236,61 @@ func TestSessionManagerRunsACPTerminalCallbackThroughAdapterProcess(t *testing.T
 	}
 }
 
+func TestSessionManagerCloseSessionCleansUnreleasedACPTerminal(t *testing.T) {
+	if os.Getenv("HECATE_FAKE_ACP_AGENT") == "1" {
+		return
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("unix shell cleanup semantics")
+	}
+	installFakeACPExecutable(t, "codex-acp-adapter")
+	workspace := t.TempDir()
+
+	manager := NewSessionManager()
+	manager.SetTerminalSupportEnabled(true)
+	manager.SetApprovalCoordinator(NewApprovalCoordinator(CoordinatorOptions{Mode: ModeAuto}))
+	t.Cleanup(func() { _ = manager.Shutdown(context.Background()) })
+	var activityCapture acpSessionActivityCapture
+
+	const sessionID = "chat_terminal_unreleased"
+	result, err := manager.Run(context.Background(), RunRequest{
+		SessionID:      sessionID,
+		AdapterID:      "codex",
+		Workspace:      workspace,
+		Prompt:         "terminal command no release",
+		Timeout:        5 * time.Second,
+		MaxOutputBytes: 64 * 1024,
+		OnActivity:     activityCapture.record,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !strings.Contains(result.Output, "terminal output: terminal retained") {
+		t.Fatalf("Run output = %q, want retained terminal output", result.Output)
+	}
+	activities := activityCapture.snapshot()
+	var terminalTool *Activity
+	for i := range activities {
+		if activities[i].ID == "tool:terminal_ref_unreleased" {
+			terminalTool = &activities[i]
+			break
+		}
+	}
+	if terminalTool == nil {
+		t.Fatalf("Run activities = %+v, want terminal-ref tool activity", activities)
+	}
+	if !strings.Contains(terminalTool.ArtifactPreview, "terminal retained") {
+		t.Fatalf("terminal-ref tool preview = %q, want retained terminal output", terminalTool.ArtifactPreview)
+	}
+
+	closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := manager.CloseSession(closeCtx, sessionID); err != nil {
+		t.Fatalf("CloseSession: %v", err)
+	}
+	waitForFileContent(t, filepath.Join(workspace, "terminal-closed.txt"), "closed")
+}
+
 type acpSessionActivityCapture struct {
 	mu         sync.Mutex
 	activities []Activity
@@ -261,6 +317,23 @@ func firstTerminalActivityID(activities []Activity) string {
 		}
 	}
 	return ""
+}
+
+func waitForFileContent(t *testing.T, path, want string) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	var last string
+	for time.Now().Before(deadline) {
+		raw, err := os.ReadFile(path)
+		if err == nil {
+			last = string(raw)
+			if strings.Contains(last, want) {
+				return
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("%s content = %q, want %q before deadline", path, last, want)
 }
 
 func TestSessionManagerPreservesACPStopReason(t *testing.T) {
@@ -3312,6 +3385,47 @@ func (a *fakeACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (ac
 		}
 		return acp.PromptResponse{StopReason: acp.StopReasonEndTurn}, nil
 	}
+	if prompt == "terminal command no release" {
+		cwd := session.cwd
+		terminal, err := a.conn.CreateTerminal(turnCtx, acp.CreateTerminalRequest{
+			SessionId: params.SessionId,
+			Command:   "sh",
+			Args:      []string{"-c", "trap 'printf closed > terminal-closed.txt; exit 0' TERM; printf 'terminal retained\n'; while :; do sleep 1; done"},
+			Cwd:       &cwd,
+		})
+		if err != nil {
+			return acp.PromptResponse{}, err
+		}
+		output, err := a.waitForTerminalOutput(turnCtx, params.SessionId, terminal.TerminalId, "terminal retained")
+		if err != nil {
+			return acp.PromptResponse{}, err
+		}
+		status := acp.ToolCallStatusCompleted
+		kind := acp.ToolKindExecute
+		if err := a.conn.SessionUpdate(turnCtx, acp.SessionNotification{
+			SessionId: params.SessionId,
+			Update: acp.SessionUpdate{
+				ToolCallUpdate: &acp.SessionToolCallUpdate{
+					ToolCallId: acp.ToolCallId("terminal_ref_unreleased"),
+					Status:     &status,
+					Kind:       &kind,
+					Title:      acp.Ptr("Terminal command"),
+					Content: []acp.ToolCallContent{
+						acp.ToolTerminalRef(terminal.TerminalId),
+					},
+				},
+			},
+		}); err != nil {
+			return acp.PromptResponse{}, err
+		}
+		if err := a.conn.SessionUpdate(turnCtx, acp.SessionNotification{
+			SessionId: params.SessionId,
+			Update:    acp.UpdateAgentMessageText("terminal output: " + strings.TrimSpace(output.Output)),
+		}); err != nil {
+			return acp.PromptResponse{}, err
+		}
+		return acp.PromptResponse{StopReason: acp.StopReasonEndTurn}, nil
+	}
 
 	if err := a.conn.SessionUpdate(turnCtx, acp.SessionNotification{
 		SessionId: params.SessionId,
@@ -3332,6 +3446,32 @@ func (a *fakeACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (ac
 		return acp.PromptResponse{}, err
 	}
 	return acp.PromptResponse{StopReason: acp.StopReasonEndTurn}, nil
+}
+
+func (a *fakeACPAgent) waitForTerminalOutput(ctx context.Context, sessionID acp.SessionId, terminalID string, want string) (acp.TerminalOutputResponse, error) {
+	deadline := time.Now().Add(3 * time.Second)
+	var last acp.TerminalOutputResponse
+	for time.Now().Before(deadline) {
+		output, err := a.conn.TerminalOutput(ctx, acp.TerminalOutputRequest{
+			SessionId:  sessionID,
+			TerminalId: terminalID,
+		})
+		if err != nil {
+			return acp.TerminalOutputResponse{}, err
+		}
+		last = output
+		if strings.Contains(output.Output, want) {
+			return output, nil
+		}
+		timer := time.NewTimer(20 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return acp.TerminalOutputResponse{}, ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return last, fmt.Errorf("terminal output = %q, want %q before deadline", last.Output, want)
 }
 
 func fakeACPRequestPermission() acp.RequestPermissionRequest {
