@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projects"
@@ -20,6 +21,20 @@ type SnapshotSources struct {
 	Skills           projectskills.Store
 	Work             projectwork.Store
 	MemoryCandidates memory.CandidateStore
+}
+
+func SeedProjectFromStores(ctx context.Context, service *cairnline.Service, sources SnapshotSources, projectID string) (Snapshot, error) {
+	if service == nil {
+		return Snapshot{}, errors.Join(ErrSourceNotConfigured, errors.New("cairnline service is required"))
+	}
+	snapshot, err := LoadSnapshot(ctx, sources, projectID)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	if err := Seed(ctx, service, snapshot); err != nil {
+		return Snapshot{}, err
+	}
+	return snapshot, nil
 }
 
 func LoadSnapshot(ctx context.Context, sources SnapshotSources, projectID string) (Snapshot, error) {
