@@ -355,8 +355,11 @@ and durable grants so transcripts and approval history move together.
 
 `HECATE_PROJECTS_COORDINATION_BACKEND=hecate|cairnline` is separate from the
 storage backend. The default is `hecate`. `cairnline` records replacement intent
-for local bridge experiments, but live Projects reads/writes still use
-Hecate-native stores until the Cairnline adapter and migration path are ready.
+for local bridge experiments. When the Cairnline read adapter is fully wired,
+`GET /hecate/v1/projects/backend-status` reports
+`read_model_switch_ready=true`, but live Projects reads/writes still use
+Hecate-native stores until live read routing, the write adapter, and migration
+path are ready.
 
 Deployment-specific notes:
 
