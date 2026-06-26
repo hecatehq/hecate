@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectwork"
@@ -102,6 +103,9 @@ func TestProjectOperationsBrief_ReadOnlyProjectOperations(t *testing.T) {
 	if response.Object != "project_operations_brief" || response.Data.ProjectID != "proj_ops" {
 		t.Fatalf("operations envelope = %+v, want project_operations_brief for project", response)
 	}
+	if response.Data.ReadBackend != "hecate" {
+		t.Fatalf("operations read_backend = %q, want hecate", response.Data.ReadBackend)
+	}
 	if response.Data.Summary.PendingMemoryCandidateCount != 1 || response.Data.Summary.PendingHandoffCount != 1 {
 		t.Fatalf("operations summary = %+v, want memory candidate and handoff counts", response.Data.Summary)
 	}
@@ -141,6 +145,86 @@ func TestProjectOperationsBrief_ReadOnlyProjectOperations(t *testing.T) {
 	}
 	if len(afterAssignments) != len(beforeAssignments) || len(afterCandidates) != len(beforeCandidates) {
 		t.Fatalf("operations brief mutated project state: assignments %d->%d candidates %d->%d", len(beforeAssignments), len(afterAssignments), len(beforeCandidates), len(afterCandidates))
+	}
+}
+
+func TestProjectOperationsBrief_CairnlineConfiguredUsesReadModel(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{CoordinationBackend: "cairnline"},
+	}, quietLogger(), nil, nil, nil, nil)
+	handler.SetProjectStore(projects.NewMemoryStore())
+	handler.SetProjectWorkStore(projectwork.NewMemoryStore())
+	server := NewServer(quietLogger(), handler)
+
+	if _, err := handler.projects.Create(t.Context(), projects.Project{
+		ID:              "proj_cairnline_ops",
+		Name:            "Cairnline Operations",
+		DefaultProvider: "openai",
+		DefaultModel:    "gpt-5",
+	}); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	if _, err := handler.projectWork.CreateWorkItem(t.Context(), projectwork.WorkItem{
+		ID:        "work_cairnline_ops",
+		ProjectID: "proj_cairnline_ops",
+		Title:     "Exercise Cairnline operations",
+		Status:    projectwork.WorkItemStatusRunning,
+	}); err != nil {
+		t.Fatalf("CreateWorkItem: %v", err)
+	}
+	if _, err := handler.projectWork.CreateAssignment(t.Context(), projectwork.Assignment{
+		ID:         "asgn_cairnline_approval",
+		ProjectID:  "proj_cairnline_ops",
+		WorkItemID: "work_cairnline_ops",
+		RoleID:     "software_developer",
+		DriverKind: projectwork.AssignmentDriverHecateTask,
+		Status:     projectwork.AssignmentStatusAwaitingApproval,
+		ExecutionRef: projectwork.AssignmentExecutionRef{
+			Kind:                 projectwork.AssignmentExecutionKindTaskRun,
+			TaskID:               "task_cairnline",
+			RunID:                "run_cairnline",
+			Status:               projectwork.AssignmentStatusAwaitingApproval,
+			PendingApprovalCount: 2,
+		},
+	}); err != nil {
+		t.Fatalf("CreateAssignment: %v", err)
+	}
+	if _, err := handler.memoryCandidates.CreateCandidate(t.Context(), memory.Candidate{
+		ID:        "memcand_cairnline_ops",
+		ProjectID: "proj_cairnline_ops",
+		Title:     "Cairnline memory",
+		Body:      "Operations keeps memory review visible.",
+		Status:    memory.CandidateStatusPending,
+	}); err != nil {
+		t.Fatalf("CreateCandidate: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_cairnline_ops/operations/brief", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("operations brief status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response ProjectOperationsBriefEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode operations brief: %v", err)
+	}
+	if response.Data.ReadBackend != "cairnline" {
+		t.Fatalf("operations read_backend = %q, want cairnline", response.Data.ReadBackend)
+	}
+	if response.Data.Summary.PendingMemoryCandidateCount != 1 {
+		t.Fatalf("operations summary = %+v, want pending memory candidate from Cairnline read model", response.Data.Summary)
+	}
+	approval := findProjectOperationsItemForTest(t, response.Data.Items, "approve_assignment")
+	if approval.Target.AssignmentID != "asgn_cairnline_approval" || approval.Action.Type != projectOperationsActionOpenWorkItem || approval.Status != "awaiting_approval" {
+		t.Fatalf("approval item = %+v, want Hecate action projection over Cairnline assignment item", approval)
+	}
+	if approval.Detail != "2 approvals pending" {
+		t.Fatalf("approval detail = %q, want pending approval count preserved", approval.Detail)
+	}
+	memoryItem := findProjectOperationsItemForTest(t, response.Data.Items, "review_memory_candidates")
+	if memoryItem.Target.Surface != "memory" || memoryItem.Action.Type != projectOperationsActionOpenMemoryReview {
+		t.Fatalf("memory item = %+v, want memory review action", memoryItem)
 	}
 }
 
