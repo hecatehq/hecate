@@ -27,6 +27,7 @@ type Snapshot struct {
 	Assignments      []projectwork.Assignment
 	Artifacts        []projectwork.CollaborationArtifact
 	Handoffs         []projectwork.Handoff
+	MemoryEntries    []memory.Entry
 	MemoryCandidates []memory.Candidate
 }
 
@@ -96,9 +97,21 @@ func Seed(ctx context.Context, service *cairnline.Service, snapshot Snapshot) er
 			return err
 		}
 	}
-	for _, candidate := range snapshot.MemoryCandidates {
-		if _, err := service.CreateMemoryCandidate(ctx, MemoryCandidate(candidate)); err != nil {
+	for _, entry := range snapshot.MemoryEntries {
+		if _, err := service.CreateMemoryEntry(ctx, MemoryEntry(entry)); err != nil {
 			return err
+		}
+	}
+	for _, candidate := range snapshot.MemoryCandidates {
+		item := MemoryCandidate(candidate)
+		created, err := service.CreateMemoryCandidate(ctx, item)
+		if err != nil {
+			return err
+		}
+		if created.Status != item.Status || created.StatusReason != item.StatusReason || created.PromotedMemoryID != item.PromotedMemoryID {
+			if _, err := service.UpdateMemoryCandidate(ctx, item); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -300,18 +313,58 @@ func Handoff(handoff projectwork.Handoff) cairnline.Handoff {
 	}
 }
 
+func MemoryEntry(entry memory.Entry) cairnline.MemoryEntry {
+	return cairnline.MemoryEntry{
+		ID:         strings.TrimSpace(entry.ID),
+		ProjectID:  strings.TrimSpace(entry.ProjectID),
+		Title:      strings.TrimSpace(entry.Title),
+		Body:       strings.TrimSpace(entry.Body),
+		TrustLabel: strings.TrimSpace(entry.TrustLabel),
+		SourceKind: strings.TrimSpace(entry.SourceKind),
+		SourceID:   strings.TrimSpace(entry.SourceID),
+		Enabled:    entry.Enabled,
+		CreatedAt:  entry.CreatedAt,
+		UpdatedAt:  entry.UpdatedAt,
+	}
+}
+
 func MemoryCandidate(candidate memory.Candidate) cairnline.MemoryCandidate {
 	return cairnline.MemoryCandidate{
-		ID:         strings.TrimSpace(candidate.ID),
-		ProjectID:  strings.TrimSpace(candidate.ProjectID),
-		Title:      strings.TrimSpace(candidate.Title),
-		Body:       strings.TrimSpace(candidate.Body),
-		Status:     cairnline.MemoryCandidateProposed,
-		TrustLabel: strings.TrimSpace(candidate.SuggestedTrustLabel),
-		SourceRef:  memoryCandidateSourceRef(candidate),
-		CreatedAt:  candidate.CreatedAt,
-		UpdatedAt:  candidate.UpdatedAt,
+		ID:                  strings.TrimSpace(candidate.ID),
+		ProjectID:           strings.TrimSpace(candidate.ProjectID),
+		Title:               strings.TrimSpace(candidate.Title),
+		Body:                strings.TrimSpace(candidate.Body),
+		SuggestedKind:       strings.TrimSpace(candidate.SuggestedKind),
+		SuggestedTrustLabel: strings.TrimSpace(candidate.SuggestedTrustLabel),
+		SuggestedSourceKind: strings.TrimSpace(candidate.SuggestedSourceKind),
+		SuggestedSourceID:   strings.TrimSpace(candidate.SuggestedSourceID),
+		SourceRefs:          MemoryCandidateSourceRefs(candidate.SourceRefs),
+		Status:              MemoryCandidateStatus(candidate.Status),
+		StatusReason:        strings.TrimSpace(candidate.StatusReason),
+		PromotedMemoryID:    strings.TrimSpace(candidate.PromotedMemoryID),
+		CreatedAt:           candidate.CreatedAt,
+		UpdatedAt:           candidate.UpdatedAt,
 	}
+}
+
+func MemoryCandidateSourceRefs(refs []memory.CandidateSourceRef) []cairnline.MemoryCandidateSourceRef {
+	if len(refs) == 0 {
+		return nil
+	}
+	out := make([]cairnline.MemoryCandidateSourceRef, 0, len(refs))
+	for _, ref := range refs {
+		item := cairnline.MemoryCandidateSourceRef{
+			Kind:  strings.TrimSpace(ref.Kind),
+			ID:    strings.TrimSpace(ref.ID),
+			Title: strings.TrimSpace(ref.Title),
+			URL:   strings.TrimSpace(ref.URL),
+		}
+		if item.Kind == "" && item.ID == "" && item.Title == "" && item.URL == "" {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
 }
 
 func ExecutionMode(driverKind string) string {
@@ -361,6 +414,17 @@ func ReviewRisk(risk string) string {
 		return cairnline.ReviewRiskHigh
 	default:
 		return ""
+	}
+}
+
+func MemoryCandidateStatus(status string) string {
+	switch strings.TrimSpace(status) {
+	case memory.CandidateStatusPromoted:
+		return cairnline.MemoryCandidatePromoted
+	case memory.CandidateStatusRejected:
+		return cairnline.MemoryCandidateRejected
+	default:
+		return cairnline.MemoryCandidatePending
 	}
 }
 
@@ -477,17 +541,6 @@ func handoffBody(handoff projectwork.Handoff) string {
 		labelList("Linked memory", handoff.LinkedMemoryIDs),
 		labelList("Context refs", handoff.ContextRefs),
 	)
-}
-
-func memoryCandidateSourceRef(candidate memory.Candidate) string {
-	if value := labelPair(candidate.SuggestedSourceKind, candidate.SuggestedSourceID); value != "" {
-		return value
-	}
-	if len(candidate.SourceRefs) == 0 {
-		return ""
-	}
-	ref := candidate.SourceRefs[0]
-	return firstNonEmpty(labelPair(ref.Kind, ref.ID), strings.TrimSpace(ref.URL), strings.TrimSpace(ref.Title))
 }
 
 func labelValue(label, value string) string {

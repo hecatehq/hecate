@@ -56,8 +56,19 @@ func TestSeedMirrorsProjectWorkIntoCairnline(t *testing.T) {
 	if len(packet.Handoffs) != 1 || packet.Handoffs[0].ID != "handoff_review" || packet.Handoffs[0].FromRoleID != "bridge_developer" || packet.Handoffs[0].ToRoleID != "bridge_reviewer" {
 		t.Fatalf("packet handoffs = %+v, want mapped handoff roles", packet.Handoffs)
 	}
-	if len(packet.MemoryCandidates) != 1 || packet.MemoryCandidates[0].ID != "memcand_bridge" || packet.MemoryCandidates[0].TrustLabel != memory.TrustLabelGenerated || packet.MemoryCandidates[0].SourceRef != "handoff:handoff_review" {
+	if len(packet.Memory) != 1 || packet.Memory[0].ID != "mem_bridge" || packet.Memory[0].TrustLabel != memory.TrustLabelOperatorMemory {
+		t.Fatalf("packet memory = %+v, want mapped accepted memory", packet.Memory)
+	}
+	if len(packet.MemoryCandidates) != 1 || packet.MemoryCandidates[0].ID != "memcand_bridge" || packet.MemoryCandidates[0].SuggestedTrustLabel != memory.TrustLabelGenerated || packet.MemoryCandidates[0].SuggestedSourceID != "handoff_review" || len(packet.MemoryCandidates[0].SourceRefs) != 1 {
 		t.Fatalf("packet memory candidates = %+v, want mapped memory candidate provenance", packet.MemoryCandidates)
+	}
+	candidates, err := service.ListMemoryCandidates(ctx, cairnline.MemoryCandidateFilter{ProjectID: "proj_hecate", IncludeResolved: true})
+	if err != nil {
+		t.Fatalf("ListMemoryCandidates(include resolved) error = %v", err)
+	}
+	rejectedCandidate := findCairnlineMemoryCandidate(candidates, "memcand_rejected")
+	if len(candidates) != 2 || rejectedCandidate == nil || rejectedCandidate.Status != cairnline.MemoryCandidateRejected || rejectedCandidate.StatusReason != "Already captured" {
+		t.Fatalf("all memory candidates = %+v, want pending and rejected state preserved", candidates)
 	}
 
 	externalPacket, err := service.AssignmentLaunchPacket(ctx, "proj_hecate", "asgn_external")
@@ -92,8 +103,8 @@ func TestLoadSnapshotReadsHecateStores(t *testing.T) {
 	if len(loaded.Skills) != len(snapshot.Skills) || len(loaded.WorkItems) != len(snapshot.WorkItems) || len(loaded.Assignments) != len(snapshot.Assignments) {
 		t.Fatalf("loaded counts skills=%d work=%d assignments=%d, want %d/%d/%d", len(loaded.Skills), len(loaded.WorkItems), len(loaded.Assignments), len(snapshot.Skills), len(snapshot.WorkItems), len(snapshot.Assignments))
 	}
-	if len(loaded.Artifacts) != len(snapshot.Artifacts) || len(loaded.Handoffs) != len(snapshot.Handoffs) || len(loaded.MemoryCandidates) != len(snapshot.MemoryCandidates) {
-		t.Fatalf("loaded collaboration counts artifacts=%d handoffs=%d memory=%d, want %d/%d/%d", len(loaded.Artifacts), len(loaded.Handoffs), len(loaded.MemoryCandidates), len(snapshot.Artifacts), len(snapshot.Handoffs), len(snapshot.MemoryCandidates))
+	if len(loaded.Artifacts) != len(snapshot.Artifacts) || len(loaded.Handoffs) != len(snapshot.Handoffs) || len(loaded.MemoryEntries) != len(snapshot.MemoryEntries) || len(loaded.MemoryCandidates) != len(snapshot.MemoryCandidates) {
+		t.Fatalf("loaded collaboration counts artifacts=%d handoffs=%d memory_entries=%d memory_candidates=%d, want %d/%d/%d/%d", len(loaded.Artifacts), len(loaded.Handoffs), len(loaded.MemoryEntries), len(loaded.MemoryCandidates), len(snapshot.Artifacts), len(snapshot.Handoffs), len(snapshot.MemoryEntries), len(snapshot.MemoryCandidates))
 	}
 
 	service := cairnline.NewMemoryService()
@@ -104,8 +115,8 @@ func TestLoadSnapshotReadsHecateStores(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AssignmentLaunchPacket() loaded snapshot error = %v", err)
 	}
-	if len(packet.Evidence) != 1 || len(packet.Reviews) != 1 || len(packet.Handoffs) != 1 || len(packet.MemoryCandidates) != 1 {
-		t.Fatalf("loaded launch packet collaboration counts evidence=%d reviews=%d handoffs=%d memory=%d, want all one", len(packet.Evidence), len(packet.Reviews), len(packet.Handoffs), len(packet.MemoryCandidates))
+	if len(packet.Evidence) != 1 || len(packet.Reviews) != 1 || len(packet.Handoffs) != 1 || len(packet.Memory) != 1 || len(packet.MemoryCandidates) != 1 {
+		t.Fatalf("loaded launch packet collaboration counts evidence=%d reviews=%d handoffs=%d memory_entries=%d memory_candidates=%d, want all one", len(packet.Evidence), len(packet.Reviews), len(packet.Handoffs), len(packet.Memory), len(packet.MemoryCandidates))
 	}
 }
 
@@ -140,8 +151,8 @@ func TestSeedProjectFromStoresPersistsToCairnlineSQLite(t *testing.T) {
 	if packet.Project.ID != snapshot.Project.ID || packet.Assignment.RootID != "root_main" {
 		t.Fatalf("reopened packet project/assignment = %+v/%+v, want persisted root-scoped launch packet", packet.Project, packet.Assignment)
 	}
-	if len(packet.Evidence) != 1 || len(packet.Reviews) != 1 || len(packet.Handoffs) != 1 || len(packet.MemoryCandidates) != 1 {
-		t.Fatalf("reopened launch packet collaboration counts evidence=%d reviews=%d handoffs=%d memory=%d, want all one", len(packet.Evidence), len(packet.Reviews), len(packet.Handoffs), len(packet.MemoryCandidates))
+	if len(packet.Evidence) != 1 || len(packet.Reviews) != 1 || len(packet.Handoffs) != 1 || len(packet.Memory) != 1 || len(packet.MemoryCandidates) != 1 {
+		t.Fatalf("reopened launch packet collaboration counts evidence=%d reviews=%d handoffs=%d memory_entries=%d memory_candidates=%d, want all one", len(packet.Evidence), len(packet.Reviews), len(packet.Handoffs), len(packet.Memory), len(packet.MemoryCandidates))
 	}
 }
 
@@ -329,6 +340,19 @@ func bridgeSnapshotFixture(now time.Time) Snapshot {
 			CreatedAt:             now,
 			UpdatedAt:             now,
 		}},
+		MemoryEntries: []memory.Entry{{
+			ID:         "mem_bridge",
+			Scope:      memory.ScopeProject,
+			ProjectID:  "proj_hecate",
+			Title:      "Bridge replacement gate",
+			Body:       "Cairnline replacement requires artifact parity before backend migration.",
+			TrustLabel: memory.TrustLabelOperatorMemory,
+			SourceKind: memory.SourceKindOperator,
+			SourceID:   "handoff_review",
+			Enabled:    true,
+			CreatedAt:  now,
+			UpdatedAt:  now,
+		}},
 		MemoryCandidates: []memory.Candidate{{
 			ID:                  "memcand_bridge",
 			ProjectID:           "proj_hecate",
@@ -338,7 +362,24 @@ func bridgeSnapshotFixture(now time.Time) Snapshot {
 			SuggestedTrustLabel: memory.TrustLabelGenerated,
 			SuggestedSourceKind: "handoff",
 			SuggestedSourceID:   "handoff_review",
-			Status:              memory.CandidateStatusPending,
+			SourceRefs: []memory.CandidateSourceRef{{
+				Kind:  "handoff",
+				ID:    "handoff_review",
+				Title: "Review bridge parity",
+			}},
+			Status:    memory.CandidateStatusPending,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}, {
+			ID:                  "memcand_rejected",
+			ProjectID:           "proj_hecate",
+			Title:               "Rejected bridge note",
+			Body:                "This suggestion was already captured.",
+			SuggestedKind:       "coordination_note",
+			SuggestedTrustLabel: memory.TrustLabelGenerated,
+			SuggestedSourceKind: memory.SourceKindGenerated,
+			Status:              memory.CandidateStatusRejected,
+			StatusReason:        "Already captured",
 			CreatedAt:           now,
 			UpdatedAt:           now,
 		}},
@@ -346,12 +387,14 @@ func bridgeSnapshotFixture(now time.Time) Snapshot {
 }
 
 func bridgeMemorySources() SnapshotSources {
+	memoryStore := memory.NewMemoryStore()
 	return SnapshotSources{
 		Projects:         projects.NewMemoryStore(),
 		AgentProfiles:    agentprofiles.NewMemoryStore(),
 		Skills:           projectskills.NewMemoryStore(),
 		Work:             projectwork.NewMemoryStore(),
-		MemoryCandidates: memory.NewMemoryStore(),
+		Memory:           memoryStore,
+		MemoryCandidates: memoryStore,
 	}
 }
 
@@ -393,6 +436,11 @@ func seedHecateSources(t *testing.T, ctx context.Context, sources SnapshotSource
 			t.Fatalf("Create handoff %q: %v", handoff.ID, err)
 		}
 	}
+	for _, entry := range snapshot.MemoryEntries {
+		if _, err := sources.Memory.Create(ctx, entry); err != nil {
+			t.Fatalf("Create memory entry %q: %v", entry.ID, err)
+		}
+	}
 	for _, candidate := range snapshot.MemoryCandidates {
 		if _, err := sources.MemoryCandidates.CreateCandidate(ctx, candidate); err != nil {
 			t.Fatalf("Create memory candidate %q: %v", candidate.ID, err)
@@ -416,4 +464,13 @@ func hasRole(roles []projectwork.AgentRoleProfile, id string) bool {
 		}
 	}
 	return false
+}
+
+func findCairnlineMemoryCandidate(candidates []cairnline.MemoryCandidate, id string) *cairnline.MemoryCandidate {
+	for idx := range candidates {
+		if candidates[idx].ID == id {
+			return &candidates[idx]
+		}
+	}
+	return nil
 }
