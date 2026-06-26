@@ -9,8 +9,8 @@
 > [Workspace instructions, skills, and profiles](workspace-instructions-skills-and-profiles.md)
 > for today's Hecate project, context, memory, skills, and agent-supervision
 > behavior.
-> **Next action:** harden the standalone `cairnline` V0 contracts while Hecate
-> remains the richer incubator for cockpit and orchestration behavior.
+> **Next action:** use Cairnline beside Hecate and begin embed experiments, while
+> Hecate remains the richer incubator for cockpit and orchestration behavior.
 
 Hecate Projects V1 has grown into a useful local coordination substrate:
 durable project identity, roots, roles, work items, assignments, evidence,
@@ -23,8 +23,9 @@ supervisor, approval implementation, or operator UI.
 This proposal documents a design-first extraction path for **Cairnline**, a
 standalone, agent-neutral project coordination server exposed over MCP. A local
 standalone scaffold exists at [hecatehq/cairnline](https://github.com/hecatehq/cairnline),
-but this remains a proposal for Hecate integration and long-term extraction
-boundaries, not current Hecate runtime behavior.
+including a public embeddable Go API, but this remains a proposal for Hecate
+integration and long-term extraction boundaries, not current Hecate runtime
+behavior.
 
 ## Summary
 
@@ -47,6 +48,39 @@ The core rule:
 The server can queue, claim, resolve context, record evidence, track status,
 and emit launch packets. It must not assume it can launch agents. Hecate or
 another orchestrator may later launch and supervise compatible agents.
+
+## Replacement Readiness
+
+Cairnline is ready for **side-by-side dogfood** and small Hecate embed
+experiments once Hecate imports the public root package
+`github.com/hecatehq/cairnline`. It is not ready to replace Hecate's Projects
+backend yet.
+
+Hecate should replace its internal Projects stores with Cairnline only after:
+
+- Cairnline covers Hecate's current project, role, profile, skill, work item,
+  assignment, evidence, review, handoff, memory-candidate, root, and closeout
+  flows.
+- Hecate has an adapter from Hecate task / External Agent execution records to
+  Cairnline assignment coordination records.
+- Hecate can migrate or import/export existing local project state.
+- Workspace root, worktree, evidence-link, and source-locator boundaries have
+  a dedicated security review in the Cairnline API.
+- At least one real Hecate project has been dogfooded end to end through
+  Cairnline-backed coordination.
+- Hecate's Projects UI can consume Cairnline state without losing current
+  onboarding, attention, context-inspection, review, handoff, or closeout
+  behavior.
+
+The intended order is therefore:
+
+```text
+side-by-side MCP server
+-> embedded read/write experiment
+-> parity adapter behind a feature flag
+-> state migration/import-export
+-> replacement after dogfood
+```
 
 ## Product Boundary
 
@@ -279,15 +313,20 @@ launch agents. Those remain explicit operator or orchestrator actions.
 - Runtime: Go.
 - Storage: SQLite first.
 - Transport: MCP stdio server first.
-- Scope: core coordination state plus MCP tools/resources.
+- Public embedding surface: root Go package
+  `github.com/hecatehq/cairnline`.
+- Scope: core coordination state plus MCP tools/resources and a stable
+  embeddable service facade.
 - Exclusions: no web UI, no model gateway, no Hecate task runtime, no
   external-agent launcher, no hosted team permissions.
 
 ### 4. Hecate Integration
 
 - Hecate can initially continue using its internal Projects implementation.
-- After V0 stabilizes, Hecate may embed the portable core or talk to the MCP
-  server.
+- Hecate can use the MCP server for side-by-side interoperability and the
+  public Go package for controlled embed experiments.
+- After V0 stabilizes, Hecate may embed the portable core as its Projects
+  backend or talk to the MCP server as a separate local coordination process.
 - Hecate remains the richer cockpit and orchestrator for supervised Hecate
   Tasks and External Agents.
 - Hecate integration tests should start only after Hecate consumes the
