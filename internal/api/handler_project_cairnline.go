@@ -61,6 +61,7 @@ func (h *Handler) HandleExportProjectToCairnline(w http.ResponseWriter, r *http.
 			AssignmentCount:      len(snapshot.Assignments),
 			ArtifactCount:        len(snapshot.Artifacts),
 			HandoffCount:         len(snapshot.Handoffs),
+			MemoryEntryCount:     len(snapshot.MemoryEntries),
 			MemoryCandidateCount: len(snapshot.MemoryCandidates),
 		},
 	})
@@ -72,6 +73,7 @@ func (h *Handler) cairnlineSnapshotSources() cairnlinebridge.SnapshotSources {
 		AgentProfiles:    h.agentProfiles,
 		Skills:           h.projectSkills,
 		Work:             h.projectWork,
+		Memory:           h.memory,
 		MemoryCandidates: h.memoryCandidates,
 	}
 }

@@ -2217,6 +2217,7 @@ Example response:
     "assignment_count": 5,
     "artifact_count": 4,
     "handoff_count": 1,
+    "memory_entry_count": 3,
     "memory_candidate_count": 2
   }
 }

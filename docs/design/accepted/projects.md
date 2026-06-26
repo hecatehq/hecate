@@ -94,7 +94,8 @@ Hecate project-shaped records:
 - project identity, roots, and context-source metadata;
 - agent profiles and execution posture;
 - skills metadata, roles, work items, and root-scoped assignments;
-- collaboration evidence links, reviews, handoffs, and memory candidates.
+- collaboration evidence links, reviews, handoffs, accepted memory entries, and
+  memory candidates with decision state.
 
 This bridge proves the portable Cairnline model can receive the core
 coordination graph and produce assignment launch packets with the expected
@@ -112,8 +113,8 @@ Hecate is ready to replace its internal Projects backend with Cairnline only
 after these gates are met:
 
 - Cairnline has durable storage and MCP/API parity for Hecate's project, role,
-  profile, skill, work item, assignment, artifact, handoff, and memory-candidate
-  flows.
+  profile, skill, work item, assignment, artifact, handoff, accepted-memory, and
+  memory-candidate flows.
 - Hecate has a feature-flagged adapter that can run read/write Projects flows
   against Cairnline without UI-local fallback state.
 - Import/export or migration covers existing Hecate local stores and can be
