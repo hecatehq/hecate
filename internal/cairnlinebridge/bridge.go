@@ -12,18 +12,22 @@ import (
 
 	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/agentprofiles"
+	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
 )
 
 type Snapshot struct {
-	Project       projects.Project
-	AgentProfiles []agentprofiles.Profile
-	Skills        []projectskills.Skill
-	Roles         []projectwork.AgentRoleProfile
-	WorkItems     []projectwork.WorkItem
-	Assignments   []projectwork.Assignment
+	Project          projects.Project
+	AgentProfiles    []agentprofiles.Profile
+	Skills           []projectskills.Skill
+	Roles            []projectwork.AgentRoleProfile
+	WorkItems        []projectwork.WorkItem
+	Assignments      []projectwork.Assignment
+	Artifacts        []projectwork.CollaborationArtifact
+	Handoffs         []projectwork.Handoff
+	MemoryCandidates []memory.Candidate
 }
 
 func Seed(ctx context.Context, service *cairnline.Service, snapshot Snapshot) error {
@@ -65,6 +69,29 @@ func Seed(ctx context.Context, service *cairnline.Service, snapshot Snapshot) er
 			return err
 		}
 		if err := syncAssignmentStatus(ctx, service, item); err != nil {
+			return err
+		}
+	}
+	for _, artifact := range snapshot.Artifacts {
+		if item, ok := Evidence(artifact); ok {
+			if _, err := service.CreateEvidence(ctx, item); err != nil {
+				return err
+			}
+			continue
+		}
+		if item, ok := Review(artifact); ok {
+			if _, err := service.CreateReview(ctx, item); err != nil {
+				return err
+			}
+		}
+	}
+	for _, handoff := range snapshot.Handoffs {
+		if _, err := service.CreateHandoff(ctx, Handoff(handoff)); err != nil {
+			return err
+		}
+	}
+	for _, candidate := range snapshot.MemoryCandidates {
+		if _, err := service.CreateMemoryCandidate(ctx, MemoryCandidate(candidate)); err != nil {
 			return err
 		}
 	}
@@ -215,6 +242,72 @@ func Assignment(assignment projectwork.Assignment, role projectwork.AgentRolePro
 	}
 }
 
+func Evidence(artifact projectwork.CollaborationArtifact) (cairnline.Evidence, bool) {
+	if strings.TrimSpace(artifact.Kind) != projectwork.ArtifactKindEvidenceLink {
+		return cairnline.Evidence{}, false
+	}
+	return cairnline.Evidence{
+		ID:         strings.TrimSpace(artifact.ID),
+		ProjectID:  strings.TrimSpace(artifact.ProjectID),
+		WorkItemID: strings.TrimSpace(artifact.WorkItemID),
+		Title:      strings.TrimSpace(artifact.Title),
+		Body:       strings.TrimSpace(artifact.Body),
+		Locator:    firstNonEmpty(strings.TrimSpace(artifact.EvidenceURL), strings.TrimSpace(artifact.EvidenceExternalID)),
+		TrustLabel: firstNonEmpty(strings.TrimSpace(artifact.EvidenceTrustLabel), projectwork.EvidenceTrustOperatorProvided),
+		CreatedAt:  artifact.CreatedAt,
+		UpdatedAt:  artifact.UpdatedAt,
+	}, true
+}
+
+func Review(artifact projectwork.CollaborationArtifact) (cairnline.Review, bool) {
+	if strings.TrimSpace(artifact.Kind) != projectwork.ArtifactKindReview {
+		return cairnline.Review{}, false
+	}
+	return cairnline.Review{
+		ID:             strings.TrimSpace(artifact.ID),
+		ProjectID:      strings.TrimSpace(artifact.ProjectID),
+		WorkItemID:     strings.TrimSpace(artifact.WorkItemID),
+		AssignmentID:   firstNonEmpty(strings.TrimSpace(artifact.ReviewedAssignmentID), strings.TrimSpace(artifact.AssignmentID)),
+		ReviewerRoleID: strings.TrimSpace(artifact.AuthorRoleID),
+		Title:          strings.TrimSpace(artifact.Title),
+		Body:           strings.TrimSpace(artifact.Body),
+		Verdict:        ReviewVerdict(artifact.ReviewVerdict),
+		Risk:           ReviewRisk(artifact.ReviewRisk),
+		Status:         cairnline.ReviewStatusRecorded,
+		CreatedAt:      artifact.CreatedAt,
+		UpdatedAt:      artifact.UpdatedAt,
+	}, true
+}
+
+func Handoff(handoff projectwork.Handoff) cairnline.Handoff {
+	return cairnline.Handoff{
+		ID:         strings.TrimSpace(handoff.ID),
+		ProjectID:  strings.TrimSpace(handoff.ProjectID),
+		WorkItemID: strings.TrimSpace(handoff.WorkItemID),
+		FromRoleID: strings.TrimSpace(handoff.CreatedByRoleID),
+		ToRoleID:   strings.TrimSpace(handoff.TargetRoleID),
+		Title:      strings.TrimSpace(handoff.Title),
+		Body:       handoffBody(handoff),
+		Status:     cairnline.HandoffStatusOpen,
+		CreatedAt:  handoff.CreatedAt,
+		UpdatedAt:  handoff.UpdatedAt,
+	}
+}
+
+func MemoryCandidate(candidate memory.Candidate) cairnline.MemoryCandidate {
+	return cairnline.MemoryCandidate{
+		ID:         strings.TrimSpace(candidate.ID),
+		ProjectID:  strings.TrimSpace(candidate.ProjectID),
+		Title:      strings.TrimSpace(candidate.Title),
+		Body:       strings.TrimSpace(candidate.Body),
+		Status:     cairnline.MemoryCandidateProposed,
+		TrustLabel: strings.TrimSpace(candidate.SuggestedTrustLabel),
+		SourceRef:  memoryCandidateSourceRef(candidate),
+		CreatedAt:  candidate.CreatedAt,
+		UpdatedAt:  candidate.UpdatedAt,
+	}
+}
+
 func ExecutionMode(driverKind string) string {
 	switch strings.TrimSpace(driverKind) {
 	case projectwork.AssignmentDriverHecateTask:
@@ -238,6 +331,30 @@ func AssignmentStatus(status string) string {
 		return cairnline.AssignmentCancelled
 	default:
 		return cairnline.AssignmentQueued
+	}
+}
+
+func ReviewVerdict(verdict string) string {
+	switch strings.TrimSpace(verdict) {
+	case projectwork.ReviewVerdictApproved:
+		return cairnline.ReviewVerdictPass
+	case projectwork.ReviewVerdictBlocked:
+		return cairnline.ReviewVerdictBlocked
+	default:
+		return cairnline.ReviewVerdictConcerns
+	}
+}
+
+func ReviewRisk(risk string) string {
+	switch strings.TrimSpace(risk) {
+	case projectwork.ReviewRiskLow:
+		return cairnline.ReviewRiskLow
+	case projectwork.ReviewRiskMedium:
+		return cairnline.ReviewRiskMedium
+	case projectwork.ReviewRiskHigh:
+		return cairnline.ReviewRiskHigh
+	default:
+		return ""
 	}
 }
 
@@ -342,4 +459,64 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func handoffBody(handoff projectwork.Handoff) string {
+	return joinParagraphs(
+		strings.TrimSpace(handoff.Summary),
+		labelValue("Recommended next action", handoff.RecommendedNextAction),
+		labelValue("Source assignment", handoff.SourceAssignmentID),
+		labelValue("Target assignment", handoff.TargetAssignmentID),
+		labelList("Linked artifacts", handoff.LinkedArtifactIDs),
+		labelList("Linked memory", handoff.LinkedMemoryIDs),
+		labelList("Context refs", handoff.ContextRefs),
+	)
+}
+
+func memoryCandidateSourceRef(candidate memory.Candidate) string {
+	if value := labelPair(candidate.SuggestedSourceKind, candidate.SuggestedSourceID); value != "" {
+		return value
+	}
+	if len(candidate.SourceRefs) == 0 {
+		return ""
+	}
+	ref := candidate.SourceRefs[0]
+	return firstNonEmpty(labelPair(ref.Kind, ref.ID), strings.TrimSpace(ref.URL), strings.TrimSpace(ref.Title))
+}
+
+func labelValue(label, value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	return label + ": " + value
+}
+
+func labelPair(kind, id string) string {
+	kind = strings.TrimSpace(kind)
+	id = strings.TrimSpace(id)
+	if kind == "" || id == "" {
+		return ""
+	}
+	return kind + ":" + id
+}
+
+func labelList(label string, values []string) string {
+	values = compactStrings(values)
+	if len(values) == 0 {
+		return ""
+	}
+	return label + ": " + strings.Join(values, ", ")
+}
+
+func joinParagraphs(values ...string) string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		out = append(out, value)
+	}
+	return strings.Join(out, "\n\n")
 }
