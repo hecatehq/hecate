@@ -290,6 +290,24 @@ type ProjectDeleteResponseItem struct {
 	MemoryCandidatesDeleted          int    `json:"memory_candidates_deleted"`
 }
 
+type ProjectCairnlineExportResponse struct {
+	Object string                             `json:"object"`
+	Data   ProjectCairnlineExportResponseItem `json:"data"`
+}
+
+type ProjectCairnlineExportResponseItem struct {
+	ProjectID            string `json:"project_id"`
+	DatabasePath         string `json:"database_path"`
+	AgentProfileCount    int    `json:"agent_profile_count"`
+	SkillCount           int    `json:"skill_count"`
+	RoleCount            int    `json:"role_count"`
+	WorkItemCount        int    `json:"work_item_count"`
+	AssignmentCount      int    `json:"assignment_count"`
+	ArtifactCount        int    `json:"artifact_count"`
+	HandoffCount         int    `json:"handoff_count"`
+	MemoryCandidateCount int    `json:"memory_candidate_count"`
+}
+
 type AgentProfileResponse struct {
 	Object string                   `json:"object"`
 	Data   AgentProfileResponseItem `json:"data"`

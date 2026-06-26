@@ -21,6 +21,7 @@ var remoteRuntimeLocalOnlyRoutes = []remoteRuntimeRoutePattern{
 	{method: http.MethodDelete, path: "/hecate/v1/terminals/{terminal_id}"},
 	{method: http.MethodPost, path: "/hecate/v1/system/reset-data"},
 	{method: http.MethodPost, path: "/hecate/v1/system/shutdown"},
+	{method: http.MethodPost, path: "/hecate/v1/projects/{id}/cairnline/export"},
 	{method: http.MethodPost, path: "/hecate/v1/mcp/probe"},
 	{method: http.MethodGet, path: "/hecate/v1/mcp/registry/servers"},
 	{method: http.MethodGet, path: "/hecate/v1/settings/providers/local-discovery"},
