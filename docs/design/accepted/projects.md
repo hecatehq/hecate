@@ -79,6 +79,43 @@ Raw paths are not stable enough to be the durable identity:
 - Synchronizing external-agent private memory into Hecate memory.
 - Treating a project as a billing/accounting boundary.
 
+## Cairnline Extraction
+
+Cairnline is the future portable coordination core for Projects-like state. It
+is not the active Hecate Projects backend yet. Hecate currently remains the
+runtime authority for project APIs, UI, task execution, approvals, external
+agent supervision, traces, and context-packet rendering.
+
+The current `internal/cairnlinebridge` package is a replacement-readiness proof.
+It can seed a Cairnline service from Hecate project-shaped records:
+
+- project identity, roots, and context-source metadata;
+- agent profiles and execution posture;
+- skills metadata, roles, work items, and root-scoped assignments;
+- collaboration evidence links, reviews, handoffs, and memory candidates.
+
+This bridge proves the portable Cairnline model can receive the core
+coordination graph and produce assignment launch packets with the expected
+metadata. It deliberately does not switch storage, proxy live API requests,
+replace Hecate task/external-agent execution, migrate existing local data, or
+make Cairnline authoritative.
+
+Hecate is ready to replace its internal Projects backend with Cairnline only
+after these gates are met:
+
+- Cairnline has durable storage and MCP/API parity for Hecate's project, role,
+  profile, skill, work item, assignment, artifact, handoff, and memory-candidate
+  flows.
+- Hecate has a feature-flagged adapter that can run read/write Projects flows
+  against Cairnline without UI-local fallback state.
+- Import/export or migration covers existing Hecate local stores and can be
+  rolled back during alpha.
+- Context packets, setup/health/operations summaries, activity projections, and
+  closeout gates match current Hecate behavior or have documented intentional
+  differences.
+- Dogfooding covers at least one real Hecate development project from project
+  creation through assignment, evidence, review, handoff, and closeout.
+
 ## Data Model
 
 Sketch:
