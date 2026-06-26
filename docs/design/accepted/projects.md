@@ -91,7 +91,8 @@ It can load Hecate project state from the current project/profile/skills/work
 stores, then seed a memory-backed or SQLite-backed Cairnline service from
 Hecate project-shaped records:
 
-- project identity, roots, default root, and context-source metadata;
+- project identity, roots, default root, and context-source provenance metadata
+  including format, scope, source category, and trusted metadata labels;
 - agent profiles and execution posture;
 - skills metadata, roles, work items, and root-scoped assignments;
 - assignment-scoped collaboration evidence links, reviews, handoffs with
@@ -127,8 +128,8 @@ Hecate is ready to replace its internal Projects backend with Cairnline only
 after these gates are met:
 
 - Cairnline has durable storage and MCP/API parity for Hecate's project, role,
-  profile, skill, work item, assignment, artifact, handoff, accepted-memory, and
-  memory-candidate flows.
+  profile, context-source provenance metadata, skill, work item, assignment,
+  artifact, handoff, accepted-memory, and memory-candidate flows.
 - Hecate has a feature-flagged adapter that can run read/write Projects flows
   against Cairnline without UI-local fallback state.
 - Import/export or migration covers existing Hecate local stores and can be
