@@ -100,10 +100,11 @@ Hecate project-shaped records:
 
 This bridge proves the portable Cairnline model can receive the core
 coordination graph and produce assignment launch packets with the expected
-metadata. It also exercises Cairnline's read-only closeout readiness and
-project operations brief against seeded Hecate work state. It deliberately does
-not switch storage, proxy live API requests, replace Hecate task/external-agent
-execution, migrate existing local data, or make Cairnline authoritative.
+metadata. It also exercises Cairnline's read-only closeout readiness, project
+operations brief, and project activity projection against seeded Hecate work
+state. It deliberately does not switch storage, proxy live API requests, replace
+Hecate task/external-agent execution, migrate existing local data, or make
+Cairnline authoritative.
 
 For operator-triggered experiments, Hecate exposes a local-only
 `POST /hecate/v1/projects/{id}/cairnline/export` endpoint that writes a
