@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"os"
@@ -69,7 +70,7 @@ func (h *Handler) HandleExportProjectToCairnline(w http.ResponseWriter, r *http.
 
 func (h *Handler) HandleProjectCairnlineReadModel(w http.ResponseWriter, r *http.Request) {
 	projectID := strings.TrimSpace(r.PathValue("id"))
-	snapshot, err := cairnlinebridge.LoadSnapshot(r.Context(), h.cairnlineSnapshotSources(), projectID)
+	readModel, err := h.projectCairnlineReadModel(r.Context(), projectID)
 	if errors.Is(err, projects.ErrNotFound) {
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
 		return
@@ -78,37 +79,136 @@ func (h *Handler) HandleProjectCairnlineReadModel(w http.ResponseWriter, r *http
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	service := cairnline.NewMemoryService()
-	if err := cairnlinebridge.Seed(r.Context(), service, snapshot); err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
-	operations, err := service.ProjectOperationsBrief(r.Context(), snapshot.Project.ID)
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
-	activity, err := service.ProjectActivity(r.Context(), snapshot.Project.ID)
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
 	WriteJSON(w, http.StatusOK, ProjectCairnlineReadModelResponse{
 		Object: "project_cairnline_read_model",
-		Data: ProjectCairnlineReadModelResponseItem{
-			ProjectID:            snapshot.Project.ID,
-			AgentProfileCount:    len(snapshot.AgentProfiles),
-			SkillCount:           len(snapshot.Skills),
-			RoleCount:            len(snapshot.Roles),
-			WorkItemCount:        len(snapshot.WorkItems),
-			AssignmentCount:      len(snapshot.Assignments),
-			ArtifactCount:        len(snapshot.Artifacts),
-			HandoffCount:         len(snapshot.Handoffs),
-			MemoryEntryCount:     len(snapshot.MemoryEntries),
-			MemoryCandidateCount: len(snapshot.MemoryCandidates),
-			Operations:           operations,
-			Activity:             activity,
+		Data:   readModel,
+	})
+}
+
+func (h *Handler) HandleProjectCairnlineParityReport(w http.ResponseWriter, r *http.Request) {
+	projectID := strings.TrimSpace(r.PathValue("id"))
+	readModel, err := h.projectCairnlineReadModel(r.Context(), projectID)
+	if errors.Is(err, projects.ErrNotFound) {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
+		return
+	}
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	nativeActivity, err := h.renderProjectActivity(r.Context(), projectID)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	nativeOperations, err := h.renderProjectOperationsBrief(r.Context(), projectID)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	report := projectCairnlineParityReport(projectID, nativeActivity, nativeOperations, readModel)
+	WriteJSON(w, http.StatusOK, ProjectCairnlineParityReportResponse{
+		Object: "project_cairnline_parity_report",
+		Data:   report,
+	})
+}
+
+func (h *Handler) projectCairnlineReadModel(ctx context.Context, projectID string) (ProjectCairnlineReadModelResponseItem, error) {
+	snapshot, err := cairnlinebridge.LoadSnapshot(ctx, h.cairnlineSnapshotSources(), projectID)
+	if errors.Is(err, projects.ErrNotFound) {
+		return ProjectCairnlineReadModelResponseItem{}, err
+	}
+	if err != nil {
+		return ProjectCairnlineReadModelResponseItem{}, err
+	}
+	service := cairnline.NewMemoryService()
+	if err := cairnlinebridge.Seed(ctx, service, snapshot); err != nil {
+		return ProjectCairnlineReadModelResponseItem{}, err
+	}
+	operations, err := service.ProjectOperationsBrief(ctx, snapshot.Project.ID)
+	if err != nil {
+		return ProjectCairnlineReadModelResponseItem{}, err
+	}
+	activity, err := service.ProjectActivity(ctx, snapshot.Project.ID)
+	if err != nil {
+		return ProjectCairnlineReadModelResponseItem{}, err
+	}
+	return ProjectCairnlineReadModelResponseItem{
+		ProjectID:            snapshot.Project.ID,
+		AgentProfileCount:    len(snapshot.AgentProfiles),
+		SkillCount:           len(snapshot.Skills),
+		RoleCount:            len(snapshot.Roles),
+		WorkItemCount:        len(snapshot.WorkItems),
+		AssignmentCount:      len(snapshot.Assignments),
+		ArtifactCount:        len(snapshot.Artifacts),
+		HandoffCount:         len(snapshot.Handoffs),
+		MemoryEntryCount:     len(snapshot.MemoryEntries),
+		MemoryCandidateCount: len(snapshot.MemoryCandidates),
+		Operations:           operations,
+		Activity:             activity,
+	}, nil
+}
+
+func projectCairnlineParityReport(projectID string, nativeActivity ProjectActivityDataResponse, nativeOperations ProjectOperationsBriefResponse, readModel ProjectCairnlineReadModelResponseItem) ProjectCairnlineParityReportResponseItem {
+	hecate := ProjectCairnlineParitySnapshot{
+		Activity: ProjectCairnlineActivityParityCounts{
+			WorkItems:   nativeActivity.Summary.WorkItemCount,
+			Assignments: nativeActivity.Summary.AssignmentCount,
+			Active:      nativeActivity.Summary.ActiveCount,
+			Blocked:     nativeActivity.Summary.BlockedCount,
+			Completed:   nativeActivity.Summary.CompletedCount,
+			Recent:      nativeActivity.Summary.RecentCount,
 		},
+		Operations: ProjectCairnlineOperationsParityCounts{
+			PendingMemoryCandidates: nativeOperations.Summary.PendingMemoryCandidateCount,
+			OpenHandoffs:            nativeOperations.Summary.PendingHandoffCount,
+		},
+	}
+	cairnline := ProjectCairnlineParitySnapshot{
+		Activity: ProjectCairnlineActivityParityCounts{
+			WorkItems:   readModel.WorkItemCount,
+			Assignments: readModel.Activity.Counts.Assignments,
+			Active:      readModel.Activity.Counts.Active,
+			Blocked:     readModel.Activity.Counts.Blocked,
+			Completed:   readModel.Activity.Counts.Completed,
+			Recent:      len(readModel.Activity.Buckets.Recent),
+		},
+		Operations: ProjectCairnlineOperationsParityCounts{
+			PendingMemoryCandidates: readModel.Operations.Counts.PendingMemoryCandidates,
+			OpenHandoffs:            readModel.Operations.Counts.OpenHandoffs,
+		},
+	}
+	differences := projectCairnlineParityDifferences(hecate, cairnline)
+	return ProjectCairnlineParityReportResponseItem{
+		ProjectID:   projectID,
+		Match:       len(differences) == 0,
+		Differences: differences,
+		Hecate:      hecate,
+		Cairnline:   cairnline,
+	}
+}
+
+func projectCairnlineParityDifferences(hecate, cairnline ProjectCairnlineParitySnapshot) []ProjectCairnlineParityDifference {
+	var differences []ProjectCairnlineParityDifference
+	differences = appendProjectCairnlineParityDifference(differences, "activity.work_items", hecate.Activity.WorkItems, cairnline.Activity.WorkItems)
+	differences = appendProjectCairnlineParityDifference(differences, "activity.assignments", hecate.Activity.Assignments, cairnline.Activity.Assignments)
+	differences = appendProjectCairnlineParityDifference(differences, "activity.active", hecate.Activity.Active, cairnline.Activity.Active)
+	differences = appendProjectCairnlineParityDifference(differences, "activity.blocked", hecate.Activity.Blocked, cairnline.Activity.Blocked)
+	differences = appendProjectCairnlineParityDifference(differences, "activity.completed", hecate.Activity.Completed, cairnline.Activity.Completed)
+	differences = appendProjectCairnlineParityDifference(differences, "activity.recent", hecate.Activity.Recent, cairnline.Activity.Recent)
+	differences = appendProjectCairnlineParityDifference(differences, "operations.pending_memory_candidates", hecate.Operations.PendingMemoryCandidates, cairnline.Operations.PendingMemoryCandidates)
+	differences = appendProjectCairnlineParityDifference(differences, "operations.open_handoffs", hecate.Operations.OpenHandoffs, cairnline.Operations.OpenHandoffs)
+	return differences
+}
+
+func appendProjectCairnlineParityDifference(differences []ProjectCairnlineParityDifference, path string, hecate, cairnline int) []ProjectCairnlineParityDifference {
+	if hecate == cairnline {
+		return differences
+	}
+	return append(differences, ProjectCairnlineParityDifference{
+		Path:      path,
+		Hecate:    hecate,
+		Cairnline: cairnline,
 	})
 }
 

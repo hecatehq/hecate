@@ -2251,6 +2251,70 @@ Example response:
 }
 ```
 
+### `GET /hecate/v1/projects/{id}/cairnline/parity-report`
+
+Local-only experimental bridge endpoint. It loads the same in-memory Cairnline
+read model as `/cairnline/read-model`, renders Hecate's native project activity
+and operations brief, then compares the shared counts.
+
+This endpoint is a replacement-readiness report, not a backend switch. A
+non-matching report does not mean either model is wrong; it means the current
+Cairnline portable model and Hecate cockpit model still differ on at least one
+count or semantic bucket that should be reviewed before Cairnline becomes
+authoritative.
+
+Example response:
+
+```json
+{
+  "object": "project_cairnline_parity_report",
+  "data": {
+    "project_id": "proj_...",
+    "match": false,
+    "differences": [
+      {
+        "path": "activity.active",
+        "hecate": 0,
+        "cairnline": 1
+      },
+      {
+        "path": "activity.blocked",
+        "hecate": 1,
+        "cairnline": 0
+      }
+    ],
+    "hecate": {
+      "activity": {
+        "work_items": 1,
+        "assignments": 1,
+        "active": 0,
+        "blocked": 1,
+        "completed": 0,
+        "recent": 1
+      },
+      "operations": {
+        "pending_memory_candidates": 1,
+        "open_handoffs": 1
+      }
+    },
+    "cairnline": {
+      "activity": {
+        "work_items": 1,
+        "assignments": 1,
+        "active": 1,
+        "blocked": 0,
+        "completed": 0,
+        "recent": 1
+      },
+      "operations": {
+        "pending_memory_candidates": 1,
+        "open_handoffs": 1
+      }
+    }
+  }
+}
+```
+
 ### `POST /hecate/v1/projects/{id}/cairnline/export`
 
 Local-only experimental bridge endpoint. It loads the selected project from

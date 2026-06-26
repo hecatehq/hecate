@@ -110,6 +110,9 @@ For operator-triggered experiments, Hecate exposes local-only Cairnline bridge
 endpoints. `GET /hecate/v1/projects/{id}/cairnline/read-model` seeds an
 in-memory Cairnline service from the current Hecate stores and returns the
 portable operations brief and activity projection without writing files.
+`GET /hecate/v1/projects/{id}/cairnline/parity-report` compares Hecate's
+native cockpit counts with that Cairnline read model and returns explicit
+differences, so bucket/status semantics can be fixed before any backend switch.
 `POST /hecate/v1/projects/{id}/cairnline/export` writes a refreshable Cairnline
 SQLite export under Hecate's data directory. Both use the same bridge and are
 useful for inspecting replacement parity, but they are still proofs, not the
