@@ -353,6 +353,11 @@ The project backend also carries project memory, project work, project skills,
 and agent profiles. The chat backend also carries external-agent approval rows
 and durable grants so transcripts and approval history move together.
 
+`HECATE_PROJECTS_COORDINATION_BACKEND=hecate|cairnline` is separate from the
+storage backend. The default is `hecate`. `cairnline` records replacement intent
+for local bridge experiments, but live Projects reads/writes still use
+Hecate-native stores until the Cairnline adapter and migration path are ready.
+
 Deployment-specific notes:
 
 - The docker image **defaults to `sqlite`** for every durable subsystem,

@@ -456,6 +456,12 @@ sequenceDiagram
 - `HECATE_BACKEND=memory|sqlite|postgres` controls all Hecate-owned durable state,
   including tasks, the task queue, projects, project memory, chats, usage
   events, and settings.
+- `HECATE_PROJECTS_COORDINATION_BACKEND=hecate|cairnline` records the intended
+  Projects coordination authority. The default is `hecate`. `cairnline` is an
+  opt-in replacement-readiness setting only: Hecate-native stores remain
+  authoritative until the feature-flagged Cairnline read/write adapter and
+  migration path land. Use
+  `GET /hecate/v1/projects/backend-status` to inspect the effective state.
 - `HECATE_POSTGRES_URL=postgres://...` or `DATABASE_URL=postgres://...` is
   required when `HECATE_BACKEND=postgres`. Optional Postgres knobs:
   `HECATE_POSTGRES_TABLE_PREFIX`, `HECATE_POSTGRES_MAX_OPEN_CONNS`, and
@@ -2179,6 +2185,44 @@ The response reports the scoped records Hecate cleaned up:
     "project_skills_deleted": 1,
     "memory_entries_deleted": 3,
     "memory_candidates_deleted": 4
+  }
+}
+```
+
+### `GET /hecate/v1/projects/backend-status`
+
+Local-only endpoint that reports the configured Projects coordination backend
+and the backend that is actually authoritative for live project reads/writes.
+It exists to make the Cairnline replacement switch explicit while the adapter is
+being built.
+
+`configured_backend` reflects `HECATE_PROJECTS_COORDINATION_BACKEND`.
+`authoritative_backend` remains `hecate` until Hecate can run project read/write
+flows against Cairnline without UI-local fallback state. When
+`configured_backend=cairnline`, Hecate still serves live Projects APIs from the
+current Hecate-native stores; the Cairnline bridge endpoints remain
+replacement-readiness proofs.
+
+Example response:
+
+```json
+{
+  "object": "project_coordination_backend_status",
+  "data": {
+    "configured_backend": "cairnline",
+    "authoritative_backend": "hecate",
+    "storage_backend": "sqlite",
+    "cairnline_bridge_ready": true,
+    "cairnline_authoritative": false,
+    "read_model_switch_ready": false,
+    "write_adapter_ready": false,
+    "status": "cairnline_configured_inactive",
+    "detail": "Cairnline is configured as the future Projects coordination backend, but Hecate stores remain authoritative until the feature-flagged adapter and migration path land.",
+    "warnings": [
+      "Project reads and writes still use Hecate-native stores.",
+      "Cairnline bridge endpoints are replacement-readiness proofs, not the live backend."
+    ],
+    "replacement_readiness_url": "/hecate/v1/projects/{id}/cairnline/read-model"
   }
 }
 ```
