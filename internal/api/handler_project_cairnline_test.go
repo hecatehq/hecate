@@ -150,6 +150,26 @@ func TestProjectCairnlineExportAPI_WritesRefreshableSQLiteExport(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dataDir, "cairnline")); !os.IsNotExist(err) {
 		t.Fatalf("read-model export dir stat error = %v, want not exist before export", err)
 	}
+	parity := mustRequestJSON[ProjectCairnlineParityReportResponse](client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/cairnline/parity-report", "")
+	if parity.Object != "project_cairnline_parity_report" || parity.Data.ProjectID != projectID {
+		t.Fatalf("parity envelope = %+v, want project_cairnline_parity_report for project", parity)
+	}
+	if parity.Data.Match {
+		t.Fatalf("parity report = %+v, want queued-assignment bucket drift surfaced before replacement", parity.Data)
+	}
+	if parity.Data.Hecate.Activity.WorkItems != 1 || parity.Data.Hecate.Activity.Assignments != 1 || parity.Data.Cairnline.Activity.WorkItems != 1 || parity.Data.Cairnline.Activity.Assignments != 1 {
+		t.Fatalf("parity activity counts = hecate %+v cairnline %+v, want matching work/assignment counts", parity.Data.Hecate.Activity, parity.Data.Cairnline.Activity)
+	}
+	if parity.Data.Hecate.Operations.PendingMemoryCandidates != 1 || parity.Data.Cairnline.Operations.PendingMemoryCandidates != 1 || parity.Data.Hecate.Operations.OpenHandoffs != 1 || parity.Data.Cairnline.Operations.OpenHandoffs != 1 {
+		t.Fatalf("parity operations counts = hecate %+v cairnline %+v, want matching memory and handoff counts", parity.Data.Hecate.Operations, parity.Data.Cairnline.Operations)
+	}
+	if !hasProjectCairnlineParityDifferenceForTest(parity.Data.Differences, "activity.active", 0, 1) ||
+		!hasProjectCairnlineParityDifferenceForTest(parity.Data.Differences, "activity.blocked", 1, 0) {
+		t.Fatalf("parity differences = %+v, want queued-assignment active/blocked drift", parity.Data.Differences)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "cairnline")); !os.IsNotExist(err) {
+		t.Fatalf("parity export dir stat error = %v, want not exist before export", err)
+	}
 
 	first := mustRequestJSON[ProjectCairnlineExportResponse](client, http.MethodPost, "/hecate/v1/projects/"+projectID+"/cairnline/export", "")
 	second := mustRequestJSON[ProjectCairnlineExportResponse](client, http.MethodPost, "/hecate/v1/projects/"+projectID+"/cairnline/export", "")
@@ -208,9 +228,19 @@ func TestProjectCairnlineExportAPI_MissingProjectDoesNotCreateExportDir(t *testi
 	server := NewServer(quietLogger(), handler)
 	client := newAPITestClient(t, server)
 
+	client.mustRequestStatus(http.StatusNotFound, http.MethodGet, "/hecate/v1/projects/proj_missing/cairnline/parity-report", "")
 	client.mustRequestStatus(http.StatusNotFound, http.MethodGet, "/hecate/v1/projects/proj_missing/cairnline/read-model", "")
 	client.mustRequestStatus(http.StatusNotFound, http.MethodPost, "/hecate/v1/projects/proj_missing/cairnline/export", "")
 	if _, err := os.Stat(filepath.Join(dataDir, "cairnline")); !os.IsNotExist(err) {
 		t.Fatalf("export dir stat error = %v, want not exist", err)
 	}
+}
+
+func hasProjectCairnlineParityDifferenceForTest(items []ProjectCairnlineParityDifference, path string, hecate, cairnline int) bool {
+	for _, item := range items {
+		if item.Path == path && item.Hecate == hecate && item.Cairnline == cairnline {
+			return true
+		}
+	}
+	return false
 }
