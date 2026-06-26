@@ -35,12 +35,18 @@ func Seed(ctx context.Context, service *cairnline.Service, snapshot Snapshot) er
 		return err
 	}
 	profilesByID := make(map[string]agentprofiles.Profile, len(snapshot.AgentProfiles))
+	executionProfileIDs := make(map[string]struct{}, len(snapshot.AgentProfiles))
 	for _, profile := range snapshot.AgentProfiles {
 		profilesByID[profile.ID] = profile
 		if _, err := service.CreateAgentProfile(ctx, AgentProfile(profile)); err != nil {
 			return err
 		}
-		if _, err := service.CreateExecutionProfile(ctx, ExecutionProfile(profile)); err != nil {
+		executionProfile := ExecutionProfile(profile)
+		if _, ok := executionProfileIDs[executionProfile.ID]; ok {
+			continue
+		}
+		executionProfileIDs[executionProfile.ID] = struct{}{}
+		if _, err := service.CreateExecutionProfile(ctx, executionProfile); err != nil {
 			return err
 		}
 	}
