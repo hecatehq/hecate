@@ -368,6 +368,25 @@ type ProjectCairnlineParityDifference struct {
 	Cairnline int    `json:"cairnline"`
 }
 
+type ProjectCoordinationBackendStatusEnvelope struct {
+	Object string                                   `json:"object"`
+	Data   ProjectCoordinationBackendStatusResponse `json:"data"`
+}
+
+type ProjectCoordinationBackendStatusResponse struct {
+	ConfiguredBackend       string   `json:"configured_backend"`
+	AuthoritativeBackend    string   `json:"authoritative_backend"`
+	StorageBackend          string   `json:"storage_backend"`
+	CairnlineBridgeReady    bool     `json:"cairnline_bridge_ready"`
+	CairnlineAuthoritative  bool     `json:"cairnline_authoritative"`
+	ReadModelSwitchReady    bool     `json:"read_model_switch_ready"`
+	WriteAdapterReady       bool     `json:"write_adapter_ready"`
+	Status                  string   `json:"status"`
+	Detail                  string   `json:"detail"`
+	Warnings                []string `json:"warnings,omitempty"`
+	ReplacementReadinessURL string   `json:"replacement_readiness_url,omitempty"`
+}
+
 type AgentProfileResponse struct {
 	Object string                   `json:"object"`
 	Data   AgentProfileResponseItem `json:"data"`
