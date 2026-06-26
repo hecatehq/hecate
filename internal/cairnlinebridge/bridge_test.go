@@ -56,6 +56,12 @@ func TestSeedMirrorsProjectWorkIntoCairnline(t *testing.T) {
 	if len(packet.Handoffs) != 1 || packet.Handoffs[0].ID != "handoff_review" || packet.Handoffs[0].FromRoleID != "bridge_developer" || packet.Handoffs[0].ToRoleID != "bridge_reviewer" {
 		t.Fatalf("packet handoffs = %+v, want mapped handoff roles", packet.Handoffs)
 	}
+	if packet.Handoffs[0].SourceAssignmentID != "asgn_external" || packet.Handoffs[0].SourceRunID != "run_external" || packet.Handoffs[0].TargetAssignmentID != "asgn_bridge" || packet.Handoffs[0].TargetWorkItemID != "work_bridge" || packet.Handoffs[0].Status != cairnline.HandoffStatusOpen {
+		t.Fatalf("packet handoff refs = %+v, want structured source/target refs and open status", packet.Handoffs[0])
+	}
+	if packet.Handoffs[0].RecommendedNextAction == "" || len(packet.Handoffs[0].LinkedArtifactIDs) != 2 || len(packet.Handoffs[0].LinkedMemoryIDs) != 1 || len(packet.Handoffs[0].ContextRefs) != 1 || packet.Handoffs[0].ProvenanceKind != "agent_draft" || packet.Handoffs[0].TrustLabel != "operator_reviewed" {
+		t.Fatalf("packet handoff metadata = %+v, want linked artifacts/memory/context provenance", packet.Handoffs[0])
+	}
 	if len(packet.Memory) != 1 || packet.Memory[0].ID != "mem_bridge" || packet.Memory[0].TrustLabel != memory.TrustLabelOperatorMemory {
 		t.Fatalf("packet memory = %+v, want mapped accepted memory", packet.Memory)
 	}
@@ -153,6 +159,9 @@ func TestSeedProjectFromStoresPersistsToCairnlineSQLite(t *testing.T) {
 	}
 	if len(packet.Evidence) != 1 || len(packet.Reviews) != 1 || len(packet.Handoffs) != 1 || len(packet.Memory) != 1 || len(packet.MemoryCandidates) != 1 {
 		t.Fatalf("reopened launch packet collaboration counts evidence=%d reviews=%d handoffs=%d memory_entries=%d memory_candidates=%d, want all one", len(packet.Evidence), len(packet.Reviews), len(packet.Handoffs), len(packet.Memory), len(packet.MemoryCandidates))
+	}
+	if packet.Handoffs[0].SourceAssignmentID != "asgn_external" || packet.Handoffs[0].TargetAssignmentID != "asgn_bridge" || len(packet.Handoffs[0].LinkedArtifactIDs) != 2 || packet.Handoffs[0].TrustLabel != "operator_reviewed" {
+		t.Fatalf("reopened handoff = %+v, want persisted structured refs and provenance", packet.Handoffs[0])
 	}
 }
 
@@ -328,7 +337,12 @@ func bridgeSnapshotFixture(now time.Time) Snapshot {
 			ProjectID:             "proj_hecate",
 			WorkItemID:            "work_bridge",
 			SourceAssignmentID:    "asgn_external",
+			SourceRunID:           "run_external",
+			SourceChatSessionID:   "chat_123",
+			SourceMessageID:       "msg_123",
 			TargetRoleID:          "bridge_reviewer",
+			TargetAssignmentID:    "asgn_bridge",
+			TargetWorkItemID:      "work_bridge",
 			Title:                 "Review bridge parity",
 			Summary:               "Artifact parity is ready for review.",
 			RecommendedNextAction: "Verify launch packets include evidence, reviews, handoffs, and memory candidates.",
@@ -336,6 +350,8 @@ func bridgeSnapshotFixture(now time.Time) Snapshot {
 			LinkedMemoryIDs:       []string{"memcand_bridge"},
 			ContextRefs:           []string{"ctx_123"},
 			Status:                projectwork.HandoffStatusPending,
+			ProvenanceKind:        "agent_draft",
+			TrustLabel:            "operator_reviewed",
 			CreatedByRoleID:       "bridge_developer",
 			CreatedAt:             now,
 			UpdatedAt:             now,
