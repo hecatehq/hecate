@@ -35,7 +35,7 @@ func (h *Handler) DraftProjectProposal(ctx context.Context, input orchestrator.P
 		}
 	}
 
-	proposal, err := h.projectAssistantApplication().Draft(ctx, projectassistantapp.DraftCommand{
+	proposal, err := h.projectAssistantDraft(ctx, projectassistantapp.DraftCommand{
 		ProjectID:  projectID,
 		WorkItemID: input.WorkItemID,
 		Request:    request,

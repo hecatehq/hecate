@@ -169,6 +169,7 @@ func projectHealthEvidenceFromCairnline(item cairnline.Evidence) projectwork.Col
 		Kind:               projectwork.ArtifactKindEvidenceLink,
 		Title:              item.Title,
 		Body:               item.Body,
+		EvidenceSourceKind: projectwork.EvidenceSourceExternal,
 		EvidenceURL:        item.Locator,
 		EvidenceTrustLabel: item.TrustLabel,
 		CreatedAt:          item.CreatedAt,

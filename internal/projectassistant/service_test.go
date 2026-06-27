@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/hecatehq/hecate/internal/chat"
@@ -112,6 +113,64 @@ func TestService_ProposeStoresProposalRecordAcrossStores(t *testing.T) {
 			}
 			if record.Fingerprint == "" {
 				t.Fatalf("fingerprint is empty")
+			}
+		})
+	}
+}
+
+func TestProposalStore_ListProposalsFiltersOrdersAndHydratesAttempts(t *testing.T) {
+	t.Parallel()
+	for _, builder := range assistantFixtureBuilders() {
+		t.Run(builder.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			fixture := builder.build(t)
+			oldTime := time.Date(2024, 6, 27, 9, 0, 0, 0, time.UTC)
+			newTime := oldTime.Add(time.Hour)
+
+			oldRecord := proposalStoreTestRecord(t, "pa_old", "proj_alpha", oldTime)
+			newRecord := proposalStoreTestRecord(t, "pa_new", "proj_alpha", newTime)
+			otherRecord := proposalStoreTestRecord(t, "pa_other", "proj_beta", newTime.Add(time.Minute))
+			for _, record := range []ProposalRecord{oldRecord, newRecord, otherRecord} {
+				if _, err := fixture.proposals.UpsertProposal(ctx, record); err != nil {
+					t.Fatalf("UpsertProposal(%s): %v", record.ID, err)
+				}
+			}
+			attemptResult := ApplyResult{
+				ProposalID:           newRecord.ID,
+				Status:               ApplyStatusBlockedBeforeApply,
+				Applied:              false,
+				TotalActionCount:     1,
+				CommittedActionCount: 0,
+			}
+			if _, err := fixture.proposals.RecordApplyAttempt(ctx, ApplyAttempt{
+				ID:           "paatt_new",
+				ProposalID:   newRecord.ID,
+				Status:       ApplyStatusBlockedBeforeApply,
+				Confirmed:    false,
+				Result:       attemptResult,
+				ErrorMessage: "confirmation required",
+				CreatedAt:    newTime.Add(time.Minute),
+			}); err != nil {
+				t.Fatalf("RecordApplyAttempt: %v", err)
+			}
+
+			alpha, err := fixture.proposals.ListProposals(ctx, "proj_alpha")
+			if err != nil {
+				t.Fatalf("ListProposals(project): %v", err)
+			}
+			if len(alpha) != 2 || alpha[0].ID != "pa_new" || alpha[1].ID != "pa_old" {
+				t.Fatalf("project list ids = %+v, want pa_new then pa_old", proposalRecordIDs(alpha))
+			}
+			if alpha[0].LatestResult == nil || alpha[0].LatestResult.Status != ApplyStatusBlockedBeforeApply || len(alpha[0].ApplyAttempts) != 1 || alpha[0].ApplyAttempts[0].ID != "paatt_new" {
+				t.Fatalf("new record = %+v, want hydrated latest result and attempt", alpha[0])
+			}
+			all, err := fixture.proposals.ListProposals(ctx, "")
+			if err != nil {
+				t.Fatalf("ListProposals(all): %v", err)
+			}
+			if len(all) != 3 {
+				t.Fatalf("all list len = %d, want 3", len(all))
 			}
 		})
 	}
@@ -2386,6 +2445,40 @@ func rawPatchMap(t *testing.T, payload json.RawMessage) map[string]string {
 		t.Fatalf("decode patch: %v", err)
 	}
 	return decoded
+}
+
+func proposalStoreTestRecord(t *testing.T, id, projectID string, updatedAt time.Time) ProposalRecord {
+	t.Helper()
+	return ProposalRecord{
+		ID:        id,
+		ProjectID: projectID,
+		Source:    ProposalSourceAPI,
+		Status:    ProposalStatusProposed,
+		Proposal: Proposal{
+			ID:      id,
+			Title:   "Stored proposal " + id,
+			Summary: "Used by proposal store listing tests.",
+			Actions: []Action{{
+				Kind:   ActionCreateWorkItem,
+				Target: map[string]string{"project_id": projectID},
+				Patch: rawPatch(t, map[string]string{
+					"project_id": projectID,
+					"title":      "Work " + id,
+				}),
+			}},
+			RequiresConfirmation: true,
+		},
+		CreatedAt: updatedAt.Add(-time.Minute),
+		UpdatedAt: updatedAt,
+	}
+}
+
+func proposalRecordIDs(records []ProposalRecord) []string {
+	out := make([]string, 0, len(records))
+	for _, record := range records {
+		out = append(out, record.ID)
+	}
+	return out
 }
 
 func contextRoleExists(roles []RoleContext, id string) bool {

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/projects"
 )
@@ -141,6 +142,58 @@ func TestProjectContextDiscovery_KeepsSamePathSourcesFromDifferentRoots(t *testi
 	}
 	if !roots["root_a"] || !roots["root_b"] || len(roots) != 2 {
 		t.Fatalf("discovered AGENTS roots = %+v, want root_a and root_b", roots)
+	}
+}
+
+func TestProjectContextDiscovery_MirrorsDiscoveredSourcesToCairnlineWhenConfigured(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeDiscoveryFile(t, root, "AGENTS.md")
+
+	handler := NewHandler(config.Config{
+		Server:   config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{CoordinationBackend: "cairnline"},
+	}, quietLogger(), nil, nil, nil, nil)
+	projectStore := projects.NewMemoryStore()
+	handler.SetProjectStore(projectStore)
+	server := NewServer(quietLogger(), handler)
+
+	if _, err := projectStore.Create(t.Context(), projects.Project{
+		ID:   "proj_guidance_mirror",
+		Name: "Guidance mirror",
+		Roots: []projects.Root{{
+			ID:     "root_main",
+			Path:   root,
+			Kind:   "local",
+			Active: true,
+		}},
+	}); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_guidance_mirror/context-sources/discover", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("discover status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+
+	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+	if err != nil {
+		t.Fatalf("open Cairnline mirror: %v", err)
+	}
+	defer store.Close()
+	project, err := service.GetProject(t.Context(), "proj_guidance_mirror")
+	if err != nil {
+		t.Fatalf("GetProject(proj_guidance_mirror): %v", err)
+	}
+	var found bool
+	for _, source := range project.ContextSources {
+		if source.Locator == "AGENTS.md" && source.Kind == "workspace_instruction" && source.Format == "agents_md" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("mirrored context sources = %+v, want discovered AGENTS.md source", project.ContextSources)
 	}
 }
 

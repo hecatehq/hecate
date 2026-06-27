@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/hecatehq/cairnline"
-	"github.com/hecatehq/hecate/internal/cairnlinebridge"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectwork"
 )
@@ -20,32 +19,51 @@ func (h *Handler) projectReadRoutesUseCairnlineReadModel() bool {
 }
 
 func (h *Handler) renderCairnlineProjectOperationsBrief(ctx context.Context, project projects.Project) (ProjectOperationsBriefResponse, error) {
-	brief, snapshot, err := cairnlinebridge.ProjectOperationsBriefFromStores(ctx, h.cairnlineSnapshotSources(), project.ID)
+	service, snapshot, err := h.cairnlineProjectWorkService(ctx, project.ID)
 	if err != nil {
 		return ProjectOperationsBriefResponse{}, err
 	}
-	workItemsByID := projectOperationsSnapshotWorkItemsByID(snapshot.WorkItems)
-	assignmentsByID := projectOperationsSnapshotAssignmentsByID(snapshot.Assignments)
-	assignmentsByWorkItem := groupProjectWorkAssignmentsByWorkItem(snapshot.Assignments)
-	artifactsByID := projectOperationsSnapshotArtifactsByID(snapshot.Artifacts)
-	handoffsByID := projectOperationsSnapshotHandoffsByID(snapshot.Handoffs)
+	activity, err := h.renderCairnlineProjectActivity(ctx, project.ID)
+	if err != nil {
+		return ProjectOperationsBriefResponse{}, err
+	}
+	cairnlineWorkItems, err := service.ListWorkItems(ctx, snapshot.Project.ID)
+	if err != nil {
+		return ProjectOperationsBriefResponse{}, err
+	}
+	cairnlineAssignments, err := service.ListAssignments(ctx, snapshot.Project.ID)
+	if err != nil {
+		return ProjectOperationsBriefResponse{}, err
+	}
+	workItems := projectWorkItemsFromCairnline(cairnlineWorkItems)
+	assignments := projectWorkAssignmentsFromCairnline(cairnlineAssignments, snapshot.Assignments)
+	artifacts, err := projectHealthCairnlineArtifacts(ctx, service, snapshot.Project.ID, cairnlineWorkItems)
+	if err != nil {
+		return ProjectOperationsBriefResponse{}, err
+	}
+	handoffs, err := projectHealthCairnlineHandoffs(ctx, service, snapshot.Project.ID, cairnlineWorkItems)
+	if err != nil {
+		return ProjectOperationsBriefResponse{}, err
+	}
+	pendingCandidates, err := service.ListMemoryCandidates(ctx, cairnline.MemoryCandidateFilter{
+		ProjectID: snapshot.Project.ID,
+		Status:    cairnline.MemoryCandidatePending,
+	})
+	if err != nil {
+		return ProjectOperationsBriefResponse{}, err
+	}
 
-	items := make([]ProjectOperationsBriefItemResponse, 0, len(brief.Items)+len(projectDefaultOperationItems(project))+1)
+	items := make([]ProjectOperationsBriefItemResponse, 0, projectOperationsBriefItemLimit)
 	items = append(items, projectDefaultOperationItems(project)...)
-	for _, item := range brief.Items {
-		rendered, ok := projectOperationItemFromCairnline(project.ID, item, workItemsByID, assignmentsByID, assignmentsByWorkItem, artifactsByID, handoffsByID)
-		if ok {
-			items = append(items, rendered)
-		}
+	items = append(items, assignmentOperationItems(activity)...)
+	items = append(items, handoffOperationItems(project.ID, handoffs)...)
+	items = append(items, selectedWorkFollowThroughOperationItems(project.ID, workItems, assignments, artifacts, handoffs)...)
+	if len(pendingCandidates) > 0 {
+		items = append(items, memoryCandidateOperationItem(project.ID, len(pendingCandidates)))
 	}
-	if brief.Counts.PendingMemoryCandidates > 0 {
-		items = append(items, memoryCandidateOperationItem(project.ID, brief.Counts.PendingMemoryCandidates))
-	}
-	if len(snapshot.WorkItems) == 0 {
-		items = append(items, assignmentGapOperationItems(project.ID, nil, nil)...)
-	}
+	items = append(items, assignmentGapOperationItems(project.ID, workItems, assignments)...)
 	if len(items) == 0 {
-		if item := latestWorkOperationItem(project.ID, snapshot.WorkItems); item != nil {
+		if item := latestWorkOperationItem(project.ID, workItems); item != nil {
 			items = append(items, *item)
 		}
 	}
@@ -55,7 +73,7 @@ func (h *Handler) renderCairnlineProjectOperationsBrief(ctx context.Context, pro
 	items = boundedProjectOperationsItems(items, projectOperationsBriefItemLimit)
 	response := ProjectOperationsBriefResponse{
 		ProjectID:   project.ID,
-		GeneratedAt: formatOptionalTime(firstNonZeroTime(brief.CreatedAt, time.Now().UTC())),
+		GeneratedAt: formatOptionalTime(time.Now().UTC()),
 		ReadBackend: "cairnline",
 		Items:       items,
 	}
@@ -63,8 +81,12 @@ func (h *Handler) renderCairnlineProjectOperationsBrief(ctx context.Context, pro
 	response.Summary.AvailableItemCount = availableItemCount
 	response.Summary.OmittedItemCount = availableItemCount - len(items)
 	response.Summary.ItemLimit = projectOperationsBriefItemLimit
-	response.Summary.PendingMemoryCandidateCount = brief.Counts.PendingMemoryCandidates
-	response.Summary.PendingHandoffCount = brief.Counts.OpenHandoffs
+	response.Summary.PendingMemoryCandidateCount = len(pendingCandidates)
+	for _, handoff := range handoffs {
+		if handoff.Status == projectwork.HandoffStatusPending {
+			response.Summary.PendingHandoffCount++
+		}
+	}
 	for _, item := range items {
 		switch item.Priority {
 		case projectOperationsPriorityHigh:

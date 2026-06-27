@@ -160,6 +160,7 @@ type ProjectWorkRoleResponse struct {
 	DefaultAgentProfile string   `json:"default_agent_profile,omitempty"`
 	SkillIDs            []string `json:"skill_ids,omitempty"`
 	BuiltIn             bool     `json:"built_in"`
+	ReadBackend         string   `json:"read_backend,omitempty"`
 	CreatedAt           string   `json:"created_at,omitempty"`
 	UpdatedAt           string   `json:"updated_at,omitempty"`
 }
@@ -268,6 +269,7 @@ type ProjectWorkArtifactResponse struct {
 	ID                     string `json:"id"`
 	ProjectID              string `json:"project_id"`
 	WorkItemID             string `json:"work_item_id"`
+	ReadBackend            string `json:"read_backend,omitempty"`
 	AssignmentID           string `json:"assignment_id,omitempty"`
 	Kind                   string `json:"kind"`
 	Title                  string `json:"title,omitempty"`
@@ -300,6 +302,7 @@ type ProjectHandoffResponse struct {
 	ID                    string   `json:"id"`
 	ProjectID             string   `json:"project_id"`
 	WorkItemID            string   `json:"work_item_id"`
+	ReadBackend           string   `json:"read_backend,omitempty"`
 	SourceAssignmentID    string   `json:"source_assignment_id,omitempty"`
 	SourceRunID           string   `json:"source_run_id,omitempty"`
 	SourceChatSessionID   string   `json:"source_chat_session_id,omitempty"`
@@ -340,14 +343,10 @@ func (h *Handler) HandleProjectWorkRoles(w http.ResponseWriter, r *http.Request)
 	if !h.requireProject(w, r, projectID) {
 		return
 	}
-	roles, err := h.projectWork.ListRoles(r.Context(), projectID)
+	data, err := h.renderProjectWorkRoles(r.Context(), projectID)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
-	}
-	data := make([]ProjectWorkRoleResponse, 0, len(roles))
-	for _, role := range roles {
-		data = append(data, renderProjectWorkRole(role))
 	}
 	WriteJSON(w, http.StatusOK, ProjectWorkRolesResponse{Object: "project_roles", Data: data})
 }
@@ -375,6 +374,7 @@ func (h *Handler) HandleCreateProjectWorkRole(w http.ResponseWriter, r *http.Req
 	if !writeProjectWorkError(w, err) {
 		return
 	}
+	h.mirrorProjectRoleByIDToCairnline(r.Context(), "project_role_create", projectID, role)
 	WriteJSON(w, http.StatusCreated, ProjectWorkRoleEnvelope{Object: "project_role", Data: renderProjectWorkRole(role)})
 }
 
@@ -400,6 +400,7 @@ func (h *Handler) HandleUpdateProjectWorkRole(w http.ResponseWriter, r *http.Req
 	if !writeProjectWorkError(w, err) {
 		return
 	}
+	h.mirrorProjectRoleByIDToCairnline(r.Context(), "project_role_update", projectID, role)
 	WriteJSON(w, http.StatusOK, ProjectWorkRoleEnvelope{Object: "project_role", Data: renderProjectWorkRole(role)})
 }
 
@@ -408,8 +409,12 @@ func (h *Handler) HandleDeleteProjectWorkRole(w http.ResponseWriter, r *http.Req
 	if !h.requireProject(w, r, projectID) {
 		return
 	}
+	role, roleLoaded := h.projectWorkRoleForCairnlineMirror(r.Context(), "project_role_delete", projectID, r.PathValue("role_id"))
 	if err := h.projectWorkApplication().DeleteRole(r.Context(), projectID, r.PathValue("role_id")); !writeProjectWorkError(w, err) {
 		return
+	}
+	if roleLoaded {
+		h.mirrorProjectRoleDeleteToCairnline(r.Context(), "project_role_delete", role)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -452,6 +457,7 @@ func (h *Handler) HandleCreateProjectWorkItem(w http.ResponseWriter, r *http.Req
 	if !writeProjectWorkError(w, err) {
 		return
 	}
+	h.mirrorProjectWorkItemByIDToCairnline(r.Context(), "project_work_item_create", projectID, item)
 	projected, err := h.renderProjectedProjectWorkItem(r.Context(), item)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
@@ -521,6 +527,7 @@ func (h *Handler) HandleUpdateProjectWorkItem(w http.ResponseWriter, r *http.Req
 	if !writeProjectWorkError(w, err) {
 		return
 	}
+	h.mirrorProjectWorkItemByIDToCairnline(r.Context(), "project_work_item_update", projectID, item)
 	projected, err := h.renderProjectedProjectWorkItem(r.Context(), item)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
@@ -537,6 +544,7 @@ func (h *Handler) HandleDeleteProjectWorkItem(w http.ResponseWriter, r *http.Req
 	if err := h.projectWorkApplication().DeleteWorkItem(r.Context(), projectID, r.PathValue("work_item_id")); !writeProjectWorkError(w, err) {
 		return
 	}
+	h.mirrorProjectWorkItemDeleteToCairnline(r.Context(), "project_work_item_delete", projectID, r.PathValue("work_item_id"))
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -603,6 +611,7 @@ func (h *Handler) HandleCreateProjectWorkAssignment(w http.ResponseWriter, r *ht
 	if !writeProjectWorkError(w, err) {
 		return
 	}
+	h.mirrorProjectAssignmentToCairnline(r.Context(), "project_assignment_create", item)
 	projected, err := h.renderProjectedProjectWorkAssignment(r.Context(), item)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
@@ -649,6 +658,7 @@ func (h *Handler) HandleUpdateProjectWorkAssignment(w http.ResponseWriter, r *ht
 	if !writeProjectWorkError(w, err) {
 		return
 	}
+	h.mirrorProjectAssignmentToCairnline(r.Context(), "project_assignment_update", item)
 	projected, err := h.renderProjectedProjectWorkAssignment(r.Context(), item)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
@@ -667,6 +677,7 @@ func (h *Handler) HandleDeleteProjectWorkAssignment(w http.ResponseWriter, r *ht
 	if err := h.projectWorkApplication().DeleteAssignment(r.Context(), projectID, workItemID, assignmentID); !writeProjectWorkError(w, err) {
 		return
 	}
+	h.mirrorProjectAssignmentDeleteToCairnline(r.Context(), "project_assignment_delete", projectID, assignmentID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -743,14 +754,9 @@ func (h *Handler) HandleProjectWorkArtifacts(w http.ResponseWriter, r *http.Requ
 	if !h.requireProjectWorkItem(w, r, projectID, workItemID) {
 		return
 	}
-	items, err := h.projectWork.ListArtifacts(r.Context(), projectwork.ArtifactFilter{ProjectID: projectID, WorkItemID: workItemID})
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+	data, err := h.renderProjectWorkArtifacts(r.Context(), projectID, workItemID)
+	if !writeProjectWorkError(w, err) {
 		return
-	}
-	data := make([]ProjectWorkArtifactResponse, 0, len(items))
-	for _, item := range items {
-		data = append(data, renderProjectWorkArtifact(item))
 	}
 	WriteJSON(w, http.StatusOK, ProjectWorkArtifactsResponse{Object: "project_collaboration_artifacts", Data: data})
 }
@@ -785,6 +791,7 @@ func (h *Handler) HandleCreateProjectWorkArtifact(w http.ResponseWriter, r *http
 	if !writeProjectWorkError(w, err) {
 		return
 	}
+	h.mirrorProjectArtifactToCairnline(r.Context(), "project_artifact_create", item)
 	WriteJSON(w, http.StatusCreated, ProjectWorkArtifactEnvelope{Object: "project_collaboration_artifact", Data: renderProjectWorkArtifact(item)})
 }
 
@@ -798,13 +805,9 @@ func (h *Handler) HandleProjectHandoffs(w http.ResponseWriter, r *http.Request) 
 		WorkItemID: strings.TrimSpace(r.URL.Query().Get("work_item_id")),
 		Status:     strings.TrimSpace(r.URL.Query().Get("status")),
 	}
-	items, err := h.projectWork.ListHandoffs(r.Context(), filter)
+	data, err := h.renderProjectHandoffs(r.Context(), filter)
 	if !writeProjectWorkError(w, err) {
 		return
-	}
-	data := make([]ProjectHandoffResponse, 0, len(items))
-	for _, item := range items {
-		data = append(data, renderProjectHandoff(item))
 	}
 	WriteJSON(w, http.StatusOK, ProjectHandoffsResponse{Object: "project_handoffs", Data: data})
 }
@@ -815,17 +818,13 @@ func (h *Handler) HandleProjectWorkItemHandoffs(w http.ResponseWriter, r *http.R
 	if !h.requireProjectWorkItem(w, r, projectID, workItemID) {
 		return
 	}
-	items, err := h.projectWork.ListHandoffs(r.Context(), projectwork.HandoffFilter{
+	data, err := h.renderProjectHandoffs(r.Context(), projectwork.HandoffFilter{
 		ProjectID:  projectID,
 		WorkItemID: workItemID,
 		Status:     strings.TrimSpace(r.URL.Query().Get("status")),
 	})
 	if !writeProjectWorkError(w, err) {
 		return
-	}
-	data := make([]ProjectHandoffResponse, 0, len(items))
-	for _, item := range items {
-		data = append(data, renderProjectHandoff(item))
 	}
 	WriteJSON(w, http.StatusOK, ProjectHandoffsResponse{Object: "project_handoffs", Data: data})
 }
@@ -863,6 +862,7 @@ func (h *Handler) HandleCreateProjectHandoff(w http.ResponseWriter, r *http.Requ
 	if !writeProjectWorkError(w, err) {
 		return
 	}
+	h.mirrorProjectHandoffToCairnline(r.Context(), "project_handoff_create", item)
 	WriteJSON(w, http.StatusCreated, ProjectHandoffEnvelope{Object: "project_handoff", Data: renderProjectHandoff(item)})
 }
 
@@ -899,6 +899,7 @@ func (h *Handler) HandleUpdateProjectHandoff(w http.ResponseWriter, r *http.Requ
 	if !writeProjectWorkError(w, err) {
 		return
 	}
+	h.mirrorProjectHandoffToCairnline(r.Context(), "project_handoff_update", item)
 	WriteJSON(w, http.StatusOK, ProjectHandoffEnvelope{Object: "project_handoff", Data: renderProjectHandoff(item)})
 }
 
@@ -919,6 +920,7 @@ func (h *Handler) HandleUpdateProjectHandoffStatus(w http.ResponseWriter, r *htt
 	if !writeProjectWorkError(w, err) {
 		return
 	}
+	h.mirrorProjectHandoffToCairnline(r.Context(), "project_handoff_status_update", item)
 	WriteJSON(w, http.StatusOK, ProjectHandoffEnvelope{Object: "project_handoff", Data: renderProjectHandoff(item)})
 }
 
@@ -932,6 +934,7 @@ func (h *Handler) HandleDeleteProjectHandoff(w http.ResponseWriter, r *http.Requ
 	if err := h.projectWorkApplication().DeleteHandoff(r.Context(), projectID, workItemID, handoffID); !writeProjectWorkError(w, err) {
 		return
 	}
+	h.mirrorProjectHandoffDeleteToCairnline(r.Context(), "project_handoff_delete", projectID, workItemID, handoffID)
 	w.WriteHeader(http.StatusNoContent)
 }
 

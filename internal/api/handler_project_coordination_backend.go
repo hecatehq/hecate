@@ -3,6 +3,83 @@ package api
 import "net/http"
 
 const projectCoordinationBackendReadinessURL = "/hecate/v1/projects/{id}/cairnline/read-model"
+const projectCoordinationBackendSyncReadinessURL = "/hecate/v1/projects/cairnline/sync"
+
+var projectCairnlineReadRouteNames = []string{
+	"project-list",
+	"project-detail",
+	"setup-readiness",
+	"health",
+	"skills",
+	"memory",
+	"memory-candidate",
+	"roles",
+	"work-item",
+	"assignment-list",
+	"assignment-context",
+	"launch-readiness",
+	"assignment-preflight",
+	"artifact-list",
+	"handoff-list",
+	"project-assistant-context",
+	"project-assistant-proposal",
+	"activity",
+	"closeout-readiness",
+	"operations-brief",
+}
+
+var projectCairnlineWriteAdapterSeamNames = []string{
+	"projects",
+	"roots",
+	"context-sources",
+	"project-defaults",
+	"project-identity-live-mirror",
+	"agent-profiles",
+	"agent-profiles-live-mirror",
+	"skills",
+	"project-skills-live-mirror",
+	"roles",
+	"project-roles-live-mirror",
+	"work-items",
+	"project-work-items-live-mirror",
+	"assignments",
+	"assignment-status",
+	"project-assignments-live-mirror",
+	"project-assignment-start-result-live-mirror",
+	"project-assignment-chat-reconcile-live-mirror",
+	"artifacts-create",
+	"evidence-create",
+	"reviews-create",
+	"project-collaboration-live-mirror",
+	"handoffs",
+	"project-handoffs-live-mirror",
+	"memory",
+	"project-memory-live-mirror",
+	"memory-candidates",
+	"project-memory-candidates-live-mirror",
+	"project-assistant-proposal-ledger-import",
+	"project-assistant-proposal-ledger-live-mirror",
+	"project-assistant-apply-side-effects-live-mirror",
+	"sync-rehearsal",
+}
+
+var projectCairnlineWriteAdapterGapNames = []string{
+	"projects",
+	"roots",
+	"context-sources",
+	"agent-profiles",
+	"skills",
+	"memory",
+	"memory-candidates",
+	"roles",
+	"work-items",
+	"assignments",
+	"assignment-start",
+	"artifacts",
+	"handoffs",
+	"project-assistant-proposals",
+	"migration-cutover",
+}
 
 func (h *Handler) HandleProjectCoordinationBackendStatus(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, http.StatusOK, ProjectCoordinationBackendStatusEnvelope{
@@ -26,18 +103,30 @@ func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendS
 		CairnlineAuthoritative:  false,
 		WriteAdapterReady:       false,
 		ReplacementReadinessURL: projectCoordinationBackendReadinessURL,
+		SyncReadinessURL:        projectCoordinationBackendSyncReadinessURL,
 	}
 	switch configured {
 	case "cairnline":
 		readReady, sourceWarnings := h.cairnlineReadModelReadiness()
+		response.WriteAdapterSeams = append([]string(nil), projectCairnlineWriteAdapterSeamNames...)
+		response.WriteAdapterGaps = append([]string(nil), projectCairnlineWriteAdapterGapNames...)
 		response.ReadModelSwitchReady = readReady
 		if readReady {
+			response.ReadRoutes = append([]string(nil), projectCairnlineReadRouteNames...)
 			response.Status = "cairnline_read_routes_ready"
-			response.Detail = "Cairnline is configured as the future Projects coordination backend, and the setup-readiness, health, work-item, assignment-list, activity, closeout-readiness, and operations brief read routes are served from the Cairnline read model. Hecate stores remain authoritative until the remaining live read routes, writes, and migration are ready."
+			response.Detail = "Cairnline is configured as the future Projects coordination backend, and the project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, project-assistant-context, project-assistant-proposal, activity, closeout-readiness, and operations brief read routes are served from the Cairnline read model. Hecate stores remain authoritative until the remaining live read routes, writes, and migration are ready."
 			response.Warnings = []string{
-				"Only the project setup-readiness, health, work-item, assignment-list, activity, closeout-readiness, and operations brief live read routes use Cairnline.",
-				"Other project APIs still read and write Hecate-native stores.",
-				"Cairnline write adapter and migration path are not ready.",
+				"Only the project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, project-assistant-context, project-assistant-proposal, activity, closeout-readiness, and operations brief live read routes use Cairnline.",
+				"Project identity, root create/update/delete/discovery/worktree-creation, context-source create/update/delete/discovery, and default mutations still write Hecate-native stores first, then best-effort mirror into the embedded Cairnline database.",
+				"Agent profile create/update/delete mutations still write Hecate-native stores first, then best-effort mirror portable profile metadata and execution posture into Cairnline.",
+				"Project skill discovery and metadata updates still write Hecate-native stores first, then best-effort mirror metadata-only skill records into Cairnline.",
+				"Project role and work-item mutations still write Hecate-native stores first, then best-effort mirror coordination metadata into Cairnline.",
+				"Project assignment create/update/delete mutations still write Hecate-native stores first, then best-effort mirror coordination metadata into Cairnline; assignment start remains Hecate-owned and best-effort mirrors committed start and linked-chat reconciliation results.",
+				"Project collaboration artifact creation and handoff mutations still write Hecate-native stores first, then best-effort mirror portable collaboration metadata into Cairnline.",
+				"Project memory entry and memory-candidate mutations still write Hecate-native stores first, then best-effort mirror accepted memory and reviewable candidate state into Cairnline.",
+				"Project Assistant proposal draft/propose/apply ledger mutations still write Hecate-native stores first, then best-effort mirror proposal records plus committed apply side effects into Cairnline.",
+				"Other project mutation routes still write only Hecate-native stores.",
+				"Cairnline write-adapter seams are non-authoritative proofs; live write authority and migration path are not ready.",
 			}
 			return response
 		}
@@ -59,7 +148,7 @@ func (h *Handler) cairnlineReadModelReadiness() (bool, []string) {
 		return false, []string{"Hecate handler is not configured."}
 	}
 	sources := h.cairnlineSnapshotSources()
-	missing := make([]string, 0, 6)
+	missing := make([]string, 0, 7)
 	if sources.Projects == nil {
 		missing = append(missing, "projects store")
 	}
@@ -77,6 +166,9 @@ func (h *Handler) cairnlineReadModelReadiness() (bool, []string) {
 	}
 	if sources.MemoryCandidates == nil {
 		missing = append(missing, "project memory candidates store")
+	}
+	if sources.Proposals == nil {
+		missing = append(missing, "project assistant proposal store")
 	}
 	if len(missing) == 0 {
 		return true, nil

@@ -208,13 +208,18 @@ describe("SettingsView maintenance cleanup", () => {
       object: "system_reset",
       data: {
         projects_deleted: 1,
+        project_skills_deleted: 1,
+        project_work_rows_deleted: 2,
+        project_assistant_proposals_deleted: 1,
         plugins_deleted: 1,
+        agent_profiles_deleted: 1,
         chat_sessions_deleted: 2,
         tasks_deleted: 1,
         providers_deleted: 1,
         policy_rules_deleted: 1,
         agent_approval_grants_deleted: 1,
         database_rows_deleted: 3,
+        cairnline_mirror_files_deleted: 1,
       },
     });
     const loadDashboard = vi.fn(async () => undefined);

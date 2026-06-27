@@ -8,6 +8,7 @@ import (
 	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/memory"
+	"github.com/hecatehq/hecate/internal/projectassistant"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
@@ -22,6 +23,77 @@ type SnapshotSources struct {
 	Work             projectwork.Store
 	Memory           memory.Store
 	MemoryCandidates memory.CandidateStore
+	Proposals        projectassistant.ProposalStore
+}
+
+func LoadSnapshots(ctx context.Context, sources SnapshotSources) ([]Snapshot, error) {
+	if sources.Projects == nil {
+		return nil, errors.Join(ErrSourceNotConfigured, errors.New("projects store is required"))
+	}
+	projects, err := sources.Projects.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	snapshots := make([]Snapshot, 0, len(projects))
+	for _, project := range projects {
+		snapshot, err := LoadSnapshot(ctx, sources, project.ID)
+		if err != nil {
+			return nil, err
+		}
+		snapshots = append(snapshots, snapshot)
+	}
+	return snapshots, nil
+}
+
+func SeedSnapshots(ctx context.Context, service *cairnline.Service, snapshots []Snapshot) error {
+	if service == nil {
+		return errors.Join(ErrSourceNotConfigured, errors.New("cairnline service is required"))
+	}
+	profilesByID := map[string]agentprofiles.Profile{}
+	executionProfileIDs := map[string]struct{}{}
+	for _, snapshot := range snapshots {
+		if executionProfile, ok := ProjectExecutionProfile(snapshot.Project); ok {
+			if err := createExecutionProfileOnce(ctx, service, executionProfileIDs, executionProfile); err != nil {
+				return err
+			}
+		}
+		for _, profile := range snapshot.AgentProfiles {
+			if _, seen := profilesByID[profile.ID]; seen {
+				continue
+			}
+			profilesByID[profile.ID] = profile
+		}
+	}
+	createdProfiles := map[string]struct{}{}
+	for _, snapshot := range snapshots {
+		for _, profile := range snapshot.AgentProfiles {
+			if _, seen := createdProfiles[profile.ID]; seen {
+				continue
+			}
+			createdProfiles[profile.ID] = struct{}{}
+			if _, err := service.CreateAgentProfile(ctx, AgentProfile(profile)); err != nil {
+				return err
+			}
+			if err := createExecutionProfileOnce(ctx, service, executionProfileIDs, ExecutionProfile(profile)); err != nil {
+				return err
+			}
+		}
+	}
+	for _, snapshot := range snapshots {
+		for _, role := range snapshot.Roles {
+			executionProfile, ok := RoleExecutionProfile(role)
+			if !ok {
+				continue
+			}
+			if err := createExecutionProfileOnce(ctx, service, executionProfileIDs, executionProfile); err != nil {
+				return err
+			}
+		}
+		if err := seedProjectScopedSnapshot(ctx, service, snapshot, profilesByID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func SeedProjectFromStores(ctx context.Context, service *cairnline.Service, sources SnapshotSources, projectID string) (Snapshot, error) {
@@ -32,7 +104,7 @@ func SeedProjectFromStores(ctx context.Context, service *cairnline.Service, sour
 	if err != nil {
 		return Snapshot{}, err
 	}
-	if err := Seed(ctx, service, snapshot); err != nil {
+	if err := SeedSnapshots(ctx, service, []Snapshot{snapshot}); err != nil {
 		return Snapshot{}, err
 	}
 	return snapshot, nil
@@ -132,16 +204,24 @@ func LoadSnapshot(ctx context.Context, sources SnapshotSources, projectID string
 			return Snapshot{}, err
 		}
 	}
+	var assistantProposals []projectassistant.ProposalRecord
+	if sources.Proposals != nil {
+		assistantProposals, err = sources.Proposals.ListProposals(ctx, projectID)
+		if err != nil {
+			return Snapshot{}, err
+		}
+	}
 	return Snapshot{
-		Project:          project,
-		AgentProfiles:    profiles,
-		Skills:           skills,
-		Roles:            roles,
-		WorkItems:        workItems,
-		Assignments:      assignments,
-		Artifacts:        artifacts,
-		Handoffs:         handoffs,
-		MemoryEntries:    memoryEntries,
-		MemoryCandidates: memoryCandidates,
+		Project:            project,
+		AgentProfiles:      profiles,
+		Skills:             skills,
+		Roles:              roles,
+		WorkItems:          workItems,
+		Assignments:        assignments,
+		Artifacts:          artifacts,
+		Handoffs:           handoffs,
+		MemoryEntries:      memoryEntries,
+		MemoryCandidates:   memoryCandidates,
+		AssistantProposals: assistantProposals,
 	}, nil
 }

@@ -11,19 +11,23 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/agentadapters"
 	"github.com/hecatehq/hecate/internal/agentcontrols"
 	"github.com/hecatehq/hecate/internal/agentprofiles"
+	"github.com/hecatehq/hecate/internal/cairnlinebridge"
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/chatcontext"
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/orchestrator"
+	"github.com/hecatehq/hecate/internal/projectassistant"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
@@ -38,6 +42,7 @@ func newProjectWorkTestServer() (*Handler, http.Handler) {
 	handler := NewHandler(config.Config{}, quietLogger(), nil, nil, nil, nil)
 	handler.SetProjectStore(projects.NewMemoryStore())
 	handler.SetProjectWorkStore(projectwork.NewMemoryStore())
+	handler.SetAgentProfileStore(agentprofiles.NewMemoryStore())
 	return handler, NewServer(quietLogger(), handler)
 }
 
@@ -45,6 +50,31 @@ func newProjectWorkTestServerWithProviders(items ...providers.Provider) (*Handle
 	handler := newTestAPIHandlerWithSettings(quietLogger(), items, config.Config{}, nil)
 	handler.SetProjectStore(projects.NewMemoryStore())
 	handler.SetProjectWorkStore(projectwork.NewMemoryStore())
+	return handler, NewServer(quietLogger(), handler)
+}
+
+func newProjectWorkCairnlineReadTestServer() (*Handler, http.Handler) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{CoordinationBackend: "cairnline"},
+	}, quietLogger(), nil, nil, nil, nil)
+	handler.SetProjectStore(projects.NewMemoryStore())
+	handler.SetProjectWorkStore(projectwork.NewMemoryStore())
+	handler.SetProjectSkillStore(projectskills.NewMemoryStore())
+	handler.SetMemoryStore(memory.NewMemoryStore())
+	handler.SetAgentProfileStore(agentprofiles.NewMemoryStore())
+	handler.SetProjectAssistantProposalStore(projectassistant.NewMemoryProposalStore())
+	return handler, NewServer(quietLogger(), handler)
+}
+
+func newProjectWorkCairnlineMirrorTestServer(t *testing.T) (*Handler, http.Handler) {
+	t.Helper()
+	handler := NewHandler(config.Config{
+		Server:   config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{CoordinationBackend: "cairnline"},
+	}, quietLogger(), nil, nil, nil, nil)
+	handler.SetProjectStore(projects.NewMemoryStore())
+	handler.SetProjectWorkStore(projectwork.NewMemoryStore())
+	handler.SetAgentProfileStore(agentprofiles.NewMemoryStore())
 	return handler, NewServer(quietLogger(), handler)
 }
 
@@ -486,6 +516,256 @@ func TestProjectWorkAPI_CRUD(t *testing.T) {
 	}
 }
 
+func TestProjectWorkAPI_MirrorsRoleAndWorkItemMutationsToCairnlineWhenConfigured(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkCairnlineMirrorTestServer(t)
+	project := createProjectForWorkTest(t, server)
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/roles", bytes.NewReader([]byte(`{
+		"id":"role_release",
+		"name":"Release captain",
+		"description":"Coordinates release work.",
+		"instructions":"Keep release notes current.",
+		"default_driver_kind":"external_agent",
+		"default_provider":"anthropic",
+		"default_model":"claude-sonnet-4",
+		"default_agent_profile":"safe_external_review",
+		"skill_ids":["release"]
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create role status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	mirroredRole := getMirroredCairnlineRoleForTest(t, handler, project.Data.ID, "role_release")
+	if mirroredRole.Name != "Release captain" || mirroredRole.DefaultProfileID != "safe_external_review" || mirroredRole.DefaultExecutionMode != "external_adapter" {
+		t.Fatalf("mirrored role = %+v, want release captain defaults", mirroredRole)
+	}
+	if len(mirroredRole.DefaultSkillIDs) != 1 || mirroredRole.DefaultSkillIDs[0] != "release" {
+		t.Fatalf("mirrored role skill ids = %+v, want release", mirroredRole.DefaultSkillIDs)
+	}
+	assertMirroredExecutionProfileForTest(t, handler, mirroredRole.DefaultExecutionProfileID, "anthropic", "claude-sonnet-4")
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+project.Data.ID+"/roles/role_release", bytes.NewReader([]byte(`{
+		"name":"Release owner",
+		"default_model":"claude-opus-4",
+		"skill_ids":["release","qa"]
+	}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update role status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	mirroredRole = getMirroredCairnlineRoleForTest(t, handler, project.Data.ID, "role_release")
+	if mirroredRole.Name != "Release owner" || !containsString(mirroredRole.DefaultSkillIDs, "release") || !containsString(mirroredRole.DefaultSkillIDs, "qa") {
+		t.Fatalf("mirrored updated role = %+v, want renamed role with two skills", mirroredRole)
+	}
+	assertMirroredExecutionProfileForTest(t, handler, mirroredRole.DefaultExecutionProfileID, "anthropic", "claude-opus-4")
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/work-items", bytes.NewReader([]byte(`{
+		"id":"work_release",
+		"title":"Prepare release",
+		"brief":"Coordinate the release checklist.",
+		"priority":"high",
+		"owner_role_id":"role_release",
+		"reviewer_role_ids":["role_release"]
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create work item status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	mirroredWork := getMirroredCairnlineWorkItemForTest(t, handler, project.Data.ID, "work_release")
+	if mirroredWork.Title != "Prepare release" || mirroredWork.Priority != "high" || mirroredWork.OwnerRoleID != "role_release" || len(mirroredWork.ReviewerRoleIDs) != 1 {
+		t.Fatalf("mirrored work item = %+v, want release-owned high-priority work", mirroredWork)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_release", bytes.NewReader([]byte(`{
+		"title":"Prepare release notes",
+		"status":"ready",
+		"reviewer_role_ids":[]
+	}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update work item status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	mirroredWork = getMirroredCairnlineWorkItemForTest(t, handler, project.Data.ID, "work_release")
+	if mirroredWork.Title != "Prepare release notes" || mirroredWork.Status != projectwork.WorkItemStatusReady || len(mirroredWork.ReviewerRoleIDs) != 0 {
+		t.Fatalf("mirrored updated work item = %+v, want ready release notes without reviewers", mirroredWork)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_release/assignments", bytes.NewReader([]byte(`{
+		"id":"asgn_release",
+		"role_id":"role_release",
+		"driver_kind":"external_agent",
+		"status":"queued",
+		"execution_ref":{"kind":"task_run","task_id":"task_release","run_id":"run_release","context_snapshot_id":"ctx_release"}
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create assignment status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	mirroredAssignment := getMirroredCairnlineAssignmentForTest(t, handler, project.Data.ID, "asgn_release")
+	if mirroredAssignment.Status != cairnline.AssignmentQueued || mirroredAssignment.RoleID != "role_release" || mirroredAssignment.WorkItemID != "work_release" || mirroredAssignment.ProfileID != "safe_external_review" {
+		t.Fatalf("mirrored assignment = %+v, want queued release assignment metadata", mirroredAssignment)
+	}
+	if mirroredAssignment.ExecutionMode != cairnline.ExecutionExternalAdapter || mirroredAssignment.DesiredAgent.Kind != cairnline.DesiredAgentAny || mirroredAssignment.ContextSnapshotID != "ctx_release" {
+		t.Fatalf("mirrored assignment execution = %+v, want external adapter context snapshot", mirroredAssignment)
+	}
+	if len(mirroredAssignment.DesiredAgent.SkillIDs) != 2 || !containsString(mirroredAssignment.DesiredAgent.SkillIDs, "release") || !containsString(mirroredAssignment.DesiredAgent.SkillIDs, "qa") {
+		t.Fatalf("mirrored assignment desired skills = %+v, want role skill ids", mirroredAssignment.DesiredAgent.SkillIDs)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_release/artifacts", bytes.NewReader([]byte(`{
+		"id":"art_release_decision",
+		"assignment_id":"asgn_release",
+		"kind":"decision_note",
+		"title":"Release decision",
+		"body":"Ship after the release checklist is complete.",
+		"author_role_id":"role_release"
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create decision artifact status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	mirroredArtifact := getMirroredCairnlineArtifactForTest(t, handler, project.Data.ID, "work_release", "art_release_decision")
+	if mirroredArtifact.Kind != projectwork.ArtifactKindDecisionNote || mirroredArtifact.AssignmentID != "asgn_release" || mirroredArtifact.AuthorRoleID != "role_release" {
+		t.Fatalf("mirrored artifact = %+v, want release decision metadata", mirroredArtifact)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_release/artifacts", bytes.NewReader([]byte(`{
+		"id":"art_release_evidence",
+		"assignment_id":"asgn_release",
+		"kind":"evidence_link",
+		"title":"Release checklist",
+		"body":"Checklist output was reviewed.",
+		"evidence_url":"https://example.invalid/release/checklist",
+		"evidence_trust_label":"operator_provided"
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create evidence artifact status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	mirroredEvidence := getMirroredCairnlineEvidenceForTest(t, handler, project.Data.ID, "work_release", "art_release_evidence")
+	if mirroredEvidence.AssignmentID != "asgn_release" || mirroredEvidence.Locator != "https://example.invalid/release/checklist" || mirroredEvidence.TrustLabel != cairnline.EvidenceTrustOperator {
+		t.Fatalf("mirrored evidence = %+v, want release checklist evidence metadata", mirroredEvidence)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_release/artifacts", bytes.NewReader([]byte(`{
+		"id":"art_release_review",
+		"assignment_id":"asgn_release",
+		"reviewed_assignment_id":"asgn_release",
+		"kind":"review",
+		"title":"Release review",
+		"body":"Release assignment is ready.",
+		"author_role_id":"role_release",
+		"review_verdict":"approved",
+		"review_risk":"low"
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create review artifact status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	mirroredReview := getMirroredCairnlineReviewForTest(t, handler, project.Data.ID, "work_release", "art_release_review")
+	if mirroredReview.AssignmentID != "asgn_release" || mirroredReview.ReviewerRoleID != "role_release" || mirroredReview.Verdict != cairnline.ReviewVerdictPass || mirroredReview.Risk != cairnline.ReviewRiskLow {
+		t.Fatalf("mirrored review = %+v, want approved release review metadata", mirroredReview)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_release/handoffs", bytes.NewReader([]byte(`{
+		"id":"handoff_release",
+		"source_assignment_id":"asgn_release",
+		"target_role_id":"role_release",
+		"target_assignment_id":"asgn_release",
+		"target_work_item_id":"work_release",
+		"title":"Release handoff",
+		"summary":"Ready for release owner follow-through.",
+		"recommended_next_action":"Publish the release notes.",
+		"created_by_role_id":"role_release"
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create handoff status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	mirroredHandoff := getMirroredCairnlineHandoffForTest(t, handler, project.Data.ID, "work_release", "handoff_release")
+	if mirroredHandoff.Status != cairnline.HandoffStatusOpen || mirroredHandoff.SourceAssignmentID != "asgn_release" || mirroredHandoff.TargetAssignmentID != "asgn_release" || mirroredHandoff.ToRoleID != "role_release" {
+		t.Fatalf("mirrored handoff = %+v, want open release handoff metadata", mirroredHandoff)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_release/handoffs/handoff_release/status", bytes.NewReader([]byte(`{"status":"accepted"}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("accept handoff status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	mirroredHandoff = getMirroredCairnlineHandoffForTest(t, handler, project.Data.ID, "work_release", "handoff_release")
+	if mirroredHandoff.Status != cairnline.HandoffStatusAccepted {
+		t.Fatalf("mirrored accepted handoff = %+v, want accepted", mirroredHandoff)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_release/handoffs/handoff_release", nil))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete handoff status = %d body=%s, want 204", rec.Code, rec.Body.String())
+	}
+	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+	if err != nil {
+		t.Fatalf("open Cairnline mirror: %v", err)
+	}
+	if _, err := service.GetHandoff(t.Context(), project.Data.ID, "work_release", "handoff_release"); !errors.Is(err, cairnline.ErrNotFound) {
+		store.Close()
+		t.Fatalf("deleted mirrored handoff error = %v, want ErrNotFound", err)
+	}
+	store.Close()
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_release/assignments/asgn_release", bytes.NewReader([]byte(`{
+		"status":"completed",
+		"execution_ref":{"kind":"chat_session","chat_session_id":"chat_release","message_id":"msg_release"}
+	}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update assignment status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	mirroredAssignment = getMirroredCairnlineAssignmentForTest(t, handler, project.Data.ID, "asgn_release")
+	if mirroredAssignment.Status != cairnline.AssignmentCompleted || mirroredAssignment.ExecutionRef != "chat_release" {
+		t.Fatalf("mirrored completed assignment = %+v, want completed chat execution ref", mirroredAssignment)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_release/assignments/asgn_release", nil))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete assignment status = %d body=%s, want 204", rec.Code, rec.Body.String())
+	}
+	service, store, err = cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+	if err != nil {
+		t.Fatalf("open Cairnline mirror: %v", err)
+	}
+	if _, err := service.GetAssignment(t.Context(), project.Data.ID, "asgn_release"); !errors.Is(err, cairnline.ErrNotFound) {
+		store.Close()
+		t.Fatalf("deleted mirrored assignment error = %v, want ErrNotFound", err)
+	}
+	store.Close()
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_release", nil))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete work item status = %d body=%s, want 204", rec.Code, rec.Body.String())
+	}
+	service, store, err = cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+	if err != nil {
+		t.Fatalf("open Cairnline mirror: %v", err)
+	}
+	if _, err := service.GetWorkItem(t.Context(), project.Data.ID, "work_release"); !errors.Is(err, cairnline.ErrNotFound) {
+		store.Close()
+		t.Fatalf("deleted mirrored work item error = %v, want ErrNotFound", err)
+	}
+	store.Close()
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/projects/"+project.Data.ID+"/roles/role_release", nil))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete role status = %d body=%s, want 204", rec.Code, rec.Body.String())
+	}
+	if role := mirroredCairnlineRoleForTest(t, handler, project.Data.ID, "role_release"); role != nil {
+		t.Fatalf("mirrored deleted role = %+v, want absent", *role)
+	}
+}
+
 func TestProjectWorkAPI_CreateHandoffGeneratesOpaqueHandoffID(t *testing.T) {
 	t.Parallel()
 	_, server := newProjectWorkTestServer()
@@ -876,6 +1156,39 @@ func TestProjectWorkAPI_StartAssignmentCreatesNativeTaskRun(t *testing.T) {
 	}
 }
 
+func TestProjectWorkAPI_StartAssignmentMirrorsResultToCairnline(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkCairnlineMirrorTestServer(t)
+	workspace := t.TempDir()
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace: workspace,
+		Driver:    projectwork.AssignmentDriverHecateTask,
+	})
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start assignment status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var assignment ProjectWorkAssignmentEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
+		t.Fatalf("decode assignment: %v", err)
+	}
+	ref := assignmentExecutionRefForTest(t, assignment.Data)
+	if ref.RunID == "" || ref.ContextSnapshotID == "" {
+		t.Fatalf("assignment execution_ref = %+v, want run and context snapshot links", ref)
+	}
+
+	stored := getStoredProjectWorkAssignmentForTest(t, handler, "proj_start", "work_start", "asgn_start")
+	mirrored := getMirroredCairnlineAssignmentForTest(t, handler, "proj_start", "asgn_start")
+	if mirrored.Status != cairnlinebridge.AssignmentStatus(stored.Status) || mirrored.ExecutionMode != cairnline.ExecutionOrchestrated {
+		t.Fatalf("mirrored assignment status/mode = %q/%q, want %q/orchestrated", mirrored.Status, mirrored.ExecutionMode, cairnlinebridge.AssignmentStatus(stored.Status))
+	}
+	if mirrored.ExecutionRef != stored.ExecutionRef.RunID || mirrored.ContextSnapshotID != stored.ExecutionRef.ContextSnapshotID {
+		t.Fatalf("mirrored assignment execution = ref %q context %q, want %q/%q", mirrored.ExecutionRef, mirrored.ContextSnapshotID, stored.ExecutionRef.RunID, stored.ExecutionRef.ContextSnapshotID)
+	}
+}
+
 func TestProjectWorkAPI_PreflightAssignmentReturnsLaunchContextWithoutSideEffects(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectWorkTestServer()
@@ -1015,6 +1328,42 @@ func TestProjectWorkAPI_PreflightAndStartShareNativeLaunchPlan(t *testing.T) {
 			task.RequestedProvider, task.RequestedModel, task.ExecutionProfile, task.WorkingDirectory,
 			preflight.Data.Provider, preflight.Data.Model, preflight.Data.ExecutionProfile, preflight.Data.Workspace)
 	}
+}
+
+func TestProjectWorkAPI_PreflightAndStartIncludeCairnlineLaunchPacketEvidenceWhenConfigured(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkCairnlineReadTestServer()
+	workspace := t.TempDir()
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace: workspace,
+		Driver:    projectwork.AssignmentDriverHecateTask,
+	})
+
+	client := newAPITestClient(t, server)
+	preflight := mustRequestJSON[ChatContextPacketResponse](client, http.MethodGet, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/preflight", "")
+	if preflight.Data.ExecutionMode != chat.ExecutionModeHecateTask || preflight.Data.Provider != "anthropic" || preflight.Data.Model != "claude-sonnet-4" {
+		t.Fatalf("Cairnline preflight launch shape = %q/%q/%q, want native task launch hints", preflight.Data.ExecutionMode, preflight.Data.Provider, preflight.Data.Model)
+	}
+	if preflight.Data.ExecutionProfile != "coding_agent" || preflight.Data.Workspace != workspace {
+		t.Fatalf("Cairnline preflight profile/workspace = %q/%q, want coding_agent/%q", preflight.Data.ExecutionProfile, preflight.Data.Workspace, workspace)
+	}
+	if preflight.Data.Refs == nil || preflight.Data.Refs.ProjectID != "proj_start" || preflight.Data.Refs.WorkItemID != "work_start" || preflight.Data.Refs.AssignmentID != "asgn_start" || preflight.Data.Refs.RoleID != "role_backend" {
+		t.Fatalf("Cairnline preflight refs = %+v, want project/work/assignment/role refs", preflight.Data.Refs)
+	}
+	assertCairnlineLaunchPacketEvidenceForTest(t, preflight.Data)
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start assignment status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var assignment ProjectWorkAssignmentEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
+		t.Fatalf("decode assignment: %v", err)
+	}
+	ref := assignmentExecutionRefForTest(t, assignment.Data)
+	started := mustRequestJSON[ChatContextPacketResponse](client, http.MethodGet, "/hecate/v1/tasks/"+ref.TaskID+"/runs/"+ref.RunID+"/context", "")
+	assertCairnlineLaunchPacketEvidenceForTest(t, started.Data)
 }
 
 func TestProjectWorkAPI_PreflightAndStartSnapshotModelReadiness(t *testing.T) {
@@ -1891,10 +2240,62 @@ func TestProjectWorkAPI_StartExternalAgentAssignmentPreparesLinkedSession(t *tes
 	}
 }
 
+func TestProjectWorkAPI_StartExternalAgentAssignmentMirrorsResultToCairnline(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkCairnlineMirrorTestServer(t)
+	runner := &fakeAgentChatRunner{nativeSessionID: "native_project_external"}
+	handler.SetAgentChatRunner(runner)
+	workspace := t.TempDir()
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace:           workspace,
+		Driver:              projectwork.AssignmentDriverExternalAgent,
+		WithoutRoleDefaults: true,
+	})
+	if _, err := handler.agentProfiles.Create(t.Context(), agentprofiles.Profile{
+		ID:                  "prof_external",
+		Name:                "External implementer",
+		Surface:             agentprofiles.SurfaceExternalAgent,
+		ExecutionProfile:    "external_implementation",
+		ExternalAgentKind:   "codex",
+		ProjectMemoryPolicy: agentprofiles.MemoryVisibleOnly,
+		ContextSourcePolicy: agentprofiles.ContextVisibleOnly,
+	}); err != nil {
+		t.Fatalf("Create external profile: %v", err)
+	}
+	if _, err := handler.projectWork.UpdateRole(t.Context(), "proj_start", "role_backend", func(role *projectwork.AgentRoleProfile) {
+		role.DefaultAgentProfile = "prof_external"
+	}); err != nil {
+		t.Fatalf("Update role profile: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{"driver_kind":"external_agent"}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start external assignment status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var assignment ProjectWorkAssignmentEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
+		t.Fatalf("decode assignment: %v", err)
+	}
+	ref := assignmentExecutionRefForTest(t, assignment.Data)
+	if ref.ChatSessionID == "" || ref.ContextSnapshotID == "" {
+		t.Fatalf("assignment execution_ref = %+v, want linked session and context snapshot", ref)
+	}
+
+	stored := getStoredProjectWorkAssignmentForTest(t, handler, "proj_start", "work_start", "asgn_start")
+	mirrored := getMirroredCairnlineAssignmentForTest(t, handler, "proj_start", "asgn_start")
+	if mirrored.Status != cairnlinebridge.AssignmentStatus(stored.Status) || mirrored.ExecutionMode != cairnline.ExecutionExternalAdapter {
+		t.Fatalf("mirrored assignment status/mode = %q/%q, want %q/external_adapter", mirrored.Status, mirrored.ExecutionMode, cairnlinebridge.AssignmentStatus(stored.Status))
+	}
+	if mirrored.ExecutionRef != stored.ExecutionRef.ChatSessionID || mirrored.ContextSnapshotID != stored.ExecutionRef.ContextSnapshotID {
+		t.Fatalf("mirrored assignment execution = ref %q context %q, want %q/%q", mirrored.ExecutionRef, mirrored.ContextSnapshotID, stored.ExecutionRef.ChatSessionID, stored.ExecutionRef.ContextSnapshotID)
+	}
+}
+
 func TestProjectWorkAPI_ExternalAgentChatTurnReconcilesAssignmentStatus(t *testing.T) {
 	t.Parallel()
 
-	handler, server := newProjectWorkTestServer()
+	handler, server := newProjectWorkCairnlineMirrorTestServer(t)
 	handler.SetAgentChatRunner(&fakeAgentChatRunner{output: "implementation complete"})
 	ctx := t.Context()
 	workspace := t.TempDir()
@@ -1956,6 +2357,10 @@ func TestProjectWorkAPI_ExternalAgentChatTurnReconcilesAssignmentStatus(t *testi
 	}
 	if assignments[0].Status != projectwork.AssignmentStatusCompleted || assignments[0].ExecutionRef.MessageID == "" || assignments[0].ExecutionRef.Status != projectwork.AssignmentStatusCompleted {
 		t.Fatalf("stored assignment = %+v, want reconciled completed chat assignment", assignments[0])
+	}
+	mirrored := getMirroredCairnlineAssignmentForTest(t, handler, "proj_chat_reconcile", "asgn_chat_reconcile")
+	if mirrored.Status != cairnline.AssignmentCompleted || mirrored.ExecutionRef != "chat_project_reconcile" {
+		t.Fatalf("mirrored assignment = %+v, want completed chat-session execution ref", mirrored)
 	}
 }
 
@@ -2822,6 +3227,36 @@ func TestProjectWorkAPI_StartAssignmentPreservesTaskLinkWhenStartFails(t *testin
 	}
 }
 
+func TestProjectWorkAPI_StartAssignmentFailureMirrorsResultToCairnline(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkCairnlineMirrorTestServer(t)
+	failingRunner := orchestrator.NewRunner(quietLogger(), nil, nil, orchestrator.Config{})
+	t.Cleanup(func() { _ = failingRunner.Shutdown(t.Context()) })
+	handler.taskRunner = failingRunner
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace: t.TempDir(),
+		Driver:    projectwork.AssignmentDriverHecateTask,
+	})
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("start failure status = %d body=%s, want 500", rec.Code, rec.Body.String())
+	}
+	stored := getStoredProjectWorkAssignmentForTest(t, handler, "proj_start", "work_start", "asgn_start")
+	if stored.Status != projectwork.AssignmentStatusFailed || stored.ExecutionRef.TaskID == "" {
+		t.Fatalf("stored assignment = %+v, want failed assignment with preserved task ref", stored)
+	}
+
+	mirrored := getMirroredCairnlineAssignmentForTest(t, handler, "proj_start", "asgn_start")
+	if mirrored.Status != cairnline.AssignmentFailed || mirrored.ExecutionMode != cairnline.ExecutionOrchestrated {
+		t.Fatalf("mirrored assignment status/mode = %q/%q, want failed/orchestrated", mirrored.Status, mirrored.ExecutionMode)
+	}
+	if mirrored.ExecutionRef != stored.ExecutionRef.TaskID || mirrored.ContextSnapshotID != "" {
+		t.Fatalf("mirrored assignment execution = ref %q context %q, want failed task ref %q and no context snapshot", mirrored.ExecutionRef, mirrored.ContextSnapshotID, stored.ExecutionRef.TaskID)
+	}
+}
+
 func TestProjectWorkAPI_StartAssignmentClearsClaimWhenTaskCreateFails(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectWorkTestServer()
@@ -3105,6 +3540,122 @@ func TestProjectWorkAPI_ProjectActivityCairnlineConfiguredUsesReadModel(t *testi
 	}
 }
 
+func TestProjectWorkAPI_ProjectActivityCairnlineMatchesHecate(t *testing.T) {
+	t.Parallel()
+	hecateHandler, hecateServer := newProjectWorkProjectionTestServer(t, "memory")
+	seedProjectWorkProjectionTest(t, hecateHandler)
+	hecateHandler.agentChat = failingChatGetStore{Store: hecateHandler.agentChat, failingID: "chat_external_error"}
+	cairnlineHandler, cairnlineServer := newProjectWorkCairnlineReadTestServer()
+	seedProjectWorkProjectionTest(t, cairnlineHandler)
+	cairnlineHandler.agentChat = failingChatGetStore{Store: cairnlineHandler.agentChat, failingID: "chat_external_error"}
+
+	hecate := mustRequestJSON[ProjectActivityEnvelope](newAPITestClient(t, hecateServer), http.MethodGet, "/hecate/v1/projects/proj_projection/activity", "")
+	cairnline := mustRequestJSON[ProjectActivityEnvelope](newAPITestClient(t, cairnlineServer), http.MethodGet, "/hecate/v1/projects/proj_projection/activity", "")
+	if hecate.Data.ReadBackend != "hecate" {
+		t.Fatalf("Hecate activity read_backend = %q, want hecate", hecate.Data.ReadBackend)
+	}
+	if cairnline.Data.ReadBackend != "cairnline" {
+		t.Fatalf("Cairnline activity read_backend = %q, want cairnline", cairnline.Data.ReadBackend)
+	}
+
+	hecateData := normalizeProjectActivityForParity(hecate.Data)
+	cairnlineData := normalizeProjectActivityForParity(cairnline.Data)
+	if !reflect.DeepEqual(hecateData, cairnlineData) {
+		t.Fatalf("activity mismatch: %s", projectActivityParityMismatch(hecateData, cairnlineData))
+	}
+}
+
+func normalizeProjectActivityForParity(item ProjectActivityDataResponse) ProjectActivityDataResponse {
+	item.ReadBackend = ""
+	normalizeProjectActivityItemsForParity(item.Recent)
+	normalizeProjectActivityItemsForParity(item.Buckets.Active)
+	normalizeProjectActivityItemsForParity(item.Buckets.Blocked)
+	normalizeProjectActivityItemsForParity(item.Buckets.Completed)
+	normalizeProjectActivityItemsForParity(item.Buckets.Recent)
+	return item
+}
+
+func normalizeProjectActivityItemsForParity(items []ProjectActivityItemResponse) {
+	for idx := range items {
+		items[idx].UpdatedAt = ""
+		items[idx].Role.ReadBackend = ""
+		items[idx].Role.CreatedAt = ""
+		items[idx].Role.UpdatedAt = ""
+		normalizeProjectWorkAssignmentResponseForParity(&items[idx].Assignment)
+		for artifactIdx := range items[idx].RecentArtifacts {
+			items[idx].RecentArtifacts[artifactIdx].ReadBackend = ""
+			items[idx].RecentArtifacts[artifactIdx].CreatedAt = ""
+			items[idx].RecentArtifacts[artifactIdx].UpdatedAt = ""
+		}
+		for handoffIdx := range items[idx].RecentHandoffs {
+			items[idx].RecentHandoffs[handoffIdx].ReadBackend = ""
+			items[idx].RecentHandoffs[handoffIdx].CreatedAt = ""
+			items[idx].RecentHandoffs[handoffIdx].UpdatedAt = ""
+			items[idx].RecentHandoffs[handoffIdx].StatusChangedAt = ""
+		}
+	}
+}
+
+func normalizeProjectWorkAssignmentResponseForParity(item *ProjectWorkAssignmentResponse) {
+	item.ReadBackend = ""
+	item.CreatedAt = ""
+	item.UpdatedAt = ""
+	item.StartedAt = ""
+	item.CompletedAt = ""
+	if item.Execution != nil {
+		item.Execution.StartedAt = ""
+		item.Execution.FinishedAt = ""
+	}
+}
+
+func projectActivityParityMismatch(left, right ProjectActivityDataResponse) string {
+	if left.ProjectID != right.ProjectID {
+		return fmt.Sprintf("project_id %q != %q", left.ProjectID, right.ProjectID)
+	}
+	if !reflect.DeepEqual(left.Summary, right.Summary) {
+		return fmt.Sprintf("summary %+v != %+v", left.Summary, right.Summary)
+	}
+	if message := projectActivityItemsParityMismatch("recent", left.Recent, right.Recent); message != "" {
+		return message
+	}
+	if message := projectActivityItemsParityMismatch("active", left.Buckets.Active, right.Buckets.Active); message != "" {
+		return message
+	}
+	if message := projectActivityItemsParityMismatch("blocked", left.Buckets.Blocked, right.Buckets.Blocked); message != "" {
+		return message
+	}
+	if message := projectActivityItemsParityMismatch("completed", left.Buckets.Completed, right.Buckets.Completed); message != "" {
+		return message
+	}
+	if message := projectActivityItemsParityMismatch("bucket_recent", left.Buckets.Recent, right.Buckets.Recent); message != "" {
+		return message
+	}
+	return fmt.Sprintf("\nHecate:   %+v\nCairnline: %+v", left, right)
+}
+
+func projectActivityItemsParityMismatch(name string, left, right []ProjectActivityItemResponse) string {
+	if !reflect.DeepEqual(projectActivityIDsForParity(left), projectActivityIDsForParity(right)) {
+		return fmt.Sprintf("%s IDs %v != %v", name, projectActivityIDsForParity(left), projectActivityIDsForParity(right))
+	}
+	for idx := range left {
+		if reflect.DeepEqual(left[idx], right[idx]) {
+			continue
+		}
+		leftJSON, _ := json.Marshal(left[idx])
+		rightJSON, _ := json.Marshal(right[idx])
+		return fmt.Sprintf("%s item %q differs\nHecate:   %s\nCairnline: %s", name, left[idx].ID, leftJSON, rightJSON)
+	}
+	return ""
+}
+
+func projectActivityIDsForParity(items []ProjectActivityItemResponse) []string {
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		out = append(out, item.ID)
+	}
+	return out
+}
+
 func TestProjectWorkAPI_ProjectWorkItemReadsCairnlineConfiguredUseReadModel(t *testing.T) {
 	t.Parallel()
 	handler := NewHandler(config.Config{
@@ -3131,6 +3682,24 @@ func TestProjectWorkAPI_ProjectWorkItemReadsCairnlineConfiguredUseReadModel(t *t
 	}
 
 	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_projection/roles", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list roles status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var roles ProjectWorkRolesResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &roles); err != nil {
+		t.Fatalf("decode roles: %v", err)
+	}
+	projectionRole := findProjectWorkRoleForTest(t, roles.Data, "role_projection")
+	if projectionRole.ReadBackend != "cairnline" || projectionRole.DefaultProvider != "openai" || projectionRole.DefaultModel != "gpt-5" || projectionRole.DefaultAgentProfile != "implementation" {
+		t.Fatalf("projection role = %+v, want Cairnline role read with Hecate execution defaults", projectionRole)
+	}
+	builtInRole := findProjectWorkRoleForTest(t, roles.Data, "product_manager")
+	if builtInRole.ReadBackend != "cairnline" || !builtInRole.BuiltIn {
+		t.Fatalf("built-in role = %+v, want Cairnline role read preserving built-in flag", builtInRole)
+	}
+
+	rec = httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_projection/work-items", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list work items status = %d body=%s, want 200", rec.Code, rec.Body.String())
@@ -3184,6 +3753,31 @@ func TestProjectWorkAPI_ProjectWorkItemReadsCairnlineConfiguredUseReadModel(t *t
 	}
 
 	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_projection/work-items/work_not_started/assignments/asgn_not_started/context", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("assignment context status = %d body=%s, want Cairnline read-model packet", rec.Code, rec.Body.String())
+	}
+	var packetResp ChatContextPacketResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &packetResp); err != nil {
+		t.Fatalf("decode assignment context: %v", err)
+	}
+	if packetResp.Data.ID != "cairnline_assignment_context_asgn_not_started" || packetResp.Data.ExecutionMode != "orchestrated" {
+		t.Fatalf("assignment context id/mode = %q/%q, want deterministic Cairnline orchestrated packet", packetResp.Data.ID, packetResp.Data.ExecutionMode)
+	}
+	if packetResp.Data.Refs == nil || packetResp.Data.Refs.ProjectID != "proj_projection" || packetResp.Data.Refs.WorkItemID != "work_not_started" || packetResp.Data.Refs.AssignmentID != "asgn_not_started" || packetResp.Data.Refs.RoleID != "role_projection" {
+		t.Fatalf("assignment context refs = %+v, want project/work/assignment/role refs", packetResp.Data.Refs)
+	}
+	if item := findRenderedContextItemByOrigin(packetResp.Data, "cairnline.assignment_launch_packet"); item == nil || item.Section != contextSectionRuntime || item.Included || item.Metadata["read_backend"] != "cairnline" {
+		t.Fatalf("Cairnline runtime item = %+v, want inspect-only runtime preview metadata", item)
+	}
+	if item := findRenderedContextItemByOrigin(packetResp.Data, "asgn_not_started"); item == nil || item.Section != contextSectionProjectWork || !item.Included {
+		t.Fatalf("Cairnline assignment item = %+v, want included project_work assignment metadata", item)
+	}
+	if item := findRenderedContextItemByOrigin(packetResp.Data, "art_work_not_started"); item == nil || item.Section != contextSectionProjectWork || item.Included {
+		t.Fatalf("Cairnline artifact item = %+v, want inspect-only work-item artifact metadata", item)
+	}
+
+	rec = httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_projection/work-items/work_needs_evidence/readiness", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("readiness status = %d body=%s, want 200", rec.Code, rec.Body.String())
@@ -3204,6 +3798,208 @@ func TestProjectWorkAPI_ProjectWorkItemReadsCairnlineConfiguredUseReadModel(t *t
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("missing work item status = %d body=%s, want 404", rec.Code, rec.Body.String())
 	}
+}
+
+func TestProjectWorkAPI_ProjectWorkItemReadinessCairnlineMatchesHecate(t *testing.T) {
+	t.Parallel()
+	hecateHandler, hecateServer := newProjectWorkProjectionTestServer(t, "memory")
+	seedProjectWorkProjectionTest(t, hecateHandler)
+	cairnlineHandler, cairnlineServer := newProjectWorkCairnlineReadTestServer()
+	seedProjectWorkProjectionTest(t, cairnlineHandler)
+
+	hecateClient := newAPITestClient(t, hecateServer)
+	cairnlineClient := newAPITestClient(t, cairnlineServer)
+	for _, workID := range []string{
+		"work_running",
+		"work_queued",
+		"work_awaiting",
+		"work_completed",
+		"work_failed",
+		"work_cancelled",
+		"work_missing",
+		"work_run_only",
+		"work_manual_terminal",
+		"work_external_chat",
+		"work_mixed",
+		"work_not_started",
+	} {
+		workID := workID
+		t.Run(workID, func(t *testing.T) {
+			hecate := mustRequestJSON[ProjectWorkItemReadinessEnvelope](hecateClient, http.MethodGet, "/hecate/v1/projects/proj_projection/work-items/"+workID+"/readiness", "")
+			cairnline := mustRequestJSON[ProjectWorkItemReadinessEnvelope](cairnlineClient, http.MethodGet, "/hecate/v1/projects/proj_projection/work-items/"+workID+"/readiness", "")
+			if hecate.Data.ReadBackend != "hecate" {
+				t.Fatalf("Hecate readiness read_backend = %q, want hecate", hecate.Data.ReadBackend)
+			}
+			if cairnline.Data.ReadBackend != "cairnline" {
+				t.Fatalf("Cairnline readiness read_backend = %q, want cairnline", cairnline.Data.ReadBackend)
+			}
+
+			hecateData := normalizeProjectWorkItemReadinessForParity(hecate.Data)
+			cairnlineData := normalizeProjectWorkItemReadinessForParity(cairnline.Data)
+			if !reflect.DeepEqual(hecateData, cairnlineData) {
+				t.Fatalf("readiness mismatch for %s\nHecate:   %+v\nCairnline: %+v", workID, hecateData, cairnlineData)
+			}
+		})
+	}
+}
+
+func normalizeProjectWorkItemReadinessForParity(item ProjectWorkItemReadinessResponse) ProjectWorkItemReadinessResponse {
+	item.ReadBackend = ""
+	if len(item.Blockers) == 0 {
+		item.Blockers = nil
+	}
+	if len(item.Warnings) == 0 {
+		item.Warnings = nil
+	}
+	if len(item.ReviewFollowUpArtifactIDs) == 0 {
+		item.ReviewFollowUpArtifactIDs = nil
+	}
+	if len(item.ReviewFollowUps) == 0 {
+		item.ReviewFollowUps = nil
+	}
+	if len(item.MissingEvidenceAssignmentIDs) == 0 {
+		item.MissingEvidenceAssignmentIDs = nil
+	}
+	return item
+}
+
+func TestProjectWorkAPI_ProjectArtifactsAndHandoffsCairnlineConfiguredUseReadModel(t *testing.T) {
+	t.Parallel()
+	nativeHandler, nativeServer := newProjectWorkTestServer()
+	seedProjectWorkProjectionTest(t, nativeHandler)
+	seedProjectWorkArtifactsAndHandoffsReadModelTest(t, nativeHandler)
+	cairnlineHandler, cairnlineServer := newProjectWorkCairnlineReadTestServer()
+	seedProjectWorkProjectionTest(t, cairnlineHandler)
+	seedProjectWorkArtifactsAndHandoffsReadModelTest(t, cairnlineHandler)
+
+	nativeArtifacts := mustRequestJSON[ProjectWorkArtifactsResponse](newAPITestClient(t, nativeServer), http.MethodGet, "/hecate/v1/projects/proj_projection/work-items/work_completed/artifacts", "")
+	cairnlineArtifacts := mustRequestJSON[ProjectWorkArtifactsResponse](newAPITestClient(t, cairnlineServer), http.MethodGet, "/hecate/v1/projects/proj_projection/work-items/work_completed/artifacts", "")
+	assertProjectWorkArtifactsParity(t, nativeArtifacts.Data, cairnlineArtifacts.Data)
+
+	decision := findProjectWorkArtifactForTest(t, cairnlineArtifacts.Data, "art_completion_decision")
+	if decision.ReadBackend != "cairnline" || decision.Kind != projectwork.ArtifactKindDecisionNote || decision.AuthorRoleID != "role_projection" || decision.Body != "Keep the completed assignment as the closeout record." {
+		t.Fatalf("decision artifact = %+v, want Cairnline-backed generic artifact", decision)
+	}
+	handoffArtifact := findProjectWorkArtifactForTest(t, cairnlineArtifacts.Data, "art_asgn_completed")
+	if handoffArtifact.ReadBackend != "cairnline" || handoffArtifact.Kind != projectwork.ArtifactKindHandoff || handoffArtifact.Body != "Ready for review." {
+		t.Fatalf("handoff artifact = %+v, want Cairnline-backed generic handoff artifact", handoffArtifact)
+	}
+	evidence := findProjectWorkArtifactForTest(t, cairnlineArtifacts.Data, "art_completion_evidence")
+	if evidence.ReadBackend != "cairnline" || evidence.Kind != projectwork.ArtifactKindEvidenceLink || evidence.EvidenceURL != "https://example.invalid/evidence/completion" || evidence.EvidenceTrustLabel != projectwork.EvidenceTrustOperatorProvided {
+		t.Fatalf("evidence artifact = %+v, want Cairnline-backed evidence metadata", evidence)
+	}
+	review := findProjectWorkArtifactForTest(t, cairnlineArtifacts.Data, "art_completion_review")
+	if review.ReadBackend != "cairnline" || review.Kind != projectwork.ArtifactKindReview || review.ReviewedAssignmentID != "asgn_completed" || review.ReviewVerdict != projectwork.ReviewVerdictApproved || review.ReviewRisk != projectwork.ReviewRiskLow || review.ReviewFollowUpRequired {
+		t.Fatalf("review artifact = %+v, want Cairnline-backed review metadata", review)
+	}
+
+	nativeWorkHandoffs := mustRequestJSON[ProjectHandoffsResponse](newAPITestClient(t, nativeServer), http.MethodGet, "/hecate/v1/projects/proj_projection/work-items/work_completed/handoffs", "")
+	cairnlineWorkHandoffs := mustRequestJSON[ProjectHandoffsResponse](newAPITestClient(t, cairnlineServer), http.MethodGet, "/hecate/v1/projects/proj_projection/work-items/work_completed/handoffs", "")
+	assertProjectHandoffsParity(t, nativeWorkHandoffs.Data, cairnlineWorkHandoffs.Data)
+	handoff := findProjectHandoffForTest(t, cairnlineWorkHandoffs.Data, "handoff_review_followup")
+	if handoff.ReadBackend != "cairnline" || handoff.TargetAssignmentID != "asgn_queued" || handoff.TargetWorkItemID != "work_queued" || handoff.Status != projectwork.HandoffStatusPending {
+		t.Fatalf("work-item handoff = %+v, want Cairnline-backed handoff metadata", handoff)
+	}
+
+	nativeProjectHandoffs := mustRequestJSON[ProjectHandoffsResponse](newAPITestClient(t, nativeServer), http.MethodGet, "/hecate/v1/projects/proj_projection/handoffs?work_item_id=work_completed&status=pending", "")
+	cairnlineProjectHandoffs := mustRequestJSON[ProjectHandoffsResponse](newAPITestClient(t, cairnlineServer), http.MethodGet, "/hecate/v1/projects/proj_projection/handoffs?work_item_id=work_completed&status=pending", "")
+	assertProjectHandoffsParity(t, nativeProjectHandoffs.Data, cairnlineProjectHandoffs.Data)
+	if len(cairnlineProjectHandoffs.Data) != 1 || cairnlineProjectHandoffs.Data[0].ID != "handoff_review_followup" || cairnlineProjectHandoffs.Data[0].ReadBackend != "cairnline" {
+		t.Fatalf("project handoffs = %+v, want filtered Cairnline-backed handoff", cairnlineProjectHandoffs.Data)
+	}
+}
+
+func seedProjectWorkArtifactsAndHandoffsReadModelTest(t *testing.T, handler *Handler) {
+	t.Helper()
+	if _, err := handler.projectWork.CreateArtifact(t.Context(), projectwork.CollaborationArtifact{
+		ID:           "art_completion_decision",
+		ProjectID:    "proj_projection",
+		WorkItemID:   "work_completed",
+		AssignmentID: "asgn_completed",
+		Kind:         projectwork.ArtifactKindDecisionNote,
+		Title:        "Completion decision",
+		Body:         "Keep the completed assignment as the closeout record.",
+		AuthorRoleID: "role_projection",
+		CreatedAt:    time.Date(2026, 6, 3, 12, 3, 30, 0, time.UTC),
+		UpdatedAt:    time.Date(2026, 6, 3, 12, 3, 30, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("CreateArtifact(decision): %v", err)
+	}
+	if _, err := handler.projectWork.CreateArtifact(t.Context(), projectwork.CollaborationArtifact{
+		ID:                 "art_completion_evidence",
+		ProjectID:          "proj_projection",
+		WorkItemID:         "work_completed",
+		AssignmentID:       "asgn_completed",
+		Kind:               projectwork.ArtifactKindEvidenceLink,
+		Title:              "Completion evidence",
+		Body:               "Focused test output was captured.",
+		EvidenceURL:        "https://example.invalid/evidence/completion",
+		EvidenceTrustLabel: projectwork.EvidenceTrustOperatorProvided,
+		CreatedAt:          time.Date(2026, 6, 3, 12, 4, 30, 0, time.UTC),
+		UpdatedAt:          time.Date(2026, 6, 3, 12, 4, 30, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("CreateArtifact(evidence): %v", err)
+	}
+	if _, err := handler.projectWork.CreateArtifact(t.Context(), projectwork.CollaborationArtifact{
+		ID:                     "art_completion_review",
+		ProjectID:              "proj_projection",
+		WorkItemID:             "work_completed",
+		AssignmentID:           "asgn_completed",
+		ReviewedAssignmentID:   "asgn_completed",
+		Kind:                   projectwork.ArtifactKindReview,
+		Title:                  "Completion review",
+		Body:                   "Verdict: approved.",
+		AuthorRoleID:           "role_projection",
+		ReviewVerdict:          projectwork.ReviewVerdictApproved,
+		ReviewRisk:             projectwork.ReviewRiskLow,
+		ReviewFollowUpRequired: false,
+		CreatedAt:              time.Date(2026, 6, 3, 12, 5, 30, 0, time.UTC),
+		UpdatedAt:              time.Date(2026, 6, 3, 12, 5, 30, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("CreateArtifact(review): %v", err)
+	}
+}
+
+func assertProjectWorkArtifactsParity(t *testing.T, hecate, cairnline []ProjectWorkArtifactResponse) {
+	t.Helper()
+	normalizedHecate := normalizeProjectWorkArtifactsForParity(t, hecate, "hecate")
+	normalizedCairnline := normalizeProjectWorkArtifactsForParity(t, cairnline, "cairnline")
+	if !reflect.DeepEqual(normalizedHecate, normalizedCairnline) {
+		t.Fatalf("project work artifacts mismatch\nHecate:   %+v\nCairnline: %+v", normalizedHecate, normalizedCairnline)
+	}
+}
+
+func normalizeProjectWorkArtifactsForParity(t *testing.T, items []ProjectWorkArtifactResponse, backend string) []ProjectWorkArtifactResponse {
+	t.Helper()
+	out := append([]ProjectWorkArtifactResponse(nil), items...)
+	for index := range out {
+		if out[index].ReadBackend != backend {
+			t.Fatalf("%s artifact[%d] read_backend = %q, want %s", backend, index, out[index].ReadBackend, backend)
+		}
+		out[index].ReadBackend = ""
+	}
+	return out
+}
+
+func assertProjectHandoffsParity(t *testing.T, hecate, cairnline []ProjectHandoffResponse) {
+	t.Helper()
+	normalizedHecate := normalizeProjectHandoffsForParity(t, hecate, "hecate")
+	normalizedCairnline := normalizeProjectHandoffsForParity(t, cairnline, "cairnline")
+	if !reflect.DeepEqual(normalizedHecate, normalizedCairnline) {
+		t.Fatalf("project handoffs mismatch\nHecate:   %+v\nCairnline: %+v", normalizedHecate, normalizedCairnline)
+	}
+}
+
+func normalizeProjectHandoffsForParity(t *testing.T, items []ProjectHandoffResponse, backend string) []ProjectHandoffResponse {
+	t.Helper()
+	out := append([]ProjectHandoffResponse(nil), items...)
+	for index := range out {
+		if out[index].ReadBackend != backend {
+			t.Fatalf("%s handoff[%d] read_backend = %q, want %s", backend, index, out[index].ReadBackend, backend)
+		}
+		out[index].ReadBackend = ""
+	}
+	return out
 }
 
 func TestProjectWorkAPI_ProjectActivityShowsFreshQueuedAssignments(t *testing.T) {
@@ -3421,7 +4217,15 @@ func seedProjectWorkProjectionTest(t *testing.T, handler *Handler) {
 	if _, err := handler.projects.Create(ctx, projects.Project{ID: "proj_projection", Name: "Projection"}); err != nil {
 		t.Fatalf("Create project: %v", err)
 	}
-	if _, err := handler.projectWork.CreateRole(ctx, projectwork.AgentRoleProfile{ID: "role_projection", ProjectID: "proj_projection", Name: "Projection engineer"}); err != nil {
+	if _, err := handler.projectWork.CreateRole(ctx, projectwork.AgentRoleProfile{
+		ID:                  "role_projection",
+		ProjectID:           "proj_projection",
+		Name:                "Projection engineer",
+		DefaultDriverKind:   projectwork.AssignmentDriverHecateTask,
+		DefaultProvider:     "openai",
+		DefaultModel:        "gpt-5",
+		DefaultAgentProfile: "implementation",
+	}); err != nil {
 		t.Fatalf("CreateRole: %v", err)
 	}
 
@@ -3635,6 +4439,7 @@ func seedProjectWorkExternalChatProjectionCase(t *testing.T, handler *Handler) {
 func seedProjectWorkRunOnlyProjectionCase(t *testing.T, handler *Handler) {
 	t.Helper()
 	ctx := t.Context()
+	createdAt := time.Date(2026, 6, 3, 11, 57, 0, 0, time.UTC)
 	if _, err := handler.projectWork.CreateWorkItem(ctx, projectwork.WorkItem{
 		ID:        "work_run_only",
 		ProjectID: "proj_projection",
@@ -3654,6 +4459,8 @@ func seedProjectWorkRunOnlyProjectionCase(t *testing.T, handler *Handler) {
 			Kind:  projectwork.AssignmentExecutionKindTaskRun,
 			RunID: "run_without_task",
 		},
+		CreatedAt: createdAt,
+		UpdatedAt: createdAt,
 	}); err != nil {
 		t.Fatalf("CreateAssignment(asgn_run_only): %v", err)
 	}
@@ -3699,21 +4506,6 @@ func seedProjectWorkNotStartedProjectionCase(t *testing.T, handler *Handler) {
 func seedProjectWorkProjectionCase(t *testing.T, handler *Handler, workID, assignmentID, assignmentStatus, runStatus string, runStartedAt, runFinishedAt, assignmentUpdated time.Time, lastError string, approvalPending, missing bool) {
 	t.Helper()
 	ctx := t.Context()
-	if _, ok, err := handler.projectWork.GetWorkItem(ctx, "proj_projection", workID); err != nil {
-		t.Fatalf("GetWorkItem(%s): %v", workID, err)
-	} else if !ok {
-		if _, err := handler.projectWork.CreateWorkItem(ctx, projectwork.WorkItem{
-			ID:        workID,
-			ProjectID: "proj_projection",
-			Title:     workID,
-			Status:    projectwork.WorkItemStatusReady,
-		}); err != nil {
-			t.Fatalf("CreateWorkItem(%s): %v", workID, err)
-		}
-	}
-
-	taskID := "task_" + assignmentID
-	runID := "run_" + assignmentID
 	if assignmentStatus == "" {
 		assignmentStatus = projectwork.AssignmentStatusQueued
 	}
@@ -3723,6 +4515,23 @@ func seedProjectWorkProjectionCase(t *testing.T, handler *Handler, workID, assig
 			assignmentUpdated = time.Date(2026, 6, 3, 11, 59, 0, 0, time.UTC)
 		}
 	}
+	if _, ok, err := handler.projectWork.GetWorkItem(ctx, "proj_projection", workID); err != nil {
+		t.Fatalf("GetWorkItem(%s): %v", workID, err)
+	} else if !ok {
+		if _, err := handler.projectWork.CreateWorkItem(ctx, projectwork.WorkItem{
+			ID:        workID,
+			ProjectID: "proj_projection",
+			Title:     workID,
+			Status:    projectwork.WorkItemStatusReady,
+			CreatedAt: assignmentUpdated,
+			UpdatedAt: assignmentUpdated,
+		}); err != nil {
+			t.Fatalf("CreateWorkItem(%s): %v", workID, err)
+		}
+	}
+
+	taskID := "task_" + assignmentID
+	runID := "run_" + assignmentID
 	if _, err := handler.projectWork.CreateAssignment(ctx, projectwork.Assignment{
 		ID:         assignmentID,
 		ProjectID:  "proj_projection",
@@ -3808,6 +4617,7 @@ func seedProjectWorkProjectionCase(t *testing.T, handler *Handler, workID, assig
 			RecommendedNextAction: "Review the queued follow-up assignment.",
 			CreatedAt:             runFinishedAt.Add(2 * time.Minute),
 			UpdatedAt:             runFinishedAt.Add(2 * time.Minute),
+			StatusChangedAt:       runFinishedAt.Add(2 * time.Minute),
 		}); err != nil {
 			t.Fatalf("CreateHandoff(%s): %v", assignmentID, err)
 		}
@@ -3840,6 +4650,42 @@ func assignmentExecutionRefForTest(t *testing.T, assignment ProjectWorkAssignmen
 		t.Fatalf("assignment %q execution_ref is nil", assignment.ID)
 	}
 	return *assignment.ExecutionRef
+}
+
+func assertCairnlineLaunchPacketEvidenceForTest(t *testing.T, packet ChatContextPacketItem) {
+	t.Helper()
+	item := findRenderedContextItemByKind(packet, "cairnline_launch_packet")
+	if item == nil || item.Section != contextSectionRuntime || item.Included {
+		t.Fatalf("Cairnline launch packet item = %+v, want inspect-only runtime evidence", item)
+	}
+	if item.Origin != "cairnline.assignment_launch_packet" || item.InclusionReason != cairnlineAssignmentLaunchEvidenceReason {
+		t.Fatalf("Cairnline launch packet origin/reason = %q/%q, want replacement-readiness evidence", item.Origin, item.InclusionReason)
+	}
+	for _, want := range []string{
+		"Ready: true",
+		"Assignment: asgn_start",
+		"Execution mode: orchestrated",
+		"Root: root_start",
+		"Skills: 0; artifacts: 0; evidence: 0; reviews: 0; handoffs: 0; memory: 0; memory candidates: 0",
+	} {
+		if !strings.Contains(item.Body, want) {
+			t.Fatalf("Cairnline launch packet body = %q, want %q", item.Body, want)
+		}
+	}
+	for key, want := range map[string]string{
+		"read_backend":   "cairnline",
+		"ready":          "true",
+		"project_id":     "proj_start",
+		"work_item_id":   "work_start",
+		"assignment_id":  "asgn_start",
+		"role_id":        "role_backend",
+		"root_id":        "root_start",
+		"execution_mode": "orchestrated",
+	} {
+		if item.Metadata[key] != want {
+			t.Fatalf("Cairnline launch packet metadata[%q] = %q, want %q in %+v", key, item.Metadata[key], want, item.Metadata)
+		}
+	}
 }
 
 func assertProjectWorkStatusForTest(t *testing.T, server http.Handler, workID, want string) {
@@ -4000,6 +4846,28 @@ func findProjectWorkItemForTest(t *testing.T, items []ProjectWorkItemResponse, w
 	return ProjectWorkItemResponse{}
 }
 
+func findProjectWorkArtifactForTest(t *testing.T, items []ProjectWorkArtifactResponse, artifactID string) ProjectWorkArtifactResponse {
+	t.Helper()
+	for _, item := range items {
+		if item.ID == artifactID {
+			return item
+		}
+	}
+	t.Fatalf("artifact %s not found in %+v", artifactID, items)
+	return ProjectWorkArtifactResponse{}
+}
+
+func findProjectHandoffForTest(t *testing.T, items []ProjectHandoffResponse, handoffID string) ProjectHandoffResponse {
+	t.Helper()
+	for _, item := range items {
+		if item.ID == handoffID {
+			return item
+		}
+	}
+	t.Fatalf("handoff %s not found in %+v", handoffID, items)
+	return ProjectHandoffResponse{}
+}
+
 func allProjectActivityItemsForTest(data ProjectActivityDataResponse) []ProjectActivityItemResponse {
 	items := make([]ProjectActivityItemResponse, 0, len(data.Buckets.Active)+len(data.Buckets.Blocked)+len(data.Buckets.Completed)+len(data.Buckets.Recent)+len(data.Recent))
 	items = append(items, data.Buckets.Active...)
@@ -4031,6 +4899,137 @@ func createProjectForWorkTest(t *testing.T, server http.Handler) ProjectResponse
 	return project
 }
 
+func getMirroredCairnlineRoleForTest(t *testing.T, handler *Handler, projectID, roleID string) cairnline.Role {
+	t.Helper()
+	role := mirroredCairnlineRoleForTest(t, handler, projectID, roleID)
+	if role == nil {
+		t.Fatalf("mirrored role %q not found", roleID)
+	}
+	return *role
+}
+
+func mirroredCairnlineRoleForTest(t *testing.T, handler *Handler, projectID, roleID string) *cairnline.Role {
+	t.Helper()
+	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+	if err != nil {
+		t.Fatalf("open Cairnline mirror: %v", err)
+	}
+	defer store.Close()
+	roles, err := service.ListRoles(t.Context(), projectID)
+	if err != nil {
+		t.Fatalf("ListRoles(%q): %v", projectID, err)
+	}
+	for _, role := range roles {
+		if role.ID == roleID {
+			found := role
+			return &found
+		}
+	}
+	return nil
+}
+
+func getMirroredCairnlineWorkItemForTest(t *testing.T, handler *Handler, projectID, workItemID string) cairnline.WorkItem {
+	t.Helper()
+	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+	if err != nil {
+		t.Fatalf("open Cairnline mirror: %v", err)
+	}
+	defer store.Close()
+	item, err := service.GetWorkItem(t.Context(), projectID, workItemID)
+	if err != nil {
+		t.Fatalf("GetWorkItem(%q, %q): %v", projectID, workItemID, err)
+	}
+	return item
+}
+
+func getMirroredCairnlineAssignmentForTest(t *testing.T, handler *Handler, projectID, assignmentID string) cairnline.Assignment {
+	t.Helper()
+	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+	if err != nil {
+		t.Fatalf("open Cairnline mirror: %v", err)
+	}
+	defer store.Close()
+	item, err := service.GetAssignment(t.Context(), projectID, assignmentID)
+	if err != nil {
+		t.Fatalf("GetAssignment(%q, %q): %v", projectID, assignmentID, err)
+	}
+	return item
+}
+
+func getStoredProjectWorkAssignmentForTest(t *testing.T, handler *Handler, projectID, workItemID, assignmentID string) projectwork.Assignment {
+	t.Helper()
+	assignments, err := handler.projectWork.ListAssignments(t.Context(), projectwork.AssignmentFilter{
+		ProjectID:  projectID,
+		WorkItemID: workItemID,
+	})
+	if err != nil {
+		t.Fatalf("ListAssignments(%q, %q): %v", projectID, workItemID, err)
+	}
+	for _, assignment := range assignments {
+		if assignment.ID == assignmentID {
+			return assignment
+		}
+	}
+	t.Fatalf("assignment %q not found in %+v", assignmentID, assignments)
+	return projectwork.Assignment{}
+}
+
+func getMirroredCairnlineArtifactForTest(t *testing.T, handler *Handler, projectID, workItemID, artifactID string) cairnline.Artifact {
+	t.Helper()
+	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+	if err != nil {
+		t.Fatalf("open Cairnline mirror: %v", err)
+	}
+	defer store.Close()
+	item, err := service.GetArtifact(t.Context(), projectID, workItemID, artifactID)
+	if err != nil {
+		t.Fatalf("GetArtifact(%q, %q, %q): %v", projectID, workItemID, artifactID, err)
+	}
+	return item
+}
+
+func getMirroredCairnlineEvidenceForTest(t *testing.T, handler *Handler, projectID, workItemID, evidenceID string) cairnline.Evidence {
+	t.Helper()
+	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+	if err != nil {
+		t.Fatalf("open Cairnline mirror: %v", err)
+	}
+	defer store.Close()
+	item, err := service.GetEvidence(t.Context(), projectID, workItemID, evidenceID)
+	if err != nil {
+		t.Fatalf("GetEvidence(%q, %q, %q): %v", projectID, workItemID, evidenceID, err)
+	}
+	return item
+}
+
+func getMirroredCairnlineReviewForTest(t *testing.T, handler *Handler, projectID, workItemID, reviewID string) cairnline.Review {
+	t.Helper()
+	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+	if err != nil {
+		t.Fatalf("open Cairnline mirror: %v", err)
+	}
+	defer store.Close()
+	item, err := service.GetReview(t.Context(), projectID, workItemID, reviewID)
+	if err != nil {
+		t.Fatalf("GetReview(%q, %q, %q): %v", projectID, workItemID, reviewID, err)
+	}
+	return item
+}
+
+func getMirroredCairnlineHandoffForTest(t *testing.T, handler *Handler, projectID, workItemID, handoffID string) cairnline.Handoff {
+	t.Helper()
+	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+	if err != nil {
+		t.Fatalf("open Cairnline mirror: %v", err)
+	}
+	defer store.Close()
+	item, err := service.GetHandoff(t.Context(), projectID, workItemID, handoffID)
+	if err != nil {
+		t.Fatalf("GetHandoff(%q, %q, %q): %v", projectID, workItemID, handoffID, err)
+	}
+	return item
+}
+
 func projectWorkRoleExists(roles []ProjectWorkRoleResponse, id string, builtIn bool) bool {
 	for _, role := range roles {
 		if role.ID == id && role.BuiltIn == builtIn {
@@ -4038,6 +5037,17 @@ func projectWorkRoleExists(roles []ProjectWorkRoleResponse, id string, builtIn b
 		}
 	}
 	return false
+}
+
+func findProjectWorkRoleForTest(t *testing.T, roles []ProjectWorkRoleResponse, id string) ProjectWorkRoleResponse {
+	t.Helper()
+	for _, role := range roles {
+		if role.ID == id {
+			return role
+		}
+	}
+	t.Fatalf("role %q not found in %+v", id, roles)
+	return ProjectWorkRoleResponse{}
 }
 
 func projectWorkRoleExistsStore(roles []projectwork.AgentRoleProfile, id string, builtIn bool) bool {

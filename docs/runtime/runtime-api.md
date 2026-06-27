@@ -625,7 +625,7 @@ POST /hecate/v1/mcp/probe
 
 Tool names come back un-namespaced — the operator wants to see what the upstream itself calls them, not the gateway's runtime alias. MCP Apps metadata is preserved when present: `_meta` is the raw upstream object, `ui_resource_uri` and `ui_visibility` are derived convenience fields, and `model_visible: false` means the tool is app-only and will not be shown to the agent-loop model. Bounded by a 10-second deadline; a stuck upstream surfaces as a 400 with the diagnostic rather than wedging the request.
 
-`POST /hecate/v1/system/reset-data` resets local operator state without restarting the gateway. It deletes chat sessions, projects, project memory entries and candidates, project work-coordination rows, plugin registry records, agent profiles, tasks, configured providers, policy rules, and saved external-agent approval grants. Chat sessions are deleted through the normal chat-delete path first, so live external-agent sessions are asked to delete their native ACP session before their rows disappear. If an adapter does not support `session/delete`, Hecate falls back to `session/close` and still tears down the owned process. When SQLite or Postgres is configured, it then clears remaining Hecate-prefixed database table rows while preserving schemas. Workspace files and external CLI auth files are not touched. The endpoint is local-only and blocked in remote runtime mode: non-loopback sockets and forwarded-client headers are rejected.
+`POST /hecate/v1/system/reset-data` resets local operator state without restarting the gateway. It deletes chat sessions, projects, project memory entries and candidates, project work-coordination rows, plugin registry records, agent profiles, tasks, configured providers, policy rules, and saved external-agent approval grants. Chat sessions are deleted through the normal chat-delete path first, so live external-agent sessions are asked to delete their native ACP session before their rows disappear. If an adapter does not support `session/delete`, Hecate falls back to `session/close` and still tears down the owned process. When SQLite or Postgres is configured, it then clears remaining Hecate-prefixed database table rows while preserving schemas. It also removes the embedded Cairnline mirror database files under the Hecate data directory so replacement-readiness mirrors cannot resurrect stale project state after reset. Workspace files and external CLI auth files are not touched. The endpoint is local-only and blocked in remote runtime mode: non-loopback sockets and forwarded-client headers are rejected.
 
 ```json
 → 200
@@ -641,7 +641,8 @@ Tool names come back un-namespaced — the operator wants to see what the upstre
     "providers_deleted": 1,
     "policy_rules_deleted": 1,
     "agent_approval_grants_deleted": 1,
-    "database_rows_deleted": 8
+    "database_rows_deleted": 8,
+    "cairnline_mirror_files_deleted": 1
   }
 }
 ```
@@ -1681,6 +1682,16 @@ start supervised work.
 ### `GET /hecate/v1/projects`
 
 Lists projects ordered by recent activity, then update/create time.
+When `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and the backend status
+reports `read_model_switch_ready=true`, this endpoint renders portable project
+identity, roots, default root, and context-source metadata from the Cairnline
+read model and marks each item with `read_backend: "cairnline"`. Project
+default profile and execution posture are read from Cairnline's project and
+execution-profile records where available; Hecate-only timestamps such as
+`last_opened_at` remain enriched from Hecate's native project store. Create,
+update, delete, root, and context-source mutations still commit to
+Hecate-native stores first; when Cairnline is configured they also best-effort
+mirror the portable project identity shape into the embedded Cairnline database.
 
 ```json
 GET /hecate/v1/projects
@@ -1690,6 +1701,7 @@ GET /hecate/v1/projects
   "data": [
     {
       "id": "proj_...",
+      "read_backend": "hecate",
       "name": "Hecate",
       "description": "Gateway and agent runtime",
       "roots": [
@@ -2202,11 +2214,61 @@ flows against Cairnline without UI-local fallback state. When
 `configured_backend=cairnline`, Hecate still serves live Projects APIs from the
 current Hecate-native stores. `read_model_switch_ready=true` means the
 Cairnline read adapter is wired well enough to project the full current Hecate
-project graph. In that state, project setup readiness, project health, work
-items, assignment lists, closeout readiness, activity inbox, and operations
-brief can be served from the Cairnline read model, while other live Projects
-reads still use Hecate.
-`write_adapter_ready=false` means writes and migration are still Hecate-owned.
+project graph, including the Project Assistant proposal ledger. In that state,
+project list/detail reads, project setup readiness, project health, skills,
+memory entries, memory candidates, roles, work items, assignment lists,
+assignment context previews, assignment launch-readiness, assignment preflight,
+artifact lists, handoff lists, Project Assistant context/proposal reads,
+closeout readiness, activity inbox, and operations brief can be served from the
+Cairnline read model, while other live Projects reads still use Hecate.
+`read_routes` lists the live read families currently backed by the Cairnline
+read model. `write_adapter_ready=false` means writes and migration are still
+Hecate-owned. `write_adapter_seams` lists non-authoritative bridge proofs that
+can write Cairnline-shaped records during tests or local sync rehearsals;
+`write_adapter_gaps` lists mutation families whose live Hecate routes are not
+Cairnline-backed yet and therefore still block authority switch.
+Non-authoritative bridge seams currently cover project/root/source/defaults,
+agent profiles, skills, roles, work items, assignment metadata upsert/delete plus
+lifecycle-status sync, create-if-missing generic artifacts/evidence/reviews,
+handoffs, memory entries, memory candidates, Project Assistant proposal-ledger
+import, and all-project sync rehearsal. The additional
+`project-identity-live-mirror` seam means project create/update/delete plus root
+create/update/delete/discovery/worktree-creation, context-source
+create/update/delete/discovery, and project-default mutations still commit to
+Hecate stores first, then best-effort mirror the portable project identity shape
+into the embedded Cairnline database when Cairnline is configured. That mirror
+is not write authority.
+`project-skills-live-mirror` similarly mirrors metadata-only
+project skill discovery/update records after Hecate commits; it does not load,
+inject, or execute `SKILL.md` bodies. `agent-profiles-live-mirror` mirrors
+global agent-profile create/update/delete metadata and execution posture after
+Hecate commits; delete removes only the portable profile record because
+execution-profile posture can be shared. `project-roles-live-mirror` and
+`project-work-items-live-mirror` mirror role/work-item coordination metadata
+after Hecate commits. Role mirroring also seeds the referenced agent profile and
+execution posture when the profile store is available, so Cairnline role
+validation can pass without requiring a full sync first.
+`project-assignments-live-mirror` mirrors assignment create/update/delete
+coordination metadata and lifecycle status after Hecate commits. Mirror failures
+are logged. `project-assignment-start-result-live-mirror` best-effort mirrors
+committed assignment-start results after Hecate-owned dispatch completes or
+returns a committed cleanup/conflict state; it is replacement evidence, not
+runtime write authority. `project-assignment-chat-reconcile-live-mirror`
+best-effort mirrors assignment status/ref updates committed by linked
+external-agent chat reconciliation. `project-collaboration-live-mirror` mirrors
+collaboration artifact creation, including generic artifacts, evidence links,
+and reviews, and `project-handoffs-live-mirror` mirrors handoff
+create/update/delete mutations after Hecate commits. `project-memory-live-mirror`
+mirrors accepted project memory entries and `project-memory-candidates-live-mirror`
+mirrors reviewable candidate state after Hecate commits, including
+promoted/rejected status and promoted memory references.
+`project-assistant-proposal-ledger-live-mirror`
+mirrors Project Assistant draft/propose/apply proposal records and apply-attempt
+history after Hecate commits. `project-assistant-apply-side-effects-live-mirror`
+mirrors committed apply side effects after Hecate commits. Assignment-start
+dispatch and other non-mirrored live mutation routes still write only
+Hecate-native stores.
+`sync_readiness_url` points at the all-project embedded SQLite rehearsal sync.
 
 Example response:
 
@@ -2221,14 +2283,96 @@ Example response:
     "cairnline_authoritative": false,
     "read_model_switch_ready": true,
     "write_adapter_ready": false,
-    "status": "cairnline_read_routes_ready",
-    "detail": "Cairnline is configured as the future Projects coordination backend, and the setup-readiness, health, work-item, assignment-list, activity, closeout-readiness, and operations brief read routes are served from the Cairnline read model. Hecate stores remain authoritative until the remaining live read routes, writes, and migration are ready.",
-    "warnings": [
-      "Only the project setup-readiness, health, work-item, assignment-list, activity, closeout-readiness, and operations brief live read routes use Cairnline.",
-      "Other project APIs still read and write Hecate-native stores.",
-      "Cairnline write adapter and migration path are not ready."
+    "read_routes": [
+      "project-list",
+      "project-detail",
+      "setup-readiness",
+      "health",
+      "skills",
+      "memory",
+      "memory-candidate",
+      "roles",
+      "work-item",
+      "assignment-list",
+      "assignment-context",
+      "launch-readiness",
+      "assignment-preflight",
+      "artifact-list",
+      "handoff-list",
+      "project-assistant-context",
+      "project-assistant-proposal",
+      "activity",
+      "closeout-readiness",
+      "operations-brief"
     ],
-    "replacement_readiness_url": "/hecate/v1/projects/{id}/cairnline/read-model"
+    "write_adapter_seams": [
+      "projects",
+      "roots",
+      "context-sources",
+      "project-defaults",
+      "project-identity-live-mirror",
+      "agent-profiles",
+      "agent-profiles-live-mirror",
+      "skills",
+      "project-skills-live-mirror",
+      "roles",
+      "project-roles-live-mirror",
+      "work-items",
+      "project-work-items-live-mirror",
+      "assignments",
+      "assignment-status",
+      "project-assignments-live-mirror",
+      "project-assignment-start-result-live-mirror",
+      "project-assignment-chat-reconcile-live-mirror",
+      "artifacts-create",
+      "evidence-create",
+      "reviews-create",
+      "project-collaboration-live-mirror",
+      "handoffs",
+      "project-handoffs-live-mirror",
+      "memory",
+      "project-memory-live-mirror",
+      "memory-candidates",
+      "project-memory-candidates-live-mirror",
+      "project-assistant-proposal-ledger-import",
+      "project-assistant-proposal-ledger-live-mirror",
+      "project-assistant-apply-side-effects-live-mirror",
+      "sync-rehearsal"
+    ],
+    "write_adapter_gaps": [
+      "projects",
+      "roots",
+      "context-sources",
+      "agent-profiles",
+      "skills",
+      "memory",
+      "memory-candidates",
+      "roles",
+      "work-items",
+      "assignments",
+      "assignment-start",
+      "artifacts",
+      "handoffs",
+      "project-assistant-proposals",
+      "migration-cutover"
+    ],
+    "status": "cairnline_read_routes_ready",
+    "detail": "Cairnline is configured as the future Projects coordination backend, and the project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, project-assistant-context, project-assistant-proposal, activity, closeout-readiness, and operations brief read routes are served from the Cairnline read model. Hecate stores remain authoritative until the remaining live read routes, writes, and migration are ready.",
+    "warnings": [
+      "Only the project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, project-assistant-context, project-assistant-proposal, activity, closeout-readiness, and operations brief live read routes use Cairnline.",
+      "Project identity, root create/update/delete/discovery/worktree-creation, context-source create/update/delete/discovery, and default mutations still write Hecate-native stores first, then best-effort mirror into the embedded Cairnline database.",
+      "Agent profile create/update/delete mutations still write Hecate-native stores first, then best-effort mirror portable profile metadata and execution posture into Cairnline.",
+      "Project skill discovery and metadata updates still write Hecate-native stores first, then best-effort mirror metadata-only skill records into Cairnline.",
+      "Project role and work-item mutations still write Hecate-native stores first, then best-effort mirror coordination metadata into Cairnline.",
+      "Project assignment create/update/delete mutations still write Hecate-native stores first, then best-effort mirror coordination metadata into Cairnline; assignment start remains Hecate-owned and best-effort mirrors committed start and linked-chat reconciliation results.",
+      "Project collaboration artifact creation and handoff mutations still write Hecate-native stores first, then best-effort mirror portable collaboration metadata into Cairnline.",
+      "Project memory entry and memory-candidate mutations still write Hecate-native stores first, then best-effort mirror accepted memory and reviewable candidate state into Cairnline.",
+      "Project Assistant proposal draft/propose/apply ledger mutations still write Hecate-native stores first, then best-effort mirror proposal records plus committed apply side effects into Cairnline.",
+      "Other project mutation routes still write only Hecate-native stores.",
+      "Cairnline write-adapter seams are non-authoritative proofs; live write authority and migration path are not ready."
+    ],
+    "replacement_readiness_url": "/hecate/v1/projects/{id}/cairnline/read-model",
+    "sync_readiness_url": "/hecate/v1/projects/cairnline/sync"
   }
 }
 ```
@@ -2239,10 +2383,17 @@ Local-only experimental bridge endpoint. It loads the selected project from
 Hecate's authoritative Projects stores, seeds an in-memory Cairnline service,
 and returns Cairnline's portable read projections for the project without
 writing an export database. The seeded project preserves roots,
-`default_root_id`, and context-source provenance metadata including source
-format, scope, category, trust label, and metadata labels so
-replacement-readiness checks exercise Hecate's workspace and context-control
-inputs.
+`default_root_id`, project default profile/execution-profile references, and
+context-source provenance metadata including source format, scope, category,
+trust label, and metadata labels so replacement-readiness checks exercise
+Hecate's workspace, launch-default, and context-control inputs. It also imports
+portable Project Assistant proposal ledger records,
+including root/default-root actions, proposal warnings, latest apply results,
+and apply attempts, without replaying proposal actions. The read model attempts
+to generate a portable Cairnline assignment launch packet for every seeded
+assignment and reports packet coverage, warnings, and errors separately from
+Hecate's runtime-specific context packets. A launch packet that builds with
+warnings is replacement evidence, but not a clean parity pass.
 
 The response is useful for replacement-readiness checks: it shows whether
 Cairnline can reconstruct the portable operations brief and activity inbox from
@@ -2256,7 +2407,10 @@ Example response:
   "object": "project_cairnline_read_model",
   "data": {
     "project_id": "proj_...",
+    "root_count": 1,
+    "context_source_count": 2,
     "agent_profile_count": 4,
+    "execution_profile_count": 5,
     "skill_count": 3,
     "role_count": 6,
     "work_item_count": 2,
@@ -2265,6 +2419,9 @@ Example response:
     "handoff_count": 1,
     "memory_entry_count": 3,
     "memory_candidate_count": 2,
+    "assistant_proposal_count": 1,
+    "launch_packet_count": 5,
+    "launch_packet_warning_count": 0,
     "operations": {
       "project_id": "proj_...",
       "status": "attention",
@@ -2310,13 +2467,14 @@ Example response:
 
 Local-only experimental bridge endpoint. It loads the same in-memory Cairnline
 read model as `/cairnline/read-model`, renders Hecate's native project activity
-and operations brief, then compares the shared counts.
+and operations brief, then compares raw graph counts, shared derived counts, and
+assignment launch-packet coverage.
 
 This endpoint is a replacement-readiness report, not a backend switch. A
 non-matching report does not mean either model is wrong; it means the current
 Cairnline portable model and Hecate cockpit model still differ on at least one
-count or semantic bucket that should be reviewed before Cairnline becomes
-authoritative.
+count, semantic bucket, or portable launch-packet coverage check that should be
+reviewed before Cairnline becomes authoritative.
 
 Example response:
 
@@ -2327,6 +2485,20 @@ Example response:
     "project_id": "proj_...",
     "match": true,
     "hecate": {
+      "graph": {
+        "roots": 1,
+        "context_sources": 2,
+        "agent_profiles": 4,
+        "execution_profiles": 5,
+        "skills": 3,
+        "roles": 6,
+        "work_items": 1,
+        "assignments": 1,
+        "artifacts": 4,
+        "handoffs": 1,
+        "memory_entries": 3,
+        "memory_candidates": 2
+      },
       "activity": {
         "work_items": 1,
         "assignments": 1,
@@ -2338,9 +2510,31 @@ Example response:
       "operations": {
         "pending_memory_candidates": 1,
         "open_handoffs": 1
+      },
+      "assistant": {
+        "proposals": 1
+      },
+      "launch_packets": {
+        "assignments": 1,
+        "warnings": 0,
+        "errors": 0
       }
     },
     "cairnline": {
+      "graph": {
+        "roots": 1,
+        "context_sources": 2,
+        "agent_profiles": 4,
+        "execution_profiles": 5,
+        "skills": 3,
+        "roles": 6,
+        "work_items": 1,
+        "assignments": 1,
+        "artifacts": 4,
+        "handoffs": 1,
+        "memory_entries": 3,
+        "memory_candidates": 2
+      },
       "activity": {
         "work_items": 1,
         "assignments": 1,
@@ -2352,8 +2546,97 @@ Example response:
       "operations": {
         "pending_memory_candidates": 1,
         "open_handoffs": 1
+      },
+      "assistant": {
+        "proposals": 1
+      },
+      "launch_packets": {
+        "assignments": 1,
+        "warnings": 0,
+        "errors": 0
       }
     }
+  }
+}
+```
+
+### `POST /hecate/v1/projects/cairnline/sync`
+
+Local-only experimental bridge endpoint. It loads every project from Hecate's
+authoritative Projects stores, writes a single refreshable embedded Cairnline
+SQLite database, then compares aggregate Hecate snapshot counts with aggregate
+counts, record ID sets, and semantic record-content digests read back from that
+database:
+
+```text
+{HECATE_DATA_DIR}/cairnline/embedded/projects.db
+```
+
+If `HECATE_DATA_DIR` is unset, Hecate uses `.data` relative to the runtime
+process. The caller cannot choose the output path. Re-running the endpoint
+replaces the same embedded sync database after the Hecate snapshots have been
+loaded, so it is deterministic and remains a migration rehearsal rather than a
+live dual-write path.
+
+This endpoint does not make Cairnline authoritative, does not proxy live
+Projects reads or writes, and does not migrate Hecate's stores. It exists to
+prove Hecate can seed a durable all-project Cairnline database before the write
+adapter and migration path exist. `match: false` means the sync completed but
+the written database no longer mirrors the source graph and launch-packet
+coverage at the count, record-ID, or semantic-record-content level; see
+`differences` for count mismatches, `id_differences` for same-family ID drift,
+and `content_differences` for same-path/same-ID records whose normalized
+Cairnline-shaped JSON digests differ. Content digests intentionally omit
+volatile write timestamps and do not expose raw project, memory, or artifact
+bodies in the response.
+
+Example response:
+
+```json
+{
+  "object": "project_cairnline_sync",
+  "data": {
+    "database_path": "/Users/alice/.hecate/cairnline/embedded/projects.db",
+    "match": true,
+    "hecate": {
+      "projects": 2,
+      "roots": 2,
+      "context_sources": 3,
+      "agent_profiles": 4,
+      "execution_profiles": 5,
+      "skills": 3,
+      "roles": 8,
+      "work_items": 2,
+      "assignments": 5,
+      "artifacts": 4,
+      "handoffs": 1,
+      "memory_entries": 3,
+      "memory_candidates": 2,
+      "assistant_proposals": 1,
+      "launch_packets": 5,
+      "launch_warnings": 0,
+      "launch_errors": 0
+    },
+    "cairnline": {
+      "projects": 2,
+      "roots": 2,
+      "context_sources": 3,
+      "agent_profiles": 4,
+      "execution_profiles": 5,
+      "skills": 3,
+      "roles": 8,
+      "work_items": 2,
+      "assignments": 5,
+      "artifacts": 4,
+      "handoffs": 1,
+      "memory_entries": 3,
+      "memory_candidates": 2,
+      "assistant_proposals": 1,
+      "launch_packets": 5,
+      "launch_warnings": 0,
+      "launch_errors": 0
+    },
+    "authoritative": false
   }
 }
 ```
@@ -2363,7 +2646,7 @@ Example response:
 Local-only experimental bridge endpoint. It loads the selected project from
 Hecate's authoritative Projects stores and writes a refreshable Cairnline SQLite
 export that preserves roots, `default_root_id`, and context-source provenance
-metadata at:
+metadata plus portable Project Assistant proposal ledger records at:
 
 ```text
 {HECATE_DATA_DIR}/cairnline/projects/{safe_project_id}.db
@@ -2376,7 +2659,8 @@ missing project does not wipe an existing export.
 
 This endpoint is an interoperability and replacement-readiness proof only. It
 does not make Cairnline authoritative, does not proxy live Projects reads or
-writes, and does not migrate Hecate's stores.
+writes, and does not migrate Hecate's stores. Response counts are read back
+from the written Cairnline database, not copied from the Hecate snapshot.
 
 Example response:
 
@@ -2386,7 +2670,10 @@ Example response:
   "data": {
     "project_id": "proj_...",
     "database_path": "/Users/alice/.hecate/cairnline/projects/proj_....db",
+    "root_count": 1,
+    "context_source_count": 2,
     "agent_profile_count": 4,
+    "execution_profile_count": 5,
     "skill_count": 3,
     "role_count": 6,
     "work_item_count": 2,
@@ -2394,7 +2681,8 @@ Example response:
     "artifact_count": 4,
     "handoff_count": 1,
     "memory_entry_count": 3,
-    "memory_candidate_count": 2
+    "memory_candidate_count": 2,
+    "assistant_proposal_count": 1
   }
 }
 ```
@@ -2429,6 +2717,11 @@ Memory entry fields:
 
 Lists enabled project memory entries by default. Pass
 `include_disabled=true` to inspect disabled entries too.
+When `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and the backend status
+reports `read_model_switch_ready=true`, this endpoint renders accepted project
+memory from the Cairnline read model and marks each item with
+`read_backend: "cairnline"`. Create, update, and delete requests still mutate
+Hecate's native memory stores until the Cairnline write adapter is ready.
 
 ```json
 GET /hecate/v1/projects/proj_.../memory?include_disabled=true
@@ -2440,6 +2733,7 @@ GET /hecate/v1/projects/proj_.../memory?include_disabled=true
       "id": "mem_...",
       "scope": "project",
       "project_id": "proj_...",
+      "read_backend": "hecate",
       "title": "Commit style",
       "body": "Use conventional commits.",
       "trust_label": "operator_memory",
@@ -2475,6 +2769,7 @@ POST /hecate/v1/projects/proj_.../memory
     "id": "mem_...",
     "scope": "project",
     "project_id": "proj_...",
+    "read_backend": "hecate",
     "title": "Review posture",
     "body": "Keep generated summaries labelled.",
     "trust_label": "operator_memory",
@@ -2501,6 +2796,12 @@ snapshotted the entry are not rewritten.
 Lists pending memory candidates by default. Pass `include_resolved=true` to
 include promoted and rejected candidates, or `status=pending|promoted|rejected`
 to filter explicitly.
+When `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and the backend status
+reports `read_model_switch_ready=true`, this endpoint renders memory candidates
+from the Cairnline read model and marks each item with
+`read_backend: "cairnline"`. Candidate creation, promotion, and rejection still
+mutate Hecate's native memory-candidate store until the Cairnline write adapter
+is ready.
 
 Candidates are review artifacts, not durable memory. Operators should inspect
 the candidate body, suggested trust/source fields, and `source_refs` before
@@ -2517,6 +2818,7 @@ GET /hecate/v1/projects/proj_.../memory/candidates
     {
       "id": "memcand_...",
       "project_id": "proj_...",
+      "read_backend": "hecate",
       "title": "Generated summary",
       "body": "Keep generated context labelled until reviewed.",
       "suggested_kind": "note",
@@ -3138,8 +3440,9 @@ buckets, Project Assistant remains the proposal author, and assignment start
 still goes through preflight and explicit operator confirmation.
 When `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and the backend status
 reports `read_model_switch_ready=true`, this endpoint uses the Cairnline read
-model for portable work operations and then projects those items into Hecate's
-existing cockpit action contract. Hecate-specific setup/defaults items and
+model for portable project/work/artifact/handoff/memory rows, then assembles the
+operator-facing brief through the same Hecate activity projection and cockpit
+action helpers as the native route. Hecate-specific setup/defaults items and
 client actions remain Hecate-owned, so `read_backend` identifies the source of
 the work-operations read model rather than a full Projects backend switch.
 Items are capped after sorting by priority, then an explicit operation-kind
@@ -3151,6 +3454,12 @@ operator-gated work when the brief has more candidates than it can show.
 
 Lists persisted project skills. These are project metadata records, not loaded
 runtime instructions. Bodies are never returned.
+When `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and the backend status
+reports `read_model_switch_ready=true`, this endpoint renders the portable skill
+registry from the Cairnline read model and marks each item with
+`read_backend: "cairnline"`. Hecate-only advisory fields such as
+`suggested_tools` and `required_permissions` are still enriched from the Hecate
+snapshot because they are not part of Cairnline's portable core skill contract.
 
 ```json
 {
@@ -3159,6 +3468,7 @@ runtime instructions. Bodies are never returned.
     {
       "id": "backend",
       "project_id": "proj_...",
+      "read_backend": "hecate",
       "title": "Backend",
       "description": "Build backend changes.",
       "path": ".hecate/skills/backend/SKILL.md",
@@ -3234,6 +3544,12 @@ Skill status values are `available`, `missing`, `invalid`, and `conflict`.
 
 Lists built-in roles plus custom roles for the project.
 
+When `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and the backend status
+reports `read_model_switch_ready=true`, this endpoint uses the Cairnline read
+model and enriches the portable roles with Hecate built-in flags plus
+role-level provider/model execution defaults. `read_backend` identifies the
+source of the role read model.
+
 ```json
 {
   "object": "project_roles",
@@ -3245,7 +3561,8 @@ Lists built-in roles plus custom roles for the project.
       "description": "Owns technical direction, boundaries, and system trade-offs.",
       "default_driver_kind": "hecate_task",
       "default_agent_profile": "architecture",
-      "built_in": true
+      "built_in": true,
+      "read_backend": "hecate"
     },
     {
       "id": "role_...",
@@ -3259,6 +3576,7 @@ Lists built-in roles plus custom roles for the project.
       "default_agent_profile": "implementation",
       "skill_ids": ["release"],
       "built_in": false,
+      "read_backend": "hecate",
       "created_at": "2026-06-03T12:00:00Z",
       "updated_at": "2026-06-03T12:00:00Z"
     }
@@ -3506,8 +3824,19 @@ or external-agent execution.
 Returns the best available context packet for the assignment. Hecate resolves
 linked Task/Run packets first, then falls back to the assignment-stored packet
 created by an External Agent start, then to a linked Chat `chat_session_id` +
-`message_id` from `execution_ref` when present. Unstarted assignments, rows
-without a stored packet or execution link, or older runs that predate snapshots return
+`message_id` from `execution_ref` when present.
+
+When `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and the Cairnline read
+adapter is ready, the endpoint falls back to an inspectable Cairnline
+assignment launch/context preview if no persisted Hecate execution packet
+exists. That preview is deterministic, metadata-oriented, and read-only: it
+does not create a Task, Run, Chat session, external-agent execution, memory
+entry, artifact, or assignment update. It shows portable project/work/role,
+profile, skill, source, memory, evidence, review, and handoff metadata so the
+operator can inspect what Cairnline would hand to a compatible orchestrator.
+
+With the default Hecate backend, unstarted assignments, rows without a stored
+packet or execution link, or older runs that predate snapshots return
 `404 not_found`. The Projects cockpit uses this endpoint for the assignment
 `Inspect context` action so operators can inspect the resolved profile, launch
 instructions, memory, project sources, work context, runtime refs, and skipped
@@ -3523,6 +3852,13 @@ support; active execution; workspace/root resolution; profile and skills
 resolution; native provider/model readiness; and External Agent adapter/options
 resolution.
 
+When `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and the Cairnline read
+adapter is ready, the project/work/assignment/role coordination records are
+read from the Cairnline read model and the response includes
+`read_backend: "cairnline"`. Hecate still owns the runtime launch checks:
+task-store/runner availability, active execution lookup, workspace validation,
+provider/model readiness, and External Agent adapter validation.
+
 The response envelope is:
 
 ```json
@@ -3532,6 +3868,7 @@ The response envelope is:
     "project_id": "proj_123",
     "work_item_id": "work_123",
     "assignment_id": "asgn_123",
+    "read_backend": "hecate",
     "ready": false,
     "status": "blocked",
     "title": "Launch is blocked",
@@ -3597,6 +3934,16 @@ item when the gateway is wired. That item is operator evidence, not the UI
 authority; clients should gate launch confirmation with the typed
 `/launch-readiness` projection rather than parsing context item copy.
 
+When `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and the Cairnline read
+adapter is ready, preflight reads the project/work/assignment/role coordination
+records from the Cairnline read model before applying Hecate-owned runtime
+validation. It also appends an inspect-only `runtime` /
+`cairnline_launch_packet` item. That item reports whether Cairnline can build a
+portable assignment launch packet and summarizes portable project/work/root,
+role, profile, execution profile, skills, evidence, reviews, handoffs, memory,
+and memory-candidate counts. It is replacement-readiness evidence only; Hecate
+still owns dispatch validation and the subsequent start/prepare mutation.
+
 The Projects cockpit uses this endpoint before `Start assignment`, `Prepare
 chat`, and `Start from handoff` so the operator can review the effective launch
 context before dispatch. The UI disables confirmation when
@@ -3656,7 +4003,11 @@ The persisted context packet records the resolved profile and applies its
 project memory/context-source policies. For native assignments, it also records
 the same `runtime` / `launch_readiness` metadata captured by preflight so later
 run-context inspection can show what provider/model readiness looked like when
-the assignment was started. `include` / `include_enabled` make the
+the assignment was started. When the Cairnline read adapter is active, the
+persisted packet also includes the same inspect-only `runtime` /
+`cairnline_launch_packet` replacement-readiness evidence captured by preflight;
+Hecate still owns task creation, route checks, approvals, and assignment
+mutation. `include` / `include_enabled` make the
 enabled project records active in the packet and add a `prompt_context`
 instructions item summarizing what was loaded into the native assignment prompt.
 `visible_only` / `inherit` keep records inspect-only, and `exclude` omits them
@@ -3745,7 +4096,11 @@ partial state.
 
 Lists structured handoff records for the project. Optional query parameters:
 `work_item_id=<id>` and `status=<pending|accepted|superseded|dismissed>`.
-Responses use `{ "object": "project_handoffs", "data": [...] }`.
+Responses use `{ "object": "project_handoffs", "data": [...] }`. When
+`HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and the backend-status route
+reports `read_model_switch_ready=true`, list responses are projected from
+Cairnline and include `read_backend: "cairnline"` on each handoff; writes still
+mutate Hecate's native project-work store.
 
 #### `GET /hecate/v1/projects/{id}/work-items/{work_item_id}/handoffs`
 
@@ -3839,6 +4194,11 @@ entries, tasks, runs, chats, work items, or assignments.
 #### `GET /hecate/v1/projects/{id}/work-items/{work_item_id}/artifacts`
 
 Lists collaboration artifacts attached to a work item.
+When `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and the backend-status
+route reports `read_model_switch_ready=true`, this list is projected from
+Cairnline and includes `read_backend: "cairnline"` on each artifact. The
+portable projection includes generic collaboration artifacts plus evidence and
+review records.
 
 #### `POST /hecate/v1/projects/{id}/work-items/{work_item_id}/artifacts`
 
@@ -3941,10 +4301,22 @@ Endpoints:
 - `POST /hecate/v1/chat/sessions/{id}/project-assistant/draft`
 
 `context` returns the v0 item-limited and body-budgeted project packet plus the
-inspectable Auto role/driver selection that `draft` will use. It includes
-project context-source metadata, but not source file bodies. Memory and
-memory-candidate bodies are truncated at per-body byte limits and carry returned
-byte counts, original byte counts, truncation flags, and cheap token estimates.
+inspectable Auto role/driver selection that `draft` will use. The response
+includes `read_backend` (`hecate` or `cairnline`). Under
+`HECATE_PROJECTS_COORDINATION_BACKEND=cairnline`, this context packet is built
+from the Cairnline read model. Draft generation uses that same
+Cairnline-projected context so preview and proposal assembly do not drift,
+while proposal ledger writes and apply authority remain Hecate-owned.
+The projection keeps Hecate-owned compatibility details such as native snapshot
+timestamps and Hecate-only metadata where the current UI/model context depends
+on them; Cairnline supplies the portable project graph, not final write
+authority.
+Committed assistant side effects are best-effort mirrored into the embedded
+Cairnline database as replacement-readiness evidence.
+It includes project context-source metadata, but not source file bodies. Memory
+and memory-candidate bodies are truncated at per-body byte limits and carry
+returned byte counts, original byte counts, truncation flags, and cheap token
+estimates.
 `draft` creates proposal data only; it does not create a chat message, task,
 run, assignment, or external agent session. `draft_mode` defaults to
 `deterministic`; `draft_mode: "bootstrap"` deterministically proposes memory

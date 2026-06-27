@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -215,6 +216,46 @@ func TestSystemResetDataRejectsNonLoopbackClients(t *testing.T) {
 	server.ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403, body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestSystemResetDataRemovesEmbeddedCairnlineMirrorDatabase(t *testing.T) {
+	t.Parallel()
+	logger := quietLogger()
+	handler := NewHandler(config.Config{
+		Server:   config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{CoordinationBackend: "cairnline"},
+	}, logger, nil, controlplane.NewMemoryStore(), taskstate.NewMemoryStore(), nil)
+	handler.SetProjectStore(projects.NewMemoryStore())
+	server := NewServer(logger, handler)
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects", bytes.NewReader([]byte(`{"name":"Mirror reset"}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create project status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	if _, err := os.Stat(handler.cairnlineEmbeddedDatabasePath()); err != nil {
+		t.Fatalf("stat Cairnline mirror before reset: %v", err)
+	}
+
+	rec = httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/hecate/v1/system/reset-data", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("reset status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var reset SystemResetDataResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &reset); err != nil {
+		t.Fatalf("decode reset response: %v", err)
+	}
+	if reset.Data.CairnlineMirrorFilesDeleted == 0 {
+		t.Fatalf("cairnline mirror databases deleted = 0, want embedded mirror files removed; stats=%+v", reset.Data)
+	}
+	for _, path := range []string{handler.cairnlineEmbeddedDatabasePath(), handler.cairnlineEmbeddedDatabasePath() + "-wal", handler.cairnlineEmbeddedDatabasePath() + "-shm"} {
+		if _, err := os.Stat(path); err == nil || !os.IsNotExist(err) {
+			t.Fatalf("stat %s after reset error = %v, want not exist", path, err)
+		}
 	}
 }
 

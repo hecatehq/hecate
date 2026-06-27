@@ -51,6 +51,7 @@ const (
 	ReviewRiskHigh    = "high"
 	ReviewRiskUnknown = "unknown"
 
+	EvidenceSourceExternal        = "external"
 	EvidenceTrustOperatorProvided = "operator_provided"
 
 	HandoffStatusPending    = "pending"
@@ -922,7 +923,7 @@ func normalizeArtifact(item CollaborationArtifact, now time.Time) CollaborationA
 		item.EvidenceTrustLabel = ""
 	} else {
 		if item.EvidenceSourceKind == "" {
-			item.EvidenceSourceKind = "external"
+			item.EvidenceSourceKind = EvidenceSourceExternal
 		}
 		if item.EvidenceTrustLabel == "" {
 			item.EvidenceTrustLabel = EvidenceTrustOperatorProvided

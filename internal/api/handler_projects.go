@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/projectapp"
 	"github.com/hecatehq/hecate/internal/projects"
@@ -69,14 +70,10 @@ type updateProjectRequest struct {
 }
 
 func (h *Handler) HandleProjects(w http.ResponseWriter, r *http.Request) {
-	items, err := h.projects.List(r.Context())
+	data, err := h.renderProjects(r.Context())
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
-	}
-	data := make([]ProjectResponseItem, 0, len(items))
-	for _, item := range items {
-		data = append(data, renderProject(item))
 	}
 	WriteJSON(w, http.StatusOK, ProjectsResponse{Object: "projects", Data: data})
 }
@@ -122,20 +119,21 @@ func (h *Handler) HandleCreateProject(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
+	h.mirrorProjectIdentityToCairnline(r.Context(), "project_create", project)
 	WriteJSON(w, http.StatusCreated, ProjectResponse{Object: "project", Data: renderProject(project)})
 }
 
 func (h *Handler) HandleProject(w http.ResponseWriter, r *http.Request) {
-	project, ok, err := h.projects.Get(r.Context(), r.PathValue("id"))
+	project, err := h.renderProject(r.Context(), r.PathValue("id"))
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	if !ok {
+	if project == nil {
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
 		return
 	}
-	WriteJSON(w, http.StatusOK, ProjectResponse{Object: "project", Data: renderProject(project)})
+	WriteJSON(w, http.StatusOK, ProjectResponse{Object: "project", Data: *project})
 }
 
 func (h *Handler) HandleUpdateProject(w http.ResponseWriter, r *http.Request) {
@@ -271,6 +269,7 @@ func (h *Handler) HandleUpdateProject(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
+	h.mirrorProjectIdentityToCairnline(r.Context(), "project_update", project)
 	WriteJSON(w, http.StatusOK, ProjectResponse{Object: "project", Data: renderProject(project)})
 }
 
@@ -288,7 +287,7 @@ func (h *Handler) HandleCreateProjectRoot(w http.ResponseWriter, r *http.Request
 		root.ID = newOpaqueTaskResourceID("root")
 	}
 	project, _, err := h.projectApplication().CreateRoot(r.Context(), r.PathValue("id"), root)
-	writeProjectRootMutationResponse(w, http.StatusCreated, project, err)
+	h.writeProjectRootMutationResponse(r.Context(), w, http.StatusCreated, project, err)
 }
 
 func (h *Handler) HandleUpdateProjectRoot(w http.ResponseWriter, r *http.Request) {
@@ -302,12 +301,12 @@ func (h *Handler) HandleUpdateProjectRoot(w http.ResponseWriter, r *http.Request
 		return
 	}
 	project, _, err := h.projectApplication().UpdateRoot(r.Context(), r.PathValue("id"), r.PathValue("root_id"), root)
-	writeProjectRootMutationResponse(w, http.StatusOK, project, err)
+	h.writeProjectRootMutationResponse(r.Context(), w, http.StatusOK, project, err)
 }
 
 func (h *Handler) HandleDeleteProjectRoot(w http.ResponseWriter, r *http.Request) {
 	project, _, err := h.projectApplication().DeleteRoot(r.Context(), r.PathValue("id"), r.PathValue("root_id"))
-	writeProjectRootMutationResponse(w, http.StatusOK, project, err)
+	h.writeProjectRootMutationResponse(r.Context(), w, http.StatusOK, project, err)
 }
 
 func (h *Handler) HandleCreateProjectContextSource(w http.ResponseWriter, r *http.Request) {
@@ -324,7 +323,7 @@ func (h *Handler) HandleCreateProjectContextSource(w http.ResponseWriter, r *htt
 		source.ID = newOpaqueTaskResourceID("ctxsrc")
 	}
 	project, _, err := h.projectApplication().CreateContextSource(r.Context(), r.PathValue("id"), source)
-	writeProjectContextSourceMutationResponse(w, http.StatusCreated, project, err)
+	h.writeProjectContextSourceMutationResponse(r.Context(), w, http.StatusCreated, project, err)
 }
 
 func (h *Handler) HandleUpdateProjectContextSource(w http.ResponseWriter, r *http.Request) {
@@ -338,12 +337,12 @@ func (h *Handler) HandleUpdateProjectContextSource(w http.ResponseWriter, r *htt
 		return
 	}
 	project, _, err := h.projectApplication().UpdateContextSource(r.Context(), r.PathValue("id"), r.PathValue("source_id"), source)
-	writeProjectContextSourceMutationResponse(w, http.StatusOK, project, err)
+	h.writeProjectContextSourceMutationResponse(r.Context(), w, http.StatusOK, project, err)
 }
 
 func (h *Handler) HandleDeleteProjectContextSource(w http.ResponseWriter, r *http.Request) {
 	project, _, err := h.projectApplication().DeleteContextSource(r.Context(), r.PathValue("id"), r.PathValue("source_id"))
-	writeProjectContextSourceMutationResponse(w, http.StatusOK, project, err)
+	h.writeProjectContextSourceMutationResponse(r.Context(), w, http.StatusOK, project, err)
 }
 
 func (h *Handler) HandleDeleteProject(w http.ResponseWriter, r *http.Request) {
@@ -360,10 +359,11 @@ func (h *Handler) HandleDeleteProject(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
+	h.mirrorProjectDeleteToCairnline(r.Context(), "project_delete", result.Project)
 	WriteJSON(w, http.StatusOK, ProjectDeleteResponse{Object: "project_delete", Data: renderProjectDeleteResult(result)})
 }
 
-func writeProjectRootMutationResponse(w http.ResponseWriter, status int, project projects.Project, err error) {
+func (h *Handler) writeProjectRootMutationResponse(ctx context.Context, w http.ResponseWriter, status int, project projects.Project, err error) {
 	if errors.Is(err, projectapp.ErrProjectNotFound) {
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
 		return
@@ -384,10 +384,11 @@ func writeProjectRootMutationResponse(w http.ResponseWriter, status int, project
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
+	h.mirrorProjectIdentityToCairnline(ctx, "project_root_mutation", project)
 	WriteJSON(w, status, ProjectResponse{Object: "project", Data: renderProject(project)})
 }
 
-func writeProjectContextSourceMutationResponse(w http.ResponseWriter, status int, project projects.Project, err error) {
+func (h *Handler) writeProjectContextSourceMutationResponse(ctx context.Context, w http.ResponseWriter, status int, project projects.Project, err error) {
 	if errors.Is(err, projectapp.ErrProjectNotFound) {
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
 		return
@@ -408,6 +409,7 @@ func writeProjectContextSourceMutationResponse(w http.ResponseWriter, status int
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
+	h.mirrorProjectIdentityToCairnline(ctx, "project_context_source_mutation", project)
 	WriteJSON(w, status, ProjectResponse{Object: "project", Data: renderProject(project)})
 }
 
@@ -583,7 +585,72 @@ func parseProjectTime(value string) (time.Time, error) {
 	return parsed.UTC(), nil
 }
 
+func (h *Handler) renderProjects(ctx context.Context) ([]ProjectResponseItem, error) {
+	items, err := h.projects.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if h.projectReadRoutesUseCairnlineReadModel() {
+		return h.renderCairnlineProjects(ctx, items)
+	}
+	data := make([]ProjectResponseItem, 0, len(items))
+	for _, item := range items {
+		data = append(data, renderProject(item))
+	}
+	return data, nil
+}
+
+func (h *Handler) renderCairnlineProjects(ctx context.Context, nativeProjects []projects.Project) ([]ProjectResponseItem, error) {
+	data := make([]ProjectResponseItem, 0, len(nativeProjects))
+	for _, native := range nativeProjects {
+		project, err := h.renderCairnlineProject(ctx, native)
+		if err != nil {
+			return nil, err
+		}
+		data = append(data, project)
+	}
+	return data, nil
+}
+
+func (h *Handler) renderProject(ctx context.Context, projectID string) (*ProjectResponseItem, error) {
+	project, ok, err := h.projects.Get(ctx, projectID)
+	if err != nil || !ok {
+		return nil, err
+	}
+	if h.projectReadRoutesUseCairnlineReadModel() {
+		rendered, err := h.renderCairnlineProject(ctx, project)
+		if err != nil {
+			return nil, err
+		}
+		return &rendered, nil
+	}
+	rendered := renderProject(project)
+	return &rendered, nil
+}
+
+func (h *Handler) renderCairnlineProject(ctx context.Context, native projects.Project) (ProjectResponseItem, error) {
+	service, snapshot, err := h.cairnlineProjectWorkService(ctx, native.ID)
+	if err != nil {
+		return ProjectResponseItem{}, err
+	}
+	project, err := service.GetProject(ctx, snapshot.Project.ID)
+	if err != nil {
+		return ProjectResponseItem{}, err
+	}
+	executionProfile, err := cairnlineExecutionProfileByID(ctx, service, project.DefaultExecutionProfileID)
+	if err != nil {
+		return ProjectResponseItem{}, err
+	}
+	rendered := renderProject(projectFromCairnline(project, executionProfile, native))
+	rendered.ReadBackend = "cairnline"
+	return rendered, nil
+}
+
 func renderProject(project projects.Project) ProjectResponseItem {
+	return renderProjectWithBackend(project, "hecate")
+}
+
+func renderProjectWithBackend(project projects.Project, readBackend string) ProjectResponseItem {
 	roots := make([]ProjectRootResponseItem, 0, len(project.Roots))
 	for _, root := range project.Roots {
 		roots = append(roots, ProjectRootResponseItem{
@@ -616,6 +683,7 @@ func renderProject(project projects.Project) ProjectResponseItem {
 	}
 	return ProjectResponseItem{
 		ID:                       project.ID,
+		ReadBackend:              readBackend,
 		Name:                     project.Name,
 		Description:              project.Description,
 		Roots:                    roots,
@@ -632,6 +700,140 @@ func renderProject(project projects.Project) ProjectResponseItem {
 		UpdatedAt:                formatOptionalTime(project.UpdatedAt),
 		LastOpenedAt:             formatOptionalTime(project.LastOpenedAt),
 	}
+}
+
+func projectFromCairnline(item cairnline.Project, executionProfile *cairnline.ExecutionProfile, native projects.Project) projects.Project {
+	project := projects.Project{
+		ID:                       item.ID,
+		Name:                     item.Name,
+		Description:              item.Description,
+		Roots:                    projectRootsFromCairnline(item.Roots, native.Roots),
+		ContextSources:           projectContextSourcesFromCairnline(item.ContextSources),
+		DefaultRootID:            item.DefaultRootID,
+		DefaultProvider:          native.DefaultProvider,
+		DefaultModel:             native.DefaultModel,
+		DefaultAgentProfile:      firstNonEmpty(item.DefaultProfileID, native.DefaultAgentProfile),
+		DefaultToolsEnabled:      cloneBool(native.DefaultToolsEnabled),
+		DefaultWorkspaceMode:     native.DefaultWorkspaceMode,
+		DefaultSystemPrompt:      native.DefaultSystemPrompt,
+		DefaultCompactToolOutput: cloneBool(native.DefaultCompactToolOutput),
+		CreatedAt:                native.CreatedAt,
+		UpdatedAt:                native.UpdatedAt,
+		LastOpenedAt:             native.LastOpenedAt,
+	}
+	if executionProfile != nil {
+		project.DefaultProvider = strings.TrimSpace(executionProfile.ProviderHint)
+		project.DefaultModel = strings.TrimSpace(executionProfile.ModelHint)
+		project.DefaultToolsEnabled = boolFromCairnlinePolicy(executionProfile.ToolsPolicy)
+		project.DefaultWorkspaceMode = stringFromCairnlineAdapterOption(executionProfile.AdapterOptions, "workspace_mode")
+		project.DefaultSystemPrompt = stringFromCairnlineAdapterOption(executionProfile.AdapterOptions, "system_prompt")
+		project.DefaultCompactToolOutput = boolFromCairnlineAdapterOption(executionProfile.AdapterOptions, "compact_tool_output")
+	}
+	return project
+}
+
+func cairnlineExecutionProfileByID(ctx context.Context, service *cairnline.Service, id string) (*cairnline.ExecutionProfile, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil, nil
+	}
+	executionProfiles, err := service.ListExecutionProfiles(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range executionProfiles {
+		if item.ID != id {
+			continue
+		}
+		found := item
+		return &found, nil
+	}
+	return nil, nil
+}
+
+func boolFromCairnlinePolicy(policy string) *bool {
+	switch strings.TrimSpace(policy) {
+	case "allow":
+		value := true
+		return &value
+	case "block":
+		value := false
+		return &value
+	default:
+		return nil
+	}
+}
+
+func stringFromCairnlineAdapterOption(options map[string]any, key string) string {
+	value, ok := options[key]
+	if !ok {
+		return ""
+	}
+	text, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(text)
+}
+
+func boolFromCairnlineAdapterOption(options map[string]any, key string) *bool {
+	value, ok := options[key]
+	if !ok {
+		return nil
+	}
+	flag, ok := value.(bool)
+	if !ok {
+		return nil
+	}
+	return &flag
+}
+
+func projectRootsFromCairnline(items []cairnline.Root, native []projects.Root) []projects.Root {
+	nativeByID := projectRootsByID(native)
+	out := make([]projects.Root, 0, len(items))
+	for _, item := range items {
+		prior := nativeByID[item.ID]
+		out = append(out, projects.Root{
+			ID:        item.ID,
+			Path:      item.Path,
+			Kind:      item.Kind,
+			GitRemote: item.GitRemote,
+			GitBranch: item.GitBranch,
+			Active:    item.Active,
+			CreatedAt: prior.CreatedAt,
+			UpdatedAt: prior.UpdatedAt,
+		})
+	}
+	return out
+}
+
+func projectRootsByID(items []projects.Root) map[string]projects.Root {
+	out := make(map[string]projects.Root, len(items))
+	for _, item := range items {
+		out[item.ID] = item
+	}
+	return out
+}
+
+func projectContextSourcesFromCairnline(items []cairnline.Source) []projects.ContextSource {
+	out := make([]projects.ContextSource, 0, len(items))
+	for _, item := range items {
+		out = append(out, projects.ContextSource{
+			ID:             item.ID,
+			Kind:           item.Kind,
+			Title:          item.Title,
+			Path:           item.Locator,
+			Enabled:        item.Enabled,
+			Format:         item.Format,
+			Scope:          item.Scope,
+			TrustLabel:     item.TrustLabel,
+			SourceCategory: item.SourceCategory,
+			Metadata:       cloneProjectContextMetadata(item.Metadata),
+			CreatedAt:      item.CreatedAt,
+			UpdatedAt:      item.UpdatedAt,
+		})
+	}
+	return out
 }
 
 func renderProjectDeleteResult(result projectapp.DeleteProjectResult) ProjectDeleteResponseItem {

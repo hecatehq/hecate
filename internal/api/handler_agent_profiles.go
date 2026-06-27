@@ -42,6 +42,7 @@ func (h *Handler) HandleCreateAgentProfile(w http.ResponseWriter, r *http.Reques
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
+	h.mirrorAgentProfileToCairnline(r.Context(), "agent_profile_create", profile)
 	WriteJSON(w, http.StatusCreated, AgentProfileResponse{Object: "agent_profile", Data: renderAgentProfile(profile)})
 }
 
@@ -82,11 +83,13 @@ func (h *Handler) HandleUpdateAgentProfile(w http.ResponseWriter, r *http.Reques
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
+	h.mirrorAgentProfileToCairnline(r.Context(), "agent_profile_update", profile)
 	WriteJSON(w, http.StatusOK, AgentProfileResponse{Object: "agent_profile", Data: renderAgentProfile(profile)})
 }
 
 func (h *Handler) HandleDeleteAgentProfile(w http.ResponseWriter, r *http.Request) {
-	if err := h.agentProfiles.Delete(r.Context(), r.PathValue("id")); errors.Is(err, agentprofiles.ErrNotFound) {
+	profileID := r.PathValue("id")
+	if err := h.agentProfiles.Delete(r.Context(), profileID); errors.Is(err, agentprofiles.ErrNotFound) {
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent profile not found")
 		return
 	} else if errors.Is(err, agentprofiles.ErrBuiltIn) {
@@ -96,6 +99,7 @@ func (h *Handler) HandleDeleteAgentProfile(w http.ResponseWriter, r *http.Reques
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
+	h.mirrorAgentProfileDeleteToCairnline(r.Context(), "agent_profile_delete", profileID)
 	w.WriteHeader(http.StatusNoContent)
 }
 

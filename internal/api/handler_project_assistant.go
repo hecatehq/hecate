@@ -1,11 +1,14 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
 
+	"github.com/hecatehq/cairnline"
+	"github.com/hecatehq/hecate/internal/cairnlinebridge"
 	"github.com/hecatehq/hecate/internal/projectassistant"
 	"github.com/hecatehq/hecate/internal/projectassistantapp"
 	"github.com/hecatehq/hecate/internal/projectworkapp"
@@ -57,13 +60,26 @@ func (h *Handler) HandleProjectAssistantContext(w http.ResponseWriter, r *http.R
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "invalid project assistant context request")
 		return
 	}
-	context, err := h.projectAssistantApplication().Context(r.Context(), projectassistantapp.ContextCommand{
-		ProjectID:  req.ProjectID,
-		WorkItemID: req.WorkItemID,
-		Request:    req.Request,
-		RoleID:     req.RoleID,
-		DriverKind: req.DriverKind,
-	})
+	var context projectassistant.DraftContext
+	var err error
+	if h.projectReadRoutesUseCairnlineReadModel() {
+		context, err = h.cairnlineProjectAssistantContext(r.Context(), projectassistant.ContextInput{
+			ProjectID:  req.ProjectID,
+			WorkItemID: req.WorkItemID,
+			Request:    req.Request,
+			RoleID:     req.RoleID,
+			DriverKind: req.DriverKind,
+		})
+	} else {
+		context, err = h.projectAssistantApplication().Context(r.Context(), projectassistantapp.ContextCommand{
+			ProjectID:  req.ProjectID,
+			WorkItemID: req.WorkItemID,
+			Request:    req.Request,
+			RoleID:     req.RoleID,
+			DriverKind: req.DriverKind,
+		})
+		context.ReadBackend = "hecate"
+	}
 	if err != nil {
 		writeProjectAssistantError(w, err)
 		return
@@ -80,7 +96,7 @@ func (h *Handler) HandleProjectAssistantDraft(w http.ResponseWriter, r *http.Req
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "invalid project assistant draft request")
 		return
 	}
-	proposal, err := h.projectAssistantApplication().Draft(r.Context(), projectassistantapp.DraftCommand{
+	proposal, err := h.projectAssistantDraft(r.Context(), projectassistantapp.DraftCommand{
 		ProjectID:        req.ProjectID,
 		WorkItemID:       req.WorkItemID,
 		Request:          req.Request,
@@ -97,6 +113,7 @@ func (h *Handler) HandleProjectAssistantDraft(w http.ResponseWriter, r *http.Req
 		writeProjectAssistantError(w, err)
 		return
 	}
+	h.mirrorProjectAssistantProposalByIDToCairnline(r.Context(), "project_assistant_draft", proposal.ID)
 	WriteJSON(w, http.StatusOK, map[string]any{
 		"object": "project_assistant.proposal",
 		"data":   proposal,
@@ -132,7 +149,7 @@ func (h *Handler) HandleChatProjectAssistantDraft(w http.ResponseWriter, r *http
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "request is required")
 		return
 	}
-	proposal, err := h.projectAssistantApplication().Draft(r.Context(), projectassistantapp.DraftCommand{
+	proposal, err := h.projectAssistantDraft(r.Context(), projectassistantapp.DraftCommand{
 		ProjectID:  projectID,
 		WorkItemID: req.WorkItemID,
 		Request:    req.Request,
@@ -146,10 +163,18 @@ func (h *Handler) HandleChatProjectAssistantDraft(w http.ResponseWriter, r *http
 		writeProjectAssistantError(w, err)
 		return
 	}
+	h.mirrorProjectAssistantProposalByIDToCairnline(r.Context(), "project_assistant_chat_draft", proposal.ID)
 	WriteJSON(w, http.StatusOK, map[string]any{
 		"object": "project_assistant.proposal",
 		"data":   proposal,
 	})
+}
+
+func (h *Handler) projectAssistantDraft(ctx context.Context, command projectassistantapp.DraftCommand) (projectassistant.Proposal, error) {
+	if h.projectReadRoutesUseCairnlineReadModel() {
+		return h.cairnlineProjectAssistantDraft(ctx, command)
+	}
+	return h.projectAssistantApplication().Draft(ctx, command)
 }
 
 func (h *Handler) HandleProjectAssistantPropose(w http.ResponseWriter, r *http.Request) {
@@ -169,6 +194,7 @@ func (h *Handler) HandleProjectAssistantPropose(w http.ResponseWriter, r *http.R
 		writeProjectAssistantError(w, err)
 		return
 	}
+	h.mirrorProjectAssistantProposalByIDToCairnline(r.Context(), "project_assistant_propose", proposal.ID)
 	WriteJSON(w, http.StatusOK, map[string]any{
 		"object": "project_assistant.proposal",
 		"data":   proposal,
@@ -176,6 +202,22 @@ func (h *Handler) HandleProjectAssistantPropose(w http.ResponseWriter, r *http.R
 }
 
 func (h *Handler) HandleProjectAssistantProposal(w http.ResponseWriter, r *http.Request) {
+	if h.projectReadRoutesUseCairnlineReadModel() {
+		record, ok, err := h.cairnlineProjectAssistantProposal(r.Context(), r.PathValue("id"))
+		if err != nil {
+			writeProjectAssistantError(w, err)
+			return
+		}
+		if !ok {
+			WriteError(w, http.StatusNotFound, errCodeNotFound, "project assistant proposal not found")
+			return
+		}
+		WriteJSON(w, http.StatusOK, map[string]any{
+			"object": "project_assistant.proposal_record",
+			"data":   record,
+		})
+		return
+	}
 	record, ok, err := h.projectAssistantApplication().Proposal(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeProjectAssistantError(w, err)
@@ -191,6 +233,26 @@ func (h *Handler) HandleProjectAssistantProposal(w http.ResponseWriter, r *http.
 	})
 }
 
+func (h *Handler) cairnlineProjectAssistantProposal(ctx context.Context, id string) (projectassistant.ProposalRecord, bool, error) {
+	snapshots, err := cairnlinebridge.LoadSnapshots(ctx, h.cairnlineSnapshotSources())
+	if err != nil {
+		return projectassistant.ProposalRecord{}, false, err
+	}
+	service := cairnline.NewMemoryService()
+	if err := cairnlinebridge.SeedSnapshots(ctx, service, snapshots); err != nil {
+		return projectassistant.ProposalRecord{}, false, err
+	}
+	item, err := service.GetAssistantProposal(ctx, id)
+	if errors.Is(err, cairnline.ErrNotFound) {
+		return projectassistant.ProposalRecord{}, false, nil
+	}
+	if err != nil {
+		return projectassistant.ProposalRecord{}, false, err
+	}
+	record, ok := cairnlinebridge.ProjectAssistantProposalRecord(item)
+	return record, ok, nil
+}
+
 func (h *Handler) HandleProjectAssistantApply(w http.ResponseWriter, r *http.Request) {
 	var req projectAssistantApplyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -202,9 +264,16 @@ func (h *Handler) HandleProjectAssistantApply(w http.ResponseWriter, r *http.Req
 		Confirm:  req.Confirm,
 	})
 	if err != nil {
+		var applyErr *projectassistant.ApplyError
+		if errors.As(err, &applyErr) {
+			h.mirrorProjectAssistantApplyResultToCairnline(r.Context(), "project_assistant_apply_partial", applyErr.Result)
+		}
+		h.mirrorProjectAssistantProposalByIDToCairnline(r.Context(), "project_assistant_apply_error", req.Proposal.ID)
 		writeProjectAssistantApplyError(w, err)
 		return
 	}
+	h.mirrorProjectAssistantApplyResultToCairnline(r.Context(), "project_assistant_apply_result", result)
+	h.mirrorProjectAssistantProposalByIDToCairnline(r.Context(), "project_assistant_apply", firstNonEmpty(result.ProposalID, req.Proposal.ID))
 	WriteJSON(w, http.StatusOK, map[string]any{
 		"object": "project_assistant.apply_result",
 		"data":   result,

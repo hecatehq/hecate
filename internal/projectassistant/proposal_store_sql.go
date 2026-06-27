@@ -124,6 +124,42 @@ func (s *SQLProposalStore) GetProposal(ctx context.Context, id string) (Proposal
 	return cloneProposalRecord(record), true, nil
 }
 
+func (s *SQLProposalStore) ListProposals(ctx context.Context, projectID string) ([]ProposalRecord, error) {
+	query := fmt.Sprintf(`
+SELECT id, project_id, source, source_id, proposal, fingerprint, status, latest_result,
+	created_at, updated_at, applied_at
+FROM %s`, s.proposals)
+	var args []any
+	projectID = strings.TrimSpace(projectID)
+	if projectID != "" {
+		query += ` WHERE project_id = ?`
+		args = append(args, projectID)
+	}
+	query += ` ORDER BY updated_at DESC, id ASC`
+	rows, err := s.client.DB().QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var records []ProposalRecord
+	for rows.Next() {
+		record, err := scanProposalRecord(rows)
+		if err != nil {
+			return nil, err
+		}
+		attempts, err := s.listAttempts(ctx, record.ID)
+		if err != nil {
+			return nil, err
+		}
+		record.ApplyAttempts = attempts
+		records = append(records, cloneProposalRecord(record))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return records, nil
+}
+
 func (s *SQLProposalStore) UpdateProposalApplyState(ctx context.Context, proposalID string, result ApplyResult) (ProposalRecord, error) {
 	proposalID = strings.TrimSpace(proposalID)
 	record, ok, err := s.getProposalOnly(ctx, proposalID)

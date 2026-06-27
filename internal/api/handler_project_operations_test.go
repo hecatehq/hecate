@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/internal/projectworkapp"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 func TestProjectOperationsBrief_ReadOnlyProjectOperations(t *testing.T) {
@@ -190,6 +192,39 @@ func TestProjectOperationsBrief_CairnlineConfiguredUsesReadModel(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("CreateAssignment: %v", err)
 	}
+	base := time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC)
+	if _, err := handler.taskStore.CreateTask(t.Context(), types.Task{
+		ID:          "task_cairnline",
+		Title:       "Cairnline approval task",
+		Status:      "awaiting_approval",
+		LatestRunID: "run_cairnline",
+		CreatedAt:   base,
+		UpdatedAt:   base.Add(time.Minute),
+	}); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := handler.taskStore.CreateRun(t.Context(), types.TaskRun{
+		ID:            "run_cairnline",
+		TaskID:        "task_cairnline",
+		Number:        1,
+		Status:        "awaiting_approval",
+		ApprovalCount: 2,
+		StartedAt:     base,
+	}); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	for _, approvalID := range []string{"ap_cairnline_1", "ap_cairnline_2"} {
+		if _, err := handler.taskStore.CreateApproval(t.Context(), types.TaskApproval{
+			ID:        approvalID,
+			TaskID:    "task_cairnline",
+			RunID:     "run_cairnline",
+			Kind:      "agent_loop_tool_call",
+			Status:    "pending",
+			CreatedAt: base,
+		}); err != nil {
+			t.Fatalf("CreateApproval(%s): %v", approvalID, err)
+		}
+	}
 	if _, err := handler.memoryCandidates.CreateCandidate(t.Context(), memory.Candidate{
 		ID:        "memcand_cairnline_ops",
 		ProjectID: "proj_cairnline_ops",
@@ -219,13 +254,62 @@ func TestProjectOperationsBrief_CairnlineConfiguredUsesReadModel(t *testing.T) {
 	if approval.Target.AssignmentID != "asgn_cairnline_approval" || approval.Action.Type != projectOperationsActionOpenWorkItem || approval.Status != "awaiting_approval" {
 		t.Fatalf("approval item = %+v, want Hecate action projection over Cairnline assignment item", approval)
 	}
-	if approval.Detail != "2 approvals pending" {
+	if approval.Detail != "2 approval pending" {
 		t.Fatalf("approval detail = %q, want pending approval count preserved", approval.Detail)
 	}
 	memoryItem := findProjectOperationsItemForTest(t, response.Data.Items, "review_memory_candidates")
 	if memoryItem.Target.Surface != "memory" || memoryItem.Action.Type != projectOperationsActionOpenMemoryReview {
 		t.Fatalf("memory item = %+v, want memory review action", memoryItem)
 	}
+}
+
+func TestProjectOperationsBrief_CairnlineMatchesHecateProjectionGraph(t *testing.T) {
+	t.Parallel()
+	hecateHandler, hecateServer := newProjectWorkProjectionTestServer(t, "memory")
+	seedProjectWorkProjectionTest(t, hecateHandler)
+	cairnlineHandler, cairnlineServer := newProjectWorkCairnlineReadTestServer()
+	seedProjectWorkProjectionTest(t, cairnlineHandler)
+
+	hecate := mustRequestJSON[ProjectOperationsBriefEnvelope](newAPITestClient(t, hecateServer), http.MethodGet, "/hecate/v1/projects/proj_projection/operations/brief", "")
+	cairnline := mustRequestJSON[ProjectOperationsBriefEnvelope](newAPITestClient(t, cairnlineServer), http.MethodGet, "/hecate/v1/projects/proj_projection/operations/brief", "")
+	if hecate.Data.ReadBackend != "hecate" {
+		t.Fatalf("Hecate operations read_backend = %q, want hecate", hecate.Data.ReadBackend)
+	}
+	if cairnline.Data.ReadBackend != "cairnline" {
+		t.Fatalf("Cairnline operations read_backend = %q, want cairnline", cairnline.Data.ReadBackend)
+	}
+
+	hecateData := normalizeProjectOperationsBriefForParity(hecate.Data)
+	cairnlineData := normalizeProjectOperationsBriefForParity(cairnline.Data)
+	if !reflect.DeepEqual(hecateData, cairnlineData) {
+		t.Fatalf("operations mismatch\nHecate:   %+v\nCairnline: %+v", hecateData, cairnlineData)
+	}
+}
+
+func normalizeProjectOperationsBriefForParity(item ProjectOperationsBriefResponse) ProjectOperationsBriefResponse {
+	item.GeneratedAt = ""
+	item.ReadBackend = ""
+	for idx := range item.Items {
+		item.Items[idx].UpdatedAt = ""
+		if item.Items[idx].Assignment != nil {
+			item.Items[idx].Assignment.ReadBackend = ""
+			item.Items[idx].Assignment.CreatedAt = ""
+			item.Items[idx].Assignment.UpdatedAt = ""
+			item.Items[idx].Assignment.StartedAt = ""
+			item.Items[idx].Assignment.CompletedAt = ""
+			if item.Items[idx].Assignment.Execution != nil {
+				item.Items[idx].Assignment.Execution.StartedAt = ""
+				item.Items[idx].Assignment.Execution.FinishedAt = ""
+			}
+		}
+		if item.Items[idx].Handoff != nil {
+			item.Items[idx].Handoff.ReadBackend = ""
+			item.Items[idx].Handoff.CreatedAt = ""
+			item.Items[idx].Handoff.UpdatedAt = ""
+			item.Items[idx].Handoff.StatusChangedAt = ""
+		}
+	}
+	return item
 }
 
 func TestProjectOperationsBrief_SummaryReportsBoundedItems(t *testing.T) {

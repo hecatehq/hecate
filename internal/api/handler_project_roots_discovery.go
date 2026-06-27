@@ -58,6 +58,7 @@ func (h *Handler) HandleDiscoverProjectRoots(w http.ResponseWriter, r *http.Requ
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
+	h.mirrorProjectIdentityToCairnline(r.Context(), "project_roots_discover", updated)
 	WriteJSON(w, http.StatusOK, ProjectResponse{Object: "project", Data: renderProject(updated)})
 }
 
@@ -98,6 +99,7 @@ func (h *Handler) HandleCreateProjectWorktreeRoot(w http.ResponseWriter, r *http
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
+	h.mirrorProjectIdentityToCairnline(r.Context(), "project_worktree_root_create", updated)
 	WriteJSON(w, http.StatusCreated, ProjectResponse{Object: "project", Data: renderProject(updated)})
 }
 

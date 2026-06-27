@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 
 	"github.com/hecatehq/hecate/internal/config"
@@ -255,6 +256,91 @@ func TestProjectSetupReadiness_CairnlineConfiguredUsesReadModel(t *testing.T) {
 	if response.Data.Summary.MissingDefaults || !response.Data.Summary.HasPurpose || !response.Data.Summary.HasActiveRoot {
 		t.Fatalf("setup readiness summary = %+v, want Hecate defaults/purpose/root over Cairnline setup counts", response.Data.Summary)
 	}
+}
+
+func TestProjectSetupReadiness_CairnlineMatchesHecate(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	hecateHandler, hecateServer := newProjectWorkTestServer()
+	seedProjectSetupReadinessReadyTest(t, hecateHandler, root)
+	cairnlineHandler, cairnlineServer := newProjectWorkCairnlineReadTestServer()
+	seedProjectSetupReadinessReadyTest(t, cairnlineHandler, root)
+
+	hecate := mustRequestJSON[ProjectSetupReadinessEnvelope](newAPITestClient(t, hecateServer), http.MethodGet, "/hecate/v1/projects/proj_setup_parity/setup-readiness", "")
+	cairnline := mustRequestJSON[ProjectSetupReadinessEnvelope](newAPITestClient(t, cairnlineServer), http.MethodGet, "/hecate/v1/projects/proj_setup_parity/setup-readiness", "")
+	if hecate.Data.ReadBackend != "hecate" {
+		t.Fatalf("Hecate setup readiness read_backend = %q, want hecate", hecate.Data.ReadBackend)
+	}
+	if cairnline.Data.ReadBackend != "cairnline" {
+		t.Fatalf("Cairnline setup readiness read_backend = %q, want cairnline", cairnline.Data.ReadBackend)
+	}
+
+	hecateData := normalizeProjectSetupReadinessForParity(hecate.Data)
+	cairnlineData := normalizeProjectSetupReadinessForParity(cairnline.Data)
+	if !reflect.DeepEqual(hecateData, cairnlineData) {
+		t.Fatalf("setup readiness mismatch\nHecate:   %+v\nCairnline: %+v", hecateData, cairnlineData)
+	}
+}
+
+func seedProjectSetupReadinessReadyTest(t *testing.T, handler *Handler, root string) {
+	t.Helper()
+	if _, err := handler.projects.Create(t.Context(), projects.Project{
+		ID:              "proj_setup_parity",
+		Name:            "Setup parity",
+		Description:     "Coordinate setup parity.",
+		DefaultProvider: "openai",
+		DefaultModel:    "gpt-5",
+		Roots:           []projects.Root{{ID: "root_setup_parity", Path: root, Kind: "git", Active: true}},
+		ContextSources: []projects.ContextSource{{
+			ID:      "ctx_setup_parity",
+			Kind:    "workspace_instruction",
+			Title:   "AGENTS.md",
+			Path:    "AGENTS.md",
+			Enabled: true,
+		}},
+	}); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	if _, err := handler.projectWork.CreateRole(t.Context(), projectwork.AgentRoleProfile{
+		ID:        "role_setup_parity",
+		ProjectID: "proj_setup_parity",
+		Name:      "Coordinator",
+	}); err != nil {
+		t.Fatalf("CreateRole: %v", err)
+	}
+	if _, err := handler.projectSkills.UpsertDiscovered(t.Context(), "proj_setup_parity", []projectskills.Skill{{
+		ID:        "skill_setup_parity",
+		ProjectID: "proj_setup_parity",
+		Path:      "skills/setup/SKILL.md",
+		Enabled:   true,
+		Status:    projectskills.StatusAvailable,
+	}}); err != nil {
+		t.Fatalf("UpsertDiscovered: %v", err)
+	}
+	if _, err := handler.memory.Create(t.Context(), memory.Entry{
+		ID:        "mem_setup_parity",
+		ProjectID: "proj_setup_parity",
+		Title:     "Setup posture",
+		Body:      "Keep setup explicit.",
+		Enabled:   true,
+	}); err != nil {
+		t.Fatalf("Create memory: %v", err)
+	}
+	if _, err := handler.memoryCandidates.CreateCandidate(t.Context(), memory.Candidate{
+		ID:        "memcand_setup_parity",
+		ProjectID: "proj_setup_parity",
+		Title:     "Candidate",
+		Body:      "Review me.",
+		Status:    memory.CandidateStatusPending,
+	}); err != nil {
+		t.Fatalf("CreateCandidate: %v", err)
+	}
+}
+
+func normalizeProjectSetupReadinessForParity(item ProjectSetupReadinessResponse) ProjectSetupReadinessResponse {
+	item.GeneratedAt = ""
+	item.ReadBackend = ""
+	return item
 }
 
 func findProjectSetupReadinessCheckForTest(t *testing.T, checks []ProjectSetupReadinessCheckResponse, id string) ProjectSetupReadinessCheckResponse {

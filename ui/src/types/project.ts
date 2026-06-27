@@ -633,6 +633,7 @@ export type ProjectAssignmentLaunchReadinessRecord = {
   project_id: string;
   work_item_id: string;
   assignment_id: string;
+  read_backend?: "hecate" | "cairnline" | (string & {});
   generated_at: string;
   ready: boolean;
   status: "blocked" | "ready" | (string & {});
