@@ -2,6 +2,8 @@ package cairnlinebridge
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -9,6 +11,7 @@ import (
 	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/memory"
+	"github.com/hecatehq/hecate/internal/projectassistant"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
@@ -24,6 +27,9 @@ func TestSeedMirrorsProjectWorkIntoCairnline(t *testing.T) {
 	if err := Seed(ctx, service, snapshot); err != nil {
 		t.Fatalf("Seed() error = %v", err)
 	}
+	if got := SnapshotExecutionProfileCount(snapshot); got != 3 {
+		t.Fatalf("SnapshotExecutionProfileCount() = %d, want project, agent-profile, and role execution profiles", got)
+	}
 
 	packet, err := service.AssignmentLaunchPacket(ctx, "proj_hecate", "asgn_bridge")
 	if err != nil {
@@ -31,6 +37,27 @@ func TestSeedMirrorsProjectWorkIntoCairnline(t *testing.T) {
 	}
 	if packet.Project.ID != "proj_hecate" || packet.Project.DefaultRootID != "root_main" || packet.WorkItem.RootID != "root_main" {
 		t.Fatalf("packet project/work = %+v/%+v, want Hecate project with default root and root-scoped work", packet.Project, packet.WorkItem)
+	}
+	if packet.Project.DefaultProfileID != "bridge_implementation" || packet.Project.DefaultExecutionProfileID != projectExecutionProfileID(snapshot.Project) {
+		t.Fatalf("packet project defaults = %+v, want mapped project profile and execution defaults", packet.Project)
+	}
+	executionProfiles, err := service.ListExecutionProfiles(ctx)
+	if err != nil {
+		t.Fatalf("ListExecutionProfiles() error = %v", err)
+	}
+	if len(executionProfiles) != SnapshotExecutionProfileCount(snapshot) {
+		t.Fatalf("execution profile count = %d, want %d", len(executionProfiles), SnapshotExecutionProfileCount(snapshot))
+	}
+	projectExecutionProfile := findCairnlineExecutionProfile(executionProfiles, projectExecutionProfileID(snapshot.Project))
+	if projectExecutionProfile == nil ||
+		projectExecutionProfile.AgentKind != "hecate" ||
+		projectExecutionProfile.ProviderHint != "ollama" ||
+		projectExecutionProfile.ModelHint != "qwen3-coder" ||
+		projectExecutionProfile.ToolsPolicy != "allow" ||
+		projectExecutionProfile.AdapterOptions["workspace_mode"] != "worktree" ||
+		projectExecutionProfile.AdapterOptions["system_prompt"] != "Stay crisp." ||
+		projectExecutionProfile.AdapterOptions["compact_tool_output"] != true {
+		t.Fatalf("project execution profile = %+v, want Hecate project-level execution defaults", projectExecutionProfile)
 	}
 	if len(packet.Project.ContextSources) != 1 {
 		t.Fatalf("packet project sources = %+v, want one context source", packet.Project.ContextSources)
@@ -42,17 +69,23 @@ func TestSeedMirrorsProjectWorkIntoCairnline(t *testing.T) {
 	if packet.Role == nil || packet.Role.DefaultExecutionMode != cairnline.ExecutionOrchestrated {
 		t.Fatalf("packet role = %+v, want orchestrated role from Hecate task driver", packet.Role)
 	}
+	if packet.Role.DefaultExecutionProfileID != roleExecutionProfileID(snapshot.Roles[0]) {
+		t.Fatalf("packet role = %+v, want role execution-profile default", packet.Role)
+	}
 	if packet.Profile == nil || packet.Profile.ID != "bridge_implementation" || packet.Profile.MemoryPolicy != agentprofiles.MemoryInclude {
 		t.Fatalf("packet profile = %+v, want mapped Hecate agent profile", packet.Profile)
 	}
-	if packet.ExecutionProfile == nil || packet.ExecutionProfile.AgentKind != "hecate" || packet.ExecutionProfile.WritesPolicy != "allow" || packet.ExecutionProfile.NetworkPolicy != "block" {
-		t.Fatalf("packet execution profile = %+v, want mapped Hecate execution posture", packet.ExecutionProfile)
+	if packet.ExecutionProfile == nil || packet.ExecutionProfile.ID != roleExecutionProfileID(snapshot.Roles[0]) || packet.ExecutionProfile.AgentKind != "hecate" || packet.ExecutionProfile.ProviderHint != "openai" || packet.ExecutionProfile.ModelHint != "gpt-5" {
+		t.Fatalf("packet execution profile = %+v, want mapped Hecate role execution defaults", packet.ExecutionProfile)
 	}
 	if packet.Assignment.ExecutionMode != cairnline.ExecutionOrchestrated || packet.Assignment.RootID != "root_main" || packet.Assignment.ContextSnapshotID != "ctx_123" {
 		t.Fatalf("packet assignment = %+v, want orchestrated root-scoped assignment", packet.Assignment)
 	}
 	if len(packet.Skills) != 1 || packet.Skills[0].ID != "backend" || len(packet.Skills[0].SourceRefs) != 1 {
 		t.Fatalf("packet skills = %+v, want mapped backend skill with provenance", packet.Skills)
+	}
+	if len(packet.Artifacts) != 1 || packet.Artifacts[0].ID != "art_decision" || packet.Artifacts[0].Kind != projectwork.ArtifactKindDecisionNote || packet.Artifacts[0].AuthorRoleID != "bridge_developer" {
+		t.Fatalf("packet artifacts = %+v, want mapped generic collaboration artifact", packet.Artifacts)
 	}
 	if len(packet.Evidence) != 1 || packet.Evidence[0].ID != "art_evidence" || packet.Evidence[0].AssignmentID != "asgn_external" || packet.Evidence[0].Locator != "https://github.com/hecatehq/hecate/actions/runs/123" {
 		t.Fatalf("packet evidence = %+v, want mapped assignment-scoped evidence link", packet.Evidence)
@@ -74,6 +107,40 @@ func TestSeedMirrorsProjectWorkIntoCairnline(t *testing.T) {
 	}
 	if len(packet.MemoryCandidates) != 1 || packet.MemoryCandidates[0].ID != "memcand_bridge" || packet.MemoryCandidates[0].SuggestedTrustLabel != memory.TrustLabelGenerated || packet.MemoryCandidates[0].SuggestedSourceID != "handoff_review" || len(packet.MemoryCandidates[0].SourceRefs) != 1 {
 		t.Fatalf("packet memory candidates = %+v, want mapped memory candidate provenance", packet.MemoryCandidates)
+	}
+	proposals, err := service.ListAssistantProposals(ctx, "proj_hecate")
+	if err != nil {
+		t.Fatalf("ListAssistantProposals() error = %v", err)
+	}
+	if len(proposals) != 1 || proposals[0].ID != "pa_bridge" || proposals[0].Status != cairnline.AssistantProposalStatusApplied || proposals[0].LatestResult == nil || len(proposals[0].ApplyAttempts) != 1 {
+		t.Fatalf("assistant proposals = %+v, want one imported portable applied proposal with attempt ledger", proposals)
+	}
+	if len(proposals[0].Proposal.Warnings) != 1 || proposals[0].Proposal.Warnings[0] != "Review generated follow-up scope before applying." {
+		t.Fatalf("assistant proposal warnings = %+v, want warning metadata preserved", proposals[0].Proposal.Warnings)
+	}
+	if len(proposals[0].Proposal.Actions) != 4 ||
+		proposals[0].Proposal.Actions[0].Kind != cairnline.AssistantActionAttachProjectRoot ||
+		proposals[0].Proposal.Actions[0].Root == nil ||
+		proposals[0].Proposal.Actions[0].Root.ID != "root_proposal" ||
+		proposals[0].Proposal.Actions[1].Kind != cairnline.AssistantActionSetProjectDefaults ||
+		proposals[0].Proposal.Actions[1].Project == nil ||
+		proposals[0].Proposal.Actions[1].Project.DefaultRootID != "root_proposal" ||
+		proposals[0].Proposal.Actions[2].Kind != cairnline.AssistantActionRemoveProjectRoot ||
+		proposals[0].Proposal.Actions[2].Target.RootID != "root_legacy" ||
+		proposals[0].Proposal.Actions[3].Kind != cairnline.AssistantActionCreateWorkItem ||
+		proposals[0].Proposal.Actions[3].WorkItem == nil ||
+		proposals[0].Proposal.Actions[3].WorkItem.ID != "work_from_proposal" {
+		t.Fatalf("assistant proposal actions = %+v, want mapped root/default and create-work-item actions", proposals[0].Proposal.Actions)
+	}
+	if proposals[0].LatestResult.TotalActionCount != 4 || len(proposals[0].LatestResult.Actions) != 4 || proposals[0].LatestResult.Actions[0].RootID != "root_proposal" || proposals[0].LatestResult.Actions[1].RootID != "root_proposal" || proposals[0].LatestResult.Actions[2].RootID != "root_legacy" {
+		t.Fatalf("assistant proposal latest result = %+v, want root action result refs", proposals[0].LatestResult)
+	}
+	workItems, err := service.ListWorkItems(ctx, "proj_hecate")
+	if err != nil {
+		t.Fatalf("ListWorkItems() error = %v", err)
+	}
+	if len(workItems) != len(snapshot.WorkItems) {
+		t.Fatalf("work item count after proposal import = %d, want %d; import must not replay proposal actions", len(workItems), len(snapshot.WorkItems))
 	}
 	readiness, err := service.WorkItemCloseoutReadiness(ctx, "proj_hecate", "work_bridge")
 	if err != nil {
@@ -126,6 +193,52 @@ func TestSeedMirrorsProjectWorkIntoCairnline(t *testing.T) {
 	}
 }
 
+func TestAssistantProposalRecordProjectsCairnlineLedgerBackToHecate(t *testing.T) {
+	now := time.Date(2026, 6, 27, 13, 0, 0, 0, time.UTC)
+	source := bridgeAssistantProposalFixture(now)
+	imported, ok := AssistantProposalRecord(source)
+	if !ok {
+		t.Fatalf("AssistantProposalRecord() ok = false, want portable proposal fixture imported")
+	}
+	projected, ok := ProjectAssistantProposalRecord(imported)
+	if !ok {
+		t.Fatalf("ProjectAssistantProposalRecord() ok = false, want Cairnline proposal projected back to Hecate")
+	}
+	if projected.ID != source.ID || projected.ProjectID != source.ProjectID || projected.Status != projectassistant.ApplyStatusApplied || projected.LatestResult == nil || len(projected.ApplyAttempts) != 1 {
+		t.Fatalf("projected proposal = %+v, want applied Hecate proposal record with one attempt", projected)
+	}
+	if projected.LatestResult.CommittedActionCount != 4 || projected.LatestResult.ResumeActionIndex != 4 || len(projected.LatestResult.Actions) != 4 {
+		t.Fatalf("projected latest result = %+v, want Hecate apply progress counts", projected.LatestResult)
+	}
+	if len(projected.Proposal.Actions) != 4 {
+		t.Fatalf("projected actions = %+v, want four portable actions", projected.Proposal.Actions)
+	}
+	var attachRoot assistantRootPatch
+	if err := json.Unmarshal(projected.Proposal.Actions[0].Patch, &attachRoot); err != nil {
+		t.Fatalf("decode attach-root patch: %v", err)
+	}
+	if projected.Proposal.Actions[0].Kind != projectassistant.ActionAttachProjectRoot || attachRoot.ID != "root_proposal" || attachRoot.GitBranch != "proposal/root-actions" {
+		t.Fatalf("projected attach-root action = %+v patch %+v, want root action reconstructed", projected.Proposal.Actions[0], attachRoot)
+	}
+	var defaults assistantDefaultsPatch
+	if err := json.Unmarshal(projected.Proposal.Actions[1].Patch, &defaults); err != nil {
+		t.Fatalf("decode defaults patch: %v", err)
+	}
+	if defaults.DefaultRootID == nil || *defaults.DefaultRootID != "root_proposal" {
+		t.Fatalf("projected defaults patch = %+v, want default root id", defaults)
+	}
+	var work assistantWorkItemPatch
+	if err := json.Unmarshal(projected.Proposal.Actions[3].Patch, &work); err != nil {
+		t.Fatalf("decode work patch: %v", err)
+	}
+	if projected.Proposal.Actions[3].Kind != projectassistant.ActionCreateWorkItem || work.ID != "work_from_proposal" || work.RootID != "root_main" {
+		t.Fatalf("projected work action = %+v patch %+v, want create-work-item action reconstructed", projected.Proposal.Actions[3], work)
+	}
+	if projected.ApplyAttempts[0].Result.CommittedActionCount != 4 || projected.ApplyAttempts[0].Result.ResumeActionIndex != 4 {
+		t.Fatalf("projected apply attempt = %+v, want preserved Hecate apply progress", projected.ApplyAttempts[0])
+	}
+}
+
 func TestLoadSnapshotReadsHecateStores(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 6, 26, 12, 0, 0, 0, time.UTC)
@@ -149,8 +262,8 @@ func TestLoadSnapshotReadsHecateStores(t *testing.T) {
 	if len(loaded.Skills) != len(snapshot.Skills) || len(loaded.WorkItems) != len(snapshot.WorkItems) || len(loaded.Assignments) != len(snapshot.Assignments) {
 		t.Fatalf("loaded counts skills=%d work=%d assignments=%d, want %d/%d/%d", len(loaded.Skills), len(loaded.WorkItems), len(loaded.Assignments), len(snapshot.Skills), len(snapshot.WorkItems), len(snapshot.Assignments))
 	}
-	if len(loaded.Artifacts) != len(snapshot.Artifacts) || len(loaded.Handoffs) != len(snapshot.Handoffs) || len(loaded.MemoryEntries) != len(snapshot.MemoryEntries) || len(loaded.MemoryCandidates) != len(snapshot.MemoryCandidates) {
-		t.Fatalf("loaded collaboration counts artifacts=%d handoffs=%d memory_entries=%d memory_candidates=%d, want %d/%d/%d/%d", len(loaded.Artifacts), len(loaded.Handoffs), len(loaded.MemoryEntries), len(loaded.MemoryCandidates), len(snapshot.Artifacts), len(snapshot.Handoffs), len(snapshot.MemoryEntries), len(snapshot.MemoryCandidates))
+	if len(loaded.Artifacts) != len(snapshot.Artifacts) || len(loaded.Handoffs) != len(snapshot.Handoffs) || len(loaded.MemoryEntries) != len(snapshot.MemoryEntries) || len(loaded.MemoryCandidates) != len(snapshot.MemoryCandidates) || len(loaded.AssistantProposals) != len(snapshot.AssistantProposals) {
+		t.Fatalf("loaded collaboration counts artifacts=%d handoffs=%d memory_entries=%d memory_candidates=%d proposals=%d, want %d/%d/%d/%d/%d", len(loaded.Artifacts), len(loaded.Handoffs), len(loaded.MemoryEntries), len(loaded.MemoryCandidates), len(loaded.AssistantProposals), len(snapshot.Artifacts), len(snapshot.Handoffs), len(snapshot.MemoryEntries), len(snapshot.MemoryCandidates), len(snapshot.AssistantProposals))
 	}
 
 	service := cairnline.NewMemoryService()
@@ -163,6 +276,16 @@ func TestLoadSnapshotReadsHecateStores(t *testing.T) {
 	}
 	if len(packet.Evidence) != 1 || len(packet.Reviews) != 1 || len(packet.Handoffs) != 1 || len(packet.Memory) != 1 || len(packet.MemoryCandidates) != 1 {
 		t.Fatalf("loaded launch packet collaboration counts evidence=%d reviews=%d handoffs=%d memory_entries=%d memory_candidates=%d, want all one", len(packet.Evidence), len(packet.Reviews), len(packet.Handoffs), len(packet.Memory), len(packet.MemoryCandidates))
+	}
+	proposals, err := service.ListAssistantProposals(ctx, snapshot.Project.ID)
+	if err != nil {
+		t.Fatalf("ListAssistantProposals() loaded snapshot error = %v", err)
+	}
+	if len(proposals) != 1 || proposals[0].ID != "pa_bridge" {
+		t.Fatalf("loaded assistant proposals = %+v, want portable proposal imported into Cairnline", proposals)
+	}
+	if len(proposals[0].Proposal.Warnings) != 1 || proposals[0].Proposal.Warnings[0] != "Review generated follow-up scope before applying." {
+		t.Fatalf("loaded assistant proposal warnings = %+v, want preserved warnings", proposals[0].Proposal.Warnings)
 	}
 }
 
@@ -211,6 +334,1003 @@ func TestProjectOperationsBriefFromStores(t *testing.T) {
 	}
 }
 
+func TestUpsertProjectMirrorsProjectRootAndContextSourceMutations(t *testing.T) {
+	ctx := context.Background()
+	service := cairnline.NewMemoryService()
+	now := time.Date(2026, 6, 27, 10, 0, 0, 0, time.UTC)
+
+	project := projects.Project{
+		ID:                   "proj_write",
+		Name:                 "Write Adapter",
+		Description:          "Prove project writes can land in Cairnline.",
+		DefaultProvider:      "openai",
+		DefaultModel:         "gpt-5",
+		DefaultAgentProfile:  "implementation",
+		DefaultToolsEnabled:  boolPtrForTest(true),
+		DefaultWorkspaceMode: "worktree",
+		Roots: []projects.Root{{
+			ID:        "root_main",
+			Path:      "/tmp/hecate-write",
+			Kind:      "git",
+			GitRemote: "https://github.com/hecatehq/hecate",
+			GitBranch: "main",
+			Active:    true,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}},
+		DefaultRootID: "root_main",
+		ContextSources: []projects.ContextSource{{
+			ID:             "ctx_agents",
+			Kind:           "workspace_instruction",
+			Title:          "AGENTS.md",
+			Path:           "AGENTS.md",
+			Enabled:        true,
+			Format:         "agents_md",
+			Scope:          "workspace",
+			TrustLabel:     "workspace_guidance",
+			SourceCategory: "workspace_guidance",
+			Metadata:       map[string]string{"root_id": "root_main"},
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	created, err := UpsertProject(ctx, service, project)
+	if err != nil {
+		t.Fatalf("UpsertProject(create) error = %v", err)
+	}
+	if created.ID != project.ID || created.DefaultRootID != "root_main" || created.DefaultProfileID != "implementation" || created.DefaultExecutionProfileID != projectExecutionProfileID(project) {
+		t.Fatalf("created project = %+v, want mapped Hecate project defaults", created)
+	}
+	if len(created.Roots) != 1 || created.Roots[0].Path != "/tmp/hecate-write" || created.Roots[0].GitBranch != "main" {
+		t.Fatalf("created roots = %+v, want portable root metadata", created.Roots)
+	}
+	if len(created.ContextSources) != 1 || created.ContextSources[0].Locator != "AGENTS.md" || created.ContextSources[0].Metadata["root_id"] != "root_main" {
+		t.Fatalf("created sources = %+v, want portable context-source metadata", created.ContextSources)
+	}
+	executionProfiles, err := service.ListExecutionProfiles(ctx)
+	if err != nil {
+		t.Fatalf("ListExecutionProfiles() error = %v", err)
+	}
+	if profile := findCairnlineExecutionProfile(executionProfiles, projectExecutionProfileID(project)); profile == nil || profile.ProviderHint != "openai" || profile.ModelHint != "gpt-5" || profile.ToolsPolicy != "allow" || profile.AdapterOptions["workspace_mode"] != "worktree" {
+		t.Fatalf("project execution profile = %+v, want Hecate project execution defaults", profile)
+	}
+
+	project.Name = "Write Adapter Updated"
+	project.DefaultProvider = ""
+	project.DefaultModel = ""
+	project.DefaultToolsEnabled = nil
+	project.DefaultWorkspaceMode = ""
+	project.Roots = []projects.Root{{
+		ID:     "root_docs",
+		Path:   "/tmp/hecate-docs",
+		Kind:   "folder",
+		Active: true,
+	}}
+	project.DefaultRootID = "root_docs"
+	project.ContextSources = []projects.ContextSource{{
+		ID:             "ctx_readme",
+		Kind:           "workspace_instruction",
+		Title:          "README.md",
+		Path:           "README.md",
+		Enabled:        false,
+		Format:         "markdown",
+		Scope:          "workspace",
+		TrustLabel:     "workspace_guidance",
+		SourceCategory: "workspace_guidance",
+	}}
+
+	updated, err := UpsertProject(ctx, service, project)
+	if err != nil {
+		t.Fatalf("UpsertProject(update) error = %v", err)
+	}
+	if updated.Name != "Write Adapter Updated" || updated.DefaultRootID != "root_docs" || updated.DefaultExecutionProfileID != "" {
+		t.Fatalf("updated project = %+v, want updated project and removed execution default", updated)
+	}
+	if len(updated.Roots) != 1 || updated.Roots[0].ID != "root_docs" {
+		t.Fatalf("updated roots = %+v, want replaced root set", updated.Roots)
+	}
+	if len(updated.ContextSources) != 1 || updated.ContextSources[0].ID != "ctx_readme" || updated.ContextSources[0].Enabled {
+		t.Fatalf("updated sources = %+v, want replaced source set", updated.ContextSources)
+	}
+	executionProfiles, err = service.ListExecutionProfiles(ctx)
+	if err != nil {
+		t.Fatalf("ListExecutionProfiles() after update error = %v", err)
+	}
+	if profile := findCairnlineExecutionProfile(executionProfiles, projectExecutionProfileIDValue(project)); profile != nil {
+		t.Fatalf("project execution profile = %+v, want removed after project defaults cleared", profile)
+	}
+}
+
+func TestDeleteProjectRemovesProjectAndProjectExecutionProfile(t *testing.T) {
+	ctx := context.Background()
+	service := cairnline.NewMemoryService()
+	project := projects.Project{
+		ID:              "proj_delete",
+		Name:            "Delete Adapter",
+		DefaultProvider: "openai",
+		DefaultModel:    "gpt-5",
+		Roots: []projects.Root{{
+			ID:     "root_main",
+			Path:   "/tmp/hecate-delete",
+			Active: true,
+		}},
+		DefaultRootID: "root_main",
+	}
+	if _, err := UpsertProject(ctx, service, project); err != nil {
+		t.Fatalf("UpsertProject() error = %v", err)
+	}
+	if err := DeleteProject(ctx, service, project); err != nil {
+		t.Fatalf("DeleteProject() error = %v", err)
+	}
+	if _, err := service.GetProject(ctx, project.ID); !errors.Is(err, cairnline.ErrNotFound) {
+		t.Fatalf("GetProject() error = %v, want cairnline.ErrNotFound", err)
+	}
+	executionProfiles, err := service.ListExecutionProfiles(ctx)
+	if err != nil {
+		t.Fatalf("ListExecutionProfiles() error = %v", err)
+	}
+	if profile := findCairnlineExecutionProfile(executionProfiles, projectExecutionProfileIDValue(project)); profile != nil {
+		t.Fatalf("project execution profile = %+v, want deleted with project", profile)
+	}
+}
+
+func TestUpsertAgentProfileMirrorsProfileAndExecutionPosture(t *testing.T) {
+	ctx := context.Background()
+	service := cairnline.NewMemoryService()
+	now := time.Date(2026, 6, 27, 11, 15, 0, 0, time.UTC)
+	profile := agentprofiles.Profile{
+		ID:                  "safe_external_review",
+		Name:                "Safe external review",
+		Description:         "Reviews external-agent work.",
+		Instructions:        "Inspect evidence before approval.",
+		Surface:             agentprofiles.SurfaceExternalAgent,
+		ProviderHint:        "anthropic",
+		ModelHint:           "claude-sonnet-4",
+		ExecutionProfile:    "review_runtime",
+		ToolsEnabled:        true,
+		WritesAllowed:       false,
+		NetworkAllowed:      false,
+		ApprovalPolicy:      agentprofiles.ApprovalRequire,
+		ProjectMemoryPolicy: agentprofiles.MemoryVisibleOnly,
+		ContextSourcePolicy: agentprofiles.ContextIncludeEnabled,
+		SkillIDs:            []string{"review", "review"},
+		CreatedAt:           now,
+		UpdatedAt:           now,
+	}
+
+	created, err := UpsertAgentProfile(ctx, service, profile)
+	if err != nil {
+		t.Fatalf("UpsertAgentProfile(create) error = %v", err)
+	}
+	if created.ID != "safe_external_review" || created.MemoryPolicy != agentprofiles.MemoryVisibleOnly || len(created.SkillIDs) != 1 || created.SkillIDs[0] != "review" {
+		t.Fatalf("created profile = %+v, want compacted profile metadata", created)
+	}
+	executionProfiles, err := service.ListExecutionProfiles(ctx)
+	if err != nil {
+		t.Fatalf("ListExecutionProfiles() error = %v", err)
+	}
+	if execution := findCairnlineExecutionProfile(executionProfiles, "review_runtime"); execution == nil || execution.AgentKind != cairnline.DesiredAgentAny || execution.ProviderHint != "anthropic" || execution.ModelHint != "claude-sonnet-4" || execution.ToolsPolicy != "allow" || execution.WritesPolicy != "block" {
+		t.Fatalf("execution profile = %+v, want profile posture", execution)
+	}
+
+	profile.Name = "External review"
+	profile.ModelHint = "claude-opus-4"
+	updated, err := UpsertAgentProfile(ctx, service, profile)
+	if err != nil {
+		t.Fatalf("UpsertAgentProfile(update) error = %v", err)
+	}
+	if updated.Name != "External review" {
+		t.Fatalf("updated profile = %+v, want renamed profile", updated)
+	}
+	executionProfiles, err = service.ListExecutionProfiles(ctx)
+	if err != nil {
+		t.Fatalf("ListExecutionProfiles() after update error = %v", err)
+	}
+	if execution := findCairnlineExecutionProfile(executionProfiles, "review_runtime"); execution == nil || execution.ModelHint != "claude-opus-4" {
+		t.Fatalf("execution profile after update = %+v, want updated model hint", execution)
+	}
+}
+
+func TestUpsertRoleMirrorsRoleAndExecutionDefaults(t *testing.T) {
+	ctx := context.Background()
+	service := cairnline.NewMemoryService()
+	now := time.Date(2026, 6, 27, 11, 30, 0, 0, time.UTC)
+	if _, err := UpsertProject(ctx, service, projects.Project{ID: "proj_roles", Name: "Role Adapter"}); err != nil {
+		t.Fatalf("UpsertProject() error = %v", err)
+	}
+	profile := agentprofiles.Profile{
+		ID:                  "implementation",
+		Name:                "Implementation",
+		Surface:             agentprofiles.SurfaceHecateTask,
+		ProviderHint:        "openai",
+		ModelHint:           "gpt-5",
+		ToolsEnabled:        true,
+		WritesAllowed:       true,
+		NetworkAllowed:      false,
+		ApprovalPolicy:      agentprofiles.ApprovalRequire,
+		ProjectMemoryPolicy: agentprofiles.MemoryInclude,
+		ContextSourcePolicy: agentprofiles.ContextIncludeEnabled,
+		CreatedAt:           now,
+		UpdatedAt:           now,
+	}
+	if _, err := service.CreateAgentProfile(ctx, AgentProfile(profile)); err != nil {
+		t.Fatalf("CreateAgentProfile() error = %v", err)
+	}
+
+	role := projectwork.AgentRoleProfile{
+		ID:                  "developer",
+		ProjectID:           "proj_roles",
+		Name:                "Developer",
+		Description:         "Implements scoped changes.",
+		Instructions:        "Keep changes small.",
+		DefaultDriverKind:   projectwork.AssignmentDriverHecateTask,
+		DefaultProvider:     "openai",
+		DefaultModel:        "gpt-5",
+		DefaultAgentProfile: "implementation",
+		SkillIDs:            []string{"backend", "backend"},
+		CreatedAt:           now,
+		UpdatedAt:           now,
+	}
+
+	created, err := UpsertRole(ctx, service, role)
+	if err != nil {
+		t.Fatalf("UpsertRole(create) error = %v", err)
+	}
+	if created.ID != "developer" || created.DefaultProfileID != "implementation" || created.DefaultExecutionProfileID != roleExecutionProfileID(role) || created.DefaultExecutionMode != cairnline.ExecutionOrchestrated {
+		t.Fatalf("created role = %+v, want mapped role defaults", created)
+	}
+	if len(created.DefaultSkillIDs) != 1 || created.DefaultSkillIDs[0] != "backend" {
+		t.Fatalf("created role skill ids = %+v, want compacted backend skill", created.DefaultSkillIDs)
+	}
+	executionProfiles, err := service.ListExecutionProfiles(ctx)
+	if err != nil {
+		t.Fatalf("ListExecutionProfiles() error = %v", err)
+	}
+	if profile := findCairnlineExecutionProfile(executionProfiles, roleExecutionProfileID(role)); profile == nil || profile.AgentKind != "hecate" || profile.ProviderHint != "openai" || profile.ModelHint != "gpt-5" {
+		t.Fatalf("role execution profile = %+v, want role-level execution defaults", profile)
+	}
+
+	role.Name = "Developer Updated"
+	role.DefaultProvider = ""
+	role.DefaultModel = ""
+	role.SkillIDs = []string{"frontend"}
+	updated, err := UpsertRole(ctx, service, role)
+	if err != nil {
+		t.Fatalf("UpsertRole(update) error = %v", err)
+	}
+	if updated.Name != "Developer Updated" || updated.DefaultExecutionProfileID != "" || len(updated.DefaultSkillIDs) != 1 || updated.DefaultSkillIDs[0] != "frontend" {
+		t.Fatalf("updated role = %+v, want updated role and removed execution default", updated)
+	}
+	executionProfiles, err = service.ListExecutionProfiles(ctx)
+	if err != nil {
+		t.Fatalf("ListExecutionProfiles() after update error = %v", err)
+	}
+	if profile := findCairnlineExecutionProfile(executionProfiles, roleExecutionProfileIDValue(role)); profile != nil {
+		t.Fatalf("role execution profile = %+v, want removed after role defaults cleared", profile)
+	}
+
+	if err := DeleteRole(ctx, service, role); err != nil {
+		t.Fatalf("DeleteRole() error = %v", err)
+	}
+	roles, err := service.ListRoles(ctx, "proj_roles")
+	if err != nil {
+		t.Fatalf("ListRoles() error = %v", err)
+	}
+	if len(roles) != 0 {
+		t.Fatalf("roles after delete = %+v, want empty", roles)
+	}
+}
+
+func TestUpsertWorkItemMirrorsWorkItemMutations(t *testing.T) {
+	ctx := context.Background()
+	service := cairnline.NewMemoryService()
+	now := time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC)
+	project := projects.Project{
+		ID:   "proj_work_items",
+		Name: "Work Adapter",
+		Roots: []projects.Root{
+			{ID: "root_main", Path: "/tmp/hecate-work", Kind: "git", Active: true},
+			{ID: "root_docs", Path: "/tmp/hecate-docs", Kind: "folder", Active: true},
+		},
+		DefaultRootID: "root_main",
+	}
+	if _, err := UpsertProject(ctx, service, project); err != nil {
+		t.Fatalf("UpsertProject() error = %v", err)
+	}
+	item := projectwork.WorkItem{
+		ID:              "work_docs",
+		ProjectID:       "proj_work_items",
+		Title:           "Document adapter",
+		Brief:           "Write the bridge docs.",
+		Status:          projectwork.WorkItemStatusBacklog,
+		Priority:        "high",
+		OwnerRoleID:     "writer",
+		RootID:          "root_main",
+		ReviewerRoleIDs: []string{"reviewer", "reviewer"},
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+
+	created, err := UpsertWorkItem(ctx, service, item)
+	if err != nil {
+		t.Fatalf("UpsertWorkItem(create) error = %v", err)
+	}
+	if created.ID != item.ID || created.Status != projectwork.WorkItemStatusBacklog || created.Priority != "high" || created.RootID != "root_main" || len(created.ReviewerRoleIDs) != 1 || created.ReviewerRoleIDs[0] != "reviewer" {
+		t.Fatalf("created work item = %+v, want mapped Hecate work item metadata", created)
+	}
+
+	item.Title = "Document adapter updated"
+	item.Status = projectwork.WorkItemStatusReady
+	item.Priority = "normal"
+	item.RootID = "root_docs"
+	item.ReviewerRoleIDs = []string{"reviewer"}
+	updated, err := UpsertWorkItem(ctx, service, item)
+	if err != nil {
+		t.Fatalf("UpsertWorkItem(update) error = %v", err)
+	}
+	if updated.Title != "Document adapter updated" || updated.Status != projectwork.WorkItemStatusReady || updated.RootID != "root_docs" || len(updated.ReviewerRoleIDs) != 1 {
+		t.Fatalf("updated work item = %+v, want updated work item metadata", updated)
+	}
+
+	if err := DeleteWorkItem(ctx, service, item.ProjectID, item.ID); err != nil {
+		t.Fatalf("DeleteWorkItem() error = %v", err)
+	}
+	if _, err := service.GetWorkItem(ctx, item.ProjectID, item.ID); !errors.Is(err, cairnline.ErrNotFound) {
+		t.Fatalf("GetWorkItem() error = %v, want cairnline.ErrNotFound", err)
+	}
+}
+
+func TestUpsertAssignmentCreatesAndSyncsLifecycle(t *testing.T) {
+	ctx := context.Background()
+	service := cairnline.NewMemoryService()
+	now := time.Date(2026, 6, 27, 12, 30, 0, 0, time.UTC)
+	project := projects.Project{
+		ID:   "proj_assignments",
+		Name: "Assignment Adapter",
+		Roots: []projects.Root{{
+			ID:     "root_main",
+			Path:   "/tmp/hecate-assignment",
+			Kind:   "git",
+			Active: true,
+		}},
+		DefaultRootID: "root_main",
+	}
+	if _, err := UpsertProject(ctx, service, project); err != nil {
+		t.Fatalf("UpsertProject() error = %v", err)
+	}
+	profile := agentprofiles.Profile{
+		ID:                  "implementation",
+		Name:                "Implementation",
+		Surface:             agentprofiles.SurfaceHecateTask,
+		ProviderHint:        "openai",
+		ModelHint:           "gpt-5",
+		ToolsEnabled:        true,
+		WritesAllowed:       true,
+		ApprovalPolicy:      agentprofiles.ApprovalRequire,
+		ProjectMemoryPolicy: agentprofiles.MemoryInclude,
+		ContextSourcePolicy: agentprofiles.ContextIncludeEnabled,
+		CreatedAt:           now,
+		UpdatedAt:           now,
+	}
+	if _, err := service.CreateAgentProfile(ctx, AgentProfile(profile)); err != nil {
+		t.Fatalf("CreateAgentProfile() error = %v", err)
+	}
+	if _, err := service.CreateExecutionProfile(ctx, ExecutionProfile(profile)); err != nil {
+		t.Fatalf("CreateExecutionProfile(profile) error = %v", err)
+	}
+	role := projectwork.AgentRoleProfile{
+		ID:                  "developer",
+		ProjectID:           project.ID,
+		Name:                "Developer",
+		DefaultDriverKind:   projectwork.AssignmentDriverHecateTask,
+		DefaultProvider:     "openai",
+		DefaultModel:        "gpt-5",
+		DefaultAgentProfile: profile.ID,
+		SkillIDs:            []string{"backend"},
+		CreatedAt:           now,
+		UpdatedAt:           now,
+	}
+	if _, err := UpsertRole(ctx, service, role); err != nil {
+		t.Fatalf("UpsertRole() error = %v", err)
+	}
+	workItem := projectwork.WorkItem{
+		ID:        "work_bridge",
+		ProjectID: project.ID,
+		Title:     "Bridge assignments",
+		Status:    projectwork.WorkItemStatusReady,
+		RootID:    "root_main",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if _, err := UpsertWorkItem(ctx, service, workItem); err != nil {
+		t.Fatalf("UpsertWorkItem() error = %v", err)
+	}
+	assignment := projectwork.Assignment{
+		ID:         "asgn_bridge",
+		ProjectID:  project.ID,
+		WorkItemID: workItem.ID,
+		RoleID:     role.ID,
+		RootID:     "root_main",
+		DriverKind: projectwork.AssignmentDriverHecateTask,
+		Status:     projectwork.AssignmentStatusQueued,
+		ExecutionRef: projectwork.AssignmentExecutionRef{
+			ContextSnapshotID: "ctx_queued",
+		},
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	queued, err := UpsertAssignment(ctx, service, assignment, role, profile)
+	if err != nil {
+		t.Fatalf("UpsertAssignment(queued) error = %v", err)
+	}
+	if queued.Status != cairnline.AssignmentQueued || queued.ProfileID != profile.ID || queued.ExecutionProfileID != roleExecutionProfileID(role) || queued.ExecutionMode != cairnline.ExecutionOrchestrated || queued.ContextSnapshotID != "ctx_queued" {
+		t.Fatalf("queued assignment = %+v, want created orchestrated assignment metadata", queued)
+	}
+	if queued.DesiredAgent.Kind != "hecate" || len(queued.DesiredAgent.SkillIDs) != 1 || queued.DesiredAgent.SkillIDs[0] != "backend" {
+		t.Fatalf("queued desired agent = %+v, want Hecate desired agent with role skill ids", queued.DesiredAgent)
+	}
+
+	followUpWork := projectwork.WorkItem{
+		ID:        "work_followup",
+		ProjectID: project.ID,
+		Title:     "Follow up assignments",
+		Status:    projectwork.WorkItemStatusReady,
+		RootID:    "root_main",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if _, err := UpsertWorkItem(ctx, service, followUpWork); err != nil {
+		t.Fatalf("UpsertWorkItem(follow up) error = %v", err)
+	}
+	externalRole := projectwork.AgentRoleProfile{
+		ID:                  "external_reviewer",
+		ProjectID:           project.ID,
+		Name:                "External Reviewer",
+		DefaultDriverKind:   projectwork.AssignmentDriverExternalAgent,
+		DefaultAgentProfile: profile.ID,
+		SkillIDs:            []string{"review", "review"},
+		CreatedAt:           now,
+		UpdatedAt:           now,
+	}
+	if _, err := UpsertRole(ctx, service, externalRole); err != nil {
+		t.Fatalf("UpsertRole(external reviewer) error = %v", err)
+	}
+	assignment.WorkItemID = followUpWork.ID
+	assignment.RoleID = externalRole.ID
+	assignment.DriverKind = projectwork.AssignmentDriverExternalAgent
+	assignment.ExecutionRef = projectwork.AssignmentExecutionRef{ContextSnapshotID: "ctx_updated"}
+	updatedQueued, err := UpsertAssignment(ctx, service, assignment, externalRole, profile)
+	if err != nil {
+		t.Fatalf("UpsertAssignment(update queued metadata) error = %v", err)
+	}
+	if updatedQueued.Status != cairnline.AssignmentQueued || updatedQueued.WorkItemID != followUpWork.ID || updatedQueued.RoleID != externalRole.ID || updatedQueued.ExecutionMode != cairnline.ExecutionExternalAdapter || updatedQueued.ContextSnapshotID != "ctx_updated" {
+		t.Fatalf("updated queued assignment = %+v, want retargeted queued assignment metadata", updatedQueued)
+	}
+	if !updatedQueued.CreatedAt.Equal(queued.CreatedAt) {
+		t.Fatalf("updated queued created_at = %s, want preserved %s", updatedQueued.CreatedAt, queued.CreatedAt)
+	}
+	if updatedQueued.DesiredAgent.Kind != cairnline.DesiredAgentAny || len(updatedQueued.DesiredAgent.SkillIDs) != 1 || updatedQueued.DesiredAgent.SkillIDs[0] != "review" {
+		t.Fatalf("updated queued desired agent = %+v, want external role skill metadata", updatedQueued.DesiredAgent)
+	}
+
+	assignment.Status = projectwork.AssignmentStatusRunning
+	assignment.ExecutionRef = projectwork.AssignmentExecutionRef{TaskID: "task_1", RunID: "run_1", ContextSnapshotID: "ctx_running"}
+	running, err := UpsertAssignment(ctx, service, assignment, externalRole, profile)
+	if err != nil {
+		t.Fatalf("UpsertAssignment(running) error = %v", err)
+	}
+	if running.Status != cairnline.AssignmentRunning || running.ClaimedBy != "external_adapter" || running.ExecutionRef != "run_1" || running.WorkItemID != followUpWork.ID || running.RoleID != externalRole.ID {
+		t.Fatalf("running assignment = %+v, want claimed running assignment", running)
+	}
+	if _, err := UpsertAssignment(ctx, service, assignment, externalRole, profile); err != nil {
+		t.Fatalf("UpsertAssignment(running idempotent) error = %v", err)
+	}
+
+	assignment.Status = projectwork.AssignmentStatusCompleted
+	completed, err := UpsertAssignment(ctx, service, assignment, externalRole, profile)
+	if err != nil {
+		t.Fatalf("UpsertAssignment(completed) error = %v", err)
+	}
+	if completed.Status != cairnline.AssignmentCompleted || completed.ExecutionRef != "run_1" {
+		t.Fatalf("completed assignment = %+v, want completed assignment with execution ref", completed)
+	}
+	if _, err := UpsertAssignment(ctx, service, assignment, externalRole, profile); err != nil {
+		t.Fatalf("UpsertAssignment(completed idempotent) error = %v", err)
+	}
+
+	if err := DeleteAssignment(ctx, service, assignment.ProjectID, assignment.ID); err != nil {
+		t.Fatalf("DeleteAssignment() error = %v", err)
+	}
+	if _, err := service.GetAssignment(ctx, assignment.ProjectID, assignment.ID); !errors.Is(err, cairnline.ErrNotFound) {
+		t.Fatalf("GetAssignment() error = %v, want cairnline.ErrNotFound", err)
+	}
+}
+
+func TestRecordCollaborationArtifactsAndUpsertHandoff(t *testing.T) {
+	ctx := context.Background()
+	service := cairnline.NewMemoryService()
+	now := time.Date(2026, 6, 27, 13, 0, 0, 0, time.UTC)
+	project := projects.Project{
+		ID:   "proj_collab",
+		Name: "Collaboration Adapter",
+		Roots: []projects.Root{{
+			ID:     "root_main",
+			Path:   "/tmp/hecate-collab",
+			Kind:   "git",
+			Active: true,
+		}},
+		DefaultRootID: "root_main",
+	}
+	if _, err := UpsertProject(ctx, service, project); err != nil {
+		t.Fatalf("UpsertProject() error = %v", err)
+	}
+	profile := agentprofiles.Profile{
+		ID:                  "implementation",
+		Name:                "Implementation",
+		Surface:             agentprofiles.SurfaceHecateTask,
+		ToolsEnabled:        true,
+		WritesAllowed:       true,
+		ApprovalPolicy:      agentprofiles.ApprovalRequire,
+		ProjectMemoryPolicy: agentprofiles.MemoryInclude,
+		ContextSourcePolicy: agentprofiles.ContextIncludeEnabled,
+		CreatedAt:           now,
+		UpdatedAt:           now,
+	}
+	if _, err := service.CreateAgentProfile(ctx, AgentProfile(profile)); err != nil {
+		t.Fatalf("CreateAgentProfile() error = %v", err)
+	}
+	if _, err := service.CreateExecutionProfile(ctx, ExecutionProfile(profile)); err != nil {
+		t.Fatalf("CreateExecutionProfile(profile) error = %v", err)
+	}
+	role := projectwork.AgentRoleProfile{
+		ID:                  "developer",
+		ProjectID:           project.ID,
+		Name:                "Developer",
+		DefaultDriverKind:   projectwork.AssignmentDriverHecateTask,
+		DefaultAgentProfile: profile.ID,
+		CreatedAt:           now,
+		UpdatedAt:           now,
+	}
+	if _, err := UpsertRole(ctx, service, role); err != nil {
+		t.Fatalf("UpsertRole() error = %v", err)
+	}
+	workItem := projectwork.WorkItem{
+		ID:        "work_collab",
+		ProjectID: project.ID,
+		Title:     "Record collaboration",
+		Status:    projectwork.WorkItemStatusReady,
+		RootID:    "root_main",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if _, err := UpsertWorkItem(ctx, service, workItem); err != nil {
+		t.Fatalf("UpsertWorkItem() error = %v", err)
+	}
+	assignment := projectwork.Assignment{
+		ID:         "asgn_collab",
+		ProjectID:  project.ID,
+		WorkItemID: workItem.ID,
+		RoleID:     role.ID,
+		RootID:     "root_main",
+		DriverKind: projectwork.AssignmentDriverHecateTask,
+		Status:     projectwork.AssignmentStatusQueued,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+	if _, err := UpsertAssignment(ctx, service, assignment, role, profile); err != nil {
+		t.Fatalf("UpsertAssignment() error = %v", err)
+	}
+
+	generic := projectwork.CollaborationArtifact{
+		ID:           "art_decision",
+		ProjectID:    project.ID,
+		WorkItemID:   workItem.ID,
+		AssignmentID: assignment.ID,
+		Kind:         projectwork.ArtifactKindDecisionNote,
+		Title:        "Decision",
+		Body:         "Keep the bridge seams non-authoritative.",
+		AuthorRoleID: role.ID,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	recordedArtifact, err := RecordArtifact(ctx, service, generic)
+	if err != nil {
+		t.Fatalf("RecordArtifact() error = %v", err)
+	}
+	if recordedArtifact.ID != generic.ID || recordedArtifact.AssignmentID != assignment.ID || recordedArtifact.AuthorRoleID != role.ID || recordedArtifact.Body != generic.Body {
+		t.Fatalf("recorded artifact = %+v, want generic collaboration artifact metadata", recordedArtifact)
+	}
+	generic.Body = "Replay should not mutate create-only artifacts."
+	replayedArtifact, err := RecordArtifact(ctx, service, generic)
+	if err != nil {
+		t.Fatalf("RecordArtifact(replay) error = %v", err)
+	}
+	if replayedArtifact.Body != recordedArtifact.Body {
+		t.Fatalf("replayed artifact body = %q, want original create-only body %q", replayedArtifact.Body, recordedArtifact.Body)
+	}
+
+	evidenceArtifact := projectwork.CollaborationArtifact{
+		ID:                 "art_evidence",
+		ProjectID:          project.ID,
+		WorkItemID:         workItem.ID,
+		AssignmentID:       assignment.ID,
+		Kind:               projectwork.ArtifactKindEvidenceLink,
+		Title:              "CI run",
+		Body:               "Tests passed.",
+		EvidenceURL:        "https://github.com/hecatehq/hecate/actions/runs/42",
+		EvidenceTrustLabel: projectwork.EvidenceTrustOperatorProvided,
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	}
+	evidence, err := RecordEvidence(ctx, service, evidenceArtifact)
+	if err != nil {
+		t.Fatalf("RecordEvidence() error = %v", err)
+	}
+	if evidence.ID != "art_evidence" || evidence.AssignmentID != assignment.ID || evidence.Locator != evidenceArtifact.EvidenceURL || evidence.TrustLabel != projectwork.EvidenceTrustOperatorProvided {
+		t.Fatalf("recorded evidence = %+v, want evidence link metadata", evidence)
+	}
+
+	reviewArtifact := projectwork.CollaborationArtifact{
+		ID:                   "art_review",
+		ProjectID:            project.ID,
+		WorkItemID:           workItem.ID,
+		AssignmentID:         assignment.ID,
+		Kind:                 projectwork.ArtifactKindReview,
+		Title:                "Review",
+		Body:                 "Needs one follow-up.",
+		AuthorRoleID:         role.ID,
+		ReviewedAssignmentID: assignment.ID,
+		ReviewVerdict:        projectwork.ReviewVerdictChangesRequested,
+		ReviewRisk:           projectwork.ReviewRiskHigh,
+		CreatedAt:            now,
+		UpdatedAt:            now,
+	}
+	review, err := RecordReview(ctx, service, reviewArtifact)
+	if err != nil {
+		t.Fatalf("RecordReview() error = %v", err)
+	}
+	if review.ID != "art_review" || review.AssignmentID != assignment.ID || review.ReviewerRoleID != role.ID || review.Verdict != cairnline.ReviewVerdictConcerns || review.Risk != cairnline.ReviewRiskHigh {
+		t.Fatalf("recorded review = %+v, want reduced review metadata", review)
+	}
+
+	handoff := projectwork.Handoff{
+		ID:                    "handoff_review",
+		ProjectID:             project.ID,
+		WorkItemID:            workItem.ID,
+		SourceAssignmentID:    assignment.ID,
+		SourceRunID:           "run_collab",
+		TargetRoleID:          role.ID,
+		Title:                 "Review follow-up",
+		Summary:               "Please address the review concern.",
+		RecommendedNextAction: "Create a follow-up assignment.",
+		LinkedArtifactIDs:     []string{"art_review", "art_review"},
+		ContextRefs:           []string{"ctx_1"},
+		Status:                projectwork.HandoffStatusPending,
+		ProvenanceKind:        "operator",
+		TrustLabel:            "operator_reviewed",
+		CreatedByRoleID:       role.ID,
+		CreatedAt:             now,
+		UpdatedAt:             now,
+	}
+	createdHandoff, err := UpsertHandoff(ctx, service, handoff)
+	if err != nil {
+		t.Fatalf("UpsertHandoff(create) error = %v", err)
+	}
+	if createdHandoff.ID != handoff.ID || createdHandoff.SourceAssignmentID != assignment.ID || createdHandoff.FromRoleID != role.ID || createdHandoff.ToRoleID != role.ID || len(createdHandoff.LinkedArtifactIDs) != 1 || createdHandoff.Status != cairnline.HandoffStatusOpen {
+		t.Fatalf("created handoff = %+v, want mapped handoff metadata", createdHandoff)
+	}
+
+	handoff.Status = projectwork.HandoffStatusAccepted
+	handoff.TargetAssignmentID = assignment.ID
+	handoff.TargetWorkItemID = workItem.ID
+	handoff.Summary = "Accepted follow-up."
+	updatedHandoff, err := UpsertHandoff(ctx, service, handoff)
+	if err != nil {
+		t.Fatalf("UpsertHandoff(update) error = %v", err)
+	}
+	if updatedHandoff.Status != cairnline.HandoffStatusAccepted || updatedHandoff.TargetAssignmentID != assignment.ID || updatedHandoff.TargetWorkItemID != workItem.ID || updatedHandoff.Body != "Accepted follow-up." {
+		t.Fatalf("updated handoff = %+v, want accepted handoff update", updatedHandoff)
+	}
+
+	if err := DeleteHandoff(ctx, service, handoff.ProjectID, handoff.WorkItemID, handoff.ID); err != nil {
+		t.Fatalf("DeleteHandoff() error = %v", err)
+	}
+	if _, err := service.GetHandoff(ctx, handoff.ProjectID, handoff.WorkItemID, handoff.ID); !errors.Is(err, cairnline.ErrNotFound) {
+		t.Fatalf("GetHandoff() error = %v, want cairnline.ErrNotFound", err)
+	}
+}
+
+func TestUpsertProjectSkillMirrorsSkillMetadata(t *testing.T) {
+	ctx := context.Background()
+	service := cairnline.NewMemoryService()
+	now := time.Date(2026, 6, 27, 11, 0, 0, 0, time.UTC)
+	if _, err := UpsertProject(ctx, service, projects.Project{
+		ID:   "proj_skills",
+		Name: "Skill Adapter",
+	}); err != nil {
+		t.Fatalf("UpsertProject() error = %v", err)
+	}
+
+	skill := projectskills.Skill{
+		ID:                     "backend",
+		ProjectID:              "proj_skills",
+		Title:                  "Backend",
+		Description:            "Server implementation guidance.",
+		Path:                   ".agents/skills/backend/SKILL.md",
+		RootID:                 "root_main",
+		Format:                 projectskills.FormatSkillMD,
+		Enabled:                false,
+		Status:                 projectskills.StatusAvailable,
+		TrustLabel:             projectskills.TrustWorkspaceSkill,
+		SourceContextSourceIDs: []string{"ctx_agents"},
+		Warnings:               []string{"Review before use."},
+		DiscoveredAt:           now,
+		CreatedAt:              now.Add(-time.Hour),
+		UpdatedAt:              now,
+	}
+
+	created, err := UpsertProjectSkill(ctx, service, skill)
+	if err != nil {
+		t.Fatalf("UpsertProjectSkill(create) error = %v", err)
+	}
+	if created.ID != "backend" || created.ProjectID != "proj_skills" || created.Title != "Backend" || created.Path != ".agents/skills/backend/SKILL.md" || created.RootID != "root_main" {
+		t.Fatalf("created skill = %+v, want portable skill metadata", created)
+	}
+	if created.Enabled {
+		t.Fatalf("created skill enabled = true, want disabled operator override preserved")
+	}
+	if created.Status != cairnline.SkillStatusAvailable || created.TrustLabel != cairnline.SkillTrustWorkspace || len(created.SourceRefs) != 1 || created.SourceRefs[0] != "ctx_agents" || len(created.Warnings) != 1 {
+		t.Fatalf("created skill = %+v, want status/trust/provenance/warnings", created)
+	}
+
+	skill.Title = "Backend Lead"
+	skill.Description = "Operator edited description."
+	skill.Enabled = true
+	skill.Status = projectskills.StatusConflict
+	skill.TrustLabel = "operator_curated_skill"
+	skill.Warnings = []string{"Duplicate skill id."}
+	updated, err := UpsertProjectSkill(ctx, service, skill)
+	if err != nil {
+		t.Fatalf("UpsertProjectSkill(update) error = %v", err)
+	}
+	if updated.Title != "Backend Lead" || updated.Description != "Operator edited description." || !updated.Enabled || updated.Status != cairnline.SkillStatusConflict || updated.TrustLabel != "operator_curated_skill" {
+		t.Fatalf("updated skill = %+v, want operator-edited metadata", updated)
+	}
+	if updated.CreatedAt.IsZero() || !updated.DiscoveredAt.Equal(now) {
+		t.Fatalf("updated skill times = created %s discovered %s, want preserved created and Hecate discovered time", updated.CreatedAt, updated.DiscoveredAt)
+	}
+}
+
+func TestUpsertProjectSkillsMirrorsBatch(t *testing.T) {
+	ctx := context.Background()
+	service := cairnline.NewMemoryService()
+	if _, err := UpsertProject(ctx, service, projects.Project{
+		ID:   "proj_skill_batch",
+		Name: "Skill Batch",
+	}); err != nil {
+		t.Fatalf("UpsertProject() error = %v", err)
+	}
+	written, err := UpsertProjectSkills(ctx, service, []projectskills.Skill{
+		{
+			ID:        "backend",
+			ProjectID: "proj_skill_batch",
+			Title:     "Backend",
+			Path:      ".agents/skills/backend/SKILL.md",
+			Format:    projectskills.FormatSkillMD,
+			Enabled:   true,
+			Status:    projectskills.StatusAvailable,
+		},
+		{
+			ID:        "frontend",
+			ProjectID: "proj_skill_batch",
+			Title:     "Frontend",
+			Path:      ".agents/skills/frontend/SKILL.md",
+			Format:    projectskills.FormatSkillMD,
+			Enabled:   true,
+			Status:    projectskills.StatusAvailable,
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpsertProjectSkills() error = %v", err)
+	}
+	if len(written) != 2 {
+		t.Fatalf("written skills = %+v, want two upserted skills", written)
+	}
+	items, err := service.ListProjectSkills(ctx, "proj_skill_batch")
+	if err != nil {
+		t.Fatalf("ListProjectSkills() error = %v", err)
+	}
+	if len(items) != 2 || findCairnlineProjectSkill(items, "backend") == nil || findCairnlineProjectSkill(items, "frontend") == nil {
+		t.Fatalf("project skills = %+v, want backend and frontend", items)
+	}
+}
+
+func TestUpsertMemoryEntryMirrorsMemoryMetadata(t *testing.T) {
+	ctx := context.Background()
+	service := cairnline.NewMemoryService()
+	if _, err := UpsertProject(ctx, service, projects.Project{
+		ID:   "proj_memory",
+		Name: "Memory Adapter",
+	}); err != nil {
+		t.Fatalf("UpsertProject() error = %v", err)
+	}
+
+	entry := memory.Entry{
+		ID:         "mem_backend",
+		Scope:      memory.ScopeProject,
+		ProjectID:  "proj_memory",
+		Title:      "Backend Memory",
+		Body:       "Prefer bounded bridge seams before route switches.",
+		TrustLabel: memory.TrustLabelOperatorMemory,
+		SourceKind: memory.SourceKindOperator,
+		SourceID:   "operator_note",
+		Enabled:    false,
+	}
+	created, err := UpsertMemoryEntry(ctx, service, entry)
+	if err != nil {
+		t.Fatalf("UpsertMemoryEntry(create) error = %v", err)
+	}
+	if created.ID != "mem_backend" || created.ProjectID != "proj_memory" || created.Title != "Backend Memory" || created.Body != entry.Body || created.TrustLabel != memory.TrustLabelOperatorMemory || created.SourceKind != memory.SourceKindOperator || created.SourceID != "operator_note" {
+		t.Fatalf("created memory = %+v, want Hecate memory metadata", created)
+	}
+	if created.Enabled {
+		t.Fatalf("created memory enabled = true, want disabled Hecate memory preserved")
+	}
+
+	entry.Title = "Backend Memory Updated"
+	entry.Body = "Now routed through the reusable memory seam."
+	entry.Enabled = true
+	entry.SourceKind = "handoff"
+	entry.SourceID = "handoff_1"
+	updated, err := UpsertMemoryEntry(ctx, service, entry)
+	if err != nil {
+		t.Fatalf("UpsertMemoryEntry(update) error = %v", err)
+	}
+	if updated.Title != "Backend Memory Updated" || updated.Body != entry.Body || !updated.Enabled || updated.SourceKind != "handoff" || updated.SourceID != "handoff_1" {
+		t.Fatalf("updated memory = %+v, want updated Hecate memory metadata", updated)
+	}
+	if err := DeleteMemoryEntry(ctx, service, "proj_memory", "mem_backend"); err != nil {
+		t.Fatalf("DeleteMemoryEntry() error = %v", err)
+	}
+	if _, err := service.GetMemoryEntry(ctx, "proj_memory", "mem_backend"); !errors.Is(err, cairnline.ErrNotFound) {
+		t.Fatalf("GetMemoryEntry() error = %v, want cairnline.ErrNotFound", err)
+	}
+}
+
+func TestUpsertMemoryCandidateMirrorsResolvedState(t *testing.T) {
+	ctx := context.Background()
+	service := cairnline.NewMemoryService()
+	if _, err := UpsertProject(ctx, service, projects.Project{
+		ID:   "proj_memory_candidates",
+		Name: "Memory Candidate Adapter",
+	}); err != nil {
+		t.Fatalf("UpsertProject() error = %v", err)
+	}
+	if _, err := UpsertMemoryEntry(ctx, service, memory.Entry{
+		ID:         "mem_promoted",
+		Scope:      memory.ScopeProject,
+		ProjectID:  "proj_memory_candidates",
+		Title:      "Promoted Memory",
+		Body:       "Use the promoted entry id generated by Hecate.",
+		TrustLabel: memory.TrustLabelGenerated,
+		SourceKind: "handoff",
+		SourceID:   "handoff_memory",
+		Enabled:    true,
+	}); err != nil {
+		t.Fatalf("UpsertMemoryEntry(promoted) error = %v", err)
+	}
+
+	candidate := memory.Candidate{
+		ID:                  "memcand_promoted",
+		ProjectID:           "proj_memory_candidates",
+		Title:               "Candidate",
+		Body:                "Candidate body.",
+		SuggestedKind:       "project_pattern",
+		SuggestedTrustLabel: memory.TrustLabelGenerated,
+		SuggestedSourceKind: "handoff",
+		SuggestedSourceID:   "handoff_memory",
+		SourceRefs: []memory.CandidateSourceRef{{
+			Kind:  "handoff",
+			ID:    "handoff_memory",
+			Title: "Memory handoff",
+			URL:   "https://example.test/handoff",
+		}},
+		Status:           memory.CandidateStatusPromoted,
+		PromotedMemoryID: "mem_promoted",
+	}
+	created, err := UpsertMemoryCandidate(ctx, service, candidate)
+	if err != nil {
+		t.Fatalf("UpsertMemoryCandidate(create promoted) error = %v", err)
+	}
+	if created.Status != cairnline.MemoryCandidatePromoted || created.PromotedMemoryID != "mem_promoted" || created.SuggestedKind != "project_pattern" || created.SuggestedTrustLabel != memory.TrustLabelGenerated || len(created.SourceRefs) != 1 || created.SourceRefs[0].ID != "handoff_memory" {
+		t.Fatalf("created candidate = %+v, want promoted Hecate candidate metadata", created)
+	}
+
+	candidate.Status = memory.CandidateStatusRejected
+	candidate.StatusReason = "Too speculative"
+	candidate.PromotedMemoryID = ""
+	updated, err := UpsertMemoryCandidate(ctx, service, candidate)
+	if err != nil {
+		t.Fatalf("UpsertMemoryCandidate(update rejected) error = %v", err)
+	}
+	if updated.Status != cairnline.MemoryCandidateRejected || updated.StatusReason != "Too speculative" || updated.PromotedMemoryID != "" {
+		t.Fatalf("updated candidate = %+v, want rejected Hecate candidate state", updated)
+	}
+	if err := DeleteMemoryCandidate(ctx, service, "proj_memory_candidates", "memcand_promoted"); err != nil {
+		t.Fatalf("DeleteMemoryCandidate() error = %v", err)
+	}
+	if _, err := service.GetMemoryCandidate(ctx, "proj_memory_candidates", "memcand_promoted"); !errors.Is(err, cairnline.ErrNotFound) {
+		t.Fatalf("GetMemoryCandidate() error = %v, want cairnline.ErrNotFound", err)
+	}
+}
+
+func TestSeedSnapshotsMirrorsMultipleProjectsWithSharedProfiles(t *testing.T) {
+	ctx := context.Background()
+	service := cairnline.NewMemoryService()
+	now := time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC)
+	sharedProfile := agentprofiles.Profile{
+		ID:                  "shared_architect",
+		Name:                "Shared architect",
+		Surface:             agentprofiles.SurfaceHecateTask,
+		ModelHint:           "gpt-5",
+		ProviderHint:        "openai",
+		ProjectMemoryPolicy: agentprofiles.MemoryInclude,
+		ContextSourcePolicy: agentprofiles.ContextIncludeEnabled,
+		CreatedAt:           now,
+		UpdatedAt:           now,
+	}
+	snapshots := []Snapshot{{
+		Project: projects.Project{
+			ID:                  "proj_one",
+			Name:                "One",
+			DefaultAgentProfile: "shared_architect",
+			DefaultProvider:     "openai",
+			DefaultModel:        "gpt-5",
+			CreatedAt:           now,
+			UpdatedAt:           now,
+		},
+		AgentProfiles: []agentprofiles.Profile{sharedProfile},
+	}, {
+		Project: projects.Project{
+			ID:                  "proj_two",
+			Name:                "Two",
+			DefaultAgentProfile: "shared_architect",
+			CreatedAt:           now,
+			UpdatedAt:           now,
+		},
+		AgentProfiles: []agentprofiles.Profile{sharedProfile},
+	}}
+
+	if err := SeedSnapshots(ctx, service, snapshots); err != nil {
+		t.Fatalf("SeedSnapshots() error = %v", err)
+	}
+	projects, err := service.ListProjects(ctx)
+	if err != nil {
+		t.Fatalf("ListProjects() error = %v", err)
+	}
+	if len(projects) != 2 {
+		t.Fatalf("projects = %+v, want two seeded projects", projects)
+	}
+	profiles, err := service.ListAgentProfiles(ctx)
+	if err != nil {
+		t.Fatalf("ListAgentProfiles() error = %v", err)
+	}
+	if len(profiles) != 1 || profiles[0].ID != "shared_architect" {
+		t.Fatalf("profiles = %+v, want shared profile inserted once", profiles)
+	}
+	executionProfiles, err := service.ListExecutionProfiles(ctx)
+	if err != nil {
+		t.Fatalf("ListExecutionProfiles() error = %v", err)
+	}
+	if len(executionProfiles) != 2 {
+		t.Fatalf("execution profiles = %+v, want shared agent profile plus project execution defaults", executionProfiles)
+	}
+}
+
 func TestSeedProjectFromStoresPersistsToCairnlineSQLite(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 6, 26, 12, 0, 0, 0, time.UTC)
@@ -247,6 +1367,16 @@ func TestSeedProjectFromStoresPersistsToCairnlineSQLite(t *testing.T) {
 	}
 	if len(packet.Evidence) != 1 || len(packet.Reviews) != 1 || len(packet.Handoffs) != 1 || len(packet.Memory) != 1 || len(packet.MemoryCandidates) != 1 {
 		t.Fatalf("reopened launch packet collaboration counts evidence=%d reviews=%d handoffs=%d memory_entries=%d memory_candidates=%d, want all one", len(packet.Evidence), len(packet.Reviews), len(packet.Handoffs), len(packet.Memory), len(packet.MemoryCandidates))
+	}
+	proposals, err := reopened.ListAssistantProposals(ctx, snapshot.Project.ID)
+	if err != nil {
+		t.Fatalf("reopened ListAssistantProposals() error = %v", err)
+	}
+	if len(proposals) != 1 || proposals[0].ID != "pa_bridge" || proposals[0].Status != cairnline.AssistantProposalStatusApplied || proposals[0].LatestResult == nil || len(proposals[0].ApplyAttempts) != 1 || proposals[0].AppliedAt == nil {
+		t.Fatalf("reopened assistant proposals = %+v, want persisted imported proposal ledger", proposals)
+	}
+	if len(proposals[0].Proposal.Warnings) != 1 || proposals[0].Proposal.Warnings[0] != "Review generated follow-up scope before applying." {
+		t.Fatalf("reopened assistant proposal warnings = %+v, want persisted warnings", proposals[0].Proposal.Warnings)
 	}
 	if packet.Evidence[0].AssignmentID != "asgn_external" {
 		t.Fatalf("reopened evidence = %+v, want persisted assignment-scoped evidence", packet.Evidence[0])
@@ -297,11 +1427,20 @@ func TestExecutionModeMapsHecateDrivers(t *testing.T) {
 }
 
 func bridgeSnapshotFixture(now time.Time) Snapshot {
+	defaultToolsEnabled := true
+	defaultCompactOutput := true
 	return Snapshot{
 		Project: projects.Project{
-			ID:          "proj_hecate",
-			Name:        "Hecate",
-			Description: "Local AI operations console.",
+			ID:                       "proj_hecate",
+			Name:                     "Hecate",
+			Description:              "Local AI operations console.",
+			DefaultProvider:          "ollama",
+			DefaultModel:             "qwen3-coder",
+			DefaultAgentProfile:      "bridge_implementation",
+			DefaultToolsEnabled:      &defaultToolsEnabled,
+			DefaultWorkspaceMode:     "worktree",
+			DefaultSystemPrompt:      "Stay crisp.",
+			DefaultCompactToolOutput: &defaultCompactOutput,
 			Roots: []projects.Root{{
 				ID:        "root_main",
 				Path:      "/Users/alice/dev/hecate",
@@ -368,6 +1507,8 @@ func bridgeSnapshotFixture(now time.Time) Snapshot {
 			Description:         "Implements backend and shared behavior.",
 			Instructions:        "Keep handlers thin.",
 			DefaultDriverKind:   projectwork.AssignmentDriverHecateTask,
+			DefaultProvider:     "openai",
+			DefaultModel:        "gpt-5",
 			DefaultAgentProfile: "bridge_implementation",
 			SkillIDs:            []string{"backend", "backend"},
 			CreatedAt:           now,
@@ -425,6 +1566,17 @@ func bridgeSnapshotFixture(now time.Time) Snapshot {
 			UpdatedAt: now,
 		}},
 		Artifacts: []projectwork.CollaborationArtifact{{
+			ID:           "art_decision",
+			ProjectID:    "proj_hecate",
+			WorkItemID:   "work_bridge",
+			AssignmentID: "asgn_bridge",
+			Kind:         projectwork.ArtifactKindDecisionNote,
+			Title:        "Bridge decision",
+			Body:         "Keep generic collaboration artifacts portable.",
+			AuthorRoleID: "bridge_developer",
+			CreatedAt:    now,
+			UpdatedAt:    now,
+		}, {
 			ID:                 "art_evidence",
 			ProjectID:          "proj_hecate",
 			WorkItemID:         "work_bridge",
@@ -518,7 +1670,151 @@ func bridgeSnapshotFixture(now time.Time) Snapshot {
 			CreatedAt:           now,
 			UpdatedAt:           now,
 		}},
+		AssistantProposals: []projectassistant.ProposalRecord{
+			bridgeAssistantProposalFixture(now),
+			bridgeHecateOnlyProposalFixture(now),
+		},
 	}
+}
+
+func bridgeAssistantProposalFixture(now time.Time) projectassistant.ProposalRecord {
+	appliedAt := now.Add(2 * time.Minute)
+	result := projectassistant.ApplyResult{
+		ProposalID:           "pa_bridge",
+		Status:               projectassistant.ApplyStatusApplied,
+		Applied:              true,
+		TotalActionCount:     4,
+		CommittedActionCount: 4,
+		Actions: []projectassistant.ActionResult{{
+			Kind: projectassistant.ActionAttachProjectRoot,
+			ID:   "root_proposal",
+			Data: map[string]string{
+				"project_id": "proj_hecate",
+				"root_id":    "root_proposal",
+			},
+		}, {
+			Kind: projectassistant.ActionSetProjectDefaults,
+			ID:   "proj_hecate",
+			Data: map[string]string{
+				"project_id": "proj_hecate",
+				"root_id":    "root_proposal",
+			},
+		}, {
+			Kind: projectassistant.ActionRemoveProjectRoot,
+			ID:   "root_legacy",
+			Data: map[string]string{
+				"project_id": "proj_hecate",
+				"root_id":    "root_legacy",
+			},
+		}, {
+			Kind: projectassistant.ActionCreateWorkItem,
+			ID:   "work_from_proposal",
+			Data: map[string]string{
+				"project_id":   "proj_hecate",
+				"work_item_id": "work_from_proposal",
+			},
+		}},
+	}
+	return projectassistant.ProposalRecord{
+		ID:        "pa_bridge",
+		ProjectID: "proj_hecate",
+		Source:    projectassistant.ProposalSourceDraft,
+		SourceID:  "deterministic",
+		Proposal: projectassistant.Proposal{
+			ID:      "pa_bridge",
+			Title:   "Create follow-up work",
+			Summary: "Queue one portable follow-up work item.",
+			Warnings: []string{
+				"Review generated follow-up scope before applying.",
+			},
+			Actions: []projectassistant.Action{{
+				Kind:   projectassistant.ActionAttachProjectRoot,
+				Target: map[string]string{"project_id": "proj_hecate"},
+				Patch: bridgeRawPatch(map[string]any{
+					"id":         "root_proposal",
+					"path":       "/Users/alice/dev/hecate-proposal",
+					"kind":       "git_worktree",
+					"git_branch": "proposal/root-actions",
+					"active":     true,
+				}),
+				Reason: "Attach a proposed worktree root.",
+			}, {
+				Kind:   projectassistant.ActionSetProjectDefaults,
+				Target: map[string]string{"project_id": "proj_hecate"},
+				Patch: bridgeRawPatch(map[string]any{
+					"default_root_id": "root_proposal",
+					"default_model":   "qwen3-coder",
+				}),
+				Reason: "Make the proposed root the default portable root.",
+			}, {
+				Kind:   projectassistant.ActionRemoveProjectRoot,
+				Target: map[string]string{"project_id": "proj_hecate", "root_id": "root_legacy"},
+				Reason: "Remove an obsolete root.",
+			}, {
+				Kind:   projectassistant.ActionCreateWorkItem,
+				Target: map[string]string{"project_id": "proj_hecate"},
+				Patch: bridgeRawPatch(map[string]any{
+					"id":            "work_from_proposal",
+					"project_id":    "proj_hecate",
+					"title":         "Follow up bridge export",
+					"brief":         "Verify assistant proposal ledger import.",
+					"status":        projectwork.WorkItemStatusReady,
+					"priority":      "normal",
+					"owner_role_id": "bridge_developer",
+					"root_id":       "root_main",
+				}),
+				Reason: "Capture a reviewable follow-up.",
+			}},
+			RequiresConfirmation: true,
+			TraceID:              "trace_bridge",
+		},
+		Status:       projectassistant.ApplyStatusApplied,
+		LatestResult: &result,
+		ApplyAttempts: []projectassistant.ApplyAttempt{{
+			ID:         "paatt_bridge",
+			ProposalID: "pa_bridge",
+			Status:     projectassistant.ApplyStatusApplied,
+			Confirmed:  true,
+			Result:     result,
+			CreatedAt:  appliedAt,
+		}},
+		CreatedAt: appliedAt.Add(-time.Minute),
+		UpdatedAt: appliedAt,
+		AppliedAt: &appliedAt,
+	}
+}
+
+func bridgeHecateOnlyProposalFixture(now time.Time) projectassistant.ProposalRecord {
+	return projectassistant.ProposalRecord{
+		ID:        "pa_hecate_defaults",
+		ProjectID: "proj_hecate",
+		Source:    projectassistant.ProposalSourceBootstrap,
+		SourceID:  "bootstrap",
+		Proposal: projectassistant.Proposal{
+			ID:      "pa_hecate_defaults",
+			Title:   "Set Hecate defaults",
+			Summary: "Hecate-only project default updates are not portable Cairnline actions.",
+			Actions: []projectassistant.Action{{
+				Kind:   projectassistant.ActionSetProjectDefaults,
+				Target: map[string]string{"project_id": "proj_hecate"},
+				Patch: bridgeRawPatch(map[string]any{
+					"default_model": "qwen3-coder",
+				}),
+			}},
+			RequiresConfirmation: true,
+		},
+		Status:    projectassistant.ProposalStatusProposed,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+}
+
+func bridgeRawPatch(value any) json.RawMessage {
+	payload, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
+	}
+	return payload
 }
 
 func bridgeMemorySources() SnapshotSources {
@@ -530,6 +1826,7 @@ func bridgeMemorySources() SnapshotSources {
 		Work:             projectwork.NewMemoryStore(),
 		Memory:           memoryStore,
 		MemoryCandidates: memoryStore,
+		Proposals:        projectassistant.NewMemoryProposalStore(),
 	}
 }
 
@@ -581,6 +1878,19 @@ func seedHecateSources(t *testing.T, ctx context.Context, sources SnapshotSource
 			t.Fatalf("Create memory candidate %q: %v", candidate.ID, err)
 		}
 	}
+	for _, proposal := range snapshot.AssistantProposals {
+		record := proposal
+		attempts := append([]projectassistant.ApplyAttempt(nil), record.ApplyAttempts...)
+		record.ApplyAttempts = nil
+		if _, err := sources.Proposals.UpsertProposal(ctx, record); err != nil {
+			t.Fatalf("Upsert proposal %q: %v", proposal.ID, err)
+		}
+		for _, attempt := range attempts {
+			if _, err := sources.Proposals.RecordApplyAttempt(ctx, attempt); err != nil {
+				t.Fatalf("Record proposal attempt %q: %v", attempt.ID, err)
+			}
+		}
+	}
 }
 
 func hasAgentProfile(profiles []agentprofiles.Profile, id string) bool {
@@ -608,6 +1918,28 @@ func findCairnlineMemoryCandidate(candidates []cairnline.MemoryCandidate, id str
 		}
 	}
 	return nil
+}
+
+func findCairnlineExecutionProfile(profiles []cairnline.ExecutionProfile, id string) *cairnline.ExecutionProfile {
+	for idx := range profiles {
+		if profiles[idx].ID == id {
+			return &profiles[idx]
+		}
+	}
+	return nil
+}
+
+func findCairnlineProjectSkill(skills []cairnline.ProjectSkill, id string) *cairnline.ProjectSkill {
+	for idx := range skills {
+		if skills[idx].ID == id {
+			return &skills[idx]
+		}
+	}
+	return nil
+}
+
+func boolPtrForTest(value bool) *bool {
+	return &value
 }
 
 func hasCairnlineOperation(items []cairnline.ProjectOperationItem, kind, workItemID, refID string) bool {

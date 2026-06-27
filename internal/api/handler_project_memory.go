@@ -1,10 +1,12 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
 
+	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/memory"
 )
 
@@ -65,19 +67,12 @@ func (h *Handler) HandleProjectMemoryEntries(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	includeDisabled := requestBool(r, "include_disabled")
-	items, err := h.memory.List(r.Context(), memory.Filter{
-		ProjectID:       projectID,
-		IncludeDisabled: includeDisabled,
-	})
+	items, err := h.renderProjectMemoryEntries(r.Context(), projectID, includeDisabled)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	data := make([]ProjectMemoryResponseItem, 0, len(items))
-	for _, item := range items {
-		data = append(data, renderProjectMemory(item))
-	}
-	WriteJSON(w, http.StatusOK, ProjectMemoryListResponse{Object: "project_memory", Data: data})
+	WriteJSON(w, http.StatusOK, ProjectMemoryListResponse{Object: "project_memory", Data: items})
 }
 
 func (h *Handler) HandleCreateProjectMemoryEntry(w http.ResponseWriter, r *http.Request) {
@@ -120,7 +115,8 @@ func (h *Handler) HandleCreateProjectMemoryEntry(w http.ResponseWriter, r *http.
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	WriteJSON(w, http.StatusCreated, ProjectMemoryResponse{Object: "project_memory_entry", Data: renderProjectMemory(created)})
+	h.mirrorProjectMemoryEntryToCairnline(r.Context(), "project_memory_create", created)
+	WriteJSON(w, http.StatusCreated, ProjectMemoryResponse{Object: "project_memory_entry", Data: renderProjectMemory(created, "hecate")})
 }
 
 func (h *Handler) HandleProjectMemoryCandidates(w http.ResponseWriter, r *http.Request) {
@@ -128,27 +124,19 @@ func (h *Handler) HandleProjectMemoryCandidates(w http.ResponseWriter, r *http.R
 	if !h.requireProjectExists(w, r, projectID) {
 		return
 	}
-	candidateStore, ok := h.requireProjectMemoryCandidateStore(w)
-	if !ok {
+	if _, ok := h.requireProjectMemoryCandidateStore(w); !ok {
 		return
 	}
 	status := strings.TrimSpace(r.URL.Query().Get("status"))
 	if status == "" && !requestBool(r, "include_resolved") {
 		status = memory.CandidateStatusPending
 	}
-	items, err := candidateStore.ListCandidates(r.Context(), memory.CandidateFilter{
-		ProjectID: projectID,
-		Status:    status,
-	})
+	items, err := h.renderProjectMemoryCandidates(r.Context(), projectID, status, requestBool(r, "include_resolved"))
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	data := make([]ProjectMemoryCandidateResponseItem, 0, len(items))
-	for _, item := range items {
-		data = append(data, renderProjectMemoryCandidate(item))
-	}
-	WriteJSON(w, http.StatusOK, ProjectMemoryCandidateListResponse{Object: "project_memory_candidates", Data: data})
+	WriteJSON(w, http.StatusOK, ProjectMemoryCandidateListResponse{Object: "project_memory_candidates", Data: items})
 }
 
 func (h *Handler) HandleCreateProjectMemoryCandidate(w http.ResponseWriter, r *http.Request) {
@@ -189,7 +177,8 @@ func (h *Handler) HandleCreateProjectMemoryCandidate(w http.ResponseWriter, r *h
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	WriteJSON(w, http.StatusCreated, ProjectMemoryCandidateResponse{Object: "project_memory_candidate", Data: renderProjectMemoryCandidate(created)})
+	h.mirrorProjectMemoryCandidateToCairnline(r.Context(), "project_memory_candidate_create", created)
+	WriteJSON(w, http.StatusCreated, ProjectMemoryCandidateResponse{Object: "project_memory_candidate", Data: renderProjectMemoryCandidate(created, "hecate")})
 }
 
 func (h *Handler) HandlePromoteProjectMemoryCandidate(w http.ResponseWriter, r *http.Request) {
@@ -245,7 +234,7 @@ func (h *Handler) HandlePromoteProjectMemoryCandidate(w http.ResponseWriter, r *
 	if req.SourceID != nil {
 		entry.SourceID = *req.SourceID
 	}
-	updated, _, err := candidateStore.PromoteCandidate(r.Context(), projectID, candidateID, entry)
+	updated, promotedEntry, err := candidateStore.PromoteCandidate(r.Context(), projectID, candidateID, entry)
 	if errors.Is(err, memory.ErrInvalid) {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 		return
@@ -266,7 +255,9 @@ func (h *Handler) HandlePromoteProjectMemoryCandidate(w http.ResponseWriter, r *
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	WriteJSON(w, http.StatusOK, ProjectMemoryCandidateResponse{Object: "project_memory_candidate", Data: renderProjectMemoryCandidate(updated)})
+	h.mirrorProjectMemoryEntryToCairnline(r.Context(), "project_memory_candidate_promote_entry", promotedEntry)
+	h.mirrorProjectMemoryCandidateToCairnline(r.Context(), "project_memory_candidate_promote", updated)
+	WriteJSON(w, http.StatusOK, ProjectMemoryCandidateResponse{Object: "project_memory_candidate", Data: renderProjectMemoryCandidate(updated, "hecate")})
 }
 
 func (h *Handler) HandleRejectProjectMemoryCandidate(w http.ResponseWriter, r *http.Request) {
@@ -309,7 +300,8 @@ func (h *Handler) HandleRejectProjectMemoryCandidate(w http.ResponseWriter, r *h
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	WriteJSON(w, http.StatusOK, ProjectMemoryCandidateResponse{Object: "project_memory_candidate", Data: renderProjectMemoryCandidate(updated)})
+	h.mirrorProjectMemoryCandidateToCairnline(r.Context(), "project_memory_candidate_reject", updated)
+	WriteJSON(w, http.StatusOK, ProjectMemoryCandidateResponse{Object: "project_memory_candidate", Data: renderProjectMemoryCandidate(updated, "hecate")})
 }
 
 func (h *Handler) HandleUpdateProjectMemoryEntry(w http.ResponseWriter, r *http.Request) {
@@ -356,7 +348,8 @@ func (h *Handler) HandleUpdateProjectMemoryEntry(w http.ResponseWriter, r *http.
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	WriteJSON(w, http.StatusOK, ProjectMemoryResponse{Object: "project_memory_entry", Data: renderProjectMemory(entry)})
+	h.mirrorProjectMemoryEntryToCairnline(r.Context(), "project_memory_update", entry)
+	WriteJSON(w, http.StatusOK, ProjectMemoryResponse{Object: "project_memory_entry", Data: renderProjectMemory(entry, "hecate")})
 }
 
 func (h *Handler) HandleDeleteProjectMemoryEntry(w http.ResponseWriter, r *http.Request) {
@@ -376,6 +369,7 @@ func (h *Handler) HandleDeleteProjectMemoryEntry(w http.ResponseWriter, r *http.
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
+	h.mirrorProjectMemoryEntryDeleteToCairnline(r.Context(), "project_memory_delete", projectID, r.PathValue("memory_id"))
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -416,26 +410,111 @@ func (h *Handler) requireProjectMemoryCandidateStore(w http.ResponseWriter) (mem
 	return h.memoryCandidates, true
 }
 
-func renderProjectMemory(entry memory.Entry) ProjectMemoryResponseItem {
+func (h *Handler) renderProjectMemoryEntries(ctx context.Context, projectID string, includeDisabled bool) ([]ProjectMemoryResponseItem, error) {
+	if h.projectReadRoutesUseCairnlineReadModel() {
+		return h.renderCairnlineProjectMemoryEntries(ctx, projectID, includeDisabled)
+	}
+	items, err := h.memory.List(ctx, memory.Filter{
+		ProjectID:       projectID,
+		IncludeDisabled: includeDisabled,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return renderProjectMemoryEntries(items, "hecate"), nil
+}
+
+func (h *Handler) renderCairnlineProjectMemoryEntries(ctx context.Context, projectID string, includeDisabled bool) ([]ProjectMemoryResponseItem, error) {
+	service, snapshot, err := h.cairnlineProjectWorkService(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	items, err := service.ListMemoryEntries(ctx, snapshot.Project.ID, includeDisabled)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ProjectMemoryResponseItem, 0, len(items))
+	for _, item := range items {
+		out = append(out, renderProjectMemory(projectMemoryFromCairnline(item), "cairnline"))
+	}
+	return out, nil
+}
+
+func (h *Handler) renderProjectMemoryCandidates(ctx context.Context, projectID, status string, includeResolved bool) ([]ProjectMemoryCandidateResponseItem, error) {
+	if h.projectReadRoutesUseCairnlineReadModel() {
+		return h.renderCairnlineProjectMemoryCandidates(ctx, projectID, status, includeResolved)
+	}
+	if h.memoryCandidates == nil {
+		return nil, errors.New("project memory candidate store is not configured")
+	}
+	items, err := h.memoryCandidates.ListCandidates(ctx, memory.CandidateFilter{
+		ProjectID: projectID,
+		Status:    status,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return renderProjectMemoryCandidates(items, "hecate"), nil
+}
+
+func (h *Handler) renderCairnlineProjectMemoryCandidates(ctx context.Context, projectID, status string, includeResolved bool) ([]ProjectMemoryCandidateResponseItem, error) {
+	service, snapshot, err := h.cairnlineProjectWorkService(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	items, err := service.ListMemoryCandidates(ctx, cairnline.MemoryCandidateFilter{
+		ProjectID:       snapshot.Project.ID,
+		Status:          status,
+		IncludeResolved: includeResolved,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ProjectMemoryCandidateResponseItem, 0, len(items))
+	for _, item := range items {
+		out = append(out, renderProjectMemoryCandidate(projectMemoryCandidateFromCairnline(item), "cairnline"))
+	}
+	return out, nil
+}
+
+func renderProjectMemoryEntries(items []memory.Entry, readBackend string) []ProjectMemoryResponseItem {
+	out := make([]ProjectMemoryResponseItem, 0, len(items))
+	for _, item := range items {
+		out = append(out, renderProjectMemory(item, readBackend))
+	}
+	return out
+}
+
+func renderProjectMemory(entry memory.Entry, readBackend string) ProjectMemoryResponseItem {
 	return ProjectMemoryResponseItem{
-		ID:         entry.ID,
-		Scope:      entry.Scope,
-		ProjectID:  entry.ProjectID,
-		Title:      entry.Title,
-		Body:       entry.Body,
-		TrustLabel: entry.TrustLabel,
-		SourceKind: entry.SourceKind,
-		SourceID:   entry.SourceID,
-		Enabled:    entry.Enabled,
-		CreatedAt:  formatOptionalTime(entry.CreatedAt),
-		UpdatedAt:  formatOptionalTime(entry.UpdatedAt),
+		ID:          entry.ID,
+		Scope:       entry.Scope,
+		ProjectID:   entry.ProjectID,
+		ReadBackend: readBackend,
+		Title:       entry.Title,
+		Body:        entry.Body,
+		TrustLabel:  entry.TrustLabel,
+		SourceKind:  entry.SourceKind,
+		SourceID:    entry.SourceID,
+		Enabled:     entry.Enabled,
+		CreatedAt:   formatOptionalTime(entry.CreatedAt),
+		UpdatedAt:   formatOptionalTime(entry.UpdatedAt),
 	}
 }
 
-func renderProjectMemoryCandidate(candidate memory.Candidate) ProjectMemoryCandidateResponseItem {
+func renderProjectMemoryCandidates(items []memory.Candidate, readBackend string) []ProjectMemoryCandidateResponseItem {
+	out := make([]ProjectMemoryCandidateResponseItem, 0, len(items))
+	for _, item := range items {
+		out = append(out, renderProjectMemoryCandidate(item, readBackend))
+	}
+	return out
+}
+
+func renderProjectMemoryCandidate(candidate memory.Candidate, readBackend string) ProjectMemoryCandidateResponseItem {
 	return ProjectMemoryCandidateResponseItem{
 		ID:                  candidate.ID,
 		ProjectID:           candidate.ProjectID,
+		ReadBackend:         readBackend,
 		Title:               candidate.Title,
 		Body:                candidate.Body,
 		SuggestedKind:       candidate.SuggestedKind,
@@ -449,6 +528,57 @@ func renderProjectMemoryCandidate(candidate memory.Candidate) ProjectMemoryCandi
 		CreatedAt:           formatOptionalTime(candidate.CreatedAt),
 		UpdatedAt:           formatOptionalTime(candidate.UpdatedAt),
 	}
+}
+
+func projectMemoryFromCairnline(item cairnline.MemoryEntry) memory.Entry {
+	return memory.Entry{
+		ID:         item.ID,
+		Scope:      memory.ScopeProject,
+		ProjectID:  item.ProjectID,
+		Title:      item.Title,
+		Body:       item.Body,
+		TrustLabel: item.TrustLabel,
+		SourceKind: item.SourceKind,
+		SourceID:   item.SourceID,
+		Enabled:    item.Enabled,
+		CreatedAt:  item.CreatedAt,
+		UpdatedAt:  item.UpdatedAt,
+	}
+}
+
+func projectMemoryCandidateFromCairnline(item cairnline.MemoryCandidate) memory.Candidate {
+	return memory.Candidate{
+		ID:                  item.ID,
+		ProjectID:           item.ProjectID,
+		Title:               item.Title,
+		Body:                item.Body,
+		SuggestedKind:       item.SuggestedKind,
+		SuggestedTrustLabel: item.SuggestedTrustLabel,
+		SuggestedSourceKind: item.SuggestedSourceKind,
+		SuggestedSourceID:   item.SuggestedSourceID,
+		SourceRefs:          projectMemoryCandidateSourceRefsFromCairnline(item.SourceRefs),
+		Status:              item.Status,
+		StatusReason:        item.StatusReason,
+		PromotedMemoryID:    item.PromotedMemoryID,
+		CreatedAt:           item.CreatedAt,
+		UpdatedAt:           item.UpdatedAt,
+	}
+}
+
+func projectMemoryCandidateSourceRefsFromCairnline(items []cairnline.MemoryCandidateSourceRef) []memory.CandidateSourceRef {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]memory.CandidateSourceRef, 0, len(items))
+	for _, item := range items {
+		out = append(out, memory.CandidateSourceRef{
+			Kind:  item.Kind,
+			ID:    item.ID,
+			Title: item.Title,
+			URL:   item.URL,
+		})
+	}
+	return out
 }
 
 func candidateSourceRefsFromRequest(refs []candidateSourceRefRequest) []memory.CandidateSourceRef {

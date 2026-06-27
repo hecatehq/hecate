@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -257,6 +259,44 @@ func TestProjectHealth_CairnlineConfiguredUsesReadModel(t *testing.T) {
 	if candidate.CandidateID != "memcand_health" || candidate.Action.CandidateID != "memcand_health" {
 		t.Fatalf("candidate attention = %+v, want Cairnline-backed memory candidate target", candidate)
 	}
+}
+
+func TestProjectHealth_CairnlineMatchesHecateProjectionGraph(t *testing.T) {
+	t.Parallel()
+	hecateHandler, hecateServer := newProjectWorkProjectionTestServer(t, "memory")
+	seedProjectWorkProjectionTest(t, hecateHandler)
+	cairnlineHandler, cairnlineServer := newProjectWorkCairnlineReadTestServer()
+	seedProjectWorkProjectionTest(t, cairnlineHandler)
+
+	hecate := mustRequestJSON[ProjectHealthEnvelope](newAPITestClient(t, hecateServer), http.MethodGet, "/hecate/v1/projects/proj_projection/health", "")
+	cairnline := mustRequestJSON[ProjectHealthEnvelope](newAPITestClient(t, cairnlineServer), http.MethodGet, "/hecate/v1/projects/proj_projection/health", "")
+	if hecate.Data.ReadBackend != "hecate" {
+		t.Fatalf("Hecate health read_backend = %q, want hecate", hecate.Data.ReadBackend)
+	}
+	if cairnline.Data.ReadBackend != "cairnline" {
+		t.Fatalf("Cairnline health read_backend = %q, want cairnline", cairnline.Data.ReadBackend)
+	}
+
+	hecateData := normalizeProjectHealthForParity(hecate.Data)
+	cairnlineData := normalizeProjectHealthForParity(cairnline.Data)
+	if !reflect.DeepEqual(hecateData, cairnlineData) {
+		t.Fatalf("health mismatch\nHecate:   %+v\nCairnline: %+v", hecateData, cairnlineData)
+	}
+}
+
+func normalizeProjectHealthForParity(item ProjectHealthResponse) ProjectHealthResponse {
+	item.GeneratedAt = ""
+	item.ReadBackend = ""
+	for idx := range item.Attention {
+		item.Attention[idx].Detail = normalizeProjectHealthDetailForParity(item.Attention[idx].Detail)
+	}
+	return item
+}
+
+var projectHealthParityUpdatedAtPattern = regexp.MustCompile(`updated [0-9TZ:.\-]+`)
+
+func normalizeProjectHealthDetailForParity(detail string) string {
+	return projectHealthParityUpdatedAtPattern.ReplaceAllString(detail, "updated <time>")
 }
 
 func TestProjectHealth_ProfileAndSkillReferences(t *testing.T) {

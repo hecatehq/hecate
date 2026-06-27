@@ -11,8 +11,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/agentadapters"
 	"github.com/hecatehq/hecate/internal/agentcontrols"
+	"github.com/hecatehq/hecate/internal/cairnlinebridge"
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/chatcontext"
 	"github.com/hecatehq/hecate/internal/orchestrator"
@@ -36,6 +38,7 @@ type ProjectAssignmentLaunchReadinessResponse struct {
 	ProjectID        string                                             `json:"project_id"`
 	WorkItemID       string                                             `json:"work_item_id"`
 	AssignmentID     string                                             `json:"assignment_id"`
+	ReadBackend      string                                             `json:"read_backend,omitempty"`
 	GeneratedAt      string                                             `json:"generated_at"`
 	Ready            bool                                               `json:"ready"`
 	Status           string                                             `json:"status"`
@@ -79,6 +82,15 @@ func (h *Handler) HandleProjectWorkAssignmentLaunchReadiness(w http.ResponseWrit
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project stores are not configured")
 		return
 	}
+	if h.projectReadRoutesUseCairnlineReadModel() {
+		readiness, err := h.renderCairnlineProjectAssignmentLaunchReadiness(ctx, projectID, workItemID, assignmentID)
+		if err != nil {
+			WriteError(w, projectAssignmentPreflightHTTPStatus(err), projectAssignmentPreflightErrorCode(err), err.Error())
+			return
+		}
+		WriteJSON(w, http.StatusOK, ProjectAssignmentLaunchReadinessEnvelope{Object: "project_assignment_launch_readiness", Data: readiness})
+		return
+	}
 	project, ok, err := h.projects.Get(ctx, projectID)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
@@ -116,6 +128,7 @@ func (h *Handler) HandleProjectWorkAssignmentLaunchReadiness(w http.ResponseWrit
 		WriteError(w, projectAssignmentPreflightHTTPStatus(err), projectAssignmentPreflightErrorCode(err), err.Error())
 		return
 	}
+	readiness.ReadBackend = "hecate"
 	WriteJSON(w, http.StatusOK, ProjectAssignmentLaunchReadinessEnvelope{Object: "project_assignment_launch_readiness", Data: readiness})
 }
 
@@ -126,6 +139,28 @@ func (h *Handler) HandleProjectWorkAssignmentPreflight(w http.ResponseWriter, r 
 	assignmentID := r.PathValue("assignment_id")
 	if h.projects == nil || h.projectWork == nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project stores are not configured")
+		return
+	}
+	if h.projectReadRoutesUseCairnlineReadModel() {
+		inputs, err := h.cairnlineProjectAssignmentLaunchInputs(ctx, projectID, workItemID, assignmentID)
+		if err != nil {
+			WriteError(w, projectAssignmentPreflightHTTPStatus(err), projectAssignmentPreflightErrorCode(err), err.Error())
+			return
+		}
+		if !inputs.RoleOK {
+			WriteError(w, http.StatusNotFound, errCodeNotFound, "assignment role not found")
+			return
+		}
+		if projectWorkAssignmentIsTerminal(inputs.Assignment.Status) {
+			WriteError(w, http.StatusConflict, errCodeConflict, "terminal assignments cannot be started")
+			return
+		}
+		contextPacket, err := h.projectAssignmentPreflightContext(ctx, inputs.Project, inputs.WorkItem, inputs.Assignment, inputs.Role)
+		if err != nil {
+			WriteError(w, projectAssignmentPreflightHTTPStatus(err), projectAssignmentPreflightErrorCode(err), err.Error())
+			return
+		}
+		writeChatContextPacket(w, contextPacket)
 		return
 	}
 	project, ok, err := h.projects.Get(ctx, projectID)
@@ -311,6 +346,99 @@ func (h *Handler) renderProjectAssignmentLaunchReadiness(ctx context.Context, pr
 	return readiness, nil
 }
 
+func (h *Handler) renderCairnlineProjectAssignmentLaunchReadiness(ctx context.Context, projectID, workItemID, assignmentID string) (ProjectAssignmentLaunchReadinessResponse, error) {
+	inputs, err := h.cairnlineProjectAssignmentLaunchInputs(ctx, projectID, workItemID, assignmentID)
+	if err != nil {
+		return ProjectAssignmentLaunchReadinessResponse{}, err
+	}
+	readiness, err := h.renderProjectAssignmentLaunchReadiness(ctx, inputs.Project, inputs.WorkItem, inputs.Assignment, inputs.Role, inputs.RoleOK)
+	if err != nil {
+		return ProjectAssignmentLaunchReadinessResponse{}, err
+	}
+	readiness.ReadBackend = "cairnline"
+	return readiness, nil
+}
+
+type projectAssignmentLaunchInputs struct {
+	Project    projects.Project
+	WorkItem   projectwork.WorkItem
+	Assignment projectwork.Assignment
+	Role       projectwork.AgentRoleProfile
+	RoleOK     bool
+}
+
+func (h *Handler) cairnlineProjectAssignmentLaunchInputs(ctx context.Context, projectID, workItemID, assignmentID string) (projectAssignmentLaunchInputs, error) {
+	service, snapshot, err := h.cairnlineProjectWorkService(ctx, projectID)
+	if errors.Is(err, projects.ErrNotFound) {
+		return projectAssignmentLaunchInputs{}, newProjectAssignmentPreflightError(http.StatusNotFound, errCodeNotFound, "project not found")
+	}
+	if err != nil {
+		return projectAssignmentLaunchInputs{}, err
+	}
+	if ok, err := cairnlineProjectWorkItemExists(ctx, service, snapshot.Project.ID, workItemID); err != nil {
+		return projectAssignmentLaunchInputs{}, err
+	} else if !ok {
+		return projectAssignmentLaunchInputs{}, newProjectAssignmentPreflightError(http.StatusNotFound, errCodeNotFound, "work item not found")
+	}
+	launch, err := service.AssignmentLaunchPacket(ctx, snapshot.Project.ID, assignmentID)
+	if errors.Is(err, cairnline.ErrNotFound) {
+		return projectAssignmentLaunchInputs{}, newProjectAssignmentPreflightError(http.StatusNotFound, errCodeNotFound, "assignment not found")
+	}
+	if err != nil {
+		return projectAssignmentLaunchInputs{}, err
+	}
+	if strings.TrimSpace(launch.WorkItem.ID) != strings.TrimSpace(workItemID) {
+		return projectAssignmentLaunchInputs{}, newProjectAssignmentPreflightError(http.StatusNotFound, errCodeNotFound, "assignment not found")
+	}
+	projectExecutionProfile, err := cairnlineExecutionProfileByID(ctx, service, launch.Project.DefaultExecutionProfileID)
+	if err != nil {
+		return projectAssignmentLaunchInputs{}, err
+	}
+	project := projectFromCairnline(launch.Project, projectExecutionProfile, snapshot.Project)
+	workItem := projectWorkItemFromCairnline(launch.WorkItem)
+	assignment := projectWorkAssignmentFromCairnline(launch.Assignment)
+	if native, ok := projectWorkAssignmentsByID(snapshot.Assignments)[assignment.ID]; ok {
+		assignment.ExecutionRef = native.ExecutionRef
+	}
+	role, roleOK, err := cairnlineLaunchRole(ctx, service, snapshot, launch)
+	if err != nil {
+		return projectAssignmentLaunchInputs{}, err
+	}
+	return projectAssignmentLaunchInputs{
+		Project:    project,
+		WorkItem:   workItem,
+		Assignment: assignment,
+		Role:       role,
+		RoleOK:     roleOK,
+	}, nil
+}
+
+func cairnlineProjectWorkItemExists(ctx context.Context, service *cairnline.Service, projectID, workItemID string) (bool, error) {
+	items, err := service.ListWorkItems(ctx, projectID)
+	if err != nil {
+		return false, err
+	}
+	workItemID = strings.TrimSpace(workItemID)
+	for _, item := range items {
+		if strings.TrimSpace(item.ID) == workItemID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func cairnlineLaunchRole(ctx context.Context, service *cairnline.Service, snapshot cairnlinebridge.Snapshot, launch cairnline.AssignmentLaunchPacket) (projectwork.AgentRoleProfile, bool, error) {
+	if launch.Role == nil {
+		return projectwork.AgentRoleProfile{ID: strings.TrimSpace(launch.Assignment.RoleID)}, false, nil
+	}
+	executionProfiles, err := service.ListExecutionProfiles(ctx)
+	if err != nil {
+		return projectwork.AgentRoleProfile{}, false, err
+	}
+	role := projectWorkRoleFromCairnline(*launch.Role, cairnlineExecutionProfilesByID(executionProfiles), projectWorkRolesByID(snapshot.Roles)[launch.Role.ID])
+	return role, true, nil
+}
+
 func (h *Handler) populateTaskAssignmentLaunchReadiness(ctx context.Context, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile, readiness *ProjectAssignmentLaunchReadinessResponse) error {
 	plan, err := h.projectWorkApplication().ResolveTaskAssignmentLaunchPlan(ctx, project, workItem, assignment, role)
 	if err != nil {
@@ -443,6 +571,7 @@ func (h *Handler) projectHecateTaskAssignmentPreflightContext(ctx context.Contex
 	if err := h.appendProjectAssignmentLaunchReadiness(ctx, &packet, plan.RequestedProvider, plan.RequestedModel); err != nil {
 		return chat.ContextPacket{}, err
 	}
+	h.appendCairnlineAssignmentLaunchPacketEvidence(ctx, &packet, assignment)
 	appendProjectAssignmentLaunchPreflight(&packet, projectwork.AssignmentDriverHecateTask, []string{
 		"Task: created on start",
 		"Run: created on start",
@@ -470,6 +599,7 @@ func (h *Handler) projectExternalAgentAssignmentPreflightContext(ctx context.Con
 		return chat.ContextPacket{}, err
 	}
 	packet := h.projectExternalAgentAssignmentContextPacket(ctx, project, workItem, assignment, role, plan, "")
+	h.appendCairnlineAssignmentLaunchPacketEvidence(ctx, &packet, assignment)
 	appendProjectAssignmentLaunchPreflight(&packet, projectwork.AssignmentDriverExternalAgent, []string{
 		"External agent: " + firstNonEmptyString(plan.Adapter.Name, plan.AdapterID),
 		"Adapter ID: " + plan.AdapterID,
@@ -584,6 +714,7 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 	if err := h.appendProjectAssignmentLaunchReadiness(ctx, &contextPacket, plan.RequestedProvider, plan.RequestedModel); err != nil {
 		h.logProjectAssignmentLaunchReadinessError(ctx, err)
 	}
+	h.appendCairnlineAssignmentLaunchPacketEvidence(ctx, &contextPacket, assignment)
 	if contextPacket.ID == "" {
 		contextPacket.ID = newChatID("ctx")
 	}
@@ -611,6 +742,7 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		resultAssignment := assignment
 		if result != nil && result.Assignment.ID != "" {
 			resultAssignment = result.Assignment
+			h.mirrorProjectAssignmentStartResultToCairnline(ctx, result.Assignment)
 		}
 		if errors.Is(err, projectworkapp.ErrAssignmentStartConflict) {
 			projected, projectErr := h.renderProjectedProjectWorkAssignment(ctx, resultAssignment)
@@ -638,6 +770,7 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 	if result.SpanID != "" {
 		w.Header().Set("X-Span-Id", result.SpanID)
 	}
+	h.mirrorProjectAssignmentStartResultToCairnline(ctx, result.Assignment)
 	projected, err := h.renderProjectedProjectWorkAssignment(ctx, result.Assignment)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
@@ -690,6 +823,7 @@ func (h *Handler) startProjectExternalAgentAssignment(w http.ResponseWriter, r *
 	sessionID := newChatID("chat")
 	contextPacket := h.projectExternalAgentAssignmentContextPacket(ctx, project, workItem, assignment, role, plan, sessionID)
 	contextPacket.ID = firstNonEmptyString(contextPacket.ID, newChatID("ctx"))
+	h.appendCairnlineAssignmentLaunchPacketEvidence(ctx, &contextPacket, assignment)
 
 	session := chat.Session{
 		ID:              sessionID,
@@ -723,6 +857,7 @@ func (h *Handler) startProjectExternalAgentAssignment(w http.ResponseWriter, r *
 		resultAssignment := assignment
 		if result != nil && result.Assignment.ID != "" {
 			resultAssignment = result.Assignment
+			h.mirrorProjectAssignmentStartResultToCairnline(ctx, result.Assignment)
 		}
 		if errors.Is(err, projectworkapp.ErrAssignmentStartConflict) {
 			projected, projectErr := h.renderProjectedProjectWorkAssignment(ctx, resultAssignment)
@@ -736,12 +871,22 @@ func (h *Handler) startProjectExternalAgentAssignment(w http.ResponseWriter, r *
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
+	h.mirrorProjectAssignmentStartResultToCairnline(ctx, result.Assignment)
 	projected, err := h.renderProjectedProjectWorkAssignment(ctx, result.Assignment)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
 	WriteJSON(w, http.StatusOK, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
+}
+
+func (h *Handler) mirrorProjectAssignmentStartResultToCairnline(ctx context.Context, assignment projectwork.Assignment) {
+	if strings.TrimSpace(assignment.ID) == "" {
+		return
+	}
+	if err := h.writeProjectAssignmentToCairnline(ctx, assignment); err != nil {
+		h.logCairnlineMirrorError(ctx, "project_assignment_start_result", assignment.ProjectID, err)
+	}
 }
 
 func decodeOptionalProjectWorkAssignmentStartRequest(w http.ResponseWriter, r *http.Request) (startProjectWorkAssignmentRequest, bool) {

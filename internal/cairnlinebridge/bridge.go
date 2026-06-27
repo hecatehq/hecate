@@ -13,43 +13,58 @@ import (
 	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/memory"
+	"github.com/hecatehq/hecate/internal/projectassistant"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
 )
 
 type Snapshot struct {
-	Project          projects.Project
-	AgentProfiles    []agentprofiles.Profile
-	Skills           []projectskills.Skill
-	Roles            []projectwork.AgentRoleProfile
-	WorkItems        []projectwork.WorkItem
-	Assignments      []projectwork.Assignment
-	Artifacts        []projectwork.CollaborationArtifact
-	Handoffs         []projectwork.Handoff
-	MemoryEntries    []memory.Entry
-	MemoryCandidates []memory.Candidate
+	Project            projects.Project
+	AgentProfiles      []agentprofiles.Profile
+	Skills             []projectskills.Skill
+	Roles              []projectwork.AgentRoleProfile
+	WorkItems          []projectwork.WorkItem
+	Assignments        []projectwork.Assignment
+	Artifacts          []projectwork.CollaborationArtifact
+	Handoffs           []projectwork.Handoff
+	MemoryEntries      []memory.Entry
+	MemoryCandidates   []memory.Candidate
+	AssistantProposals []projectassistant.ProposalRecord
+}
+
+func SnapshotExecutionProfileCount(snapshot Snapshot) int {
+	ids := map[string]struct{}{}
+	add := func(id string) {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return
+		}
+		ids[id] = struct{}{}
+	}
+	if executionProfile, ok := ProjectExecutionProfile(snapshot.Project); ok {
+		add(executionProfile.ID)
+	}
+	for _, profile := range snapshot.AgentProfiles {
+		add(ExecutionProfile(profile).ID)
+	}
+	for _, role := range snapshot.Roles {
+		executionProfile, ok := RoleExecutionProfile(role)
+		if !ok {
+			continue
+		}
+		add(executionProfile.ID)
+	}
+	return len(ids)
 }
 
 func Seed(ctx context.Context, service *cairnline.Service, snapshot Snapshot) error {
+	return SeedSnapshots(ctx, service, []Snapshot{snapshot})
+}
+
+func seedProjectScopedSnapshot(ctx context.Context, service *cairnline.Service, snapshot Snapshot, profilesByID map[string]agentprofiles.Profile) error {
 	if _, err := service.CreateProject(ctx, Project(snapshot.Project)); err != nil {
 		return err
-	}
-	profilesByID := make(map[string]agentprofiles.Profile, len(snapshot.AgentProfiles))
-	executionProfileIDs := make(map[string]struct{}, len(snapshot.AgentProfiles))
-	for _, profile := range snapshot.AgentProfiles {
-		profilesByID[profile.ID] = profile
-		if _, err := service.CreateAgentProfile(ctx, AgentProfile(profile)); err != nil {
-			return err
-		}
-		executionProfile := ExecutionProfile(profile)
-		if _, ok := executionProfileIDs[executionProfile.ID]; ok {
-			continue
-		}
-		executionProfileIDs[executionProfile.ID] = struct{}{}
-		if _, err := service.CreateExecutionProfile(ctx, executionProfile); err != nil {
-			return err
-		}
 	}
 	for _, skill := range snapshot.Skills {
 		if _, err := service.CreateProjectSkill(ctx, ProjectSkill(skill)); err != nil {
@@ -80,6 +95,12 @@ func Seed(ctx context.Context, service *cairnline.Service, snapshot Snapshot) er
 		}
 	}
 	for _, artifact := range snapshot.Artifacts {
+		if item, ok := Artifact(artifact); ok {
+			if _, err := service.CreateArtifact(ctx, item); err != nil {
+				return err
+			}
+			continue
+		}
 		if item, ok := Evidence(artifact); ok {
 			if _, err := service.CreateEvidence(ctx, item); err != nil {
 				return err
@@ -98,35 +119,52 @@ func Seed(ctx context.Context, service *cairnline.Service, snapshot Snapshot) er
 		}
 	}
 	for _, entry := range snapshot.MemoryEntries {
-		if _, err := service.CreateMemoryEntry(ctx, MemoryEntry(entry)); err != nil {
+		if _, err := UpsertMemoryEntry(ctx, service, entry); err != nil {
 			return err
 		}
 	}
 	for _, candidate := range snapshot.MemoryCandidates {
-		item := MemoryCandidate(candidate)
-		created, err := service.CreateMemoryCandidate(ctx, item)
-		if err != nil {
+		if _, err := UpsertMemoryCandidate(ctx, service, candidate); err != nil {
 			return err
 		}
-		if created.Status != item.Status || created.StatusReason != item.StatusReason || created.PromotedMemoryID != item.PromotedMemoryID {
-			if _, err := service.UpdateMemoryCandidate(ctx, item); err != nil {
-				return err
-			}
+	}
+	for _, proposal := range snapshot.AssistantProposals {
+		item, ok := AssistantProposalRecord(proposal)
+		if !ok {
+			continue
+		}
+		if _, err := service.ImportAssistantProposalRecord(ctx, item); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
+func createExecutionProfileOnce(ctx context.Context, service *cairnline.Service, seen map[string]struct{}, profile cairnline.ExecutionProfile) error {
+	id := strings.TrimSpace(profile.ID)
+	if id == "" {
+		return nil
+	}
+	if _, ok := seen[id]; ok {
+		return nil
+	}
+	seen[id] = struct{}{}
+	_, err := service.CreateExecutionProfile(ctx, profile)
+	return err
+}
+
 func Project(project projects.Project) cairnline.Project {
 	return cairnline.Project{
-		ID:             strings.TrimSpace(project.ID),
-		Name:           strings.TrimSpace(project.Name),
-		Description:    strings.TrimSpace(project.Description),
-		Roots:          Roots(project.Roots),
-		DefaultRootID:  strings.TrimSpace(project.DefaultRootID),
-		ContextSources: Sources(project.ContextSources),
-		CreatedAt:      project.CreatedAt,
-		UpdatedAt:      project.UpdatedAt,
+		ID:                        strings.TrimSpace(project.ID),
+		Name:                      strings.TrimSpace(project.Name),
+		Description:               strings.TrimSpace(project.Description),
+		Roots:                     Roots(project.Roots),
+		DefaultRootID:             strings.TrimSpace(project.DefaultRootID),
+		DefaultProfileID:          strings.TrimSpace(project.DefaultAgentProfile),
+		DefaultExecutionProfileID: projectExecutionProfileID(project),
+		ContextSources:            Sources(project.ContextSources),
+		CreatedAt:                 project.CreatedAt,
+		UpdatedAt:                 project.UpdatedAt,
 	}
 }
 
@@ -198,35 +236,81 @@ func ExecutionProfile(profile agentprofiles.Profile) cairnline.ExecutionProfile 
 	}
 }
 
+func ProjectExecutionProfile(project projects.Project) (cairnline.ExecutionProfile, bool) {
+	provider := strings.TrimSpace(project.DefaultProvider)
+	model := strings.TrimSpace(project.DefaultModel)
+	toolsPolicy := optionalBoolPolicy(project.DefaultToolsEnabled)
+	adapterOptions := projectExecutionAdapterOptions(project)
+	if provider == "" && model == "" && toolsPolicy == "" && len(adapterOptions) == 0 {
+		return cairnline.ExecutionProfile{}, false
+	}
+	id := projectExecutionProfileIDValue(project)
+	if id == "" {
+		return cairnline.ExecutionProfile{}, false
+	}
+	return cairnline.ExecutionProfile{
+		ID:             id,
+		Name:           firstNonEmpty(strings.TrimSpace(project.Name), strings.TrimSpace(project.ID), "Project") + " execution defaults",
+		Description:    "Hecate project-level execution defaults.",
+		AgentKind:      "hecate",
+		ModelHint:      model,
+		ProviderHint:   provider,
+		ToolsPolicy:    toolsPolicy,
+		AdapterOptions: adapterOptions,
+		CreatedAt:      project.CreatedAt,
+		UpdatedAt:      project.UpdatedAt,
+	}, true
+}
+
+func RoleExecutionProfile(role projectwork.AgentRoleProfile) (cairnline.ExecutionProfile, bool) {
+	provider := strings.TrimSpace(role.DefaultProvider)
+	model := strings.TrimSpace(role.DefaultModel)
+	if provider == "" && model == "" {
+		return cairnline.ExecutionProfile{}, false
+	}
+	return cairnline.ExecutionProfile{
+		ID:           roleExecutionProfileID(role),
+		Name:         firstNonEmpty(strings.TrimSpace(role.Name), strings.TrimSpace(role.ID)) + " execution defaults",
+		Description:  "Hecate role-level execution defaults.",
+		AgentKind:    DesiredAgentKind(role.DefaultDriverKind),
+		ModelHint:    model,
+		ProviderHint: provider,
+		CreatedAt:    role.CreatedAt,
+		UpdatedAt:    role.UpdatedAt,
+	}, true
+}
+
 func ProjectSkill(skill projectskills.Skill) cairnline.ProjectSkill {
 	return cairnline.ProjectSkill{
-		ID:          strings.TrimSpace(skill.ID),
-		ProjectID:   strings.TrimSpace(skill.ProjectID),
-		Title:       strings.TrimSpace(skill.Title),
-		Description: strings.TrimSpace(skill.Description),
-		Path:        strings.TrimSpace(skill.Path),
-		RootID:      strings.TrimSpace(skill.RootID),
-		Format:      strings.TrimSpace(skill.Format),
-		Enabled:     skill.Enabled,
-		Status:      strings.TrimSpace(skill.Status),
-		TrustLabel:  strings.TrimSpace(skill.TrustLabel),
-		SourceRefs:  compactStrings(skill.SourceContextSourceIDs),
-		Warnings:    compactStrings(skill.Warnings),
-		CreatedAt:   skill.CreatedAt,
-		UpdatedAt:   skill.UpdatedAt,
+		ID:           strings.TrimSpace(skill.ID),
+		ProjectID:    strings.TrimSpace(skill.ProjectID),
+		Title:        strings.TrimSpace(skill.Title),
+		Description:  strings.TrimSpace(skill.Description),
+		Path:         strings.TrimSpace(skill.Path),
+		RootID:       strings.TrimSpace(skill.RootID),
+		Format:       strings.TrimSpace(skill.Format),
+		Enabled:      skill.Enabled,
+		Status:       strings.TrimSpace(skill.Status),
+		TrustLabel:   strings.TrimSpace(skill.TrustLabel),
+		SourceRefs:   compactStrings(skill.SourceContextSourceIDs),
+		Warnings:     compactStrings(skill.Warnings),
+		DiscoveredAt: skill.DiscoveredAt,
+		CreatedAt:    skill.CreatedAt,
+		UpdatedAt:    skill.UpdatedAt,
 	}
 }
 
 func Role(role projectwork.AgentRoleProfile) cairnline.Role {
 	return cairnline.Role{
-		ID:                   strings.TrimSpace(role.ID),
-		ProjectID:            strings.TrimSpace(role.ProjectID),
-		Name:                 strings.TrimSpace(role.Name),
-		Description:          strings.TrimSpace(role.Description),
-		Instructions:         strings.TrimSpace(role.Instructions),
-		DefaultProfileID:     strings.TrimSpace(role.DefaultAgentProfile),
-		DefaultSkillIDs:      compactStrings(role.SkillIDs),
-		DefaultExecutionMode: ExecutionMode(role.DefaultDriverKind),
+		ID:                        strings.TrimSpace(role.ID),
+		ProjectID:                 strings.TrimSpace(role.ProjectID),
+		Name:                      strings.TrimSpace(role.Name),
+		Description:               strings.TrimSpace(role.Description),
+		Instructions:              strings.TrimSpace(role.Instructions),
+		DefaultProfileID:          strings.TrimSpace(role.DefaultAgentProfile),
+		DefaultExecutionProfileID: roleExecutionProfileID(role),
+		DefaultSkillIDs:           compactStrings(role.SkillIDs),
+		DefaultExecutionMode:      ExecutionMode(role.DefaultDriverKind),
 	}
 }
 
@@ -254,7 +338,7 @@ func Assignment(assignment projectwork.Assignment, role projectwork.AgentRolePro
 		RoleID:             strings.TrimSpace(assignment.RoleID),
 		RootID:             strings.TrimSpace(assignment.RootID),
 		ProfileID:          strings.TrimSpace(role.DefaultAgentProfile),
-		ExecutionProfileID: firstNonEmpty(strings.TrimSpace(profile.ExecutionProfile), strings.TrimSpace(profile.ID)),
+		ExecutionProfileID: firstNonEmpty(roleExecutionProfileID(role), strings.TrimSpace(profile.ExecutionProfile), strings.TrimSpace(profile.ID)),
 		ExecutionMode:      ExecutionMode(assignment.DriverKind),
 		Status:             AssignmentStatus(assignment.Status),
 		DesiredAgent: cairnline.DesiredAgent{
@@ -266,6 +350,25 @@ func Assignment(assignment projectwork.Assignment, role projectwork.AgentRolePro
 		CreatedAt:         assignment.CreatedAt,
 		UpdatedAt:         assignment.UpdatedAt,
 	}
+}
+
+func Artifact(artifact projectwork.CollaborationArtifact) (cairnline.Artifact, bool) {
+	switch strings.TrimSpace(artifact.Kind) {
+	case projectwork.ArtifactKindEvidenceLink, projectwork.ArtifactKindReview:
+		return cairnline.Artifact{}, false
+	}
+	return cairnline.Artifact{
+		ID:           strings.TrimSpace(artifact.ID),
+		ProjectID:    strings.TrimSpace(artifact.ProjectID),
+		WorkItemID:   strings.TrimSpace(artifact.WorkItemID),
+		AssignmentID: strings.TrimSpace(artifact.AssignmentID),
+		Kind:         strings.TrimSpace(artifact.Kind),
+		Title:        strings.TrimSpace(artifact.Title),
+		Body:         strings.TrimSpace(artifact.Body),
+		AuthorRoleID: strings.TrimSpace(artifact.AuthorRoleID),
+		CreatedAt:    artifact.CreatedAt,
+		UpdatedAt:    artifact.UpdatedAt,
+	}, true
 }
 
 func Evidence(artifact projectwork.CollaborationArtifact) (cairnline.Evidence, bool) {
@@ -473,13 +576,26 @@ func syncAssignmentStatus(ctx context.Context, service *cairnline.Service, assig
 	case cairnline.AssignmentQueued:
 		return nil
 	case cairnline.AssignmentRunning, cairnline.AssignmentReview:
-		if _, err := service.ClaimAssignment(ctx, assignment.ProjectID, assignment.ID, claimedBy(assignment)); err != nil {
+		current, err := service.GetAssignment(ctx, assignment.ProjectID, assignment.ID)
+		if err != nil {
 			return err
 		}
-		_, err := service.UpdateAssignmentStatus(ctx, assignment.ProjectID, assignment.ID, assignment.Status, assignment.ExecutionRef)
+		if current.Status == cairnline.AssignmentQueued {
+			if _, err := service.ClaimAssignment(ctx, assignment.ProjectID, assignment.ID, claimedBy(assignment)); err != nil {
+				return err
+			}
+		}
+		_, err = service.UpdateAssignmentStatus(ctx, assignment.ProjectID, assignment.ID, assignment.Status, assignment.ExecutionRef)
 		return err
 	case cairnline.AssignmentCompleted, cairnline.AssignmentFailed, cairnline.AssignmentCancelled:
-		_, err := service.CompleteAssignment(ctx, assignment.ProjectID, assignment.ID, assignment.Status, assignment.ExecutionRef)
+		current, err := service.GetAssignment(ctx, assignment.ProjectID, assignment.ID)
+		if err != nil {
+			return err
+		}
+		if current.Status == assignment.Status {
+			return nil
+		}
+		_, err = service.CompleteAssignment(ctx, assignment.ProjectID, assignment.ID, assignment.Status, assignment.ExecutionRef)
 		return err
 	default:
 		return nil
@@ -507,6 +623,60 @@ func executionAgentKind(profile agentprofiles.Profile) string {
 	}
 }
 
+func roleExecutionProfileID(role projectwork.AgentRoleProfile) string {
+	if strings.TrimSpace(role.DefaultProvider) == "" && strings.TrimSpace(role.DefaultModel) == "" {
+		return ""
+	}
+	return roleExecutionProfileIDValue(role)
+}
+
+func roleExecutionProfileIDValue(role projectwork.AgentRoleProfile) string {
+	projectID := safeCairnlineIDPart(role.ProjectID)
+	roleID := safeCairnlineIDPart(role.ID)
+	if roleID == "" {
+		return ""
+	}
+	return "role_exec_" + firstNonEmpty(projectID, "project") + "_" + roleID
+}
+
+func projectExecutionProfileID(project projects.Project) string {
+	if strings.TrimSpace(project.DefaultProvider) == "" &&
+		strings.TrimSpace(project.DefaultModel) == "" &&
+		optionalBoolPolicy(project.DefaultToolsEnabled) == "" &&
+		len(projectExecutionAdapterOptions(project)) == 0 {
+		return ""
+	}
+	return projectExecutionProfileIDValue(project)
+}
+
+func projectExecutionProfileIDValue(project projects.Project) string {
+	projectID := safeCairnlineIDPart(project.ID)
+	if projectID == "" {
+		return ""
+	}
+	return "project_exec_" + projectID
+}
+
+func safeCairnlineIDPart(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	var builder strings.Builder
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z',
+			r >= 'A' && r <= 'Z',
+			r >= '0' && r <= '9',
+			r == '_', r == '-':
+			builder.WriteRune(r)
+		default:
+			builder.WriteByte('_')
+		}
+	}
+	return strings.Trim(builder.String(), "_")
+}
+
 func assignmentExecutionRef(ref projectwork.AssignmentExecutionRef) string {
 	return firstNonEmpty(
 		strings.TrimSpace(ref.RunID),
@@ -521,6 +691,30 @@ func boolPolicy(value bool) string {
 		return "allow"
 	}
 	return "block"
+}
+
+func optionalBoolPolicy(value *bool) string {
+	if value == nil {
+		return ""
+	}
+	return boolPolicy(*value)
+}
+
+func projectExecutionAdapterOptions(project projects.Project) map[string]any {
+	out := make(map[string]any)
+	if value := strings.TrimSpace(project.DefaultWorkspaceMode); value != "" {
+		out["workspace_mode"] = value
+	}
+	if value := strings.TrimSpace(project.DefaultSystemPrompt); value != "" {
+		out["system_prompt"] = value
+	}
+	if project.DefaultCompactToolOutput != nil {
+		out["compact_tool_output"] = *project.DefaultCompactToolOutput
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func compactStrings(items []string) []string {

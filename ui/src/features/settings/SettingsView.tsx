@@ -145,23 +145,33 @@ export function SettingsView() {
 
 function resetSummary(data: {
   projects_deleted: number;
+  project_skills_deleted?: number;
+  project_work_rows_deleted?: number;
+  project_assistant_proposals_deleted?: number;
   plugins_deleted?: number;
+  agent_profiles_deleted?: number;
   chat_sessions_deleted: number;
   tasks_deleted: number;
   providers_deleted: number;
   policy_rules_deleted: number;
   agent_approval_grants_deleted: number;
   database_rows_deleted: number;
+  cairnline_mirror_files_deleted?: number;
 }): string {
   const total =
     data.projects_deleted +
+    (data.project_skills_deleted ?? 0) +
+    (data.project_work_rows_deleted ?? 0) +
+    (data.project_assistant_proposals_deleted ?? 0) +
     (data.plugins_deleted ?? 0) +
+    (data.agent_profiles_deleted ?? 0) +
     data.chat_sessions_deleted +
     data.tasks_deleted +
     data.providers_deleted +
     data.policy_rules_deleted +
     data.agent_approval_grants_deleted +
-    data.database_rows_deleted;
+    data.database_rows_deleted +
+    (data.cairnline_mirror_files_deleted ?? 0);
   if (total === 0) return "Local data was already clean.";
   return `Reset local data. Removed ${total} item${total === 1 ? "" : "s"}.`;
 }

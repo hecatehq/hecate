@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/hecatehq/hecate/internal/config"
@@ -23,6 +24,9 @@ func TestProjectCoordinationBackendStatus_DefaultHecateAuthoritative(t *testing.
 	if !status.CairnlineBridgeReady || status.CairnlineAuthoritative || status.ReadModelSwitchReady || status.WriteAdapterReady || len(status.Warnings) != 0 {
 		t.Fatalf("status = %+v, want bridge-ready but inactive Cairnline adapter flags", status)
 	}
+	if len(status.ReadRoutes) != 0 || len(status.WriteAdapterSeams) != 0 || len(status.WriteAdapterGaps) != 0 {
+		t.Fatalf("status = %+v, want no Cairnline route/seam/gap lists until Cairnline is configured", status)
+	}
 }
 
 func TestProjectCoordinationBackendStatus_CairnlineConfiguredMissingSources(t *testing.T) {
@@ -39,6 +43,18 @@ func TestProjectCoordinationBackendStatus_CairnlineConfiguredMissingSources(t *t
 	}
 	if status.CairnlineAuthoritative || status.ReadModelSwitchReady || status.WriteAdapterReady || len(status.Warnings) == 0 {
 		t.Fatalf("status = %+v, want read adapter missing-source warnings", status)
+	}
+	if !strings.Contains(strings.Join(status.Warnings, "\n"), "project assistant proposal store") {
+		t.Fatalf("warnings = %+v, want missing assistant proposal store warning", status.Warnings)
+	}
+	if len(status.ReadRoutes) != 0 {
+		t.Fatalf("read routes = %+v, want none until the read adapter is ready", status.ReadRoutes)
+	}
+	if !containsString(status.WriteAdapterGaps, "projects") || !containsString(status.WriteAdapterGaps, "migration-cutover") {
+		t.Fatalf("write gaps = %+v, want structured write-adapter gaps", status.WriteAdapterGaps)
+	}
+	if !containsString(status.WriteAdapterSeams, "projects") || !containsString(status.WriteAdapterSeams, "project-identity-live-mirror") || !containsString(status.WriteAdapterSeams, "agent-profiles-live-mirror") || !containsString(status.WriteAdapterSeams, "project-skills-live-mirror") || !containsString(status.WriteAdapterSeams, "project-roles-live-mirror") || !containsString(status.WriteAdapterSeams, "project-work-items-live-mirror") || !containsString(status.WriteAdapterSeams, "assignments") || !containsString(status.WriteAdapterSeams, "project-assignments-live-mirror") || !containsString(status.WriteAdapterSeams, "project-assignment-start-result-live-mirror") || !containsString(status.WriteAdapterSeams, "project-assignment-chat-reconcile-live-mirror") || !containsString(status.WriteAdapterSeams, "project-collaboration-live-mirror") || !containsString(status.WriteAdapterSeams, "project-handoffs-live-mirror") || !containsString(status.WriteAdapterSeams, "project-memory-live-mirror") || !containsString(status.WriteAdapterSeams, "project-memory-candidates-live-mirror") || !containsString(status.WriteAdapterSeams, "project-assistant-proposal-ledger-live-mirror") || !containsString(status.WriteAdapterSeams, "project-assistant-apply-side-effects-live-mirror") || !containsString(status.WriteAdapterSeams, "sync-rehearsal") {
+		t.Fatalf("write seams = %+v, want structured non-authoritative write-adapter seam coverage", status.WriteAdapterSeams)
 	}
 }
 
@@ -59,6 +75,18 @@ func TestProjectCoordinationBackendStatus_CairnlineConfiguredReadRoutesReady(t *
 	}
 	if len(status.Warnings) == 0 {
 		t.Fatalf("status = %+v, want write-adapter/migration warning", status)
+	}
+	if !containsString(status.ReadRoutes, "project-list") || !containsString(status.ReadRoutes, "assignment-context") || !containsString(status.ReadRoutes, "launch-readiness") || !containsString(status.ReadRoutes, "assignment-preflight") || !containsString(status.ReadRoutes, "project-assistant-context") || !containsString(status.ReadRoutes, "project-assistant-proposal") || !containsString(status.ReadRoutes, "operations-brief") {
+		t.Fatalf("read routes = %+v, want structured Cairnline read-route coverage", status.ReadRoutes)
+	}
+	if !containsString(status.WriteAdapterGaps, "agent-profiles") || !containsString(status.WriteAdapterGaps, "assignments") || !containsString(status.WriteAdapterGaps, "project-assistant-proposals") || !containsString(status.WriteAdapterGaps, "migration-cutover") {
+		t.Fatalf("write gaps = %+v, want structured remaining write-adapter gaps", status.WriteAdapterGaps)
+	}
+	if !containsString(status.WriteAdapterSeams, "project-identity-live-mirror") || !containsString(status.WriteAdapterSeams, "agent-profiles-live-mirror") || !containsString(status.WriteAdapterSeams, "project-skills-live-mirror") || !containsString(status.WriteAdapterSeams, "project-roles-live-mirror") || !containsString(status.WriteAdapterSeams, "project-work-items-live-mirror") || !containsString(status.WriteAdapterSeams, "project-assignments-live-mirror") || !containsString(status.WriteAdapterSeams, "project-assignment-start-result-live-mirror") || !containsString(status.WriteAdapterSeams, "project-assignment-chat-reconcile-live-mirror") || !containsString(status.WriteAdapterSeams, "project-collaboration-live-mirror") || !containsString(status.WriteAdapterSeams, "project-handoffs-live-mirror") || !containsString(status.WriteAdapterSeams, "project-memory-live-mirror") || !containsString(status.WriteAdapterSeams, "project-memory-candidates-live-mirror") || !containsString(status.WriteAdapterSeams, "project-assistant-proposal-ledger-live-mirror") || !containsString(status.WriteAdapterSeams, "project-assistant-apply-side-effects-live-mirror") || !containsString(status.WriteAdapterSeams, "assignment-status") || !containsString(status.WriteAdapterSeams, "project-assistant-proposal-ledger-import") || !containsString(status.WriteAdapterSeams, "memory-candidates") {
+		t.Fatalf("write seams = %+v, want structured non-authoritative write-adapter seam coverage", status.WriteAdapterSeams)
+	}
+	if status.SyncReadinessURL != projectCoordinationBackendSyncReadinessURL {
+		t.Fatalf("sync readiness URL = %q, want %q", status.SyncReadinessURL, projectCoordinationBackendSyncReadinessURL)
 	}
 }
 
@@ -88,4 +116,16 @@ func TestProjectCoordinationBackendStatusRoute(t *testing.T) {
 	if !response.Data.ReadModelSwitchReady || response.Data.Status != "cairnline_read_routes_ready" {
 		t.Fatalf("response = %+v, want Cairnline read routes ready for fully wired test handler", response)
 	}
+	if !containsString(response.Data.ReadRoutes, "project-detail") || !containsString(response.Data.ReadRoutes, "launch-readiness") || !containsString(response.Data.ReadRoutes, "assignment-preflight") || !containsString(response.Data.ReadRoutes, "project-assistant-context") || !containsString(response.Data.ReadRoutes, "project-assistant-proposal") || !containsString(response.Data.WriteAdapterSeams, "project-identity-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-skills-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-roles-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-work-items-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-assignments-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-assignment-start-result-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-assignment-chat-reconcile-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-collaboration-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-handoffs-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-memory-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-memory-candidates-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-assistant-proposal-ledger-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-assistant-apply-side-effects-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "handoffs") || !containsString(response.Data.WriteAdapterGaps, "memory-candidates") {
+		t.Fatalf("response routes/seams/gaps = %+v / %+v / %+v, want structured readiness details", response.Data.ReadRoutes, response.Data.WriteAdapterSeams, response.Data.WriteAdapterGaps)
+	}
+}
+
+func containsString(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
 }

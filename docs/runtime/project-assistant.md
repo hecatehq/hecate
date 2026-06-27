@@ -188,6 +188,18 @@ Builds the same project-scoped context packet and role/driver selection that
 use this endpoint to show what `Auto` resolved to before asking the server to
 draft a proposal.
 
+When `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` is enabled and the
+backend-status route reports `read_model_switch_ready=true`, Hecate builds this
+packet from the Cairnline read model and marks it with
+`read_backend: "cairnline"`. The same projected context is used for Project
+Assistant draft generation so preview and proposal assembly stay aligned.
+The adapter preserves Hecate-owned projection details such as native snapshot
+timestamps and Hecate-only metadata while using Cairnline as the portable graph
+source, so ordering-sensitive context such as recent activity stays compatible
+with the Hecate-native path during replacement-readiness testing.
+Proposal ledger writes and proposal apply remain Hecate-owned until the
+Cairnline write adapter is authoritative.
+
 The v0 context packet is item-limited and body-budgeted. It includes project
 defaults, roots, context-source metadata, the selected work item when present,
 loaded project roles, recent assignments, accepted project memory, pending

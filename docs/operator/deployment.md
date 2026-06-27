@@ -357,11 +357,55 @@ and durable grants so transcripts and approval history move together.
 storage backend. The default is `hecate`. `cairnline` records replacement intent
 for local bridge experiments. When the Cairnline read adapter is fully wired,
 `GET /hecate/v1/projects/backend-status` reports
-`read_model_switch_ready=true`, and project setup readiness, work-item
-list/detail, assignment-list, closeout readiness, health, activity inbox, and
-operations brief can be served from the Cairnline read model. Other live
-Projects reads/writes still use Hecate-native stores until the remaining read
-routes, write adapter, and migration path are ready.
+`read_model_switch_ready=true`, and project list/detail, setup readiness,
+health, skills, memory entries, memory candidates, roles, work-item
+list/detail, assignment-list, assignment-context, launch-readiness,
+assignment-preflight, artifact-list, handoff-list, Project Assistant
+context/proposal reads, closeout readiness, activity inbox, and operations brief
+can be served from the Cairnline read model. Project Assistant draft generation
+also uses the Cairnline-projected context in this mode, while proposal ledger
+writes and apply authority remain Hecate-owned; committed assistant side
+effects are best-effort mirrored into Cairnline as replacement-readiness
+evidence. Launch-readiness and assignment preflight read Cairnline coordination
+records before applying Hecate runtime checks.
+Assignment preflight/start context packets may include inspect-only Cairnline
+launch-packet evidence for replacement review, but Hecate still owns dispatch,
+task/external agent supervision, approvals, and assignment mutation. Project
+identity, root create/update/delete/discovery/worktree-creation,
+context-source create/update/delete/discovery, and default mutations still
+write Hecate stores first and then best-effort mirror into the embedded
+Cairnline database; this is replacement-readiness evidence, not write authority.
+Project skill discovery and
+metadata updates also best-effort mirror metadata-only skill records after the
+Hecate store commit; the mirror does not load or execute skill bodies. Project
+role and work-item mutations likewise mirror coordination metadata after Hecate
+commits. Role mirroring seeds referenced agent-profile metadata and execution
+posture when available, and global agent-profile CRUD now best-effort mirrors
+portable profile metadata and execution posture after Hecate commits. Assignment
+create/update/delete, collaboration artifact creation, and handoff
+create/update/delete mutations also best-effort mirror portable metadata after
+Hecate commits, but assignment start/dispatch remains Hecate-owned. Project
+memory entry and memory-candidate mutations also
+best-effort mirror accepted memory and reviewable candidate state after Hecate
+commits. Project Assistant draft/propose/apply ledger mutations likewise
+best-effort mirror proposal records, apply attempts, and committed apply side
+effects after Hecate commits.
+Other live Projects reads/writes still use Hecate-native
+stores until the remaining read routes, write adapter, and migration path are
+ready. Current bridge write experiments cover non-authoritative
+project/root/source/defaults, agent profiles, skills, roles, work items,
+assignment metadata upsert/delete plus lifecycle-status sync, memory,
+memory-candidate, create-only collaboration artifact/evidence/review, and
+handoff shapes. Backend status reports those proof seams separately from the
+live-route `write_adapter_gaps`; only `project-identity-live-mirror`,
+`agent-profiles-live-mirror`, `project-skills-live-mirror`,
+`project-roles-live-mirror`, `project-work-items-live-mirror`,
+`project-assignments-live-mirror`, `project-collaboration-live-mirror`,
+`project-handoffs-live-mirror`, `project-memory-live-mirror`, and
+`project-memory-candidates-live-mirror`, plus
+`project-assistant-proposal-ledger-live-mirror` and
+`project-assistant-apply-side-effects-live-mirror` are wired to live mutations,
+and all remain non-authoritative.
 
 Deployment-specific notes:
 

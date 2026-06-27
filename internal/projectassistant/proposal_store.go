@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +26,7 @@ const (
 type ProposalStore interface {
 	Backend() string
 	UpsertProposal(ctx context.Context, record ProposalRecord) (ProposalRecord, error)
+	ListProposals(ctx context.Context, projectID string) ([]ProposalRecord, error)
 	GetProposal(ctx context.Context, id string) (ProposalRecord, bool, error)
 	UpdateProposalApplyState(ctx context.Context, proposalID string, result ApplyResult) (ProposalRecord, error)
 	RecordApplyAttempt(ctx context.Context, attempt ApplyAttempt) (ProposalRecord, error)
@@ -108,6 +110,22 @@ func (s *MemoryProposalStore) GetProposal(_ context.Context, id string) (Proposa
 		return ProposalRecord{}, false, nil
 	}
 	return s.proposalWithAttemptsLocked(id), true, nil
+}
+
+func (s *MemoryProposalStore) ListProposals(_ context.Context, projectID string) ([]ProposalRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	projectID = strings.TrimSpace(projectID)
+	records := make([]ProposalRecord, 0, len(s.proposals))
+	for id, record := range s.proposals {
+		if projectID != "" && strings.TrimSpace(record.ProjectID) != projectID {
+			continue
+		}
+		records = append(records, s.proposalWithAttemptsLocked(id))
+	}
+	sortProposalRecords(records)
+	return records, nil
 }
 
 func (s *MemoryProposalStore) UpdateProposalApplyState(_ context.Context, proposalID string, result ApplyResult) (ProposalRecord, error) {
@@ -304,6 +322,15 @@ func cloneProposalRecord(record ProposalRecord) ProposalRecord {
 	record.ApplyAttempts = cloneApplyAttempts(record.ApplyAttempts)
 	record.AppliedAt = cloneTimePtr(record.AppliedAt)
 	return record
+}
+
+func sortProposalRecords(records []ProposalRecord) {
+	slices.SortFunc(records, func(a, b ProposalRecord) int {
+		if cmp := b.UpdatedAt.Compare(a.UpdatedAt); cmp != 0 {
+			return cmp
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
 }
 
 func cloneProposal(proposal Proposal) Proposal {

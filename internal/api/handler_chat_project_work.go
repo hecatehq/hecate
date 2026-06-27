@@ -12,7 +12,11 @@ func (h *Handler) reconcileProjectAssignmentsForChat(ctx context.Context, sessio
 	if h == nil || h.projectWork == nil || strings.TrimSpace(session.ProjectID) == "" || strings.TrimSpace(session.ID) == "" {
 		return
 	}
-	if _, err := h.projectWorkApplication().ReconcileChatSessionAssignments(ctx, session); err != nil && h.logger != nil {
+	result, err := h.projectWorkApplication().ReconcileChatSessionAssignments(ctx, session)
+	for _, assignment := range result.Updated {
+		h.mirrorProjectAssignmentToCairnline(ctx, "project_assignment_chat_reconcile", assignment)
+	}
+	if err != nil && h.logger != nil {
 		h.logger.WarnContext(ctx, "project.assignment_chat_reconcile_failed",
 			slog.String("project_id", session.ProjectID),
 			slog.String("chat_session_id", session.ID),

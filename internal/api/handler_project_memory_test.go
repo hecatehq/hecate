@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"testing"
 
+	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projects"
@@ -20,6 +23,31 @@ func newProjectMemoryTestServer() http.Handler {
 	handler.SetProjectStore(projects.NewMemoryStore())
 	handler.SetMemoryStore(memory.NewMemoryStore())
 	return NewServer(quietLogger(), handler)
+}
+
+func newProjectMemoryCairnlineReadTestServer() http.Handler {
+	_, server := newProjectMemoryCairnlineReadTestHandler()
+	return server
+}
+
+func newProjectMemoryCairnlineReadTestHandler() (*Handler, http.Handler) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{CoordinationBackend: "cairnline"},
+	}, quietLogger(), nil, nil, nil, nil)
+	handler.SetProjectStore(projects.NewMemoryStore())
+	handler.SetMemoryStore(memory.NewMemoryStore())
+	return handler, NewServer(quietLogger(), handler)
+}
+
+func newProjectMemoryCairnlineMirrorTestServer(t *testing.T) (*Handler, http.Handler) {
+	t.Helper()
+	handler := NewHandler(config.Config{
+		Server:   config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{CoordinationBackend: "cairnline"},
+	}, quietLogger(), nil, nil, nil, nil)
+	handler.SetProjectStore(projects.NewMemoryStore())
+	handler.SetMemoryStore(memory.NewMemoryStore())
+	return handler, NewServer(quietLogger(), handler)
 }
 
 func TestProjectMemoryAPI_CRUD(t *testing.T) {
@@ -281,6 +309,231 @@ func TestProjectMemoryAPI_CandidateRejectFlow(t *testing.T) {
 	}
 }
 
+func TestProjectMemoryAPI_MirrorsMutationsToCairnlineWhenConfigured(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectMemoryCairnlineMirrorTestServer(t)
+	client := newAPITestClient(t, server)
+	project := createMemoryTestProject(t, server, "Mirror Memory")
+	projectID := project.Data.ID
+
+	created := mustRequestJSONStatus[ProjectMemoryResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/memory", `{
+		"title":"Release practice",
+		"body":"Keep release notes reviewable.",
+		"trust_label":"operator_memory",
+		"source_kind":"operator",
+		"enabled":false
+	}`)
+	mirroredMemory := getMirroredCairnlineMemoryEntryForTest(t, handler, projectID, created.Data.ID)
+	if mirroredMemory.Title != "Release practice" || mirroredMemory.Body != "Keep release notes reviewable." || mirroredMemory.Enabled {
+		t.Fatalf("mirrored memory = %+v, want created disabled memory", mirroredMemory)
+	}
+
+	updated := mustRequestJSON[ProjectMemoryResponse](client, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/memory/"+created.Data.ID, `{
+		"title":"Release practice updated",
+		"enabled":true,
+		"source_kind":"handoff",
+		"source_id":"handoff_1"
+	}`)
+	mirroredMemory = getMirroredCairnlineMemoryEntryForTest(t, handler, projectID, updated.Data.ID)
+	if mirroredMemory.Title != "Release practice updated" || !mirroredMemory.Enabled || mirroredMemory.SourceKind != "handoff" || mirroredMemory.SourceID != "handoff_1" {
+		t.Fatalf("mirrored updated memory = %+v, want patched metadata", mirroredMemory)
+	}
+
+	client.mustRequestStatus(http.StatusNoContent, http.MethodDelete, "/hecate/v1/projects/"+projectID+"/memory/"+created.Data.ID, "")
+	assertCairnlineMemoryEntryMissingForTest(t, handler, projectID, created.Data.ID)
+
+	candidate := mustRequestJSONStatus[ProjectMemoryCandidateResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/memory/candidates", `{
+		"title":"Generated lesson",
+		"body":"Mention evidence in handoffs.",
+		"suggested_kind":"lesson",
+		"suggested_trust_label":"generated_summary",
+		"suggested_source_kind":"artifact",
+		"suggested_source_id":"art_1",
+		"source_refs":[{"kind":"artifact","id":"art_1","title":"Review artifact","url":"https://example.test/review"}]
+	}`)
+	mirroredCandidate := getMirroredCairnlineMemoryCandidateForTest(t, handler, projectID, candidate.Data.ID)
+	if mirroredCandidate.Status != cairnline.MemoryCandidatePending || len(mirroredCandidate.SourceRefs) != 1 || mirroredCandidate.SourceRefs[0].URL != "https://example.test/review" {
+		t.Fatalf("mirrored candidate = %+v, want pending source-ref metadata", mirroredCandidate)
+	}
+
+	promoted := mustRequestJSON[ProjectMemoryCandidateResponse](client, http.MethodPost, "/hecate/v1/projects/"+projectID+"/memory/candidates/"+candidate.Data.ID+"/promote", `{
+		"title":"Reviewed lesson",
+		"body":"Mention evidence in handoffs after review.",
+		"trust_label":"operator_memory",
+		"source_kind":"operator",
+		"source_id":"art_1",
+		"enabled":true
+	}`)
+	if promoted.Data.PromotedMemoryID == "" {
+		t.Fatalf("promoted candidate = %+v, want promoted memory id", promoted.Data)
+	}
+	mirroredPromotedMemory := getMirroredCairnlineMemoryEntryForTest(t, handler, projectID, promoted.Data.PromotedMemoryID)
+	if mirroredPromotedMemory.Title != "Reviewed lesson" || mirroredPromotedMemory.Body != "Mention evidence in handoffs after review." || mirroredPromotedMemory.TrustLabel != "operator_memory" {
+		t.Fatalf("mirrored promoted memory = %+v, want reviewed entry", mirroredPromotedMemory)
+	}
+	mirroredCandidate = getMirroredCairnlineMemoryCandidateForTest(t, handler, projectID, candidate.Data.ID)
+	if mirroredCandidate.Status != cairnline.MemoryCandidatePromoted || mirroredCandidate.PromotedMemoryID != promoted.Data.PromotedMemoryID {
+		t.Fatalf("mirrored promoted candidate = %+v, want promoted status and memory ref", mirroredCandidate)
+	}
+
+	rejectCandidate := mustRequestJSONStatus[ProjectMemoryCandidateResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/memory/candidates", `{
+		"title":"Speculative lesson",
+		"body":"Skip tests when tired."
+	}`)
+	rejected := mustRequestJSON[ProjectMemoryCandidateResponse](client, http.MethodPost, "/hecate/v1/projects/"+projectID+"/memory/candidates/"+rejectCandidate.Data.ID+"/reject", `{"reason":"Not durable project guidance"}`)
+	mirroredRejected := getMirroredCairnlineMemoryCandidateForTest(t, handler, projectID, rejected.Data.ID)
+	if mirroredRejected.Status != cairnline.MemoryCandidateRejected || mirroredRejected.StatusReason != "Not durable project guidance" || mirroredRejected.PromotedMemoryID != "" {
+		t.Fatalf("mirrored rejected candidate = %+v, want rejected reason without promoted memory", mirroredRejected)
+	}
+}
+
+func TestProjectMemoryAPI_ListUsesCairnlineReadModelWhenConfigured(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectMemoryCairnlineReadTestHandler()
+	project := createMemoryTestProject(t, server, "Cairnline Memory")
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/memory", bytes.NewReader([]byte(`{
+		"title":"Enabled note",
+		"body":"Visible to project agents.",
+		"trust_label":"operator_memory",
+		"source_kind":"operator"
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create enabled memory status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	var enabled ProjectMemoryResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &enabled); err != nil {
+		t.Fatalf("decode enabled memory: %v", err)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/memory", bytes.NewReader([]byte(`{
+		"title":"Disabled note",
+		"body":"Keep inspectable but do not include by default.",
+		"enabled":false
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create disabled memory status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	var disabled ProjectMemoryResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &disabled); err != nil {
+		t.Fatalf("decode disabled memory: %v", err)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+project.Data.ID+"/memory", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list enabled memory status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var listed ProjectMemoryListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("decode enabled memory list: %v", err)
+	}
+	if len(listed.Data) != 1 || listed.Data[0].ID != enabled.Data.ID || listed.Data[0].ReadBackend != "cairnline" {
+		t.Fatalf("enabled memory list = %+v, want only enabled Cairnline-backed entry", listed.Data)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+project.Data.ID+"/memory?include_disabled=true", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list all memory status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	listed = ProjectMemoryListResponse{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("decode all memory list: %v", err)
+	}
+	if len(listed.Data) != 2 {
+		t.Fatalf("all memory list = %+v, want enabled and disabled entries", listed.Data)
+	}
+	disabledEntry := projectMemoryResponseForTest(listed.Data, disabled.Data.ID)
+	if disabledEntry == nil || disabledEntry.ReadBackend != "cairnline" || disabledEntry.Enabled {
+		t.Fatalf("disabled memory entry = %+v, want disabled Cairnline-backed entry", disabledEntry)
+	}
+
+	nativeEntries, err := handler.memory.List(t.Context(), memory.Filter{
+		ProjectID:       project.Data.ID,
+		IncludeDisabled: true,
+	})
+	if err != nil {
+		t.Fatalf("List native memory entries: %v", err)
+	}
+	assertProjectMemoryProjectionParity(t, renderProjectMemoryEntries(nativeEntries, "hecate"), listed.Data)
+}
+
+func TestProjectMemoryAPI_CandidatesUseCairnlineReadModelWhenConfigured(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectMemoryCairnlineReadTestHandler()
+	project := createMemoryTestProject(t, server, "Cairnline Candidates")
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/memory/candidates", bytes.NewReader([]byte(`{
+		"title":"Pending note",
+		"body":"Review before promotion.",
+		"suggested_kind":"note",
+		"suggested_trust_label":"generated_summary",
+		"source_refs":[{"kind":"handoff","id":"hand_1","title":"Handoff"}]
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create pending candidate status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	var pending ProjectMemoryCandidateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &pending); err != nil {
+		t.Fatalf("decode pending candidate: %v", err)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/memory/candidates", bytes.NewReader([]byte(`{
+		"title":"Rejected note",
+		"body":"Not durable enough."
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create rejected candidate status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	var rejected ProjectMemoryCandidateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &rejected); err != nil {
+		t.Fatalf("decode rejected candidate: %v", err)
+	}
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/memory/candidates/"+rejected.Data.ID+"/reject", bytes.NewReader([]byte(`{"reason":"Not durable"}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("reject candidate status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+project.Data.ID+"/memory/candidates", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list pending candidates status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var listed ProjectMemoryCandidateListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("decode pending candidate list: %v", err)
+	}
+	if len(listed.Data) != 1 || listed.Data[0].ID != pending.Data.ID || listed.Data[0].ReadBackend != "cairnline" || len(listed.Data[0].SourceRefs) != 1 {
+		t.Fatalf("pending candidate list = %+v, want pending Cairnline-backed candidate with source refs", listed.Data)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+project.Data.ID+"/memory/candidates?include_resolved=true", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list all candidates status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	listed = ProjectMemoryCandidateListResponse{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("decode all candidate list: %v", err)
+	}
+	rejectedCandidate := projectMemoryCandidateResponseForTest(listed.Data, rejected.Data.ID)
+	if len(listed.Data) != 2 || rejectedCandidate == nil || rejectedCandidate.ReadBackend != "cairnline" || rejectedCandidate.Status != memory.CandidateStatusRejected || rejectedCandidate.StatusReason != "Not durable" {
+		t.Fatalf("all candidate list = %+v, want rejected Cairnline-backed candidate with reason", listed.Data)
+	}
+
+	nativeCandidates, err := handler.memoryCandidates.ListCandidates(t.Context(), memory.CandidateFilter{ProjectID: project.Data.ID})
+	if err != nil {
+		t.Fatalf("List native memory candidates: %v", err)
+	}
+	assertProjectMemoryCandidateProjectionParity(t, renderProjectMemoryCandidates(nativeCandidates, "hecate"), listed.Data)
+}
+
 func TestProjectMemoryAPI_ValidationAndScoping(t *testing.T) {
 	t.Parallel()
 	server := newProjectMemoryTestServer()
@@ -314,6 +567,108 @@ func TestProjectMemoryAPI_ValidationAndScoping(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("cross-project patch status = %d body=%s, want 404", rec.Code, rec.Body.String())
 	}
+}
+
+func projectMemoryResponseForTest(items []ProjectMemoryResponseItem, id string) *ProjectMemoryResponseItem {
+	for index := range items {
+		if items[index].ID == id {
+			return &items[index]
+		}
+	}
+	return nil
+}
+
+func projectMemoryCandidateResponseForTest(items []ProjectMemoryCandidateResponseItem, id string) *ProjectMemoryCandidateResponseItem {
+	for index := range items {
+		if items[index].ID == id {
+			return &items[index]
+		}
+	}
+	return nil
+}
+
+func assertProjectMemoryProjectionParity(t *testing.T, hecate, cairnline []ProjectMemoryResponseItem) {
+	t.Helper()
+	if len(hecate) != len(cairnline) {
+		t.Fatalf("memory projection count = hecate:%d cairnline:%d", len(hecate), len(cairnline))
+	}
+	normalizedHecate := append([]ProjectMemoryResponseItem(nil), hecate...)
+	normalizedCairnline := append([]ProjectMemoryResponseItem(nil), cairnline...)
+	for idx := range normalizedHecate {
+		if normalizedHecate[idx].ReadBackend != "hecate" {
+			t.Fatalf("hecate memory[%d] read_backend = %q, want hecate", idx, normalizedHecate[idx].ReadBackend)
+		}
+		if normalizedCairnline[idx].ReadBackend != "cairnline" {
+			t.Fatalf("cairnline memory[%d] read_backend = %q, want cairnline", idx, normalizedCairnline[idx].ReadBackend)
+		}
+		normalizedHecate[idx].ReadBackend = ""
+		normalizedCairnline[idx].ReadBackend = ""
+	}
+	if !reflect.DeepEqual(normalizedHecate, normalizedCairnline) {
+		t.Fatalf("memory projection mismatch\nhecate:   %+v\ncairnline: %+v", normalizedHecate, normalizedCairnline)
+	}
+}
+
+func assertProjectMemoryCandidateProjectionParity(t *testing.T, hecate, cairnline []ProjectMemoryCandidateResponseItem) {
+	t.Helper()
+	if len(hecate) != len(cairnline) {
+		t.Fatalf("memory candidate projection count = hecate:%d cairnline:%d", len(hecate), len(cairnline))
+	}
+	normalizedHecate := append([]ProjectMemoryCandidateResponseItem(nil), hecate...)
+	normalizedCairnline := append([]ProjectMemoryCandidateResponseItem(nil), cairnline...)
+	for idx := range normalizedHecate {
+		if normalizedHecate[idx].ReadBackend != "hecate" {
+			t.Fatalf("hecate memory candidate[%d] read_backend = %q, want hecate", idx, normalizedHecate[idx].ReadBackend)
+		}
+		if normalizedCairnline[idx].ReadBackend != "cairnline" {
+			t.Fatalf("cairnline memory candidate[%d] read_backend = %q, want cairnline", idx, normalizedCairnline[idx].ReadBackend)
+		}
+		normalizedHecate[idx].ReadBackend = ""
+		normalizedCairnline[idx].ReadBackend = ""
+	}
+	if !reflect.DeepEqual(normalizedHecate, normalizedCairnline) {
+		t.Fatalf("memory candidate projection mismatch\nhecate:   %+v\ncairnline: %+v", normalizedHecate, normalizedCairnline)
+	}
+}
+
+func getMirroredCairnlineMemoryEntryForTest(t *testing.T, handler *Handler, projectID, memoryID string) cairnline.MemoryEntry {
+	t.Helper()
+	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+	if err != nil {
+		t.Fatalf("open Cairnline mirror: %v", err)
+	}
+	defer store.Close()
+	entry, err := service.GetMemoryEntry(t.Context(), projectID, memoryID)
+	if err != nil {
+		t.Fatalf("GetMemoryEntry(%q, %q): %v", projectID, memoryID, err)
+	}
+	return entry
+}
+
+func assertCairnlineMemoryEntryMissingForTest(t *testing.T, handler *Handler, projectID, memoryID string) {
+	t.Helper()
+	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+	if err != nil {
+		t.Fatalf("open Cairnline mirror: %v", err)
+	}
+	defer store.Close()
+	if _, err := service.GetMemoryEntry(t.Context(), projectID, memoryID); !errors.Is(err, cairnline.ErrNotFound) {
+		t.Fatalf("GetMemoryEntry(%q, %q) error = %v, want Cairnline ErrNotFound", projectID, memoryID, err)
+	}
+}
+
+func getMirroredCairnlineMemoryCandidateForTest(t *testing.T, handler *Handler, projectID, candidateID string) cairnline.MemoryCandidate {
+	t.Helper()
+	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+	if err != nil {
+		t.Fatalf("open Cairnline mirror: %v", err)
+	}
+	defer store.Close()
+	candidate, err := service.GetMemoryCandidate(t.Context(), projectID, candidateID)
+	if err != nil {
+		t.Fatalf("GetMemoryCandidate(%q, %q): %v", projectID, candidateID, err)
+	}
+	return candidate
 }
 
 func TestProjectMemoryAPI_SQLiteBackendParity(t *testing.T) {

@@ -24,6 +24,7 @@ const (
 )
 
 type DraftContext struct {
+	ReadBackend      string                   `json:"read_backend,omitempty"`
 	Project          ProjectContext           `json:"project"`
 	Request          string                   `json:"request"`
 	SelectedWork     *WorkItemContext         `json:"selected_work,omitempty"`

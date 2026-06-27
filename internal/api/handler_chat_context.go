@@ -199,11 +199,14 @@ func (h *Handler) contextPacketForProjectAssignment(ctx context.Context, assignm
 		return packet, ok, err
 	}
 	if h == nil || h.agentChat == nil || strings.TrimSpace(ref.ChatSessionID) == "" || strings.TrimSpace(ref.MessageID) == "" {
-		return chat.ContextPacket{}, false, nil
+		return h.contextPacketForCairnlineProjectAssignment(ctx, assignment)
 	}
 	session, ok, err := h.agentChat.Get(ctx, ref.ChatSessionID)
-	if err != nil || !ok {
+	if err != nil {
 		return chat.ContextPacket{}, false, err
+	}
+	if !ok {
+		return h.contextPacketForCairnlineProjectAssignment(ctx, assignment)
 	}
 	for _, message := range session.Messages {
 		if message.ID != strings.TrimSpace(ref.MessageID) {
@@ -212,7 +215,7 @@ func (h *Handler) contextPacketForProjectAssignment(ctx context.Context, assignm
 		packet, found := chatcontext.FromSessionMessage(session, message.ID)
 		return packet, found, nil
 	}
-	return chat.ContextPacket{}, false, nil
+	return h.contextPacketForCairnlineProjectAssignment(ctx, assignment)
 }
 
 func (h *Handler) directModelContextPacket(ctx context.Context, session chat.Session, provider, model, systemPrompt string) chat.ContextPacket {

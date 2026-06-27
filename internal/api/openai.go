@@ -297,17 +297,88 @@ type ProjectCairnlineExportResponse struct {
 }
 
 type ProjectCairnlineExportResponseItem struct {
-	ProjectID            string `json:"project_id"`
-	DatabasePath         string `json:"database_path"`
-	AgentProfileCount    int    `json:"agent_profile_count"`
-	SkillCount           int    `json:"skill_count"`
-	RoleCount            int    `json:"role_count"`
-	WorkItemCount        int    `json:"work_item_count"`
-	AssignmentCount      int    `json:"assignment_count"`
-	ArtifactCount        int    `json:"artifact_count"`
-	HandoffCount         int    `json:"handoff_count"`
-	MemoryEntryCount     int    `json:"memory_entry_count"`
-	MemoryCandidateCount int    `json:"memory_candidate_count"`
+	ProjectID              string `json:"project_id"`
+	DatabasePath           string `json:"database_path"`
+	RootCount              int    `json:"root_count"`
+	ContextSourceCount     int    `json:"context_source_count"`
+	AgentProfileCount      int    `json:"agent_profile_count"`
+	ExecutionProfileCount  int    `json:"execution_profile_count"`
+	SkillCount             int    `json:"skill_count"`
+	RoleCount              int    `json:"role_count"`
+	WorkItemCount          int    `json:"work_item_count"`
+	AssignmentCount        int    `json:"assignment_count"`
+	ArtifactCount          int    `json:"artifact_count"`
+	HandoffCount           int    `json:"handoff_count"`
+	MemoryEntryCount       int    `json:"memory_entry_count"`
+	MemoryCandidateCount   int    `json:"memory_candidate_count"`
+	AssistantProposalCount int    `json:"assistant_proposal_count"`
+}
+
+type ProjectCairnlineSyncResponse struct {
+	Object string                           `json:"object"`
+	Data   ProjectCairnlineSyncResponseItem `json:"data"`
+}
+
+type ProjectCairnlineSyncResponseItem struct {
+	DatabasePath       string                              `json:"database_path"`
+	Match              bool                                `json:"match"`
+	Differences        []ProjectCairnlineParityDifference  `json:"differences,omitempty"`
+	IDDifferences      []ProjectCairnlineIDDifference      `json:"id_differences,omitempty"`
+	ContentDifferences []ProjectCairnlineContentDifference `json:"content_differences,omitempty"`
+	Hecate             ProjectCairnlineSyncCounts          `json:"hecate"`
+	Cairnline          ProjectCairnlineSyncCounts          `json:"cairnline"`
+	Authoritative      bool                                `json:"authoritative"`
+}
+
+type ProjectCairnlineSyncCounts struct {
+	Projects           int `json:"projects"`
+	Roots              int `json:"roots"`
+	ContextSources     int `json:"context_sources"`
+	AgentProfiles      int `json:"agent_profiles"`
+	ExecutionProfiles  int `json:"execution_profiles"`
+	Skills             int `json:"skills"`
+	Roles              int `json:"roles"`
+	WorkItems          int `json:"work_items"`
+	Assignments        int `json:"assignments"`
+	Artifacts          int `json:"artifacts"`
+	Handoffs           int `json:"handoffs"`
+	MemoryEntries      int `json:"memory_entries"`
+	MemoryCandidates   int `json:"memory_candidates"`
+	AssistantProposals int `json:"assistant_proposals"`
+	LaunchPackets      int `json:"launch_packets"`
+	LaunchWarnings     int `json:"launch_warnings"`
+	LaunchErrors       int `json:"launch_errors"`
+}
+
+type ProjectCairnlineSyncIDSets struct {
+	Projects           []string `json:"projects,omitempty"`
+	Roots              []string `json:"roots,omitempty"`
+	ContextSources     []string `json:"context_sources,omitempty"`
+	AgentProfiles      []string `json:"agent_profiles,omitempty"`
+	ExecutionProfiles  []string `json:"execution_profiles,omitempty"`
+	Skills             []string `json:"skills,omitempty"`
+	Roles              []string `json:"roles,omitempty"`
+	WorkItems          []string `json:"work_items,omitempty"`
+	Assignments        []string `json:"assignments,omitempty"`
+	Artifacts          []string `json:"artifacts,omitempty"`
+	Handoffs           []string `json:"handoffs,omitempty"`
+	MemoryEntries      []string `json:"memory_entries,omitempty"`
+	MemoryCandidates   []string `json:"memory_candidates,omitempty"`
+	AssistantProposals []string `json:"assistant_proposals,omitempty"`
+	LaunchPackets      []string `json:"launch_packets,omitempty"`
+}
+
+type ProjectCairnlineIDDifference struct {
+	Path      string   `json:"path"`
+	Hecate    []string `json:"hecate"`
+	Cairnline []string `json:"cairnline"`
+}
+
+type ProjectCairnlineContentDifference struct {
+	Path      string `json:"path"`
+	ID        string `json:"id"`
+	Hecate    string `json:"hecate_digest"`
+	Cairnline string `json:"cairnline_digest"`
 }
 
 type ProjectCairnlineReadModelResponse struct {
@@ -316,18 +387,30 @@ type ProjectCairnlineReadModelResponse struct {
 }
 
 type ProjectCairnlineReadModelResponseItem struct {
-	ProjectID            string                           `json:"project_id"`
-	AgentProfileCount    int                              `json:"agent_profile_count"`
-	SkillCount           int                              `json:"skill_count"`
-	RoleCount            int                              `json:"role_count"`
-	WorkItemCount        int                              `json:"work_item_count"`
-	AssignmentCount      int                              `json:"assignment_count"`
-	ArtifactCount        int                              `json:"artifact_count"`
-	HandoffCount         int                              `json:"handoff_count"`
-	MemoryEntryCount     int                              `json:"memory_entry_count"`
-	MemoryCandidateCount int                              `json:"memory_candidate_count"`
-	Operations           cairnline.ProjectOperationsBrief `json:"operations"`
-	Activity             cairnline.ProjectActivity        `json:"activity"`
+	ProjectID                string                              `json:"project_id"`
+	RootCount                int                                 `json:"root_count"`
+	ContextSourceCount       int                                 `json:"context_source_count"`
+	AgentProfileCount        int                                 `json:"agent_profile_count"`
+	ExecutionProfileCount    int                                 `json:"execution_profile_count"`
+	SkillCount               int                                 `json:"skill_count"`
+	RoleCount                int                                 `json:"role_count"`
+	WorkItemCount            int                                 `json:"work_item_count"`
+	AssignmentCount          int                                 `json:"assignment_count"`
+	ArtifactCount            int                                 `json:"artifact_count"`
+	HandoffCount             int                                 `json:"handoff_count"`
+	MemoryEntryCount         int                                 `json:"memory_entry_count"`
+	MemoryCandidateCount     int                                 `json:"memory_candidate_count"`
+	AssistantProposalCount   int                                 `json:"assistant_proposal_count"`
+	LaunchPacketCount        int                                 `json:"launch_packet_count"`
+	LaunchPacketWarningCount int                                 `json:"launch_packet_warning_count"`
+	LaunchPacketErrors       []ProjectCairnlineLaunchPacketError `json:"launch_packet_errors,omitempty"`
+	Operations               cairnline.ProjectOperationsBrief    `json:"operations"`
+	Activity                 cairnline.ProjectActivity           `json:"activity"`
+}
+
+type ProjectCairnlineLaunchPacketError struct {
+	AssignmentID string `json:"assignment_id"`
+	Error        string `json:"error"`
 }
 
 type ProjectCairnlineParityReportResponse struct {
@@ -344,8 +427,26 @@ type ProjectCairnlineParityReportResponseItem struct {
 }
 
 type ProjectCairnlineParitySnapshot struct {
-	Activity   ProjectCairnlineActivityParityCounts   `json:"activity"`
-	Operations ProjectCairnlineOperationsParityCounts `json:"operations"`
+	Graph         ProjectCairnlineGraphParityCounts        `json:"graph"`
+	Activity      ProjectCairnlineActivityParityCounts     `json:"activity"`
+	Operations    ProjectCairnlineOperationsParityCounts   `json:"operations"`
+	Assistant     ProjectCairnlineAssistantParityCounts    `json:"assistant"`
+	LaunchPackets ProjectCairnlineLaunchPacketParityCounts `json:"launch_packets"`
+}
+
+type ProjectCairnlineGraphParityCounts struct {
+	Roots             int `json:"roots"`
+	ContextSources    int `json:"context_sources"`
+	AgentProfiles     int `json:"agent_profiles"`
+	ExecutionProfiles int `json:"execution_profiles"`
+	Skills            int `json:"skills"`
+	Roles             int `json:"roles"`
+	WorkItems         int `json:"work_items"`
+	Assignments       int `json:"assignments"`
+	Artifacts         int `json:"artifacts"`
+	Handoffs          int `json:"handoffs"`
+	MemoryEntries     int `json:"memory_entries"`
+	MemoryCandidates  int `json:"memory_candidates"`
 }
 
 type ProjectCairnlineActivityParityCounts struct {
@@ -360,6 +461,16 @@ type ProjectCairnlineActivityParityCounts struct {
 type ProjectCairnlineOperationsParityCounts struct {
 	PendingMemoryCandidates int `json:"pending_memory_candidates"`
 	OpenHandoffs            int `json:"open_handoffs"`
+}
+
+type ProjectCairnlineAssistantParityCounts struct {
+	Proposals int `json:"proposals"`
+}
+
+type ProjectCairnlineLaunchPacketParityCounts struct {
+	Assignments int `json:"assignments"`
+	Warnings    int `json:"warnings"`
+	Errors      int `json:"errors"`
 }
 
 type ProjectCairnlineParityDifference struct {
@@ -381,10 +492,14 @@ type ProjectCoordinationBackendStatusResponse struct {
 	CairnlineAuthoritative  bool     `json:"cairnline_authoritative"`
 	ReadModelSwitchReady    bool     `json:"read_model_switch_ready"`
 	WriteAdapterReady       bool     `json:"write_adapter_ready"`
+	ReadRoutes              []string `json:"read_routes,omitempty"`
+	WriteAdapterSeams       []string `json:"write_adapter_seams,omitempty"`
+	WriteAdapterGaps        []string `json:"write_adapter_gaps,omitempty"`
 	Status                  string   `json:"status"`
 	Detail                  string   `json:"detail"`
 	Warnings                []string `json:"warnings,omitempty"`
 	ReplacementReadinessURL string   `json:"replacement_readiness_url,omitempty"`
+	SyncReadinessURL        string   `json:"sync_readiness_url,omitempty"`
 }
 
 type AgentProfileResponse struct {
@@ -461,6 +576,7 @@ type UpdateAgentProfileRequest struct {
 
 type ProjectResponseItem struct {
 	ID                       string                             `json:"id"`
+	ReadBackend              string                             `json:"read_backend,omitempty"`
 	Name                     string                             `json:"name"`
 	Description              string                             `json:"description,omitempty"`
 	Roots                    []ProjectRootResponseItem          `json:"roots"`
@@ -517,6 +633,7 @@ type ProjectSkillResponse struct {
 type ProjectSkillResponseItem struct {
 	ID                     string                                       `json:"id"`
 	ProjectID              string                                       `json:"project_id"`
+	ReadBackend            string                                       `json:"read_backend,omitempty"`
 	Title                  string                                       `json:"title"`
 	Description            string                                       `json:"description,omitempty"`
 	Path                   string                                       `json:"path,omitempty"`
@@ -645,17 +762,18 @@ type ProjectMemoryCandidateListResponse struct {
 }
 
 type ProjectMemoryResponseItem struct {
-	ID         string `json:"id"`
-	Scope      string `json:"scope"`
-	ProjectID  string `json:"project_id"`
-	Title      string `json:"title"`
-	Body       string `json:"body"`
-	TrustLabel string `json:"trust_label"`
-	SourceKind string `json:"source_kind"`
-	SourceID   string `json:"source_id,omitempty"`
-	Enabled    bool   `json:"enabled"`
-	CreatedAt  string `json:"created_at"`
-	UpdatedAt  string `json:"updated_at"`
+	ID          string `json:"id"`
+	Scope       string `json:"scope"`
+	ProjectID   string `json:"project_id"`
+	ReadBackend string `json:"read_backend,omitempty"`
+	Title       string `json:"title"`
+	Body        string `json:"body"`
+	TrustLabel  string `json:"trust_label"`
+	SourceKind  string `json:"source_kind"`
+	SourceID    string `json:"source_id,omitempty"`
+	Enabled     bool   `json:"enabled"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
 }
 
 type ProjectMemoryCandidateSourceRefResponseItem struct {
@@ -668,6 +786,7 @@ type ProjectMemoryCandidateSourceRefResponseItem struct {
 type ProjectMemoryCandidateResponseItem struct {
 	ID                  string                                        `json:"id"`
 	ProjectID           string                                        `json:"project_id"`
+	ReadBackend         string                                        `json:"read_backend,omitempty"`
 	Title               string                                        `json:"title"`
 	Body                string                                        `json:"body"`
 	SuggestedKind       string                                        `json:"suggested_kind,omitempty"`
@@ -1488,6 +1607,7 @@ type SystemResetDataResponseItem struct {
 	PolicyRulesDeleted               int `json:"policy_rules_deleted"`
 	AgentApprovalGrantsDeleted       int `json:"agent_approval_grants_deleted"`
 	DatabaseRowsDeleted              int `json:"database_rows_deleted"`
+	CairnlineMirrorFilesDeleted      int `json:"cairnline_mirror_files_deleted"`
 }
 
 type UsageSummaryResponseItem struct {

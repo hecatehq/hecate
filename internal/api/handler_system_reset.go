@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 
 	"github.com/hecatehq/hecate/internal/agentadapters"
 	"github.com/hecatehq/hecate/internal/projects"
@@ -102,6 +103,12 @@ func (h *Handler) resetSystemData(ctx context.Context) (SystemResetDataResponseI
 		return stats, err
 	}
 	stats.DatabaseRowsDeleted = rowsDeleted
+
+	cairnlineMirrorDeleted, err := h.resetCairnlineMirrorDatabase()
+	if err != nil {
+		return stats, err
+	}
+	stats.CairnlineMirrorFilesDeleted = cairnlineMirrorDeleted
 
 	return stats, nil
 }
@@ -226,6 +233,24 @@ func (h *Handler) resetTasks(ctx context.Context) (int, error) {
 			return deleted, fmt.Errorf("%w: task %q has an active run; cancel it first", errSystemResetConflict, task.ID)
 		}
 		if err := h.taskStore.DeleteTask(ctx, task.ID); err != nil {
+			return deleted, err
+		}
+		deleted++
+	}
+	return deleted, nil
+}
+
+func (h *Handler) resetCairnlineMirrorDatabase() (int, error) {
+	if h == nil {
+		return 0, nil
+	}
+	dbPath := h.cairnlineEmbeddedDatabasePath()
+	deleted := 0
+	for _, path := range []string{dbPath, dbPath + "-wal", dbPath + "-shm"} {
+		if err := os.Remove(path); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
 			return deleted, err
 		}
 		deleted++

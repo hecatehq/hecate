@@ -59,8 +59,19 @@ backend yet.
 Hecate should replace its internal Projects stores with Cairnline only after:
 
 - Cairnline covers Hecate's current project, role, profile, skill, work item,
-  assignment, evidence, review, handoff, memory-candidate, root, and closeout
-  flows.
+  assignment, generic artifact, evidence, review, handoff, memory-candidate,
+  assistant-proposal ledger and committed apply side effects, root, and
+  closeout flows.
+- Cairnline skill discovery remains compatible with Hecate's current
+  `.agents/skills`, `.hecate/skills`, and enabled guidance-linked local skill
+  roots while keeping Cairnline-native `.cairnline/skills` available for
+  standalone projects.
+- Hecate project-level and role-level default profile/provider/model posture is
+  preserved as Cairnline project/role profile and execution-profile defaults,
+  so assignment launch packets do not silently fall back to agent-profile
+  execution hints when a project or role is more specific; Hecate's
+  replacement-readiness parity report counts execution profiles so this
+  posture mapping is observable.
 - Hecate has an adapter from Hecate task / External Agent execution records to
   Cairnline assignment coordination records.
 - Hecate can migrate or import/export existing local project state.
@@ -184,6 +195,7 @@ work_items.closeout_readiness
 
 assignments.list
 assignments.create
+assignments.update
 assignments.claim
 assignments.context
 assignments.launch_packet
@@ -326,6 +338,63 @@ launch agents. Those remain explicit operator or orchestrator actions.
 - Hecate can initially continue using its internal Projects implementation.
 - Hecate can use the MCP server for side-by-side interoperability and the
   public Go package for controlled embed experiments.
+- Current Hecate embed experiments can serve project list/detail, setup
+  readiness, health, skills, memory, memory candidates, roles, work items,
+  assignment lists, assignment context, launch-readiness, assignment preflight,
+  generic/evidence/review artifact lists, handoff lists, Project Assistant
+  context/proposal reads, activity, closeout readiness, and operations brief
+  reads from a Cairnline-seeded read model while Hecate stores remain
+  authoritative.
+- Project Assistant draft generation can use the same Cairnline-projected
+  context as the inspect endpoint, so proposal assembly is exercised against the
+  portable read model while proposal persistence and apply remain Hecate-owned.
+- Hecate launch-readiness and assignment preflight can read Cairnline
+  project/work/assignment/role coordination records before applying Hecate-owned
+  runtime validation. Native assignment preflight/start context packets can
+  append inspect-only Cairnline launch-packet evidence when the read adapter is
+  active, so operators can compare portable launch-packet coverage with
+  Hecate's authoritative dispatch context before cutover. Hecate can also
+  mirror committed assignment-start results as replacement evidence, but this
+  does not make assignment-start Cairnline-backed.
+- The Hecate parity report compares raw graph counts, derived activity and
+  operations counts, Project Assistant proposal-ledger counts, and launch-packet
+  coverage before any backend switch.
+- The Hecate backend-status endpoint exposes the live Cairnline read-route
+  coverage, non-authoritative bridge write seams, and remaining live-route
+  write-adapter gap families as structured fields, so replacement readiness can
+  be tracked without parsing warning prose.
+- Hecate has a non-authoritative bridge write seam for project identity,
+  embedded roots, context sources, project defaults, and project-level
+  execution-profile cleanup. Hecate also has a non-authoritative project skill
+  metadata upsert seam that preserves operator-disabled state and provenance
+  without loading or executing skill bodies, agent-profile upsert/delete seams,
+  role/work-item upsert seams, assignment metadata upsert/delete plus
+  lifecycle-status sync, committed start-result mirror, linked-chat
+  reconciliation mirror, create-if-missing generic artifact/evidence/review seams, handoff
+  upsert/delete seams, plus accepted-memory and memory-candidate seams that
+  preserve metadata, disabled state, provenance, resolved candidate state, and
+  Hecate-owned promoted memory IDs. The project identity/root
+  discovery/worktree-creation/context-source discovery seam, the global
+  agent-profile seam, the metadata-only project-skill discovery/update seam, the
+  role/work-item/assignment coordination seams, the assignment start/reconcile
+  result seams, the collaboration artifact create seam, the handoff mutation
+  seam, and the accepted-memory and memory-candidate seams, plus the Project Assistant
+  proposal-ledger seam, are now wired as best-effort live mirrors into the
+  embedded Cairnline DB when the Cairnline backend is configured, but Hecate
+  still commits first and remains authoritative. Role mirrors also seed
+  referenced agent-profile metadata/execution posture when the profile store is
+  available.
+  Assignment-start dispatch is still a Hecate-owned write
+  gap. Artifact/evidence/review update/delete semantics are absent because
+  Hecate currently records those as immutable collaboration artifacts. Route
+  switch points, atomic promotion semantics, migration, rollback, and the rest
+  of the mutation families must land before Cairnline can become authoritative.
+- Hecate can write a refreshable embedded Cairnline SQLite sync database for
+  the full Projects graph as a migration rehearsal before any dual-write or
+  authoritative write adapter exists. The sync response compares aggregate
+  Hecate snapshot counts, normalized record ID sets, and semantic
+  record-content digests with the embedded database and reports count-level,
+  ID-set, and content-digest differences.
 - After V0 stabilizes, Hecate may embed the portable core as its Projects
   backend or talk to the MCP server as a separate local coordination process.
 - Hecate remains the richer cockpit and orchestrator for supervised Hecate

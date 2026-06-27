@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/projects"
 )
@@ -72,7 +73,10 @@ func TestProjectRootsDiscovery_MergesGitWorktrees(t *testing.T) {
 func TestProjectRoots_CreateWorktreeRoot(t *testing.T) {
 	t.Parallel()
 	repo := initProjectRootDiscoveryRepo(t)
-	handler := NewHandler(config.Config{}, quietLogger(), nil, nil, nil, nil)
+	handler := NewHandler(config.Config{
+		Server:   config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{CoordinationBackend: "cairnline"},
+	}, quietLogger(), nil, nil, nil, nil)
 	projectStore := projects.NewMemoryStore()
 	handler.SetProjectStore(projectStore)
 	server := NewServer(quietLogger(), handler)
@@ -121,6 +125,25 @@ func TestProjectRoots_CreateWorktreeRoot(t *testing.T) {
 	}
 	if strings.TrimSpace(string(branch)) != "feature/create-root" {
 		t.Fatalf("created worktree branch = %q, want feature/create-root", strings.TrimSpace(string(branch)))
+	}
+
+	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+	if err != nil {
+		t.Fatalf("open Cairnline mirror: %v", err)
+	}
+	defer store.Close()
+	mirrored, err := service.GetProject(t.Context(), "proj_roots")
+	if err != nil {
+		t.Fatalf("GetProject(proj_roots): %v", err)
+	}
+	var mirroredRootFound bool
+	for _, root := range mirrored.Roots {
+		if root.ID == created.ID && root.Kind == "git_worktree" && root.GitBranch == "feature/create-root" && root.Active {
+			mirroredRootFound = true
+		}
+	}
+	if !mirroredRootFound || mirrored.DefaultRootID != created.ID {
+		t.Fatalf("mirrored roots = %+v default=%q, want created active worktree root as default", mirrored.Roots, mirrored.DefaultRootID)
 	}
 }
 
