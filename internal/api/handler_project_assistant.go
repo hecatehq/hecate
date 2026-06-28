@@ -234,6 +234,20 @@ func (h *Handler) HandleProjectAssistantProposal(w http.ResponseWriter, r *http.
 }
 
 func (h *Handler) cairnlineProjectAssistantProposal(ctx context.Context, id string) (projectassistant.ProposalRecord, bool, error) {
+	strictEmbedded := h.requiresEmbeddedCairnlineProjectReads()
+	if h.prefersEmbeddedCairnlineProjectReads() {
+		_, service, store, err := h.openCairnlineEmbeddedService(ctx)
+		if err == nil {
+			defer store.Close()
+			record, ok, err := cairnlineProjectAssistantProposalFromService(ctx, service, id)
+			if err != nil || ok || strictEmbedded {
+				return record, ok, err
+			}
+		} else if strictEmbedded || !errors.Is(err, cairnline.ErrNotFound) {
+			return projectassistant.ProposalRecord{}, false, err
+		}
+	}
+
 	snapshots, err := cairnlinebridge.LoadSnapshots(ctx, h.cairnlineSnapshotSources())
 	if err != nil {
 		return projectassistant.ProposalRecord{}, false, err
@@ -242,6 +256,10 @@ func (h *Handler) cairnlineProjectAssistantProposal(ctx context.Context, id stri
 	if err := cairnlinebridge.SeedSnapshots(ctx, service, snapshots); err != nil {
 		return projectassistant.ProposalRecord{}, false, err
 	}
+	return cairnlineProjectAssistantProposalFromService(ctx, service, id)
+}
+
+func cairnlineProjectAssistantProposalFromService(ctx context.Context, service *cairnline.Service, id string) (projectassistant.ProposalRecord, bool, error) {
 	item, err := service.GetAssistantProposal(ctx, id)
 	if errors.Is(err, cairnline.ErrNotFound) {
 		return projectassistant.ProposalRecord{}, false, nil
