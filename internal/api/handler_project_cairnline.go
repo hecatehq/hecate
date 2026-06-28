@@ -228,6 +228,16 @@ func (h *Handler) HandleProjectCairnlineParityReport(w http.ResponseWriter, r *h
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
+	nativeCollaboration, err := h.nativeProjectCollaborationParityCounts(r.Context(), projectID)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	cairnlineCollaboration, err := cairnlineProjectCollaborationParityCountsFromService(r.Context(), service, snapshot.Project.ID)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
 	nativeActivity, err := h.renderNativeProjectActivity(r.Context(), projectID)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
@@ -248,7 +258,7 @@ func (h *Handler) HandleProjectCairnlineParityReport(w http.ResponseWriter, r *h
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	report := projectCairnlineParityReport(projectID, projectCairnlineSnapshotGraphCounts(snapshot), nativeWorkItems, nativeActivity, nativeOperations, cairnlineWorkItems, cairnlineOperations, nativeAssistantProposals, readModel)
+	report := projectCairnlineParityReport(projectID, projectCairnlineSnapshotGraphCounts(snapshot), nativeWorkItems, nativeCollaboration, nativeActivity, nativeOperations, cairnlineWorkItems, cairnlineCollaboration, cairnlineOperations, nativeAssistantProposals, readModel)
 	WriteJSON(w, http.StatusOK, ProjectCairnlineParityReportResponse{
 		Object: "project_cairnline_parity_report",
 		Data:   report,
@@ -321,6 +331,14 @@ func (h *Handler) projectCairnlineEmbeddedParityReport(ctx context.Context, proj
 	if err != nil {
 		return ProjectCairnlineParityReportResponseItem{}, err
 	}
+	nativeCollaboration, err := h.nativeProjectCollaborationParityCounts(ctx, projectID)
+	if err != nil {
+		return ProjectCairnlineParityReportResponseItem{}, err
+	}
+	cairnlineCollaboration, err := cairnlineProjectCollaborationParityCountsFromService(ctx, service, projectID)
+	if err != nil {
+		return ProjectCairnlineParityReportResponseItem{}, err
+	}
 	nativeActivity, err := h.renderNativeProjectActivity(ctx, projectID)
 	if err != nil {
 		return ProjectCairnlineParityReportResponseItem{}, err
@@ -337,7 +355,7 @@ func (h *Handler) projectCairnlineEmbeddedParityReport(ctx context.Context, proj
 	if err != nil {
 		return ProjectCairnlineParityReportResponseItem{}, err
 	}
-	return projectCairnlineParityReport(projectID, projectCairnlineSnapshotGraphCounts(snapshot), nativeWorkItems, nativeActivity, nativeOperations, cairnlineWorkItems, cairnlineOperations, nativeAssistantProposals, readModel), nil
+	return projectCairnlineParityReport(projectID, projectCairnlineSnapshotGraphCounts(snapshot), nativeWorkItems, nativeCollaboration, nativeActivity, nativeOperations, cairnlineWorkItems, cairnlineCollaboration, cairnlineOperations, nativeAssistantProposals, readModel), nil
 }
 
 func (h *Handler) openCairnlineEmbeddedService(ctx context.Context) (string, *cairnline.Service, *cairnline.SQLiteStore, error) {
@@ -1377,10 +1395,13 @@ func (h *Handler) nativeProjectAssistantProposalCount(ctx context.Context, proje
 	return len(proposals), nil
 }
 
-func projectCairnlineParityReport(projectID string, nativeGraph ProjectCairnlineGraphParityCounts, nativeWorkItems []ProjectWorkItemResponse, nativeActivity ProjectActivityDataResponse, nativeOperations ProjectOperationsBriefResponse, cairnlineWorkItems []ProjectWorkItemResponse, cairnlineOperations ProjectOperationsBriefResponse, nativeAssistantProposals int, readModel ProjectCairnlineReadModelResponseItem) ProjectCairnlineParityReportResponseItem {
+func projectCairnlineParityReport(projectID string, nativeGraph ProjectCairnlineGraphParityCounts, nativeWorkItems []ProjectWorkItemResponse, nativeCollaboration ProjectCairnlineCollaborationParityCounts, nativeActivity ProjectActivityDataResponse, nativeOperations ProjectOperationsBriefResponse, cairnlineWorkItems []ProjectWorkItemResponse, cairnlineCollaboration ProjectCairnlineCollaborationParityCounts, cairnlineOperations ProjectOperationsBriefResponse, nativeAssistantProposals int, readModel ProjectCairnlineReadModelResponseItem) ProjectCairnlineParityReportResponseItem {
+	nativeCollaboration = normalizeProjectCairnlineCollaborationParityCounts(nativeCollaboration)
+	cairnlineCollaboration = normalizeProjectCairnlineCollaborationParityCounts(cairnlineCollaboration)
 	hecate := ProjectCairnlineParitySnapshot{
-		Graph:     nativeGraph,
-		WorkItems: projectCairnlineWorkItemParityCounts(nativeWorkItems),
+		Graph:         nativeGraph,
+		WorkItems:     projectCairnlineWorkItemParityCounts(nativeWorkItems),
+		Collaboration: nativeCollaboration,
 		Activity: ProjectCairnlineActivityParityCounts{
 			WorkItems:   nativeActivity.Summary.WorkItemCount,
 			Assignments: nativeActivity.Summary.AssignmentCount,
@@ -1414,7 +1435,8 @@ func projectCairnlineParityReport(projectID string, nativeGraph ProjectCairnline
 			MemoryEntries:     readModel.MemoryEntryCount,
 			MemoryCandidates:  readModel.MemoryCandidateCount,
 		},
-		WorkItems: projectCairnlineWorkItemParityCounts(cairnlineWorkItems),
+		WorkItems:     projectCairnlineWorkItemParityCounts(cairnlineWorkItems),
+		Collaboration: cairnlineCollaboration,
 		Activity: ProjectCairnlineActivityParityCounts{
 			WorkItems:   readModel.WorkItemCount,
 			Assignments: readModel.Activity.Counts.Assignments,
@@ -1459,6 +1481,86 @@ func projectCairnlineWorkItemParityCounts(items []ProjectWorkItemResponse) Proje
 	return counts
 }
 
+func normalizeProjectCairnlineCollaborationParityCounts(counts ProjectCairnlineCollaborationParityCounts) ProjectCairnlineCollaborationParityCounts {
+	if counts.ArtifactKindCounts == nil {
+		counts.ArtifactKindCounts = map[string]int{}
+	}
+	if counts.HandoffStatusCounts == nil {
+		counts.HandoffStatusCounts = map[string]int{}
+	}
+	return counts
+}
+
+func (h *Handler) nativeProjectCollaborationParityCounts(ctx context.Context, projectID string) (ProjectCairnlineCollaborationParityCounts, error) {
+	artifacts, err := h.projectWork.ListArtifacts(ctx, projectwork.ArtifactFilter{ProjectID: projectID})
+	if err != nil {
+		return ProjectCairnlineCollaborationParityCounts{}, err
+	}
+	handoffs, err := h.projectWork.ListHandoffs(ctx, projectwork.HandoffFilter{ProjectID: projectID})
+	if err != nil {
+		return ProjectCairnlineCollaborationParityCounts{}, err
+	}
+	renderedArtifacts := make([]ProjectWorkArtifactResponse, 0, len(artifacts))
+	for _, artifact := range artifacts {
+		renderedArtifacts = append(renderedArtifacts, renderProjectWorkArtifact(artifact))
+	}
+	renderedHandoffs := make([]ProjectHandoffResponse, 0, len(handoffs))
+	for _, handoff := range handoffs {
+		renderedHandoffs = append(renderedHandoffs, renderProjectHandoff(handoff))
+	}
+	return projectCairnlineCollaborationParityCounts(renderedArtifacts, renderedHandoffs), nil
+}
+
+func cairnlineProjectCollaborationParityCountsFromService(ctx context.Context, service *cairnline.Service, projectID string) (ProjectCairnlineCollaborationParityCounts, error) {
+	workItems, err := service.ListWorkItems(ctx, projectID)
+	if err != nil {
+		return ProjectCairnlineCollaborationParityCounts{}, err
+	}
+	var renderedArtifacts []ProjectWorkArtifactResponse
+	for _, workItem := range workItems {
+		artifacts, err := cairnlineProjectWorkArtifacts(ctx, service, projectID, workItem.ID)
+		if err != nil {
+			return ProjectCairnlineCollaborationParityCounts{}, err
+		}
+		for _, artifact := range artifacts {
+			renderedArtifacts = append(renderedArtifacts, renderProjectWorkArtifact(artifact))
+		}
+	}
+	handoffs, err := cairnlineProjectHandoffs(ctx, service, projectID, "", "")
+	if err != nil {
+		return ProjectCairnlineCollaborationParityCounts{}, err
+	}
+	renderedHandoffs := make([]ProjectHandoffResponse, 0, len(handoffs))
+	for _, handoff := range handoffs {
+		renderedHandoffs = append(renderedHandoffs, renderProjectHandoff(handoff))
+	}
+	return projectCairnlineCollaborationParityCounts(renderedArtifacts, renderedHandoffs), nil
+}
+
+func projectCairnlineCollaborationParityCounts(artifacts []ProjectWorkArtifactResponse, handoffs []ProjectHandoffResponse) ProjectCairnlineCollaborationParityCounts {
+	counts := ProjectCairnlineCollaborationParityCounts{
+		Artifacts:           len(artifacts),
+		Handoffs:            len(handoffs),
+		ArtifactKindCounts:  map[string]int{},
+		HandoffStatusCounts: map[string]int{},
+	}
+	for _, item := range artifacts {
+		kind := strings.TrimSpace(item.Kind)
+		if kind == "" {
+			continue
+		}
+		counts.ArtifactKindCounts[kind]++
+	}
+	for _, item := range handoffs {
+		status := strings.TrimSpace(item.Status)
+		if status == "" {
+			continue
+		}
+		counts.HandoffStatusCounts[status]++
+	}
+	return counts
+}
+
 func projectCairnlineOperationsParityCounts(operations ProjectOperationsBriefResponse) ProjectCairnlineOperationsParityCounts {
 	counts := ProjectCairnlineOperationsParityCounts{
 		ItemCount:               operations.Summary.ItemCount,
@@ -1499,6 +1601,10 @@ func projectCairnlineParityDifferences(hecate, cairnline ProjectCairnlineParityS
 	differences = appendProjectCairnlineParityDifference(differences, "work_items.items", hecate.WorkItems.Items, cairnline.WorkItems.Items)
 	differences = appendProjectCairnlineParityDifference(differences, "work_items.embedded_assignments", hecate.WorkItems.EmbeddedAssignments, cairnline.WorkItems.EmbeddedAssignments)
 	differences = appendProjectCairnlineParityDifference(differences, "work_items.unassigned_items", hecate.WorkItems.UnassignedItems, cairnline.WorkItems.UnassignedItems)
+	differences = appendProjectCairnlineParityDifference(differences, "collaboration.artifacts", hecate.Collaboration.Artifacts, cairnline.Collaboration.Artifacts)
+	differences = appendProjectCairnlineParityDifference(differences, "collaboration.handoffs", hecate.Collaboration.Handoffs, cairnline.Collaboration.Handoffs)
+	differences = appendProjectCairnlineParityMapDifferences(differences, "collaboration.artifact_kind_counts", hecate.Collaboration.ArtifactKindCounts, cairnline.Collaboration.ArtifactKindCounts)
+	differences = appendProjectCairnlineParityMapDifferences(differences, "collaboration.handoff_status_counts", hecate.Collaboration.HandoffStatusCounts, cairnline.Collaboration.HandoffStatusCounts)
 	differences = appendProjectCairnlineParityDifference(differences, "activity.work_items", hecate.Activity.WorkItems, cairnline.Activity.WorkItems)
 	differences = appendProjectCairnlineParityDifference(differences, "activity.assignments", hecate.Activity.Assignments, cairnline.Activity.Assignments)
 	differences = appendProjectCairnlineParityDifference(differences, "activity.active", hecate.Activity.Active, cairnline.Activity.Active)

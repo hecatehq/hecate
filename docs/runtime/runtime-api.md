@@ -2495,7 +2495,8 @@ Example response:
 
 Local-only experimental bridge endpoint. It loads the same in-memory Cairnline
 read model as `/cairnline/read-model`, renders Hecate's native project activity
-and operations brief, then compares raw graph counts, shared derived counts, and
+and operations brief, then compares raw graph counts, rendered work-item route
+shape, collaboration artifact/handoff route shape, shared derived counts, and
 assignment launch-packet coverage.
 
 This endpoint is a replacement-readiness report, not a backend switch. A
@@ -2531,6 +2532,24 @@ Example response:
         "handoffs": 1,
         "memory_entries": 3,
         "memory_candidates": 2
+      },
+      "work_items": {
+        "items": 1,
+        "embedded_assignments": 1,
+        "unassigned_items": 0
+      },
+      "collaboration": {
+        "artifacts": 4,
+        "handoffs": 1,
+        "artifact_kind_counts": {
+          "decision_note": 1,
+          "evidence_link": 1,
+          "handoff": 1,
+          "review": 1
+        },
+        "handoff_status_counts": {
+          "pending": 1
+        }
       },
       "activity": {
         "work_items": 1,
@@ -2580,6 +2599,24 @@ Example response:
         "memory_entries": 3,
         "memory_candidates": 2
       },
+      "work_items": {
+        "items": 1,
+        "embedded_assignments": 1,
+        "unassigned_items": 0
+      },
+      "collaboration": {
+        "artifacts": 4,
+        "handoffs": 1,
+        "artifact_kind_counts": {
+          "decision_note": 1,
+          "evidence_link": 1,
+          "handoff": 1,
+          "review": 1
+        },
+        "handoff_status_counts": {
+          "pending": 1
+        }
+      },
       "activity": {
         "work_items": 1,
         "assignments": 1,
@@ -2627,10 +2664,11 @@ Unlike `/cairnline/parity-report`, this endpoint does not use the
 snapshot-seeded in-memory service for the Cairnline side. It opens the existing
 embedded SQLite mirror database, reads portable graph/activity/launch-packet
 state from that database, and renders the Cairnline operations brief through
-Hecate's cockpit adapter so operation/action-kind counts can be compared with
-the native operator surface. A missing mirror database or a project absent from
-the mirror returns `404`; the endpoint does not create, seed, or repair the
-database.
+Hecate's cockpit adapter so work-item route shape, collaboration
+artifact/handoff route shape, and operation/action-kind counts can be compared
+with the native operator surface. A missing mirror database or a project absent
+from the mirror returns `404`; the endpoint does not create, seed, or repair
+the database.
 
 Use this endpoint as the stricter read-side replacement-readiness check: a
 matching report shows that the live embedded mirror can serve the same
