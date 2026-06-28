@@ -4054,6 +4054,66 @@ func TestProjectWorkAPI_ProjectActivityShowsFreshQueuedAssignments(t *testing.T)
 	}
 }
 
+func TestProjectWorkAPI_ProjectActivityUsesEmbeddedCairnlineWorkGraph(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkCairnlineMirrorTestServer(t)
+	project := createProjectForWorkTest(t, server)
+
+	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+	if err != nil {
+		t.Fatalf("open Cairnline mirror: %v", err)
+	}
+	defer store.Close()
+	if _, err := service.CreateRole(t.Context(), cairnline.Role{
+		ID:                   "role_mirror_only",
+		ProjectID:            project.Data.ID,
+		Name:                 "Mirror-only role",
+		DefaultExecutionMode: cairnline.ExecutionOrchestrated,
+	}); err != nil {
+		t.Fatalf("CreateRole(role_mirror_only): %v", err)
+	}
+	if _, err := service.CreateWorkItem(t.Context(), cairnline.WorkItem{
+		ID:        "work_mirror_only",
+		ProjectID: project.Data.ID,
+		Title:     "Mirror-only work",
+		Status:    cairnline.WorkStatusReady,
+		Priority:  cairnline.PriorityNormal,
+	}); err != nil {
+		t.Fatalf("CreateWorkItem(work_mirror_only): %v", err)
+	}
+	if _, err := service.CreateAssignment(t.Context(), cairnline.Assignment{
+		ID:            "asgn_mirror_only",
+		ProjectID:     project.Data.ID,
+		WorkItemID:    "work_mirror_only",
+		RoleID:        "role_mirror_only",
+		ExecutionMode: cairnline.ExecutionOrchestrated,
+		Status:        cairnline.AssignmentQueued,
+	}); err != nil {
+		t.Fatalf("CreateAssignment(asgn_mirror_only): %v", err)
+	}
+
+	nativeWorkItems, err := handler.projectWork.ListWorkItems(t.Context(), project.Data.ID)
+	if err != nil {
+		t.Fatalf("ListWorkItems(native): %v", err)
+	}
+	if len(nativeWorkItems) != 0 {
+		t.Fatalf("native work items = %+v, want mirror-only graph to stay out of Hecate store", nativeWorkItems)
+	}
+
+	client := newAPITestClient(t, server)
+	response := mustRequestJSON[ProjectActivityEnvelope](client, http.MethodGet, "/hecate/v1/projects/"+project.Data.ID+"/activity", "")
+	if response.Data.ReadBackend != "cairnline" {
+		t.Fatalf("activity read_backend = %q, want cairnline", response.Data.ReadBackend)
+	}
+	if response.Data.Summary.WorkItemCount != 1 || response.Data.Summary.AssignmentCount != 1 || response.Data.Summary.BlockedCount != 1 {
+		t.Fatalf("activity summary = %+v, want mirror-only work and queued assignment counted", response.Data.Summary)
+	}
+	item := findProjectActivityItemForTest(t, response.Data.Buckets.Blocked, "asgn_mirror_only")
+	if item.WorkItem.ID != "work_mirror_only" || item.WorkItem.Title != "Mirror-only work" || item.Role.ID != "role_mirror_only" || item.Role.Name != "Mirror-only role" {
+		t.Fatalf("activity item = %+v, want Cairnline service work/role projection", item)
+	}
+}
+
 type failingCreateTaskStore struct {
 	taskstate.Store
 }

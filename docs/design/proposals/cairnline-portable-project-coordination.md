@@ -348,6 +348,11 @@ launch agents. Those remain explicit operator or orchestrator actions.
   context/proposal reads, activity, closeout readiness, and operations brief
   reads from a Cairnline-seeded read model while Hecate stores remain
   authoritative.
+- In configured Hecate embed mode, activity and operations now render work
+  items, assignments, roles, artifacts, and handoffs from Cairnline service
+  records, then overlay Hecate-only runtime refs/timestamps while Hecate still
+  owns execution. Project identity and some compatibility scaffolding remain
+  Hecate-owned until Cairnline becomes authoritative.
 - Project Assistant draft generation can use the same Cairnline-projected
   context as the inspect endpoint, so proposal assembly is exercised against the
   portable read model while proposal persistence and apply remain Hecate-owned.

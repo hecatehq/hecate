@@ -414,6 +414,14 @@ func projectWorkItemFromCairnline(item cairnline.WorkItem) projectwork.WorkItem 
 	}
 }
 
+func projectWorkItemsByID(items []projectwork.WorkItem) map[string]projectwork.WorkItem {
+	out := make(map[string]projectwork.WorkItem, len(items))
+	for _, item := range items {
+		out[item.ID] = item
+	}
+	return out
+}
+
 func projectWorkAssignmentsByID(items []projectwork.Assignment) map[string]projectwork.Assignment {
 	out := make(map[string]projectwork.Assignment, len(items))
 	for _, item := range items {

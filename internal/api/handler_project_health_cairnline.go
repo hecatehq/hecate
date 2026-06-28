@@ -105,20 +105,11 @@ func (h *Handler) renderCairnlineProjectHealth(ctx context.Context, projectID st
 func projectHealthCairnlineArtifacts(ctx context.Context, service *cairnline.Service, projectID string, workItems []cairnline.WorkItem) ([]projectwork.CollaborationArtifact, error) {
 	out := make([]projectwork.CollaborationArtifact, 0)
 	for _, workItem := range workItems {
-		evidence, err := service.ListEvidence(ctx, projectID, workItem.ID)
+		artifacts, err := cairnlineProjectWorkArtifacts(ctx, service, projectID, workItem.ID)
 		if err != nil {
 			return nil, err
 		}
-		for _, item := range evidence {
-			out = append(out, projectHealthEvidenceFromCairnline(item))
-		}
-		reviews, err := service.ListReviews(ctx, projectID, workItem.ID)
-		if err != nil {
-			return nil, err
-		}
-		for _, item := range reviews {
-			out = append(out, projectHealthReviewFromCairnline(item))
-		}
+		out = append(out, artifacts...)
 	}
 	return out, nil
 }
@@ -141,11 +132,24 @@ func projectWorkAssignmentsFromCairnline(items []cairnline.Assignment, native []
 	nativeByID := projectWorkAssignmentsByID(native)
 	out := make([]projectwork.Assignment, 0, len(items))
 	for _, item := range items {
+		projected := projectWorkAssignmentFromCairnline(item)
 		if nativeItem, ok := nativeByID[item.ID]; ok {
-			out = append(out, nativeItem)
-			continue
+			projected.ExecutionRef = nativeItem.ExecutionRef
+			projected.ContextPacket = append([]byte(nil), nativeItem.ContextPacket...)
+			if !nativeItem.CreatedAt.IsZero() {
+				projected.CreatedAt = nativeItem.CreatedAt
+			}
+			if !nativeItem.UpdatedAt.IsZero() {
+				projected.UpdatedAt = nativeItem.UpdatedAt
+			}
+			if !nativeItem.StartedAt.IsZero() {
+				projected.StartedAt = nativeItem.StartedAt
+			}
+			if !nativeItem.CompletedAt.IsZero() {
+				projected.CompletedAt = nativeItem.CompletedAt
+			}
 		}
-		out = append(out, projectWorkAssignmentFromCairnline(item))
+		out = append(out, projected)
 	}
 	return out
 }

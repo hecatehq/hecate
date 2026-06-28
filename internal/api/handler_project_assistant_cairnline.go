@@ -184,14 +184,6 @@ func seedCairnlineProjectAssistantWork(ctx context.Context, store *projectwork.M
 	return nil
 }
 
-func projectWorkItemsByID(items []projectwork.WorkItem) map[string]projectwork.WorkItem {
-	out := make(map[string]projectwork.WorkItem, len(items))
-	for _, item := range items {
-		out[item.ID] = item
-	}
-	return out
-}
-
 func seedCairnlineProjectAssistantSkills(ctx context.Context, store *projectskills.MemoryStore, service *cairnline.Service, snapshot cairnlinebridge.Snapshot) error {
 	projectID := snapshot.Project.ID
 	items, err := service.ListProjectSkills(ctx, projectID)
