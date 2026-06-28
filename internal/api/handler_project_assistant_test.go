@@ -1157,6 +1157,94 @@ func TestProjectAssistantAPI_PartialApplyMirrorsCommittedActionsToCairnlineWhenC
 	}
 }
 
+func TestProjectAssistantAPI_ProjectSideEffectsMirrorThroughNarrowCairnlineSeams(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectAssistantCairnlineMirrorTestHandler(t)
+	project, err := handler.projects.Create(t.Context(), projects.Project{
+		ID:            "proj_assistant_project_mirror",
+		Name:          "Assistant Project Mirror",
+		DefaultRootID: "root_main",
+		Roots: []projects.Root{{
+			ID:     "root_main",
+			Path:   "/workspace/main",
+			Kind:   "git",
+			Active: true,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	if err := handler.writeProjectIdentityToCairnline(t.Context(), project); err != nil {
+		t.Fatalf("write initial Cairnline project: %v", err)
+	}
+	seedCairnlineOnlyProjectGraphForTest(t, handler, project.ID)
+
+	proposal := projectassistant.Proposal{
+		ID:                   "pa_assistant_project_mirror",
+		Title:                "Update project state",
+		RequiresConfirmation: true,
+		Actions: []projectassistant.Action{
+			{
+				Kind:   projectassistant.ActionUpdateProject,
+				Target: map[string]string{"project_id": project.ID},
+				Patch:  json.RawMessage(`{"name":"Assistant Project Mirror Updated","description":"Mirrored through metadata seam"}`),
+			},
+			{
+				Kind:   projectassistant.ActionAttachProjectRoot,
+				Target: map[string]string{"project_id": project.ID},
+				Patch:  json.RawMessage(`{"id":"root_attached","path":"/workspace/attached","kind":"git_worktree","active":true}`),
+			},
+			{
+				Kind:   projectassistant.ActionSetProjectDefaults,
+				Target: map[string]string{"project_id": project.ID},
+				Patch:  json.RawMessage(`{"default_root_id":"root_attached","default_provider":"anthropic","default_model":"claude-sonnet-4-5","default_agent_profile":"architecture"}`),
+			},
+			{
+				Kind:   projectassistant.ActionRemoveProjectRoot,
+				Target: map[string]string{"project_id": project.ID, "root_id": "root_main"},
+			},
+		},
+	}
+	applyBody, err := json.Marshal(map[string]any{"proposal": proposal, "confirm": true})
+	if err != nil {
+		t.Fatalf("marshal apply body: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/project-assistant/apply", bytes.NewReader(applyBody)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("apply status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var applied projectAssistantApplyResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &applied); err != nil {
+		t.Fatalf("decode apply response: %v", err)
+	}
+	if applied.Data.CommittedActionCount != 4 || len(applied.Data.Actions) != 4 {
+		t.Fatalf("apply result = %+v, want four committed actions", applied.Data)
+	}
+
+	mirrored := getMirroredCairnlineProjectForTest(t, handler, project.ID)
+	if mirrored.Name != "Assistant Project Mirror Updated" || mirrored.Description != "Mirrored through metadata seam" {
+		t.Fatalf("mirrored project metadata = %+v, want assistant-updated metadata", mirrored)
+	}
+	if findMirroredCairnlineRootForTest(mirrored.Roots, "root_attached") == nil {
+		t.Fatalf("mirrored roots = %+v, want attached root", mirrored.Roots)
+	}
+	if findMirroredCairnlineRootForTest(mirrored.Roots, "root_main") != nil {
+		t.Fatalf("mirrored roots = %+v, want removed root_main absent", mirrored.Roots)
+	}
+	if findMirroredCairnlineRootForTest(mirrored.Roots, "root_cairnline_only") == nil {
+		t.Fatalf("mirrored roots = %+v, want Cairnline-only root preserved", mirrored.Roots)
+	}
+	if findMirroredCairnlineSourceForTest(mirrored.ContextSources, "ctx_cairnline_only") == nil {
+		t.Fatalf("mirrored sources = %+v, want Cairnline-only source preserved", mirrored.ContextSources)
+	}
+	if mirrored.DefaultRootID != "root_attached" || mirrored.DefaultProfileID != "architecture" {
+		t.Fatalf("mirrored defaults = %+v, want attached root and architecture profile", mirrored)
+	}
+	assertMirroredExecutionProfileForTest(t, handler, mirrored.DefaultExecutionProfileID, "anthropic", "claude-sonnet-4-5")
+}
+
 func TestProjectAssistantAPI_DraftReviewFollowUpProposal(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectAssistantTestHandler()
