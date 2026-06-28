@@ -513,25 +513,46 @@ type ProjectCoordinationBackendStatusEnvelope struct {
 }
 
 type ProjectCoordinationBackendStatusResponse struct {
-	ConfiguredBackend       string   `json:"configured_backend"`
-	AuthoritativeBackend    string   `json:"authoritative_backend"`
-	StorageBackend          string   `json:"storage_backend"`
-	CairnlineReadSource     string   `json:"cairnline_read_source,omitempty"`
-	CairnlineBridgeReady    bool     `json:"cairnline_bridge_ready"`
-	CairnlineAuthoritative  bool     `json:"cairnline_authoritative"`
-	ReadModelSwitchReady    bool     `json:"read_model_switch_ready"`
-	WriteAdapterReady       bool     `json:"write_adapter_ready"`
-	ReadRoutes              []string `json:"read_routes,omitempty"`
-	WriteAdapterSeams       []string `json:"write_adapter_seams,omitempty"`
-	WriteAdapterGaps        []string `json:"write_adapter_gaps,omitempty"`
-	Status                  string   `json:"status"`
-	Detail                  string   `json:"detail"`
-	Warnings                []string `json:"warnings,omitempty"`
-	ReplacementReadinessURL string   `json:"replacement_readiness_url,omitempty"`
-	EmbeddedReadModelURL    string   `json:"embedded_read_model_url,omitempty"`
-	EmbeddedParityReportURL string   `json:"embedded_parity_report_url,omitempty"`
-	SyncReadinessURL        string   `json:"sync_readiness_url,omitempty"`
-	MirrorParityURL         string   `json:"mirror_parity_url,omitempty"`
+	ConfiguredBackend       string                                       `json:"configured_backend"`
+	AuthoritativeBackend    string                                       `json:"authoritative_backend"`
+	StorageBackend          string                                       `json:"storage_backend"`
+	CairnlineReadSource     string                                       `json:"cairnline_read_source,omitempty"`
+	CairnlineBridgeReady    bool                                         `json:"cairnline_bridge_ready"`
+	CairnlineAuthoritative  bool                                         `json:"cairnline_authoritative"`
+	ReadModelSwitchReady    bool                                         `json:"read_model_switch_ready"`
+	WriteAdapterReady       bool                                         `json:"write_adapter_ready"`
+	ReplacementReady        bool                                         `json:"replacement_ready"`
+	ReadRoutes              []string                                     `json:"read_routes,omitempty"`
+	WriteAdapterSeams       []string                                     `json:"write_adapter_seams,omitempty"`
+	WriteAdapterGaps        []string                                     `json:"write_adapter_gaps,omitempty"`
+	ReplacementGates        []ProjectCoordinationBackendReplacementGate  `json:"replacement_gates,omitempty"`
+	WriteSwitchpoints       []ProjectCoordinationBackendWriteSwitchpoint `json:"write_switchpoints,omitempty"`
+	Status                  string                                       `json:"status"`
+	Detail                  string                                       `json:"detail"`
+	Warnings                []string                                     `json:"warnings,omitempty"`
+	ReplacementReadinessURL string                                       `json:"replacement_readiness_url,omitempty"`
+	EmbeddedReadModelURL    string                                       `json:"embedded_read_model_url,omitempty"`
+	EmbeddedParityReportURL string                                       `json:"embedded_parity_report_url,omitempty"`
+	SyncReadinessURL        string                                       `json:"sync_readiness_url,omitempty"`
+	MirrorParityURL         string                                       `json:"mirror_parity_url,omitempty"`
+}
+
+type ProjectCoordinationBackendReplacementGate struct {
+	ID     string `json:"id"`
+	Ready  bool   `json:"ready"`
+	Status string `json:"status"`
+	Detail string `json:"detail"`
+}
+
+type ProjectCoordinationBackendWriteSwitchpoint struct {
+	Name             string   `json:"name"`
+	CurrentAuthority string   `json:"current_authority"`
+	CairnlineState   string   `json:"cairnline_state"`
+	LiveMirror       bool     `json:"live_mirror"`
+	BlocksAuthority  bool     `json:"blocks_authority"`
+	Seams            []string `json:"seams,omitempty"`
+	Gap              string   `json:"gap,omitempty"`
+	Detail           string   `json:"detail"`
 }
 
 type AgentProfileResponse struct {

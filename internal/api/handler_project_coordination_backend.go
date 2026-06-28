@@ -88,6 +88,167 @@ var projectCairnlineWriteAdapterGapNames = []string{
 	"migration-cutover",
 }
 
+var projectCairnlineWriteSwitchpoints = []ProjectCoordinationBackendWriteSwitchpoint{
+	{
+		Name:             "project-identity",
+		CurrentAuthority: "hecate",
+		CairnlineState:   "live_mirror_non_authoritative",
+		LiveMirror:       true,
+		BlocksAuthority:  true,
+		Seams:            []string{"project-identity-live-mirror"},
+		Gap:              "projects",
+		Detail:           "Project create/delete still commit to Hecate stores first, then best-effort mirror portable identity records into the embedded Cairnline database.",
+	},
+	{
+		Name:             "project-metadata-defaults",
+		CurrentAuthority: "hecate",
+		CairnlineState:   "live_mirror_non_authoritative",
+		LiveMirror:       true,
+		BlocksAuthority:  true,
+		Seams:            []string{"project-metadata-live-mirror", "project-defaults-live-mirror"},
+		Gap:              "projects",
+		Detail:           "Project metadata and default posture mutations still commit to Hecate first, then mirror through Cairnline metadata/default seams.",
+	},
+	{
+		Name:             "roots-and-worktrees",
+		CurrentAuthority: "hecate",
+		CairnlineState:   "live_mirror_non_authoritative",
+		LiveMirror:       true,
+		BlocksAuthority:  true,
+		Seams:            []string{"project-roots-live-mirror"},
+		Gap:              "roots",
+		Detail:           "Root create/update/delete, root discovery, root list replacement, and worktree-root creation still commit to Hecate first, then mirror through Cairnline root APIs.",
+	},
+	{
+		Name:             "context-sources",
+		CurrentAuthority: "hecate",
+		CairnlineState:   "live_mirror_non_authoritative",
+		LiveMirror:       true,
+		BlocksAuthority:  true,
+		Seams:            []string{"project-context-sources-live-mirror"},
+		Gap:              "context-sources",
+		Detail:           "Context-source discovery and direct source mutations still commit to Hecate first, then mirror through Cairnline source APIs.",
+	},
+	{
+		Name:             "agent-profiles",
+		CurrentAuthority: "hecate",
+		CairnlineState:   "live_mirror_non_authoritative",
+		LiveMirror:       true,
+		BlocksAuthority:  true,
+		Seams:            []string{"agent-profiles-live-mirror"},
+		Gap:              "agent-profiles",
+		Detail:           "Global agent-profile CRUD still commits to Hecate first, then mirrors portable profile metadata and execution posture into Cairnline.",
+	},
+	{
+		Name:             "skills",
+		CurrentAuthority: "hecate",
+		CairnlineState:   "live_mirror_non_authoritative",
+		LiveMirror:       true,
+		BlocksAuthority:  true,
+		Seams:            []string{"project-skills-live-mirror"},
+		Gap:              "skills",
+		Detail:           "Project skill discovery/update still commits metadata to Hecate first, then mirrors metadata-only skill records into Cairnline.",
+	},
+	{
+		Name:             "roles",
+		CurrentAuthority: "hecate",
+		CairnlineState:   "live_mirror_non_authoritative",
+		LiveMirror:       true,
+		BlocksAuthority:  true,
+		Seams:            []string{"project-roles-live-mirror"},
+		Gap:              "roles",
+		Detail:           "Role mutations still commit to Hecate first, then mirror coordination metadata and referenced portable profile posture into Cairnline.",
+	},
+	{
+		Name:             "work-items",
+		CurrentAuthority: "hecate",
+		CairnlineState:   "live_mirror_non_authoritative",
+		LiveMirror:       true,
+		BlocksAuthority:  true,
+		Seams:            []string{"project-work-items-live-mirror"},
+		Gap:              "work-items",
+		Detail:           "Work-item create/update/delete still commit to Hecate first, then mirror portable coordination metadata into Cairnline.",
+	},
+	{
+		Name:             "assignments",
+		CurrentAuthority: "hecate",
+		CairnlineState:   "live_mirror_non_authoritative",
+		LiveMirror:       true,
+		BlocksAuthority:  true,
+		Seams:            []string{"project-assignments-live-mirror", "project-assignment-chat-reconcile-live-mirror"},
+		Gap:              "assignments",
+		Detail:           "Assignment create/update/delete and linked-chat reconciliation still commit to Hecate first, then mirror portable metadata/status into Cairnline.",
+	},
+	{
+		Name:             "assignment-start-dispatch",
+		CurrentAuthority: "hecate",
+		CairnlineState:   "result_mirror_only",
+		LiveMirror:       true,
+		BlocksAuthority:  true,
+		Seams:            []string{"project-assignment-start-result-live-mirror"},
+		Gap:              "assignment-start",
+		Detail:           "Assignment start still dispatches through Hecate runtime/task/external-agent authority; Cairnline receives only committed start results and cleanup/conflict states.",
+	},
+	{
+		Name:             "collaboration-artifacts",
+		CurrentAuthority: "hecate",
+		CairnlineState:   "live_mirror_non_authoritative",
+		LiveMirror:       true,
+		BlocksAuthority:  true,
+		Seams:            []string{"project-collaboration-live-mirror"},
+		Gap:              "artifacts",
+		Detail:           "Generic artifact, evidence, and review creation still commits to Hecate first, then mirrors portable collaboration metadata into Cairnline.",
+	},
+	{
+		Name:             "handoffs",
+		CurrentAuthority: "hecate",
+		CairnlineState:   "live_mirror_non_authoritative",
+		LiveMirror:       true,
+		BlocksAuthority:  true,
+		Seams:            []string{"project-handoffs-live-mirror"},
+		Gap:              "handoffs",
+		Detail:           "Handoff create/update/delete still commits to Hecate first, then mirrors portable handoff metadata into Cairnline.",
+	},
+	{
+		Name:             "project-memory",
+		CurrentAuthority: "hecate",
+		CairnlineState:   "live_mirror_non_authoritative",
+		LiveMirror:       true,
+		BlocksAuthority:  true,
+		Seams:            []string{"project-memory-live-mirror"},
+		Gap:              "memory",
+		Detail:           "Accepted project memory mutations still commit to Hecate first, then mirror durable memory state into Cairnline.",
+	},
+	{
+		Name:             "memory-candidates",
+		CurrentAuthority: "hecate",
+		CairnlineState:   "live_mirror_non_authoritative",
+		LiveMirror:       true,
+		BlocksAuthority:  true,
+		Seams:            []string{"project-memory-candidates-live-mirror"},
+		Gap:              "memory-candidates",
+		Detail:           "Memory-candidate create/promote/reject/delete still commits to Hecate first, then mirrors review state and promoted-memory references into Cairnline.",
+	},
+	{
+		Name:             "project-assistant-proposals",
+		CurrentAuthority: "hecate",
+		CairnlineState:   "live_mirror_non_authoritative",
+		LiveMirror:       true,
+		BlocksAuthority:  true,
+		Seams:            []string{"project-assistant-proposal-ledger-live-mirror", "project-assistant-apply-side-effects-live-mirror"},
+		Gap:              "project-assistant-proposals",
+		Detail:           "Project Assistant draft/propose/apply records and committed side effects still commit to Hecate first, then mirror into the portable proposal ledger.",
+	},
+	{
+		Name:             "migration-cutover",
+		CurrentAuthority: "hecate",
+		CairnlineState:   "missing_authoritative_switchpoint",
+		BlocksAuthority:  true,
+		Gap:              "migration-cutover",
+		Detail:           "No import/export cutover, rollback, or authoritative Cairnline storage switch exists yet.",
+	},
+}
+
 func (h *Handler) HandleProjectCoordinationBackendStatus(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, http.StatusOK, ProjectCoordinationBackendStatusEnvelope{
 		Object: "project_coordination_backend_status",
@@ -123,6 +284,8 @@ func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendS
 		readReady, sourceWarnings := h.cairnlineReadModelReadiness()
 		response.WriteAdapterSeams = append([]string(nil), projectCairnlineWriteAdapterSeamNames...)
 		response.WriteAdapterGaps = append([]string(nil), projectCairnlineWriteAdapterGapNames...)
+		response.WriteSwitchpoints = projectCairnlineWriteSwitchpointsSnapshot()
+		response.ReplacementGates = projectCairnlineReplacementGates(readReady)
 		response.ReadModelSwitchReady = readReady
 		if readReady {
 			response.ReadRoutes = append([]string(nil), projectCairnlineReadRouteNames...)
@@ -159,6 +322,51 @@ func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendS
 		response.Detail = "Hecate-native project stores are authoritative. Cairnline bridge endpoints are available for replacement-readiness checks."
 	}
 	return response
+}
+
+func projectCairnlineReplacementGates(readRoutesReady bool) []ProjectCoordinationBackendReplacementGate {
+	return []ProjectCoordinationBackendReplacementGate{
+		{
+			ID:     "read-routes",
+			Ready:  readRoutesReady,
+			Status: projectReplacementGateStatus(readRoutesReady),
+			Detail: "Configured live project read families can be served from Cairnline's projected read model.",
+		},
+		{
+			ID:     "strict-embedded-read-smoke",
+			Ready:  false,
+			Status: "operator_probe_required",
+			Detail: "Run the embedded sync/parity/smoke probes with HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded before treating the mirror database as a cutover candidate.",
+		},
+		{
+			ID:     "write-authority-switchpoints",
+			Ready:  false,
+			Status: "blocked",
+			Detail: "Live mutation routes still commit to Hecate-native stores first; Cairnline mirrors are replacement evidence, not write authority.",
+		},
+		{
+			ID:     "migration-and-rollback",
+			Ready:  false,
+			Status: "blocked",
+			Detail: "No migration cutover, rollback, or authoritative Cairnline storage switch exists yet.",
+		},
+	}
+}
+
+func projectReplacementGateStatus(ready bool) string {
+	if ready {
+		return "ready"
+	}
+	return "blocked"
+}
+
+func projectCairnlineWriteSwitchpointsSnapshot() []ProjectCoordinationBackendWriteSwitchpoint {
+	out := make([]ProjectCoordinationBackendWriteSwitchpoint, 0, len(projectCairnlineWriteSwitchpoints))
+	for _, item := range projectCairnlineWriteSwitchpoints {
+		item.Seams = append([]string(nil), item.Seams...)
+		out = append(out, item)
+	}
+	return out
 }
 
 func projectCairnlineReadSourceDetail(source string) string {
