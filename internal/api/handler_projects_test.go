@@ -319,6 +319,33 @@ func TestProjectsAPI_MirrorsIdentityMutationsToCairnlineWhenConfigured(t *testin
 	}
 
 	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+created.Data.ID+"/context-sources/ctx_design", bytes.NewReader([]byte(`{
+		"path":"docs/design/proposals/cairnline-portable-project-coordination.md",
+		"kind":"doc",
+		"title":"Cairnline proposal",
+		"enabled":false,
+		"trust_label":"workspace_guidance"
+	}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update source status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	mirrored = getMirroredCairnlineProjectForTest(t, handler, created.Data.ID)
+	designSource := findMirroredCairnlineSourceForTest(mirrored.ContextSources, "ctx_design")
+	if designSource == nil || designSource.Title != "Cairnline proposal" || designSource.Locator != "docs/design/proposals/cairnline-portable-project-coordination.md" || designSource.Enabled {
+		t.Fatalf("mirrored ctx_design after update = %+v in %+v, want disabled Cairnline proposal source", designSource, mirrored.ContextSources)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/projects/"+created.Data.ID+"/context-sources/ctx_design", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete source status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	mirrored = getMirroredCairnlineProjectForTest(t, handler, created.Data.ID)
+	if len(mirrored.ContextSources) != 1 || findMirroredCairnlineSourceForTest(mirrored.ContextSources, "ctx_design") != nil || findMirroredCairnlineSourceForTest(mirrored.ContextSources, "ctx_agents") == nil {
+		t.Fatalf("mirrored context sources after delete = %+v, want only original AGENTS.md source", mirrored.ContextSources)
+	}
+
+	rec = httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/projects/"+created.Data.ID, nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("delete status = %d body=%s, want 200", rec.Code, rec.Body.String())
@@ -504,6 +531,15 @@ func getMirroredCairnlineProjectForTest(t *testing.T, handler *Handler, projectI
 		t.Fatalf("GetProject(%q): %v", projectID, err)
 	}
 	return project
+}
+
+func findMirroredCairnlineSourceForTest(sources []cairnline.Source, id string) *cairnline.Source {
+	for idx := range sources {
+		if sources[idx].ID == id {
+			return &sources[idx]
+		}
+	}
+	return nil
 }
 
 func assertMirroredExecutionProfileForTest(t *testing.T, handler *Handler, profileID, provider, model string) {

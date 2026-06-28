@@ -32,6 +32,7 @@ var projectCairnlineWriteAdapterSeamNames = []string{
 	"projects",
 	"roots",
 	"context-sources",
+	"project-context-sources-live-mirror",
 	"project-defaults",
 	"project-identity-live-mirror",
 	"agent-profiles",

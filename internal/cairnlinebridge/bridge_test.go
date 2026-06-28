@@ -444,6 +444,135 @@ func TestUpsertProjectMirrorsProjectRootAndContextSourceMutations(t *testing.T) 
 	}
 }
 
+func TestUpsertContextSourceMirrorsSingleSourceMutations(t *testing.T) {
+	ctx := context.Background()
+	service := cairnline.NewMemoryService()
+	now := time.Date(2026, 6, 27, 11, 0, 0, 0, time.UTC)
+
+	project := projects.Project{
+		ID:        "proj_sources",
+		Name:      "Source Adapter",
+		Roots:     []projects.Root{{ID: "root_main", Path: "/tmp/hecate-sources", Active: true}},
+		CreatedAt: now,
+		UpdatedAt: now,
+		ContextSources: []projects.ContextSource{{
+			ID:             "ctx_agents",
+			Kind:           "workspace_instruction",
+			Title:          "AGENTS.md",
+			Path:           "AGENTS.md",
+			Enabled:        true,
+			Format:         "agents_md",
+			Scope:          "workspace",
+			TrustLabel:     "workspace_guidance",
+			SourceCategory: "workspace_guidance",
+			Metadata:       map[string]string{"root_id": "root_main"},
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+	}
+	if _, err := UpsertProject(ctx, service, project); err != nil {
+		t.Fatalf("UpsertProject() seed error = %v", err)
+	}
+
+	created, err := UpsertContextSource(ctx, service, project, projects.ContextSource{
+		ID:             "ctx_design",
+		Kind:           "doc",
+		Title:          "Projects",
+		Path:           "docs/design/accepted/projects.md",
+		Enabled:        true,
+		Format:         "markdown",
+		TrustLabel:     "operator_source",
+		SourceCategory: "operator_source",
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	})
+	if err != nil {
+		t.Fatalf("UpsertContextSource(create) error = %v", err)
+	}
+	if created.ID != "ctx_design" || created.Locator != "docs/design/accepted/projects.md" || !created.Enabled {
+		t.Fatalf("created source = %+v, want enabled design source", created)
+	}
+	read, err := service.GetProject(ctx, project.ID)
+	if err != nil {
+		t.Fatalf("GetProject() after create error = %v", err)
+	}
+	if len(read.ContextSources) != 2 || findCairnlineSource(read.ContextSources, "ctx_agents") == nil || findCairnlineSource(read.ContextSources, "ctx_design") == nil {
+		t.Fatalf("sources after create = %+v, want original and created source", read.ContextSources)
+	}
+
+	updated, err := UpsertContextSource(ctx, service, project, projects.ContextSource{
+		ID:             "ctx_design",
+		Kind:           "doc",
+		Title:          "Cairnline proposal",
+		Path:           "docs/design/proposals/cairnline-portable-project-coordination.md",
+		Enabled:        false,
+		Format:         "markdown",
+		TrustLabel:     "workspace_guidance",
+		SourceCategory: "workspace_guidance",
+		UpdatedAt:      now.Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("UpsertContextSource(update) error = %v", err)
+	}
+	if updated.ID != "ctx_design" || updated.Title != "Cairnline proposal" || updated.Locator != "docs/design/proposals/cairnline-portable-project-coordination.md" || updated.Enabled {
+		t.Fatalf("updated source = %+v, want disabled proposal source", updated)
+	}
+	read, err = service.GetProject(ctx, project.ID)
+	if err != nil {
+		t.Fatalf("GetProject() after update error = %v", err)
+	}
+	if len(read.ContextSources) != 2 {
+		t.Fatalf("sources after update = %+v, want two sources", read.ContextSources)
+	}
+	if design := findCairnlineSource(read.ContextSources, "ctx_design"); design == nil || design.Title != "Cairnline proposal" || design.Enabled {
+		t.Fatalf("ctx_design after update = %+v, want updated disabled source", design)
+	}
+
+	if err := DeleteContextSource(ctx, service, project.ID, "ctx_design"); err != nil {
+		t.Fatalf("DeleteContextSource() error = %v", err)
+	}
+	read, err = service.GetProject(ctx, project.ID)
+	if err != nil {
+		t.Fatalf("GetProject() after delete error = %v", err)
+	}
+	if len(read.ContextSources) != 1 || read.ContextSources[0].ID != "ctx_agents" {
+		t.Fatalf("sources after delete = %+v, want only original source", read.ContextSources)
+	}
+	if err := DeleteContextSource(ctx, service, project.ID, "ctx_missing"); !errors.Is(err, cairnline.ErrNotFound) {
+		t.Fatalf("DeleteContextSource(missing) error = %v, want ErrNotFound", err)
+	}
+
+	missingProject := projects.Project{
+		ID:   "proj_missing_source",
+		Name: "Missing Source Project",
+		Roots: []projects.Root{{
+			ID:     "root_main",
+			Path:   "/tmp/hecate-missing-source",
+			Active: true,
+		}},
+	}
+	createdFromSource, err := UpsertContextSource(ctx, service, missingProject, projects.ContextSource{
+		ID:      "ctx_standalone",
+		Kind:    "doc",
+		Title:   "Standalone source",
+		Path:    "README.md",
+		Enabled: true,
+	})
+	if err != nil {
+		t.Fatalf("UpsertContextSource(create missing project source) error = %v", err)
+	}
+	if createdFromSource.ID != "ctx_standalone" || createdFromSource.Locator != "README.md" {
+		t.Fatalf("created missing-project source = %+v, want standalone source", createdFromSource)
+	}
+	readMissingProject, err := service.GetProject(ctx, missingProject.ID)
+	if err != nil {
+		t.Fatalf("GetProject() missing-project source error = %v", err)
+	}
+	if len(readMissingProject.ContextSources) != 1 || readMissingProject.ContextSources[0].ID != "ctx_standalone" {
+		t.Fatalf("missing-project sources = %+v, want created standalone source", readMissingProject.ContextSources)
+	}
+}
+
 func TestDeleteProjectRemovesProjectAndProjectExecutionProfile(t *testing.T) {
 	ctx := context.Background()
 	service := cairnline.NewMemoryService()
@@ -1924,6 +2053,15 @@ func findCairnlineExecutionProfile(profiles []cairnline.ExecutionProfile, id str
 	for idx := range profiles {
 		if profiles[idx].ID == id {
 			return &profiles[idx]
+		}
+	}
+	return nil
+}
+
+func findCairnlineSource(sources []cairnline.Source, id string) *cairnline.Source {
+	for idx := range sources {
+		if sources[idx].ID == id {
+			return &sources[idx]
 		}
 	}
 	return nil
