@@ -474,6 +474,13 @@ sequenceDiagram
   or requested project row/proposal record is missing. Run
   `POST /hecate/v1/projects/cairnline/sync` first when testing strict embedded
   reads.
+- `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=none|project-memory` controls
+  alpha Cairnline write-authority switchpoints while
+  `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline`. The default is `none`.
+  `project-memory` makes accepted project memory entry create/update/delete
+  commit to the embedded Cairnline database first and then best-effort shadow
+  the row back into Hecate-native memory stores. Memory candidates, candidate
+  promotion/rejection, and all other Projects mutations remain Hecate-owned.
 - `HECATE_POSTGRES_URL=postgres://...` or `DATABASE_URL=postgres://...` is
   required when `HECATE_BACKEND=postgres`. Optional Postgres knobs:
   `HECATE_POSTGRES_TABLE_PREFIX`, `HECATE_POSTGRES_MAX_OPEN_CONNS`, and
@@ -2222,18 +2229,24 @@ being built.
 
 `configured_backend` reflects `HECATE_PROJECTS_COORDINATION_BACKEND`.
 `cairnline_read_source` reflects `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE`.
+`HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-memory` enables the first
+disabled-by-default write authority switchpoint: accepted project memory entries
+commit to embedded Cairnline first and are then shadowed back into Hecate-native
+memory stores. Memory candidates and candidate promotion/rejection are still
+Hecate-owned.
 `authoritative_backend` remains `hecate` until Hecate can run project read/write
 flows against Cairnline without UI-local fallback state. When
-`configured_backend=cairnline`, Hecate still commits live Projects writes to the
-current Hecate-native stores first. `read_model_switch_ready=true` means the
-Cairnline read adapter is wired well enough to project the full current Hecate
-project graph, including the Project Assistant proposal ledger. In that state,
-project list/detail reads, project setup readiness, project health, skills,
-memory entries, memory candidates, roles, work items, assignment lists,
-assignment context previews, assignment launch-readiness, assignment preflight,
-artifact lists, handoff lists, Project Assistant context/proposal reads,
-closeout readiness, activity inbox, and operations brief can be served from the
-Cairnline read model, while other live Projects reads still use Hecate. Those
+`configured_backend=cairnline`, Hecate still commits live Projects writes to
+the current Hecate-native stores first except for explicitly enabled
+write-authority switchpoints. `read_model_switch_ready=true` means the Cairnline
+read adapter is wired well enough to project the full current Hecate project
+graph, including the Project Assistant proposal ledger. In that state, project
+list/detail reads, project setup readiness, project health, skills, memory
+entries, memory candidates, roles, work items, assignment lists, assignment
+context previews, assignment launch-readiness, assignment preflight, artifact
+lists, handoff lists, Project Assistant context/proposal reads, closeout
+readiness, activity inbox, and operations brief can be served from the Cairnline
+read model, while other live Projects reads still use Hecate. Those
 configured read routes still load Hecate snapshots as bridge scaffolding, but
 their Cairnline service read source is controlled by
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE`: `auto` prefers the embedded mirror and
@@ -2253,8 +2266,9 @@ ready. `replacement_gates` reports those high-level gates as structured
 checklist items so clients do not need to parse warning prose.
 `write_switchpoints` maps each live mutation family to the current authority,
 the Cairnline state (`live_mirror_non_authoritative`, `result_mirror_only`, or
-`missing_authoritative_switchpoint`), the related mirror seams, and whether that
-family still blocks replacement.
+`missing_authoritative_switchpoint`; `authoritative_opt_in` for enabled alpha
+write-authority switchpoints), the related mirror seams, and whether that family
+still blocks replacement.
 Non-authoritative bridge seams currently cover project/root/source/defaults,
 agent profiles, skills, roles, work items, assignment metadata upsert/delete plus
 lifecycle-status sync, create-if-missing generic artifacts/evidence/reviews,
@@ -2295,9 +2309,11 @@ external-agent chat reconciliation. `project-collaboration-live-mirror` mirrors
 collaboration artifact creation, including generic artifacts, evidence links,
 and reviews, and `project-handoffs-live-mirror` mirrors handoff
 create/update/delete mutations after Hecate commits. `project-memory-live-mirror`
-mirrors accepted project memory entries and `project-memory-candidates-live-mirror`
-mirrors reviewable candidate state after Hecate commits, including
-promoted/rejected status and promoted memory references.
+mirrors accepted project memory entries after Hecate commits unless
+`HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-memory` makes accepted memory
+Cairnline-first. `project-memory-candidates-live-mirror` mirrors reviewable
+candidate state after Hecate commits, including promoted/rejected status and
+promoted memory references.
 `project-assistant-proposal-ledger-live-mirror`
 mirrors Project Assistant draft/propose/apply proposal records and apply-attempt
 history after Hecate commits. `project-assistant-apply-side-effects-live-mirror`

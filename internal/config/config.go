@@ -226,9 +226,10 @@ type ChatConfig struct {
 }
 
 type ProjectsConfig struct {
-	Backend             string
-	CoordinationBackend string
-	CairnlineReadSource string
+	Backend                 string
+	CoordinationBackend     string
+	CairnlineReadSource     string
+	CairnlineWriteAuthority string
 }
 
 func (c Config) ProjectsCoordinationBackend() string {
@@ -237,6 +238,23 @@ func (c Config) ProjectsCoordinationBackend() string {
 
 func (c Config) ProjectsCairnlineReadSource() string {
 	return normalizeProjectsCairnlineReadSource(c.Projects.CairnlineReadSource)
+}
+
+func (c Config) ProjectsCairnlineWriteAuthority() []string {
+	return normalizeProjectsCairnlineWriteAuthority(c.Projects.CairnlineWriteAuthority)
+}
+
+func (c Config) ProjectsCairnlineWriteAuthorityEnabled(name string) bool {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name == "" {
+		return false
+	}
+	for _, item := range c.ProjectsCairnlineWriteAuthority() {
+		if item == name {
+			return true
+		}
+	}
+	return false
 }
 
 type OTelSignalConfig struct {
@@ -479,9 +497,10 @@ func LoadFromEnv() Config {
 			SessionsBackend: storageBackend,
 		},
 		Projects: ProjectsConfig{
-			Backend:             storageBackend,
-			CoordinationBackend: strings.ToLower(strings.TrimSpace(getEnv("HECATE_PROJECTS_COORDINATION_BACKEND", "hecate"))),
-			CairnlineReadSource: strings.ToLower(strings.TrimSpace(getEnv("HECATE_PROJECTS_CAIRNLINE_READ_SOURCE", "auto"))),
+			Backend:                 storageBackend,
+			CoordinationBackend:     strings.ToLower(strings.TrimSpace(getEnv("HECATE_PROJECTS_COORDINATION_BACKEND", "hecate"))),
+			CairnlineReadSource:     strings.ToLower(strings.TrimSpace(getEnv("HECATE_PROJECTS_CAIRNLINE_READ_SOURCE", "auto"))),
+			CairnlineWriteAuthority: getEnv("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY", "none"),
 		},
 		OTel: loadOTelFromEnv(),
 		Governor: GovernorConfig{
@@ -567,6 +586,9 @@ func (c Config) Validate() error {
 	}
 	validateBackend("HECATE_PROJECTS_COORDINATION_BACKEND", c.ProjectsCoordinationBackend(), "hecate", "cairnline")
 	validateBackend("HECATE_PROJECTS_CAIRNLINE_READ_SOURCE", c.ProjectsCairnlineReadSource(), "auto", "snapshot", "embedded")
+	for _, item := range c.ProjectsCairnlineWriteAuthority() {
+		validateBackend("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY", item, "project-memory")
+	}
 	if postgresRequired(c) && strings.TrimSpace(c.Postgres.DatabaseURL) == "" {
 		errs = append(errs, errors.New("HECATE_POSTGRES_URL or DATABASE_URL is required when HECATE_BACKEND=postgres"))
 	}
@@ -1156,6 +1178,28 @@ func normalizeProjectsCairnlineReadSource(value string) string {
 		return "auto"
 	}
 	return value
+}
+
+func normalizeProjectsCairnlineWriteAuthority(value string) []string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" || value == "none" {
+		return nil
+	}
+	parts := strings.Split(value, ",")
+	out := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, part := range parts {
+		part = strings.ToLower(strings.TrimSpace(part))
+		if part == "" || part == "none" {
+			continue
+		}
+		if _, exists := seen[part]; exists {
+			continue
+		}
+		seen[part] = struct{}{}
+		out = append(out, part)
+	}
+	return out
 }
 
 func normalizeValues(values []string) []string {

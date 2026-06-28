@@ -50,6 +50,20 @@ func newProjectMemoryCairnlineMirrorTestServer(t *testing.T) (*Handler, http.Han
 	return handler, NewServer(quietLogger(), handler)
 }
 
+func newProjectMemoryCairnlineAuthorityTestServer(t *testing.T) (*Handler, http.Handler) {
+	t.Helper()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend:     "cairnline",
+			CairnlineWriteAuthority: "project-memory",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	handler.SetProjectStore(projects.NewMemoryStore())
+	handler.SetMemoryStore(memory.NewMemoryStore())
+	return handler, NewServer(quietLogger(), handler)
+}
+
 func TestProjectMemoryAPI_CRUD(t *testing.T) {
 	t.Parallel()
 	server := newProjectMemoryTestServer()
@@ -384,6 +398,71 @@ func TestProjectMemoryAPI_MirrorsMutationsToCairnlineWhenConfigured(t *testing.T
 	mirroredRejected := getMirroredCairnlineMemoryCandidateForTest(t, handler, projectID, rejected.Data.ID)
 	if mirroredRejected.Status != cairnline.MemoryCandidateRejected || mirroredRejected.StatusReason != "Not durable project guidance" || mirroredRejected.PromotedMemoryID != "" {
 		t.Fatalf("mirrored rejected candidate = %+v, want rejected reason without promoted memory", mirroredRejected)
+	}
+}
+
+func TestProjectMemoryAPI_CairnlineWriteAuthorityCommitsAcceptedMemoryFirst(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectMemoryCairnlineAuthorityTestServer(t)
+	client := newAPITestClient(t, server)
+	project := createMemoryTestProject(t, server, "Memory Authority")
+	projectID := project.Data.ID
+
+	created := mustRequestJSONStatus[ProjectMemoryResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/memory", `{
+		"title":"Authority note",
+		"body":"Accepted memory can be Cairnline-authoritative.",
+		"enabled":false
+	}`)
+	if created.Data.ReadBackend != "cairnline" || created.Data.TrustLabel != memory.TrustLabelOperatorMemory || created.Data.SourceKind != memory.SourceKindOperator || created.Data.Enabled {
+		t.Fatalf("created memory = %+v, want disabled Cairnline-backed operator memory with normalized source", created.Data)
+	}
+	mirroredMemory := getMirroredCairnlineMemoryEntryForTest(t, handler, projectID, created.Data.ID)
+	if mirroredMemory.Title != "Authority note" || mirroredMemory.SourceKind != memory.SourceKindOperator || mirroredMemory.Enabled {
+		t.Fatalf("Cairnline memory = %+v, want authoritative disabled normalized entry", mirroredMemory)
+	}
+	shadow, ok, err := handler.memory.Get(t.Context(), projectID, created.Data.ID)
+	if err != nil || !ok {
+		t.Fatalf("native shadow memory ok=%v error=%v, want present", ok, err)
+	}
+	if shadow.Title != created.Data.Title || shadow.SourceKind != memory.SourceKindOperator || shadow.Enabled {
+		t.Fatalf("native shadow memory = %+v, want created Cairnline entry shadowed", shadow)
+	}
+
+	updated := mustRequestJSON[ProjectMemoryResponse](client, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/memory/"+created.Data.ID, `{
+		"title":"Authority note updated",
+		"body":"Shadow Hecate after Cairnline commits.",
+		"trust_label":"generated_summary",
+		"source_kind":"handoff",
+		"source_id":"handoff_1",
+		"enabled":true
+	}`)
+	if updated.Data.ReadBackend != "cairnline" || updated.Data.Title != "Authority note updated" || updated.Data.TrustLabel != memory.TrustLabelGenerated || updated.Data.SourceKind != "handoff" || !updated.Data.Enabled {
+		t.Fatalf("updated memory = %+v, want Cairnline-backed patched entry", updated.Data)
+	}
+	mirroredMemory = getMirroredCairnlineMemoryEntryForTest(t, handler, projectID, created.Data.ID)
+	if mirroredMemory.Title != "Authority note updated" || mirroredMemory.Body != "Shadow Hecate after Cairnline commits." || mirroredMemory.SourceKind != "handoff" || mirroredMemory.SourceID != "handoff_1" || !mirroredMemory.Enabled {
+		t.Fatalf("updated Cairnline memory = %+v, want patched authoritative entry", mirroredMemory)
+	}
+	shadow, ok, err = handler.memory.Get(t.Context(), projectID, created.Data.ID)
+	if err != nil || !ok {
+		t.Fatalf("updated native shadow memory ok=%v error=%v, want present", ok, err)
+	}
+	if shadow.Title != updated.Data.Title || shadow.Body != updated.Data.Body || shadow.TrustLabel != updated.Data.TrustLabel || shadow.SourceKind != updated.Data.SourceKind || shadow.SourceID != updated.Data.SourceID || shadow.Enabled != updated.Data.Enabled {
+		t.Fatalf("updated native shadow memory = %+v, want updated Cairnline entry shadowed", shadow)
+	}
+
+	candidate := mustRequestJSONStatus[ProjectMemoryCandidateResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/memory/candidates", `{
+		"title":"Candidate remains Hecate-owned",
+		"body":"Candidates are a separate authority switchpoint."
+	}`)
+	if candidate.Data.ReadBackend != "hecate" {
+		t.Fatalf("candidate read backend = %q, want hecate while only accepted memory is Cairnline-authoritative", candidate.Data.ReadBackend)
+	}
+
+	client.mustRequestStatus(http.StatusNoContent, http.MethodDelete, "/hecate/v1/projects/"+projectID+"/memory/"+created.Data.ID, "")
+	assertCairnlineMemoryEntryMissingForTest(t, handler, projectID, created.Data.ID)
+	if _, ok, err := handler.memory.Get(t.Context(), projectID, created.Data.ID); err != nil || ok {
+		t.Fatalf("deleted native shadow ok=%v error=%v, want missing", ok, err)
 	}
 }
 

@@ -464,6 +464,28 @@ func TestLoadFromEnvProjectsCairnlineReadSource(t *testing.T) {
 	}
 }
 
+func TestLoadFromEnvProjectsCairnlineWriteAuthority(t *testing.T) {
+	cfg := LoadFromEnv()
+	if got := cfg.ProjectsCairnlineWriteAuthority(); len(got) != 0 {
+		t.Fatalf("ProjectsCairnlineWriteAuthority() = %+v, want empty default", got)
+	}
+	if cfg.ProjectsCairnlineWriteAuthorityEnabled("project-memory") {
+		t.Fatalf("ProjectsCairnlineWriteAuthorityEnabled(project-memory) = true, want false by default")
+	}
+
+	t.Setenv("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY", " Project-Memory, none, project-memory ")
+	cfg = LoadFromEnv()
+	if got := cfg.ProjectsCairnlineWriteAuthority(); len(got) != 1 || got[0] != "project-memory" {
+		t.Fatalf("ProjectsCairnlineWriteAuthority() = %+v, want [project-memory]", got)
+	}
+	if !cfg.ProjectsCairnlineWriteAuthorityEnabled("project-memory") {
+		t.Fatalf("ProjectsCairnlineWriteAuthorityEnabled(project-memory) = false, want true")
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v, want nil for project-memory Cairnline write authority opt-in", err)
+	}
+}
+
 func TestValidateRejectsInvalidProjectsCoordinationBackend(t *testing.T) {
 	cfg := LoadFromEnv()
 	cfg.Projects.CoordinationBackend = "cairnline_shadow"
@@ -487,6 +509,19 @@ func TestValidateRejectsInvalidProjectsCairnlineReadSource(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE") {
 		t.Fatalf("Validate() error = %q, want HECATE_PROJECTS_CAIRNLINE_READ_SOURCE", err)
+	}
+}
+
+func TestValidateRejectsInvalidProjectsCairnlineWriteAuthority(t *testing.T) {
+	cfg := LoadFromEnv()
+	cfg.Projects.CairnlineWriteAuthority = "project-memory,assignments"
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() error = nil, want invalid projects Cairnline write authority error")
+	}
+	if !strings.Contains(err.Error(), "HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY") {
+		t.Fatalf("Validate() error = %q, want HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY", err)
 	}
 }
 
