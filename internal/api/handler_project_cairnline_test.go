@@ -410,6 +410,14 @@ func TestProjectCairnlineSyncAPI_WritesDurableAllProjectsSQLiteDB(t *testing.T) 
 	if packet.Project.ID != firstProject.Data.ID || packet.Assignment.ID != assignment.Data.ID || packet.Assignment.RootID != firstProject.Data.Roots[0].ID {
 		t.Fatalf("packet = %+v, want synced rooted assignment launch packet", packet)
 	}
+	contentDigests, err := projectCairnlineServiceAllContentDigests(t.Context(), service)
+	if err != nil {
+		t.Fatalf("projectCairnlineServiceAllContentDigests() error = %v", err)
+	}
+	launchPacketID := scopedCairnlineID(firstProject.Data.ID, assignment.Data.ID)
+	if contentDigests["launch_packets"][launchPacketID] == "" {
+		t.Fatalf("launch packet content digests = %+v, want digest for %s", contentDigests["launch_packets"], launchPacketID)
+	}
 }
 
 func TestProjectCairnlineSyncDifferences(t *testing.T) {
@@ -473,6 +481,9 @@ func TestProjectCairnlineSyncContentDifferences(t *testing.T) {
 			"proj_a": "digest-a",
 			"proj_b": "digest-b",
 		},
+		"launch_packets": map[string]string{
+			"proj_a/asgn_a": "launch-a",
+		},
 		"work_items": map[string]string{
 			"proj_a/work_a": "same",
 		},
@@ -481,15 +492,21 @@ func TestProjectCairnlineSyncContentDifferences(t *testing.T) {
 			"proj_a": "digest-c",
 			"proj_c": "digest-d",
 		},
+		"launch_packets": map[string]string{
+			"proj_a/asgn_a": "launch-b",
+		},
 		"work_items": map[string]string{
 			"proj_a/work_a": "same",
 		},
 	})
-	if len(differences) != 1 {
-		t.Fatalf("content differences = %+v, want only same-id project content mismatch", differences)
+	if len(differences) != 2 {
+		t.Fatalf("content differences = %+v, want same-id project and launch-packet content mismatches", differences)
 	}
 	if !hasProjectCairnlineContentDifference(differences, "projects", "proj_a", "digest-a", "digest-c") {
 		t.Fatalf("content differences = %+v, want projects/proj_a digest mismatch", differences)
+	}
+	if !hasProjectCairnlineContentDifference(differences, "launch_packets", "proj_a/asgn_a", "launch-a", "launch-b") {
+		t.Fatalf("content differences = %+v, want launch_packets/proj_a/asgn_a digest mismatch", differences)
 	}
 }
 

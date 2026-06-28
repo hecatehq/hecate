@@ -61,7 +61,11 @@ func (h *Handler) HandleSyncProjectsToCairnline(w http.ResponseWriter, r *http.R
 		return
 	}
 	idDifferences := projectCairnlineSyncIDDifferences(hecateIDs, cairnlineIDs)
-	hecateContent := projectCairnlineSnapshotAllContentDigests(snapshots)
+	hecateContent, err := projectCairnlineSnapshotAllContentDigests(r.Context(), snapshots)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
 	cairnlineContent, err := projectCairnlineServiceAllContentDigests(r.Context(), service)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
@@ -691,8 +695,12 @@ func projectCairnlineServiceAllIDSets(ctx context.Context, service *cairnline.Se
 
 type projectCairnlineContentDigests map[string]map[string]string
 
-func projectCairnlineSnapshotAllContentDigests(snapshots []cairnlinebridge.Snapshot) projectCairnlineContentDigests {
+func projectCairnlineSnapshotAllContentDigests(ctx context.Context, snapshots []cairnlinebridge.Snapshot) (projectCairnlineContentDigests, error) {
 	digests := projectCairnlineContentDigests{}
+	service := cairnline.NewMemoryService()
+	if err := cairnlinebridge.SeedSnapshots(ctx, service, snapshots); err != nil {
+		return digests, err
+	}
 	executionProfileDigests := map[string]struct{}{}
 	addExecutionProfile := func(profile cairnline.ExecutionProfile) {
 		id := strings.TrimSpace(profile.ID)
@@ -751,6 +759,9 @@ func projectCairnlineSnapshotAllContentDigests(snapshots []cairnlinebridge.Snaps
 			profile := profileByID[role.DefaultAgentProfile]
 			item := cairnlinebridge.Assignment(assignment, role, profile)
 			digests.add("assignments", scopedCairnlineID(projectID, item.ID), item)
+			if packet, err := service.AssignmentLaunchPacket(ctx, projectID, item.ID); err == nil {
+				digests.add("launch_packets", scopedCairnlineID(projectID, item.ID), projectCairnlineStableLaunchPacket(packet))
+			}
 		}
 		for _, artifact := range snapshot.Artifacts {
 			if item, ok := cairnlinebridge.Artifact(artifact); ok {
@@ -785,7 +796,7 @@ func projectCairnlineSnapshotAllContentDigests(snapshots []cairnlinebridge.Snaps
 			digests.add("assistant_proposals", scopedCairnlineID(projectID, item.ID), item)
 		}
 	}
-	return digests
+	return digests, nil
 }
 
 func projectCairnlineServiceAllContentDigests(ctx context.Context, service *cairnline.Service) (projectCairnlineContentDigests, error) {
@@ -873,6 +884,9 @@ func projectCairnlineServiceAllContentDigests(ctx context.Context, service *cair
 		}
 		for _, assignment := range assignments {
 			digests.add("assignments", scopedCairnlineID(projectID, assignment.ID), assignment)
+			if packet, err := service.AssignmentLaunchPacket(ctx, projectID, assignment.ID); err == nil {
+				digests.add("launch_packets", scopedCairnlineID(projectID, assignment.ID), projectCairnlineStableLaunchPacket(packet))
+			}
 		}
 		memoryEntries, err := service.ListMemoryEntries(ctx, projectID, true)
 		if err != nil {
@@ -900,6 +914,13 @@ func projectCairnlineServiceAllContentDigests(ctx context.Context, service *cair
 		}
 	}
 	return digests, nil
+}
+
+func projectCairnlineStableLaunchPacket(packet cairnline.AssignmentLaunchPacket) cairnline.AssignmentLaunchPacket {
+	// Launch-packet coverage and build errors are reported by sync counts and
+	// ID sets; content digests only compare packets that build on both sides.
+	packet.ID = ""
+	return packet
 }
 
 func projectCairnlineSyncContentDifferences(hecate, cairnline projectCairnlineContentDigests) []ProjectCairnlineContentDifference {
