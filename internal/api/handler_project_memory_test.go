@@ -480,6 +480,46 @@ func TestProjectMemoryAPI_CairnlineWriteAuthorityCommitsAcceptedMemoryFirst(t *t
 	}
 }
 
+func TestShadowProjectMemoryEntryToHecateUpdatesExistingShadowInPlace(t *testing.T) {
+	t.Parallel()
+	store := &existingProjectMemoryShadowStore{
+		entry: memory.Entry{
+			ID:         "mem_existing",
+			Scope:      memory.ScopeProject,
+			ProjectID:  "proj_existing",
+			Title:      "Old title",
+			Body:       "Old body",
+			TrustLabel: memory.TrustLabelOperatorMemory,
+			SourceKind: memory.SourceKindOperator,
+			SourceID:   "old_source",
+			Enabled:    false,
+		},
+	}
+	handler := &Handler{memory: store}
+
+	handler.shadowProjectMemoryEntryToHecate(t.Context(), "test_shadow_update", memory.Entry{
+		ID:         "mem_existing",
+		Scope:      memory.ScopeProject,
+		ProjectID:  "proj_existing",
+		Title:      "New title",
+		Body:       "New body",
+		TrustLabel: memory.TrustLabelGenerated,
+		SourceKind: "handoff",
+		SourceID:   "handoff_1",
+		Enabled:    true,
+	})
+
+	if store.deleted || store.created {
+		t.Fatalf("shadow calls delete=%v create=%v, want update in place", store.deleted, store.created)
+	}
+	if !store.updated {
+		t.Fatal("shadow did not update existing entry")
+	}
+	if got := store.entry; got.Title != "New title" || got.Body != "New body" || got.TrustLabel != memory.TrustLabelGenerated || got.SourceKind != "handoff" || got.SourceID != "handoff_1" || !got.Enabled {
+		t.Fatalf("shadow entry = %+v, want updated fields", got)
+	}
+}
+
 func TestProjectMemoryAPI_CairnlineWriteAuthorityCommitsMemoryCandidatesFirst(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectMemoryCairnlineCandidateAuthorityTestServer(t)
@@ -1087,5 +1127,46 @@ func (conflictMemoryStore) Delete(context.Context, string, string) error {
 }
 
 func (conflictMemoryStore) DeleteByProjectID(context.Context, string) (int, error) {
+	return 0, nil
+}
+
+type existingProjectMemoryShadowStore struct {
+	entry   memory.Entry
+	created bool
+	updated bool
+	deleted bool
+}
+
+func (s *existingProjectMemoryShadowStore) Backend() string {
+	return "memory"
+}
+
+func (s *existingProjectMemoryShadowStore) Create(context.Context, memory.Entry) (memory.Entry, error) {
+	s.created = true
+	return memory.Entry{}, errors.New("create should not be called for existing shadows")
+}
+
+func (s *existingProjectMemoryShadowStore) Get(context.Context, string, string) (memory.Entry, bool, error) {
+	return s.entry, true, nil
+}
+
+func (s *existingProjectMemoryShadowStore) List(context.Context, memory.Filter) ([]memory.Entry, error) {
+	return nil, nil
+}
+
+func (s *existingProjectMemoryShadowStore) Update(_ context.Context, _ string, _ string, update func(*memory.Entry)) (memory.Entry, error) {
+	s.updated = true
+	if update != nil {
+		update(&s.entry)
+	}
+	return s.entry, nil
+}
+
+func (s *existingProjectMemoryShadowStore) Delete(context.Context, string, string) error {
+	s.deleted = true
+	return nil
+}
+
+func (s *existingProjectMemoryShadowStore) DeleteByProjectID(context.Context, string) (int, error) {
 	return 0, nil
 }
