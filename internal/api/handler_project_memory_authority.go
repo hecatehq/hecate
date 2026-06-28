@@ -131,11 +131,24 @@ func (h *Handler) shadowProjectMemoryEntryToHecate(ctx context.Context, operatio
 	if h == nil || h.memory == nil {
 		return
 	}
-	if err := h.memory.Delete(ctx, entry.ProjectID, entry.ID); err != nil && !errors.Is(err, memory.ErrNotFound) {
+	if _, ok, err := h.memory.Get(ctx, entry.ProjectID, entry.ID); err != nil {
 		h.logProjectMemoryShadowError(ctx, operation, entry.ProjectID, entry.ID, err)
 		return
+	} else if ok {
+		_, err := h.memory.Update(ctx, entry.ProjectID, entry.ID, func(item *memory.Entry) {
+			item.Title = entry.Title
+			item.Body = entry.Body
+			item.TrustLabel = entry.TrustLabel
+			item.SourceKind = entry.SourceKind
+			item.SourceID = entry.SourceID
+			item.Enabled = entry.Enabled
+		})
+		if err != nil {
+			h.logProjectMemoryShadowError(ctx, operation, entry.ProjectID, entry.ID, err)
+		}
+		return
 	}
-	if _, err := h.memory.Create(ctx, entry); err != nil {
+	if _, err := h.memory.Create(ctx, entry); err != nil && !errors.Is(err, memory.ErrAlreadyExists) {
 		h.logProjectMemoryShadowError(ctx, operation, entry.ProjectID, entry.ID, err)
 	}
 }
