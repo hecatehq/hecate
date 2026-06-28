@@ -48,7 +48,7 @@ func (h *Handler) renderCairnlineProjectActivityFromService(ctx context.Context,
 		return ProjectActivityDataResponse{}, err
 	}
 
-	workItems := projectActivityWorkItemsFromCairnline(cairnlineWorkItems, snapshot.WorkItems)
+	workItems := projectWorkItemsFromCairnlineWithNativeTimestamps(cairnlineWorkItems, snapshot.WorkItems)
 	assignments := projectWorkAssignmentsFromCairnline(cairnlineAssignments, snapshot.Assignments)
 	assignmentsByWorkItem := groupProjectWorkAssignmentsByWorkItem(assignments)
 	projectedWorkItems := make(map[string]ProjectWorkItemResponse, len(workItems))
@@ -125,24 +125,6 @@ func projectActivityCairnlineRolesByID(items []cairnline.Role, executionProfiles
 	nativeByID := projectWorkRolesByID(native)
 	for _, item := range items {
 		out[item.ID] = projectWorkRoleFromCairnline(item, executionProfilesByID, nativeByID[item.ID])
-	}
-	return out
-}
-
-func projectActivityWorkItemsFromCairnline(items []cairnline.WorkItem, native []projectwork.WorkItem) []projectwork.WorkItem {
-	nativeByID := projectWorkItemsByID(native)
-	out := make([]projectwork.WorkItem, 0, len(items))
-	for _, item := range items {
-		projected := projectWorkItemFromCairnline(item)
-		if nativeItem, ok := nativeByID[item.ID]; ok {
-			if !nativeItem.CreatedAt.IsZero() {
-				projected.CreatedAt = nativeItem.CreatedAt
-			}
-			if !nativeItem.UpdatedAt.IsZero() {
-				projected.UpdatedAt = nativeItem.UpdatedAt
-			}
-		}
-		out = append(out, projected)
 	}
 	return out
 }

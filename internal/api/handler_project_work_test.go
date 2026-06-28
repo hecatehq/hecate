@@ -4101,6 +4101,25 @@ func TestProjectWorkAPI_ProjectActivityUsesEmbeddedCairnlineWorkGraph(t *testing
 	}
 
 	client := newAPITestClient(t, server)
+	listed := mustRequestJSON[ProjectWorkItemsResponse](client, http.MethodGet, "/hecate/v1/projects/"+project.Data.ID+"/work-items", "")
+	listedItem := findProjectWorkItemForTest(t, listed.Data, "work_mirror_only")
+	if listedItem.ReadBackend != "cairnline" || len(listedItem.Assignments) != 1 || listedItem.Assignments[0].ID != "asgn_mirror_only" {
+		t.Fatalf("listed work item = %+v, want Cairnline service assignment projection", listedItem)
+	}
+	if listedItem.Assignments[0].DriverKind != projectwork.AssignmentDriverHecateTask || listedItem.Assignments[0].ReadBackend != "cairnline" {
+		t.Fatalf("listed assignment = %+v, want projected Hecate task assignment from Cairnline service row", listedItem.Assignments[0])
+	}
+
+	detail := mustRequestJSON[ProjectWorkItemEnvelope](client, http.MethodGet, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_mirror_only", "")
+	if detail.Data.ReadBackend != "cairnline" || len(detail.Data.Assignments) != 1 || detail.Data.Assignments[0].ID != "asgn_mirror_only" {
+		t.Fatalf("detail work item = %+v, want Cairnline service assignment projection", detail.Data)
+	}
+
+	assignments := mustRequestJSON[ProjectWorkAssignmentsResponse](client, http.MethodGet, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_mirror_only/assignments", "")
+	if len(assignments.Data) != 1 || assignments.Data[0].ID != "asgn_mirror_only" || assignments.Data[0].ReadBackend != "cairnline" {
+		t.Fatalf("assignment list = %+v, want mirror-only Cairnline assignment", assignments.Data)
+	}
+
 	response := mustRequestJSON[ProjectActivityEnvelope](client, http.MethodGet, "/hecate/v1/projects/"+project.Data.ID+"/activity", "")
 	if response.Data.ReadBackend != "cairnline" {
 		t.Fatalf("activity read_backend = %q, want cairnline", response.Data.ReadBackend)
