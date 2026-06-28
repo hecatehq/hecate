@@ -384,8 +384,11 @@ launch agents. Those remain explicit operator or orchestrator actions.
 - `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-memory` enables Hecate's
   first disabled-by-default Cairnline write-authority switchpoint: accepted
   project memory entry create/update/delete commits to embedded Cairnline first
-  and then shadows back into Hecate-native memory stores. Memory candidates and
-  candidate promotion/rejection remain Hecate-owned.
+  and then shadows back into Hecate-native memory stores.
+  `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-memory,memory-candidates`
+  also makes memory-candidate create/promote/reject Cairnline-first; the
+  `memory-candidates` switch requires `project-memory` because promotion creates
+  accepted project memory.
 - Hecate has a non-authoritative bridge write seam for project identity,
   embedded roots, root discovery/worktree creation, direct root
   create/update/delete, context-source discovery, direct context-source
@@ -398,8 +401,9 @@ launch agents. Those remain explicit operator or orchestrator actions.
   create-if-missing generic artifact/evidence/review seams, handoff
   upsert/delete seams, plus accepted-memory and memory-candidate seams that
   preserve metadata, disabled state, provenance, resolved candidate state, and
-  Hecate-owned promoted memory IDs. Accepted memory can additionally run as the
-  opt-in Cairnline-first switchpoint above. The project identity/root
+  promoted memory IDs. Accepted memory and memory-candidate review flows can
+  additionally run as the opt-in Cairnline-first switchpoints above. The project
+  identity/root
   discovery/worktree-creation/context-source discovery seam, the root-level
   direct root mutation seam, the source-level direct context-source mutation
   seam, the global agent-profile seam, the

@@ -162,6 +162,34 @@ func TestProjectCoordinationBackendStatus_CairnlineProjectMemoryAuthorityConfigu
 	}
 }
 
+func TestProjectCoordinationBackendStatus_CairnlineProjectMemoryCandidateAuthorityConfigured(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			Backend:                 "sqlite",
+			CoordinationBackend:     "cairnline",
+			CairnlineReadSource:     "embedded",
+			CairnlineWriteAuthority: "project-memory,memory-candidates",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+
+	status := handler.projectCoordinationBackendStatus()
+	if containsString(status.WriteAdapterGaps, "memory") || containsString(status.WriteAdapterGaps, "memory-candidates") {
+		t.Fatalf("write gaps = %+v, want memory and memory-candidates removed for opt-in Cairnline authority", status.WriteAdapterGaps)
+	}
+	for _, name := range []string{"project-memory", "memory-candidates"} {
+		point := findWriteSwitchpoint(status.WriteSwitchpoints, name)
+		if point == nil || point.CurrentAuthority != "cairnline" || point.CairnlineState != "authoritative_opt_in" || !point.LiveMirror || point.BlocksAuthority || point.Gap != "" {
+			t.Fatalf("%s switchpoint = %+v, want opt-in Cairnline authority", name, point)
+		}
+	}
+	if status.ReplacementReady {
+		t.Fatalf("replacement_ready = true, want false until remaining write and migration gates are ready")
+	}
+	if !strings.Contains(strings.Join(status.Warnings, "\n"), "candidate promotion also creates accepted memory through Cairnline") {
+		t.Fatalf("warnings = %+v, want memory-candidate authority warning", status.Warnings)
+	}
+}
+
 func TestProjectCoordinationBackendStatusRoute(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	cfg := config.Config{
