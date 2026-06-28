@@ -167,10 +167,16 @@ func (h *Handler) renderCairnlineProjectWorkItems(ctx context.Context, projectID
 	if err != nil {
 		return nil, err
 	}
-	assignmentsByWorkItem := groupProjectWorkAssignmentsByWorkItem(view.snapshot.Assignments)
+	cairnlineAssignments, err := view.service.ListAssignments(ctx, view.snapshot.Project.ID)
+	if err != nil {
+		return nil, err
+	}
+	workItems := projectWorkItemsFromCairnlineWithNativeTimestamps(items, view.snapshot.WorkItems)
+	assignments := projectWorkAssignmentsFromCairnline(cairnlineAssignments, view.snapshot.Assignments)
+	assignmentsByWorkItem := groupProjectWorkAssignmentsByWorkItem(assignments)
 	data := make([]ProjectWorkItemResponse, 0, len(items))
-	for _, item := range items {
-		projected, err := h.renderProjectedProjectWorkItemWithAssignments(ctx, projectWorkItemFromCairnline(item), assignmentsByWorkItem[item.ID])
+	for _, item := range workItems {
+		projected, err := h.renderProjectedProjectWorkItemWithAssignments(ctx, item, assignmentsByWorkItem[item.ID])
 		if err != nil {
 			return nil, err
 		}
@@ -191,12 +197,18 @@ func (h *Handler) renderCairnlineProjectWorkItem(ctx context.Context, projectID,
 	if err != nil {
 		return ProjectWorkItemResponse{}, err
 	}
-	assignmentsByWorkItem := groupProjectWorkAssignmentsByWorkItem(view.snapshot.Assignments)
-	for _, item := range items {
+	cairnlineAssignments, err := view.service.ListAssignments(ctx, view.snapshot.Project.ID)
+	if err != nil {
+		return ProjectWorkItemResponse{}, err
+	}
+	workItems := projectWorkItemsFromCairnlineWithNativeTimestamps(items, view.snapshot.WorkItems)
+	assignments := projectWorkAssignmentsFromCairnline(cairnlineAssignments, view.snapshot.Assignments)
+	assignmentsByWorkItem := groupProjectWorkAssignmentsByWorkItem(assignments)
+	for _, item := range workItems {
 		if item.ID != workItemID {
 			continue
 		}
-		projected, err := h.renderProjectedProjectWorkItemWithAssignments(ctx, projectWorkItemFromCairnline(item), assignmentsByWorkItem[item.ID])
+		projected, err := h.renderProjectedProjectWorkItemWithAssignments(ctx, item, assignmentsByWorkItem[item.ID])
 		if err != nil {
 			return ProjectWorkItemResponse{}, err
 		}
@@ -294,19 +306,21 @@ func (h *Handler) renderCairnlineProjectWorkAssignments(ctx context.Context, pro
 		return nil, err
 	}
 	defer view.Close()
+	if _, err := view.service.GetWorkItem(ctx, view.snapshot.Project.ID, workItemID); err != nil {
+		if errors.Is(err, cairnline.ErrNotFound) {
+			return nil, projectwork.ErrNotFound
+		}
+		return nil, err
+	}
 	items, err := view.service.ListAssignments(ctx, view.snapshot.Project.ID)
 	if err != nil {
 		return nil, err
 	}
-	nativeByID := projectWorkAssignmentsByID(view.snapshot.Assignments)
+	assignments := projectWorkAssignmentsFromCairnline(items, view.snapshot.Assignments)
 	data := make([]ProjectWorkAssignmentResponse, 0, len(items))
-	for _, item := range items {
-		if strings.TrimSpace(item.WorkItemID) != workItemID {
+	for _, assignment := range assignments {
+		if strings.TrimSpace(assignment.WorkItemID) != workItemID {
 			continue
-		}
-		assignment := projectWorkAssignmentFromCairnline(item)
-		if native, ok := nativeByID[item.ID]; ok {
-			assignment = native
 		}
 		projected, err := h.renderProjectedProjectWorkAssignment(ctx, assignment)
 		if err != nil {
@@ -412,6 +426,24 @@ func projectWorkItemFromCairnline(item cairnline.WorkItem) projectwork.WorkItem 
 		CreatedAt:       item.CreatedAt,
 		UpdatedAt:       item.UpdatedAt,
 	}
+}
+
+func projectWorkItemsFromCairnlineWithNativeTimestamps(items []cairnline.WorkItem, native []projectwork.WorkItem) []projectwork.WorkItem {
+	nativeByID := projectWorkItemsByID(native)
+	out := make([]projectwork.WorkItem, 0, len(items))
+	for _, item := range items {
+		projected := projectWorkItemFromCairnline(item)
+		if nativeItem, ok := nativeByID[item.ID]; ok {
+			if !nativeItem.CreatedAt.IsZero() {
+				projected.CreatedAt = nativeItem.CreatedAt
+			}
+			if !nativeItem.UpdatedAt.IsZero() {
+				projected.UpdatedAt = nativeItem.UpdatedAt
+			}
+		}
+		out = append(out, projected)
+	}
+	return out
 }
 
 func projectWorkItemsByID(items []projectwork.WorkItem) map[string]projectwork.WorkItem {
