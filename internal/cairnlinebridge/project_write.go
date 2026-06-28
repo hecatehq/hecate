@@ -130,6 +130,67 @@ func UpsertProjectMetadata(ctx context.Context, service *cairnline.Service, proj
 	return updated, nil
 }
 
+func ReplaceProjectRoots(ctx context.Context, service *cairnline.Service, project projects.Project, roots []projects.Root) (cairnline.Project, error) {
+	if service == nil {
+		return cairnline.Project{}, errors.Join(ErrSourceNotConfigured, errors.New("cairnline service is required"))
+	}
+	item := Project(project)
+	if strings.TrimSpace(item.ID) == "" {
+		return cairnline.Project{}, errors.Join(cairnline.ErrInvalid, errors.New("project id is required"))
+	}
+	existing, err := service.GetProject(ctx, item.ID)
+	if err != nil {
+		if errors.Is(err, cairnline.ErrNotFound) {
+			return UpsertProject(ctx, service, project)
+		}
+		return cairnline.Project{}, err
+	}
+	replacement := make([]cairnline.Root, 0, len(roots))
+	for _, root := range roots {
+		replacement = append(replacement, Root(root))
+	}
+	existing.Roots = replacement
+	existing.DefaultRootID = item.DefaultRootID
+	updated, err := service.UpdateProject(ctx, existing)
+	if err != nil {
+		if errors.Is(err, cairnline.ErrNotFound) {
+			return UpsertProject(ctx, service, project)
+		}
+		return cairnline.Project{}, err
+	}
+	return updated, nil
+}
+
+func ReplaceProjectContextSources(ctx context.Context, service *cairnline.Service, project projects.Project, sources []projects.ContextSource) (cairnline.Project, error) {
+	if service == nil {
+		return cairnline.Project{}, errors.Join(ErrSourceNotConfigured, errors.New("cairnline service is required"))
+	}
+	item := Project(project)
+	if strings.TrimSpace(item.ID) == "" {
+		return cairnline.Project{}, errors.Join(cairnline.ErrInvalid, errors.New("project id is required"))
+	}
+	existing, err := service.GetProject(ctx, item.ID)
+	if err != nil {
+		if errors.Is(err, cairnline.ErrNotFound) {
+			return UpsertProject(ctx, service, project)
+		}
+		return cairnline.Project{}, err
+	}
+	replacement := make([]cairnline.Source, 0, len(sources))
+	for _, source := range sources {
+		replacement = append(replacement, Source(source))
+	}
+	existing.ContextSources = replacement
+	updated, err := service.UpdateProject(ctx, existing)
+	if err != nil {
+		if errors.Is(err, cairnline.ErrNotFound) {
+			return UpsertProject(ctx, service, project)
+		}
+		return cairnline.Project{}, err
+	}
+	return updated, nil
+}
+
 // DeleteProject removes the portable project record and the deterministic
 // project-level execution profile generated from Hecate project defaults. Other
 // project-scoped execution profiles, such as role defaults, are intentionally
