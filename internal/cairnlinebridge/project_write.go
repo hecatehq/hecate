@@ -55,6 +55,51 @@ func UpsertProject(ctx context.Context, service *cairnline.Service, project proj
 	return written, nil
 }
 
+// UpsertProjectDefaults mirrors only the portable project launch defaults. It
+// preserves the existing Cairnline project identity, root, and context-source
+// records unless the project is missing and needs a full bootstrap write.
+func UpsertProjectDefaults(ctx context.Context, service *cairnline.Service, project projects.Project) (cairnline.Project, error) {
+	if service == nil {
+		return cairnline.Project{}, errors.Join(ErrSourceNotConfigured, errors.New("cairnline service is required"))
+	}
+	item := Project(project)
+	if strings.TrimSpace(item.ID) == "" {
+		return cairnline.Project{}, errors.Join(cairnline.ErrInvalid, errors.New("project id is required"))
+	}
+	if executionProfile, ok := ProjectExecutionProfile(project); ok {
+		if err := upsertExecutionProfile(ctx, service, executionProfile); err != nil {
+			return cairnline.Project{}, err
+		}
+	}
+	staleExecutionProfileID := ""
+	if item.DefaultExecutionProfileID == "" {
+		staleExecutionProfileID = projectExecutionProfileIDValue(project)
+	}
+	existing, err := service.GetProject(ctx, item.ID)
+	if err != nil {
+		if errors.Is(err, cairnline.ErrNotFound) {
+			return UpsertProject(ctx, service, project)
+		}
+		return cairnline.Project{}, err
+	}
+	existing.DefaultRootID = item.DefaultRootID
+	existing.DefaultProfileID = item.DefaultProfileID
+	existing.DefaultExecutionProfileID = item.DefaultExecutionProfileID
+	updated, err := service.UpdateProject(ctx, existing)
+	if err != nil {
+		if errors.Is(err, cairnline.ErrNotFound) {
+			return UpsertProject(ctx, service, project)
+		}
+		return cairnline.Project{}, err
+	}
+	if staleExecutionProfileID != "" {
+		if err := service.DeleteExecutionProfile(ctx, staleExecutionProfileID); err != nil && !errors.Is(err, cairnline.ErrNotFound) {
+			return cairnline.Project{}, err
+		}
+	}
+	return updated, nil
+}
+
 // DeleteProject removes the portable project record and the deterministic
 // project-level execution profile generated from Hecate project defaults. Other
 // project-scoped execution profiles, such as role defaults, are intentionally
