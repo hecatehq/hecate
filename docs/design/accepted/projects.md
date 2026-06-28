@@ -309,8 +309,9 @@ after these gates are met:
   move.
 - Import/export or migration covers existing Hecate local stores and can be
   rolled back during alpha; the embedded Cairnline sync database proves a
-  durable all-project seed with count-level, ID-set, record-content, and stable
-  launch-packet content parity before it becomes a write path.
+  durable all-project seed with count-level, ID-set, record-content, stable
+  launch-packet content parity, and strict embedded configured-route smoke
+  before it becomes a write path.
 - Context packets, setup/health/operations summaries, activity projections, and
   closeout gates match current Hecate behavior or have documented intentional
   differences.
