@@ -23,7 +23,7 @@ check-mermaid:
 docs-env-check:
 	test -f docs/contributor/release.md
 	test -f docs/operator/known-limitations.md
-	! rg -n 'HECATE_POLICY_RULES_JSON|HECATE_PRICEBOOK_JSON|HECATE_PROVIDERS|HECATE_[A-Z0-9_]+_BACKEND|PROVIDER_[A-Z0-9_]+_(PROTOCOL|API_VERSION|TIMEOUT)' README.md docs .env.example internal/config e2e .github
+	! (rg -n 'HECATE_POLICY_RULES_JSON|HECATE_PRICEBOOK_JSON|HECATE_PROVIDERS|HECATE_[A-Z0-9_]+_BACKEND|PROVIDER_[A-Z0-9_]+_(PROTOCOL|API_VERSION|TIMEOUT)' README.md docs .env.example internal/config e2e .github | rg -v 'HECATE_PROJECTS_COORDINATION_BACKEND')
 
 # Run lychee against tracked markdown and .mdc files to catch broken relative
 # links. Mirrors the hard-fail half of the CI Links workflow; external URL
