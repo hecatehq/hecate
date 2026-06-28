@@ -171,16 +171,20 @@ func Project(project projects.Project) cairnline.Project {
 func Roots(items []projects.Root) []cairnline.Root {
 	out := make([]cairnline.Root, 0, len(items))
 	for _, item := range items {
-		out = append(out, cairnline.Root{
-			ID:        strings.TrimSpace(item.ID),
-			Path:      strings.TrimSpace(item.Path),
-			Kind:      strings.TrimSpace(item.Kind),
-			GitRemote: strings.TrimSpace(item.GitRemote),
-			GitBranch: strings.TrimSpace(item.GitBranch),
-			Active:    item.Active,
-		})
+		out = append(out, Root(item))
 	}
 	return out
+}
+
+func Root(item projects.Root) cairnline.Root {
+	return cairnline.Root{
+		ID:        strings.TrimSpace(item.ID),
+		Path:      strings.TrimSpace(item.Path),
+		Kind:      strings.TrimSpace(item.Kind),
+		GitRemote: strings.TrimSpace(item.GitRemote),
+		GitBranch: strings.TrimSpace(item.GitBranch),
+		Active:    item.Active,
+	}
 }
 
 func Sources(items []projects.ContextSource) []cairnline.Source {

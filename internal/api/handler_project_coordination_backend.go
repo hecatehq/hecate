@@ -31,6 +31,7 @@ var projectCairnlineReadRouteNames = []string{
 var projectCairnlineWriteAdapterSeamNames = []string{
 	"projects",
 	"roots",
+	"project-roots-live-mirror",
 	"context-sources",
 	"project-context-sources-live-mirror",
 	"project-defaults",
@@ -118,7 +119,8 @@ func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendS
 			response.Detail = "Cairnline is configured as the future Projects coordination backend, and the project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, project-assistant-context, project-assistant-proposal, activity, closeout-readiness, and operations brief read routes are served from the Cairnline read model. Hecate stores remain authoritative until the remaining live read routes, writes, and migration are ready."
 			response.Warnings = []string{
 				"Only the project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, project-assistant-context, project-assistant-proposal, activity, closeout-readiness, and operations brief live read routes use Cairnline.",
-				"Project identity, root create/update/delete/discovery/worktree-creation, context-source create/update/delete/discovery, and default mutations still write Hecate-native stores first, then best-effort mirror into the embedded Cairnline database.",
+				"Project identity, root discovery/worktree-creation, context-source discovery, and default mutations still write Hecate-native stores first, then best-effort mirror portable project identity into the embedded Cairnline database.",
+				"Direct root and context-source create/update/delete mutations still write Hecate-native stores first, then best-effort mirror through Cairnline's root/source-level APIs.",
 				"Agent profile create/update/delete mutations still write Hecate-native stores first, then best-effort mirror portable profile metadata and execution posture into Cairnline.",
 				"Project skill discovery and metadata updates still write Hecate-native stores first, then best-effort mirror metadata-only skill records into Cairnline.",
 				"Project role and work-item mutations still write Hecate-native stores first, then best-effort mirror coordination metadata into Cairnline.",
