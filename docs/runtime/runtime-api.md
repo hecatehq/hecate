@@ -2247,6 +2247,14 @@ Hecate-owned. `write_adapter_seams` lists non-authoritative bridge proofs that
 can write Cairnline-shaped records during tests or local sync rehearsals;
 `write_adapter_gaps` lists mutation families whose live Hecate routes are not
 Cairnline-backed yet and therefore still block authority switch.
+`replacement_ready` stays `false` until read parity, strict embedded mirror
+probes, write-authority switchpoints, and migration/rollback gates are all
+ready. `replacement_gates` reports those high-level gates as structured
+checklist items so clients do not need to parse warning prose.
+`write_switchpoints` maps each live mutation family to the current authority,
+the Cairnline state (`live_mirror_non_authoritative`, `result_mirror_only`, or
+`missing_authoritative_switchpoint`), the related mirror seams, and whether that
+family still blocks replacement.
 Non-authoritative bridge seams currently cover project/root/source/defaults,
 agent profiles, skills, roles, work items, assignment metadata upsert/delete plus
 lifecycle-status sync, create-if-missing generic artifacts/evidence/reviews,
@@ -2301,7 +2309,7 @@ project stores with the existing embedded Cairnline mirror database without
 creating or repairing it. `sync_readiness_url` points at the all-project
 embedded SQLite rehearsal sync, which replaces that database from Hecate stores.
 
-Example response:
+Example response, with `write_switchpoints` shortened for readability:
 
 ```json
 {
@@ -2315,6 +2323,7 @@ Example response:
     "cairnline_authoritative": false,
     "read_model_switch_ready": true,
     "write_adapter_ready": false,
+    "replacement_ready": false,
     "read_routes": [
       "project-list",
       "project-detail",
@@ -2391,6 +2400,63 @@ Example response:
       "handoffs",
       "project-assistant-proposals",
       "migration-cutover"
+    ],
+    "replacement_gates": [
+      {
+        "id": "read-routes",
+        "ready": true,
+        "status": "ready",
+        "detail": "Configured live project read families can be served from Cairnline's projected read model."
+      },
+      {
+        "id": "strict-embedded-read-smoke",
+        "ready": false,
+        "status": "operator_probe_required",
+        "detail": "Run the embedded sync/parity/smoke probes with HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded before treating the mirror database as a cutover candidate."
+      },
+      {
+        "id": "write-authority-switchpoints",
+        "ready": false,
+        "status": "blocked",
+        "detail": "Live mutation routes still commit to Hecate-native stores first; Cairnline mirrors are replacement evidence, not write authority."
+      },
+      {
+        "id": "migration-and-rollback",
+        "ready": false,
+        "status": "blocked",
+        "detail": "No migration cutover, rollback, or authoritative Cairnline storage switch exists yet."
+      }
+    ],
+    "write_switchpoints": [
+      {
+        "name": "project-memory",
+        "current_authority": "hecate",
+        "cairnline_state": "live_mirror_non_authoritative",
+        "live_mirror": true,
+        "blocks_authority": true,
+        "seams": ["project-memory-live-mirror"],
+        "gap": "memory",
+        "detail": "Accepted project memory mutations still commit to Hecate first, then mirror durable memory state into Cairnline."
+      },
+      {
+        "name": "assignment-start-dispatch",
+        "current_authority": "hecate",
+        "cairnline_state": "result_mirror_only",
+        "live_mirror": true,
+        "blocks_authority": true,
+        "seams": ["project-assignment-start-result-live-mirror"],
+        "gap": "assignment-start",
+        "detail": "Assignment start still dispatches through Hecate runtime/task/external-agent authority; Cairnline receives only committed start results and cleanup/conflict states."
+      },
+      {
+        "name": "migration-cutover",
+        "current_authority": "hecate",
+        "cairnline_state": "missing_authoritative_switchpoint",
+        "live_mirror": false,
+        "blocks_authority": true,
+        "gap": "migration-cutover",
+        "detail": "No import/export cutover, rollback, or authoritative Cairnline storage switch exists yet."
+      }
     ],
     "status": "cairnline_read_routes_ready",
     "detail": "Cairnline is configured as the future Projects coordination backend, and the project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, project-assistant-context, project-assistant-proposal, activity, closeout-readiness, and operations brief read routes are served from the Cairnline read model. Configured read routes prefer the embedded mirror database when it already contains the requested project or proposal record; otherwise they fall back to the snapshot-seeded in-memory bridge projection. Hecate stores remain authoritative until the remaining live read routes, writes, and migration are ready.",

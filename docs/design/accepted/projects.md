@@ -117,7 +117,10 @@ endpoints. `GET /hecate/v1/projects/backend-status` reports the configured
 coordination backend, whether the Cairnline read adapter can project the full
 current Hecate project graph, the live read-route families currently projected
 from Cairnline, the remaining write-adapter gap families, and whether Cairnline
-is actually authoritative.
+is actually authoritative. It also reports `replacement_ready`,
+`replacement_gates`, and `write_switchpoints` so operator tools can distinguish
+ready read routes from strict embedded probe work, non-authoritative live
+mirrors, still-Hecate-owned dispatch, and missing migration/rollback authority.
 Today, `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` is a
 replacement-readiness intent flag only: when the current stores are fully wired
 it reports `cairnline_read_routes_ready`, and the live project activity inbox

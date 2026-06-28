@@ -376,8 +376,11 @@ launch agents. Those remain explicit operator or orchestrator actions.
   backend switch.
 - The Hecate backend-status endpoint exposes the live Cairnline read-route
   coverage, non-authoritative bridge write seams, and remaining live-route
-  write-adapter gap families as structured fields, so replacement readiness can
-  be tracked without parsing warning prose.
+  write-adapter gap families as structured fields, plus explicit
+  `replacement_gates` and `write_switchpoints`, so replacement readiness can be
+  tracked without parsing warning prose. These fields are diagnostic only:
+  `replacement_ready=false` until read parity, strict embedded mirror probes,
+  authoritative write switchpoints, and migration/rollback gates are ready.
 - Hecate has a non-authoritative bridge write seam for project identity,
   embedded roots, root discovery/worktree creation, direct root
   create/update/delete, context-source discovery, direct context-source
