@@ -415,6 +415,9 @@ proof seams separately from the live-route `write_adapter_gaps`; only
 and all remain non-authoritative. `GET
 /hecate/v1/projects/cairnline/mirror-parity` compares the existing embedded
 mirror database with Hecate's current stores without creating or repairing it;
+`GET /hecate/v1/projects/{id}/cairnline/embedded-read-model` reads operations,
+activity, and launch-packet projections directly from the existing embedded
+mirror database without seeding from Hecate stores; and
 `POST /hecate/v1/projects/cairnline/sync` remains the explicit all-project
 rebuild/rehearsal action.
 

@@ -180,6 +180,23 @@ func (h *Handler) HandleProjectCairnlineReadModel(w http.ResponseWriter, r *http
 	})
 }
 
+func (h *Handler) HandleProjectCairnlineEmbeddedReadModel(w http.ResponseWriter, r *http.Request) {
+	projectID := strings.TrimSpace(r.PathValue("id"))
+	readModel, err := h.projectCairnlineEmbeddedReadModel(r.Context(), projectID)
+	if errors.Is(err, cairnline.ErrNotFound) {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "embedded Cairnline read model not found")
+		return
+	}
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	WriteJSON(w, http.StatusOK, ProjectCairnlineReadModelResponse{
+		Object: "project_cairnline_embedded_read_model",
+		Data:   readModel,
+	})
+}
+
 func (h *Handler) HandleProjectCairnlineParityReport(w http.ResponseWriter, r *http.Request) {
 	projectID := strings.TrimSpace(r.PathValue("id"))
 	snapshot, err := cairnlinebridge.LoadSnapshot(r.Context(), h.cairnlineSnapshotSources(), projectID)
@@ -234,30 +251,59 @@ func (h *Handler) projectCairnlineReadModel(ctx context.Context, projectID strin
 	return projectCairnlineReadModelFromSnapshot(ctx, snapshot)
 }
 
+func (h *Handler) projectCairnlineEmbeddedReadModel(ctx context.Context, projectID string) (ProjectCairnlineReadModelResponseItem, error) {
+	dbPath := h.cairnlineEmbeddedDatabasePath()
+	if _, err := os.Stat(dbPath); err != nil {
+		if os.IsNotExist(err) {
+			return ProjectCairnlineReadModelResponseItem{}, errors.Join(cairnline.ErrNotFound, errors.New("embedded Cairnline mirror database not found"))
+		}
+		return ProjectCairnlineReadModelResponseItem{}, err
+	}
+	service, store, err := cairnline.NewSQLiteService(ctx, dbPath)
+	if err != nil {
+		return ProjectCairnlineReadModelResponseItem{}, err
+	}
+	defer store.Close()
+	return projectCairnlineReadModelFromService(ctx, service, projectID, "embedded_cairnline", dbPath)
+}
+
 func projectCairnlineReadModelFromSnapshot(ctx context.Context, snapshot cairnlinebridge.Snapshot) (ProjectCairnlineReadModelResponseItem, error) {
 	service := cairnline.NewMemoryService()
 	if err := cairnlinebridge.Seed(ctx, service, snapshot); err != nil {
 		return ProjectCairnlineReadModelResponseItem{}, err
 	}
-	graph, err := projectCairnlineServiceGraphCounts(ctx, service, snapshot.Project.ID)
+	return projectCairnlineReadModelFromService(ctx, service, snapshot.Project.ID, "snapshot_seeded_memory", "")
+}
+
+func projectCairnlineReadModelFromService(ctx context.Context, service *cairnline.Service, projectID, readSource, dbPath string) (ProjectCairnlineReadModelResponseItem, error) {
+	project, err := service.GetProject(ctx, projectID)
 	if err != nil {
 		return ProjectCairnlineReadModelResponseItem{}, err
 	}
-	assistantProposals, err := service.ListAssistantProposals(ctx, snapshot.Project.ID)
+	graph, err := projectCairnlineServiceGraphCounts(ctx, service, project.ID)
 	if err != nil {
 		return ProjectCairnlineReadModelResponseItem{}, err
 	}
-	operations, err := service.ProjectOperationsBrief(ctx, snapshot.Project.ID)
+	assistantProposals, err := service.ListAssistantProposals(ctx, project.ID)
 	if err != nil {
 		return ProjectCairnlineReadModelResponseItem{}, err
 	}
-	activity, err := service.ProjectActivity(ctx, snapshot.Project.ID)
+	operations, err := service.ProjectOperationsBrief(ctx, project.ID)
 	if err != nil {
 		return ProjectCairnlineReadModelResponseItem{}, err
 	}
-	launchPackets := projectCairnlineLaunchPacketSummary(ctx, service, snapshot)
+	activity, err := service.ProjectActivity(ctx, project.ID)
+	if err != nil {
+		return ProjectCairnlineReadModelResponseItem{}, err
+	}
+	launchPackets, err := projectCairnlineServiceLaunchPacketSummary(ctx, service, project.ID)
+	if err != nil {
+		return ProjectCairnlineReadModelResponseItem{}, err
+	}
 	return ProjectCairnlineReadModelResponseItem{
-		ProjectID:                snapshot.Project.ID,
+		ProjectID:                project.ID,
+		ReadSource:               readSource,
+		DatabasePath:             dbPath,
 		RootCount:                graph.Roots,
 		ContextSourceCount:       graph.ContextSources,
 		AgentProfileCount:        graph.AgentProfiles,
@@ -1200,19 +1246,17 @@ type projectCairnlineLaunchPacketSummaryData struct {
 	Errors       []ProjectCairnlineLaunchPacketError
 }
 
-func projectCairnlineLaunchPacketSummary(ctx context.Context, service *cairnline.Service, snapshot cairnlinebridge.Snapshot) projectCairnlineLaunchPacketSummaryData {
+func projectCairnlineServiceLaunchPacketSummary(ctx context.Context, service *cairnline.Service, projectID string) (projectCairnlineLaunchPacketSummaryData, error) {
 	var summary projectCairnlineLaunchPacketSummaryData
 	if service == nil {
-		for _, assignment := range snapshot.Assignments {
-			summary.Errors = append(summary.Errors, ProjectCairnlineLaunchPacketError{
-				AssignmentID: assignment.ID,
-				Error:        "cairnline service is not configured",
-			})
-		}
-		return summary
+		return summary, errors.New("cairnline service is not configured")
 	}
-	for _, assignment := range snapshot.Assignments {
-		packet, err := service.AssignmentLaunchPacket(ctx, snapshot.Project.ID, assignment.ID)
+	assignments, err := service.ListAssignments(ctx, projectID)
+	if err != nil {
+		return summary, err
+	}
+	for _, assignment := range assignments {
+		packet, err := service.AssignmentLaunchPacket(ctx, projectID, assignment.ID)
 		if err != nil {
 			summary.Errors = append(summary.Errors, ProjectCairnlineLaunchPacketError{
 				AssignmentID: assignment.ID,
@@ -1223,7 +1267,7 @@ func projectCairnlineLaunchPacketSummary(ctx context.Context, service *cairnline
 		summary.Count++
 		summary.WarningCount += len(packet.Warnings)
 	}
-	return summary
+	return summary, nil
 }
 
 func (h *Handler) nativeProjectAssistantProposalCount(ctx context.Context, projectID string) (int, error) {

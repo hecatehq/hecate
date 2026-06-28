@@ -146,6 +146,12 @@ other live Projects reads/writes still use the Hecate-native API.
 `GET /hecate/v1/projects/{id}/cairnline/read-model` seeds an in-memory
 Cairnline service from the current Hecate stores and returns the portable
 operations brief and activity projection without writing files.
+`GET /hecate/v1/projects/{id}/cairnline/embedded-read-model` opens the
+existing embedded Cairnline mirror database and returns the same portable
+operations brief, activity projection, and launch-packet coverage without
+loading Hecate stores, creating the database, or repairing drift. It is the
+stricter read-side replacement-readiness probe because it verifies the live
+mirror can serve project projections directly.
 `GET /hecate/v1/projects/{id}/cairnline/parity-report` compares Hecate's
 native cockpit counts with that Cairnline read model and returns explicit
 differences for raw graph counts including execution-profile defaults,

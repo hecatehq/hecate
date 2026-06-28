@@ -389,6 +389,8 @@ type ProjectCairnlineReadModelResponse struct {
 
 type ProjectCairnlineReadModelResponseItem struct {
 	ProjectID                string                              `json:"project_id"`
+	ReadSource               string                              `json:"read_source,omitempty"`
+	DatabasePath             string                              `json:"database_path,omitempty"`
 	RootCount                int                                 `json:"root_count"`
 	ContextSourceCount       int                                 `json:"context_source_count"`
 	AgentProfileCount        int                                 `json:"agent_profile_count"`
@@ -508,6 +510,7 @@ type ProjectCoordinationBackendStatusResponse struct {
 	Detail                  string   `json:"detail"`
 	Warnings                []string `json:"warnings,omitempty"`
 	ReplacementReadinessURL string   `json:"replacement_readiness_url,omitempty"`
+	EmbeddedReadModelURL    string   `json:"embedded_read_model_url,omitempty"`
 	SyncReadinessURL        string   `json:"sync_readiness_url,omitempty"`
 	MirrorParityURL         string   `json:"mirror_parity_url,omitempty"`
 }
