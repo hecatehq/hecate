@@ -347,7 +347,11 @@ launch agents. Those remain explicit operator or orchestrator actions.
   generic/evidence/review artifact lists, handoff lists, Project Assistant
   context/proposal reads, activity, closeout readiness, and operations brief
   reads from a Cairnline-seeded read model while Hecate stores remain
-  authoritative.
+  authoritative. `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=auto` prefers the
+  embedded mirror database when it already contains the requested project and
+  otherwise uses the snapshot-seeded bridge; `snapshot` forces the bridge; and
+  `embedded` requires a populated embedded mirror so read-route drift fails
+  loudly during replacement-readiness dogfood.
 - In configured Hecate embed mode, activity, work-item list/detail,
   assignment-list, and operations brief reads now render work items,
   assignments, roles, artifacts, and handoffs from Cairnline service records,

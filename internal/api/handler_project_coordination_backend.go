@@ -98,14 +98,17 @@ func (h *Handler) HandleProjectCoordinationBackendStatus(w http.ResponseWriter, 
 func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendStatusResponse {
 	configured := "hecate"
 	storageBackend := ""
+	readSource := "auto"
 	if h != nil {
 		configured = h.config.ProjectsCoordinationBackend()
 		storageBackend = h.config.Projects.Backend
+		readSource = h.config.ProjectsCairnlineReadSource()
 	}
 	response := ProjectCoordinationBackendStatusResponse{
 		ConfiguredBackend:       configured,
 		AuthoritativeBackend:    "hecate",
 		StorageBackend:          storageBackend,
+		CairnlineReadSource:     readSource,
 		CairnlineBridgeReady:    true,
 		CairnlineAuthoritative:  false,
 		WriteAdapterReady:       false,
@@ -124,10 +127,10 @@ func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendS
 		if readReady {
 			response.ReadRoutes = append([]string(nil), projectCairnlineReadRouteNames...)
 			response.Status = "cairnline_read_routes_ready"
-			response.Detail = "Cairnline is configured as the future Projects coordination backend, and the project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, project-assistant-context, project-assistant-proposal, activity, closeout-readiness, and operations brief read routes are served from the Cairnline read model. When the embedded mirror database contains the project, their Cairnline service reads use that live mirror; otherwise they fall back to the snapshot-seeded in-memory bridge. Hecate stores remain authoritative until the remaining live read routes, writes, and migration are ready."
+			response.Detail = "Cairnline is configured as the future Projects coordination backend, and the project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, project-assistant-context, project-assistant-proposal, activity, closeout-readiness, and operations brief read routes are served from the Cairnline read model. " + projectCairnlineReadSourceDetail(readSource) + " Hecate stores remain authoritative until the remaining live read routes, writes, and migration are ready."
 			response.Warnings = []string{
 				"Only the project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, project-assistant-context, project-assistant-proposal, activity, closeout-readiness, and operations brief live read routes use Cairnline.",
-				"Configured Cairnline read-model service reads prefer the embedded mirror database when it already contains the requested project, and otherwise use a snapshot-seeded in-memory Cairnline bridge projection.",
+				projectCairnlineReadSourceWarning(readSource),
 				"Project create/delete still write Hecate-native stores first, then best-effort mirror portable project identity into the embedded Cairnline database.",
 				"Project metadata updates still write Hecate-native stores first, then best-effort mirror through Cairnline's project-metadata seam.",
 				"Root create/update/delete, root list replacement, root discovery, and worktree-root creation mutations still write Hecate-native stores first, then best-effort mirror through Cairnline's root-level API.",
@@ -156,6 +159,28 @@ func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendS
 		response.Detail = "Hecate-native project stores are authoritative. Cairnline bridge endpoints are available for replacement-readiness checks."
 	}
 	return response
+}
+
+func projectCairnlineReadSourceDetail(source string) string {
+	switch source {
+	case "embedded":
+		return "Configured read routes require the embedded mirror database and requested project row; if the mirror is missing or stale, the route fails loudly instead of falling back to a Hecate snapshot."
+	case "snapshot":
+		return "Configured read routes use the snapshot-seeded in-memory Cairnline bridge projection and do not attempt the embedded mirror database."
+	default:
+		return "Configured read routes prefer the embedded mirror database when it already contains the requested project; otherwise they fall back to the snapshot-seeded in-memory bridge projection."
+	}
+}
+
+func projectCairnlineReadSourceWarning(source string) string {
+	switch source {
+	case "embedded":
+		return "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded requires a populated embedded Cairnline mirror database and fails configured read routes when the database or project row is missing."
+	case "snapshot":
+		return "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=snapshot keeps configured read routes on the snapshot-seeded in-memory Cairnline bridge projection even when an embedded mirror database exists."
+	default:
+		return "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=auto makes configured Cairnline read-model service reads prefer the embedded mirror database when it already contains the requested project, and otherwise use a snapshot-seeded in-memory Cairnline bridge projection."
+	}
 }
 
 func (h *Handler) cairnlineReadModelReadiness() (bool, []string) {

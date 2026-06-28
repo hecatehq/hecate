@@ -78,6 +78,91 @@ func newProjectWorkCairnlineMirrorTestServer(t *testing.T) (*Handler, http.Handl
 	return handler, NewServer(quietLogger(), handler)
 }
 
+func newProjectWorkCairnlineReadSourceTestHandler(t *testing.T, source string) *Handler {
+	t.Helper()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend: "cairnline",
+			CairnlineReadSource: source,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	handler.SetProjectStore(projects.NewMemoryStore())
+	handler.SetProjectWorkStore(projectwork.NewMemoryStore())
+	handler.SetProjectSkillStore(projectskills.NewMemoryStore())
+	handler.SetMemoryStore(memory.NewMemoryStore())
+	handler.SetAgentProfileStore(agentprofiles.NewMemoryStore())
+	handler.SetProjectAssistantProposalStore(projectassistant.NewMemoryProposalStore())
+	if _, err := handler.projects.Create(t.Context(), projects.Project{
+		ID:   "proj_read_source",
+		Name: "Read source",
+	}); err != nil {
+		t.Fatalf("create read-source project: %v", err)
+	}
+	return handler
+}
+
+func TestProjectWorkAPI_CairnlineReadSourceSnapshotUsesSeededBridge(t *testing.T) {
+	t.Parallel()
+	handler := newProjectWorkCairnlineReadSourceTestHandler(t, "snapshot")
+	if handler.prefersEmbeddedCairnlineProjectReads() {
+		t.Fatal("prefersEmbeddedCairnlineProjectReads() = true, want false for snapshot read source")
+	}
+
+	view, err := handler.cairnlineProjectWorkView(t.Context(), "proj_read_source")
+	if err != nil {
+		t.Fatalf("cairnlineProjectWorkView(snapshot) error = %v, want nil", err)
+	}
+	defer view.Close()
+	if _, err := view.service.GetProject(t.Context(), "proj_read_source"); err != nil {
+		t.Fatalf("GetProject from snapshot-seeded view error = %v, want nil", err)
+	}
+}
+
+func TestProjectWorkAPI_CairnlineReadSourceAutoFallsBackWhenMirrorMissing(t *testing.T) {
+	t.Parallel()
+	handler := newProjectWorkCairnlineReadSourceTestHandler(t, "auto")
+	if !handler.prefersEmbeddedCairnlineProjectReads() {
+		t.Fatal("prefersEmbeddedCairnlineProjectReads() = false, want true for auto read source with data dir")
+	}
+
+	view, err := handler.cairnlineProjectWorkView(t.Context(), "proj_read_source")
+	if err != nil {
+		t.Fatalf("cairnlineProjectWorkView(auto) error = %v, want nil fallback", err)
+	}
+	defer view.Close()
+	if _, err := view.service.GetProject(t.Context(), "proj_read_source"); err != nil {
+		t.Fatalf("GetProject from auto fallback view error = %v, want nil", err)
+	}
+}
+
+func TestProjectWorkAPI_CairnlineReadSourceEmbeddedRequiresMirror(t *testing.T) {
+	t.Parallel()
+	handler := newProjectWorkCairnlineReadSourceTestHandler(t, "embedded")
+	if !handler.requiresEmbeddedCairnlineProjectReads() {
+		t.Fatal("requiresEmbeddedCairnlineProjectReads() = false, want true for embedded read source")
+	}
+
+	if _, err := handler.cairnlineProjectWorkView(t.Context(), "proj_read_source"); !errors.Is(err, cairnline.ErrNotFound) {
+		t.Fatalf("cairnlineProjectWorkView(embedded missing db) error = %v, want ErrNotFound", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(handler.cairnlineEmbeddedDatabasePath()), 0o700); err != nil {
+		t.Fatalf("create embedded Cairnline mirror parent: %v", err)
+	}
+	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+	if err != nil {
+		t.Fatalf("create empty embedded Cairnline mirror: %v", err)
+	}
+	if _, err := service.ListProjects(t.Context()); err != nil {
+		store.Close()
+		t.Fatalf("ListProjects on empty embedded Cairnline mirror: %v", err)
+	}
+	store.Close()
+	if _, err := handler.cairnlineProjectWorkView(t.Context(), "proj_read_source"); !errors.Is(err, cairnline.ErrNotFound) {
+		t.Fatalf("cairnlineProjectWorkView(embedded missing project) error = %v, want ErrNotFound", err)
+	}
+}
+
 type launchContextContract struct {
 	Sections []string            `json:"sections"`
 	Fields   map[string][]string `json:"fields"`

@@ -129,10 +129,13 @@ and operations brief can use the Cairnline read model for portable setup/work
 state. Configured read routes prefer the embedded Cairnline mirror database
 when it already contains the requested project; if the mirror database or
 project row is missing, they fall back to the snapshot-seeded in-memory bridge
-projection. Activity, work-item list/detail, assignment-list, and operations
-brief reads render work items, assignments, roles, artifacts, and handoffs from
-the Cairnline service records, then overlay Hecate-only runtime refs/timestamps
-where Hecate still owns execution.
+projection. `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=snapshot` forces that
+snapshot-seeded bridge; `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded`
+requires the embedded mirror database and project row so replacement-readiness
+gaps fail loudly during dogfood. Activity, work-item list/detail,
+assignment-list, and operations brief reads render work items, assignments,
+roles, artifacts, and handoffs from the Cairnline service records, then overlay
+Hecate-only runtime refs/timestamps where Hecate still owns execution.
 Project identity and some compatibility scaffolding still come from Hecate
 until Cairnline becomes authoritative. Project Assistant draft generation also
 uses the Cairnline-projected
