@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -734,6 +735,39 @@ func TestProjectCairnlineMirrorParityAPI_MatchesRepresentativeLiveProjectJourney
 	}
 	if embeddedParity.Data.Hecate.Operations.KindCounts["start_queued_assignment"] != 1 || embeddedParity.Data.Cairnline.Operations.KindCounts["start_queued_assignment"] != 1 {
 		t.Fatalf("embedded operations kind counts = hecate %+v cairnline %+v, want adapter-rendered queued assignment action parity", embeddedParity.Data.Hecate.Operations.KindCounts, embeddedParity.Data.Cairnline.Operations.KindCounts)
+	}
+
+	handler.config.Projects.CairnlineReadSource = "embedded"
+	assertStrictEmbeddedCairnlineReadBackend(t, client, http.MethodGet, "/hecate/v1/projects", "", "project list")
+	assertStrictEmbeddedCairnlineReadBackend(t, client, http.MethodGet, "/hecate/v1/projects/"+projectID, "", "project detail")
+	assertStrictEmbeddedCairnlineReadBackend(t, client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/setup-readiness", "", "setup readiness")
+	assertStrictEmbeddedCairnlineReadBackend(t, client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/health", "", "health")
+	assertStrictEmbeddedCairnlineReadBackend(t, client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/skills", "", "skills")
+	assertStrictEmbeddedCairnlineReadBackend(t, client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/memory", "", "memory")
+	assertStrictEmbeddedCairnlineReadBackend(t, client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/memory/candidates", "", "memory candidates")
+	assertStrictEmbeddedCairnlineReadBackend(t, client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/roles", "", "roles")
+	assertStrictEmbeddedCairnlineReadBackend(t, client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items", "", "work items")
+	assertStrictEmbeddedCairnlineReadBackend(t, client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/"+work.Data.ID, "", "work item detail")
+	assertStrictEmbeddedCairnlineReadBackend(t, client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/"+work.Data.ID+"/readiness", "", "closeout readiness")
+	assertStrictEmbeddedCairnlineReadBackend(t, client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/"+work.Data.ID+"/assignments", "", "assignment list")
+	assertStrictEmbeddedCairnlineReadBackend(t, client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/"+work.Data.ID+"/assignments/"+assignment.Data.ID+"/context", "", "assignment context")
+	assertStrictEmbeddedCairnlineReadBackend(t, client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/"+work.Data.ID+"/assignments/"+assignment.Data.ID+"/launch-readiness", "", "launch readiness")
+	assertStrictEmbeddedCairnlineReadBackend(t, client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/"+work.Data.ID+"/artifacts", "", "artifact list")
+	assertStrictEmbeddedCairnlineReadBackend(t, client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/"+work.Data.ID+"/handoffs", "", "handoff list")
+	assertStrictEmbeddedCairnlineReadBackend(t, client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/activity", "", "activity")
+	assertStrictEmbeddedCairnlineReadBackend(t, client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/operations/brief", "", "operations brief")
+	assertStrictEmbeddedCairnlineReadBackend(t, client, http.MethodPost, "/hecate/v1/project-assistant/context", projectJourneyJSON(t, map[string]any{
+		"project_id":   projectID,
+		"work_item_id": work.Data.ID,
+		"request":      "Inspect strict embedded Cairnline context.",
+	}), "project assistant context")
+}
+
+func assertStrictEmbeddedCairnlineReadBackend(t *testing.T, client apiTestClient, method, path, body, label string) {
+	t.Helper()
+	recorder := client.mustRequestStatus(http.StatusOK, method, path, body)
+	if !strings.Contains(recorder.Body.String(), `"read_backend":"cairnline"`) {
+		t.Fatalf("%s response = %s, want strict embedded configured read route to expose Cairnline read_backend", label, recorder.Body.String())
 	}
 }
 

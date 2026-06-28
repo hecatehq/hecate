@@ -414,8 +414,9 @@ launch agents. Those remain explicit operator or orchestrator actions.
   Hecate snapshot counts, normalized record ID sets, and semantic
   record-content digests with the embedded database and reports count-level,
   ID-set, and content-digest differences. Hecate also uses strict embedded
-  configured-route smoke tests after sync to prove normal project/detail,
-  work-item, activity, and operations reads can run from that synced database.
+  configured-route smoke tests after sync and live-mirror parity to prove normal
+  project, setup, health, skill, memory, role, work, collaboration, assistant
+  context, activity, and operations reads can run from the embedded database.
 - After V0 stabilizes, Hecate may embed the portable core as its Projects
   backend or talk to the MCP server as a separate local coordination process.
 - Hecate remains the richer cockpit and orchestrator for supervised Hecate
