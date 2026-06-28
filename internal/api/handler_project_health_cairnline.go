@@ -11,11 +11,13 @@ import (
 )
 
 func (h *Handler) renderCairnlineProjectHealth(ctx context.Context, projectID string) (ProjectHealthResponse, error) {
-	service, snapshot, err := h.cairnlineProjectWorkService(ctx, projectID)
+	view, err := h.cairnlineProjectWorkView(ctx, projectID)
 	if err != nil {
 		return ProjectHealthResponse{}, err
 	}
-	activity, err := h.renderCairnlineProjectActivity(ctx, projectID)
+	defer view.Close()
+	service, snapshot := view.service, view.snapshot
+	activity, err := h.renderCairnlineProjectActivityFromService(ctx, service, snapshot)
 	if err != nil {
 		return ProjectHealthResponse{}, err
 	}

@@ -371,6 +371,11 @@ records before applying Hecate runtime checks.
 Assignment preflight/start context packets may include inspect-only Cairnline
 launch-packet evidence for replacement review, but Hecate still owns dispatch,
 task/external agent supervision, approvals, and assignment mutation. Project
+reads backed by the Cairnline read model still use Hecate snapshots as bridge
+scaffolding, but their Cairnline service reads prefer the embedded Cairnline
+mirror database when that database already contains the requested project; if
+the mirror database or project row is missing, they fall back to the
+snapshot-seeded in-memory bridge projection.
 identity, metadata, root create/update/delete/discovery/worktree-creation,
 context-source create/update/delete/discovery, and default mutations still
 write Hecate stores first and then best-effort mirror into the embedded

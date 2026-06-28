@@ -32,11 +32,12 @@ func (h *Handler) contextPacketForCairnlineProjectAssignment(ctx context.Context
 }
 
 func (h *Handler) cairnlineAssignmentLaunchPacket(ctx context.Context, assignment projectwork.Assignment) (cairnline.AssignmentLaunchPacket, error) {
-	service, snapshot, err := h.cairnlineProjectWorkService(ctx, assignment.ProjectID)
+	view, err := h.cairnlineProjectWorkView(ctx, assignment.ProjectID)
 	if err != nil {
 		return cairnline.AssignmentLaunchPacket{}, err
 	}
-	return service.AssignmentLaunchPacket(ctx, snapshot.Project.ID, assignment.ID)
+	defer view.Close()
+	return view.service.AssignmentLaunchPacket(ctx, view.snapshot.Project.ID, assignment.ID)
 }
 
 func cairnlineAssignmentLaunchContextPacket(launch cairnline.AssignmentLaunchPacket) chat.ContextPacket {

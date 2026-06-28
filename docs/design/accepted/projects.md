@@ -126,7 +126,11 @@ memory candidates, roles, work-item list/detail, assignment-list,
 assignment-context, launch-readiness, assignment-preflight, artifact-list,
 handoff-list, Project Assistant context and proposal reads, closeout readiness,
 and operations brief can use the Cairnline read model for portable setup/work
-state. Project Assistant draft generation also uses the Cairnline-projected
+state. Those configured read routes still use Hecate snapshots as bridge
+scaffolding, but their Cairnline service reads prefer the embedded Cairnline
+mirror database when it already contains the requested project; if the mirror
+database or project row is missing, they fall back to the snapshot-seeded
+in-memory bridge projection. Project Assistant draft generation also uses the Cairnline-projected
 context so preview and proposal assembly stay aligned, while the proposal
 ledger and apply remain Hecate-owned. Project list/detail reconstruct default
 profile and execution posture from Cairnline project/execution-profile records
