@@ -30,6 +30,12 @@ func (h *Handler) mirrorProjectDefaultsToCairnline(ctx context.Context, operatio
 	}
 }
 
+func (h *Handler) mirrorProjectMetadataToCairnline(ctx context.Context, operation string, project projects.Project) {
+	if err := h.writeProjectMetadataToCairnline(ctx, project); err != nil {
+		h.logCairnlineMirrorError(ctx, operation, project.ID, err)
+	}
+}
+
 func (h *Handler) mirrorProjectDeleteToCairnline(ctx context.Context, operation string, project projects.Project) {
 	if err := h.deleteProjectIdentityFromCairnline(ctx, project); err != nil {
 		h.logCairnlineMirrorError(ctx, operation, project.ID, err)
@@ -404,6 +410,13 @@ func (h *Handler) writeProjectIdentityToCairnline(ctx context.Context, project p
 func (h *Handler) writeProjectDefaultsToCairnline(ctx context.Context, project projects.Project) error {
 	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
 		_, err := cairnlinebridge.UpsertProjectDefaults(ctx, service, project)
+		return err
+	})
+}
+
+func (h *Handler) writeProjectMetadataToCairnline(ctx context.Context, project projects.Project) error {
+	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+		_, err := cairnlinebridge.UpsertProjectMetadata(ctx, service, project)
 		return err
 	})
 }

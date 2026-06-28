@@ -34,6 +34,7 @@ var projectCairnlineWriteAdapterSeamNames = []string{
 	"project-roots-live-mirror",
 	"context-sources",
 	"project-context-sources-live-mirror",
+	"project-metadata-live-mirror",
 	"project-defaults",
 	"project-defaults-live-mirror",
 	"project-identity-live-mirror",
@@ -120,7 +121,8 @@ func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendS
 			response.Detail = "Cairnline is configured as the future Projects coordination backend, and the project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, project-assistant-context, project-assistant-proposal, activity, closeout-readiness, and operations brief read routes are served from the Cairnline read model. Hecate stores remain authoritative until the remaining live read routes, writes, and migration are ready."
 			response.Warnings = []string{
 				"Only the project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, project-assistant-context, project-assistant-proposal, activity, closeout-readiness, and operations brief live read routes use Cairnline.",
-				"Project identity still writes Hecate-native stores first, then best-effort mirrors portable project identity into the embedded Cairnline database.",
+				"Project create/delete and root/source array replacement still write Hecate-native stores first, then best-effort mirror portable project identity into the embedded Cairnline database.",
+				"Project metadata updates still write Hecate-native stores first, then best-effort mirror through Cairnline's project-metadata seam.",
 				"Root create/update/delete, root discovery, and worktree-root creation mutations still write Hecate-native stores first, then best-effort mirror through Cairnline's root-level API.",
 				"Direct context-source create/update/delete and discovery mutations still write Hecate-native stores first, then best-effort mirror through Cairnline's source-level API.",
 				"Default-only project updates still write Hecate-native stores first, then best-effort mirror portable launch defaults through Cairnline's project-defaults seam.",

@@ -100,6 +100,36 @@ func UpsertProjectDefaults(ctx context.Context, service *cairnline.Service, proj
 	return updated, nil
 }
 
+// UpsertProjectMetadata mirrors portable project identity metadata without
+// replacing Cairnline-owned root/context-source state. Missing projects fall
+// back to the full bootstrap write so out-of-order mirrors still converge.
+func UpsertProjectMetadata(ctx context.Context, service *cairnline.Service, project projects.Project) (cairnline.Project, error) {
+	if service == nil {
+		return cairnline.Project{}, errors.Join(ErrSourceNotConfigured, errors.New("cairnline service is required"))
+	}
+	item := Project(project)
+	if strings.TrimSpace(item.ID) == "" {
+		return cairnline.Project{}, errors.Join(cairnline.ErrInvalid, errors.New("project id is required"))
+	}
+	existing, err := service.GetProject(ctx, item.ID)
+	if err != nil {
+		if errors.Is(err, cairnline.ErrNotFound) {
+			return UpsertProject(ctx, service, project)
+		}
+		return cairnline.Project{}, err
+	}
+	existing.Name = item.Name
+	existing.Description = item.Description
+	updated, err := service.UpdateProject(ctx, existing)
+	if err != nil {
+		if errors.Is(err, cairnline.ErrNotFound) {
+			return UpsertProject(ctx, service, project)
+		}
+		return cairnline.Project{}, err
+	}
+	return updated, nil
+}
+
 // DeleteProject removes the portable project record and the deterministic
 // project-level execution profile generated from Hecate project defaults. Other
 // project-scoped execution profiles, such as role defaults, are intentionally

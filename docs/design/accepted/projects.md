@@ -164,10 +164,10 @@ and same-ID/wrong-field drift are visible. It reports count-level, ID-set, and
 content-digest differences. It is not a dual-write path and does not make
 Cairnline authoritative.
 When `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` is configured, live
-project identity, root create/update/delete/discovery/worktree-creation,
+project identity, metadata, root create/update/delete/discovery/worktree-creation,
 context-source create/update/delete/discovery, and project-default mutations
-still commit to Hecate stores first, then best-effort mirror the portable
-identity shape into the embedded Cairnline database. This mirror is
+still commit to Hecate stores first, then best-effort mirror into the embedded
+Cairnline database through their identity/metadata/root/source/default seams. This mirror is
 replacement-readiness evidence only: Hecate remains authoritative and mirror
 failures are logged.
 Project skill discovery and metadata updates follow the same non-authoritative
@@ -220,7 +220,9 @@ progress, and completion methods. These seams prove the Cairnline service can
 accept Hecate's project/root/source, skill, role, work-item, assignment,
 collaboration, handoff, and memory mutation shapes, but live API routes still
 write Hecate stores first. Live mirror seams reported as
-`project-identity-live-mirror` cover project identity create/update/delete;
+`project-identity-live-mirror` cover project create/delete and full project
+root/source array replacement patches; `project-metadata-live-mirror` covers
+project name/description metadata updates without replacing roots or sources;
 `project-roots-live-mirror` covers direct root create/update/delete, root
 discovery, and worktree-root creation mutations through Cairnline's root-level
 API; `project-context-sources-live-mirror` covers direct context-source
