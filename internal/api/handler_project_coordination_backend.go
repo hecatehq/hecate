@@ -4,6 +4,7 @@ import "net/http"
 
 const projectCoordinationBackendReadinessURL = "/hecate/v1/projects/{id}/cairnline/read-model"
 const projectCoordinationBackendEmbeddedReadModelURL = "/hecate/v1/projects/{id}/cairnline/embedded-read-model"
+const projectCoordinationBackendEmbeddedParityReportURL = "/hecate/v1/projects/{id}/cairnline/embedded-parity-report"
 const projectCoordinationBackendSyncReadinessURL = "/hecate/v1/projects/cairnline/sync"
 const projectCoordinationBackendMirrorParityURL = "/hecate/v1/projects/cairnline/mirror-parity"
 
@@ -110,6 +111,7 @@ func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendS
 		WriteAdapterReady:       false,
 		ReplacementReadinessURL: projectCoordinationBackendReadinessURL,
 		EmbeddedReadModelURL:    projectCoordinationBackendEmbeddedReadModelURL,
+		EmbeddedParityReportURL: projectCoordinationBackendEmbeddedParityReportURL,
 		SyncReadinessURL:        projectCoordinationBackendSyncReadinessURL,
 		MirrorParityURL:         projectCoordinationBackendMirrorParityURL,
 	}

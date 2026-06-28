@@ -470,6 +470,7 @@ func TestProjectCairnlineEmbeddedReadModelAPI_MissingDatabaseDoesNotCreateMirror
 		"name": "Embedded Read Model Missing DB",
 	}))
 	client.mustRequestStatus(http.StatusNotFound, http.MethodGet, "/hecate/v1/projects/"+project.Data.ID+"/cairnline/embedded-read-model", "")
+	client.mustRequestStatus(http.StatusNotFound, http.MethodGet, "/hecate/v1/projects/"+project.Data.ID+"/cairnline/embedded-parity-report", "")
 	if _, err := os.Stat(handler.cairnlineEmbeddedDatabasePath()); !os.IsNotExist(err) {
 		t.Fatalf("mirror DB stat error = %v, want embedded read-model probe to avoid creating the DB", err)
 	}
@@ -684,6 +685,23 @@ func TestProjectCairnlineMirrorParityAPI_MatchesRepresentativeLiveProjectJourney
 	}
 	if readModel.Data.Activity.Counts.Assignments != 1 || readModel.Data.Activity.Counts.Blocked != 1 || readModel.Data.Activity.Counts.Queued != 1 || len(readModel.Data.Activity.Buckets.Blocked) != 1 || readModel.Data.Activity.Buckets.Blocked[0].AssignmentID != assignment.Data.ID {
 		t.Fatalf("embedded activity = %+v, want blocked queued assignment from live mirror", readModel.Data.Activity)
+	}
+
+	embeddedParity := mustRequestJSONStatus[ProjectCairnlineParityReportResponse](client, http.StatusOK, http.MethodGet, "/hecate/v1/projects/"+projectID+"/cairnline/embedded-parity-report", "")
+	if embeddedParity.Object != "project_cairnline_embedded_parity_report" || embeddedParity.Data.ProjectID != projectID {
+		t.Fatalf("embedded parity envelope = %+v, want project_cairnline_embedded_parity_report for project", embeddedParity)
+	}
+	if embeddedParity.Data.ReadSource != "embedded_cairnline" || embeddedParity.Data.DatabasePath != handler.cairnlineEmbeddedDatabasePath() || !filepath.IsAbs(embeddedParity.Data.DatabasePath) {
+		t.Fatalf("embedded parity source = %q path %q, want embedded Cairnline database path", embeddedParity.Data.ReadSource, embeddedParity.Data.DatabasePath)
+	}
+	if !embeddedParity.Data.Match || len(embeddedParity.Data.Differences) != 0 {
+		t.Fatalf("embedded parity = match %v differences %+v, want direct live mirror projections to match native cockpit", embeddedParity.Data.Match, embeddedParity.Data.Differences)
+	}
+	if embeddedParity.Data.Hecate.Graph.Assignments != 1 || embeddedParity.Data.Cairnline.Graph.Assignments != 1 || embeddedParity.Data.Hecate.Activity.Blocked != 1 || embeddedParity.Data.Cairnline.Activity.Blocked != 1 || embeddedParity.Data.Hecate.LaunchPackets.Assignments != 1 || embeddedParity.Data.Cairnline.LaunchPackets.Assignments != 1 {
+		t.Fatalf("embedded parity snapshots = hecate %+v cairnline %+v, want matching representative assignment graph/activity/launch coverage", embeddedParity.Data.Hecate, embeddedParity.Data.Cairnline)
+	}
+	if embeddedParity.Data.Hecate.Operations.KindCounts["start_queued_assignment"] != 1 || embeddedParity.Data.Cairnline.Operations.KindCounts["start_queued_assignment"] != 1 {
+		t.Fatalf("embedded operations kind counts = hecate %+v cairnline %+v, want adapter-rendered queued assignment action parity", embeddedParity.Data.Hecate.Operations.KindCounts, embeddedParity.Data.Cairnline.Operations.KindCounts)
 	}
 }
 

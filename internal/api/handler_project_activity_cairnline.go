@@ -3,12 +3,22 @@ package api
 import (
 	"context"
 
+	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/cairnlinebridge"
 	"github.com/hecatehq/hecate/internal/projectwork"
 )
 
 func (h *Handler) renderCairnlineProjectActivity(ctx context.Context, projectID string) (ProjectActivityDataResponse, error) {
-	activity, snapshot, err := cairnlinebridge.ProjectActivityFromStores(ctx, h.cairnlineSnapshotSources(), projectID)
+	service, snapshot, err := h.cairnlineProjectWorkService(ctx, projectID)
+	if err != nil {
+		return ProjectActivityDataResponse{}, err
+	}
+	return h.renderCairnlineProjectActivityFromService(ctx, service, snapshot)
+}
+
+func (h *Handler) renderCairnlineProjectActivityFromService(ctx context.Context, service *cairnline.Service, snapshot cairnlinebridge.Snapshot) (ProjectActivityDataResponse, error) {
+	projectID := snapshot.Project.ID
+	activity, err := service.ProjectActivity(ctx, projectID)
 	if err != nil {
 		return ProjectActivityDataResponse{}, err
 	}
