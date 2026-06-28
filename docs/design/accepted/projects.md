@@ -311,6 +311,8 @@ after these gates are met:
   rolled back during alpha; the embedded Cairnline sync database proves a
   durable all-project seed with count-level, ID-set, record-content, stable
   launch-packet content parity, and strict embedded configured-route smoke
+  across representative project, setup, health, skill, memory, role, work,
+  collaboration, assistant-context, activity, and operations route families
   before it becomes a write path.
 - Context packets, setup/health/operations summaries, activity projections, and
   closeout gates match current Hecate behavior or have documented intentional
