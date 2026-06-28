@@ -221,8 +221,10 @@ accept Hecate's project/root/source, skill, role, work-item, assignment,
 collaboration, handoff, and memory mutation shapes, but live API routes still
 write Hecate stores first. Live mirror seams reported as
 `project-identity-live-mirror` cover project identity/root
-create/update/delete/discovery/worktree-creation and context-source
-create/update/delete/discovery mutations plus project defaults;
+create/update/delete/discovery/worktree-creation, context-source discovery, and
+project defaults; `project-context-sources-live-mirror` covers direct
+context-source create/update/delete mutations through Cairnline's source-level
+API;
 `agent-profiles-live-mirror` covers global
 agent-profile create/update/delete metadata; `project-skills-live-mirror`
 covers project skill discovery/update metadata; `project-roles-live-mirror`,

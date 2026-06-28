@@ -80,6 +80,60 @@ func DeleteProject(ctx context.Context, service *cairnline.Service, project proj
 	return nil
 }
 
+func UpsertContextSource(ctx context.Context, service *cairnline.Service, project projects.Project, source projects.ContextSource) (cairnline.Source, error) {
+	if service == nil {
+		return cairnline.Source{}, errors.Join(ErrSourceNotConfigured, errors.New("cairnline service is required"))
+	}
+	projectID := strings.TrimSpace(project.ID)
+	if projectID == "" {
+		return cairnline.Source{}, errors.Join(cairnline.ErrInvalid, errors.New("project id is required"))
+	}
+	item := Source(source)
+	if strings.TrimSpace(item.ID) == "" {
+		return cairnline.Source{}, errors.Join(cairnline.ErrInvalid, errors.New("context source id is required"))
+	}
+	if _, err := service.GetProject(ctx, projectID); err != nil {
+		if !errors.Is(err, cairnline.ErrNotFound) {
+			return cairnline.Source{}, err
+		}
+		if _, err := UpsertProject(ctx, service, project); err != nil {
+			return cairnline.Source{}, err
+		}
+		if existing, err := service.GetContextSource(ctx, projectID, item.ID); err == nil {
+			return existing, nil
+		} else if !errors.Is(err, cairnline.ErrNotFound) {
+			return cairnline.Source{}, err
+		}
+		_, created, err := service.CreateContextSource(ctx, projectID, item)
+		return created, err
+	}
+	if _, err := service.GetContextSource(ctx, projectID, item.ID); err != nil {
+		if !errors.Is(err, cairnline.ErrNotFound) {
+			return cairnline.Source{}, err
+		}
+		_, created, err := service.CreateContextSource(ctx, projectID, item)
+		return created, err
+	}
+	_, updated, err := service.UpdateContextSource(ctx, projectID, item.ID, item)
+	return updated, err
+}
+
+func DeleteContextSource(ctx context.Context, service *cairnline.Service, projectID, sourceID string) error {
+	if service == nil {
+		return errors.Join(ErrSourceNotConfigured, errors.New("cairnline service is required"))
+	}
+	projectID = strings.TrimSpace(projectID)
+	sourceID = strings.TrimSpace(sourceID)
+	if projectID == "" {
+		return errors.Join(cairnline.ErrInvalid, errors.New("project id is required"))
+	}
+	if sourceID == "" {
+		return errors.Join(cairnline.ErrInvalid, errors.New("context source id is required"))
+	}
+	_, _, err := service.DeleteContextSource(ctx, projectID, sourceID)
+	return err
+}
+
 func upsertExecutionProfile(ctx context.Context, service *cairnline.Service, profile cairnline.ExecutionProfile) error {
 	if _, err := service.UpdateExecutionProfile(ctx, profile); err != nil {
 		if !errors.Is(err, cairnline.ErrNotFound) {

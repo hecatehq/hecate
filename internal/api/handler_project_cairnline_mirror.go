@@ -30,6 +30,18 @@ func (h *Handler) mirrorProjectDeleteToCairnline(ctx context.Context, operation 
 	}
 }
 
+func (h *Handler) mirrorProjectContextSourceToCairnline(ctx context.Context, operation string, project projects.Project, source projects.ContextSource) {
+	if err := h.writeProjectContextSourceToCairnline(ctx, project, source); err != nil {
+		h.logCairnlineMirrorError(ctx, operation, project.ID, err)
+	}
+}
+
+func (h *Handler) mirrorProjectContextSourceDeleteToCairnline(ctx context.Context, operation, projectID, sourceID string) {
+	if err := h.deleteProjectContextSourceFromCairnline(ctx, projectID, sourceID); err != nil {
+		h.logCairnlineMirrorError(ctx, operation, projectID, err)
+	}
+}
+
 func (h *Handler) mirrorProjectSkillsToCairnline(ctx context.Context, operation string, project projects.Project, skills []projectskills.Skill) {
 	if err := h.writeProjectSkillsToCairnline(ctx, project, skills); err != nil {
 		h.logCairnlineMirrorError(ctx, operation, project.ID, err)
@@ -362,6 +374,22 @@ func (h *Handler) writeProjectIdentityToCairnline(ctx context.Context, project p
 func (h *Handler) deleteProjectIdentityFromCairnline(ctx context.Context, project projects.Project) error {
 	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
 		if err := cairnlinebridge.DeleteProject(ctx, service, project); err != nil && !errors.Is(err, cairnline.ErrNotFound) {
+			return err
+		}
+		return nil
+	})
+}
+
+func (h *Handler) writeProjectContextSourceToCairnline(ctx context.Context, project projects.Project, source projects.ContextSource) error {
+	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+		_, err := cairnlinebridge.UpsertContextSource(ctx, service, project, source)
+		return err
+	})
+}
+
+func (h *Handler) deleteProjectContextSourceFromCairnline(ctx context.Context, projectID, sourceID string) error {
+	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+		if err := cairnlinebridge.DeleteContextSource(ctx, service, projectID, sourceID); err != nil && !errors.Is(err, cairnline.ErrNotFound) {
 			return err
 		}
 		return nil
