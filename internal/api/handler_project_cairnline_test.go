@@ -484,6 +484,166 @@ func TestProjectCairnlineMirrorParityAPI_ReportsLiveMirrorMatch(t *testing.T) {
 	}
 }
 
+func TestProjectCairnlineMirrorParityAPI_MatchesRepresentativeLiveProjectJourney(t *testing.T) {
+	dataDir := t.TempDir()
+	handler := NewHandler(config.Config{
+		Server:   config.ServerConfig{DataDir: dataDir},
+		Projects: config.ProjectsConfig{CoordinationBackend: "cairnline"},
+	}, quietLogger(), nil, nil, nil, nil)
+	handler.SetProjectStore(projects.NewMemoryStore())
+	handler.SetProjectWorkStore(projectwork.NewMemoryStore())
+	handler.SetProjectSkillStore(projectskills.NewMemoryStore())
+	handler.SetMemoryStore(memory.NewMemoryStore())
+	handler.SetAgentProfileStore(agentprofiles.NewMemoryStore())
+	server := NewServer(quietLogger(), handler)
+	client := newAPITestClient(t, server)
+	root := t.TempDir()
+	writeProjectJourneyFile(t, root, "AGENTS.md", "# Project guidance\n\nUse small changes.\nSkill: `.hecate/skills/backend/SKILL.md`.\n")
+	writeProjectJourneyFile(t, root, ".hecate/skills/backend/SKILL.md", "---\nname: Backend\ndescription: Backend work.\n---\n# Backend\n")
+
+	profile := mustRequestJSONStatus[AgentProfileResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/agent-profiles", projectJourneyJSON(t, map[string]any{
+		"id":                    "live_profile",
+		"name":                  "Live Profile",
+		"surface":               agentprofiles.SurfaceHecateTask,
+		"execution_profile":     "live_execution",
+		"provider_hint":         "openai",
+		"model_hint":            "gpt-5",
+		"project_memory_policy": agentprofiles.MemoryInclude,
+		"context_source_policy": agentprofiles.ContextIncludeEnabled,
+		"tools_enabled":         true,
+		"writes_allowed":        true,
+		"skill_ids":             []string{"backend"},
+	}))
+	if profile.Data.ID != "live_profile" {
+		t.Fatalf("profile = %+v, want live_profile", profile.Data)
+	}
+	project := mustRequestJSONStatus[ProjectResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects", projectJourneyJSON(t, map[string]any{
+		"name":                   "Live Mirror Journey",
+		"description":            "Representative project graph.",
+		"workspace_path":         root,
+		"workspace_kind":         "git",
+		"default_agent_profile":  "live_profile",
+		"default_provider":       "openai",
+		"default_model":          "gpt-5",
+		"default_workspace_mode": "in_place",
+	}))
+	projectID := project.Data.ID
+	if projectID == "" || len(project.Data.Roots) != 1 {
+		t.Fatalf("project = %+v, want generated project with root", project.Data)
+	}
+	discoveredSources := mustRequestJSON[ProjectResponse](client, http.MethodPost, "/hecate/v1/projects/"+projectID+"/context-sources/discover", `{}`)
+	if !projectJourneyHasContextSource(discoveredSources.Data.ContextSources, "AGENTS.md", "workspace_instruction", "agents_md") {
+		t.Fatalf("context sources = %+v, want discovered AGENTS.md source", discoveredSources.Data.ContextSources)
+	}
+	discoveredSkills := mustRequestJSON[ProjectSkillsResponse](client, http.MethodPost, "/hecate/v1/projects/"+projectID+"/skills/discover", "")
+	if len(discoveredSkills.Data) != 1 || discoveredSkills.Data[0].ID != "backend" || discoveredSkills.Data[0].Status != projectskills.StatusAvailable {
+		t.Fatalf("skills = %+v, want available backend skill", discoveredSkills.Data)
+	}
+
+	role := mustRequestJSONStatus[ProjectWorkRoleEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/roles", projectJourneyJSON(t, map[string]any{
+		"id":                    "role_live",
+		"name":                  "Live Implementer",
+		"default_driver_kind":   projectwork.AssignmentDriverHecateTask,
+		"default_agent_profile": "live_profile",
+		"skill_ids":             []string{"backend"},
+	}))
+	reviewer := mustRequestJSONStatus[ProjectWorkRoleEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/roles", projectJourneyJSON(t, map[string]any{
+		"id":                    "role_reviewer",
+		"name":                  "Live Reviewer",
+		"default_driver_kind":   projectwork.AssignmentDriverHecateTask,
+		"default_agent_profile": "review_qa",
+	}))
+	work := mustRequestJSONStatus[ProjectWorkItemEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items", projectJourneyJSON(t, map[string]any{
+		"id":                "work_live",
+		"title":             "Prove live mirror parity",
+		"brief":             "Exercise representative project coordination mutations.",
+		"owner_role_id":     role.Data.ID,
+		"reviewer_role_ids": []string{reviewer.Data.ID},
+		"root_id":           project.Data.Roots[0].ID,
+	}))
+	assignment := mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/"+work.Data.ID+"/assignments", projectJourneyJSON(t, map[string]any{
+		"id":          "asgn_live",
+		"role_id":     role.Data.ID,
+		"driver_kind": projectwork.AssignmentDriverHecateTask,
+		"root_id":     project.Data.Roots[0].ID,
+	}))
+	mustRequestJSONStatus[ProjectWorkArtifactEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/"+work.Data.ID+"/artifacts", projectJourneyJSON(t, map[string]any{
+		"id":                     "art_review_live",
+		"kind":                   projectwork.ArtifactKindReview,
+		"title":                  "Review",
+		"body":                   "Representative live mirror review.",
+		"author_role_id":         reviewer.Data.ID,
+		"reviewed_assignment_id": assignment.Data.ID,
+		"review_verdict":         projectwork.ReviewVerdictApproved,
+		"review_risk":            projectwork.ReviewRiskLow,
+	}))
+	mustRequestJSONStatus[ProjectWorkArtifactEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/"+work.Data.ID+"/artifacts", projectJourneyJSON(t, map[string]any{
+		"id":                   "art_evidence_live",
+		"kind":                 projectwork.ArtifactKindEvidenceLink,
+		"title":                "Evidence",
+		"body":                 "Representative live mirror evidence.",
+		"evidence_url":         "https://example.test/live-mirror",
+		"evidence_trust_label": projectwork.EvidenceTrustOperatorProvided,
+	}))
+	handoff := mustRequestJSONStatus[ProjectHandoffEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/"+work.Data.ID+"/handoffs", projectJourneyJSON(t, map[string]any{
+		"id":                      "handoff_live",
+		"source_assignment_id":    assignment.Data.ID,
+		"target_role_id":          reviewer.Data.ID,
+		"title":                   "Review live mirror",
+		"summary":                 "Live mirror representative graph is ready.",
+		"recommended_next_action": "Inspect mirror parity.",
+		"created_by_role_id":      role.Data.ID,
+	}))
+	memoryEntry := mustRequestJSONStatus[ProjectMemoryResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/memory", projectJourneyJSON(t, map[string]any{
+		"title":       "Live mirror invariant",
+		"body":        "Representative project coordination state should mirror into Cairnline.",
+		"source_kind": "handoff",
+		"source_id":   handoff.Data.ID,
+	}))
+	if memoryEntry.Data.ID == "" || memoryEntry.Data.SourceID != handoff.Data.ID {
+		t.Fatalf("memory = %+v, want generated memory linked to handoff", memoryEntry.Data)
+	}
+	candidate := mustRequestJSONStatus[ProjectMemoryCandidateResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/memory/candidates", projectJourneyJSON(t, map[string]any{
+		"title":                 "Live mirror candidate",
+		"body":                  "Representative candidate state should mirror into Cairnline.",
+		"suggested_kind":        "coordination_note",
+		"suggested_trust_label": memory.TrustLabelGenerated,
+		"suggested_source_kind": "handoff",
+		"suggested_source_id":   handoff.Data.ID,
+	}))
+	if candidate.Data.ID == "" || candidate.Data.Status != memory.CandidateStatusPending || candidate.Data.SuggestedSourceID != handoff.Data.ID {
+		t.Fatalf("candidate = %+v, want pending generated candidate linked to handoff", candidate.Data)
+	}
+
+	response := mustRequestJSONStatus[ProjectCairnlineSyncResponse](client, http.StatusOK, http.MethodGet, "/hecate/v1/projects/cairnline/mirror-parity", "")
+	if response.Object != "project_cairnline_mirror_parity" {
+		t.Fatalf("object = %q, want project_cairnline_mirror_parity", response.Object)
+	}
+	if !response.Data.DatabaseExists || !response.Data.Match {
+		t.Fatalf("mirror parity = %+v, want exact live mirror match after representative journey", response.Data)
+	}
+	if len(response.Data.Differences) != 0 || len(response.Data.IDDifferences) != 0 || len(response.Data.ContentDifferences) != 0 {
+		t.Fatalf("mirror parity differences = %+v id %+v content %+v, want none", response.Data.Differences, response.Data.IDDifferences, response.Data.ContentDifferences)
+	}
+	if response.Data.Hecate.Projects != 1 || response.Data.Cairnline.Projects != 1 ||
+		response.Data.Hecate.Roots != 1 || response.Data.Cairnline.Roots != 1 ||
+		response.Data.Hecate.ContextSources != 1 || response.Data.Cairnline.ContextSources != 1 ||
+		response.Data.Hecate.Skills != 1 || response.Data.Cairnline.Skills != 1 ||
+		response.Data.Hecate.WorkItems != 1 || response.Data.Cairnline.WorkItems != 1 ||
+		response.Data.Hecate.Assignments != 1 || response.Data.Cairnline.Assignments != 1 ||
+		response.Data.Hecate.Artifacts != 2 || response.Data.Cairnline.Artifacts != 2 ||
+		response.Data.Hecate.Handoffs != 1 || response.Data.Cairnline.Handoffs != 1 ||
+		response.Data.Hecate.MemoryEntries != 1 || response.Data.Cairnline.MemoryEntries != 1 ||
+		response.Data.Hecate.MemoryCandidates != 1 || response.Data.Cairnline.MemoryCandidates != 1 {
+		t.Fatalf("mirror counts = hecate %+v cairnline %+v, want representative graph parity", response.Data.Hecate, response.Data.Cairnline)
+	}
+	if response.Data.Hecate.AgentProfiles == 0 || response.Data.Cairnline.AgentProfiles != response.Data.Hecate.AgentProfiles ||
+		response.Data.Hecate.ExecutionProfiles == 0 || response.Data.Cairnline.ExecutionProfiles != response.Data.Hecate.ExecutionProfiles ||
+		response.Data.Hecate.Roles == 0 || response.Data.Cairnline.Roles != response.Data.Hecate.Roles {
+		t.Fatalf("profile/role mirror counts = hecate %+v cairnline %+v, want built-in and custom coordination metadata parity", response.Data.Hecate, response.Data.Cairnline)
+	}
+}
+
 func TestProjectCairnlineSyncDifferences(t *testing.T) {
 	differences := projectCairnlineSyncDifferences(ProjectCairnlineSyncCounts{
 		Projects:          2,
