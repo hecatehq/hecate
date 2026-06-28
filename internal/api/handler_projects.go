@@ -269,21 +269,19 @@ func (h *Handler) HandleUpdateProject(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	if projectUpdateTouchesRootOrSourceState(req) {
-		h.mirrorProjectIdentityToCairnline(r.Context(), "project_update", project)
-	} else {
-		if projectUpdateTouchesPortableMetadata(req) {
-			h.mirrorProjectMetadataToCairnline(r.Context(), "project_metadata_update", project)
-		}
-		if projectUpdateTouchesPortableDefaults(req) {
-			h.mirrorProjectDefaultsToCairnline(r.Context(), "project_defaults_update", project)
-		}
+	if req.Roots != nil {
+		h.mirrorProjectRootListReplaceToCairnline(r.Context(), "project_roots_replace", project, project.Roots)
+	}
+	if req.ContextSources != nil {
+		h.mirrorProjectContextSourceListReplaceToCairnline(r.Context(), "project_context_sources_replace", project, project.ContextSources)
+	}
+	if projectUpdateTouchesPortableMetadata(req) {
+		h.mirrorProjectMetadataToCairnline(r.Context(), "project_metadata_update", project)
+	}
+	if projectUpdateTouchesPortableDefaults(req) {
+		h.mirrorProjectDefaultsToCairnline(r.Context(), "project_defaults_update", project)
 	}
 	WriteJSON(w, http.StatusOK, ProjectResponse{Object: "project", Data: renderProject(project)})
-}
-
-func projectUpdateTouchesRootOrSourceState(req updateProjectRequest) bool {
-	return req.Roots != nil || req.ContextSources != nil
 }
 
 func projectUpdateTouchesPortableMetadata(req updateProjectRequest) bool {

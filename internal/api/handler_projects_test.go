@@ -481,6 +481,76 @@ func TestProjectsAPI_MetadataPatchMirrorsMetadataWithoutReplacingCairnlineState(
 	assertMirroredExecutionProfileForTest(t, handler, mirrored.DefaultExecutionProfileID, "anthropic", "claude-sonnet-4-5")
 }
 
+func TestProjectsAPI_RootListPatchMirrorsRootReplacementWithoutReplacingSources(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineMirrorTestServer(t)
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects", bytes.NewReader([]byte(`{
+		"name":"Root Replace Mirror",
+		"roots":[{"id":"root_main","path":"/workspace/main","kind":"git"}],
+		"context_sources":[{"id":"ctx_agents","path":"AGENTS.md","kind":"workspace_instruction","title":"AGENTS.md"}]
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	var created ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	seedCairnlineOnlyProjectGraphForTest(t, handler, created.Data.ID)
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+created.Data.ID, bytes.NewReader([]byte(`{
+		"roots":[{"id":"root_replacement","path":"/workspace/replacement","kind":"git","active":true}]
+	}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("roots update status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	mirrored := getMirroredCairnlineProjectForTest(t, handler, created.Data.ID)
+	if len(mirrored.Roots) != 1 || mirrored.Roots[0].ID != "root_replacement" || mirrored.DefaultRootID != "root_replacement" {
+		t.Fatalf("mirrored roots = %+v default=%q, want replacement root only", mirrored.Roots, mirrored.DefaultRootID)
+	}
+	if findMirroredCairnlineSourceForTest(mirrored.ContextSources, "ctx_cairnline_only") == nil {
+		t.Fatalf("mirrored context sources = %+v, want Cairnline-only source preserved", mirrored.ContextSources)
+	}
+}
+
+func TestProjectsAPI_ContextSourceListPatchMirrorsSourceReplacementWithoutReplacingRoots(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineMirrorTestServer(t)
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects", bytes.NewReader([]byte(`{
+		"name":"Source Replace Mirror",
+		"roots":[{"id":"root_main","path":"/workspace/main","kind":"git"}],
+		"context_sources":[{"id":"ctx_agents","path":"AGENTS.md","kind":"workspace_instruction","title":"AGENTS.md"}]
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	var created ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	seedCairnlineOnlyProjectGraphForTest(t, handler, created.Data.ID)
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+created.Data.ID, bytes.NewReader([]byte(`{
+		"context_sources":[{"id":"ctx_replacement","path":"docs/replacement.md","kind":"doc","title":"Replacement"}]
+	}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("sources update status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	mirrored := getMirroredCairnlineProjectForTest(t, handler, created.Data.ID)
+	if len(mirrored.ContextSources) != 1 || mirrored.ContextSources[0].ID != "ctx_replacement" {
+		t.Fatalf("mirrored context sources = %+v, want replacement source only", mirrored.ContextSources)
+	}
+	if findMirroredCairnlineRootForTest(mirrored.Roots, "root_cairnline_only") == nil {
+		t.Fatalf("mirrored roots = %+v, want Cairnline-only root preserved", mirrored.Roots)
+	}
+}
+
 func assertCairnlineProjectProjectionForTest(t *testing.T, project ProjectResponseItem, projectID string) {
 	t.Helper()
 	if project.ID != projectID || project.ReadBackend != "cairnline" {

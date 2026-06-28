@@ -54,6 +54,12 @@ func (h *Handler) mirrorProjectRootsToCairnline(ctx context.Context, operation s
 	}
 }
 
+func (h *Handler) mirrorProjectRootListReplaceToCairnline(ctx context.Context, operation string, project projects.Project, roots []projects.Root) {
+	if err := h.replaceProjectRootsInCairnline(ctx, project, roots); err != nil {
+		h.logCairnlineMirrorError(ctx, operation, project.ID, err)
+	}
+}
+
 func (h *Handler) mirrorProjectRootDeleteToCairnline(ctx context.Context, operation, projectID, rootID string) {
 	if err := h.deleteProjectRootFromCairnline(ctx, projectID, rootID); err != nil {
 		h.logCairnlineMirrorError(ctx, operation, projectID, err)
@@ -69,6 +75,12 @@ func (h *Handler) mirrorProjectContextSourceToCairnline(ctx context.Context, ope
 func (h *Handler) mirrorProjectContextSourcesToCairnline(ctx context.Context, operation string, project projects.Project, sources []projects.ContextSource) {
 	for _, source := range sources {
 		h.mirrorProjectContextSourceToCairnline(ctx, operation, project, source)
+	}
+}
+
+func (h *Handler) mirrorProjectContextSourceListReplaceToCairnline(ctx context.Context, operation string, project projects.Project, sources []projects.ContextSource) {
+	if err := h.replaceProjectContextSourcesInCairnline(ctx, project, sources); err != nil {
+		h.logCairnlineMirrorError(ctx, operation, project.ID, err)
 	}
 }
 
@@ -437,6 +449,13 @@ func (h *Handler) writeProjectRootToCairnline(ctx context.Context, project proje
 	})
 }
 
+func (h *Handler) replaceProjectRootsInCairnline(ctx context.Context, project projects.Project, roots []projects.Root) error {
+	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+		_, err := cairnlinebridge.ReplaceProjectRoots(ctx, service, project, roots)
+		return err
+	})
+}
+
 func (h *Handler) deleteProjectRootFromCairnline(ctx context.Context, projectID, rootID string) error {
 	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
 		if err := cairnlinebridge.DeleteRoot(ctx, service, projectID, rootID); err != nil && !errors.Is(err, cairnline.ErrNotFound) {
@@ -449,6 +468,13 @@ func (h *Handler) deleteProjectRootFromCairnline(ctx context.Context, projectID,
 func (h *Handler) writeProjectContextSourceToCairnline(ctx context.Context, project projects.Project, source projects.ContextSource) error {
 	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
 		_, err := cairnlinebridge.UpsertContextSource(ctx, service, project, source)
+		return err
+	})
+}
+
+func (h *Handler) replaceProjectContextSourcesInCairnline(ctx context.Context, project projects.Project, sources []projects.ContextSource) error {
+	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+		_, err := cairnlinebridge.ReplaceProjectContextSources(ctx, service, project, sources)
 		return err
 	})
 }

@@ -220,14 +220,14 @@ progress, and completion methods. These seams prove the Cairnline service can
 accept Hecate's project/root/source, skill, role, work-item, assignment,
 collaboration, handoff, and memory mutation shapes, but live API routes still
 write Hecate stores first. Live mirror seams reported as
-`project-identity-live-mirror` cover project create/delete and full project
-root/source array replacement patches; `project-metadata-live-mirror` covers
-project name/description metadata updates without replacing roots or sources;
-`project-roots-live-mirror` covers direct root create/update/delete, root
-discovery, and worktree-root creation mutations through Cairnline's root-level
-API; `project-context-sources-live-mirror` covers direct context-source
-create/update/delete and discovery mutations through Cairnline's source-level
-API;
+`project-identity-live-mirror` covers project create/delete;
+`project-metadata-live-mirror` covers project name/description metadata updates
+without replacing roots or sources; `project-roots-live-mirror` covers direct
+root create/update/delete, root list replacement, root discovery, and
+worktree-root creation mutations through Cairnline's root-level API;
+`project-context-sources-live-mirror` covers direct context-source
+create/update/delete, context-source list replacement, and discovery mutations
+through Cairnline's source-level API;
 `project-defaults-live-mirror` covers default-only project updates through
 Cairnline's project-defaults seam while preserving mirrored roots and context
 sources;
