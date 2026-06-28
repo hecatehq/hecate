@@ -382,7 +382,8 @@ role and work-item mutations likewise mirror coordination metadata after Hecate
 commits. Role mirroring seeds referenced agent-profile metadata and execution
 posture when available, and global agent-profile CRUD now best-effort mirrors
 portable profile metadata and execution posture after Hecate commits. Assignment
-create/update/delete, collaboration artifact creation, and handoff
+create/update/delete, committed assignment-start results, linked-chat
+reconciliation, collaboration artifact creation, and handoff
 create/update/delete mutations also best-effort mirror portable metadata after
 Hecate commits, but assignment start/dispatch remains Hecate-owned. Project
 memory entry and memory-candidate mutations also
@@ -394,15 +395,18 @@ Other live Projects reads/writes still use Hecate-native
 stores until the remaining read routes, write adapter, and migration path are
 ready. Current bridge write experiments cover non-authoritative
 project/root/source/defaults, agent profiles, skills, roles, work items,
-assignment metadata upsert/delete plus lifecycle-status sync, memory,
-memory-candidate, create-only collaboration artifact/evidence/review, and
-handoff shapes. Backend status reports those proof seams separately from the
-live-route `write_adapter_gaps`; only `project-identity-live-mirror`,
+assignment metadata upsert/delete, assignment-start result and linked-chat
+reconciliation sync, memory, memory-candidate, create-only collaboration
+artifact/evidence/review, and handoff shapes. Backend status reports those
+proof seams separately from the live-route `write_adapter_gaps`; only
+`project-identity-live-mirror`,
 `agent-profiles-live-mirror`, `project-skills-live-mirror`,
 `project-roles-live-mirror`, `project-work-items-live-mirror`,
-`project-assignments-live-mirror`, `project-collaboration-live-mirror`,
-`project-handoffs-live-mirror`, `project-memory-live-mirror`, and
-`project-memory-candidates-live-mirror`, plus
+`project-assignments-live-mirror`,
+`project-assignment-start-result-live-mirror`,
+`project-assignment-chat-reconcile-live-mirror`,
+`project-collaboration-live-mirror`, `project-handoffs-live-mirror`,
+`project-memory-live-mirror`, and `project-memory-candidates-live-mirror`, plus
 `project-assistant-proposal-ledger-live-mirror` and
 `project-assistant-apply-side-effects-live-mirror` are wired to live mutations,
 and all remain non-authoritative.

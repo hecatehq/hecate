@@ -75,8 +75,11 @@ Hecate should replace its internal Projects stores with Cairnline only after:
 - Hecate has an adapter from Hecate task / External Agent execution records to
   Cairnline assignment coordination records.
 - Hecate can migrate or import/export existing local project state.
-- Workspace root, worktree, evidence-link, and source-locator boundaries have
-  a dedicated security review in the Cairnline API.
+- Workspace root, worktree, evidence-link, and source-locator boundaries keep a
+  documented security boundary in the Cairnline API. The current Cairnline
+  package documents that boundary and tests unsafe guidance-path rejection for
+  skill discovery; future local-read or locator-opening behavior needs the same
+  level of review before becoming authoritative.
 - At least one real Hecate project has been dogfooded end to end through
   Cairnline-backed coordination.
 - Hecate's Projects UI can consume Cairnline state without losing current
