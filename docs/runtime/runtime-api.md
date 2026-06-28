@@ -2392,6 +2392,7 @@ Example response:
     ],
     "replacement_readiness_url": "/hecate/v1/projects/{id}/cairnline/read-model",
     "embedded_read_model_url": "/hecate/v1/projects/{id}/cairnline/embedded-read-model",
+    "embedded_parity_report_url": "/hecate/v1/projects/{id}/cairnline/embedded-parity-report",
     "sync_readiness_url": "/hecate/v1/projects/cairnline/sync",
     "mirror_parity_url": "/hecate/v1/projects/cairnline/mirror-parity"
   }
@@ -2498,6 +2499,10 @@ Cairnline portable model and Hecate cockpit model still differ on at least one
 count, semantic bucket, or portable launch-packet coverage check that should be
 reviewed before Cairnline becomes authoritative.
 
+Use this endpoint to verify snapshot import/translation coverage. Use
+`/hecate/v1/projects/{id}/cairnline/embedded-parity-report` to verify the live
+embedded mirror database can serve the same read projections directly.
+
 Example response:
 
 ```json
@@ -2505,6 +2510,7 @@ Example response:
   "object": "project_cairnline_parity_report",
   "data": {
     "project_id": "proj_...",
+    "read_source": "snapshot_seeded_memory",
     "match": true,
     "hecate": {
       "graph": {
@@ -2605,6 +2611,30 @@ Example response:
   }
 }
 ```
+
+### `GET /hecate/v1/projects/{id}/cairnline/embedded-parity-report`
+
+Local-only experimental bridge endpoint. It compares Hecate's native project
+activity and operations brief with the direct embedded Cairnline mirror read
+model from `/hecate/v1/projects/{id}/cairnline/embedded-read-model`.
+
+Unlike `/cairnline/parity-report`, this endpoint does not use the
+snapshot-seeded in-memory service for the Cairnline side. It opens the existing
+embedded SQLite mirror database, reads portable graph/activity/launch-packet
+state from that database, and renders the Cairnline operations brief through
+Hecate's cockpit adapter so operation/action-kind counts can be compared with
+the native operator surface. A missing mirror database or a project absent from
+the mirror returns `404`; the endpoint does not create, seed, or repair the
+database.
+
+Use this endpoint as the stricter read-side replacement-readiness check: a
+matching report shows that the live embedded mirror can serve the same
+operator-facing project projections for that project. It still does not make
+Cairnline authoritative.
+
+The response shape matches `/cairnline/parity-report`, except `object` is
+`project_cairnline_embedded_parity_report`, `read_source` is
+`embedded_cairnline`, and `database_path` points at the embedded mirror DB.
 
 ### `GET /hecate/v1/projects/{id}/cairnline/embedded-read-model`
 

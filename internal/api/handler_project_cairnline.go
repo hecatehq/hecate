@@ -240,6 +240,27 @@ func (h *Handler) HandleProjectCairnlineParityReport(w http.ResponseWriter, r *h
 	})
 }
 
+func (h *Handler) HandleProjectCairnlineEmbeddedParityReport(w http.ResponseWriter, r *http.Request) {
+	projectID := strings.TrimSpace(r.PathValue("id"))
+	report, err := h.projectCairnlineEmbeddedParityReport(r.Context(), projectID)
+	if errors.Is(err, projects.ErrNotFound) {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
+		return
+	}
+	if errors.Is(err, cairnline.ErrNotFound) {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "embedded Cairnline parity report not found")
+		return
+	}
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	WriteJSON(w, http.StatusOK, ProjectCairnlineParityReportResponse{
+		Object: "project_cairnline_embedded_parity_report",
+		Data:   report,
+	})
+}
+
 func (h *Handler) projectCairnlineReadModel(ctx context.Context, projectID string) (ProjectCairnlineReadModelResponseItem, error) {
 	snapshot, err := cairnlinebridge.LoadSnapshot(ctx, h.cairnlineSnapshotSources(), projectID)
 	if errors.Is(err, projects.ErrNotFound) {
@@ -252,19 +273,63 @@ func (h *Handler) projectCairnlineReadModel(ctx context.Context, projectID strin
 }
 
 func (h *Handler) projectCairnlineEmbeddedReadModel(ctx context.Context, projectID string) (ProjectCairnlineReadModelResponseItem, error) {
-	dbPath := h.cairnlineEmbeddedDatabasePath()
-	if _, err := os.Stat(dbPath); err != nil {
-		if os.IsNotExist(err) {
-			return ProjectCairnlineReadModelResponseItem{}, errors.Join(cairnline.ErrNotFound, errors.New("embedded Cairnline mirror database not found"))
-		}
-		return ProjectCairnlineReadModelResponseItem{}, err
-	}
-	service, store, err := cairnline.NewSQLiteService(ctx, dbPath)
+	dbPath, service, store, err := h.openCairnlineEmbeddedService(ctx)
 	if err != nil {
 		return ProjectCairnlineReadModelResponseItem{}, err
 	}
 	defer store.Close()
 	return projectCairnlineReadModelFromService(ctx, service, projectID, "embedded_cairnline", dbPath)
+}
+
+func (h *Handler) projectCairnlineEmbeddedParityReport(ctx context.Context, projectID string) (ProjectCairnlineParityReportResponseItem, error) {
+	snapshot, err := cairnlinebridge.LoadSnapshot(ctx, h.cairnlineSnapshotSources(), projectID)
+	if errors.Is(err, projects.ErrNotFound) {
+		return ProjectCairnlineParityReportResponseItem{}, err
+	}
+	if err != nil {
+		return ProjectCairnlineParityReportResponseItem{}, err
+	}
+	dbPath, service, store, err := h.openCairnlineEmbeddedService(ctx)
+	if err != nil {
+		return ProjectCairnlineParityReportResponseItem{}, err
+	}
+	defer store.Close()
+	readModel, err := projectCairnlineReadModelFromService(ctx, service, projectID, "embedded_cairnline", dbPath)
+	if err != nil {
+		return ProjectCairnlineParityReportResponseItem{}, err
+	}
+	nativeActivity, err := h.renderNativeProjectActivity(ctx, projectID)
+	if err != nil {
+		return ProjectCairnlineParityReportResponseItem{}, err
+	}
+	nativeOperations, err := h.renderNativeProjectOperationsBriefByID(ctx, projectID)
+	if err != nil {
+		return ProjectCairnlineParityReportResponseItem{}, err
+	}
+	cairnlineOperations, err := h.renderCairnlineProjectOperationsBriefFromService(ctx, snapshot.Project, service, snapshot)
+	if err != nil {
+		return ProjectCairnlineParityReportResponseItem{}, err
+	}
+	nativeAssistantProposals, err := h.nativeProjectAssistantProposalCount(ctx, projectID)
+	if err != nil {
+		return ProjectCairnlineParityReportResponseItem{}, err
+	}
+	return projectCairnlineParityReport(projectID, projectCairnlineSnapshotGraphCounts(snapshot), nativeActivity, nativeOperations, cairnlineOperations, nativeAssistantProposals, readModel), nil
+}
+
+func (h *Handler) openCairnlineEmbeddedService(ctx context.Context) (string, *cairnline.Service, *cairnline.SQLiteStore, error) {
+	dbPath := h.cairnlineEmbeddedDatabasePath()
+	if _, err := os.Stat(dbPath); err != nil {
+		if os.IsNotExist(err) {
+			return "", nil, nil, errors.Join(cairnline.ErrNotFound, errors.New("embedded Cairnline mirror database not found"))
+		}
+		return "", nil, nil, err
+	}
+	service, store, err := cairnline.NewSQLiteService(ctx, dbPath)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	return dbPath, service, store, nil
 }
 
 func projectCairnlineReadModelFromSnapshot(ctx context.Context, snapshot cairnlinebridge.Snapshot) (ProjectCairnlineReadModelResponseItem, error) {
@@ -1337,11 +1402,13 @@ func projectCairnlineParityReport(projectID string, nativeGraph ProjectCairnline
 	}
 	differences := projectCairnlineParityDifferences(hecate, cairnline)
 	return ProjectCairnlineParityReportResponseItem{
-		ProjectID:   projectID,
-		Match:       len(differences) == 0,
-		Differences: differences,
-		Hecate:      hecate,
-		Cairnline:   cairnline,
+		ProjectID:    projectID,
+		ReadSource:   readModel.ReadSource,
+		DatabasePath: readModel.DatabasePath,
+		Match:        len(differences) == 0,
+		Differences:  differences,
+		Hecate:       hecate,
+		Cairnline:    cairnline,
 	}
 }
 

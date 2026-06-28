@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/hecatehq/cairnline"
+	"github.com/hecatehq/hecate/internal/cairnlinebridge"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectwork"
 )
@@ -23,7 +24,11 @@ func (h *Handler) renderCairnlineProjectOperationsBrief(ctx context.Context, pro
 	if err != nil {
 		return ProjectOperationsBriefResponse{}, err
 	}
-	activity, err := h.renderCairnlineProjectActivity(ctx, project.ID)
+	return h.renderCairnlineProjectOperationsBriefFromService(ctx, project, service, snapshot)
+}
+
+func (h *Handler) renderCairnlineProjectOperationsBriefFromService(ctx context.Context, project projects.Project, service *cairnline.Service, snapshot cairnlinebridge.Snapshot) (ProjectOperationsBriefResponse, error) {
+	activity, err := h.renderCairnlineProjectActivityFromService(ctx, service, snapshot)
 	if err != nil {
 		return ProjectOperationsBriefResponse{}, err
 	}

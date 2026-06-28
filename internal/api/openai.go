@@ -422,11 +422,13 @@ type ProjectCairnlineParityReportResponse struct {
 }
 
 type ProjectCairnlineParityReportResponseItem struct {
-	ProjectID   string                             `json:"project_id"`
-	Match       bool                               `json:"match"`
-	Differences []ProjectCairnlineParityDifference `json:"differences,omitempty"`
-	Hecate      ProjectCairnlineParitySnapshot     `json:"hecate"`
-	Cairnline   ProjectCairnlineParitySnapshot     `json:"cairnline"`
+	ProjectID    string                             `json:"project_id"`
+	ReadSource   string                             `json:"read_source,omitempty"`
+	DatabasePath string                             `json:"database_path,omitempty"`
+	Match        bool                               `json:"match"`
+	Differences  []ProjectCairnlineParityDifference `json:"differences,omitempty"`
+	Hecate       ProjectCairnlineParitySnapshot     `json:"hecate"`
+	Cairnline    ProjectCairnlineParitySnapshot     `json:"cairnline"`
 }
 
 type ProjectCairnlineParitySnapshot struct {
@@ -511,6 +513,7 @@ type ProjectCoordinationBackendStatusResponse struct {
 	Warnings                []string `json:"warnings,omitempty"`
 	ReplacementReadinessURL string   `json:"replacement_readiness_url,omitempty"`
 	EmbeddedReadModelURL    string   `json:"embedded_read_model_url,omitempty"`
+	EmbeddedParityReportURL string   `json:"embedded_parity_report_url,omitempty"`
 	SyncReadinessURL        string   `json:"sync_readiness_url,omitempty"`
 	MirrorParityURL         string   `json:"mirror_parity_url,omitempty"`
 }
