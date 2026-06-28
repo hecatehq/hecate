@@ -663,15 +663,16 @@ func (h *Handler) renderProject(ctx context.Context, projectID string) (*Project
 }
 
 func (h *Handler) renderCairnlineProject(ctx context.Context, native projects.Project) (ProjectResponseItem, error) {
-	service, snapshot, err := h.cairnlineProjectWorkService(ctx, native.ID)
+	view, err := h.cairnlineProjectWorkView(ctx, native.ID)
 	if err != nil {
 		return ProjectResponseItem{}, err
 	}
-	project, err := service.GetProject(ctx, snapshot.Project.ID)
+	defer view.Close()
+	project, err := view.service.GetProject(ctx, view.snapshot.Project.ID)
 	if err != nil {
 		return ProjectResponseItem{}, err
 	}
-	executionProfile, err := cairnlineExecutionProfileByID(ctx, service, project.DefaultExecutionProfileID)
+	executionProfile, err := cairnlineExecutionProfileByID(ctx, view.service, project.DefaultExecutionProfileID)
 	if err != nil {
 		return ProjectResponseItem{}, err
 	}

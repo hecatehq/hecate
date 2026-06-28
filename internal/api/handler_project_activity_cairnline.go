@@ -9,11 +9,12 @@ import (
 )
 
 func (h *Handler) renderCairnlineProjectActivity(ctx context.Context, projectID string) (ProjectActivityDataResponse, error) {
-	service, snapshot, err := h.cairnlineProjectWorkService(ctx, projectID)
+	view, err := h.cairnlineProjectWorkView(ctx, projectID)
 	if err != nil {
 		return ProjectActivityDataResponse{}, err
 	}
-	return h.renderCairnlineProjectActivityFromService(ctx, service, snapshot)
+	defer view.Close()
+	return h.renderCairnlineProjectActivityFromService(ctx, view.service, view.snapshot)
 }
 
 func (h *Handler) renderCairnlineProjectActivityFromService(ctx context.Context, service *cairnline.Service, snapshot cairnlinebridge.Snapshot) (ProjectActivityDataResponse, error) {

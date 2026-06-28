@@ -425,11 +425,12 @@ func (h *Handler) renderProjectMemoryEntries(ctx context.Context, projectID stri
 }
 
 func (h *Handler) renderCairnlineProjectMemoryEntries(ctx context.Context, projectID string, includeDisabled bool) ([]ProjectMemoryResponseItem, error) {
-	service, snapshot, err := h.cairnlineProjectWorkService(ctx, projectID)
+	view, err := h.cairnlineProjectWorkView(ctx, projectID)
 	if err != nil {
 		return nil, err
 	}
-	items, err := service.ListMemoryEntries(ctx, snapshot.Project.ID, includeDisabled)
+	defer view.Close()
+	items, err := view.service.ListMemoryEntries(ctx, view.snapshot.Project.ID, includeDisabled)
 	if err != nil {
 		return nil, err
 	}
@@ -458,12 +459,13 @@ func (h *Handler) renderProjectMemoryCandidates(ctx context.Context, projectID, 
 }
 
 func (h *Handler) renderCairnlineProjectMemoryCandidates(ctx context.Context, projectID, status string, includeResolved bool) ([]ProjectMemoryCandidateResponseItem, error) {
-	service, snapshot, err := h.cairnlineProjectWorkService(ctx, projectID)
+	view, err := h.cairnlineProjectWorkView(ctx, projectID)
 	if err != nil {
 		return nil, err
 	}
-	items, err := service.ListMemoryCandidates(ctx, cairnline.MemoryCandidateFilter{
-		ProjectID:       snapshot.Project.ID,
+	defer view.Close()
+	items, err := view.service.ListMemoryCandidates(ctx, cairnline.MemoryCandidateFilter{
+		ProjectID:       view.snapshot.Project.ID,
 		Status:          status,
 		IncludeResolved: includeResolved,
 	})

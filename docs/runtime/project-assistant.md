@@ -191,8 +191,12 @@ draft a proposal.
 When `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` is enabled and the
 backend-status route reports `read_model_switch_ready=true`, Hecate builds this
 packet from the Cairnline read model and marks it with
-`read_backend: "cairnline"`. The same projected context is used for Project
-Assistant draft generation so preview and proposal assembly stay aligned.
+`read_backend: "cairnline"`. The configured Cairnline read model still uses
+Hecate snapshots as bridge scaffolding, but its Cairnline service reads prefer
+the embedded mirror database when it contains the requested project, then fall
+back to the snapshot-seeded in-memory bridge projection when the mirror is
+missing. The same projected context is used for Project Assistant draft
+generation so preview and proposal assembly stay aligned.
 The adapter preserves Hecate-owned projection details such as native snapshot
 timestamps and Hecate-only metadata while using Cairnline as the portable graph
 source, so ordering-sensitive context such as recent activity stays compatible

@@ -243,6 +243,54 @@ func TestProjectsAPI_CairnlineReadsMatchHecateProjectProjection(t *testing.T) {
 	assertProjectProjectionParity(t, hecateList[0], cairnlineList[0], "list")
 }
 
+func TestProjectsAPI_CairnlineConfiguredProjectDetailReadsEmbeddedMirror(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineMirrorTestServer(t)
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects", bytes.NewReader([]byte(`{
+		"name":"Embedded Mirror Read"
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	var created ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+
+	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+	if err != nil {
+		t.Fatalf("open Cairnline mirror: %v", err)
+	}
+	if _, _, err := service.CreateRoot(t.Context(), created.Data.ID, cairnline.Root{
+		ID:     "root_mirror_only",
+		Path:   "/workspace/mirror-only",
+		Kind:   "local",
+		Active: true,
+	}); err != nil {
+		store.Close()
+		t.Fatalf("CreateRoot(root_mirror_only): %v", err)
+	}
+	store.Close()
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+created.Data.ID, nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("detail status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var detail ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil {
+		t.Fatalf("decode detail response: %v", err)
+	}
+	if detail.Data.ReadBackend != "cairnline" {
+		t.Fatalf("read backend = %q, want cairnline", detail.Data.ReadBackend)
+	}
+	if len(detail.Data.Roots) != 1 || detail.Data.Roots[0].ID != "root_mirror_only" || detail.Data.Roots[0].Path != "/workspace/mirror-only" {
+		t.Fatalf("detail roots = %+v, want mirror-only root from embedded Cairnline DB", detail.Data.Roots)
+	}
+}
+
 func TestProjectsAPI_MirrorsIdentityMutationsToCairnlineWhenConfigured(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectsCairnlineMirrorTestServer(t)

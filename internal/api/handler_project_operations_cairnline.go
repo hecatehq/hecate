@@ -20,11 +20,12 @@ func (h *Handler) projectReadRoutesUseCairnlineReadModel() bool {
 }
 
 func (h *Handler) renderCairnlineProjectOperationsBrief(ctx context.Context, project projects.Project) (ProjectOperationsBriefResponse, error) {
-	service, snapshot, err := h.cairnlineProjectWorkService(ctx, project.ID)
+	view, err := h.cairnlineProjectWorkView(ctx, project.ID)
 	if err != nil {
 		return ProjectOperationsBriefResponse{}, err
 	}
-	return h.renderCairnlineProjectOperationsBriefFromService(ctx, project, service, snapshot)
+	defer view.Close()
+	return h.renderCairnlineProjectOperationsBriefFromService(ctx, project, view.service, view.snapshot)
 }
 
 func (h *Handler) renderCairnlineProjectOperationsBriefFromService(ctx context.Context, project projects.Project, service *cairnline.Service, snapshot cairnlinebridge.Snapshot) (ProjectOperationsBriefResponse, error) {

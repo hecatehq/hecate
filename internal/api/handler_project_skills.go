@@ -134,15 +134,16 @@ func (h *Handler) renderProjectSkills(ctx context.Context, projectID string) ([]
 }
 
 func (h *Handler) renderCairnlineProjectSkills(ctx context.Context, projectID string) ([]ProjectSkillResponseItem, error) {
-	service, snapshot, err := h.cairnlineProjectWorkService(ctx, projectID)
+	view, err := h.cairnlineProjectWorkView(ctx, projectID)
 	if err != nil {
 		return nil, err
 	}
-	items, err := service.ListProjectSkills(ctx, snapshot.Project.ID)
+	defer view.Close()
+	items, err := view.service.ListProjectSkills(ctx, view.snapshot.Project.ID)
 	if err != nil {
 		return nil, err
 	}
-	nativeByID := projectSkillsByID(snapshot.Skills)
+	nativeByID := projectSkillsByID(view.snapshot.Skills)
 	out := make([]ProjectSkillResponseItem, 0, len(items))
 	for _, item := range items {
 		out = append(out, renderProjectSkill(projectSkillFromCairnline(item, nativeByID[item.ID]), "cairnline"))

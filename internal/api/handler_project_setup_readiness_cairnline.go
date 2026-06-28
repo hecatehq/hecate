@@ -11,35 +11,36 @@ import (
 )
 
 func (h *Handler) renderCairnlineProjectSetupReadiness(ctx context.Context, projectID string) (ProjectSetupReadinessResponse, error) {
-	service, snapshot, err := h.cairnlineProjectWorkService(ctx, projectID)
+	view, err := h.cairnlineProjectWorkView(ctx, projectID)
 	if err != nil {
 		return ProjectSetupReadinessResponse{}, err
 	}
-	roles, err := service.ListRoles(ctx, snapshot.Project.ID)
+	defer view.Close()
+	roles, err := view.service.ListRoles(ctx, view.snapshot.Project.ID)
 	if err != nil {
 		return ProjectSetupReadinessResponse{}, err
 	}
-	workItems, err := service.ListWorkItems(ctx, snapshot.Project.ID)
+	workItems, err := view.service.ListWorkItems(ctx, view.snapshot.Project.ID)
 	if err != nil {
 		return ProjectSetupReadinessResponse{}, err
 	}
-	entries, err := service.ListMemoryEntries(ctx, snapshot.Project.ID, true)
+	entries, err := view.service.ListMemoryEntries(ctx, view.snapshot.Project.ID, true)
 	if err != nil {
 		return ProjectSetupReadinessResponse{}, err
 	}
-	candidates, err := service.ListMemoryCandidates(ctx, cairnline.MemoryCandidateFilter{
-		ProjectID: snapshot.Project.ID,
+	candidates, err := view.service.ListMemoryCandidates(ctx, cairnline.MemoryCandidateFilter{
+		ProjectID: view.snapshot.Project.ID,
 		Status:    cairnline.MemoryCandidatePending,
 	})
 	if err != nil {
 		return ProjectSetupReadinessResponse{}, err
 	}
-	skills, err := service.ListProjectSkills(ctx, snapshot.Project.ID)
+	skills, err := view.service.ListProjectSkills(ctx, view.snapshot.Project.ID)
 	if err != nil {
 		return ProjectSetupReadinessResponse{}, err
 	}
 
-	project := snapshot.Project
+	project := view.snapshot.Project
 	summary := projectSetupReadinessSummary(
 		project,
 		projectWorkItemsFromCairnline(workItems),

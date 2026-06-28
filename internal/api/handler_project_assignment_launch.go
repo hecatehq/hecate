@@ -368,13 +368,15 @@ type projectAssignmentLaunchInputs struct {
 }
 
 func (h *Handler) cairnlineProjectAssignmentLaunchInputs(ctx context.Context, projectID, workItemID, assignmentID string) (projectAssignmentLaunchInputs, error) {
-	service, snapshot, err := h.cairnlineProjectWorkService(ctx, projectID)
+	view, err := h.cairnlineProjectWorkView(ctx, projectID)
 	if errors.Is(err, projects.ErrNotFound) {
 		return projectAssignmentLaunchInputs{}, newProjectAssignmentPreflightError(http.StatusNotFound, errCodeNotFound, "project not found")
 	}
 	if err != nil {
 		return projectAssignmentLaunchInputs{}, err
 	}
+	defer view.Close()
+	service, snapshot := view.service, view.snapshot
 	if ok, err := cairnlineProjectWorkItemExists(ctx, service, snapshot.Project.ID, workItemID); err != nil {
 		return projectAssignmentLaunchInputs{}, err
 	} else if !ok {

@@ -29,11 +29,12 @@ func (h *Handler) renderProjectWorkArtifacts(ctx context.Context, projectID, wor
 }
 
 func (h *Handler) renderCairnlineProjectWorkArtifacts(ctx context.Context, projectID, workItemID string) ([]ProjectWorkArtifactResponse, error) {
-	service, snapshot, err := h.cairnlineProjectWorkService(ctx, projectID)
+	view, err := h.cairnlineProjectWorkView(ctx, projectID)
 	if err != nil {
 		return nil, err
 	}
-	items, err := cairnlineProjectWorkArtifacts(ctx, service, snapshot.Project.ID, workItemID)
+	defer view.Close()
+	items, err := cairnlineProjectWorkArtifacts(ctx, view.service, view.snapshot.Project.ID, workItemID)
 	if errors.Is(err, cairnline.ErrNotFound) {
 		return nil, projectwork.ErrNotFound
 	}
@@ -67,11 +68,12 @@ func (h *Handler) renderProjectHandoffs(ctx context.Context, filter projectwork.
 }
 
 func (h *Handler) renderCairnlineProjectHandoffs(ctx context.Context, filter projectwork.HandoffFilter) ([]ProjectHandoffResponse, error) {
-	service, snapshot, err := h.cairnlineProjectWorkService(ctx, filter.ProjectID)
+	view, err := h.cairnlineProjectWorkView(ctx, filter.ProjectID)
 	if err != nil {
 		return nil, err
 	}
-	items, err := cairnlineProjectHandoffs(ctx, service, snapshot.Project.ID, strings.TrimSpace(filter.WorkItemID), strings.TrimSpace(filter.Status))
+	defer view.Close()
+	items, err := cairnlineProjectHandoffs(ctx, view.service, view.snapshot.Project.ID, strings.TrimSpace(filter.WorkItemID), strings.TrimSpace(filter.Status))
 	if errors.Is(err, cairnline.ErrNotFound) {
 		return nil, projectwork.ErrNotFound
 	}
@@ -105,19 +107,20 @@ func (h *Handler) renderProjectWorkRoles(ctx context.Context, projectID string) 
 }
 
 func (h *Handler) renderCairnlineProjectWorkRoles(ctx context.Context, projectID string) ([]ProjectWorkRoleResponse, error) {
-	service, snapshot, err := h.cairnlineProjectWorkService(ctx, projectID)
+	view, err := h.cairnlineProjectWorkView(ctx, projectID)
 	if err != nil {
 		return nil, err
 	}
-	roles, err := service.ListRoles(ctx, snapshot.Project.ID)
+	defer view.Close()
+	roles, err := view.service.ListRoles(ctx, view.snapshot.Project.ID)
 	if err != nil {
 		return nil, err
 	}
-	executionProfiles, err := service.ListExecutionProfiles(ctx)
+	executionProfiles, err := view.service.ListExecutionProfiles(ctx)
 	if err != nil {
 		return nil, err
 	}
-	nativeByID := projectWorkRolesByID(snapshot.Roles)
+	nativeByID := projectWorkRolesByID(view.snapshot.Roles)
 	executionProfilesByID := cairnlineExecutionProfilesByID(executionProfiles)
 	data := make([]ProjectWorkRoleResponse, 0, len(roles))
 	for _, role := range roles {
@@ -155,15 +158,16 @@ func (h *Handler) renderProjectWorkItems(ctx context.Context, projectID string) 
 }
 
 func (h *Handler) renderCairnlineProjectWorkItems(ctx context.Context, projectID string) ([]ProjectWorkItemResponse, error) {
-	service, snapshot, err := h.cairnlineProjectWorkService(ctx, projectID)
+	view, err := h.cairnlineProjectWorkView(ctx, projectID)
 	if err != nil {
 		return nil, err
 	}
-	items, err := service.ListWorkItems(ctx, snapshot.Project.ID)
+	defer view.Close()
+	items, err := view.service.ListWorkItems(ctx, view.snapshot.Project.ID)
 	if err != nil {
 		return nil, err
 	}
-	assignmentsByWorkItem := groupProjectWorkAssignmentsByWorkItem(snapshot.Assignments)
+	assignmentsByWorkItem := groupProjectWorkAssignmentsByWorkItem(view.snapshot.Assignments)
 	data := make([]ProjectWorkItemResponse, 0, len(items))
 	for _, item := range items {
 		projected, err := h.renderProjectedProjectWorkItemWithAssignments(ctx, projectWorkItemFromCairnline(item), assignmentsByWorkItem[item.ID])
@@ -178,15 +182,16 @@ func (h *Handler) renderCairnlineProjectWorkItems(ctx context.Context, projectID
 }
 
 func (h *Handler) renderCairnlineProjectWorkItem(ctx context.Context, projectID, workItemID string) (ProjectWorkItemResponse, error) {
-	service, snapshot, err := h.cairnlineProjectWorkService(ctx, projectID)
+	view, err := h.cairnlineProjectWorkView(ctx, projectID)
 	if err != nil {
 		return ProjectWorkItemResponse{}, err
 	}
-	items, err := service.ListWorkItems(ctx, snapshot.Project.ID)
+	defer view.Close()
+	items, err := view.service.ListWorkItems(ctx, view.snapshot.Project.ID)
 	if err != nil {
 		return ProjectWorkItemResponse{}, err
 	}
-	assignmentsByWorkItem := groupProjectWorkAssignmentsByWorkItem(snapshot.Assignments)
+	assignmentsByWorkItem := groupProjectWorkAssignmentsByWorkItem(view.snapshot.Assignments)
 	for _, item := range items {
 		if item.ID != workItemID {
 			continue
@@ -284,15 +289,16 @@ func cairnlineProjectHandoffs(ctx context.Context, service *cairnline.Service, p
 }
 
 func (h *Handler) renderCairnlineProjectWorkAssignments(ctx context.Context, projectID, workItemID string) ([]ProjectWorkAssignmentResponse, error) {
-	service, snapshot, err := h.cairnlineProjectWorkService(ctx, projectID)
+	view, err := h.cairnlineProjectWorkView(ctx, projectID)
 	if err != nil {
 		return nil, err
 	}
-	items, err := service.ListAssignments(ctx, snapshot.Project.ID)
+	defer view.Close()
+	items, err := view.service.ListAssignments(ctx, view.snapshot.Project.ID)
 	if err != nil {
 		return nil, err
 	}
-	nativeByID := projectWorkAssignmentsByID(snapshot.Assignments)
+	nativeByID := projectWorkAssignmentsByID(view.snapshot.Assignments)
 	data := make([]ProjectWorkAssignmentResponse, 0, len(items))
 	for _, item := range items {
 		if strings.TrimSpace(item.WorkItemID) != workItemID {
@@ -319,11 +325,12 @@ func markProjectWorkAssignmentReadBackend(items []ProjectWorkAssignmentResponse,
 }
 
 func (h *Handler) renderCairnlineProjectWorkItemReadiness(ctx context.Context, projectID, workItemID string) (ProjectWorkItemReadinessResponse, error) {
-	service, snapshot, err := h.cairnlineProjectWorkService(ctx, projectID)
+	view, err := h.cairnlineProjectWorkView(ctx, projectID)
 	if err != nil {
 		return ProjectWorkItemReadinessResponse{}, err
 	}
-	readiness, err := service.WorkItemCloseoutReadiness(ctx, snapshot.Project.ID, workItemID)
+	defer view.Close()
+	readiness, err := view.service.WorkItemCloseoutReadiness(ctx, view.snapshot.Project.ID, workItemID)
 	if errors.Is(err, cairnline.ErrNotFound) {
 		return ProjectWorkItemReadinessResponse{}, projectwork.ErrNotFound
 	}
@@ -333,13 +340,62 @@ func (h *Handler) renderCairnlineProjectWorkItemReadiness(ctx context.Context, p
 	return renderCairnlineProjectWorkItemReadiness(readiness), nil
 }
 
-func (h *Handler) cairnlineProjectWorkService(ctx context.Context, projectID string) (*cairnline.Service, cairnlinebridge.Snapshot, error) {
-	service := cairnline.NewMemoryService()
-	snapshot, err := cairnlinebridge.SeedProjectFromStores(ctx, service, h.cairnlineSnapshotSources(), projectID)
-	if err != nil {
-		return nil, cairnlinebridge.Snapshot{}, err
+type cairnlineProjectWorkView struct {
+	service  *cairnline.Service
+	snapshot cairnlinebridge.Snapshot
+	close    func() error
+}
+
+func (v *cairnlineProjectWorkView) Close() error {
+	if v == nil || v.close == nil {
+		return nil
 	}
-	return service, snapshot, nil
+	return v.close()
+}
+
+func (h *Handler) cairnlineProjectWorkView(ctx context.Context, projectID string) (*cairnlineProjectWorkView, error) {
+	snapshot, err := cairnlinebridge.LoadSnapshot(ctx, h.cairnlineSnapshotSources(), projectID)
+	if err != nil {
+		return nil, err
+	}
+	if h.prefersEmbeddedCairnlineProjectReads() {
+		_, service, store, err := h.openCairnlineEmbeddedService(ctx)
+		if err == nil {
+			if _, err := service.GetProject(ctx, snapshot.Project.ID); err != nil {
+				_ = store.Close()
+				if errors.Is(err, cairnline.ErrNotFound) {
+					return h.cairnlineProjectWorkSeededView(ctx, snapshot)
+				}
+				return nil, err
+			}
+			return &cairnlineProjectWorkView{
+				service:  service,
+				snapshot: snapshot,
+				close:    store.Close,
+			}, nil
+		}
+		if !errors.Is(err, cairnline.ErrNotFound) {
+			return nil, err
+		}
+	}
+	return h.cairnlineProjectWorkSeededView(ctx, snapshot)
+}
+
+func (h *Handler) prefersEmbeddedCairnlineProjectReads() bool {
+	return h != nil &&
+		h.config.ProjectsCoordinationBackend() == "cairnline" &&
+		strings.TrimSpace(h.config.Server.DataDir) != ""
+}
+
+func (h *Handler) cairnlineProjectWorkSeededView(ctx context.Context, snapshot cairnlinebridge.Snapshot) (*cairnlineProjectWorkView, error) {
+	service := cairnline.NewMemoryService()
+	if err := cairnlinebridge.Seed(ctx, service, snapshot); err != nil {
+		return nil, err
+	}
+	return &cairnlineProjectWorkView{
+		service:  service,
+		snapshot: snapshot,
+	}, nil
 }
 
 func projectWorkItemFromCairnline(item cairnline.WorkItem) projectwork.WorkItem {

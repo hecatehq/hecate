@@ -14,11 +14,12 @@ import (
 )
 
 func (h *Handler) cairnlineProjectAssistantContext(ctx context.Context, input projectassistant.ContextInput) (projectassistant.DraftContext, error) {
-	service, snapshot, err := h.cairnlineProjectWorkService(ctx, input.ProjectID)
+	view, err := h.cairnlineProjectWorkView(ctx, input.ProjectID)
 	if err != nil {
 		return projectassistant.DraftContext{}, err
 	}
-	seed, err := h.cairnlineProjectAssistantContextSeed(ctx, service, snapshot)
+	defer view.Close()
+	seed, err := h.cairnlineProjectAssistantContextSeed(ctx, view.service, view.snapshot)
 	if err != nil {
 		return projectassistant.DraftContext{}, err
 	}
@@ -37,11 +38,12 @@ func (h *Handler) cairnlineProjectAssistantContext(ctx context.Context, input pr
 }
 
 func (h *Handler) cairnlineProjectAssistantDraft(ctx context.Context, command projectassistantapp.DraftCommand) (projectassistant.Proposal, error) {
-	service, snapshot, err := h.cairnlineProjectWorkService(ctx, command.ProjectID)
+	view, err := h.cairnlineProjectWorkView(ctx, command.ProjectID)
 	if err != nil {
 		return projectassistant.Proposal{}, err
 	}
-	seed, err := h.cairnlineProjectAssistantContextSeed(ctx, service, snapshot)
+	defer view.Close()
+	seed, err := h.cairnlineProjectAssistantContextSeed(ctx, view.service, view.snapshot)
 	if err != nil {
 		return projectassistant.Proposal{}, err
 	}
