@@ -135,6 +135,10 @@ func (h *Handler) renderProjectWorkItems(ctx context.Context, projectID string) 
 	if h.projectReadRoutesUseCairnlineReadModel() {
 		return h.renderCairnlineProjectWorkItems(ctx, projectID)
 	}
+	return h.renderNativeProjectWorkItems(ctx, projectID)
+}
+
+func (h *Handler) renderNativeProjectWorkItems(ctx context.Context, projectID string) ([]ProjectWorkItemResponse, error) {
 	items, err := h.projectWork.ListWorkItems(ctx, projectID)
 	if err != nil {
 		return nil, err
@@ -163,16 +167,20 @@ func (h *Handler) renderCairnlineProjectWorkItems(ctx context.Context, projectID
 		return nil, err
 	}
 	defer view.Close()
-	items, err := view.service.ListWorkItems(ctx, view.snapshot.Project.ID)
+	return h.renderCairnlineProjectWorkItemsFromService(ctx, view.service, view.snapshot)
+}
+
+func (h *Handler) renderCairnlineProjectWorkItemsFromService(ctx context.Context, service *cairnline.Service, snapshot cairnlinebridge.Snapshot) ([]ProjectWorkItemResponse, error) {
+	items, err := service.ListWorkItems(ctx, snapshot.Project.ID)
 	if err != nil {
 		return nil, err
 	}
-	cairnlineAssignments, err := view.service.ListAssignments(ctx, view.snapshot.Project.ID)
+	cairnlineAssignments, err := service.ListAssignments(ctx, snapshot.Project.ID)
 	if err != nil {
 		return nil, err
 	}
-	workItems := projectWorkItemsFromCairnlineWithNativeTimestamps(items, view.snapshot.WorkItems)
-	assignments := projectWorkAssignmentsFromCairnline(cairnlineAssignments, view.snapshot.Assignments)
+	workItems := projectWorkItemsFromCairnlineWithNativeTimestamps(items, snapshot.WorkItems)
+	assignments := projectWorkAssignmentsFromCairnline(cairnlineAssignments, snapshot.Assignments)
 	assignmentsByWorkItem := groupProjectWorkAssignmentsByWorkItem(assignments)
 	data := make([]ProjectWorkItemResponse, 0, len(items))
 	for _, item := range workItems {

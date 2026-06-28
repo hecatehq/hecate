@@ -208,7 +208,22 @@ func (h *Handler) HandleProjectCairnlineParityReport(w http.ResponseWriter, r *h
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	readModel, err := projectCairnlineReadModelFromSnapshot(r.Context(), snapshot)
+	service, err := projectCairnlineServiceFromSnapshot(r.Context(), snapshot)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	readModel, err := projectCairnlineReadModelFromService(r.Context(), service, snapshot.Project.ID, "snapshot_seeded_memory", "")
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	nativeWorkItems, err := h.renderNativeProjectWorkItems(r.Context(), projectID)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	cairnlineWorkItems, err := h.renderCairnlineProjectWorkItemsFromService(r.Context(), service, snapshot)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
@@ -233,7 +248,7 @@ func (h *Handler) HandleProjectCairnlineParityReport(w http.ResponseWriter, r *h
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	report := projectCairnlineParityReport(projectID, projectCairnlineSnapshotGraphCounts(snapshot), nativeActivity, nativeOperations, cairnlineOperations, nativeAssistantProposals, readModel)
+	report := projectCairnlineParityReport(projectID, projectCairnlineSnapshotGraphCounts(snapshot), nativeWorkItems, nativeActivity, nativeOperations, cairnlineWorkItems, cairnlineOperations, nativeAssistantProposals, readModel)
 	WriteJSON(w, http.StatusOK, ProjectCairnlineParityReportResponse{
 		Object: "project_cairnline_parity_report",
 		Data:   report,
@@ -298,6 +313,14 @@ func (h *Handler) projectCairnlineEmbeddedParityReport(ctx context.Context, proj
 	if err != nil {
 		return ProjectCairnlineParityReportResponseItem{}, err
 	}
+	nativeWorkItems, err := h.renderNativeProjectWorkItems(ctx, projectID)
+	if err != nil {
+		return ProjectCairnlineParityReportResponseItem{}, err
+	}
+	cairnlineWorkItems, err := h.renderCairnlineProjectWorkItemsFromService(ctx, service, snapshot)
+	if err != nil {
+		return ProjectCairnlineParityReportResponseItem{}, err
+	}
 	nativeActivity, err := h.renderNativeProjectActivity(ctx, projectID)
 	if err != nil {
 		return ProjectCairnlineParityReportResponseItem{}, err
@@ -314,7 +337,7 @@ func (h *Handler) projectCairnlineEmbeddedParityReport(ctx context.Context, proj
 	if err != nil {
 		return ProjectCairnlineParityReportResponseItem{}, err
 	}
-	return projectCairnlineParityReport(projectID, projectCairnlineSnapshotGraphCounts(snapshot), nativeActivity, nativeOperations, cairnlineOperations, nativeAssistantProposals, readModel), nil
+	return projectCairnlineParityReport(projectID, projectCairnlineSnapshotGraphCounts(snapshot), nativeWorkItems, nativeActivity, nativeOperations, cairnlineWorkItems, cairnlineOperations, nativeAssistantProposals, readModel), nil
 }
 
 func (h *Handler) openCairnlineEmbeddedService(ctx context.Context) (string, *cairnline.Service, *cairnline.SQLiteStore, error) {
@@ -333,11 +356,19 @@ func (h *Handler) openCairnlineEmbeddedService(ctx context.Context) (string, *ca
 }
 
 func projectCairnlineReadModelFromSnapshot(ctx context.Context, snapshot cairnlinebridge.Snapshot) (ProjectCairnlineReadModelResponseItem, error) {
-	service := cairnline.NewMemoryService()
-	if err := cairnlinebridge.Seed(ctx, service, snapshot); err != nil {
+	service, err := projectCairnlineServiceFromSnapshot(ctx, snapshot)
+	if err != nil {
 		return ProjectCairnlineReadModelResponseItem{}, err
 	}
 	return projectCairnlineReadModelFromService(ctx, service, snapshot.Project.ID, "snapshot_seeded_memory", "")
+}
+
+func projectCairnlineServiceFromSnapshot(ctx context.Context, snapshot cairnlinebridge.Snapshot) (*cairnline.Service, error) {
+	service := cairnline.NewMemoryService()
+	if err := cairnlinebridge.Seed(ctx, service, snapshot); err != nil {
+		return nil, err
+	}
+	return service, nil
 }
 
 func projectCairnlineReadModelFromService(ctx context.Context, service *cairnline.Service, projectID, readSource, dbPath string) (ProjectCairnlineReadModelResponseItem, error) {
@@ -1346,9 +1377,10 @@ func (h *Handler) nativeProjectAssistantProposalCount(ctx context.Context, proje
 	return len(proposals), nil
 }
 
-func projectCairnlineParityReport(projectID string, nativeGraph ProjectCairnlineGraphParityCounts, nativeActivity ProjectActivityDataResponse, nativeOperations ProjectOperationsBriefResponse, cairnlineOperations ProjectOperationsBriefResponse, nativeAssistantProposals int, readModel ProjectCairnlineReadModelResponseItem) ProjectCairnlineParityReportResponseItem {
+func projectCairnlineParityReport(projectID string, nativeGraph ProjectCairnlineGraphParityCounts, nativeWorkItems []ProjectWorkItemResponse, nativeActivity ProjectActivityDataResponse, nativeOperations ProjectOperationsBriefResponse, cairnlineWorkItems []ProjectWorkItemResponse, cairnlineOperations ProjectOperationsBriefResponse, nativeAssistantProposals int, readModel ProjectCairnlineReadModelResponseItem) ProjectCairnlineParityReportResponseItem {
 	hecate := ProjectCairnlineParitySnapshot{
-		Graph: nativeGraph,
+		Graph:     nativeGraph,
+		WorkItems: projectCairnlineWorkItemParityCounts(nativeWorkItems),
 		Activity: ProjectCairnlineActivityParityCounts{
 			WorkItems:   nativeActivity.Summary.WorkItemCount,
 			Assignments: nativeActivity.Summary.AssignmentCount,
@@ -1382,6 +1414,7 @@ func projectCairnlineParityReport(projectID string, nativeGraph ProjectCairnline
 			MemoryEntries:     readModel.MemoryEntryCount,
 			MemoryCandidates:  readModel.MemoryCandidateCount,
 		},
+		WorkItems: projectCairnlineWorkItemParityCounts(cairnlineWorkItems),
 		Activity: ProjectCairnlineActivityParityCounts{
 			WorkItems:   readModel.WorkItemCount,
 			Assignments: readModel.Activity.Counts.Assignments,
@@ -1410,6 +1443,20 @@ func projectCairnlineParityReport(projectID string, nativeGraph ProjectCairnline
 		Hecate:       hecate,
 		Cairnline:    cairnline,
 	}
+}
+
+func projectCairnlineWorkItemParityCounts(items []ProjectWorkItemResponse) ProjectCairnlineWorkItemParityCounts {
+	counts := ProjectCairnlineWorkItemParityCounts{
+		Items: len(items),
+	}
+	for _, item := range items {
+		if len(item.Assignments) == 0 {
+			counts.UnassignedItems++
+			continue
+		}
+		counts.EmbeddedAssignments += len(item.Assignments)
+	}
+	return counts
 }
 
 func projectCairnlineOperationsParityCounts(operations ProjectOperationsBriefResponse) ProjectCairnlineOperationsParityCounts {
@@ -1449,6 +1496,9 @@ func projectCairnlineParityDifferences(hecate, cairnline ProjectCairnlineParityS
 	differences = appendProjectCairnlineParityDifference(differences, "graph.handoffs", hecate.Graph.Handoffs, cairnline.Graph.Handoffs)
 	differences = appendProjectCairnlineParityDifference(differences, "graph.memory_entries", hecate.Graph.MemoryEntries, cairnline.Graph.MemoryEntries)
 	differences = appendProjectCairnlineParityDifference(differences, "graph.memory_candidates", hecate.Graph.MemoryCandidates, cairnline.Graph.MemoryCandidates)
+	differences = appendProjectCairnlineParityDifference(differences, "work_items.items", hecate.WorkItems.Items, cairnline.WorkItems.Items)
+	differences = appendProjectCairnlineParityDifference(differences, "work_items.embedded_assignments", hecate.WorkItems.EmbeddedAssignments, cairnline.WorkItems.EmbeddedAssignments)
+	differences = appendProjectCairnlineParityDifference(differences, "work_items.unassigned_items", hecate.WorkItems.UnassignedItems, cairnline.WorkItems.UnassignedItems)
 	differences = appendProjectCairnlineParityDifference(differences, "activity.work_items", hecate.Activity.WorkItems, cairnline.Activity.WorkItems)
 	differences = appendProjectCairnlineParityDifference(differences, "activity.assignments", hecate.Activity.Assignments, cairnline.Activity.Assignments)
 	differences = appendProjectCairnlineParityDifference(differences, "activity.active", hecate.Activity.Active, cairnline.Activity.Active)

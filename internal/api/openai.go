@@ -433,6 +433,7 @@ type ProjectCairnlineParityReportResponseItem struct {
 
 type ProjectCairnlineParitySnapshot struct {
 	Graph         ProjectCairnlineGraphParityCounts        `json:"graph"`
+	WorkItems     ProjectCairnlineWorkItemParityCounts     `json:"work_items"`
 	Activity      ProjectCairnlineActivityParityCounts     `json:"activity"`
 	Operations    ProjectCairnlineOperationsParityCounts   `json:"operations"`
 	Assistant     ProjectCairnlineAssistantParityCounts    `json:"assistant"`
@@ -461,6 +462,12 @@ type ProjectCairnlineActivityParityCounts struct {
 	Blocked     int `json:"blocked"`
 	Completed   int `json:"completed"`
 	Recent      int `json:"recent"`
+}
+
+type ProjectCairnlineWorkItemParityCounts struct {
+	Items               int `json:"items"`
+	EmbeddedAssignments int `json:"embedded_assignments"`
+	UnassignedItems     int `json:"unassigned_items"`
 }
 
 type ProjectCairnlineOperationsParityCounts struct {
