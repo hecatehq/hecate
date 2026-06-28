@@ -157,6 +157,12 @@ assignment. Hecate stores remain authoritative, Hecate-specific runtime
 enrichment and setup/action wording remain in Hecate, and the Cairnline-backed
 operations brief uses Cairnline activity/service rows plus Hecate cockpit action
 helpers so operator-facing actions stay parity-checked with the native route.
+`HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-memory` is the first
+disabled-by-default Cairnline write-authority dogfood switch. When enabled,
+accepted project memory entry create/update/delete commits to embedded
+Cairnline first, then best-effort shadows the entry into Hecate-native memory
+stores for compatibility. Memory candidates and candidate promotion/rejection
+remain Hecate-owned.
 Assignment-start is still a Hecate-native dispatch mutation, committed
 assignment-start results are best-effort mirrored for replacement evidence, and
 other live Projects reads/writes still use the Hecate-native API.
@@ -216,11 +222,13 @@ Hecate commits them. Linked external-agent chat reconciliation also mirrors the
 committed assignment status/ref when Hecate updates the linked assignment from a
 chat session. Collaboration artifact creation, including generic artifacts,
 evidence links, and reviews, and handoff create/update/delete routes also mirror
-portable collaboration metadata after Hecate commits. Project memory entry and
-memory-candidate create/update/resolve
-routes mirror accepted memory and reviewable candidate state after Hecate
-commits, including disabled state, provenance, status reason, and promoted
-memory references. Global agent-profile create/update/delete routes also
+portable collaboration metadata after Hecate commits. Accepted project memory
+entries can be switched to Cairnline-first authority with
+`HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-memory`; otherwise they
+mirror after Hecate commits. Memory-candidate create/update/resolve routes still
+mirror reviewable candidate state after Hecate commits, including disabled
+state, provenance, status reason, and promoted memory references. Global
+agent-profile create/update/delete routes also
 mirror portable profile metadata and execution posture after Hecate commits;
 the delete mirror removes only the profile record because execution-profile
 posture can be shared. Project Assistant draft/propose/apply routes mirror the

@@ -1,6 +1,9 @@
 package api
 
-import "net/http"
+import (
+	"net/http"
+	"strings"
+)
 
 const projectCoordinationBackendReadinessURL = "/hecate/v1/projects/{id}/cairnline/read-model"
 const projectCoordinationBackendEmbeddedReadModelURL = "/hecate/v1/projects/{id}/cairnline/embedded-read-model"
@@ -282,9 +285,10 @@ func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendS
 	switch configured {
 	case "cairnline":
 		readReady, sourceWarnings := h.cairnlineReadModelReadiness()
+		writeAuthority := h.config.ProjectsCairnlineWriteAuthority()
 		response.WriteAdapterSeams = append([]string(nil), projectCairnlineWriteAdapterSeamNames...)
-		response.WriteAdapterGaps = append([]string(nil), projectCairnlineWriteAdapterGapNames...)
-		response.WriteSwitchpoints = projectCairnlineWriteSwitchpointsSnapshot()
+		response.WriteAdapterGaps = projectCairnlineWriteAdapterGapsSnapshot(writeAuthority)
+		response.WriteSwitchpoints = projectCairnlineWriteSwitchpointsSnapshot(writeAuthority)
 		response.ReplacementGates = projectCairnlineReplacementGates(readReady)
 		response.ReadModelSwitchReady = readReady
 		if readReady {
@@ -304,7 +308,7 @@ func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendS
 				"Project role and work-item mutations still write Hecate-native stores first, then best-effort mirror coordination metadata into Cairnline.",
 				"Project assignment create/update/delete mutations still write Hecate-native stores first, then best-effort mirror coordination metadata into Cairnline; assignment start remains Hecate-owned and best-effort mirrors committed start and linked-chat reconciliation results.",
 				"Project collaboration artifact creation and handoff mutations still write Hecate-native stores first, then best-effort mirror portable collaboration metadata into Cairnline.",
-				"Project memory entry and memory-candidate mutations still write Hecate-native stores first, then best-effort mirror accepted memory and reviewable candidate state into Cairnline.",
+				projectCairnlineProjectMemoryWriteWarning(writeAuthority),
 				"Project Assistant proposal draft/propose/apply ledger mutations still write Hecate-native stores first, then best-effort mirror proposal records plus committed apply side effects into Cairnline.",
 				"Other project mutation routes still write only Hecate-native stores.",
 				"Cairnline write-adapter seams are non-authoritative proofs; live write authority and migration path are not ready.",
@@ -360,13 +364,51 @@ func projectReplacementGateStatus(ready bool) string {
 	return "blocked"
 }
 
-func projectCairnlineWriteSwitchpointsSnapshot() []ProjectCoordinationBackendWriteSwitchpoint {
+func projectCairnlineWriteAdapterGapsSnapshot(writeAuthority []string) []string {
+	out := make([]string, 0, len(projectCairnlineWriteAdapterGapNames))
+	projectMemoryAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, "project-memory")
+	for _, item := range projectCairnlineWriteAdapterGapNames {
+		if projectMemoryAuthoritative && item == "memory" {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string) []ProjectCoordinationBackendWriteSwitchpoint {
 	out := make([]ProjectCoordinationBackendWriteSwitchpoint, 0, len(projectCairnlineWriteSwitchpoints))
+	projectMemoryAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, "project-memory")
 	for _, item := range projectCairnlineWriteSwitchpoints {
+		if projectMemoryAuthoritative && item.Name == "project-memory" {
+			item.CurrentAuthority = "cairnline"
+			item.CairnlineState = "authoritative_opt_in"
+			item.LiveMirror = true
+			item.BlocksAuthority = false
+			item.Gap = ""
+			item.Detail = "Accepted project memory entry mutations commit to the embedded Cairnline database first, then best-effort shadow durable memory state back into Hecate-native stores for compatibility."
+		}
 		item.Seams = append([]string(nil), item.Seams...)
 		out = append(out, item)
 	}
 	return out
+}
+
+func projectCairnlineWriteAuthorityEnabled(items []string, name string) bool {
+	name = strings.TrimSpace(name)
+	for _, item := range items {
+		if item == name {
+			return true
+		}
+	}
+	return false
+}
+
+func projectCairnlineProjectMemoryWriteWarning(writeAuthority []string) string {
+	if projectCairnlineWriteAuthorityEnabled(writeAuthority, "project-memory") {
+		return "Accepted project memory entry mutations are opt-in Cairnline-authoritative and then best-effort shadowed into Hecate-native stores; memory-candidate mutations still write Hecate-native stores first, then mirror reviewable candidate state into Cairnline."
+	}
+	return "Project memory entry and memory-candidate mutations still write Hecate-native stores first, then best-effort mirror accepted memory and reviewable candidate state into Cairnline."
 }
 
 func projectCairnlineReadSourceDetail(source string) string {

@@ -130,6 +130,38 @@ func TestProjectCoordinationBackendStatus_CairnlineConfiguredReadRoutesReady(t *
 	}
 }
 
+func TestProjectCoordinationBackendStatus_CairnlineProjectMemoryAuthorityConfigured(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			Backend:                 "sqlite",
+			CoordinationBackend:     "cairnline",
+			CairnlineReadSource:     "embedded",
+			CairnlineWriteAuthority: "project-memory",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+
+	status := handler.projectCoordinationBackendStatus()
+	if status.ConfiguredBackend != "cairnline" || status.AuthoritativeBackend != "hecate" || !status.ReadModelSwitchReady || status.ReplacementReady {
+		t.Fatalf("status = %+v, want Cairnline read routes ready, partial write authority, and no full replacement readiness", status)
+	}
+	if containsString(status.WriteAdapterGaps, "memory") {
+		t.Fatalf("write gaps = %+v, want accepted project memory removed while memory-candidates still block", status.WriteAdapterGaps)
+	}
+	if !containsString(status.WriteAdapterGaps, "memory-candidates") {
+		t.Fatalf("write gaps = %+v, want memory-candidates to remain blocking", status.WriteAdapterGaps)
+	}
+	point := findWriteSwitchpoint(status.WriteSwitchpoints, "project-memory")
+	if point == nil || point.CurrentAuthority != "cairnline" || point.CairnlineState != "authoritative_opt_in" || !point.LiveMirror || point.BlocksAuthority || point.Gap != "" {
+		t.Fatalf("project-memory switchpoint = %+v, want opt-in Cairnline authority", point)
+	}
+	if gate := findReplacementGate(status.ReplacementGates, "write-authority-switchpoints"); gate == nil || gate.Ready || gate.Status != "blocked" {
+		t.Fatalf("write-authority gate = %+v, want full replacement still blocked", gate)
+	}
+	if !strings.Contains(strings.Join(status.Warnings, "\n"), "Accepted project memory entry mutations are opt-in Cairnline-authoritative") {
+		t.Fatalf("warnings = %+v, want project-memory authority warning", status.Warnings)
+	}
+}
+
 func TestProjectCoordinationBackendStatusRoute(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	cfg := config.Config{

@@ -391,6 +391,12 @@ context-source create/update/delete/discovery, and default mutations still write
 Hecate stores first and then best-effort mirror into the embedded Cairnline
 database through their identity/metadata/root/source/default seams; this is
 replacement-readiness evidence, not write authority.
+`HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-memory` is an alpha
+write-authority dogfood switch for accepted project memory entries only:
+create/update/delete commits to the embedded Cairnline database first and then
+best-effort shadows the row into Hecate-native memory stores. The default is
+`none`; memory candidates, candidate promotion/rejection, and all other Projects
+mutations remain Hecate-owned.
 Project skill discovery and
 metadata updates also best-effort mirror metadata-only skill records after the
 Hecate store commit; the mirror does not load or execute skill bodies. Project
@@ -402,8 +408,9 @@ create/update/delete, committed assignment-start results, linked-chat
 reconciliation, collaboration artifact creation, and handoff
 create/update/delete mutations also best-effort mirror portable metadata after
 Hecate commits, but assignment start/dispatch remains Hecate-owned. Project
-memory entry and memory-candidate mutations also
-best-effort mirror accepted memory and reviewable candidate state after Hecate
+memory entries mirror after Hecate commits unless the
+`project-memory` Cairnline write-authority switchpoint is enabled; memory
+candidates still best-effort mirror reviewable candidate state after Hecate
 commits. Project Assistant draft/propose/apply ledger mutations likewise
 best-effort mirror proposal records, apply attempts, and committed apply side
 effects after Hecate commits.

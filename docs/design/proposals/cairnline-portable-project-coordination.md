@@ -381,6 +381,11 @@ launch agents. Those remain explicit operator or orchestrator actions.
   tracked without parsing warning prose. These fields are diagnostic only:
   `replacement_ready=false` until read parity, strict embedded mirror probes,
   authoritative write switchpoints, and migration/rollback gates are ready.
+- `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-memory` enables Hecate's
+  first disabled-by-default Cairnline write-authority switchpoint: accepted
+  project memory entry create/update/delete commits to embedded Cairnline first
+  and then shadows back into Hecate-native memory stores. Memory candidates and
+  candidate promotion/rejection remain Hecate-owned.
 - Hecate has a non-authoritative bridge write seam for project identity,
   embedded roots, root discovery/worktree creation, direct root
   create/update/delete, context-source discovery, direct context-source
@@ -393,16 +398,18 @@ launch agents. Those remain explicit operator or orchestrator actions.
   create-if-missing generic artifact/evidence/review seams, handoff
   upsert/delete seams, plus accepted-memory and memory-candidate seams that
   preserve metadata, disabled state, provenance, resolved candidate state, and
-  Hecate-owned promoted memory IDs. The project identity/root
+  Hecate-owned promoted memory IDs. Accepted memory can additionally run as the
+  opt-in Cairnline-first switchpoint above. The project identity/root
   discovery/worktree-creation/context-source discovery seam, the root-level
   direct root mutation seam, the source-level direct context-source mutation
   seam, the global agent-profile seam, the
   metadata-only project-skill discovery/update seam, the
   role/work-item/assignment coordination seams, the assignment start/reconcile
   result seams, the collaboration artifact create seam, the handoff mutation
-  seam, and the accepted-memory and memory-candidate seams, plus the Project
-  Assistant proposal-ledger seam, are now wired as best-effort live mirrors into
-  the embedded Cairnline DB when the Cairnline backend is configured, but
+  seam, the memory-candidate seam, and accepted memory when its write-authority
+  switchpoint is disabled, plus the Project Assistant proposal-ledger seam, are
+  now wired as best-effort live mirrors into the embedded Cairnline DB when the
+  Cairnline backend is configured, but
   Hecate still commits first and remains authoritative. Role mirrors also seed
   referenced agent-profile metadata/execution posture when the profile store is
   available.

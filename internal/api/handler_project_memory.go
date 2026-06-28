@@ -102,6 +102,16 @@ func (h *Handler) HandleCreateProjectMemoryEntry(w http.ResponseWriter, r *http.
 		SourceID:   req.SourceID,
 		Enabled:    enabled,
 	}
+	entry = normalizeProjectMemoryEntryForCairnlineAuthority(entry)
+	if h.projectMemoryWritesUseCairnlineAuthority() {
+		created, err := h.createProjectMemoryEntryWithCairnlineAuthority(r.Context(), projectID, entry)
+		if writeProjectMemoryMutationError(w, err, "project memory entry not found") {
+			return
+		}
+		h.shadowProjectMemoryEntryToHecate(r.Context(), "project_memory_authority_create_shadow", created)
+		WriteJSON(w, http.StatusCreated, ProjectMemoryResponse{Object: "project_memory_entry", Data: renderProjectMemory(created, "cairnline")})
+		return
+	}
 	created, err := h.memory.Create(r.Context(), entry)
 	if errors.Is(err, memory.ErrInvalid) {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
@@ -316,25 +326,19 @@ func (h *Handler) HandleUpdateProjectMemoryEntry(w http.ResponseWriter, r *http.
 	if !decodeJSON(w, r, &req) {
 		return
 	}
+	if h.projectMemoryWritesUseCairnlineAuthority() {
+		entry, err := h.updateProjectMemoryEntryWithCairnlineAuthority(r.Context(), projectID, r.PathValue("memory_id"), func(item *memory.Entry) {
+			applyProjectMemoryUpdate(item, req)
+		})
+		if writeProjectMemoryMutationError(w, err, "project memory entry not found") {
+			return
+		}
+		h.shadowProjectMemoryEntryToHecate(r.Context(), "project_memory_authority_update_shadow", entry)
+		WriteJSON(w, http.StatusOK, ProjectMemoryResponse{Object: "project_memory_entry", Data: renderProjectMemory(entry, "cairnline")})
+		return
+	}
 	entry, err := h.memory.Update(r.Context(), projectID, r.PathValue("memory_id"), func(item *memory.Entry) {
-		if req.Title != nil {
-			item.Title = *req.Title
-		}
-		if req.Body != nil {
-			item.Body = *req.Body
-		}
-		if req.TrustLabel != nil {
-			item.TrustLabel = *req.TrustLabel
-		}
-		if req.SourceKind != nil {
-			item.SourceKind = *req.SourceKind
-		}
-		if req.SourceID != nil {
-			item.SourceID = *req.SourceID
-		}
-		if req.Enabled != nil {
-			item.Enabled = *req.Enabled
-		}
+		applyProjectMemoryUpdate(item, req)
 	})
 	if errors.Is(err, memory.ErrNotFound) {
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "project memory entry not found")
@@ -358,6 +362,15 @@ func (h *Handler) HandleDeleteProjectMemoryEntry(w http.ResponseWriter, r *http.
 		return
 	}
 	if !h.requireProjectMemoryStore(w) {
+		return
+	}
+	if h.projectMemoryWritesUseCairnlineAuthority() {
+		err := h.deleteProjectMemoryEntryWithCairnlineAuthority(r.Context(), projectID, r.PathValue("memory_id"))
+		if writeProjectMemoryMutationError(w, err, "project memory entry not found") {
+			return
+		}
+		h.shadowProjectMemoryEntryDeleteToHecate(r.Context(), "project_memory_authority_delete_shadow", projectID, r.PathValue("memory_id"))
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	err := h.memory.Delete(r.Context(), projectID, r.PathValue("memory_id"))
