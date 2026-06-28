@@ -41,7 +41,7 @@ func (h *Handler) HandleDiscoverProjectContextSources(w http.ResponseWriter, r *
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	h.mirrorProjectIdentityToCairnline(r.Context(), "project_context_sources_discover", project)
+	h.mirrorProjectContextSourcesToCairnline(r.Context(), "project_context_sources_discover", project, project.ContextSources)
 	WriteJSON(w, http.StatusOK, ProjectResponse{Object: "project", Data: renderProject(project)})
 }
 

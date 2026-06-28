@@ -54,6 +54,12 @@ func (h *Handler) mirrorProjectContextSourceToCairnline(ctx context.Context, ope
 	}
 }
 
+func (h *Handler) mirrorProjectContextSourcesToCairnline(ctx context.Context, operation string, project projects.Project, sources []projects.ContextSource) {
+	for _, source := range sources {
+		h.mirrorProjectContextSourceToCairnline(ctx, operation, project, source)
+	}
+}
+
 func (h *Handler) mirrorProjectContextSourceDeleteToCairnline(ctx context.Context, operation, projectID, sourceID string) {
 	if err := h.deleteProjectContextSourceFromCairnline(ctx, projectID, sourceID); err != nil {
 		h.logCairnlineMirrorError(ctx, operation, projectID, err)
