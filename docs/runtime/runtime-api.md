@@ -2233,16 +2233,17 @@ lifecycle-status sync, create-if-missing generic artifacts/evidence/reviews,
 handoffs, memory entries, memory candidates, Project Assistant proposal-ledger
 import, and all-project sync rehearsal. The
 `project-identity-live-mirror` seam means project create/update/delete plus root
-discovery/worktree-creation and context-source discovery still commit to Hecate
-stores first, then best-effort mirror the portable project identity shape into
-the embedded Cairnline database when Cairnline is configured.
+discovery/worktree-creation still commit to Hecate stores first, then
+best-effort mirror the portable project identity shape into the embedded
+Cairnline database when Cairnline is configured.
 `project-roots-live-mirror` uses Cairnline's root-level create/update/delete API
 for direct root mutations after Hecate commits.
 `project-context-sources-live-mirror` uses Cairnline's source-level
-create/update/delete API for direct context-source mutations after Hecate
-commits. `project-defaults-live-mirror` uses Cairnline's project-defaults seam
-for default-only project updates after Hecate commits, preserving existing
-mirrored roots and context sources. None of these mirrors is write authority.
+create/update/delete API for direct context-source mutations and context-source
+discovery after Hecate commits. `project-defaults-live-mirror` uses Cairnline's
+project-defaults seam for default-only project updates after Hecate commits,
+preserving existing mirrored roots and context sources. None of these mirrors is
+write authority.
 `project-skills-live-mirror` similarly mirrors metadata-only
 project skill discovery/update records after Hecate commits; it does not load,
 inject, or execute `SKILL.md` bodies. `agent-profiles-live-mirror` mirrors
@@ -2368,8 +2369,9 @@ Example response:
     "detail": "Cairnline is configured as the future Projects coordination backend, and the project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, project-assistant-context, project-assistant-proposal, activity, closeout-readiness, and operations brief read routes are served from the Cairnline read model. Hecate stores remain authoritative until the remaining live read routes, writes, and migration are ready.",
     "warnings": [
       "Only the project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, project-assistant-context, project-assistant-proposal, activity, closeout-readiness, and operations brief live read routes use Cairnline.",
-      "Project identity, root discovery/worktree-creation, and context-source discovery still write Hecate-native stores first, then best-effort mirror portable project identity into the embedded Cairnline database.",
-      "Direct root and context-source create/update/delete mutations still write Hecate-native stores first, then best-effort mirror through Cairnline's root/source-level APIs.",
+      "Project identity and root discovery/worktree-creation still write Hecate-native stores first, then best-effort mirror portable project identity into the embedded Cairnline database.",
+      "Direct root create/update/delete mutations still write Hecate-native stores first, then best-effort mirror through Cairnline's root-level API.",
+      "Direct context-source create/update/delete and discovery mutations still write Hecate-native stores first, then best-effort mirror through Cairnline's source-level API.",
       "Default-only project updates still write Hecate-native stores first, then best-effort mirror portable launch defaults through Cairnline's project-defaults seam.",
       "Agent profile create/update/delete mutations still write Hecate-native stores first, then best-effort mirror portable profile metadata and execution posture into Cairnline.",
       "Project skill discovery and metadata updates still write Hecate-native stores first, then best-effort mirror metadata-only skill records into Cairnline.",

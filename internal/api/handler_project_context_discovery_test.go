@@ -170,6 +170,30 @@ func TestProjectContextDiscovery_MirrorsDiscoveredSourcesToCairnlineWhenConfigur
 	}); err != nil {
 		t.Fatalf("Create project: %v", err)
 	}
+	dbPath := handler.cairnlineEmbeddedDatabasePath()
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+		t.Fatalf("create Cairnline mirror directory: %v", err)
+	}
+	service, store, err := cairnline.NewSQLiteService(t.Context(), dbPath)
+	if err != nil {
+		t.Fatalf("open Cairnline mirror: %v", err)
+	}
+	if _, err := service.CreateProject(t.Context(), cairnline.Project{
+		ID:   "proj_guidance_mirror",
+		Name: "Guidance mirror",
+	}); err != nil {
+		t.Fatalf("CreateProject(cairnline seed): %v", err)
+	}
+	if _, _, err := service.CreateContextSource(t.Context(), "proj_guidance_mirror", cairnline.Source{
+		ID:      "ctx_cairnline_only",
+		Kind:    "operator_note",
+		Title:   "Cairnline-only source",
+		Locator: "cairnline://source",
+		Enabled: true,
+	}); err != nil {
+		t.Fatalf("CreateContextSource(cairnline-only): %v", err)
+	}
+	store.Close()
 
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_guidance_mirror/context-sources/discover", bytes.NewReader([]byte(`{}`))))
@@ -177,7 +201,7 @@ func TestProjectContextDiscovery_MirrorsDiscoveredSourcesToCairnlineWhenConfigur
 		t.Fatalf("discover status = %d body=%s, want 200", rec.Code, rec.Body.String())
 	}
 
-	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+	service, store, err = cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
 	if err != nil {
 		t.Fatalf("open Cairnline mirror: %v", err)
 	}
@@ -186,15 +210,27 @@ func TestProjectContextDiscovery_MirrorsDiscoveredSourcesToCairnlineWhenConfigur
 	if err != nil {
 		t.Fatalf("GetProject(proj_guidance_mirror): %v", err)
 	}
-	var found bool
+	var foundDiscovered bool
 	for _, source := range project.ContextSources {
 		if source.Locator == "AGENTS.md" && source.Kind == "workspace_instruction" && source.Format == "agents_md" {
-			found = true
+			foundDiscovered = true
 		}
 	}
-	if !found {
+	if !foundDiscovered {
 		t.Fatalf("mirrored context sources = %+v, want discovered AGENTS.md source", project.ContextSources)
 	}
+	if findCairnlineSourceForAPITest(project.ContextSources, "ctx_cairnline_only") == nil {
+		t.Fatalf("mirrored context sources = %+v, want Cairnline-only source preserved", project.ContextSources)
+	}
+}
+
+func findCairnlineSourceForAPITest(sources []cairnline.Source, id string) *cairnline.Source {
+	for idx := range sources {
+		if sources[idx].ID == id {
+			return &sources[idx]
+		}
+	}
+	return nil
 }
 
 func TestProjectContextDiscovery_RejectsRelativeRoot(t *testing.T) {
