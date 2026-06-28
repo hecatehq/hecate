@@ -346,16 +346,45 @@ func (h *Handler) loadProjectAssistantProposalForCairnlineMirror(ctx context.Con
 func (h *Handler) writeProjectAssistantActionResultToCairnline(ctx context.Context, result projectassistant.ActionResult) error {
 	projectID := projectAssistantActionResultProjectID(result)
 	switch strings.TrimSpace(result.Kind) {
-	case projectassistant.ActionCreateProject,
-		projectassistant.ActionUpdateProject,
-		projectassistant.ActionAttachProjectRoot,
-		projectassistant.ActionRemoveProjectRoot,
-		projectassistant.ActionSetProjectDefaults:
+	case projectassistant.ActionCreateProject:
 		project, ok := h.projectForCairnlineMirror(ctx, "project_assistant_apply_result", projectID)
 		if !ok {
 			return nil
 		}
 		return h.writeProjectIdentityToCairnline(ctx, project)
+	case projectassistant.ActionUpdateProject:
+		project, ok := h.projectForCairnlineMirror(ctx, "project_assistant_apply_result", projectID)
+		if !ok {
+			return nil
+		}
+		return h.writeProjectMetadataToCairnline(ctx, project)
+	case projectassistant.ActionAttachProjectRoot:
+		project, ok := h.projectForCairnlineMirror(ctx, "project_assistant_apply_result", projectID)
+		if !ok {
+			return nil
+		}
+		rootID := projectAssistantActionResultValue(result, "root_id")
+		root, ok := projectRootForCairnlineMirror(project, rootID)
+		if !ok {
+			return errors.Join(cairnline.ErrNotFound, errors.New("project assistant root not found for Cairnline mirror"))
+		}
+		return h.writeProjectRootToCairnline(ctx, project, root)
+	case projectassistant.ActionRemoveProjectRoot:
+		project, ok := h.projectForCairnlineMirror(ctx, "project_assistant_apply_result", projectID)
+		if !ok {
+			return nil
+		}
+		rootID := projectAssistantActionResultValue(result, "root_id")
+		if err := h.deleteProjectRootFromCairnline(ctx, project.ID, rootID); err != nil {
+			return err
+		}
+		return h.writeProjectDefaultsToCairnline(ctx, project)
+	case projectassistant.ActionSetProjectDefaults:
+		project, ok := h.projectForCairnlineMirror(ctx, "project_assistant_apply_result", projectID)
+		if !ok {
+			return nil
+		}
+		return h.writeProjectDefaultsToCairnline(ctx, project)
 	case projectassistant.ActionCreateRole:
 		project, ok := h.projectForCairnlineMirror(ctx, "project_assistant_apply_result", projectID)
 		if !ok {
@@ -401,6 +430,19 @@ func (h *Handler) writeProjectAssistantActionResultToCairnline(ctx context.Conte
 
 func projectAssistantActionResultProjectID(result projectassistant.ActionResult) string {
 	return projectAssistantActionResultValue(result, "project_id")
+}
+
+func projectRootForCairnlineMirror(project projects.Project, rootID string) (projects.Root, bool) {
+	rootID = strings.TrimSpace(rootID)
+	if rootID == "" {
+		return projects.Root{}, false
+	}
+	for _, root := range project.Roots {
+		if root.ID == rootID {
+			return root, true
+		}
+	}
+	return projects.Root{}, false
 }
 
 func projectAssistantActionResultValue(result projectassistant.ActionResult, key string) string {
@@ -764,7 +806,9 @@ func (h *Handler) writeProjectAssistantProposalRecordToCairnline(ctx context.Con
 				return err
 			}
 			if ok {
-				if _, err := cairnlinebridge.UpsertProject(ctx, service, project); err != nil {
+				// Proposal records only need the project row to exist; avoid
+				// replacing Cairnline-owned roots or sources while writing the ledger.
+				if _, err := cairnlinebridge.UpsertProjectMetadata(ctx, service, project); err != nil {
 					return err
 				}
 			}
