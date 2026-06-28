@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -27,7 +28,7 @@ func TestFakeACPAgentProcess(t *testing.T) {
 	}
 	agent := newFakeACPAgent()
 	conn := acp.NewAgentSideConnection(agent, os.Stdout, os.Stdin)
-	agent.conn = conn
+	agent.setConn(conn)
 	<-conn.Done()
 	os.Exit(0)
 }
@@ -2985,7 +2986,9 @@ func installFakeACPExecutable(t *testing.T, name string) {
 }
 
 type fakeACPAgent struct {
-	conn *acp.AgentSideConnection
+	conn          atomic.Pointer[acp.AgentSideConnection]
+	connReady     chan struct{}
+	connReadyOnce sync.Once
 
 	mu            sync.Mutex
 	nextSessionID int
@@ -3001,7 +3004,25 @@ type fakeACPSession struct {
 }
 
 func newFakeACPAgent() *fakeACPAgent {
-	return &fakeACPAgent{sessions: make(map[string]*fakeACPSession)}
+	return &fakeACPAgent{connReady: make(chan struct{}), sessions: make(map[string]*fakeACPSession)}
+}
+
+func (a *fakeACPAgent) setConn(conn *acp.AgentSideConnection) {
+	a.conn.Store(conn)
+	a.connReadyOnce.Do(func() { close(a.connReady) })
+}
+
+func (a *fakeACPAgent) connection(ctx context.Context) (*acp.AgentSideConnection, error) {
+	select {
+	case <-a.connReady:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	conn := a.conn.Load()
+	if conn == nil {
+		return nil, errors.New("fake ACP connection is not initialized")
+	}
+	return conn, nil
 }
 
 func (a *fakeACPAgent) Authenticate(ctx context.Context, params acp.AuthenticateRequest) (acp.AuthenticateResponse, error) {
@@ -3049,13 +3070,17 @@ func (a *fakeACPAgent) checkAuthFilesystemCallbacks(ctx context.Context, operati
 	}
 	content := operation + " ok"
 	path := "auth/" + operation + ".txt"
-	if _, err := a.conn.WriteTextFile(ctx, acp.WriteTextFileRequest{
+	conn, err := a.connection(ctx)
+	if err != nil {
+		return err
+	}
+	if _, err := conn.WriteTextFile(ctx, acp.WriteTextFileRequest{
 		Path:    path,
 		Content: content,
 	}); err != nil {
 		return fmt.Errorf("fake %s write_text_file: %w", operation, err)
 	}
-	read, err := a.conn.ReadTextFile(ctx, acp.ReadTextFileRequest{Path: path})
+	read, err := conn.ReadTextFile(ctx, acp.ReadTextFileRequest{Path: path})
 	if err != nil {
 		return fmt.Errorf("fake %s read_text_file: %w", operation, err)
 	}
@@ -3141,7 +3166,7 @@ func fakeACPAuthMethods() []acp.AuthMethod {
 	return methods
 }
 
-func (a *fakeACPAgent) NewSession(_ context.Context, params acp.NewSessionRequest) (acp.NewSessionResponse, error) {
+func (a *fakeACPAgent) NewSession(ctx context.Context, params acp.NewSessionRequest) (acp.NewSessionResponse, error) {
 	if err := a.checkMCPServers("new", params.McpServers); err != nil {
 		return acp.NewSessionResponse{}, err
 	}
@@ -3149,13 +3174,17 @@ func (a *fakeACPAgent) NewSession(_ context.Context, params acp.NewSessionReques
 		time.Sleep(delay)
 	}
 	if os.Getenv("HECATE_FAKE_ACP_NEW_SESSION_FS") == "1" {
-		if _, err := a.conn.WriteTextFile(context.Background(), acp.WriteTextFileRequest{
+		conn, err := a.connection(ctx)
+		if err != nil {
+			return acp.NewSessionResponse{}, err
+		}
+		if _, err := conn.WriteTextFile(ctx, acp.WriteTextFileRequest{
 			Path:    "probe/fs.txt",
 			Content: "probe ok",
 		}); err != nil {
 			return acp.NewSessionResponse{}, fmt.Errorf("fake new_session write_text_file: %w", err)
 		}
-		read, err := a.conn.ReadTextFile(context.Background(), acp.ReadTextFileRequest{Path: "probe/fs.txt"})
+		read, err := conn.ReadTextFile(ctx, acp.ReadTextFileRequest{Path: "probe/fs.txt"})
 		if err != nil {
 			return acp.NewSessionResponse{}, fmt.Errorf("fake new_session read_text_file: %w", err)
 		}
@@ -3217,7 +3246,12 @@ func (a *fakeACPAgent) publishAvailableCommandsAfterDelay(sessionID acp.SessionI
 	}
 	go func() {
 		time.Sleep(delay)
-		_ = a.conn.SessionUpdate(context.Background(), acp.SessionNotification{
+		ctx := context.Background()
+		conn, err := a.connection(ctx)
+		if err != nil {
+			return
+		}
+		_ = conn.SessionUpdate(ctx, acp.SessionNotification{
 			SessionId: sessionID,
 			Update: acp.SessionUpdate{
 				AvailableCommandsUpdate: &acp.SessionAvailableCommandsUpdate{
@@ -3245,9 +3279,13 @@ func (a *fakeACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (ac
 	session.cancel = cancel
 	a.mu.Unlock()
 	defer cancel()
+	conn, err := a.connection(turnCtx)
+	if err != nil {
+		return acp.PromptResponse{}, err
+	}
 
 	if prompt == "wait" {
-		if err := a.conn.SessionUpdate(turnCtx, acp.SessionNotification{
+		if err := conn.SessionUpdate(turnCtx, acp.SessionNotification{
 			SessionId: params.SessionId,
 			Update:    acp.UpdateAgentMessageText("waiting"),
 		}); err != nil {
@@ -3257,7 +3295,7 @@ func (a *fakeACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (ac
 		return acp.PromptResponse{StopReason: acp.StopReasonCancelled}, nil
 	}
 	if prompt == "ignore_cancel" {
-		if err := a.conn.SessionUpdate(turnCtx, acp.SessionNotification{
+		if err := conn.SessionUpdate(turnCtx, acp.SessionNotification{
 			SessionId: params.SessionId,
 			Update:    acp.UpdateAgentMessageText("waiting"),
 		}); err != nil {
@@ -3266,7 +3304,7 @@ func (a *fakeACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (ac
 		select {}
 	}
 	if prompt == "max_tokens" {
-		if err := a.conn.SessionUpdate(turnCtx, acp.SessionNotification{
+		if err := conn.SessionUpdate(turnCtx, acp.SessionNotification{
 			SessionId: params.SessionId,
 			Update:    acp.UpdateAgentMessageText("partial due to token limit"),
 		}); err != nil {
@@ -3275,7 +3313,7 @@ func (a *fakeACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (ac
 		return acp.PromptResponse{StopReason: acp.StopReasonMaxTokens}, nil
 	}
 	if strings.HasPrefix(prompt, "permission prompt") || strings.HasPrefix(prompt, "mcp permission prompt") {
-		if err := a.conn.SessionUpdate(turnCtx, acp.SessionNotification{
+		if err := conn.SessionUpdate(turnCtx, acp.SessionNotification{
 			SessionId: params.SessionId,
 			Update:    acp.UpdateAgentMessageText("waiting for permission"),
 		}); err != nil {
@@ -3285,7 +3323,7 @@ func (a *fakeACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (ac
 		if strings.HasPrefix(prompt, "mcp permission prompt") {
 			req = fakeACPMCPRequestPermission()
 		}
-		resp, err := a.conn.RequestPermission(turnCtx, req)
+		resp, err := conn.RequestPermission(turnCtx, req)
 		if err != nil {
 			return acp.PromptResponse{}, err
 		}
@@ -3293,7 +3331,7 @@ func (a *fakeACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (ac
 		case resp.Outcome.Selected != nil:
 			switch string(resp.Outcome.Selected.OptionId) {
 			case "allow_once_id", "allow_always_id":
-				if err := a.conn.SessionUpdate(turnCtx, acp.SessionNotification{
+				if err := conn.SessionUpdate(turnCtx, acp.SessionNotification{
 					SessionId: params.SessionId,
 					Update:    acp.UpdateAgentMessageText("permission approved"),
 				}); err != nil {
@@ -3301,7 +3339,7 @@ func (a *fakeACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (ac
 				}
 				return acp.PromptResponse{StopReason: acp.StopReasonEndTurn}, nil
 			case "reject_once_id", "reject_always_id":
-				if err := a.conn.SessionUpdate(turnCtx, acp.SessionNotification{
+				if err := conn.SessionUpdate(turnCtx, acp.SessionNotification{
 					SessionId: params.SessionId,
 					Update:    acp.UpdateAgentMessageText("permission rejected"),
 				}); err != nil {
@@ -3312,7 +3350,7 @@ func (a *fakeACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (ac
 				return acp.PromptResponse{StopReason: acp.StopReasonCancelled}, fmt.Errorf("unexpected permission option %q", resp.Outcome.Selected.OptionId)
 			}
 		case resp.Outcome.Cancelled != nil:
-			if err := a.conn.SessionUpdate(turnCtx, acp.SessionNotification{
+			if err := conn.SessionUpdate(turnCtx, acp.SessionNotification{
 				SessionId: params.SessionId,
 				Update:    acp.UpdateAgentMessageText("permission cancelled"),
 			}); err != nil {
@@ -3325,7 +3363,7 @@ func (a *fakeACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (ac
 	}
 	if prompt == "terminal command" {
 		cwd := session.cwd
-		terminal, err := a.conn.CreateTerminal(turnCtx, acp.CreateTerminalRequest{
+		terminal, err := conn.CreateTerminal(turnCtx, acp.CreateTerminalRequest{
 			SessionId: params.SessionId,
 			Command:   "sh",
 			Args:      []string{"-c", "printf 'terminal ok'; pwd > terminal-cwd.txt"},
@@ -3336,13 +3374,13 @@ func (a *fakeACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (ac
 		}
 		if terminal.TerminalId != "" {
 			defer func() {
-				_, _ = a.conn.ReleaseTerminal(context.Background(), acp.ReleaseTerminalRequest{
+				_, _ = conn.ReleaseTerminal(context.Background(), acp.ReleaseTerminalRequest{
 					SessionId:  params.SessionId,
 					TerminalId: terminal.TerminalId,
 				})
 			}()
 		}
-		wait, err := a.conn.WaitForTerminalExit(turnCtx, acp.WaitForTerminalExitRequest{
+		wait, err := conn.WaitForTerminalExit(turnCtx, acp.WaitForTerminalExitRequest{
 			SessionId:  params.SessionId,
 			TerminalId: terminal.TerminalId,
 		})
@@ -3352,7 +3390,7 @@ func (a *fakeACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (ac
 		if wait.ExitCode == nil || *wait.ExitCode != 0 {
 			return acp.PromptResponse{}, fmt.Errorf("terminal exit code = %v, want 0", wait.ExitCode)
 		}
-		output, err := a.conn.TerminalOutput(turnCtx, acp.TerminalOutputRequest{
+		output, err := conn.TerminalOutput(turnCtx, acp.TerminalOutputRequest{
 			SessionId:  params.SessionId,
 			TerminalId: terminal.TerminalId,
 		})
@@ -3361,7 +3399,7 @@ func (a *fakeACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (ac
 		}
 		status := acp.ToolCallStatusCompleted
 		kind := acp.ToolKindExecute
-		if err := a.conn.SessionUpdate(turnCtx, acp.SessionNotification{
+		if err := conn.SessionUpdate(turnCtx, acp.SessionNotification{
 			SessionId: params.SessionId,
 			Update: acp.SessionUpdate{
 				ToolCallUpdate: &acp.SessionToolCallUpdate{
@@ -3377,7 +3415,7 @@ func (a *fakeACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (ac
 		}); err != nil {
 			return acp.PromptResponse{}, err
 		}
-		if err := a.conn.SessionUpdate(turnCtx, acp.SessionNotification{
+		if err := conn.SessionUpdate(turnCtx, acp.SessionNotification{
 			SessionId: params.SessionId,
 			Update:    acp.UpdateAgentMessageText("terminal output: " + strings.TrimSpace(output.Output)),
 		}); err != nil {
@@ -3387,7 +3425,7 @@ func (a *fakeACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (ac
 	}
 	if prompt == "terminal command no release" {
 		cwd := session.cwd
-		terminal, err := a.conn.CreateTerminal(turnCtx, acp.CreateTerminalRequest{
+		terminal, err := conn.CreateTerminal(turnCtx, acp.CreateTerminalRequest{
 			SessionId: params.SessionId,
 			Command:   "sh",
 			Args:      []string{"-c", "trap 'printf closed > terminal-closed.txt; exit 0' TERM; printf 'terminal retained\n'; while :; do sleep 1; done"},
@@ -3402,7 +3440,7 @@ func (a *fakeACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (ac
 		}
 		status := acp.ToolCallStatusCompleted
 		kind := acp.ToolKindExecute
-		if err := a.conn.SessionUpdate(turnCtx, acp.SessionNotification{
+		if err := conn.SessionUpdate(turnCtx, acp.SessionNotification{
 			SessionId: params.SessionId,
 			Update: acp.SessionUpdate{
 				ToolCallUpdate: &acp.SessionToolCallUpdate{
@@ -3418,7 +3456,7 @@ func (a *fakeACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (ac
 		}); err != nil {
 			return acp.PromptResponse{}, err
 		}
-		if err := a.conn.SessionUpdate(turnCtx, acp.SessionNotification{
+		if err := conn.SessionUpdate(turnCtx, acp.SessionNotification{
 			SessionId: params.SessionId,
 			Update:    acp.UpdateAgentMessageText("terminal output: " + strings.TrimSpace(output.Output)),
 		}); err != nil {
@@ -3427,13 +3465,13 @@ func (a *fakeACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (ac
 		return acp.PromptResponse{StopReason: acp.StopReasonEndTurn}, nil
 	}
 
-	if err := a.conn.SessionUpdate(turnCtx, acp.SessionNotification{
+	if err := conn.SessionUpdate(turnCtx, acp.SessionNotification{
 		SessionId: params.SessionId,
 		Update:    acp.UpdateAgentMessageText(fmt.Sprintf("turn %d: %s", turn, prompt)),
 	}); err != nil {
 		return acp.PromptResponse{}, err
 	}
-	if err := a.conn.SessionUpdate(turnCtx, acp.SessionNotification{
+	if err := conn.SessionUpdate(turnCtx, acp.SessionNotification{
 		SessionId: params.SessionId,
 		Update: acp.SessionUpdate{
 			UsageUpdate: &acp.SessionUsageUpdate{
@@ -3451,8 +3489,12 @@ func (a *fakeACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (ac
 func (a *fakeACPAgent) waitForTerminalOutput(ctx context.Context, sessionID acp.SessionId, terminalID string, want string) (acp.TerminalOutputResponse, error) {
 	deadline := time.Now().Add(3 * time.Second)
 	var last acp.TerminalOutputResponse
+	conn, err := a.connection(ctx)
+	if err != nil {
+		return acp.TerminalOutputResponse{}, err
+	}
 	for time.Now().Before(deadline) {
-		output, err := a.conn.TerminalOutput(ctx, acp.TerminalOutputRequest{
+		output, err := conn.TerminalOutput(ctx, acp.TerminalOutputRequest{
 			SessionId:  sessionID,
 			TerminalId: terminalID,
 		})
