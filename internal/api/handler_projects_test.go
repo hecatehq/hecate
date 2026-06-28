@@ -406,28 +406,7 @@ func TestProjectsAPI_DefaultOnlyPatchMirrorsDefaultsWithoutReplacingCairnlineSta
 		t.Fatalf("decode create response: %v", err)
 	}
 
-	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
-	if err != nil {
-		t.Fatalf("open Cairnline mirror: %v", err)
-	}
-	if _, _, err := service.CreateRoot(t.Context(), created.Data.ID, cairnline.Root{
-		ID:     "root_cairnline_only",
-		Path:   "/workspace/cairnline-only",
-		Kind:   "folder",
-		Active: true,
-	}); err != nil {
-		t.Fatalf("CreateRoot(cairnline-only): %v", err)
-	}
-	if _, _, err := service.CreateContextSource(t.Context(), created.Data.ID, cairnline.Source{
-		ID:      "ctx_cairnline_only",
-		Kind:    "operator_note",
-		Title:   "Cairnline-only source",
-		Locator: "cairnline://source",
-		Enabled: true,
-	}); err != nil {
-		t.Fatalf("CreateContextSource(cairnline-only): %v", err)
-	}
-	store.Close()
+	seedCairnlineOnlyProjectGraphForTest(t, handler, created.Data.ID)
 
 	rec = httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+created.Data.ID, bytes.NewReader([]byte(`{
@@ -441,6 +420,55 @@ func TestProjectsAPI_DefaultOnlyPatchMirrorsDefaultsWithoutReplacingCairnlineSta
 		t.Fatalf("defaults update status = %d body=%s, want 200", rec.Code, rec.Body.String())
 	}
 	mirrored := getMirroredCairnlineProjectForTest(t, handler, created.Data.ID)
+	if mirrored.DefaultProfileID != "architecture" {
+		t.Fatalf("mirrored default profile = %q, want architecture", mirrored.DefaultProfileID)
+	}
+	if findMirroredCairnlineRootForTest(mirrored.Roots, "root_cairnline_only") == nil {
+		t.Fatalf("mirrored roots = %+v, want Cairnline-only root preserved", mirrored.Roots)
+	}
+	if findMirroredCairnlineSourceForTest(mirrored.ContextSources, "ctx_cairnline_only") == nil {
+		t.Fatalf("mirrored context sources = %+v, want Cairnline-only source preserved", mirrored.ContextSources)
+	}
+	assertMirroredExecutionProfileForTest(t, handler, mirrored.DefaultExecutionProfileID, "anthropic", "claude-sonnet-4-5")
+}
+
+func TestProjectsAPI_MetadataPatchMirrorsMetadataWithoutReplacingCairnlineState(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineMirrorTestServer(t)
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects", bytes.NewReader([]byte(`{
+		"name":"Metadata Mirror",
+		"description":"Before",
+		"roots":[{"id":"root_main","path":"/workspace/main","kind":"git"}],
+		"context_sources":[{"id":"ctx_agents","path":"AGENTS.md","kind":"workspace_instruction","title":"AGENTS.md"}],
+		"default_provider":"openai",
+		"default_model":"gpt-5"
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	var created ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	seedCairnlineOnlyProjectGraphForTest(t, handler, created.Data.ID)
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+created.Data.ID, bytes.NewReader([]byte(`{
+		"name":"Metadata Mirror Renamed",
+		"description":"After",
+		"default_provider":"anthropic",
+		"default_model":"claude-sonnet-4-5",
+		"default_agent_profile":"architecture"
+	}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("metadata update status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	mirrored := getMirroredCairnlineProjectForTest(t, handler, created.Data.ID)
+	if mirrored.Name != "Metadata Mirror Renamed" || mirrored.Description != "After" {
+		t.Fatalf("mirrored metadata = %+v, want renamed project with updated description", mirrored)
+	}
 	if mirrored.DefaultProfileID != "architecture" {
 		t.Fatalf("mirrored default profile = %q, want architecture", mirrored.DefaultProfileID)
 	}
@@ -668,6 +696,32 @@ func assertMirroredExecutionProfileForTest(t *testing.T, handler *Handler, profi
 		return
 	}
 	t.Fatalf("execution profile %q not found in %+v", profileID, profiles)
+}
+
+func seedCairnlineOnlyProjectGraphForTest(t *testing.T, handler *Handler, projectID string) {
+	t.Helper()
+	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+	if err != nil {
+		t.Fatalf("open Cairnline mirror: %v", err)
+	}
+	defer store.Close()
+	if _, _, err := service.CreateRoot(t.Context(), projectID, cairnline.Root{
+		ID:     "root_cairnline_only",
+		Path:   "/workspace/cairnline-only",
+		Kind:   "folder",
+		Active: true,
+	}); err != nil {
+		t.Fatalf("CreateRoot(cairnline-only): %v", err)
+	}
+	if _, _, err := service.CreateContextSource(t.Context(), projectID, cairnline.Source{
+		ID:      "ctx_cairnline_only",
+		Kind:    "operator_note",
+		Title:   "Cairnline-only source",
+		Locator: "cairnline://source",
+		Enabled: true,
+	}); err != nil {
+		t.Fatalf("CreateContextSource(cairnline-only): %v", err)
+	}
 }
 
 func TestProjectsAPI_Validation(t *testing.T) {

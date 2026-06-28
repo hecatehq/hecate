@@ -543,6 +543,71 @@ func TestUpsertProjectDefaultsPreservesRootAndSourceState(t *testing.T) {
 	}
 }
 
+func TestUpsertProjectMetadataPreservesRootAndSourceState(t *testing.T) {
+	ctx := context.Background()
+	service := cairnline.NewMemoryService()
+	now := time.Date(2026, 6, 27, 11, 30, 0, 0, time.UTC)
+
+	project := projects.Project{
+		ID:          "proj_metadata",
+		Name:        "Metadata Adapter",
+		Description: "Before",
+		Roots: []projects.Root{{
+			ID:     "root_main",
+			Path:   "/tmp/hecate-metadata",
+			Kind:   "git",
+			Active: true,
+		}},
+		DefaultRootID: "root_main",
+		ContextSources: []projects.ContextSource{{
+			ID:      "ctx_agents",
+			Kind:    "workspace_instruction",
+			Title:   "AGENTS.md",
+			Path:    "AGENTS.md",
+			Enabled: true,
+		}},
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if _, err := UpsertProject(ctx, service, project); err != nil {
+		t.Fatalf("UpsertProject(create) error = %v", err)
+	}
+	if _, _, err := service.CreateRoot(ctx, project.ID, cairnline.Root{
+		ID:     "root_cairnline_only",
+		Path:   "/tmp/hecate-metadata-cairnline-only",
+		Kind:   "folder",
+		Active: true,
+	}); err != nil {
+		t.Fatalf("CreateRoot(cairnline-only) error = %v", err)
+	}
+	if _, _, err := service.CreateContextSource(ctx, project.ID, cairnline.Source{
+		ID:      "ctx_cairnline_only",
+		Kind:    "operator_note",
+		Title:   "Cairnline-only source",
+		Locator: "cairnline://source",
+		Enabled: true,
+	}); err != nil {
+		t.Fatalf("CreateContextSource(cairnline-only) error = %v", err)
+	}
+
+	project.Name = "Metadata Adapter Updated"
+	project.Description = "After"
+	project.UpdatedAt = now.Add(time.Minute)
+	updated, err := UpsertProjectMetadata(ctx, service, project)
+	if err != nil {
+		t.Fatalf("UpsertProjectMetadata(update) error = %v", err)
+	}
+	if updated.Name != "Metadata Adapter Updated" || updated.Description != "After" {
+		t.Fatalf("updated project = %+v, want updated metadata", updated)
+	}
+	if findCairnlineRoot(updated.Roots, "root_cairnline_only") == nil {
+		t.Fatalf("updated roots = %+v, want Cairnline-only root preserved", updated.Roots)
+	}
+	if findCairnlineSource(updated.ContextSources, "ctx_cairnline_only") == nil {
+		t.Fatalf("updated sources = %+v, want Cairnline-only source preserved", updated.ContextSources)
+	}
+}
+
 func TestUpsertContextSourceMirrorsSingleSourceMutations(t *testing.T) {
 	ctx := context.Background()
 	service := cairnline.NewMemoryService()
