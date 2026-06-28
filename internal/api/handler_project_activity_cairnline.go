@@ -23,10 +23,37 @@ func (h *Handler) renderCairnlineProjectActivityFromService(ctx context.Context,
 	if err != nil {
 		return ProjectActivityDataResponse{}, err
 	}
-	assignmentsByWorkItem := groupProjectWorkAssignmentsByWorkItem(snapshot.Assignments)
-	projectedWorkItems := make(map[string]ProjectWorkItemResponse, len(snapshot.WorkItems))
-	projectedAssignments := make(map[string]ProjectWorkAssignmentResponse, len(snapshot.Assignments))
-	for _, item := range snapshot.WorkItems {
+	cairnlineWorkItems, err := service.ListWorkItems(ctx, projectID)
+	if err != nil {
+		return ProjectActivityDataResponse{}, err
+	}
+	cairnlineAssignments, err := service.ListAssignments(ctx, projectID)
+	if err != nil {
+		return ProjectActivityDataResponse{}, err
+	}
+	cairnlineRoles, err := service.ListRoles(ctx, projectID)
+	if err != nil {
+		return ProjectActivityDataResponse{}, err
+	}
+	executionProfiles, err := service.ListExecutionProfiles(ctx)
+	if err != nil {
+		return ProjectActivityDataResponse{}, err
+	}
+	artifacts, err := projectHealthCairnlineArtifacts(ctx, service, projectID, cairnlineWorkItems)
+	if err != nil {
+		return ProjectActivityDataResponse{}, err
+	}
+	handoffs, err := projectHealthCairnlineHandoffs(ctx, service, projectID, cairnlineWorkItems)
+	if err != nil {
+		return ProjectActivityDataResponse{}, err
+	}
+
+	workItems := projectActivityWorkItemsFromCairnline(cairnlineWorkItems, snapshot.WorkItems)
+	assignments := projectWorkAssignmentsFromCairnline(cairnlineAssignments, snapshot.Assignments)
+	assignmentsByWorkItem := groupProjectWorkAssignmentsByWorkItem(assignments)
+	projectedWorkItems := make(map[string]ProjectWorkItemResponse, len(workItems))
+	projectedAssignments := make(map[string]ProjectWorkAssignmentResponse, len(assignments))
+	for _, item := range workItems {
 		projected, err := h.renderProjectedProjectWorkItemWithAssignments(ctx, item, assignmentsByWorkItem[item.ID])
 		if err != nil {
 			return ProjectActivityDataResponse{}, err
@@ -36,10 +63,10 @@ func (h *Handler) renderCairnlineProjectActivityFromService(ctx context.Context,
 			projectedAssignments[assignment.ID] = assignment
 		}
 	}
-	rolesByID := projectActivitySnapshotRolesByID(snapshot.Roles)
-	linkedChats := h.projectActivityLinkedChats(ctx, projectID, snapshot.Assignments)
-	artifactsByAssignment, artifactsByWorkItem := groupProjectActivityArtifacts(snapshot.Artifacts)
-	handoffsByAssignment, handoffsByWorkItem := groupProjectActivityHandoffs(snapshot.Handoffs)
+	rolesByID := projectActivityCairnlineRolesByID(cairnlineRoles, executionProfiles, snapshot.Roles)
+	linkedChats := h.projectActivityLinkedChats(ctx, projectID, assignments)
+	artifactsByAssignment, artifactsByWorkItem := groupProjectActivityArtifacts(artifacts)
+	handoffsByAssignment, handoffsByWorkItem := groupProjectActivityHandoffs(handoffs)
 
 	items := make([]ProjectActivityItemResponse, 0, len(activity.Items))
 	for _, item := range activity.Items {
@@ -69,7 +96,7 @@ func (h *Handler) renderCairnlineProjectActivityFromService(ctx context.Context,
 		ReadBackend: "cairnline",
 		Recent:      boundedProjectActivityItems(items, 20),
 	}
-	response.Summary.WorkItemCount = len(snapshot.WorkItems)
+	response.Summary.WorkItemCount = len(workItems)
 	response.Summary.AssignmentCount = activity.Counts.Assignments
 	for _, item := range items {
 		switch projectActivityBucket(item) {
@@ -92,10 +119,30 @@ func (h *Handler) renderCairnlineProjectActivityFromService(ctx context.Context,
 	return response, nil
 }
 
-func projectActivitySnapshotRolesByID(items []projectwork.AgentRoleProfile) map[string]projectwork.AgentRoleProfile {
+func projectActivityCairnlineRolesByID(items []cairnline.Role, executionProfiles []cairnline.ExecutionProfile, native []projectwork.AgentRoleProfile) map[string]projectwork.AgentRoleProfile {
 	out := make(map[string]projectwork.AgentRoleProfile, len(items))
+	executionProfilesByID := cairnlineExecutionProfilesByID(executionProfiles)
+	nativeByID := projectWorkRolesByID(native)
 	for _, item := range items {
-		out[item.ID] = item
+		out[item.ID] = projectWorkRoleFromCairnline(item, executionProfilesByID, nativeByID[item.ID])
+	}
+	return out
+}
+
+func projectActivityWorkItemsFromCairnline(items []cairnline.WorkItem, native []projectwork.WorkItem) []projectwork.WorkItem {
+	nativeByID := projectWorkItemsByID(native)
+	out := make([]projectwork.WorkItem, 0, len(items))
+	for _, item := range items {
+		projected := projectWorkItemFromCairnline(item)
+		if nativeItem, ok := nativeByID[item.ID]; ok {
+			if !nativeItem.CreatedAt.IsZero() {
+				projected.CreatedAt = nativeItem.CreatedAt
+			}
+			if !nativeItem.UpdatedAt.IsZero() {
+				projected.UpdatedAt = nativeItem.UpdatedAt
+			}
+		}
+		out = append(out, projected)
 	}
 	return out
 }

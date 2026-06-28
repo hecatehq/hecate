@@ -126,11 +126,15 @@ memory candidates, roles, work-item list/detail, assignment-list,
 assignment-context, launch-readiness, assignment-preflight, artifact-list,
 handoff-list, Project Assistant context and proposal reads, closeout readiness,
 and operations brief can use the Cairnline read model for portable setup/work
-state. Those configured read routes still use Hecate snapshots as bridge
-scaffolding, but their Cairnline service reads prefer the embedded Cairnline
-mirror database when it already contains the requested project; if the mirror
-database or project row is missing, they fall back to the snapshot-seeded
-in-memory bridge projection. Project Assistant draft generation also uses the Cairnline-projected
+state. Configured read routes prefer the embedded Cairnline mirror database
+when it already contains the requested project; if the mirror database or
+project row is missing, they fall back to the snapshot-seeded in-memory bridge
+projection. Activity and operations render work items, assignments, roles,
+artifacts, and handoffs from the Cairnline service records, then overlay
+Hecate-only runtime refs/timestamps where Hecate still owns execution.
+Project identity and some compatibility scaffolding still come from Hecate
+until Cairnline becomes authoritative. Project Assistant draft generation also
+uses the Cairnline-projected
 context so preview and proposal assembly stay aligned, while the proposal
 ledger and apply remain Hecate-owned. Project list/detail reconstruct default
 profile and execution posture from Cairnline project/execution-profile records
@@ -142,9 +146,9 @@ evidence so replacement reviews can compare Hecate's authoritative launch
 context with the portable launch packet Cairnline can build for the same
 assignment. Hecate stores remain authoritative, Hecate-specific runtime
 enrichment and setup/action wording remain in Hecate, and the Cairnline-backed
-operations brief assembles through Hecate's activity projection and cockpit
-action helpers so operator-facing actions stay parity-checked with the native
-route. Assignment-start is still a Hecate-native dispatch mutation, committed
+operations brief uses Cairnline activity/service rows plus Hecate cockpit action
+helpers so operator-facing actions stay parity-checked with the native route.
+Assignment-start is still a Hecate-native dispatch mutation, committed
 assignment-start results are best-effort mirrored for replacement evidence, and
 other live Projects reads/writes still use the Hecate-native API.
 `GET /hecate/v1/projects/{id}/cairnline/read-model` seeds an in-memory
