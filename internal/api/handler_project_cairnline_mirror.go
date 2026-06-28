@@ -532,7 +532,7 @@ func (h *Handler) deleteProjectContextSourceFromCairnline(ctx context.Context, p
 
 func (h *Handler) writeProjectRoleToCairnline(ctx context.Context, project projects.Project, role projectwork.AgentRoleProfile) error {
 	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
-		if _, err := cairnlinebridge.UpsertProject(ctx, service, project); err != nil {
+		if _, err := cairnlinebridge.UpsertProjectMetadata(ctx, service, project); err != nil {
 			return err
 		}
 		return h.writeProjectRoleRecordToCairnline(ctx, service, role)
@@ -574,7 +574,7 @@ func (h *Handler) deleteProjectRoleFromCairnline(ctx context.Context, role proje
 
 func (h *Handler) writeProjectWorkItemToCairnline(ctx context.Context, project projects.Project, item projectwork.WorkItem) error {
 	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
-		if _, err := cairnlinebridge.UpsertProject(ctx, service, project); err != nil {
+		if _, err := cairnlinebridge.UpsertProjectMetadata(ctx, service, project); err != nil {
 			return err
 		}
 		_, err := cairnlinebridge.UpsertWorkItem(ctx, service, item)
@@ -627,7 +627,7 @@ func (h *Handler) writeProjectWorkItemDependencyToCairnline(ctx context.Context,
 	if !ok {
 		return nil
 	}
-	if _, err := cairnlinebridge.UpsertProject(ctx, service, project); err != nil {
+	if _, err := cairnlinebridge.UpsertProjectMetadata(ctx, service, project); err != nil {
 		return err
 	}
 	if h == nil || h.projectWork == nil {
@@ -750,7 +750,7 @@ func (h *Handler) writeProjectMemoryEntryToCairnline(ctx context.Context, entry 
 		if !ok {
 			return nil
 		}
-		if _, err := cairnlinebridge.UpsertProject(ctx, service, project); err != nil {
+		if _, err := cairnlinebridge.UpsertProjectMetadata(ctx, service, project); err != nil {
 			return err
 		}
 		_, err := cairnlinebridge.UpsertMemoryEntry(ctx, service, entry)
@@ -773,7 +773,7 @@ func (h *Handler) writeProjectMemoryCandidateToCairnline(ctx context.Context, ca
 		if !ok {
 			return nil
 		}
-		if _, err := cairnlinebridge.UpsertProject(ctx, service, project); err != nil {
+		if _, err := cairnlinebridge.UpsertProjectMetadata(ctx, service, project); err != nil {
 			return err
 		}
 		_, err := cairnlinebridge.UpsertMemoryCandidate(ctx, service, candidate)
@@ -820,7 +820,7 @@ func (h *Handler) writeProjectAssistantProposalRecordToCairnline(ctx context.Con
 
 func (h *Handler) writeProjectSkillsToCairnline(ctx context.Context, project projects.Project, skills []projectskills.Skill) error {
 	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
-		if _, err := cairnlinebridge.UpsertProject(ctx, service, project); err != nil {
+		if _, err := cairnlinebridge.UpsertProjectMetadata(ctx, service, project); err != nil {
 			return err
 		}
 		_, err := cairnlinebridge.UpsertProjectSkills(ctx, service, skills)

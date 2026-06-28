@@ -14,7 +14,10 @@ import (
 	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/config"
+	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projects"
+	"github.com/hecatehq/hecate/internal/projectskills"
+	"github.com/hecatehq/hecate/internal/projectwork"
 )
 
 func newProjectsTestServer() http.Handler {
@@ -548,6 +551,140 @@ func TestProjectsAPI_ContextSourceListPatchMirrorsSourceReplacementWithoutReplac
 	}
 	if findMirroredCairnlineRootForTest(mirrored.Roots, "root_cairnline_only") == nil {
 		t.Fatalf("mirrored roots = %+v, want Cairnline-only root preserved", mirrored.Roots)
+	}
+}
+
+func TestProjectChildMirrorsPreserveCairnlineProjectGraph(t *testing.T) {
+	t.Parallel()
+	handler, _ := newProjectsCairnlineMirrorTestServer(t)
+	now := time.Date(2026, 6, 28, 10, 30, 0, 0, time.UTC)
+	project, err := handler.projects.Create(t.Context(), projects.Project{
+		ID:   "proj_child_mirror",
+		Name: "Child Mirror",
+		Roots: []projects.Root{{
+			ID:     "root_main",
+			Path:   "/workspace/main",
+			Kind:   "git",
+			Active: true,
+		}},
+		ContextSources: []projects.ContextSource{{
+			ID:      "ctx_agents",
+			Kind:    "workspace_instruction",
+			Title:   "AGENTS.md",
+			Path:    "AGENTS.md",
+			Enabled: true,
+		}},
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	if err := handler.writeProjectIdentityToCairnline(t.Context(), project); err != nil {
+		t.Fatalf("write initial Cairnline project: %v", err)
+	}
+	seedCairnlineOnlyProjectGraphForTest(t, handler, project.ID)
+
+	role := projectwork.AgentRoleProfile{
+		ID:                "architect",
+		ProjectID:         project.ID,
+		Name:              "Architect",
+		DefaultDriverKind: projectwork.AssignmentDriverHecateTask,
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	}
+	if err := handler.writeProjectRoleToCairnline(t.Context(), project, role); err != nil {
+		t.Fatalf("write role mirror: %v", err)
+	}
+	workItem := projectwork.WorkItem{
+		ID:          "work_design",
+		ProjectID:   project.ID,
+		Title:       "Design child mirrors",
+		Status:      projectwork.WorkItemStatusReady,
+		Priority:    "normal",
+		OwnerRoleID: role.ID,
+		RootID:      "root_main",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	if err := handler.writeProjectWorkItemToCairnline(t.Context(), project, workItem); err != nil {
+		t.Fatalf("write work item mirror: %v", err)
+	}
+	if err := handler.writeProjectMemoryEntryToCairnline(t.Context(), memory.Entry{
+		ID:         "mem_child",
+		Scope:      memory.ScopeProject,
+		ProjectID:  project.ID,
+		Title:      "Child mirror note",
+		Body:       "Preserve graph state when child rows change.",
+		TrustLabel: memory.TrustLabelOperatorMemory,
+		SourceKind: memory.SourceKindOperator,
+		Enabled:    true,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}); err != nil {
+		t.Fatalf("write memory mirror: %v", err)
+	}
+	if err := handler.writeProjectMemoryCandidateToCairnline(t.Context(), memory.Candidate{
+		ID:                  "cand_child",
+		ProjectID:           project.ID,
+		Title:               "Candidate child mirror note",
+		Body:                "Reviewable child mirror candidate.",
+		SuggestedKind:       "project_note",
+		SuggestedTrustLabel: memory.TrustLabelGenerated,
+		SuggestedSourceKind: memory.SourceKindGenerated,
+		Status:              memory.CandidateStatusPending,
+		CreatedAt:           now,
+		UpdatedAt:           now,
+	}); err != nil {
+		t.Fatalf("write memory candidate mirror: %v", err)
+	}
+	if err := handler.writeProjectSkillsToCairnline(t.Context(), project, []projectskills.Skill{{
+		ID:           "backend",
+		ProjectID:    project.ID,
+		Title:        "Backend",
+		Path:         "docs-ai/skills/backend/SKILL.md",
+		RootID:       "root_main",
+		Format:       projectskills.FormatSkillMD,
+		Enabled:      true,
+		Status:       projectskills.StatusAvailable,
+		TrustLabel:   projectskills.TrustWorkspaceSkill,
+		DiscoveredAt: now,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}}); err != nil {
+		t.Fatalf("write skills mirror: %v", err)
+	}
+
+	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+	if err != nil {
+		t.Fatalf("open Cairnline mirror: %v", err)
+	}
+	defer store.Close()
+	roles, err := service.ListRoles(t.Context(), project.ID)
+	if err != nil {
+		t.Fatalf("ListRoles: %v", err)
+	}
+	if len(roles) != 1 || roles[0].ID != role.ID {
+		t.Fatalf("mirrored roles = %+v, want architect role", roles)
+	}
+	if _, err := service.GetWorkItem(t.Context(), project.ID, workItem.ID); err != nil {
+		t.Fatalf("GetWorkItem: %v", err)
+	}
+	if _, err := service.GetMemoryEntry(t.Context(), project.ID, "mem_child"); err != nil {
+		t.Fatalf("GetMemoryEntry: %v", err)
+	}
+	if _, err := service.GetMemoryCandidate(t.Context(), project.ID, "cand_child"); err != nil {
+		t.Fatalf("GetMemoryCandidate: %v", err)
+	}
+	if _, err := service.GetProjectSkill(t.Context(), project.ID, "backend"); err != nil {
+		t.Fatalf("GetProjectSkill: %v", err)
+	}
+	mirrored := getMirroredCairnlineProjectForTest(t, handler, project.ID)
+	if findMirroredCairnlineRootForTest(mirrored.Roots, "root_cairnline_only") == nil {
+		t.Fatalf("mirrored roots = %+v, want Cairnline-only root preserved", mirrored.Roots)
+	}
+	if findMirroredCairnlineSourceForTest(mirrored.ContextSources, "ctx_cairnline_only") == nil {
+		t.Fatalf("mirrored context sources = %+v, want Cairnline-only source preserved", mirrored.ContextSources)
 	}
 }
 
