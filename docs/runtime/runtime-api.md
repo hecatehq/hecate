@@ -2276,7 +2276,10 @@ history after Hecate commits. `project-assistant-apply-side-effects-live-mirror`
 mirrors committed apply side effects after Hecate commits. Assignment-start
 dispatch and other non-mirrored live mutation routes still write only
 Hecate-native stores.
-`sync_readiness_url` points at the all-project embedded SQLite rehearsal sync.
+`mirror_parity_url` points at a read-only check that compares Hecate's current
+project stores with the existing embedded Cairnline mirror database without
+creating or repairing it. `sync_readiness_url` points at the all-project
+embedded SQLite rehearsal sync, which replaces that database from Hecate stores.
 
 Example response:
 
@@ -2388,7 +2391,8 @@ Example response:
       "Cairnline write-adapter seams are non-authoritative proofs; live write authority and migration path are not ready."
     ],
     "replacement_readiness_url": "/hecate/v1/projects/{id}/cairnline/read-model",
-    "sync_readiness_url": "/hecate/v1/projects/cairnline/sync"
+    "sync_readiness_url": "/hecate/v1/projects/cairnline/sync",
+    "mirror_parity_url": "/hecate/v1/projects/cairnline/mirror-parity"
   }
 }
 ```
@@ -2600,6 +2604,30 @@ Example response:
 }
 ```
 
+### `GET /hecate/v1/projects/cairnline/mirror-parity`
+
+Local-only experimental bridge endpoint. It loads every project from Hecate's
+authoritative Projects stores and compares that snapshot with the existing
+embedded Cairnline mirror database at:
+
+```text
+{HECATE_DATA_DIR}/cairnline/embedded/projects.db
+```
+
+Unlike `POST /hecate/v1/projects/cairnline/sync`, this endpoint is read-only:
+it does not create the database, repair drift, or make Cairnline authoritative.
+It exists to prove that live best-effort mirror writes have kept the embedded
+Cairnline graph aligned with Hecate. `database_exists=false` means no live
+mirror database is present; the endpoint still reports Hecate-side counts and
+ID differences without creating files. `match=false` means the existing mirror
+has count, record-ID, semantic-content, or launch-packet drift. Built-in agent
+profiles and built-in project roles are included in the comparison because
+Hecate's replacement read model exposes them as durable portable coordination
+metadata.
+
+The response shape matches the sync response, except `object` is
+`project_cairnline_mirror_parity` and `database_exists` may be `false`.
+
 ### `POST /hecate/v1/projects/cairnline/sync`
 
 Local-only experimental bridge endpoint. It loads every project from Hecate's
@@ -2639,6 +2667,7 @@ Example response:
   "object": "project_cairnline_sync",
   "data": {
     "database_path": "/Users/alice/.hecate/cairnline/embedded/projects.db",
+    "database_exists": true,
     "match": true,
     "hecate": {
       "projects": 2,

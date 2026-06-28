@@ -47,43 +47,50 @@ func (h *Handler) HandleSyncProjectsToCairnline(w http.ResponseWriter, r *http.R
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	hecateCounts := projectCairnlineSnapshotAllCounts(snapshots)
-	cairnlineCounts, err := projectCairnlineServiceAllCounts(r.Context(), service)
+	item, err := projectCairnlineServiceParity(r.Context(), dbPath, true, snapshots, service)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	differences := projectCairnlineSyncDifferences(hecateCounts, cairnlineCounts)
-	hecateIDs := projectCairnlineSnapshotAllIDSets(snapshots)
-	cairnlineIDs, err := projectCairnlineServiceAllIDSets(r.Context(), service)
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
-	idDifferences := projectCairnlineSyncIDDifferences(hecateIDs, cairnlineIDs)
-	hecateContent, err := projectCairnlineSnapshotAllContentDigests(r.Context(), snapshots)
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
-	cairnlineContent, err := projectCairnlineServiceAllContentDigests(r.Context(), service)
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
-	contentDifferences := projectCairnlineSyncContentDifferences(hecateContent, cairnlineContent)
 	WriteJSON(w, http.StatusOK, ProjectCairnlineSyncResponse{
 		Object: "project_cairnline_sync",
-		Data: ProjectCairnlineSyncResponseItem{
-			DatabasePath:       dbPath,
-			Match:              len(differences) == 0 && len(idDifferences) == 0 && len(contentDifferences) == 0,
-			Differences:        differences,
-			IDDifferences:      idDifferences,
-			ContentDifferences: contentDifferences,
-			Hecate:             hecateCounts,
-			Cairnline:          cairnlineCounts,
-			Authoritative:      false,
-		},
+		Data:   item,
+	})
+}
+
+func (h *Handler) HandleProjectCairnlineMirrorParity(w http.ResponseWriter, r *http.Request) {
+	dbPath := h.cairnlineEmbeddedDatabasePath()
+	snapshots, err := cairnlinebridge.LoadSnapshots(r.Context(), h.cairnlineSnapshotSources())
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	if _, err := os.Stat(dbPath); err != nil {
+		if !os.IsNotExist(err) {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+			return
+		}
+		item := projectCairnlineMissingMirrorParity(dbPath, snapshots)
+		WriteJSON(w, http.StatusOK, ProjectCairnlineSyncResponse{
+			Object: "project_cairnline_mirror_parity",
+			Data:   item,
+		})
+		return
+	}
+	service, store, err := cairnline.NewSQLiteService(r.Context(), dbPath)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	defer store.Close()
+	item, err := projectCairnlineServiceParity(r.Context(), dbPath, true, snapshots, service)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	WriteJSON(w, http.StatusOK, ProjectCairnlineSyncResponse{
+		Object: "project_cairnline_mirror_parity",
+		Data:   item,
 	})
 }
 
@@ -270,6 +277,61 @@ func projectCairnlineReadModelFromSnapshot(ctx context.Context, snapshot cairnli
 		Operations:               operations,
 		Activity:                 activity,
 	}, nil
+}
+
+func projectCairnlineServiceParity(ctx context.Context, dbPath string, databaseExists bool, snapshots []cairnlinebridge.Snapshot, service *cairnline.Service) (ProjectCairnlineSyncResponseItem, error) {
+	hecateCounts := projectCairnlineSnapshotAllCounts(snapshots)
+	cairnlineCounts, err := projectCairnlineServiceAllCounts(ctx, service)
+	if err != nil {
+		return ProjectCairnlineSyncResponseItem{}, err
+	}
+	differences := projectCairnlineSyncDifferences(hecateCounts, cairnlineCounts)
+	hecateIDs := projectCairnlineSnapshotAllIDSets(snapshots)
+	cairnlineIDs, err := projectCairnlineServiceAllIDSets(ctx, service)
+	if err != nil {
+		return ProjectCairnlineSyncResponseItem{}, err
+	}
+	idDifferences := projectCairnlineSyncIDDifferences(hecateIDs, cairnlineIDs)
+	hecateContent, err := projectCairnlineSnapshotAllContentDigests(ctx, snapshots)
+	if err != nil {
+		return ProjectCairnlineSyncResponseItem{}, err
+	}
+	cairnlineContent, err := projectCairnlineServiceAllContentDigests(ctx, service)
+	if err != nil {
+		return ProjectCairnlineSyncResponseItem{}, err
+	}
+	contentDifferences := projectCairnlineSyncContentDifferences(hecateContent, cairnlineContent)
+	return ProjectCairnlineSyncResponseItem{
+		DatabasePath:       dbPath,
+		DatabaseExists:     databaseExists,
+		Match:              len(differences) == 0 && len(idDifferences) == 0 && len(contentDifferences) == 0,
+		Differences:        differences,
+		IDDifferences:      idDifferences,
+		ContentDifferences: contentDifferences,
+		Hecate:             hecateCounts,
+		Cairnline:          cairnlineCounts,
+		Authoritative:      false,
+	}, nil
+}
+
+func projectCairnlineMissingMirrorParity(dbPath string, snapshots []cairnlinebridge.Snapshot) ProjectCairnlineSyncResponseItem {
+	hecateCounts := projectCairnlineSnapshotAllCounts(snapshots)
+	cairnlineCounts := ProjectCairnlineSyncCounts{}
+	hecateIDs := projectCairnlineSnapshotAllIDSets(snapshots)
+	cairnlineIDs := ProjectCairnlineSyncIDSets{}
+	differences := projectCairnlineSyncDifferences(hecateCounts, cairnlineCounts)
+	idDifferences := projectCairnlineSyncIDDifferences(hecateIDs, cairnlineIDs)
+	return ProjectCairnlineSyncResponseItem{
+		DatabasePath:       dbPath,
+		DatabaseExists:     false,
+		Match:              false,
+		Differences:        differences,
+		IDDifferences:      idDifferences,
+		ContentDifferences: nil,
+		Hecate:             hecateCounts,
+		Cairnline:          cairnlineCounts,
+		Authoritative:      false,
+	}
 }
 
 func projectCairnlineSnapshotGraphCounts(snapshot cairnlinebridge.Snapshot) ProjectCairnlineGraphParityCounts {

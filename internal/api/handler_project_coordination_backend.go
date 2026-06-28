@@ -4,6 +4,7 @@ import "net/http"
 
 const projectCoordinationBackendReadinessURL = "/hecate/v1/projects/{id}/cairnline/read-model"
 const projectCoordinationBackendSyncReadinessURL = "/hecate/v1/projects/cairnline/sync"
+const projectCoordinationBackendMirrorParityURL = "/hecate/v1/projects/cairnline/mirror-parity"
 
 var projectCairnlineReadRouteNames = []string{
 	"project-list",
@@ -108,6 +109,7 @@ func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendS
 		WriteAdapterReady:       false,
 		ReplacementReadinessURL: projectCoordinationBackendReadinessURL,
 		SyncReadinessURL:        projectCoordinationBackendSyncReadinessURL,
+		MirrorParityURL:         projectCoordinationBackendMirrorParityURL,
 	}
 	switch configured {
 	case "cairnline":

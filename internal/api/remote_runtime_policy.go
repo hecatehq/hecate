@@ -22,6 +22,7 @@ var remoteRuntimeLocalOnlyRoutes = []remoteRuntimeRoutePattern{
 	{method: http.MethodPost, path: "/hecate/v1/system/reset-data"},
 	{method: http.MethodPost, path: "/hecate/v1/system/shutdown"},
 	{method: http.MethodGet, path: "/hecate/v1/projects/backend-status"},
+	{method: http.MethodGet, path: "/hecate/v1/projects/cairnline/mirror-parity"},
 	{method: http.MethodPost, path: "/hecate/v1/projects/cairnline/sync"},
 	{method: http.MethodGet, path: "/hecate/v1/projects/{id}/cairnline/parity-report"},
 	{method: http.MethodGet, path: "/hecate/v1/projects/{id}/cairnline/read-model"},

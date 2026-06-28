@@ -664,8 +664,15 @@ func TestProjectChildMirrorsPreserveCairnlineProjectGraph(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListRoles: %v", err)
 	}
-	if len(roles) != 1 || roles[0].ID != role.ID {
-		t.Fatalf("mirrored roles = %+v, want architect role", roles)
+	foundRole := false
+	for _, mirroredRole := range roles {
+		if mirroredRole.ID == role.ID {
+			foundRole = true
+			break
+		}
+	}
+	if !foundRole {
+		t.Fatalf("mirrored roles = %+v, want architect role preserved", roles)
 	}
 	if _, err := service.GetWorkItem(t.Context(), project.ID, workItem.ID); err != nil {
 		t.Fatalf("GetWorkItem: %v", err)

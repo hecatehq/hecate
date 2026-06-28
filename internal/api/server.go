@@ -82,6 +82,7 @@ func registerHecateProjectRoutes(mux *http.ServeMux, handler *Handler) {
 	mux.HandleFunc("GET /hecate/v1/projects/{id}", handler.HandleProject)
 	mux.HandleFunc("PATCH /hecate/v1/projects/{id}", handler.HandleUpdateProject)
 	mux.HandleFunc("DELETE /hecate/v1/projects/{id}", handler.HandleDeleteProject)
+	mux.HandleFunc("GET /hecate/v1/projects/cairnline/mirror-parity", handler.HandleProjectCairnlineMirrorParity)
 	mux.HandleFunc("POST /hecate/v1/projects/cairnline/sync", handler.HandleSyncProjectsToCairnline)
 	mux.HandleFunc("GET /hecate/v1/projects/{id}/cairnline/parity-report", handler.HandleProjectCairnlineParityReport)
 	mux.HandleFunc("GET /hecate/v1/projects/{id}/cairnline/read-model", handler.HandleProjectCairnlineReadModel)

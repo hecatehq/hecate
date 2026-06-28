@@ -412,7 +412,11 @@ proof seams separately from the live-route `write_adapter_gaps`; only
 `project-memory-live-mirror`, and `project-memory-candidates-live-mirror`, plus
 `project-assistant-proposal-ledger-live-mirror` and
 `project-assistant-apply-side-effects-live-mirror` are wired to live mutations,
-and all remain non-authoritative.
+and all remain non-authoritative. `GET
+/hecate/v1/projects/cairnline/mirror-parity` compares the existing embedded
+mirror database with Hecate's current stores without creating or repairing it;
+`POST /hecate/v1/projects/cairnline/sync` remains the explicit all-project
+rebuild/rehearsal action.
 
 Deployment-specific notes:
 
