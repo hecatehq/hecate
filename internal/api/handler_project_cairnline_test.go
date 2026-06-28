@@ -223,6 +223,12 @@ func TestProjectCairnlineExportAPI_WritesRefreshableSQLiteExport(t *testing.T) {
 	if parity.Data.Hecate.Graph.Roots != 1 || parity.Data.Cairnline.Graph.Roots != 1 || parity.Data.Hecate.Graph.ExecutionProfiles != readModel.Data.ExecutionProfileCount || parity.Data.Cairnline.Graph.ExecutionProfiles != readModel.Data.ExecutionProfileCount || parity.Data.Hecate.Graph.Artifacts != 2 || parity.Data.Cairnline.Graph.Artifacts != 2 || parity.Data.Hecate.Graph.MemoryEntries != 1 || parity.Data.Cairnline.Graph.MemoryEntries != 1 {
 		t.Fatalf("parity graph counts = hecate %+v cairnline %+v, want matching portable graph counts", parity.Data.Hecate.Graph, parity.Data.Cairnline.Graph)
 	}
+	if parity.Data.Hecate.Collaboration.Artifacts != 2 || parity.Data.Cairnline.Collaboration.Artifacts != 2 || parity.Data.Hecate.Collaboration.Handoffs != 1 || parity.Data.Cairnline.Collaboration.Handoffs != 1 {
+		t.Fatalf("parity collaboration counts = hecate %+v cairnline %+v, want matching review/evidence/handoff route counts", parity.Data.Hecate.Collaboration, parity.Data.Cairnline.Collaboration)
+	}
+	if parity.Data.Hecate.Collaboration.ArtifactKindCounts[projectwork.ArtifactKindReview] != 1 || parity.Data.Cairnline.Collaboration.ArtifactKindCounts[projectwork.ArtifactKindReview] != 1 || parity.Data.Hecate.Collaboration.ArtifactKindCounts[projectwork.ArtifactKindEvidenceLink] != 1 || parity.Data.Cairnline.Collaboration.ArtifactKindCounts[projectwork.ArtifactKindEvidenceLink] != 1 || parity.Data.Hecate.Collaboration.HandoffStatusCounts[projectwork.HandoffStatusPending] != 1 || parity.Data.Cairnline.Collaboration.HandoffStatusCounts[projectwork.HandoffStatusPending] != 1 {
+		t.Fatalf("parity collaboration kind/status counts = hecate %+v cairnline %+v, want matching review/evidence/pending handoff route shape", parity.Data.Hecate.Collaboration, parity.Data.Cairnline.Collaboration)
+	}
 	if parity.Data.Hecate.Operations.PendingMemoryCandidates != 1 || parity.Data.Cairnline.Operations.PendingMemoryCandidates != 1 || parity.Data.Hecate.Operations.OpenHandoffs != 1 || parity.Data.Cairnline.Operations.OpenHandoffs != 1 {
 		t.Fatalf("parity operations counts = hecate %+v cairnline %+v, want matching memory and handoff counts", parity.Data.Hecate.Operations, parity.Data.Cairnline.Operations)
 	}
@@ -700,6 +706,9 @@ func TestProjectCairnlineMirrorParityAPI_MatchesRepresentativeLiveProjectJourney
 	if embeddedParity.Data.Hecate.Graph.Assignments != 1 || embeddedParity.Data.Cairnline.Graph.Assignments != 1 || embeddedParity.Data.Hecate.Activity.Blocked != 1 || embeddedParity.Data.Cairnline.Activity.Blocked != 1 || embeddedParity.Data.Hecate.LaunchPackets.Assignments != 1 || embeddedParity.Data.Cairnline.LaunchPackets.Assignments != 1 {
 		t.Fatalf("embedded parity snapshots = hecate %+v cairnline %+v, want matching representative assignment graph/activity/launch coverage", embeddedParity.Data.Hecate, embeddedParity.Data.Cairnline)
 	}
+	if embeddedParity.Data.Hecate.Collaboration.Artifacts != 2 || embeddedParity.Data.Cairnline.Collaboration.Artifacts != 2 || embeddedParity.Data.Hecate.Collaboration.Handoffs != 1 || embeddedParity.Data.Cairnline.Collaboration.Handoffs != 1 || embeddedParity.Data.Hecate.Collaboration.ArtifactKindCounts[projectwork.ArtifactKindReview] != 1 || embeddedParity.Data.Cairnline.Collaboration.ArtifactKindCounts[projectwork.ArtifactKindReview] != 1 || embeddedParity.Data.Hecate.Collaboration.HandoffStatusCounts[projectwork.HandoffStatusPending] != 1 || embeddedParity.Data.Cairnline.Collaboration.HandoffStatusCounts[projectwork.HandoffStatusPending] != 1 {
+		t.Fatalf("embedded collaboration route counts = hecate %+v cairnline %+v, want matching representative review/evidence/handoff route shape", embeddedParity.Data.Hecate.Collaboration, embeddedParity.Data.Cairnline.Collaboration)
+	}
 	if embeddedParity.Data.Hecate.Operations.KindCounts["start_queued_assignment"] != 1 || embeddedParity.Data.Cairnline.Operations.KindCounts["start_queued_assignment"] != 1 {
 		t.Fatalf("embedded operations kind counts = hecate %+v cairnline %+v, want adapter-rendered queued assignment action parity", embeddedParity.Data.Hecate.Operations.KindCounts, embeddedParity.Data.Cairnline.Operations.KindCounts)
 	}
@@ -815,7 +824,7 @@ func TestProjectCairnlineContentDigestIgnoresVolatileTimestamps(t *testing.T) {
 }
 
 func TestProjectCairnlineParityReport_IncludesAssistantProposalDifferences(t *testing.T) {
-	report := projectCairnlineParityReport("proj_parity", ProjectCairnlineGraphParityCounts{}, nil, ProjectActivityDataResponse{}, ProjectOperationsBriefResponse{}, nil, ProjectOperationsBriefResponse{}, 2, ProjectCairnlineReadModelResponseItem{
+	report := projectCairnlineParityReport("proj_parity", ProjectCairnlineGraphParityCounts{}, nil, ProjectCairnlineCollaborationParityCounts{}, ProjectActivityDataResponse{}, ProjectOperationsBriefResponse{}, nil, ProjectCairnlineCollaborationParityCounts{}, ProjectOperationsBriefResponse{}, 2, ProjectCairnlineReadModelResponseItem{
 		AssistantProposalCount: 1,
 	})
 	if report.Match {
@@ -835,7 +844,7 @@ func TestProjectCairnlineParityReport_IncludesGraphCountDifferences(t *testing.T
 		ContextSources:    2,
 		ExecutionProfiles: 4,
 		Artifacts:         3,
-	}, nil, ProjectActivityDataResponse{}, ProjectOperationsBriefResponse{}, nil, ProjectOperationsBriefResponse{}, 0, ProjectCairnlineReadModelResponseItem{
+	}, nil, ProjectCairnlineCollaborationParityCounts{}, ProjectActivityDataResponse{}, ProjectOperationsBriefResponse{}, nil, ProjectCairnlineCollaborationParityCounts{}, ProjectOperationsBriefResponse{}, 0, ProjectCairnlineReadModelResponseItem{
 		RootCount:             1,
 		ContextSourceCount:    1,
 		ExecutionProfileCount: 3,
@@ -864,7 +873,7 @@ func TestProjectCairnlineParityReport_IncludesWorkItemRouteProjectionDifferences
 		{ID: "work_1", Assignments: []ProjectWorkAssignmentResponse{{ID: "asgn_1"}}},
 		{ID: "work_2"},
 	}
-	report := projectCairnlineParityReport("proj_parity", ProjectCairnlineGraphParityCounts{}, nativeWorkItems, ProjectActivityDataResponse{}, ProjectOperationsBriefResponse{}, cairnlineWorkItems, ProjectOperationsBriefResponse{}, 0, ProjectCairnlineReadModelResponseItem{})
+	report := projectCairnlineParityReport("proj_parity", ProjectCairnlineGraphParityCounts{}, nativeWorkItems, ProjectCairnlineCollaborationParityCounts{}, ProjectActivityDataResponse{}, ProjectOperationsBriefResponse{}, cairnlineWorkItems, ProjectCairnlineCollaborationParityCounts{}, ProjectOperationsBriefResponse{}, 0, ProjectCairnlineReadModelResponseItem{})
 	if report.Match {
 		t.Fatalf("parity report match = true, want work-item route projection mismatch")
 	}
@@ -879,10 +888,52 @@ func TestProjectCairnlineParityReport_IncludesWorkItemRouteProjectionDifferences
 	}
 }
 
+func TestProjectCairnlineParityReport_IncludesCollaborationRouteProjectionDifferences(t *testing.T) {
+	nativeCollaboration := projectCairnlineCollaborationParityCounts(
+		[]ProjectWorkArtifactResponse{
+			{ID: "art_decision", Kind: projectwork.ArtifactKindDecisionNote},
+			{ID: "art_evidence", Kind: projectwork.ArtifactKindEvidenceLink},
+			{ID: "art_review", Kind: projectwork.ArtifactKindReview},
+		},
+		[]ProjectHandoffResponse{
+			{ID: "handoff_pending", Status: projectwork.HandoffStatusPending},
+			{ID: "handoff_accepted", Status: projectwork.HandoffStatusAccepted},
+		},
+	)
+	cairnlineCollaboration := projectCairnlineCollaborationParityCounts(
+		[]ProjectWorkArtifactResponse{
+			{ID: "art_decision", Kind: projectwork.ArtifactKindDecisionNote},
+			{ID: "art_review", Kind: projectwork.ArtifactKindReview},
+		},
+		[]ProjectHandoffResponse{
+			{ID: "handoff_pending", Status: projectwork.HandoffStatusPending},
+		},
+	)
+	report := projectCairnlineParityReport("proj_parity", ProjectCairnlineGraphParityCounts{}, nil, nativeCollaboration, ProjectActivityDataResponse{}, ProjectOperationsBriefResponse{}, nil, cairnlineCollaboration, ProjectOperationsBriefResponse{}, 0, ProjectCairnlineReadModelResponseItem{})
+	if report.Match {
+		t.Fatalf("parity report match = true, want collaboration route projection mismatch")
+	}
+	if report.Hecate.Collaboration.Artifacts != 3 || report.Cairnline.Collaboration.Artifacts != 2 || report.Hecate.Collaboration.Handoffs != 2 || report.Cairnline.Collaboration.Handoffs != 1 {
+		t.Fatalf("collaboration parity counts = hecate %+v cairnline %+v, want artifact and handoff count drift", report.Hecate.Collaboration, report.Cairnline.Collaboration)
+	}
+	if !hasProjectCairnlineParityDifference(report.Differences, "collaboration.artifacts", 3, 2) {
+		t.Fatalf("parity differences = %+v, want collaboration.artifacts 3/2", report.Differences)
+	}
+	if !hasProjectCairnlineParityDifference(report.Differences, "collaboration.handoffs", 2, 1) {
+		t.Fatalf("parity differences = %+v, want collaboration.handoffs 2/1", report.Differences)
+	}
+	if !hasProjectCairnlineParityDifference(report.Differences, "collaboration.artifact_kind_counts.evidence_link", 1, 0) {
+		t.Fatalf("parity differences = %+v, want collaboration.artifact_kind_counts.evidence_link 1/0", report.Differences)
+	}
+	if !hasProjectCairnlineParityDifference(report.Differences, "collaboration.handoff_status_counts.accepted", 1, 0) {
+		t.Fatalf("parity differences = %+v, want collaboration.handoff_status_counts.accepted 1/0", report.Differences)
+	}
+}
+
 func TestProjectCairnlineParityReport_IncludesLaunchPacketCoverageDifferences(t *testing.T) {
-	report := projectCairnlineParityReport("proj_parity", ProjectCairnlineGraphParityCounts{}, nil, ProjectActivityDataResponse{
+	report := projectCairnlineParityReport("proj_parity", ProjectCairnlineGraphParityCounts{}, nil, ProjectCairnlineCollaborationParityCounts{}, ProjectActivityDataResponse{
 		Summary: ProjectActivitySummaryResponse{AssignmentCount: 2},
-	}, ProjectOperationsBriefResponse{}, nil, ProjectOperationsBriefResponse{}, 0, ProjectCairnlineReadModelResponseItem{
+	}, ProjectOperationsBriefResponse{}, nil, ProjectCairnlineCollaborationParityCounts{}, ProjectOperationsBriefResponse{}, 0, ProjectCairnlineReadModelResponseItem{
 		LaunchPacketCount:        1,
 		LaunchPacketWarningCount: 2,
 		LaunchPacketErrors: []ProjectCairnlineLaunchPacketError{{
@@ -934,7 +985,7 @@ func TestProjectCairnlineParityReport_IncludesOperationsDifferences(t *testing.T
 			{Kind: "start_queued_assignment"},
 		},
 	}
-	report := projectCairnlineParityReport("proj_parity", ProjectCairnlineGraphParityCounts{}, nil, ProjectActivityDataResponse{}, nativeOperations, nil, cairnlineOperations, 0, ProjectCairnlineReadModelResponseItem{})
+	report := projectCairnlineParityReport("proj_parity", ProjectCairnlineGraphParityCounts{}, nil, ProjectCairnlineCollaborationParityCounts{}, ProjectActivityDataResponse{}, nativeOperations, nil, ProjectCairnlineCollaborationParityCounts{}, cairnlineOperations, 0, ProjectCairnlineReadModelResponseItem{})
 	if report.Match {
 		t.Fatalf("parity report match = true, want operations mismatch")
 	}

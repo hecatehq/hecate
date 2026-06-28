@@ -428,7 +428,8 @@ activity, and launch-packet projections directly from the existing embedded
 mirror database without seeding from Hecate stores; `GET
 /hecate/v1/projects/{id}/cairnline/embedded-parity-report` compares that live
 mirror read model with Hecate's native cockpit projections, including rendered
-work-item route shape with embedded assignments; and
+work-item route shape with embedded assignments plus collaboration
+artifact/handoff route-shape counts; and
 `POST /hecate/v1/projects/cairnline/sync` remains the explicit all-project
 rebuild/rehearsal action.
 

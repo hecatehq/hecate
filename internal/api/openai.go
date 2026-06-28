@@ -432,12 +432,13 @@ type ProjectCairnlineParityReportResponseItem struct {
 }
 
 type ProjectCairnlineParitySnapshot struct {
-	Graph         ProjectCairnlineGraphParityCounts        `json:"graph"`
-	WorkItems     ProjectCairnlineWorkItemParityCounts     `json:"work_items"`
-	Activity      ProjectCairnlineActivityParityCounts     `json:"activity"`
-	Operations    ProjectCairnlineOperationsParityCounts   `json:"operations"`
-	Assistant     ProjectCairnlineAssistantParityCounts    `json:"assistant"`
-	LaunchPackets ProjectCairnlineLaunchPacketParityCounts `json:"launch_packets"`
+	Graph         ProjectCairnlineGraphParityCounts         `json:"graph"`
+	WorkItems     ProjectCairnlineWorkItemParityCounts      `json:"work_items"`
+	Collaboration ProjectCairnlineCollaborationParityCounts `json:"collaboration"`
+	Activity      ProjectCairnlineActivityParityCounts      `json:"activity"`
+	Operations    ProjectCairnlineOperationsParityCounts    `json:"operations"`
+	Assistant     ProjectCairnlineAssistantParityCounts     `json:"assistant"`
+	LaunchPackets ProjectCairnlineLaunchPacketParityCounts  `json:"launch_packets"`
 }
 
 type ProjectCairnlineGraphParityCounts struct {
@@ -468,6 +469,13 @@ type ProjectCairnlineWorkItemParityCounts struct {
 	Items               int `json:"items"`
 	EmbeddedAssignments int `json:"embedded_assignments"`
 	UnassignedItems     int `json:"unassigned_items"`
+}
+
+type ProjectCairnlineCollaborationParityCounts struct {
+	Artifacts           int            `json:"artifacts"`
+	Handoffs            int            `json:"handoffs"`
+	ArtifactKindCounts  map[string]int `json:"artifact_kind_counts"`
+	HandoffStatusCounts map[string]int `json:"handoff_status_counts"`
 }
 
 type ProjectCairnlineOperationsParityCounts struct {
