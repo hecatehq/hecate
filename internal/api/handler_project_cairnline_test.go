@@ -427,6 +427,29 @@ func TestProjectCairnlineSyncAPI_WritesDurableAllProjectsSQLiteDB(t *testing.T) 
 	if contentDigests["launch_packets"][launchPacketID] == "" {
 		t.Fatalf("launch packet content digests = %+v, want digest for %s", contentDigests["launch_packets"], launchPacketID)
 	}
+
+	handler.config.Projects.CoordinationBackend = "cairnline"
+	handler.config.Projects.CairnlineReadSource = "embedded"
+
+	detail := mustRequestJSONStatus[ProjectResponse](client, http.StatusOK, http.MethodGet, "/hecate/v1/projects/"+firstProject.Data.ID, "")
+	if detail.Data.ReadBackend != "cairnline" || detail.Data.ID != firstProject.Data.ID || len(detail.Data.Roots) != 1 {
+		t.Fatalf("strict embedded project detail = %+v, want synced Cairnline-backed rooted project", detail.Data)
+	}
+	workItems := mustRequestJSONStatus[ProjectWorkItemsResponse](client, http.StatusOK, http.MethodGet, "/hecate/v1/projects/"+firstProject.Data.ID+"/work-items", "")
+	if len(workItems.Data) != 1 || workItems.Data[0].ID != work.Data.ID || workItems.Data[0].ReadBackend != "cairnline" || len(workItems.Data[0].Assignments) != 1 || workItems.Data[0].Assignments[0].ID != assignment.Data.ID || workItems.Data[0].Assignments[0].ReadBackend != "cairnline" {
+		t.Fatalf("strict embedded work items = %+v, want synced Cairnline-backed work item and assignment", workItems.Data)
+	}
+	activity := mustRequestJSONStatus[ProjectActivityEnvelope](client, http.StatusOK, http.MethodGet, "/hecate/v1/projects/"+firstProject.Data.ID+"/activity", "")
+	if activity.Data.ReadBackend != "cairnline" || activity.Data.Summary.WorkItemCount != 1 || activity.Data.Summary.AssignmentCount != 1 || activity.Data.Summary.BlockedCount != 1 || len(activity.Data.Buckets.Blocked) != 1 || activity.Data.Buckets.Blocked[0].Assignment.ID != assignment.Data.ID {
+		t.Fatalf("strict embedded activity = %+v, want synced Cairnline-backed queued assignment activity", activity.Data)
+	}
+	operations := mustRequestJSONStatus[ProjectOperationsBriefEnvelope](client, http.StatusOK, http.MethodGet, "/hecate/v1/projects/"+firstProject.Data.ID+"/operations/brief", "")
+	if operations.Data.ReadBackend != "cairnline" || operations.Data.Summary.ItemCount == 0 || operations.Data.Summary.AvailableItemCount == 0 || operations.Data.Summary.PendingMemoryCandidateCount != 0 {
+		t.Fatalf("strict embedded operations = %+v, want synced Cairnline-backed operations brief", operations.Data)
+	}
+	if len(operations.Data.Items) == 0 || operations.Data.Items[0].Assignment == nil || operations.Data.Items[0].Assignment.ID != assignment.Data.ID {
+		t.Fatalf("strict embedded operations items = %+v, want queued assignment action from synced Cairnline DB", operations.Data.Items)
+	}
 }
 
 func TestProjectCairnlineMirrorParityAPI_MissingDatabaseDoesNotCreateMirror(t *testing.T) {
