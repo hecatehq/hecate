@@ -88,6 +88,9 @@ func TestProjectCoordinationBackendStatus_CairnlineConfiguredReadRoutesReady(t *
 	if status.SyncReadinessURL != projectCoordinationBackendSyncReadinessURL {
 		t.Fatalf("sync readiness URL = %q, want %q", status.SyncReadinessURL, projectCoordinationBackendSyncReadinessURL)
 	}
+	if status.EmbeddedReadModelURL != projectCoordinationBackendEmbeddedReadModelURL {
+		t.Fatalf("embedded read-model URL = %q, want %q", status.EmbeddedReadModelURL, projectCoordinationBackendEmbeddedReadModelURL)
+	}
 	if status.MirrorParityURL != projectCoordinationBackendMirrorParityURL {
 		t.Fatalf("mirror parity URL = %q, want %q", status.MirrorParityURL, projectCoordinationBackendMirrorParityURL)
 	}

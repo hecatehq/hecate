@@ -2391,6 +2391,7 @@ Example response:
       "Cairnline write-adapter seams are non-authoritative proofs; live write authority and migration path are not ready."
     ],
     "replacement_readiness_url": "/hecate/v1/projects/{id}/cairnline/read-model",
+    "embedded_read_model_url": "/hecate/v1/projects/{id}/cairnline/embedded-read-model",
     "sync_readiness_url": "/hecate/v1/projects/cairnline/sync",
     "mirror_parity_url": "/hecate/v1/projects/cairnline/mirror-parity"
   }
@@ -2427,6 +2428,7 @@ Example response:
   "object": "project_cairnline_read_model",
   "data": {
     "project_id": "proj_...",
+    "read_source": "snapshot_seeded_memory",
     "root_count": 1,
     "context_source_count": 2,
     "agent_profile_count": 4,
@@ -2600,6 +2602,57 @@ Example response:
         "errors": 0
       }
     }
+  }
+}
+```
+
+### `GET /hecate/v1/projects/{id}/cairnline/embedded-read-model`
+
+Local-only experimental bridge endpoint. It opens the existing embedded
+Cairnline mirror database at:
+
+```text
+{HECATE_DATA_DIR}/cairnline/embedded/projects.db
+```
+
+and returns the same portable read projections as
+`/hecate/v1/projects/{id}/cairnline/read-model`, but directly from that live
+mirror database. It does not load Hecate's authoritative stores, seed an
+in-memory service, create the database, repair drift, or make Cairnline
+authoritative. A missing mirror database or a project that is not present in
+the mirror returns `404`.
+
+This endpoint is stricter replacement-readiness evidence than the
+snapshot-seeded read-model endpoint: it proves the embedded Cairnline DB that
+live mirror writes maintain can serve operations, activity, and assignment
+launch-packet projections on its own.
+
+Example response:
+
+```json
+{
+  "object": "project_cairnline_embedded_read_model",
+  "data": {
+    "project_id": "proj_...",
+    "read_source": "embedded_cairnline",
+    "database_path": "/Users/alice/Library/Application Support/hecate/cairnline/embedded/projects.db",
+    "root_count": 1,
+    "context_source_count": 2,
+    "agent_profile_count": 4,
+    "execution_profile_count": 5,
+    "skill_count": 3,
+    "role_count": 6,
+    "work_item_count": 2,
+    "assignment_count": 5,
+    "artifact_count": 4,
+    "handoff_count": 1,
+    "memory_entry_count": 3,
+    "memory_candidate_count": 2,
+    "assistant_proposal_count": 1,
+    "launch_packet_count": 5,
+    "launch_packet_warning_count": 0,
+    "operations": {},
+    "activity": {}
   }
 }
 ```

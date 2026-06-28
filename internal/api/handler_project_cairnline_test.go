@@ -186,6 +186,9 @@ func TestProjectCairnlineExportAPI_WritesRefreshableSQLiteExport(t *testing.T) {
 	if readModel.Object != "project_cairnline_read_model" || readModel.Data.ProjectID != projectID {
 		t.Fatalf("read model envelope = %+v, want project_cairnline_read_model for project", readModel)
 	}
+	if readModel.Data.ReadSource != "snapshot_seeded_memory" || readModel.Data.DatabasePath != "" {
+		t.Fatalf("read model source = %q path %q, want snapshot-seeded memory without a database path", readModel.Data.ReadSource, readModel.Data.DatabasePath)
+	}
 	if readModel.Data.RootCount != 1 || readModel.Data.ContextSourceCount != 0 || readModel.Data.WorkItemCount != 1 || readModel.Data.AssignmentCount != 1 || readModel.Data.ArtifactCount != 2 || readModel.Data.HandoffCount != 1 || readModel.Data.MemoryEntryCount != 1 || readModel.Data.MemoryCandidateCount != 1 || readModel.Data.AssistantProposalCount != 1 || readModel.Data.LaunchPacketCount != 1 {
 		t.Fatalf("read model counts = %+v, want bridged project counts", readModel.Data)
 	}
@@ -452,6 +455,26 @@ func TestProjectCairnlineMirrorParityAPI_MissingDatabaseDoesNotCreateMirror(t *t
 	}
 }
 
+func TestProjectCairnlineEmbeddedReadModelAPI_MissingDatabaseDoesNotCreateMirror(t *testing.T) {
+	dataDir := t.TempDir()
+	handler := NewHandler(config.Config{Server: config.ServerConfig{DataDir: dataDir}}, quietLogger(), nil, nil, nil, nil)
+	handler.SetProjectStore(projects.NewMemoryStore())
+	handler.SetProjectWorkStore(projectwork.NewMemoryStore())
+	handler.SetProjectSkillStore(projectskills.NewMemoryStore())
+	handler.SetMemoryStore(memory.NewMemoryStore())
+	handler.SetAgentProfileStore(agentprofiles.NewMemoryStore())
+	server := NewServer(quietLogger(), handler)
+	client := newAPITestClient(t, server)
+
+	project := mustRequestJSONStatus[ProjectResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects", projectJourneyJSON(t, map[string]any{
+		"name": "Embedded Read Model Missing DB",
+	}))
+	client.mustRequestStatus(http.StatusNotFound, http.MethodGet, "/hecate/v1/projects/"+project.Data.ID+"/cairnline/embedded-read-model", "")
+	if _, err := os.Stat(handler.cairnlineEmbeddedDatabasePath()); !os.IsNotExist(err) {
+		t.Fatalf("mirror DB stat error = %v, want embedded read-model probe to avoid creating the DB", err)
+	}
+}
+
 func TestProjectCairnlineMirrorParityAPI_ReportsLiveMirrorMatch(t *testing.T) {
 	dataDir := t.TempDir()
 	handler := NewHandler(config.Config{
@@ -641,6 +664,26 @@ func TestProjectCairnlineMirrorParityAPI_MatchesRepresentativeLiveProjectJourney
 		response.Data.Hecate.ExecutionProfiles == 0 || response.Data.Cairnline.ExecutionProfiles != response.Data.Hecate.ExecutionProfiles ||
 		response.Data.Hecate.Roles == 0 || response.Data.Cairnline.Roles != response.Data.Hecate.Roles {
 		t.Fatalf("profile/role mirror counts = hecate %+v cairnline %+v, want built-in and custom coordination metadata parity", response.Data.Hecate, response.Data.Cairnline)
+	}
+
+	readModel := mustRequestJSONStatus[ProjectCairnlineReadModelResponse](client, http.StatusOK, http.MethodGet, "/hecate/v1/projects/"+projectID+"/cairnline/embedded-read-model", "")
+	if readModel.Object != "project_cairnline_embedded_read_model" || readModel.Data.ProjectID != projectID {
+		t.Fatalf("embedded read model envelope = %+v, want direct embedded Cairnline read model for project", readModel)
+	}
+	if readModel.Data.ReadSource != "embedded_cairnline" || readModel.Data.DatabasePath != handler.cairnlineEmbeddedDatabasePath() || !filepath.IsAbs(readModel.Data.DatabasePath) {
+		t.Fatalf("embedded read model source = %q path %q, want embedded Cairnline database path", readModel.Data.ReadSource, readModel.Data.DatabasePath)
+	}
+	if readModel.Data.ContextSourceCount != 1 || readModel.Data.SkillCount != 1 || readModel.Data.WorkItemCount != 1 || readModel.Data.AssignmentCount != 1 || readModel.Data.ArtifactCount != 2 || readModel.Data.HandoffCount != 1 || readModel.Data.MemoryEntryCount != 1 || readModel.Data.MemoryCandidateCount != 1 || readModel.Data.LaunchPacketCount != 1 {
+		t.Fatalf("embedded read model counts = %+v, want representative live mirror graph", readModel.Data)
+	}
+	if readModel.Data.LaunchPacketWarningCount != 0 || len(readModel.Data.LaunchPacketErrors) != 0 {
+		t.Fatalf("embedded launch packet summary = warnings %d errors %+v, want clean portable packet coverage", readModel.Data.LaunchPacketWarningCount, readModel.Data.LaunchPacketErrors)
+	}
+	if readModel.Data.Operations.Status != cairnline.ProjectOperationsStatusAttention || readModel.Data.Operations.Counts.BlockedAssignments != 1 || readModel.Data.Operations.Counts.PendingMemoryCandidates != 1 || readModel.Data.Operations.Counts.OpenHandoffs != 1 {
+		t.Fatalf("embedded operations = %+v, want blocked assignment, pending memory, and open handoff from live mirror", readModel.Data.Operations)
+	}
+	if readModel.Data.Activity.Counts.Assignments != 1 || readModel.Data.Activity.Counts.Blocked != 1 || readModel.Data.Activity.Counts.Queued != 1 || len(readModel.Data.Activity.Buckets.Blocked) != 1 || readModel.Data.Activity.Buckets.Blocked[0].AssignmentID != assignment.Data.ID {
+		t.Fatalf("embedded activity = %+v, want blocked queued assignment from live mirror", readModel.Data.Activity)
 	}
 }
 
