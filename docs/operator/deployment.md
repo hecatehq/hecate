@@ -374,7 +374,8 @@ task/external agent supervision, approvals, and assignment mutation. Project
 identity, root create/update/delete/discovery/worktree-creation,
 context-source create/update/delete/discovery, and default mutations still
 write Hecate stores first and then best-effort mirror into the embedded
-Cairnline database; this is replacement-readiness evidence, not write authority.
+Cairnline database through their identity/root/source/default seams; this is
+replacement-readiness evidence, not write authority.
 Project skill discovery and
 metadata updates also best-effort mirror metadata-only skill records after the
 Hecate store commit; the mirror does not load or execute skill bodies. Project
@@ -399,7 +400,8 @@ assignment metadata upsert/delete, assignment-start result and linked-chat
 reconciliation sync, memory, memory-candidate, create-only collaboration
 artifact/evidence/review, and handoff shapes. Backend status reports those
 proof seams separately from the live-route `write_adapter_gaps`; only
-`project-identity-live-mirror`,
+`project-identity-live-mirror`, `project-roots-live-mirror`,
+`project-context-sources-live-mirror`, `project-defaults-live-mirror`,
 `agent-profiles-live-mirror`, `project-skills-live-mirror`,
 `project-roles-live-mirror`, `project-work-items-live-mirror`,
 `project-assignments-live-mirror`,

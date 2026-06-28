@@ -2232,12 +2232,12 @@ agent profiles, skills, roles, work items, assignment metadata upsert/delete plu
 lifecycle-status sync, create-if-missing generic artifacts/evidence/reviews,
 handoffs, memory entries, memory candidates, Project Assistant proposal-ledger
 import, and all-project sync rehearsal. The
-`project-identity-live-mirror` seam means project create/update/delete plus root
-discovery/worktree-creation still commit to Hecate stores first, then
-best-effort mirror the portable project identity shape into the embedded
-Cairnline database when Cairnline is configured.
-`project-roots-live-mirror` uses Cairnline's root-level create/update/delete API
-for direct root mutations after Hecate commits.
+`project-identity-live-mirror` seam means project create/update/delete still
+commit to Hecate stores first, then best-effort mirror the portable project
+identity shape into the embedded Cairnline database when Cairnline is
+configured.
+`project-roots-live-mirror` uses Cairnline's root-level API for direct root
+mutations, root discovery, and worktree-root creation after Hecate commits.
 `project-context-sources-live-mirror` uses Cairnline's source-level
 create/update/delete API for direct context-source mutations and context-source
 discovery after Hecate commits. `project-defaults-live-mirror` uses Cairnline's
@@ -2369,8 +2369,8 @@ Example response:
     "detail": "Cairnline is configured as the future Projects coordination backend, and the project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, project-assistant-context, project-assistant-proposal, activity, closeout-readiness, and operations brief read routes are served from the Cairnline read model. Hecate stores remain authoritative until the remaining live read routes, writes, and migration are ready.",
     "warnings": [
       "Only the project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, project-assistant-context, project-assistant-proposal, activity, closeout-readiness, and operations brief live read routes use Cairnline.",
-      "Project identity and root discovery/worktree-creation still write Hecate-native stores first, then best-effort mirror portable project identity into the embedded Cairnline database.",
-      "Direct root create/update/delete mutations still write Hecate-native stores first, then best-effort mirror through Cairnline's root-level API.",
+      "Project identity still writes Hecate-native stores first, then best-effort mirrors portable project identity into the embedded Cairnline database.",
+      "Root create/update/delete, root discovery, and worktree-root creation mutations still write Hecate-native stores first, then best-effort mirror through Cairnline's root-level API.",
       "Direct context-source create/update/delete and discovery mutations still write Hecate-native stores first, then best-effort mirror through Cairnline's source-level API.",
       "Default-only project updates still write Hecate-native stores first, then best-effort mirror portable launch defaults through Cairnline's project-defaults seam.",
       "Agent profile create/update/delete mutations still write Hecate-native stores first, then best-effort mirror portable profile metadata and execution posture into Cairnline.",

@@ -42,6 +42,12 @@ func (h *Handler) mirrorProjectRootToCairnline(ctx context.Context, operation st
 	}
 }
 
+func (h *Handler) mirrorProjectRootsToCairnline(ctx context.Context, operation string, project projects.Project, roots []projects.Root) {
+	for _, root := range roots {
+		h.mirrorProjectRootToCairnline(ctx, operation, project, root)
+	}
+}
+
 func (h *Handler) mirrorProjectRootDeleteToCairnline(ctx context.Context, operation, projectID, rootID string) {
 	if err := h.deleteProjectRootFromCairnline(ctx, projectID, rootID); err != nil {
 		h.logCairnlineMirrorError(ctx, operation, projectID, err)
