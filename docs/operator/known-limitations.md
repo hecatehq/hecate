@@ -79,8 +79,9 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
   Seatbelt `(deny network*)`. Windows runs without the wrapper; pattern-match
   is the only check there.
 - Approval policies cover shell, git, file, and network pre-execution gates plus
-  per-tool `agent_loop` gating (`read_file`, `all_tools`). Unknown policy names
-  are rejected at startup. The per-MCP-server `approval_policy` axis
+  per-tool `agent_loop` gating (`read_file`, `network_egress` for `http_request`
+  and configured `web_search`, and `all_tools`). Unknown policy names are
+  rejected at startup. The per-MCP-server `approval_policy` axis
   (`auto` / `require_approval` / `block`) is separate.
 - Hecate has a registry-only plugin metadata slice for native manifests. It can
   validate and show plugin-declared MCP server mount candidates, but it does not

@@ -228,7 +228,8 @@ they got.
 | `HECATE_TASK_SHELL_ALLOW_PRIVATE_IPS` | `false`           | Allow loopback / RFC1918 / link-local IP literals in shell and git command URLs when `sandbox_network=true`  |
 | `HECATE_TASK_SHELL_ALLOWED_HOSTS`     | `""`              | Comma-separated exact-host allowlist for URLs in shell and git commands; empty = all public hosts            |
 
-The `http_request` tool has its own parallel pair (`HECATE_TASK_HTTP_*`) — see
+The `http_request` and optional `web_search` tools have their own parallel
+runtime knobs (`HECATE_TASK_HTTP_*` and `HECATE_TASK_WEB_SEARCH_*`) — see
 [`agent-runtime.md`](agent-runtime.md#configuration-knobs).
 
 ## Limitations

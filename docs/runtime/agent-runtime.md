@@ -149,6 +149,8 @@ Three things bound the loop:
 
 The agent gets eighteen tools by default. None require operator config beyond
 the approval policies; `http_request` reads the network policy from env.
+When `HECATE_TASK_WEB_SEARCH_PROVIDER=brave` and an API key are configured, the
+agent gets one additional built-in web-search tool.
 Project-linked Hecate Chat task-backed runs receive one additional
 proposal-only tool.
 
@@ -172,6 +174,7 @@ proposal-only tool.
 | `git_status`             | Return structured branch and changed-file status                      | Gated by `git_exec` or `all_tools` policy (default on); GitRunner wrapper around `git status --porcelain=v1 -b`                                                                                                                                                           |
 | `git_diff`               | Return a bounded workspace or staged diff                             | Gated by `git_exec` or `all_tools` policy (default on); GitRunner wrapper around `git diff --no-ext-diff --no-textconv`, optionally scoped to a WorkspaceFS-resolved path                                                                                                 |
 | `http_request`           | Make an outbound HTTP request                                         | Gated by `network_egress` or `all_tools` policy; SSRF guards (private-IP block, scheme allowlist, optional host allowlist)                                                                                                                                                |
+| `web_search`             | Search the web through the configured search provider                 | Only present when configured; gated by `network_egress` or `all_tools` policy; the model supplies a query, while endpoint and API key stay operator-owned                                                                                                                 |
 | `draft_project_proposal` | Draft a Project Assistant proposal artifact for the linked project    | Available only to task-backed Hecate Chat runs with `origin_kind=chat`, `execution_profile=chat_agent`, and a `project_id`; gated only by `all_tools`. Creates a `project_assistant_proposal` artifact for operator review and does not apply or start anything.          |
 
 Tool argument schemas are JSON-Schema-shaped and surfaced to the LLM in the standard `tools` array on each `Chat` request. Bad arguments are returned to the model as a tool-result error string rather than failing the run, so the model can correct itself.
@@ -197,7 +200,12 @@ run reaches a terminal state or is cancelled.
 
 ## External MCP tools
 
-In addition to the thirteen built-ins, an `agent_loop` task can declare external MCP servers on the `mcp_servers` task field. Their tools join the LLM's catalog at run start under `mcp__<server>__<tool>` aliases — for example a `read_file` tool on a server aliased `fs` becomes `mcp__fs__read_file`. Approval gating is per-server (`auto` / `require_approval` / `block`), distinct from the built-in approval policy axis.
+In addition to the built-ins, an `agent_loop` task can declare external MCP servers on the `mcp_servers` task field. Their tools join the LLM's catalog at run start under `mcp__<server>__<tool>` aliases — for example a `read_file` tool on a server aliased `fs` becomes `mcp__fs__read_file`. Approval gating is per-server (`auto` / `require_approval` / `block`), distinct from the built-in approval policy axis.
+
+Use MCP for search providers beyond the built-in Brave adapter, or when the
+search server needs organization-specific credentials, ranking, or retrieval
+logic. The native `web_search` tool deliberately returns search results only;
+fetching a result URL still goes through `http_request` and its HTTP policy.
 
 See [`mcp.md#hecate-as-mcp-client`](mcp.md#hecate-as-mcp-client) for the full schema, transports (stdio + Streamable HTTP), secret-aware `env` / `headers`, lifecycle / caching contract, and dry-run probe.
 
@@ -316,8 +324,8 @@ When the LLM calls a gated tool inside an `agent_loop` run, the loop pauses. Pol
 - `git_exec` → pauses on `git_exec`, `git_status`, and `git_diff` tool calls
 - `file_write` → pauses on `file_write`, `file_edit`, and `apply_patch` tool calls
 - `read_file` → pauses on `read_file`, `grep`, `glob`, and `artifact_read` tool calls
-- `network_egress` → pauses on `http_request` tool calls
-- `all_tools` → pauses on every tool call (`shell_exec`, `terminal_open`, `terminal_write`, `terminal_read`, `terminal_wait`, `terminal_kill`, `git_exec`, `git_status`, `git_diff`, `file_write`, `file_edit`, `apply_patch`, `read_file`, `grep`, `glob`, `artifact_read`, `list_dir`, `http_request`, `draft_project_proposal`)
+- `network_egress` → pauses on `http_request` and configured `web_search` tool calls
+- `all_tools` → pauses on every tool call (`shell_exec`, `terminal_open`, `terminal_write`, `terminal_read`, `terminal_wait`, `terminal_kill`, `git_exec`, `git_status`, `git_diff`, `file_write`, `file_edit`, `apply_patch`, `read_file`, `grep`, `glob`, `artifact_read`, `list_dir`, `http_request`, `web_search`, `draft_project_proposal`)
 
 The runtime emits an approval record of kind `agent_loop_tool_call`, persists the conversation snapshot, and returns `status=awaiting_approval` for the run. The UI banner shows which tools the agent wants to use. On approve, the same run is re-queued; on resume, the loop detects the trailing assistant tool_calls without resolved results, dispatches them (no second LLM call), and continues. On reject, the run and task terminate `cancelled` with `last_error="approval rejected"`. On cancel, the run terminates `cancelled`, any awaiting approval step is marked `cancelled`, and the pending approval is resolved as `cancelled`.
 
@@ -361,6 +369,14 @@ Env vars that affect agent_loop runs:
 | `HECATE_TASK_HTTP_MAX_RESPONSE_BYTES` | `262144` (256 KiB) | Response size cap for `http_request`                                                                              |
 | `HECATE_TASK_HTTP_ALLOW_PRIVATE_IPS`  | `false`            | When `false`, blocks loopback / RFC1918 / link-local destinations                                                 |
 | `HECATE_TASK_HTTP_ALLOWED_HOSTS`      | `""`               | Comma-separated exact-host allowlist; empty = all public hosts                                                    |
+| `HECATE_TASK_WEB_SEARCH_PROVIDER`     | `""`               | Empty disables native web search. `brave` enables the `web_search` tool                                           |
+| `HECATE_TASK_WEB_SEARCH_API_KEY`      | `""`               | API key for the configured search provider. `BRAVE_SEARCH_API_KEY` is also accepted for Brave                     |
+| `HECATE_TASK_WEB_SEARCH_ENDPOINT`     | provider default   | Optional provider endpoint override, mostly for tests or private proxies                                          |
+| `HECATE_TASK_WEB_SEARCH_TIMEOUT`      | `15s`              | Timeout for the search-provider request                                                                           |
+| `HECATE_TASK_WEB_SEARCH_MAX_RESULTS`  | `5`                | Maximum results returned per `web_search` call, capped by the provider limit                                      |
+| `HECATE_TASK_WEB_SEARCH_SAFE_SEARCH`  | `moderate`         | Provider safe-search default (`off`, `moderate`, or `strict` for Brave)                                           |
+| `HECATE_TASK_WEB_SEARCH_COUNTRY`      | `""`               | Optional default country code for searches                                                                        |
+| `HECATE_TASK_WEB_SEARCH_SEARCH_LANG`  | `""`               | Optional default search language                                                                                  |
 | `HECATE_TASK_SHELL_ALLOW_PRIVATE_IPS` | `false`            | Same private-IP block, applied to URLs in shell_exec / git_exec commands when the task has `sandbox_network=true` |
 | `HECATE_TASK_SHELL_ALLOWED_HOSTS`     | `""`               | Same exact-host allowlist, applied to shell_exec / git_exec command URLs                                          |
 

@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/websearch"
 	"github.com/hecatehq/hecate/internal/workspace"
 	"github.com/hecatehq/hecate/internal/workspacefs"
 	"github.com/hecatehq/hecate/pkg/types"
@@ -3116,6 +3117,128 @@ func TestAgentLoop_HTTPRequest_GatedPausesRun(t *testing.T) {
 	if len(res.PendingApprovals) != 1 {
 		t.Errorf("PendingApprovals = %d, want 1", len(res.PendingApprovals))
 	}
+}
+
+func TestAgentLoop_WebSearch_ToolOnlyAdvertisedWhenConfigured(t *testing.T) {
+	withoutSearch := agentToolDefinitionsWithOptions(agentToolDefinitionOptions{})
+	if hasToolDefinition(withoutSearch, "web_search") {
+		t.Fatal("web_search advertised without configured client")
+	}
+	withSearch := agentToolDefinitionsWithOptions(agentToolDefinitionOptions{IncludeWebSearch: true})
+	if !hasToolDefinition(withSearch, "web_search") {
+		t.Fatal("web_search not advertised when configured")
+	}
+}
+
+func TestAgentLoop_WebSearch_HappyPath(t *testing.T) {
+	llm := &scriptedLLM{
+		responses: []*types.ChatResponse{
+			makeChatResp(makeAssistantMsg("", types.ToolCall{
+				ID: "c1", Type: "function",
+				Function: types.ToolCallFunction{
+					Name:      "web_search",
+					Arguments: `{"query":"agent client protocol","count":3}`,
+				},
+			})),
+			makeChatResp(makeAssistantMsg("got it")),
+		},
+	}
+	search := &stubWebSearchClient{
+		response: websearch.Response{
+			Provider:             websearch.ProviderBrave,
+			Query:                "agent client protocol",
+			MoreResultsAvailable: true,
+			Results: []websearch.Result{{
+				Title:       "Agent Client Protocol",
+				URL:         "https://agentclientprotocol.com",
+				Description: "Protocol docs",
+			}},
+		},
+	}
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{}, WithWebSearchClient(search))
+	res, err := loop.Execute(context.Background(), newAgentLoopSpec(t))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Status != "completed" {
+		t.Fatalf("Status = %q, want completed", res.Status)
+	}
+	if search.query.Query != "agent client protocol" || search.query.Count != 3 {
+		t.Fatalf("search query = %+v, want query + count", search.query)
+	}
+	hasSearchResult := false
+	for _, m := range llm.lastReqs[1].Messages {
+		if m.Role == "tool" && strings.Contains(m.Content, "https://agentclientprotocol.com") {
+			hasSearchResult = true
+		}
+	}
+	if !hasSearchResult {
+		t.Fatalf("web search result did not reach next LLM turn: %+v", llm.lastReqs[1].Messages)
+	}
+	var searchStep *types.TaskStep
+	for i := range res.Steps {
+		if res.Steps[i].ToolName == "web_search" {
+			searchStep = &res.Steps[i]
+			break
+		}
+	}
+	if searchStep == nil {
+		t.Fatal("web_search step not persisted in execution result")
+	}
+	if searchStep.OutputSummary["provider"] != websearch.ProviderBrave || searchStep.OutputSummary["result_count"] != 1 {
+		t.Fatalf("web_search output summary = %#v, want provider + result count", searchStep.OutputSummary)
+	}
+}
+
+func TestAgentLoop_WebSearch_GatedPausesRun(t *testing.T) {
+	llm := &scriptedLLM{
+		responses: []*types.ChatResponse{
+			makeChatResp(makeAssistantMsg("", types.ToolCall{
+				ID: "c1", Type: "function",
+				Function: types.ToolCallFunction{
+					Name:      "web_search",
+					Arguments: `{"query":"agent client protocol"}`,
+				},
+			})),
+		},
+	}
+	search := &stubWebSearchClient{}
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 8,
+		[]string{"web_search"},
+		HTTPRequestPolicy{},
+		WithWebSearchClient(search))
+	res, err := loop.Execute(context.Background(), newAgentLoopSpec(t))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Status != "awaiting_approval" {
+		t.Errorf("Status = %q, want awaiting_approval", res.Status)
+	}
+	if search.called {
+		t.Error("web search should not run before approval")
+	}
+}
+
+func hasToolDefinition(tools []types.Tool, name string) bool {
+	for _, tool := range tools {
+		if tool.Function.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+type stubWebSearchClient struct {
+	called   bool
+	query    websearch.Query
+	response websearch.Response
+	err      error
+}
+
+func (s *stubWebSearchClient) Search(_ context.Context, query websearch.Query) (websearch.Response, error) {
+	s.called = true
+	s.query = query
+	return s.response, s.err
 }
 
 func TestAgentLoop_ContextCancellation(t *testing.T) {

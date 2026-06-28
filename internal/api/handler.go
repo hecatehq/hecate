@@ -37,6 +37,7 @@ import (
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/internal/terminalapp"
 	"github.com/hecatehq/hecate/internal/version"
+	"github.com/hecatehq/hecate/internal/websearch"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -215,6 +216,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 			AllowPrivateIPs:  cfg.Server.TaskHTTPAllowPrivateIPs,
 			AllowedHosts:     cfg.Server.TaskHTTPAllowedHosts,
 		},
+		WebSearch: webSearchClientFromConfig(cfg, logger),
 		ShellNetwork: orchestrator.ShellNetworkPolicy{
 			AllowPrivateIPs: cfg.Server.TaskShellAllowPrivateIPs,
 			AllowedHosts:    cfg.Server.TaskShellAllowedHosts,
@@ -352,6 +354,26 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 	runner.SetProjectAssistantDraftTool(h)
 	h.startAgentChatIdleSweeper()
 	return h
+}
+
+func webSearchClientFromConfig(cfg config.Config, logger *slog.Logger) websearch.Client {
+	client, err := websearch.NewClient(websearch.Config{
+		Provider:   cfg.Server.TaskWebSearchProvider,
+		APIKey:     cfg.Server.TaskWebSearchAPIKey,
+		Endpoint:   cfg.Server.TaskWebSearchEndpoint,
+		Timeout:    cfg.Server.TaskWebSearchTimeout,
+		MaxResults: cfg.Server.TaskWebSearchMaxResults,
+		SafeSearch: cfg.Server.TaskWebSearchSafeSearch,
+		Country:    cfg.Server.TaskWebSearchCountry,
+		SearchLang: cfg.Server.TaskWebSearchSearchLang,
+	})
+	if err != nil {
+		if logger != nil {
+			logger.Warn("agent web search disabled", "error", err)
+		}
+		return nil
+	}
+	return client
 }
 
 // SetAgentApprovalStore swaps in a durable approval store and rebuilds

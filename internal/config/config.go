@@ -117,6 +117,18 @@ type ServerConfig struct {
 	// the agent can reach. Empty = all public hosts allowed (still
 	// blocks private IPs unless TaskHTTPAllowPrivateIPs is true).
 	TaskHTTPAllowedHosts []string
+	// TaskWebSearch* knobs govern the optional agent_loop `web_search`
+	// tool. Empty provider disables the tool. The first stable backend
+	// is Brave Search because it is a simple HTTP JSON API with an
+	// operator-owned API key.
+	TaskWebSearchProvider   string
+	TaskWebSearchAPIKey     string
+	TaskWebSearchEndpoint   string
+	TaskWebSearchTimeout    time.Duration
+	TaskWebSearchMaxResults int
+	TaskWebSearchSafeSearch string
+	TaskWebSearchCountry    string
+	TaskWebSearchSearchLang string
 
 	// TaskShell* knobs govern shell_exec network egress when
 	// SandboxNetwork is true on the task. Mirrors the http_request
@@ -493,6 +505,14 @@ func LoadFromEnv() Config {
 			TaskHTTPMaxResponseBytes:       getEnvInt("HECATE_TASK_HTTP_MAX_RESPONSE_BYTES", 256*1024),
 			TaskHTTPAllowPrivateIPs:        getEnvBool("HECATE_TASK_HTTP_ALLOW_PRIVATE_IPS", false),
 			TaskHTTPAllowedHosts:           splitCSV(getEnv("HECATE_TASK_HTTP_ALLOWED_HOSTS", "")),
+			TaskWebSearchProvider:          getEnv("HECATE_TASK_WEB_SEARCH_PROVIDER", ""),
+			TaskWebSearchAPIKey:            firstNonEmptyEnv("HECATE_TASK_WEB_SEARCH_API_KEY", "BRAVE_SEARCH_API_KEY"),
+			TaskWebSearchEndpoint:          getEnv("HECATE_TASK_WEB_SEARCH_ENDPOINT", ""),
+			TaskWebSearchTimeout:           getEnvDuration("HECATE_TASK_WEB_SEARCH_TIMEOUT", 15*time.Second),
+			TaskWebSearchMaxResults:        getEnvInt("HECATE_TASK_WEB_SEARCH_MAX_RESULTS", 5),
+			TaskWebSearchSafeSearch:        getEnv("HECATE_TASK_WEB_SEARCH_SAFE_SEARCH", "moderate"),
+			TaskWebSearchCountry:           getEnv("HECATE_TASK_WEB_SEARCH_COUNTRY", ""),
+			TaskWebSearchSearchLang:        getEnv("HECATE_TASK_WEB_SEARCH_SEARCH_LANG", ""),
 			TaskShellAllowPrivateIPs:       getEnvBool("HECATE_TASK_SHELL_ALLOW_PRIVATE_IPS", false),
 			TaskShellAllowedHosts:          splitCSV(getEnv("HECATE_TASK_SHELL_ALLOWED_HOSTS", "")),
 			AgentAdapterApprovalMode:       getEnv("HECATE_AGENT_ADAPTER_APPROVAL_MODE", "prompt"),
@@ -761,6 +781,15 @@ func (c Config) Validate() error {
 	default:
 		errs = append(errs, fmt.Errorf("HECATE_TRACE_BODY_MODE must be one of metadata or redacted_text"))
 	}
+	switch strings.ToLower(strings.TrimSpace(c.Server.TaskWebSearchProvider)) {
+	case "":
+	case "brave":
+		if strings.TrimSpace(c.Server.TaskWebSearchAPIKey) == "" {
+			errs = append(errs, fmt.Errorf("HECATE_TASK_WEB_SEARCH_API_KEY or BRAVE_SEARCH_API_KEY is required when HECATE_TASK_WEB_SEARCH_PROVIDER=brave"))
+		}
+	default:
+		errs = append(errs, fmt.Errorf("HECATE_TASK_WEB_SEARCH_PROVIDER must be empty or brave"))
+	}
 
 	return errors.Join(errs...)
 }
@@ -779,6 +808,7 @@ func durationEnvKeys() []string {
 		"HECATE_TASK_MCP_CLIENT_CACHE_PING_INTERVAL",
 		"HECATE_TASK_MCP_CLIENT_CACHE_PING_TIMEOUT",
 		"HECATE_TASK_HTTP_TIMEOUT",
+		"HECATE_TASK_WEB_SEARCH_TIMEOUT",
 		"HECATE_PROVIDER_RETRY_BACKOFF",
 		"HECATE_PROVIDER_HEALTH_COOLDOWN",
 		"HECATE_PROVIDER_HEALTH_LATENCY_DEGRADED_THRESHOLD",
@@ -1124,6 +1154,15 @@ func getEnv(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func firstNonEmptyEnv(keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 // getEnvApprovalPolicies reads HECATE_TASK_APPROVAL_POLICIES and honours an
