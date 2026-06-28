@@ -2508,8 +2508,20 @@ Example response:
         "recent": 1
       },
       "operations": {
+        "item_count": 3,
+        "available_item_count": 3,
+        "omitted_item_count": 0,
+        "item_limit": 8,
+        "high_count": 1,
+        "medium_count": 2,
+        "low_count": 0,
         "pending_memory_candidates": 1,
-        "open_handoffs": 1
+        "open_handoffs": 1,
+        "kind_counts": {
+          "review_memory_candidates": 1,
+          "review_pending_handoff": 1,
+          "start_queued_assignment": 1
+        }
       },
       "assistant": {
         "proposals": 1
@@ -2544,8 +2556,20 @@ Example response:
         "recent": 1
       },
       "operations": {
+        "item_count": 3,
+        "available_item_count": 3,
+        "omitted_item_count": 0,
+        "item_limit": 8,
+        "high_count": 1,
+        "medium_count": 2,
+        "low_count": 0,
         "pending_memory_candidates": 1,
-        "open_handoffs": 1
+        "open_handoffs": 1,
+        "kind_counts": {
+          "review_memory_candidates": 1,
+          "review_pending_handoff": 1,
+          "start_queued_assignment": 1
+        }
       },
       "assistant": {
         "proposals": 1

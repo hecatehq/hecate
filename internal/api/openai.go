@@ -459,8 +459,16 @@ type ProjectCairnlineActivityParityCounts struct {
 }
 
 type ProjectCairnlineOperationsParityCounts struct {
-	PendingMemoryCandidates int `json:"pending_memory_candidates"`
-	OpenHandoffs            int `json:"open_handoffs"`
+	ItemCount               int            `json:"item_count"`
+	AvailableItemCount      int            `json:"available_item_count"`
+	OmittedItemCount        int            `json:"omitted_item_count"`
+	ItemLimit               int            `json:"item_limit"`
+	HighCount               int            `json:"high_count"`
+	MediumCount             int            `json:"medium_count"`
+	LowCount                int            `json:"low_count"`
+	PendingMemoryCandidates int            `json:"pending_memory_candidates"`
+	OpenHandoffs            int            `json:"open_handoffs"`
+	KindCounts              map[string]int `json:"kind_counts"`
 }
 
 type ProjectCairnlineAssistantParityCounts struct {

@@ -195,12 +195,17 @@ func (h *Handler) HandleProjectCairnlineParityReport(w http.ResponseWriter, r *h
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
+	cairnlineOperations, err := h.renderCairnlineProjectOperationsBrief(r.Context(), snapshot.Project)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
 	nativeAssistantProposals, err := h.nativeProjectAssistantProposalCount(r.Context(), projectID)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	report := projectCairnlineParityReport(projectID, projectCairnlineSnapshotGraphCounts(snapshot), nativeActivity, nativeOperations, nativeAssistantProposals, readModel)
+	report := projectCairnlineParityReport(projectID, projectCairnlineSnapshotGraphCounts(snapshot), nativeActivity, nativeOperations, cairnlineOperations, nativeAssistantProposals, readModel)
 	WriteJSON(w, http.StatusOK, ProjectCairnlineParityReportResponse{
 		Object: "project_cairnline_parity_report",
 		Data:   report,
@@ -1149,7 +1154,7 @@ func (h *Handler) nativeProjectAssistantProposalCount(ctx context.Context, proje
 	return len(proposals), nil
 }
 
-func projectCairnlineParityReport(projectID string, nativeGraph ProjectCairnlineGraphParityCounts, nativeActivity ProjectActivityDataResponse, nativeOperations ProjectOperationsBriefResponse, nativeAssistantProposals int, readModel ProjectCairnlineReadModelResponseItem) ProjectCairnlineParityReportResponseItem {
+func projectCairnlineParityReport(projectID string, nativeGraph ProjectCairnlineGraphParityCounts, nativeActivity ProjectActivityDataResponse, nativeOperations ProjectOperationsBriefResponse, cairnlineOperations ProjectOperationsBriefResponse, nativeAssistantProposals int, readModel ProjectCairnlineReadModelResponseItem) ProjectCairnlineParityReportResponseItem {
 	hecate := ProjectCairnlineParitySnapshot{
 		Graph: nativeGraph,
 		Activity: ProjectCairnlineActivityParityCounts{
@@ -1160,10 +1165,7 @@ func projectCairnlineParityReport(projectID string, nativeGraph ProjectCairnline
 			Completed:   nativeActivity.Summary.CompletedCount,
 			Recent:      nativeActivity.Summary.RecentCount,
 		},
-		Operations: ProjectCairnlineOperationsParityCounts{
-			PendingMemoryCandidates: nativeOperations.Summary.PendingMemoryCandidateCount,
-			OpenHandoffs:            nativeOperations.Summary.PendingHandoffCount,
-		},
+		Operations: projectCairnlineOperationsParityCounts(nativeOperations),
 		Assistant: ProjectCairnlineAssistantParityCounts{
 			Proposals: nativeAssistantProposals,
 		},
@@ -1196,10 +1198,7 @@ func projectCairnlineParityReport(projectID string, nativeGraph ProjectCairnline
 			Completed:   readModel.Activity.Counts.Completed,
 			Recent:      len(readModel.Activity.Buckets.Recent),
 		},
-		Operations: ProjectCairnlineOperationsParityCounts{
-			PendingMemoryCandidates: readModel.Operations.Counts.PendingMemoryCandidates,
-			OpenHandoffs:            readModel.Operations.Counts.OpenHandoffs,
-		},
+		Operations: projectCairnlineOperationsParityCounts(cairnlineOperations),
 		Assistant: ProjectCairnlineAssistantParityCounts{
 			Proposals: readModel.AssistantProposalCount,
 		},
@@ -1217,6 +1216,29 @@ func projectCairnlineParityReport(projectID string, nativeGraph ProjectCairnline
 		Hecate:      hecate,
 		Cairnline:   cairnline,
 	}
+}
+
+func projectCairnlineOperationsParityCounts(operations ProjectOperationsBriefResponse) ProjectCairnlineOperationsParityCounts {
+	counts := ProjectCairnlineOperationsParityCounts{
+		ItemCount:               operations.Summary.ItemCount,
+		AvailableItemCount:      operations.Summary.AvailableItemCount,
+		OmittedItemCount:        operations.Summary.OmittedItemCount,
+		ItemLimit:               operations.Summary.ItemLimit,
+		HighCount:               operations.Summary.HighCount,
+		MediumCount:             operations.Summary.MediumCount,
+		LowCount:                operations.Summary.LowCount,
+		PendingMemoryCandidates: operations.Summary.PendingMemoryCandidateCount,
+		OpenHandoffs:            operations.Summary.PendingHandoffCount,
+		KindCounts:              map[string]int{},
+	}
+	for _, item := range operations.Items {
+		kind := strings.TrimSpace(item.Kind)
+		if kind == "" {
+			continue
+		}
+		counts.KindCounts[kind]++
+	}
+	return counts
 }
 
 func projectCairnlineParityDifferences(hecate, cairnline ProjectCairnlineParitySnapshot) []ProjectCairnlineParityDifference {
@@ -1239,12 +1261,39 @@ func projectCairnlineParityDifferences(hecate, cairnline ProjectCairnlineParityS
 	differences = appendProjectCairnlineParityDifference(differences, "activity.blocked", hecate.Activity.Blocked, cairnline.Activity.Blocked)
 	differences = appendProjectCairnlineParityDifference(differences, "activity.completed", hecate.Activity.Completed, cairnline.Activity.Completed)
 	differences = appendProjectCairnlineParityDifference(differences, "activity.recent", hecate.Activity.Recent, cairnline.Activity.Recent)
+	differences = appendProjectCairnlineParityDifference(differences, "operations.item_count", hecate.Operations.ItemCount, cairnline.Operations.ItemCount)
+	differences = appendProjectCairnlineParityDifference(differences, "operations.available_item_count", hecate.Operations.AvailableItemCount, cairnline.Operations.AvailableItemCount)
+	differences = appendProjectCairnlineParityDifference(differences, "operations.omitted_item_count", hecate.Operations.OmittedItemCount, cairnline.Operations.OmittedItemCount)
+	differences = appendProjectCairnlineParityDifference(differences, "operations.item_limit", hecate.Operations.ItemLimit, cairnline.Operations.ItemLimit)
+	differences = appendProjectCairnlineParityDifference(differences, "operations.high_count", hecate.Operations.HighCount, cairnline.Operations.HighCount)
+	differences = appendProjectCairnlineParityDifference(differences, "operations.medium_count", hecate.Operations.MediumCount, cairnline.Operations.MediumCount)
+	differences = appendProjectCairnlineParityDifference(differences, "operations.low_count", hecate.Operations.LowCount, cairnline.Operations.LowCount)
 	differences = appendProjectCairnlineParityDifference(differences, "operations.pending_memory_candidates", hecate.Operations.PendingMemoryCandidates, cairnline.Operations.PendingMemoryCandidates)
 	differences = appendProjectCairnlineParityDifference(differences, "operations.open_handoffs", hecate.Operations.OpenHandoffs, cairnline.Operations.OpenHandoffs)
+	differences = appendProjectCairnlineParityMapDifferences(differences, "operations.kind_counts", hecate.Operations.KindCounts, cairnline.Operations.KindCounts)
 	differences = appendProjectCairnlineParityDifference(differences, "assistant.proposals", hecate.Assistant.Proposals, cairnline.Assistant.Proposals)
 	differences = appendProjectCairnlineParityDifference(differences, "launch_packets.assignments", hecate.LaunchPackets.Assignments, cairnline.LaunchPackets.Assignments)
 	differences = appendProjectCairnlineParityDifference(differences, "launch_packets.warnings", hecate.LaunchPackets.Warnings, cairnline.LaunchPackets.Warnings)
 	differences = appendProjectCairnlineParityDifference(differences, "launch_packets.errors", hecate.LaunchPackets.Errors, cairnline.LaunchPackets.Errors)
+	return differences
+}
+
+func appendProjectCairnlineParityMapDifferences(differences []ProjectCairnlineParityDifference, prefix string, hecate, cairnline map[string]int) []ProjectCairnlineParityDifference {
+	keys := make(map[string]struct{}, len(hecate)+len(cairnline))
+	for key := range hecate {
+		keys[key] = struct{}{}
+	}
+	for key := range cairnline {
+		keys[key] = struct{}{}
+	}
+	ordered := make([]string, 0, len(keys))
+	for key := range keys {
+		ordered = append(ordered, key)
+	}
+	sort.Strings(ordered)
+	for _, key := range ordered {
+		differences = appendProjectCairnlineParityDifference(differences, prefix+"."+key, hecate[key], cairnline[key])
+	}
 	return differences
 }
 
