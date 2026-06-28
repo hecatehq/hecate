@@ -51,6 +51,11 @@ agent tools. Operator terminal sessions created through Hecate are an explicit
 local opt-in for supervised command processes; they are not a replacement for a
 VM/container boundary and they do not grant agents a new tool by themselves.
 
+Native web discovery is opt-in. The `web_search` agent tool is only advertised
+when an operator configures a search provider and API key; it returns bounded
+search results, while fetching a result URL still goes through `http_request`
+and that tool's SSRF/host policy.
+
 ## Workspaces
 
 Hecate supports isolated generated workspaces and opt-in in-place workspaces.

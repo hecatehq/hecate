@@ -217,6 +217,63 @@ func TestLoadFromEnvAgentAdapterTerminalsOptIn(t *testing.T) {
 	}
 }
 
+func TestLoadFromEnvTaskWebSearchDefaultsToDisabled(t *testing.T) {
+	cfg := LoadFromEnv()
+	if cfg.Server.TaskWebSearchProvider != "" {
+		t.Fatalf("TaskWebSearchProvider = %q, want empty", cfg.Server.TaskWebSearchProvider)
+	}
+	if cfg.Server.TaskWebSearchAPIKey != "" {
+		t.Fatal("TaskWebSearchAPIKey = non-empty, want empty by default")
+	}
+	if cfg.Server.TaskWebSearchMaxResults != 5 {
+		t.Fatalf("TaskWebSearchMaxResults = %d, want 5", cfg.Server.TaskWebSearchMaxResults)
+	}
+	if cfg.Server.TaskWebSearchSafeSearch != "moderate" {
+		t.Fatalf("TaskWebSearchSafeSearch = %q, want moderate", cfg.Server.TaskWebSearchSafeSearch)
+	}
+}
+
+func TestLoadFromEnvTaskWebSearchBraveConfig(t *testing.T) {
+	t.Setenv("HECATE_TASK_WEB_SEARCH_PROVIDER", "brave")
+	t.Setenv("BRAVE_SEARCH_API_KEY", "brave-key")
+	t.Setenv("HECATE_TASK_WEB_SEARCH_ENDPOINT", "https://example.test/search")
+	t.Setenv("HECATE_TASK_WEB_SEARCH_TIMEOUT", "9s")
+	t.Setenv("HECATE_TASK_WEB_SEARCH_MAX_RESULTS", "7")
+	t.Setenv("HECATE_TASK_WEB_SEARCH_SAFE_SEARCH", "strict")
+	t.Setenv("HECATE_TASK_WEB_SEARCH_COUNTRY", "US")
+	t.Setenv("HECATE_TASK_WEB_SEARCH_SEARCH_LANG", "en")
+
+	cfg := LoadFromEnv()
+	if cfg.Server.TaskWebSearchProvider != "brave" {
+		t.Fatalf("TaskWebSearchProvider = %q, want brave", cfg.Server.TaskWebSearchProvider)
+	}
+	if cfg.Server.TaskWebSearchAPIKey != "brave-key" {
+		t.Fatalf("TaskWebSearchAPIKey = %q, want BRAVE_SEARCH_API_KEY fallback", cfg.Server.TaskWebSearchAPIKey)
+	}
+	if cfg.Server.TaskWebSearchEndpoint != "https://example.test/search" || cfg.Server.TaskWebSearchTimeout != 9*time.Second {
+		t.Fatalf("TaskWebSearch endpoint/timeout = %q/%v, want configured values", cfg.Server.TaskWebSearchEndpoint, cfg.Server.TaskWebSearchTimeout)
+	}
+	if cfg.Server.TaskWebSearchMaxResults != 7 || cfg.Server.TaskWebSearchSafeSearch != "strict" || cfg.Server.TaskWebSearchCountry != "US" || cfg.Server.TaskWebSearchSearchLang != "en" {
+		t.Fatalf("TaskWebSearch config = %+v, want configured search defaults", cfg.Server)
+	}
+}
+
+func TestValidateTaskWebSearchProviderRequiresKey(t *testing.T) {
+	cfg := Config{Server: ServerConfig{TaskWebSearchProvider: "brave"}}
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "HECATE_TASK_WEB_SEARCH_API_KEY") {
+		t.Fatalf("Validate() error = %v, want missing web search key", err)
+	}
+}
+
+func TestValidateTaskWebSearchRejectsUnknownProvider(t *testing.T) {
+	cfg := Config{Server: ServerConfig{TaskWebSearchProvider: "unknown", TaskWebSearchAPIKey: "key"}}
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "HECATE_TASK_WEB_SEARCH_PROVIDER") {
+		t.Fatalf("Validate() error = %v, want unsupported web search provider", err)
+	}
+}
+
 func TestLoadFromEnvOperatorTerminalsOptIn(t *testing.T) {
 	cfg := LoadFromEnv()
 	if cfg.Server.OperatorTerminals {

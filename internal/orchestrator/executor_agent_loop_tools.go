@@ -9,6 +9,7 @@ import (
 
 	mcpclient "github.com/hecatehq/hecate/internal/mcp/client"
 	"github.com/hecatehq/hecate/internal/telemetry"
+	"github.com/hecatehq/hecate/internal/websearch"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -18,6 +19,7 @@ type agentLoopToolDispatcher struct {
 	git                       Executor
 	httpPolicy                HTTPRequestPolicy
 	httpClient                *http.Client
+	webSearch                 websearch.Client
 	projectAssistantDraftTool ProjectAssistantDraftTool
 	metrics                   *telemetry.OrchestratorMetrics
 }
@@ -203,6 +205,13 @@ func (d *agentLoopToolDispatcher) Dispatch(ctx context.Context, spec ExecutionSp
 			return agentLoopToolDispatchResult{Text: fmt.Sprintf("invalid arguments for http_request: %v", err)}, nil
 		}
 		return d.httpRequestTool(ctx, spec, args, stepIndex, startedAt, call.Function.Name)
+
+	case "web_search":
+		var args webSearchArgs
+		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
+			return agentLoopToolDispatchResult{Text: fmt.Sprintf("invalid arguments for web_search: %v", err)}, nil
+		}
+		return d.webSearchTool(ctx, spec, args, stepIndex, startedAt, call.Function.Name)
 
 	case AgentToolDraftProjectProposal:
 		var args projectAssistantDraftArgs

@@ -16,6 +16,7 @@ import (
 	"github.com/hecatehq/hecate/internal/runtimeevents"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/internal/telemetry"
+	"github.com/hecatehq/hecate/internal/websearch"
 	"github.com/hecatehq/hecate/internal/workspace"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -67,6 +68,9 @@ type Config struct {
 	// values fall back to safe defaults inside the executor (30s,
 	// 256 KiB, private-IPs blocked, all public hosts allowed).
 	HTTPPolicy HTTPRequestPolicy
+	// WebSearch enables the optional agent_loop `web_search` tool.
+	// Nil means the tool is omitted from the LLM catalog.
+	WebSearch websearch.Client
 	// ShellNetwork mirrors HTTPPolicy's host/IP rules onto shell_exec
 	// and git_exec when SandboxNetwork is enabled on the task. The
 	// master gate is still task.SandboxNetwork — these only refine
@@ -232,7 +236,7 @@ func NewRunner(logger *slog.Logger, store taskstate.Store, tracer profiler.Trace
 	// Gated tools come from the same approval policies as
 	// task-level gating, so an operator who approves shell at the
 	// task layer also approves it inside agent_loop tool calls.
-	agent := NewAgentLoopExecutor(nil, runner.shell, runner.file, runner.git, cfg.AgentLoopMaxTurns, agentLoopGatedTools(runner.policies), cfg.HTTPPolicy)
+	agent := NewAgentLoopExecutor(nil, runner.shell, runner.file, runner.git, cfg.AgentLoopMaxTurns, agentLoopGatedTools(runner.policies), cfg.HTTPPolicy, WithWebSearchClient(cfg.WebSearch))
 	agent.SetMCPHostFactory(DefaultMCPHostFactory)
 	runner.mcpHostFactory = DefaultMCPHostFactory
 	runner.agent = agent
@@ -294,7 +298,7 @@ func (r *Runner) SetSystemPromptResolver(resolver SystemPromptResolver) {
 // service is constructed, since the chat path needs its own deps that
 // the runner doesn't otherwise know about. Nil unwires the loop.
 func (r *Runner) SetAgentLLMClient(llm AgentLLMClient) {
-	agent := NewAgentLoopExecutor(llm, r.shell, r.file, r.git, r.config.AgentLoopMaxTurns, agentLoopGatedTools(r.policies), r.config.HTTPPolicy)
+	agent := NewAgentLoopExecutor(llm, r.shell, r.file, r.git, r.config.AgentLoopMaxTurns, agentLoopGatedTools(r.policies), r.config.HTTPPolicy, WithWebSearchClient(r.config.WebSearch))
 	// Re-bind the stored MCP factory — the executor is rebuilt from
 	// scratch above so the prior binding is gone. Fall back to the
 	// no-cipher default if SetMCPHostFactory was never called.
@@ -350,7 +354,7 @@ func (r *Runner) hasPolicy(name string) bool {
 func agentLoopGatedTools(policies map[string]struct{}) []string {
 	// all_tools gates every tool the agent can call — no need to enumerate.
 	if _, ok := policies["all_tools"]; ok {
-		out := []string{"shell_exec", "git_exec", "git_status", "git_diff", "file_write", "file_edit", "apply_patch", "read_file", "grep", "glob", "artifact_read", "list_dir", "http_request", AgentToolDraftProjectProposal}
+		out := []string{"shell_exec", "git_exec", "git_status", "git_diff", "file_write", "file_edit", "apply_patch", "read_file", "grep", "glob", "artifact_read", "list_dir", "http_request", "web_search", AgentToolDraftProjectProposal}
 		return append(out, agentLoopTerminalToolNames()...)
 	}
 	out := make([]string, 0, len(policies))
@@ -370,8 +374,8 @@ func agentLoopGatedTools(policies map[string]struct{}) []string {
 			// outbound-network policy applied to shell tasks. We
 			// reuse it here so an operator who already gates
 			// network on shell automatically gates the agent's
-			// HTTP tool too — no second toggle to remember.
-			out = append(out, "http_request")
+			// HTTP and web-search tools too — no second toggle to remember.
+			out = append(out, "http_request", "web_search")
 		}
 	}
 	return out

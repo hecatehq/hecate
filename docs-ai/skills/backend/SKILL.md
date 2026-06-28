@@ -265,6 +265,13 @@ and gate them through the existing `shell_exec` / `all_tools` approval policy.
 Add focused orchestrator tests plus an e2e fake-provider run whenever changing
 native terminal tool behavior.
 
+Native `agent_loop` web search is optional. Keep provider clients in
+`internal/websearch`, wire them through `orchestrator.Config.WebSearch`, and
+advertise `web_search` only when a provider is configured. `network_egress`
+must gate both `http_request` and configured `web_search`; result discovery
+does not fetch result URLs, which still belongs to `http_request` and its
+HTTP policy.
+
 Hecate owns the ACP process/session boundary, not provider-specific adapter
 implementation parity. Tests in this repository should use the repo-local fake
 ACP peer to cover probing, auth/logout, session prepare/load, config options,

@@ -19,6 +19,7 @@ import (
 	"github.com/hecatehq/hecate/internal/gitrunner"
 	"github.com/hecatehq/hecate/internal/runtimeevents"
 	"github.com/hecatehq/hecate/internal/telemetry"
+	"github.com/hecatehq/hecate/internal/websearch"
 	"github.com/hecatehq/hecate/internal/workspacefs"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -106,7 +107,7 @@ type AgentLoopExecutor struct {
 // and the loop hydrates from the saved conversation, dispatches the
 // previously-pending tool calls, and continues. Empty/nil = no gating
 // (every tool runs immediately).
-func NewAgentLoopExecutor(llm AgentLLMClient, shell Executor, file Executor, git Executor, maxTurns int, gatedTools []string, httpPolicy HTTPRequestPolicy) *AgentLoopExecutor {
+func NewAgentLoopExecutor(llm AgentLLMClient, shell Executor, file Executor, git Executor, maxTurns int, gatedTools []string, httpPolicy HTTPRequestPolicy, opts ...AgentLoopExecutorOption) *AgentLoopExecutor {
 	if maxTurns <= 0 {
 		maxTurns = 8
 	}
@@ -124,7 +125,7 @@ func NewAgentLoopExecutor(llm AgentLLMClient, shell Executor, file Executor, git
 	// blow through their max-turns cap before causing damage.
 	httpClient := &http.Client{Timeout: httpPolicy.Timeout}
 
-	return &AgentLoopExecutor{
+	executor := &AgentLoopExecutor{
 		llm:          llm,
 		maxTurns:     maxTurns,
 		approvalGate: newAgentLoopApprovalGate(gatedTools),
@@ -135,6 +136,23 @@ func NewAgentLoopExecutor(llm AgentLLMClient, shell Executor, file Executor, git
 			httpPolicy: httpPolicy,
 			httpClient: httpClient,
 		},
+	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(executor)
+		}
+	}
+	return executor
+}
+
+type AgentLoopExecutorOption func(*AgentLoopExecutor)
+
+func WithWebSearchClient(client websearch.Client) AgentLoopExecutorOption {
+	return func(e *AgentLoopExecutor) {
+		if e == nil || e.toolDispatcher == nil {
+			return
+		}
+		e.toolDispatcher.webSearch = client
 	}
 }
 
@@ -178,7 +196,10 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 
 	runState := newAgentLoopRunState(spec, e.maxTurns)
 	conversation := newAgentLoopConversation(spec)
-	tools := agentToolDefinitions(projectAssistantDraftToolAvailable(spec.Task, e.toolDispatcher.projectAssistantDraftTool))
+	tools := agentToolDefinitionsWithOptions(agentToolDefinitionOptions{
+		IncludeProjectAssistantDraft: projectAssistantDraftToolAvailable(spec.Task, e.toolDispatcher.projectAssistantDraftTool),
+		IncludeWebSearch:             e.toolDispatcher != nil && e.toolDispatcher.webSearch != nil,
+	})
 	terminals := e.terminalSessionsForRun(spec.Run.ID)
 	defer func() {
 		if res == nil || res.Status != "awaiting_approval" {
@@ -435,6 +456,15 @@ func estimateAgentPromptTokens(messages []types.Message) int {
 // because verbose schemas waste tokens.
 func agentToolDefinitions(includeProjectAssistantDraftOpt ...bool) []types.Tool {
 	includeProjectAssistantDraft := len(includeProjectAssistantDraftOpt) > 0 && includeProjectAssistantDraftOpt[0]
+	return agentToolDefinitionsWithOptions(agentToolDefinitionOptions{IncludeProjectAssistantDraft: includeProjectAssistantDraft})
+}
+
+type agentToolDefinitionOptions struct {
+	IncludeProjectAssistantDraft bool
+	IncludeWebSearch             bool
+}
+
+func agentToolDefinitionsWithOptions(opts agentToolDefinitionOptions) []types.Tool {
 	tools := []types.Tool{
 		{
 			Type: "function",
@@ -712,7 +742,29 @@ func agentToolDefinitions(includeProjectAssistantDraftOpt ...bool) []types.Tool 
 			},
 		},
 	}
-	if includeProjectAssistantDraft {
+	if opts.IncludeWebSearch {
+		tools = append(tools, types.Tool{
+			Type: "function",
+			Function: types.ToolFunction{
+				Name:        "web_search",
+				Description: "Search the web using the operator-configured search provider. Use this when you need to discover current pages before fetching specific URLs with http_request.",
+				Parameters: json.RawMessage(`{
+					"type": "object",
+					"properties": {
+						"query": {"type": "string", "description": "Search query."},
+						"count": {"type": "integer", "minimum": 1, "maximum": 20, "default": 5, "description": "Desired result count. Hecate may cap this by operator policy."},
+						"offset": {"type": "integer", "minimum": 0, "default": 0, "description": "Result offset for pagination."},
+						"freshness": {"type": "string", "enum": ["pd", "pw", "pm", "py"], "description": "Optional freshness window: past day/week/month/year."},
+						"country": {"type": "string", "description": "Optional country code such as US or ES."},
+						"search_lang": {"type": "string", "description": "Optional search language such as en or es."},
+						"safe_search": {"type": "string", "enum": ["off", "moderate", "strict"], "description": "Optional safe-search setting."}
+					},
+					"required": ["query"]
+				}`),
+			},
+		})
+	}
+	if opts.IncludeProjectAssistantDraft {
 		tools = append(tools, types.Tool{
 			Type: "function",
 			Function: types.ToolFunction{
