@@ -175,7 +175,7 @@ func writeProjectMemoryMutationError(w http.ResponseWriter, err error, notFoundM
 		WriteError(w, http.StatusNotFound, errCodeNotFound, notFoundMessage)
 		return true
 	}
-	if errors.Is(err, memory.ErrAlreadyExists) || errors.Is(err, memory.ErrConflict) || errors.Is(err, cairnline.ErrConflict) {
+	if errors.Is(err, memory.ErrAlreadyExists) || errors.Is(err, memory.ErrConflict) || errors.Is(err, cairnline.ErrDuplicate) || errors.Is(err, cairnline.ErrConflict) {
 		WriteError(w, http.StatusConflict, errCodeConflict, err.Error())
 		return true
 	}

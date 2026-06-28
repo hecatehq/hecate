@@ -474,13 +474,17 @@ sequenceDiagram
   or requested project row/proposal record is missing. Run
   `POST /hecate/v1/projects/cairnline/sync` first when testing strict embedded
   reads.
-- `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=none|project-memory` controls
-  alpha Cairnline write-authority switchpoints while
+- `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=none|project-memory|project-memory,memory-candidates`
+  controls alpha Cairnline write-authority switchpoints while
   `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline`. The default is `none`.
   `project-memory` makes accepted project memory entry create/update/delete
   commit to the embedded Cairnline database first and then best-effort shadow
-  the row back into Hecate-native memory stores. Memory candidates, candidate
-  promotion/rejection, and all other Projects mutations remain Hecate-owned.
+  the row back into Hecate-native memory stores. `memory-candidates` requires
+  `project-memory`; together they make reviewable memory-candidate
+  create/promote/reject mutations Cairnline-first too, with candidate promotion
+  creating accepted memory through Cairnline before shadowing the candidate and
+  promoted memory row back into Hecate-native stores. All other Projects
+  mutations remain Hecate-owned.
 - `HECATE_POSTGRES_URL=postgres://...` or `DATABASE_URL=postgres://...` is
   required when `HECATE_BACKEND=postgres`. Optional Postgres knobs:
   `HECATE_POSTGRES_TABLE_PREFIX`, `HECATE_POSTGRES_MAX_OPEN_CONNS`, and
@@ -2232,8 +2236,9 @@ being built.
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-memory` enables the first
 disabled-by-default write authority switchpoint: accepted project memory entries
 commit to embedded Cairnline first and are then shadowed back into Hecate-native
-memory stores. Memory candidates and candidate promotion/rejection are still
-Hecate-owned.
+memory stores. Adding `memory-candidates` to that comma-separated setting makes
+candidate create/promote/reject Cairnline-first as well; it requires
+`project-memory` because candidate promotion creates accepted project memory.
 `authoritative_backend` remains `hecate` until Hecate can run project read/write
 flows against Cairnline without UI-local fallback state. When
 `configured_backend=cairnline`, Hecate still commits live Projects writes to
@@ -2312,8 +2317,10 @@ create/update/delete mutations after Hecate commits. `project-memory-live-mirror
 mirrors accepted project memory entries after Hecate commits unless
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-memory` makes accepted memory
 Cairnline-first. `project-memory-candidates-live-mirror` mirrors reviewable
-candidate state after Hecate commits, including promoted/rejected status and
-promoted memory references.
+candidate state after Hecate commits unless
+`HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-memory,memory-candidates`
+makes candidate create/promote/reject Cairnline-first, including promoted or
+rejected status and promoted memory references.
 `project-assistant-proposal-ledger-live-mirror`
 mirrors Project Assistant draft/propose/apply proposal records and apply-attempt
 history after Hecate commits. `project-assistant-apply-side-effects-live-mirror`

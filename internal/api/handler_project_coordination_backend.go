@@ -367,8 +367,12 @@ func projectReplacementGateStatus(ready bool) string {
 func projectCairnlineWriteAdapterGapsSnapshot(writeAuthority []string) []string {
 	out := make([]string, 0, len(projectCairnlineWriteAdapterGapNames))
 	projectMemoryAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, "project-memory")
+	memoryCandidatesAuthoritative := projectMemoryAuthoritative && projectCairnlineWriteAuthorityEnabled(writeAuthority, "memory-candidates")
 	for _, item := range projectCairnlineWriteAdapterGapNames {
 		if projectMemoryAuthoritative && item == "memory" {
+			continue
+		}
+		if memoryCandidatesAuthoritative && item == "memory-candidates" {
 			continue
 		}
 		out = append(out, item)
@@ -379,6 +383,7 @@ func projectCairnlineWriteAdapterGapsSnapshot(writeAuthority []string) []string 
 func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string) []ProjectCoordinationBackendWriteSwitchpoint {
 	out := make([]ProjectCoordinationBackendWriteSwitchpoint, 0, len(projectCairnlineWriteSwitchpoints))
 	projectMemoryAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, "project-memory")
+	memoryCandidatesAuthoritative := projectMemoryAuthoritative && projectCairnlineWriteAuthorityEnabled(writeAuthority, "memory-candidates")
 	for _, item := range projectCairnlineWriteSwitchpoints {
 		if projectMemoryAuthoritative && item.Name == "project-memory" {
 			item.CurrentAuthority = "cairnline"
@@ -387,6 +392,14 @@ func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string) []Projec
 			item.BlocksAuthority = false
 			item.Gap = ""
 			item.Detail = "Accepted project memory entry mutations commit to the embedded Cairnline database first, then best-effort shadow durable memory state back into Hecate-native stores for compatibility."
+		}
+		if memoryCandidatesAuthoritative && item.Name == "memory-candidates" {
+			item.CurrentAuthority = "cairnline"
+			item.CairnlineState = "authoritative_opt_in"
+			item.LiveMirror = true
+			item.BlocksAuthority = false
+			item.Gap = ""
+			item.Detail = "Project memory-candidate create, promote, and reject mutations commit to the embedded Cairnline database first, then best-effort shadow review state and promoted-memory references back into Hecate-native stores for compatibility."
 		}
 		item.Seams = append([]string(nil), item.Seams...)
 		out = append(out, item)
@@ -405,6 +418,9 @@ func projectCairnlineWriteAuthorityEnabled(items []string, name string) bool {
 }
 
 func projectCairnlineProjectMemoryWriteWarning(writeAuthority []string) string {
+	if projectCairnlineWriteAuthorityEnabled(writeAuthority, "project-memory") && projectCairnlineWriteAuthorityEnabled(writeAuthority, "memory-candidates") {
+		return "Accepted project memory entry and memory-candidate mutations are opt-in Cairnline-authoritative and then best-effort shadowed into Hecate-native stores; candidate promotion also creates accepted memory through Cairnline."
+	}
 	if projectCairnlineWriteAuthorityEnabled(writeAuthority, "project-memory") {
 		return "Accepted project memory entry mutations are opt-in Cairnline-authoritative and then best-effort shadowed into Hecate-native stores; memory-candidate mutations still write Hecate-native stores first, then mirror reviewable candidate state into Cairnline."
 	}

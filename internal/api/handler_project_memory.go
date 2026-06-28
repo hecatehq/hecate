@@ -174,6 +174,15 @@ func (h *Handler) HandleCreateProjectMemoryCandidate(w http.ResponseWriter, r *h
 		SourceRefs:          candidateSourceRefsFromRequest(req.SourceRefs),
 		Status:              memory.CandidateStatusPending,
 	}
+	if h.projectMemoryCandidatesWriteUseCairnlineAuthority() {
+		created, err := h.createProjectMemoryCandidateWithCairnlineAuthority(r.Context(), projectID, candidate)
+		if writeProjectMemoryMutationError(w, err, "project memory candidate not found") {
+			return
+		}
+		h.shadowProjectMemoryCandidateToHecate(r.Context(), "project_memory_candidate_authority_create_shadow", created)
+		WriteJSON(w, http.StatusCreated, ProjectMemoryCandidateResponse{Object: "project_memory_candidate", Data: renderProjectMemoryCandidate(created, "cairnline")})
+		return
+	}
 	created, err := candidateStore.CreateCandidate(r.Context(), candidate)
 	if errors.Is(err, memory.ErrInvalid) {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
@@ -205,6 +214,16 @@ func (h *Handler) HandlePromoteProjectMemoryCandidate(w http.ResponseWriter, r *
 		return
 	}
 	candidateID := r.PathValue("candidate_id")
+	if h.projectMemoryCandidatesWriteUseCairnlineAuthority() {
+		updated, promotedEntry, err := h.promoteProjectMemoryCandidateWithCairnlineAuthority(r.Context(), projectID, candidateID, req)
+		if writeProjectMemoryMutationError(w, err, "project memory candidate not found") {
+			return
+		}
+		h.shadowProjectMemoryEntryToHecate(r.Context(), "project_memory_candidate_authority_promote_entry_shadow", promotedEntry)
+		h.shadowProjectMemoryCandidateToHecate(r.Context(), "project_memory_candidate_authority_promote_shadow", updated)
+		WriteJSON(w, http.StatusOK, ProjectMemoryCandidateResponse{Object: "project_memory_candidate", Data: renderProjectMemoryCandidate(updated, "cairnline")})
+		return
+	}
 	candidate, ok, err := candidateStore.GetCandidate(r.Context(), projectID, candidateID)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
@@ -284,6 +303,15 @@ func (h *Handler) HandleRejectProjectMemoryCandidate(w http.ResponseWriter, r *h
 		return
 	}
 	candidateID := r.PathValue("candidate_id")
+	if h.projectMemoryCandidatesWriteUseCairnlineAuthority() {
+		updated, err := h.rejectProjectMemoryCandidateWithCairnlineAuthority(r.Context(), projectID, candidateID, req.Reason)
+		if writeProjectMemoryMutationError(w, err, "project memory candidate not found") {
+			return
+		}
+		h.shadowProjectMemoryCandidateToHecate(r.Context(), "project_memory_candidate_authority_reject_shadow", updated)
+		WriteJSON(w, http.StatusOK, ProjectMemoryCandidateResponse{Object: "project_memory_candidate", Data: renderProjectMemoryCandidate(updated, "cairnline")})
+		return
+	}
 	candidate, ok, err := candidateStore.GetCandidate(r.Context(), projectID, candidateID)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())

@@ -473,16 +473,19 @@ func TestLoadFromEnvProjectsCairnlineWriteAuthority(t *testing.T) {
 		t.Fatalf("ProjectsCairnlineWriteAuthorityEnabled(project-memory) = true, want false by default")
 	}
 
-	t.Setenv("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY", " Project-Memory, none, project-memory ")
+	t.Setenv("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY", " Project-Memory, none, memory-candidates, project-memory ")
 	cfg = LoadFromEnv()
-	if got := cfg.ProjectsCairnlineWriteAuthority(); len(got) != 1 || got[0] != "project-memory" {
-		t.Fatalf("ProjectsCairnlineWriteAuthority() = %+v, want [project-memory]", got)
+	if got := cfg.ProjectsCairnlineWriteAuthority(); len(got) != 2 || got[0] != "project-memory" || got[1] != "memory-candidates" {
+		t.Fatalf("ProjectsCairnlineWriteAuthority() = %+v, want [project-memory memory-candidates]", got)
 	}
 	if !cfg.ProjectsCairnlineWriteAuthorityEnabled("project-memory") {
 		t.Fatalf("ProjectsCairnlineWriteAuthorityEnabled(project-memory) = false, want true")
 	}
+	if !cfg.ProjectsCairnlineWriteAuthorityEnabled("memory-candidates") {
+		t.Fatalf("ProjectsCairnlineWriteAuthorityEnabled(memory-candidates) = false, want true")
+	}
 	if err := cfg.Validate(); err != nil {
-		t.Fatalf("Validate() error = %v, want nil for project-memory Cairnline write authority opt-in", err)
+		t.Fatalf("Validate() error = %v, want nil for project memory and candidate Cairnline write authority opt-ins", err)
 	}
 }
 
@@ -522,6 +525,19 @@ func TestValidateRejectsInvalidProjectsCairnlineWriteAuthority(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY") {
 		t.Fatalf("Validate() error = %q, want HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY", err)
+	}
+}
+
+func TestValidateRejectsProjectsCairnlineMemoryCandidateAuthorityWithoutAcceptedMemory(t *testing.T) {
+	cfg := LoadFromEnv()
+	cfg.Projects.CairnlineWriteAuthority = "memory-candidates"
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() error = nil, want memory-candidates dependency error")
+	}
+	if !strings.Contains(err.Error(), "memory-candidates requires project-memory") {
+		t.Fatalf("Validate() error = %q, want memory-candidates project-memory dependency", err)
 	}
 }
 

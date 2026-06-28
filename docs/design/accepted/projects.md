@@ -161,8 +161,9 @@ helpers so operator-facing actions stay parity-checked with the native route.
 disabled-by-default Cairnline write-authority dogfood switch. When enabled,
 accepted project memory entry create/update/delete commits to embedded
 Cairnline first, then best-effort shadows the entry into Hecate-native memory
-stores for compatibility. Memory candidates and candidate promotion/rejection
-remain Hecate-owned.
+stores for compatibility. Adding `memory-candidates` to that setting makes
+memory-candidate create/promote/reject Cairnline-first too; it requires
+`project-memory` because promotion creates accepted project memory.
 Assignment-start is still a Hecate-native dispatch mutation, committed
 assignment-start results are best-effort mirrored for replacement evidence, and
 other live Projects reads/writes still use the Hecate-native API.
@@ -225,9 +226,11 @@ evidence links, and reviews, and handoff create/update/delete routes also mirror
 portable collaboration metadata after Hecate commits. Accepted project memory
 entries can be switched to Cairnline-first authority with
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-memory`; otherwise they
-mirror after Hecate commits. Memory-candidate create/update/resolve routes still
-mirror reviewable candidate state after Hecate commits, including disabled
-state, provenance, status reason, and promoted memory references. Global
+mirror after Hecate commits. Memory-candidate create/promote/reject routes mirror
+reviewable candidate state after Hecate commits unless
+`HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-memory,memory-candidates` is
+enabled, in which case they commit to Cairnline first and then shadow candidate
+state and promoted memory references back into Hecate. Global
 agent-profile create/update/delete routes also
 mirror portable profile metadata and execution posture after Hecate commits;
 the delete mirror removes only the profile record because execution-profile

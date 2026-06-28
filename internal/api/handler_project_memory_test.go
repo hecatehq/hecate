@@ -64,6 +64,20 @@ func newProjectMemoryCairnlineAuthorityTestServer(t *testing.T) (*Handler, http.
 	return handler, NewServer(quietLogger(), handler)
 }
 
+func newProjectMemoryCairnlineCandidateAuthorityTestServer(t *testing.T) (*Handler, http.Handler) {
+	t.Helper()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend:     "cairnline",
+			CairnlineWriteAuthority: "project-memory,memory-candidates",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	handler.SetProjectStore(projects.NewMemoryStore())
+	handler.SetMemoryStore(memory.NewMemoryStore())
+	return handler, NewServer(quietLogger(), handler)
+}
+
 func TestProjectMemoryAPI_CRUD(t *testing.T) {
 	t.Parallel()
 	server := newProjectMemoryTestServer()
@@ -463,6 +477,84 @@ func TestProjectMemoryAPI_CairnlineWriteAuthorityCommitsAcceptedMemoryFirst(t *t
 	assertCairnlineMemoryEntryMissingForTest(t, handler, projectID, created.Data.ID)
 	if _, ok, err := handler.memory.Get(t.Context(), projectID, created.Data.ID); err != nil || ok {
 		t.Fatalf("deleted native shadow ok=%v error=%v, want missing", ok, err)
+	}
+}
+
+func TestProjectMemoryAPI_CairnlineWriteAuthorityCommitsMemoryCandidatesFirst(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectMemoryCairnlineCandidateAuthorityTestServer(t)
+	client := newAPITestClient(t, server)
+	project := createMemoryTestProject(t, server, "Memory Candidate Authority")
+	projectID := project.Data.ID
+
+	rejectCandidate := mustRequestJSONStatus[ProjectMemoryCandidateResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/memory/candidates", `{
+		"title":"Generated maybe",
+		"body":"Reviewable candidates can be Cairnline-authoritative.",
+		"source_refs":[{"kind":"handoff","id":"hand_1","title":"Handoff"}]
+	}`)
+	if rejectCandidate.Data.ReadBackend != "cairnline" || rejectCandidate.Data.SuggestedTrustLabel != memory.TrustLabelGenerated || rejectCandidate.Data.SuggestedSourceKind != memory.SourceKindGenerated || len(rejectCandidate.Data.SourceRefs) != 1 {
+		t.Fatalf("created candidate = %+v, want Cairnline-backed normalized candidate with source ref", rejectCandidate.Data)
+	}
+	mirroredCandidate := getMirroredCairnlineMemoryCandidateForTest(t, handler, projectID, rejectCandidate.Data.ID)
+	if mirroredCandidate.Status != cairnline.MemoryCandidatePending || mirroredCandidate.Title != "Generated maybe" {
+		t.Fatalf("Cairnline candidate = %+v, want pending authoritative candidate", mirroredCandidate)
+	}
+	shadowCandidate, ok, err := handler.memoryCandidates.GetCandidate(t.Context(), projectID, rejectCandidate.Data.ID)
+	if err != nil || !ok {
+		t.Fatalf("native candidate shadow ok=%v error=%v, want present", ok, err)
+	}
+	if shadowCandidate.ID != rejectCandidate.Data.ID || shadowCandidate.Title != rejectCandidate.Data.Title || shadowCandidate.Status != memory.CandidateStatusPending {
+		t.Fatalf("native candidate shadow = %+v, want shadowed pending candidate", shadowCandidate)
+	}
+
+	rejected := mustRequestJSON[ProjectMemoryCandidateResponse](client, http.MethodPost, "/hecate/v1/projects/"+projectID+"/memory/candidates/"+rejectCandidate.Data.ID+"/reject", `{"reason":"Too speculative"}`)
+	if rejected.Data.ReadBackend != "cairnline" || rejected.Data.Status != memory.CandidateStatusRejected || rejected.Data.StatusReason != "Too speculative" {
+		t.Fatalf("rejected candidate = %+v, want Cairnline-backed rejected state", rejected.Data)
+	}
+	mirroredCandidate = getMirroredCairnlineMemoryCandidateForTest(t, handler, projectID, rejectCandidate.Data.ID)
+	if mirroredCandidate.Status != cairnline.MemoryCandidateRejected || mirroredCandidate.StatusReason != "Too speculative" {
+		t.Fatalf("Cairnline rejected candidate = %+v, want rejected reason", mirroredCandidate)
+	}
+	shadowCandidate, ok, err = handler.memoryCandidates.GetCandidate(t.Context(), projectID, rejectCandidate.Data.ID)
+	if err != nil || !ok || shadowCandidate.Status != memory.CandidateStatusRejected || shadowCandidate.StatusReason != "Too speculative" {
+		t.Fatalf("native rejected candidate shadow = %+v ok=%v error=%v, want rejected shadow", shadowCandidate, ok, err)
+	}
+
+	promoteCandidate := mustRequestJSONStatus[ProjectMemoryCandidateResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/memory/candidates", `{
+		"title":"Generated lesson",
+		"body":"Capture durable lessons after review.",
+		"suggested_kind":"lesson",
+		"suggested_trust_label":"generated_summary",
+		"suggested_source_kind":"artifact",
+		"suggested_source_id":"art_1"
+	}`)
+	promoted := mustRequestJSON[ProjectMemoryCandidateResponse](client, http.MethodPost, "/hecate/v1/projects/"+projectID+"/memory/candidates/"+promoteCandidate.Data.ID+"/promote", `{
+		"title":"Reviewed lesson",
+		"body":"Capture durable lessons after operator review.",
+		"trust_label":"operator_memory",
+		"source_kind":"operator",
+		"source_id":"art_1",
+		"enabled":true
+	}`)
+	if promoted.Data.ReadBackend != "cairnline" || promoted.Data.Status != memory.CandidateStatusPromoted || promoted.Data.PromotedMemoryID == "" {
+		t.Fatalf("promoted candidate = %+v, want Cairnline-backed promoted state", promoted.Data)
+	}
+	mirroredMemory := getMirroredCairnlineMemoryEntryForTest(t, handler, projectID, promoted.Data.PromotedMemoryID)
+	if mirroredMemory.Title != "Reviewed lesson" || mirroredMemory.Body != "Capture durable lessons after operator review." || mirroredMemory.TrustLabel != memory.TrustLabelOperatorMemory || mirroredMemory.SourceKind != memory.SourceKindOperator {
+		t.Fatalf("Cairnline promoted memory = %+v, want reviewed operator memory", mirroredMemory)
+	}
+	shadowMemory, ok, err := handler.memory.Get(t.Context(), projectID, promoted.Data.PromotedMemoryID)
+	if err != nil || !ok || shadowMemory.Title != "Reviewed lesson" || shadowMemory.TrustLabel != memory.TrustLabelOperatorMemory {
+		t.Fatalf("native promoted memory shadow = %+v ok=%v error=%v, want promoted memory shadow", shadowMemory, ok, err)
+	}
+	shadowCandidate, ok, err = handler.memoryCandidates.GetCandidate(t.Context(), projectID, promoteCandidate.Data.ID)
+	if err != nil || !ok || shadowCandidate.Status != memory.CandidateStatusPromoted || shadowCandidate.PromotedMemoryID != promoted.Data.PromotedMemoryID {
+		t.Fatalf("native promoted candidate shadow = %+v ok=%v error=%v, want promoted candidate shadow", shadowCandidate, ok, err)
+	}
+
+	retried := mustRequestJSON[ProjectMemoryCandidateResponse](client, http.MethodPost, "/hecate/v1/projects/"+projectID+"/memory/candidates/"+promoteCandidate.Data.ID+"/promote", `{}`)
+	if retried.Data.PromotedMemoryID != promoted.Data.PromotedMemoryID {
+		t.Fatalf("repeat promote id = %q, want %q", retried.Data.PromotedMemoryID, promoted.Data.PromotedMemoryID)
 	}
 }
 

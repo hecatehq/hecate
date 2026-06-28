@@ -587,7 +587,10 @@ func (c Config) Validate() error {
 	validateBackend("HECATE_PROJECTS_COORDINATION_BACKEND", c.ProjectsCoordinationBackend(), "hecate", "cairnline")
 	validateBackend("HECATE_PROJECTS_CAIRNLINE_READ_SOURCE", c.ProjectsCairnlineReadSource(), "auto", "snapshot", "embedded")
 	for _, item := range c.ProjectsCairnlineWriteAuthority() {
-		validateBackend("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY", item, "project-memory")
+		validateBackend("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY", item, "project-memory", "memory-candidates")
+	}
+	if c.ProjectsCairnlineWriteAuthorityEnabled("memory-candidates") && !c.ProjectsCairnlineWriteAuthorityEnabled("project-memory") {
+		errs = append(errs, errors.New("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=memory-candidates requires project-memory because candidate promotion creates accepted project memory"))
 	}
 	if postgresRequired(c) && strings.TrimSpace(c.Postgres.DatabaseURL) == "" {
 		errs = append(errs, errors.New("HECATE_POSTGRES_URL or DATABASE_URL is required when HECATE_BACKEND=postgres"))
