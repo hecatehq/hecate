@@ -366,7 +366,8 @@ launch agents. Those remain explicit operator or orchestrator actions.
   mirror committed assignment-start results as replacement evidence, but this
   does not make assignment-start Cairnline-backed.
 - The Hecate parity report compares raw graph counts, derived activity and
-  operations counts, Project Assistant proposal-ledger counts, and launch-packet
+  operations counts, rendered work-item route shape including embedded
+  assignments, Project Assistant proposal-ledger counts, and launch-packet
   coverage before any backend switch.
 - The Hecate backend-status endpoint exposes the live Cairnline read-route
   coverage, non-authoritative bridge write seams, and remaining live-route

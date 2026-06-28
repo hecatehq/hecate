@@ -815,7 +815,7 @@ func TestProjectCairnlineContentDigestIgnoresVolatileTimestamps(t *testing.T) {
 }
 
 func TestProjectCairnlineParityReport_IncludesAssistantProposalDifferences(t *testing.T) {
-	report := projectCairnlineParityReport("proj_parity", ProjectCairnlineGraphParityCounts{}, ProjectActivityDataResponse{}, ProjectOperationsBriefResponse{}, ProjectOperationsBriefResponse{}, 2, ProjectCairnlineReadModelResponseItem{
+	report := projectCairnlineParityReport("proj_parity", ProjectCairnlineGraphParityCounts{}, nil, ProjectActivityDataResponse{}, ProjectOperationsBriefResponse{}, nil, ProjectOperationsBriefResponse{}, 2, ProjectCairnlineReadModelResponseItem{
 		AssistantProposalCount: 1,
 	})
 	if report.Match {
@@ -835,7 +835,7 @@ func TestProjectCairnlineParityReport_IncludesGraphCountDifferences(t *testing.T
 		ContextSources:    2,
 		ExecutionProfiles: 4,
 		Artifacts:         3,
-	}, ProjectActivityDataResponse{}, ProjectOperationsBriefResponse{}, ProjectOperationsBriefResponse{}, 0, ProjectCairnlineReadModelResponseItem{
+	}, nil, ProjectActivityDataResponse{}, ProjectOperationsBriefResponse{}, nil, ProjectOperationsBriefResponse{}, 0, ProjectCairnlineReadModelResponseItem{
 		RootCount:             1,
 		ContextSourceCount:    1,
 		ExecutionProfileCount: 3,
@@ -855,10 +855,34 @@ func TestProjectCairnlineParityReport_IncludesGraphCountDifferences(t *testing.T
 	}
 }
 
+func TestProjectCairnlineParityReport_IncludesWorkItemRouteProjectionDifferences(t *testing.T) {
+	nativeWorkItems := []ProjectWorkItemResponse{
+		{ID: "work_1", Assignments: []ProjectWorkAssignmentResponse{{ID: "asgn_1"}, {ID: "asgn_2"}}},
+		{ID: "work_2"},
+	}
+	cairnlineWorkItems := []ProjectWorkItemResponse{
+		{ID: "work_1", Assignments: []ProjectWorkAssignmentResponse{{ID: "asgn_1"}}},
+		{ID: "work_2"},
+	}
+	report := projectCairnlineParityReport("proj_parity", ProjectCairnlineGraphParityCounts{}, nativeWorkItems, ProjectActivityDataResponse{}, ProjectOperationsBriefResponse{}, cairnlineWorkItems, ProjectOperationsBriefResponse{}, 0, ProjectCairnlineReadModelResponseItem{})
+	if report.Match {
+		t.Fatalf("parity report match = true, want work-item route projection mismatch")
+	}
+	if report.Hecate.WorkItems.Items != 2 || report.Hecate.WorkItems.EmbeddedAssignments != 2 || report.Hecate.WorkItems.UnassignedItems != 1 {
+		t.Fatalf("hecate work-item parity = %+v, want 2 items, 2 embedded assignments, 1 unassigned", report.Hecate.WorkItems)
+	}
+	if report.Cairnline.WorkItems.Items != 2 || report.Cairnline.WorkItems.EmbeddedAssignments != 1 || report.Cairnline.WorkItems.UnassignedItems != 1 {
+		t.Fatalf("cairnline work-item parity = %+v, want 2 items, 1 embedded assignment, 1 unassigned", report.Cairnline.WorkItems)
+	}
+	if !hasProjectCairnlineParityDifference(report.Differences, "work_items.embedded_assignments", 2, 1) {
+		t.Fatalf("parity differences = %+v, want work_items.embedded_assignments 2/1", report.Differences)
+	}
+}
+
 func TestProjectCairnlineParityReport_IncludesLaunchPacketCoverageDifferences(t *testing.T) {
-	report := projectCairnlineParityReport("proj_parity", ProjectCairnlineGraphParityCounts{}, ProjectActivityDataResponse{
+	report := projectCairnlineParityReport("proj_parity", ProjectCairnlineGraphParityCounts{}, nil, ProjectActivityDataResponse{
 		Summary: ProjectActivitySummaryResponse{AssignmentCount: 2},
-	}, ProjectOperationsBriefResponse{}, ProjectOperationsBriefResponse{}, 0, ProjectCairnlineReadModelResponseItem{
+	}, ProjectOperationsBriefResponse{}, nil, ProjectOperationsBriefResponse{}, 0, ProjectCairnlineReadModelResponseItem{
 		LaunchPacketCount:        1,
 		LaunchPacketWarningCount: 2,
 		LaunchPacketErrors: []ProjectCairnlineLaunchPacketError{{
@@ -910,7 +934,7 @@ func TestProjectCairnlineParityReport_IncludesOperationsDifferences(t *testing.T
 			{Kind: "start_queued_assignment"},
 		},
 	}
-	report := projectCairnlineParityReport("proj_parity", ProjectCairnlineGraphParityCounts{}, ProjectActivityDataResponse{}, nativeOperations, cairnlineOperations, 0, ProjectCairnlineReadModelResponseItem{})
+	report := projectCairnlineParityReport("proj_parity", ProjectCairnlineGraphParityCounts{}, nil, ProjectActivityDataResponse{}, nativeOperations, nil, cairnlineOperations, 0, ProjectCairnlineReadModelResponseItem{})
 	if report.Match {
 		t.Fatalf("parity report match = true, want operations mismatch")
 	}

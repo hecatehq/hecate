@@ -164,10 +164,12 @@ mirror can serve project projections directly.
 `GET /hecate/v1/projects/{id}/cairnline/parity-report` compares Hecate's
 native cockpit counts with that Cairnline read model and returns explicit
 differences for raw graph counts including execution-profile defaults,
-activity, rendered cockpit operations including action-kind counts, and the
-Project Assistant proposal ledger, plus portable launch-packet coverage, so
-import coverage, bucket/status semantics, operator-action drift, portable ledger
-coverage, and assignment packet coverage can be fixed before any backend switch.
+rendered work-item route shape including embedded assignments, activity,
+rendered cockpit operations including action-kind counts, and the Project
+Assistant proposal ledger, plus portable launch-packet coverage, so import
+coverage, work-item projection drift, bucket/status semantics,
+operator-action drift, portable ledger coverage, and assignment packet coverage
+can be fixed before any backend switch.
 `GET /hecate/v1/projects/{id}/cairnline/embedded-parity-report` performs the
 same cockpit comparison against the existing embedded Cairnline mirror database
 instead of the snapshot-seeded in-memory service. It is the stricter live-read
