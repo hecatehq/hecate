@@ -269,8 +269,34 @@ func (h *Handler) HandleUpdateProject(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	h.mirrorProjectIdentityToCairnline(r.Context(), "project_update", project)
+	if projectUpdateTouchesOnlyPortableDefaults(req) {
+		h.mirrorProjectDefaultsToCairnline(r.Context(), "project_defaults_update", project)
+	} else {
+		h.mirrorProjectIdentityToCairnline(r.Context(), "project_update", project)
+	}
 	WriteJSON(w, http.StatusOK, ProjectResponse{Object: "project", Data: renderProject(project)})
+}
+
+func projectUpdateTouchesOnlyPortableDefaults(req updateProjectRequest) bool {
+	if !projectUpdateTouchesPortableDefaults(req) {
+		return false
+	}
+	return req.Name == nil &&
+		req.Description == nil &&
+		req.Roots == nil &&
+		req.ContextSources == nil &&
+		req.LastOpenedAt == nil
+}
+
+func projectUpdateTouchesPortableDefaults(req updateProjectRequest) bool {
+	return req.DefaultRootID != nil ||
+		req.DefaultProvider != nil ||
+		req.DefaultModel != nil ||
+		req.DefaultAgentProfile != nil ||
+		req.DefaultToolsEnabled != nil ||
+		req.DefaultWorkspaceMode != nil ||
+		req.DefaultSystemPrompt != nil ||
+		req.DefaultCompactToolOutput != nil
 }
 
 func (h *Handler) HandleCreateProjectRoot(w http.ResponseWriter, r *http.Request) {

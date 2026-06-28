@@ -386,6 +386,73 @@ func TestProjectsAPI_MirrorsIdentityMutationsToCairnlineWhenConfigured(t *testin
 	}
 }
 
+func TestProjectsAPI_DefaultOnlyPatchMirrorsDefaultsWithoutReplacingCairnlineState(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineMirrorTestServer(t)
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects", bytes.NewReader([]byte(`{
+		"name":"Defaults Mirror",
+		"roots":[{"id":"root_main","path":"/workspace/main","kind":"git"}],
+		"context_sources":[{"id":"ctx_agents","path":"AGENTS.md","kind":"workspace_instruction","title":"AGENTS.md"}],
+		"default_provider":"openai",
+		"default_model":"gpt-5"
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	var created ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+
+	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+	if err != nil {
+		t.Fatalf("open Cairnline mirror: %v", err)
+	}
+	if _, _, err := service.CreateRoot(t.Context(), created.Data.ID, cairnline.Root{
+		ID:     "root_cairnline_only",
+		Path:   "/workspace/cairnline-only",
+		Kind:   "folder",
+		Active: true,
+	}); err != nil {
+		t.Fatalf("CreateRoot(cairnline-only): %v", err)
+	}
+	if _, _, err := service.CreateContextSource(t.Context(), created.Data.ID, cairnline.Source{
+		ID:      "ctx_cairnline_only",
+		Kind:    "operator_note",
+		Title:   "Cairnline-only source",
+		Locator: "cairnline://source",
+		Enabled: true,
+	}); err != nil {
+		t.Fatalf("CreateContextSource(cairnline-only): %v", err)
+	}
+	store.Close()
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+created.Data.ID, bytes.NewReader([]byte(`{
+		"default_provider":"anthropic",
+		"default_model":"claude-sonnet-4-5",
+		"default_agent_profile":"architecture",
+		"default_tools_enabled":false,
+		"default_workspace_mode":"worktree"
+	}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("defaults update status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	mirrored := getMirroredCairnlineProjectForTest(t, handler, created.Data.ID)
+	if mirrored.DefaultProfileID != "architecture" {
+		t.Fatalf("mirrored default profile = %q, want architecture", mirrored.DefaultProfileID)
+	}
+	if findMirroredCairnlineRootForTest(mirrored.Roots, "root_cairnline_only") == nil {
+		t.Fatalf("mirrored roots = %+v, want Cairnline-only root preserved", mirrored.Roots)
+	}
+	if findMirroredCairnlineSourceForTest(mirrored.ContextSources, "ctx_cairnline_only") == nil {
+		t.Fatalf("mirrored context sources = %+v, want Cairnline-only source preserved", mirrored.ContextSources)
+	}
+	assertMirroredExecutionProfileForTest(t, handler, mirrored.DefaultExecutionProfileID, "anthropic", "claude-sonnet-4-5")
+}
+
 func assertCairnlineProjectProjectionForTest(t *testing.T, project ProjectResponseItem, projectID string) {
 	t.Helper()
 	if project.ID != projectID || project.ReadBackend != "cairnline" {

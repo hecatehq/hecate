@@ -2233,14 +2233,16 @@ lifecycle-status sync, create-if-missing generic artifacts/evidence/reviews,
 handoffs, memory entries, memory candidates, Project Assistant proposal-ledger
 import, and all-project sync rehearsal. The
 `project-identity-live-mirror` seam means project create/update/delete plus root
-discovery/worktree-creation, context-source discovery, and project-default
-mutations still commit to Hecate stores first, then best-effort mirror the
-portable project identity shape into the embedded Cairnline database when
-Cairnline is configured. `project-roots-live-mirror` uses Cairnline's root-level
-create/update/delete API for direct root mutations after Hecate commits.
+discovery/worktree-creation and context-source discovery still commit to Hecate
+stores first, then best-effort mirror the portable project identity shape into
+the embedded Cairnline database when Cairnline is configured.
+`project-roots-live-mirror` uses Cairnline's root-level create/update/delete API
+for direct root mutations after Hecate commits.
 `project-context-sources-live-mirror` uses Cairnline's source-level
 create/update/delete API for direct context-source mutations after Hecate
-commits. None of these mirrors is write authority.
+commits. `project-defaults-live-mirror` uses Cairnline's project-defaults seam
+for default-only project updates after Hecate commits, preserving existing
+mirrored roots and context sources. None of these mirrors is write authority.
 `project-skills-live-mirror` similarly mirrors metadata-only
 project skill discovery/update records after Hecate commits; it does not load,
 inject, or execute `SKILL.md` bodies. `agent-profiles-live-mirror` mirrors
@@ -2315,6 +2317,7 @@ Example response:
       "context-sources",
       "project-context-sources-live-mirror",
       "project-defaults",
+      "project-defaults-live-mirror",
       "project-identity-live-mirror",
       "agent-profiles",
       "agent-profiles-live-mirror",

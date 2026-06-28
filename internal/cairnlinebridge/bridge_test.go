@@ -444,6 +444,105 @@ func TestUpsertProjectMirrorsProjectRootAndContextSourceMutations(t *testing.T) 
 	}
 }
 
+func TestUpsertProjectDefaultsPreservesRootAndSourceState(t *testing.T) {
+	ctx := context.Background()
+	service := cairnline.NewMemoryService()
+	now := time.Date(2026, 6, 27, 10, 30, 0, 0, time.UTC)
+
+	project := projects.Project{
+		ID:                   "proj_defaults",
+		Name:                 "Defaults Adapter",
+		DefaultProvider:      "openai",
+		DefaultModel:         "gpt-5",
+		DefaultAgentProfile:  "implementation",
+		DefaultToolsEnabled:  boolPtrForTest(true),
+		DefaultWorkspaceMode: "worktree",
+		Roots: []projects.Root{{
+			ID:     "root_main",
+			Path:   "/tmp/hecate-defaults",
+			Kind:   "git",
+			Active: true,
+		}},
+		DefaultRootID: "root_main",
+		ContextSources: []projects.ContextSource{{
+			ID:      "ctx_agents",
+			Kind:    "workspace_instruction",
+			Title:   "AGENTS.md",
+			Path:    "AGENTS.md",
+			Enabled: true,
+		}},
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if _, err := UpsertProject(ctx, service, project); err != nil {
+		t.Fatalf("UpsertProject(create) error = %v", err)
+	}
+	if _, _, err := service.CreateRoot(ctx, project.ID, cairnline.Root{
+		ID:     "root_cairnline_only",
+		Path:   "/tmp/hecate-defaults-cairnline-only",
+		Kind:   "folder",
+		Active: true,
+	}); err != nil {
+		t.Fatalf("CreateRoot(cairnline-only) error = %v", err)
+	}
+	if _, _, err := service.CreateContextSource(ctx, project.ID, cairnline.Source{
+		ID:      "ctx_cairnline_only",
+		Kind:    "operator_note",
+		Title:   "Cairnline-only source",
+		Locator: "cairnline://source",
+		Enabled: true,
+	}); err != nil {
+		t.Fatalf("CreateContextSource(cairnline-only) error = %v", err)
+	}
+
+	project.DefaultProvider = "anthropic"
+	project.DefaultModel = "claude-sonnet-4-5"
+	project.DefaultAgentProfile = "architecture"
+	project.UpdatedAt = now.Add(time.Minute)
+	updated, err := UpsertProjectDefaults(ctx, service, project)
+	if err != nil {
+		t.Fatalf("UpsertProjectDefaults(update) error = %v", err)
+	}
+	if updated.DefaultProfileID != "architecture" || updated.DefaultExecutionProfileID != projectExecutionProfileID(project) {
+		t.Fatalf("updated defaults = %+v, want portable project defaults", updated)
+	}
+	if findCairnlineRoot(updated.Roots, "root_cairnline_only") == nil {
+		t.Fatalf("updated roots = %+v, want Cairnline-only root preserved", updated.Roots)
+	}
+	if findCairnlineSource(updated.ContextSources, "ctx_cairnline_only") == nil {
+		t.Fatalf("updated sources = %+v, want Cairnline-only source preserved", updated.ContextSources)
+	}
+	executionProfiles, err := service.ListExecutionProfiles(ctx)
+	if err != nil {
+		t.Fatalf("ListExecutionProfiles() error = %v", err)
+	}
+	if profile := findCairnlineExecutionProfile(executionProfiles, projectExecutionProfileID(project)); profile == nil || profile.ProviderHint != "anthropic" || profile.ModelHint != "claude-sonnet-4-5" {
+		t.Fatalf("project execution profile = %+v, want updated defaults", profile)
+	}
+
+	project.DefaultProvider = ""
+	project.DefaultModel = ""
+	project.DefaultToolsEnabled = nil
+	project.DefaultWorkspaceMode = ""
+	project.DefaultSystemPrompt = ""
+	project.DefaultCompactToolOutput = nil
+	project.UpdatedAt = now.Add(2 * time.Minute)
+	updated, err = UpsertProjectDefaults(ctx, service, project)
+	if err != nil {
+		t.Fatalf("UpsertProjectDefaults(clear) error = %v", err)
+	}
+	if updated.DefaultExecutionProfileID != "" {
+		t.Fatalf("cleared defaults = %+v, want no execution profile default", updated)
+	}
+	executionProfiles, err = service.ListExecutionProfiles(ctx)
+	if err != nil {
+		t.Fatalf("ListExecutionProfiles() after clear error = %v", err)
+	}
+	if profile := findCairnlineExecutionProfile(executionProfiles, projectExecutionProfileIDValue(project)); profile != nil {
+		t.Fatalf("project execution profile = %+v, want deleted after defaults clear", profile)
+	}
+}
+
 func TestUpsertContextSourceMirrorsSingleSourceMutations(t *testing.T) {
 	ctx := context.Background()
 	service := cairnline.NewMemoryService()
