@@ -164,22 +164,22 @@ func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendS
 func projectCairnlineReadSourceDetail(source string) string {
 	switch source {
 	case "embedded":
-		return "Configured read routes require the embedded mirror database and requested project row; if the mirror is missing or stale, the route fails loudly instead of falling back to a Hecate snapshot."
+		return "Configured read routes require the embedded mirror database and requested project row or proposal record; if the mirror is missing or stale, the route fails loudly instead of falling back to a Hecate snapshot."
 	case "snapshot":
 		return "Configured read routes use the snapshot-seeded in-memory Cairnline bridge projection and do not attempt the embedded mirror database."
 	default:
-		return "Configured read routes prefer the embedded mirror database when it already contains the requested project; otherwise they fall back to the snapshot-seeded in-memory bridge projection."
+		return "Configured read routes prefer the embedded mirror database when it already contains the requested project or proposal record; otherwise they fall back to the snapshot-seeded in-memory bridge projection."
 	}
 }
 
 func projectCairnlineReadSourceWarning(source string) string {
 	switch source {
 	case "embedded":
-		return "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded requires a populated embedded Cairnline mirror database and fails configured read routes when the database or project row is missing."
+		return "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded requires a populated embedded Cairnline mirror database and fails configured read routes when the database, project row, or proposal record is missing."
 	case "snapshot":
 		return "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=snapshot keeps configured read routes on the snapshot-seeded in-memory Cairnline bridge projection even when an embedded mirror database exists."
 	default:
-		return "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=auto makes configured Cairnline read-model service reads prefer the embedded mirror database when it already contains the requested project, and otherwise use a snapshot-seeded in-memory Cairnline bridge projection."
+		return "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=auto makes configured Cairnline read-model service reads prefer the embedded mirror database when it already contains the requested project or proposal record, and otherwise use a snapshot-seeded in-memory Cairnline bridge projection."
 	}
 }
 

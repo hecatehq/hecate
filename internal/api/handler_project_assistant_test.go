@@ -918,6 +918,38 @@ func TestProjectAssistantAPI_MirrorsProposalLedgerToCairnlineWhenConfigured(t *t
 	}
 }
 
+func TestProjectAssistantAPI_ProposalRouteUsesStrictEmbeddedReadSource(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectAssistantCairnlineMirrorTestHandler(t)
+	client := newAPITestClient(t, server)
+	project := mustRequestJSONStatus[ProjectResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects", `{
+		"name":"Strict Embedded Assistant"
+	}`)
+
+	drafted := mustRequestJSON[projectAssistantProposalResponse](client, http.MethodPost, "/hecate/v1/project-assistant/draft", projectJourneyJSON(t, map[string]any{
+		"project_id": project.Data.ID,
+		"request":    "Capture the first reviewable work item.",
+	}))
+	if drafted.Data.ID == "" || len(drafted.Data.Actions) == 0 {
+		t.Fatalf("drafted proposal = %+v, want mirrored proposal with at least one action", drafted.Data)
+	}
+	mirroredDraft := getMirroredCairnlineAssistantProposalForTest(t, handler, drafted.Data.ID)
+	if mirroredDraft.ProjectID != project.Data.ID || mirroredDraft.Status != cairnline.AssistantProposalStatusProposed {
+		t.Fatalf("mirrored draft = %+v, want proposed embedded proposal for project %s", mirroredDraft, project.Data.ID)
+	}
+
+	handler.config.Projects.CairnlineReadSource = "embedded"
+	handler.SetProjectAssistantProposalStore(projectassistant.NewMemoryProposalStore())
+	if _, ok, err := handler.projectAssistantProposals.GetProposal(t.Context(), drafted.Data.ID); err != nil || ok {
+		t.Fatalf("native proposal store = ok %v err %v, want cleared store before strict embedded read", ok, err)
+	}
+
+	record := mustRequestJSON[projectAssistantProposalRecordResponse](client, http.MethodGet, "/hecate/v1/project-assistant/proposals/"+drafted.Data.ID, "")
+	if record.Data.ID != drafted.Data.ID || record.Data.ProjectID != project.Data.ID || record.Data.Status != projectassistant.ProposalStatusProposed || len(record.Data.Proposal.Actions) != len(drafted.Data.Actions) {
+		t.Fatalf("proposal record = %+v, want strict embedded Cairnline-projected proposal", record.Data)
+	}
+}
+
 func TestProjectAssistantAPI_ApplyMirrorsCoordinationGraphToCairnlineWhenConfigured(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectAssistantCairnlineMirrorTestHandler(t)
