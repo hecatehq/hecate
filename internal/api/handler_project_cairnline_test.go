@@ -223,6 +223,14 @@ func TestProjectCairnlineExportAPI_WritesRefreshableSQLiteExport(t *testing.T) {
 	if parity.Data.Hecate.Operations.PendingMemoryCandidates != 1 || parity.Data.Cairnline.Operations.PendingMemoryCandidates != 1 || parity.Data.Hecate.Operations.OpenHandoffs != 1 || parity.Data.Cairnline.Operations.OpenHandoffs != 1 {
 		t.Fatalf("parity operations counts = hecate %+v cairnline %+v, want matching memory and handoff counts", parity.Data.Hecate.Operations, parity.Data.Cairnline.Operations)
 	}
+	if parity.Data.Hecate.Operations.ItemCount == 0 || parity.Data.Hecate.Operations.ItemCount != parity.Data.Cairnline.Operations.ItemCount || parity.Data.Hecate.Operations.AvailableItemCount != parity.Data.Cairnline.Operations.AvailableItemCount || parity.Data.Hecate.Operations.ItemLimit != parity.Data.Cairnline.Operations.ItemLimit {
+		t.Fatalf("parity operations summary = hecate %+v cairnline %+v, want matching rendered operations brief counts", parity.Data.Hecate.Operations, parity.Data.Cairnline.Operations)
+	}
+	for _, kind := range []string{"start_queued_assignment", "review_memory_candidates", "review_pending_handoff"} {
+		if parity.Data.Hecate.Operations.KindCounts[kind] != 1 || parity.Data.Cairnline.Operations.KindCounts[kind] != 1 {
+			t.Fatalf("parity operations kind_counts[%s] = hecate %d cairnline %d, want 1/1", kind, parity.Data.Hecate.Operations.KindCounts[kind], parity.Data.Cairnline.Operations.KindCounts[kind])
+		}
+	}
 	if parity.Data.Hecate.Assistant.Proposals != 1 || parity.Data.Cairnline.Assistant.Proposals != 1 {
 		t.Fatalf("parity assistant counts = hecate %+v cairnline %+v, want matching assistant proposal ledger counts", parity.Data.Hecate.Assistant, parity.Data.Cairnline.Assistant)
 	}
@@ -505,7 +513,7 @@ func TestProjectCairnlineContentDigestIgnoresVolatileTimestamps(t *testing.T) {
 }
 
 func TestProjectCairnlineParityReport_IncludesAssistantProposalDifferences(t *testing.T) {
-	report := projectCairnlineParityReport("proj_parity", ProjectCairnlineGraphParityCounts{}, ProjectActivityDataResponse{}, ProjectOperationsBriefResponse{}, 2, ProjectCairnlineReadModelResponseItem{
+	report := projectCairnlineParityReport("proj_parity", ProjectCairnlineGraphParityCounts{}, ProjectActivityDataResponse{}, ProjectOperationsBriefResponse{}, ProjectOperationsBriefResponse{}, 2, ProjectCairnlineReadModelResponseItem{
 		AssistantProposalCount: 1,
 	})
 	if report.Match {
@@ -525,7 +533,7 @@ func TestProjectCairnlineParityReport_IncludesGraphCountDifferences(t *testing.T
 		ContextSources:    2,
 		ExecutionProfiles: 4,
 		Artifacts:         3,
-	}, ProjectActivityDataResponse{}, ProjectOperationsBriefResponse{}, 0, ProjectCairnlineReadModelResponseItem{
+	}, ProjectActivityDataResponse{}, ProjectOperationsBriefResponse{}, ProjectOperationsBriefResponse{}, 0, ProjectCairnlineReadModelResponseItem{
 		RootCount:             1,
 		ContextSourceCount:    1,
 		ExecutionProfileCount: 3,
@@ -548,7 +556,7 @@ func TestProjectCairnlineParityReport_IncludesGraphCountDifferences(t *testing.T
 func TestProjectCairnlineParityReport_IncludesLaunchPacketCoverageDifferences(t *testing.T) {
 	report := projectCairnlineParityReport("proj_parity", ProjectCairnlineGraphParityCounts{}, ProjectActivityDataResponse{
 		Summary: ProjectActivitySummaryResponse{AssignmentCount: 2},
-	}, ProjectOperationsBriefResponse{}, 0, ProjectCairnlineReadModelResponseItem{
+	}, ProjectOperationsBriefResponse{}, ProjectOperationsBriefResponse{}, 0, ProjectCairnlineReadModelResponseItem{
 		LaunchPacketCount:        1,
 		LaunchPacketWarningCount: 2,
 		LaunchPacketErrors: []ProjectCairnlineLaunchPacketError{{
@@ -570,6 +578,51 @@ func TestProjectCairnlineParityReport_IncludesLaunchPacketCoverageDifferences(t 
 	}
 	if !hasProjectCairnlineParityDifference(report.Differences, "launch_packets.errors", 0, 1) {
 		t.Fatalf("parity differences = %+v, want launch_packets.errors 0/1", report.Differences)
+	}
+}
+
+func TestProjectCairnlineParityReport_IncludesOperationsDifferences(t *testing.T) {
+	nativeOperations := ProjectOperationsBriefResponse{
+		Summary: ProjectOperationsBriefSummaryResponse{
+			ItemCount:                   2,
+			AvailableItemCount:          2,
+			ItemLimit:                   projectOperationsBriefItemLimit,
+			HighCount:                   1,
+			MediumCount:                 1,
+			PendingMemoryCandidateCount: 1,
+		},
+		Items: []ProjectOperationsBriefItemResponse{
+			{Kind: "start_queued_assignment"},
+			{Kind: "review_memory_candidates"},
+		},
+	}
+	cairnlineOperations := ProjectOperationsBriefResponse{
+		Summary: ProjectOperationsBriefSummaryResponse{
+			ItemCount:                   1,
+			AvailableItemCount:          1,
+			ItemLimit:                   projectOperationsBriefItemLimit,
+			HighCount:                   1,
+			PendingMemoryCandidateCount: 0,
+		},
+		Items: []ProjectOperationsBriefItemResponse{
+			{Kind: "start_queued_assignment"},
+		},
+	}
+	report := projectCairnlineParityReport("proj_parity", ProjectCairnlineGraphParityCounts{}, ProjectActivityDataResponse{}, nativeOperations, cairnlineOperations, 0, ProjectCairnlineReadModelResponseItem{})
+	if report.Match {
+		t.Fatalf("parity report match = true, want operations mismatch")
+	}
+	if report.Hecate.Operations.ItemCount != 2 || report.Cairnline.Operations.ItemCount != 1 || report.Hecate.Operations.KindCounts["review_memory_candidates"] != 1 || report.Cairnline.Operations.KindCounts["review_memory_candidates"] != 0 {
+		t.Fatalf("operations parity counts = hecate %+v cairnline %+v, want rendered brief counts and kind counts", report.Hecate.Operations, report.Cairnline.Operations)
+	}
+	if !hasProjectCairnlineParityDifference(report.Differences, "operations.item_count", 2, 1) {
+		t.Fatalf("parity differences = %+v, want operations.item_count 2/1", report.Differences)
+	}
+	if !hasProjectCairnlineParityDifference(report.Differences, "operations.pending_memory_candidates", 1, 0) {
+		t.Fatalf("parity differences = %+v, want operations.pending_memory_candidates 1/0", report.Differences)
+	}
+	if !hasProjectCairnlineParityDifference(report.Differences, "operations.kind_counts.review_memory_candidates", 1, 0) {
+		t.Fatalf("parity differences = %+v, want operations.kind_counts.review_memory_candidates 1/0", report.Differences)
 	}
 }
 

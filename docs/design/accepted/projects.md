@@ -149,10 +149,10 @@ operations brief and activity projection without writing files.
 `GET /hecate/v1/projects/{id}/cairnline/parity-report` compares Hecate's
 native cockpit counts with that Cairnline read model and returns explicit
 differences for raw graph counts including execution-profile defaults,
-activity, operations, and the Project Assistant proposal ledger, plus portable
-launch-packet coverage, so import coverage, bucket/status semantics, portable
-ledger coverage, and assignment packet coverage can be fixed before any backend
-switch.
+activity, rendered cockpit operations including action-kind counts, and the
+Project Assistant proposal ledger, plus portable launch-packet coverage, so
+import coverage, bucket/status semantics, operator-action drift, portable ledger
+coverage, and assignment packet coverage can be fixed before any backend switch.
 `POST /hecate/v1/projects/cairnline/sync` writes a refreshable embedded
 Cairnline SQLite database for the full Hecate Projects graph under Hecate's
 data directory. It is a deterministic migration rehearsal and durable service
