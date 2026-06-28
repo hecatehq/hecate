@@ -304,6 +304,32 @@ func TestProjectsAPI_MirrorsIdentityMutationsToCairnlineWhenConfigured(t *testin
 	}
 
 	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+created.Data.ID+"/roots/root_worktree", bytes.NewReader([]byte(`{
+		"path":"/workspace/.worktrees/root-mirror-updated",
+		"kind":"git_worktree",
+		"git_branch":"feature/root-mirror-updated",
+		"active":false
+	}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update root status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	mirrored = getMirroredCairnlineProjectForTest(t, handler, created.Data.ID)
+	worktreeRoot := findMirroredCairnlineRootForTest(mirrored.Roots, "root_worktree")
+	if worktreeRoot == nil || worktreeRoot.Path != "/workspace/.worktrees/root-mirror-updated" || worktreeRoot.GitBranch != "feature/root-mirror-updated" || worktreeRoot.Active {
+		t.Fatalf("mirrored root_worktree after update = %+v in %+v, want inactive updated worktree root", worktreeRoot, mirrored.Roots)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/projects/"+created.Data.ID+"/roots/root_worktree", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete root status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	mirrored = getMirroredCairnlineProjectForTest(t, handler, created.Data.ID)
+	if len(mirrored.Roots) != 1 || findMirroredCairnlineRootForTest(mirrored.Roots, "root_worktree") != nil || findMirroredCairnlineRootForTest(mirrored.Roots, "root_main") == nil {
+		t.Fatalf("mirrored roots after delete = %+v, want only original root", mirrored.Roots)
+	}
+
+	rec = httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+created.Data.ID+"/context-sources", bytes.NewReader([]byte(`{
 		"id":"ctx_design",
 		"path":"docs/design/accepted/projects.md",
@@ -531,6 +557,15 @@ func getMirroredCairnlineProjectForTest(t *testing.T, handler *Handler, projectI
 		t.Fatalf("GetProject(%q): %v", projectID, err)
 	}
 	return project
+}
+
+func findMirroredCairnlineRootForTest(roots []cairnline.Root, id string) *cairnline.Root {
+	for idx := range roots {
+		if roots[idx].ID == id {
+			return &roots[idx]
+		}
+	}
+	return nil
 }
 
 func findMirroredCairnlineSourceForTest(sources []cairnline.Source, id string) *cairnline.Source {

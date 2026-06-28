@@ -80,6 +80,60 @@ func DeleteProject(ctx context.Context, service *cairnline.Service, project proj
 	return nil
 }
 
+func UpsertRoot(ctx context.Context, service *cairnline.Service, project projects.Project, root projects.Root) (cairnline.Root, error) {
+	if service == nil {
+		return cairnline.Root{}, errors.Join(ErrSourceNotConfigured, errors.New("cairnline service is required"))
+	}
+	projectID := strings.TrimSpace(project.ID)
+	if projectID == "" {
+		return cairnline.Root{}, errors.Join(cairnline.ErrInvalid, errors.New("project id is required"))
+	}
+	item := Root(root)
+	if strings.TrimSpace(item.ID) == "" {
+		return cairnline.Root{}, errors.Join(cairnline.ErrInvalid, errors.New("root id is required"))
+	}
+	if _, err := service.GetProject(ctx, projectID); err != nil {
+		if !errors.Is(err, cairnline.ErrNotFound) {
+			return cairnline.Root{}, err
+		}
+		if _, err := UpsertProject(ctx, service, project); err != nil {
+			return cairnline.Root{}, err
+		}
+		if existing, err := service.GetRoot(ctx, projectID, item.ID); err == nil {
+			return existing, nil
+		} else if !errors.Is(err, cairnline.ErrNotFound) {
+			return cairnline.Root{}, err
+		}
+		_, created, err := service.CreateRoot(ctx, projectID, item)
+		return created, err
+	}
+	if _, err := service.GetRoot(ctx, projectID, item.ID); err != nil {
+		if !errors.Is(err, cairnline.ErrNotFound) {
+			return cairnline.Root{}, err
+		}
+		_, created, err := service.CreateRoot(ctx, projectID, item)
+		return created, err
+	}
+	_, updated, err := service.UpdateRoot(ctx, projectID, item.ID, item)
+	return updated, err
+}
+
+func DeleteRoot(ctx context.Context, service *cairnline.Service, projectID, rootID string) error {
+	if service == nil {
+		return errors.Join(ErrSourceNotConfigured, errors.New("cairnline service is required"))
+	}
+	projectID = strings.TrimSpace(projectID)
+	rootID = strings.TrimSpace(rootID)
+	if projectID == "" {
+		return errors.Join(cairnline.ErrInvalid, errors.New("project id is required"))
+	}
+	if rootID == "" {
+		return errors.Join(cairnline.ErrInvalid, errors.New("root id is required"))
+	}
+	_, _, err := service.DeleteRoot(ctx, projectID, rootID)
+	return err
+}
+
 func UpsertContextSource(ctx context.Context, service *cairnline.Service, project projects.Project, source projects.ContextSource) (cairnline.Source, error) {
 	if service == nil {
 		return cairnline.Source{}, errors.Join(ErrSourceNotConfigured, errors.New("cairnline service is required"))

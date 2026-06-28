@@ -286,8 +286,8 @@ func (h *Handler) HandleCreateProjectRoot(w http.ResponseWriter, r *http.Request
 	if root.ID == "" {
 		root.ID = newOpaqueTaskResourceID("root")
 	}
-	project, _, err := h.projectApplication().CreateRoot(r.Context(), r.PathValue("id"), root)
-	h.writeProjectRootMutationResponse(r.Context(), w, http.StatusCreated, project, err)
+	project, created, err := h.projectApplication().CreateRoot(r.Context(), r.PathValue("id"), root)
+	h.writeProjectRootMutationResponse(r.Context(), w, http.StatusCreated, project, created, false, err)
 }
 
 func (h *Handler) HandleUpdateProjectRoot(w http.ResponseWriter, r *http.Request) {
@@ -300,13 +300,13 @@ func (h *Handler) HandleUpdateProjectRoot(w http.ResponseWriter, r *http.Request
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 		return
 	}
-	project, _, err := h.projectApplication().UpdateRoot(r.Context(), r.PathValue("id"), r.PathValue("root_id"), root)
-	h.writeProjectRootMutationResponse(r.Context(), w, http.StatusOK, project, err)
+	project, updated, err := h.projectApplication().UpdateRoot(r.Context(), r.PathValue("id"), r.PathValue("root_id"), root)
+	h.writeProjectRootMutationResponse(r.Context(), w, http.StatusOK, project, updated, false, err)
 }
 
 func (h *Handler) HandleDeleteProjectRoot(w http.ResponseWriter, r *http.Request) {
-	project, _, err := h.projectApplication().DeleteRoot(r.Context(), r.PathValue("id"), r.PathValue("root_id"))
-	h.writeProjectRootMutationResponse(r.Context(), w, http.StatusOK, project, err)
+	project, deleted, err := h.projectApplication().DeleteRoot(r.Context(), r.PathValue("id"), r.PathValue("root_id"))
+	h.writeProjectRootMutationResponse(r.Context(), w, http.StatusOK, project, deleted, true, err)
 }
 
 func (h *Handler) HandleCreateProjectContextSource(w http.ResponseWriter, r *http.Request) {
@@ -363,7 +363,7 @@ func (h *Handler) HandleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, http.StatusOK, ProjectDeleteResponse{Object: "project_delete", Data: renderProjectDeleteResult(result)})
 }
 
-func (h *Handler) writeProjectRootMutationResponse(ctx context.Context, w http.ResponseWriter, status int, project projects.Project, err error) {
+func (h *Handler) writeProjectRootMutationResponse(ctx context.Context, w http.ResponseWriter, status int, project projects.Project, root projects.Root, deleting bool, err error) {
 	if errors.Is(err, projectapp.ErrProjectNotFound) {
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
 		return
@@ -384,7 +384,11 @@ func (h *Handler) writeProjectRootMutationResponse(ctx context.Context, w http.R
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	h.mirrorProjectIdentityToCairnline(ctx, "project_root_mutation", project)
+	if deleting {
+		h.mirrorProjectRootDeleteToCairnline(ctx, "project_root_mutation", project.ID, root.ID)
+	} else {
+		h.mirrorProjectRootToCairnline(ctx, "project_root_mutation", project, root)
+	}
 	WriteJSON(w, status, ProjectResponse{Object: "project", Data: renderProject(project)})
 }
 

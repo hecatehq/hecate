@@ -30,6 +30,18 @@ func (h *Handler) mirrorProjectDeleteToCairnline(ctx context.Context, operation 
 	}
 }
 
+func (h *Handler) mirrorProjectRootToCairnline(ctx context.Context, operation string, project projects.Project, root projects.Root) {
+	if err := h.writeProjectRootToCairnline(ctx, project, root); err != nil {
+		h.logCairnlineMirrorError(ctx, operation, project.ID, err)
+	}
+}
+
+func (h *Handler) mirrorProjectRootDeleteToCairnline(ctx context.Context, operation, projectID, rootID string) {
+	if err := h.deleteProjectRootFromCairnline(ctx, projectID, rootID); err != nil {
+		h.logCairnlineMirrorError(ctx, operation, projectID, err)
+	}
+}
+
 func (h *Handler) mirrorProjectContextSourceToCairnline(ctx context.Context, operation string, project projects.Project, source projects.ContextSource) {
 	if err := h.writeProjectContextSourceToCairnline(ctx, project, source); err != nil {
 		h.logCairnlineMirrorError(ctx, operation, project.ID, err)
@@ -374,6 +386,22 @@ func (h *Handler) writeProjectIdentityToCairnline(ctx context.Context, project p
 func (h *Handler) deleteProjectIdentityFromCairnline(ctx context.Context, project projects.Project) error {
 	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
 		if err := cairnlinebridge.DeleteProject(ctx, service, project); err != nil && !errors.Is(err, cairnline.ErrNotFound) {
+			return err
+		}
+		return nil
+	})
+}
+
+func (h *Handler) writeProjectRootToCairnline(ctx context.Context, project projects.Project, root projects.Root) error {
+	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+		_, err := cairnlinebridge.UpsertRoot(ctx, service, project, root)
+		return err
+	})
+}
+
+func (h *Handler) deleteProjectRootFromCairnline(ctx context.Context, projectID, rootID string) error {
+	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+		if err := cairnlinebridge.DeleteRoot(ctx, service, projectID, rootID); err != nil && !errors.Is(err, cairnline.ErrNotFound) {
 			return err
 		}
 		return nil

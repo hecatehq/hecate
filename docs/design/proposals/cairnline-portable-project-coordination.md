@@ -367,7 +367,8 @@ launch agents. Those remain explicit operator or orchestrator actions.
   write-adapter gap families as structured fields, so replacement readiness can
   be tracked without parsing warning prose.
 - Hecate has a non-authoritative bridge write seam for project identity,
-  embedded roots, context-source discovery, direct context-source
+  embedded roots, root discovery/worktree creation, direct root
+  create/update/delete, context-source discovery, direct context-source
   create/update/delete, project defaults, and project-level execution-profile
   cleanup. Hecate also has a non-authoritative project skill metadata upsert
   seam that preserves operator-disabled state and provenance without loading or
@@ -378,8 +379,9 @@ launch agents. Those remain explicit operator or orchestrator actions.
   upsert/delete seams, plus accepted-memory and memory-candidate seams that
   preserve metadata, disabled state, provenance, resolved candidate state, and
   Hecate-owned promoted memory IDs. The project identity/root
-  discovery/worktree-creation/context-source discovery seam, the source-level
-  direct context-source mutation seam, the global agent-profile seam, the
+  discovery/worktree-creation/context-source discovery seam, the root-level
+  direct root mutation seam, the source-level direct context-source mutation
+  seam, the global agent-profile seam, the
   metadata-only project-skill discovery/update seam, the
   role/work-item/assignment coordination seams, the assignment start/reconcile
   result seams, the collaboration artifact create seam, the handoff mutation

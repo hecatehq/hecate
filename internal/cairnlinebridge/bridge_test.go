@@ -573,6 +573,103 @@ func TestUpsertContextSourceMirrorsSingleSourceMutations(t *testing.T) {
 	}
 }
 
+func TestUpsertRootMirrorsSingleRootMutations(t *testing.T) {
+	ctx := context.Background()
+	service := cairnline.NewMemoryService()
+	now := time.Date(2026, 6, 27, 11, 15, 0, 0, time.UTC)
+
+	project := projects.Project{
+		ID:        "proj_roots",
+		Name:      "Root Adapter",
+		Roots:     []projects.Root{{ID: "root_main", Path: "/tmp/hecate-roots", Kind: "git", GitBranch: "main", Active: true}},
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if _, err := UpsertProject(ctx, service, project); err != nil {
+		t.Fatalf("UpsertProject() seed error = %v", err)
+	}
+
+	created, err := UpsertRoot(ctx, service, project, projects.Root{
+		ID:        "root_worktree",
+		Path:      "/tmp/hecate-roots/.worktrees/feature",
+		Kind:      "git_worktree",
+		GitBranch: "feature/root-mirror",
+		Active:    true,
+	})
+	if err != nil {
+		t.Fatalf("UpsertRoot(create) error = %v", err)
+	}
+	if created.ID != "root_worktree" || created.Path != "/tmp/hecate-roots/.worktrees/feature" || created.GitBranch != "feature/root-mirror" || !created.Active {
+		t.Fatalf("created root = %+v, want active worktree root", created)
+	}
+	read, err := service.GetProject(ctx, project.ID)
+	if err != nil {
+		t.Fatalf("GetProject() after create error = %v", err)
+	}
+	if len(read.Roots) != 2 || findCairnlineRoot(read.Roots, "root_main") == nil || findCairnlineRoot(read.Roots, "root_worktree") == nil {
+		t.Fatalf("roots after create = %+v, want original and created root", read.Roots)
+	}
+
+	updated, err := UpsertRoot(ctx, service, project, projects.Root{
+		ID:        "root_worktree",
+		Path:      "/tmp/hecate-roots/.worktrees/feature-updated",
+		Kind:      "git_worktree",
+		GitBranch: "feature/root-mirror-updated",
+		Active:    false,
+	})
+	if err != nil {
+		t.Fatalf("UpsertRoot(update) error = %v", err)
+	}
+	if updated.ID != "root_worktree" || updated.Path != "/tmp/hecate-roots/.worktrees/feature-updated" || updated.GitBranch != "feature/root-mirror-updated" || updated.Active {
+		t.Fatalf("updated root = %+v, want inactive updated worktree root", updated)
+	}
+	read, err = service.GetProject(ctx, project.ID)
+	if err != nil {
+		t.Fatalf("GetProject() after update error = %v", err)
+	}
+	if worktree := findCairnlineRoot(read.Roots, "root_worktree"); worktree == nil || worktree.Path != "/tmp/hecate-roots/.worktrees/feature-updated" || worktree.Active {
+		t.Fatalf("root_worktree after update = %+v, want updated inactive root", worktree)
+	}
+
+	if err := DeleteRoot(ctx, service, project.ID, "root_worktree"); err != nil {
+		t.Fatalf("DeleteRoot() error = %v", err)
+	}
+	read, err = service.GetProject(ctx, project.ID)
+	if err != nil {
+		t.Fatalf("GetProject() after delete error = %v", err)
+	}
+	if len(read.Roots) != 1 || read.Roots[0].ID != "root_main" {
+		t.Fatalf("roots after delete = %+v, want only original root", read.Roots)
+	}
+	if err := DeleteRoot(ctx, service, project.ID, "root_missing"); !errors.Is(err, cairnline.ErrNotFound) {
+		t.Fatalf("DeleteRoot(missing) error = %v, want ErrNotFound", err)
+	}
+
+	missingProject := projects.Project{
+		ID:   "proj_missing_root",
+		Name: "Missing Root Project",
+	}
+	createdFromRoot, err := UpsertRoot(ctx, service, missingProject, projects.Root{
+		ID:     "root_standalone",
+		Path:   "/tmp/hecate-standalone-root",
+		Kind:   "local",
+		Active: true,
+	})
+	if err != nil {
+		t.Fatalf("UpsertRoot(create missing project root) error = %v", err)
+	}
+	if createdFromRoot.ID != "root_standalone" || createdFromRoot.Path != "/tmp/hecate-standalone-root" {
+		t.Fatalf("created missing-project root = %+v, want standalone root", createdFromRoot)
+	}
+	readMissingProject, err := service.GetProject(ctx, missingProject.ID)
+	if err != nil {
+		t.Fatalf("GetProject() missing-project root error = %v", err)
+	}
+	if len(readMissingProject.Roots) != 1 || readMissingProject.Roots[0].ID != "root_standalone" {
+		t.Fatalf("missing-project roots = %+v, want created standalone root", readMissingProject.Roots)
+	}
+}
+
 func TestDeleteProjectRemovesProjectAndProjectExecutionProfile(t *testing.T) {
 	ctx := context.Background()
 	service := cairnline.NewMemoryService()
@@ -2053,6 +2150,15 @@ func findCairnlineExecutionProfile(profiles []cairnline.ExecutionProfile, id str
 	for idx := range profiles {
 		if profiles[idx].ID == id {
 			return &profiles[idx]
+		}
+	}
+	return nil
+}
+
+func findCairnlineRoot(roots []cairnline.Root, id string) *cairnline.Root {
+	for idx := range roots {
+		if roots[idx].ID == id {
+			return &roots[idx]
 		}
 	}
 	return nil
