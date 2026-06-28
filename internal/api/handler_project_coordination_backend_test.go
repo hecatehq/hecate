@@ -21,6 +21,9 @@ func TestProjectCoordinationBackendStatus_DefaultHecateAuthoritative(t *testing.
 	if status.ConfiguredBackend != "hecate" || status.AuthoritativeBackend != "hecate" || status.StorageBackend != "sqlite" {
 		t.Fatalf("status = %+v, want Hecate authoritative over sqlite project storage", status)
 	}
+	if status.CairnlineReadSource != "auto" {
+		t.Fatalf("cairnline read source = %q, want auto", status.CairnlineReadSource)
+	}
 	if !status.CairnlineBridgeReady || status.CairnlineAuthoritative || status.ReadModelSwitchReady || status.WriteAdapterReady || len(status.Warnings) != 0 {
 		t.Fatalf("status = %+v, want bridge-ready but inactive Cairnline adapter flags", status)
 	}
@@ -63,6 +66,7 @@ func TestProjectCoordinationBackendStatus_CairnlineConfiguredReadRoutesReady(t *
 		Projects: config.ProjectsConfig{
 			Backend:             "sqlite",
 			CoordinationBackend: "cairnline",
+			CairnlineReadSource: "embedded",
 		},
 	}, quietLogger(), nil, nil, nil, nil)
 
@@ -70,11 +74,17 @@ func TestProjectCoordinationBackendStatus_CairnlineConfiguredReadRoutesReady(t *
 	if status.ConfiguredBackend != "cairnline" || status.AuthoritativeBackend != "hecate" || status.Status != "cairnline_read_routes_ready" {
 		t.Fatalf("status = %+v, want configured Cairnline with read routes ready", status)
 	}
+	if status.CairnlineReadSource != "embedded" {
+		t.Fatalf("cairnline read source = %q, want embedded", status.CairnlineReadSource)
+	}
 	if status.CairnlineAuthoritative || !status.ReadModelSwitchReady || status.WriteAdapterReady {
 		t.Fatalf("status = %+v, want read adapter ready but Hecate still authoritative", status)
 	}
 	if len(status.Warnings) == 0 {
 		t.Fatalf("status = %+v, want write-adapter/migration warning", status)
+	}
+	if !strings.Contains(strings.Join(status.Warnings, "\n"), "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded") {
+		t.Fatalf("warnings = %+v, want embedded read-source warning", status.Warnings)
 	}
 	if !containsString(status.ReadRoutes, "project-list") || !containsString(status.ReadRoutes, "assignment-context") || !containsString(status.ReadRoutes, "launch-readiness") || !containsString(status.ReadRoutes, "assignment-preflight") || !containsString(status.ReadRoutes, "project-assistant-context") || !containsString(status.ReadRoutes, "project-assistant-proposal") || !containsString(status.ReadRoutes, "operations-brief") {
 		t.Fatalf("read routes = %+v, want structured Cairnline read-route coverage", status.ReadRoutes)

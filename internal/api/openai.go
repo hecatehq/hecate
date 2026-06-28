@@ -516,6 +516,7 @@ type ProjectCoordinationBackendStatusResponse struct {
 	ConfiguredBackend       string   `json:"configured_backend"`
 	AuthoritativeBackend    string   `json:"authoritative_backend"`
 	StorageBackend          string   `json:"storage_backend"`
+	CairnlineReadSource     string   `json:"cairnline_read_source,omitempty"`
 	CairnlineBridgeReady    bool     `json:"cairnline_bridge_ready"`
 	CairnlineAuthoritative  bool     `json:"cairnline_authoritative"`
 	ReadModelSwitchReady    bool     `json:"read_model_switch_ready"`

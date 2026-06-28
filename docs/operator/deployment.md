@@ -374,10 +374,17 @@ task/external agent supervision, approvals, and assignment mutation. Project
 reads backed by the Cairnline read model prefer the embedded Cairnline mirror
 database when that database already contains the requested project; if the
 mirror database or project row is missing, they fall back to the snapshot-seeded
-in-memory bridge projection. Activity, work-item list/detail, assignment-list,
-and operations brief reads render the work graph from Cairnline service records
-and overlay Hecate-only runtime refs/timestamps while Hecate still owns
-execution. Project identity and some compatibility
+in-memory bridge projection. Set
+`HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=snapshot` to force the snapshot-seeded
+bridge, or `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded` to make configured
+read routes require a populated
+`{HECATE_DATA_DIR}/cairnline/embedded/projects.db` and fail loudly when the
+mirror database or project row is missing; run
+`POST /hecate/v1/projects/cairnline/sync` first when dogfooding strict embedded
+reads. Activity, work-item list/detail, assignment-list, and operations brief
+reads render the work graph from Cairnline service records and overlay
+Hecate-only runtime refs/timestamps while Hecate still owns execution. Project
+identity and some compatibility
 scaffolding remain Hecate-owned until Cairnline becomes authoritative. Project
 metadata, root create/update/delete/discovery/worktree-creation,
 context-source create/update/delete/discovery, and default mutations still write

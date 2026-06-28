@@ -228,10 +228,15 @@ type ChatConfig struct {
 type ProjectsConfig struct {
 	Backend             string
 	CoordinationBackend string
+	CairnlineReadSource string
 }
 
 func (c Config) ProjectsCoordinationBackend() string {
 	return normalizeProjectsCoordinationBackend(c.Projects.CoordinationBackend)
+}
+
+func (c Config) ProjectsCairnlineReadSource() string {
+	return normalizeProjectsCairnlineReadSource(c.Projects.CairnlineReadSource)
 }
 
 type OTelSignalConfig struct {
@@ -476,6 +481,7 @@ func LoadFromEnv() Config {
 		Projects: ProjectsConfig{
 			Backend:             storageBackend,
 			CoordinationBackend: strings.ToLower(strings.TrimSpace(getEnv("HECATE_PROJECTS_COORDINATION_BACKEND", "hecate"))),
+			CairnlineReadSource: strings.ToLower(strings.TrimSpace(getEnv("HECATE_PROJECTS_CAIRNLINE_READ_SOURCE", "auto"))),
 		},
 		OTel: loadOTelFromEnv(),
 		Governor: GovernorConfig{
@@ -560,6 +566,7 @@ func (c Config) Validate() error {
 		validateBackend("HECATE_BACKEND", backend, "memory", "sqlite", "postgres")
 	}
 	validateBackend("HECATE_PROJECTS_COORDINATION_BACKEND", c.ProjectsCoordinationBackend(), "hecate", "cairnline")
+	validateBackend("HECATE_PROJECTS_CAIRNLINE_READ_SOURCE", c.ProjectsCairnlineReadSource(), "auto", "snapshot", "embedded")
 	if postgresRequired(c) && strings.TrimSpace(c.Postgres.DatabaseURL) == "" {
 		errs = append(errs, errors.New("HECATE_POSTGRES_URL or DATABASE_URL is required when HECATE_BACKEND=postgres"))
 	}
@@ -1139,6 +1146,14 @@ func normalizeProjectsCoordinationBackend(value string) string {
 	value = strings.ToLower(strings.TrimSpace(value))
 	if value == "" {
 		return "hecate"
+	}
+	return value
+}
+
+func normalizeProjectsCairnlineReadSource(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return "auto"
 	}
 	return value
 }

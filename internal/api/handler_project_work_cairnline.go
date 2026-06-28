@@ -380,12 +380,13 @@ func (h *Handler) cairnlineProjectWorkView(ctx context.Context, projectID string
 	if err != nil {
 		return nil, err
 	}
+	strictEmbedded := h.requiresEmbeddedCairnlineProjectReads()
 	if h.prefersEmbeddedCairnlineProjectReads() {
 		_, service, store, err := h.openCairnlineEmbeddedService(ctx)
 		if err == nil {
 			if _, err := service.GetProject(ctx, snapshot.Project.ID); err != nil {
 				_ = store.Close()
-				if errors.Is(err, cairnline.ErrNotFound) {
+				if !strictEmbedded && errors.Is(err, cairnline.ErrNotFound) {
 					return h.cairnlineProjectWorkSeededView(ctx, snapshot)
 				}
 				return nil, err
@@ -396,17 +397,38 @@ func (h *Handler) cairnlineProjectWorkView(ctx context.Context, projectID string
 				close:    store.Close,
 			}, nil
 		}
-		if !errors.Is(err, cairnline.ErrNotFound) {
+		if strictEmbedded || !errors.Is(err, cairnline.ErrNotFound) {
 			return nil, err
 		}
 	}
 	return h.cairnlineProjectWorkSeededView(ctx, snapshot)
 }
 
-func (h *Handler) prefersEmbeddedCairnlineProjectReads() bool {
+func (h *Handler) cairnlineProjectReadSource() string {
+	if h == nil {
+		return "auto"
+	}
+	return h.config.ProjectsCairnlineReadSource()
+}
+
+func (h *Handler) requiresEmbeddedCairnlineProjectReads() bool {
 	return h != nil &&
 		h.config.ProjectsCoordinationBackend() == "cairnline" &&
-		strings.TrimSpace(h.config.Server.DataDir) != ""
+		h.cairnlineProjectReadSource() == "embedded"
+}
+
+func (h *Handler) prefersEmbeddedCairnlineProjectReads() bool {
+	if h == nil || h.config.ProjectsCoordinationBackend() != "cairnline" {
+		return false
+	}
+	switch h.cairnlineProjectReadSource() {
+	case "embedded":
+		return true
+	case "snapshot":
+		return false
+	default:
+		return strings.TrimSpace(h.config.Server.DataDir) != ""
+	}
 }
 
 func (h *Handler) cairnlineProjectWorkSeededView(ctx context.Context, snapshot cairnlinebridge.Snapshot) (*cairnlineProjectWorkView, error) {

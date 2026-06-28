@@ -462,6 +462,17 @@ sequenceDiagram
   authoritative until the feature-flagged Cairnline read/write adapter and
   migration path land. Use
   `GET /hecate/v1/projects/backend-status` to inspect the effective state.
+- `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=auto|snapshot|embedded` controls which
+  Cairnline service backing configured read routes use while
+  `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline`. The default `auto` prefers
+  the embedded mirror database under
+  `{HECATE_DATA_DIR}/cairnline/embedded/projects.db` when it already contains
+  the requested project and otherwise falls back to the snapshot-seeded
+  in-memory bridge. `snapshot` always uses the snapshot-seeded bridge.
+  `embedded` is a strict replacement-readiness dogfood mode: configured read
+  routes require a populated embedded mirror database and fail if the database
+  or project row is missing. Run `POST /hecate/v1/projects/cairnline/sync`
+  first when testing strict embedded reads.
 - `HECATE_POSTGRES_URL=postgres://...` or `DATABASE_URL=postgres://...` is
   required when `HECATE_BACKEND=postgres`. Optional Postgres knobs:
   `HECATE_POSTGRES_TABLE_PREFIX`, `HECATE_POSTGRES_MAX_OPEN_CONNS`, and
@@ -2209,6 +2220,7 @@ It exists to make the Cairnline replacement switch explicit while the adapter is
 being built.
 
 `configured_backend` reflects `HECATE_PROJECTS_COORDINATION_BACKEND`.
+`cairnline_read_source` reflects `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE`.
 `authoritative_backend` remains `hecate` until Hecate can run project read/write
 flows against Cairnline without UI-local fallback state. When
 `configured_backend=cairnline`, Hecate still commits live Projects writes to the
@@ -2221,10 +2233,12 @@ assignment context previews, assignment launch-readiness, assignment preflight,
 artifact lists, handoff lists, Project Assistant context/proposal reads,
 closeout readiness, activity inbox, and operations brief can be served from the
 Cairnline read model, while other live Projects reads still use Hecate. Those
-configured read routes still use Hecate snapshots as bridge scaffolding, but
-their Cairnline service reads prefer the embedded mirror database when it
-already contains the requested project; if the mirror database or project row is
-missing, they fall back to the snapshot-seeded in-memory bridge projection.
+configured read routes still load Hecate snapshots as bridge scaffolding, but
+their Cairnline service read source is controlled by
+`HECATE_PROJECTS_CAIRNLINE_READ_SOURCE`: `auto` prefers the embedded mirror and
+falls back to the snapshot-seeded bridge, `snapshot` always uses the
+snapshot-seeded bridge, and `embedded` requires the mirror database/project row
+to exist so replacement-readiness gaps fail loudly.
 `read_routes` lists the live read families currently backed by the Cairnline
 read model. `write_adapter_ready=false` means writes and migration are still
 Hecate-owned. `write_adapter_seams` lists non-authoritative bridge proofs that
@@ -2294,6 +2308,7 @@ Example response:
     "configured_backend": "cairnline",
     "authoritative_backend": "hecate",
     "storage_backend": "sqlite",
+    "cairnline_read_source": "auto",
     "cairnline_bridge_ready": true,
     "cairnline_authoritative": false,
     "read_model_switch_ready": true,
@@ -2376,10 +2391,10 @@ Example response:
       "migration-cutover"
     ],
     "status": "cairnline_read_routes_ready",
-    "detail": "Cairnline is configured as the future Projects coordination backend, and the project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, project-assistant-context, project-assistant-proposal, activity, closeout-readiness, and operations brief read routes are served from the Cairnline read model. When the embedded mirror database contains the project, their Cairnline service reads use that live mirror; otherwise they fall back to the snapshot-seeded in-memory bridge. Hecate stores remain authoritative until the remaining live read routes, writes, and migration are ready.",
+    "detail": "Cairnline is configured as the future Projects coordination backend, and the project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, project-assistant-context, project-assistant-proposal, activity, closeout-readiness, and operations brief read routes are served from the Cairnline read model. Configured read routes prefer the embedded mirror database when it already contains the requested project; otherwise they fall back to the snapshot-seeded in-memory bridge projection. Hecate stores remain authoritative until the remaining live read routes, writes, and migration are ready.",
     "warnings": [
       "Only the project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, project-assistant-context, project-assistant-proposal, activity, closeout-readiness, and operations brief live read routes use Cairnline.",
-      "Configured Cairnline read-model service reads prefer the embedded mirror database when it already contains the requested project, and otherwise use a snapshot-seeded in-memory Cairnline bridge projection.",
+      "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=auto makes configured Cairnline read-model service reads prefer the embedded mirror database when it already contains the requested project, and otherwise use a snapshot-seeded in-memory Cairnline bridge projection.",
       "Project create/delete still write Hecate-native stores first, then best-effort mirror portable project identity into the embedded Cairnline database.",
       "Project metadata updates still write Hecate-native stores first, then best-effort mirror through Cairnline's project-metadata seam.",
       "Root create/update/delete, root list replacement, root discovery, and worktree-root creation mutations still write Hecate-native stores first, then best-effort mirror through Cairnline's root-level API.",

@@ -448,6 +448,22 @@ func TestLoadFromEnvProjectsCoordinationBackend(t *testing.T) {
 	}
 }
 
+func TestLoadFromEnvProjectsCairnlineReadSource(t *testing.T) {
+	cfg := LoadFromEnv()
+	if got := cfg.ProjectsCairnlineReadSource(); got != "auto" {
+		t.Fatalf("ProjectsCairnlineReadSource() = %q, want auto", got)
+	}
+
+	t.Setenv("HECATE_PROJECTS_CAIRNLINE_READ_SOURCE", " Embedded ")
+	cfg = LoadFromEnv()
+	if got := cfg.ProjectsCairnlineReadSource(); got != "embedded" {
+		t.Fatalf("ProjectsCairnlineReadSource() = %q, want embedded", got)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v, want nil for embedded Cairnline read source", err)
+	}
+}
+
 func TestValidateRejectsInvalidProjectsCoordinationBackend(t *testing.T) {
 	cfg := LoadFromEnv()
 	cfg.Projects.CoordinationBackend = "cairnline_shadow"
@@ -458,6 +474,19 @@ func TestValidateRejectsInvalidProjectsCoordinationBackend(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "HECATE_PROJECTS_COORDINATION_BACKEND") {
 		t.Fatalf("Validate() error = %q, want HECATE_PROJECTS_COORDINATION_BACKEND", err)
+	}
+}
+
+func TestValidateRejectsInvalidProjectsCairnlineReadSource(t *testing.T) {
+	cfg := LoadFromEnv()
+	cfg.Projects.CairnlineReadSource = "live"
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() error = nil, want invalid projects Cairnline read source error")
+	}
+	if !strings.Contains(err.Error(), "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE") {
+		t.Fatalf("Validate() error = %q, want HECATE_PROJECTS_CAIRNLINE_READ_SOURCE", err)
 	}
 }
 
