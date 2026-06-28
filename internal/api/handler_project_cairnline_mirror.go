@@ -456,8 +456,10 @@ func projectAssistantActionResultValue(result projectassistant.ActionResult, key
 
 func (h *Handler) writeProjectIdentityToCairnline(ctx context.Context, project projects.Project) error {
 	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
-		_, err := cairnlinebridge.UpsertProject(ctx, service, project)
-		return err
+		if _, err := cairnlinebridge.UpsertProject(ctx, service, project); err != nil {
+			return err
+		}
+		return h.seedProjectRolesToCairnline(ctx, service, project.ID)
 	})
 }
 
@@ -558,6 +560,15 @@ func (h *Handler) writeRoleAgentProfileToCairnline(ctx context.Context, service 
 	}
 	if !ok {
 		return agentprofiles.Profile{}, nil
+	}
+	executionProfileID := strings.TrimSpace(cairnlinebridge.ExecutionProfile(profile).ID)
+	exists, err := cairnlineExecutionProfileIDExists(ctx, service, executionProfileID)
+	if err != nil {
+		return agentprofiles.Profile{}, err
+	}
+	if exists {
+		_, err = upsertCairnlineAgentProfileMetadata(ctx, service, profile)
+		return profile, err
 	}
 	_, err = cairnlinebridge.UpsertAgentProfile(ctx, service, profile)
 	return profile, err
@@ -841,7 +852,81 @@ func (h *Handler) withCairnlineEmbeddedMirrorService(ctx context.Context, fn fun
 		return err
 	}
 	defer store.Close()
+	if err := h.seedAgentProfilesToCairnline(ctx, service); err != nil {
+		return err
+	}
 	return fn(service)
+}
+
+func (h *Handler) seedAgentProfilesToCairnline(ctx context.Context, service *cairnline.Service) error {
+	if h == nil || h.agentProfiles == nil || service == nil {
+		return nil
+	}
+	profiles, err := h.agentProfiles.List(ctx)
+	if err != nil {
+		return err
+	}
+	seenExecutionProfiles := map[string]struct{}{}
+	for _, profile := range profiles {
+		executionProfileID := strings.TrimSpace(cairnlinebridge.ExecutionProfile(profile).ID)
+		if _, seen := seenExecutionProfiles[executionProfileID]; seen {
+			if _, err := upsertCairnlineAgentProfileMetadata(ctx, service, profile); err != nil {
+				return err
+			}
+			continue
+		}
+		seenExecutionProfiles[executionProfileID] = struct{}{}
+		if _, err := cairnlinebridge.UpsertAgentProfile(ctx, service, profile); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func upsertCairnlineAgentProfileMetadata(ctx context.Context, service *cairnline.Service, profile agentprofiles.Profile) (cairnline.AgentProfile, error) {
+	item := cairnlinebridge.AgentProfile(profile)
+	written, err := service.UpdateAgentProfile(ctx, item)
+	if err != nil {
+		if !errors.Is(err, cairnline.ErrNotFound) {
+			return cairnline.AgentProfile{}, err
+		}
+		return service.CreateAgentProfile(ctx, item)
+	}
+	return written, nil
+}
+
+func cairnlineExecutionProfileIDExists(ctx context.Context, service *cairnline.Service, id string) (bool, error) {
+	id = strings.TrimSpace(id)
+	if service == nil || id == "" {
+		return false, nil
+	}
+	profiles, err := service.ListExecutionProfiles(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, profile := range profiles {
+		if strings.TrimSpace(profile.ID) == id {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (h *Handler) seedProjectRolesToCairnline(ctx context.Context, service *cairnline.Service, projectID string) error {
+	projectID = strings.TrimSpace(projectID)
+	if h == nil || h.projectWork == nil || service == nil || projectID == "" {
+		return nil
+	}
+	roles, err := h.projectWork.ListRoles(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	for _, role := range roles {
+		if err := h.writeProjectRoleRecordToCairnline(ctx, service, role); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (h *Handler) logCairnlineMirrorError(ctx context.Context, operation, projectID string, err error) {

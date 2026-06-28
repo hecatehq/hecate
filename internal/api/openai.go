@@ -321,6 +321,7 @@ type ProjectCairnlineSyncResponse struct {
 
 type ProjectCairnlineSyncResponseItem struct {
 	DatabasePath       string                              `json:"database_path"`
+	DatabaseExists     bool                                `json:"database_exists"`
 	Match              bool                                `json:"match"`
 	Differences        []ProjectCairnlineParityDifference  `json:"differences,omitempty"`
 	IDDifferences      []ProjectCairnlineIDDifference      `json:"id_differences,omitempty"`
@@ -508,6 +509,7 @@ type ProjectCoordinationBackendStatusResponse struct {
 	Warnings                []string `json:"warnings,omitempty"`
 	ReplacementReadinessURL string   `json:"replacement_readiness_url,omitempty"`
 	SyncReadinessURL        string   `json:"sync_readiness_url,omitempty"`
+	MirrorParityURL         string   `json:"mirror_parity_url,omitempty"`
 }
 
 type AgentProfileResponse struct {

@@ -420,6 +420,70 @@ func TestProjectCairnlineSyncAPI_WritesDurableAllProjectsSQLiteDB(t *testing.T) 
 	}
 }
 
+func TestProjectCairnlineMirrorParityAPI_MissingDatabaseDoesNotCreateMirror(t *testing.T) {
+	dataDir := t.TempDir()
+	handler := NewHandler(config.Config{Server: config.ServerConfig{DataDir: dataDir}}, quietLogger(), nil, nil, nil, nil)
+	handler.SetProjectStore(projects.NewMemoryStore())
+	handler.SetProjectWorkStore(projectwork.NewMemoryStore())
+	handler.SetProjectSkillStore(projectskills.NewMemoryStore())
+	handler.SetMemoryStore(memory.NewMemoryStore())
+	handler.SetAgentProfileStore(agentprofiles.NewMemoryStore())
+	server := NewServer(quietLogger(), handler)
+	client := newAPITestClient(t, server)
+
+	project := mustRequestJSONStatus[ProjectResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects", projectJourneyJSON(t, map[string]any{
+		"name": "Mirror Parity Missing DB",
+	}))
+	response := mustRequestJSONStatus[ProjectCairnlineSyncResponse](client, http.StatusOK, http.MethodGet, "/hecate/v1/projects/cairnline/mirror-parity", "")
+	if response.Object != "project_cairnline_mirror_parity" {
+		t.Fatalf("object = %q, want project_cairnline_mirror_parity", response.Object)
+	}
+	if response.Data.DatabaseExists || response.Data.Match {
+		t.Fatalf("mirror parity = %+v, want missing database and no match", response.Data)
+	}
+	if response.Data.Hecate.Projects != 1 || response.Data.Cairnline.Projects != 0 {
+		t.Fatalf("mirror parity counts = hecate %+v cairnline %+v, want one Hecate project and empty mirror", response.Data.Hecate, response.Data.Cairnline)
+	}
+	if !hasProjectCairnlineIDDifference(response.Data.IDDifferences, "projects", []string{project.Data.ID}, nil) {
+		t.Fatalf("id differences = %+v, want missing project id", response.Data.IDDifferences)
+	}
+	if _, err := os.Stat(handler.cairnlineEmbeddedDatabasePath()); !os.IsNotExist(err) {
+		t.Fatalf("mirror DB stat error = %v, want read-only parity check to avoid creating the DB", err)
+	}
+}
+
+func TestProjectCairnlineMirrorParityAPI_ReportsLiveMirrorMatch(t *testing.T) {
+	dataDir := t.TempDir()
+	handler := NewHandler(config.Config{
+		Server:   config.ServerConfig{DataDir: dataDir},
+		Projects: config.ProjectsConfig{CoordinationBackend: "cairnline"},
+	}, quietLogger(), nil, nil, nil, nil)
+	handler.SetProjectStore(projects.NewMemoryStore())
+	handler.SetProjectWorkStore(projectwork.NewMemoryStore())
+	handler.SetProjectSkillStore(projectskills.NewMemoryStore())
+	handler.SetMemoryStore(memory.NewMemoryStore())
+	handler.SetAgentProfileStore(agentprofiles.NewMemoryStore())
+	server := NewServer(quietLogger(), handler)
+	client := newAPITestClient(t, server)
+
+	mustRequestJSONStatus[ProjectResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects", projectJourneyJSON(t, map[string]any{
+		"name": "Live Mirror Parity",
+	}))
+	response := mustRequestJSONStatus[ProjectCairnlineSyncResponse](client, http.StatusOK, http.MethodGet, "/hecate/v1/projects/cairnline/mirror-parity", "")
+	if response.Object != "project_cairnline_mirror_parity" {
+		t.Fatalf("object = %q, want project_cairnline_mirror_parity", response.Object)
+	}
+	if !response.Data.DatabaseExists || !response.Data.Match || response.Data.Authoritative {
+		t.Fatalf("mirror parity = %+v, want existing non-authoritative mirror with exact parity", response.Data)
+	}
+	if len(response.Data.Differences) != 0 || len(response.Data.IDDifferences) != 0 || len(response.Data.ContentDifferences) != 0 {
+		t.Fatalf("mirror parity differences = %+v id %+v content %+v, want none", response.Data.Differences, response.Data.IDDifferences, response.Data.ContentDifferences)
+	}
+	if response.Data.Hecate.AgentProfiles == 0 || response.Data.Cairnline.AgentProfiles != response.Data.Hecate.AgentProfiles {
+		t.Fatalf("agent profile mirror counts = hecate %+v cairnline %+v, want built-in profiles seeded into the live mirror", response.Data.Hecate, response.Data.Cairnline)
+	}
+}
+
 func TestProjectCairnlineSyncDifferences(t *testing.T) {
 	differences := projectCairnlineSyncDifferences(ProjectCairnlineSyncCounts{
 		Projects:          2,
