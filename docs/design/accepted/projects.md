@@ -158,10 +158,11 @@ Cairnline SQLite database for the full Hecate Projects graph under Hecate's
 data directory. It is a deterministic migration rehearsal and durable service
 boundary proof; the response compares Hecate snapshot counts with the written
 Cairnline database, including launch-packet coverage/warnings/errors, and also
-compares normalized record ID sets plus semantic record-content digests so
-same-count/different-record and same-ID/wrong-field drift are visible. It
-reports count-level, ID-set, and content-digest differences. It is not a
-dual-write path and does not make Cairnline authoritative.
+compares normalized record ID sets plus semantic record-content digests,
+including stable assignment launch-packet digests, so same-count/different-record
+and same-ID/wrong-field drift are visible. It reports count-level, ID-set, and
+content-digest differences. It is not a dual-write path and does not make
+Cairnline authoritative.
 When `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` is configured, live
 project identity, root create/update/delete/discovery/worktree-creation,
 context-source create/update/delete/discovery, and project-default mutations
@@ -274,8 +275,8 @@ after these gates are met:
   move.
 - Import/export or migration covers existing Hecate local stores and can be
   rolled back during alpha; the embedded Cairnline sync database proves a
-  durable all-project seed with count-level, ID-set, and content-digest parity
-  before it becomes a write path.
+  durable all-project seed with count-level, ID-set, record-content, and stable
+  launch-packet content parity before it becomes a write path.
 - Context packets, setup/health/operations summaries, activity projections, and
   closeout gates match current Hecate behavior or have documented intentional
   differences.

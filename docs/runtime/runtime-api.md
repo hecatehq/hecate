@@ -2589,8 +2589,8 @@ Example response:
 Local-only experimental bridge endpoint. It loads every project from Hecate's
 authoritative Projects stores, writes a single refreshable embedded Cairnline
 SQLite database, then compares aggregate Hecate snapshot counts with aggregate
-counts, record ID sets, and semantic record-content digests read back from that
-database:
+counts, record ID sets, semantic record-content digests, and stable assignment
+launch-packet digests read back from that database:
 
 ```text
 {HECATE_DATA_DIR}/cairnline/embedded/projects.db
@@ -2607,12 +2607,14 @@ Projects reads or writes, and does not migrate Hecate's stores. It exists to
 prove Hecate can seed a durable all-project Cairnline database before the write
 adapter and migration path exist. `match: false` means the sync completed but
 the written database no longer mirrors the source graph and launch-packet
-coverage at the count, record-ID, or semantic-record-content level; see
+coverage/content at the count, record-ID, or semantic-record-content level; see
 `differences` for count mismatches, `id_differences` for same-family ID drift,
 and `content_differences` for same-path/same-ID records whose normalized
 Cairnline-shaped JSON digests differ. Content digests intentionally omit
 volatile write timestamps and do not expose raw project, memory, or artifact
-bodies in the response.
+bodies in the response. Launch-packet content digests compare packets that can
+be built on both sides; launch-packet coverage and build errors are reported by
+the count and ID-set checks.
 
 Example response:
 
