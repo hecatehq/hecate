@@ -155,6 +155,11 @@ func (s *MemoryStore) Clear(_ context.Context) (int, error) {
 	return count, nil
 }
 
+// MergeDiscovered applies the store rediscovery rules without committing them.
+func MergeDiscovered(existing, discovered []Skill, projectID string, now time.Time) []Skill {
+	return mergeDiscoveredSkills(existing, discovered, projectID, now)
+}
+
 func mergeDiscoveredSkills(existing, discovered []Skill, projectID string, now time.Time) []Skill {
 	if now.IsZero() {
 		now = time.Now().UTC()

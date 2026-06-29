@@ -285,6 +285,132 @@ description: Build backend changes.
 	}
 }
 
+func TestProjectSkillsAPI_CairnlineWriteAuthorityCommitsSkillsFirst(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend:     "cairnline",
+			CairnlineWriteAuthority: projectCairnlineWriteAuthorityProjectSkills,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	handler.SetProjectStore(projects.NewMemoryStore())
+	server := NewServer(quietLogger(), handler)
+	root := t.TempDir()
+	writeProjectSkillAPITestFile(t, root, "docs-ai/skills/backend/SKILL.md", `---
+name: Backend
+description: Build backend changes.
+hecate:
+  suggested_tools:
+    - git.diff
+  required_permissions:
+    tools: true
+    writes: true
+    network: false
+---
+`)
+	writeProjectSkillAPITestFile(t, root, "AGENTS.md", "Use docs-ai/skills/backend/SKILL.md.\n")
+	project, err := handler.projects.Create(t.Context(), projects.Project{
+		ID:   "proj_skills_authority",
+		Name: "Skills Authority",
+		Roots: []projects.Root{{
+			ID:     "root_skills_authority",
+			Path:   root,
+			Active: true,
+		}},
+		ContextSources: []projects.ContextSource{{
+			ID:      "ctx_agents",
+			Kind:    "workspace_instruction",
+			Title:   "AGENTS.md",
+			Path:    "AGENTS.md",
+			Enabled: true,
+			Format:  "agents_md",
+			Metadata: map[string]string{
+				"root_id": "root_skills_authority",
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+
+	discoverRec := httptest.NewRecorder()
+	server.ServeHTTP(discoverRec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_skills_authority/skills/discover", nil))
+	if discoverRec.Code != http.StatusOK {
+		t.Fatalf("discover status = %d body=%s, want 200", discoverRec.Code, discoverRec.Body.String())
+	}
+	var discovered ProjectSkillsResponse
+	if err := json.Unmarshal(discoverRec.Body.Bytes(), &discovered); err != nil {
+		t.Fatalf("decode discover response: %v", err)
+	}
+	backend := projectSkillResponseFor(discovered.Data, "backend")
+	if backend == nil {
+		t.Fatalf("discovered skills = %+v, want backend", discovered.Data)
+	}
+	if backend.ReadBackend != "cairnline" || backend.Path != "docs-ai/skills/backend/SKILL.md" || backend.RootID != "root_skills_authority" {
+		t.Fatalf("backend response = %+v, want Cairnline-authoritative projection", *backend)
+	}
+	if len(backend.SuggestedTools) != 1 || backend.SuggestedTools[0] != "git.diff" {
+		t.Fatalf("backend suggested tools = %+v, want git.diff", backend.SuggestedTools)
+	}
+	if backend.RequiredPermissions == nil || backend.RequiredPermissions.Writes == nil || !*backend.RequiredPermissions.Writes || backend.RequiredPermissions.Network == nil || *backend.RequiredPermissions.Network {
+		t.Fatalf("backend required permissions = %+v, want writes true and network false", backend.RequiredPermissions)
+	}
+	if len(backend.SourceContextSourceIDs) != 1 || backend.SourceContextSourceIDs[0] != "ctx_agents" {
+		t.Fatalf("backend source refs = %+v, want ctx_agents", backend.SourceContextSourceIDs)
+	}
+	mirrored := getMirroredCairnlineProjectSkillForTest(t, handler, project.ID, "backend")
+	if mirrored.Title != "Backend" || len(mirrored.SuggestedTools) != 1 || mirrored.SuggestedTools[0] != "git.diff" || mirrored.RequiredPermissions.Network == nil || *mirrored.RequiredPermissions.Network {
+		t.Fatalf("Cairnline skill = %+v, want discovered metadata committed first", mirrored)
+	}
+	native, err := handler.projectSkills.List(t.Context(), project.ID)
+	if err != nil {
+		t.Fatalf("List native skills: %v", err)
+	}
+	if shadow := projectSkillResponseFor(renderProjectSkills(native, "hecate"), "backend"); shadow == nil || shadow.Title != "Backend" {
+		t.Fatalf("native shadow skills = %+v, want backend compatibility shadow", native)
+	}
+
+	patchRec := httptest.NewRecorder()
+	server.ServeHTTP(patchRec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/proj_skills_authority/skills/backend", projectSkillAPITestJSONBody(t, map[string]any{
+		"enabled":     false,
+		"title":       "Backend Owner",
+		"description": "Operator-reviewed backend guidance.",
+		"trust_label": "operator_curated_skill",
+	})))
+	if patchRec.Code != http.StatusOK {
+		t.Fatalf("patch status = %d body=%s, want 200", patchRec.Code, patchRec.Body.String())
+	}
+	var patched ProjectSkillResponse
+	if err := json.Unmarshal(patchRec.Body.Bytes(), &patched); err != nil {
+		t.Fatalf("decode patch response: %v", err)
+	}
+	if patched.Data.ReadBackend != "cairnline" || patched.Data.Enabled || patched.Data.Title != "Backend Owner" || patched.Data.TrustLabel != "operator_curated_skill" {
+		t.Fatalf("patched response = %+v, want disabled Cairnline-authoritative skill", patched.Data)
+	}
+	mirrored = getMirroredCairnlineProjectSkillForTest(t, handler, project.ID, "backend")
+	if mirrored.Enabled || mirrored.Title != "Backend Owner" || mirrored.Description != "Operator-reviewed backend guidance." || mirrored.TrustLabel != "operator_curated_skill" {
+		t.Fatalf("patched Cairnline skill = %+v, want operator override", mirrored)
+	}
+	native, err = handler.projectSkills.List(t.Context(), project.ID)
+	if err != nil {
+		t.Fatalf("List native patched skills: %v", err)
+	}
+	if shadow := projectSkillResponseFor(renderProjectSkills(native, "hecate"), "backend"); shadow == nil || shadow.Enabled || shadow.Title != "Backend Owner" || shadow.TrustLabel != "operator_curated_skill" {
+		t.Fatalf("native shadow skills = %+v, want patched compatibility shadow", native)
+	}
+
+	rediscoverRec := httptest.NewRecorder()
+	server.ServeHTTP(rediscoverRec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_skills_authority/skills/discover", nil))
+	if rediscoverRec.Code != http.StatusOK {
+		t.Fatalf("rediscover status = %d body=%s, want 200", rediscoverRec.Code, rediscoverRec.Body.String())
+	}
+	mirrored = getMirroredCairnlineProjectSkillForTest(t, handler, project.ID, "backend")
+	if mirrored.Enabled || mirrored.Title != "Backend Owner" || mirrored.Description != "Operator-reviewed backend guidance." || mirrored.TrustLabel != "operator_curated_skill" {
+		t.Fatalf("rediscovered Cairnline skill = %+v, want operator overrides preserved", mirrored)
+	}
+}
+
 func TestProjectSkillsAPI_MirrorRefreshesSkillSourceRefsOnRediscovery(t *testing.T) {
 	t.Parallel()
 	handler := NewHandler(config.Config{

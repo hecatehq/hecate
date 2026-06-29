@@ -106,6 +106,23 @@ func (h *Handler) HandleCreateProject(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 		return
 	}
+	if h.projectIdentityWritesUseCairnlineAuthority() {
+		project, err = h.createProjectWithCairnlineAuthority(r.Context(), project)
+		if errors.Is(err, projects.ErrInvalid) || errors.Is(err, cairnline.ErrInvalid) {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+			return
+		}
+		if errors.Is(err, projects.ErrAlreadyExists) || errors.Is(err, cairnline.ErrDuplicate) {
+			WriteError(w, http.StatusConflict, errCodeConflict, err.Error())
+			return
+		}
+		if err != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+			return
+		}
+		WriteJSON(w, http.StatusCreated, ProjectResponse{Object: "project", Data: renderProject(project)})
+		return
+	}
 	project, err = h.projects.Create(r.Context(), project)
 	if errors.Is(err, projects.ErrInvalid) {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
@@ -205,6 +222,32 @@ func (h *Handler) HandleUpdateProject(w http.ResponseWriter, r *http.Request) {
 			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 			return
 		}
+	}
+	if h.projectMetadataDefaultsWritesUseCairnlineAuthority() && projectUpdateCanUseCairnlineMetadataDefaultsAuthority(req) {
+		project, err := h.updateProjectMetadataDefaultsWithCairnlineAuthority(r.Context(), r.PathValue("id"), req)
+		if errors.Is(err, projects.ErrNotFound) || errors.Is(err, cairnline.ErrNotFound) {
+			WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
+			return
+		}
+		if errors.Is(err, projects.ErrInvalid) || errors.Is(err, cairnline.ErrInvalid) {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+			return
+		}
+		if errors.Is(err, projects.ErrAlreadyExists) || errors.Is(err, cairnline.ErrDuplicate) {
+			WriteError(w, http.StatusConflict, errCodeConflict, err.Error())
+			return
+		}
+		if err != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+			return
+		}
+		WriteJSON(w, http.StatusOK, ProjectResponse{Object: "project", Data: renderProject(project)})
+		return
+	}
+	if h.projectRootSourceListUpdateWritesUseCairnlineAuthority(req) {
+		project, err := h.updateProjectRootSourceListsWithCairnlineAuthority(r.Context(), r.PathValue("id"), req, roots, contextSources)
+		writeProjectListReplaceCairnlineAuthorityResponse(w, project, err)
+		return
 	}
 	project, err := h.projects.Update(r.Context(), r.PathValue("id"), func(item *projects.Project) {
 		if req.Name != nil {
@@ -312,6 +355,11 @@ func (h *Handler) HandleCreateProjectRoot(w http.ResponseWriter, r *http.Request
 	if root.ID == "" {
 		root.ID = newOpaqueTaskResourceID("root")
 	}
+	if h.projectRootWritesUseCairnlineAuthority() {
+		project, _, err := h.createProjectRootWithCairnlineAuthority(r.Context(), r.PathValue("id"), root)
+		writeProjectRootCairnlineAuthorityResponse(w, http.StatusCreated, project, err)
+		return
+	}
 	project, created, err := h.projectApplication().CreateRoot(r.Context(), r.PathValue("id"), root)
 	h.writeProjectRootMutationResponse(r.Context(), w, http.StatusCreated, project, created, false, err)
 }
@@ -326,11 +374,21 @@ func (h *Handler) HandleUpdateProjectRoot(w http.ResponseWriter, r *http.Request
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 		return
 	}
+	if h.projectRootWritesUseCairnlineAuthority() {
+		project, _, err := h.updateProjectRootWithCairnlineAuthority(r.Context(), r.PathValue("id"), r.PathValue("root_id"), root)
+		writeProjectRootCairnlineAuthorityResponse(w, http.StatusOK, project, err)
+		return
+	}
 	project, updated, err := h.projectApplication().UpdateRoot(r.Context(), r.PathValue("id"), r.PathValue("root_id"), root)
 	h.writeProjectRootMutationResponse(r.Context(), w, http.StatusOK, project, updated, false, err)
 }
 
 func (h *Handler) HandleDeleteProjectRoot(w http.ResponseWriter, r *http.Request) {
+	if h.projectRootWritesUseCairnlineAuthority() {
+		project, _, err := h.deleteProjectRootWithCairnlineAuthority(r.Context(), r.PathValue("id"), r.PathValue("root_id"))
+		writeProjectRootCairnlineAuthorityResponse(w, http.StatusOK, project, err)
+		return
+	}
 	project, deleted, err := h.projectApplication().DeleteRoot(r.Context(), r.PathValue("id"), r.PathValue("root_id"))
 	h.writeProjectRootMutationResponse(r.Context(), w, http.StatusOK, project, deleted, true, err)
 }
@@ -348,6 +406,11 @@ func (h *Handler) HandleCreateProjectContextSource(w http.ResponseWriter, r *htt
 	if source.ID == "" {
 		source.ID = newOpaqueTaskResourceID("ctxsrc")
 	}
+	if h.projectContextSourceWritesUseCairnlineAuthority() {
+		project, _, err := h.createProjectContextSourceWithCairnlineAuthority(r.Context(), r.PathValue("id"), source)
+		writeProjectContextSourceCairnlineAuthorityResponse(w, http.StatusCreated, project, err)
+		return
+	}
 	project, created, err := h.projectApplication().CreateContextSource(r.Context(), r.PathValue("id"), source)
 	h.writeProjectContextSourceMutationResponse(r.Context(), w, http.StatusCreated, project, created, false, err)
 }
@@ -362,17 +425,39 @@ func (h *Handler) HandleUpdateProjectContextSource(w http.ResponseWriter, r *htt
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 		return
 	}
+	if h.projectContextSourceWritesUseCairnlineAuthority() {
+		project, _, err := h.updateProjectContextSourceWithCairnlineAuthority(r.Context(), r.PathValue("id"), r.PathValue("source_id"), source)
+		writeProjectContextSourceCairnlineAuthorityResponse(w, http.StatusOK, project, err)
+		return
+	}
 	project, updated, err := h.projectApplication().UpdateContextSource(r.Context(), r.PathValue("id"), r.PathValue("source_id"), source)
 	h.writeProjectContextSourceMutationResponse(r.Context(), w, http.StatusOK, project, updated, false, err)
 }
 
 func (h *Handler) HandleDeleteProjectContextSource(w http.ResponseWriter, r *http.Request) {
+	if h.projectContextSourceWritesUseCairnlineAuthority() {
+		project, _, err := h.deleteProjectContextSourceWithCairnlineAuthority(r.Context(), r.PathValue("id"), r.PathValue("source_id"))
+		writeProjectContextSourceCairnlineAuthorityResponse(w, http.StatusOK, project, err)
+		return
+	}
 	project, deleted, err := h.projectApplication().DeleteContextSource(r.Context(), r.PathValue("id"), r.PathValue("source_id"))
 	h.writeProjectContextSourceMutationResponse(r.Context(), w, http.StatusOK, project, deleted, true, err)
 }
 
 func (h *Handler) HandleDeleteProject(w http.ResponseWriter, r *http.Request) {
+	if h.projectIdentityWritesUseCairnlineAuthority() {
+		result, err := h.deleteProjectWithCairnlineAuthority(r.Context(), r.PathValue("id"))
+		h.writeProjectDeleteResponse(w, result, err)
+		return
+	}
 	result, err := h.projectApplication().DeleteProject(r.Context(), r.PathValue("id"))
+	if err == nil {
+		h.mirrorProjectDeleteToCairnline(r.Context(), "project_delete", result.Project)
+	}
+	h.writeProjectDeleteResponse(w, result, err)
+}
+
+func (h *Handler) writeProjectDeleteResponse(w http.ResponseWriter, result projectapp.DeleteProjectResult, err error) {
 	if errors.Is(err, projectapp.ErrProjectNotFound) {
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
 		return
@@ -385,7 +470,6 @@ func (h *Handler) HandleDeleteProject(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	h.mirrorProjectDeleteToCairnline(r.Context(), "project_delete", result.Project)
 	WriteJSON(w, http.StatusOK, ProjectDeleteResponse{Object: "project_delete", Data: renderProjectDeleteResult(result)})
 }
 

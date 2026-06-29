@@ -47,7 +47,8 @@ func (h *Handler) HandleSyncProjectsToCairnline(w http.ResponseWriter, r *http.R
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	item, err := projectCairnlineServiceParity(r.Context(), dbPath, true, snapshots, service)
+	smoke := h.projectCairnlineStrictEmbeddedSmoke(r.Context(), snapshots)
+	item, err := projectCairnlineServiceParity(r.Context(), dbPath, true, "embedded_sync", snapshots, service, smoke)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
@@ -83,7 +84,8 @@ func (h *Handler) HandleProjectCairnlineMirrorParity(w http.ResponseWriter, r *h
 		return
 	}
 	defer store.Close()
-	item, err := projectCairnlineServiceParity(r.Context(), dbPath, true, snapshots, service)
+	smoke := h.projectCairnlineStrictEmbeddedSmoke(r.Context(), snapshots)
+	item, err := projectCairnlineServiceParity(r.Context(), dbPath, true, "mirror_parity", snapshots, service, smoke)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
@@ -159,6 +161,7 @@ func (h *Handler) HandleExportProjectToCairnline(w http.ResponseWriter, r *http.
 			MemoryEntryCount:       graph.MemoryEntries,
 			MemoryCandidateCount:   graph.MemoryCandidates,
 			AssistantProposalCount: len(assistantProposals),
+			MigrationRehearsal:     projectCairnlineMigrationRehearsal("project_export", true, true, nil),
 		},
 	})
 }
@@ -439,7 +442,7 @@ func projectCairnlineReadModelFromService(ctx context.Context, service *cairnlin
 	}, nil
 }
 
-func projectCairnlineServiceParity(ctx context.Context, dbPath string, databaseExists bool, snapshots []cairnlinebridge.Snapshot, service *cairnline.Service) (ProjectCairnlineSyncResponseItem, error) {
+func projectCairnlineServiceParity(ctx context.Context, dbPath string, databaseExists bool, operation string, snapshots []cairnlinebridge.Snapshot, service *cairnline.Service, smoke *ProjectCairnlineMigrationEmbeddedSmoke) (ProjectCairnlineSyncResponseItem, error) {
 	hecateCounts := projectCairnlineSnapshotAllCounts(snapshots)
 	cairnlineCounts, err := projectCairnlineServiceAllCounts(ctx, service)
 	if err != nil {
@@ -461,16 +464,18 @@ func projectCairnlineServiceParity(ctx context.Context, dbPath string, databaseE
 		return ProjectCairnlineSyncResponseItem{}, err
 	}
 	contentDifferences := projectCairnlineSyncContentDifferences(hecateContent, cairnlineContent)
+	match := len(differences) == 0 && len(idDifferences) == 0 && len(contentDifferences) == 0
 	return ProjectCairnlineSyncResponseItem{
 		DatabasePath:       dbPath,
 		DatabaseExists:     databaseExists,
-		Match:              len(differences) == 0 && len(idDifferences) == 0 && len(contentDifferences) == 0,
+		Match:              match,
 		Differences:        differences,
 		IDDifferences:      idDifferences,
 		ContentDifferences: contentDifferences,
 		Hecate:             hecateCounts,
 		Cairnline:          cairnlineCounts,
 		Authoritative:      false,
+		MigrationRehearsal: projectCairnlineMigrationRehearsal(operation, databaseExists, match, smoke),
 	}, nil
 }
 
@@ -491,7 +496,228 @@ func projectCairnlineMissingMirrorParity(dbPath string, snapshots []cairnlinebri
 		Hecate:             hecateCounts,
 		Cairnline:          cairnlineCounts,
 		Authoritative:      false,
+		MigrationRehearsal: projectCairnlineMigrationRehearsal("mirror_parity", false, false, nil),
 	}
+}
+
+func projectCairnlineMigrationRehearsal(operation string, databaseExists, match bool, smoke *ProjectCairnlineMigrationEmbeddedSmoke) ProjectCairnlineMigrationRehearsal {
+	target := "embedded_cairnline_sqlite"
+	refreshesTarget := false
+	status := "drift_detected"
+	switch operation {
+	case "embedded_sync":
+		refreshesTarget = true
+		if match {
+			status = "rehearsed"
+		}
+	case "mirror_parity":
+		if !databaseExists {
+			status = "not_run"
+		} else if match {
+			status = "verified"
+		}
+	case "project_export":
+		target = "project_cairnline_sqlite_export"
+		refreshesTarget = true
+		if databaseExists {
+			status = "exported"
+		} else {
+			status = "not_run"
+		}
+	}
+	return ProjectCairnlineMigrationRehearsal{
+		Operation:       operation,
+		ImportMode:      "cairnline_snapshot_import",
+		SnapshotVersion: cairnline.SnapshotVersion,
+		SourceAuthority: "hecate_authoritative_stores",
+		Target:          target,
+		RefreshesTarget: refreshesTarget,
+		Authoritative:   false,
+		CutoverReady:    false,
+		Status:          status,
+		Checklist: []ProjectCairnlineMigrationRehearsalCheck{
+			{
+				ID:     "load-hecate-stores",
+				Status: "complete",
+				Detail: "Loaded Hecate's authoritative project, profile, work, skill, memory, and assistant stores.",
+			},
+			{
+				ID:     "native-snapshot-import",
+				Status: projectCairnlineMigrationCheckStatus(databaseExists, "complete", "not_run"),
+				Detail: "Imported through Cairnline's versioned snapshot contract.",
+			},
+			{
+				ID:     "parity-check",
+				Status: projectCairnlineMigrationParityStatus(databaseExists, match),
+				Detail: "Compared counts, IDs, launch packets, and content digests where available.",
+			},
+			{
+				ID:     "strict-embedded-read-smoke",
+				Status: projectCairnlineMigrationSmokeStatus(smoke),
+				Detail: "Set Hecate to the embedded Cairnline read source and exercise Projects routes before any cutover.",
+			},
+			{
+				ID:     "rollback-plan",
+				Status: "documented",
+				Detail: "Hecate remains authoritative; rollback is deleting the generated Cairnline SQLite files or switching reads back to Hecate.",
+			},
+			{
+				ID:     "authoritative-switchpoint",
+				Status: "blocked",
+				Detail: "No write authority has moved to Cairnline yet.",
+			},
+		},
+		Rollback: []string{
+			"Hecate stores remain authoritative; do not treat the generated Cairnline database as source of truth.",
+			"Rollback the rehearsal by deleting the generated Cairnline SQLite database files under the reported database path.",
+			"Keep or restore HECATE_PROJECTS_COORDINATION_BACKEND=hecate until write switchpoints and cutover are implemented.",
+		},
+		EmbeddedSmoke: smoke,
+	}
+}
+
+func (h *Handler) projectCairnlineStrictEmbeddedSmoke(ctx context.Context, snapshots []cairnlinebridge.Snapshot) *ProjectCairnlineMigrationEmbeddedSmoke {
+	smoke := &ProjectCairnlineMigrationEmbeddedSmoke{Status: "passed"}
+	if h == nil {
+		smoke.Status = "failed"
+		smoke.Errors = append(smoke.Errors, ProjectCairnlineMigrationEmbeddedSmokeError{
+			Check: "handler",
+			Error: "handler is nil",
+		})
+		return smoke
+	}
+	strict := h.projectCairnlineStrictEmbeddedProbeHandler()
+	strict.config.Projects.CoordinationBackend = "cairnline"
+	strict.config.Projects.CairnlineReadSource = "embedded"
+	for _, snapshot := range snapshots {
+		projectID := strings.TrimSpace(snapshot.Project.ID)
+		if projectID == "" {
+			continue
+		}
+		smoke.ProjectCount++
+		smoke.CheckedProjectIDs = append(smoke.CheckedProjectIDs, projectID)
+		checkProjectCairnlineEmbeddedSmoke(smoke, projectID, "project-detail", func() error {
+			_, err := strict.renderCairnlineProject(ctx, snapshot.Project)
+			return err
+		})
+		checkProjectCairnlineEmbeddedSmoke(smoke, projectID, "setup-readiness", func() error {
+			_, err := strict.renderCairnlineProjectSetupReadiness(ctx, projectID)
+			return err
+		})
+		checkProjectCairnlineEmbeddedSmoke(smoke, projectID, "health", func() error {
+			_, err := strict.renderCairnlineProjectHealth(ctx, projectID)
+			return err
+		})
+		checkProjectCairnlineEmbeddedSmoke(smoke, projectID, "work-items", func() error {
+			_, err := strict.renderCairnlineProjectWorkItems(ctx, projectID)
+			return err
+		})
+		checkProjectCairnlineEmbeddedSmoke(smoke, projectID, "activity", func() error {
+			_, err := strict.renderCairnlineProjectActivity(ctx, projectID)
+			return err
+		})
+		checkProjectCairnlineEmbeddedSmoke(smoke, projectID, "operations-brief", func() error {
+			_, err := strict.renderCairnlineProjectOperationsBrief(ctx, snapshot.Project)
+			return err
+		})
+		checkProjectCairnlineEmbeddedSmoke(smoke, projectID, "embedded-read-model", func() error {
+			readModel, err := strict.projectCairnlineEmbeddedReadModel(ctx, projectID)
+			if err != nil {
+				return err
+			}
+			smoke.ReadModelCount++
+			smoke.LaunchPacketCount += readModel.LaunchPacketCount
+			smoke.LaunchPacketWarningCount += readModel.LaunchPacketWarningCount
+			smoke.LaunchPacketErrorCount += len(readModel.LaunchPacketErrors)
+			if len(readModel.LaunchPacketErrors) > 0 {
+				return errors.New("embedded read model reported launch packet errors")
+			}
+			return nil
+		})
+	}
+	if len(smoke.Errors) > 0 {
+		smoke.Status = "failed"
+	}
+	return smoke
+}
+
+func (h *Handler) projectCairnlineStrictEmbeddedProbeHandler() *Handler {
+	if h == nil {
+		return nil
+	}
+	return &Handler{
+		config:                    h.config,
+		logger:                    h.logger,
+		service:                   h.service,
+		controlPlane:              h.controlPlane,
+		providerRuntime:           h.providerRuntime,
+		taskStore:                 h.taskStore,
+		taskRunner:                h.taskRunner,
+		tracer:                    h.tracer,
+		agentChat:                 h.agentChat,
+		projects:                  h.projects,
+		memory:                    h.memory,
+		memoryCandidates:          h.memoryCandidates,
+		projectWork:               h.projectWork,
+		projectSkills:             h.projectSkills,
+		projectAssistantProposals: h.projectAssistantProposals,
+		pluginRegistry:            h.pluginRegistry,
+		projectAssistant:          h.projectAssistant,
+		agentProfiles:             h.agentProfiles,
+		agentChatRunner:           h.agentChatRunner,
+		agentChatLive:             h.agentChatLive,
+		agentChatIdleSweepCancel:  h.agentChatIdleSweepCancel,
+		operatorTerminals:         h.operatorTerminals,
+		rateLimiter:               h.rateLimiter,
+		secretCipher:              h.secretCipher,
+		mcpClientCache:            h.mcpClientCache,
+		orchestratorMetrics:       h.orchestratorMetrics,
+		agentChatMetrics:          h.agentChatMetrics,
+		approvalConfig:            h.approvalConfig,
+		agentAdapterProbe:         h.agentAdapterProbe,
+		agentAdapterLogout:        h.agentAdapterLogout,
+		agentAdapterAuthenticate:  h.agentAdapterAuthenticate,
+		stateCleaner:              h.stateCleaner,
+		quitFunc:                  h.quitFunc,
+	}
+}
+
+func checkProjectCairnlineEmbeddedSmoke(smoke *ProjectCairnlineMigrationEmbeddedSmoke, projectID, check string, fn func() error) {
+	smoke.ReadRouteChecks++
+	if err := fn(); err != nil {
+		smoke.Errors = append(smoke.Errors, ProjectCairnlineMigrationEmbeddedSmokeError{
+			ProjectID: projectID,
+			Check:     check,
+			Error:     err.Error(),
+		})
+	}
+}
+
+func projectCairnlineMigrationSmokeStatus(smoke *ProjectCairnlineMigrationEmbeddedSmoke) string {
+	if smoke == nil {
+		return "operator_required"
+	}
+	if smoke.Status == "passed" {
+		return "complete"
+	}
+	return smoke.Status
+}
+
+func projectCairnlineMigrationCheckStatus(condition bool, whenTrue, whenFalse string) string {
+	if condition {
+		return whenTrue
+	}
+	return whenFalse
+}
+
+func projectCairnlineMigrationParityStatus(databaseExists, match bool) string {
+	if !databaseExists {
+		return "not_run"
+	}
+	if match {
+		return "complete"
+	}
+	return "drift_detected"
 }
 
 func projectCairnlineSnapshotGraphCounts(snapshot cairnlinebridge.Snapshot) ProjectCairnlineGraphParityCounts {

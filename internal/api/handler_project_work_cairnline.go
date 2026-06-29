@@ -539,8 +539,10 @@ func projectWorkAssignmentFromCairnline(item cairnline.Assignment) projectwork.A
 		ExecutionRef: projectwork.NormalizeAssignmentExecutionRef(projectwork.AssignmentExecutionRef{
 			ContextSnapshotID: item.ContextSnapshotID,
 		}),
-		CreatedAt: item.CreatedAt,
-		UpdatedAt: item.UpdatedAt,
+		CreatedAt:   item.CreatedAt,
+		UpdatedAt:   item.UpdatedAt,
+		StartedAt:   item.StartedAt,
+		CompletedAt: item.CompletedAt,
 	}
 }
 

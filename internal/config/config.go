@@ -587,7 +587,7 @@ func (c Config) Validate() error {
 	validateBackend("HECATE_PROJECTS_COORDINATION_BACKEND", c.ProjectsCoordinationBackend(), "hecate", "cairnline")
 	validateBackend("HECATE_PROJECTS_CAIRNLINE_READ_SOURCE", c.ProjectsCairnlineReadSource(), "auto", "snapshot", "embedded")
 	for _, item := range c.ProjectsCairnlineWriteAuthority() {
-		validateBackend("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY", item, "project-memory", "memory-candidates")
+		validateBackend("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY", item, "project-memory", "memory-candidates", "project-collaboration", "project-skills", "project-work-items", "project-roles", "project-assignments", "agent-profiles", "project-metadata-defaults", "project-roots", "project-context-sources", "project-identity", "project-assistant-proposals")
 	}
 	if c.ProjectsCairnlineWriteAuthorityEnabled("memory-candidates") && !c.ProjectsCairnlineWriteAuthorityEnabled("project-memory") {
 		errs = append(errs, errors.New("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=memory-candidates requires project-memory because candidate promotion creates accepted project memory"))

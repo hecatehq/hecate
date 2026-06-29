@@ -65,6 +65,9 @@ func TestProjectCoordinationBackendStatus_CairnlineConfiguredMissingSources(t *t
 	if gate := findReplacementGate(status.ReplacementGates, "write-authority-switchpoints"); gate == nil || gate.Ready || gate.Status != "blocked" {
 		t.Fatalf("write-authority gate = %+v, want blocking gate", gate)
 	}
+	if gate := findReplacementGate(status.ReplacementGates, "migration-and-rollback"); gate == nil || gate.Ready || gate.Status != "rehearsal_available" {
+		t.Fatalf("migration gate = %+v, want rehearsal-available blocker", gate)
+	}
 	if point := findWriteSwitchpoint(status.WriteSwitchpoints, "assignment-start-dispatch"); point == nil || point.CurrentAuthority != "hecate" || point.CairnlineState != "result_mirror_only" || !point.LiveMirror || !point.BlocksAuthority || point.Gap != "assignment-start" {
 		t.Fatalf("assignment-start switchpoint = %+v, want Hecate-owned result mirror blocker", point)
 	}
@@ -98,7 +101,7 @@ func TestProjectCoordinationBackendStatus_CairnlineConfiguredReadRoutesReady(t *
 	if !containsString(status.ReadRoutes, "project-list") || !containsString(status.ReadRoutes, "assignment-context") || !containsString(status.ReadRoutes, "launch-readiness") || !containsString(status.ReadRoutes, "assignment-preflight") || !containsString(status.ReadRoutes, "project-assistant-context") || !containsString(status.ReadRoutes, "project-assistant-proposal") || !containsString(status.ReadRoutes, "operations-brief") {
 		t.Fatalf("read routes = %+v, want structured Cairnline read-route coverage", status.ReadRoutes)
 	}
-	if !containsString(status.WriteAdapterGaps, "agent-profiles") || !containsString(status.WriteAdapterGaps, "assignments") || !containsString(status.WriteAdapterGaps, "project-assistant-proposals") || !containsString(status.WriteAdapterGaps, "migration-cutover") {
+	if !containsString(status.WriteAdapterGaps, "agent-profiles") || !containsString(status.WriteAdapterGaps, "assignments") || !containsString(status.WriteAdapterGaps, "project-assistant-proposals") || !containsString(status.WriteAdapterGaps, "project-assistant-apply-side-effects") || !containsString(status.WriteAdapterGaps, "migration-cutover") {
 		t.Fatalf("write gaps = %+v, want structured remaining write-adapter gaps", status.WriteAdapterGaps)
 	}
 	if !containsString(status.WriteAdapterSeams, "project-identity-live-mirror") || !containsString(status.WriteAdapterSeams, "project-roots-live-mirror") || !containsString(status.WriteAdapterSeams, "project-context-sources-live-mirror") || !containsString(status.WriteAdapterSeams, "project-defaults-live-mirror") || !containsString(status.WriteAdapterSeams, "agent-profiles-live-mirror") || !containsString(status.WriteAdapterSeams, "project-skills-live-mirror") || !containsString(status.WriteAdapterSeams, "project-roles-live-mirror") || !containsString(status.WriteAdapterSeams, "project-work-items-live-mirror") || !containsString(status.WriteAdapterSeams, "project-assignments-live-mirror") || !containsString(status.WriteAdapterSeams, "project-assignment-start-result-live-mirror") || !containsString(status.WriteAdapterSeams, "project-assignment-chat-reconcile-live-mirror") || !containsString(status.WriteAdapterSeams, "project-collaboration-live-mirror") || !containsString(status.WriteAdapterSeams, "project-handoffs-live-mirror") || !containsString(status.WriteAdapterSeams, "project-memory-live-mirror") || !containsString(status.WriteAdapterSeams, "project-memory-candidates-live-mirror") || !containsString(status.WriteAdapterSeams, "project-assistant-proposal-ledger-live-mirror") || !containsString(status.WriteAdapterSeams, "project-assistant-apply-side-effects-live-mirror") || !containsString(status.WriteAdapterSeams, "assignment-status") || !containsString(status.WriteAdapterSeams, "project-assistant-proposal-ledger-import") || !containsString(status.WriteAdapterSeams, "memory-candidates") {
@@ -113,8 +116,8 @@ func TestProjectCoordinationBackendStatus_CairnlineConfiguredReadRoutesReady(t *
 	if point := findWriteSwitchpoint(status.WriteSwitchpoints, "project-memory"); point == nil || point.CurrentAuthority != "hecate" || point.CairnlineState != "live_mirror_non_authoritative" || !point.LiveMirror || !point.BlocksAuthority || point.Gap != "memory" {
 		t.Fatalf("project-memory switchpoint = %+v, want Hecate-owned live mirror blocker", point)
 	}
-	if point := findWriteSwitchpoint(status.WriteSwitchpoints, "migration-cutover"); point == nil || point.CurrentAuthority != "hecate" || point.CairnlineState != "missing_authoritative_switchpoint" || point.LiveMirror || !point.BlocksAuthority || point.Gap != "migration-cutover" {
-		t.Fatalf("migration switchpoint = %+v, want missing authoritative switchpoint blocker", point)
+	if point := findWriteSwitchpoint(status.WriteSwitchpoints, "migration-cutover"); point == nil || point.CurrentAuthority != "hecate" || point.CairnlineState != "snapshot_import_rehearsal_available" || point.LiveMirror || !point.BlocksAuthority || point.Gap != "migration-cutover" || !containsString(point.Seams, "sync-rehearsal") {
+		t.Fatalf("migration switchpoint = %+v, want snapshot-import rehearsal blocker", point)
 	}
 	if status.SyncReadinessURL != projectCoordinationBackendSyncReadinessURL {
 		t.Fatalf("sync readiness URL = %q, want %q", status.SyncReadinessURL, projectCoordinationBackendSyncReadinessURL)
@@ -190,6 +193,361 @@ func TestProjectCoordinationBackendStatus_CairnlineProjectMemoryCandidateAuthori
 	}
 }
 
+func TestProjectCoordinationBackendStatus_CairnlineProjectCollaborationAuthorityConfigured(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			Backend:                 "sqlite",
+			CoordinationBackend:     "cairnline",
+			CairnlineReadSource:     "embedded",
+			CairnlineWriteAuthority: "project-collaboration",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+
+	status := handler.projectCoordinationBackendStatus()
+	if containsString(status.WriteAdapterGaps, "artifacts") || containsString(status.WriteAdapterGaps, "handoffs") {
+		t.Fatalf("write gaps = %+v, want artifacts and handoffs removed for opt-in Cairnline authority", status.WriteAdapterGaps)
+	}
+	for _, name := range []string{"collaboration-artifacts", "handoffs"} {
+		point := findWriteSwitchpoint(status.WriteSwitchpoints, name)
+		if point == nil || point.CurrentAuthority != "cairnline" || point.CairnlineState != "authoritative_opt_in" || !point.LiveMirror || point.BlocksAuthority || point.Gap != "" {
+			t.Fatalf("%s switchpoint = %+v, want opt-in Cairnline authority", name, point)
+		}
+	}
+	if status.ReplacementReady {
+		t.Fatalf("replacement_ready = true, want false until remaining write and migration gates are ready")
+	}
+	if !strings.Contains(strings.Join(status.Warnings, "\n"), "Project collaboration artifact creation and handoff mutations are opt-in Cairnline-authoritative") {
+		t.Fatalf("warnings = %+v, want collaboration authority warning", status.Warnings)
+	}
+}
+
+func TestProjectCoordinationBackendStatus_CairnlineProjectMetadataDefaultsAuthorityConfigured(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			Backend:                 "sqlite",
+			CoordinationBackend:     "cairnline",
+			CairnlineReadSource:     "embedded",
+			CairnlineWriteAuthority: "project-metadata-defaults",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+
+	status := handler.projectCoordinationBackendStatus()
+	if !containsString(status.WriteAdapterGaps, "projects") {
+		t.Fatalf("write gaps = %+v, want projects gap to remain until project identity create/delete authority exists", status.WriteAdapterGaps)
+	}
+	point := findWriteSwitchpoint(status.WriteSwitchpoints, "project-metadata-defaults")
+	if point == nil || point.CurrentAuthority != "cairnline" || point.CairnlineState != "authoritative_opt_in" || !point.LiveMirror || point.BlocksAuthority || point.Gap != "" {
+		t.Fatalf("project-metadata-defaults switchpoint = %+v, want opt-in Cairnline authority", point)
+	}
+	identityPoint := findWriteSwitchpoint(status.WriteSwitchpoints, "project-identity")
+	if identityPoint == nil || identityPoint.CurrentAuthority != "hecate" || !identityPoint.BlocksAuthority || identityPoint.Gap != "projects" {
+		t.Fatalf("project-identity switchpoint = %+v, want create/delete to remain Hecate-owned and blocking", identityPoint)
+	}
+	if status.ReplacementReady {
+		t.Fatalf("replacement_ready = true, want false until remaining write and migration gates are ready")
+	}
+	warnings := strings.Join(status.Warnings, "\n")
+	if !strings.Contains(warnings, "Project metadata/default-only update mutations are opt-in Cairnline-authoritative") || !strings.Contains(warnings, "controlled by separate switchpoints") {
+		t.Fatalf("warnings = %+v, want metadata/default authority plus separate-switchpoint caveat", status.Warnings)
+	}
+}
+
+func TestProjectCoordinationBackendStatus_CairnlineProjectIdentityAuthorityConfigured(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			Backend:                 "sqlite",
+			CoordinationBackend:     "cairnline",
+			CairnlineReadSource:     "embedded",
+			CairnlineWriteAuthority: "project-identity",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+
+	status := handler.projectCoordinationBackendStatus()
+	if !containsString(status.WriteAdapterGaps, "projects") {
+		t.Fatalf("write gaps = %+v, want projects gap to remain until metadata/default authority is also enabled", status.WriteAdapterGaps)
+	}
+	point := findWriteSwitchpoint(status.WriteSwitchpoints, "project-identity")
+	if point == nil || point.CurrentAuthority != "cairnline" || point.CairnlineState != "authoritative_opt_in" || !point.LiveMirror || point.BlocksAuthority || point.Gap != "" {
+		t.Fatalf("project-identity switchpoint = %+v, want opt-in Cairnline authority", point)
+	}
+	if status.ReplacementReady {
+		t.Fatalf("replacement_ready = true, want false until remaining write and migration gates are ready")
+	}
+	warnings := strings.Join(status.Warnings, "\n")
+	if !strings.Contains(warnings, "Project create/delete mutations are opt-in Cairnline-authoritative") || !strings.Contains(warnings, "delete restores the Cairnline snapshot") {
+		t.Fatalf("warnings = %+v, want project identity authority plus rollback caveat", status.Warnings)
+	}
+}
+
+func TestProjectCoordinationBackendStatus_CairnlineProjectIdentityAndMetadataAuthorityConfigured(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			Backend:                 "sqlite",
+			CoordinationBackend:     "cairnline",
+			CairnlineReadSource:     "embedded",
+			CairnlineWriteAuthority: "project-identity,project-metadata-defaults",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+
+	status := handler.projectCoordinationBackendStatus()
+	if containsString(status.WriteAdapterGaps, "projects") {
+		t.Fatalf("write gaps = %+v, want projects gap removed when identity and metadata/defaults are authoritative", status.WriteAdapterGaps)
+	}
+	for _, name := range []string{"project-identity", "project-metadata-defaults"} {
+		point := findWriteSwitchpoint(status.WriteSwitchpoints, name)
+		if point == nil || point.CurrentAuthority != "cairnline" || point.CairnlineState != "authoritative_opt_in" || !point.LiveMirror || point.BlocksAuthority || point.Gap != "" {
+			t.Fatalf("%s switchpoint = %+v, want opt-in Cairnline authority", name, point)
+		}
+	}
+}
+
+func TestProjectCoordinationBackendStatus_CairnlineDirectRootSourceAuthorityConfigured(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			Backend:                 "sqlite",
+			CoordinationBackend:     "cairnline",
+			CairnlineReadSource:     "embedded",
+			CairnlineWriteAuthority: "project-roots,project-context-sources",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+
+	status := handler.projectCoordinationBackendStatus()
+	if !containsString(status.WriteAdapterGaps, "roots") || containsString(status.WriteAdapterGaps, "context-sources") {
+		t.Fatalf("write gaps = %+v, want roots to remain blocking and context-sources removed for discovery-result authority", status.WriteAdapterGaps)
+	}
+	rootPoint := findWriteSwitchpoint(status.WriteSwitchpoints, "roots-and-worktrees")
+	if rootPoint == nil || rootPoint.CurrentAuthority != "mixed" || rootPoint.CairnlineState != "partial_authoritative_opt_in" || !rootPoint.LiveMirror || !rootPoint.BlocksAuthority || rootPoint.Gap != "roots" {
+		t.Fatalf("roots-and-worktrees switchpoint = %+v, want partial opt-in authority with roots gap still blocking", rootPoint)
+	}
+	sourcePoint := findWriteSwitchpoint(status.WriteSwitchpoints, "context-sources")
+	if sourcePoint == nil || sourcePoint.CurrentAuthority != "cairnline" || sourcePoint.CairnlineState != "authoritative_opt_in" || !sourcePoint.LiveMirror || sourcePoint.BlocksAuthority || sourcePoint.Gap != "" {
+		t.Fatalf("context-sources switchpoint = %+v, want opt-in authority including discovery-result replacement", sourcePoint)
+	}
+	if status.ReplacementReady {
+		t.Fatalf("replacement_ready = true, want false until remaining write and migration gates are ready")
+	}
+	warnings := strings.Join(status.Warnings, "\n")
+	if !strings.Contains(warnings, "Project root create/update/delete, root list replacement, discovery-result replacement, and worktree-created root record mutations are opt-in Cairnline-authoritative") || !strings.Contains(warnings, "Hecate still performs root discovery scans and Git worktree creation side effects") {
+		t.Fatalf("warnings = %+v, want root authority plus scan/worktree caveat", status.Warnings)
+	}
+	if !strings.Contains(warnings, "Context-source create/update/delete, list replacement, and discovery-result replacement mutations are opt-in Cairnline-authoritative") || !strings.Contains(warnings, "Hecate still performs the workspace scan") {
+		t.Fatalf("warnings = %+v, want context-source authority plus scan caveat", status.Warnings)
+	}
+}
+
+func TestProjectCoordinationBackendStatus_CairnlineProjectSkillsAuthorityConfigured(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			Backend:                 "sqlite",
+			CoordinationBackend:     "cairnline",
+			CairnlineReadSource:     "embedded",
+			CairnlineWriteAuthority: "project-skills",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+
+	status := handler.projectCoordinationBackendStatus()
+	if containsString(status.WriteAdapterGaps, "skills") {
+		t.Fatalf("write gaps = %+v, want skills removed for opt-in Cairnline authority", status.WriteAdapterGaps)
+	}
+	point := findWriteSwitchpoint(status.WriteSwitchpoints, "skills")
+	if point == nil || point.CurrentAuthority != "cairnline" || point.CairnlineState != "authoritative_opt_in" || !point.LiveMirror || point.BlocksAuthority || point.Gap != "" {
+		t.Fatalf("skills switchpoint = %+v, want opt-in Cairnline authority", point)
+	}
+	if status.ReplacementReady {
+		t.Fatalf("replacement_ready = true, want false until remaining write and migration gates are ready")
+	}
+	if !strings.Contains(strings.Join(status.Warnings, "\n"), "Project skill discovery and metadata updates are opt-in Cairnline-authoritative") {
+		t.Fatalf("warnings = %+v, want project-skills authority warning", status.Warnings)
+	}
+}
+
+func TestProjectCoordinationBackendStatus_CairnlineAgentProfilesAuthorityConfigured(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			Backend:                 "sqlite",
+			CoordinationBackend:     "cairnline",
+			CairnlineReadSource:     "embedded",
+			CairnlineWriteAuthority: "agent-profiles",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+
+	status := handler.projectCoordinationBackendStatus()
+	if containsString(status.WriteAdapterGaps, "agent-profiles") {
+		t.Fatalf("write gaps = %+v, want agent-profiles removed for opt-in Cairnline authority", status.WriteAdapterGaps)
+	}
+	point := findWriteSwitchpoint(status.WriteSwitchpoints, "agent-profiles")
+	if point == nil || point.CurrentAuthority != "cairnline" || point.CairnlineState != "authoritative_opt_in" || !point.LiveMirror || point.BlocksAuthority || point.Gap != "" {
+		t.Fatalf("agent-profiles switchpoint = %+v, want opt-in Cairnline authority", point)
+	}
+	if status.ReplacementReady {
+		t.Fatalf("replacement_ready = true, want false until remaining write and migration gates are ready")
+	}
+	if !strings.Contains(strings.Join(status.Warnings, "\n"), "Agent profile create/update/delete mutations are opt-in Cairnline-authoritative") {
+		t.Fatalf("warnings = %+v, want agent-profile authority warning", status.Warnings)
+	}
+}
+
+func TestProjectCoordinationBackendStatus_CairnlineProjectWorkItemsAuthorityConfigured(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			Backend:                 "sqlite",
+			CoordinationBackend:     "cairnline",
+			CairnlineReadSource:     "embedded",
+			CairnlineWriteAuthority: "project-work-items",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+
+	status := handler.projectCoordinationBackendStatus()
+	if containsString(status.WriteAdapterGaps, "work-items") {
+		t.Fatalf("write gaps = %+v, want work-items removed for opt-in Cairnline authority", status.WriteAdapterGaps)
+	}
+	point := findWriteSwitchpoint(status.WriteSwitchpoints, "work-items")
+	if point == nil || point.CurrentAuthority != "cairnline" || point.CairnlineState != "authoritative_opt_in" || !point.LiveMirror || point.BlocksAuthority || point.Gap != "" {
+		t.Fatalf("work-items switchpoint = %+v, want opt-in Cairnline authority", point)
+	}
+	if status.ReplacementReady {
+		t.Fatalf("replacement_ready = true, want false until remaining write and migration gates are ready")
+	}
+	warnings := strings.Join(status.Warnings, "\n")
+	if !strings.Contains(warnings, "Project work-item mutations are opt-in Cairnline-authoritative") || !strings.Contains(warnings, "role mutations still write Hecate-native stores first, then mirror portable role defaults into Cairnline") {
+		t.Fatalf("warnings = %+v, want work-item authority plus role mirror warning", status.Warnings)
+	}
+}
+
+func TestProjectCoordinationBackendStatus_CairnlineProjectRolesAuthorityConfigured(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			Backend:                 "sqlite",
+			CoordinationBackend:     "cairnline",
+			CairnlineReadSource:     "embedded",
+			CairnlineWriteAuthority: "project-roles,project-work-items",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+
+	status := handler.projectCoordinationBackendStatus()
+	if containsString(status.WriteAdapterGaps, "roles") || containsString(status.WriteAdapterGaps, "work-items") {
+		t.Fatalf("write gaps = %+v, want roles and work-items removed for opt-in Cairnline authority", status.WriteAdapterGaps)
+	}
+	for _, name := range []string{"roles", "work-items"} {
+		point := findWriteSwitchpoint(status.WriteSwitchpoints, name)
+		if point == nil || point.CurrentAuthority != "cairnline" || point.CairnlineState != "authoritative_opt_in" || !point.LiveMirror || point.BlocksAuthority || point.Gap != "" {
+			t.Fatalf("%s switchpoint = %+v, want opt-in Cairnline authority", name, point)
+		}
+	}
+	if status.ReplacementReady {
+		t.Fatalf("replacement_ready = true, want false until remaining write and migration gates are ready")
+	}
+	if !strings.Contains(strings.Join(status.Warnings, "\n"), "Project role and work-item mutations are opt-in Cairnline-authoritative") {
+		t.Fatalf("warnings = %+v, want role/work-item authority warning", status.Warnings)
+	}
+}
+
+func TestProjectCoordinationBackendStatus_CairnlineProjectAssignmentsAuthorityConfigured(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			Backend:                 "sqlite",
+			CoordinationBackend:     "cairnline",
+			CairnlineReadSource:     "embedded",
+			CairnlineWriteAuthority: "project-assignments",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+
+	status := handler.projectCoordinationBackendStatus()
+	if containsString(status.WriteAdapterGaps, "assignments") {
+		t.Fatalf("write gaps = %+v, want assignments removed for opt-in Cairnline authority", status.WriteAdapterGaps)
+	}
+	if !containsString(status.WriteAdapterGaps, "assignment-start") {
+		t.Fatalf("write gaps = %+v, want assignment-start to remain Hecate-owned and blocking", status.WriteAdapterGaps)
+	}
+	point := findWriteSwitchpoint(status.WriteSwitchpoints, "assignments")
+	if point == nil || point.CurrentAuthority != "cairnline" || point.CairnlineState != "authoritative_opt_in" || !point.LiveMirror || point.BlocksAuthority || point.Gap != "" {
+		t.Fatalf("assignments switchpoint = %+v, want opt-in Cairnline authority", point)
+	}
+	startPoint := findWriteSwitchpoint(status.WriteSwitchpoints, "assignment-start-dispatch")
+	if startPoint == nil || startPoint.CurrentAuthority != "hecate" || startPoint.CairnlineState != "result_mirror_only" || !startPoint.BlocksAuthority || startPoint.Gap != "assignment-start" {
+		t.Fatalf("assignment-start switchpoint = %+v, want Hecate start authority to remain blocking", startPoint)
+	}
+	if status.ReplacementReady {
+		t.Fatalf("replacement_ready = true, want false until remaining write and migration gates are ready")
+	}
+	warnings := strings.Join(status.Warnings, "\n")
+	if !strings.Contains(warnings, "Project assignment create/update/delete record mutations are opt-in Cairnline-authoritative") || !strings.Contains(warnings, "assignment start remains Hecate-owned") {
+		t.Fatalf("warnings = %+v, want assignment authority plus Hecate-owned start warning", status.Warnings)
+	}
+}
+
+func TestProjectCoordinationBackendStatus_CairnlineProjectAssistantProposalAuthorityConfigured(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			Backend:                 "sqlite",
+			CoordinationBackend:     "cairnline",
+			CairnlineReadSource:     "embedded",
+			CairnlineWriteAuthority: "project-assistant-proposals",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+
+	status := handler.projectCoordinationBackendStatus()
+	if containsString(status.WriteAdapterGaps, "project-assistant-proposals") {
+		t.Fatalf("write gaps = %+v, want assistant proposal ledger removed for opt-in Cairnline authority", status.WriteAdapterGaps)
+	}
+	if !containsString(status.WriteAdapterGaps, "project-assistant-apply-side-effects") {
+		t.Fatalf("write gaps = %+v, want assistant apply side effects to remain Hecate-owned and blocking", status.WriteAdapterGaps)
+	}
+	point := findWriteSwitchpoint(status.WriteSwitchpoints, "project-assistant-proposal-ledger")
+	if point == nil || point.CurrentAuthority != "cairnline" || point.CairnlineState != "authoritative_opt_in" || !point.LiveMirror || point.BlocksAuthority || point.Gap != "" {
+		t.Fatalf("project-assistant-proposal-ledger switchpoint = %+v, want opt-in Cairnline authority", point)
+	}
+	applyPoint := findWriteSwitchpoint(status.WriteSwitchpoints, "project-assistant-apply-side-effects")
+	if applyPoint == nil || applyPoint.CurrentAuthority != "hecate" || applyPoint.CairnlineState != "side_effect_mirror_only" || !applyPoint.BlocksAuthority || applyPoint.Gap != "project-assistant-apply-side-effects" {
+		t.Fatalf("project-assistant-apply-side-effects switchpoint = %+v, want Hecate-owned side-effect mirror blocker", applyPoint)
+	}
+	if status.ReplacementReady {
+		t.Fatalf("replacement_ready = true, want false until remaining write and migration gates are ready")
+	}
+	warnings := strings.Join(status.Warnings, "\n")
+	if !strings.Contains(warnings, "Project Assistant proposal ledger mutations are opt-in Cairnline-authoritative") || !strings.Contains(warnings, "confirmed apply side effects still execute through Hecate-owned project mutation services") {
+		t.Fatalf("warnings = %+v, want assistant proposal authority plus side-effect caveat", status.Warnings)
+	}
+}
+
+func TestProjectCoordinationBackendStatus_CairnlineProjectAssistantApplyWorkAuthorityConfigured(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			Backend:             "sqlite",
+			CoordinationBackend: "cairnline",
+			CairnlineReadSource: "embedded",
+			CairnlineWriteAuthority: strings.Join([]string{
+				projectCairnlineWriteAuthorityProjectAssistantProposals,
+				projectCairnlineWriteAuthorityProjectRoles,
+				projectCairnlineWriteAuthorityProjectWorkItems,
+				projectCairnlineWriteAuthorityProjectAssignments,
+				projectCairnlineWriteAuthorityProjectCollaboration,
+			}, ","),
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+
+	status := handler.projectCoordinationBackendStatus()
+	if !containsString(status.WriteAdapterGaps, "project-assistant-apply-side-effects") {
+		t.Fatalf("write gaps = %+v, want assistant apply side effects to remain a blocking mixed-authority gap", status.WriteAdapterGaps)
+	}
+	applyPoint := findWriteSwitchpoint(status.WriteSwitchpoints, "project-assistant-apply-side-effects")
+	if applyPoint == nil || applyPoint.CurrentAuthority != "mixed" || applyPoint.CairnlineState != "partial_authoritative_via_work_switchpoints" || !applyPoint.BlocksAuthority || applyPoint.Gap != "project-assistant-apply-side-effects" {
+		t.Fatalf("project-assistant-apply-side-effects switchpoint = %+v, want mixed authority through enabled work switchpoints", applyPoint)
+	}
+	for _, name := range []string{"roles", "work-items", "assignments", "artifacts", "handoffs", "project-assistant-proposals"} {
+		if containsString(status.WriteAdapterGaps, name) {
+			t.Fatalf("write gaps = %+v, did not expect %q when underlying work/proposal switchpoints are enabled", status.WriteAdapterGaps, name)
+		}
+	}
+	warnings := strings.Join(status.Warnings, "\n")
+	if !strings.Contains(warnings, "Project Assistant proposal ledger mutations are opt-in Cairnline-authoritative") || !strings.Contains(warnings, "confirmed apply is mixed-authority") || !strings.Contains(warnings, "Project Assistant confirmed apply uses the enabled Cairnline authority seams") {
+		t.Fatalf("warnings = %+v, want assistant proposal authority and mixed apply-work authority caveats", status.Warnings)
+	}
+	if status.ReplacementReady {
+		t.Fatalf("replacement_ready = true, want false until remaining write and migration gates are ready")
+	}
+}
+
 func TestProjectCoordinationBackendStatusRoute(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	cfg := config.Config{
@@ -222,7 +580,15 @@ func TestProjectCoordinationBackendStatusRoute(t *testing.T) {
 	if response.Data.ReplacementReady {
 		t.Fatalf("response replacement_ready = true, want false until write authority and migration gates are ready")
 	}
-	if findReplacementGate(response.Data.ReplacementGates, "write-authority-switchpoints") == nil || findWriteSwitchpoint(response.Data.WriteSwitchpoints, "project-assistant-proposals") == nil {
+	migrationGate := findReplacementGate(response.Data.ReplacementGates, "migration-and-rollback")
+	if migrationGate == nil || migrationGate.Status != "rehearsal_available" {
+		t.Fatalf("response migration gate = %+v, want rehearsal-available blocker", migrationGate)
+	}
+	migrationSwitchpoint := findWriteSwitchpoint(response.Data.WriteSwitchpoints, "migration-cutover")
+	if migrationSwitchpoint == nil || migrationSwitchpoint.CairnlineState != "snapshot_import_rehearsal_available" || !containsString(migrationSwitchpoint.Seams, "sync-rehearsal") {
+		t.Fatalf("response migration switchpoint = %+v, want snapshot-import rehearsal blocker", migrationSwitchpoint)
+	}
+	if findReplacementGate(response.Data.ReplacementGates, "write-authority-switchpoints") == nil || findWriteSwitchpoint(response.Data.WriteSwitchpoints, "project-assistant-proposal-ledger") == nil || findWriteSwitchpoint(response.Data.WriteSwitchpoints, "project-assistant-apply-side-effects") == nil {
 		t.Fatalf("response gates/switchpoints = %+v / %+v, want structured replacement blockers", response.Data.ReplacementGates, response.Data.WriteSwitchpoints)
 	}
 }

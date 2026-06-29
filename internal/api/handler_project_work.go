@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/internal/projectworkapp"
 )
@@ -360,7 +361,7 @@ func (h *Handler) HandleCreateProjectWorkRole(w http.ResponseWriter, r *http.Req
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	role, err := h.projectWorkApplication().CreateRole(r.Context(), projectID, projectworkapp.CreateRoleCommand{
+	cmd := projectworkapp.CreateRoleCommand{
 		ID:                  req.ID,
 		Name:                req.Name,
 		Description:         req.Description,
@@ -370,11 +371,20 @@ func (h *Handler) HandleCreateProjectWorkRole(w http.ResponseWriter, r *http.Req
 		DefaultModel:        req.DefaultModel,
 		DefaultAgentProfile: req.DefaultAgentProfile,
 		SkillIDs:            req.SkillIDs,
-	})
+	}
+	var role projectwork.AgentRoleProfile
+	var err error
+	if h.projectRoleWritesUseCairnlineAuthority() {
+		role, err = h.createProjectWorkRoleWithCairnlineAuthority(r.Context(), projectID, cmd)
+	} else {
+		role, err = h.projectWorkApplication().CreateRole(r.Context(), projectID, cmd)
+	}
 	if !writeProjectWorkError(w, err) {
 		return
 	}
-	h.mirrorProjectRoleByIDToCairnline(r.Context(), "project_role_create", projectID, role)
+	if !h.projectRoleWritesUseCairnlineAuthority() {
+		h.mirrorProjectRoleByIDToCairnline(r.Context(), "project_role_create", projectID, role)
+	}
 	WriteJSON(w, http.StatusCreated, ProjectWorkRoleEnvelope{Object: "project_role", Data: renderProjectWorkRole(role)})
 }
 
@@ -387,7 +397,7 @@ func (h *Handler) HandleUpdateProjectWorkRole(w http.ResponseWriter, r *http.Req
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	role, err := h.projectWorkApplication().UpdateRole(r.Context(), projectID, r.PathValue("role_id"), projectworkapp.UpdateRoleCommand{
+	cmd := projectworkapp.UpdateRoleCommand{
 		Name:                req.Name,
 		Description:         req.Description,
 		Instructions:        req.Instructions,
@@ -396,11 +406,20 @@ func (h *Handler) HandleUpdateProjectWorkRole(w http.ResponseWriter, r *http.Req
 		DefaultModel:        req.DefaultModel,
 		DefaultAgentProfile: req.DefaultAgentProfile,
 		SkillIDs:            req.SkillIDs,
-	})
+	}
+	var role projectwork.AgentRoleProfile
+	var err error
+	if h.projectRoleWritesUseCairnlineAuthority() {
+		role, err = h.updateProjectWorkRoleWithCairnlineAuthority(r.Context(), projectID, r.PathValue("role_id"), cmd)
+	} else {
+		role, err = h.projectWorkApplication().UpdateRole(r.Context(), projectID, r.PathValue("role_id"), cmd)
+	}
 	if !writeProjectWorkError(w, err) {
 		return
 	}
-	h.mirrorProjectRoleByIDToCairnline(r.Context(), "project_role_update", projectID, role)
+	if !h.projectRoleWritesUseCairnlineAuthority() {
+		h.mirrorProjectRoleByIDToCairnline(r.Context(), "project_role_update", projectID, role)
+	}
 	WriteJSON(w, http.StatusOK, ProjectWorkRoleEnvelope{Object: "project_role", Data: renderProjectWorkRole(role)})
 }
 
@@ -409,12 +428,18 @@ func (h *Handler) HandleDeleteProjectWorkRole(w http.ResponseWriter, r *http.Req
 	if !h.requireProject(w, r, projectID) {
 		return
 	}
-	role, roleLoaded := h.projectWorkRoleForCairnlineMirror(r.Context(), "project_role_delete", projectID, r.PathValue("role_id"))
-	if err := h.projectWorkApplication().DeleteRole(r.Context(), projectID, r.PathValue("role_id")); !writeProjectWorkError(w, err) {
-		return
-	}
-	if roleLoaded {
-		h.mirrorProjectRoleDeleteToCairnline(r.Context(), "project_role_delete", role)
+	if h.projectRoleWritesUseCairnlineAuthority() {
+		if err := h.deleteProjectWorkRoleWithCairnlineAuthority(r.Context(), projectID, r.PathValue("role_id")); !writeProjectWorkError(w, err) {
+			return
+		}
+	} else {
+		role, roleLoaded := h.projectWorkRoleForCairnlineMirror(r.Context(), "project_role_delete", projectID, r.PathValue("role_id"))
+		if err := h.projectWorkApplication().DeleteRole(r.Context(), projectID, r.PathValue("role_id")); !writeProjectWorkError(w, err) {
+			return
+		}
+		if roleLoaded {
+			h.mirrorProjectRoleDeleteToCairnline(r.Context(), "project_role_delete", role)
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -444,7 +469,7 @@ func (h *Handler) HandleCreateProjectWorkItem(w http.ResponseWriter, r *http.Req
 	if !h.requireProjectRootRef(w, r, projectID, req.RootID) {
 		return
 	}
-	item, err := h.projectWorkApplication().CreateWorkItem(r.Context(), projectID, projectworkapp.CreateWorkItemCommand{
+	cmd := projectworkapp.CreateWorkItemCommand{
 		ID:              req.ID,
 		Title:           req.Title,
 		Brief:           req.Brief,
@@ -453,11 +478,20 @@ func (h *Handler) HandleCreateProjectWorkItem(w http.ResponseWriter, r *http.Req
 		OwnerRoleID:     req.OwnerRoleID,
 		RootID:          req.RootID,
 		ReviewerRoleIDs: req.ReviewerRoleIDs,
-	})
+	}
+	var item projectwork.WorkItem
+	var err error
+	if h.projectWorkItemWritesUseCairnlineAuthority() {
+		item, err = h.createProjectWorkItemWithCairnlineAuthority(r.Context(), projectID, cmd)
+	} else {
+		item, err = h.projectWorkApplication().CreateWorkItem(r.Context(), projectID, cmd)
+	}
 	if !writeProjectWorkError(w, err) {
 		return
 	}
-	h.mirrorProjectWorkItemByIDToCairnline(r.Context(), "project_work_item_create", projectID, item)
+	if !h.projectWorkItemWritesUseCairnlineAuthority() {
+		h.mirrorProjectWorkItemByIDToCairnline(r.Context(), "project_work_item_create", projectID, item)
+	}
 	projected, err := h.renderProjectedProjectWorkItem(r.Context(), item)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
@@ -515,7 +549,7 @@ func (h *Handler) HandleUpdateProjectWorkItem(w http.ResponseWriter, r *http.Req
 	if req.RootID != nil && !h.requireProjectRootRef(w, r, projectID, *req.RootID) {
 		return
 	}
-	item, err := h.projectWorkApplication().UpdateWorkItem(r.Context(), projectID, r.PathValue("work_item_id"), projectworkapp.UpdateWorkItemCommand{
+	cmd := projectworkapp.UpdateWorkItemCommand{
 		Title:           req.Title,
 		Brief:           req.Brief,
 		Status:          req.Status,
@@ -523,11 +557,20 @@ func (h *Handler) HandleUpdateProjectWorkItem(w http.ResponseWriter, r *http.Req
 		OwnerRoleID:     req.OwnerRoleID,
 		RootID:          req.RootID,
 		ReviewerRoleIDs: req.ReviewerRoleIDs,
-	})
+	}
+	var item projectwork.WorkItem
+	var err error
+	if h.projectWorkItemWritesUseCairnlineAuthority() {
+		item, err = h.updateProjectWorkItemWithCairnlineAuthority(r.Context(), projectID, r.PathValue("work_item_id"), cmd)
+	} else {
+		item, err = h.projectWorkApplication().UpdateWorkItem(r.Context(), projectID, r.PathValue("work_item_id"), cmd)
+	}
 	if !writeProjectWorkError(w, err) {
 		return
 	}
-	h.mirrorProjectWorkItemByIDToCairnline(r.Context(), "project_work_item_update", projectID, item)
+	if !h.projectWorkItemWritesUseCairnlineAuthority() {
+		h.mirrorProjectWorkItemByIDToCairnline(r.Context(), "project_work_item_update", projectID, item)
+	}
 	projected, err := h.renderProjectedProjectWorkItem(r.Context(), item)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
@@ -541,10 +584,18 @@ func (h *Handler) HandleDeleteProjectWorkItem(w http.ResponseWriter, r *http.Req
 	if !h.requireProject(w, r, projectID) {
 		return
 	}
-	if err := h.projectWorkApplication().DeleteWorkItem(r.Context(), projectID, r.PathValue("work_item_id")); !writeProjectWorkError(w, err) {
+	var err error
+	if h.projectWorkItemWritesUseCairnlineAuthority() {
+		err = h.deleteProjectWorkItemWithCairnlineAuthority(r.Context(), projectID, r.PathValue("work_item_id"))
+	} else {
+		err = h.projectWorkApplication().DeleteWorkItem(r.Context(), projectID, r.PathValue("work_item_id"))
+	}
+	if !writeProjectWorkError(w, err) {
 		return
 	}
-	h.mirrorProjectWorkItemDeleteToCairnline(r.Context(), "project_work_item_delete", projectID, r.PathValue("work_item_id"))
+	if !h.projectWorkItemWritesUseCairnlineAuthority() {
+		h.mirrorProjectWorkItemDeleteToCairnline(r.Context(), "project_work_item_delete", projectID, r.PathValue("work_item_id"))
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -588,7 +639,7 @@ func (h *Handler) HandleProjectWorkAssignments(w http.ResponseWriter, r *http.Re
 func (h *Handler) HandleCreateProjectWorkAssignment(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
 	workItemID := r.PathValue("work_item_id")
-	if !h.requireProjectWorkItem(w, r, projectID, workItemID) {
+	if !h.projectAssignmentWritesUseCairnlineAuthority() && !h.requireProjectWorkItem(w, r, projectID, workItemID) {
 		return
 	}
 	var req createProjectWorkAssignmentRequest
@@ -600,6 +651,29 @@ func (h *Handler) HandleCreateProjectWorkAssignment(w http.ResponseWriter, r *ht
 	}
 	startedAt, completedAt, ok := parseProjectWorkRequestTimes(w, req.StartedAt, req.CompletedAt)
 	if !ok {
+		return
+	}
+	if h.projectAssignmentWritesUseCairnlineAuthority() {
+		item, err := h.createProjectWorkAssignmentWithCairnlineAuthority(r.Context(), projectID, workItemID, projectworkapp.CreateAssignmentCommand{
+			ID:           req.ID,
+			RoleID:       req.RoleID,
+			RootID:       req.RootID,
+			DriverKind:   req.DriverKind,
+			Status:       req.Status,
+			ExecutionRef: projectWorkAssignmentExecutionRefFromRequest(req.ExecutionRef),
+			StartedAt:    startedAt,
+			CompletedAt:  completedAt,
+		})
+		if !writeProjectWorkError(w, err) {
+			return
+		}
+		projected, err := h.renderProjectedProjectWorkAssignment(r.Context(), item)
+		if err != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+			return
+		}
+		projected.ReadBackend = "cairnline"
+		WriteJSON(w, http.StatusCreated, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
 		return
 	}
 	item, err := h.projectWorkApplication().CreateAssignment(r.Context(), projectID, workItemID, projectworkapp.CreateAssignmentCommand{
@@ -628,7 +702,7 @@ func (h *Handler) HandleUpdateProjectWorkAssignment(w http.ResponseWriter, r *ht
 	projectID := r.PathValue("id")
 	workItemID := r.PathValue("work_item_id")
 	assignmentID := r.PathValue("assignment_id")
-	if !h.requireProjectAssignment(w, r, projectID, workItemID, assignmentID) {
+	if !h.projectAssignmentWritesUseCairnlineAuthority() && !h.requireProjectAssignment(w, r, projectID, workItemID, assignmentID) {
 		return
 	}
 	var req updateProjectWorkAssignmentRequest
@@ -649,6 +723,28 @@ func (h *Handler) HandleUpdateProjectWorkAssignment(w http.ResponseWriter, r *ht
 	var completedAtPtr *time.Time
 	if req.CompletedAt != nil {
 		completedAtPtr = &completedAt
+	}
+	if h.projectAssignmentWritesUseCairnlineAuthority() {
+		item, err := h.updateProjectWorkAssignmentWithCairnlineAuthority(r.Context(), projectID, workItemID, assignmentID, projectworkapp.UpdateAssignmentCommand{
+			RoleID:       req.RoleID,
+			RootID:       req.RootID,
+			DriverKind:   req.DriverKind,
+			Status:       req.Status,
+			ExecutionRef: projectWorkAssignmentExecutionRefPtrFromRequest(req.ExecutionRef),
+			StartedAt:    startedAtPtr,
+			CompletedAt:  completedAtPtr,
+		})
+		if !writeProjectWorkError(w, err) {
+			return
+		}
+		projected, err := h.renderProjectedProjectWorkAssignment(r.Context(), item)
+		if err != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+			return
+		}
+		projected.ReadBackend = "cairnline"
+		WriteJSON(w, http.StatusOK, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
+		return
 	}
 	item, err := h.projectWorkApplication().UpdateAssignment(r.Context(), projectID, assignmentID, projectworkapp.UpdateAssignmentCommand{
 		RoleID:       req.RoleID,
@@ -675,7 +771,14 @@ func (h *Handler) HandleDeleteProjectWorkAssignment(w http.ResponseWriter, r *ht
 	projectID := r.PathValue("id")
 	workItemID := r.PathValue("work_item_id")
 	assignmentID := r.PathValue("assignment_id")
-	if !h.requireProjectAssignment(w, r, projectID, workItemID, assignmentID) {
+	if !h.projectAssignmentWritesUseCairnlineAuthority() && !h.requireProjectAssignment(w, r, projectID, workItemID, assignmentID) {
+		return
+	}
+	if h.projectAssignmentWritesUseCairnlineAuthority() {
+		if err := h.deleteProjectWorkAssignmentWithCairnlineAuthority(r.Context(), projectID, workItemID, assignmentID); !writeProjectWorkError(w, err) {
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if err := h.projectWorkApplication().DeleteAssignment(r.Context(), projectID, workItemID, assignmentID); !writeProjectWorkError(w, err) {
@@ -775,7 +878,7 @@ func (h *Handler) HandleCreateProjectWorkArtifact(w http.ResponseWriter, r *http
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	item, err := h.projectWorkApplication().CreateArtifact(r.Context(), projectID, workItemID, projectworkapp.CreateArtifactCommand{
+	cmd := projectworkapp.CreateArtifactCommand{
 		ID:                     req.ID,
 		AssignmentID:           req.AssignmentID,
 		Kind:                   req.Kind,
@@ -791,11 +894,20 @@ func (h *Handler) HandleCreateProjectWorkArtifact(w http.ResponseWriter, r *http
 		ReviewVerdict:          req.ReviewVerdict,
 		ReviewRisk:             req.ReviewRisk,
 		ReviewFollowUpRequired: req.ReviewFollowUpRequired,
-	})
+	}
+	var item projectwork.CollaborationArtifact
+	var err error
+	if h.projectCollaborationWritesUseCairnlineAuthority() {
+		item, err = h.createProjectWorkArtifactWithCairnlineAuthority(r.Context(), projectID, workItemID, cmd)
+	} else {
+		item, err = h.projectWorkApplication().CreateArtifact(r.Context(), projectID, workItemID, cmd)
+	}
 	if !writeProjectWorkError(w, err) {
 		return
 	}
-	h.mirrorProjectArtifactToCairnline(r.Context(), "project_artifact_create", item)
+	if !h.projectCollaborationWritesUseCairnlineAuthority() {
+		h.mirrorProjectArtifactToCairnline(r.Context(), "project_artifact_create", item)
+	}
 	WriteJSON(w, http.StatusCreated, ProjectWorkArtifactEnvelope{Object: "project_collaboration_artifact", Data: renderProjectWorkArtifact(item)})
 }
 
@@ -843,7 +955,7 @@ func (h *Handler) HandleCreateProjectHandoff(w http.ResponseWriter, r *http.Requ
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	item, err := h.projectWorkApplication().CreateHandoff(r.Context(), projectID, workItemID, projectworkapp.CreateHandoffCommand{
+	cmd := projectworkapp.CreateHandoffCommand{
 		ID:                    req.ID,
 		SourceAssignmentID:    req.SourceAssignmentID,
 		SourceRunID:           req.SourceRunID,
@@ -862,11 +974,20 @@ func (h *Handler) HandleCreateProjectHandoff(w http.ResponseWriter, r *http.Requ
 		ProvenanceKind:        req.ProvenanceKind,
 		TrustLabel:            req.TrustLabel,
 		CreatedByRoleID:       req.CreatedByRoleID,
-	})
+	}
+	var item projectwork.Handoff
+	var err error
+	if h.projectCollaborationWritesUseCairnlineAuthority() {
+		item, err = h.createProjectHandoffWithCairnlineAuthority(r.Context(), projectID, workItemID, cmd)
+	} else {
+		item, err = h.projectWorkApplication().CreateHandoff(r.Context(), projectID, workItemID, cmd)
+	}
 	if !writeProjectWorkError(w, err) {
 		return
 	}
-	h.mirrorProjectHandoffToCairnline(r.Context(), "project_handoff_create", item)
+	if !h.projectCollaborationWritesUseCairnlineAuthority() {
+		h.mirrorProjectHandoffToCairnline(r.Context(), "project_handoff_create", item)
+	}
 	WriteJSON(w, http.StatusCreated, ProjectHandoffEnvelope{Object: "project_handoff", Data: renderProjectHandoff(item)})
 }
 
@@ -881,7 +1002,7 @@ func (h *Handler) HandleUpdateProjectHandoff(w http.ResponseWriter, r *http.Requ
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	item, err := h.projectWorkApplication().UpdateHandoff(r.Context(), projectID, workItemID, handoffID, projectworkapp.UpdateHandoffCommand{
+	cmd := projectworkapp.UpdateHandoffCommand{
 		SourceAssignmentID:    req.SourceAssignmentID,
 		SourceRunID:           req.SourceRunID,
 		SourceChatSessionID:   req.SourceChatSessionID,
@@ -899,11 +1020,20 @@ func (h *Handler) HandleUpdateProjectHandoff(w http.ResponseWriter, r *http.Requ
 		ProvenanceKind:        req.ProvenanceKind,
 		TrustLabel:            req.TrustLabel,
 		CreatedByRoleID:       req.CreatedByRoleID,
-	})
+	}
+	var item projectwork.Handoff
+	var err error
+	if h.projectCollaborationWritesUseCairnlineAuthority() {
+		item, err = h.updateProjectHandoffWithCairnlineAuthority(r.Context(), projectID, workItemID, handoffID, cmd)
+	} else {
+		item, err = h.projectWorkApplication().UpdateHandoff(r.Context(), projectID, workItemID, handoffID, cmd)
+	}
 	if !writeProjectWorkError(w, err) {
 		return
 	}
-	h.mirrorProjectHandoffToCairnline(r.Context(), "project_handoff_update", item)
+	if !h.projectCollaborationWritesUseCairnlineAuthority() {
+		h.mirrorProjectHandoffToCairnline(r.Context(), "project_handoff_update", item)
+	}
 	WriteJSON(w, http.StatusOK, ProjectHandoffEnvelope{Object: "project_handoff", Data: renderProjectHandoff(item)})
 }
 
@@ -918,13 +1048,20 @@ func (h *Handler) HandleUpdateProjectHandoffStatus(w http.ResponseWriter, r *htt
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	item, err := h.projectWorkApplication().UpdateHandoff(r.Context(), projectID, workItemID, handoffID, projectworkapp.UpdateHandoffCommand{
-		Status: &req.Status,
-	})
+	cmd := projectworkapp.UpdateHandoffCommand{Status: &req.Status}
+	var item projectwork.Handoff
+	var err error
+	if h.projectCollaborationWritesUseCairnlineAuthority() {
+		item, err = h.updateProjectHandoffWithCairnlineAuthority(r.Context(), projectID, workItemID, handoffID, cmd)
+	} else {
+		item, err = h.projectWorkApplication().UpdateHandoff(r.Context(), projectID, workItemID, handoffID, cmd)
+	}
 	if !writeProjectWorkError(w, err) {
 		return
 	}
-	h.mirrorProjectHandoffToCairnline(r.Context(), "project_handoff_status_update", item)
+	if !h.projectCollaborationWritesUseCairnlineAuthority() {
+		h.mirrorProjectHandoffToCairnline(r.Context(), "project_handoff_status_update", item)
+	}
 	WriteJSON(w, http.StatusOK, ProjectHandoffEnvelope{Object: "project_handoff", Data: renderProjectHandoff(item)})
 }
 
@@ -935,10 +1072,16 @@ func (h *Handler) HandleDeleteProjectHandoff(w http.ResponseWriter, r *http.Requ
 	if !h.requireProjectWorkItem(w, r, projectID, workItemID) {
 		return
 	}
-	if err := h.projectWorkApplication().DeleteHandoff(r.Context(), projectID, workItemID, handoffID); !writeProjectWorkError(w, err) {
-		return
+	if h.projectCollaborationWritesUseCairnlineAuthority() {
+		if err := h.deleteProjectHandoffWithCairnlineAuthority(r.Context(), projectID, workItemID, handoffID); !writeProjectWorkError(w, err) {
+			return
+		}
+	} else {
+		if err := h.projectWorkApplication().DeleteHandoff(r.Context(), projectID, workItemID, handoffID); !writeProjectWorkError(w, err) {
+			return
+		}
+		h.mirrorProjectHandoffDeleteToCairnline(r.Context(), "project_handoff_delete", projectID, workItemID, handoffID)
 	}
-	h.mirrorProjectHandoffDeleteToCairnline(r.Context(), "project_handoff_delete", projectID, workItemID, handoffID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1039,11 +1182,14 @@ var projectWorkErrorMappings = []appErrorMapping{
 		projectworkapp.ErrAgentRunnerNotConfigured,
 	),
 	sentinelAppErrorMapping(http.StatusNotFound, errCodeNotFound, projectwork.ErrNotFound),
-	sentinelAppErrorMapping(http.StatusBadRequest, errCodeInvalidRequest, projectwork.ErrInvalid),
+	sentinelAppErrorMapping(http.StatusNotFound, errCodeNotFound, cairnline.ErrNotFound),
+	sentinelAppErrorMapping(http.StatusBadRequest, errCodeInvalidRequest, projectwork.ErrInvalid, cairnline.ErrInvalid),
 	sentinelAppErrorMapping(http.StatusConflict, errCodeConflict,
 		projectwork.ErrBuiltInRole,
 		projectwork.ErrDuplicateRole,
 		projectwork.ErrDuplicate,
+		cairnline.ErrDuplicate,
+		cairnline.ErrConflict,
 	),
 }
 

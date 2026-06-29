@@ -29,6 +29,23 @@ func (h *Handler) HandleCreateAgentProfile(w http.ResponseWriter, r *http.Reques
 	if profile.ID == "" {
 		profile.ID = newOpaqueTaskResourceID("prof")
 	}
+	if h.agentProfileWritesUseCairnlineAuthority() {
+		created, err := h.createAgentProfileWithCairnlineAuthority(r.Context(), profile)
+		if errors.Is(err, agentprofiles.ErrInvalid) {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "invalid agent profile")
+			return
+		}
+		if errors.Is(err, agentprofiles.ErrBuiltIn) {
+			WriteError(w, http.StatusConflict, errCodeConflict, "built-in agent profile cannot be created")
+			return
+		}
+		if err != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+			return
+		}
+		WriteJSON(w, http.StatusCreated, AgentProfileResponse{Object: "agent_profile", Data: renderAgentProfile(created)})
+		return
+	}
 	profile, err := h.agentProfiles.Create(r.Context(), profile)
 	if errors.Is(err, agentprofiles.ErrInvalid) {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "invalid agent profile")
@@ -64,6 +81,27 @@ func (h *Handler) HandleUpdateAgentProfile(w http.ResponseWriter, r *http.Reques
 	if !decodeJSON(w, r, &req) {
 		return
 	}
+	if h.agentProfileWritesUseCairnlineAuthority() {
+		profile, err := h.updateAgentProfileWithCairnlineAuthority(r.Context(), r.PathValue("id"), req)
+		if errors.Is(err, agentprofiles.ErrNotFound) {
+			WriteError(w, http.StatusNotFound, errCodeNotFound, "agent profile not found")
+			return
+		}
+		if errors.Is(err, agentprofiles.ErrBuiltIn) {
+			WriteError(w, http.StatusConflict, errCodeConflict, "built-in agent profile cannot be updated")
+			return
+		}
+		if errors.Is(err, agentprofiles.ErrInvalid) {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "invalid agent profile")
+			return
+		}
+		if err != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+			return
+		}
+		WriteJSON(w, http.StatusOK, AgentProfileResponse{Object: "agent_profile", Data: renderAgentProfile(profile)})
+		return
+	}
 	profile, err := h.agentProfiles.Update(r.Context(), r.PathValue("id"), func(item *agentprofiles.Profile) {
 		applyAgentProfileUpdate(item, req)
 	})
@@ -89,6 +127,20 @@ func (h *Handler) HandleUpdateAgentProfile(w http.ResponseWriter, r *http.Reques
 
 func (h *Handler) HandleDeleteAgentProfile(w http.ResponseWriter, r *http.Request) {
 	profileID := r.PathValue("id")
+	if h.agentProfileWritesUseCairnlineAuthority() {
+		if err := h.deleteAgentProfileWithCairnlineAuthority(r.Context(), profileID); errors.Is(err, agentprofiles.ErrNotFound) {
+			WriteError(w, http.StatusNotFound, errCodeNotFound, "agent profile not found")
+			return
+		} else if errors.Is(err, agentprofiles.ErrBuiltIn) {
+			WriteError(w, http.StatusConflict, errCodeConflict, "built-in agent profile cannot be deleted")
+			return
+		} else if err != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if err := h.agentProfiles.Delete(r.Context(), profileID); errors.Is(err, agentprofiles.ErrNotFound) {
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent profile not found")
 		return

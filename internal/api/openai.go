@@ -297,21 +297,22 @@ type ProjectCairnlineExportResponse struct {
 }
 
 type ProjectCairnlineExportResponseItem struct {
-	ProjectID              string `json:"project_id"`
-	DatabasePath           string `json:"database_path"`
-	RootCount              int    `json:"root_count"`
-	ContextSourceCount     int    `json:"context_source_count"`
-	AgentProfileCount      int    `json:"agent_profile_count"`
-	ExecutionProfileCount  int    `json:"execution_profile_count"`
-	SkillCount             int    `json:"skill_count"`
-	RoleCount              int    `json:"role_count"`
-	WorkItemCount          int    `json:"work_item_count"`
-	AssignmentCount        int    `json:"assignment_count"`
-	ArtifactCount          int    `json:"artifact_count"`
-	HandoffCount           int    `json:"handoff_count"`
-	MemoryEntryCount       int    `json:"memory_entry_count"`
-	MemoryCandidateCount   int    `json:"memory_candidate_count"`
-	AssistantProposalCount int    `json:"assistant_proposal_count"`
+	ProjectID              string                             `json:"project_id"`
+	DatabasePath           string                             `json:"database_path"`
+	RootCount              int                                `json:"root_count"`
+	ContextSourceCount     int                                `json:"context_source_count"`
+	AgentProfileCount      int                                `json:"agent_profile_count"`
+	ExecutionProfileCount  int                                `json:"execution_profile_count"`
+	SkillCount             int                                `json:"skill_count"`
+	RoleCount              int                                `json:"role_count"`
+	WorkItemCount          int                                `json:"work_item_count"`
+	AssignmentCount        int                                `json:"assignment_count"`
+	ArtifactCount          int                                `json:"artifact_count"`
+	HandoffCount           int                                `json:"handoff_count"`
+	MemoryEntryCount       int                                `json:"memory_entry_count"`
+	MemoryCandidateCount   int                                `json:"memory_candidate_count"`
+	AssistantProposalCount int                                `json:"assistant_proposal_count"`
+	MigrationRehearsal     ProjectCairnlineMigrationRehearsal `json:"migration_rehearsal"`
 }
 
 type ProjectCairnlineSyncResponse struct {
@@ -329,6 +330,46 @@ type ProjectCairnlineSyncResponseItem struct {
 	Hecate             ProjectCairnlineSyncCounts          `json:"hecate"`
 	Cairnline          ProjectCairnlineSyncCounts          `json:"cairnline"`
 	Authoritative      bool                                `json:"authoritative"`
+	MigrationRehearsal ProjectCairnlineMigrationRehearsal  `json:"migration_rehearsal"`
+}
+
+type ProjectCairnlineMigrationRehearsal struct {
+	Operation       string                                    `json:"operation"`
+	ImportMode      string                                    `json:"import_mode"`
+	SnapshotVersion int                                       `json:"snapshot_version"`
+	SourceAuthority string                                    `json:"source_authority"`
+	Target          string                                    `json:"target"`
+	RefreshesTarget bool                                      `json:"refreshes_target"`
+	Authoritative   bool                                      `json:"authoritative"`
+	CutoverReady    bool                                      `json:"cutover_ready"`
+	Status          string                                    `json:"status"`
+	Checklist       []ProjectCairnlineMigrationRehearsalCheck `json:"checklist"`
+	Rollback        []string                                  `json:"rollback"`
+	EmbeddedSmoke   *ProjectCairnlineMigrationEmbeddedSmoke   `json:"embedded_smoke,omitempty"`
+}
+
+type ProjectCairnlineMigrationRehearsalCheck struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
+	Detail string `json:"detail"`
+}
+
+type ProjectCairnlineMigrationEmbeddedSmoke struct {
+	Status                   string                                        `json:"status"`
+	ProjectCount             int                                           `json:"project_count"`
+	CheckedProjectIDs        []string                                      `json:"checked_project_ids,omitempty"`
+	ReadRouteChecks          int                                           `json:"read_route_checks"`
+	ReadModelCount           int                                           `json:"read_model_count"`
+	LaunchPacketCount        int                                           `json:"launch_packet_count"`
+	LaunchPacketWarningCount int                                           `json:"launch_packet_warning_count"`
+	LaunchPacketErrorCount   int                                           `json:"launch_packet_error_count"`
+	Errors                   []ProjectCairnlineMigrationEmbeddedSmokeError `json:"errors,omitempty"`
+}
+
+type ProjectCairnlineMigrationEmbeddedSmokeError struct {
+	ProjectID string `json:"project_id,omitempty"`
+	Check     string `json:"check"`
+	Error     string `json:"error"`
 }
 
 type ProjectCairnlineSyncCounts struct {

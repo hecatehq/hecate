@@ -48,6 +48,16 @@ func (h *Handler) HandleDiscoverProjectRoots(w http.ResponseWriter, r *http.Requ
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 		return
 	}
+	merged := mergeDiscoveredProjectRoots(project.Roots, discovered)
+	defaultRootID := strings.TrimSpace(project.DefaultRootID)
+	if defaultRootID == "" && len(merged) > 0 {
+		defaultRootID = merged[0].ID
+	}
+	if h.projectRootWritesUseCairnlineAuthority() {
+		updated, err := h.replaceProjectRootsWithCairnlineAuthority(r.Context(), project.ID, merged, defaultRootID, "project_roots_cairnline_authority_discover")
+		writeProjectListReplaceCairnlineAuthorityResponse(w, updated, err)
+		return
+	}
 	updated, err := h.projects.Update(r.Context(), project.ID, func(item *projects.Project) {
 		item.Roots = mergeDiscoveredProjectRoots(item.Roots, discovered)
 		if item.DefaultRootID == "" && len(item.Roots) > 0 {
@@ -84,6 +94,16 @@ func (h *Handler) HandleCreateProjectWorktreeRoot(w http.ResponseWriter, r *http
 	root, _, err := createProjectWorktreeRoot(r.Context(), project, req, gitrunner.NewLocalRunner())
 	if err != nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+		return
+	}
+	if h.projectRootWritesUseCairnlineAuthority() {
+		roots := append(append([]projects.Root(nil), project.Roots...), root)
+		defaultRootID := strings.TrimSpace(project.DefaultRootID)
+		if req.SetDefault {
+			defaultRootID = root.ID
+		}
+		updated, err := h.replaceProjectRootsWithCairnlineAuthority(r.Context(), project.ID, roots, defaultRootID, "project_worktree_root_cairnline_authority_create")
+		writeProjectRootCairnlineAuthorityResponse(w, http.StatusCreated, updated, err)
 		return
 	}
 	updated, err := h.projects.Update(r.Context(), project.ID, func(item *projects.Project) {
