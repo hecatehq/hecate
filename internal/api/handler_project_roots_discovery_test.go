@@ -131,6 +131,74 @@ func TestProjectRootsDiscovery_MirrorsRootsWithoutReplacingCairnlineState(t *tes
 	}
 }
 
+func TestProjectRootsDiscovery_CairnlineAuthorityCommitsDiscoveredRootsFirst(t *testing.T) {
+	t.Parallel()
+	repo := initProjectRootDiscoveryRepo(t)
+	worktree := filepath.Join(t.TempDir(), "feature-worktree")
+	if err := exec.Command("git", "-C", repo, "worktree", "add", "-b", "feature/worktrees", worktree).Run(); err != nil {
+		t.Fatalf("git worktree add: %v", err)
+	}
+
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend:     "cairnline",
+			CairnlineWriteAuthority: projectCairnlineWriteAuthorityProjectRoots,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	projectStore := projects.NewMemoryStore()
+	handler.SetProjectStore(projectStore)
+	server := NewServer(quietLogger(), handler)
+
+	project := projects.Project{
+		ID:            "proj_roots_authority",
+		Name:          "Roots authority",
+		DefaultRootID: "root_main",
+		Roots: []projects.Root{{
+			ID:     "root_main",
+			Path:   repo,
+			Kind:   "git",
+			Active: true,
+		}},
+	}
+	if _, err := projectStore.Create(t.Context(), project); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	seedCairnlineProjectRootsForTest(t, handler, project.ID, repo)
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_roots_authority/roots/discover", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("discover status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var resp ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode discovery response: %v", err)
+	}
+	if resp.Data.DefaultRootID != "root_main" {
+		t.Fatalf("response default_root_id = %q, want root_main", resp.Data.DefaultRootID)
+	}
+
+	mirrored := getMirroredCairnlineProjectForTest(t, handler, project.ID)
+	if findMirroredCairnlineRootForTest(mirrored.Roots, "root_cairnline_only") != nil {
+		t.Fatalf("mirrored roots = %+v, want stale Cairnline-only root removed by authoritative discovery replacement", mirrored.Roots)
+	}
+	if findMirroredCairnlineSourceForTest(mirrored.ContextSources, "ctx_cairnline_only") == nil {
+		t.Fatalf("mirrored context sources = %+v, want unrelated Cairnline-only source preserved", mirrored.ContextSources)
+	}
+	var discoveredRoot *cairnline.Root
+	wantPath := canonicalProjectRootDiscoveryTestPath(t, worktree)
+	for idx := range mirrored.Roots {
+		if canonicalProjectRootDiscoveryTestPath(t, mirrored.Roots[idx].Path) == wantPath {
+			discoveredRoot = &mirrored.Roots[idx]
+			break
+		}
+	}
+	if discoveredRoot == nil || discoveredRoot.Kind != "git_worktree" || discoveredRoot.GitBranch != "feature/worktrees" || discoveredRoot.Active {
+		t.Fatalf("mirrored discovered root = %+v in %+v, want inactive feature worktree root", discoveredRoot, mirrored.Roots)
+	}
+}
+
 func TestProjectRoots_CreateWorktreeRoot(t *testing.T) {
 	t.Parallel()
 	repo := initProjectRootDiscoveryRepo(t)
@@ -212,6 +280,88 @@ func TestProjectRoots_CreateWorktreeRoot(t *testing.T) {
 	}
 	if findMirroredCairnlineSourceForTest(mirrored.ContextSources, "ctx_cairnline_only") == nil {
 		t.Fatalf("mirrored context sources = %+v, want Cairnline-only source preserved", mirrored.ContextSources)
+	}
+}
+
+func TestProjectRoots_CreateWorktreeRoot_CairnlineAuthorityCommitsRootRecordFirst(t *testing.T) {
+	t.Parallel()
+	repo := initProjectRootDiscoveryRepo(t)
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend:     "cairnline",
+			CairnlineWriteAuthority: projectCairnlineWriteAuthorityProjectRoots,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	projectStore := projects.NewMemoryStore()
+	handler.SetProjectStore(projectStore)
+	server := NewServer(quietLogger(), handler)
+
+	project := projects.Project{
+		ID:            "proj_roots_authority",
+		Name:          "Roots authority",
+		DefaultRootID: "root_main",
+		Roots: []projects.Root{{
+			ID:     "root_main",
+			Path:   repo,
+			Kind:   "git",
+			Active: true,
+		}},
+	}
+	if _, err := projectStore.Create(t.Context(), project); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	seedCairnlineProjectRootsForTest(t, handler, project.ID, repo)
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_roots_authority/roots/worktrees", bytes.NewReader([]byte(`{
+		"base_root_id":"root_main",
+		"branch":"feature/create-root-authority",
+		"active":true,
+		"set_default":true
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create worktree status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	var resp ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode create worktree response: %v", err)
+	}
+	if len(resp.Data.Roots) != 2 {
+		t.Fatalf("roots = %+v, want main plus created worktree", resp.Data.Roots)
+	}
+	created := resp.Data.Roots[1]
+	wantPath := filepath.Join(repo, ".worktrees", "feature-create-root-authority")
+	if created.ID == "" || created.Kind != "git_worktree" || created.GitBranch != "feature/create-root-authority" || !created.Active || resp.Data.DefaultRootID != created.ID {
+		t.Fatalf("created root = %+v default=%q, want active default git worktree", created, resp.Data.DefaultRootID)
+	}
+	if canonicalProjectRootDiscoveryTestPath(t, created.Path) != canonicalProjectRootDiscoveryTestPath(t, wantPath) {
+		t.Fatalf("created path = %q, want %q", created.Path, wantPath)
+	}
+
+	shadowed, ok, err := projectStore.Get(t.Context(), project.ID)
+	if err != nil || !ok {
+		t.Fatalf("shadowed Hecate project lookup ok=%v err=%v", ok, err)
+	}
+	if _, ok := findProjectRootByID(shadowed.Roots, created.ID); !ok || shadowed.DefaultRootID != created.ID {
+		t.Fatalf("shadowed roots = %+v default=%q, want created root shadowed as default", shadowed.Roots, shadowed.DefaultRootID)
+	}
+
+	mirrored := getMirroredCairnlineProjectForTest(t, handler, project.ID)
+	if findMirroredCairnlineRootForTest(mirrored.Roots, "root_cairnline_only") != nil {
+		t.Fatalf("mirrored roots = %+v, want stale Cairnline-only root removed by authoritative worktree-root record replacement", mirrored.Roots)
+	}
+	if findMirroredCairnlineSourceForTest(mirrored.ContextSources, "ctx_cairnline_only") == nil {
+		t.Fatalf("mirrored context sources = %+v, want unrelated Cairnline-only source preserved", mirrored.ContextSources)
+	}
+	var mirroredRootFound bool
+	for _, root := range mirrored.Roots {
+		if root.ID == created.ID && root.Kind == "git_worktree" && root.GitBranch == "feature/create-root-authority" && root.Active {
+			mirroredRootFound = true
+		}
+	}
+	if !mirroredRootFound || mirrored.DefaultRootID != created.ID {
+		t.Fatalf("mirrored roots = %+v default=%q, want created active worktree root as default", mirrored.Roots, mirrored.DefaultRootID)
 	}
 }
 

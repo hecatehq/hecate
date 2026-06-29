@@ -42,7 +42,7 @@ func (h *Handler) HandleProjectSkills(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleDiscoverProjectSkills(w http.ResponseWriter, r *http.Request) {
-	if h.projectSkills == nil {
+	if h.projectSkills == nil && !h.projectSkillWritesUseCairnlineAuthority() {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project skills store is not configured")
 		return
 	}
@@ -56,6 +56,14 @@ func (h *Handler) HandleDiscoverProjectSkills(w http.ResponseWriter, r *http.Req
 		return
 	}
 	discovered, warnings := projectskills.Discover(r.Context(), project)
+	if h.projectSkillWritesUseCairnlineAuthority() {
+		items, err := h.upsertDiscoveredProjectSkillsWithCairnlineAuthority(r.Context(), project, discovered, warnings)
+		if writeProjectSkillAuthorityError(w, err) {
+			return
+		}
+		WriteJSON(w, http.StatusOK, ProjectSkillsResponse{Object: "project_skills", Data: renderProjectSkills(items, "cairnline")})
+		return
+	}
 	items, err := h.projectSkills.UpsertDiscovered(r.Context(), project.ID, discovered)
 	if errors.Is(err, projectskills.ErrInvalid) {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
@@ -75,7 +83,7 @@ func (h *Handler) HandleDiscoverProjectSkills(w http.ResponseWriter, r *http.Req
 }
 
 func (h *Handler) HandleUpdateProjectSkill(w http.ResponseWriter, r *http.Request) {
-	if h.projectSkills == nil {
+	if h.projectSkills == nil && !h.projectSkillWritesUseCairnlineAuthority() {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project skills store is not configured")
 		return
 	}
@@ -90,6 +98,14 @@ func (h *Handler) HandleUpdateProjectSkill(w http.ResponseWriter, r *http.Reques
 	}
 	var req updateProjectSkillRequest
 	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if h.projectSkillWritesUseCairnlineAuthority() {
+		item, err := h.updateProjectSkillWithCairnlineAuthority(r.Context(), project, r.PathValue("skill_id"), req)
+		if writeProjectSkillAuthorityError(w, err) {
+			return
+		}
+		WriteJSON(w, http.StatusOK, ProjectSkillResponse{Object: "project_skill", Data: renderProjectSkill(item, "cairnline")})
 		return
 	}
 	item, err := h.projectSkills.Update(r.Context(), r.PathValue("id"), r.PathValue("skill_id"), func(item *projectskills.Skill) {
@@ -191,6 +207,14 @@ func projectSkillsByID(items []projectskills.Skill) map[string]projectskills.Ski
 }
 
 func projectSkillFromCairnline(item cairnline.ProjectSkill, native projectskills.Skill) projectskills.Skill {
+	suggestedTools := append([]string(nil), native.SuggestedTools...)
+	if len(suggestedTools) == 0 {
+		suggestedTools = append([]string(nil), item.SuggestedTools...)
+	}
+	permissions := native.RequiredPermissions
+	if permissions.Empty() {
+		permissions = projectSkillRequiredPermissionsFromCairnline(item.RequiredPermissions)
+	}
 	return projectskills.Skill{
 		ID:                     item.ID,
 		ProjectID:              item.ProjectID,
@@ -199,8 +223,8 @@ func projectSkillFromCairnline(item cairnline.ProjectSkill, native projectskills
 		Path:                   item.Path,
 		RootID:                 item.RootID,
 		Format:                 item.Format,
-		SuggestedTools:         append([]string(nil), native.SuggestedTools...),
-		RequiredPermissions:    native.RequiredPermissions,
+		SuggestedTools:         suggestedTools,
+		RequiredPermissions:    permissions,
 		Enabled:                item.Enabled,
 		Status:                 item.Status,
 		TrustLabel:             item.TrustLabel,

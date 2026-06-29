@@ -388,9 +388,34 @@ launch agents. Those remain explicit operator or orchestrator actions.
   `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-memory,memory-candidates`
   also makes memory-candidate create/promote/reject Cairnline-first; the
   `memory-candidates` switch requires `project-memory` because promotion creates
-  accepted project memory.
+  accepted project memory. Additional opt-in switchpoints can make
+  project create (`project-identity`), metadata/default-only project PATCHes
+  (`project-metadata-defaults`), direct root CRUD (`project-roots`),
+  direct context-source CRUD
+  (`project-context-sources`), collaboration/handoff routes
+  (`project-collaboration`), metadata-only skill discovery/update
+  (`project-skills`), role mutations (`project-roles`), work-item mutations
+  (`project-work-items`), assignment record mutations (`project-assignments`),
+  and global agent-profile mutations (`agent-profiles`) commit to Cairnline
+  first and then shadow back into Hecate-native compatibility stores.
+  Agent-profile authority writes
+  Cairnline's separate portable profile and execution-posture records before
+  shadowing Hecate's combined profile row. `project-identity` makes project
+  create/delete commit portable identity, initial roots, context sources,
+  launch defaults, and project identity removal to Cairnline first before
+  shadowing Hecate's compatibility project row. Delete restores the Cairnline
+  snapshot if Hecate compatibility cleanup fails. Git worktree creation side effects,
+  last-opened-only updates, mixed
+  metadata/root/source replacement PATCHes, and assignment start/dispatch
+  remain Hecate-owned until later cutover slices. Root and context-source list
+  replacement can move with the `project-roots` and `project-context-sources`
+  switchpoints. Discovered root record replacement can move with
+  `project-roots`, worktree-created root records can move with `project-roots`,
+  and discovered context-source record replacement can move with
+  `project-context-sources`, while Hecate still performs the Git/workspace
+  scans and Git worktree creation for its operator UI.
 - Hecate has a non-authoritative bridge write seam for project identity,
-  embedded roots, root discovery/worktree creation, direct root
+  embedded roots, root discovery/worktree-created root records, direct root
   create/update/delete, context-source discovery, direct context-source
   create/update/delete, project defaults, and project-level execution-profile
   cleanup. Hecate also has a non-authoritative project skill metadata upsert
@@ -401,8 +426,10 @@ launch agents. Those remain explicit operator or orchestrator actions.
   create-if-missing generic artifact/evidence/review seams, handoff
   upsert/delete seams, plus accepted-memory and memory-candidate seams that
   preserve metadata, disabled state, provenance, resolved candidate state, and
-  promoted memory IDs. Accepted memory and memory-candidate review flows can
-  additionally run as the opt-in Cairnline-first switchpoints above. The project
+  promoted memory IDs. Accepted memory, memory-candidate review,
+  collaboration/handoff, metadata-only skill discovery/update, global
+  agent-profile, role, work-item, and assignment-record flows can additionally
+  run as opt-in Cairnline-first switchpoints above. The project
   identity/root
   discovery/worktree-creation/context-source discovery seam, the root-level
   direct root mutation seam, the source-level direct context-source mutation
@@ -413,10 +440,14 @@ launch agents. Those remain explicit operator or orchestrator actions.
   seam, the memory-candidate seam, and accepted memory when its write-authority
   switchpoint is disabled, plus the Project Assistant proposal-ledger seam, are
   now wired as best-effort live mirrors into the embedded Cairnline DB when the
-  Cairnline backend is configured, but
-  Hecate still commits first and remains authoritative. Role mirrors also seed
-  referenced agent-profile metadata/execution posture when the profile store is
-  available.
+  Cairnline backend is configured. Hecate still commits first and remains
+  authoritative for any mutation family whose opt-in Cairnline write-authority
+  switchpoint is not enabled; Project Assistant confirmed apply uses enabled
+  role/work-item/assignment/handoff authority seams and remains a
+  mixed-authority blocker for project/default/chat/memory/runtime side effects
+  even when the proposal-ledger switchpoint is enabled. Role
+  mirrors also seed referenced agent-profile metadata/execution posture when the
+  profile store is available.
   Assignment-start dispatch is still a Hecate-owned write
   gap. Artifact/evidence/review update/delete semantics are absent because
   Hecate currently records those as immutable collaboration artifacts. Route

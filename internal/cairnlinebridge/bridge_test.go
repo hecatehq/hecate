@@ -81,17 +81,17 @@ func TestSeedMirrorsProjectWorkIntoCairnline(t *testing.T) {
 	if packet.Assignment.ExecutionMode != cairnline.ExecutionOrchestrated || packet.Assignment.RootID != "root_main" || packet.Assignment.ContextSnapshotID != "ctx_123" {
 		t.Fatalf("packet assignment = %+v, want orchestrated root-scoped assignment", packet.Assignment)
 	}
-	if len(packet.Skills) != 1 || packet.Skills[0].ID != "backend" || len(packet.Skills[0].SourceRefs) != 1 {
-		t.Fatalf("packet skills = %+v, want mapped backend skill with provenance", packet.Skills)
+	if len(packet.Skills) != 1 || packet.Skills[0].ID != "backend" || len(packet.Skills[0].SourceRefs) != 1 || len(packet.Skills[0].SuggestedTools) != 2 || packet.Skills[0].RequiredPermissions.Writes == nil || *packet.Skills[0].RequiredPermissions.Writes {
+		t.Fatalf("packet skills = %+v, want mapped backend skill with provenance and capability hints", packet.Skills)
 	}
 	if len(packet.Artifacts) != 1 || packet.Artifacts[0].ID != "art_decision" || packet.Artifacts[0].Kind != projectwork.ArtifactKindDecisionNote || packet.Artifacts[0].AuthorRoleID != "bridge_developer" {
 		t.Fatalf("packet artifacts = %+v, want mapped generic collaboration artifact", packet.Artifacts)
 	}
-	if len(packet.Evidence) != 1 || packet.Evidence[0].ID != "art_evidence" || packet.Evidence[0].AssignmentID != "asgn_external" || packet.Evidence[0].Locator != "https://github.com/hecatehq/hecate/actions/runs/123" {
+	if len(packet.Evidence) != 1 || packet.Evidence[0].ID != "art_evidence" || packet.Evidence[0].AssignmentID != "asgn_external" || packet.Evidence[0].Locator != "https://github.com/hecatehq/hecate/actions/runs/123" || packet.Evidence[0].SourceKind != "pull_request" || packet.Evidence[0].ExternalID != "PR 123" || packet.Evidence[0].Provider != "github" {
 		t.Fatalf("packet evidence = %+v, want mapped assignment-scoped evidence link", packet.Evidence)
 	}
-	if len(packet.Reviews) != 1 || packet.Reviews[0].ID != "art_review" || packet.Reviews[0].AssignmentID != "asgn_external" || packet.Reviews[0].Verdict != cairnline.ReviewVerdictConcerns || packet.Reviews[0].Risk != cairnline.ReviewRiskMedium {
-		t.Fatalf("packet reviews = %+v, want mapped review with reduced verdict", packet.Reviews)
+	if len(packet.Reviews) != 1 || packet.Reviews[0].ID != "art_review" || packet.Reviews[0].AssignmentID != "asgn_external" || packet.Reviews[0].Verdict != cairnline.ReviewVerdictChangesRequested || packet.Reviews[0].Risk != cairnline.ReviewRiskMedium {
+		t.Fatalf("packet reviews = %+v, want mapped review with portable verdict", packet.Reviews)
 	}
 	if len(packet.Handoffs) != 1 || packet.Handoffs[0].ID != "handoff_review" || packet.Handoffs[0].FromRoleID != "bridge_developer" || packet.Handoffs[0].ToRoleID != "bridge_reviewer" {
 		t.Fatalf("packet handoffs = %+v, want mapped handoff roles", packet.Handoffs)
@@ -190,6 +190,43 @@ func TestSeedMirrorsProjectWorkIntoCairnline(t *testing.T) {
 	}
 	if externalPacket.Assignment.Status != cairnline.AssignmentCompleted || externalPacket.Assignment.ExecutionMode != cairnline.ExecutionExternalAdapter || externalPacket.Assignment.ExecutionRef != "chat_123" {
 		t.Fatalf("external assignment = %+v, want completed external-adapter assignment", externalPacket.Assignment)
+	}
+}
+
+func TestCairnlineSnapshotMapsHecateSnapshotToPortableContract(t *testing.T) {
+	now := time.Date(2026, 6, 26, 12, 0, 0, 0, time.UTC)
+	source := bridgeSnapshotFixture(now)
+	snapshot := CairnlineSnapshot([]Snapshot{source})
+
+	if snapshot.Version != cairnline.SnapshotVersion {
+		t.Fatalf("snapshot version = %d, want %d", snapshot.Version, cairnline.SnapshotVersion)
+	}
+	if len(snapshot.Projects) != 1 || snapshot.Projects[0].ID != source.Project.ID {
+		t.Fatalf("snapshot projects = %+v, want mapped Hecate project", snapshot.Projects)
+	}
+	if len(snapshot.AgentProfiles) != len(source.AgentProfiles) {
+		t.Fatalf("snapshot agent profiles = %+v, want %d", snapshot.AgentProfiles, len(source.AgentProfiles))
+	}
+	if len(snapshot.ExecutionProfiles) != SnapshotExecutionProfileCount(source) {
+		t.Fatalf("snapshot execution profiles = %+v, want %d unique execution profiles", snapshot.ExecutionProfiles, SnapshotExecutionProfileCount(source))
+	}
+	if len(snapshot.ProjectSkills) != len(source.Skills) || snapshot.ProjectSkills[0].RequiredPermissions.Writes == nil || *snapshot.ProjectSkills[0].RequiredPermissions.Writes {
+		t.Fatalf("snapshot skills = %+v, want project skill capability metadata", snapshot.ProjectSkills)
+	}
+	if len(snapshot.WorkItems) != len(source.WorkItems) || len(snapshot.Assignments) != len(source.Assignments) {
+		t.Fatalf("snapshot work/assignments = %d/%d, want %d/%d", len(snapshot.WorkItems), len(snapshot.Assignments), len(source.WorkItems), len(source.Assignments))
+	}
+	if len(snapshot.Artifacts) != 1 || len(snapshot.Evidence) != 1 || len(snapshot.Reviews) != 1 {
+		t.Fatalf("snapshot artifacts/evidence/reviews = %d/%d/%d, want split portable collaboration records", len(snapshot.Artifacts), len(snapshot.Evidence), len(snapshot.Reviews))
+	}
+	if len(snapshot.Handoffs) != len(source.Handoffs) || snapshot.Handoffs[0].StatusChangedAt.IsZero() {
+		t.Fatalf("snapshot handoffs = %+v, want handoff with status-change timestamp", snapshot.Handoffs)
+	}
+	if len(snapshot.MemoryEntries) != len(source.MemoryEntries) || len(snapshot.MemoryCandidates) != len(source.MemoryCandidates) {
+		t.Fatalf("snapshot memory entries/candidates = %d/%d, want %d/%d", len(snapshot.MemoryEntries), len(snapshot.MemoryCandidates), len(source.MemoryEntries), len(source.MemoryCandidates))
+	}
+	if len(snapshot.AssistantProposals) == 0 || len(snapshot.AssistantProposals[0].Proposal.Actions) == 0 {
+		t.Fatalf("snapshot assistant proposals = %+v, want proposal ledger imported without replay", snapshot.AssistantProposals)
 	}
 }
 
@@ -1337,13 +1374,28 @@ func TestUpsertAssignmentCreatesAndSyncsLifecycle(t *testing.T) {
 		t.Fatalf("updated queued desired agent = %+v, want external role skill metadata", updatedQueued.DesiredAgent)
 	}
 
+	if _, err := service.ClaimAssignment(ctx, assignment.ProjectID, assignment.ID, "external_adapter"); err != nil {
+		t.Fatalf("ClaimAssignment(pre-dispatch) error = %v", err)
+	}
+	assignment.ExecutionRef = projectwork.AssignmentExecutionRef{}
+	assignment.StartedAt = time.Time{}
+	assignment.CompletedAt = time.Time{}
+	releasedQueued, err := UpsertAssignment(ctx, service, assignment, externalRole, profile)
+	if err != nil {
+		t.Fatalf("UpsertAssignment(release queued) error = %v", err)
+	}
+	if releasedQueued.Status != cairnline.AssignmentQueued || releasedQueued.ClaimedBy != "" || releasedQueued.ExecutionRef != "" || releasedQueued.ContextSnapshotID != "" || !releasedQueued.StartedAt.IsZero() || !releasedQueued.CompletedAt.IsZero() {
+		t.Fatalf("released queued assignment = %+v, want claimed assignment released for retry", releasedQueued)
+	}
+
 	assignment.Status = projectwork.AssignmentStatusRunning
 	assignment.ExecutionRef = projectwork.AssignmentExecutionRef{TaskID: "task_1", RunID: "run_1", ContextSnapshotID: "ctx_running"}
+	assignment.StartedAt = now.Add(5 * time.Minute)
 	running, err := UpsertAssignment(ctx, service, assignment, externalRole, profile)
 	if err != nil {
 		t.Fatalf("UpsertAssignment(running) error = %v", err)
 	}
-	if running.Status != cairnline.AssignmentRunning || running.ClaimedBy != "external_adapter" || running.ExecutionRef != "run_1" || running.WorkItemID != followUpWork.ID || running.RoleID != externalRole.ID {
+	if running.Status != cairnline.AssignmentRunning || running.ClaimedBy != "external_adapter" || running.ExecutionRef != "run_1" || running.WorkItemID != followUpWork.ID || running.RoleID != externalRole.ID || !running.StartedAt.Equal(assignment.StartedAt) {
 		t.Fatalf("running assignment = %+v, want claimed running assignment", running)
 	}
 	if _, err := UpsertAssignment(ctx, service, assignment, externalRole, profile); err != nil {
@@ -1351,11 +1403,12 @@ func TestUpsertAssignmentCreatesAndSyncsLifecycle(t *testing.T) {
 	}
 
 	assignment.Status = projectwork.AssignmentStatusCompleted
+	assignment.CompletedAt = now.Add(10 * time.Minute)
 	completed, err := UpsertAssignment(ctx, service, assignment, externalRole, profile)
 	if err != nil {
 		t.Fatalf("UpsertAssignment(completed) error = %v", err)
 	}
-	if completed.Status != cairnline.AssignmentCompleted || completed.ExecutionRef != "run_1" {
+	if completed.Status != cairnline.AssignmentCompleted || completed.ExecutionRef != "run_1" || !completed.StartedAt.Equal(assignment.StartedAt) || !completed.CompletedAt.Equal(assignment.CompletedAt) {
 		t.Fatalf("completed assignment = %+v, want completed assignment with execution ref", completed)
 	}
 	if _, err := UpsertAssignment(ctx, service, assignment, externalRole, profile); err != nil {
@@ -1481,7 +1534,10 @@ func TestRecordCollaborationArtifactsAndUpsertHandoff(t *testing.T) {
 		Kind:               projectwork.ArtifactKindEvidenceLink,
 		Title:              "CI run",
 		Body:               "Tests passed.",
+		EvidenceSourceKind: "pull_request",
 		EvidenceURL:        "https://github.com/hecatehq/hecate/actions/runs/42",
+		EvidenceExternalID: "PR 42",
+		EvidenceProvider:   "github",
 		EvidenceTrustLabel: projectwork.EvidenceTrustOperatorProvided,
 		CreatedAt:          now,
 		UpdatedAt:          now,
@@ -1490,7 +1546,7 @@ func TestRecordCollaborationArtifactsAndUpsertHandoff(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RecordEvidence() error = %v", err)
 	}
-	if evidence.ID != "art_evidence" || evidence.AssignmentID != assignment.ID || evidence.Locator != evidenceArtifact.EvidenceURL || evidence.TrustLabel != projectwork.EvidenceTrustOperatorProvided {
+	if evidence.ID != "art_evidence" || evidence.AssignmentID != assignment.ID || evidence.Locator != evidenceArtifact.EvidenceURL || evidence.SourceKind != "pull_request" || evidence.ExternalID != "PR 42" || evidence.Provider != "github" || evidence.TrustLabel != projectwork.EvidenceTrustOperatorProvided {
 		t.Fatalf("recorded evidence = %+v, want evidence link metadata", evidence)
 	}
 
@@ -1513,8 +1569,8 @@ func TestRecordCollaborationArtifactsAndUpsertHandoff(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RecordReview() error = %v", err)
 	}
-	if review.ID != "art_review" || review.AssignmentID != assignment.ID || review.ReviewerRoleID != role.ID || review.Verdict != cairnline.ReviewVerdictConcerns || review.Risk != cairnline.ReviewRiskHigh {
-		t.Fatalf("recorded review = %+v, want reduced review metadata", review)
+	if review.ID != "art_review" || review.AssignmentID != assignment.ID || review.ReviewerRoleID != role.ID || review.Verdict != cairnline.ReviewVerdictChangesRequested || review.Risk != cairnline.ReviewRiskHigh {
+		t.Fatalf("recorded review = %+v, want portable review metadata", review)
 	}
 
 	handoff := projectwork.Handoff{
@@ -1535,12 +1591,13 @@ func TestRecordCollaborationArtifactsAndUpsertHandoff(t *testing.T) {
 		CreatedByRoleID:       role.ID,
 		CreatedAt:             now,
 		UpdatedAt:             now,
+		StatusChangedAt:       now.Add(-time.Minute),
 	}
 	createdHandoff, err := UpsertHandoff(ctx, service, handoff)
 	if err != nil {
 		t.Fatalf("UpsertHandoff(create) error = %v", err)
 	}
-	if createdHandoff.ID != handoff.ID || createdHandoff.SourceAssignmentID != assignment.ID || createdHandoff.FromRoleID != role.ID || createdHandoff.ToRoleID != role.ID || len(createdHandoff.LinkedArtifactIDs) != 1 || createdHandoff.Status != cairnline.HandoffStatusOpen {
+	if createdHandoff.ID != handoff.ID || createdHandoff.SourceAssignmentID != assignment.ID || createdHandoff.FromRoleID != role.ID || createdHandoff.ToRoleID != role.ID || len(createdHandoff.LinkedArtifactIDs) != 1 || createdHandoff.Status != cairnline.HandoffStatusOpen || !createdHandoff.StatusChangedAt.Equal(handoff.StatusChangedAt) {
 		t.Fatalf("created handoff = %+v, want mapped handoff metadata", createdHandoff)
 	}
 
@@ -1548,11 +1605,12 @@ func TestRecordCollaborationArtifactsAndUpsertHandoff(t *testing.T) {
 	handoff.TargetAssignmentID = assignment.ID
 	handoff.TargetWorkItemID = workItem.ID
 	handoff.Summary = "Accepted follow-up."
+	handoff.StatusChangedAt = now.Add(2 * time.Minute)
 	updatedHandoff, err := UpsertHandoff(ctx, service, handoff)
 	if err != nil {
 		t.Fatalf("UpsertHandoff(update) error = %v", err)
 	}
-	if updatedHandoff.Status != cairnline.HandoffStatusAccepted || updatedHandoff.TargetAssignmentID != assignment.ID || updatedHandoff.TargetWorkItemID != workItem.ID || updatedHandoff.Body != "Accepted follow-up." {
+	if updatedHandoff.Status != cairnline.HandoffStatusAccepted || updatedHandoff.TargetAssignmentID != assignment.ID || updatedHandoff.TargetWorkItemID != workItem.ID || updatedHandoff.Body != "Accepted follow-up." || !updatedHandoff.StatusChangedAt.Equal(handoff.StatusChangedAt) {
 		t.Fatalf("updated handoff = %+v, want accepted handoff update", updatedHandoff)
 	}
 
@@ -1583,6 +1641,8 @@ func TestUpsertProjectSkillMirrorsSkillMetadata(t *testing.T) {
 		Path:                   ".agents/skills/backend/SKILL.md",
 		RootID:                 "root_main",
 		Format:                 projectskills.FormatSkillMD,
+		SuggestedTools:         []string{"git.diff", "file.read"},
+		RequiredPermissions:    projectskills.RequiredPermissions{Writes: boolPtrForTest(false)},
 		Enabled:                false,
 		Status:                 projectskills.StatusAvailable,
 		TrustLabel:             projectskills.TrustWorkspaceSkill,
@@ -1606,9 +1666,14 @@ func TestUpsertProjectSkillMirrorsSkillMetadata(t *testing.T) {
 	if created.Status != cairnline.SkillStatusAvailable || created.TrustLabel != cairnline.SkillTrustWorkspace || len(created.SourceRefs) != 1 || created.SourceRefs[0] != "ctx_agents" || len(created.Warnings) != 1 {
 		t.Fatalf("created skill = %+v, want status/trust/provenance/warnings", created)
 	}
+	if len(created.SuggestedTools) != 2 || created.RequiredPermissions.Writes == nil || *created.RequiredPermissions.Writes {
+		t.Fatalf("created skill capability hints = %+v / %+v, want mapped tools and permissions", created.SuggestedTools, created.RequiredPermissions)
+	}
 
 	skill.Title = "Backend Lead"
 	skill.Description = "Operator edited description."
+	skill.SuggestedTools = []string{"shell.exec"}
+	skill.RequiredPermissions = projectskills.RequiredPermissions{Network: boolPtrForTest(false)}
 	skill.Enabled = true
 	skill.Status = projectskills.StatusConflict
 	skill.TrustLabel = "operator_curated_skill"
@@ -1619,6 +1684,9 @@ func TestUpsertProjectSkillMirrorsSkillMetadata(t *testing.T) {
 	}
 	if updated.Title != "Backend Lead" || updated.Description != "Operator edited description." || !updated.Enabled || updated.Status != cairnline.SkillStatusConflict || updated.TrustLabel != "operator_curated_skill" {
 		t.Fatalf("updated skill = %+v, want operator-edited metadata", updated)
+	}
+	if len(updated.SuggestedTools) != 1 || updated.SuggestedTools[0] != "shell.exec" || updated.RequiredPermissions.Network == nil || *updated.RequiredPermissions.Network {
+		t.Fatalf("updated skill capability hints = %+v / %+v, want updated tools and permissions", updated.SuggestedTools, updated.RequiredPermissions)
 	}
 	if updated.CreatedAt.IsZero() || !updated.DiscoveredAt.Equal(now) {
 		t.Fatalf("updated skill times = created %s discovered %s, want preserved created and Hecate discovered time", updated.CreatedAt, updated.DiscoveredAt)
@@ -2013,6 +2081,8 @@ func bridgeSnapshotFixture(now time.Time) Snapshot {
 			Path:                   "docs-ai/skills/backend/SKILL.md",
 			RootID:                 "root_main",
 			Format:                 projectskills.FormatSkillMD,
+			SuggestedTools:         []string{"git.diff", "file.read"},
+			RequiredPermissions:    projectskills.RequiredPermissions{Writes: boolPtrForTest(false)},
 			Enabled:                true,
 			Status:                 projectskills.StatusAvailable,
 			TrustLabel:             projectskills.TrustWorkspaceSkill,
@@ -2104,7 +2174,9 @@ func bridgeSnapshotFixture(now time.Time) Snapshot {
 			Kind:               projectwork.ArtifactKindEvidenceLink,
 			Title:              "CI run",
 			Body:               "Focused bridge tests passed.",
+			EvidenceSourceKind: "pull_request",
 			EvidenceURL:        "https://github.com/hecatehq/hecate/actions/runs/123",
+			EvidenceExternalID: "PR 123",
 			EvidenceProvider:   "github",
 			EvidenceTrustLabel: projectwork.EvidenceTrustOperatorProvided,
 			CreatedAt:          now,

@@ -30,6 +30,12 @@ func (h *Handler) HandleDiscoverProjectContextSources(w http.ResponseWriter, r *
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 		return
 	}
+	merged := mergeDiscoveredContextSources(project.ContextSources, discovered)
+	if h.projectContextSourceWritesUseCairnlineAuthority() {
+		project, err = h.replaceProjectContextSourcesWithCairnlineAuthority(r.Context(), projectID, merged, "project_context_sources_cairnline_authority_discover")
+		writeProjectListReplaceCairnlineAuthorityResponse(w, project, err)
+		return
+	}
 	project, err = h.projects.Update(r.Context(), projectID, func(item *projects.Project) {
 		item.ContextSources = mergeDiscoveredContextSources(item.ContextSources, discovered)
 	})

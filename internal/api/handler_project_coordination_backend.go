@@ -88,6 +88,7 @@ var projectCairnlineWriteAdapterGapNames = []string{
 	"artifacts",
 	"handoffs",
 	"project-assistant-proposals",
+	"project-assistant-apply-side-effects",
 	"migration-cutover",
 }
 
@@ -120,7 +121,7 @@ var projectCairnlineWriteSwitchpoints = []ProjectCoordinationBackendWriteSwitchp
 		BlocksAuthority:  true,
 		Seams:            []string{"project-roots-live-mirror"},
 		Gap:              "roots",
-		Detail:           "Root create/update/delete, root discovery, root list replacement, and worktree-root creation still commit to Hecate first, then mirror through Cairnline root APIs.",
+		Detail:           "Root create/update/delete, root discovery, root list replacement, and worktree-created root record mutations still commit to Hecate first, then mirror through Cairnline root APIs; Hecate owns the Git worktree creation side effect.",
 	},
 	{
 		Name:             "context-sources",
@@ -233,22 +234,33 @@ var projectCairnlineWriteSwitchpoints = []ProjectCoordinationBackendWriteSwitchp
 		Detail:           "Memory-candidate create/promote/reject/delete still commits to Hecate first, then mirrors review state and promoted-memory references into Cairnline.",
 	},
 	{
-		Name:             "project-assistant-proposals",
+		Name:             "project-assistant-proposal-ledger",
 		CurrentAuthority: "hecate",
 		CairnlineState:   "live_mirror_non_authoritative",
 		LiveMirror:       true,
 		BlocksAuthority:  true,
-		Seams:            []string{"project-assistant-proposal-ledger-live-mirror", "project-assistant-apply-side-effects-live-mirror"},
+		Seams:            []string{"project-assistant-proposal-ledger-live-mirror"},
 		Gap:              "project-assistant-proposals",
-		Detail:           "Project Assistant draft/propose/apply records and committed side effects still commit to Hecate first, then mirror into the portable proposal ledger.",
+		Detail:           "Project Assistant draft/propose/apply-attempt ledger records still commit to Hecate first, then mirror into the portable proposal ledger.",
+	},
+	{
+		Name:             "project-assistant-apply-side-effects",
+		CurrentAuthority: "hecate",
+		CairnlineState:   "side_effect_mirror_only",
+		LiveMirror:       true,
+		BlocksAuthority:  true,
+		Seams:            []string{"project-assistant-apply-side-effects-live-mirror"},
+		Gap:              "project-assistant-apply-side-effects",
+		Detail:           "Project Assistant confirmed apply still executes Hecate-owned project mutations, then mirrors committed side effects into Cairnline as replacement evidence.",
 	},
 	{
 		Name:             "migration-cutover",
 		CurrentAuthority: "hecate",
-		CairnlineState:   "missing_authoritative_switchpoint",
+		CairnlineState:   "snapshot_import_rehearsal_available",
 		BlocksAuthority:  true,
+		Seams:            []string{"sync-rehearsal"},
 		Gap:              "migration-cutover",
-		Detail:           "No import/export cutover, rollback, or authoritative Cairnline storage switch exists yet.",
+		Detail:           "Snapshot import/export rehearsal and rollback notes exist, but no authoritative Cairnline storage cutover switch exists yet.",
 	},
 }
 
@@ -298,18 +310,18 @@ func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendS
 			response.Warnings = []string{
 				"Only the project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, project-assistant-context, project-assistant-proposal, activity, closeout-readiness, and operations brief live read routes use Cairnline.",
 				projectCairnlineReadSourceWarning(readSource),
-				"Project create/delete still write Hecate-native stores first, then best-effort mirror portable project identity into the embedded Cairnline database.",
-				"Project metadata updates still write Hecate-native stores first, then best-effort mirror through Cairnline's project-metadata seam.",
-				"Root create/update/delete, root list replacement, root discovery, and worktree-root creation mutations still write Hecate-native stores first, then best-effort mirror through Cairnline's root-level API.",
-				"Direct context-source create/update/delete, context-source list replacement, and discovery mutations still write Hecate-native stores first, then best-effort mirror through Cairnline's source-level API.",
-				"Default-only project updates still write Hecate-native stores first, then best-effort mirror portable launch defaults through Cairnline's project-defaults seam.",
-				"Agent profile create/update/delete mutations still write Hecate-native stores first, then best-effort mirror portable profile metadata and execution posture into Cairnline.",
-				"Project skill discovery and metadata updates still write Hecate-native stores first, then best-effort mirror metadata-only skill records into Cairnline.",
-				"Project role and work-item mutations still write Hecate-native stores first, then best-effort mirror coordination metadata into Cairnline.",
-				"Project assignment create/update/delete mutations still write Hecate-native stores first, then best-effort mirror coordination metadata into Cairnline; assignment start remains Hecate-owned and best-effort mirrors committed start and linked-chat reconciliation results.",
-				"Project collaboration artifact creation and handoff mutations still write Hecate-native stores first, then best-effort mirror portable collaboration metadata into Cairnline.",
+				projectCairnlineProjectIdentityWriteWarning(writeAuthority),
+				projectCairnlineProjectMetadataDefaultsWriteWarning(writeAuthority),
+				projectCairnlineProjectRootWriteWarning(writeAuthority),
+				projectCairnlineProjectContextSourceWriteWarning(writeAuthority),
+				projectCairnlineAgentProfileWriteWarning(writeAuthority),
+				projectCairnlineProjectSkillWriteWarning(writeAuthority),
+				projectCairnlineProjectWorkItemWriteWarning(writeAuthority),
+				projectCairnlineProjectAssignmentWriteWarning(writeAuthority),
+				projectCairnlineProjectCollaborationWriteWarning(writeAuthority),
 				projectCairnlineProjectMemoryWriteWarning(writeAuthority),
-				"Project Assistant proposal draft/propose/apply ledger mutations still write Hecate-native stores first, then best-effort mirror proposal records plus committed apply side effects into Cairnline.",
+				projectCairnlineProjectAssistantProposalWriteWarning(writeAuthority),
+				projectCairnlineProjectAssistantApplyWriteWarning(writeAuthority),
 				"Other project mutation routes still write only Hecate-native stores.",
 				"Cairnline write-adapter seams are non-authoritative proofs; live write authority and migration path are not ready.",
 			}
@@ -351,8 +363,8 @@ func projectCairnlineReplacementGates(readRoutesReady bool) []ProjectCoordinatio
 		{
 			ID:     "migration-and-rollback",
 			Ready:  false,
-			Status: "blocked",
-			Detail: "No migration cutover, rollback, or authoritative Cairnline storage switch exists yet.",
+			Status: "rehearsal_available",
+			Detail: "Embedded sync and project export return structured migration rehearsal evidence with rollback notes, but no authoritative Cairnline storage cutover switch exists yet.",
 		},
 	}
 }
@@ -366,13 +378,50 @@ func projectReplacementGateStatus(ready bool) string {
 
 func projectCairnlineWriteAdapterGapsSnapshot(writeAuthority []string) []string {
 	out := make([]string, 0, len(projectCairnlineWriteAdapterGapNames))
+	projectIdentityAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectIdentity)
+	projectMetadataDefaultsAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectMetadataDefaults)
 	projectMemoryAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, "project-memory")
 	memoryCandidatesAuthoritative := projectMemoryAuthoritative && projectCairnlineWriteAuthorityEnabled(writeAuthority, "memory-candidates")
+	projectCollaborationAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectCollaboration)
+	agentProfilesAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityAgentProfiles)
+	projectSkillsAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectSkills)
+	projectRolesAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectRoles)
+	projectWorkItemsAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectWorkItems)
+	projectAssignmentsAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectAssignments)
+	projectContextSourcesAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectContextSources)
+	projectAssistantProposalsAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectAssistantProposals)
 	for _, item := range projectCairnlineWriteAdapterGapNames {
+		if projectIdentityAuthoritative && projectMetadataDefaultsAuthoritative && item == "projects" {
+			continue
+		}
 		if projectMemoryAuthoritative && item == "memory" {
 			continue
 		}
 		if memoryCandidatesAuthoritative && item == "memory-candidates" {
+			continue
+		}
+		if projectCollaborationAuthoritative && (item == "artifacts" || item == "handoffs") {
+			continue
+		}
+		if agentProfilesAuthoritative && item == "agent-profiles" {
+			continue
+		}
+		if projectSkillsAuthoritative && item == "skills" {
+			continue
+		}
+		if projectRolesAuthoritative && item == "roles" {
+			continue
+		}
+		if projectWorkItemsAuthoritative && item == "work-items" {
+			continue
+		}
+		if projectAssignmentsAuthoritative && item == "assignments" {
+			continue
+		}
+		if projectContextSourcesAuthoritative && item == "context-sources" {
+			continue
+		}
+		if projectAssistantProposalsAuthoritative && item == "project-assistant-proposals" {
 			continue
 		}
 		out = append(out, item)
@@ -384,7 +433,126 @@ func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string) []Projec
 	out := make([]ProjectCoordinationBackendWriteSwitchpoint, 0, len(projectCairnlineWriteSwitchpoints))
 	projectMemoryAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, "project-memory")
 	memoryCandidatesAuthoritative := projectMemoryAuthoritative && projectCairnlineWriteAuthorityEnabled(writeAuthority, "memory-candidates")
+	projectCollaborationAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectCollaboration)
+	agentProfilesAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityAgentProfiles)
+	projectIdentityAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectIdentity)
+	projectMetadataDefaultsAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectMetadataDefaults)
+	projectRootsAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectRoots)
+	projectContextSourcesAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectContextSources)
+	projectSkillsAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectSkills)
+	projectRolesAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectRoles)
+	projectWorkItemsAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectWorkItems)
+	projectAssignmentsAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectAssignments)
+	projectAssistantProposalsAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectAssistantProposals)
+	projectAssistantWorkEffectsAuthoritative := projectCairnlineAssistantApplyWorkEffectsAuthoritative(writeAuthority)
 	for _, item := range projectCairnlineWriteSwitchpoints {
+		if projectIdentityAuthoritative && item.Name == "project-identity" {
+			item.CurrentAuthority = "cairnline"
+			item.CairnlineState = "authoritative_opt_in"
+			item.LiveMirror = true
+			item.BlocksAuthority = false
+			item.Gap = ""
+			item.Detail = "Project create/delete commits portable identity, roots, context sources, launch defaults, and project identity removal to the embedded Cairnline database first, then best-effort shadows Hecate's compatibility row; delete rolls the Cairnline snapshot back if Hecate compatibility cleanup fails."
+		}
+		if projectMetadataDefaultsAuthoritative && item.Name == "project-metadata-defaults" {
+			item.CurrentAuthority = "cairnline"
+			item.CairnlineState = "authoritative_opt_in"
+			item.LiveMirror = true
+			item.BlocksAuthority = false
+			item.Gap = ""
+			item.Detail = "Project metadata/default-only update mutations commit portable project metadata and launch defaults to the embedded Cairnline database first, then best-effort shadow Hecate's compatibility row back into Hecate-native stores; project identity, roots, context sources, and mixed metadata/root/source replacement routes are controlled by separate switchpoints."
+		}
+		if projectRootsAuthoritative && item.Name == "roots-and-worktrees" {
+			item.CurrentAuthority = "mixed"
+			item.CairnlineState = "partial_authoritative_opt_in"
+			item.LiveMirror = true
+			item.BlocksAuthority = true
+			item.Gap = "roots"
+			item.Detail = "Project root create/update/delete, root list replacement, discovery-result replacement, and worktree-created root record mutations commit to the embedded Cairnline database first, then best-effort shadow Hecate's compatibility row; Hecate still performs root discovery scans and Git worktree creation side effects."
+		}
+		if projectContextSourcesAuthoritative && item.Name == "context-sources" {
+			item.CurrentAuthority = "cairnline"
+			item.CairnlineState = "authoritative_opt_in"
+			item.LiveMirror = true
+			item.BlocksAuthority = false
+			item.Gap = ""
+			item.Detail = "Context-source create/update/delete, list replacement, and discovery-result replacement mutations commit to the embedded Cairnline database first, then best-effort shadow Hecate's compatibility row; Hecate still performs the workspace scan for its operator UI."
+		}
+		if agentProfilesAuthoritative && item.Name == "agent-profiles" {
+			item.CurrentAuthority = "cairnline"
+			item.CairnlineState = "authoritative_opt_in"
+			item.LiveMirror = true
+			item.BlocksAuthority = false
+			item.Gap = ""
+			item.Detail = "Agent profile create, update, and delete mutations commit portable profile metadata plus execution posture to the embedded Cairnline database first, then best-effort shadow Hecate's combined profile row back into Hecate-native stores for compatibility."
+		}
+		if projectSkillsAuthoritative && item.Name == "skills" {
+			item.CurrentAuthority = "cairnline"
+			item.CairnlineState = "authoritative_opt_in"
+			item.LiveMirror = true
+			item.BlocksAuthority = false
+			item.Gap = ""
+			item.Detail = "Project skill discovery and update mutations commit metadata-only skill records to the embedded Cairnline database first, then best-effort shadow them back into Hecate-native stores for compatibility."
+		}
+		if projectRolesAuthoritative && item.Name == "roles" {
+			item.CurrentAuthority = "cairnline"
+			item.CairnlineState = "authoritative_opt_in"
+			item.LiveMirror = true
+			item.BlocksAuthority = false
+			item.Gap = ""
+			item.Detail = "Project role create, update, and delete mutations commit to the embedded Cairnline database first, then best-effort shadow portable role defaults back into Hecate-native stores for compatibility."
+		}
+		if projectWorkItemsAuthoritative && item.Name == "work-items" {
+			item.CurrentAuthority = "cairnline"
+			item.CairnlineState = "authoritative_opt_in"
+			item.LiveMirror = true
+			item.BlocksAuthority = false
+			item.Gap = ""
+			item.Detail = "Work-item create, update, and delete mutations commit to the embedded Cairnline database first, then best-effort shadow portable work-item state back into Hecate-native stores for compatibility."
+		}
+		if projectAssignmentsAuthoritative && item.Name == "assignments" {
+			item.CurrentAuthority = "cairnline"
+			item.CairnlineState = "authoritative_opt_in"
+			item.LiveMirror = true
+			item.BlocksAuthority = false
+			item.Gap = ""
+			item.Detail = "Assignment create, update, and delete record mutations commit to the embedded Cairnline database first, then best-effort shadow portable assignment state back into Hecate-native stores for compatibility; assignment start remains Hecate-owned."
+		}
+		if projectAssistantProposalsAuthoritative && item.Name == "project-assistant-proposal-ledger" {
+			item.CurrentAuthority = "cairnline"
+			item.CairnlineState = "authoritative_opt_in"
+			item.LiveMirror = true
+			item.BlocksAuthority = false
+			item.Gap = ""
+			item.Detail = "Project Assistant draft/propose/apply-attempt ledger records commit to the embedded Cairnline database first, then best-effort shadow Hecate's proposal store for compatibility; confirmed apply side effects remain Hecate-owned."
+			if projectAssistantWorkEffectsAuthoritative {
+				item.Detail = "Project Assistant draft/propose/apply-attempt ledger records commit to the embedded Cairnline database first, then best-effort shadow Hecate's proposal store for compatibility; confirmed apply is mixed-authority when enabled work-family actions route through Cairnline."
+			}
+		}
+		if projectAssistantWorkEffectsAuthoritative && item.Name == "project-assistant-apply-side-effects" {
+			item.CurrentAuthority = "mixed"
+			item.CairnlineState = "partial_authoritative_via_work_switchpoints"
+			item.LiveMirror = true
+			item.BlocksAuthority = true
+			item.Gap = "project-assistant-apply-side-effects"
+			item.Detail = "Project Assistant confirmed apply routes role, work-item, assignment, and handoff actions through the same opt-in Cairnline authority switchpoints when enabled; project/default/chat/memory/runtime side effects still keep apply as a blocking mixed-authority gap."
+		}
+		if projectCollaborationAuthoritative && item.Name == "collaboration-artifacts" {
+			item.CurrentAuthority = "cairnline"
+			item.CairnlineState = "authoritative_opt_in"
+			item.LiveMirror = true
+			item.BlocksAuthority = false
+			item.Gap = ""
+			item.Detail = "Generic artifact, evidence, and review creation commits to the embedded Cairnline database first, then best-effort shadows the portable collaboration record back into Hecate-native stores for compatibility."
+		}
+		if projectCollaborationAuthoritative && item.Name == "handoffs" {
+			item.CurrentAuthority = "cairnline"
+			item.CairnlineState = "authoritative_opt_in"
+			item.LiveMirror = true
+			item.BlocksAuthority = false
+			item.Gap = ""
+			item.Detail = "Handoff create, update, status, and delete mutations commit to the embedded Cairnline database first, then best-effort shadow portable handoff state back into Hecate-native stores for compatibility."
+		}
 		if projectMemoryAuthoritative && item.Name == "project-memory" {
 			item.CurrentAuthority = "cairnline"
 			item.CairnlineState = "authoritative_opt_in"
@@ -425,6 +593,101 @@ func projectCairnlineProjectMemoryWriteWarning(writeAuthority []string) string {
 		return "Accepted project memory entry mutations are opt-in Cairnline-authoritative and then best-effort shadowed into Hecate-native stores; memory-candidate mutations still write Hecate-native stores first, then mirror reviewable candidate state into Cairnline."
 	}
 	return "Project memory entry and memory-candidate mutations still write Hecate-native stores first, then best-effort mirror accepted memory and reviewable candidate state into Cairnline."
+}
+
+func projectCairnlineProjectCollaborationWriteWarning(writeAuthority []string) string {
+	if projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectCollaboration) {
+		return "Project collaboration artifact creation and handoff mutations are opt-in Cairnline-authoritative and then best-effort shadowed into Hecate-native stores for compatibility."
+	}
+	return "Project collaboration artifact creation and handoff mutations still write Hecate-native stores first, then best-effort mirror portable collaboration metadata into Cairnline."
+}
+
+func projectCairnlineProjectMetadataDefaultsWriteWarning(writeAuthority []string) string {
+	if projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectMetadataDefaults) {
+		return "Project metadata/default-only update mutations are opt-in Cairnline-authoritative and then best-effort shadowed into Hecate-native stores for compatibility; project identity, roots, context sources, and mixed root/source replacement routes are controlled by separate switchpoints."
+	}
+	return "Project metadata/default updates still write Hecate-native stores first, then best-effort mirror through Cairnline's project-metadata and project-defaults seams."
+}
+
+func projectCairnlineProjectIdentityWriteWarning(writeAuthority []string) string {
+	if projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectIdentity) {
+		return "Project create/delete mutations are opt-in Cairnline-authoritative and then best-effort shadowed into Hecate-native stores for compatibility; delete restores the Cairnline snapshot if Hecate compatibility cleanup fails."
+	}
+	return "Project create/delete still write Hecate-native stores first, then best-effort mirror portable project identity into the embedded Cairnline database."
+}
+
+func projectCairnlineProjectRootWriteWarning(writeAuthority []string) string {
+	if projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectRoots) {
+		return "Project root create/update/delete, root list replacement, discovery-result replacement, and worktree-created root record mutations are opt-in Cairnline-authoritative and then best-effort shadowed into Hecate-native stores for compatibility; Hecate still performs root discovery scans and Git worktree creation side effects."
+	}
+	return "Root create/update/delete, root list replacement, root discovery, and worktree-created root record mutations still write Hecate-native stores first, then best-effort mirror through Cairnline's root-level API; Hecate owns the Git worktree creation side effect."
+}
+
+func projectCairnlineProjectContextSourceWriteWarning(writeAuthority []string) string {
+	if projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectContextSources) {
+		return "Context-source create/update/delete, list replacement, and discovery-result replacement mutations are opt-in Cairnline-authoritative and then best-effort shadowed into Hecate-native stores for compatibility; Hecate still performs the workspace scan for its operator UI."
+	}
+	return "Direct context-source create/update/delete, context-source list replacement, and discovery mutations still write Hecate-native stores first, then best-effort mirror through Cairnline's source-level API."
+}
+
+func projectCairnlineProjectSkillWriteWarning(writeAuthority []string) string {
+	if projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectSkills) {
+		return "Project skill discovery and metadata updates are opt-in Cairnline-authoritative and then best-effort shadowed into Hecate-native stores for compatibility."
+	}
+	return "Project skill discovery and metadata updates still write Hecate-native stores first, then best-effort mirror metadata-only skill records into Cairnline."
+}
+
+func projectCairnlineAgentProfileWriteWarning(writeAuthority []string) string {
+	if projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityAgentProfiles) {
+		return "Agent profile create/update/delete mutations are opt-in Cairnline-authoritative and then best-effort shadowed into Hecate-native stores for compatibility; Cairnline stores portable profile metadata and execution posture as separate records."
+	}
+	return "Agent profile create/update/delete mutations still write Hecate-native stores first, then best-effort mirror portable profile metadata and execution posture into Cairnline."
+}
+
+func projectCairnlineProjectWorkItemWriteWarning(writeAuthority []string) string {
+	rolesAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectRoles)
+	workItemsAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectWorkItems)
+	if rolesAuthoritative && workItemsAuthoritative {
+		return "Project role and work-item mutations are opt-in Cairnline-authoritative and then best-effort shadowed into Hecate-native stores for compatibility."
+	}
+	if rolesAuthoritative {
+		return "Project role mutations are opt-in Cairnline-authoritative and then best-effort shadowed into Hecate-native stores for compatibility; work-item mutations still write Hecate-native stores first, then mirror portable work-item state into Cairnline."
+	}
+	if projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectWorkItems) {
+		return "Project work-item mutations are opt-in Cairnline-authoritative and then best-effort shadowed into Hecate-native stores for compatibility; role mutations still write Hecate-native stores first, then mirror portable role defaults into Cairnline."
+	}
+	return "Project role and work-item mutations still write Hecate-native stores first, then best-effort mirror coordination metadata into Cairnline."
+}
+
+func projectCairnlineProjectAssignmentWriteWarning(writeAuthority []string) string {
+	if projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectAssignments) {
+		return "Project assignment create/update/delete record mutations are opt-in Cairnline-authoritative and then best-effort shadowed into Hecate-native stores for compatibility; assignment start remains Hecate-owned and best-effort mirrors committed start and linked-chat reconciliation results."
+	}
+	return "Project assignment create/update/delete mutations still write Hecate-native stores first, then best-effort mirror coordination metadata into Cairnline; assignment start remains Hecate-owned and best-effort mirrors committed start and linked-chat reconciliation results."
+}
+
+func projectCairnlineProjectAssistantProposalWriteWarning(writeAuthority []string) string {
+	if projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectAssistantProposals) {
+		if projectCairnlineAssistantApplyWorkEffectsAuthoritative(writeAuthority) {
+			return "Project Assistant proposal ledger mutations are opt-in Cairnline-authoritative and then best-effort shadowed into Hecate-native stores for compatibility; confirmed apply is mixed-authority when enabled work-family actions route through Cairnline."
+		}
+		return "Project Assistant proposal ledger mutations are opt-in Cairnline-authoritative and then best-effort shadowed into Hecate-native stores for compatibility; confirmed apply side effects still execute through Hecate-owned project mutation services."
+	}
+	return "Project Assistant proposal draft/propose/apply-attempt ledger mutations still write Hecate-native stores first, then best-effort mirror proposal records into Cairnline."
+}
+
+func projectCairnlineProjectAssistantApplyWriteWarning(writeAuthority []string) string {
+	if projectCairnlineAssistantApplyWorkEffectsAuthoritative(writeAuthority) {
+		return "Project Assistant confirmed apply uses the enabled Cairnline authority seams for role, work-item, assignment, and handoff actions, but project/default/chat/memory/runtime side effects still keep apply as a mixed-authority replacement blocker."
+	}
+	return "Project Assistant confirmed apply side effects still execute through Hecate-owned mutation services, then best-effort mirror committed results into Cairnline."
+}
+
+func projectCairnlineAssistantApplyWorkEffectsAuthoritative(writeAuthority []string) bool {
+	return projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectRoles) ||
+		projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectWorkItems) ||
+		projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectAssignments) ||
+		projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectCollaboration)
 }
 
 func projectCairnlineReadSourceDetail(source string) string {

@@ -99,11 +99,12 @@ func (h *Handler) projectAssistantApplication() *projectassistantapp.Application
 			Projects:         h.projects,
 			Chats:            h.agentChat,
 			Work:             h.projectWork,
+			WorkAuthority:    h.projectAssistantWorkAuthorityForApplication(),
 			WorkApplication:  h.projectWorkApplication(),
 			ProjectSkills:    h.projectSkills,
 			Memory:           h.memory,
 			MemoryCandidates: h.memoryCandidates,
-			Proposals:        h.projectAssistantProposals,
+			Proposals:        h.projectAssistantProposalStoreForApplication(),
 			LLM:              gatewayAgentLLMClient{service: h.service},
 			IDGenerator:      newOpaqueTaskResourceID,
 		})

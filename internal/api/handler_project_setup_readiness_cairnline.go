@@ -97,19 +97,42 @@ func projectSetupSkillsFromCairnline(items []cairnline.ProjectSkill) []projectsk
 	out := make([]projectskills.Skill, 0, len(items))
 	for _, item := range items {
 		out = append(out, projectskills.Skill{
-			ID:          item.ID,
-			ProjectID:   item.ProjectID,
-			Title:       item.Title,
-			Description: item.Description,
-			Path:        item.Path,
-			RootID:      item.RootID,
-			Format:      item.Format,
-			Enabled:     item.Enabled,
-			Status:      item.Status,
-			TrustLabel:  item.TrustLabel,
+			ID:                     item.ID,
+			ProjectID:              item.ProjectID,
+			Title:                  item.Title,
+			Description:            item.Description,
+			Path:                   item.Path,
+			RootID:                 item.RootID,
+			Format:                 item.Format,
+			SuggestedTools:         append([]string(nil), item.SuggestedTools...),
+			RequiredPermissions:    projectSkillRequiredPermissionsFromCairnline(item.RequiredPermissions),
+			Enabled:                item.Enabled,
+			Status:                 item.Status,
+			TrustLabel:             item.TrustLabel,
+			SourceContextSourceIDs: append([]string(nil), item.SourceRefs...),
+			Warnings:               append([]string(nil), item.Warnings...),
+			DiscoveredAt:           item.DiscoveredAt,
+			CreatedAt:              item.CreatedAt,
+			UpdatedAt:              item.UpdatedAt,
 		})
 	}
 	return out
+}
+
+func projectSkillRequiredPermissionsFromCairnline(permissions cairnline.RequiredPermissions) projectskills.RequiredPermissions {
+	return projectskills.RequiredPermissions{
+		Tools:   cloneBoolPointer(permissions.Tools),
+		Writes:  cloneBoolPointer(permissions.Writes),
+		Network: cloneBoolPointer(permissions.Network),
+	}
+}
+
+func cloneBoolPointer(value *bool) *bool {
+	if value == nil {
+		return nil
+	}
+	out := *value
+	return &out
 }
 
 func projectSetupMemoryEntriesFromCairnline(items []cairnline.MemoryEntry) []memory.Entry {

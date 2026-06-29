@@ -175,8 +175,10 @@ func projectHealthEvidenceFromCairnline(item cairnline.Evidence) projectwork.Col
 		Kind:               projectwork.ArtifactKindEvidenceLink,
 		Title:              item.Title,
 		Body:               item.Body,
-		EvidenceSourceKind: projectwork.EvidenceSourceExternal,
+		EvidenceSourceKind: firstNonEmptyString(strings.TrimSpace(item.SourceKind), projectwork.EvidenceSourceExternal),
 		EvidenceURL:        item.Locator,
+		EvidenceExternalID: item.ExternalID,
+		EvidenceProvider:   item.Provider,
 		EvidenceTrustLabel: item.TrustLabel,
 		CreatedAt:          item.CreatedAt,
 		UpdatedAt:          item.UpdatedAt,
@@ -196,7 +198,7 @@ func projectHealthReviewFromCairnline(item cairnline.Review) projectwork.Collabo
 		ReviewedAssignmentID:   item.AssignmentID,
 		ReviewVerdict:          projectHealthReviewVerdictFromCairnline(item.Verdict),
 		ReviewRisk:             projectHealthReviewRiskFromCairnline(item.Risk),
-		ReviewFollowUpRequired: item.Verdict != cairnline.ReviewVerdictPass,
+		ReviewFollowUpRequired: projectHealthReviewRequiresFollowUpFromCairnline(item.Verdict),
 		CreatedAt:              item.CreatedAt,
 		UpdatedAt:              item.UpdatedAt,
 	}
@@ -226,16 +228,20 @@ func projectHealthHandoffFromCairnline(item cairnline.Handoff) projectwork.Hando
 		CreatedByRoleID:       item.FromRoleID,
 		CreatedAt:             item.CreatedAt,
 		UpdatedAt:             item.UpdatedAt,
-		StatusChangedAt:       item.UpdatedAt,
+		StatusChangedAt:       projectworkTime(item.StatusChangedAt, item.UpdatedAt),
 	}
 }
 
 func projectHealthReviewVerdictFromCairnline(verdict string) string {
 	switch strings.TrimSpace(verdict) {
-	case cairnline.ReviewVerdictPass:
+	case cairnline.ReviewVerdictApproved:
 		return projectwork.ReviewVerdictApproved
+	case cairnline.ReviewVerdictChangesRequested:
+		return projectwork.ReviewVerdictChangesRequested
 	case cairnline.ReviewVerdictBlocked:
 		return projectwork.ReviewVerdictBlocked
+	case cairnline.ReviewVerdictRisk:
+		return projectwork.ReviewVerdictRisk
 	default:
 		return projectwork.ReviewVerdictChangesRequested
 	}
@@ -247,6 +253,15 @@ func projectHealthReviewRiskFromCairnline(risk string) string {
 		return strings.TrimSpace(risk)
 	default:
 		return projectwork.ReviewRiskUnknown
+	}
+}
+
+func projectHealthReviewRequiresFollowUpFromCairnline(verdict string) bool {
+	switch strings.TrimSpace(verdict) {
+	case cairnline.ReviewVerdictChangesRequested, cairnline.ReviewVerdictBlocked:
+		return true
+	default:
+		return false
 	}
 }
 

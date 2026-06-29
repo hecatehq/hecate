@@ -224,9 +224,119 @@ func TestProjectContextDiscovery_MirrorsDiscoveredSourcesToCairnlineWhenConfigur
 	}
 }
 
+func TestProjectContextDiscovery_CairnlineAuthorityCommitsDiscoveredSourcesFirst(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeDiscoveryFile(t, root, "AGENTS.md")
+	writeDiscoveryFile(t, root, "CLAUDE.md")
+
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend:     "cairnline",
+			CairnlineWriteAuthority: projectCairnlineWriteAuthorityProjectContextSources,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	projectStore := projects.NewMemoryStore()
+	handler.SetProjectStore(projectStore)
+	server := NewServer(quietLogger(), handler)
+
+	if _, err := projectStore.Create(t.Context(), projects.Project{
+		ID:   "proj_guidance_authority",
+		Name: "Guidance authority",
+		Roots: []projects.Root{{
+			ID:     "root_main",
+			Path:   root,
+			Kind:   "local",
+			Active: true,
+		}},
+		ContextSources: []projects.ContextSource{{
+			ID:      "ctx_existing_agents",
+			Kind:    "workspace_instruction",
+			Path:    "AGENTS.md",
+			Title:   "AGENTS.md",
+			Enabled: false,
+			Metadata: map[string]string{
+				"root_id": "root_main",
+			},
+		}},
+	}); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	dbPath := handler.cairnlineEmbeddedDatabasePath()
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+		t.Fatalf("create Cairnline mirror directory: %v", err)
+	}
+	service, store, err := cairnline.NewSQLiteService(t.Context(), dbPath)
+	if err != nil {
+		t.Fatalf("open Cairnline mirror: %v", err)
+	}
+	if _, err := service.CreateProject(t.Context(), cairnline.Project{
+		ID:   "proj_guidance_authority",
+		Name: "Guidance authority",
+		ContextSources: []cairnline.Source{{
+			ID:      "ctx_cairnline_only",
+			Kind:    "operator_note",
+			Title:   "Cairnline-only source",
+			Locator: "cairnline://source",
+			Enabled: true,
+		}},
+	}); err != nil {
+		t.Fatalf("CreateProject(cairnline seed): %v", err)
+	}
+	store.Close()
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_guidance_authority/context-sources/discover", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("discover status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var resp ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode discovery response: %v", err)
+	}
+	if len(resp.Data.ContextSources) != 2 {
+		t.Fatalf("response sources = %+v, want discovered AGENTS.md and CLAUDE.md", resp.Data.ContextSources)
+	}
+	if got := projectContextSourceResponseByPath(resp.Data.ContextSources, "AGENTS.md"); got == nil || got.ID != "ctx_existing_agents" || got.Enabled {
+		t.Fatalf("response AGENTS source = %+v, want existing disabled source preserved", got)
+	}
+	if got := projectContextSourceResponseByPath(resp.Data.ContextSources, "CLAUDE.md"); got == nil || got.Kind != "host_instruction" || got.Metadata["host"] != "claude" {
+		t.Fatalf("response CLAUDE source = %+v, want discovered Claude source", got)
+	}
+
+	service, store, err = cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+	if err != nil {
+		t.Fatalf("open Cairnline mirror: %v", err)
+	}
+	defer store.Close()
+	project, err := service.GetProject(t.Context(), "proj_guidance_authority")
+	if err != nil {
+		t.Fatalf("GetProject(proj_guidance_authority): %v", err)
+	}
+	if len(project.ContextSources) != 2 {
+		t.Fatalf("Cairnline sources = %+v, want authoritative discovery replacement without Cairnline-only source", project.ContextSources)
+	}
+	if findCairnlineSourceForAPITest(project.ContextSources, "ctx_existing_agents") == nil {
+		t.Fatalf("Cairnline sources = %+v, want existing AGENTS source id preserved", project.ContextSources)
+	}
+	if findCairnlineSourceForAPITest(project.ContextSources, "ctx_cairnline_only") != nil {
+		t.Fatalf("Cairnline sources = %+v, want stale Cairnline-only source removed by authoritative discovery replacement", project.ContextSources)
+	}
+}
+
 func findCairnlineSourceForAPITest(sources []cairnline.Source, id string) *cairnline.Source {
 	for idx := range sources {
 		if sources[idx].ID == id {
+			return &sources[idx]
+		}
+	}
+	return nil
+}
+
+func projectContextSourceResponseByPath(sources []ProjectContextSourceResponseItem, path string) *ProjectContextSourceResponseItem {
+	for idx := range sources {
+		if sources[idx].Path == path {
 			return &sources[idx]
 		}
 	}

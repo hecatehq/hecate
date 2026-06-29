@@ -20,6 +20,7 @@ type Options struct {
 	Projects         projects.Store
 	Chats            chat.Store
 	Work             projectwork.Store
+	WorkAuthority    projectassistant.WorkAuthority
 	WorkApplication  *projectworkapp.Application
 	ProjectSkills    projectskills.Store
 	Memory           memory.Store
@@ -66,7 +67,9 @@ type ApplyCommand struct {
 
 func New(options Options) *Application {
 	var workAuthority projectassistant.WorkAuthority
-	if options.WorkApplication != nil {
+	if options.WorkAuthority != nil {
+		workAuthority = options.WorkAuthority
+	} else if options.WorkApplication != nil {
 		workAuthority = projectWorkAuthority{app: options.WorkApplication}
 	}
 	return &Application{

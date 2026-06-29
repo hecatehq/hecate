@@ -54,7 +54,7 @@ func (h *Handler) cairnlineProjectAssistantDraft(ctx context.Context, command pr
 		ProjectSkills:    seed.skills,
 		Memory:           seed.memory,
 		MemoryCandidates: seed.memory,
-		Proposals:        h.projectAssistantProposals,
+		Proposals:        h.projectAssistantProposalStoreForApplication(),
 		LLM:              gatewayAgentLLMClient{service: h.service},
 	}, newOpaqueTaskResourceID).Draft(ctx, projectassistant.DraftInput{
 		ProjectID:        command.ProjectID,

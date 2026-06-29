@@ -473,10 +473,10 @@ func TestLoadFromEnvProjectsCairnlineWriteAuthority(t *testing.T) {
 		t.Fatalf("ProjectsCairnlineWriteAuthorityEnabled(project-memory) = true, want false by default")
 	}
 
-	t.Setenv("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY", " Project-Memory, none, memory-candidates, project-memory ")
+	t.Setenv("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY", " Project-Memory, none, memory-candidates, project-collaboration, project-skills, project-work-items, project-roles, project-assignments, agent-profiles, project-metadata-defaults, project-roots, project-context-sources, project-identity, project-assistant-proposals, project-memory ")
 	cfg = LoadFromEnv()
-	if got := cfg.ProjectsCairnlineWriteAuthority(); len(got) != 2 || got[0] != "project-memory" || got[1] != "memory-candidates" {
-		t.Fatalf("ProjectsCairnlineWriteAuthority() = %+v, want [project-memory memory-candidates]", got)
+	if got := cfg.ProjectsCairnlineWriteAuthority(); len(got) != 13 || got[0] != "project-memory" || got[1] != "memory-candidates" || got[2] != "project-collaboration" || got[3] != "project-skills" || got[4] != "project-work-items" || got[5] != "project-roles" || got[6] != "project-assignments" || got[7] != "agent-profiles" || got[8] != "project-metadata-defaults" || got[9] != "project-roots" || got[10] != "project-context-sources" || got[11] != "project-identity" || got[12] != "project-assistant-proposals" {
+		t.Fatalf("ProjectsCairnlineWriteAuthority() = %+v, want [project-memory memory-candidates project-collaboration project-skills project-work-items project-roles project-assignments agent-profiles project-metadata-defaults project-roots project-context-sources project-identity project-assistant-proposals]", got)
 	}
 	if !cfg.ProjectsCairnlineWriteAuthorityEnabled("project-memory") {
 		t.Fatalf("ProjectsCairnlineWriteAuthorityEnabled(project-memory) = false, want true")
@@ -484,8 +484,41 @@ func TestLoadFromEnvProjectsCairnlineWriteAuthority(t *testing.T) {
 	if !cfg.ProjectsCairnlineWriteAuthorityEnabled("memory-candidates") {
 		t.Fatalf("ProjectsCairnlineWriteAuthorityEnabled(memory-candidates) = false, want true")
 	}
+	if !cfg.ProjectsCairnlineWriteAuthorityEnabled("project-collaboration") {
+		t.Fatalf("ProjectsCairnlineWriteAuthorityEnabled(project-collaboration) = false, want true")
+	}
+	if !cfg.ProjectsCairnlineWriteAuthorityEnabled("project-skills") {
+		t.Fatalf("ProjectsCairnlineWriteAuthorityEnabled(project-skills) = false, want true")
+	}
+	if !cfg.ProjectsCairnlineWriteAuthorityEnabled("project-work-items") {
+		t.Fatalf("ProjectsCairnlineWriteAuthorityEnabled(project-work-items) = false, want true")
+	}
+	if !cfg.ProjectsCairnlineWriteAuthorityEnabled("project-roles") {
+		t.Fatalf("ProjectsCairnlineWriteAuthorityEnabled(project-roles) = false, want true")
+	}
+	if !cfg.ProjectsCairnlineWriteAuthorityEnabled("project-assignments") {
+		t.Fatalf("ProjectsCairnlineWriteAuthorityEnabled(project-assignments) = false, want true")
+	}
+	if !cfg.ProjectsCairnlineWriteAuthorityEnabled("agent-profiles") {
+		t.Fatalf("ProjectsCairnlineWriteAuthorityEnabled(agent-profiles) = false, want true")
+	}
+	if !cfg.ProjectsCairnlineWriteAuthorityEnabled("project-metadata-defaults") {
+		t.Fatalf("ProjectsCairnlineWriteAuthorityEnabled(project-metadata-defaults) = false, want true")
+	}
+	if !cfg.ProjectsCairnlineWriteAuthorityEnabled("project-roots") {
+		t.Fatalf("ProjectsCairnlineWriteAuthorityEnabled(project-roots) = false, want true")
+	}
+	if !cfg.ProjectsCairnlineWriteAuthorityEnabled("project-context-sources") {
+		t.Fatalf("ProjectsCairnlineWriteAuthorityEnabled(project-context-sources) = false, want true")
+	}
+	if !cfg.ProjectsCairnlineWriteAuthorityEnabled("project-identity") {
+		t.Fatalf("ProjectsCairnlineWriteAuthorityEnabled(project-identity) = false, want true")
+	}
+	if !cfg.ProjectsCairnlineWriteAuthorityEnabled("project-assistant-proposals") {
+		t.Fatalf("ProjectsCairnlineWriteAuthorityEnabled(project-assistant-proposals) = false, want true")
+	}
 	if err := cfg.Validate(); err != nil {
-		t.Fatalf("Validate() error = %v, want nil for project memory and candidate Cairnline write authority opt-ins", err)
+		t.Fatalf("Validate() error = %v, want nil for project memory, candidate, collaboration, skills, role, work-item, assignment, agent-profile, project metadata/default, root, context-source, identity, and assistant proposal Cairnline write authority opt-ins", err)
 	}
 }
 

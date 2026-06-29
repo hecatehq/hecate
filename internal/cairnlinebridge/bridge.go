@@ -90,7 +90,7 @@ func seedProjectScopedSnapshot(ctx context.Context, service *cairnline.Service, 
 		if _, err := service.CreateAssignment(ctx, item); err != nil {
 			return err
 		}
-		if err := syncAssignmentStatus(ctx, service, item); err != nil {
+		if err := syncAssignmentStatus(ctx, service, cairnline.Assignment{}, item); err != nil {
 			return err
 		}
 	}
@@ -290,21 +290,23 @@ func RoleExecutionProfile(role projectwork.AgentRoleProfile) (cairnline.Executio
 
 func ProjectSkill(skill projectskills.Skill) cairnline.ProjectSkill {
 	return cairnline.ProjectSkill{
-		ID:           strings.TrimSpace(skill.ID),
-		ProjectID:    strings.TrimSpace(skill.ProjectID),
-		Title:        strings.TrimSpace(skill.Title),
-		Description:  strings.TrimSpace(skill.Description),
-		Path:         strings.TrimSpace(skill.Path),
-		RootID:       strings.TrimSpace(skill.RootID),
-		Format:       strings.TrimSpace(skill.Format),
-		Enabled:      skill.Enabled,
-		Status:       strings.TrimSpace(skill.Status),
-		TrustLabel:   strings.TrimSpace(skill.TrustLabel),
-		SourceRefs:   compactStrings(skill.SourceContextSourceIDs),
-		Warnings:     compactStrings(skill.Warnings),
-		DiscoveredAt: skill.DiscoveredAt,
-		CreatedAt:    skill.CreatedAt,
-		UpdatedAt:    skill.UpdatedAt,
+		ID:                  strings.TrimSpace(skill.ID),
+		ProjectID:           strings.TrimSpace(skill.ProjectID),
+		Title:               strings.TrimSpace(skill.Title),
+		Description:         strings.TrimSpace(skill.Description),
+		Path:                strings.TrimSpace(skill.Path),
+		RootID:              strings.TrimSpace(skill.RootID),
+		Format:              strings.TrimSpace(skill.Format),
+		SuggestedTools:      compactStrings(skill.SuggestedTools),
+		RequiredPermissions: RequiredPermissions(skill.RequiredPermissions),
+		Enabled:             skill.Enabled,
+		Status:              strings.TrimSpace(skill.Status),
+		TrustLabel:          strings.TrimSpace(skill.TrustLabel),
+		SourceRefs:          compactStrings(skill.SourceContextSourceIDs),
+		Warnings:            compactStrings(skill.Warnings),
+		DiscoveredAt:        skill.DiscoveredAt,
+		CreatedAt:           skill.CreatedAt,
+		UpdatedAt:           skill.UpdatedAt,
 	}
 }
 
@@ -357,6 +359,8 @@ func Assignment(assignment projectwork.Assignment, role projectwork.AgentRolePro
 		ContextSnapshotID: strings.TrimSpace(assignment.ExecutionRef.ContextSnapshotID),
 		CreatedAt:         assignment.CreatedAt,
 		UpdatedAt:         assignment.UpdatedAt,
+		StartedAt:         assignment.StartedAt,
+		CompletedAt:       assignment.CompletedAt,
 	}
 }
 
@@ -391,6 +395,9 @@ func Evidence(artifact projectwork.CollaborationArtifact) (cairnline.Evidence, b
 		Title:        strings.TrimSpace(artifact.Title),
 		Body:         strings.TrimSpace(artifact.Body),
 		Locator:      firstNonEmpty(strings.TrimSpace(artifact.EvidenceURL), strings.TrimSpace(artifact.EvidenceExternalID)),
+		SourceKind:   strings.TrimSpace(artifact.EvidenceSourceKind),
+		ExternalID:   strings.TrimSpace(artifact.EvidenceExternalID),
+		Provider:     strings.TrimSpace(artifact.EvidenceProvider),
 		TrustLabel:   firstNonEmpty(strings.TrimSpace(artifact.EvidenceTrustLabel), projectwork.EvidenceTrustOperatorProvided),
 		CreatedAt:    artifact.CreatedAt,
 		UpdatedAt:    artifact.UpdatedAt,
@@ -418,6 +425,10 @@ func Review(artifact projectwork.CollaborationArtifact) (cairnline.Review, bool)
 }
 
 func Handoff(handoff projectwork.Handoff) cairnline.Handoff {
+	statusChangedAt := handoff.StatusChangedAt
+	if statusChangedAt.IsZero() {
+		statusChangedAt = handoff.CreatedAt
+	}
 	return cairnline.Handoff{
 		ID:                    strings.TrimSpace(handoff.ID),
 		ProjectID:             strings.TrimSpace(handoff.ProjectID),
@@ -441,6 +452,7 @@ func Handoff(handoff projectwork.Handoff) cairnline.Handoff {
 		TrustLabel:            strings.TrimSpace(handoff.TrustLabel),
 		CreatedAt:             handoff.CreatedAt,
 		UpdatedAt:             handoff.UpdatedAt,
+		StatusChangedAt:       statusChangedAt,
 	}
 }
 
@@ -527,11 +539,15 @@ func AssignmentStatus(status string) string {
 func ReviewVerdict(verdict string) string {
 	switch strings.TrimSpace(verdict) {
 	case projectwork.ReviewVerdictApproved:
-		return cairnline.ReviewVerdictPass
+		return cairnline.ReviewVerdictApproved
+	case projectwork.ReviewVerdictChangesRequested:
+		return cairnline.ReviewVerdictChangesRequested
 	case projectwork.ReviewVerdictBlocked:
 		return cairnline.ReviewVerdictBlocked
+	case projectwork.ReviewVerdictRisk:
+		return cairnline.ReviewVerdictRisk
 	default:
-		return cairnline.ReviewVerdictConcerns
+		return cairnline.ReviewVerdictChangesRequested
 	}
 }
 
@@ -543,6 +559,8 @@ func ReviewRisk(risk string) string {
 		return cairnline.ReviewRiskMedium
 	case projectwork.ReviewRiskHigh:
 		return cairnline.ReviewRiskHigh
+	case projectwork.ReviewRiskUnknown:
+		return cairnline.ReviewRiskUnknown
 	default:
 		return ""
 	}
@@ -579,31 +597,20 @@ func DesiredAgentKind(driverKind string) string {
 	return cairnline.DesiredAgentAny
 }
 
-func syncAssignmentStatus(ctx context.Context, service *cairnline.Service, assignment cairnline.Assignment) error {
+func syncAssignmentStatus(ctx context.Context, service *cairnline.Service, existing, assignment cairnline.Assignment) error {
 	switch assignment.Status {
 	case cairnline.AssignmentQueued:
+		if existing.Status == cairnline.AssignmentClaimed {
+			_, err := service.ReleaseAssignment(ctx, assignment.ProjectID, assignment.ID, existing.ClaimedBy)
+			return err
+		}
 		return nil
 	case cairnline.AssignmentRunning, cairnline.AssignmentReview:
-		current, err := service.GetAssignment(ctx, assignment.ProjectID, assignment.ID)
-		if err != nil {
-			return err
-		}
-		if current.Status == cairnline.AssignmentQueued {
-			if _, err := service.ClaimAssignment(ctx, assignment.ProjectID, assignment.ID, claimedBy(assignment)); err != nil {
-				return err
-			}
-		}
-		_, err = service.UpdateAssignmentStatus(ctx, assignment.ProjectID, assignment.ID, assignment.Status, assignment.ExecutionRef)
+		assignment.ClaimedBy = claimedBy(assignment)
+		_, err := service.UpdateAssignment(ctx, assignment)
 		return err
 	case cairnline.AssignmentCompleted, cairnline.AssignmentFailed, cairnline.AssignmentCancelled:
-		current, err := service.GetAssignment(ctx, assignment.ProjectID, assignment.ID)
-		if err != nil {
-			return err
-		}
-		if current.Status == assignment.Status {
-			return nil
-		}
-		_, err = service.CompleteAssignment(ctx, assignment.ProjectID, assignment.ID, assignment.Status, assignment.ExecutionRef)
+		_, err := service.UpdateAssignment(ctx, assignment)
 		return err
 	default:
 		return nil
@@ -706,6 +713,22 @@ func optionalBoolPolicy(value *bool) string {
 		return ""
 	}
 	return boolPolicy(*value)
+}
+
+func RequiredPermissions(permissions projectskills.RequiredPermissions) cairnline.RequiredPermissions {
+	return cairnline.RequiredPermissions{
+		Tools:   cloneBoolPointer(permissions.Tools),
+		Writes:  cloneBoolPointer(permissions.Writes),
+		Network: cloneBoolPointer(permissions.Network),
+	}
+}
+
+func cloneBoolPointer(value *bool) *bool {
+	if value == nil {
+		return nil
+	}
+	out := *value
+	return &out
 }
 
 func projectExecutionAdapterOptions(project projects.Project) map[string]any {

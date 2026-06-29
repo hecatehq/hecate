@@ -120,6 +120,26 @@ func (s failingCreateAssignmentProjectWorkStore) CreateAssignment(context.Contex
 	return projectwork.Assignment{}, s.err
 }
 
+type failingCreateRoleProjectWorkStore struct {
+	projectwork.Store
+	err error
+}
+
+func (s failingCreateRoleProjectWorkStore) CreateRole(context.Context, projectwork.AgentRoleProfile) (projectwork.AgentRoleProfile, error) {
+	return projectwork.AgentRoleProfile{}, s.err
+}
+
+type failingProposalUpsertStore struct {
+	projectassistant.ProposalStore
+	err error
+}
+
+func (s failingProposalUpsertStore) Backend() string { return "failing" }
+
+func (s failingProposalUpsertStore) UpsertProposal(context.Context, projectassistant.ProposalRecord) (projectassistant.ProposalRecord, error) {
+	return projectassistant.ProposalRecord{}, s.err
+}
+
 func TestProjectAssistantAPI_ContextBuildsSelectionPacket(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectAssistantTestHandler()
@@ -915,6 +935,175 @@ func TestProjectAssistantAPI_MirrorsProposalLedgerToCairnlineWhenConfigured(t *t
 	}
 	if workItem.Title != "Mirror assistant ledger" || workItem.Status != cairnline.WorkStatusReady {
 		t.Fatalf("mirrored work item = %+v, want assistant-created work item", workItem)
+	}
+}
+
+func TestProjectAssistantAPI_CairnlineProposalAuthorityCommitsLedgerFirst(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectAssistantCairnlineMirrorTestHandler(t)
+	handler.config.Projects.CairnlineWriteAuthority = projectCairnlineWriteAuthorityProjectAssistantProposals
+	client := newAPITestClient(t, server)
+	if _, err := handler.projects.Create(t.Context(), projects.Project{
+		ID:   "proj_pa_authority",
+		Name: "Assistant Authority",
+	}); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+
+	proposed := mustRequestJSON[projectAssistantProposalResponse](client, http.MethodPost, "/hecate/v1/project-assistant/propose", `{
+		"id":"pa_authority_apply",
+		"title":"Create authoritative work",
+		"summary":"Create a work item through the Project Assistant ledger authority path.",
+		"actions":[{
+			"kind":"create_work_item",
+			"reason":"The project needs one reviewable task.",
+			"patch":{
+				"id":"work_pa_authority",
+				"project_id":"proj_pa_authority",
+				"title":"Authoritative assistant ledger",
+				"brief":"Verify Project Assistant proposal records can commit to Cairnline first.",
+				"status":"ready"
+			}
+		}]
+	}`)
+	written := getMirroredCairnlineAssistantProposalForTest(t, handler, proposed.Data.ID)
+	if written.Status != cairnline.AssistantProposalStatusProposed || written.Source != cairnline.AssistantProposalSourceAPI || len(written.Proposal.Actions) != 1 {
+		t.Fatalf("Cairnline proposal = %+v, want proposed API ledger record", written)
+	}
+	shadow, ok, err := handler.projectAssistantProposals.GetProposal(t.Context(), proposed.Data.ID)
+	if err != nil || !ok {
+		t.Fatalf("GetProposal shadow = ok %v err %v, want Hecate compatibility shadow", ok, err)
+	}
+	if shadow.Fingerprint == "" {
+		t.Fatalf("shadow proposal = %+v, want Hecate fingerprint preserved for apply safety", shadow)
+	}
+
+	applied := mustRequestJSON[projectAssistantApplyResponse](client, http.MethodPost, "/hecate/v1/project-assistant/apply", projectJourneyJSON(t, map[string]any{
+		"proposal": proposed.Data,
+		"confirm":  true,
+	}))
+	if applied.Data.Status != projectassistant.ApplyStatusApplied || !applied.Data.Applied || applied.Data.CommittedActionCount != 1 {
+		t.Fatalf("apply response = %+v, want applied proposal ledger result", applied.Data)
+	}
+	appliedLedger := getMirroredCairnlineAssistantProposalForTest(t, handler, proposed.Data.ID)
+	if appliedLedger.Status != cairnline.AssistantProposalStatusApplied || appliedLedger.LatestResult == nil || !appliedLedger.LatestResult.Applied || len(appliedLedger.ApplyAttempts) != 1 {
+		t.Fatalf("Cairnline applied proposal = %+v, want applied ledger result and attempt", appliedLedger)
+	}
+	shadow, ok, err = handler.projectAssistantProposals.GetProposal(t.Context(), proposed.Data.ID)
+	if err != nil || !ok || shadow.LatestResult == nil || !shadow.LatestResult.Applied || len(shadow.ApplyAttempts) != 1 {
+		t.Fatalf("shadow proposal after apply = %+v ok %v err %v, want compatibility shadow with apply attempt", shadow, ok, err)
+	}
+}
+
+func TestProjectAssistantAPI_CairnlineProposalAuthorityDoesNotBlockOnShadowUpsertFailure(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectAssistantCairnlineMirrorTestHandler(t)
+	handler.config.Projects.CairnlineWriteAuthority = projectCairnlineWriteAuthorityProjectAssistantProposals
+	handler.SetProjectAssistantProposalStore(failingProposalUpsertStore{
+		ProposalStore: projectassistant.NewMemoryProposalStore(),
+		err:           errors.New("shadow proposal store unavailable"),
+	})
+	client := newAPITestClient(t, server)
+	if _, err := handler.projects.Create(t.Context(), projects.Project{
+		ID:   "proj_pa_shadow_failure",
+		Name: "Assistant Shadow Failure",
+	}); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+
+	proposed := mustRequestJSON[projectAssistantProposalResponse](client, http.MethodPost, "/hecate/v1/project-assistant/propose", `{
+		"id":"pa_shadow_failure",
+		"title":"Create ledger despite shadow failure",
+		"summary":"The authoritative Cairnline ledger should commit before the Hecate compatibility shadow.",
+		"actions":[{
+			"kind":"create_work_item",
+			"reason":"The proposal should survive a Hecate shadow write failure.",
+			"patch":{
+				"id":"work_pa_shadow_failure",
+				"project_id":"proj_pa_shadow_failure",
+				"title":"Shadow failure proof",
+				"brief":"Verify Project Assistant proposal authority is not just a post-commit mirror.",
+				"status":"ready"
+			}
+		}]
+	}`)
+	if proposed.Data.ID != "pa_shadow_failure" || len(proposed.Data.Actions) != 1 {
+		t.Fatalf("proposal response = %+v, want successful proposal despite Hecate shadow failure", proposed.Data)
+	}
+	written := getMirroredCairnlineAssistantProposalForTest(t, handler, proposed.Data.ID)
+	if written.ProjectID != "proj_pa_shadow_failure" || written.Status != cairnline.AssistantProposalStatusProposed {
+		t.Fatalf("Cairnline proposal = %+v, want authoritative proposal committed despite shadow failure", written)
+	}
+}
+
+func TestProjectAssistantAPI_CairnlineApplyWorkAuthorityDoesNotBlockOnRoleShadowFailure(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectAssistantCairnlineMirrorTestHandler(t)
+	handler.config.Projects.CairnlineWriteAuthority = strings.Join([]string{
+		projectCairnlineWriteAuthorityProjectAssistantProposals,
+		projectCairnlineWriteAuthorityProjectRoles,
+	}, ",")
+	handler.SetProjectWorkStore(failingCreateRoleProjectWorkStore{
+		Store: projectwork.NewMemoryStore(),
+		err:   errors.New("shadow role store unavailable"),
+	})
+	client := newAPITestClient(t, server)
+	if _, err := handler.projects.Create(t.Context(), projects.Project{
+		ID:   "proj_pa_apply_role_authority",
+		Name: "Assistant Apply Role Authority",
+	}); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+
+	proposed := mustRequestJSON[projectAssistantProposalResponse](client, http.MethodPost, "/hecate/v1/project-assistant/propose", `{
+		"id":"pa_apply_role_authority",
+		"title":"Create role through authority",
+		"summary":"Project Assistant apply should use the Cairnline-first work authority seam.",
+		"actions":[{
+			"kind":"create_role",
+			"reason":"The project needs an implementation owner.",
+			"patch":{
+				"id":"role_apply_authority",
+				"project_id":"proj_pa_apply_role_authority",
+				"name":"Implementation Owner",
+				"description":"Owns scoped implementation work.",
+				"instructions":"Implement only the requested slice and leave evidence.",
+				"default_driver_kind":"external_agent",
+				"default_provider":"openai",
+				"default_model":"gpt-5",
+				"default_agent_profile":"implementation",
+				"skill_ids":["backend"]
+			}
+		}]
+	}`)
+	applied := mustRequestJSON[projectAssistantApplyResponse](client, http.MethodPost, "/hecate/v1/project-assistant/apply", projectJourneyJSON(t, map[string]any{
+		"proposal": proposed.Data,
+		"confirm":  true,
+	}))
+	if applied.Data.Status != projectassistant.ApplyStatusApplied || !applied.Data.Applied || applied.Data.CommittedActionCount != 1 {
+		t.Fatalf("apply response = %+v, want applied role action despite Hecate shadow failure", applied.Data)
+	}
+
+	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+	if err != nil {
+		t.Fatalf("open Cairnline mirror: %v", err)
+	}
+	defer store.Close()
+	role, err := getCairnlineProjectRoleForAuthority(t.Context(), service, "proj_pa_apply_role_authority", "role_apply_authority")
+	if err != nil {
+		t.Fatalf("Get role_apply_authority from Cairnline: %v", err)
+	}
+	if role.Name != "Implementation Owner" || role.DefaultExecutionMode != cairnline.ExecutionExternalAdapter || !reflect.DeepEqual(role.DefaultSkillIDs, []string{"backend"}) {
+		t.Fatalf("Cairnline role = %+v, want authoritative external-agent role with backend skill", role)
+	}
+	roles, err := handler.projectWork.ListRoles(t.Context(), "proj_pa_apply_role_authority")
+	if err != nil {
+		t.Fatalf("ListRoles shadow: %v", err)
+	}
+	for _, role := range roles {
+		if role.ID == "role_apply_authority" {
+			t.Fatalf("shadow role store unexpectedly contains %+v, want Cairnline authority to survive failed Hecate shadow", role)
+		}
 	}
 }
 

@@ -78,6 +78,73 @@ func newProjectWorkCairnlineMirrorTestServer(t *testing.T) (*Handler, http.Handl
 	return handler, NewServer(quietLogger(), handler)
 }
 
+func newProjectWorkCairnlineCollaborationAuthorityTestServer(t *testing.T) (*Handler, http.Handler) {
+	t.Helper()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend:     "cairnline",
+			CairnlineWriteAuthority: projectCairnlineWriteAuthorityProjectCollaboration,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	handler.SetProjectStore(projects.NewMemoryStore())
+	handler.SetProjectWorkStore(projectwork.NewMemoryStore())
+	handler.SetAgentProfileStore(agentprofiles.NewMemoryStore())
+	return handler, NewServer(quietLogger(), handler)
+}
+
+func newProjectWorkCairnlineWorkItemAuthorityTestServer(t *testing.T) (*Handler, http.Handler) {
+	t.Helper()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend:     "cairnline",
+			CairnlineWriteAuthority: projectCairnlineWriteAuthorityProjectWorkItems,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	handler.SetProjectStore(projects.NewMemoryStore())
+	handler.SetProjectWorkStore(projectwork.NewMemoryStore())
+	handler.SetAgentProfileStore(agentprofiles.NewMemoryStore())
+	return handler, NewServer(quietLogger(), handler)
+}
+
+func newProjectWorkCairnlineRoleAuthorityTestServer(t *testing.T) (*Handler, http.Handler) {
+	t.Helper()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend:     "cairnline",
+			CairnlineWriteAuthority: projectCairnlineWriteAuthorityProjectRoles,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	handler.SetProjectStore(projects.NewMemoryStore())
+	handler.SetProjectWorkStore(projectwork.NewMemoryStore())
+	handler.SetAgentProfileStore(agentprofiles.NewMemoryStore())
+	return handler, NewServer(quietLogger(), handler)
+}
+
+func newProjectWorkCairnlineAssignmentAuthorityTestServer(t *testing.T) (*Handler, http.Handler) {
+	t.Helper()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend:     "cairnline",
+			CairnlineWriteAuthority: projectCairnlineWriteAuthorityProjectAssignments,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	handler.SetProjectStore(projects.NewMemoryStore())
+	handler.SetProjectWorkStore(projectwork.NewMemoryStore())
+	handler.SetAgentProfileStore(agentprofiles.NewMemoryStore())
+	return handler, NewServer(quietLogger(), handler)
+}
+
+type projectWorkErrorResponse struct {
+	Error struct {
+		Type    string `json:"type"`
+		Message string `json:"message"`
+	} `json:"error"`
+}
+
 func newProjectWorkCairnlineReadSourceTestHandler(t *testing.T, source string) *Handler {
 	t.Helper()
 	handler := NewHandler(config.Config{
@@ -601,6 +668,441 @@ func TestProjectWorkAPI_CRUD(t *testing.T) {
 	}
 }
 
+func TestProjectWorkAPI_CairnlineCollaborationAuthorityWritesCairnlineAndShadowsHecate(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkCairnlineCollaborationAuthorityTestServer(t)
+	client := newAPITestClient(t, server)
+	project := mustRequestJSONStatus[ProjectResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects", projectJourneyJSON(t, map[string]any{
+		"name": "Authority project",
+	}))
+	projectID := project.Data.ID
+
+	mustRequestJSONStatus[ProjectWorkRoleEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/roles", projectJourneyJSON(t, map[string]any{
+		"id":   "role_authority",
+		"name": "Authority role",
+	}))
+	mustRequestJSONStatus[ProjectWorkItemEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items", projectJourneyJSON(t, map[string]any{
+		"id":            "work_authority",
+		"title":         "Exercise authority",
+		"owner_role_id": "role_authority",
+	}))
+	mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/assignments", projectJourneyJSON(t, map[string]any{
+		"id":      "asgn_authority",
+		"role_id": "role_authority",
+	}))
+
+	decision := mustRequestJSONStatus[ProjectWorkArtifactEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/artifacts", projectJourneyJSON(t, map[string]any{
+		"id":             "art_authority_decision",
+		"assignment_id":  "asgn_authority",
+		"kind":           "decision_note",
+		"title":          "Authority decision",
+		"body":           "Cairnline should store this first.",
+		"author_role_id": "role_authority",
+	}))
+	if decision.Data.ID != "art_authority_decision" || decision.Data.Kind != projectwork.ArtifactKindDecisionNote {
+		t.Fatalf("decision artifact = %+v, want decision note response", decision.Data)
+	}
+	mirroredDecision := getMirroredCairnlineArtifactForTest(t, handler, projectID, "work_authority", "art_authority_decision")
+	if mirroredDecision.AssignmentID != "asgn_authority" || mirroredDecision.AuthorRoleID != "role_authority" {
+		t.Fatalf("mirrored decision = %+v, want Cairnline authority record", mirroredDecision)
+	}
+	assertHecateShadowArtifactForTest(t, handler, projectID, "work_authority", "art_authority_decision", projectwork.ArtifactKindDecisionNote)
+
+	evidence := mustRequestJSONStatus[ProjectWorkArtifactEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/artifacts", projectJourneyJSON(t, map[string]any{
+		"id":                   "art_authority_evidence",
+		"assignment_id":        "asgn_authority",
+		"kind":                 "evidence_link",
+		"body":                 "External evidence was attached.",
+		"evidence_url":         "https://example.invalid/authority",
+		"evidence_external_id": "AUTH-1",
+		"evidence_provider":    "example",
+	}))
+	if evidence.Data.Title != "Evidence link" || evidence.Data.EvidenceURL != "https://example.invalid/authority" {
+		t.Fatalf("evidence response = %+v, want defaulted title and locator metadata", evidence.Data)
+	}
+	mirroredEvidence := getMirroredCairnlineEvidenceForTest(t, handler, projectID, "work_authority", "art_authority_evidence")
+	if mirroredEvidence.Locator != "https://example.invalid/authority" || mirroredEvidence.ExternalID != "AUTH-1" || mirroredEvidence.Provider != "example" {
+		t.Fatalf("mirrored evidence = %+v, want Cairnline evidence metadata", mirroredEvidence)
+	}
+	assertHecateShadowArtifactForTest(t, handler, projectID, "work_authority", "art_authority_evidence", projectwork.ArtifactKindEvidenceLink)
+
+	missingVerdict := mustRequestJSONStatus[projectWorkErrorResponse](client, http.StatusBadRequest, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/artifacts", projectJourneyJSON(t, map[string]any{
+		"id":                     "art_authority_review_missing_verdict",
+		"assignment_id":          "asgn_authority",
+		"reviewed_assignment_id": "asgn_authority",
+		"kind":                   "review",
+		"body":                   "Missing verdict.",
+	}))
+	if missingVerdict.Error.Type != errCodeInvalidRequest || !strings.Contains(missingVerdict.Error.Message, "review_verdict is required") {
+		t.Fatalf("missing verdict error = %+v, want invalid review verdict response", missingVerdict.Error)
+	}
+
+	review := mustRequestJSONStatus[ProjectWorkArtifactEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/artifacts", projectJourneyJSON(t, map[string]any{
+		"id":                     "art_authority_review",
+		"assignment_id":          "asgn_authority",
+		"reviewed_assignment_id": "asgn_authority",
+		"kind":                   "review",
+		"body":                   "Needs follow-up.",
+		"author_role_id":         "role_authority",
+		"review_verdict":         "changes_requested",
+		"review_risk":            "medium",
+	}))
+	if review.Data.ReviewVerdict != projectwork.ReviewVerdictChangesRequested || !review.Data.ReviewFollowUpRequired {
+		t.Fatalf("review response = %+v, want changes-requested follow-up", review.Data)
+	}
+	mirroredReview := getMirroredCairnlineReviewForTest(t, handler, projectID, "work_authority", "art_authority_review")
+	if mirroredReview.Verdict != cairnline.ReviewVerdictChangesRequested || mirroredReview.Risk != cairnline.ReviewRiskMedium {
+		t.Fatalf("mirrored review = %+v, want Cairnline review metadata", mirroredReview)
+	}
+	assertHecateShadowArtifactForTest(t, handler, projectID, "work_authority", "art_authority_review", projectwork.ArtifactKindReview)
+
+	handoff := mustRequestJSONStatus[ProjectHandoffEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/handoffs", projectJourneyJSON(t, map[string]any{
+		"id":                      "handoff_authority",
+		"source_assignment_id":    "asgn_authority",
+		"target_role_id":          "role_authority",
+		"title":                   "Authority handoff",
+		"summary":                 "Cairnline should own this handoff.",
+		"recommended_next_action": "Accept the handoff.",
+		"created_by_role_id":      "role_authority",
+	}))
+	if handoff.Data.Status != projectwork.HandoffStatusPending {
+		t.Fatalf("handoff response = %+v, want Hecate pending status projection", handoff.Data)
+	}
+	mirroredHandoff := getMirroredCairnlineHandoffForTest(t, handler, projectID, "work_authority", "handoff_authority")
+	if mirroredHandoff.Status != cairnline.HandoffStatusOpen || mirroredHandoff.ToRoleID != "role_authority" {
+		t.Fatalf("mirrored handoff = %+v, want open Cairnline handoff", mirroredHandoff)
+	}
+	assertHecateShadowHandoffStatusForTest(t, handler, projectID, "work_authority", "handoff_authority", projectwork.HandoffStatusPending)
+
+	updated := mustRequestJSONStatus[ProjectHandoffEnvelope](client, http.StatusOK, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/handoffs/handoff_authority", projectJourneyJSON(t, map[string]any{
+		"summary":                 "Cairnline updated this handoff.",
+		"recommended_next_action": "Finish it.",
+	}))
+	if updated.Data.Summary != "Cairnline updated this handoff." || updated.Data.RecommendedNextAction != "Finish it." {
+		t.Fatalf("updated handoff response = %+v, want edited text", updated.Data)
+	}
+
+	accepted := mustRequestJSONStatus[ProjectHandoffEnvelope](client, http.StatusOK, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/handoffs/handoff_authority/status", projectJourneyJSON(t, map[string]any{
+		"status": "accepted",
+	}))
+	if accepted.Data.Status != projectwork.HandoffStatusAccepted {
+		t.Fatalf("accepted handoff response = %+v, want accepted", accepted.Data)
+	}
+	mirroredHandoff = getMirroredCairnlineHandoffForTest(t, handler, projectID, "work_authority", "handoff_authority")
+	if mirroredHandoff.Status != cairnline.HandoffStatusAccepted || mirroredHandoff.Body != "Cairnline updated this handoff." {
+		t.Fatalf("mirrored accepted handoff = %+v, want updated accepted Cairnline handoff", mirroredHandoff)
+	}
+	assertHecateShadowHandoffStatusForTest(t, handler, projectID, "work_authority", "handoff_authority", projectwork.HandoffStatusAccepted)
+
+	client.mustRequestStatus(http.StatusNoContent, http.MethodDelete, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/handoffs/handoff_authority", "")
+	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+	if err != nil {
+		t.Fatalf("open Cairnline mirror: %v", err)
+	}
+	if _, err := service.GetHandoff(t.Context(), projectID, "work_authority", "handoff_authority"); !errors.Is(err, cairnline.ErrNotFound) {
+		store.Close()
+		t.Fatalf("deleted Cairnline handoff error = %v, want ErrNotFound", err)
+	}
+	store.Close()
+	if _, err := handler.projectWork.UpdateHandoff(t.Context(), projectID, "work_authority", "handoff_authority", nil); !errors.Is(err, projectwork.ErrNotFound) {
+		t.Fatalf("deleted Hecate shadow handoff error = %v, want ErrNotFound", err)
+	}
+	client.mustRequestStatus(http.StatusNotFound, http.MethodDelete, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/handoffs/handoff_authority", "")
+}
+
+func TestProjectWorkAPI_CairnlineWorkItemAuthorityWritesCairnlineAndShadowsHecate(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkCairnlineWorkItemAuthorityTestServer(t)
+	client := newAPITestClient(t, server)
+	project := mustRequestJSONStatus[ProjectResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects", projectJourneyJSON(t, map[string]any{
+		"name": "Work item authority project",
+		"roots": []map[string]any{{
+			"id":   "root_main",
+			"path": "/tmp/hecate-work-item-authority",
+			"kind": "local",
+		}},
+	}))
+	projectID := project.Data.ID
+
+	mustRequestJSONStatus[ProjectWorkRoleEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/roles", projectJourneyJSON(t, map[string]any{
+		"id":   "role_authority",
+		"name": "Authority role",
+	}))
+
+	work := mustRequestJSONStatus[ProjectWorkItemEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items", projectJourneyJSON(t, map[string]any{
+		"id":                "work_authority",
+		"title":             "Exercise work authority",
+		"priority":          "high",
+		"owner_role_id":     "role_authority",
+		"root_id":           "root_main",
+		"reviewer_role_ids": []string{"role_authority", " role_authority "},
+	}))
+	if work.Data.Status != projectwork.WorkItemStatusBacklog || work.Data.Priority != "high" || work.Data.RootID != "root_main" || len(work.Data.ReviewerRoleIDs) != 1 {
+		t.Fatalf("work item response = %+v, want Hecate defaults, root, and compacted reviewers", work.Data)
+	}
+	mirroredWork := getMirroredCairnlineWorkItemForTest(t, handler, projectID, "work_authority")
+	if mirroredWork.Status != projectwork.WorkItemStatusBacklog || mirroredWork.Priority != "high" || mirroredWork.RootID != "root_main" || len(mirroredWork.ReviewerRoleIDs) != 1 {
+		t.Fatalf("mirrored work item = %+v, want Cairnline authority record with Hecate defaults", mirroredWork)
+	}
+	assertHecateShadowWorkItemForTest(t, handler, projectID, "work_authority", projectwork.WorkItemStatusBacklog)
+
+	invalid := mustRequestJSONStatus[projectWorkErrorResponse](client, http.StatusBadRequest, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items", projectJourneyJSON(t, map[string]any{
+		"id":     "work_bad_status",
+		"title":  "Bad status",
+		"status": "needs_triage",
+	}))
+	if invalid.Error.Type != errCodeInvalidRequest || !strings.Contains(invalid.Error.Message, "unsupported work item status") {
+		t.Fatalf("invalid status response = %+v, want Hecate validation error", invalid.Error)
+	}
+
+	mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/assignments", projectJourneyJSON(t, map[string]any{
+		"id":      "asgn_authority",
+		"role_id": "role_authority",
+	}))
+	blocked := mustRequestJSONStatus[projectWorkErrorResponse](client, http.StatusConflict, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/work-items/work_authority", projectJourneyJSON(t, map[string]any{
+		"status": "done",
+	}))
+	if blocked.Error.Type != errCodeConflict || !strings.Contains(blocked.Error.Message, "closeout blocked") {
+		t.Fatalf("done blocker response = %+v, want closeout conflict", blocked.Error)
+	}
+	mirroredWork = getMirroredCairnlineWorkItemForTest(t, handler, projectID, "work_authority")
+	if mirroredWork.Status == projectwork.WorkItemStatusDone {
+		t.Fatalf("mirrored work item = %+v, want status unchanged after blocked closeout", mirroredWork)
+	}
+
+	updated := mustRequestJSONStatus[ProjectWorkItemEnvelope](client, http.StatusOK, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/work-items/work_authority", projectJourneyJSON(t, map[string]any{
+		"title":             "Updated work authority",
+		"status":            "ready",
+		"priority":          "urgent",
+		"reviewer_role_ids": []string{},
+	}))
+	if updated.Data.Title != "Updated work authority" || updated.Data.Status != projectwork.WorkItemStatusReady || updated.Data.Priority != "urgent" || len(updated.Data.ReviewerRoleIDs) != 0 {
+		t.Fatalf("updated response = %+v, want edited work item", updated.Data)
+	}
+	mirroredWork = getMirroredCairnlineWorkItemForTest(t, handler, projectID, "work_authority")
+	if mirroredWork.Title != "Updated work authority" || mirroredWork.Status != projectwork.WorkItemStatusReady || mirroredWork.Priority != "urgent" || len(mirroredWork.ReviewerRoleIDs) != 0 {
+		t.Fatalf("mirrored updated work item = %+v, want Cairnline authority edits", mirroredWork)
+	}
+	assertHecateShadowWorkItemForTest(t, handler, projectID, "work_authority", projectwork.WorkItemStatusReady)
+
+	client.mustRequestStatus(http.StatusNoContent, http.MethodDelete, "/hecate/v1/projects/"+projectID+"/work-items/work_authority", "")
+	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+	if err != nil {
+		t.Fatalf("open Cairnline mirror: %v", err)
+	}
+	if _, err := service.GetWorkItem(t.Context(), projectID, "work_authority"); !errors.Is(err, cairnline.ErrNotFound) {
+		store.Close()
+		t.Fatalf("deleted Cairnline work item error = %v, want ErrNotFound", err)
+	}
+	store.Close()
+	if _, ok, err := handler.projectWork.GetWorkItem(t.Context(), projectID, "work_authority"); err != nil || ok {
+		t.Fatalf("deleted Hecate shadow work item ok=%v err=%v, want not found", ok, err)
+	}
+	client.mustRequestStatus(http.StatusNotFound, http.MethodDelete, "/hecate/v1/projects/"+projectID+"/work-items/work_authority", "")
+}
+
+func TestProjectWorkAPI_CairnlineRoleAuthorityWritesCairnlineAndShadowsHecate(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkCairnlineRoleAuthorityTestServer(t)
+	client := newAPITestClient(t, server)
+	project := mustRequestJSONStatus[ProjectResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects", projectJourneyJSON(t, map[string]any{
+		"name": "Role authority project",
+	}))
+	projectID := project.Data.ID
+
+	created := mustRequestJSONStatus[ProjectWorkRoleEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/roles", projectJourneyJSON(t, map[string]any{
+		"id":                    "role_authority",
+		"name":                  "Authority reviewer",
+		"description":           "Reviews Cairnline authority writes.",
+		"instructions":          "Keep the historical assignment record intact.",
+		"default_driver_kind":   projectwork.AssignmentDriverExternalAgent,
+		"default_provider":      "anthropic",
+		"default_model":         "claude-sonnet-4",
+		"default_agent_profile": "safe_external_review",
+		"skill_ids":             []string{"review", "review"},
+	}))
+	if created.Data.ID != "role_authority" || created.Data.DefaultDriverKind != projectwork.AssignmentDriverExternalAgent || created.Data.DefaultModel != "claude-sonnet-4" {
+		t.Fatalf("created role response = %+v, want role authority defaults", created.Data)
+	}
+	if created.Data.CreatedAt == "" || created.Data.UpdatedAt == "" {
+		t.Fatalf("created role timestamps = created:%q updated:%q, want Hecate shadow timestamps", created.Data.CreatedAt, created.Data.UpdatedAt)
+	}
+	mirroredRole := getMirroredCairnlineRoleForTest(t, handler, projectID, "role_authority")
+	if mirroredRole.Name != "Authority reviewer" || mirroredRole.DefaultProfileID != "safe_external_review" || mirroredRole.DefaultExecutionMode != cairnline.ExecutionExternalAdapter {
+		t.Fatalf("Cairnline role = %+v, want role authority record", mirroredRole)
+	}
+	if len(mirroredRole.DefaultSkillIDs) != 1 || mirroredRole.DefaultSkillIDs[0] != "review" {
+		t.Fatalf("Cairnline role skills = %+v, want compacted review skill", mirroredRole.DefaultSkillIDs)
+	}
+	assertHecateShadowRoleForTest(t, handler, projectID, "role_authority")
+
+	updated := mustRequestJSONStatus[ProjectWorkRoleEnvelope](client, http.StatusOK, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/roles/role_authority", projectJourneyJSON(t, map[string]any{
+		"name":          "Authority owner",
+		"default_model": "claude-opus-4",
+		"skill_ids":     []string{"review", "release"},
+	}))
+	if updated.Data.Name != "Authority owner" || updated.Data.DefaultModel != "claude-opus-4" || !containsString(updated.Data.SkillIDs, "release") {
+		t.Fatalf("updated role response = %+v, want edited role authority defaults", updated.Data)
+	}
+	mirroredRole = getMirroredCairnlineRoleForTest(t, handler, projectID, "role_authority")
+	if mirroredRole.Name != "Authority owner" || !containsString(mirroredRole.DefaultSkillIDs, "release") {
+		t.Fatalf("updated Cairnline role = %+v, want edited role authority record", mirroredRole)
+	}
+	assertMirroredExecutionProfileForTest(t, handler, mirroredRole.DefaultExecutionProfileID, "anthropic", "claude-opus-4")
+
+	work := mustRequestJSONStatus[ProjectWorkItemEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items", projectJourneyJSON(t, map[string]any{
+		"id":            "work_role_authority",
+		"title":         "Keep role history",
+		"owner_role_id": "role_authority",
+	}))
+	if work.Data.OwnerRoleID != "role_authority" {
+		t.Fatalf("work item response = %+v, want owner role", work.Data)
+	}
+	assignment := mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_role_authority/assignments", projectJourneyJSON(t, map[string]any{
+		"id":          "asgn_role_authority",
+		"role_id":     "role_authority",
+		"driver_kind": projectwork.AssignmentDriverExternalAgent,
+	}))
+	if assignment.Data.RoleID != "role_authority" {
+		t.Fatalf("assignment response = %+v, want role authority assignment", assignment.Data)
+	}
+
+	client.mustRequestStatus(http.StatusNoContent, http.MethodDelete, "/hecate/v1/projects/"+projectID+"/roles/role_authority", "")
+	if role := mirroredCairnlineRoleForTest(t, handler, projectID, "role_authority"); role != nil {
+		t.Fatalf("deleted Cairnline role = %+v, want missing", role)
+	}
+	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+	if err != nil {
+		t.Fatalf("open Cairnline mirror: %v", err)
+	}
+	historicalAssignment, err := service.GetAssignment(t.Context(), projectID, "asgn_role_authority")
+	if err != nil {
+		store.Close()
+		t.Fatalf("GetAssignment() after role delete error = %v", err)
+	}
+	if historicalAssignment.RoleID != "role_authority" {
+		store.Close()
+		t.Fatalf("assignment after role delete = %+v, want historical role id", historicalAssignment)
+	}
+	store.Close()
+	if hasHecateRoleForTest(t, handler, projectID, "role_authority") {
+		t.Fatalf("Hecate shadow role still exists after Cairnline-authoritative delete")
+	}
+
+	client.mustRequestStatus(http.StatusConflict, http.MethodDelete, "/hecate/v1/projects/"+projectID+"/roles/product_manager", "")
+}
+
+func TestProjectWorkAPI_CairnlineAssignmentAuthorityWritesCairnlineAndShadowsHecate(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkCairnlineAssignmentAuthorityTestServer(t)
+	client := newAPITestClient(t, server)
+	project := mustRequestJSONStatus[ProjectResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects", projectJourneyJSON(t, map[string]any{
+		"name": "Assignment authority project",
+		"roots": []map[string]any{{
+			"id":   "root_main",
+			"path": "/tmp/hecate-assignment-authority",
+			"kind": "local",
+		}},
+	}))
+	projectID := project.Data.ID
+
+	mustRequestJSONStatus[ProjectWorkRoleEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/roles", projectJourneyJSON(t, map[string]any{
+		"id":   "role_authority",
+		"name": "Authority implementer",
+	}))
+	mustRequestJSONStatus[ProjectWorkItemEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items", projectJourneyJSON(t, map[string]any{
+		"id":      "work_authority",
+		"title":   "Exercise assignment authority",
+		"root_id": "root_main",
+	}))
+
+	invalidStatus := mustRequestJSONStatus[projectWorkErrorResponse](client, http.StatusBadRequest, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/assignments", projectJourneyJSON(t, map[string]any{
+		"id":      "asgn_bad_status",
+		"role_id": "role_authority",
+		"status":  "needs_triage",
+	}))
+	if invalidStatus.Error.Type != errCodeInvalidRequest || !strings.Contains(invalidStatus.Error.Message, "unsupported assignment status") {
+		t.Fatalf("invalid status response = %+v, want Hecate validation error", invalidStatus.Error)
+	}
+	invalidDriver := mustRequestJSONStatus[projectWorkErrorResponse](client, http.StatusBadRequest, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/assignments", projectJourneyJSON(t, map[string]any{
+		"id":          "asgn_bad_driver",
+		"role_id":     "role_authority",
+		"driver_kind": "mcp_pull",
+	}))
+	if invalidDriver.Error.Type != errCodeInvalidRequest || !strings.Contains(invalidDriver.Error.Message, "unsupported assignment driver_kind") {
+		t.Fatalf("invalid driver response = %+v, want Hecate validation error", invalidDriver.Error)
+	}
+
+	created := mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/assignments", projectJourneyJSON(t, map[string]any{
+		"id":      "asgn_authority",
+		"role_id": "role_authority",
+		"root_id": "root_main",
+		"execution_ref": map[string]any{
+			"kind":                "hecate_task",
+			"context_snapshot_id": "ctx_authority",
+			"trace_id":            "trace_authority",
+		},
+	}))
+	if created.Data.ReadBackend != "cairnline" || created.Data.DriverKind != projectwork.AssignmentDriverHecateTask || created.Data.Status != projectwork.AssignmentStatusQueued || created.Data.RootID != "root_main" {
+		t.Fatalf("created assignment = %+v, want Cairnline response with Hecate defaults and root", created.Data)
+	}
+	if created.Data.ExecutionRef == nil || created.Data.ExecutionRef.ContextSnapshotID != "ctx_authority" || created.Data.ExecutionRef.TraceID != "trace_authority" {
+		t.Fatalf("created execution_ref = %+v, want Hecate ref shadowed through authority path", created.Data.ExecutionRef)
+	}
+	mirrored := getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_authority")
+	if mirrored.ExecutionMode != cairnline.ExecutionOrchestrated || mirrored.Status != cairnline.AssignmentQueued || mirrored.WorkItemID != "work_authority" || mirrored.RootID != "root_main" || mirrored.ContextSnapshotID != "ctx_authority" {
+		t.Fatalf("mirrored assignment = %+v, want Cairnline-authoritative queued orchestrated record", mirrored)
+	}
+	shadow := getStoredProjectWorkAssignmentForTest(t, handler, projectID, "work_authority", "asgn_authority")
+	if shadow.DriverKind != projectwork.AssignmentDriverHecateTask || shadow.Status != projectwork.AssignmentStatusQueued || shadow.ExecutionRef.ContextSnapshotID != "ctx_authority" {
+		t.Fatalf("Hecate shadow assignment = %+v, want compatibility shadow", shadow)
+	}
+
+	updated := mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusOK, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/assignments/asgn_authority", projectJourneyJSON(t, map[string]any{
+		"driver_kind": projectwork.AssignmentDriverExternalAgent,
+		"status":      projectwork.AssignmentStatusCompleted,
+		"execution_ref": map[string]any{
+			"kind":            "external_agent",
+			"chat_session_id": "chat_authority",
+			"message_id":      "msg_authority",
+			"status":          "completed",
+		},
+	}))
+	if updated.Data.ReadBackend != "cairnline" || updated.Data.DriverKind != projectwork.AssignmentDriverExternalAgent || updated.Data.Status != projectwork.AssignmentStatusCompleted {
+		t.Fatalf("updated assignment = %+v, want Cairnline response with external completed status", updated.Data)
+	}
+	if updated.Data.ExecutionRef == nil || updated.Data.ExecutionRef.ChatSessionID != "chat_authority" || updated.Data.ExecutionRef.MessageID != "msg_authority" {
+		t.Fatalf("updated execution_ref = %+v, want native execution ref preserved", updated.Data.ExecutionRef)
+	}
+	mirrored = getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_authority")
+	if mirrored.ExecutionMode != cairnline.ExecutionExternalAdapter || mirrored.Status != cairnline.AssignmentCompleted || !strings.Contains(mirrored.ExecutionRef, "chat_authority") {
+		t.Fatalf("updated mirrored assignment = %+v, want Cairnline-authoritative external completion", mirrored)
+	}
+	shadow = getStoredProjectWorkAssignmentForTest(t, handler, projectID, "work_authority", "asgn_authority")
+	if shadow.DriverKind != projectwork.AssignmentDriverExternalAgent || shadow.Status != projectwork.AssignmentStatusCompleted || shadow.ExecutionRef.ChatSessionID != "chat_authority" {
+		t.Fatalf("updated Hecate shadow assignment = %+v, want compatibility shadow update", shadow)
+	}
+
+	client.mustRequestStatus(http.StatusNoContent, http.MethodDelete, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/assignments/asgn_authority", "")
+	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+	if err != nil {
+		t.Fatalf("open Cairnline mirror: %v", err)
+	}
+	if _, err := service.GetAssignment(t.Context(), projectID, "asgn_authority"); !errors.Is(err, cairnline.ErrNotFound) {
+		store.Close()
+		t.Fatalf("deleted Cairnline assignment error = %v, want ErrNotFound", err)
+	}
+	store.Close()
+	assignments, err := handler.projectWork.ListAssignments(t.Context(), projectwork.AssignmentFilter{ProjectID: projectID, WorkItemID: "work_authority"})
+	if err != nil {
+		t.Fatalf("ListAssignments() after delete: %v", err)
+	}
+	if len(assignments) != 0 {
+		t.Fatalf("Hecate shadow assignments after delete = %+v, want empty", assignments)
+	}
+	client.mustRequestStatus(http.StatusNotFound, http.MethodDelete, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/assignments/asgn_authority", "")
+}
+
 func TestProjectWorkAPI_MirrorsRoleAndWorkItemMutationsToCairnlineWhenConfigured(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectWorkCairnlineMirrorTestServer(t)
@@ -749,7 +1251,7 @@ func TestProjectWorkAPI_MirrorsRoleAndWorkItemMutationsToCairnlineWhenConfigured
 		t.Fatalf("create review artifact status = %d body=%s, want 201", rec.Code, rec.Body.String())
 	}
 	mirroredReview := getMirroredCairnlineReviewForTest(t, handler, project.Data.ID, "work_release", "art_release_review")
-	if mirroredReview.AssignmentID != "asgn_release" || mirroredReview.ReviewerRoleID != "role_release" || mirroredReview.Verdict != cairnline.ReviewVerdictPass || mirroredReview.Risk != cairnline.ReviewRiskLow {
+	if mirroredReview.AssignmentID != "asgn_release" || mirroredReview.ReviewerRoleID != "role_release" || mirroredReview.Verdict != cairnline.ReviewVerdictApproved || mirroredReview.Risk != cairnline.ReviewRiskLow {
 		t.Fatalf("mirrored review = %+v, want approved release review metadata", mirroredReview)
 	}
 
@@ -3375,6 +3877,44 @@ func TestProjectWorkAPI_StartAssignmentClearsClaimWhenTaskCreateFails(t *testing
 	}
 }
 
+func TestProjectWorkAPI_StartAssignmentReleasesMirroredCairnlineClaimWhenTaskCreateFails(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkCairnlineMirrorTestServer(t)
+	handler.taskStore = failingCreateTaskStore{Store: handler.taskStore}
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace: t.TempDir(),
+		Driver:    projectwork.AssignmentDriverHecateTask,
+	})
+	assignment := getStoredProjectWorkAssignmentForTest(t, handler, "proj_start", "work_start", "asgn_start")
+	if err := handler.writeProjectAssignmentToCairnline(t.Context(), assignment); err != nil {
+		t.Fatalf("writeProjectAssignmentToCairnline() error = %v", err)
+	}
+	func() {
+		service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+		if err != nil {
+			t.Fatalf("open Cairnline mirror: %v", err)
+		}
+		defer store.Close()
+		claimed, err := service.ClaimAssignment(t.Context(), "proj_start", "asgn_start", "hecate")
+		if err != nil {
+			t.Fatalf("ClaimAssignment() error = %v", err)
+		}
+		if claimed.Status != cairnline.AssignmentClaimed || claimed.ClaimedBy != "hecate" {
+			t.Fatalf("claimed assignment = %+v, want hecate claim", claimed)
+		}
+	}()
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("task create failure status = %d body=%s, want 500", rec.Code, rec.Body.String())
+	}
+	mirrored := getMirroredCairnlineAssignmentForTest(t, handler, "proj_start", "asgn_start")
+	if mirrored.Status != cairnline.AssignmentQueued || mirrored.ClaimedBy != "" || mirrored.ExecutionRef != "" || mirrored.ContextSnapshotID != "" || !mirrored.StartedAt.IsZero() || !mirrored.CompletedAt.IsZero() {
+		t.Fatalf("mirrored assignment = %+v, want released queued claim for retry", mirrored)
+	}
+}
+
 func TestProjectWorkAPI_AssignmentExecutionProjection(t *testing.T) {
 	t.Parallel()
 	for _, backend := range []string{"memory", "sqlite"} {
@@ -4780,7 +5320,7 @@ func seedProjectWorkProjectionCase(t *testing.T, handler *Handler, workID, assig
 			Summary:               "Implementation is ready for queue review.",
 			RecommendedNextAction: "Review the queued follow-up assignment.",
 			CreatedAt:             runFinishedAt.Add(2 * time.Minute),
-			UpdatedAt:             runFinishedAt.Add(2 * time.Minute),
+			UpdatedAt:             runFinishedAt.Add(3 * time.Minute),
 			StatusChangedAt:       runFinishedAt.Add(2 * time.Minute),
 		}); err != nil {
 			t.Fatalf("CreateHandoff(%s): %v", assignmentID, err)
@@ -5032,6 +5572,54 @@ func findProjectHandoffForTest(t *testing.T, items []ProjectHandoffResponse, han
 	return ProjectHandoffResponse{}
 }
 
+func assertHecateShadowArtifactForTest(t *testing.T, handler *Handler, projectID, workItemID, artifactID, kind string) {
+	t.Helper()
+	items, err := handler.projectWork.ListArtifacts(t.Context(), projectwork.ArtifactFilter{ProjectID: projectID, WorkItemID: workItemID})
+	if err != nil {
+		t.Fatalf("ListArtifacts(%q, %q): %v", projectID, workItemID, err)
+	}
+	for _, item := range items {
+		if item.ID == artifactID {
+			if item.Kind != kind {
+				t.Fatalf("shadow artifact %q kind = %q, want %q", artifactID, item.Kind, kind)
+			}
+			return
+		}
+	}
+	t.Fatalf("shadow artifact %q not found in %+v", artifactID, items)
+}
+
+func assertHecateShadowWorkItemForTest(t *testing.T, handler *Handler, projectID, workItemID, status string) {
+	t.Helper()
+	item, ok, err := handler.projectWork.GetWorkItem(t.Context(), projectID, workItemID)
+	if err != nil {
+		t.Fatalf("GetWorkItem(%q, %q): %v", projectID, workItemID, err)
+	}
+	if !ok {
+		t.Fatalf("shadow work item %q not found", workItemID)
+	}
+	if item.Status != status {
+		t.Fatalf("shadow work item %q status = %q, want %q", workItemID, item.Status, status)
+	}
+}
+
+func assertHecateShadowHandoffStatusForTest(t *testing.T, handler *Handler, projectID, workItemID, handoffID, status string) {
+	t.Helper()
+	items, err := handler.projectWork.ListHandoffs(t.Context(), projectwork.HandoffFilter{ProjectID: projectID, WorkItemID: workItemID})
+	if err != nil {
+		t.Fatalf("ListHandoffs(%q, %q): %v", projectID, workItemID, err)
+	}
+	for _, item := range items {
+		if item.ID == handoffID {
+			if item.Status != status {
+				t.Fatalf("shadow handoff %q status = %q, want %q", handoffID, item.Status, status)
+			}
+			return
+		}
+	}
+	t.Fatalf("shadow handoff %q not found in %+v", handoffID, items)
+}
+
 func allProjectActivityItemsForTest(data ProjectActivityDataResponse) []ProjectActivityItemResponse {
 	items := make([]ProjectActivityItemResponse, 0, len(data.Buckets.Active)+len(data.Buckets.Blocked)+len(data.Buckets.Completed)+len(data.Buckets.Recent)+len(data.Recent))
 	items = append(items, data.Buckets.Active...)
@@ -5090,6 +5678,27 @@ func mirroredCairnlineRoleForTest(t *testing.T, handler *Handler, projectID, rol
 		}
 	}
 	return nil
+}
+
+func assertHecateShadowRoleForTest(t *testing.T, handler *Handler, projectID, roleID string) {
+	t.Helper()
+	if !hasHecateRoleForTest(t, handler, projectID, roleID) {
+		t.Fatalf("Hecate shadow role %q not found", roleID)
+	}
+}
+
+func hasHecateRoleForTest(t *testing.T, handler *Handler, projectID, roleID string) bool {
+	t.Helper()
+	roles, err := handler.projectWork.ListRoles(t.Context(), projectID)
+	if err != nil {
+		t.Fatalf("ListRoles(%q): %v", projectID, err)
+	}
+	for _, role := range roles {
+		if role.ID == roleID {
+			return true
+		}
+	}
+	return false
 }
 
 func getMirroredCairnlineWorkItemForTest(t *testing.T, handler *Handler, projectID, workItemID string) cairnline.WorkItem {

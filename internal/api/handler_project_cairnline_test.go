@@ -262,6 +262,12 @@ func TestProjectCairnlineExportAPI_WritesRefreshableSQLiteExport(t *testing.T) {
 	if second.Data.ProjectID != projectID || second.Data.RootCount != 1 || second.Data.ContextSourceCount != 0 || second.Data.AgentProfileCount != readModel.Data.AgentProfileCount || second.Data.ExecutionProfileCount != readModel.Data.ExecutionProfileCount || second.Data.WorkItemCount != 1 || second.Data.AssignmentCount != 1 || second.Data.ArtifactCount != 2 || second.Data.HandoffCount != 1 || second.Data.MemoryEntryCount != 1 || second.Data.MemoryCandidateCount != 1 || second.Data.AssistantProposalCount != 1 {
 		t.Fatalf("export response = %+v, want project counts", second.Data)
 	}
+	if second.Data.MigrationRehearsal.Operation != "project_export" || second.Data.MigrationRehearsal.ImportMode != "cairnline_snapshot_import" || second.Data.MigrationRehearsal.SnapshotVersion != cairnline.SnapshotVersion || second.Data.MigrationRehearsal.SourceAuthority != "hecate_authoritative_stores" || second.Data.MigrationRehearsal.Target != "project_cairnline_sqlite_export" || !second.Data.MigrationRehearsal.RefreshesTarget || second.Data.MigrationRehearsal.Authoritative || second.Data.MigrationRehearsal.CutoverReady || second.Data.MigrationRehearsal.Status != "exported" {
+		t.Fatalf("export migration rehearsal = %+v, want exported non-authoritative Cairnline snapshot import", second.Data.MigrationRehearsal)
+	}
+	if !hasProjectCairnlineMigrationCheck(second.Data.MigrationRehearsal.Checklist, "native-snapshot-import", "complete") || !hasProjectCairnlineMigrationCheck(second.Data.MigrationRehearsal.Checklist, "rollback-plan", "documented") || !hasProjectCairnlineMigrationCheck(second.Data.MigrationRehearsal.Checklist, "authoritative-switchpoint", "blocked") || len(second.Data.MigrationRehearsal.Rollback) == 0 {
+		t.Fatalf("export migration checklist = %+v rollback %+v, want replacement rehearsal evidence and rollback steps", second.Data.MigrationRehearsal.Checklist, second.Data.MigrationRehearsal.Rollback)
+	}
 	if !filepath.IsAbs(second.Data.DatabasePath) {
 		t.Fatalf("database path = %q, want absolute path", second.Data.DatabasePath)
 	}
@@ -379,6 +385,15 @@ func TestProjectCairnlineSyncAPI_WritesDurableAllProjectsSQLiteDB(t *testing.T) 
 	if second.Data.Authoritative {
 		t.Fatalf("sync response authoritative = true, want replacement rehearsal only")
 	}
+	if second.Data.MigrationRehearsal.Operation != "embedded_sync" || second.Data.MigrationRehearsal.ImportMode != "cairnline_snapshot_import" || second.Data.MigrationRehearsal.SnapshotVersion != cairnline.SnapshotVersion || second.Data.MigrationRehearsal.SourceAuthority != "hecate_authoritative_stores" || second.Data.MigrationRehearsal.Target != "embedded_cairnline_sqlite" || !second.Data.MigrationRehearsal.RefreshesTarget || second.Data.MigrationRehearsal.Authoritative || second.Data.MigrationRehearsal.CutoverReady || second.Data.MigrationRehearsal.Status != "rehearsed" {
+		t.Fatalf("sync migration rehearsal = %+v, want non-authoritative embedded sync rehearsal", second.Data.MigrationRehearsal)
+	}
+	if !hasProjectCairnlineMigrationCheck(second.Data.MigrationRehearsal.Checklist, "load-hecate-stores", "complete") || !hasProjectCairnlineMigrationCheck(second.Data.MigrationRehearsal.Checklist, "native-snapshot-import", "complete") || !hasProjectCairnlineMigrationCheck(second.Data.MigrationRehearsal.Checklist, "parity-check", "complete") || !hasProjectCairnlineMigrationCheck(second.Data.MigrationRehearsal.Checklist, "strict-embedded-read-smoke", "complete") || len(second.Data.MigrationRehearsal.Rollback) == 0 {
+		t.Fatalf("sync migration checklist = %+v rollback %+v, want explicit rehearsal checklist and rollback steps", second.Data.MigrationRehearsal.Checklist, second.Data.MigrationRehearsal.Rollback)
+	}
+	if second.Data.MigrationRehearsal.EmbeddedSmoke == nil || second.Data.MigrationRehearsal.EmbeddedSmoke.Status != "passed" || second.Data.MigrationRehearsal.EmbeddedSmoke.ProjectCount != 2 || second.Data.MigrationRehearsal.EmbeddedSmoke.ReadRouteChecks != 14 || second.Data.MigrationRehearsal.EmbeddedSmoke.ReadModelCount != 2 || second.Data.MigrationRehearsal.EmbeddedSmoke.LaunchPacketCount != 1 || second.Data.MigrationRehearsal.EmbeddedSmoke.LaunchPacketErrorCount != 0 || len(second.Data.MigrationRehearsal.EmbeddedSmoke.Errors) != 0 {
+		t.Fatalf("sync embedded smoke = %+v, want strict embedded route smoke across both synced projects", second.Data.MigrationRehearsal.EmbeddedSmoke)
+	}
 	if !second.Data.Match || len(second.Data.Differences) != 0 || len(second.Data.IDDifferences) != 0 || len(second.Data.ContentDifferences) != 0 {
 		t.Fatalf("sync parity = match %v differences %+v id_differences %+v content_differences %+v, want exact count, id, and content match", second.Data.Match, second.Data.Differences, second.Data.IDDifferences, second.Data.ContentDifferences)
 	}
@@ -474,6 +489,12 @@ func TestProjectCairnlineMirrorParityAPI_MissingDatabaseDoesNotCreateMirror(t *t
 	if response.Data.DatabaseExists || response.Data.Match {
 		t.Fatalf("mirror parity = %+v, want missing database and no match", response.Data)
 	}
+	if response.Data.MigrationRehearsal.Operation != "mirror_parity" || response.Data.MigrationRehearsal.Status != "not_run" || response.Data.MigrationRehearsal.RefreshesTarget || response.Data.MigrationRehearsal.Authoritative || response.Data.MigrationRehearsal.CutoverReady {
+		t.Fatalf("missing mirror rehearsal = %+v, want read-only missing mirror state", response.Data.MigrationRehearsal)
+	}
+	if !hasProjectCairnlineMigrationCheck(response.Data.MigrationRehearsal.Checklist, "native-snapshot-import", "not_run") || !hasProjectCairnlineMigrationCheck(response.Data.MigrationRehearsal.Checklist, "parity-check", "not_run") {
+		t.Fatalf("missing mirror checklist = %+v, want not-run import/parity checks", response.Data.MigrationRehearsal.Checklist)
+	}
 	if response.Data.Hecate.Projects != 1 || response.Data.Cairnline.Projects != 0 {
 		t.Fatalf("mirror parity counts = hecate %+v cairnline %+v, want one Hecate project and empty mirror", response.Data.Hecate, response.Data.Cairnline)
 	}
@@ -529,6 +550,15 @@ func TestProjectCairnlineMirrorParityAPI_ReportsLiveMirrorMatch(t *testing.T) {
 	}
 	if !response.Data.DatabaseExists || !response.Data.Match || response.Data.Authoritative {
 		t.Fatalf("mirror parity = %+v, want existing non-authoritative mirror with exact parity", response.Data)
+	}
+	if response.Data.MigrationRehearsal.Operation != "mirror_parity" || response.Data.MigrationRehearsal.Status != "verified" || response.Data.MigrationRehearsal.RefreshesTarget || response.Data.MigrationRehearsal.Authoritative || response.Data.MigrationRehearsal.CutoverReady {
+		t.Fatalf("mirror rehearsal = %+v, want verified read-only mirror parity", response.Data.MigrationRehearsal)
+	}
+	if !hasProjectCairnlineMigrationCheck(response.Data.MigrationRehearsal.Checklist, "native-snapshot-import", "complete") || !hasProjectCairnlineMigrationCheck(response.Data.MigrationRehearsal.Checklist, "parity-check", "complete") {
+		t.Fatalf("mirror checklist = %+v, want completed import and parity checks", response.Data.MigrationRehearsal.Checklist)
+	}
+	if !hasProjectCairnlineMigrationCheck(response.Data.MigrationRehearsal.Checklist, "strict-embedded-read-smoke", "complete") || response.Data.MigrationRehearsal.EmbeddedSmoke == nil || response.Data.MigrationRehearsal.EmbeddedSmoke.Status != "passed" || response.Data.MigrationRehearsal.EmbeddedSmoke.ProjectCount != 1 || response.Data.MigrationRehearsal.EmbeddedSmoke.ReadRouteChecks != 7 || len(response.Data.MigrationRehearsal.EmbeddedSmoke.Errors) != 0 {
+		t.Fatalf("mirror embedded smoke = %+v checklist %+v, want read-only strict embedded route smoke", response.Data.MigrationRehearsal.EmbeddedSmoke, response.Data.MigrationRehearsal.Checklist)
 	}
 	if len(response.Data.Differences) != 0 || len(response.Data.IDDifferences) != 0 || len(response.Data.ContentDifferences) != 0 {
 		t.Fatalf("mirror parity differences = %+v id %+v content %+v, want none", response.Data.Differences, response.Data.IDDifferences, response.Data.ContentDifferences)
@@ -1081,6 +1111,15 @@ func hasProjectCairnlineIDDifference(items []ProjectCairnlineIDDifference, path 
 func hasProjectCairnlineContentDifference(items []ProjectCairnlineContentDifference, path, id, hecate, cairnline string) bool {
 	for _, item := range items {
 		if item.Path == path && item.ID == id && item.Hecate == hecate && item.Cairnline == cairnline {
+			return true
+		}
+	}
+	return false
+}
+
+func hasProjectCairnlineMigrationCheck(items []ProjectCairnlineMigrationRehearsalCheck, id, status string) bool {
+	for _, item := range items {
+		if item.ID == id && item.Status == status {
 			return true
 		}
 	}

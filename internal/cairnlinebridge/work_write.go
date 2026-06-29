@@ -91,10 +91,11 @@ func DeleteWorkItem(ctx context.Context, service *cairnline.Service, projectID, 
 	return service.DeleteWorkItem(ctx, projectID, id)
 }
 
-// UpsertAssignment creates or updates a Cairnline assignment and then syncs the
-// Hecate assignment lifecycle state through the portable claim/status/complete
-// methods. Existing rows are first updated with their current Cairnline status
-// so metadata parity does not bypass lifecycle transition semantics.
+// UpsertAssignment creates or updates a Cairnline assignment and then syncs
+// Hecate's assignment lifecycle metadata. Existing rows are first updated with
+// their current Cairnline status so metadata parity does not bypass claim
+// ownership; claimed rows move back to queued through ReleaseAssignment when
+// Hecate clears a pre-dispatch claim for retry.
 func UpsertAssignment(ctx context.Context, service *cairnline.Service, assignment projectwork.Assignment, role projectwork.AgentRoleProfile, profile agentprofiles.Profile) (cairnline.Assignment, error) {
 	if service == nil {
 		return cairnline.Assignment{}, errors.Join(ErrSourceNotConfigured, errors.New("cairnline service is required"))
@@ -119,7 +120,7 @@ func UpsertAssignment(ctx context.Context, service *cairnline.Service, assignmen
 			return cairnline.Assignment{}, err
 		}
 	}
-	if err := syncAssignmentStatus(ctx, service, item); err != nil {
+	if err := syncAssignmentStatus(ctx, service, existing, item); err != nil {
 		return cairnline.Assignment{}, err
 	}
 	return service.GetAssignment(ctx, item.ProjectID, item.ID)

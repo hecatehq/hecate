@@ -49,13 +49,32 @@ func SeedSnapshots(ctx context.Context, service *cairnline.Service, snapshots []
 	if service == nil {
 		return errors.Join(ErrSourceNotConfigured, errors.New("cairnline service is required"))
 	}
-	profilesByID := map[string]agentprofiles.Profile{}
-	executionProfileIDs := map[string]struct{}{}
+	_, err := service.ImportSnapshot(ctx, CairnlineSnapshot(snapshots))
+	return err
+}
+
+func CairnlineSnapshot(snapshots []Snapshot) cairnline.Snapshot {
+	out := cairnline.Snapshot{
+		Version: cairnline.SnapshotVersion,
+	}
+	profilesByID := make(map[string]agentprofiles.Profile)
+	rolesByID := make(map[string]projectwork.AgentRoleProfile)
+	seenAgentProfiles := make(map[string]struct{})
+	seenExecutionProfiles := make(map[string]struct{})
+	addExecutionProfile := func(profile cairnline.ExecutionProfile) {
+		id := strings.TrimSpace(profile.ID)
+		if id == "" {
+			return
+		}
+		if _, ok := seenExecutionProfiles[id]; ok {
+			return
+		}
+		seenExecutionProfiles[id] = struct{}{}
+		out.ExecutionProfiles = append(out.ExecutionProfiles, profile)
+	}
 	for _, snapshot := range snapshots {
 		if executionProfile, ok := ProjectExecutionProfile(snapshot.Project); ok {
-			if err := createExecutionProfileOnce(ctx, service, executionProfileIDs, executionProfile); err != nil {
-				return err
-			}
+			addExecutionProfile(executionProfile)
 		}
 		for _, profile := range snapshot.AgentProfiles {
 			if _, seen := profilesByID[profile.ID]; seen {
@@ -64,36 +83,73 @@ func SeedSnapshots(ctx context.Context, service *cairnline.Service, snapshots []
 			profilesByID[profile.ID] = profile
 		}
 	}
-	createdProfiles := map[string]struct{}{}
 	for _, snapshot := range snapshots {
 		for _, profile := range snapshot.AgentProfiles {
-			if _, seen := createdProfiles[profile.ID]; seen {
+			id := strings.TrimSpace(profile.ID)
+			if id == "" {
 				continue
 			}
-			createdProfiles[profile.ID] = struct{}{}
-			if _, err := service.CreateAgentProfile(ctx, AgentProfile(profile)); err != nil {
-				return err
+			if _, seen := seenAgentProfiles[id]; seen {
+				continue
 			}
-			if err := createExecutionProfileOnce(ctx, service, executionProfileIDs, ExecutionProfile(profile)); err != nil {
-				return err
-			}
+			seenAgentProfiles[id] = struct{}{}
+			out.AgentProfiles = append(out.AgentProfiles, AgentProfile(profile))
+			addExecutionProfile(ExecutionProfile(profile))
 		}
 	}
 	for _, snapshot := range snapshots {
+		out.Projects = append(out.Projects, Project(snapshot.Project))
+		for _, skill := range snapshot.Skills {
+			out.ProjectSkills = append(out.ProjectSkills, ProjectSkill(skill))
+		}
 		for _, role := range snapshot.Roles {
+			rolesByID[role.ID] = role
+			out.Roles = append(out.Roles, Role(role))
 			executionProfile, ok := RoleExecutionProfile(role)
 			if !ok {
 				continue
 			}
-			if err := createExecutionProfileOnce(ctx, service, executionProfileIDs, executionProfile); err != nil {
-				return err
+			addExecutionProfile(executionProfile)
+		}
+		for _, item := range snapshot.WorkItems {
+			out.WorkItems = append(out.WorkItems, WorkItem(item))
+		}
+		for _, assignment := range snapshot.Assignments {
+			role := rolesByID[assignment.RoleID]
+			profile := profilesByID[role.DefaultAgentProfile]
+			out.Assignments = append(out.Assignments, Assignment(assignment, role, profile))
+		}
+		for _, artifact := range snapshot.Artifacts {
+			if item, ok := Artifact(artifact); ok {
+				out.Artifacts = append(out.Artifacts, item)
+				continue
+			}
+			if item, ok := Evidence(artifact); ok {
+				out.Evidence = append(out.Evidence, item)
+				continue
+			}
+			if item, ok := Review(artifact); ok {
+				out.Reviews = append(out.Reviews, item)
 			}
 		}
-		if err := seedProjectScopedSnapshot(ctx, service, snapshot, profilesByID); err != nil {
-			return err
+		for _, handoff := range snapshot.Handoffs {
+			out.Handoffs = append(out.Handoffs, Handoff(handoff))
+		}
+		for _, entry := range snapshot.MemoryEntries {
+			out.MemoryEntries = append(out.MemoryEntries, MemoryEntry(entry))
+		}
+		for _, candidate := range snapshot.MemoryCandidates {
+			out.MemoryCandidates = append(out.MemoryCandidates, MemoryCandidate(candidate))
+		}
+		for _, proposal := range snapshot.AssistantProposals {
+			item, ok := AssistantProposalRecord(proposal)
+			if !ok {
+				continue
+			}
+			out.AssistantProposals = append(out.AssistantProposals, item)
 		}
 	}
-	return nil
+	return out
 }
 
 func SeedProjectFromStores(ctx context.Context, service *cairnline.Service, sources SnapshotSources, projectID string) (Snapshot, error) {
