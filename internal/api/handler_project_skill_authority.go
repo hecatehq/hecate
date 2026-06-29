@@ -17,7 +17,7 @@ const projectCairnlineWriteAuthorityProjectSkills = "project-skills"
 
 func (h *Handler) projectSkillWritesUseCairnlineAuthority() bool {
 	return h != nil &&
-		h.config.ProjectsCoordinationBackend() == "cairnline" &&
+		h.projectCairnlineEmbeddedConnectorEnabled() &&
 		h.config.ProjectsCairnlineWriteAuthorityEnabled(projectCairnlineWriteAuthorityProjectSkills)
 }
 

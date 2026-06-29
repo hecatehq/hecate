@@ -24,6 +24,12 @@ func TestProjectCoordinationBackendStatus_DefaultHecateAuthoritative(t *testing.
 	if status.CairnlineReadSource != "auto" {
 		t.Fatalf("cairnline read source = %q, want auto", status.CairnlineReadSource)
 	}
+	if status.CairnlineConnector != "embedded" || !status.CairnlineConnectorReady {
+		t.Fatalf("cairnline connector = %q ready=%t, want embedded ready", status.CairnlineConnector, status.CairnlineConnectorReady)
+	}
+	if status.CairnlineSidecarProbeURL != projectCoordinationBackendSidecarProbeURL {
+		t.Fatalf("sidecar probe URL = %q, want %q", status.CairnlineSidecarProbeURL, projectCoordinationBackendSidecarProbeURL)
+	}
 	if !status.CairnlineBridgeReady || status.CairnlineAuthoritative || status.ReadModelSwitchReady || status.WriteAdapterReady || status.ReplacementReady || len(status.Warnings) != 0 {
 		t.Fatalf("status = %+v, want bridge-ready but inactive Cairnline adapter flags", status)
 	}
@@ -70,6 +76,48 @@ func TestProjectCoordinationBackendStatus_CairnlineConfiguredMissingSources(t *t
 	}
 	if point := findWriteSwitchpoint(status.WriteSwitchpoints, "assignment-start-dispatch"); point == nil || point.CurrentAuthority != "hecate" || point.CairnlineState != "result_mirror_only" || !point.LiveMirror || !point.BlocksAuthority || point.Gap != "assignment-start" {
 		t.Fatalf("assignment-start switchpoint = %+v, want Hecate-owned result mirror blocker", point)
+	}
+}
+
+func TestProjectCoordinationBackendStatus_CairnlineSidecarConnectorBlocksEmbeddedRoutes(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			Backend:                 "sqlite",
+			CoordinationBackend:     "cairnline",
+			CairnlineConnector:      "sidecar",
+			CairnlineReadSource:     "embedded",
+			CairnlineWriteAuthority: strings.Join([]string{projectCairnlineWriteAuthorityProjectIdentity, projectCairnlineWriteAuthorityProjectMetadataDefaults, projectCairnlineWriteAuthorityProjectAssignments, "project-memory", "memory-candidates"}, ","),
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+
+	status := handler.projectCoordinationBackendStatus()
+	if status.CairnlineConnector != "sidecar" || status.CairnlineConnectorReady {
+		t.Fatalf("cairnline connector = %q ready=%t, want sidecar not ready for live routing", status.CairnlineConnector, status.CairnlineConnectorReady)
+	}
+	if status.Status != "cairnline_connector_not_ready" || status.CairnlineAuthoritative || status.ReadModelSwitchReady || status.WriteAdapterReady || status.ReplacementReady {
+		t.Fatalf("status = %+v, want sidecar probe mode to block live Cairnline routing", status)
+	}
+	if handler.projectReadRoutesUseCairnlineReadModel() || handler.projectIdentityWritesUseCairnlineAuthority() || handler.projectMemoryWritesUseCairnlineAuthority() || handler.projectAssignmentWritesUseCairnlineAuthority() {
+		t.Fatal("sidecar connector enabled embedded Cairnline read/write route predicates, want probe-only mode")
+	}
+	if status.CairnlineSidecarProbeURL != projectCoordinationBackendSidecarProbeURL {
+		t.Fatalf("sidecar probe URL = %q, want %q", status.CairnlineSidecarProbeURL, projectCoordinationBackendSidecarProbeURL)
+	}
+	if len(status.ReadRoutes) != 0 {
+		t.Fatalf("read routes = %+v, want none in sidecar probe mode", status.ReadRoutes)
+	}
+	if !containsString(status.WriteAdapterGaps, "projects") || !containsString(status.WriteAdapterGaps, "memory") || !containsString(status.WriteAdapterGaps, "memory-candidates") || !containsString(status.WriteAdapterGaps, "assignment-start") || !containsString(status.WriteAdapterGaps, "migration-cutover") {
+		t.Fatalf("write gaps = %+v, want configured write authority ignored until a live sidecar connector exists", status.WriteAdapterGaps)
+	}
+	if gate := findReplacementGate(status.ReplacementGates, "read-routes"); gate == nil || gate.Ready || gate.Status != "blocked" {
+		t.Fatalf("read-routes gate = %+v, want blocked sidecar connector gate", gate)
+	}
+	if point := findWriteSwitchpoint(status.WriteSwitchpoints, "project-identity"); point == nil || point.CurrentAuthority != "hecate" || !point.BlocksAuthority || point.Gap != "projects" {
+		t.Fatalf("project-identity switchpoint = %+v, want Hecate authority while sidecar routing is not live", point)
+	}
+	warnings := strings.Join(status.Warnings, "\n")
+	if !strings.Contains(warnings, "HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar") || !strings.Contains(warnings, "Hecate-native stores") {
+		t.Fatalf("warnings = %+v, want sidecar probe-only warning", status.Warnings)
 	}
 }
 

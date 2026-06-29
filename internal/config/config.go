@@ -226,14 +226,46 @@ type ChatConfig struct {
 }
 
 type ProjectsConfig struct {
-	Backend                 string
-	CoordinationBackend     string
-	CairnlineReadSource     string
-	CairnlineWriteAuthority string
+	Backend                      string
+	CoordinationBackend          string
+	CairnlineConnector           string
+	CairnlineSidecarCommand      string
+	CairnlineSidecarArgs         []string
+	CairnlineSidecarDatabasePath string
+	CairnlineSidecarProbeTimeout time.Duration
+	CairnlineReadSource          string
+	CairnlineWriteAuthority      string
 }
 
 func (c Config) ProjectsCoordinationBackend() string {
 	return normalizeProjectsCoordinationBackend(c.Projects.CoordinationBackend)
+}
+
+func (c Config) ProjectsCairnlineConnector() string {
+	return normalizeProjectsCairnlineConnector(c.Projects.CairnlineConnector)
+}
+
+func (c Config) ProjectsCairnlineSidecarCommand() string {
+	command := strings.TrimSpace(c.Projects.CairnlineSidecarCommand)
+	if command == "" {
+		return "cairnline"
+	}
+	return command
+}
+
+func (c Config) ProjectsCairnlineSidecarArgs() []string {
+	return append([]string(nil), c.Projects.CairnlineSidecarArgs...)
+}
+
+func (c Config) ProjectsCairnlineSidecarDatabasePath() string {
+	return strings.TrimSpace(c.Projects.CairnlineSidecarDatabasePath)
+}
+
+func (c Config) ProjectsCairnlineSidecarProbeTimeout() time.Duration {
+	if c.Projects.CairnlineSidecarProbeTimeout <= 0 {
+		return 10 * time.Second
+	}
+	return c.Projects.CairnlineSidecarProbeTimeout
 }
 
 func (c Config) ProjectsCairnlineReadSource() string {
@@ -497,10 +529,15 @@ func LoadFromEnv() Config {
 			SessionsBackend: storageBackend,
 		},
 		Projects: ProjectsConfig{
-			Backend:                 storageBackend,
-			CoordinationBackend:     strings.ToLower(strings.TrimSpace(getEnv("HECATE_PROJECTS_COORDINATION_BACKEND", "hecate"))),
-			CairnlineReadSource:     strings.ToLower(strings.TrimSpace(getEnv("HECATE_PROJECTS_CAIRNLINE_READ_SOURCE", "auto"))),
-			CairnlineWriteAuthority: getEnv("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY", "none"),
+			Backend:                      storageBackend,
+			CoordinationBackend:          strings.ToLower(strings.TrimSpace(getEnv("HECATE_PROJECTS_COORDINATION_BACKEND", "hecate"))),
+			CairnlineConnector:           strings.ToLower(strings.TrimSpace(getEnv("HECATE_PROJECTS_CAIRNLINE_CONNECTOR", "embedded"))),
+			CairnlineSidecarCommand:      strings.TrimSpace(getEnv("HECATE_PROJECTS_CAIRNLINE_SIDECAR_COMMAND", "cairnline")),
+			CairnlineSidecarArgs:         splitCSV(getEnv("HECATE_PROJECTS_CAIRNLINE_SIDECAR_ARGS", "")),
+			CairnlineSidecarDatabasePath: strings.TrimSpace(getEnv("HECATE_PROJECTS_CAIRNLINE_SIDECAR_DB", "")),
+			CairnlineSidecarProbeTimeout: getEnvDuration("HECATE_PROJECTS_CAIRNLINE_SIDECAR_PROBE_TIMEOUT", 10*time.Second),
+			CairnlineReadSource:          strings.ToLower(strings.TrimSpace(getEnv("HECATE_PROJECTS_CAIRNLINE_READ_SOURCE", "auto"))),
+			CairnlineWriteAuthority:      getEnv("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY", "none"),
 		},
 		OTel: loadOTelFromEnv(),
 		Governor: GovernorConfig{
@@ -585,6 +622,7 @@ func (c Config) Validate() error {
 		validateBackend("HECATE_BACKEND", backend, "memory", "sqlite", "postgres")
 	}
 	validateBackend("HECATE_PROJECTS_COORDINATION_BACKEND", c.ProjectsCoordinationBackend(), "hecate", "cairnline")
+	validateBackend("HECATE_PROJECTS_CAIRNLINE_CONNECTOR", c.ProjectsCairnlineConnector(), "embedded", "sidecar")
 	validateBackend("HECATE_PROJECTS_CAIRNLINE_READ_SOURCE", c.ProjectsCairnlineReadSource(), "auto", "snapshot", "embedded")
 	for _, item := range c.ProjectsCairnlineWriteAuthority() {
 		validateBackend("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY", item, "project-memory", "memory-candidates", "project-collaboration", "project-skills", "project-work-items", "project-roles", "project-assignments", "agent-profiles", "project-metadata-defaults", "project-roots", "project-context-sources", "project-identity", "project-assistant-proposals")
@@ -1171,6 +1209,14 @@ func normalizeProjectsCoordinationBackend(value string) string {
 	value = strings.ToLower(strings.TrimSpace(value))
 	if value == "" {
 		return "hecate"
+	}
+	return value
+}
+
+func normalizeProjectsCairnlineConnector(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return "embedded"
 	}
 	return value
 }

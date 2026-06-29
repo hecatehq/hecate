@@ -15,7 +15,7 @@ const projectCairnlineWriteAuthorityProjectAssistantProposals = "project-assista
 
 func (h *Handler) projectAssistantProposalWritesUseCairnlineAuthority() bool {
 	return h != nil &&
-		h.config.ProjectsCoordinationBackend() == "cairnline" &&
+		h.projectCairnlineEmbeddedConnectorEnabled() &&
 		h.config.ProjectsCairnlineWriteAuthorityEnabled(projectCairnlineWriteAuthorityProjectAssistantProposals)
 }
 

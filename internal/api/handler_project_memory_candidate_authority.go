@@ -12,7 +12,7 @@ import (
 
 func (h *Handler) projectMemoryCandidatesWriteUseCairnlineAuthority() bool {
 	return h != nil &&
-		h.config.ProjectsCoordinationBackend() == "cairnline" &&
+		h.projectCairnlineEmbeddedConnectorEnabled() &&
 		h.config.ProjectsCairnlineWriteAuthorityEnabled("project-memory") &&
 		h.config.ProjectsCairnlineWriteAuthorityEnabled("memory-candidates")
 }

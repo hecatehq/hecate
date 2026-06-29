@@ -123,9 +123,15 @@ is actually authoritative. It also reports `replacement_ready`,
 `replacement_gates`, and `write_switchpoints` so operator tools can distinguish
 ready read routes from strict embedded probe work, non-authoritative live
 mirrors, still-Hecate-owned dispatch, and missing migration/rollback authority.
+`HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded` is the current live-route
+dogfood connector. `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar` exposes a
+local-only standalone Cairnline MCP contract probe at
+`POST /hecate/v1/projects/cairnline/sidecar-probe`, but Hecate does not yet
+route Projects reads, writes, or mirrors through a persistent sidecar client.
 Today, `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` is a
 replacement-readiness intent flag only: when the current stores are fully wired
-it reports `cairnline_read_routes_ready`, and the live project activity inbox
+and the embedded connector is selected, it reports `cairnline_read_routes_ready`,
+and the live project activity inbox
 plus project list/detail, setup readiness, health, skills, memory entries,
 memory candidates, roles, work-item list/detail, assignment-list,
 assignment-context, launch-readiness, assignment-preflight, artifact-list,

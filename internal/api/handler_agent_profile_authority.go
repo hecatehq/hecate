@@ -14,7 +14,7 @@ const projectCairnlineWriteAuthorityAgentProfiles = "agent-profiles"
 
 func (h *Handler) agentProfileWritesUseCairnlineAuthority() bool {
 	return h != nil &&
-		h.config.ProjectsCoordinationBackend() == "cairnline" &&
+		h.projectCairnlineEmbeddedConnectorEnabled() &&
 		h.config.ProjectsCairnlineWriteAuthorityEnabled(projectCairnlineWriteAuthorityAgentProfiles)
 }
 

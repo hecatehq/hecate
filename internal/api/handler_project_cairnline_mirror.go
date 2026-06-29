@@ -215,7 +215,7 @@ func (h *Handler) mirrorProjectAssistantProposalRecordToCairnline(ctx context.Co
 }
 
 func (h *Handler) mirrorProjectAssistantApplyResultToCairnline(ctx context.Context, operation string, result projectassistant.ApplyResult) {
-	if h == nil || h.config.ProjectsCoordinationBackend() != "cairnline" {
+	if !h.projectCairnlineEmbeddedConnectorEnabled() {
 		return
 	}
 	for _, action := range result.Actions {
@@ -226,7 +226,7 @@ func (h *Handler) mirrorProjectAssistantApplyResultToCairnline(ctx context.Conte
 }
 
 func (h *Handler) projectForCairnlineMirror(ctx context.Context, operation, projectID string) (projects.Project, bool) {
-	if h == nil || h.config.ProjectsCoordinationBackend() != "cairnline" {
+	if !h.projectCairnlineEmbeddedConnectorEnabled() {
 		return projects.Project{}, false
 	}
 	project, ok, err := h.projects.Get(ctx, projectID)
@@ -242,7 +242,7 @@ func (h *Handler) projectForCairnlineMirror(ctx context.Context, operation, proj
 }
 
 func (h *Handler) projectWorkRoleForCairnlineMirror(ctx context.Context, operation, projectID, roleID string) (projectwork.AgentRoleProfile, bool) {
-	if h == nil || h.config.ProjectsCoordinationBackend() != "cairnline" {
+	if !h.projectCairnlineEmbeddedConnectorEnabled() {
 		return projectwork.AgentRoleProfile{}, false
 	}
 	role, ok, err := h.loadProjectWorkRoleForCairnlineMirror(ctx, projectID, roleID)
@@ -840,7 +840,7 @@ func (h *Handler) writeProjectSkillsToCairnline(ctx context.Context, project pro
 }
 
 func (h *Handler) withCairnlineEmbeddedMirrorService(ctx context.Context, fn func(*cairnline.Service) error) error {
-	if h == nil || h.config.ProjectsCoordinationBackend() != "cairnline" {
+	if !h.projectCairnlineEmbeddedConnectorEnabled() {
 		return nil
 	}
 	dbPath := h.cairnlineEmbeddedDatabasePath()

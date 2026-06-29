@@ -464,6 +464,56 @@ func TestLoadFromEnvProjectsCairnlineReadSource(t *testing.T) {
 	}
 }
 
+func TestLoadFromEnvProjectsCairnlineConnector(t *testing.T) {
+	cfg := LoadFromEnv()
+	if got := cfg.ProjectsCairnlineConnector(); got != "embedded" {
+		t.Fatalf("ProjectsCairnlineConnector() = %q, want embedded", got)
+	}
+
+	t.Setenv("HECATE_PROJECTS_CAIRNLINE_CONNECTOR", " Sidecar ")
+	cfg = LoadFromEnv()
+	if got := cfg.ProjectsCairnlineConnector(); got != "sidecar" {
+		t.Fatalf("ProjectsCairnlineConnector() = %q, want sidecar", got)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v, want nil for sidecar Cairnline connector", err)
+	}
+}
+
+func TestLoadFromEnvProjectsCairnlineSidecarConfig(t *testing.T) {
+	cfg := LoadFromEnv()
+	if got := cfg.ProjectsCairnlineSidecarCommand(); got != "cairnline" {
+		t.Fatalf("ProjectsCairnlineSidecarCommand() = %q, want cairnline", got)
+	}
+	if got := cfg.ProjectsCairnlineSidecarArgs(); len(got) != 0 {
+		t.Fatalf("ProjectsCairnlineSidecarArgs() = %+v, want empty default", got)
+	}
+	if got := cfg.ProjectsCairnlineSidecarDatabasePath(); got != "" {
+		t.Fatalf("ProjectsCairnlineSidecarDatabasePath() = %q, want empty default", got)
+	}
+	if got := cfg.ProjectsCairnlineSidecarProbeTimeout(); got != 10*time.Second {
+		t.Fatalf("ProjectsCairnlineSidecarProbeTimeout() = %v, want 10s", got)
+	}
+
+	t.Setenv("HECATE_PROJECTS_CAIRNLINE_SIDECAR_COMMAND", " /usr/local/bin/cairnline ")
+	t.Setenv("HECATE_PROJECTS_CAIRNLINE_SIDECAR_ARGS", "serve,--stdio")
+	t.Setenv("HECATE_PROJECTS_CAIRNLINE_SIDECAR_DB", " cairnline/projects.db ")
+	t.Setenv("HECATE_PROJECTS_CAIRNLINE_SIDECAR_PROBE_TIMEOUT", "3s")
+	cfg = LoadFromEnv()
+	if got := cfg.ProjectsCairnlineSidecarCommand(); got != "/usr/local/bin/cairnline" {
+		t.Fatalf("ProjectsCairnlineSidecarCommand() = %q, want configured command", got)
+	}
+	if got := cfg.ProjectsCairnlineSidecarArgs(); len(got) != 2 || got[0] != "serve" || got[1] != "--stdio" {
+		t.Fatalf("ProjectsCairnlineSidecarArgs() = %+v, want [serve --stdio]", got)
+	}
+	if got := cfg.ProjectsCairnlineSidecarDatabasePath(); got != "cairnline/projects.db" {
+		t.Fatalf("ProjectsCairnlineSidecarDatabasePath() = %q, want trimmed path", got)
+	}
+	if got := cfg.ProjectsCairnlineSidecarProbeTimeout(); got != 3*time.Second {
+		t.Fatalf("ProjectsCairnlineSidecarProbeTimeout() = %v, want 3s", got)
+	}
+}
+
 func TestLoadFromEnvProjectsCairnlineWriteAuthority(t *testing.T) {
 	cfg := LoadFromEnv()
 	if got := cfg.ProjectsCairnlineWriteAuthority(); len(got) != 0 {
@@ -545,6 +595,19 @@ func TestValidateRejectsInvalidProjectsCairnlineReadSource(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE") {
 		t.Fatalf("Validate() error = %q, want HECATE_PROJECTS_CAIRNLINE_READ_SOURCE", err)
+	}
+}
+
+func TestValidateRejectsInvalidProjectsCairnlineConnector(t *testing.T) {
+	cfg := LoadFromEnv()
+	cfg.Projects.CairnlineConnector = "mcp"
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() error = nil, want invalid projects Cairnline connector error")
+	}
+	if !strings.Contains(err.Error(), "HECATE_PROJECTS_CAIRNLINE_CONNECTOR") {
+		t.Fatalf("Validate() error = %q, want HECATE_PROJECTS_CAIRNLINE_CONNECTOR", err)
 	}
 }
 

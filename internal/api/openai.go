@@ -554,28 +554,32 @@ type ProjectCoordinationBackendStatusEnvelope struct {
 }
 
 type ProjectCoordinationBackendStatusResponse struct {
-	ConfiguredBackend       string                                       `json:"configured_backend"`
-	AuthoritativeBackend    string                                       `json:"authoritative_backend"`
-	StorageBackend          string                                       `json:"storage_backend"`
-	CairnlineReadSource     string                                       `json:"cairnline_read_source,omitempty"`
-	CairnlineBridgeReady    bool                                         `json:"cairnline_bridge_ready"`
-	CairnlineAuthoritative  bool                                         `json:"cairnline_authoritative"`
-	ReadModelSwitchReady    bool                                         `json:"read_model_switch_ready"`
-	WriteAdapterReady       bool                                         `json:"write_adapter_ready"`
-	ReplacementReady        bool                                         `json:"replacement_ready"`
-	ReadRoutes              []string                                     `json:"read_routes,omitempty"`
-	WriteAdapterSeams       []string                                     `json:"write_adapter_seams,omitempty"`
-	WriteAdapterGaps        []string                                     `json:"write_adapter_gaps,omitempty"`
-	ReplacementGates        []ProjectCoordinationBackendReplacementGate  `json:"replacement_gates,omitempty"`
-	WriteSwitchpoints       []ProjectCoordinationBackendWriteSwitchpoint `json:"write_switchpoints,omitempty"`
-	Status                  string                                       `json:"status"`
-	Detail                  string                                       `json:"detail"`
-	Warnings                []string                                     `json:"warnings,omitempty"`
-	ReplacementReadinessURL string                                       `json:"replacement_readiness_url,omitempty"`
-	EmbeddedReadModelURL    string                                       `json:"embedded_read_model_url,omitempty"`
-	EmbeddedParityReportURL string                                       `json:"embedded_parity_report_url,omitempty"`
-	SyncReadinessURL        string                                       `json:"sync_readiness_url,omitempty"`
-	MirrorParityURL         string                                       `json:"mirror_parity_url,omitempty"`
+	ConfiguredBackend        string                                       `json:"configured_backend"`
+	AuthoritativeBackend     string                                       `json:"authoritative_backend"`
+	StorageBackend           string                                       `json:"storage_backend"`
+	CairnlineConnector       string                                       `json:"cairnline_connector,omitempty"`
+	CairnlineConnectorReady  bool                                         `json:"cairnline_connector_ready"`
+	CairnlineConnectorDetail string                                       `json:"cairnline_connector_detail,omitempty"`
+	CairnlineReadSource      string                                       `json:"cairnline_read_source,omitempty"`
+	CairnlineBridgeReady     bool                                         `json:"cairnline_bridge_ready"`
+	CairnlineAuthoritative   bool                                         `json:"cairnline_authoritative"`
+	ReadModelSwitchReady     bool                                         `json:"read_model_switch_ready"`
+	WriteAdapterReady        bool                                         `json:"write_adapter_ready"`
+	ReplacementReady         bool                                         `json:"replacement_ready"`
+	ReadRoutes               []string                                     `json:"read_routes,omitempty"`
+	WriteAdapterSeams        []string                                     `json:"write_adapter_seams,omitempty"`
+	WriteAdapterGaps         []string                                     `json:"write_adapter_gaps,omitempty"`
+	ReplacementGates         []ProjectCoordinationBackendReplacementGate  `json:"replacement_gates,omitempty"`
+	WriteSwitchpoints        []ProjectCoordinationBackendWriteSwitchpoint `json:"write_switchpoints,omitempty"`
+	Status                   string                                       `json:"status"`
+	Detail                   string                                       `json:"detail"`
+	Warnings                 []string                                     `json:"warnings,omitempty"`
+	ReplacementReadinessURL  string                                       `json:"replacement_readiness_url,omitempty"`
+	CairnlineSidecarProbeURL string                                       `json:"cairnline_sidecar_probe_url,omitempty"`
+	EmbeddedReadModelURL     string                                       `json:"embedded_read_model_url,omitempty"`
+	EmbeddedParityReportURL  string                                       `json:"embedded_parity_report_url,omitempty"`
+	SyncReadinessURL         string                                       `json:"sync_readiness_url,omitempty"`
+	MirrorParityURL          string                                       `json:"mirror_parity_url,omitempty"`
 }
 
 type ProjectCoordinationBackendReplacementGate struct {
@@ -1656,6 +1660,26 @@ type MCPProbeToolDescriptor struct {
 	UIResourceURI string          `json:"ui_resource_uri,omitempty"`
 	UIVisibility  []string        `json:"ui_visibility,omitempty"`
 	ModelVisible  bool            `json:"model_visible"`
+}
+
+type ProjectCairnlineSidecarProbeEnvelope struct {
+	Object string                               `json:"object"`
+	Data   ProjectCairnlineSidecarProbeResponse `json:"data"`
+}
+
+type ProjectCairnlineSidecarProbeResponse struct {
+	Ready          bool                     `json:"ready"`
+	Status         string                   `json:"status"`
+	Detail         string                   `json:"detail"`
+	Command        string                   `json:"command"`
+	Args           []string                 `json:"args,omitempty"`
+	DatabasePath   string                   `json:"database_path,omitempty"`
+	ProbeTimeoutMS int64                    `json:"probe_timeout_ms"`
+	ToolCount      int                      `json:"tool_count"`
+	RequiredTools  []string                 `json:"required_tools"`
+	MissingTools   []string                 `json:"missing_tools,omitempty"`
+	Tools          []MCPProbeToolDescriptor `json:"tools,omitempty"`
+	Warnings       []string                 `json:"warnings,omitempty"`
 }
 
 // MCPCacheStatsResponse is the wire shape for GET /hecate/v1/system/mcp/cache.
