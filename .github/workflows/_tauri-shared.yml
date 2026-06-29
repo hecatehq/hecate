@@ -147,7 +147,7 @@ jobs:
       # signing/notarization env at all.
       - name: Build Tauri bundles (unsigned PR)
         if: inputs.tagName == ''
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           # `github.token` is the per-job-run token, available in every
           # workflow run without needing secrets-inherit at the caller.
@@ -167,7 +167,7 @@ jobs:
       # signs/notarizes when the corresponding secrets are configured.
       - name: Build Tauri bundles (signed release)
         if: inputs.tagName != ''
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ github.token }}
           # Apple signing/notarization secrets. Two independent
