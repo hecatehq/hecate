@@ -17,7 +17,7 @@ const projectCairnlineWriteAuthorityProjectWorkItems = "project-work-items"
 
 func (h *Handler) projectWorkItemWritesUseCairnlineAuthority() bool {
 	return h != nil &&
-		h.config.ProjectsCoordinationBackend() == "cairnline" &&
+		h.projectCairnlineEmbeddedConnectorEnabled() &&
 		h.config.ProjectsCairnlineWriteAuthorityEnabled(projectCairnlineWriteAuthorityProjectWorkItems)
 }
 

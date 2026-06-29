@@ -35,7 +35,7 @@ func applyProjectMemoryUpdate(item *memory.Entry, req updateProjectMemoryRequest
 
 func (h *Handler) projectMemoryWritesUseCairnlineAuthority() bool {
 	return h != nil &&
-		h.config.ProjectsCoordinationBackend() == "cairnline" &&
+		h.projectCairnlineEmbeddedConnectorEnabled() &&
 		h.config.ProjectsCairnlineWriteAuthorityEnabled("project-memory")
 }
 

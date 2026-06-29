@@ -341,6 +341,12 @@ launch agents. Those remain explicit operator or orchestrator actions.
 - Hecate can initially continue using its internal Projects implementation.
 - Hecate can use the MCP server for side-by-side interoperability and the
   public Go package for controlled embed experiments.
+- Current Hecate sidecar experiments can probe a standalone Cairnline MCP
+  command for the minimum portable Projects tool contract via
+  `POST /hecate/v1/projects/cairnline/sidecar-probe`. This is contract evidence
+  only: Hecate does not yet keep a persistent sidecar client or route live
+  Projects reads, writes, mirrors, or write-authority switchpoints through the
+  sidecar.
 - Current Hecate embed experiments can serve project list/detail, setup
   readiness, health, skills, memory, memory candidates, roles, work items,
   assignment lists, assignment context, launch-readiness, assignment preflight,

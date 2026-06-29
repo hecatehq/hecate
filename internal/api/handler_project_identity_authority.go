@@ -16,7 +16,7 @@ const projectCairnlineWriteAuthorityProjectIdentity = "project-identity"
 
 func (h *Handler) projectIdentityWritesUseCairnlineAuthority() bool {
 	return h != nil &&
-		h.config.ProjectsCoordinationBackend() == "cairnline" &&
+		h.projectCairnlineEmbeddedConnectorEnabled() &&
 		h.config.ProjectsCairnlineWriteAuthorityEnabled(projectCairnlineWriteAuthorityProjectIdentity)
 }
 

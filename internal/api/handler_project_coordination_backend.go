@@ -6,6 +6,7 @@ import (
 )
 
 const projectCoordinationBackendReadinessURL = "/hecate/v1/projects/{id}/cairnline/read-model"
+const projectCoordinationBackendSidecarProbeURL = "/hecate/v1/projects/cairnline/sidecar-probe"
 const projectCoordinationBackendEmbeddedReadModelURL = "/hecate/v1/projects/{id}/cairnline/embedded-read-model"
 const projectCoordinationBackendEmbeddedParityReportURL = "/hecate/v1/projects/{id}/cairnline/embedded-parity-report"
 const projectCoordinationBackendSyncReadinessURL = "/hecate/v1/projects/cairnline/sync"
@@ -275,33 +276,54 @@ func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendS
 	configured := "hecate"
 	storageBackend := ""
 	readSource := "auto"
+	connector := "embedded"
 	if h != nil {
 		configured = h.config.ProjectsCoordinationBackend()
 		storageBackend = h.config.Projects.Backend
 		readSource = h.config.ProjectsCairnlineReadSource()
+		connector = h.config.ProjectsCairnlineConnector()
 	}
+	connectorReady := projectCairnlineConnectorReady(connector)
 	response := ProjectCoordinationBackendStatusResponse{
-		ConfiguredBackend:       configured,
-		AuthoritativeBackend:    "hecate",
-		StorageBackend:          storageBackend,
-		CairnlineReadSource:     readSource,
-		CairnlineBridgeReady:    true,
-		CairnlineAuthoritative:  false,
-		WriteAdapterReady:       false,
-		ReplacementReadinessURL: projectCoordinationBackendReadinessURL,
-		EmbeddedReadModelURL:    projectCoordinationBackendEmbeddedReadModelURL,
-		EmbeddedParityReportURL: projectCoordinationBackendEmbeddedParityReportURL,
-		SyncReadinessURL:        projectCoordinationBackendSyncReadinessURL,
-		MirrorParityURL:         projectCoordinationBackendMirrorParityURL,
+		ConfiguredBackend:        configured,
+		AuthoritativeBackend:     "hecate",
+		StorageBackend:           storageBackend,
+		CairnlineConnector:       connector,
+		CairnlineConnectorReady:  connectorReady,
+		CairnlineConnectorDetail: projectCairnlineConnectorDetail(connector),
+		CairnlineReadSource:      readSource,
+		CairnlineBridgeReady:     true,
+		CairnlineAuthoritative:   false,
+		WriteAdapterReady:        false,
+		ReplacementReadinessURL:  projectCoordinationBackendReadinessURL,
+		CairnlineSidecarProbeURL: projectCoordinationBackendSidecarProbeURL,
+		EmbeddedReadModelURL:     projectCoordinationBackendEmbeddedReadModelURL,
+		EmbeddedParityReportURL:  projectCoordinationBackendEmbeddedParityReportURL,
+		SyncReadinessURL:         projectCoordinationBackendSyncReadinessURL,
+		MirrorParityURL:          projectCoordinationBackendMirrorParityURL,
 	}
 	switch configured {
 	case "cairnline":
 		readReady, sourceWarnings := h.cairnlineReadModelReadiness()
 		writeAuthority := h.config.ProjectsCairnlineWriteAuthority()
+		effectiveWriteAuthority := writeAuthority
+		if !connectorReady {
+			effectiveWriteAuthority = nil
+		}
 		response.WriteAdapterSeams = append([]string(nil), projectCairnlineWriteAdapterSeamNames...)
-		response.WriteAdapterGaps = projectCairnlineWriteAdapterGapsSnapshot(writeAuthority)
-		response.WriteSwitchpoints = projectCairnlineWriteSwitchpointsSnapshot(writeAuthority)
+		response.WriteAdapterGaps = projectCairnlineWriteAdapterGapsSnapshot(effectiveWriteAuthority)
+		response.WriteSwitchpoints = projectCairnlineWriteSwitchpointsSnapshot(effectiveWriteAuthority)
 		response.ReplacementGates = projectCairnlineReplacementGates(readReady)
+		if !connectorReady {
+			response.Status = "cairnline_connector_not_ready"
+			response.Detail = projectCairnlineConnectorDetail(connector) + " Hecate keeps Projects reads and writes on Hecate-native stores in this mode; use HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded for the current replacement-readiness dogfood path."
+			response.ReplacementGates = projectCairnlineReplacementGates(false)
+			response.Warnings = []string{
+				projectCairnlineConnectorWarning(connector),
+				"Project reads and writes still use Hecate-native stores.",
+			}
+			return response
+		}
 		response.ReadModelSwitchReady = readReady
 		if readReady {
 			response.ReadRoutes = append([]string(nil), projectCairnlineReadRouteNames...)

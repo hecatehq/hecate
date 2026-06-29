@@ -413,12 +413,12 @@ func (h *Handler) cairnlineProjectReadSource() string {
 
 func (h *Handler) requiresEmbeddedCairnlineProjectReads() bool {
 	return h != nil &&
-		h.config.ProjectsCoordinationBackend() == "cairnline" &&
+		h.projectCairnlineEmbeddedConnectorEnabled() &&
 		h.cairnlineProjectReadSource() == "embedded"
 }
 
 func (h *Handler) prefersEmbeddedCairnlineProjectReads() bool {
-	if h == nil || h.config.ProjectsCoordinationBackend() != "cairnline" {
+	if !h.projectCairnlineEmbeddedConnectorEnabled() {
 		return false
 	}
 	switch h.cairnlineProjectReadSource() {

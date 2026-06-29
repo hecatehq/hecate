@@ -16,7 +16,7 @@ const projectCairnlineWriteAuthorityProjectCollaboration = "project-collaboratio
 
 func (h *Handler) projectCollaborationWritesUseCairnlineAuthority() bool {
 	return h != nil &&
-		h.config.ProjectsCoordinationBackend() == "cairnline" &&
+		h.projectCairnlineEmbeddedConnectorEnabled() &&
 		h.config.ProjectsCairnlineWriteAuthorityEnabled(projectCairnlineWriteAuthorityProjectCollaboration)
 }
 

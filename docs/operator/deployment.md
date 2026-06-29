@@ -355,7 +355,14 @@ and durable grants so transcripts and approval history move together.
 
 `HECATE_PROJECTS_COORDINATION_BACKEND=hecate|cairnline` is separate from the
 storage backend. The default is `hecate`. `cairnline` records replacement intent
-for local bridge experiments. When the Cairnline read adapter is fully wired,
+for local bridge experiments. `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded`
+is the current live-route dogfood path and uses Hecate's embedded Cairnline Go
+bridge. `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar` is probe-only for now: it
+lets operators run `POST /hecate/v1/projects/cairnline/sidecar-probe` against a
+standalone Cairnline MCP command, but Projects reads, writes, mirrors, and
+write-authority switchpoints stay on Hecate-native stores until Hecate has a
+persistent sidecar backend client.
+When the embedded Cairnline read adapter is fully wired,
 `GET /hecate/v1/projects/backend-status` reports
 `read_model_switch_ready=true`, and project list/detail, setup readiness,
 health, skills, memory entries, memory candidates, roles, work-item
@@ -395,6 +402,13 @@ mirror into the embedded Cairnline database through their
 identity/metadata/root/source/default seams unless their explicit
 write-authority switchpoints are enabled; this is replacement-readiness
 evidence, not write authority.
+The sidecar probe is configured with
+`HECATE_PROJECTS_CAIRNLINE_SIDECAR_COMMAND`,
+`HECATE_PROJECTS_CAIRNLINE_SIDECAR_ARGS`,
+`HECATE_PROJECTS_CAIRNLINE_SIDECAR_DB`, and
+`HECATE_PROJECTS_CAIRNLINE_SIDECAR_PROBE_TIMEOUT`. It verifies MCP tool
+presence only; it does not keep a long-lived process or route operator data
+through the sidecar.
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-memory` is an alpha
 write-authority dogfood switch for accepted project memory entries:
 create/update/delete commits to the embedded Cairnline database first and then

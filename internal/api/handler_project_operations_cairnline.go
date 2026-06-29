@@ -12,7 +12,7 @@ import (
 )
 
 func (h *Handler) projectReadRoutesUseCairnlineReadModel() bool {
-	if h == nil || h.config.ProjectsCoordinationBackend() != "cairnline" {
+	if !h.projectCairnlineEmbeddedConnectorEnabled() {
 		return false
 	}
 	ready, _ := h.cairnlineReadModelReadiness()

@@ -47,8 +47,8 @@ liveness probe and every other path requires trusted trusted proxy headers:
 context, exposed from `GET /hecate/v1/whoami` as `data.remote_identity`, added to
 the top-level HTTP span attributes, and accepted in place of the local
 runtime/inference shared tokens. Remote mode rejects local-only endpoints for
-workspace picker/open, reset-data, shutdown, MCP probe, plugin-registry
-management, agent-adapter authenticate, and local provider and MCP registry discovery. Hecate-native `/hecate/v1/*` routes are explicitly
+workspace picker/open, reset-data, shutdown, MCP probe, Cairnline sidecar probe,
+plugin-registry management, agent-adapter authenticate, and local provider and MCP registry discovery. Hecate-native `/hecate/v1/*` routes are explicitly
 classified for remote mode, and route coverage tests fail when a new registered
 route is not marked remote-safe or local-only.
 
@@ -462,10 +462,19 @@ sequenceDiagram
   authoritative until the feature-flagged Cairnline read/write adapter and
   migration path land. Use
   `GET /hecate/v1/projects/backend-status` to inspect the effective state.
+- `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded|sidecar` chooses the Cairnline
+  connector mode while `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline`.
+  `embedded` is the current replacement-readiness path: Hecate uses the
+  embedded Cairnline Go package bridge and optional embedded mirror database.
+  `sidecar` is probe-only in this slice: it can start a standalone Cairnline MCP
+  process through `POST /hecate/v1/projects/cairnline/sidecar-probe` and verify
+  the portable tool contract, but live Projects reads and writes still use
+  Hecate-native stores.
 - `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=auto|snapshot|embedded` controls which
   Cairnline service backing configured read routes use while
-  `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline`. The default `auto` prefers
-  the embedded mirror database under
+  `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and
+  `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded`. The default `auto` prefers the
+  embedded mirror database under
   `{HECATE_DATA_DIR}/cairnline/embedded/projects.db` when it already contains
   the requested project or proposal record and otherwise falls back to the
   snapshot-seeded in-memory bridge. `snapshot` always uses the snapshot-seeded bridge.
@@ -476,7 +485,8 @@ sequenceDiagram
   reads.
 - `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=none|project-memory|project-memory,memory-candidates|project-collaboration|project-skills|project-roles|project-work-items|project-assignments|agent-profiles|project-metadata-defaults|project-roots|project-context-sources|project-identity|project-assistant-proposals`
   controls alpha Cairnline write-authority switchpoints while
-  `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline`. The default is `none`.
+  `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and
+  `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded`. The default is `none`.
   `project-memory` makes accepted project memory entry create/update/delete
   commit to the embedded Cairnline database first and then best-effort shadow
   the row back into Hecate-native memory stores. `memory-candidates` requires
@@ -528,6 +538,13 @@ sequenceDiagram
   to Cairnline first, then best-effort shadows Hecate's compatibility project
   row. Delete restores the Cairnline snapshot if Hecate compatibility cleanup
   fails. All other Projects mutations remain Hecate-owned.
+- `HECATE_PROJECTS_CAIRNLINE_SIDECAR_COMMAND`, `HECATE_PROJECTS_CAIRNLINE_SIDECAR_ARGS`,
+  `HECATE_PROJECTS_CAIRNLINE_SIDECAR_DB`, and
+  `HECATE_PROJECTS_CAIRNLINE_SIDECAR_PROBE_TIMEOUT` configure the standalone
+  Cairnline MCP probe. The default command is `cairnline`; the default timeout
+  is `10s`. If sidecar args are empty and a database path is configured, Hecate
+  appends `-db <path>` for the probe. Relative database paths resolve under
+  `HECATE_DATA_DIR` when set, otherwise under `.data`.
 - `HECATE_POSTGRES_URL=postgres://...` or `DATABASE_URL=postgres://...` is
   required when `HECATE_BACKEND=postgres`. Optional Postgres knobs:
   `HECATE_POSTGRES_TABLE_PREFIX`, `HECATE_POSTGRES_MAX_OPEN_CONNS`, and
@@ -2275,6 +2292,11 @@ It exists to make the Cairnline replacement switch explicit while the adapter is
 being built.
 
 `configured_backend` reflects `HECATE_PROJECTS_COORDINATION_BACKEND`.
+`cairnline_connector` reflects `HECATE_PROJECTS_CAIRNLINE_CONNECTOR`.
+`embedded` is the only connector that can make live Hecate routes use Cairnline
+today. `sidecar` exposes only the standalone MCP contract probe and reports
+`cairnline_connector_ready=false`, so read/write routing and write-authority
+switchpoints stay disabled.
 `cairnline_read_source` reflects `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE`.
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-memory` enables the first
 disabled-by-default write authority switchpoint: accepted project memory entries
@@ -2320,10 +2342,10 @@ identity removal, then shadows the compatibility project row. Delete restores
 the Cairnline snapshot if Hecate compatibility cleanup fails.
 `authoritative_backend` remains `hecate` until Hecate can run project read/write
 flows against Cairnline without UI-local fallback state. When
-`configured_backend=cairnline`, Hecate still commits live Projects writes to
-the current Hecate-native stores first except for explicitly enabled
-write-authority switchpoints. `read_model_switch_ready=true` means the Cairnline
-read adapter is wired well enough to project the full current Hecate project
+`configured_backend=cairnline` and `cairnline_connector=embedded`, Hecate still
+commits live Projects writes to the current Hecate-native stores first except
+for explicitly enabled write-authority switchpoints. `read_model_switch_ready=true`
+means the Cairnline read adapter is wired well enough to project the full current Hecate project
 graph, including the Project Assistant proposal ledger. In that state, project
 list/detail reads, project setup readiness, project health, skills, memory
 entries, memory candidates, roles, work items, assignment lists, assignment
@@ -2450,6 +2472,8 @@ mutation routes still write only Hecate-native stores.
 project stores with the existing embedded Cairnline mirror database without
 creating or repairing it. `sync_readiness_url` points at the all-project
 embedded SQLite rehearsal sync, which replaces that database from Hecate stores.
+`cairnline_sidecar_probe_url` points at the local-only standalone Cairnline MCP
+contract probe. That probe does not change live route authority.
 
 Example response, with `write_switchpoints` shortened for readability:
 
@@ -2460,6 +2484,9 @@ Example response, with `write_switchpoints` shortened for readability:
     "configured_backend": "cairnline",
     "authoritative_backend": "hecate",
     "storage_backend": "sqlite",
+    "cairnline_connector": "embedded",
+    "cairnline_connector_ready": true,
+    "cairnline_connector_detail": "Hecate is using the embedded Cairnline Go package bridge for replacement-readiness dogfood.",
     "cairnline_read_source": "auto",
     "cairnline_bridge_ready": true,
     "cairnline_authoritative": false,
@@ -2626,7 +2653,63 @@ Example response, with `write_switchpoints` shortened for readability:
     "embedded_read_model_url": "/hecate/v1/projects/{id}/cairnline/embedded-read-model",
     "embedded_parity_report_url": "/hecate/v1/projects/{id}/cairnline/embedded-parity-report",
     "sync_readiness_url": "/hecate/v1/projects/cairnline/sync",
-    "mirror_parity_url": "/hecate/v1/projects/cairnline/mirror-parity"
+    "mirror_parity_url": "/hecate/v1/projects/cairnline/mirror-parity",
+    "cairnline_sidecar_probe_url": "/hecate/v1/projects/cairnline/sidecar-probe"
+  }
+}
+```
+
+### `POST /hecate/v1/projects/cairnline/sidecar-probe`
+
+Local-only standalone Cairnline MCP contract probe. It starts the configured
+stdio command once, lists MCP tools, and returns whether the process exposes the
+minimum portable Projects tool surface Hecate would need for a future sidecar
+backend. It does not keep a persistent client, proxy Projects reads or writes,
+or make Cairnline authoritative.
+
+The probe is controlled by:
+
+- `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar`
+- `HECATE_PROJECTS_CAIRNLINE_SIDECAR_COMMAND`
+- `HECATE_PROJECTS_CAIRNLINE_SIDECAR_ARGS`
+- `HECATE_PROJECTS_CAIRNLINE_SIDECAR_DB`
+- `HECATE_PROJECTS_CAIRNLINE_SIDECAR_PROBE_TIMEOUT`
+
+Required tools:
+
+```text
+projects.list
+projects.create
+roles.list
+work_items.create
+assignments.claim
+assignments.context
+assignments.complete
+evidence.record
+reviews.record
+handoffs.create
+memory_candidates.create
+assistant.propose
+```
+
+Example response, shortened:
+
+```json
+{
+  "object": "project_cairnline_sidecar_probe",
+  "data": {
+    "ready": true,
+    "status": "sidecar_probe_ready",
+    "detail": "Cairnline sidecar MCP server started and exposes the required portable Projects tool contract. Hecate still keeps live Projects reads and writes on Hecate-native stores in sidecar mode.",
+    "command": "cairnline",
+    "args": ["-db", "/Users/alice/.local/share/hecate/cairnline/projects.db"],
+    "database_path": "/Users/alice/.local/share/hecate/cairnline/projects.db",
+    "probe_timeout_ms": 10000,
+    "tool_count": 12,
+    "required_tools": ["projects.list", "projects.create"],
+    "missing_tools": [],
+    "tools": [{ "name": "projects.list" }],
+    "warnings": []
   }
 }
 ```

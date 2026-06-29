@@ -18,7 +18,7 @@ const projectCairnlineWriteAuthorityProjectAssignments = "project-assignments"
 
 func (h *Handler) projectAssignmentWritesUseCairnlineAuthority() bool {
 	return h != nil &&
-		h.config.ProjectsCoordinationBackend() == "cairnline" &&
+		h.projectCairnlineEmbeddedConnectorEnabled() &&
 		h.config.ProjectsCairnlineWriteAuthorityEnabled(projectCairnlineWriteAuthorityProjectAssignments)
 }
 
