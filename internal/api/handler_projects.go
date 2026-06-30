@@ -704,7 +704,7 @@ func parseProjectTime(value string) (time.Time, error) {
 }
 
 func (h *Handler) renderProjects(ctx context.Context) ([]ProjectResponseItem, error) {
-	if h.projectCairnlineSidecarProjectReadsEnabled() {
+	if h.projectCairnlineSidecarReadRoutesEnabled() {
 		return h.renderCairnlineSidecarProjects(ctx)
 	}
 	items, err := h.projects.List(ctx)
@@ -734,7 +734,7 @@ func (h *Handler) renderCairnlineProjects(ctx context.Context, nativeProjects []
 }
 
 func (h *Handler) renderProject(ctx context.Context, projectID string) (*ProjectResponseItem, error) {
-	if h.projectCairnlineSidecarProjectReadsEnabled() {
+	if h.projectCairnlineSidecarReadRoutesEnabled() {
 		return h.renderCairnlineSidecarProject(ctx, projectID)
 	}
 	project, ok, err := h.projects.Get(ctx, projectID)

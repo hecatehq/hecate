@@ -69,7 +69,7 @@ type ProjectSetupReadinessActionResponse struct {
 
 func (h *Handler) HandleProjectSetupReadiness(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
-	if !h.requireProject(w, r, projectID) {
+	if !h.projectCairnlineSidecarReadRoutesEnabled() && !h.requireProject(w, r, projectID) {
 		return
 	}
 	readiness, err := h.renderProjectSetupReadiness(r.Context(), projectID)
@@ -78,13 +78,16 @@ func (h *Handler) HandleProjectSetupReadiness(w http.ResponseWriter, r *http.Req
 			WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
 			return
 		}
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		writeProjectReadRenderError(w, err)
 		return
 	}
 	WriteJSON(w, http.StatusOK, ProjectSetupReadinessEnvelope{Object: "project_setup_readiness", Data: readiness})
 }
 
 func (h *Handler) renderProjectSetupReadiness(ctx context.Context, projectID string) (ProjectSetupReadinessResponse, error) {
+	if h.projectCairnlineSidecarReadRoutesEnabled() {
+		return h.renderCairnlineSidecarProjectSetupReadiness(ctx, projectID)
+	}
 	if h.projectReadRoutesUseCairnlineReadModel() {
 		return h.renderCairnlineProjectSetupReadiness(ctx, projectID)
 	}

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sort"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/hecatehq/hecate/internal/mcp"
@@ -776,5 +777,7 @@ func IsTransportClosedErr(err error) bool {
 	if err == nil {
 		return false
 	}
-	return errors.Is(err, ErrTransportClosed)
+	return errors.Is(err, ErrTransportClosed) ||
+		errors.Is(err, syscall.EPIPE) ||
+		errors.Is(err, syscall.ECONNRESET)
 }

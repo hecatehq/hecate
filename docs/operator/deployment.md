@@ -436,14 +436,15 @@ mirror database, project row, or proposal record is missing; run
 `POST /hecate/v1/projects/cairnline/sync` first when dogfooding strict embedded
 reads. With `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar`,
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar` routes only project list/detail
-reads through the standalone Cairnline MCP client; all other live Projects read
-routes remain Hecate-native or use the embedded dogfood read model when that is
-configured. Activity, work-item list/detail, assignment-list, and operations
-brief reads render the work graph from Cairnline service records and overlay
-Hecate-only runtime refs/timestamps while Hecate still owns execution. Outside
-the explicit sidecar project list/detail read source, project identity and some
-compatibility scaffolding remain Hecate-owned until Cairnline becomes
-authoritative. Project identity, metadata/default, root, and
+and setup-readiness reads through the standalone Cairnline MCP client; all other
+live Projects read routes remain Hecate-native or use the embedded dogfood read
+model when that is configured. Activity, work-item list/detail,
+assignment-list, and operations brief reads render the work graph from
+Cairnline service records and overlay Hecate-only runtime refs/timestamps while
+Hecate still owns execution. Outside the explicit sidecar project list/detail
+and setup-readiness read source, project identity and some compatibility
+scaffolding remain Hecate-owned until Cairnline becomes authoritative. Project
+identity, metadata/default, root, and
 context-source mutations still write Hecate stores first and then best-effort
 mirror into the embedded Cairnline database through their
 identity/metadata/root/source/default seams unless their explicit
