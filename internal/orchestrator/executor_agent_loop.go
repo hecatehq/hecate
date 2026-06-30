@@ -746,7 +746,7 @@ func agentToolDefinitionsWithOptions(opts agentToolDefinitionOptions) []types.To
 		tools = append(tools, types.Tool{
 			Type: "function",
 			Function: types.ToolFunction{
-				Name:        "web_search",
+				Name:        AgentToolWebSearch,
 				Description: "Search the web using the operator-configured search provider. Use this when you need to discover current pages before fetching specific URLs with http_request.",
 				Parameters: json.RawMessage(`{
 					"type": "object",
@@ -792,6 +792,7 @@ type shellExecArgs struct {
 }
 
 const (
+	AgentToolWebSearch     = "web_search"
 	AgentToolTerminalOpen  = "terminal_open"
 	AgentToolTerminalWrite = "terminal_write"
 	AgentToolTerminalRead  = "terminal_read"

@@ -3121,11 +3121,11 @@ func TestAgentLoop_HTTPRequest_GatedPausesRun(t *testing.T) {
 
 func TestAgentLoop_WebSearch_ToolOnlyAdvertisedWhenConfigured(t *testing.T) {
 	withoutSearch := agentToolDefinitionsWithOptions(agentToolDefinitionOptions{})
-	if hasToolDefinition(withoutSearch, "web_search") {
+	if hasToolDefinition(withoutSearch, AgentToolWebSearch) {
 		t.Fatal("web_search advertised without configured client")
 	}
 	withSearch := agentToolDefinitionsWithOptions(agentToolDefinitionOptions{IncludeWebSearch: true})
-	if !hasToolDefinition(withSearch, "web_search") {
+	if !hasToolDefinition(withSearch, AgentToolWebSearch) {
 		t.Fatal("web_search not advertised when configured")
 	}
 }
@@ -3136,7 +3136,7 @@ func TestAgentLoop_WebSearch_HappyPath(t *testing.T) {
 			makeChatResp(makeAssistantMsg("", types.ToolCall{
 				ID: "c1", Type: "function",
 				Function: types.ToolCallFunction{
-					Name:      "web_search",
+					Name:      AgentToolWebSearch,
 					Arguments: `{"query":"agent client protocol","count":3}`,
 				},
 			})),
@@ -3177,7 +3177,7 @@ func TestAgentLoop_WebSearch_HappyPath(t *testing.T) {
 	}
 	var searchStep *types.TaskStep
 	for i := range res.Steps {
-		if res.Steps[i].ToolName == "web_search" {
+		if res.Steps[i].ToolName == AgentToolWebSearch {
 			searchStep = &res.Steps[i]
 			break
 		}
@@ -3196,7 +3196,7 @@ func TestAgentLoop_WebSearch_GatedPausesRun(t *testing.T) {
 			makeChatResp(makeAssistantMsg("", types.ToolCall{
 				ID: "c1", Type: "function",
 				Function: types.ToolCallFunction{
-					Name:      "web_search",
+					Name:      AgentToolWebSearch,
 					Arguments: `{"query":"agent client protocol"}`,
 				},
 			})),
@@ -3204,7 +3204,7 @@ func TestAgentLoop_WebSearch_GatedPausesRun(t *testing.T) {
 	}
 	search := &stubWebSearchClient{}
 	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 8,
-		[]string{"web_search"},
+		[]string{AgentToolWebSearch},
 		HTTPRequestPolicy{},
 		WithWebSearchClient(search))
 	res, err := loop.Execute(context.Background(), newAgentLoopSpec(t))

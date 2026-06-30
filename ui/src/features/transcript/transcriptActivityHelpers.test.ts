@@ -278,6 +278,9 @@ describe("activityDisplay", () => {
     expect(activityDisplay(activity({ type: "tool_call", title: "shell_exec" })).title).toBe(
       "Ran shell",
     );
+    expect(activityDisplay(activity({ type: "tool_call", title: "web_search" })).title).toBe(
+      "Searched web",
+    );
   });
 
   it("humanizes native terminal tool calls", () => {

@@ -64,6 +64,7 @@ function taskApprovalDisplayKind(activity: ChatActivityRecord): string {
   if (haystack.includes("shell_exec")) return "shell_command";
   if (haystack.includes("git_exec")) return "git_exec";
   if (haystack.includes("file_write")) return "file_write";
+  if (haystack.includes("http_request") || haystack.includes("web_search")) return "network_egress";
   if (haystack.includes("network_egress")) return "network_egress";
   if (haystack.includes("agent_loop_tool_call")) return "agent_loop_tool_call";
   return "approval";

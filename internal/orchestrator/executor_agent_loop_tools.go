@@ -206,7 +206,7 @@ func (d *agentLoopToolDispatcher) Dispatch(ctx context.Context, spec ExecutionSp
 		}
 		return d.httpRequestTool(ctx, spec, args, stepIndex, startedAt, call.Function.Name)
 
-	case "web_search":
+	case AgentToolWebSearch:
 		var args webSearchArgs
 		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
 			return agentLoopToolDispatchResult{Text: fmt.Sprintf("invalid arguments for web_search: %v", err)}, nil

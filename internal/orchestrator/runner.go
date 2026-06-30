@@ -354,7 +354,7 @@ func (r *Runner) hasPolicy(name string) bool {
 func agentLoopGatedTools(policies map[string]struct{}) []string {
 	// all_tools gates every tool the agent can call — no need to enumerate.
 	if _, ok := policies["all_tools"]; ok {
-		out := []string{"shell_exec", "git_exec", "git_status", "git_diff", "file_write", "file_edit", "apply_patch", "read_file", "grep", "glob", "artifact_read", "list_dir", "http_request", "web_search", AgentToolDraftProjectProposal}
+		out := []string{"shell_exec", "git_exec", "git_status", "git_diff", "file_write", "file_edit", "apply_patch", "read_file", "grep", "glob", "artifact_read", "list_dir", "http_request", AgentToolWebSearch, AgentToolDraftProjectProposal}
 		return append(out, agentLoopTerminalToolNames()...)
 	}
 	out := make([]string, 0, len(policies))
@@ -375,7 +375,7 @@ func agentLoopGatedTools(policies map[string]struct{}) []string {
 			// reuse it here so an operator who already gates
 			// network on shell automatically gates the agent's
 			// HTTP and web-search tools too — no second toggle to remember.
-			out = append(out, "http_request", "web_search")
+			out = append(out, "http_request", AgentToolWebSearch)
 		}
 	}
 	return out
