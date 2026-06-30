@@ -139,7 +139,7 @@ func projectCairnlineConnectorReady(mode string) bool {
 func projectCairnlineConnectorDetail(mode string) string {
 	switch mode {
 	case "sidecar":
-		return "Cairnline sidecar connector is configured and can be exercised through local-only probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle/write/setup/work/collaboration diagnostics, but Hecate does not yet route Projects reads or writes through the standalone Cairnline MCP client."
+		return "Cairnline sidecar connector is configured and can be exercised through local-only probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle/write/setup/work/collaboration/memory diagnostics, but Hecate does not yet route Projects reads or writes through the standalone Cairnline MCP client."
 	default:
 		return "Hecate is using the embedded Cairnline Go package bridge for replacement-readiness dogfood."
 	}
@@ -149,7 +149,7 @@ func projectCairnlineConnectorWarning(mode string) string {
 	if mode != "sidecar" {
 		return ""
 	}
-	return "HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar enables standalone Cairnline MCP probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle/write/setup/work/collaboration diagnostic surfaces only; Cairnline read/write routing stays disabled until Hecate has a sidecar Projects backend adapter."
+	return "HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar enables standalone Cairnline MCP probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle/write/setup/work/collaboration/memory diagnostic surfaces only; Cairnline read/write routing stays disabled until Hecate has a sidecar Projects backend adapter."
 }
 
 func (h *Handler) HandleProjectCairnlineSidecarProbe(w http.ResponseWriter, r *http.Request) {
@@ -305,6 +305,20 @@ func (h *Handler) HandleProjectCairnlineSidecarCollaborationSmoke(w http.Respons
 	WriteJSON(w, http.StatusOK, ProjectCairnlineSidecarCollaborationEnvelope{
 		Object: "project_cairnline_sidecar_collaboration",
 		Data:   h.projectCairnlineSidecarCollaborationSmoke(r.Context(), req),
+	})
+}
+
+func (h *Handler) HandleProjectCairnlineSidecarMemorySmoke(w http.ResponseWriter, r *http.Request) {
+	if !requireLoopbackClient(w, r, "Cairnline sidecar memory smoke") {
+		return
+	}
+	var req ProjectCairnlineSidecarMemoryRequest
+	if !decodeOptionalJSON(w, r, &req) {
+		return
+	}
+	WriteJSON(w, http.StatusOK, ProjectCairnlineSidecarMemoryEnvelope{
+		Object: "project_cairnline_sidecar_memory",
+		Data:   h.projectCairnlineSidecarMemorySmoke(r.Context(), req),
 	})
 }
 
@@ -2026,6 +2040,294 @@ func (h *Handler) projectCairnlineSidecarCollaborationSmoke(ctx context.Context,
 	return fail("sidecar_collaboration_project_delete_verification_failed", "Cairnline sidecar projects.delete succeeded, but projects.get still returned the temporary collaboration project.")
 }
 
+func (h *Handler) projectCairnlineSidecarMemorySmoke(ctx context.Context, req ProjectCairnlineSidecarMemoryRequest) ProjectCairnlineSidecarMemoryResponse {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	cfg, dbPath, timeout := h.projectCairnlineSidecarMCPConfig()
+	projectName := strings.TrimSpace(req.ProjectName)
+	if projectName == "" {
+		projectName = "Hecate sidecar memory smoke " + time.Now().UTC().Format("20060102T150405.000000000Z")
+	}
+	const (
+		memoryTitle          = "Sidecar memory entry"
+		updatedMemoryTitle   = "Sidecar memory entry updated"
+		candidateTitle       = "Sidecar memory candidate"
+		promotedMemoryTitle  = "Sidecar promoted memory"
+		rejectCandidateTitle = "Sidecar rejected memory candidate"
+	)
+	response := ProjectCairnlineSidecarMemoryResponse{
+		Ready:                 false,
+		Status:                "sidecar_memory_not_run",
+		Detail:                "Cairnline sidecar memory smoke has not run.",
+		Command:               cfg.Command,
+		Args:                  append([]string(nil), cfg.Args...),
+		DatabasePath:          dbPath,
+		ProbeTimeoutMS:        timeout.Milliseconds(),
+		PersistentClient:      true,
+		ClientCacheConfigured: h != nil,
+		ConfirmedMutation:     req.ConfirmMutation,
+		ProjectName:           projectName,
+	}
+	if h == nil {
+		response.Status = "sidecar_memory_failed"
+		response.Detail = "Cairnline sidecar memory smoke requires an API handler."
+		return response
+	}
+	if h.projectCairnlineConnectorMode() != "sidecar" {
+		response.Warnings = append(response.Warnings, "HECATE_PROJECTS_CAIRNLINE_CONNECTOR is not sidecar; this memory smoke does not affect live Projects routing.")
+	}
+	if dbPath != "" && len(h.config.ProjectsCairnlineSidecarArgs()) > 0 {
+		response.Warnings = append(response.Warnings, "HECATE_PROJECTS_CAIRNLINE_SIDECAR_ARGS is set, so HECATE_PROJECTS_CAIRNLINE_SIDECAR_DB is reported but not appended automatically.")
+	}
+	if !req.ConfirmMutation {
+		response.Status = "sidecar_memory_confirmation_required"
+		response.Detail = "Set confirm_mutation=true to let Hecate create, verify, promote, reject, delete, and clean up temporary memory records in the standalone Cairnline sidecar. Hecate-native Projects stores are not mutated."
+		return response
+	}
+
+	cache := h.projectCairnlineSidecarMCPClientCache()
+	smokeCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	projectID := ""
+	cleanup := func() {
+		if projectID == "" || response.CleanupVerified {
+			return
+		}
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+		defer cleanupCancel()
+		cleanupStep := h.callProjectCairnlineSidecarWriteTool(cleanupCtx, cfg, cache, "cleanup_delete_project", "projects.delete", false, map[string]string{"id": projectID})
+		response.Steps = append(response.Steps, cleanupStep)
+		if cleanupStep.Status == "ready" {
+			verifyCleanupStep := h.callProjectCairnlineSidecarWriteTool(cleanupCtx, cfg, cache, "cleanup_get_after_project_delete", "projects.get", true, map[string]string{"id": projectID})
+			if verifyCleanupStep.Status == "tool_failed" {
+				verifyCleanupStep.Status = "expected_missing"
+				response.CleanupVerified = true
+				response.Warnings = append(response.Warnings, "Hecate deleted and verified removal of the temporary standalone Cairnline memory project after the memory smoke failed; inspect the reported steps before retrying.")
+			} else {
+				response.Warnings = append(response.Warnings, "Hecate deleted the temporary standalone Cairnline memory project after the memory smoke failed, but removal could not be verified; inspect the reported steps before retrying.")
+			}
+			response.Steps = append(response.Steps, verifyCleanupStep)
+			return
+		}
+		response.Warnings = append(response.Warnings, "Hecate tried to delete the temporary standalone Cairnline memory project after the memory smoke failed, but cleanup did not succeed; inspect the standalone Cairnline sidecar before retrying.")
+	}
+	fail := func(status, detail string) ProjectCairnlineSidecarMemoryResponse {
+		response.Status = status
+		response.Detail = detail
+		cleanup()
+		response.setSidecarCacheStats(cache.Stats())
+		return response
+	}
+	appendStep := func(step ProjectCairnlineSidecarWriteStep) bool {
+		response.Steps = append(response.Steps, step)
+		if step.Status == "tool_failed" {
+			response.Status = "sidecar_memory_tool_failed"
+			response.Detail = "Cairnline sidecar " + step.Tool + " returned a tool-level error. Review the step output before retrying."
+			cleanup()
+			response.setSidecarCacheStats(cache.Stats())
+			return false
+		}
+		if step.Status == "failed" {
+			response.Status = "sidecar_memory_failed"
+			response.Detail = firstNonEmpty(step.ToolText, "Cairnline sidecar "+step.Tool+" failed.")
+			cleanup()
+			response.setSidecarCacheStats(cache.Stats())
+			return false
+		}
+		return true
+	}
+
+	createProject := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "create_project", "projects.create", false, map[string]string{
+		"name":        projectName,
+		"description": "Temporary Hecate sidecar memory smoke project. It should be deleted by the same diagnostic run.",
+	})
+	if !appendStep(createProject) {
+		return response
+	}
+	listProjects := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "list_after_project_create", "projects.list", true, map[string]string{})
+	if !appendStep(listProjects) {
+		return response
+	}
+	project, ok := projectCairnlineSidecarProjectByName(listProjects.StructuredProjects, projectName)
+	if !ok || strings.TrimSpace(project.ID) == "" {
+		return fail("sidecar_memory_created_project_not_listed", "Cairnline sidecar projects.create succeeded, but projects.list did not return the temporary memory project by name.")
+	}
+	projectID = strings.TrimSpace(project.ID)
+	response.SelectedProjectID = projectID
+
+	createMemory := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "create_memory_entry", "memory_entries.create", false, map[string]string{
+		"project_id":  projectID,
+		"title":       memoryTitle,
+		"body":        "Temporary accepted memory created by the Hecate sidecar memory smoke.",
+		"trust_label": "operator_memory",
+		"source_kind": "operator",
+		"source_id":   "hecate-sidecar-memory-smoke",
+	})
+	if !appendStep(createMemory) {
+		return response
+	}
+	listMemory := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "list_memory_entries_after_create", "memory_entries.list", true, map[string]any{"project_id": projectID, "include_disabled": true})
+	if !appendStep(listMemory) {
+		return response
+	}
+	memoryEntry, ok := projectCairnlineSidecarMemoryEntryByTitle(listMemory.StructuredMemoryEntries, memoryTitle)
+	if !ok || strings.TrimSpace(memoryEntry.ID) == "" || !memoryEntry.Enabled || memoryEntry.TrustLabel != "operator_memory" {
+		return fail("sidecar_memory_entry_create_verification_failed", "Cairnline sidecar memory_entries.list did not return the expected temporary accepted memory entry.")
+	}
+	response.MemoryEntryID = strings.TrimSpace(memoryEntry.ID)
+	response.CreatedMemoryEntry = memoryEntry
+
+	getMemory := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "get_memory_entry", "memory_entries.get", true, map[string]string{"project_id": projectID, "memory_id": response.MemoryEntryID})
+	if !appendStep(getMemory) {
+		return response
+	}
+	if getMemory.StructuredMemoryEntry.ID != response.MemoryEntryID || getMemory.StructuredMemoryEntry.Title != memoryTitle {
+		return fail("sidecar_memory_entry_get_verification_failed", "Cairnline sidecar memory_entries.get did not return the expected temporary accepted memory entry.")
+	}
+
+	updateMemory := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "update_memory_entry", "memory_entries.update", false, map[string]any{
+		"project_id": projectID,
+		"memory_id":  response.MemoryEntryID,
+		"title":      updatedMemoryTitle,
+		"body":       "Temporary accepted memory updated by the Hecate sidecar memory smoke.",
+		"enabled":    true,
+	})
+	if !appendStep(updateMemory) {
+		return response
+	}
+	getUpdatedMemory := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "get_updated_memory_entry", "memory_entries.get", true, map[string]string{"project_id": projectID, "memory_id": response.MemoryEntryID})
+	if !appendStep(getUpdatedMemory) {
+		return response
+	}
+	if getUpdatedMemory.StructuredMemoryEntry.ID != response.MemoryEntryID || getUpdatedMemory.StructuredMemoryEntry.Title != updatedMemoryTitle || !getUpdatedMemory.StructuredMemoryEntry.Enabled {
+		return fail("sidecar_memory_entry_update_verification_failed", "Cairnline sidecar memory_entries.get did not return the expected updated accepted memory entry.")
+	}
+	response.UpdatedMemoryEntry = getUpdatedMemory.StructuredMemoryEntry
+
+	createCandidate := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "create_memory_candidate", "memory_candidates.create", false, map[string]any{
+		"project_id":            projectID,
+		"title":                 candidateTitle,
+		"body":                  "Temporary memory candidate created by the Hecate sidecar memory smoke.",
+		"suggested_kind":        "diagnostic_note",
+		"suggested_trust_label": "generated_summary",
+		"suggested_source_kind": "generated",
+		"suggested_source_id":   response.MemoryEntryID,
+		"source_refs":           []map[string]string{{"kind": "memory_entry", "id": response.MemoryEntryID, "title": updatedMemoryTitle}},
+	})
+	if !appendStep(createCandidate) {
+		return response
+	}
+	listCandidates := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "list_memory_candidates_after_create", "memory_candidates.list", true, map[string]string{"project_id": projectID})
+	if !appendStep(listCandidates) {
+		return response
+	}
+	candidate, ok := projectCairnlineSidecarMemoryCandidateByTitle(listCandidates.StructuredMemoryCandidates, candidateTitle)
+	if !ok || strings.TrimSpace(candidate.ID) == "" || candidate.Status != "pending" || len(candidate.SourceRefs) != 1 {
+		return fail("sidecar_memory_candidate_create_verification_failed", "Cairnline sidecar memory_candidates.list did not return the expected pending memory candidate with source provenance.")
+	}
+	response.PromoteCandidateID = strings.TrimSpace(candidate.ID)
+	response.CreatedMemoryCandidate = candidate
+
+	getCandidate := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "get_memory_candidate", "memory_candidates.get", true, map[string]string{"project_id": projectID, "candidate_id": response.PromoteCandidateID})
+	if !appendStep(getCandidate) {
+		return response
+	}
+	if getCandidate.StructuredMemoryCandidate.ID != response.PromoteCandidateID || getCandidate.StructuredMemoryCandidate.Status != "pending" {
+		return fail("sidecar_memory_candidate_get_verification_failed", "Cairnline sidecar memory_candidates.get did not return the expected pending memory candidate.")
+	}
+
+	promoteCandidate := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "promote_memory_candidate", "memory_candidates.promote", false, map[string]string{
+		"project_id":   projectID,
+		"candidate_id": response.PromoteCandidateID,
+		"title":        promotedMemoryTitle,
+		"trust_label":  "operator_memory",
+		"source_kind":  "operator",
+		"source_id":    response.MemoryEntryID,
+	})
+	if !appendStep(promoteCandidate) {
+		return response
+	}
+	if promoteCandidate.StructuredMemoryCandidate.ID != response.PromoteCandidateID || promoteCandidate.StructuredMemoryCandidate.Status != "promoted" || strings.TrimSpace(promoteCandidate.StructuredMemoryCandidate.PromotedMemoryID) == "" {
+		return fail("sidecar_memory_candidate_promote_verification_failed", "Cairnline sidecar memory_candidates.promote did not return the expected promoted candidate with promoted memory id.")
+	}
+	response.PromotedMemoryCandidate = promoteCandidate.StructuredMemoryCandidate
+	response.PromotedMemoryEntryID = strings.TrimSpace(promoteCandidate.StructuredMemoryCandidate.PromotedMemoryID)
+
+	getPromotedMemory := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "get_promoted_memory_entry", "memory_entries.get", true, map[string]string{"project_id": projectID, "memory_id": response.PromotedMemoryEntryID})
+	if !appendStep(getPromotedMemory) {
+		return response
+	}
+	if getPromotedMemory.StructuredMemoryEntry.ID != response.PromotedMemoryEntryID || getPromotedMemory.StructuredMemoryEntry.Title != promotedMemoryTitle || getPromotedMemory.StructuredMemoryEntry.TrustLabel != "operator_memory" {
+		return fail("sidecar_memory_candidate_promoted_entry_verification_failed", "Cairnline sidecar memory_entries.get did not return the expected accepted memory entry created by promotion.")
+	}
+	response.PromotedMemoryEntry = getPromotedMemory.StructuredMemoryEntry
+
+	createRejectCandidate := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "create_reject_memory_candidate", "memory_candidates.create", false, map[string]string{
+		"project_id": projectID,
+		"title":      rejectCandidateTitle,
+		"body":       "Temporary memory candidate that should be rejected by the Hecate sidecar memory smoke.",
+	})
+	if !appendStep(createRejectCandidate) {
+		return response
+	}
+	listRejectCandidates := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "list_reject_memory_candidates", "memory_candidates.list", true, map[string]string{"project_id": projectID})
+	if !appendStep(listRejectCandidates) {
+		return response
+	}
+	rejectCandidate, ok := projectCairnlineSidecarMemoryCandidateByTitle(listRejectCandidates.StructuredMemoryCandidates, rejectCandidateTitle)
+	if !ok || strings.TrimSpace(rejectCandidate.ID) == "" || rejectCandidate.Status != "pending" {
+		return fail("sidecar_memory_reject_candidate_create_verification_failed", "Cairnline sidecar memory_candidates.list did not return the expected pending candidate to reject.")
+	}
+	response.RejectCandidateID = strings.TrimSpace(rejectCandidate.ID)
+
+	rejectStep := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "reject_memory_candidate", "memory_candidates.reject", false, map[string]string{
+		"project_id":   projectID,
+		"candidate_id": response.RejectCandidateID,
+		"reason":       "Temporary smoke candidate is not durable project memory.",
+	})
+	if !appendStep(rejectStep) {
+		return response
+	}
+	if rejectStep.StructuredMemoryCandidate.ID != response.RejectCandidateID || rejectStep.StructuredMemoryCandidate.Status != "rejected" || rejectStep.StructuredMemoryCandidate.StatusReason == "" {
+		return fail("sidecar_memory_candidate_reject_verification_failed", "Cairnline sidecar memory_candidates.reject did not return the expected rejected candidate.")
+	}
+	response.RejectedMemoryCandidate = rejectStep.StructuredMemoryCandidate
+
+	deleteRejectCandidate := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "delete_rejected_memory_candidate", "memory_candidates.delete", false, map[string]string{"project_id": projectID, "candidate_id": response.RejectCandidateID})
+	if !appendStep(deleteRejectCandidate) {
+		return response
+	}
+	listAfterRejectDelete := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "list_memory_candidates_after_reject_delete", "memory_candidates.list", true, map[string]any{"project_id": projectID, "include_resolved": true})
+	if !appendStep(listAfterRejectDelete) {
+		return response
+	}
+	if _, ok := projectCairnlineSidecarMemoryCandidateByID(listAfterRejectDelete.StructuredMemoryCandidates, response.RejectCandidateID); ok {
+		return fail("sidecar_memory_candidate_delete_verification_failed", "Cairnline sidecar memory_candidates.delete succeeded, but memory_candidates.list still returned the rejected temporary candidate.")
+	}
+
+	deleteProject := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "delete_project", "projects.delete", false, map[string]string{"id": projectID})
+	if !appendStep(deleteProject) {
+		return response
+	}
+	verifyDelete := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "get_after_project_delete", "projects.get", true, map[string]string{"id": projectID})
+	if verifyDelete.Status == "tool_failed" {
+		verifyDelete.Status = "expected_missing"
+		response.Steps = append(response.Steps, verifyDelete)
+		response.CleanupVerified = true
+		response.Ready = true
+		response.Status = "sidecar_memory_ready"
+		response.Detail = "Hecate created and verified temporary standalone Cairnline accepted memory, promoted one memory candidate, rejected and deleted another, then deleted the temporary project. Hecate-native Projects stores were not mutated."
+		response.setSidecarCacheStats(cache.Stats())
+		return response
+	}
+	if !appendStep(verifyDelete) {
+		return response
+	}
+	return fail("sidecar_memory_project_delete_verification_failed", "Cairnline sidecar projects.delete succeeded, but projects.get still returned the temporary memory project.")
+}
+
 func projectCairnlineSidecarLifecycleShouldReleaseAfterFailure(steps []ProjectCairnlineSidecarLifecycleStep) bool {
 	claimed := false
 	for _, step := range steps {
@@ -2630,6 +2932,68 @@ func (h *Handler) callProjectCairnlineSidecarWriteTool(ctx context.Context, cfg 
 			step.ToolText = "Cairnline sidecar handoffs.get did not return structuredContent; the collaboration smoke needs typed handoff detail to verify collaboration mutations."
 			return step
 		}
+	case "memory_entries.list":
+		entries, structuredReady, structuredErr := projectCairnlineSidecarStructuredMemoryEntries(result.Result.StructuredContent)
+		step.StructuredReady = structuredReady
+		step.StructuredMemoryEntries = entries
+		step.StructuredMemoryEntryCount = len(entries)
+		if structuredErr != nil {
+			step.StructuredParseError = structuredErr.Error()
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar memory_entries.list returned structuredContent that Hecate could not parse as memory entries: " + structuredErr.Error()
+			return step
+		}
+		if !structuredReady {
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar memory_entries.list did not return structuredContent; the memory smoke needs typed memory entries to verify memory mutations."
+			return step
+		}
+	case "memory_entries.get":
+		entry, structuredReady, structuredErr := projectCairnlineSidecarStructuredMemoryEntry(result.Result.StructuredContent)
+		step.StructuredReady = structuredReady
+		step.StructuredMemoryEntry = entry
+		if structuredErr != nil {
+			step.StructuredParseError = structuredErr.Error()
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar memory_entries.get returned structuredContent that Hecate could not parse as memory: " + structuredErr.Error()
+			return step
+		}
+		if !structuredReady {
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar memory_entries.get did not return structuredContent; the memory smoke needs typed memory detail to verify memory mutations."
+			return step
+		}
+	case "memory_candidates.list":
+		candidates, structuredReady, structuredErr := projectCairnlineSidecarStructuredMemoryCandidates(result.Result.StructuredContent)
+		step.StructuredReady = structuredReady
+		step.StructuredMemoryCandidates = candidates
+		step.StructuredMemoryCandidateCount = len(candidates)
+		if structuredErr != nil {
+			step.StructuredParseError = structuredErr.Error()
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar memory_candidates.list returned structuredContent that Hecate could not parse as memory candidates: " + structuredErr.Error()
+			return step
+		}
+		if !structuredReady {
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar memory_candidates.list did not return structuredContent; the memory smoke needs typed memory candidates to verify candidate mutations."
+			return step
+		}
+	case "memory_candidates.get", "memory_candidates.promote", "memory_candidates.reject":
+		candidate, structuredReady, structuredErr := projectCairnlineSidecarStructuredMemoryCandidate(result.Result.StructuredContent)
+		step.StructuredReady = structuredReady
+		step.StructuredMemoryCandidate = candidate
+		if structuredErr != nil {
+			step.StructuredParseError = structuredErr.Error()
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar " + tool + " returned structuredContent that Hecate could not parse as memory candidate: " + structuredErr.Error()
+			return step
+		}
+		if !structuredReady {
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar " + tool + " did not return structuredContent; the memory smoke needs typed memory candidate detail to verify candidate mutations."
+			return step
+		}
 	case "assignments.context":
 		contextIDs, structuredReady, structuredErr := projectCairnlineSidecarStructuredAssignmentContextIDs(result.Result.StructuredContent)
 		step.StructuredReady = structuredReady
@@ -2819,6 +3183,36 @@ func projectCairnlineSidecarHandoffByTitle(handoffs []ProjectCairnlineSidecarHan
 		}
 	}
 	return ProjectCairnlineSidecarHandoffItem{}, false
+}
+
+func projectCairnlineSidecarMemoryEntryByTitle(entries []ProjectCairnlineSidecarMemoryEntryItem, title string) (ProjectCairnlineSidecarMemoryEntryItem, bool) {
+	title = strings.TrimSpace(title)
+	for _, entry := range entries {
+		if strings.TrimSpace(entry.Title) == title {
+			return entry, true
+		}
+	}
+	return ProjectCairnlineSidecarMemoryEntryItem{}, false
+}
+
+func projectCairnlineSidecarMemoryCandidateByTitle(candidates []ProjectCairnlineSidecarMemoryCandidateItem, title string) (ProjectCairnlineSidecarMemoryCandidateItem, bool) {
+	title = strings.TrimSpace(title)
+	for _, candidate := range candidates {
+		if strings.TrimSpace(candidate.Title) == title {
+			return candidate, true
+		}
+	}
+	return ProjectCairnlineSidecarMemoryCandidateItem{}, false
+}
+
+func projectCairnlineSidecarMemoryCandidateByID(candidates []ProjectCairnlineSidecarMemoryCandidateItem, id string) (ProjectCairnlineSidecarMemoryCandidateItem, bool) {
+	id = strings.TrimSpace(id)
+	for _, candidate := range candidates {
+		if strings.TrimSpace(candidate.ID) == id {
+			return candidate, true
+		}
+	}
+	return ProjectCairnlineSidecarMemoryCandidateItem{}, false
 }
 
 func projectCairnlineSidecarStructuredProject(raw json.RawMessage) (ProjectCairnlineSidecarProjectItem, bool, error) {
@@ -3115,6 +3509,78 @@ func projectCairnlineSidecarStructuredHandoff(raw json.RawMessage) (ProjectCairn
 	return handoff, true, nil
 }
 
+func projectCairnlineSidecarStructuredMemoryEntries(raw json.RawMessage) ([]ProjectCairnlineSidecarMemoryEntryItem, bool, error) {
+	if len(raw) == 0 {
+		return nil, false, nil
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return nil, false, nil
+	}
+	if bytes.Equal(trimmed, []byte("null")) {
+		return []ProjectCairnlineSidecarMemoryEntryItem{}, true, nil
+	}
+	var entries []ProjectCairnlineSidecarMemoryEntryItem
+	if err := json.Unmarshal(trimmed, &entries); err != nil {
+		return nil, false, err
+	}
+	if entries == nil {
+		entries = []ProjectCairnlineSidecarMemoryEntryItem{}
+	}
+	return entries, true, nil
+}
+
+func projectCairnlineSidecarStructuredMemoryEntry(raw json.RawMessage) (ProjectCairnlineSidecarMemoryEntryItem, bool, error) {
+	if len(raw) == 0 {
+		return ProjectCairnlineSidecarMemoryEntryItem{}, false, nil
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return ProjectCairnlineSidecarMemoryEntryItem{}, false, nil
+	}
+	var entry ProjectCairnlineSidecarMemoryEntryItem
+	if err := json.Unmarshal(trimmed, &entry); err != nil {
+		return ProjectCairnlineSidecarMemoryEntryItem{}, false, err
+	}
+	return entry, true, nil
+}
+
+func projectCairnlineSidecarStructuredMemoryCandidates(raw json.RawMessage) ([]ProjectCairnlineSidecarMemoryCandidateItem, bool, error) {
+	if len(raw) == 0 {
+		return nil, false, nil
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return nil, false, nil
+	}
+	if bytes.Equal(trimmed, []byte("null")) {
+		return []ProjectCairnlineSidecarMemoryCandidateItem{}, true, nil
+	}
+	var candidates []ProjectCairnlineSidecarMemoryCandidateItem
+	if err := json.Unmarshal(trimmed, &candidates); err != nil {
+		return nil, false, err
+	}
+	if candidates == nil {
+		candidates = []ProjectCairnlineSidecarMemoryCandidateItem{}
+	}
+	return candidates, true, nil
+}
+
+func projectCairnlineSidecarStructuredMemoryCandidate(raw json.RawMessage) (ProjectCairnlineSidecarMemoryCandidateItem, bool, error) {
+	if len(raw) == 0 {
+		return ProjectCairnlineSidecarMemoryCandidateItem{}, false, nil
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return ProjectCairnlineSidecarMemoryCandidateItem{}, false, nil
+	}
+	var candidate ProjectCairnlineSidecarMemoryCandidateItem
+	if err := json.Unmarshal(trimmed, &candidate); err != nil {
+		return ProjectCairnlineSidecarMemoryCandidateItem{}, false, err
+	}
+	return candidate, true, nil
+}
+
 func projectCairnlineSidecarStructuredAssignmentContextIDs(raw json.RawMessage) (ProjectCairnlineSidecarAssignmentContextIDs, bool, error) {
 	if len(raw) == 0 {
 		return ProjectCairnlineSidecarAssignmentContextIDs{}, false, nil
@@ -3383,6 +3849,15 @@ func (r *ProjectCairnlineSidecarWorkResponse) setSidecarCacheStats(stats mcpclie
 }
 
 func (r *ProjectCairnlineSidecarCollaborationResponse) setSidecarCacheStats(stats mcpclient.CacheStats) {
+	if r == nil {
+		return
+	}
+	r.ClientCacheEntries = stats.Entries
+	r.ClientCacheInUse = stats.InUse
+	r.ClientCacheIdle = stats.Idle
+}
+
+func (r *ProjectCairnlineSidecarMemoryResponse) setSidecarCacheStats(stats mcpclient.CacheStats) {
 	if r == nil {
 		return
 	}

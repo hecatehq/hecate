@@ -41,6 +41,8 @@ func cairnlineSidecarFixtureMain(mode string) {
 		evidence:         make(map[string]map[string]ProjectCairnlineSidecarEvidenceItem),
 		reviews:          make(map[string]map[string]ProjectCairnlineSidecarReviewItem),
 		handoffs:         make(map[string]map[string]ProjectCairnlineSidecarHandoffItem),
+		memoryEntries:    make(map[string]map[string]ProjectCairnlineSidecarMemoryEntryItem),
+		memoryCandidates: make(map[string]map[string]ProjectCairnlineSidecarMemoryCandidateItem),
 	}
 	for {
 		line, err := in.ReadBytes('\n')
@@ -116,6 +118,8 @@ type cairnlineSidecarFixtureState struct {
 	evidenceSequence   int
 	reviewSequence     int
 	handoffSequence    int
+	memorySequence     int
+	candidateSequence  int
 	roles              map[string]map[string]ProjectCairnlineSidecarRoleItem
 	workItems          map[string]map[string]ProjectCairnlineSidecarWorkItem
 	assignments        map[string]map[string]ProjectCairnlineSidecarAssignmentItem
@@ -123,6 +127,8 @@ type cairnlineSidecarFixtureState struct {
 	evidence           map[string]map[string]ProjectCairnlineSidecarEvidenceItem
 	reviews            map[string]map[string]ProjectCairnlineSidecarReviewItem
 	handoffs           map[string]map[string]ProjectCairnlineSidecarHandoffItem
+	memoryEntries      map[string]map[string]ProjectCairnlineSidecarMemoryEntryItem
+	memoryCandidates   map[string]map[string]ProjectCairnlineSidecarMemoryCandidateItem
 }
 
 func cairnlineSidecarFixtureTools(mode string) []mcp.Tool {
@@ -569,6 +575,8 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 		delete(state.evidence, input.ID)
 		delete(state.reviews, input.ID)
 		delete(state.handoffs, input.ID)
+		delete(state.memoryEntries, input.ID)
+		delete(state.memoryCandidates, input.ID)
 		return mcp.CallToolResult{Content: mcp.TextContent("Deleted project " + input.ID)}, nil
 	case "roles.create":
 		var input struct {
@@ -1106,6 +1114,235 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 			return mcp.CallToolResult{Content: mcp.TextContent("fixture handoff not found: " + input.HandoffID), IsError: true}, nil
 		}
 		return mcp.CallToolResult{Content: mcp.TextContent("Handoff " + input.HandoffID), StructuredContent: mustRawJSON(handoff)}, nil
+	case "memory_entries.create":
+		var input struct {
+			ProjectID  string `json:"project_id"`
+			Title      string `json:"title"`
+			Body       string `json:"body"`
+			TrustLabel string `json:"trust_label"`
+			SourceKind string `json:"source_kind"`
+			SourceID   string `json:"source_id"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid memory_entries.create arguments")
+		}
+		if input.ProjectID == "" || input.Title == "" || input.Body == "" {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "missing memory entry create arguments")
+		}
+		state.memorySequence++
+		id := fmt.Sprintf("mem_write_fixture_%d", state.memorySequence)
+		entry := ProjectCairnlineSidecarMemoryEntryItem{
+			ProjectID:  input.ProjectID,
+			ID:         id,
+			Title:      input.Title,
+			Body:       input.Body,
+			TrustLabel: firstNonEmpty(input.TrustLabel, "operator_memory"),
+			SourceKind: input.SourceKind,
+			SourceID:   input.SourceID,
+			Enabled:    true,
+		}
+		cairnlineSidecarFixtureEnsureMemoryEntries(state, input.ProjectID)[id] = entry
+		return mcp.CallToolResult{Content: mcp.TextContent("Created memory entry " + id + ": " + input.Title)}, nil
+	case "memory_entries.list":
+		var input struct {
+			ProjectID       string `json:"project_id"`
+			IncludeDisabled bool   `json:"include_disabled"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid memory_entries.list arguments")
+		}
+		items := cairnlineSidecarFixtureProjectMemoryEntries(state, input.ProjectID, input.IncludeDisabled)
+		return cairnlineSidecarFixtureListResult(mode, fmt.Sprintf("Memory entries for %s (%d)", input.ProjectID, len(items)), items)
+	case "memory_entries.get":
+		var input struct {
+			ProjectID string `json:"project_id"`
+			MemoryID  string `json:"memory_id"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid memory_entries.get arguments")
+		}
+		entry, ok := state.memoryEntries[input.ProjectID][input.MemoryID]
+		if !ok {
+			return mcp.CallToolResult{Content: mcp.TextContent("fixture memory entry not found: " + input.MemoryID), IsError: true}, nil
+		}
+		return mcp.CallToolResult{Content: mcp.TextContent("Memory entry " + input.MemoryID), StructuredContent: mustRawJSON(entry)}, nil
+	case "memory_entries.update":
+		var input struct {
+			ProjectID  string  `json:"project_id"`
+			MemoryID   string  `json:"memory_id"`
+			Title      *string `json:"title"`
+			Body       *string `json:"body"`
+			TrustLabel *string `json:"trust_label"`
+			SourceKind *string `json:"source_kind"`
+			SourceID   *string `json:"source_id"`
+			Enabled    *bool   `json:"enabled"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid memory_entries.update arguments")
+		}
+		entries := cairnlineSidecarFixtureEnsureMemoryEntries(state, input.ProjectID)
+		entry, ok := entries[input.MemoryID]
+		if !ok {
+			return mcp.CallToolResult{Content: mcp.TextContent("fixture memory entry not found: " + input.MemoryID), IsError: true}, nil
+		}
+		if input.Title != nil {
+			entry.Title = *input.Title
+		}
+		if input.Body != nil {
+			entry.Body = *input.Body
+		}
+		if input.TrustLabel != nil {
+			entry.TrustLabel = *input.TrustLabel
+		}
+		if input.SourceKind != nil {
+			entry.SourceKind = *input.SourceKind
+		}
+		if input.SourceID != nil {
+			entry.SourceID = *input.SourceID
+		}
+		if input.Enabled != nil {
+			entry.Enabled = *input.Enabled
+		}
+		entries[input.MemoryID] = entry
+		return mcp.CallToolResult{Content: mcp.TextContent("Updated memory entry " + input.MemoryID + ": " + entry.Title)}, nil
+	case "memory_entries.delete":
+		var input struct {
+			ProjectID string `json:"project_id"`
+			MemoryID  string `json:"memory_id"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid memory_entries.delete arguments")
+		}
+		delete(cairnlineSidecarFixtureEnsureMemoryEntries(state, input.ProjectID), input.MemoryID)
+		return mcp.CallToolResult{Content: mcp.TextContent("Deleted memory entry " + input.MemoryID)}, nil
+	case "memory_candidates.create":
+		var input struct {
+			ProjectID           string                                            `json:"project_id"`
+			Title               string                                            `json:"title"`
+			Body                string                                            `json:"body"`
+			SuggestedKind       string                                            `json:"suggested_kind"`
+			SuggestedTrustLabel string                                            `json:"suggested_trust_label"`
+			SuggestedSourceKind string                                            `json:"suggested_source_kind"`
+			SuggestedSourceID   string                                            `json:"suggested_source_id"`
+			SourceRefs          []ProjectCairnlineSidecarMemoryCandidateSourceRef `json:"source_refs"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid memory_candidates.create arguments")
+		}
+		if input.ProjectID == "" || input.Title == "" || input.Body == "" {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "missing memory candidate create arguments")
+		}
+		state.candidateSequence++
+		id := fmt.Sprintf("memcand_write_fixture_%d", state.candidateSequence)
+		candidate := ProjectCairnlineSidecarMemoryCandidateItem{
+			ProjectID:           input.ProjectID,
+			ID:                  id,
+			Title:               input.Title,
+			Body:                input.Body,
+			SuggestedKind:       input.SuggestedKind,
+			SuggestedTrustLabel: firstNonEmpty(input.SuggestedTrustLabel, "generated_summary"),
+			SuggestedSourceKind: firstNonEmpty(input.SuggestedSourceKind, "generated"),
+			SuggestedSourceID:   input.SuggestedSourceID,
+			SourceRefs:          input.SourceRefs,
+			Status:              "pending",
+		}
+		cairnlineSidecarFixtureEnsureMemoryCandidates(state, input.ProjectID)[id] = candidate
+		return mcp.CallToolResult{Content: mcp.TextContent("Created memory candidate " + id + ": " + input.Title)}, nil
+	case "memory_candidates.list":
+		var input struct {
+			ProjectID       string `json:"project_id"`
+			IncludeResolved bool   `json:"include_resolved"`
+			Status          string `json:"status"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid memory_candidates.list arguments")
+		}
+		items := cairnlineSidecarFixtureProjectMemoryCandidates(state, input.ProjectID, input.IncludeResolved, input.Status)
+		return cairnlineSidecarFixtureListResult(mode, fmt.Sprintf("Memory candidates for %s (%d)", input.ProjectID, len(items)), items)
+	case "memory_candidates.get":
+		var input struct {
+			ProjectID   string `json:"project_id"`
+			CandidateID string `json:"candidate_id"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid memory_candidates.get arguments")
+		}
+		candidate, ok := state.memoryCandidates[input.ProjectID][input.CandidateID]
+		if !ok {
+			return mcp.CallToolResult{Content: mcp.TextContent("fixture memory candidate not found: " + input.CandidateID), IsError: true}, nil
+		}
+		return mcp.CallToolResult{Content: mcp.TextContent("Memory candidate " + input.CandidateID), StructuredContent: mustRawJSON(candidate)}, nil
+	case "memory_candidates.promote":
+		if mode == "memory-candidate-promote-tool-error" {
+			return mcp.CallToolResult{Content: mcp.TextContent("fixture memory_candidates.promote failed"), IsError: true}, nil
+		}
+		var input struct {
+			ProjectID   string `json:"project_id"`
+			CandidateID string `json:"candidate_id"`
+			Title       string `json:"title"`
+			Body        string `json:"body"`
+			TrustLabel  string `json:"trust_label"`
+			SourceKind  string `json:"source_kind"`
+			SourceID    string `json:"source_id"`
+			Enabled     *bool  `json:"enabled"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid memory_candidates.promote arguments")
+		}
+		candidates := cairnlineSidecarFixtureEnsureMemoryCandidates(state, input.ProjectID)
+		candidate, ok := candidates[input.CandidateID]
+		if !ok {
+			return mcp.CallToolResult{Content: mcp.TextContent("fixture memory candidate not found: " + input.CandidateID), IsError: true}, nil
+		}
+		enabled := true
+		if input.Enabled != nil {
+			enabled = *input.Enabled
+		}
+		state.memorySequence++
+		entryID := fmt.Sprintf("mem_write_fixture_%d", state.memorySequence)
+		entry := ProjectCairnlineSidecarMemoryEntryItem{
+			ProjectID:  input.ProjectID,
+			ID:         entryID,
+			Title:      firstNonEmpty(input.Title, candidate.Title),
+			Body:       firstNonEmpty(input.Body, candidate.Body),
+			TrustLabel: firstNonEmpty(input.TrustLabel, candidate.SuggestedTrustLabel, "generated_summary"),
+			SourceKind: firstNonEmpty(input.SourceKind, candidate.SuggestedSourceKind, "generated"),
+			SourceID:   firstNonEmpty(input.SourceID, candidate.SuggestedSourceID),
+			Enabled:    enabled,
+		}
+		cairnlineSidecarFixtureEnsureMemoryEntries(state, input.ProjectID)[entryID] = entry
+		candidate.Status = "promoted"
+		candidate.PromotedMemoryID = entryID
+		candidates[input.CandidateID] = candidate
+		return mcp.CallToolResult{Content: mcp.TextContent("Promoted memory candidate " + input.CandidateID + " to memory entry " + entryID), StructuredContent: mustRawJSON(candidate)}, nil
+	case "memory_candidates.reject":
+		var input struct {
+			ProjectID   string `json:"project_id"`
+			CandidateID string `json:"candidate_id"`
+			Reason      string `json:"reason"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid memory_candidates.reject arguments")
+		}
+		candidates := cairnlineSidecarFixtureEnsureMemoryCandidates(state, input.ProjectID)
+		candidate, ok := candidates[input.CandidateID]
+		if !ok {
+			return mcp.CallToolResult{Content: mcp.TextContent("fixture memory candidate not found: " + input.CandidateID), IsError: true}, nil
+		}
+		candidate.Status = "rejected"
+		candidate.StatusReason = input.Reason
+		candidates[input.CandidateID] = candidate
+		return mcp.CallToolResult{Content: mcp.TextContent("Rejected memory candidate " + input.CandidateID), StructuredContent: mustRawJSON(candidate)}, nil
+	case "memory_candidates.delete":
+		var input struct {
+			ProjectID   string `json:"project_id"`
+			CandidateID string `json:"candidate_id"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid memory_candidates.delete arguments")
+		}
+		delete(cairnlineSidecarFixtureEnsureMemoryCandidates(state, input.ProjectID), input.CandidateID)
+		return mcp.CallToolResult{Content: mcp.TextContent("Deleted memory candidate " + input.CandidateID)}, nil
 	default:
 		return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeMethodNotFound, params.Name)
 	}
@@ -1306,6 +1543,47 @@ func cairnlineSidecarFixtureProjectHandoffs(state *cairnlineSidecarFixtureState,
 		}
 	}
 	return handoffs
+}
+
+func cairnlineSidecarFixtureEnsureMemoryEntries(state *cairnlineSidecarFixtureState, projectID string) map[string]ProjectCairnlineSidecarMemoryEntryItem {
+	if state.memoryEntries[projectID] == nil {
+		state.memoryEntries[projectID] = make(map[string]ProjectCairnlineSidecarMemoryEntryItem)
+	}
+	return state.memoryEntries[projectID]
+}
+
+func cairnlineSidecarFixtureProjectMemoryEntries(state *cairnlineSidecarFixtureState, projectID string, includeDisabled bool) []ProjectCairnlineSidecarMemoryEntryItem {
+	entriesByID := state.memoryEntries[projectID]
+	entries := make([]ProjectCairnlineSidecarMemoryEntryItem, 0, len(entriesByID))
+	for _, entry := range entriesByID {
+		if !includeDisabled && !entry.Enabled {
+			continue
+		}
+		entries = append(entries, entry)
+	}
+	return entries
+}
+
+func cairnlineSidecarFixtureEnsureMemoryCandidates(state *cairnlineSidecarFixtureState, projectID string) map[string]ProjectCairnlineSidecarMemoryCandidateItem {
+	if state.memoryCandidates[projectID] == nil {
+		state.memoryCandidates[projectID] = make(map[string]ProjectCairnlineSidecarMemoryCandidateItem)
+	}
+	return state.memoryCandidates[projectID]
+}
+
+func cairnlineSidecarFixtureProjectMemoryCandidates(state *cairnlineSidecarFixtureState, projectID string, includeResolved bool, status string) []ProjectCairnlineSidecarMemoryCandidateItem {
+	candidatesByID := state.memoryCandidates[projectID]
+	candidates := make([]ProjectCairnlineSidecarMemoryCandidateItem, 0, len(candidatesByID))
+	for _, candidate := range candidatesByID {
+		if status != "" && candidate.Status != status {
+			continue
+		}
+		if status == "" && !includeResolved && candidate.Status != "pending" {
+			continue
+		}
+		candidates = append(candidates, candidate)
+	}
+	return candidates
 }
 
 func cairnlineSidecarFixtureListResult(mode, text string, structured any) (mcp.CallToolResult, *mcp.RPCError) {
