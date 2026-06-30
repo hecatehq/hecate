@@ -139,7 +139,7 @@ func projectCairnlineConnectorReady(mode string) bool {
 func projectCairnlineConnectorDetail(mode string) string {
 	switch mode {
 	case "sidecar":
-		return "Cairnline sidecar connector is configured and can be exercised through local-only probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle/write/setup/work/collaboration/memory diagnostics, but Hecate does not yet route Projects reads or writes through the standalone Cairnline MCP client."
+		return "Cairnline sidecar connector is configured and can be exercised through local-only probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle/write/setup/work/collaboration/memory/assistant diagnostics, but Hecate does not yet route Projects reads or writes through the standalone Cairnline MCP client."
 	default:
 		return "Hecate is using the embedded Cairnline Go package bridge for replacement-readiness dogfood."
 	}
@@ -149,7 +149,7 @@ func projectCairnlineConnectorWarning(mode string) string {
 	if mode != "sidecar" {
 		return ""
 	}
-	return "HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar enables standalone Cairnline MCP probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle/write/setup/work/collaboration/memory diagnostic surfaces only; Cairnline read/write routing stays disabled until Hecate has a sidecar Projects backend adapter."
+	return "HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar enables standalone Cairnline MCP probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle/write/setup/work/collaboration/memory/assistant diagnostic surfaces only; Cairnline read/write routing stays disabled until Hecate has a sidecar Projects backend adapter."
 }
 
 func (h *Handler) HandleProjectCairnlineSidecarProbe(w http.ResponseWriter, r *http.Request) {
