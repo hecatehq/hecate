@@ -1057,6 +1057,16 @@ func TestProjectWorkAPI_CairnlineAssignmentAuthorityWritesCairnlineAndShadowsHec
 	if shadow.DriverKind != projectwork.AssignmentDriverHecateTask || shadow.Status != projectwork.AssignmentStatusQueued || shadow.ExecutionRef.ContextSnapshotID != "ctx_authority" {
 		t.Fatalf("Hecate shadow assignment = %+v, want compatibility shadow", shadow)
 	}
+	startedAt := time.Date(2026, 6, 30, 10, 30, 0, 0, time.UTC)
+	completedAt := startedAt.Add(2 * time.Minute)
+	contextPacket := []byte(`{"id":"ctx_authority","items":[{"kind":"project_work","body":"persisted"}]}`)
+	if _, err := handler.projectWork.UpdateAssignment(t.Context(), projectID, "asgn_authority", func(item *projectwork.Assignment) {
+		item.ContextPacket = append([]byte(nil), contextPacket...)
+		item.StartedAt = startedAt
+		item.CompletedAt = completedAt
+	}); err != nil {
+		t.Fatalf("seed assignment runtime shadow: %v", err)
+	}
 
 	updated := mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusOK, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/assignments/asgn_authority", projectJourneyJSON(t, map[string]any{
 		"driver_kind": projectwork.AssignmentDriverExternalAgent,
@@ -1081,6 +1091,9 @@ func TestProjectWorkAPI_CairnlineAssignmentAuthorityWritesCairnlineAndShadowsHec
 	shadow = getStoredProjectWorkAssignmentForTest(t, handler, projectID, "work_authority", "asgn_authority")
 	if shadow.DriverKind != projectwork.AssignmentDriverExternalAgent || shadow.Status != projectwork.AssignmentStatusCompleted || shadow.ExecutionRef.ChatSessionID != "chat_authority" {
 		t.Fatalf("updated Hecate shadow assignment = %+v, want compatibility shadow update", shadow)
+	}
+	if string(shadow.ContextPacket) != string(contextPacket) || !shadow.StartedAt.Equal(startedAt) || !shadow.CompletedAt.Equal(completedAt) {
+		t.Fatalf("updated Hecate shadow runtime fields = packet %s started %v completed %v, want preserved packet/timestamps", string(shadow.ContextPacket), shadow.StartedAt, shadow.CompletedAt)
 	}
 
 	client.mustRequestStatus(http.StatusNoContent, http.MethodDelete, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/assignments/asgn_authority", "")
