@@ -1401,6 +1401,73 @@ func TestProjectWorkAPI_RolesCairnlineSidecarReadRequiresStructuredContent(t *te
 	}
 }
 
+func TestProjectWorkAPI_WorkItemsUseCairnlineSidecarWhenConfigured(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "full")
+	if handler.projectReadRoutesUseCairnlineReadModel() {
+		t.Fatal("sidecar work-item list enabled embedded Cairnline read-model routes")
+	}
+	if !handler.projectCairnlineSidecarReadRoutesEnabled() {
+		t.Fatal("sidecar read-route predicate = false, want true")
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("work-items status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response ProjectWorkItemsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode work-items response: %v", err)
+	}
+	if response.Object != "project_work_items" {
+		t.Fatalf("work-items object = %q, want project_work_items", response.Object)
+	}
+	item := findProjectWorkItemForTest(t, response.Data, "work_fixture")
+	if item.ProjectID != "proj_fixture" || item.ReadBackend != "cairnline" || item.Title != "Fixture Work" {
+		t.Fatalf("work item = %+v, want sidecar Cairnline fixture work item", item)
+	}
+	if item.Status != "open" || item.Priority != "normal" {
+		t.Fatalf("work item status/priority = %q/%q, want portable sidecar values", item.Status, item.Priority)
+	}
+	if len(item.Assignments) != 1 || item.Assignments[0].ID != "asg_fixture" || item.Assignments[0].ReadBackend != "cairnline" || item.Assignments[0].RoleID != "role_fixture" {
+		t.Fatalf("work item assignments = %+v, want sidecar assignment summary", item.Assignments)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("work-item detail status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var detail ProjectWorkItemEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil {
+		t.Fatalf("decode work-item detail response: %v", err)
+	}
+	if detail.Object != "project_work_item" || detail.Data.ID != "work_fixture" || detail.Data.ReadBackend != "cairnline" || len(detail.Data.Assignments) != 1 {
+		t.Fatalf("work-item detail = %+v, want sidecar Cairnline detail", detail)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/missing", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing work-item status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+}
+
+func TestProjectWorkAPI_WorkItemsCairnlineSidecarReadRequiresStructuredContent(t *testing.T) {
+	t.Parallel()
+	_, server := newProjectsCairnlineSidecarReadTestServer(t, "text-only")
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items", nil))
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("work-items status = %d body=%s, want 502", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "structuredContent") {
+		t.Fatalf("error body = %s, want structuredContent diagnostic", rec.Body.String())
+	}
+}
+
 func TestProjectWorkAPI_CreateHandoffGeneratesOpaqueHandoffID(t *testing.T) {
 	t.Parallel()
 	_, server := newProjectWorkTestServer()

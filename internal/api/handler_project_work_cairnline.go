@@ -158,6 +158,9 @@ func (h *Handler) renderCairnlineProjectWorkRoles(ctx context.Context, projectID
 }
 
 func (h *Handler) renderProjectWorkItems(ctx context.Context, projectID string) ([]ProjectWorkItemResponse, error) {
+	if h.projectCairnlineSidecarReadRoutesEnabled() {
+		return h.renderCairnlineSidecarProjectWorkItems(ctx, projectID)
+	}
 	if h.projectReadRoutesUseCairnlineReadModel() {
 		return h.renderCairnlineProjectWorkItems(ctx, projectID)
 	}
@@ -185,6 +188,52 @@ func (h *Handler) renderNativeProjectWorkItems(ctx context.Context, projectID st
 		data = append(data, projected)
 	}
 	return data, nil
+}
+
+func (h *Handler) renderCairnlineSidecarProjectWorkItems(ctx context.Context, projectID string) ([]ProjectWorkItemResponse, error) {
+	projectItem, ok, err := h.cairnlineSidecarProject(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, projects.ErrNotFound
+	}
+	project := projectFromCairnlineSidecar(projectItem)
+	items, err := h.cairnlineSidecarProjectWorkItems(ctx, project.ID)
+	if err != nil {
+		return nil, err
+	}
+	assignments, err := h.cairnlineSidecarProjectAssignments(ctx, project.ID)
+	if err != nil {
+		return nil, err
+	}
+	workItems := projectWorkItemsFromCairnlineSidecar(items)
+	assignmentsByWorkItem := groupProjectWorkAssignmentsByWorkItem(projectAssignmentsFromCairnlineSidecar(assignments))
+	data := make([]ProjectWorkItemResponse, 0, len(workItems))
+	for _, item := range workItems {
+		projected, err := h.renderProjectedProjectWorkItemWithAssignments(ctx, item, assignmentsByWorkItem[item.ID])
+		if err != nil {
+			return nil, err
+		}
+		projected.ReadBackend = "cairnline"
+		markProjectWorkAssignmentReadBackend(projected.Assignments, "cairnline")
+		data = append(data, projected)
+	}
+	return data, nil
+}
+
+func (h *Handler) renderCairnlineSidecarProjectWorkItem(ctx context.Context, projectID, workItemID string) (ProjectWorkItemResponse, error) {
+	items, err := h.renderCairnlineSidecarProjectWorkItems(ctx, projectID)
+	if err != nil {
+		return ProjectWorkItemResponse{}, err
+	}
+	workItemID = strings.TrimSpace(workItemID)
+	for _, item := range items {
+		if item.ID == workItemID {
+			return item, nil
+		}
+	}
+	return ProjectWorkItemResponse{}, projectwork.ErrNotFound
 }
 
 func (h *Handler) renderCairnlineProjectWorkItems(ctx context.Context, projectID string) ([]ProjectWorkItemResponse, error) {

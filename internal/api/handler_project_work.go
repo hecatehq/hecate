@@ -451,12 +451,16 @@ func (h *Handler) HandleDeleteProjectWorkRole(w http.ResponseWriter, r *http.Req
 
 func (h *Handler) HandleProjectWorkItems(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
-	if !h.requireProject(w, r, projectID) {
+	if !h.projectCairnlineSidecarReadRoutesEnabled() && !h.requireProject(w, r, projectID) {
 		return
 	}
 	data, err := h.renderProjectWorkItems(r.Context(), projectID)
 	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		if errors.Is(err, projects.ErrNotFound) {
+			WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
+			return
+		}
+		writeProjectReadRenderError(w, err)
 		return
 	}
 	WriteJSON(w, http.StatusOK, ProjectWorkItemsResponse{Object: "project_work_items", Data: data})
@@ -507,7 +511,24 @@ func (h *Handler) HandleCreateProjectWorkItem(w http.ResponseWriter, r *http.Req
 
 func (h *Handler) HandleProjectWorkItem(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
-	if !h.requireProject(w, r, projectID) {
+	if !h.projectCairnlineSidecarReadRoutesEnabled() && !h.requireProject(w, r, projectID) {
+		return
+	}
+	if h.projectCairnlineSidecarReadRoutesEnabled() {
+		projected, err := h.renderCairnlineSidecarProjectWorkItem(r.Context(), projectID, r.PathValue("work_item_id"))
+		if err != nil {
+			if errors.Is(err, projects.ErrNotFound) {
+				WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
+				return
+			}
+			if errors.Is(err, projectwork.ErrNotFound) {
+				WriteError(w, http.StatusNotFound, errCodeNotFound, "work item not found")
+				return
+			}
+			writeProjectReadRenderError(w, err)
+			return
+		}
+		WriteJSON(w, http.StatusOK, ProjectWorkItemEnvelope{Object: "project_work_item", Data: projected})
 		return
 	}
 	if h.projectReadRoutesUseCairnlineReadModel() {
