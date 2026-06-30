@@ -47,7 +47,7 @@ liveness probe and every other path requires trusted trusted proxy headers:
 context, exposed from `GET /hecate/v1/whoami` as `data.remote_identity`, added to
 the top-level HTTP span attributes, and accepted in place of the local
 runtime/inference shared tokens. Remote mode rejects local-only endpoints for
-workspace picker/open, reset-data, shutdown, MCP probe, Cairnline sidecar probe/connect,
+workspace picker/open, reset-data, shutdown, MCP probe, Cairnline sidecar probe/connect/read smoke,
 plugin-registry management, agent-adapter authenticate, and local provider and MCP registry discovery. Hecate-native `/hecate/v1/*` routes are explicitly
 classified for remote mode, and route coverage tests fail when a new registered
 route is not marked remote-safe or local-only.
@@ -467,9 +467,10 @@ sequenceDiagram
   `embedded` is the current replacement-readiness path: Hecate uses the
   embedded Cairnline Go package bridge and optional embedded mirror database.
   `sidecar` can start a standalone Cairnline MCP process through the
-  local-only `sidecar-probe` endpoint or connect a cached client through
-  `POST /hecate/v1/projects/cairnline/sidecar-connect`, but live Projects reads
-  and writes still use Hecate-native stores.
+  local-only `sidecar-probe` endpoint, connect a cached client through
+  `POST /hecate/v1/projects/cairnline/sidecar-connect`, or call read-only
+  `projects.list` through `POST /hecate/v1/projects/cairnline/sidecar-read-smoke`,
+  but live Projects reads and writes still use Hecate-native stores.
 - `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=auto|snapshot|embedded` controls which
   Cairnline service backing configured read routes use while
   `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and
@@ -2475,7 +2476,9 @@ creating or repairing it. `sync_readiness_url` points at the all-project
 embedded SQLite rehearsal sync, which replaces that database from Hecate stores.
 `cairnline_sidecar_probe_url` points at the local-only one-shot standalone
 Cairnline MCP contract probe. `cairnline_sidecar_connect_url` points at the
-local-only cached-client connect surface. Neither changes live route authority.
+local-only cached-client connect surface. `cairnline_sidecar_read_url` points at
+the local-only read smoke that calls Cairnline's read-only `projects.list` tool
+through that cached client. None of these changes live route authority.
 
 Example response, with `write_switchpoints` shortened for readability:
 
@@ -2657,7 +2660,8 @@ Example response, with `write_switchpoints` shortened for readability:
     "sync_readiness_url": "/hecate/v1/projects/cairnline/sync",
     "mirror_parity_url": "/hecate/v1/projects/cairnline/mirror-parity",
     "cairnline_sidecar_probe_url": "/hecate/v1/projects/cairnline/sidecar-probe",
-    "cairnline_sidecar_connect_url": "/hecate/v1/projects/cairnline/sidecar-connect"
+    "cairnline_sidecar_connect_url": "/hecate/v1/projects/cairnline/sidecar-connect",
+    "cairnline_sidecar_read_url": "/hecate/v1/projects/cairnline/sidecar-read-smoke"
   }
 }
 ```
@@ -2757,6 +2761,53 @@ Example response, shortened:
     "required_tools": ["projects.list", "projects.create"],
     "missing_tools": [],
     "tools": [{ "name": "projects.list" }],
+    "warnings": []
+  }
+}
+```
+
+### `POST /hecate/v1/projects/cairnline/sidecar-read-smoke`
+
+Local-only standalone Cairnline MCP read smoke. It uses the same sidecar
+command, database, timeout, and Cairnline-specific MCP client cache as
+`sidecar-connect`, then calls the read-only `projects.list` tool with empty
+arguments. This proves Hecate can perform a real MCP tool call through the
+persistent standalone Cairnline sidecar. It is diagnostic only: Hecate still
+keeps live Projects reads, writes, mirrors, dispatch, approvals, and
+write-authority switchpoints on Hecate-native stores in sidecar mode.
+
+The response reports:
+
+- `tool="projects.list"` and `read_only=true` for the called tool.
+- `tool_text` with the flattened MCP text result.
+- `tool_is_error=true` when Cairnline returned a tool-level MCP error rather
+  than a transport/protocol error.
+- `structured_content` and `_meta` when the MCP result carries those optional
+  fields.
+- The same persistent-client cache counters as `sidecar-connect`.
+
+Example response, shortened:
+
+```json
+{
+  "object": "project_cairnline_sidecar_read",
+  "data": {
+    "ready": true,
+    "status": "sidecar_read_ready",
+    "detail": "Hecate called the read-only Cairnline sidecar projects.list tool through the persistent sidecar client. Hecate still keeps live Projects reads and writes on Hecate-native stores in sidecar mode.",
+    "command": "cairnline",
+    "args": ["-db", "/Users/alice/.local/share/hecate/cairnline/projects.db"],
+    "database_path": "/Users/alice/.local/share/hecate/cairnline/projects.db",
+    "probe_timeout_ms": 10000,
+    "persistent_client": true,
+    "client_cache_configured": true,
+    "client_cache_entries": 1,
+    "client_cache_in_use": 0,
+    "client_cache_idle": 1,
+    "tool": "projects.list",
+    "read_only": true,
+    "tool_text": "Projects (1):\n- proj_123: Example Project",
+    "tool_is_error": false,
     "warnings": []
   }
 }

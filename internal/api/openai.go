@@ -577,6 +577,7 @@ type ProjectCoordinationBackendStatusResponse struct {
 	ReplacementReadinessURL    string                                       `json:"replacement_readiness_url,omitempty"`
 	CairnlineSidecarProbeURL   string                                       `json:"cairnline_sidecar_probe_url,omitempty"`
 	CairnlineSidecarConnectURL string                                       `json:"cairnline_sidecar_connect_url,omitempty"`
+	CairnlineSidecarReadURL    string                                       `json:"cairnline_sidecar_read_url,omitempty"`
 	EmbeddedReadModelURL       string                                       `json:"embedded_read_model_url,omitempty"`
 	EmbeddedParityReportURL    string                                       `json:"embedded_parity_report_url,omitempty"`
 	SyncReadinessURL           string                                       `json:"sync_readiness_url,omitempty"`
@@ -1673,6 +1674,11 @@ type ProjectCairnlineSidecarClientEnvelope struct {
 	Data   ProjectCairnlineSidecarProbeResponse `json:"data"`
 }
 
+type ProjectCairnlineSidecarReadEnvelope struct {
+	Object string                              `json:"object"`
+	Data   ProjectCairnlineSidecarReadResponse `json:"data"`
+}
+
 type ProjectCairnlineSidecarProbeResponse struct {
 	Ready                 bool                     `json:"ready"`
 	Status                string                   `json:"status"`
@@ -1691,6 +1697,28 @@ type ProjectCairnlineSidecarProbeResponse struct {
 	MissingTools          []string                 `json:"missing_tools,omitempty"`
 	Tools                 []MCPProbeToolDescriptor `json:"tools,omitempty"`
 	Warnings              []string                 `json:"warnings,omitempty"`
+}
+
+type ProjectCairnlineSidecarReadResponse struct {
+	Ready                 bool            `json:"ready"`
+	Status                string          `json:"status"`
+	Detail                string          `json:"detail"`
+	Command               string          `json:"command"`
+	Args                  []string        `json:"args,omitempty"`
+	DatabasePath          string          `json:"database_path,omitempty"`
+	ProbeTimeoutMS        int64           `json:"probe_timeout_ms"`
+	PersistentClient      bool            `json:"persistent_client,omitempty"`
+	ClientCacheConfigured bool            `json:"client_cache_configured,omitempty"`
+	ClientCacheEntries    int             `json:"client_cache_entries,omitempty"`
+	ClientCacheInUse      int             `json:"client_cache_in_use,omitempty"`
+	ClientCacheIdle       int             `json:"client_cache_idle,omitempty"`
+	Tool                  string          `json:"tool"`
+	ReadOnly              bool            `json:"read_only"`
+	ToolText              string          `json:"tool_text,omitempty"`
+	ToolIsError           bool            `json:"tool_is_error,omitempty"`
+	StructuredContent     json.RawMessage `json:"structured_content,omitempty"`
+	Meta                  json.RawMessage `json:"meta,omitempty"`
+	Warnings              []string        `json:"warnings,omitempty"`
 }
 
 // MCPCacheStatsResponse is the wire shape for GET /hecate/v1/system/mcp/cache.

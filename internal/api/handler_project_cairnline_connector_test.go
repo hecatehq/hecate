@@ -175,3 +175,58 @@ func TestProjectCairnlineSidecarConnect_MissingRequiredTools(t *testing.T) {
 		t.Fatalf("missing tools = %+v, want representative missing contract tools", got.MissingTools)
 	}
 }
+
+func TestProjectCairnlineSidecarReadSmoke_ProjectsListUsesPersistentClientCache(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "full"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarReadSmoke(t.Context())
+	if !got.Ready || got.Status != "sidecar_read_ready" {
+		t.Fatalf("read smoke = %+v, want ready", got)
+	}
+	if got.Tool != "projects.list" || !got.ReadOnly || got.ToolIsError {
+		t.Fatalf("tool fields = tool:%q read_only:%t is_error:%t, want projects.list read-only success", got.Tool, got.ReadOnly, got.ToolIsError)
+	}
+	if !strings.Contains(got.ToolText, "proj_fixture") {
+		t.Fatalf("tool text = %q, want fixture project evidence", got.ToolText)
+	}
+	if !got.PersistentClient || !got.ClientCacheConfigured {
+		t.Fatalf("read smoke persistent/cache flags = persistent:%t configured:%t, want true/true", got.PersistentClient, got.ClientCacheConfigured)
+	}
+	if got.ClientCacheEntries != 1 || got.ClientCacheInUse != 0 || got.ClientCacheIdle != 1 {
+		t.Fatalf("cache stats = entries:%d in_use:%d idle:%d, want 1/0/1", got.ClientCacheEntries, got.ClientCacheInUse, got.ClientCacheIdle)
+	}
+}
+
+func TestProjectCairnlineSidecarReadSmoke_ToolLevelError(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "tool-error"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarReadSmoke(t.Context())
+	if got.Ready || got.Status != "sidecar_read_tool_failed" {
+		t.Fatalf("read smoke = %+v, want tool-level failure", got)
+	}
+	if !got.ToolIsError {
+		t.Fatalf("tool_is_error = false, want true")
+	}
+	if !strings.Contains(got.ToolText, "fixture projects.list failed") {
+		t.Fatalf("tool text = %q, want fixture tool-level error evidence", got.ToolText)
+	}
+	if got.ClientCacheEntries != 1 || got.ClientCacheInUse != 0 || got.ClientCacheIdle != 1 {
+		t.Fatalf("cache stats = entries:%d in_use:%d idle:%d, want 1/0/1", got.ClientCacheEntries, got.ClientCacheInUse, got.ClientCacheIdle)
+	}
+}
