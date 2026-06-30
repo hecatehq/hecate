@@ -47,8 +47,10 @@ liveness probe and every other path requires trusted trusted proxy headers:
 context, exposed from `GET /hecate/v1/whoami` as `data.remote_identity`, added to
 the top-level HTTP span attributes, and accepted in place of the local
 runtime/inference shared tokens. Remote mode rejects local-only endpoints for
-workspace picker/open, reset-data, shutdown, MCP probe, Cairnline sidecar probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle/write/setup smoke,
-plugin-registry management, agent-adapter authenticate, and local provider and MCP registry discovery. Hecate-native `/hecate/v1/*` routes are explicitly
+workspace picker/open, reset-data, shutdown, MCP probe, Cairnline sidecar
+probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle/write/setup/work
+smoke, plugin-registry management, agent-adapter authenticate, and local
+provider and MCP registry discovery. Hecate-native `/hecate/v1/*` routes are explicitly
 classified for remote mode, and route coverage tests fail when a new registered
 route is not marked remote-safe or local-only.
 
@@ -485,8 +487,13 @@ sequenceDiagram
   `sidecar-setup-smoke` is the project setup metadata mutation smoke: after
   `confirm_mutation=true`, it creates a temporary standalone Cairnline project,
   creates/updates/lists/deletes a root and context source, then deletes and
-  verifies removal of the temporary project. Live Projects reads and writes
-  still use Hecate-native stores.
+  verifies removal of the temporary project. `sidecar-work-smoke` is the
+  project work coordination mutation smoke: after `confirm_mutation=true`, it
+  creates a temporary standalone Cairnline project, role, work item, and queued
+  MCP-pull assignment, verifies `assignments.context` and
+  `assignments.launch_packet` for that assignment, then deletes and verifies
+  removal of the temporary project. Live Projects reads and writes still use
+  Hecate-native stores.
 - `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=auto|snapshot|embedded` controls which
   Cairnline service backing configured read routes use while
   `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and
@@ -2500,8 +2507,9 @@ using either an explicit `project_id` or the first typed project from
 `projects.list`. The remaining sidecar smoke URLs cover coordination list
 tools, assignment context, launch packets, the explicitly confirmed standalone
 assignment lifecycle, the explicitly confirmed temporary-project write smoke,
-and the explicitly confirmed temporary root/context-source setup smoke. None of
-these changes live route authority.
+the explicitly confirmed temporary root/context-source setup smoke, and the
+explicitly confirmed temporary role/work/assignment/context/launch-packet work
+smoke. None of these changes live route authority.
 
 Example response, with `write_switchpoints` shortened for readability:
 
@@ -2691,7 +2699,8 @@ Example response, with `write_switchpoints` shortened for readability:
     "cairnline_sidecar_launch_packet_url": "/hecate/v1/projects/cairnline/sidecar-launch-packet-smoke",
     "cairnline_sidecar_lifecycle_url": "/hecate/v1/projects/cairnline/sidecar-lifecycle-smoke",
     "cairnline_sidecar_setup_url": "/hecate/v1/projects/cairnline/sidecar-setup-smoke",
-    "cairnline_sidecar_write_url": "/hecate/v1/projects/cairnline/sidecar-write-smoke"
+    "cairnline_sidecar_write_url": "/hecate/v1/projects/cairnline/sidecar-write-smoke",
+    "cairnline_sidecar_work_url": "/hecate/v1/projects/cairnline/sidecar-work-smoke"
   }
 }
 ```
@@ -3520,6 +3529,127 @@ Example response, shortened:
       "title": "Setup smoke guidance updated",
       "locator": "AGENTS.md",
       "enabled": false
+    },
+    "warnings": []
+  }
+}
+```
+
+### `POST /hecate/v1/projects/cairnline/sidecar-work-smoke`
+
+Local-only standalone Cairnline MCP project work coordination smoke. This
+endpoint mutates only the standalone Cairnline sidecar database after explicit
+confirmation. It does not mutate Hecate-native Projects stores, does not start
+a Hecate Task, does not launch an External Agent, and does not make Cairnline
+authoritative for live Projects routes.
+
+Without `confirm_mutation=true`, the endpoint returns
+`sidecar_work_confirmation_required` and makes no sidecar tool calls. With
+confirmation, Hecate uses the same sidecar command, database, timeout, and
+Cairnline-specific MCP client cache as `sidecar-connect`.
+
+The smoke creates a temporary rootless project, finds it through typed
+`projects.list`, creates a project role through `roles.create`, verifies it
+through typed `roles.list`, creates a work item through `work_items.create`,
+verifies it through typed `work_items.list`, creates a queued `mcp_pull`
+assignment through `assignments.create`, verifies it through typed
+`assignments.list`, reads typed `assignments.context`, reads typed
+`assignments.launch_packet`, then deletes the temporary project and expects a
+final `projects.get` to return a tool-level missing/error result. If a step
+fails after the temporary project id is known, Hecate attempts a best-effort
+project cleanup delete and verifies that cleanup through another `projects.get`.
+
+Example request:
+
+```json
+{
+  "confirm_mutation": true,
+  "project_name": "Hecate sidecar work smoke"
+}
+```
+
+Example response, shortened:
+
+```json
+{
+  "object": "project_cairnline_sidecar_work",
+  "data": {
+    "ready": true,
+    "status": "sidecar_work_ready",
+    "detail": "Hecate created and verified temporary standalone Cairnline role, work item, assignment, assignment context, and launch packet metadata through the persistent sidecar client, then deleted the temporary project. Hecate-native Projects stores were not mutated.",
+    "command": "cairnline",
+    "args": ["-db", "/Users/alice/.local/share/hecate/cairnline/projects.db"],
+    "database_path": "/Users/alice/.local/share/hecate/cairnline/projects.db",
+    "probe_timeout_ms": 10000,
+    "persistent_client": true,
+    "client_cache_configured": true,
+    "confirmed_mutation": true,
+    "project_name": "Hecate sidecar work smoke",
+    "selected_project_id": "proj_123",
+    "role_id": "role_123",
+    "work_item_id": "work_123",
+    "assignment_id": "asg_123",
+    "cleanup_verified": true,
+    "context_ids": {
+      "assignment_id": "asg_123",
+      "project_id": "proj_123",
+      "work_item_id": "work_123",
+      "role_id": "role_123"
+    },
+    "launch_packet_ids": {
+      "launch_packet_id": "launch_123",
+      "kind": "assignment_launch_packet",
+      "project_id": "proj_123",
+      "assignment_id": "asg_123",
+      "work_item_id": "work_123",
+      "role_id": "role_123"
+    },
+    "steps": [
+      {
+        "name": "create_role",
+        "tool": "roles.create",
+        "read_only": false,
+        "status": "ready"
+      },
+      {
+        "name": "read_launch_packet",
+        "tool": "assignments.launch_packet",
+        "read_only": true,
+        "status": "ready",
+        "structured_ready": true,
+        "launch_packet_ids": {
+          "assignment_id": "asg_123",
+          "kind": "assignment_launch_packet"
+        }
+      },
+      {
+        "name": "get_after_project_delete",
+        "tool": "projects.get",
+        "read_only": true,
+        "status": "expected_missing",
+        "tool_is_error": true,
+        "tool_text": "project not found: proj_123"
+      }
+    ],
+    "created_role": {
+      "id": "role_123",
+      "project_id": "proj_123",
+      "name": "Sidecar work smoke operator",
+      "default_execution_mode": "mcp_pull"
+    },
+    "created_work_item": {
+      "id": "work_123",
+      "project_id": "proj_123",
+      "title": "Sidecar work smoke task",
+      "owner_role_id": "role_123"
+    },
+    "created_assignment": {
+      "id": "asg_123",
+      "project_id": "proj_123",
+      "work_item_id": "work_123",
+      "role_id": "role_123",
+      "execution_mode": "mcp_pull",
+      "status": "queued"
     },
     "warnings": []
   }

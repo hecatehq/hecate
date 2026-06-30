@@ -34,6 +34,9 @@ func cairnlineSidecarFixtureMain(mode string) {
 		deletedProjects:  make(map[string]struct{}),
 		roots:            make(map[string]map[string]ProjectCairnlineSidecarRootItem),
 		contextSources:   make(map[string]map[string]ProjectCairnlineSidecarSourceItem),
+		roles:            make(map[string]map[string]ProjectCairnlineSidecarRoleItem),
+		workItems:        make(map[string]map[string]ProjectCairnlineSidecarWorkItem),
+		assignments:      make(map[string]map[string]ProjectCairnlineSidecarAssignmentItem),
 	}
 	for {
 		line, err := in.ReadBytes('\n')
@@ -94,14 +97,20 @@ func cairnlineSidecarFixtureMain(mode string) {
 }
 
 type cairnlineSidecarFixtureState struct {
-	assignmentStatus string
-	claimedBy        string
-	executionRef     string
-	projectSequence  int
-	projects         map[string]ProjectCairnlineSidecarProjectItem
-	deletedProjects  map[string]struct{}
-	roots            map[string]map[string]ProjectCairnlineSidecarRootItem
-	contextSources   map[string]map[string]ProjectCairnlineSidecarSourceItem
+	assignmentStatus   string
+	claimedBy          string
+	executionRef       string
+	projectSequence    int
+	projects           map[string]ProjectCairnlineSidecarProjectItem
+	deletedProjects    map[string]struct{}
+	roots              map[string]map[string]ProjectCairnlineSidecarRootItem
+	contextSources     map[string]map[string]ProjectCairnlineSidecarSourceItem
+	roleSequence       int
+	workSequence       int
+	assignmentSequence int
+	roles              map[string]map[string]ProjectCairnlineSidecarRoleItem
+	workItems          map[string]map[string]ProjectCairnlineSidecarWorkItem
+	assignments        map[string]map[string]ProjectCairnlineSidecarAssignmentItem
 }
 
 func cairnlineSidecarFixtureTools(mode string) []mcp.Tool {
@@ -166,37 +175,49 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 			"trust_label": "workspace_skill",
 		}})
 	case "roles.list":
-		return cairnlineSidecarFixtureListResult(mode, "Roles (1):\n- role_fixture: Fixture Reviewer", []map[string]any{{
-			"project_id":                   cairnlineSidecarFixtureProjectID(params.Arguments),
-			"id":                           "role_fixture",
-			"name":                         "Fixture Reviewer",
-			"default_profile_id":           "profile_fixture",
-			"default_execution_mode":       "mcp_pull",
-			"default_skill_ids":            []string{"skill_fixture"},
-			"default_execution_profile_id": "exec_fixture",
+		projectID := cairnlineSidecarFixtureProjectID(params.Arguments)
+		if roles := cairnlineSidecarFixtureProjectRoles(state, projectID); len(roles) > 0 {
+			return cairnlineSidecarFixtureListResult(mode, fmt.Sprintf("Roles (%d)", len(roles)), roles)
+		}
+		return cairnlineSidecarFixtureListResult(mode, "Roles (1):\n- role_fixture: Fixture Reviewer", []ProjectCairnlineSidecarRoleItem{{
+			ProjectID:                 projectID,
+			ID:                        "role_fixture",
+			Name:                      "Fixture Reviewer",
+			DefaultProfileID:          "profile_fixture",
+			DefaultExecutionMode:      "mcp_pull",
+			DefaultSkillIDs:           []string{"skill_fixture"},
+			DefaultExecutionProfileID: "exec_fixture",
 		}})
 	case "work_items.list":
-		return cairnlineSidecarFixtureListResult(mode, "Work items (1):\n- work_fixture: Fixture Work", []map[string]any{{
-			"project_id": cairnlineSidecarFixtureProjectID(params.Arguments),
-			"id":         "work_fixture",
-			"title":      "Fixture Work",
-			"status":     "open",
-			"priority":   "normal",
+		projectID := cairnlineSidecarFixtureProjectID(params.Arguments)
+		if items := cairnlineSidecarFixtureProjectWorkItems(state, projectID); len(items) > 0 {
+			return cairnlineSidecarFixtureListResult(mode, fmt.Sprintf("Work items (%d)", len(items)), items)
+		}
+		return cairnlineSidecarFixtureListResult(mode, "Work items (1):\n- work_fixture: Fixture Work", []ProjectCairnlineSidecarWorkItem{{
+			ProjectID: projectID,
+			ID:        "work_fixture",
+			Title:     "Fixture Work",
+			Status:    "open",
+			Priority:  "normal",
 		}})
 	case "assignments.list":
 		if mode == "assignment-list-empty" {
 			return cairnlineSidecarFixtureListResult(mode, "No assignments yet.", []map[string]any{})
 		}
-		return cairnlineSidecarFixtureListResult(mode, "Assignments (1):\n- asg_fixture: Fixture Assignment", []map[string]any{{
-			"project_id":     cairnlineSidecarFixtureProjectID(params.Arguments),
-			"id":             "asg_fixture",
-			"work_item_id":   "work_fixture",
-			"role_id":        "role_fixture",
-			"profile_id":     "profile_fixture",
-			"execution_mode": "mcp_pull",
-			"status":         state.assignmentStatus,
-			"claimed_by":     state.claimedBy,
-			"execution_ref":  state.executionRef,
+		projectID := cairnlineSidecarFixtureProjectID(params.Arguments)
+		if assignments := cairnlineSidecarFixtureProjectAssignments(state, projectID); len(assignments) > 0 {
+			return cairnlineSidecarFixtureListResult(mode, fmt.Sprintf("Assignments (%d)", len(assignments)), assignments)
+		}
+		return cairnlineSidecarFixtureListResult(mode, "Assignments (1):\n- asg_fixture: Fixture Assignment", []ProjectCairnlineSidecarAssignmentItem{{
+			ProjectID:     projectID,
+			ID:            "asg_fixture",
+			WorkItemID:    "work_fixture",
+			RoleID:        "role_fixture",
+			ProfileID:     "profile_fixture",
+			ExecutionMode: "mcp_pull",
+			Status:        state.assignmentStatus,
+			ClaimedBy:     state.claimedBy,
+			ExecutionRef:  state.executionRef,
 		}})
 	case "assignments.next":
 		if mode == "assignment-list-empty" || state.assignmentStatus != "queued" {
@@ -290,25 +311,39 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 		if input.ProjectID == "" || input.AssignmentID == "" {
 			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "missing assignment context ids")
 		}
+		assignment := ProjectCairnlineSidecarAssignmentItem{
+			ID:            input.AssignmentID,
+			ProjectID:     input.ProjectID,
+			WorkItemID:    "work_fixture",
+			RoleID:        "role_fixture",
+			Status:        state.assignmentStatus,
+			ClaimedBy:     state.claimedBy,
+			ExecutionRef:  state.executionRef,
+			ExecutionMode: "mcp_pull",
+		}
+		if stored, ok := state.assignments[input.ProjectID][input.AssignmentID]; ok {
+			assignment = stored
+		}
 		result := mcp.CallToolResult{Content: mcp.TextContent("Assignment context " + input.AssignmentID + " for project " + input.ProjectID)}
 		if mode != "text-only" {
 			result.StructuredContent = mustRawJSON(map[string]any{
 				"assignment": map[string]any{
-					"id":            input.AssignmentID,
-					"project_id":    input.ProjectID,
-					"work_item_id":  "work_fixture",
-					"role_id":       "role_fixture",
-					"status":        state.assignmentStatus,
-					"claimed_by":    state.claimedBy,
-					"execution_ref": state.executionRef,
+					"id":             assignment.ID,
+					"project_id":     assignment.ProjectID,
+					"work_item_id":   assignment.WorkItemID,
+					"role_id":        assignment.RoleID,
+					"status":         assignment.Status,
+					"claimed_by":     assignment.ClaimedBy,
+					"execution_ref":  assignment.ExecutionRef,
+					"execution_mode": assignment.ExecutionMode,
 				},
 				"work_item": map[string]any{
-					"id":    "work_fixture",
-					"title": "Fixture Work",
+					"id":    assignment.WorkItemID,
+					"title": firstNonEmpty(cairnlineSidecarFixtureWorkItemTitle(state, input.ProjectID, assignment.WorkItemID), "Fixture Work"),
 				},
 				"role": map[string]any{
-					"id":   "role_fixture",
-					"name": "Fixture Reviewer",
+					"id":   assignment.RoleID,
+					"name": firstNonEmpty(cairnlineSidecarFixtureRoleName(state, input.ProjectID, assignment.RoleID), "Fixture Reviewer"),
 				},
 			})
 		}
@@ -330,6 +365,20 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 		if input.ProjectID == "" || input.AssignmentID == "" {
 			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "missing launch packet ids")
 		}
+		assignment := ProjectCairnlineSidecarAssignmentItem{
+			ID:            input.AssignmentID,
+			ProjectID:     input.ProjectID,
+			WorkItemID:    "work_fixture",
+			RoleID:        "role_fixture",
+			ProfileID:     "profile_fixture",
+			ExecutionMode: "mcp_pull",
+			Status:        state.assignmentStatus,
+			ClaimedBy:     state.claimedBy,
+			ExecutionRef:  state.executionRef,
+		}
+		if stored, ok := state.assignments[input.ProjectID][input.AssignmentID]; ok {
+			assignment = stored
+		}
 		result := mcp.CallToolResult{Content: mcp.TextContent("Launch packet launch_fixture for " + input.AssignmentID)}
 		if mode != "text-only" {
 			result.StructuredContent = mustRawJSON(map[string]any{
@@ -340,15 +389,15 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 					"name": "Fixture Project",
 				},
 				"work_item": map[string]any{
-					"id":    "work_fixture",
-					"title": "Fixture Work",
+					"id":    assignment.WorkItemID,
+					"title": firstNonEmpty(cairnlineSidecarFixtureWorkItemTitle(state, input.ProjectID, assignment.WorkItemID), "Fixture Work"),
 				},
 				"role": map[string]any{
-					"id":   "role_fixture",
-					"name": "Fixture Reviewer",
+					"id":   assignment.RoleID,
+					"name": firstNonEmpty(cairnlineSidecarFixtureRoleName(state, input.ProjectID, assignment.RoleID), "Fixture Reviewer"),
 				},
 				"profile": map[string]any{
-					"id":   "profile_fixture",
+					"id":   firstNonEmpty(assignment.ProfileID, "profile_fixture"),
 					"name": "Fixture Profile",
 				},
 				"execution_profile": map[string]any{
@@ -360,13 +409,14 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 					"title": "Fixture Skill",
 				}},
 				"assignment": map[string]any{
-					"id":            input.AssignmentID,
-					"project_id":    input.ProjectID,
-					"work_item_id":  "work_fixture",
-					"role_id":       "role_fixture",
-					"status":        state.assignmentStatus,
-					"claimed_by":    state.claimedBy,
-					"execution_ref": state.executionRef,
+					"id":             assignment.ID,
+					"project_id":     assignment.ProjectID,
+					"work_item_id":   assignment.WorkItemID,
+					"role_id":        assignment.RoleID,
+					"status":         assignment.Status,
+					"claimed_by":     assignment.ClaimedBy,
+					"execution_ref":  assignment.ExecutionRef,
+					"execution_mode": assignment.ExecutionMode,
 				},
 				"artifacts":         []map[string]any{{"id": "artifact_fixture"}},
 				"evidence":          []map[string]any{{"id": "evidence_fixture"}},
@@ -500,7 +550,102 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 		state.deletedProjects[input.ID] = struct{}{}
 		delete(state.roots, input.ID)
 		delete(state.contextSources, input.ID)
+		delete(state.roles, input.ID)
+		delete(state.workItems, input.ID)
+		delete(state.assignments, input.ID)
 		return mcp.CallToolResult{Content: mcp.TextContent("Deleted project " + input.ID)}, nil
+	case "roles.create":
+		var input struct {
+			ProjectID                 string   `json:"project_id"`
+			Name                      string   `json:"name"`
+			Description               string   `json:"description"`
+			Instructions              string   `json:"instructions"`
+			DefaultProfileID          string   `json:"default_profile_id"`
+			DefaultExecutionProfileID string   `json:"default_execution_profile_id"`
+			DefaultSkillIDs           []string `json:"default_skill_ids"`
+			DefaultExecutionMode      string   `json:"default_execution_mode"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid roles.create arguments")
+		}
+		if input.ProjectID == "" || input.Name == "" {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "missing role create arguments")
+		}
+		state.roleSequence++
+		id := fmt.Sprintf("role_write_fixture_%d", state.roleSequence)
+		role := ProjectCairnlineSidecarRoleItem{
+			ProjectID:                 input.ProjectID,
+			ID:                        id,
+			Name:                      input.Name,
+			Description:               input.Description,
+			Instructions:              input.Instructions,
+			DefaultProfileID:          input.DefaultProfileID,
+			DefaultExecutionProfileID: input.DefaultExecutionProfileID,
+			DefaultSkillIDs:           input.DefaultSkillIDs,
+			DefaultExecutionMode:      input.DefaultExecutionMode,
+		}
+		cairnlineSidecarFixtureEnsureRoles(state, input.ProjectID)[id] = role
+		return mcp.CallToolResult{Content: mcp.TextContent("Created role " + id + ": " + input.Name)}, nil
+	case "work_items.create":
+		var input struct {
+			ProjectID   string `json:"project_id"`
+			Title       string `json:"title"`
+			Brief       string `json:"brief"`
+			OwnerRoleID string `json:"owner_role_id"`
+			RootID      string `json:"root_id"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid work_items.create arguments")
+		}
+		if input.ProjectID == "" || input.Title == "" {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "missing work item create arguments")
+		}
+		state.workSequence++
+		id := fmt.Sprintf("work_write_fixture_%d", state.workSequence)
+		item := ProjectCairnlineSidecarWorkItem{
+			ProjectID:   input.ProjectID,
+			ID:          id,
+			Title:       input.Title,
+			Brief:       input.Brief,
+			Status:      "open",
+			Priority:    "normal",
+			OwnerRoleID: input.OwnerRoleID,
+			RootID:      input.RootID,
+		}
+		cairnlineSidecarFixtureEnsureWorkItems(state, input.ProjectID)[id] = item
+		return mcp.CallToolResult{Content: mcp.TextContent("Created work item " + id + ": " + input.Title)}, nil
+	case "assignments.create":
+		var input struct {
+			ProjectID          string   `json:"project_id"`
+			WorkItemID         string   `json:"work_item_id"`
+			RoleID             string   `json:"role_id"`
+			RootID             string   `json:"root_id"`
+			ProfileID          string   `json:"profile_id"`
+			ExecutionProfileID string   `json:"execution_profile_id"`
+			ExecutionMode      string   `json:"execution_mode"`
+			DesiredAgentKind   string   `json:"desired_agent_kind"`
+			SkillIDs           []string `json:"skill_ids"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid assignments.create arguments")
+		}
+		if input.ProjectID == "" || input.WorkItemID == "" || input.RoleID == "" {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "missing assignment create arguments")
+		}
+		state.assignmentSequence++
+		id := fmt.Sprintf("asg_write_fixture_%d", state.assignmentSequence)
+		assignment := ProjectCairnlineSidecarAssignmentItem{
+			ProjectID:     input.ProjectID,
+			ID:            id,
+			WorkItemID:    input.WorkItemID,
+			RoleID:        input.RoleID,
+			ProfileID:     input.ProfileID,
+			ExecutionMode: input.ExecutionMode,
+			Status:        "queued",
+			SkillIDs:      input.SkillIDs,
+		}
+		cairnlineSidecarFixtureEnsureAssignments(state, input.ProjectID)[id] = assignment
+		return mcp.CallToolResult{Content: mcp.TextContent("Created assignment " + id)}, nil
 	case "roots.list":
 		var input struct {
 			ProjectID string `json:"project_id"`
@@ -775,6 +920,68 @@ func cairnlineSidecarFixtureProjectSources(state *cairnlineSidecarFixtureState, 
 		sources = append(sources, source)
 	}
 	return sources
+}
+
+func cairnlineSidecarFixtureEnsureRoles(state *cairnlineSidecarFixtureState, projectID string) map[string]ProjectCairnlineSidecarRoleItem {
+	if state.roles[projectID] == nil {
+		state.roles[projectID] = make(map[string]ProjectCairnlineSidecarRoleItem)
+	}
+	return state.roles[projectID]
+}
+
+func cairnlineSidecarFixtureProjectRoles(state *cairnlineSidecarFixtureState, projectID string) []ProjectCairnlineSidecarRoleItem {
+	rolesByID := state.roles[projectID]
+	roles := make([]ProjectCairnlineSidecarRoleItem, 0, len(rolesByID))
+	for _, role := range rolesByID {
+		roles = append(roles, role)
+	}
+	return roles
+}
+
+func cairnlineSidecarFixtureRoleName(state *cairnlineSidecarFixtureState, projectID, roleID string) string {
+	if role, ok := state.roles[projectID][roleID]; ok {
+		return role.Name
+	}
+	return ""
+}
+
+func cairnlineSidecarFixtureEnsureWorkItems(state *cairnlineSidecarFixtureState, projectID string) map[string]ProjectCairnlineSidecarWorkItem {
+	if state.workItems[projectID] == nil {
+		state.workItems[projectID] = make(map[string]ProjectCairnlineSidecarWorkItem)
+	}
+	return state.workItems[projectID]
+}
+
+func cairnlineSidecarFixtureProjectWorkItems(state *cairnlineSidecarFixtureState, projectID string) []ProjectCairnlineSidecarWorkItem {
+	itemsByID := state.workItems[projectID]
+	items := make([]ProjectCairnlineSidecarWorkItem, 0, len(itemsByID))
+	for _, item := range itemsByID {
+		items = append(items, item)
+	}
+	return items
+}
+
+func cairnlineSidecarFixtureWorkItemTitle(state *cairnlineSidecarFixtureState, projectID, workItemID string) string {
+	if item, ok := state.workItems[projectID][workItemID]; ok {
+		return item.Title
+	}
+	return ""
+}
+
+func cairnlineSidecarFixtureEnsureAssignments(state *cairnlineSidecarFixtureState, projectID string) map[string]ProjectCairnlineSidecarAssignmentItem {
+	if state.assignments[projectID] == nil {
+		state.assignments[projectID] = make(map[string]ProjectCairnlineSidecarAssignmentItem)
+	}
+	return state.assignments[projectID]
+}
+
+func cairnlineSidecarFixtureProjectAssignments(state *cairnlineSidecarFixtureState, projectID string) []ProjectCairnlineSidecarAssignmentItem {
+	assignmentsByID := state.assignments[projectID]
+	assignments := make([]ProjectCairnlineSidecarAssignmentItem, 0, len(assignmentsByID))
+	for _, assignment := range assignmentsByID {
+		assignments = append(assignments, assignment)
+	}
+	return assignments
 }
 
 func cairnlineSidecarFixtureListResult(mode, text string, structured any) (mcp.CallToolResult, *mcp.RPCError) {

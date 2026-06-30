@@ -1086,6 +1086,99 @@ func TestProjectCairnlineSidecarSetupSmoke_CleansUpAfterRootUpdateFailure(t *tes
 	}
 }
 
+func TestProjectCairnlineSidecarWorkSmoke_RequiresConfirmation(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "full"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarWorkSmoke(t.Context(), ProjectCairnlineSidecarWorkRequest{ProjectName: "Fixture work smoke"})
+	if got.Ready || got.Status != "sidecar_work_confirmation_required" || got.ConfirmedMutation {
+		t.Fatalf("work smoke = %+v, want confirmation-required without mutation", got)
+	}
+	if len(got.Steps) != 0 || got.ClientCacheEntries != 0 {
+		t.Fatalf("steps/cache = %d/%d, want no sidecar calls before confirmation", len(got.Steps), got.ClientCacheEntries)
+	}
+}
+
+func TestProjectCairnlineSidecarWorkSmoke_CreatesWorkCoordinationRecords(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "full"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarWorkSmoke(t.Context(), ProjectCairnlineSidecarWorkRequest{
+		ConfirmMutation: true,
+		ProjectName:     "Fixture work smoke",
+	})
+	if !got.Ready || got.Status != "sidecar_work_ready" || !got.CleanupVerified {
+		t.Fatalf("work smoke = %+v, want ready with verified cleanup", got)
+	}
+	if got.SelectedProjectID == "" || got.RoleID == "" || got.WorkItemID == "" || got.AssignmentID == "" {
+		t.Fatalf("ids = project:%q role:%q work:%q assignment:%q, want created coordination ids", got.SelectedProjectID, got.RoleID, got.WorkItemID, got.AssignmentID)
+	}
+	if got.CreatedRole.Name != "Sidecar work smoke operator" || got.CreatedRole.DefaultExecutionMode != "mcp_pull" {
+		t.Fatalf("created role = %+v, want mcp_pull work-smoke role", got.CreatedRole)
+	}
+	if got.CreatedWorkItem.Title != "Sidecar work smoke task" || got.CreatedWorkItem.OwnerRoleID != got.RoleID {
+		t.Fatalf("created work item = %+v, want owner role %q", got.CreatedWorkItem, got.RoleID)
+	}
+	if got.CreatedAssignment.WorkItemID != got.WorkItemID || got.CreatedAssignment.RoleID != got.RoleID || got.CreatedAssignment.ExecutionMode != "mcp_pull" || got.CreatedAssignment.Status != "queued" {
+		t.Fatalf("created assignment = %+v, want queued mcp_pull assignment for created work/role", got.CreatedAssignment)
+	}
+	if got.ContextIDs.AssignmentID != got.AssignmentID || got.ContextIDs.WorkItemID != got.WorkItemID || got.ContextIDs.RoleID != got.RoleID {
+		t.Fatalf("context ids = %+v, want created assignment/work/role ids", got.ContextIDs)
+	}
+	if got.LaunchPacketIDs.AssignmentID != got.AssignmentID || got.LaunchPacketIDs.WorkItemID != got.WorkItemID || got.LaunchPacketIDs.RoleID != got.RoleID {
+		t.Fatalf("launch packet ids = %+v, want created assignment/work/role ids", got.LaunchPacketIDs)
+	}
+	if len(got.Steps) != 12 {
+		t.Fatalf("steps = %+v, want project/role/work/assignment/context/launch/delete flow", got.Steps)
+	}
+	if got.Steps[2].Tool != "roles.create" || got.Steps[4].Tool != "work_items.create" || got.Steps[6].Tool != "assignments.create" || got.Steps[8].Tool != "assignments.context" || got.Steps[9].Tool != "assignments.launch_packet" || got.Steps[11].Status != "expected_missing" {
+		t.Fatalf("steps = %+v, want work smoke order and missing-after-delete verification", got.Steps)
+	}
+	if len(got.Steps[9].LaunchPacketWarnings) != 1 || got.Steps[9].LaunchPacketWarnings[0] != "fixture warning" {
+		t.Fatalf("launch packet warnings = %+v, want fixture warning evidence", got.Steps[9].LaunchPacketWarnings)
+	}
+}
+
+func TestProjectCairnlineSidecarWorkSmoke_CleansUpAfterContextFailure(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "context-tool-error"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarWorkSmoke(t.Context(), ProjectCairnlineSidecarWorkRequest{
+		ConfirmMutation: true,
+		ProjectName:     "Fixture work smoke cleanup",
+	})
+	if got.Ready || got.Status != "sidecar_work_tool_failed" || !got.CleanupVerified {
+		t.Fatalf("work smoke = %+v, want context tool failure with verified project cleanup", got)
+	}
+	if len(got.Steps) != 11 || got.Steps[8].Tool != "assignments.context" || !got.Steps[8].ToolIsError || got.Steps[9].Name != "cleanup_delete_project" || got.Steps[10].Status != "expected_missing" {
+		t.Fatalf("steps = %+v, want context failure followed by project cleanup delete and verification", got.Steps)
+	}
+	if !strings.Contains(strings.Join(got.Warnings, "\n"), "deleted and verified removal") {
+		t.Fatalf("warnings = %+v, want verified cleanup warning", got.Warnings)
+	}
+}
+
 func TestProjectCairnlineSidecarLifecycleSmoke_WarnsWhenFailureAfterRunningCannotRelease(t *testing.T) {
 	handler := NewHandler(config.Config{
 		Projects: config.ProjectsConfig{
