@@ -156,6 +156,12 @@ is missing. A setup smoke at
 `confirm_mutation=true`, creates a temporary rootless Cairnline project,
 creates/updates/lists/deletes a root and context source through typed
 `structuredContent`, then deletes and verifies removal of the temporary project.
+A work smoke at `POST /hecate/v1/projects/cairnline/sidecar-work-smoke`
+requires `confirm_mutation=true`, creates a temporary rootless Cairnline
+project, creates a role, work item, and queued `mcp_pull` assignment through
+typed `structuredContent`, verifies `assignments.context` and
+`assignments.launch_packet` for that assignment, then deletes and verifies
+removal of the temporary project.
 Hecate does not yet route Projects reads, writes, or mirrors through the sidecar
 client.
 Today, `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` is a
