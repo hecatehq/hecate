@@ -376,9 +376,10 @@ launch agents. Those remain explicit operator or orchestrator actions.
   `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar`, which routes only project
   list/detail, setup-readiness, health, project skill list, project memory
   list, memory-candidate list, project role list, work-item list/detail, and
-  assignment-list, artifact-list, and handoff-list reads through the cached
-  standalone MCP client. Other live Projects reads, writes, mirrors, and
-  write-authority switchpoints do not route through the sidecar yet.
+  assignment-list, artifact-list, handoff-list, and closeout-readiness reads
+  through the cached standalone MCP client. Other live Projects reads, writes,
+  mirrors, and write-authority switchpoints do not route through the sidecar
+  yet.
 - Current Hecate embed experiments can serve project list/detail, setup
   readiness, health, skills, memory, memory candidates, roles, work items,
   assignment lists, assignment context, launch-readiness, assignment preflight,
@@ -396,9 +397,9 @@ launch agents. Those remain explicit operator or orchestrator actions.
   then overlay Hecate-only runtime refs/timestamps while Hecate still owns
   execution. Outside the explicit sidecar read-source routes for project
   list/detail, setup-readiness, health, skills, memory, memory candidates, roles,
-  work items, assignment lists, artifact lists, and handoff lists, project
-  identity and some compatibility scaffolding remain Hecate-owned until
-  Cairnline becomes authoritative.
+  work items, assignment lists, artifact lists, handoff lists, and closeout
+  readiness, project identity and some compatibility scaffolding remain
+  Hecate-owned until Cairnline becomes authoritative.
 - Project Assistant draft generation can use the same Cairnline-projected
   context as the inspect endpoint, so proposal assembly is exercised against the
   portable read model while proposal persistence and apply remain Hecate-owned.
