@@ -236,6 +236,50 @@ func (h *Handler) renderCairnlineSidecarProjectWorkItem(ctx context.Context, pro
 	return ProjectWorkItemResponse{}, projectwork.ErrNotFound
 }
 
+func (h *Handler) renderCairnlineSidecarProjectWorkAssignments(ctx context.Context, projectID, workItemID string) ([]ProjectWorkAssignmentResponse, error) {
+	projectItem, ok, err := h.cairnlineSidecarProject(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, projects.ErrNotFound
+	}
+	project := projectFromCairnlineSidecar(projectItem)
+	workItemID = strings.TrimSpace(workItemID)
+	workItems, err := h.cairnlineSidecarProjectWorkItems(ctx, project.ID)
+	if err != nil {
+		return nil, err
+	}
+	foundWorkItem := false
+	for _, item := range workItems {
+		if item.ID == workItemID {
+			foundWorkItem = true
+			break
+		}
+	}
+	if !foundWorkItem {
+		return nil, projectwork.ErrNotFound
+	}
+	items, err := h.cairnlineSidecarProjectAssignments(ctx, project.ID)
+	if err != nil {
+		return nil, err
+	}
+	assignments := projectAssignmentsFromCairnlineSidecar(items)
+	data := make([]ProjectWorkAssignmentResponse, 0, len(assignments))
+	for _, assignment := range assignments {
+		if strings.TrimSpace(assignment.WorkItemID) != workItemID {
+			continue
+		}
+		projected, err := h.renderProjectedProjectWorkAssignment(ctx, assignment)
+		if err != nil {
+			return nil, err
+		}
+		projected.ReadBackend = "cairnline"
+		data = append(data, projected)
+	}
+	return data, nil
+}
+
 func (h *Handler) renderCairnlineProjectWorkItems(ctx context.Context, projectID string) ([]ProjectWorkItemResponse, error) {
 	view, err := h.cairnlineProjectWorkView(ctx, projectID)
 	if err != nil {
