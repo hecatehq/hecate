@@ -8,6 +8,7 @@ import (
 
 	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/memory"
+	"github.com/hecatehq/hecate/internal/projects"
 )
 
 type createProjectMemoryRequest struct {
@@ -60,16 +61,20 @@ type updateProjectMemoryRequest struct {
 
 func (h *Handler) HandleProjectMemoryEntries(w http.ResponseWriter, r *http.Request) {
 	projectID := strings.TrimSpace(r.PathValue("id"))
-	if !h.requireProjectExists(w, r, projectID) {
+	if !h.projectCairnlineSidecarReadRoutesEnabled() && !h.requireProjectExists(w, r, projectID) {
 		return
 	}
-	if !h.requireProjectMemoryStore(w) {
+	if !h.projectCairnlineSidecarReadRoutesEnabled() && !h.requireProjectMemoryStore(w) {
 		return
 	}
 	includeDisabled := requestBool(r, "include_disabled")
 	items, err := h.renderProjectMemoryEntries(r.Context(), projectID, includeDisabled)
 	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		if errors.Is(err, projects.ErrNotFound) {
+			WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
+			return
+		}
+		writeProjectReadRenderError(w, err)
 		return
 	}
 	WriteJSON(w, http.StatusOK, ProjectMemoryListResponse{Object: "project_memory", Data: items})
@@ -131,11 +136,13 @@ func (h *Handler) HandleCreateProjectMemoryEntry(w http.ResponseWriter, r *http.
 
 func (h *Handler) HandleProjectMemoryCandidates(w http.ResponseWriter, r *http.Request) {
 	projectID := strings.TrimSpace(r.PathValue("id"))
-	if !h.requireProjectExists(w, r, projectID) {
+	if !h.projectCairnlineSidecarReadRoutesEnabled() && !h.requireProjectExists(w, r, projectID) {
 		return
 	}
-	if _, ok := h.requireProjectMemoryCandidateStore(w); !ok {
-		return
+	if !h.projectCairnlineSidecarReadRoutesEnabled() {
+		if _, ok := h.requireProjectMemoryCandidateStore(w); !ok {
+			return
+		}
 	}
 	status := strings.TrimSpace(r.URL.Query().Get("status"))
 	if status == "" && !requestBool(r, "include_resolved") {
@@ -143,7 +150,11 @@ func (h *Handler) HandleProjectMemoryCandidates(w http.ResponseWriter, r *http.R
 	}
 	items, err := h.renderProjectMemoryCandidates(r.Context(), projectID, status, requestBool(r, "include_resolved"))
 	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		if errors.Is(err, projects.ErrNotFound) {
+			WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
+			return
+		}
+		writeProjectReadRenderError(w, err)
 		return
 	}
 	WriteJSON(w, http.StatusOK, ProjectMemoryCandidateListResponse{Object: "project_memory_candidates", Data: items})
@@ -452,6 +463,9 @@ func (h *Handler) requireProjectMemoryCandidateStore(w http.ResponseWriter) (mem
 }
 
 func (h *Handler) renderProjectMemoryEntries(ctx context.Context, projectID string, includeDisabled bool) ([]ProjectMemoryResponseItem, error) {
+	if h.projectCairnlineSidecarReadRoutesEnabled() {
+		return h.renderCairnlineSidecarProjectMemoryEntries(ctx, projectID, includeDisabled)
+	}
 	if h.projectReadRoutesUseCairnlineReadModel() {
 		return h.renderCairnlineProjectMemoryEntries(ctx, projectID, includeDisabled)
 	}
@@ -482,7 +496,26 @@ func (h *Handler) renderCairnlineProjectMemoryEntries(ctx context.Context, proje
 	return out, nil
 }
 
+func (h *Handler) renderCairnlineSidecarProjectMemoryEntries(ctx context.Context, projectID string, includeDisabled bool) ([]ProjectMemoryResponseItem, error) {
+	projectItem, ok, err := h.cairnlineSidecarProject(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, projects.ErrNotFound
+	}
+	project := projectFromCairnlineSidecar(projectItem)
+	items, err := h.cairnlineSidecarProjectMemoryEntryList(ctx, project.ID, includeDisabled)
+	if err != nil {
+		return nil, err
+	}
+	return renderProjectMemoryEntries(projectMemoryEntriesFromCairnlineSidecar(items), "cairnline"), nil
+}
+
 func (h *Handler) renderProjectMemoryCandidates(ctx context.Context, projectID, status string, includeResolved bool) ([]ProjectMemoryCandidateResponseItem, error) {
+	if h.projectCairnlineSidecarReadRoutesEnabled() {
+		return h.renderCairnlineSidecarProjectMemoryCandidates(ctx, projectID, status, includeResolved)
+	}
 	if h.projectReadRoutesUseCairnlineReadModel() {
 		return h.renderCairnlineProjectMemoryCandidates(ctx, projectID, status, includeResolved)
 	}
@@ -518,6 +551,22 @@ func (h *Handler) renderCairnlineProjectMemoryCandidates(ctx context.Context, pr
 		out = append(out, renderProjectMemoryCandidate(projectMemoryCandidateFromCairnline(item), "cairnline"))
 	}
 	return out, nil
+}
+
+func (h *Handler) renderCairnlineSidecarProjectMemoryCandidates(ctx context.Context, projectID, status string, includeResolved bool) ([]ProjectMemoryCandidateResponseItem, error) {
+	projectItem, ok, err := h.cairnlineSidecarProject(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, projects.ErrNotFound
+	}
+	project := projectFromCairnlineSidecar(projectItem)
+	items, err := h.cairnlineSidecarProjectMemoryCandidateList(ctx, project.ID, status, includeResolved)
+	if err != nil {
+		return nil, err
+	}
+	return renderProjectMemoryCandidates(projectMemoryCandidatesFromCairnlineSidecar(items), "cairnline"), nil
 }
 
 func renderProjectMemoryEntries(items []memory.Entry, readBackend string) []ProjectMemoryResponseItem {
