@@ -649,7 +649,7 @@ func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string) []Projec
 			item.LiveMirror = true
 			item.BlocksAuthority = true
 			item.Gap = "project-assistant-apply-side-effects"
-			item.Detail = "Project Assistant confirmed apply routes covered portable actions through their enabled Cairnline authority switchpoints: project metadata/default, root, role, work-item, assignment, handoff, and memory-candidate; chat/runtime side effects still keep apply as a blocking mixed-authority gap."
+			item.Detail = "Project Assistant confirmed apply routes covered portable actions through their enabled Cairnline authority switchpoints: project create, project metadata/default, root, role, work-item, assignment, handoff, and memory-candidate; chat/runtime side effects still keep apply as a blocking mixed-authority gap."
 		}
 		if projectCollaborationAuthoritative && item.Name == "collaboration-artifacts" {
 			item.CurrentAuthority = "cairnline"
@@ -792,13 +792,14 @@ func projectCairnlineProjectAssistantProposalWriteWarning(writeAuthority []strin
 
 func projectCairnlineProjectAssistantApplyWriteWarning(writeAuthority []string) string {
 	if projectCairnlineAssistantApplyPortableEffectsAuthoritative(writeAuthority) {
-		return "Project Assistant confirmed apply uses enabled Cairnline authority seams for the portable actions they cover: project metadata/default, root, role, work-item, assignment, handoff, and memory-candidate; chat/runtime side effects still keep apply as a mixed-authority replacement blocker."
+		return "Project Assistant confirmed apply uses enabled Cairnline authority seams for the portable actions they cover: project create, project metadata/default, root, role, work-item, assignment, handoff, and memory-candidate; chat/runtime side effects still keep apply as a mixed-authority replacement blocker."
 	}
 	return "Project Assistant confirmed apply side effects still execute through Hecate-owned mutation services, then best-effort mirror committed results into Cairnline."
 }
 
 func projectCairnlineAssistantApplyPortableEffectsAuthoritative(writeAuthority []string) bool {
-	return projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectMetadataDefaults) ||
+	return projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectIdentity) ||
+		projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectMetadataDefaults) ||
 		projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectRoots) ||
 		projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectRoles) ||
 		projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectWorkItems) ||

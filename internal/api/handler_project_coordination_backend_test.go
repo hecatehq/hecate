@@ -436,11 +436,15 @@ func TestProjectCoordinationBackendStatus_CairnlineProjectIdentityAuthorityConfi
 	if point == nil || point.CurrentAuthority != "cairnline" || point.CairnlineState != "authoritative_opt_in" || !point.LiveMirror || point.BlocksAuthority || point.Gap != "" {
 		t.Fatalf("project-identity switchpoint = %+v, want opt-in Cairnline authority", point)
 	}
+	applyPoint := findWriteSwitchpoint(status.WriteSwitchpoints, "project-assistant-apply-side-effects")
+	if applyPoint == nil || applyPoint.CurrentAuthority != "mixed" || applyPoint.CairnlineState != "partial_authoritative_via_portable_switchpoints" || !applyPoint.BlocksAuthority || applyPoint.Gap != "project-assistant-apply-side-effects" {
+		t.Fatalf("project-assistant-apply-side-effects switchpoint = %+v, want mixed authority through project identity switchpoint", applyPoint)
+	}
 	if status.ReplacementReady {
 		t.Fatalf("replacement_ready = true, want false until remaining write and migration gates are ready")
 	}
 	warnings := strings.Join(status.Warnings, "\n")
-	if !strings.Contains(warnings, "Project create/delete mutations are opt-in Cairnline-authoritative") || !strings.Contains(warnings, "delete restores the Cairnline snapshot") {
+	if !strings.Contains(warnings, "Project create/delete mutations are opt-in Cairnline-authoritative") || !strings.Contains(warnings, "delete restores the Cairnline snapshot") || !strings.Contains(warnings, "chat/runtime") {
 		t.Fatalf("warnings = %+v, want project identity authority plus rollback caveat", status.Warnings)
 	}
 }
@@ -684,6 +688,7 @@ func TestProjectCoordinationBackendStatus_CairnlineProjectAssistantApplyPortable
 			CairnlineReadSource: "embedded",
 			CairnlineWriteAuthority: strings.Join([]string{
 				projectCairnlineWriteAuthorityProjectAssistantProposals,
+				projectCairnlineWriteAuthorityProjectIdentity,
 				projectCairnlineWriteAuthorityProjectMetadataDefaults,
 				projectCairnlineWriteAuthorityProjectRoots,
 				projectCairnlineWriteAuthorityProjectRoles,
