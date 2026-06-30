@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -33,6 +34,24 @@ func newProjectsCairnlineReadTestServer() http.Handler {
 	}, quietLogger(), nil, nil, nil, nil)
 	handler.SetProjectStore(projects.NewMemoryStore())
 	return NewServer(quietLogger(), handler)
+}
+
+func newProjectsCairnlineSidecarReadTestServer(t *testing.T, mode string) (*Handler, http.Handler) {
+	t.Helper()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend:          "cairnline",
+			CairnlineConnector:           "sidecar",
+			CairnlineReadSource:          "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + mode},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	handler.SetProjectStore(projects.NewMemoryStore())
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+	return handler, NewServer(quietLogger(), handler)
 }
 
 func newProjectsCairnlineMirrorTestServer(t *testing.T) (*Handler, http.Handler) {
@@ -260,6 +279,56 @@ func TestProjectsAPI_ReadsUseCairnlineReadModelWhenConfigured(t *testing.T) {
 		t.Fatalf("listed projects = %+v, want one project", listed.Data)
 	}
 	assertCairnlineProjectProjectionForTest(t, listed.Data[0], created.Data.ID)
+}
+
+func TestProjectsAPI_ReadsUseCairnlineSidecarWhenConfigured(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "full")
+	if handler.projectReadRoutesUseCairnlineReadModel() {
+		t.Fatal("sidecar project reads enabled embedded Cairnline read-model routes")
+	}
+	if !handler.projectCairnlineSidecarProjectReadsEnabled() {
+		t.Fatal("sidecar project read predicate = false, want true")
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var listed ProjectsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+	if len(listed.Data) != 1 {
+		t.Fatalf("listed projects = %+v, want sidecar fixture project", listed.Data)
+	}
+	assertCairnlineSidecarProjectForTest(t, listed.Data[0], "proj_fixture")
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("detail status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var fetched ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &fetched); err != nil {
+		t.Fatalf("decode detail response: %v", err)
+	}
+	assertCairnlineSidecarProjectForTest(t, fetched.Data, "proj_fixture")
+}
+
+func TestProjectsAPI_CairnlineSidecarReadRequiresStructuredContent(t *testing.T) {
+	t.Parallel()
+	_, server := newProjectsCairnlineSidecarReadTestServer(t, "text-only")
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects", nil))
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("list status = %d body=%s, want 502", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "structuredContent") {
+		t.Fatalf("error body = %s, want structuredContent diagnostic", rec.Body.String())
+	}
 }
 
 func TestProjectsAPI_CairnlineReadsMatchHecateProjectProjection(t *testing.T) {
@@ -1349,6 +1418,19 @@ func assertCairnlineProjectProjectionForTest(t *testing.T, project ProjectRespon
 	}
 	if source.Metadata["root_id"] != "root_main" {
 		t.Fatalf("context source metadata = %+v, want root_id", source.Metadata)
+	}
+}
+
+func assertCairnlineSidecarProjectForTest(t *testing.T, project ProjectResponseItem, projectID string) {
+	t.Helper()
+	if project.ID != projectID || project.ReadBackend != "cairnline" || project.Name != "Fixture Project" || project.Description != "Structured fixture project" {
+		t.Fatalf("project = %+v, want Cairnline sidecar fixture project %s", project, projectID)
+	}
+	if len(project.Roots) != 1 || project.Roots[0].ID != "root_fixture" || project.Roots[0].Path != "/workspace/fixture" || project.Roots[0].Kind != "local" || !project.Roots[0].Active {
+		t.Fatalf("roots = %+v, want fixture root metadata", project.Roots)
+	}
+	if len(project.ContextSources) != 1 || project.ContextSources[0].ID != "src_fixture" || project.ContextSources[0].Path != "AGENTS.md" || !project.ContextSources[0].Enabled {
+		t.Fatalf("context sources = %+v, want fixture source metadata", project.ContextSources)
 	}
 }
 

@@ -642,7 +642,10 @@ func (c Config) Validate() error {
 	}
 	validateBackend("HECATE_PROJECTS_COORDINATION_BACKEND", c.ProjectsCoordinationBackend(), "hecate", "cairnline")
 	validateBackend("HECATE_PROJECTS_CAIRNLINE_CONNECTOR", c.ProjectsCairnlineConnector(), "embedded", "sidecar")
-	validateBackend("HECATE_PROJECTS_CAIRNLINE_READ_SOURCE", c.ProjectsCairnlineReadSource(), "auto", "snapshot", "embedded")
+	validateBackend("HECATE_PROJECTS_CAIRNLINE_READ_SOURCE", c.ProjectsCairnlineReadSource(), "auto", "snapshot", "embedded", "sidecar")
+	if c.ProjectsCairnlineReadSource() == "sidecar" && c.ProjectsCairnlineConnector() != "sidecar" {
+		errs = append(errs, errors.New("HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar requires HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar"))
+	}
 	for _, item := range c.ProjectsCairnlineWriteAuthority() {
 		validateBackend("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY", item, "project-memory", "memory-candidates", "project-collaboration", "project-skills", "project-work-items", "project-roles", "project-assignments", "agent-profiles", "project-metadata-defaults", "project-roots", "project-context-sources", "project-identity", "project-assistant-proposals")
 	}

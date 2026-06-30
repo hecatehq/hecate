@@ -569,6 +569,16 @@ func TestLoadFromEnvProjectsCairnlineReadSource(t *testing.T) {
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v, want nil for embedded Cairnline read source", err)
 	}
+
+	t.Setenv("HECATE_PROJECTS_CAIRNLINE_CONNECTOR", "sidecar")
+	t.Setenv("HECATE_PROJECTS_CAIRNLINE_READ_SOURCE", " Sidecar ")
+	cfg = LoadFromEnv()
+	if got := cfg.ProjectsCairnlineReadSource(); got != "sidecar" {
+		t.Fatalf("ProjectsCairnlineReadSource() = %q, want sidecar", got)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v, want nil for sidecar Cairnline read source with sidecar connector", err)
+	}
 }
 
 func TestLoadFromEnvProjectsCairnlineConnector(t *testing.T) {
@@ -702,6 +712,19 @@ func TestValidateRejectsInvalidProjectsCairnlineReadSource(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE") {
 		t.Fatalf("Validate() error = %q, want HECATE_PROJECTS_CAIRNLINE_READ_SOURCE", err)
+	}
+}
+
+func TestValidateRejectsSidecarReadSourceWithoutSidecarConnector(t *testing.T) {
+	cfg := LoadFromEnv()
+	cfg.Projects.CairnlineReadSource = "sidecar"
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() error = nil, want sidecar read source connector error")
+	}
+	if !strings.Contains(err.Error(), "HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar") {
+		t.Fatalf("Validate() error = %q, want sidecar connector requirement", err)
 	}
 }
 
