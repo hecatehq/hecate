@@ -2409,7 +2409,10 @@ Cairnline-backed yet and therefore still block authority switch.
 `replacement_ready` stays `false` until read parity, strict embedded mirror
 probes, write-authority switchpoints, and migration/rollback gates are all
 ready. `replacement_gates` reports those high-level gates as structured
-checklist items so clients do not need to parse warning prose.
+checklist items so clients do not need to parse warning prose. The
+`write-authority-switchpoints` gate can be `blocked`, `partial`, or `ready`;
+it ignores the separate `migration-cutover` gap because migration and rollback
+are reported by the `migration-and-rollback` gate.
 `write_switchpoints` maps each live mutation family to the current authority,
 the Cairnline state (`live_mirror_non_authoritative`, `result_mirror_only`,
 `snapshot_import_rehearsal_available`, `authoritative_opt_in` for enabled

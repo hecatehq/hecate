@@ -280,8 +280,8 @@ func TestProjectCoordinationBackendStatus_CairnlineProjectMemoryAuthorityConfigu
 	if point == nil || point.CurrentAuthority != "cairnline" || point.CairnlineState != "authoritative_opt_in" || !point.LiveMirror || point.BlocksAuthority || point.Gap != "" {
 		t.Fatalf("project-memory switchpoint = %+v, want opt-in Cairnline authority", point)
 	}
-	if gate := findReplacementGate(status.ReplacementGates, "write-authority-switchpoints"); gate == nil || gate.Ready || gate.Status != "blocked" {
-		t.Fatalf("write-authority gate = %+v, want full replacement still blocked", gate)
+	if gate := findReplacementGate(status.ReplacementGates, "write-authority-switchpoints"); gate == nil || gate.Ready || gate.Status != "partial" || strings.Contains(gate.Detail, "memory,") || !strings.Contains(gate.Detail, "memory-candidates") {
+		t.Fatalf("write-authority gate = %+v, want partial write authority with remaining candidate gap", gate)
 	}
 	if !strings.Contains(strings.Join(status.Warnings, "\n"), "Accepted project memory entry mutations are opt-in Cairnline-authoritative") {
 		t.Fatalf("warnings = %+v, want project-memory authority warning", status.Warnings)
@@ -668,6 +668,16 @@ func TestProjectCoordinationBackendStatus_CairnlineProjectAssistantApplyWorkAuth
 	}
 	if status.ReplacementReady {
 		t.Fatalf("replacement_ready = true, want false until remaining write and migration gates are ready")
+	}
+	if gate := findReplacementGate(status.ReplacementGates, "write-authority-switchpoints"); gate == nil || gate.Ready || gate.Status != "partial" || !strings.Contains(gate.Detail, "project-assistant-apply-side-effects") {
+		t.Fatalf("write-authority gate = %+v, want partial write authority with mixed assistant apply gap", gate)
+	}
+}
+
+func TestProjectCoordinationBackendStatus_WriteAuthorityGateIgnoresMigrationGap(t *testing.T) {
+	gate := projectCairnlineWriteAuthorityReplacementGate([]string{"migration-cutover"})
+	if !gate.Ready || gate.Status != "ready" || !strings.Contains(gate.Detail, "migration, rollback, and final cutover still have separate gates") {
+		t.Fatalf("write-authority gate = %+v, want ready when only migration gate remains", gate)
 	}
 }
 

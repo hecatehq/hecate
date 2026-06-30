@@ -339,11 +339,11 @@ func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendS
 		response.WriteAdapterSeams = append([]string(nil), projectCairnlineWriteAdapterSeamNames...)
 		response.WriteAdapterGaps = projectCairnlineWriteAdapterGapsSnapshot(effectiveWriteAuthority)
 		response.WriteSwitchpoints = projectCairnlineWriteSwitchpointsSnapshot(effectiveWriteAuthority)
-		response.ReplacementGates = projectCairnlineReplacementGates(readReady)
+		response.ReplacementGates = projectCairnlineReplacementGates(readReady, response.WriteAdapterGaps)
 		if !connectorReady {
 			response.Status = "cairnline_connector_not_ready"
 			response.Detail = projectCairnlineConnectorDetail(connector) + " Hecate keeps Projects reads and writes on Hecate-native stores in this mode; use HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded for the current replacement-readiness dogfood path."
-			response.ReplacementGates = projectCairnlineReplacementGates(false)
+			response.ReplacementGates = projectCairnlineReplacementGates(false, response.WriteAdapterGaps)
 			response.Warnings = []string{
 				projectCairnlineConnectorWarning(connector),
 				"Project reads and writes still use Hecate-native stores.",
@@ -388,7 +388,8 @@ func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendS
 	return response
 }
 
-func projectCairnlineReplacementGates(readRoutesReady bool) []ProjectCoordinationBackendReplacementGate {
+func projectCairnlineReplacementGates(readRoutesReady bool, writeGaps []string) []ProjectCoordinationBackendReplacementGate {
+	writeGate := projectCairnlineWriteAuthorityReplacementGate(writeGaps)
 	return []ProjectCoordinationBackendReplacementGate{
 		{
 			ID:     "read-routes",
@@ -402,12 +403,7 @@ func projectCairnlineReplacementGates(readRoutesReady bool) []ProjectCoordinatio
 			Status: "operator_probe_required",
 			Detail: "Run the embedded sync/parity/smoke probes with HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded before treating the mirror database as a cutover candidate.",
 		},
-		{
-			ID:     "write-authority-switchpoints",
-			Ready:  false,
-			Status: "blocked",
-			Detail: "Live mutation routes still commit to Hecate-native stores first; Cairnline mirrors are replacement evidence, not write authority.",
-		},
+		writeGate,
 		{
 			ID:     "migration-and-rollback",
 			Ready:  false,
@@ -415,6 +411,41 @@ func projectCairnlineReplacementGates(readRoutesReady bool) []ProjectCoordinatio
 			Detail: "Embedded sync and project export return structured migration rehearsal evidence with rollback notes, but no authoritative Cairnline storage cutover switch exists yet.",
 		},
 	}
+}
+
+func projectCairnlineWriteAuthorityReplacementGate(writeGaps []string) ProjectCoordinationBackendReplacementGate {
+	remaining := projectCairnlineWriteSwitchpointGaps(writeGaps)
+	gate := ProjectCoordinationBackendReplacementGate{
+		ID:     "write-authority-switchpoints",
+		Ready:  false,
+		Status: "blocked",
+		Detail: "Live mutation routes still commit to Hecate-native stores first; Cairnline mirrors are replacement evidence, not write authority.",
+	}
+	switch {
+	case len(remaining) == 0:
+		gate.Ready = true
+		gate.Status = "ready"
+		gate.Detail = "All live mutation switchpoints that have landed are Cairnline-authoritative; migration, rollback, and final cutover still have separate gates."
+	case len(remaining) < projectCairnlineWriteSwitchpointGapCount():
+		gate.Status = "partial"
+		gate.Detail = "Some live mutation switchpoints are Cairnline-authoritative; remaining write gaps: " + strings.Join(remaining, ", ") + "."
+	}
+	return gate
+}
+
+func projectCairnlineWriteSwitchpointGaps(writeGaps []string) []string {
+	out := make([]string, 0, len(writeGaps))
+	for _, gap := range writeGaps {
+		if gap == "migration-cutover" {
+			continue
+		}
+		out = append(out, gap)
+	}
+	return out
+}
+
+func projectCairnlineWriteSwitchpointGapCount() int {
+	return len(projectCairnlineWriteAdapterGapNames) - 1
 }
 
 func projectReplacementGateStatus(ready bool) string {
