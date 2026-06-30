@@ -77,6 +77,14 @@ type Handler struct {
 	// own subprocesses. Owned by the handler — Shutdown closes it
 	// after the runner has drained.
 	mcpClientCache *mcpclient.SharedClientCache
+	// projectCairnlineSidecarCache is separate from the task MCP
+	// cache because a future Cairnline connector is Hecate operator
+	// infrastructure, not task-scoped model/tool context. Keeping the
+	// caches distinct prevents a project-coordination sidecar from
+	// sharing lifecycle or metrics assumptions with arbitrary task MCP
+	// servers.
+	projectCairnlineSidecarMu    sync.Mutex
+	projectCairnlineSidecarCache *mcpclient.SharedClientCache
 	// orchestratorMetrics is shared between the runner and the MCP
 	// client cache observer. Built once in NewHandler so a second
 	// NewOrchestratorMetrics() can't register duplicate instruments;
@@ -587,6 +595,13 @@ func (h *Handler) Shutdown(ctx context.Context) error {
 	if h.mcpClientCache != nil {
 		cacheErr = h.mcpClientCache.Close()
 	}
+	var cairnlineSidecarCacheErr error
+	h.projectCairnlineSidecarMu.Lock()
+	cairnlineSidecarCache := h.projectCairnlineSidecarCache
+	h.projectCairnlineSidecarMu.Unlock()
+	if cairnlineSidecarCache != nil {
+		cairnlineSidecarCacheErr = cairnlineSidecarCache.Close()
+	}
 	var agentChatErr error
 	if h.agentChatRunner != nil {
 		agentChatErr = h.agentChatRunner.Shutdown(ctx)
@@ -601,6 +616,9 @@ func (h *Handler) Shutdown(ctx context.Context) error {
 	}
 	if cacheErr != nil {
 		shutdownErrs = append(shutdownErrs, fmt.Errorf("mcp cache close: %w", cacheErr))
+	}
+	if cairnlineSidecarCacheErr != nil {
+		shutdownErrs = append(shutdownErrs, fmt.Errorf("cairnline sidecar cache close: %w", cairnlineSidecarCacheErr))
 	}
 	if agentChatErr != nil {
 		shutdownErrs = append(shutdownErrs, fmt.Errorf("agent chat shutdown: %w", agentChatErr))

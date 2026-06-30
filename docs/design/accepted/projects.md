@@ -124,10 +124,11 @@ is actually authoritative. It also reports `replacement_ready`,
 ready read routes from strict embedded probe work, non-authoritative live
 mirrors, still-Hecate-owned dispatch, and missing migration/rollback authority.
 `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded` is the current live-route
-dogfood connector. `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar` exposes a
-local-only standalone Cairnline MCP contract probe at
-`POST /hecate/v1/projects/cairnline/sidecar-probe`, but Hecate does not yet
-route Projects reads, writes, or mirrors through a persistent sidecar client.
+dogfood connector. `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar` exposes
+local-only standalone Cairnline MCP contract probe/connect surfaces at
+`POST /hecate/v1/projects/cairnline/sidecar-probe` and
+`POST /hecate/v1/projects/cairnline/sidecar-connect`, but Hecate does not yet
+route Projects reads, writes, or mirrors through the sidecar client.
 Today, `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` is a
 replacement-readiness intent flag only: when the current stores are fully wired
 and the embedded connector is selected, it reports `cairnline_read_routes_ready`,

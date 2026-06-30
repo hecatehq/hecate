@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -120,5 +121,57 @@ func TestProjectCairnlineSidecarProbe_MissingRequiredTools(t *testing.T) {
 	}
 	if got.ToolCount != 1 {
 		t.Fatalf("tool count = %d, want 1", got.ToolCount)
+	}
+}
+
+func TestProjectCairnlineSidecarConnect_ReadyUsesPersistentClientCache(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "full"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarConnect(t.Context())
+	if !got.Ready || got.Status != "sidecar_client_ready" {
+		t.Fatalf("connect = %+v, want ready", got)
+	}
+	if !got.PersistentClient || !got.ClientCacheConfigured {
+		t.Fatalf("connect persistent/cache flags = persistent:%t configured:%t, want true/true", got.PersistentClient, got.ClientCacheConfigured)
+	}
+	if got.ClientCacheEntries != 1 || got.ClientCacheInUse != 0 || got.ClientCacheIdle != 1 {
+		t.Fatalf("cache stats = entries:%d in_use:%d idle:%d, want 1/0/1", got.ClientCacheEntries, got.ClientCacheInUse, got.ClientCacheIdle)
+	}
+	if got.ToolCount != len(projectCairnlineSidecarRequiredTools) || len(got.MissingTools) != 0 {
+		t.Fatalf("tool count=%d missing=%+v, want full contract", got.ToolCount, got.MissingTools)
+	}
+}
+
+func TestProjectCairnlineSidecarConnect_MissingRequiredTools(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "missing"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarConnect(t.Context())
+	if got.Ready || got.Status != "sidecar_contract_incomplete" {
+		t.Fatalf("connect = %+v, want incomplete contract", got)
+	}
+	if !got.PersistentClient || !got.ClientCacheConfigured {
+		t.Fatalf("connect persistent/cache flags = persistent:%t configured:%t, want true/true", got.PersistentClient, got.ClientCacheConfigured)
+	}
+	if got.ClientCacheEntries != 1 || got.ClientCacheInUse != 0 || got.ClientCacheIdle != 1 {
+		t.Fatalf("cache stats = entries:%d in_use:%d idle:%d, want 1/0/1", got.ClientCacheEntries, got.ClientCacheInUse, got.ClientCacheIdle)
+	}
+	if !containsString(got.MissingTools, "assignments.context") || !containsString(got.MissingTools, "assistant.propose") {
+		t.Fatalf("missing tools = %+v, want representative missing contract tools", got.MissingTools)
 	}
 }

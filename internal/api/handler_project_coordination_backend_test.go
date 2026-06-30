@@ -30,6 +30,9 @@ func TestProjectCoordinationBackendStatus_DefaultHecateAuthoritative(t *testing.
 	if status.CairnlineSidecarProbeURL != projectCoordinationBackendSidecarProbeURL {
 		t.Fatalf("sidecar probe URL = %q, want %q", status.CairnlineSidecarProbeURL, projectCoordinationBackendSidecarProbeURL)
 	}
+	if status.CairnlineSidecarConnectURL != projectCoordinationBackendSidecarConnectURL {
+		t.Fatalf("sidecar connect URL = %q, want %q", status.CairnlineSidecarConnectURL, projectCoordinationBackendSidecarConnectURL)
+	}
 	if !status.CairnlineBridgeReady || status.CairnlineAuthoritative || status.ReadModelSwitchReady || status.WriteAdapterReady || status.ReplacementReady || len(status.Warnings) != 0 {
 		t.Fatalf("status = %+v, want bridge-ready but inactive Cairnline adapter flags", status)
 	}
@@ -95,16 +98,19 @@ func TestProjectCoordinationBackendStatus_CairnlineSidecarConnectorBlocksEmbedde
 		t.Fatalf("cairnline connector = %q ready=%t, want sidecar not ready for live routing", status.CairnlineConnector, status.CairnlineConnectorReady)
 	}
 	if status.Status != "cairnline_connector_not_ready" || status.CairnlineAuthoritative || status.ReadModelSwitchReady || status.WriteAdapterReady || status.ReplacementReady {
-		t.Fatalf("status = %+v, want sidecar probe mode to block live Cairnline routing", status)
+		t.Fatalf("status = %+v, want sidecar connector mode to block live Cairnline routing", status)
 	}
 	if handler.projectReadRoutesUseCairnlineReadModel() || handler.projectIdentityWritesUseCairnlineAuthority() || handler.projectMemoryWritesUseCairnlineAuthority() || handler.projectAssignmentWritesUseCairnlineAuthority() {
-		t.Fatal("sidecar connector enabled embedded Cairnline read/write route predicates, want probe-only mode")
+		t.Fatal("sidecar connector enabled embedded Cairnline read/write route predicates, want connect/probe-only mode")
 	}
 	if status.CairnlineSidecarProbeURL != projectCoordinationBackendSidecarProbeURL {
 		t.Fatalf("sidecar probe URL = %q, want %q", status.CairnlineSidecarProbeURL, projectCoordinationBackendSidecarProbeURL)
 	}
+	if status.CairnlineSidecarConnectURL != projectCoordinationBackendSidecarConnectURL {
+		t.Fatalf("sidecar connect URL = %q, want %q", status.CairnlineSidecarConnectURL, projectCoordinationBackendSidecarConnectURL)
+	}
 	if len(status.ReadRoutes) != 0 {
-		t.Fatalf("read routes = %+v, want none in sidecar probe mode", status.ReadRoutes)
+		t.Fatalf("read routes = %+v, want none in sidecar connector mode", status.ReadRoutes)
 	}
 	if !containsString(status.WriteAdapterGaps, "projects") || !containsString(status.WriteAdapterGaps, "memory") || !containsString(status.WriteAdapterGaps, "memory-candidates") || !containsString(status.WriteAdapterGaps, "assignment-start") || !containsString(status.WriteAdapterGaps, "migration-cutover") {
 		t.Fatalf("write gaps = %+v, want configured write authority ignored until a live sidecar connector exists", status.WriteAdapterGaps)
@@ -117,7 +123,7 @@ func TestProjectCoordinationBackendStatus_CairnlineSidecarConnectorBlocksEmbedde
 	}
 	warnings := strings.Join(status.Warnings, "\n")
 	if !strings.Contains(warnings, "HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar") || !strings.Contains(warnings, "Hecate-native stores") {
-		t.Fatalf("warnings = %+v, want sidecar probe-only warning", status.Warnings)
+		t.Fatalf("warnings = %+v, want sidecar connect/probe-only warning", status.Warnings)
 	}
 }
 
