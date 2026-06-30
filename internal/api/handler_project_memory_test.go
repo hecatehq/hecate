@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/hecatehq/cairnline"
@@ -743,6 +744,106 @@ func TestProjectMemoryAPI_CandidatesUseCairnlineReadModelWhenConfigured(t *testi
 		t.Fatalf("List native memory candidates: %v", err)
 	}
 	assertProjectMemoryCandidateProjectionParity(t, renderProjectMemoryCandidates(nativeCandidates, "hecate"), listed.Data)
+}
+
+func TestProjectMemoryAPI_ListUsesCairnlineSidecarWhenConfigured(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "memory-fixture")
+	if handler.projectReadRoutesUseCairnlineReadModel() {
+		t.Fatal("sidecar memory list enabled embedded Cairnline read-model routes")
+	}
+	if !handler.projectCairnlineSidecarReadRoutesEnabled() {
+		t.Fatal("sidecar read-route predicate = false, want true")
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/memory", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("memory status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response ProjectMemoryListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode memory response: %v", err)
+	}
+	if response.Object != "project_memory" || len(response.Data) != 1 {
+		t.Fatalf("memory response = %+v, want one enabled fixture entry", response)
+	}
+	entry := projectMemoryResponseForTest(response.Data, "mem_fixture")
+	if entry == nil || entry.ReadBackend != "cairnline" || entry.ProjectID != "proj_fixture" || !entry.Enabled || entry.Title != "Fixture memory" {
+		t.Fatalf("memory entry = %+v, want sidecar Cairnline fixture memory", entry)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/memory?include_disabled=true", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("memory include-disabled status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	response = ProjectMemoryListResponse{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode include-disabled memory response: %v", err)
+	}
+	disabled := projectMemoryResponseForTest(response.Data, "mem_disabled_fixture")
+	if len(response.Data) != 2 || disabled == nil || disabled.ReadBackend != "cairnline" || disabled.Enabled {
+		t.Fatalf("memory entries = %+v, want disabled sidecar fixture included", response.Data)
+	}
+}
+
+func TestProjectMemoryAPI_CandidatesUseCairnlineSidecarWhenConfigured(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "memory-fixture")
+	if handler.projectReadRoutesUseCairnlineReadModel() {
+		t.Fatal("sidecar memory candidates enabled embedded Cairnline read-model routes")
+	}
+	if !handler.projectCairnlineSidecarReadRoutesEnabled() {
+		t.Fatal("sidecar read-route predicate = false, want true")
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/memory/candidates", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("memory candidates status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response ProjectMemoryCandidateListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode memory candidates response: %v", err)
+	}
+	pending := projectMemoryCandidateResponseForTest(response.Data, "memcand_fixture")
+	if len(response.Data) != 1 || pending == nil || pending.ReadBackend != "cairnline" || pending.ProjectID != "proj_fixture" || pending.Status != memory.CandidateStatusPending || len(pending.SourceRefs) != 1 {
+		t.Fatalf("memory candidates = %+v, want one pending sidecar fixture candidate", response.Data)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/memory/candidates?include_resolved=true", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("memory candidates include-resolved status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	response = ProjectMemoryCandidateListResponse{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode include-resolved memory candidates response: %v", err)
+	}
+	rejected := projectMemoryCandidateResponseForTest(response.Data, "memcand_rejected_fixture")
+	if len(response.Data) != 2 || rejected == nil || rejected.ReadBackend != "cairnline" || rejected.Status != memory.CandidateStatusRejected || rejected.StatusReason != "Not durable." {
+		t.Fatalf("memory candidates = %+v, want rejected sidecar fixture candidate included", response.Data)
+	}
+}
+
+func TestProjectMemoryAPI_CairnlineSidecarReadRequiresStructuredContent(t *testing.T) {
+	t.Parallel()
+	_, server := newProjectsCairnlineSidecarReadTestServer(t, "text-only")
+
+	for _, endpoint := range []string{
+		"/hecate/v1/projects/proj_fixture/memory",
+		"/hecate/v1/projects/proj_fixture/memory/candidates",
+	} {
+		rec := httptest.NewRecorder()
+		server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, endpoint, nil))
+		if rec.Code != http.StatusBadGateway {
+			t.Fatalf("%s status = %d body=%s, want 502", endpoint, rec.Code, rec.Body.String())
+		}
+		if !strings.Contains(rec.Body.String(), "structuredContent") {
+			t.Fatalf("%s error body = %s, want structuredContent diagnostic", endpoint, rec.Body.String())
+		}
+	}
 }
 
 func TestProjectMemoryAPI_ValidationAndScoping(t *testing.T) {

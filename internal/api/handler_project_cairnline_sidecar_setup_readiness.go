@@ -120,9 +120,13 @@ func (h *Handler) cairnlineSidecarProjectSkills(ctx context.Context, projectID s
 }
 
 func (h *Handler) cairnlineSidecarProjectMemoryEntries(ctx context.Context, projectID string) ([]ProjectCairnlineSidecarMemoryEntryItem, error) {
+	return h.cairnlineSidecarProjectMemoryEntryList(ctx, projectID, true)
+}
+
+func (h *Handler) cairnlineSidecarProjectMemoryEntryList(ctx context.Context, projectID string, includeDisabled bool) ([]ProjectCairnlineSidecarMemoryEntryItem, error) {
 	result, err := h.callProjectCairnlineSidecarProjectReadTool(ctx, "memory_entries.list", map[string]any{
 		"project_id":       strings.TrimSpace(projectID),
-		"include_disabled": true,
+		"include_disabled": includeDisabled,
 	})
 	if err != nil {
 		return nil, err
@@ -141,10 +145,20 @@ func (h *Handler) cairnlineSidecarProjectMemoryEntries(ctx context.Context, proj
 }
 
 func (h *Handler) cairnlineSidecarProjectPendingMemoryCandidates(ctx context.Context, projectID string) ([]ProjectCairnlineSidecarMemoryCandidateItem, error) {
-	result, err := h.callProjectCairnlineSidecarProjectReadTool(ctx, "memory_candidates.list", map[string]string{
+	return h.cairnlineSidecarProjectMemoryCandidateList(ctx, projectID, "pending", false)
+}
+
+func (h *Handler) cairnlineSidecarProjectMemoryCandidateList(ctx context.Context, projectID, status string, includeResolved bool) ([]ProjectCairnlineSidecarMemoryCandidateItem, error) {
+	args := map[string]any{
 		"project_id": strings.TrimSpace(projectID),
-		"status":     "pending",
-	})
+	}
+	if strings.TrimSpace(status) != "" {
+		args["status"] = strings.TrimSpace(status)
+	}
+	if includeResolved {
+		args["include_resolved"] = true
+	}
+	result, err := h.callProjectCairnlineSidecarProjectReadTool(ctx, "memory_candidates.list", args)
 	if err != nil {
 		return nil, err
 	}

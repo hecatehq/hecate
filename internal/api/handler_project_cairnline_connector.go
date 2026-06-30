@@ -139,7 +139,7 @@ func projectCairnlineConnectorReady(mode string) bool {
 func projectCairnlineConnectorDetail(mode string) string {
 	switch mode {
 	case "sidecar":
-		return "Cairnline sidecar connector is configured and can be exercised through local-only probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle/write/setup/work/collaboration/memory/assistant diagnostics. HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar routes only project list/detail, setup-readiness, health, and skills through the standalone Cairnline MCP client; other Projects routes remain on Hecate-native stores or embedded dogfood paths."
+		return "Cairnline sidecar connector is configured and can be exercised through local-only probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle/write/setup/work/collaboration/memory/assistant diagnostics. HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar routes only project list/detail, setup-readiness, health, skills, memory, and memory candidates through the standalone Cairnline MCP client; other Projects routes remain on Hecate-native stores or embedded dogfood paths."
 	default:
 		return "Hecate is using the embedded Cairnline Go package bridge for replacement-readiness dogfood."
 	}
@@ -149,7 +149,7 @@ func projectCairnlineConnectorWarning(mode string) string {
 	if mode != "sidecar" {
 		return ""
 	}
-	return "HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar enables standalone Cairnline MCP probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle/write/setup/work/collaboration/memory/assistant diagnostics; add HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar to route only project list/detail, setup-readiness, health, and skills through the sidecar."
+	return "HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar enables standalone Cairnline MCP probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle/write/setup/work/collaboration/memory/assistant diagnostics; add HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar to route only project list/detail, setup-readiness, health, skills, memory, and memory candidates through the sidecar."
 }
 
 func (h *Handler) HandleProjectCairnlineSidecarProbe(w http.ResponseWriter, r *http.Request) {

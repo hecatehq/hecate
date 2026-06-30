@@ -194,24 +194,7 @@ func (h *Handler) cairnlineSidecarProjectHandoffs(ctx context.Context, projectID
 }
 
 func (h *Handler) cairnlineSidecarProjectMemoryCandidates(ctx context.Context, projectID string) ([]ProjectCairnlineSidecarMemoryCandidateItem, error) {
-	result, err := h.callProjectCairnlineSidecarProjectReadTool(ctx, "memory_candidates.list", map[string]any{
-		"project_id":       strings.TrimSpace(projectID),
-		"include_resolved": true,
-	})
-	if err != nil {
-		return nil, err
-	}
-	if result.IsError {
-		return nil, projectCairnlineSidecarReadFailure("memory_candidates.list returned a tool-level error: " + strings.TrimSpace(result.Text))
-	}
-	candidates, structuredReady, structuredErr := projectCairnlineSidecarStructuredMemoryCandidates(result.Result.StructuredContent)
-	if structuredErr != nil {
-		return nil, projectCairnlineSidecarReadFailure("memory_candidates.list structuredContent parse failed: " + structuredErr.Error())
-	}
-	if !structuredReady {
-		return nil, projectCairnlineSidecarReadFailure("memory_candidates.list did not return typed structuredContent")
-	}
-	return candidates, nil
+	return h.cairnlineSidecarProjectMemoryCandidateList(ctx, projectID, "", true)
 }
 
 func (h *Handler) cairnlineSidecarAgentProfiles(ctx context.Context) ([]ProjectCairnlineSidecarAgentProfileItem, error) {

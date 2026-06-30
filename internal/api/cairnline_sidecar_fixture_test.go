@@ -1248,6 +1248,9 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid memory_entries.list arguments")
 		}
 		items := cairnlineSidecarFixtureProjectMemoryEntries(state, input.ProjectID, input.IncludeDisabled)
+		if mode == "memory-fixture" && len(items) == 0 {
+			items = cairnlineSidecarFixtureDefaultMemoryEntries(input.ProjectID, input.IncludeDisabled)
+		}
 		return cairnlineSidecarFixtureListResult(mode, fmt.Sprintf("Memory entries for %s (%d)", input.ProjectID, len(items)), items)
 	case "memory_entries.get":
 		var input struct {
@@ -1354,6 +1357,9 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid memory_candidates.list arguments")
 		}
 		items := cairnlineSidecarFixtureProjectMemoryCandidates(state, input.ProjectID, input.IncludeResolved, input.Status)
+		if mode == "memory-fixture" && len(items) == 0 {
+			items = cairnlineSidecarFixtureDefaultMemoryCandidates(input.ProjectID, input.IncludeResolved, input.Status)
+		}
 		return cairnlineSidecarFixtureListResult(mode, fmt.Sprintf("Memory candidates for %s (%d)", input.ProjectID, len(items)), items)
 	case "memory_candidates.get":
 		var input struct {
@@ -1660,6 +1666,35 @@ func cairnlineSidecarFixtureProjectMemoryEntries(state *cairnlineSidecarFixtureS
 	return entries
 }
 
+func cairnlineSidecarFixtureDefaultMemoryEntries(projectID string, includeDisabled bool) []ProjectCairnlineSidecarMemoryEntryItem {
+	entries := []ProjectCairnlineSidecarMemoryEntryItem{
+		{
+			ProjectID:  projectID,
+			ID:         "mem_fixture",
+			Title:      "Fixture memory",
+			Body:       "Remember the fixture sidecar memory contract.",
+			TrustLabel: "operator_memory",
+			SourceKind: "test_fixture",
+			SourceID:   "fixture-memory",
+			Enabled:    true,
+		},
+		{
+			ProjectID:  projectID,
+			ID:         "mem_disabled_fixture",
+			Title:      "Disabled fixture memory",
+			Body:       "This memory entry is disabled.",
+			TrustLabel: "operator_memory",
+			SourceKind: "test_fixture",
+			SourceID:   "fixture-memory-disabled",
+			Enabled:    false,
+		},
+	}
+	if includeDisabled {
+		return entries
+	}
+	return entries[:1]
+}
+
 func cairnlineSidecarFixtureEnsureMemoryCandidates(state *cairnlineSidecarFixtureState, projectID string) map[string]ProjectCairnlineSidecarMemoryCandidateItem {
 	if state.memoryCandidates[projectID] == nil {
 		state.memoryCandidates[projectID] = make(map[string]ProjectCairnlineSidecarMemoryCandidateItem)
@@ -1680,6 +1715,51 @@ func cairnlineSidecarFixtureProjectMemoryCandidates(state *cairnlineSidecarFixtu
 		candidates = append(candidates, candidate)
 	}
 	return candidates
+}
+
+func cairnlineSidecarFixtureDefaultMemoryCandidates(projectID string, includeResolved bool, status string) []ProjectCairnlineSidecarMemoryCandidateItem {
+	candidates := []ProjectCairnlineSidecarMemoryCandidateItem{
+		{
+			ProjectID:           projectID,
+			ID:                  "memcand_fixture",
+			Title:               "Fixture candidate",
+			Body:                "Promote this fixture candidate when it becomes durable.",
+			SuggestedKind:       "project_guidance",
+			SuggestedTrustLabel: "generated_summary",
+			SuggestedSourceKind: "test_fixture",
+			SuggestedSourceID:   "fixture-candidate",
+			SourceRefs: []ProjectCairnlineSidecarMemoryCandidateSourceRef{{
+				Kind:  "evidence",
+				ID:    "evidence_fixture",
+				Title: "Fixture evidence",
+				URL:   "https://example.test/evidence",
+			}},
+			Status: "pending",
+		},
+		{
+			ProjectID:           projectID,
+			ID:                  "memcand_rejected_fixture",
+			Title:               "Rejected fixture candidate",
+			Body:                "This candidate was rejected.",
+			SuggestedKind:       "project_guidance",
+			SuggestedTrustLabel: "generated_summary",
+			SuggestedSourceKind: "test_fixture",
+			SuggestedSourceID:   "fixture-candidate-rejected",
+			Status:              "rejected",
+			StatusReason:        "Not durable.",
+		},
+	}
+	out := make([]ProjectCairnlineSidecarMemoryCandidateItem, 0, len(candidates))
+	for _, candidate := range candidates {
+		if strings.TrimSpace(status) != "" && candidate.Status != status {
+			continue
+		}
+		if strings.TrimSpace(status) == "" && !includeResolved && candidate.Status != "pending" {
+			continue
+		}
+		out = append(out, candidate)
+	}
+	return out
 }
 
 func cairnlineSidecarFixtureProjectAssistantProposals(state *cairnlineSidecarFixtureState, projectID string) []ProjectCairnlineSidecarAssistantProposalRecordItem {
