@@ -413,7 +413,7 @@ func TestProjectCoordinationBackendStatus_CairnlineProjectMetadataDefaultsAuthor
 		t.Fatalf("replacement_ready = true, want false until remaining write and migration gates are ready")
 	}
 	warnings := strings.Join(status.Warnings, "\n")
-	if !strings.Contains(warnings, "Project metadata/default-only update mutations are opt-in Cairnline-authoritative") || !strings.Contains(warnings, "controlled by separate switchpoints") || !strings.Contains(warnings, "root/chat/runtime") {
+	if !strings.Contains(warnings, "Project metadata/default-only update mutations are opt-in Cairnline-authoritative") || !strings.Contains(warnings, "controlled by separate switchpoints") || !strings.Contains(warnings, "chat/runtime") {
 		t.Fatalf("warnings = %+v, want metadata/default authority plus separate-switchpoint caveat", status.Warnings)
 	}
 }
@@ -685,6 +685,7 @@ func TestProjectCoordinationBackendStatus_CairnlineProjectAssistantApplyPortable
 			CairnlineWriteAuthority: strings.Join([]string{
 				projectCairnlineWriteAuthorityProjectAssistantProposals,
 				projectCairnlineWriteAuthorityProjectMetadataDefaults,
+				projectCairnlineWriteAuthorityProjectRoots,
 				projectCairnlineWriteAuthorityProjectRoles,
 				projectCairnlineWriteAuthorityProjectWorkItems,
 				projectCairnlineWriteAuthorityProjectAssignments,
@@ -709,7 +710,7 @@ func TestProjectCoordinationBackendStatus_CairnlineProjectAssistantApplyPortable
 		}
 	}
 	warnings := strings.Join(status.Warnings, "\n")
-	if !strings.Contains(warnings, "Project Assistant proposal ledger mutations are opt-in Cairnline-authoritative") || !strings.Contains(warnings, "confirmed apply is mixed-authority") || !strings.Contains(warnings, "Project Assistant confirmed apply uses the enabled Cairnline authority seams") || !strings.Contains(warnings, "root/chat/runtime") {
+	if !strings.Contains(warnings, "Project Assistant proposal ledger mutations are opt-in Cairnline-authoritative") || !strings.Contains(warnings, "confirmed apply is mixed-authority") || !strings.Contains(warnings, "Project Assistant confirmed apply uses enabled Cairnline authority seams") || !strings.Contains(warnings, "chat/runtime") {
 		t.Fatalf("warnings = %+v, want assistant proposal authority and mixed apply authority caveats", status.Warnings)
 	}
 	if status.ReplacementReady {

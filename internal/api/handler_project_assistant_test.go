@@ -1361,6 +1361,94 @@ func TestProjectAssistantAPI_CairnlineApplyProjectMetadataAuthorityDoesNotBlockO
 	}
 }
 
+func TestProjectAssistantAPI_CairnlineApplyProjectRootAuthorityDoesNotBlockOnShadowFailure(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectAssistantCairnlineMirrorTestHandler(t)
+	handler.config.Projects.CairnlineWriteAuthority = projectCairnlineWriteAuthorityProjectRoots
+	baseProjects := projects.NewMemoryStore()
+	project, err := baseProjects.Create(t.Context(), projects.Project{
+		ID:            "proj_pa_apply_root_authority",
+		Name:          "Assistant Root Authority",
+		DefaultRootID: "root_main",
+		Roots: []projects.Root{{
+			ID:     "root_main",
+			Path:   "/workspace/main",
+			Kind:   "git",
+			Active: true,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	if err := handler.writeProjectIdentityToCairnline(t.Context(), project); err != nil {
+		t.Fatalf("write initial Cairnline project: %v", err)
+	}
+	seedCairnlineOnlyProjectGraphForTest(t, handler, project.ID)
+	handler.SetProjectStore(failingUpdateProjectStore{
+		Store: baseProjects,
+		err:   errors.New("shadow project store unavailable"),
+	})
+	if !handler.projectRootWritesUseCairnlineAuthority() {
+		t.Fatal("root write authority is disabled, want enabled for test")
+	}
+	proposal := projectassistant.Proposal{
+		ID:                   "pa_apply_root_authority",
+		Title:                "Update roots through authority",
+		Summary:              "Project Assistant apply should use the Cairnline-first root authority seam.",
+		RequiresConfirmation: true,
+		Actions: []projectassistant.Action{
+			{
+				Kind:   projectassistant.ActionAttachProjectRoot,
+				Reason: "Attach a root through the authority seam.",
+				Target: map[string]string{"project_id": project.ID},
+				Patch:  json.RawMessage(`{"id":"root_attached","path":"/workspace/attached","kind":"git_worktree","active":true}`),
+			},
+			{
+				Kind:   projectassistant.ActionRemoveProjectRoot,
+				Reason: "Remove the original root through the authority seam.",
+				Target: map[string]string{"project_id": project.ID, "root_id": "root_main"},
+			},
+		},
+	}
+	applyBody, err := json.Marshal(map[string]any{"proposal": proposal, "confirm": true})
+	if err != nil {
+		t.Fatalf("marshal apply body: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/project-assistant/apply", bytes.NewReader(applyBody)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("apply status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var applied projectAssistantApplyResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &applied); err != nil {
+		t.Fatalf("decode apply response: %v", err)
+	}
+	if applied.Data.Status != projectassistant.ApplyStatusApplied || !applied.Data.Applied || applied.Data.CommittedActionCount != 2 {
+		t.Fatalf("apply response = %+v, want applied root actions despite Hecate shadow failure", applied.Data)
+	}
+
+	mirrored := getMirroredCairnlineProjectForTest(t, handler, project.ID)
+	if findMirroredCairnlineRootForTest(mirrored.Roots, "root_attached") == nil {
+		t.Fatalf("Cairnline roots = %+v, want attached root", mirrored.Roots)
+	}
+	if findMirroredCairnlineRootForTest(mirrored.Roots, "root_main") != nil {
+		t.Fatalf("Cairnline roots = %+v, want removed root_main absent", mirrored.Roots)
+	}
+	if findMirroredCairnlineRootForTest(mirrored.Roots, "root_cairnline_only") == nil {
+		t.Fatalf("Cairnline roots = %+v, want Cairnline-only root preserved", mirrored.Roots)
+	}
+	if findMirroredCairnlineSourceForTest(mirrored.ContextSources, "ctx_cairnline_only") == nil {
+		t.Fatalf("Cairnline sources = %+v, want Cairnline-only source preserved", mirrored.ContextSources)
+	}
+	native, ok, err := baseProjects.Get(t.Context(), project.ID)
+	if err != nil || !ok {
+		t.Fatalf("Get native project ok=%v err=%v", ok, err)
+	}
+	if len(native.Roots) != 1 || native.Roots[0].ID != "root_main" || native.DefaultRootID != "root_main" {
+		t.Fatalf("native shadow project = %+v, want unchanged after injected shadow failure", native)
+	}
+}
+
 func TestProjectAssistantAPI_ProposalRouteUsesStrictEmbeddedReadSource(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectAssistantCairnlineMirrorTestHandler(t)

@@ -228,11 +228,11 @@ handoff-list, activity, closeout-readiness, and operations brief reads.
 Project Assistant draft generation also uses the Cairnline-projected context so
 preview and proposal assembly stay aligned, while the proposal ledger remains
 Hecate-owned unless `project-assistant-proposals` is enabled.
-Confirmed Project Assistant apply routes project metadata/default, role,
+Confirmed Project Assistant apply routes project metadata/default, root, role,
 work-item, assignment, handoff, and memory-candidate actions through the same
 opt-in Cairnline authority switchpoints when those switchpoints are enabled;
-root/chat/runtime side effects still keep apply as a mixed-authority
-replacement blocker.
+chat/runtime side effects still keep apply as a mixed-authority replacement
+blocker.
 Project list/detail reconstruct default profile and execution posture from
 Cairnline project/execution-profile records where available. Launch-readiness
 and assignment preflight read
@@ -302,9 +302,9 @@ reconciliation updates are mirrored as replacement evidence.
 Assistant draft/propose/apply-attempt ledger records commit to embedded
 Cairnline first, then best-effort shadow Hecate's proposal store for
 compatibility. Confirmed apply uses the enabled Cairnline authority seams for
-project metadata/default, role, work-item, assignment, handoff, and
-memory-candidate actions, but root/chat/runtime side effects still keep
-Assistant apply as a mixed-authority replacement blocker.
+project metadata/default, root, role, work-item, assignment, handoff, and
+memory-candidate actions, but chat/runtime side effects still keep Assistant
+apply as a mixed-authority replacement blocker.
 Assignment-start is still a Hecate-native dispatch mutation, committed
 assignment-start results and cleanup/conflict states are best-effort mirrored
 for replacement evidence, and other live Projects reads/writes still use the
@@ -413,9 +413,9 @@ execution-profile posture can be shared. Project Assistant draft/propose/apply
 routes mirror the proposal ledger and committed apply side effects after Hecate
 commits proposal records and apply attempts unless `project-assistant-proposals`
 is enabled, in which case the proposal ledger commits to Cairnline first while
-confirmed apply uses enabled project metadata/default,
-role/work-item/assignment/handoff, and memory-candidate authority seams and still
-blocks replacement on the remaining root/chat/runtime side effects.
+confirmed apply uses enabled project metadata/default, root,
+role/work-item/assignment/handoff, and memory-candidate authority seams and
+still blocks replacement on the remaining chat/runtime side effects.
 `POST /hecate/v1/projects/{id}/cairnline/export` writes a refreshable Cairnline
 SQLite export under Hecate's data directory and returns the same
 `migration_rehearsal` evidence for the single-project database. Both sync and
@@ -486,8 +486,8 @@ memory-candidate records; and
 proposal records, apply-attempt history, and committed apply side effects before
 assignment-start/runtime handoff. `project-assistant-proposals` can make the
 proposal ledger Cairnline-authoritative while confirmed apply uses enabled
-project metadata/default, role/work-item/assignment/handoff, and
-memory-candidate authority seams and remains blocked on root/chat/runtime side
+project metadata/default, root, role/work-item/assignment/handoff, and
+memory-candidate authority seams and remains blocked on chat/runtime side
 effects. `project-identity` can make project create/delete
 Cairnline-authoritative with snapshot rollback for failed Hecate
 compatibility cleanup;
@@ -537,9 +537,9 @@ after these gates are met:
   readiness, and operations brief. Draft generation may use the
   Cairnline-projected context, and proposal ledger writes may become
   Cairnline-authoritative with the `project-assistant-proposals` switchpoint.
-  Confirmed apply may use enabled project metadata/default,
+  Confirmed apply may use enabled project metadata/default, root,
   role/work-item/assignment/handoff, and memory-candidate Cairnline-authority
-  seams, but root/chat/runtime side effects remain a mixed-authority replacement blocker and are mirrored as
+  seams, but chat/runtime side effects remain a mixed-authority replacement blocker and are mirrored as
   non-authoritative Cairnline replacement evidence. Assignment preflight/start
   packets may carry non-authoritative
   Cairnline launch-packet evidence, but assignment-start remains a Hecate-owned

@@ -83,6 +83,10 @@ func (authority projectAssistantProjectAuthority) AttachProjectRoot(ctx context.
 	if h == nil || h.projects == nil {
 		return projects.Project{}, projectassistant.ErrStoreNotConfigured
 	}
+	if h.projectRootWritesUseCairnlineAuthority() {
+		updated, _, err := h.createProjectRootWithCairnlineAuthority(ctx, projectID, root)
+		return updated, projectAssistantApplyProjectError(err)
+	}
 	updated, err := h.projects.Update(ctx, projectID, func(project *projects.Project) {
 		project.Roots = append(project.Roots, root)
 	})
@@ -93,6 +97,10 @@ func (authority projectAssistantProjectAuthority) RemoveProjectRoot(ctx context.
 	h := authority.handler
 	if h == nil || h.projects == nil {
 		return projects.Project{}, projectassistant.ErrStoreNotConfigured
+	}
+	if h.projectRootWritesUseCairnlineAuthority() {
+		updated, _, err := h.deleteProjectRootWithCairnlineAuthority(ctx, projectID, rootID)
+		return updated, projectAssistantApplyProjectError(err)
 	}
 	updated, err := h.projects.Update(ctx, projectID, func(project *projects.Project) {
 		roots := project.Roots[:0]
