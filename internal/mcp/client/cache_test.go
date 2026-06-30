@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -58,6 +59,21 @@ func newCacheTestCache(t *testing.T, ttl, reaper time.Duration) *SharedClientCac
 	c := newSharedClientCacheWithReaper(ttl, reaper, mcp.ClientInfo{Name: "hecate-cache-test", Version: "0.0.0"})
 	t.Cleanup(func() { _ = c.Close() })
 	return c
+}
+
+func TestIsTransportClosedErrRecognizesOSClosedPipe(t *testing.T) {
+	t.Parallel()
+	for _, err := range []error{
+		fmt.Errorf("write frame: %w", syscall.EPIPE),
+		fmt.Errorf("write frame: %w", syscall.ECONNRESET),
+	} {
+		if !IsTransportClosedErr(err) {
+			t.Fatalf("IsTransportClosedErr(%v) = false, want true", err)
+		}
+	}
+	if IsTransportClosedErr(fmt.Errorf("write frame: permission denied")) {
+		t.Fatal("IsTransportClosedErr(non-transport error) = true, want false")
+	}
 }
 
 // TestCache_Acquire_HitsAndMisses pins the core caching invariant: a

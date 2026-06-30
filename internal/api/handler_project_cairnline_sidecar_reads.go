@@ -1,19 +1,46 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	mcpclient "github.com/hecatehq/hecate/internal/mcp/client"
+	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/orchestrator"
+	"github.com/hecatehq/hecate/internal/projects"
+	"github.com/hecatehq/hecate/internal/projectskills"
+	"github.com/hecatehq/hecate/internal/projectwork"
 )
 
 var errProjectCairnlineSidecarReadFailed = errors.New("cairnline sidecar project read failed")
 
-func (h *Handler) projectCairnlineSidecarProjectReadsEnabled() bool {
+type ProjectCairnlineSidecarSkillItem struct {
+	ID                     string                                       `json:"id"`
+	ProjectID              string                                       `json:"project_id,omitempty"`
+	Title                  string                                       `json:"title,omitempty"`
+	Description            string                                       `json:"description,omitempty"`
+	Path                   string                                       `json:"path,omitempty"`
+	RootID                 string                                       `json:"root_id,omitempty"`
+	Format                 string                                       `json:"format,omitempty"`
+	SuggestedTools         []string                                     `json:"suggested_tools,omitempty"`
+	RequiredPermissions    *ProjectSkillRequiredPermissionsResponseItem `json:"required_permissions,omitempty"`
+	Enabled                bool                                         `json:"enabled"`
+	Status                 string                                       `json:"status,omitempty"`
+	TrustLabel             string                                       `json:"trust_label,omitempty"`
+	SourceContextSourceIDs []string                                     `json:"source_context_source_ids,omitempty"`
+	SourceRefs             []string                                     `json:"source_refs,omitempty"`
+	Warnings               []string                                     `json:"warnings,omitempty"`
+	DiscoveredAt           string                                       `json:"discovered_at,omitempty"`
+	CreatedAt              string                                       `json:"created_at,omitempty"`
+	UpdatedAt              string                                       `json:"updated_at,omitempty"`
+}
+
+func (h *Handler) projectCairnlineSidecarReadRoutesEnabled() bool {
 	return h != nil &&
 		h.config.ProjectsCoordinationBackend() == "cairnline" &&
 		h.projectCairnlineConnectorMode() == "sidecar" &&
@@ -43,29 +70,40 @@ func (h *Handler) renderCairnlineSidecarProjects(ctx context.Context) ([]Project
 }
 
 func (h *Handler) renderCairnlineSidecarProject(ctx context.Context, projectID string) (*ProjectResponseItem, error) {
-	projectID = strings.TrimSpace(projectID)
-	if projectID == "" {
-		return nil, nil
-	}
-	result, err := h.callProjectCairnlineSidecarProjectReadTool(ctx, "projects.get", map[string]string{"id": projectID})
+	project, ok, err := h.cairnlineSidecarProject(ctx, projectID)
 	if err != nil {
 		return nil, err
 	}
-	if result.IsError {
-		if projectCairnlineSidecarToolErrorIsNotFound(result.Text) {
-			return nil, nil
-		}
-		return nil, projectCairnlineSidecarReadFailure("projects.get returned a tool-level error: " + strings.TrimSpace(result.Text))
-	}
-	project, structuredReady, structuredErr := projectCairnlineSidecarStructuredProject(result.Result.StructuredContent)
-	if structuredErr != nil {
-		return nil, projectCairnlineSidecarReadFailure("projects.get structuredContent parse failed: " + structuredErr.Error())
-	}
-	if !structuredReady {
-		return nil, projectCairnlineSidecarReadFailure("projects.get did not return typed structuredContent")
+	if !ok {
+		return nil, nil
 	}
 	rendered := renderProjectFromCairnlineSidecar(project)
 	return &rendered, nil
+}
+
+func (h *Handler) cairnlineSidecarProject(ctx context.Context, projectID string) (ProjectCairnlineSidecarProjectItem, bool, error) {
+	projectID = strings.TrimSpace(projectID)
+	if projectID == "" {
+		return ProjectCairnlineSidecarProjectItem{}, false, nil
+	}
+	result, err := h.callProjectCairnlineSidecarProjectReadTool(ctx, "projects.get", map[string]string{"id": projectID})
+	if err != nil {
+		return ProjectCairnlineSidecarProjectItem{}, false, err
+	}
+	if result.IsError {
+		if projectCairnlineSidecarToolErrorIsNotFound(result.Text) {
+			return ProjectCairnlineSidecarProjectItem{}, false, nil
+		}
+		return ProjectCairnlineSidecarProjectItem{}, false, projectCairnlineSidecarReadFailure("projects.get returned a tool-level error: " + strings.TrimSpace(result.Text))
+	}
+	project, structuredReady, structuredErr := projectCairnlineSidecarStructuredProject(result.Result.StructuredContent)
+	if structuredErr != nil {
+		return ProjectCairnlineSidecarProjectItem{}, false, projectCairnlineSidecarReadFailure("projects.get structuredContent parse failed: " + structuredErr.Error())
+	}
+	if !structuredReady {
+		return ProjectCairnlineSidecarProjectItem{}, false, projectCairnlineSidecarReadFailure("projects.get did not return typed structuredContent")
+	}
+	return project, true, nil
 }
 
 func (h *Handler) callProjectCairnlineSidecarProjectReadTool(ctx context.Context, toolName string, args any) (*orchestrator.CachedMCPToolCallResult, error) {
@@ -104,9 +142,28 @@ func (h *Handler) callProjectCairnlineSidecarProjectReadTool(ctx context.Context
 }
 
 func renderProjectFromCairnlineSidecar(project ProjectCairnlineSidecarProjectItem) ProjectResponseItem {
-	roots := make([]ProjectRootResponseItem, 0, len(project.Roots))
-	for _, root := range project.Roots {
-		roots = append(roots, ProjectRootResponseItem{
+	converted := projectFromCairnlineSidecar(project)
+	return renderProjectWithBackend(converted, "cairnline")
+}
+
+func projectFromCairnlineSidecar(project ProjectCairnlineSidecarProjectItem) projects.Project {
+	return projects.Project{
+		ID:                  project.ID,
+		Name:                project.Name,
+		Description:         project.Description,
+		Roots:               projectRootsFromCairnlineSidecar(project.Roots),
+		ContextSources:      projectContextSourcesFromCairnlineSidecar(project.ContextSources),
+		DefaultRootID:       project.DefaultRootID,
+		DefaultAgentProfile: project.DefaultProfileID,
+		CreatedAt:           projectCairnlineSidecarTime(project.CreatedAt),
+		UpdatedAt:           projectCairnlineSidecarTime(project.UpdatedAt),
+	}
+}
+
+func projectRootsFromCairnlineSidecar(items []ProjectCairnlineSidecarRootItem) []projects.Root {
+	out := make([]projects.Root, 0, len(items))
+	for _, root := range items {
+		out = append(out, projects.Root{
 			ID:        root.ID,
 			Path:      root.Path,
 			Kind:      root.Kind,
@@ -115,9 +172,13 @@ func renderProjectFromCairnlineSidecar(project ProjectCairnlineSidecarProjectIte
 			Active:    root.Active,
 		})
 	}
-	contextSources := make([]ProjectContextSourceResponseItem, 0, len(project.ContextSources))
-	for _, source := range project.ContextSources {
-		contextSources = append(contextSources, ProjectContextSourceResponseItem{
+	return out
+}
+
+func projectContextSourcesFromCairnlineSidecar(items []ProjectCairnlineSidecarSourceItem) []projects.ContextSource {
+	out := make([]projects.ContextSource, 0, len(items))
+	for _, source := range items {
+		out = append(out, projects.ContextSource{
 			ID:             source.ID,
 			Kind:           source.Kind,
 			Title:          source.Title,
@@ -130,18 +191,172 @@ func renderProjectFromCairnlineSidecar(project ProjectCairnlineSidecarProjectIte
 			Metadata:       cloneProjectContextMetadata(source.Metadata),
 		})
 	}
-	return ProjectResponseItem{
-		ID:                  project.ID,
-		ReadBackend:         "cairnline",
-		Name:                project.Name,
-		Description:         project.Description,
-		Roots:               roots,
-		ContextSources:      contextSources,
-		DefaultRootID:       project.DefaultRootID,
-		DefaultAgentProfile: project.DefaultProfileID,
-		CreatedAt:           project.CreatedAt,
-		UpdatedAt:           project.UpdatedAt,
+	return out
+}
+
+func projectRolesFromCairnlineSidecar(items []ProjectCairnlineSidecarRoleItem) []projectwork.AgentRoleProfile {
+	out := make([]projectwork.AgentRoleProfile, 0, len(items))
+	for _, item := range items {
+		out = append(out, projectwork.AgentRoleProfile{
+			ID:                  item.ID,
+			ProjectID:           item.ProjectID,
+			Name:                item.Name,
+			Description:         item.Description,
+			Instructions:        item.Instructions,
+			DefaultDriverKind:   item.DefaultExecutionMode,
+			DefaultAgentProfile: item.DefaultProfileID,
+			SkillIDs:            append([]string(nil), item.DefaultSkillIDs...),
+		})
 	}
+	return out
+}
+
+func projectWorkItemsFromCairnlineSidecar(items []ProjectCairnlineSidecarWorkItem) []projectwork.WorkItem {
+	out := make([]projectwork.WorkItem, 0, len(items))
+	for _, item := range items {
+		out = append(out, projectwork.WorkItem{
+			ID:              item.ID,
+			ProjectID:       item.ProjectID,
+			Title:           item.Title,
+			Brief:           item.Brief,
+			Status:          item.Status,
+			Priority:        item.Priority,
+			OwnerRoleID:     item.OwnerRoleID,
+			RootID:          item.RootID,
+			ReviewerRoleIDs: append([]string(nil), item.ReviewerRoleIDs...),
+		})
+	}
+	return out
+}
+
+func projectSkillsFromCairnlineSidecar(items []ProjectCairnlineSidecarSkillItem) []projectskills.Skill {
+	out := make([]projectskills.Skill, 0, len(items))
+	for _, item := range items {
+		sourceIDs := append([]string(nil), item.SourceContextSourceIDs...)
+		if len(sourceIDs) == 0 {
+			sourceIDs = append(sourceIDs, item.SourceRefs...)
+		}
+		out = append(out, projectskills.Skill{
+			ID:                     item.ID,
+			ProjectID:              item.ProjectID,
+			Title:                  item.Title,
+			Description:            item.Description,
+			Path:                   item.Path,
+			RootID:                 item.RootID,
+			Format:                 item.Format,
+			SuggestedTools:         append([]string(nil), item.SuggestedTools...),
+			RequiredPermissions:    projectSkillRequiredPermissionsFromResponse(item.RequiredPermissions),
+			Enabled:                item.Enabled,
+			Status:                 item.Status,
+			TrustLabel:             item.TrustLabel,
+			SourceContextSourceIDs: sourceIDs,
+			Warnings:               append([]string(nil), item.Warnings...),
+			DiscoveredAt:           projectCairnlineSidecarTime(item.DiscoveredAt),
+			CreatedAt:              projectCairnlineSidecarTime(item.CreatedAt),
+			UpdatedAt:              projectCairnlineSidecarTime(item.UpdatedAt),
+		})
+	}
+	return out
+}
+
+func projectMemoryEntriesFromCairnlineSidecar(items []ProjectCairnlineSidecarMemoryEntryItem) []memory.Entry {
+	out := make([]memory.Entry, 0, len(items))
+	for _, item := range items {
+		out = append(out, memory.Entry{
+			ID:         item.ID,
+			Scope:      memory.ScopeProject,
+			ProjectID:  item.ProjectID,
+			Title:      item.Title,
+			Body:       item.Body,
+			TrustLabel: item.TrustLabel,
+			SourceKind: item.SourceKind,
+			SourceID:   item.SourceID,
+			Enabled:    item.Enabled,
+			CreatedAt:  projectCairnlineSidecarTime(item.CreatedAt),
+			UpdatedAt:  projectCairnlineSidecarTime(item.UpdatedAt),
+		})
+	}
+	return out
+}
+
+func projectMemoryCandidatesFromCairnlineSidecar(items []ProjectCairnlineSidecarMemoryCandidateItem) []memory.Candidate {
+	out := make([]memory.Candidate, 0, len(items))
+	for _, item := range items {
+		out = append(out, memory.Candidate{
+			ID:                  item.ID,
+			ProjectID:           item.ProjectID,
+			Title:               item.Title,
+			Body:                item.Body,
+			SuggestedKind:       item.SuggestedKind,
+			SuggestedTrustLabel: item.SuggestedTrustLabel,
+			SuggestedSourceKind: item.SuggestedSourceKind,
+			SuggestedSourceID:   item.SuggestedSourceID,
+			SourceRefs:          projectMemoryCandidateSourceRefsFromCairnlineSidecar(item.SourceRefs),
+			Status:              item.Status,
+			StatusReason:        item.StatusReason,
+			PromotedMemoryID:    item.PromotedMemoryID,
+			CreatedAt:           projectCairnlineSidecarTime(item.CreatedAt),
+			UpdatedAt:           projectCairnlineSidecarTime(item.UpdatedAt),
+		})
+	}
+	return out
+}
+
+func projectMemoryCandidateSourceRefsFromCairnlineSidecar(items []ProjectCairnlineSidecarMemoryCandidateSourceRef) []memory.CandidateSourceRef {
+	out := make([]memory.CandidateSourceRef, 0, len(items))
+	for _, item := range items {
+		out = append(out, memory.CandidateSourceRef{
+			Kind:  item.Kind,
+			ID:    item.ID,
+			Title: item.Title,
+			URL:   item.URL,
+		})
+	}
+	return out
+}
+
+func projectSkillRequiredPermissionsFromResponse(item *ProjectSkillRequiredPermissionsResponseItem) projectskills.RequiredPermissions {
+	if item == nil {
+		return projectskills.RequiredPermissions{}
+	}
+	return projectskills.RequiredPermissions{
+		Tools:   item.Tools,
+		Writes:  item.Writes,
+		Network: item.Network,
+	}
+}
+
+func projectCairnlineSidecarTime(value string) time.Time {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		return time.Time{}
+	}
+	return parsed.UTC()
+}
+
+func projectCairnlineSidecarStructuredSkills(raw json.RawMessage) ([]ProjectCairnlineSidecarSkillItem, bool, error) {
+	if len(raw) == 0 {
+		return nil, false, nil
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return nil, false, nil
+	}
+	if bytes.Equal(trimmed, []byte("null")) {
+		return []ProjectCairnlineSidecarSkillItem{}, true, nil
+	}
+	var skills []ProjectCairnlineSidecarSkillItem
+	if err := json.Unmarshal(trimmed, &skills); err != nil {
+		return nil, false, err
+	}
+	if skills == nil {
+		skills = []ProjectCairnlineSidecarSkillItem{}
+	}
+	return skills, true, nil
 }
 
 func projectCairnlineSidecarToolErrorIsNotFound(text string) bool {

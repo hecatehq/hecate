@@ -392,9 +392,9 @@ launch agents. Those remain explicit operator or orchestrator actions.
   assignment-list, and operations brief reads now render work items,
   assignments, roles, artifacts, and handoffs from Cairnline service records,
   then overlay Hecate-only runtime refs/timestamps while Hecate still owns
-  execution. Outside the explicit sidecar project list/detail read source,
-  project identity and some compatibility scaffolding remain Hecate-owned until
-  Cairnline becomes authoritative.
+  execution. Outside the explicit sidecar project list/detail and
+  setup-readiness read source, project identity and some compatibility
+  scaffolding remain Hecate-owned until Cairnline becomes authoritative.
 - Project Assistant draft generation can use the same Cairnline-projected
   context as the inspect endpoint, so proposal assembly is exercised against the
   portable read model while proposal persistence and apply remain Hecate-owned.

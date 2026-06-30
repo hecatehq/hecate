@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/hecatehq/hecate/internal/config"
@@ -255,6 +256,67 @@ func TestProjectSetupReadiness_CairnlineConfiguredUsesReadModel(t *testing.T) {
 	}
 	if response.Data.Summary.MissingDefaults || !response.Data.Summary.HasPurpose || !response.Data.Summary.HasActiveRoot {
 		t.Fatalf("setup readiness summary = %+v, want Hecate defaults/purpose/root over Cairnline setup counts", response.Data.Summary)
+	}
+}
+
+func TestProjectSetupReadiness_ReadsUseCairnlineSidecarWhenConfigured(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "full")
+	if handler.projectReadRoutesUseCairnlineReadModel() {
+		t.Fatal("sidecar setup readiness enabled embedded Cairnline read-model routes")
+	}
+	if !handler.projectCairnlineSidecarReadRoutesEnabled() {
+		t.Fatal("sidecar read-route predicate = false, want true")
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/setup-readiness", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("setup readiness status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response ProjectSetupReadinessEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode setup readiness: %v", err)
+	}
+	if response.Data.ReadBackend != "cairnline" || response.Data.ProjectID != "proj_fixture" {
+		t.Fatalf("setup readiness = %+v, want Cairnline fixture project", response.Data)
+	}
+	if response.Data.ShowOnboarding || !response.Data.SetupStarted || response.Data.FirstWorkReady {
+		t.Fatalf("setup readiness flags = %+v, want sidecar setup started with existing work", response.Data)
+	}
+	summary := response.Data.Summary
+	if summary.WorkItemCount != 1 || summary.RoleCount != 1 || summary.SkillCount != 1 || summary.EnabledContextSourceCount != 1 {
+		t.Fatalf("setup readiness summary = %+v, want sidecar work/role/skill/source counts", summary)
+	}
+	if summary.SavedMemoryCount != 0 || summary.PendingMemoryCandidateCount != 0 {
+		t.Fatalf("setup readiness summary = %+v, want no fixture memory", summary)
+	}
+	if !summary.HasPurpose || !summary.HasActiveRoot || !summary.MissingDefaults {
+		t.Fatalf("setup readiness summary = %+v, want portable project with Hecate execution defaults missing", summary)
+	}
+	for _, id := range []string{"purpose", "workspace_source", "sources_memory", "roles", "first_work_item"} {
+		check := findProjectSetupReadinessCheckForTest(t, response.Data.Checks, id)
+		if check.Status != projectSetupReadinessStatusReady || check.Action != nil {
+			t.Fatalf("check %s = %+v, want ready without action", id, check)
+		}
+	}
+	defaults := findProjectSetupReadinessCheckForTest(t, response.Data.Checks, "launch_defaults")
+	if defaults.Status != projectSetupReadinessStatusTodo || defaults.Action == nil || defaults.Action.Type != projectSetupReadinessActionProjectSettings {
+		t.Fatalf("launch defaults check = %+v, want settings todo", defaults)
+	}
+}
+
+func TestProjectSetupReadiness_CairnlineSidecarReadRequiresStructuredContent(t *testing.T) {
+	t.Parallel()
+	_, server := newProjectsCairnlineSidecarReadTestServer(t, "text-only")
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/setup-readiness", nil))
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("setup readiness status = %d body=%s, want 502", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "structuredContent") {
+		t.Fatalf("error body = %s, want structuredContent diagnostic", rec.Body.String())
 	}
 }
 

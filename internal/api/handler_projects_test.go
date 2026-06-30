@@ -287,7 +287,7 @@ func TestProjectsAPI_ReadsUseCairnlineSidecarWhenConfigured(t *testing.T) {
 	if handler.projectReadRoutesUseCairnlineReadModel() {
 		t.Fatal("sidecar project reads enabled embedded Cairnline read-model routes")
 	}
-	if !handler.projectCairnlineSidecarProjectReadsEnabled() {
+	if !handler.projectCairnlineSidecarReadRoutesEnabled() {
 		t.Fatal("sidecar project read predicate = false, want true")
 	}
 
