@@ -405,11 +405,15 @@ func TestProjectCoordinationBackendStatus_CairnlineProjectMetadataDefaultsAuthor
 	if identityPoint == nil || identityPoint.CurrentAuthority != "hecate" || !identityPoint.BlocksAuthority || identityPoint.Gap != "projects" {
 		t.Fatalf("project-identity switchpoint = %+v, want create/delete to remain Hecate-owned and blocking", identityPoint)
 	}
+	applyPoint := findWriteSwitchpoint(status.WriteSwitchpoints, "project-assistant-apply-side-effects")
+	if applyPoint == nil || applyPoint.CurrentAuthority != "mixed" || applyPoint.CairnlineState != "partial_authoritative_via_portable_switchpoints" || !applyPoint.BlocksAuthority || applyPoint.Gap != "project-assistant-apply-side-effects" {
+		t.Fatalf("project-assistant-apply-side-effects switchpoint = %+v, want mixed authority through metadata/default switchpoint", applyPoint)
+	}
 	if status.ReplacementReady {
 		t.Fatalf("replacement_ready = true, want false until remaining write and migration gates are ready")
 	}
 	warnings := strings.Join(status.Warnings, "\n")
-	if !strings.Contains(warnings, "Project metadata/default-only update mutations are opt-in Cairnline-authoritative") || !strings.Contains(warnings, "controlled by separate switchpoints") {
+	if !strings.Contains(warnings, "Project metadata/default-only update mutations are opt-in Cairnline-authoritative") || !strings.Contains(warnings, "controlled by separate switchpoints") || !strings.Contains(warnings, "root/chat/runtime") {
 		t.Fatalf("warnings = %+v, want metadata/default authority plus separate-switchpoint caveat", status.Warnings)
 	}
 }
@@ -680,6 +684,7 @@ func TestProjectCoordinationBackendStatus_CairnlineProjectAssistantApplyPortable
 			CairnlineReadSource: "embedded",
 			CairnlineWriteAuthority: strings.Join([]string{
 				projectCairnlineWriteAuthorityProjectAssistantProposals,
+				projectCairnlineWriteAuthorityProjectMetadataDefaults,
 				projectCairnlineWriteAuthorityProjectRoles,
 				projectCairnlineWriteAuthorityProjectWorkItems,
 				projectCairnlineWriteAuthorityProjectAssignments,
@@ -704,8 +709,8 @@ func TestProjectCoordinationBackendStatus_CairnlineProjectAssistantApplyPortable
 		}
 	}
 	warnings := strings.Join(status.Warnings, "\n")
-	if !strings.Contains(warnings, "Project Assistant proposal ledger mutations are opt-in Cairnline-authoritative") || !strings.Contains(warnings, "confirmed apply is mixed-authority") || !strings.Contains(warnings, "Project Assistant confirmed apply uses the enabled Cairnline authority seams") {
-		t.Fatalf("warnings = %+v, want assistant proposal authority and mixed apply-work authority caveats", status.Warnings)
+	if !strings.Contains(warnings, "Project Assistant proposal ledger mutations are opt-in Cairnline-authoritative") || !strings.Contains(warnings, "confirmed apply is mixed-authority") || !strings.Contains(warnings, "Project Assistant confirmed apply uses the enabled Cairnline authority seams") || !strings.Contains(warnings, "root/chat/runtime") {
+		t.Fatalf("warnings = %+v, want assistant proposal authority and mixed apply authority caveats", status.Warnings)
 	}
 	if status.ReplacementReady {
 		t.Fatalf("replacement_ready = true, want false until remaining write and migration gates are ready")
