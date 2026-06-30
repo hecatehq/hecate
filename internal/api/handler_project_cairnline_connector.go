@@ -322,6 +322,20 @@ func (h *Handler) HandleProjectCairnlineSidecarMemorySmoke(w http.ResponseWriter
 	})
 }
 
+func (h *Handler) HandleProjectCairnlineSidecarAssistantSmoke(w http.ResponseWriter, r *http.Request) {
+	if !requireLoopbackClient(w, r, "Cairnline sidecar assistant smoke") {
+		return
+	}
+	var req ProjectCairnlineSidecarAssistantRequest
+	if !decodeOptionalJSON(w, r, &req) {
+		return
+	}
+	WriteJSON(w, http.StatusOK, ProjectCairnlineSidecarAssistantEnvelope{
+		Object: "project_cairnline_sidecar_assistant",
+		Data:   h.projectCairnlineSidecarAssistantSmoke(r.Context(), req),
+	})
+}
+
 func (h *Handler) projectCairnlineSidecarProbe(ctx context.Context) ProjectCairnlineSidecarProbeResponse {
 	if ctx == nil {
 		ctx = context.Background()
@@ -2328,6 +2342,259 @@ func (h *Handler) projectCairnlineSidecarMemorySmoke(ctx context.Context, req Pr
 	return fail("sidecar_memory_project_delete_verification_failed", "Cairnline sidecar projects.delete succeeded, but projects.get still returned the temporary memory project.")
 }
 
+func (h *Handler) projectCairnlineSidecarAssistantSmoke(ctx context.Context, req ProjectCairnlineSidecarAssistantRequest) ProjectCairnlineSidecarAssistantResponse {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	cfg, dbPath, timeout := h.projectCairnlineSidecarMCPConfig()
+	projectName := strings.TrimSpace(req.ProjectName)
+	if projectName == "" {
+		projectName = "Hecate sidecar assistant smoke " + time.Now().UTC().Format("20060102T150405.000000000Z")
+	}
+	const (
+		roleName  = "Sidecar assistant operator"
+		workTitle = "Sidecar assistant proposed work"
+	)
+	response := ProjectCairnlineSidecarAssistantResponse{
+		Ready:                 false,
+		Status:                "sidecar_assistant_not_run",
+		Detail:                "Cairnline sidecar assistant smoke has not run.",
+		Command:               cfg.Command,
+		Args:                  append([]string(nil), cfg.Args...),
+		DatabasePath:          dbPath,
+		ProbeTimeoutMS:        timeout.Milliseconds(),
+		PersistentClient:      true,
+		ClientCacheConfigured: h != nil,
+		ConfirmedMutation:     req.ConfirmMutation,
+		ProjectName:           projectName,
+	}
+	if h == nil {
+		response.Status = "sidecar_assistant_failed"
+		response.Detail = "Cairnline sidecar assistant smoke requires an API handler."
+		return response
+	}
+	if h.projectCairnlineConnectorMode() != "sidecar" {
+		response.Warnings = append(response.Warnings, "HECATE_PROJECTS_CAIRNLINE_CONNECTOR is not sidecar; this assistant smoke does not affect live Projects routing.")
+	}
+	if dbPath != "" && len(h.config.ProjectsCairnlineSidecarArgs()) > 0 {
+		response.Warnings = append(response.Warnings, "HECATE_PROJECTS_CAIRNLINE_SIDECAR_ARGS is set, so HECATE_PROJECTS_CAIRNLINE_SIDECAR_DB is reported but not appended automatically.")
+	}
+	if !req.ConfirmMutation {
+		response.Status = "sidecar_assistant_confirmation_required"
+		response.Detail = "Set confirm_mutation=true to let Hecate create, verify, apply, and clean up a temporary Project Assistant proposal in the standalone Cairnline sidecar. Hecate-native Projects stores are not mutated."
+		return response
+	}
+
+	cache := h.projectCairnlineSidecarMCPClientCache()
+	smokeCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	projectID := ""
+	cleanup := func() {
+		if projectID == "" || response.CleanupVerified {
+			return
+		}
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+		defer cleanupCancel()
+		cleanupStep := h.callProjectCairnlineSidecarWriteTool(cleanupCtx, cfg, cache, "cleanup_delete_project", "projects.delete", false, map[string]string{"id": projectID})
+		response.Steps = append(response.Steps, cleanupStep)
+		if cleanupStep.Status == "ready" {
+			verifyCleanupStep := h.callProjectCairnlineSidecarWriteTool(cleanupCtx, cfg, cache, "cleanup_get_after_project_delete", "projects.get", true, map[string]string{"id": projectID})
+			if verifyCleanupStep.Status == "tool_failed" {
+				verifyCleanupStep.Status = "expected_missing"
+				response.CleanupVerified = true
+				response.Warnings = append(response.Warnings, "Hecate deleted and verified removal of the temporary standalone Cairnline assistant project after the assistant smoke failed; inspect the reported steps before retrying.")
+			} else {
+				response.Warnings = append(response.Warnings, "Hecate deleted the temporary standalone Cairnline assistant project after the assistant smoke failed, but removal could not be verified; inspect the reported steps before retrying.")
+			}
+			response.Steps = append(response.Steps, verifyCleanupStep)
+			return
+		}
+		response.Warnings = append(response.Warnings, "Hecate tried to delete the temporary standalone Cairnline assistant project after the assistant smoke failed, but cleanup did not succeed; inspect the standalone Cairnline sidecar before retrying.")
+	}
+	fail := func(status, detail string) ProjectCairnlineSidecarAssistantResponse {
+		response.Status = status
+		response.Detail = detail
+		cleanup()
+		response.setSidecarCacheStats(cache.Stats())
+		return response
+	}
+	appendStep := func(step ProjectCairnlineSidecarWriteStep) bool {
+		response.Steps = append(response.Steps, step)
+		if step.Status == "tool_failed" {
+			response.Status = "sidecar_assistant_tool_failed"
+			response.Detail = "Cairnline sidecar " + step.Tool + " returned a tool-level error. Review the step output before retrying."
+			cleanup()
+			response.setSidecarCacheStats(cache.Stats())
+			return false
+		}
+		if step.Status == "failed" {
+			response.Status = "sidecar_assistant_failed"
+			response.Detail = firstNonEmpty(step.ToolText, "Cairnline sidecar "+step.Tool+" failed.")
+			cleanup()
+			response.setSidecarCacheStats(cache.Stats())
+			return false
+		}
+		return true
+	}
+
+	createProject := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "create_project", "projects.create", false, map[string]string{
+		"name":        projectName,
+		"description": "Temporary Hecate sidecar assistant smoke project. It should be deleted by the same diagnostic run.",
+	})
+	if !appendStep(createProject) {
+		return response
+	}
+	listProjects := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "list_after_project_create", "projects.list", true, map[string]string{})
+	if !appendStep(listProjects) {
+		return response
+	}
+	project, ok := projectCairnlineSidecarProjectByName(listProjects.StructuredProjects, projectName)
+	if !ok || strings.TrimSpace(project.ID) == "" {
+		return fail("sidecar_assistant_created_project_not_listed", "Cairnline sidecar projects.create succeeded, but projects.list did not return the temporary assistant project by name.")
+	}
+	projectID = strings.TrimSpace(project.ID)
+	response.SelectedProjectID = projectID
+	response.ProposalID = "prop_" + projectID + "_assistant_smoke"
+	response.RoleID = "role_" + projectID + "_assistant"
+	response.WorkItemID = "work_" + projectID + "_assistant"
+	response.AssignmentID = "asgn_" + projectID + "_assistant"
+
+	proposal := map[string]any{
+		"id":                    response.ProposalID,
+		"project_id":            projectID,
+		"title":                 "Queue sidecar assistant assignment",
+		"summary":               "Temporary Project Assistant proposal created by the Hecate sidecar assistant smoke.",
+		"source":                "assistant",
+		"requires_confirmation": true,
+		"warnings":              []string{"Temporary diagnostic proposal; it should be applied and cleaned up by the same smoke run."},
+		"actions": []map[string]any{
+			{
+				"kind": "create_role",
+				"role": map[string]any{
+					"id":                     response.RoleID,
+					"project_id":             projectID,
+					"name":                   roleName,
+					"description":            "Temporary role from the sidecar assistant smoke.",
+					"default_execution_mode": "mcp_pull",
+				},
+			},
+			{
+				"kind": "create_work_item",
+				"work_item": map[string]any{
+					"id":            response.WorkItemID,
+					"project_id":    projectID,
+					"title":         workTitle,
+					"brief":         "Temporary work item from the sidecar assistant smoke.",
+					"owner_role_id": response.RoleID,
+				},
+			},
+			{
+				"kind": "create_assignment",
+				"assignment": map[string]any{
+					"id":             response.AssignmentID,
+					"project_id":     projectID,
+					"work_item_id":   response.WorkItemID,
+					"role_id":        response.RoleID,
+					"execution_mode": "mcp_pull",
+				},
+			},
+		},
+	}
+	proposeStep := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "create_assistant_proposal", "assistant.propose", false, proposal)
+	if !appendStep(proposeStep) {
+		return response
+	}
+	if proposeStep.StructuredAssistantProposal.ID != response.ProposalID || proposeStep.StructuredAssistantProposal.Status != "proposed" || len(proposeStep.StructuredAssistantProposal.Proposal.Actions) != 3 {
+		return fail("sidecar_assistant_proposal_create_verification_failed", "Cairnline sidecar assistant.propose did not return the expected proposed assistant record with three actions.")
+	}
+	response.CreatedProposal = proposeStep.StructuredAssistantProposal
+
+	listProposals := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "list_assistant_proposals_after_create", "assistant.proposals.list", true, map[string]string{"project_id": projectID})
+	if !appendStep(listProposals) {
+		return response
+	}
+	if _, ok := projectCairnlineSidecarAssistantProposalByID(listProposals.StructuredAssistantProposals, response.ProposalID); !ok {
+		return fail("sidecar_assistant_proposal_list_verification_failed", "Cairnline sidecar assistant.proposals.list did not return the expected proposed assistant record.")
+	}
+
+	getProposal := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "get_assistant_proposal", "assistant.proposals.get", true, map[string]string{"id": response.ProposalID})
+	if !appendStep(getProposal) {
+		return response
+	}
+	if getProposal.StructuredAssistantProposal.ID != response.ProposalID || getProposal.StructuredAssistantProposal.ProjectID != projectID {
+		return fail("sidecar_assistant_proposal_get_verification_failed", "Cairnline sidecar assistant.proposals.get did not return the expected proposed assistant record.")
+	}
+
+	applyStep := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "apply_assistant_proposal", "assistant.apply", false, map[string]any{
+		"proposal_id": response.ProposalID,
+		"confirm":     true,
+	})
+	if !appendStep(applyStep) {
+		return response
+	}
+	if applyStep.StructuredAssistantApplyResult.ProposalID != response.ProposalID || applyStep.StructuredAssistantApplyResult.Status != "applied" || !applyStep.StructuredAssistantApplyResult.Applied || applyStep.StructuredAssistantApplyResult.AppliedActionCount != 3 {
+		return fail("sidecar_assistant_apply_verification_failed", "Cairnline sidecar assistant.apply did not return the expected applied result for all three proposal actions.")
+	}
+	response.ApplyResult = applyStep.StructuredAssistantApplyResult
+
+	getAppliedProposal := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "get_applied_assistant_proposal", "assistant.proposals.get", true, map[string]string{"id": response.ProposalID})
+	if !appendStep(getAppliedProposal) {
+		return response
+	}
+	if getAppliedProposal.StructuredAssistantProposal.ID != response.ProposalID || getAppliedProposal.StructuredAssistantProposal.Status != "applied" || getAppliedProposal.StructuredAssistantProposal.LatestResult == nil || len(getAppliedProposal.StructuredAssistantProposal.ApplyAttempts) == 0 {
+		return fail("sidecar_assistant_applied_proposal_get_verification_failed", "Cairnline sidecar assistant.proposals.get did not return the applied proposal ledger state with latest result and apply attempt.")
+	}
+	response.AppliedProposal = getAppliedProposal.StructuredAssistantProposal
+
+	listRoles := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "list_roles_after_apply", "roles.list", true, map[string]string{"project_id": projectID})
+	if !appendStep(listRoles) {
+		return response
+	}
+	role, ok := projectCairnlineSidecarRoleByName(listRoles.StructuredRoles, roleName)
+	if !ok || role.ID != response.RoleID {
+		return fail("sidecar_assistant_role_apply_verification_failed", "Cairnline sidecar roles.list did not return the role created by assistant.apply.")
+	}
+
+	listWork := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "list_work_items_after_apply", "work_items.list", true, map[string]string{"project_id": projectID})
+	if !appendStep(listWork) {
+		return response
+	}
+	work, ok := projectCairnlineSidecarWorkItemByTitle(listWork.StructuredWorkItems, workTitle)
+	if !ok || work.ID != response.WorkItemID || work.OwnerRoleID != response.RoleID {
+		return fail("sidecar_assistant_work_apply_verification_failed", "Cairnline sidecar work_items.list did not return the work item created by assistant.apply.")
+	}
+
+	listAssignments := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "list_assignments_after_apply", "assignments.list", true, map[string]string{"project_id": projectID, "work_item_id": response.WorkItemID})
+	if !appendStep(listAssignments) {
+		return response
+	}
+	assignment, ok := projectCairnlineSidecarAssignmentByWorkAndRole(listAssignments.StructuredAssignments, response.WorkItemID, response.RoleID)
+	if !ok || assignment.ID != response.AssignmentID || assignment.ExecutionMode != "mcp_pull" {
+		return fail("sidecar_assistant_assignment_apply_verification_failed", "Cairnline sidecar assignments.list did not return the queued MCP-pull assignment created by assistant.apply.")
+	}
+
+	deleteProject := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "delete_project", "projects.delete", false, map[string]string{"id": projectID})
+	if !appendStep(deleteProject) {
+		return response
+	}
+	verifyDelete := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "get_after_project_delete", "projects.get", true, map[string]string{"id": projectID})
+	if verifyDelete.Status == "tool_failed" {
+		verifyDelete.Status = "expected_missing"
+		response.Steps = append(response.Steps, verifyDelete)
+		response.CleanupVerified = true
+		response.Ready = true
+		response.Status = "sidecar_assistant_ready"
+		response.Detail = "Hecate created, listed, fetched, applied, and verified a temporary standalone Cairnline Project Assistant proposal, then deleted the temporary project. Hecate-native Projects stores were not mutated."
+		response.setSidecarCacheStats(cache.Stats())
+		return response
+	}
+	if !appendStep(verifyDelete) {
+		return response
+	}
+	return fail("sidecar_assistant_project_delete_verification_failed", "Cairnline sidecar projects.delete succeeded, but projects.get still returned the temporary assistant project.")
+}
+
 func projectCairnlineSidecarLifecycleShouldReleaseAfterFailure(steps []ProjectCairnlineSidecarLifecycleStep) bool {
 	claimed := false
 	for _, step := range steps {
@@ -2994,6 +3261,52 @@ func (h *Handler) callProjectCairnlineSidecarWriteTool(ctx context.Context, cfg 
 			step.ToolText = "Cairnline sidecar " + tool + " did not return structuredContent; the memory smoke needs typed memory candidate detail to verify candidate mutations."
 			return step
 		}
+	case "assistant.propose", "assistant.proposals.get":
+		proposal, structuredReady, structuredErr := projectCairnlineSidecarStructuredAssistantProposal(result.Result.StructuredContent)
+		step.StructuredReady = structuredReady
+		step.StructuredAssistantProposal = proposal
+		if structuredErr != nil {
+			step.StructuredParseError = structuredErr.Error()
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar " + tool + " returned structuredContent that Hecate could not parse as assistant proposal: " + structuredErr.Error()
+			return step
+		}
+		if !structuredReady {
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar " + tool + " did not return structuredContent; the assistant smoke needs typed proposal detail to verify proposal ledger mutations."
+			return step
+		}
+	case "assistant.proposals.list":
+		proposals, structuredReady, structuredErr := projectCairnlineSidecarStructuredAssistantProposals(result.Result.StructuredContent)
+		step.StructuredReady = structuredReady
+		step.StructuredAssistantProposals = proposals
+		step.StructuredAssistantProposalCount = len(proposals)
+		if structuredErr != nil {
+			step.StructuredParseError = structuredErr.Error()
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar assistant.proposals.list returned structuredContent that Hecate could not parse as assistant proposals: " + structuredErr.Error()
+			return step
+		}
+		if !structuredReady {
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar assistant.proposals.list did not return structuredContent; the assistant smoke needs typed proposal records to verify proposal ledger mutations."
+			return step
+		}
+	case "assistant.apply":
+		applyResult, structuredReady, structuredErr := projectCairnlineSidecarStructuredAssistantApplyResult(result.Result.StructuredContent)
+		step.StructuredReady = structuredReady
+		step.StructuredAssistantApplyResult = applyResult
+		if structuredErr != nil {
+			step.StructuredParseError = structuredErr.Error()
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar assistant.apply returned structuredContent that Hecate could not parse as assistant apply result: " + structuredErr.Error()
+			return step
+		}
+		if !structuredReady {
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar assistant.apply did not return structuredContent; the assistant smoke needs typed apply result to verify confirmed apply."
+			return step
+		}
 	case "assignments.context":
 		contextIDs, structuredReady, structuredErr := projectCairnlineSidecarStructuredAssignmentContextIDs(result.Result.StructuredContent)
 		step.StructuredReady = structuredReady
@@ -3213,6 +3526,16 @@ func projectCairnlineSidecarMemoryCandidateByID(candidates []ProjectCairnlineSid
 		}
 	}
 	return ProjectCairnlineSidecarMemoryCandidateItem{}, false
+}
+
+func projectCairnlineSidecarAssistantProposalByID(proposals []ProjectCairnlineSidecarAssistantProposalRecordItem, id string) (ProjectCairnlineSidecarAssistantProposalRecordItem, bool) {
+	id = strings.TrimSpace(id)
+	for _, proposal := range proposals {
+		if strings.TrimSpace(proposal.ID) == id {
+			return proposal, true
+		}
+	}
+	return ProjectCairnlineSidecarAssistantProposalRecordItem{}, false
 }
 
 func projectCairnlineSidecarStructuredProject(raw json.RawMessage) (ProjectCairnlineSidecarProjectItem, bool, error) {
@@ -3581,6 +3904,57 @@ func projectCairnlineSidecarStructuredMemoryCandidate(raw json.RawMessage) (Proj
 	return candidate, true, nil
 }
 
+func projectCairnlineSidecarStructuredAssistantProposals(raw json.RawMessage) ([]ProjectCairnlineSidecarAssistantProposalRecordItem, bool, error) {
+	if len(raw) == 0 {
+		return nil, false, nil
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return nil, false, nil
+	}
+	if bytes.Equal(trimmed, []byte("null")) {
+		return []ProjectCairnlineSidecarAssistantProposalRecordItem{}, true, nil
+	}
+	var proposals []ProjectCairnlineSidecarAssistantProposalRecordItem
+	if err := json.Unmarshal(trimmed, &proposals); err != nil {
+		return nil, false, err
+	}
+	if proposals == nil {
+		proposals = []ProjectCairnlineSidecarAssistantProposalRecordItem{}
+	}
+	return proposals, true, nil
+}
+
+func projectCairnlineSidecarStructuredAssistantProposal(raw json.RawMessage) (ProjectCairnlineSidecarAssistantProposalRecordItem, bool, error) {
+	if len(raw) == 0 {
+		return ProjectCairnlineSidecarAssistantProposalRecordItem{}, false, nil
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return ProjectCairnlineSidecarAssistantProposalRecordItem{}, false, nil
+	}
+	var proposal ProjectCairnlineSidecarAssistantProposalRecordItem
+	if err := json.Unmarshal(trimmed, &proposal); err != nil {
+		return ProjectCairnlineSidecarAssistantProposalRecordItem{}, false, err
+	}
+	return proposal, true, nil
+}
+
+func projectCairnlineSidecarStructuredAssistantApplyResult(raw json.RawMessage) (ProjectCairnlineSidecarAssistantApplyResultItem, bool, error) {
+	if len(raw) == 0 {
+		return ProjectCairnlineSidecarAssistantApplyResultItem{}, false, nil
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return ProjectCairnlineSidecarAssistantApplyResultItem{}, false, nil
+	}
+	var result ProjectCairnlineSidecarAssistantApplyResultItem
+	if err := json.Unmarshal(trimmed, &result); err != nil {
+		return ProjectCairnlineSidecarAssistantApplyResultItem{}, false, err
+	}
+	return result, true, nil
+}
+
 func projectCairnlineSidecarStructuredAssignmentContextIDs(raw json.RawMessage) (ProjectCairnlineSidecarAssignmentContextIDs, bool, error) {
 	if len(raw) == 0 {
 		return ProjectCairnlineSidecarAssignmentContextIDs{}, false, nil
@@ -3858,6 +4232,15 @@ func (r *ProjectCairnlineSidecarCollaborationResponse) setSidecarCacheStats(stat
 }
 
 func (r *ProjectCairnlineSidecarMemoryResponse) setSidecarCacheStats(stats mcpclient.CacheStats) {
+	if r == nil {
+		return
+	}
+	r.ClientCacheEntries = stats.Entries
+	r.ClientCacheInUse = stats.InUse
+	r.ClientCacheIdle = stats.Idle
+}
+
+func (r *ProjectCairnlineSidecarAssistantResponse) setSidecarCacheStats(stats mcpclient.CacheStats) {
 	if r == nil {
 		return
 	}

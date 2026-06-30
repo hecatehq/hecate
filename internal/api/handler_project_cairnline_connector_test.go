@@ -1266,6 +1266,93 @@ func TestProjectCairnlineSidecarCollaborationSmoke_CleansUpAfterReviewFailure(t 
 	}
 }
 
+func TestProjectCairnlineSidecarAssistantSmoke_RequiresConfirmation(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "full"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarAssistantSmoke(t.Context(), ProjectCairnlineSidecarAssistantRequest{ProjectName: "Fixture assistant smoke"})
+	if got.Ready || got.Status != "sidecar_assistant_confirmation_required" || got.ConfirmedMutation {
+		t.Fatalf("assistant smoke = %+v, want confirmation-required without mutation", got)
+	}
+	if len(got.Steps) != 0 || got.ClientCacheEntries != 0 {
+		t.Fatalf("steps/cache = %d/%d, want no sidecar calls before confirmation", len(got.Steps), got.ClientCacheEntries)
+	}
+}
+
+func TestProjectCairnlineSidecarAssistantSmoke_AppliesProposal(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "full"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarAssistantSmoke(t.Context(), ProjectCairnlineSidecarAssistantRequest{
+		ConfirmMutation: true,
+		ProjectName:     "Fixture assistant smoke",
+	})
+	if !got.Ready || got.Status != "sidecar_assistant_ready" || !got.CleanupVerified {
+		t.Fatalf("assistant smoke = %+v, want ready with verified cleanup", got)
+	}
+	if got.SelectedProjectID == "" || got.ProposalID == "" || got.RoleID == "" || got.WorkItemID == "" || got.AssignmentID == "" {
+		t.Fatalf("ids = project:%q proposal:%q role:%q work:%q assignment:%q, want created assistant ids", got.SelectedProjectID, got.ProposalID, got.RoleID, got.WorkItemID, got.AssignmentID)
+	}
+	if got.CreatedProposal.ID != got.ProposalID || got.CreatedProposal.Status != "proposed" || len(got.CreatedProposal.Proposal.Actions) != 3 {
+		t.Fatalf("created proposal = %+v, want proposed record with three actions", got.CreatedProposal)
+	}
+	if got.ApplyResult.ProposalID != got.ProposalID || got.ApplyResult.Status != "applied" || !got.ApplyResult.Applied || !got.ApplyResult.Confirmed || got.ApplyResult.AppliedActionCount != 3 {
+		t.Fatalf("apply result = %+v, want confirmed applied result for all actions", got.ApplyResult)
+	}
+	if got.AppliedProposal.ID != got.ProposalID || got.AppliedProposal.Status != "applied" || got.AppliedProposal.LatestResult == nil || len(got.AppliedProposal.ApplyAttempts) == 0 {
+		t.Fatalf("applied proposal = %+v, want applied ledger state", got.AppliedProposal)
+	}
+	if len(got.Steps) != 12 {
+		t.Fatalf("steps = %+v, want project/proposal/apply/verify/delete flow", got.Steps)
+	}
+	if got.Steps[2].Tool != "assistant.propose" || got.Steps[3].Tool != "assistant.proposals.list" || got.Steps[4].Tool != "assistant.proposals.get" || got.Steps[5].Tool != "assistant.apply" || got.Steps[8].Tool != "work_items.list" || got.Steps[9].Tool != "assignments.list" || got.Steps[11].Status != "expected_missing" {
+		t.Fatalf("steps = %+v, want assistant smoke order and missing-after-delete verification", got.Steps)
+	}
+	if got.Steps[5].StructuredAssistantApplyResult.AppliedActionCount != 3 {
+		t.Fatalf("apply step = %+v, want typed apply result with three applied actions", got.Steps[5])
+	}
+}
+
+func TestProjectCairnlineSidecarAssistantSmoke_CleansUpAfterApplyFailure(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "assistant-apply-tool-error"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarAssistantSmoke(t.Context(), ProjectCairnlineSidecarAssistantRequest{
+		ConfirmMutation: true,
+		ProjectName:     "Fixture assistant smoke cleanup",
+	})
+	if got.Ready || got.Status != "sidecar_assistant_tool_failed" || !got.CleanupVerified {
+		t.Fatalf("assistant smoke = %+v, want apply tool failure with verified project cleanup", got)
+	}
+	if len(got.Steps) != 8 || got.Steps[5].Tool != "assistant.apply" || !got.Steps[5].ToolIsError || got.Steps[6].Name != "cleanup_delete_project" || got.Steps[7].Status != "expected_missing" {
+		t.Fatalf("steps = %+v, want apply failure followed by project cleanup delete and verification", got.Steps)
+	}
+	if !strings.Contains(strings.Join(got.Warnings, "\n"), "deleted and verified removal") {
+		t.Fatalf("warnings = %+v, want verified cleanup warning", got.Warnings)
+	}
+}
+
 func TestProjectCairnlineSidecarMemorySmoke_RequiresConfirmation(t *testing.T) {
 	handler := NewHandler(config.Config{
 		Projects: config.ProjectsConfig{

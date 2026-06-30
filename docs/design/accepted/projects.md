@@ -171,6 +171,12 @@ project. A memory smoke at
 `confirm_mutation=true`, creates and verifies accepted memory, promotes one
 candidate into accepted memory, rejects/deletes another candidate through typed
 `structuredContent`, then deletes and verifies removal of the temporary project.
+An assistant smoke at
+`POST /hecate/v1/projects/cairnline/sidecar-assistant-smoke` requires
+`confirm_mutation=true`, creates and verifies a temporary Project Assistant
+proposal ledger record, applies it with explicit confirmation, verifies the
+created role/work/assignment side effects through typed `structuredContent`,
+then deletes and verifies removal of the temporary project.
 Hecate does not yet route Projects reads, writes, or mirrors through the sidecar
 client.
 Today, `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` is a

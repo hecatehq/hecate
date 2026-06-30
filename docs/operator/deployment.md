@@ -397,7 +397,12 @@ Operators can also run
 `POST /hecate/v1/projects/cairnline/sidecar-memory-smoke` with
 `confirm_mutation=true` to create and verify accepted memory, promote one memory
 candidate, reject/delete another candidate, and clean up the temporary
-standalone Cairnline project.
+standalone Cairnline project. Operators can also run
+`POST /hecate/v1/projects/cairnline/sidecar-assistant-smoke` with
+`confirm_mutation=true` to create and verify a temporary Project Assistant
+proposal ledger record, apply it with explicit confirmation, verify the created
+role/work/assignment side effects, and clean up the temporary standalone
+Cairnline project.
 Those smokes delete their temporary project and verify removal.
 When the embedded Cairnline read adapter is fully wired,
 `GET /hecate/v1/projects/backend-status` reports
@@ -452,11 +457,12 @@ cached client to call read-only Cairnline MCP tools and return diagnostic
 evidence. `sidecar-lifecycle-smoke` is opt-in mutation evidence for the
 standalone sidecar assignment lifecycle. `sidecar-write-smoke`,
 `sidecar-setup-smoke`, `sidecar-work-smoke`,
-`sidecar-collaboration-smoke`, and `sidecar-memory-smoke` are opt-in mutation
-evidence for standalone
-sidecar project identity, project setup metadata, project work coordination
-records, collaboration metadata records, and memory/candidate records. None of
-these routes operator project reads or writes through the sidecar backend.
+`sidecar-collaboration-smoke`, `sidecar-memory-smoke`, and
+`sidecar-assistant-smoke` are opt-in mutation evidence for standalone sidecar
+project identity, project setup metadata, project work coordination records,
+collaboration metadata records, memory/candidate records, and Project Assistant
+proposal/apply records. None of these routes operator project reads or writes
+through the sidecar backend.
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-memory` is an alpha
 write-authority dogfood switch for accepted project memory entries:
 create/update/delete commits to the embedded Cairnline database first and then
