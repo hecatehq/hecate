@@ -46,13 +46,25 @@ func TestBraveClientSearchSendsExpectedRequestAndNormalizesResults(t *testing.T)
 						"title":          " Agent Client Protocol ",
 						"url":            " https://agentclientprotocol.com ",
 						"description":    " ACP docs ",
-						"extra_snippets": []string{" snippet one ", "", "snippet two"},
+						"extra_snippets": []string{" snippet one ", "", "snippet two", "snippet three", "snippet four"},
 						"age":            "2 days ago",
 						"language":       "en",
 					},
 					{
 						"title": "",
 						"url":   "",
+					},
+					{
+						"title": "Result two",
+						"url":   "https://example.test/two",
+					},
+					{
+						"title": "Result three",
+						"url":   "https://example.test/three",
+					},
+					{
+						"title": "Result four",
+						"url":   "https://example.test/four",
 					},
 				},
 			},
@@ -85,15 +97,18 @@ func TestBraveClientSearchSendsExpectedRequestAndNormalizesResults(t *testing.T)
 	if resp.Provider != ProviderBrave || resp.Query != "agent protocol" || !resp.MoreResultsAvailable {
 		t.Fatalf("response metadata = %+v, want brave agent protocol with more results", resp)
 	}
-	if len(resp.Results) != 1 {
-		t.Fatalf("results = %d, want 1", len(resp.Results))
+	if len(resp.Results) != 3 {
+		t.Fatalf("results = %d, want effective cap of 3", len(resp.Results))
 	}
 	got := resp.Results[0]
 	if got.Title != "Agent Client Protocol" || got.URL != "https://agentclientprotocol.com" || got.Description != "ACP docs" {
 		t.Fatalf("result = %+v, want trimmed fields", got)
 	}
-	if len(got.ExtraSnippets) != 2 || got.ExtraSnippets[0] != "snippet one" || got.ExtraSnippets[1] != "snippet two" {
-		t.Fatalf("extra snippets = %#v, want trimmed non-empty snippets", got.ExtraSnippets)
+	if len(got.ExtraSnippets) != 3 || got.ExtraSnippets[0] != "snippet one" || got.ExtraSnippets[2] != "snippet three" {
+		t.Fatalf("extra snippets = %#v, want trimmed non-empty snippets capped at 3", got.ExtraSnippets)
+	}
+	if resp.Results[2].Title != "Result three" {
+		t.Fatalf("last result = %+v, want provider results capped after empty rows are skipped", resp.Results[2])
 	}
 }
 
