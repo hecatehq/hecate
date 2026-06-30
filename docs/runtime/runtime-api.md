@@ -2490,7 +2490,9 @@ the local-only read smoke that calls Cairnline's read-only `projects.list` tool
 through that cached client. `cairnline_sidecar_detail_url` points at the
 local-only detail smoke that calls Cairnline's read-only `projects.get` tool,
 using either an explicit `project_id` or the first typed project from
-`projects.list`. None of these changes live route authority.
+`projects.list`. The remaining sidecar smoke URLs cover coordination list
+tools, assignment context, launch packets, and the explicitly confirmed
+standalone assignment lifecycle. None of these changes live route authority.
 
 Example response, with `write_switchpoints` shortened for readability:
 
