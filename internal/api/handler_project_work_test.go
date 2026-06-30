@@ -1468,6 +1468,57 @@ func TestProjectWorkAPI_WorkItemsCairnlineSidecarReadRequiresStructuredContent(t
 	}
 }
 
+func TestProjectWorkAPI_AssignmentsUseCairnlineSidecarWhenConfigured(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "full")
+	if handler.projectReadRoutesUseCairnlineReadModel() {
+		t.Fatal("sidecar assignment list enabled embedded Cairnline read-model routes")
+	}
+	if !handler.projectCairnlineSidecarReadRoutesEnabled() {
+		t.Fatal("sidecar read-route predicate = false, want true")
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/assignments", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("assignments status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response ProjectWorkAssignmentsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode assignments response: %v", err)
+	}
+	if response.Object != "project_assignments" || len(response.Data) != 1 {
+		t.Fatalf("assignments response = %+v, want one sidecar assignment", response)
+	}
+	assignment := response.Data[0]
+	if assignment.ID != "asg_fixture" || assignment.ProjectID != "proj_fixture" || assignment.WorkItemID != "work_fixture" || assignment.ReadBackend != "cairnline" {
+		t.Fatalf("assignment = %+v, want sidecar Cairnline fixture assignment", assignment)
+	}
+	if assignment.RoleID != "role_fixture" || assignment.DriverKind != projectwork.AssignmentDriverHecateTask || assignment.Status != projectwork.AssignmentStatusQueued {
+		t.Fatalf("assignment defaults = %+v, want portable sidecar assignment metadata", assignment)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/missing/assignments", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing work-item assignments status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+}
+
+func TestProjectWorkAPI_AssignmentsCairnlineSidecarReadRequiresStructuredContent(t *testing.T) {
+	t.Parallel()
+	_, server := newProjectsCairnlineSidecarReadTestServer(t, "text-only")
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/assignments", nil))
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("assignments status = %d body=%s, want 502", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "structuredContent") {
+		t.Fatalf("error body = %s, want structuredContent diagnostic", rec.Body.String())
+	}
+}
+
 func TestProjectWorkAPI_CreateHandoffGeneratesOpaqueHandoffID(t *testing.T) {
 	t.Parallel()
 	_, server := newProjectWorkTestServer()

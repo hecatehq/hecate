@@ -628,6 +628,23 @@ func (h *Handler) HandleDeleteProjectWorkItem(w http.ResponseWriter, r *http.Req
 func (h *Handler) HandleProjectWorkAssignments(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
 	workItemID := r.PathValue("work_item_id")
+	if h.projectCairnlineSidecarReadRoutesEnabled() {
+		data, err := h.renderCairnlineSidecarProjectWorkAssignments(r.Context(), projectID, workItemID)
+		if err != nil {
+			if errors.Is(err, projects.ErrNotFound) {
+				WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
+				return
+			}
+			if errors.Is(err, projectwork.ErrNotFound) {
+				WriteError(w, http.StatusNotFound, errCodeNotFound, "work item not found")
+				return
+			}
+			writeProjectReadRenderError(w, err)
+			return
+		}
+		WriteJSON(w, http.StatusOK, ProjectWorkAssignmentsResponse{Object: "project_assignments", Data: data})
+		return
+	}
 	if h.projectReadRoutesUseCairnlineReadModel() {
 		data, err := h.renderCairnlineProjectWorkAssignments(r.Context(), projectID, workItemID)
 		if err != nil {
