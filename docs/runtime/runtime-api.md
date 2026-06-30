@@ -47,7 +47,7 @@ liveness probe and every other path requires trusted trusted proxy headers:
 context, exposed from `GET /hecate/v1/whoami` as `data.remote_identity`, added to
 the top-level HTTP span attributes, and accepted in place of the local
 runtime/inference shared tokens. Remote mode rejects local-only endpoints for
-workspace picker/open, reset-data, shutdown, MCP probe, Cairnline sidecar probe/connect/read/detail/coordination/assignment-context/launch-packet smoke,
+workspace picker/open, reset-data, shutdown, MCP probe, Cairnline sidecar probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle smoke,
 plugin-registry management, agent-adapter authenticate, and local provider and MCP registry discovery. Hecate-native `/hecate/v1/*` routes are explicitly
 classified for remote mode, and route coverage tests fail when a new registered
 route is not marked remote-safe or local-only.
@@ -475,7 +475,11 @@ sequenceDiagram
   `structuredContent` arrays. `sidecar-assignment-context-smoke` calls
   read-only `assignments.context`, and `sidecar-launch-packet-smoke` calls
   read-only `assignments.launch_packet`; both check typed MCP-pull assignment
-  metadata, but live Projects reads and writes still use Hecate-native stores.
+  metadata. `sidecar-lifecycle-smoke` is the explicit mutation smoke: after
+  `confirm_mutation=true`, it selects a compatible sidecar assignment through
+  `assignments.next`, claims it, marks it running, reads its launch packet, and
+  completes it in the standalone Cairnline sidecar database. Live Projects
+  reads and writes still use Hecate-native stores.
 - `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=auto|snapshot|embedded` controls which
   Cairnline service backing configured read routes use while
   `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and
@@ -2673,7 +2677,8 @@ Example response, with `write_switchpoints` shortened for readability:
     "cairnline_sidecar_detail_url": "/hecate/v1/projects/cairnline/sidecar-detail-smoke",
     "cairnline_sidecar_coordination_url": "/hecate/v1/projects/cairnline/sidecar-coordination-smoke",
     "cairnline_sidecar_assignment_context_url": "/hecate/v1/projects/cairnline/sidecar-assignment-context-smoke",
-    "cairnline_sidecar_launch_packet_url": "/hecate/v1/projects/cairnline/sidecar-launch-packet-smoke"
+    "cairnline_sidecar_launch_packet_url": "/hecate/v1/projects/cairnline/sidecar-launch-packet-smoke",
+    "cairnline_sidecar_lifecycle_url": "/hecate/v1/projects/cairnline/sidecar-lifecycle-smoke"
   }
 }
 ```
@@ -2707,7 +2712,10 @@ roles.list
 work_items.list
 work_items.create
 assignments.list
+assignments.next
 assignments.claim
+assignments.release
+assignments.update_status
 assignments.context
 assignments.launch_packet
 assignments.complete
@@ -2731,7 +2739,7 @@ Example response, shortened:
     "args": ["-db", "/Users/alice/.local/share/hecate/cairnline/projects.db"],
     "database_path": "/Users/alice/.local/share/hecate/cairnline/projects.db",
     "probe_timeout_ms": 10000,
-    "tool_count": 19,
+    "tool_count": 22,
     "required_tools": ["projects.list", "projects.get", "projects.create"],
     "missing_tools": [],
     "tools": [{ "name": "projects.list" }],
@@ -2776,7 +2784,7 @@ Example response, shortened:
     "client_cache_entries": 1,
     "client_cache_in_use": 0,
     "client_cache_idle": 1,
-    "tool_count": 19,
+    "tool_count": 22,
     "required_tools": ["projects.list", "projects.get", "projects.create"],
     "missing_tools": [],
     "tools": [{ "name": "projects.list" }],
@@ -3167,6 +3175,108 @@ Example response, shortened:
       "memory_candidates": 1,
       "warnings": 0
     },
+    "warnings": []
+  }
+}
+```
+
+### `POST /hecate/v1/projects/cairnline/sidecar-lifecycle-smoke`
+
+Local-only standalone Cairnline MCP lifecycle smoke. Unlike the read-only sidecar
+smokes above, this endpoint mutates the standalone Cairnline sidecar database
+after explicit confirmation. It never mutates Hecate-native Projects stores,
+does not start a Hecate Task, does not launch an External Agent, and does not
+make Cairnline authoritative for live Projects routes.
+
+Without `confirm_mutation=true`, the endpoint returns
+`sidecar_lifecycle_confirmation_required` and makes no sidecar tool calls. With
+confirmation, Hecate uses the same sidecar command, database, timeout, and
+Cairnline-specific MCP client cache as `sidecar-connect`.
+If a later lifecycle step fails after a successful mutation, the response
+includes a warning because the standalone sidecar assignment may already be
+claimed or running; inspect the returned steps before retrying.
+
+With an empty confirmed body, Hecate:
+
+1. Calls read-only `projects.list` and selects the first typed project id.
+2. Calls read-only `assignments.next` with `agent_kind="any"`,
+   `execution_modes=["mcp_pull"]`, `status="queued"`, and `limit=1`.
+3. Calls `assignments.claim` with `claimed_by="hecate-sidecar-smoke"`.
+4. Reads `assignments.context` to verify claimed state.
+5. Calls `assignments.update_status` with `status="running"`.
+6. Reads `assignments.context` to verify running state.
+7. Reads `assignments.launch_packet`.
+8. Calls `assignments.complete` with `status="completed"`.
+9. Reads final `assignments.context`.
+
+Supplying `project_id` and `assignment_id` skips list/next selection and uses
+the requested assignment. Optional fields are `claimed_by`, `execution_ref`,
+`completion_status`, `agent_kind`, `skill_ids`, and `execution_modes`.
+
+Example request:
+
+```json
+{
+  "confirm_mutation": true,
+  "project_id": "proj_123",
+  "assignment_id": "asg_123",
+  "claimed_by": "agent-smoke",
+  "execution_ref": "run-smoke",
+  "completion_status": "completed"
+}
+```
+
+Example response, shortened:
+
+```json
+{
+  "object": "project_cairnline_sidecar_lifecycle",
+  "data": {
+    "ready": true,
+    "status": "sidecar_lifecycle_ready",
+    "detail": "Hecate selected a compatible standalone Cairnline assignment, claimed it, marked it running, read its launch packet, and completed it through the persistent sidecar client. Hecate-native Projects stores were not mutated.",
+    "command": "cairnline",
+    "args": ["-db", "/Users/alice/.local/share/hecate/cairnline/projects.db"],
+    "database_path": "/Users/alice/.local/share/hecate/cairnline/projects.db",
+    "probe_timeout_ms": 10000,
+    "persistent_client": true,
+    "client_cache_configured": true,
+    "confirmed_mutation": true,
+    "selected_project_id": "proj_123",
+    "selected_project_source": "request",
+    "selected_assignment_id": "asg_123",
+    "selected_assignment_source": "request",
+    "claimed_by": "agent-smoke",
+    "execution_ref": "run-smoke",
+    "completion_status": "completed",
+    "steps": [
+      {
+        "name": "claim",
+        "tool": "assignments.claim",
+        "read_only": false,
+        "status": "ready",
+        "tool_text": "Claimed assignment asg_123 by agent-smoke"
+      },
+      {
+        "name": "launch_packet",
+        "tool": "assignments.launch_packet",
+        "read_only": true,
+        "status": "ready",
+        "structured_ready": true,
+        "launch_packet_ids": {
+          "assignment_id": "asg_123",
+          "kind": "assignment_launch_packet"
+        }
+      }
+    ],
+    "final_assignment": {
+      "id": "asg_123",
+      "project_id": "proj_123",
+      "status": "completed",
+      "claimed_by": "agent-smoke",
+      "execution_ref": "run-smoke"
+    },
+    "launch_packet_ready": true,
     "warnings": []
   }
 }

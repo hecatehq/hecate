@@ -774,6 +774,157 @@ func TestProjectCairnlineSidecarLaunchPacketSmoke_ToolLevelError(t *testing.T) {
 	}
 }
 
+func TestProjectCairnlineSidecarLifecycleSmoke_RequiresConfirmation(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "full"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarLifecycleSmoke(t.Context(), ProjectCairnlineSidecarLifecycleRequest{})
+	if got.Ready || got.Status != "sidecar_lifecycle_confirmation_required" || got.ConfirmedMutation {
+		t.Fatalf("lifecycle smoke = %+v, want confirmation-required without mutation", got)
+	}
+	if len(got.Steps) != 0 || got.ClientCacheEntries != 0 {
+		t.Fatalf("steps/cache = %d/%d, want no sidecar calls before confirmation", len(got.Steps), got.ClientCacheEntries)
+	}
+}
+
+func TestProjectCairnlineSidecarLifecycleSmoke_SelectsNextAssignmentAndCompletes(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "full"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarLifecycleSmoke(t.Context(), ProjectCairnlineSidecarLifecycleRequest{ConfirmMutation: true})
+	if !got.Ready || got.Status != "sidecar_lifecycle_ready" {
+		t.Fatalf("lifecycle smoke = %+v, want ready", got)
+	}
+	if got.SelectedProjectID != "proj_fixture" || got.SelectedProjectSource != "projects.list" || got.SelectedAssignmentID != "asg_fixture" || got.SelectedAssignmentSource != "assignments.next" {
+		t.Fatalf("selection = project %q/%q assignment %q/%q, want next-selected ids", got.SelectedProjectID, got.SelectedProjectSource, got.SelectedAssignmentID, got.SelectedAssignmentSource)
+	}
+	if got.NextAssignmentList == nil || !got.NextAssignmentList.StructuredReady || got.NextAssignmentList.StructuredCount != 1 {
+		t.Fatalf("next assignment list = %+v, want one typed compatible assignment", got.NextAssignmentList)
+	}
+	if len(got.Steps) != 7 {
+		t.Fatalf("steps = %+v, want claim/context/running/context/launch/complete/context flow", got.Steps)
+	}
+	if got.Steps[0].Name != "claim" || got.Steps[2].Name != "mark_running" || got.Steps[4].Name != "launch_packet" || got.Steps[5].Name != "complete" || got.Steps[6].Name != "context_after_complete" {
+		t.Fatalf("step names = %+v, want lifecycle order", got.Steps)
+	}
+	if !got.LaunchPacketReady || got.LaunchPacketIDs.AssignmentID != "asg_fixture" || got.LaunchPacketCounts.MemoryCandidates != 1 {
+		t.Fatalf("launch packet summary = ready:%t ids:%+v counts:%+v, want typed launch packet", got.LaunchPacketReady, got.LaunchPacketIDs, got.LaunchPacketCounts)
+	}
+	if got.FinalAssignment.ID != "asg_fixture" || got.FinalAssignment.Status != "completed" || got.FinalAssignment.ExecutionRef != "hecate-sidecar-smoke" {
+		t.Fatalf("final assignment = %+v, want completed assignment with smoke execution ref", got.FinalAssignment)
+	}
+}
+
+func TestProjectCairnlineSidecarLifecycleSmoke_UsesRequestedIDs(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "full"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarLifecycleSmoke(t.Context(), ProjectCairnlineSidecarLifecycleRequest{
+		ProjectID:        "proj_requested",
+		AssignmentID:     "asg_requested",
+		ConfirmMutation:  true,
+		ClaimedBy:        "agent-requested",
+		ExecutionRef:     "run-requested",
+		CompletionStatus: "awaiting_review",
+	})
+	if !got.Ready || got.Status != "sidecar_lifecycle_ready" {
+		t.Fatalf("lifecycle smoke = %+v, want ready", got)
+	}
+	if got.SelectedProjectID != "proj_requested" || got.SelectedProjectSource != "request" || got.SelectedAssignmentID != "asg_requested" || got.SelectedAssignmentSource != "request" {
+		t.Fatalf("selection = project %q/%q assignment %q/%q, want request ids", got.SelectedProjectID, got.SelectedProjectSource, got.SelectedAssignmentID, got.SelectedAssignmentSource)
+	}
+	if got.ProjectList != nil || got.NextAssignmentList != nil {
+		t.Fatalf("selection lists = projects %+v next %+v, want skipped lists for explicit ids", got.ProjectList, got.NextAssignmentList)
+	}
+	if got.FinalAssignment.Status != "awaiting_review" || got.FinalAssignment.ClaimedBy != "agent-requested" || got.FinalAssignment.ExecutionRef != "run-requested" {
+		t.Fatalf("final assignment = %+v, want requested lifecycle metadata", got.FinalAssignment)
+	}
+}
+
+func TestProjectCairnlineSidecarLifecycleSmoke_NoCompatibleAssignment(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "assignment-list-empty"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarLifecycleSmoke(t.Context(), ProjectCairnlineSidecarLifecycleRequest{ConfirmMutation: true})
+	if got.Ready || got.Status != "sidecar_lifecycle_no_assignment" {
+		t.Fatalf("lifecycle smoke = %+v, want no compatible assignment", got)
+	}
+	if got.NextAssignmentList == nil || !got.NextAssignmentList.StructuredReady || got.NextAssignmentList.StructuredCount != 0 {
+		t.Fatalf("next assignment list = %+v, want empty typed next result", got.NextAssignmentList)
+	}
+}
+
+func TestProjectCairnlineSidecarLifecycleSmoke_ToolLevelError(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "claim-tool-error"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarLifecycleSmoke(t.Context(), ProjectCairnlineSidecarLifecycleRequest{ConfirmMutation: true, ProjectID: "proj_requested", AssignmentID: "asg_requested"})
+	if got.Ready || got.Status != "sidecar_lifecycle_tool_failed" {
+		t.Fatalf("lifecycle smoke = %+v, want tool-level failure", got)
+	}
+	if len(got.Steps) != 1 || got.Steps[0].Tool != "assignments.claim" || !got.Steps[0].ToolIsError {
+		t.Fatalf("steps = %+v, want failed claim step only", got.Steps)
+	}
+}
+
+func TestProjectCairnlineSidecarLifecycleSmoke_WarnsWhenFailureFollowsMutation(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "update-status-tool-error"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarLifecycleSmoke(t.Context(), ProjectCairnlineSidecarLifecycleRequest{ConfirmMutation: true, ProjectID: "proj_requested", AssignmentID: "asg_requested"})
+	if got.Ready || got.Status != "sidecar_lifecycle_tool_failed" {
+		t.Fatalf("lifecycle smoke = %+v, want tool-level failure after mutation", got)
+	}
+	if len(got.Steps) != 3 || got.Steps[0].Status != "ready" || got.Steps[2].Tool != "assignments.update_status" || !got.Steps[2].ToolIsError {
+		t.Fatalf("steps = %+v, want claim/context ready then update_status failure", got.Steps)
+	}
+	if !strings.Contains(strings.Join(got.Warnings, "\n"), "may have been mutated") {
+		t.Fatalf("warnings = %+v, want mutation warning", got.Warnings)
+	}
+}
+
 func projectCairnlineSidecarCoordinationTestList(items []ProjectCairnlineSidecarCoordinationListResult, tool string) (ProjectCairnlineSidecarCoordinationListResult, bool) {
 	for _, item := range items {
 		if item.Tool == tool {

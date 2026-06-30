@@ -142,8 +142,12 @@ read-only `assignments.context` and reports whether typed
 assignment/project/work/role context metadata is present. A launch-packet smoke
 at `POST /hecate/v1/projects/cairnline/sidecar-launch-packet-smoke` calls
 read-only `assignments.launch_packet` and reports typed launch-packet ids,
-counts, and packet warnings. Hecate does not yet route Projects reads, writes,
-or mirrors through the sidecar client.
+counts, and packet warnings. A lifecycle smoke at
+`POST /hecate/v1/projects/cairnline/sidecar-lifecycle-smoke` requires
+`confirm_mutation=true`, selects a compatible sidecar assignment through
+`assignments.next`, then claims, marks running, reads the launch packet, and
+completes it in the standalone Cairnline sidecar database only. Hecate does not
+yet route Projects reads, writes, or mirrors through the sidecar client.
 Today, `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` is a
 replacement-readiness intent flag only: when the current stores are fully wired
 and the embedded connector is selected, it reports `cairnline_read_routes_ready`,

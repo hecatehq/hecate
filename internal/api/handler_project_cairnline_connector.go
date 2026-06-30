@@ -31,7 +31,10 @@ var projectCairnlineSidecarRequiredTools = []string{
 	"work_items.list",
 	"work_items.create",
 	"assignments.list",
+	"assignments.next",
 	"assignments.claim",
+	"assignments.release",
+	"assignments.update_status",
 	"assignments.context",
 	"assignments.launch_packet",
 	"assignments.complete",
@@ -173,6 +176,20 @@ func (h *Handler) HandleProjectCairnlineSidecarLaunchPacketSmoke(w http.Response
 	WriteJSON(w, http.StatusOK, ProjectCairnlineSidecarLaunchPacketEnvelope{
 		Object: "project_cairnline_sidecar_launch_packet",
 		Data:   h.projectCairnlineSidecarLaunchPacketSmoke(r.Context(), req),
+	})
+}
+
+func (h *Handler) HandleProjectCairnlineSidecarLifecycleSmoke(w http.ResponseWriter, r *http.Request) {
+	if !requireLoopbackClient(w, r, "Cairnline sidecar lifecycle smoke") {
+		return
+	}
+	var req ProjectCairnlineSidecarLifecycleRequest
+	if !decodeOptionalJSON(w, r, &req) {
+		return
+	}
+	WriteJSON(w, http.StatusOK, ProjectCairnlineSidecarLifecycleEnvelope{
+		Object: "project_cairnline_sidecar_lifecycle",
+		Data:   h.projectCairnlineSidecarLifecycleSmoke(r.Context(), req),
 	})
 }
 
@@ -753,6 +770,183 @@ func (h *Handler) projectCairnlineSidecarLaunchPacketSmoke(ctx context.Context, 
 	return response
 }
 
+func (h *Handler) projectCairnlineSidecarLifecycleSmoke(ctx context.Context, req ProjectCairnlineSidecarLifecycleRequest) ProjectCairnlineSidecarLifecycleResponse {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	cfg, dbPath, timeout := h.projectCairnlineSidecarMCPConfig()
+	requestedProjectID := strings.TrimSpace(req.ProjectID)
+	requestedAssignmentID := strings.TrimSpace(req.AssignmentID)
+	claimedBy := firstNonEmpty(strings.TrimSpace(req.ClaimedBy), "hecate-sidecar-smoke")
+	executionRef := firstNonEmpty(strings.TrimSpace(req.ExecutionRef), "hecate-sidecar-smoke")
+	completionStatus := firstNonEmpty(strings.TrimSpace(req.CompletionStatus), "completed")
+	agentKind := firstNonEmpty(strings.TrimSpace(req.AgentKind), "any")
+	executionModes := projectCairnlineSidecarCompactStrings(req.ExecutionModes)
+	if len(executionModes) == 0 {
+		executionModes = []string{"mcp_pull"}
+	}
+	response := ProjectCairnlineSidecarLifecycleResponse{
+		Ready:                 false,
+		Status:                "sidecar_lifecycle_not_run",
+		Detail:                "Cairnline sidecar lifecycle smoke has not run.",
+		Command:               cfg.Command,
+		Args:                  append([]string(nil), cfg.Args...),
+		DatabasePath:          dbPath,
+		ProbeTimeoutMS:        timeout.Milliseconds(),
+		PersistentClient:      true,
+		ClientCacheConfigured: h != nil,
+		ConfirmedMutation:     req.ConfirmMutation,
+		RequestedProjectID:    requestedProjectID,
+		RequestedAssignmentID: requestedAssignmentID,
+		ClaimedBy:             claimedBy,
+		ExecutionRef:          executionRef,
+		CompletionStatus:      completionStatus,
+		AgentKind:             agentKind,
+		SkillIDs:              projectCairnlineSidecarCompactStrings(req.SkillIDs),
+		ExecutionModes:        append([]string(nil), executionModes...),
+	}
+	if h == nil {
+		response.Status = "sidecar_lifecycle_failed"
+		response.Detail = "Cairnline sidecar lifecycle smoke requires an API handler."
+		return response
+	}
+	if h.projectCairnlineConnectorMode() != "sidecar" {
+		response.Warnings = append(response.Warnings, "HECATE_PROJECTS_CAIRNLINE_CONNECTOR is not sidecar; this lifecycle smoke does not affect live Projects routing.")
+	}
+	if dbPath != "" && len(h.config.ProjectsCairnlineSidecarArgs()) > 0 {
+		response.Warnings = append(response.Warnings, "HECATE_PROJECTS_CAIRNLINE_SIDECAR_ARGS is set, so HECATE_PROJECTS_CAIRNLINE_SIDECAR_DB is reported but not appended automatically.")
+	}
+	if !req.ConfirmMutation {
+		response.Status = "sidecar_lifecycle_confirmation_required"
+		response.Detail = "Set confirm_mutation=true to let Hecate mutate the standalone Cairnline sidecar assignment through claim, update_status, launch_packet, and complete. Hecate-native Projects stores are not mutated."
+		return response
+	}
+
+	cache := h.projectCairnlineSidecarMCPClientCache()
+	smokeCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	selection := h.projectCairnlineSidecarSelectNextAssignmentForLifecycle(smokeCtx, cfg, cache, requestedProjectID, requestedAssignmentID, agentKind, response.SkillIDs, executionModes)
+	response.SelectedProjectID = selection.ProjectID
+	response.SelectedProjectSource = selection.ProjectSource
+	response.SelectedAssignmentID = selection.AssignmentID
+	response.SelectedAssignmentSource = selection.AssignmentSource
+	response.ProjectList = selection.ProjectList
+	response.NextAssignmentList = selection.AssignmentList
+	response.Warnings = append(response.Warnings, selection.Warnings...)
+	if selection.Status != "" {
+		response.Status = selection.Status
+		response.Detail = selection.Detail
+		response.setSidecarCacheStats(cache.Stats())
+		return response
+	}
+
+	projectID := selection.ProjectID
+	assignmentID := selection.AssignmentID
+	appendStep := func(step ProjectCairnlineSidecarLifecycleStep) bool {
+		response.Steps = append(response.Steps, step)
+		if step.Status == "tool_failed" {
+			response.Status = "sidecar_lifecycle_tool_failed"
+			response.Detail = "Cairnline sidecar " + step.Tool + " returned a tool-level error. Review the step output before retrying."
+			if projectCairnlineSidecarLifecycleHasCommittedMutation(response.Steps) {
+				response.Warnings = append(response.Warnings, "The standalone Cairnline sidecar assignment may have been mutated before this failure; inspect the reported assignment before retrying.")
+			}
+			response.setSidecarCacheStats(cache.Stats())
+			return false
+		}
+		if step.Status == "failed" {
+			response.Status = "sidecar_lifecycle_failed"
+			response.Detail = firstNonEmpty(step.ToolText, "Cairnline sidecar "+step.Tool+" failed.")
+			if projectCairnlineSidecarLifecycleHasCommittedMutation(response.Steps) {
+				response.Warnings = append(response.Warnings, "The standalone Cairnline sidecar assignment may have been mutated before this failure; inspect the reported assignment before retrying.")
+			}
+			response.setSidecarCacheStats(cache.Stats())
+			return false
+		}
+		return true
+	}
+
+	claimStep := h.callProjectCairnlineSidecarLifecycleTool(smokeCtx, cfg, cache, "claim", "assignments.claim", false, map[string]string{
+		"project_id":    projectID,
+		"assignment_id": assignmentID,
+		"claimed_by":    claimedBy,
+	})
+	if !appendStep(claimStep) {
+		return response
+	}
+	claimContextStep := h.callProjectCairnlineSidecarLifecycleTool(smokeCtx, cfg, cache, "context_after_claim", "assignments.context", true, map[string]string{
+		"project_id":    projectID,
+		"assignment_id": assignmentID,
+	})
+	if !appendStep(claimContextStep) {
+		return response
+	}
+
+	runningStep := h.callProjectCairnlineSidecarLifecycleTool(smokeCtx, cfg, cache, "mark_running", "assignments.update_status", false, map[string]string{
+		"project_id":    projectID,
+		"assignment_id": assignmentID,
+		"status":        "running",
+		"execution_ref": executionRef,
+	})
+	if !appendStep(runningStep) {
+		return response
+	}
+	runningContextStep := h.callProjectCairnlineSidecarLifecycleTool(smokeCtx, cfg, cache, "context_after_running", "assignments.context", true, map[string]string{
+		"project_id":    projectID,
+		"assignment_id": assignmentID,
+	})
+	if !appendStep(runningContextStep) {
+		return response
+	}
+
+	launchStep := h.callProjectCairnlineSidecarLifecycleTool(smokeCtx, cfg, cache, "launch_packet", "assignments.launch_packet", true, map[string]string{
+		"project_id":    projectID,
+		"assignment_id": assignmentID,
+	})
+	response.LaunchPacketReady = launchStep.StructuredReady
+	response.LaunchPacketIDs = launchStep.LaunchPacketIDs
+	response.LaunchPacketCounts = launchStep.LaunchPacketCounts
+	response.LaunchPacketWarnings = append([]string(nil), launchStep.LaunchPacketWarnings...)
+	if !appendStep(launchStep) {
+		return response
+	}
+
+	completeStep := h.callProjectCairnlineSidecarLifecycleTool(smokeCtx, cfg, cache, "complete", "assignments.complete", false, map[string]string{
+		"project_id":    projectID,
+		"assignment_id": assignmentID,
+		"status":        completionStatus,
+		"execution_ref": executionRef,
+	})
+	if !appendStep(completeStep) {
+		return response
+	}
+	finalContextStep := h.callProjectCairnlineSidecarLifecycleTool(smokeCtx, cfg, cache, "context_after_complete", "assignments.context", true, map[string]string{
+		"project_id":    projectID,
+		"assignment_id": assignmentID,
+	})
+	if !appendStep(finalContextStep) {
+		return response
+	}
+	response.FinalAssignment = finalContextStep.Assignment
+	if response.FinalAssignment.ID == "" {
+		response.Warnings = append(response.Warnings, "Cairnline sidecar assignments.context did not return typed final assignment state after completion.")
+	}
+	response.Ready = true
+	response.Status = "sidecar_lifecycle_ready"
+	response.Detail = "Hecate selected a compatible standalone Cairnline assignment, claimed it, marked it running, read its launch packet, and completed it through the persistent sidecar client. Hecate-native Projects stores were not mutated."
+	response.setSidecarCacheStats(cache.Stats())
+	return response
+}
+
+func projectCairnlineSidecarLifecycleHasCommittedMutation(steps []ProjectCairnlineSidecarLifecycleStep) bool {
+	for _, step := range steps {
+		if !step.ReadOnly && step.Status == "ready" {
+			return true
+		}
+	}
+	return false
+}
+
 type projectCairnlineSidecarAssignmentSelection struct {
 	ProjectID        string
 	ProjectSource    string
@@ -763,6 +957,23 @@ type projectCairnlineSidecarAssignmentSelection struct {
 	Status           string
 	Detail           string
 	Warnings         []string
+}
+
+func projectCairnlineSidecarCompactStrings(values []string) []string {
+	out := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	return out
 }
 
 func (h *Handler) projectCairnlineSidecarSelectAssignmentForTool(ctx context.Context, cfg types.MCPServerConfig, cache *mcpclient.SharedClientCache, requestedProjectID, requestedAssignmentID, statusPrefix, targetTool string) projectCairnlineSidecarAssignmentSelection {
@@ -851,6 +1062,175 @@ func (h *Handler) projectCairnlineSidecarSelectAssignmentForTool(ctx context.Con
 		selection.AssignmentID = assignmentID
 	}
 	return selection
+}
+
+func (h *Handler) projectCairnlineSidecarSelectNextAssignmentForLifecycle(ctx context.Context, cfg types.MCPServerConfig, cache *mcpclient.SharedClientCache, requestedProjectID, requestedAssignmentID, agentKind string, skillIDs, executionModes []string) projectCairnlineSidecarAssignmentSelection {
+	const (
+		projectListToolName = "projects.list"
+		nextToolName        = "assignments.next"
+	)
+	var selection projectCairnlineSidecarAssignmentSelection
+	projectID := requestedProjectID
+	if projectID == "" {
+		listResult, err := h.callProjectCairnlineSidecarCoordinationTool(ctx, cfg, cache, projectCairnlineSidecarCoordinationTool{Name: projectListToolName}, "")
+		if err != nil {
+			selection.Status = "sidecar_lifecycle_failed"
+			selection.Detail = err.Error()
+			return selection
+		}
+		selection.ProjectList = &listResult
+		if listResult.ToolIsError {
+			selection.Status = "sidecar_lifecycle_project_list_tool_failed"
+			selection.Detail = "Cairnline sidecar projects.list returned a tool-level error before Hecate could select a project for assignments.next."
+			return selection
+		}
+		projects, structuredReady, structuredErr := projectCairnlineSidecarStructuredProjects(listResult.StructuredContent)
+		selection.ProjectList.StructuredReady = structuredReady
+		selection.ProjectList.StructuredCount = len(projects)
+		if structuredErr != nil {
+			selection.ProjectList.StructuredParseError = structuredErr.Error()
+			selection.Warnings = append(selection.Warnings, "Cairnline sidecar projects.list returned structuredContent that Hecate could not parse as a project list.")
+		} else if !structuredReady {
+			selection.Warnings = append(selection.Warnings, "Cairnline sidecar projects.list did not return structuredContent, so Hecate could not select a project for assignments.next.")
+		} else if len(projects) > 0 {
+			projectID = strings.TrimSpace(projects[0].ID)
+			selection.ProjectID = projectID
+			selection.ProjectSource = "projects.list"
+		}
+		if projectID == "" {
+			selection.Status = "sidecar_lifecycle_no_project"
+			selection.Detail = "Hecate called Cairnline sidecar projects.list through the persistent sidecar client, but no typed project id was available for assignments.next."
+			return selection
+		}
+	} else {
+		selection.ProjectID = projectID
+		selection.ProjectSource = "request"
+	}
+	if selection.ProjectID == "" {
+		selection.ProjectID = projectID
+	}
+
+	assignmentID := requestedAssignmentID
+	if assignmentID == "" {
+		args := map[string]any{
+			"project_id":      projectID,
+			"agent_kind":      agentKind,
+			"execution_modes": executionModes,
+			"limit":           1,
+			"status":          "queued",
+		}
+		if len(skillIDs) > 0 {
+			args["skill_ids"] = skillIDs
+		}
+		rawArgs, err := json.Marshal(args)
+		if err != nil {
+			selection.Status = "sidecar_lifecycle_failed"
+			selection.Detail = err.Error()
+			return selection
+		}
+		result, err := orchestrator.CallCachedMCPServerTool(ctx, cfg, h.secretCipher, cache, nextToolName, rawArgs)
+		if err != nil {
+			selection.Status = "sidecar_lifecycle_failed"
+			selection.Detail = err.Error()
+			return selection
+		}
+		nextResult := ProjectCairnlineSidecarCoordinationListResult{
+			Tool:              nextToolName,
+			ReadOnly:          true,
+			ProjectScoped:     true,
+			ProjectID:         projectID,
+			ToolText:          result.Text,
+			ToolIsError:       result.IsError,
+			StructuredContent: result.Result.StructuredContent,
+			Meta:              result.Result.Meta,
+		}
+		selection.AssignmentList = &nextResult
+		if result.IsError {
+			selection.Status = "sidecar_lifecycle_next_tool_failed"
+			selection.Detail = "Cairnline sidecar assignments.next returned a tool-level error before Hecate could select an assignment for the lifecycle smoke."
+			return selection
+		}
+		assignments, structuredReady, structuredErr := projectCairnlineSidecarStructuredAssignments(result.Result.StructuredContent)
+		selection.AssignmentList.StructuredReady = structuredReady
+		selection.AssignmentList.StructuredCount = len(assignments)
+		if structuredErr != nil {
+			selection.AssignmentList.StructuredParseError = structuredErr.Error()
+			selection.Warnings = append(selection.Warnings, "Cairnline sidecar assignments.next returned structuredContent that Hecate could not parse as an assignment list.")
+		} else if !structuredReady {
+			selection.Warnings = append(selection.Warnings, "Cairnline sidecar assignments.next did not return structuredContent, so Hecate could not select an assignment for the lifecycle smoke.")
+		} else if len(assignments) > 0 {
+			assignmentID = strings.TrimSpace(assignments[0].ID)
+			selection.AssignmentID = assignmentID
+			selection.AssignmentSource = "assignments.next"
+		}
+		if assignmentID == "" {
+			selection.Status = "sidecar_lifecycle_no_assignment"
+			selection.Detail = "Hecate called Cairnline sidecar assignments.next through the persistent sidecar client, but no compatible queued MCP-pull assignment was available for the lifecycle smoke."
+			return selection
+		}
+	} else {
+		selection.AssignmentID = assignmentID
+		selection.AssignmentSource = "request"
+	}
+	if selection.AssignmentID == "" {
+		selection.AssignmentID = assignmentID
+	}
+	return selection
+}
+
+func (h *Handler) callProjectCairnlineSidecarLifecycleTool(ctx context.Context, cfg types.MCPServerConfig, cache *mcpclient.SharedClientCache, name, tool string, readOnly bool, args any) ProjectCairnlineSidecarLifecycleStep {
+	step := ProjectCairnlineSidecarLifecycleStep{
+		Name:     name,
+		Tool:     tool,
+		ReadOnly: readOnly,
+		Status:   "not_run",
+	}
+	rawArgs, err := json.Marshal(args)
+	if err != nil {
+		step.Status = "failed"
+		step.ToolText = err.Error()
+		return step
+	}
+	result, err := orchestrator.CallCachedMCPServerTool(ctx, cfg, h.secretCipher, cache, tool, rawArgs)
+	if err != nil {
+		step.Status = "failed"
+		step.ToolText = err.Error()
+		return step
+	}
+	step.ToolText = result.Text
+	step.ToolIsError = result.IsError
+	step.StructuredContent = result.Result.StructuredContent
+	step.Meta = result.Result.Meta
+	if result.IsError {
+		step.Status = "tool_failed"
+		return step
+	}
+	switch tool {
+	case "assignments.context":
+		assignment, structuredReady, structuredErr := projectCairnlineSidecarStructuredAssignmentContextAssignment(result.Result.StructuredContent)
+		step.StructuredReady = structuredReady
+		step.Assignment = assignment
+		if structuredErr != nil {
+			step.StructuredParseError = structuredErr.Error()
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar assignments.context returned structuredContent that Hecate could not parse as assignment state: " + structuredErr.Error()
+			return step
+		}
+	case "assignments.launch_packet":
+		ids, counts, warnings, structuredReady, structuredErr := projectCairnlineSidecarStructuredLaunchPacket(result.Result.StructuredContent)
+		step.StructuredReady = structuredReady
+		step.LaunchPacketIDs = ids
+		step.LaunchPacketCounts = counts
+		step.LaunchPacketWarnings = warnings
+		if structuredErr != nil {
+			step.StructuredParseError = structuredErr.Error()
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar assignments.launch_packet returned structuredContent that Hecate could not parse as a launch packet: " + structuredErr.Error()
+			return step
+		}
+	}
+	step.Status = "ready"
+	return step
 }
 
 func (h *Handler) callProjectCairnlineSidecarCoordinationTool(ctx context.Context, cfg types.MCPServerConfig, cache *mcpclient.SharedClientCache, tool projectCairnlineSidecarCoordinationTool, projectID string) (ProjectCairnlineSidecarCoordinationListResult, error) {
@@ -972,6 +1352,23 @@ func projectCairnlineSidecarStructuredAssignmentContextIDs(raw json.RawMessage) 
 		WorkItemID:   strings.TrimSpace(context.WorkItem.ID),
 		RoleID:       strings.TrimSpace(context.Role.ID),
 	}, true, nil
+}
+
+func projectCairnlineSidecarStructuredAssignmentContextAssignment(raw json.RawMessage) (ProjectCairnlineSidecarAssignmentItem, bool, error) {
+	if len(raw) == 0 {
+		return ProjectCairnlineSidecarAssignmentItem{}, false, nil
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return ProjectCairnlineSidecarAssignmentItem{}, false, nil
+	}
+	var context struct {
+		Assignment ProjectCairnlineSidecarAssignmentItem `json:"assignment"`
+	}
+	if err := json.Unmarshal(trimmed, &context); err != nil {
+		return ProjectCairnlineSidecarAssignmentItem{}, false, err
+	}
+	return context.Assignment, true, nil
 }
 
 func projectCairnlineSidecarStructuredLaunchPacket(raw json.RawMessage) (ProjectCairnlineSidecarLaunchPacketIDs, ProjectCairnlineSidecarLaunchPacketCounts, []string, bool, error) {
@@ -1149,6 +1546,15 @@ func (r *ProjectCairnlineSidecarAssignmentContextResponse) setSidecarCacheStats(
 }
 
 func (r *ProjectCairnlineSidecarLaunchPacketResponse) setSidecarCacheStats(stats mcpclient.CacheStats) {
+	if r == nil {
+		return
+	}
+	r.ClientCacheEntries = stats.Entries
+	r.ClientCacheInUse = stats.InUse
+	r.ClientCacheIdle = stats.Idle
+}
+
+func (r *ProjectCairnlineSidecarLifecycleResponse) setSidecarCacheStats(stats mcpclient.CacheStats) {
 	if r == nil {
 		return
 	}
