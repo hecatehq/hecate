@@ -510,8 +510,8 @@ sequenceDiagram
   temporary project. Live Projects writes still use Hecate-native stores in
   sidecar mode. Live project list/detail reads use Hecate-native stores unless
   `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar` is also set; setup-readiness,
-  health, skills, memory, memory candidates, and roles use the same sidecar
-  source when it is configured.
+  health, skills, memory, memory candidates, roles, and work items use the
+  same sidecar source when it is configured.
 - `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=auto|snapshot|embedded|sidecar` controls which
   Cairnline service backing configured read routes use while
   `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline`. With
@@ -526,9 +526,9 @@ sequenceDiagram
   `POST /hecate/v1/projects/cairnline/sync` first when testing strict embedded
   reads. With `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar`, `sidecar` routes
   project list/detail, setup-readiness, health, project skill list, project
-  memory list, memory-candidate list, and project role list reads through the
-  standalone Cairnline MCP client; all other live Projects read routes stay on
-  Hecate-native or embedded dogfood paths.
+  memory list, memory-candidate list, project role list, and work-item
+  list/detail reads through the standalone Cairnline MCP client; all other live
+  Projects read routes stay on Hecate-native or embedded dogfood paths.
 - `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=none|project-memory|project-memory,memory-candidates|project-collaboration|project-skills|project-roles|project-work-items|project-assignments|agent-profiles|project-metadata-defaults|project-roots|project-context-sources|project-identity|project-assistant-proposals`
   controls alpha Cairnline write-authority switchpoints while
   `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and
@@ -2409,9 +2409,9 @@ requested project row or proposal record to exist so replacement-readiness gaps
 fail loudly. With `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar`,
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar` routes only project list/detail,
 setup-readiness, health, project skill list, project memory list,
-memory-candidate list, and project role list reads through the standalone
-Cairnline MCP client; backend status reports those routes in `read_routes` while
-`read_model_switch_ready`
+memory-candidate list, project role list, and work-item list/detail reads
+through the standalone Cairnline MCP client; backend status reports those routes
+in `read_routes` while `read_model_switch_ready`
 remains false because the broader read model is not sidecar-backed yet.
 `read_routes` lists the live read families currently backed by the Cairnline
 read model. `write_adapter_ready=false` means writes and migration are still
@@ -2850,7 +2850,7 @@ Example response, shortened:
   "data": {
     "ready": true,
     "status": "sidecar_probe_ready",
-    "detail": "Cairnline sidecar MCP server started and exposes the required portable Projects tool contract. Hecate still keeps live Projects writes on Hecate-native stores in sidecar mode; project list/detail, setup-readiness, health, skills, memory, memory-candidate, and roles read routing requires HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar.",
+    "detail": "Cairnline sidecar MCP server started and exposes the required portable Projects tool contract. Hecate still keeps live Projects writes on Hecate-native stores in sidecar mode; project list/detail, setup-readiness, health, skills, memory, memory-candidate, roles, and work-item read routing requires HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar.",
     "command": "cairnline",
     "args": ["-db", "/Users/alice/.local/share/hecate/cairnline/projects.db"],
     "database_path": "/Users/alice/.local/share/hecate/cairnline/projects.db",
@@ -3063,7 +3063,7 @@ Example response, shortened:
   "data": {
     "ready": true,
     "status": "sidecar_client_ready",
-    "detail": "Cairnline sidecar MCP client connected and exposes the required portable Projects tool contract. Hecate still keeps live Projects writes on Hecate-native stores in sidecar mode; project list/detail, setup-readiness, health, skills, memory, memory-candidate, and roles read routing requires HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar.",
+    "detail": "Cairnline sidecar MCP client connected and exposes the required portable Projects tool contract. Hecate still keeps live Projects writes on Hecate-native stores in sidecar mode; project list/detail, setup-readiness, health, skills, memory, memory-candidate, roles, and work-item read routing requires HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar.",
     "command": "cairnline",
     "args": ["-db", "/Users/alice/.local/share/hecate/cairnline/projects.db"],
     "database_path": "/Users/alice/.local/share/hecate/cairnline/projects.db",
@@ -5532,6 +5532,13 @@ reports `read_model_switch_ready=true`, the work-item set is read from the
 Cairnline read model and then enriched with Hecate runtime assignment
 projection. `read_backend` identifies that read-model source.
 
+When `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar` and
+`HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar` are both configured, this
+endpoint calls `projects.get`, typed `work_items.list`, and typed
+`assignments.list` through the standalone Cairnline MCP client. Assignment
+summaries remain portable metadata unless their execution refs point at
+Hecate-owned runtime records that can be projected locally.
+
 #### `POST /hecate/v1/projects/{id}/work-items`
 
 Creates a project-scoped work item. `title` is required. `status` defaults to
@@ -5577,6 +5584,10 @@ Returns:
 Returns one work item or `404 not_found`. Under the same Cairnline read-route
 switch described above, the selected work item is read from Cairnline and
 enriched with Hecate assignment runtime projection.
+In sidecar read-source mode, detail is resolved from the typed
+`work_items.list` result for the project plus typed `assignments.list`
+metadata; `work_items.get` remains a sidecar diagnostic/smoke contract rather
+than a live Hecate detail-route dependency.
 
 #### `GET /hecate/v1/projects/{id}/work-items/{work_item_id}/readiness`
 
