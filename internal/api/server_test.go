@@ -4340,6 +4340,22 @@ func TestProjectCairnlineSidecarLifecycleSmokeRejectsNonLoopbackClientsBeforeCom
 	}
 }
 
+func TestProjectCairnlineSidecarMemorySmokeRejectsNonLoopbackClientsBeforeCommandHandling(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	h := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	server := NewServer(logger, h)
+
+	req := httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/cairnline/sidecar-memory-smoke", nil)
+	req.RemoteAddr = "203.0.113.10:1234"
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403, body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestMCPRegistryServersDiscoversCustomRegistry(t *testing.T) {
 	t.Parallel()
 

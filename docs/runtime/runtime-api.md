@@ -496,8 +496,12 @@ sequenceDiagram
   collaboration mutation smoke: after `confirm_mutation=true`, it creates a
   temporary standalone Cairnline project, role/work/assignment scaffolding, then
   records and verifies artifact, evidence, review, and handoff metadata before
-  deleting and verifying removal of the temporary project. Live Projects reads
-  and writes still use Hecate-native stores.
+  deleting and verifying removal of the temporary project.
+  `sidecar-memory-smoke` is the memory mutation smoke: after
+  `confirm_mutation=true`, it creates and verifies an accepted memory entry,
+  creates and promotes one memory candidate into accepted memory, rejects and
+  deletes another candidate, then deletes and verifies removal of the temporary
+  project. Live Projects reads and writes still use Hecate-native stores.
 - `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=auto|snapshot|embedded` controls which
   Cairnline service backing configured read routes use while
   `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and
@@ -2705,7 +2709,8 @@ Example response, with `write_switchpoints` shortened for readability:
     "cairnline_sidecar_setup_url": "/hecate/v1/projects/cairnline/sidecar-setup-smoke",
     "cairnline_sidecar_write_url": "/hecate/v1/projects/cairnline/sidecar-write-smoke",
     "cairnline_sidecar_work_url": "/hecate/v1/projects/cairnline/sidecar-work-smoke",
-    "cairnline_sidecar_collaboration_url": "/hecate/v1/projects/cairnline/sidecar-collaboration-smoke"
+    "cairnline_sidecar_collaboration_url": "/hecate/v1/projects/cairnline/sidecar-collaboration-smoke",
+    "cairnline_sidecar_memory_url": "/hecate/v1/projects/cairnline/sidecar-memory-smoke"
   }
 }
 ```
@@ -2829,6 +2834,85 @@ Example response, shortened:
     "required_tools": ["projects.list", "projects.get", "projects.create"],
     "missing_tools": [],
     "tools": [{ "name": "projects.list" }],
+    "warnings": []
+  }
+}
+```
+
+### `POST /hecate/v1/projects/cairnline/sidecar-memory-smoke`
+
+Local-only standalone Cairnline MCP memory lifecycle smoke. This endpoint
+mutates only the standalone Cairnline sidecar database after explicit
+confirmation. It does not mutate Hecate-native Projects stores, does not start
+a Hecate Task, does not launch an External Agent, and does not make Cairnline
+authoritative for live Projects routes.
+
+Without `confirm_mutation=true`, the endpoint returns
+`sidecar_memory_confirmation_required` and makes no sidecar tool calls. With
+confirmation, Hecate uses the same sidecar command, database, timeout, and
+Cairnline-specific MCP client cache as `sidecar-connect`.
+
+The smoke creates a temporary rootless project, creates and verifies one
+accepted memory entry through `memory_entries.create` / `memory_entries.list` /
+`memory_entries.get` / `memory_entries.update`, creates and verifies one
+pending memory candidate through `memory_candidates.create` /
+`memory_candidates.list` / `memory_candidates.get`, promotes that candidate
+through `memory_candidates.promote` and verifies the promoted accepted memory
+entry through `memory_entries.get`, creates a second candidate, rejects it
+through `memory_candidates.reject`, deletes the rejected candidate through
+`memory_candidates.delete`, then deletes the temporary project and expects a
+final `projects.get` to return a tool-level missing/error result. If a step
+fails after the temporary project id is known, Hecate attempts a best-effort
+project cleanup delete and verifies that cleanup through another
+`projects.get`.
+
+Example request:
+
+```json
+{
+  "confirm_mutation": true,
+  "project_name": "Hecate sidecar memory smoke"
+}
+```
+
+Example response, shortened:
+
+```json
+{
+  "object": "project_cairnline_sidecar_memory",
+  "data": {
+    "ready": true,
+    "status": "sidecar_memory_ready",
+    "detail": "Hecate created and verified temporary standalone Cairnline accepted memory, promoted one memory candidate, rejected and deleted another, then deleted the temporary project. Hecate-native Projects stores were not mutated.",
+    "command": "cairnline",
+    "args": ["-db", "/Users/alice/.local/share/hecate/cairnline/projects.db"],
+    "database_path": "/Users/alice/.local/share/hecate/cairnline/projects.db",
+    "probe_timeout_ms": 10000,
+    "persistent_client": true,
+    "client_cache_configured": true,
+    "confirmed_mutation": true,
+    "project_name": "Hecate sidecar memory smoke",
+    "selected_project_id": "proj_123",
+    "memory_entry_id": "mem_123",
+    "promote_candidate_id": "memcand_123",
+    "promoted_memory_entry_id": "mem_456",
+    "reject_candidate_id": "memcand_456",
+    "created_memory_entry": {
+      "id": "mem_123",
+      "title": "Sidecar memory entry",
+      "trust_label": "operator_memory",
+      "enabled": true
+    },
+    "promoted_memory_candidate": {
+      "id": "memcand_123",
+      "status": "promoted",
+      "promoted_memory_id": "mem_456"
+    },
+    "rejected_memory_candidate": {
+      "id": "memcand_456",
+      "status": "rejected"
+    },
+    "cleanup_verified": true,
     "warnings": []
   }
 }

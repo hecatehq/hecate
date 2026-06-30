@@ -1266,6 +1266,99 @@ func TestProjectCairnlineSidecarCollaborationSmoke_CleansUpAfterReviewFailure(t 
 	}
 }
 
+func TestProjectCairnlineSidecarMemorySmoke_RequiresConfirmation(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "full"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarMemorySmoke(t.Context(), ProjectCairnlineSidecarMemoryRequest{ProjectName: "Fixture memory smoke"})
+	if got.Ready || got.Status != "sidecar_memory_confirmation_required" || got.ConfirmedMutation {
+		t.Fatalf("memory smoke = %+v, want confirmation-required without mutation", got)
+	}
+	if len(got.Steps) != 0 || got.ClientCacheEntries != 0 {
+		t.Fatalf("steps/cache = %d/%d, want no sidecar calls before confirmation", len(got.Steps), got.ClientCacheEntries)
+	}
+}
+
+func TestProjectCairnlineSidecarMemorySmoke_CreatesMemoryRecords(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "full"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarMemorySmoke(t.Context(), ProjectCairnlineSidecarMemoryRequest{
+		ConfirmMutation: true,
+		ProjectName:     "Fixture memory smoke",
+	})
+	if !got.Ready || got.Status != "sidecar_memory_ready" || !got.CleanupVerified {
+		t.Fatalf("memory smoke = %+v, want ready with verified cleanup", got)
+	}
+	if got.SelectedProjectID == "" || got.MemoryEntryID == "" || got.PromoteCandidateID == "" || got.PromotedMemoryEntryID == "" || got.RejectCandidateID == "" {
+		t.Fatalf("ids = project:%q memory:%q promote-candidate:%q promoted-memory:%q reject-candidate:%q, want memory ids", got.SelectedProjectID, got.MemoryEntryID, got.PromoteCandidateID, got.PromotedMemoryEntryID, got.RejectCandidateID)
+	}
+	if got.CreatedMemoryEntry.Title != "Sidecar memory entry" || !got.CreatedMemoryEntry.Enabled || got.CreatedMemoryEntry.TrustLabel != "operator_memory" {
+		t.Fatalf("created memory = %+v, want operator accepted memory", got.CreatedMemoryEntry)
+	}
+	if got.UpdatedMemoryEntry.ID != got.MemoryEntryID || got.UpdatedMemoryEntry.Title != "Sidecar memory entry updated" || !got.UpdatedMemoryEntry.Enabled {
+		t.Fatalf("updated memory = %+v, want updated accepted memory id %q", got.UpdatedMemoryEntry, got.MemoryEntryID)
+	}
+	if got.CreatedMemoryCandidate.ID != got.PromoteCandidateID || got.CreatedMemoryCandidate.Status != "pending" || len(got.CreatedMemoryCandidate.SourceRefs) != 1 {
+		t.Fatalf("created candidate = %+v, want pending candidate with source ref", got.CreatedMemoryCandidate)
+	}
+	if got.PromotedMemoryCandidate.ID != got.PromoteCandidateID || got.PromotedMemoryCandidate.Status != "promoted" || got.PromotedMemoryCandidate.PromotedMemoryID != got.PromotedMemoryEntryID {
+		t.Fatalf("promoted candidate = %+v, want promoted candidate linked to memory %q", got.PromotedMemoryCandidate, got.PromotedMemoryEntryID)
+	}
+	if got.PromotedMemoryEntry.ID != got.PromotedMemoryEntryID || got.PromotedMemoryEntry.Title != "Sidecar promoted memory" || got.PromotedMemoryEntry.TrustLabel != "operator_memory" {
+		t.Fatalf("promoted memory = %+v, want accepted promoted memory", got.PromotedMemoryEntry)
+	}
+	if got.RejectedMemoryCandidate.ID != got.RejectCandidateID || got.RejectedMemoryCandidate.Status != "rejected" || got.RejectedMemoryCandidate.StatusReason == "" {
+		t.Fatalf("rejected candidate = %+v, want rejected candidate with reason", got.RejectedMemoryCandidate)
+	}
+	if len(got.Steps) != 19 {
+		t.Fatalf("steps = %+v, want project/memory/candidate/delete flow", got.Steps)
+	}
+	if got.Steps[2].Tool != "memory_entries.create" || got.Steps[7].Tool != "memory_candidates.create" || got.Steps[10].Tool != "memory_candidates.promote" || got.Steps[14].Tool != "memory_candidates.reject" || got.Steps[18].Status != "expected_missing" {
+		t.Fatalf("steps = %+v, want memory smoke order and missing-after-delete verification", got.Steps)
+	}
+}
+
+func TestProjectCairnlineSidecarMemorySmoke_CleansUpAfterPromoteFailure(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "memory-candidate-promote-tool-error"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarMemorySmoke(t.Context(), ProjectCairnlineSidecarMemoryRequest{
+		ConfirmMutation: true,
+		ProjectName:     "Fixture memory smoke cleanup",
+	})
+	if got.Ready || got.Status != "sidecar_memory_tool_failed" || !got.CleanupVerified {
+		t.Fatalf("memory smoke = %+v, want promote tool failure with verified project cleanup", got)
+	}
+	if len(got.Steps) != 13 || got.Steps[10].Tool != "memory_candidates.promote" || !got.Steps[10].ToolIsError || got.Steps[11].Name != "cleanup_delete_project" || got.Steps[12].Status != "expected_missing" {
+		t.Fatalf("steps = %+v, want promote failure followed by project cleanup delete and verification", got.Steps)
+	}
+	if !strings.Contains(strings.Join(got.Warnings, "\n"), "deleted and verified removal") {
+		t.Fatalf("warnings = %+v, want verified cleanup warning", got.Warnings)
+	}
+}
+
 func TestProjectCairnlineSidecarLifecycleSmoke_WarnsWhenFailureAfterRunningCannotRelease(t *testing.T) {
 	handler := NewHandler(config.Config{
 		Projects: config.ProjectsConfig{

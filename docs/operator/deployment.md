@@ -393,6 +393,11 @@ respectively. Operators can also run
 `POST /hecate/v1/projects/cairnline/sidecar-collaboration-smoke` with
 `confirm_mutation=true` to record and verify temporary artifact, evidence,
 review, and handoff metadata in the standalone Cairnline sidecar database.
+Operators can also run
+`POST /hecate/v1/projects/cairnline/sidecar-memory-smoke` with
+`confirm_mutation=true` to create and verify accepted memory, promote one memory
+candidate, reject/delete another candidate, and clean up the temporary
+standalone Cairnline project.
 Those smokes delete their temporary project and verify removal.
 When the embedded Cairnline read adapter is fully wired,
 `GET /hecate/v1/projects/backend-status` reports
@@ -446,11 +451,12 @@ Cairnline-specific MCP client cache. `sidecar-read-smoke`,
 cached client to call read-only Cairnline MCP tools and return diagnostic
 evidence. `sidecar-lifecycle-smoke` is opt-in mutation evidence for the
 standalone sidecar assignment lifecycle. `sidecar-write-smoke`,
-`sidecar-setup-smoke`, `sidecar-work-smoke`, and
-`sidecar-collaboration-smoke` are opt-in mutation evidence for standalone
+`sidecar-setup-smoke`, `sidecar-work-smoke`,
+`sidecar-collaboration-smoke`, and `sidecar-memory-smoke` are opt-in mutation
+evidence for standalone
 sidecar project identity, project setup metadata, project work coordination
-records, and collaboration metadata records. None of these routes operator
-project reads or writes through the sidecar backend.
+records, collaboration metadata records, and memory/candidate records. None of
+these routes operator project reads or writes through the sidecar backend.
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-memory` is an alpha
 write-authority dogfood switch for accepted project memory entries:
 create/update/delete commits to the embedded Cairnline database first and then
