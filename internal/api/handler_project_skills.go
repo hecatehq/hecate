@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/hecatehq/cairnline"
+	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectskills"
 )
 
@@ -26,16 +27,21 @@ func formatProjectSkillTime(value time.Time) string {
 }
 
 func (h *Handler) HandleProjectSkills(w http.ResponseWriter, r *http.Request) {
-	if h.projectSkills == nil {
+	projectID := r.PathValue("id")
+	if h.projectSkills == nil && !h.projectCairnlineSidecarReadRoutesEnabled() {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project skills store is not configured")
 		return
 	}
-	if !h.requireProjectExists(w, r, r.PathValue("id")) {
+	if !h.projectCairnlineSidecarReadRoutesEnabled() && !h.requireProjectExists(w, r, projectID) {
 		return
 	}
-	items, err := h.renderProjectSkills(r.Context(), r.PathValue("id"))
+	items, err := h.renderProjectSkills(r.Context(), projectID)
 	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		if errors.Is(err, projects.ErrNotFound) {
+			WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
+			return
+		}
+		writeProjectReadRenderError(w, err)
 		return
 	}
 	WriteJSON(w, http.StatusOK, ProjectSkillsResponse{Object: "project_skills", Data: items})
@@ -139,6 +145,9 @@ func (h *Handler) HandleUpdateProjectSkill(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *Handler) renderProjectSkills(ctx context.Context, projectID string) ([]ProjectSkillResponseItem, error) {
+	if h.projectCairnlineSidecarReadRoutesEnabled() {
+		return h.renderCairnlineSidecarProjectSkills(ctx, projectID)
+	}
 	if h.projectReadRoutesUseCairnlineReadModel() {
 		return h.renderCairnlineProjectSkills(ctx, projectID)
 	}
@@ -165,6 +174,22 @@ func (h *Handler) renderCairnlineProjectSkills(ctx context.Context, projectID st
 		out = append(out, renderProjectSkill(projectSkillFromCairnline(item, nativeByID[item.ID]), "cairnline"))
 	}
 	return out, nil
+}
+
+func (h *Handler) renderCairnlineSidecarProjectSkills(ctx context.Context, projectID string) ([]ProjectSkillResponseItem, error) {
+	projectItem, ok, err := h.cairnlineSidecarProject(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, projects.ErrNotFound
+	}
+	project := projectFromCairnlineSidecar(projectItem)
+	items, err := h.cairnlineSidecarProjectSkills(ctx, project.ID)
+	if err != nil {
+		return nil, err
+	}
+	return renderProjectSkills(projectSkillsFromCairnlineSidecar(items), "cairnline"), nil
 }
 
 func renderProjectSkills(items []projectskills.Skill, readBackend string) []ProjectSkillResponseItem {
