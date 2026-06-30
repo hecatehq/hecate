@@ -529,7 +529,7 @@ sequenceDiagram
   reads. With `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar`, `sidecar` routes
   project list/detail, setup-readiness, health, project skill list, project
   memory list, memory-candidate list, project role list, work-item list/detail,
-  assignment-list, launch-readiness, assignment preflight, artifact-list,
+  assignment-list, assignment-context, launch-readiness, assignment preflight, artifact-list,
   handoff-list, activity, closeout-readiness, and operations-brief reads through
   the standalone Cairnline MCP client; all other live Projects read routes stay
   on Hecate-native or embedded dogfood paths.
@@ -2414,7 +2414,7 @@ fail loudly. With `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar`,
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar` routes only project list/detail,
 setup-readiness, health, project skill list, project memory list,
 memory-candidate list, project role list, work-item list/detail,
-assignment-list, launch-readiness, assignment preflight, artifact-list,
+assignment-list, assignment-context, launch-readiness, assignment preflight, artifact-list,
 handoff-list, activity, closeout-readiness, and operations-brief reads through
 the standalone Cairnline MCP client; backend status reports those routes in
 `read_routes` while `read_model_switch_ready` remains false because the broader
@@ -2856,7 +2856,7 @@ Example response, shortened:
   "data": {
     "ready": true,
     "status": "sidecar_probe_ready",
-    "detail": "Cairnline sidecar MCP server started and exposes the required portable Projects tool contract. Hecate still keeps live Projects writes on Hecate-native stores in sidecar mode; project list/detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, launch-readiness, assignment-preflight, artifact-list, handoff-list, activity, closeout-readiness, and operations-brief read routing requires HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar.",
+    "detail": "Cairnline sidecar MCP server started and exposes the required portable Projects tool contract. Hecate still keeps live Projects writes on Hecate-native stores in sidecar mode; project list/detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, activity, closeout-readiness, and operations-brief read routing requires HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar.",
     "command": "cairnline",
     "args": ["-db", "/Users/alice/.local/share/hecate/cairnline/projects.db"],
     "database_path": "/Users/alice/.local/share/hecate/cairnline/projects.db",
@@ -3069,7 +3069,7 @@ Example response, shortened:
   "data": {
     "ready": true,
     "status": "sidecar_client_ready",
-    "detail": "Cairnline sidecar MCP client connected and exposes the required portable Projects tool contract. Hecate still keeps live Projects writes on Hecate-native stores in sidecar mode; project list/detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, launch-readiness, assignment-preflight, artifact-list, handoff-list, activity, closeout-readiness, and operations-brief read routing requires HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar.",
+    "detail": "Cairnline sidecar MCP client connected and exposes the required portable Projects tool contract. Hecate still keeps live Projects writes on Hecate-native stores in sidecar mode; project list/detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, activity, closeout-readiness, and operations-brief read routing requires HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar.",
     "command": "cairnline",
     "args": ["-db", "/Users/alice/.local/share/hecate/cairnline/projects.db"],
     "database_path": "/Users/alice/.local/share/hecate/cairnline/projects.db",
@@ -5690,10 +5690,10 @@ When `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar` and
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar` are both configured, this
 endpoint validates the work item through typed `work_items.list` and reads
 assignments through typed `assignments.list` on the standalone Cairnline MCP
-client. Launch-readiness and assignment preflight read typed
-`assignments.launch_packet` sidecar data before applying Hecate runtime
-validation. Stored assignment context, start/prepare, and status mutation routes
-remain Hecate-owned.
+client. Assignment context reads typed `assignments.context` sidecar data.
+Launch-readiness and assignment preflight read typed `assignments.launch_packet`
+sidecar data before applying Hecate runtime validation. Start/prepare and
+status mutation routes remain Hecate-owned.
 
 #### `POST /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments`
 

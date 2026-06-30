@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -109,13 +110,34 @@ func writeChatContextPacket(w http.ResponseWriter, packet chat.ContextPacket) {
 
 func (h *Handler) HandleProjectWorkAssignmentContext(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	projectID := strings.TrimSpace(r.PathValue("id"))
+	workItemID := strings.TrimSpace(r.PathValue("work_item_id"))
+	assignmentID := strings.TrimSpace(r.PathValue("assignment_id"))
+	if h.projectCairnlineSidecarReadRoutesEnabled() {
+		packet, ok, err := h.contextPacketForCairnlineSidecarProjectAssignment(ctx, projectID, workItemID, assignmentID)
+		if err != nil {
+			if errors.Is(err, errProjectCairnlineSidecarReadFailed) {
+				WriteError(w, http.StatusBadGateway, errCodeGatewayError, err.Error())
+				return
+			}
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+			return
+		}
+		if !ok {
+			WriteError(w, http.StatusNotFound, errCodeNotFound, "project assignment context packet not found")
+			return
+		}
+		roleID := ""
+		if packet.Refs != nil {
+			roleID = packet.Refs.RoleID
+		}
+		writeChatContextPacket(w, chatcontext.Normalize(packet, chatcontext.ProjectAssignmentRefs(projectID, workItemID, assignmentID, roleID)))
+		return
+	}
 	if h.projectWork == nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project work store is not configured")
 		return
 	}
-	projectID := strings.TrimSpace(r.PathValue("id"))
-	workItemID := strings.TrimSpace(r.PathValue("work_item_id"))
-	assignmentID := strings.TrimSpace(r.PathValue("assignment_id"))
 	assignment, ok, err := h.loadProjectWorkAssignment(ctx, projectID, workItemID, assignmentID)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())

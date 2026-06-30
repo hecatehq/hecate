@@ -2391,6 +2391,104 @@ func TestProjectWorkAPI_PreflightAssignmentCairnlineSidecarRejectsProjectMismatc
 	}
 }
 
+func TestProjectWorkAPI_AssignmentContextUsesCairnlineSidecarWhenConfigured(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "full")
+	if handler.projectReadRoutesUseCairnlineReadModel() {
+		t.Fatal("sidecar assignment context enabled embedded Cairnline read-model routes")
+	}
+	if !handler.projectCairnlineSidecarReadRoutesEnabled() {
+		t.Fatal("sidecar read-route predicate = false, want true")
+	}
+
+	packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/assignments/asg_fixture/context", "")
+	if packetResp.Data.ID != "ctx_fixture" || packetResp.Data.ExecutionMode != "mcp_pull" {
+		t.Fatalf("sidecar assignment context id/mode = %q/%q, want ctx_fixture/mcp_pull", packetResp.Data.ID, packetResp.Data.ExecutionMode)
+	}
+	if packetResp.Data.Refs == nil || packetResp.Data.Refs.ProjectID != "proj_fixture" || packetResp.Data.Refs.WorkItemID != "work_fixture" || packetResp.Data.Refs.AssignmentID != "asg_fixture" || packetResp.Data.Refs.RoleID != "role_fixture" {
+		t.Fatalf("sidecar assignment context refs = %+v, want project/work/assignment/role refs", packetResp.Data.Refs)
+	}
+	if packetResp.Data.Refs.TaskID != "" || packetResp.Data.Refs.RunID != "" || packetResp.Data.Refs.SessionID != "" {
+		t.Fatalf("sidecar assignment context refs = %+v, want no task/run/session side effects", packetResp.Data.Refs)
+	}
+	item := findRenderedContextItemByOrigin(packetResp.Data, "cairnline.assignments.context")
+	if item == nil || item.Section != contextSectionRuntime || item.Included || item.Metadata["source_tool"] != "assignments.context" {
+		t.Fatalf("sidecar assignment context runtime item = %+v, want inspect-only assignments.context metadata", item)
+	}
+	for _, want := range []string{
+		"Read backend: cairnline",
+		"Source tool: assignments.context",
+		"Portable execution mode: mcp_pull",
+	} {
+		if !strings.Contains(item.Body, want) {
+			t.Fatalf("sidecar assignment context body = %q, want %q", item.Body, want)
+		}
+	}
+	tasks, err := handler.taskStore.ListTasks(t.Context(), taskstateFilterAll())
+	if err != nil {
+		t.Fatalf("ListTasks: %v", err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("tasks = %+v, want no task created by sidecar assignment context", tasks)
+	}
+}
+
+func TestProjectWorkAPI_AssignmentContextCairnlineSidecarRequiresStructuredContent(t *testing.T) {
+	t.Parallel()
+	_, server := newProjectsCairnlineSidecarReadTestServer(t, "assignments.context-text-only")
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/assignments/asg_fixture/context", nil))
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("assignment context status = %d body=%s, want 502", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "structuredContent") {
+		t.Fatalf("error body = %s, want structuredContent diagnostic", rec.Body.String())
+	}
+}
+
+func TestProjectWorkAPI_AssignmentContextCairnlineSidecarRejectsRouteMismatch(t *testing.T) {
+	t.Parallel()
+	_, server := newProjectsCairnlineSidecarReadTestServer(t, "full+context-route-mismatch")
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/assignments/asg_fixture/context", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("assignment context status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "project assignment context packet not found") {
+		t.Fatalf("error body = %s, want scoped context not found", rec.Body.String())
+	}
+}
+
+func TestProjectWorkAPI_AssignmentContextCairnlineSidecarRejectsProjectMismatch(t *testing.T) {
+	t.Parallel()
+	_, server := newProjectsCairnlineSidecarReadTestServer(t, "full+project-route-mismatch")
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/assignments/asg_fixture/context", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("assignment context status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "project assignment context packet not found") {
+		t.Fatalf("error body = %s, want scoped context not found", rec.Body.String())
+	}
+}
+
+func TestProjectWorkAPI_AssignmentContextCairnlineSidecarRejectsContextProjectMismatch(t *testing.T) {
+	t.Parallel()
+	_, server := newProjectsCairnlineSidecarReadTestServer(t, "full+context-project-mismatch")
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/assignments/asg_fixture/context", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("assignment context status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "project assignment context packet not found") {
+		t.Fatalf("error body = %s, want scoped context not found", rec.Body.String())
+	}
+}
+
 func TestProjectWorkAPI_PreflightAndStartSnapshotModelReadiness(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectWorkTestServerWithProviders(&fakeProvider{
