@@ -372,6 +372,8 @@ function toolActivityTitle(activity: ChatActivityRecord): string {
       return "Ran shell";
     case "git_exec":
       return "Ran git";
+    case "web_search":
+      return "Searched web";
     case "read_file":
       return "Read file";
     case "list_dir":

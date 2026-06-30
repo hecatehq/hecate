@@ -11,6 +11,7 @@ describe("agent approval labels", () => {
   it("humanizes known tool kinds and leaves unknown kinds readable", () => {
     expect(agentApprovalToolKindLabel("file_write")).toBe("file write");
     expect(agentApprovalToolKindLabel("shell_exec")).toBe("shell command");
+    expect(agentApprovalToolKindLabel("web_search")).toBe("web search");
     expect(agentApprovalToolKindLabel("terminal_open")).toBe("terminal tool");
     expect(agentApprovalToolKindLabel("terminal")).toBe("terminal tool");
     expect(agentApprovalToolKindLabel("mcp")).toBe("MCP tool");
@@ -23,6 +24,9 @@ describe("agent approval labels", () => {
     );
     expect(agentApprovalToolLabel({ tool_kind: "file_write", tool_name: "apply_patch" })).toBe(
       "file write · apply_patch",
+    );
+    expect(agentApprovalToolLabel({ tool_kind: "web_search", tool_name: "web_search" })).toBe(
+      "web search · web_search",
     );
     expect(
       agentApprovalToolLabel({ tool_kind: "agent_loop_tool_call", tool_name: "terminal_open" }),

@@ -10,6 +10,8 @@ const TOOL_KIND_LABELS: Record<string, string> = {
   file_read: "file read",
   shell_exec: "shell command",
   network: "network request",
+  http_request: "network request",
+  web_search: "web search",
   file_move: "file move",
   file_delete: "file delete",
   search: "search",
