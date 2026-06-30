@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -191,8 +192,46 @@ func TestProjectCoordinationBackendStatus_CairnlineSidecarConnectorBlocksEmbedde
 		t.Fatalf("project-identity switchpoint = %+v, want Hecate authority while sidecar routing is not live", point)
 	}
 	warnings := strings.Join(status.Warnings, "\n")
-	if !strings.Contains(warnings, "HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar") || !strings.Contains(warnings, "lifecycle/write/setup/work/collaboration/memory/assistant diagnostic surfaces") || strings.Contains(warnings, "read-smoke surfaces only") || !strings.Contains(warnings, "Hecate-native stores") {
+	if !strings.Contains(warnings, "HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar") || !strings.Contains(warnings, "lifecycle/write/setup/work/collaboration/memory/assistant diagnostics") || strings.Contains(warnings, "read-smoke surfaces only") || !strings.Contains(warnings, "Hecate-native stores") {
 		t.Fatalf("warnings = %+v, want full sidecar diagnostic warning", status.Warnings)
+	}
+}
+
+func TestProjectCoordinationBackendStatus_CairnlineSidecarProjectReadsReady(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			Backend:             "sqlite",
+			CoordinationBackend: "cairnline",
+			CairnlineConnector:  "sidecar",
+			CairnlineReadSource: "sidecar",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+
+	status := handler.projectCoordinationBackendStatus()
+	if status.Status != "cairnline_sidecar_project_reads_ready" {
+		t.Fatalf("status = %+v, want sidecar project-read readiness", status)
+	}
+	if status.CairnlineConnector != "sidecar" || status.CairnlineConnectorReady || status.CairnlineReadSource != "sidecar" {
+		t.Fatalf("connector/read source = %q ready=%t source=%q, want sidecar connector with sidecar read source but no full connector readiness", status.CairnlineConnector, status.CairnlineConnectorReady, status.CairnlineReadSource)
+	}
+	if status.CairnlineAuthoritative || status.ReadModelSwitchReady || status.WriteAdapterReady || status.ReplacementReady {
+		t.Fatalf("status = %+v, want sidecar project reads without full replacement readiness", status)
+	}
+	if handler.projectReadRoutesUseCairnlineReadModel() {
+		t.Fatal("sidecar project reads enabled embedded Cairnline read-model routes")
+	}
+	if !handler.projectCairnlineSidecarProjectReadsEnabled() {
+		t.Fatal("projectCairnlineSidecarProjectReadsEnabled() = false, want true")
+	}
+	if !reflect.DeepEqual(status.ReadRoutes, projectCairnlineSidecarProjectReadRouteNames) {
+		t.Fatalf("read routes = %+v, want sidecar project identity routes", status.ReadRoutes)
+	}
+	if gate := findReplacementGate(status.ReplacementGates, "read-routes"); gate == nil || gate.Ready || gate.Status != "blocked" {
+		t.Fatalf("read-routes gate = %+v, want blocked because only project identity reads are sidecar-backed", gate)
+	}
+	warnings := strings.Join(status.Warnings, "\n")
+	if !strings.Contains(warnings, "Only project-list and project-detail") || !strings.Contains(warnings, "Full Cairnline read-model replacement remains blocked") {
+		t.Fatalf("warnings = %+v, want partial sidecar read warning", status.Warnings)
 	}
 }
 

@@ -178,8 +178,12 @@ proposal ledger record, verifies unconfirmed apply returns `needs_confirmation`,
 applies it with explicit confirmation, verifies the created role/work/assignment
 side effects through typed `structuredContent`, then deletes and verifies
 removal of the temporary project.
-Hecate does not yet route Projects reads, writes, or mirrors through the sidecar
-client.
+When `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar` and
+`HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar` are both configured, Hecate
+routes only project list/detail reads through the cached standalone Cairnline
+MCP client. Other Projects reads, writes, mirrors, dispatch, approvals, and
+write-authority switchpoints remain Hecate-native or on the embedded dogfood
+path until sidecar-specific adapters exist for those route families.
 Today, `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` is a
 replacement-readiness intent flag only: when the current stores are fully wired
 and the embedded connector is selected, it reports `cairnline_read_routes_ready`,
@@ -201,9 +205,10 @@ list/detail,
 assignment-list, and operations brief reads render work items, assignments,
 roles, artifacts, and handoffs from the Cairnline service records, then overlay
 Hecate-only runtime refs/timestamps where Hecate still owns execution.
-Project identity and some compatibility scaffolding still come from Hecate
-until Cairnline becomes authoritative. Project Assistant draft generation also
-uses the Cairnline-projected
+In embedded read-source modes, project identity and some compatibility
+scaffolding still come from Hecate until Cairnline becomes authoritative; the
+explicit sidecar read source is the narrow exception for project list/detail
+only. Project Assistant draft generation also uses the Cairnline-projected
 context so preview and proposal assembly stay aligned, while the proposal
 ledger remains Hecate-owned unless `project-assistant-proposals` is enabled.
 Confirmed Project Assistant apply routes role, work-item, assignment, and

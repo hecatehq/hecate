@@ -48,6 +48,11 @@ var projectCairnlineReadRouteNames = []string{
 	"operations-brief",
 }
 
+var projectCairnlineSidecarProjectReadRouteNames = []string{
+	"project-list",
+	"project-detail",
+}
+
 var projectCairnlineWriteAdapterSeamNames = []string{
 	"projects",
 	"roots",
@@ -341,6 +346,18 @@ func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendS
 		response.WriteSwitchpoints = projectCairnlineWriteSwitchpointsSnapshot(effectiveWriteAuthority)
 		response.ReplacementGates = projectCairnlineReplacementGates(readReady, response.WriteAdapterGaps)
 		if !connectorReady {
+			if h.projectCairnlineSidecarProjectReadsEnabled() {
+				response.Status = "cairnline_sidecar_project_reads_ready"
+				response.Detail = "Cairnline sidecar is configured as the project identity read source, so project-list and project-detail routes read through the persistent standalone Cairnline MCP client. Other Projects read routes, all writes, and migration remain on Hecate-native stores or existing embedded dogfood paths."
+				response.ReadRoutes = append([]string(nil), projectCairnlineSidecarProjectReadRouteNames...)
+				response.ReplacementGates = projectCairnlineReplacementGates(false, response.WriteAdapterGaps)
+				response.Warnings = []string{
+					"Only project-list and project-detail use the Cairnline sidecar MCP client in this mode.",
+					"Project writes still use Hecate-native stores unless a separate embedded Cairnline authority switchpoint is explicitly enabled.",
+					"Full Cairnline read-model replacement remains blocked because sidecar adapters for setup, health, skills, memory, work, assignments, activity, assistant, and operations routes are not wired.",
+				}
+				return response
+			}
 			response.Status = "cairnline_connector_not_ready"
 			response.Detail = projectCairnlineConnectorDetail(connector) + " Hecate keeps Projects reads and writes on Hecate-native stores in this mode; use HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded for the current replacement-readiness dogfood path."
 			response.ReplacementGates = projectCairnlineReplacementGates(false, response.WriteAdapterGaps)
@@ -773,6 +790,8 @@ func projectCairnlineReadSourceDetail(source string) string {
 	switch source {
 	case "embedded":
 		return "Configured read routes require the embedded mirror database and requested project row or proposal record; if the mirror is missing or stale, the route fails loudly instead of falling back to a Hecate snapshot."
+	case "sidecar":
+		return "Configured project identity read routes call the standalone Cairnline MCP sidecar through the persistent local client; only project-list and project-detail use this source."
 	case "snapshot":
 		return "Configured read routes use the snapshot-seeded in-memory Cairnline bridge projection and do not attempt the embedded mirror database."
 	default:
@@ -784,6 +803,8 @@ func projectCairnlineReadSourceWarning(source string) string {
 	switch source {
 	case "embedded":
 		return "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded requires a populated embedded Cairnline mirror database and fails configured read routes when the database, project row, or proposal record is missing."
+	case "sidecar":
+		return "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar routes only project-list and project-detail through the standalone Cairnline MCP client; other Cairnline read-model routes are not sidecar-backed yet."
 	case "snapshot":
 		return "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=snapshot keeps configured read routes on the snapshot-seeded in-memory Cairnline bridge projection even when an embedded mirror database exists."
 	default:

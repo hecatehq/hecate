@@ -72,7 +72,7 @@ type updateProjectRequest struct {
 func (h *Handler) HandleProjects(w http.ResponseWriter, r *http.Request) {
 	data, err := h.renderProjects(r.Context())
 	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		writeProjectReadRenderError(w, err)
 		return
 	}
 	WriteJSON(w, http.StatusOK, ProjectsResponse{Object: "projects", Data: data})
@@ -143,7 +143,7 @@ func (h *Handler) HandleCreateProject(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) HandleProject(w http.ResponseWriter, r *http.Request) {
 	project, err := h.renderProject(r.Context(), r.PathValue("id"))
 	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		writeProjectReadRenderError(w, err)
 		return
 	}
 	if project == nil {
@@ -704,6 +704,9 @@ func parseProjectTime(value string) (time.Time, error) {
 }
 
 func (h *Handler) renderProjects(ctx context.Context) ([]ProjectResponseItem, error) {
+	if h.projectCairnlineSidecarProjectReadsEnabled() {
+		return h.renderCairnlineSidecarProjects(ctx)
+	}
 	items, err := h.projects.List(ctx)
 	if err != nil {
 		return nil, err
@@ -731,6 +734,9 @@ func (h *Handler) renderCairnlineProjects(ctx context.Context, nativeProjects []
 }
 
 func (h *Handler) renderProject(ctx context.Context, projectID string) (*ProjectResponseItem, error) {
+	if h.projectCairnlineSidecarProjectReadsEnabled() {
+		return h.renderCairnlineSidecarProject(ctx, projectID)
+	}
 	project, ok, err := h.projects.Get(ctx, projectID)
 	if err != nil || !ok {
 		return nil, err
@@ -744,6 +750,14 @@ func (h *Handler) renderProject(ctx context.Context, projectID string) (*Project
 	}
 	rendered := renderProject(project)
 	return &rendered, nil
+}
+
+func writeProjectReadRenderError(w http.ResponseWriter, err error) {
+	if errors.Is(err, errProjectCairnlineSidecarReadFailed) {
+		WriteError(w, http.StatusBadGateway, errCodeGatewayError, err.Error())
+		return
+	}
+	WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 }
 
 func (h *Handler) renderCairnlineProject(ctx context.Context, native projects.Project) (ProjectResponseItem, error) {

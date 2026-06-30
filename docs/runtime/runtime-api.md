@@ -507,12 +507,13 @@ sequenceDiagram
   standalone Cairnline project, creates and verifies an assistant proposal
   ledger record, applies it with explicit confirmation, verifies the created
   role/work/assignment side effects, then deletes and verifies removal of the
-  temporary project. Live Projects reads and writes still use Hecate-native
-  stores.
-- `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=auto|snapshot|embedded` controls which
+  temporary project. Live Projects writes still use Hecate-native stores in
+  sidecar mode. Live project list/detail reads use Hecate-native stores unless
+  `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar` is also set.
+- `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=auto|snapshot|embedded|sidecar` controls which
   Cairnline service backing configured read routes use while
-  `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and
-  `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded`. The default `auto` prefers the
+  `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline`. With
+  `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded`, the default `auto` prefers the
   embedded mirror database under
   `{HECATE_DATA_DIR}/cairnline/embedded/projects.db` when it already contains
   the requested project or proposal record and otherwise falls back to the
@@ -521,7 +522,10 @@ sequenceDiagram
   routes require a populated embedded mirror database and fail if the database
   or requested project row/proposal record is missing. Run
   `POST /hecate/v1/projects/cairnline/sync` first when testing strict embedded
-  reads.
+  reads. With `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar`, `sidecar` routes
+  only `GET /hecate/v1/projects` and `GET /hecate/v1/projects/{id}` through
+  the standalone Cairnline MCP client; all other live Projects read routes stay
+  on Hecate-native or embedded dogfood paths.
 - `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=none|project-memory|project-memory,memory-candidates|project-collaboration|project-skills|project-roles|project-work-items|project-assignments|agent-profiles|project-metadata-defaults|project-roots|project-context-sources|project-identity|project-assistant-proposals`
   controls alpha Cairnline write-authority switchpoints while
   `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and
@@ -2399,7 +2403,11 @@ their Cairnline service read source is controlled by
 falls back to the snapshot-seeded bridge, `snapshot` always uses the
 snapshot-seeded bridge, and `embedded` requires the mirror database and
 requested project row or proposal record to exist so replacement-readiness gaps
-fail loudly.
+fail loudly. With `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar`,
+`HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar` routes only project list/detail
+through the standalone Cairnline MCP client; backend status reports those two
+routes in `read_routes` while `read_model_switch_ready` remains false because
+the broader read model is not sidecar-backed yet.
 `read_routes` lists the live read families currently backed by the Cairnline
 read model. `write_adapter_ready=false` means writes and migration are still
 Hecate-owned. `write_adapter_seams` lists non-authoritative bridge proofs that
@@ -2837,7 +2845,7 @@ Example response, shortened:
   "data": {
     "ready": true,
     "status": "sidecar_probe_ready",
-    "detail": "Cairnline sidecar MCP server started and exposes the required portable Projects tool contract. Hecate still keeps live Projects reads and writes on Hecate-native stores in sidecar mode.",
+    "detail": "Cairnline sidecar MCP server started and exposes the required portable Projects tool contract. Hecate still keeps live Projects writes on Hecate-native stores in sidecar mode; project list/detail read routing requires HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar.",
     "command": "cairnline",
     "args": ["-db", "/Users/alice/.local/share/hecate/cairnline/projects.db"],
     "database_path": "/Users/alice/.local/share/hecate/cairnline/projects.db",
@@ -3050,7 +3058,7 @@ Example response, shortened:
   "data": {
     "ready": true,
     "status": "sidecar_client_ready",
-    "detail": "Cairnline sidecar MCP client connected and exposes the required portable Projects tool contract. Hecate still keeps live Projects reads and writes on Hecate-native stores in sidecar mode.",
+    "detail": "Cairnline sidecar MCP client connected and exposes the required portable Projects tool contract. Hecate still keeps live Projects writes on Hecate-native stores in sidecar mode; project list/detail read routing requires HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar.",
     "command": "cairnline",
     "args": ["-db", "/Users/alice/.local/share/hecate/cairnline/projects.db"],
     "database_path": "/Users/alice/.local/share/hecate/cairnline/projects.db",
@@ -3075,9 +3083,11 @@ Local-only standalone Cairnline MCP read smoke. It uses the same sidecar
 command, database, timeout, and Cairnline-specific MCP client cache as
 `sidecar-connect`, then calls the read-only `projects.list` tool with empty
 arguments. This proves Hecate can perform a real MCP tool call through the
-persistent standalone Cairnline sidecar. It is diagnostic only: Hecate still
-keeps live Projects reads, writes, mirrors, dispatch, approvals, and
-write-authority switchpoints on Hecate-native stores in sidecar mode.
+persistent standalone Cairnline sidecar. The smoke endpoint is diagnostic only.
+When `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar` is also set, live project
+list reads use the same sidecar tool path; writes, mirrors, dispatch,
+approvals, write-authority switchpoints, and other Projects read routes remain
+on Hecate-native stores or embedded dogfood paths.
 `ready=true` means the MCP tool call succeeded. `structured_ready=true` means
 Hecate also parsed `projects.list` `structuredContent` as typed project-list
 data, which is the contract a future sidecar read adapter would consume.
@@ -3106,7 +3116,7 @@ Example response, shortened:
   "data": {
     "ready": true,
     "status": "sidecar_read_ready",
-    "detail": "Hecate called the read-only Cairnline sidecar projects.list tool through the persistent sidecar client. Hecate still keeps live Projects reads and writes on Hecate-native stores in sidecar mode.",
+    "detail": "Hecate called the read-only Cairnline sidecar projects.list tool through the persistent sidecar client. HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar routes live project-list reads through this sidecar; writes and other Projects reads stay on Hecate-native stores or embedded dogfood paths.",
     "command": "cairnline",
     "args": ["-db", "/Users/alice/.local/share/hecate/cairnline/projects.db"],
     "database_path": "/Users/alice/.local/share/hecate/cairnline/projects.db",
@@ -3154,8 +3164,10 @@ and then calls read-only `projects.get`. With a body such as
 
 This endpoint is diagnostic only. It proves Hecate can read a typed project
 detail record through the standalone Cairnline sidecar, including roots and
-context-source metadata, but it does not switch live Projects routing,
-mirroring, dispatch, approvals, or write authority.
+context-source metadata. When `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar`
+is also set, live project-detail reads use the same sidecar tool path; the
+endpoint itself does not switch mirroring, dispatch, approvals, or write
+authority.
 
 The response reports:
 
@@ -3180,7 +3192,7 @@ Example response, shortened:
   "data": {
     "ready": true,
     "status": "sidecar_detail_ready",
-    "detail": "Hecate called the read-only Cairnline sidecar projects.get tool through the persistent sidecar client. Hecate still keeps live Projects reads and writes on Hecate-native stores in sidecar mode.",
+    "detail": "Hecate called the read-only Cairnline sidecar projects.get tool through the persistent sidecar client. HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar routes live project-detail reads through this sidecar; writes and other Projects reads stay on Hecate-native stores or embedded dogfood paths.",
     "command": "cairnline",
     "args": ["-db", "/Users/alice/.local/share/hecate/cairnline/projects.db"],
     "database_path": "/Users/alice/.local/share/hecate/cairnline/projects.db",
@@ -3263,7 +3275,7 @@ Example response, shortened:
   "data": {
     "ready": true,
     "status": "sidecar_coordination_ready",
-    "detail": "Hecate called read-only Cairnline sidecar coordination list tools through the persistent sidecar client. Hecate still keeps live Projects reads and writes on Hecate-native stores in sidecar mode.",
+    "detail": "Hecate called read-only Cairnline sidecar coordination list tools through the persistent sidecar client. Hecate still keeps live Projects writes and non-project-identity reads on Hecate-native stores or embedded dogfood paths in sidecar mode.",
     "command": "cairnline",
     "args": ["-db", "/Users/alice/.local/share/hecate/cairnline/projects.db"],
     "database_path": "/Users/alice/.local/share/hecate/cairnline/projects.db",
@@ -3341,7 +3353,7 @@ Example response, shortened:
   "data": {
     "ready": true,
     "status": "sidecar_assignment_context_ready",
-    "detail": "Hecate called the read-only Cairnline sidecar assignments.context tool through the persistent sidecar client. Hecate still keeps live Projects reads and writes on Hecate-native stores in sidecar mode.",
+    "detail": "Hecate called the read-only Cairnline sidecar assignments.context tool through the persistent sidecar client. Hecate still keeps live assignment/context reads and writes on Hecate-native stores or embedded dogfood paths in sidecar mode.",
     "command": "cairnline",
     "args": ["-db", "/Users/alice/.local/share/hecate/cairnline/projects.db"],
     "database_path": "/Users/alice/.local/share/hecate/cairnline/projects.db",
@@ -3412,7 +3424,7 @@ Example response, shortened:
   "data": {
     "ready": true,
     "status": "sidecar_launch_packet_ready",
-    "detail": "Hecate called the read-only Cairnline sidecar assignments.launch_packet tool through the persistent sidecar client. Hecate still keeps live Projects reads and writes on Hecate-native stores in sidecar mode.",
+    "detail": "Hecate called the read-only Cairnline sidecar assignments.launch_packet tool through the persistent sidecar client. Hecate still keeps live assignment launch reads and writes on Hecate-native stores or embedded dogfood paths in sidecar mode.",
     "command": "cairnline",
     "args": ["-db", "/Users/alice/.local/share/hecate/cairnline/projects.db"],
     "database_path": "/Users/alice/.local/share/hecate/cairnline/projects.db",
