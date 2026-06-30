@@ -403,6 +403,62 @@ func TestProjectAssistantAPI_ContextUsesCairnlineReadModelWhenConfigured(t *test
 	}
 }
 
+func TestProjectAssistantAPI_ContextUsesCairnlineSidecarWhenConfigured(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "memory-fixture")
+	if handler.projectReadRoutesUseCairnlineReadModel() {
+		t.Fatal("sidecar assistant context enabled embedded Cairnline read-model routes")
+	}
+	if !handler.projectCairnlineSidecarReadRoutesEnabled() {
+		t.Fatal("sidecar read-route predicate = false, want true")
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/project-assistant/context", bytes.NewReader([]byte(`{
+		"project_id":"proj_fixture",
+		"work_item_id":"work_fixture",
+		"request":"Queue fixture work",
+		"role_id":"role_fixture"
+	}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("context status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response projectAssistantContextResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode context response: %v", err)
+	}
+	if response.Data.ReadBackend != "cairnline" || response.Data.Project.ID != "proj_fixture" {
+		t.Fatalf("context backend/project = %q/%+v, want Cairnline sidecar fixture project", response.Data.ReadBackend, response.Data.Project)
+	}
+	if response.Data.SelectedWork == nil || response.Data.SelectedWork.ID != "work_fixture" || response.Data.Selection.RoleID != "role_fixture" || response.Data.Selection.DriverKind != projectwork.AssignmentDriverHecateTask {
+		t.Fatalf("selected work/selection = %+v/%+v, want sidecar-selected fixture work and role", response.Data.SelectedWork, response.Data.Selection)
+	}
+	if !projectAssistantContextHasRole(response.Data.Roles, "role_fixture") {
+		t.Fatalf("roles = %+v, want sidecar fixture role", response.Data.Roles)
+	}
+	if len(response.Data.Skills) != 1 || response.Data.Skills[0].ID != "skill_fixture" {
+		t.Fatalf("skills = %+v, want sidecar fixture skill", response.Data.Skills)
+	}
+	if len(response.Data.Assignments) != 1 || response.Data.Assignments[0].ID != "asg_fixture" {
+		t.Fatalf("assignments = %+v, want sidecar fixture assignment", response.Data.Assignments)
+	}
+	if len(response.Data.Memory) != 1 || response.Data.Memory[0].ID != "mem_fixture" {
+		t.Fatalf("memory = %+v, want enabled sidecar fixture memory", response.Data.Memory)
+	}
+	if len(response.Data.MemoryCandidates) != 1 || response.Data.MemoryCandidates[0].ID != "memcand_fixture" {
+		t.Fatalf("memory candidates = %+v, want pending sidecar fixture candidate", response.Data.MemoryCandidates)
+	}
+}
+
+func projectAssistantContextHasRole(roles []projectassistant.RoleContext, id string) bool {
+	for _, role := range roles {
+		if role.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 func TestProjectAssistantAPI_ContextCairnlineMatchesHecate(t *testing.T) {
 	t.Parallel()
 	hecateHandler, hecateServer := newProjectAssistantTestHandler()
@@ -866,6 +922,45 @@ func TestProjectAssistantAPI_DraftUsesCairnlineReadModelWhenConfigured(t *testin
 	}
 	if _, ok, err := handler.projectAssistantProposals.GetProposal(t.Context(), proposed.Data.ID); err != nil || !ok {
 		t.Fatalf("GetProposal(%q) = ok %v err %v, want Cairnline draft stored in Hecate proposal ledger", proposed.Data.ID, ok, err)
+	}
+}
+
+func TestProjectAssistantAPI_DraftUsesCairnlineSidecarWhenConfigured(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "memory-fixture")
+	if handler.projectReadRoutesUseCairnlineReadModel() {
+		t.Fatal("sidecar assistant draft enabled embedded Cairnline read-model routes")
+	}
+	if !handler.projectCairnlineSidecarReadRoutesEnabled() {
+		t.Fatal("sidecar read-route predicate = false, want true")
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/project-assistant/draft", bytes.NewReader([]byte(`{
+		"project_id":"proj_fixture",
+		"work_item_id":"work_fixture",
+		"request":"Queue Fixture Reviewer\nRead from the Cairnline sidecar context.",
+		"role_id":"role_fixture"
+	}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("draft status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var proposed projectAssistantProposalResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &proposed); err != nil {
+		t.Fatalf("decode draft response: %v", err)
+	}
+	if proposed.Object != "project_assistant.proposal" || len(proposed.Data.Actions) != 1 || proposed.Data.Actions[0].Kind != projectassistant.ActionCreateAssignment {
+		t.Fatalf("draft response = %+v, want one sidecar-backed assignment proposal", proposed)
+	}
+	var patch map[string]string
+	if err := json.Unmarshal(proposed.Data.Actions[0].Patch, &patch); err != nil {
+		t.Fatalf("decode patch: %v", err)
+	}
+	if patch["project_id"] != "proj_fixture" || patch["work_item_id"] != "work_fixture" || patch["role_id"] != "role_fixture" || patch["driver_kind"] != projectwork.AssignmentDriverHecateTask {
+		t.Fatalf("patch = %+v, want sidecar project/work/role with normalized Hecate driver", patch)
+	}
+	if _, ok, err := handler.projectAssistantProposals.GetProposal(t.Context(), proposed.Data.ID); err != nil || !ok {
+		t.Fatalf("GetProposal(%q) = ok %v err %v, want sidecar-context draft stored in Hecate proposal ledger", proposed.Data.ID, ok, err)
 	}
 }
 
@@ -2171,6 +2266,111 @@ func TestProjectAssistantAPI_ProposalReadUsesCairnlineReadModel(t *testing.T) {
 	}
 	if patch["id"] != "work_cairnline_from_proposal" || patch["project_id"] != project.ID {
 		t.Fatalf("projected patch = %+v, want work item patch reconstructed from Cairnline", patch)
+	}
+}
+
+func TestProjectAssistantAPI_ProposalReadUsesCairnlineSidecarWhenConfigured(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "full")
+	if handler.projectReadRoutesUseCairnlineReadModel() {
+		t.Fatal("sidecar assistant proposal enabled embedded Cairnline read-model routes")
+	}
+	if !handler.projectCairnlineSidecarReadRoutesEnabled() {
+		t.Fatal("sidecar read-route predicate = false, want true")
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/project-assistant/proposals/pa_fixture", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get proposal status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response projectAssistantProposalRecordResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode proposal record response: %v", err)
+	}
+	if response.Object != "project_assistant.proposal_record" || response.Data.ID != "pa_fixture" || response.Data.ProjectID != "proj_fixture" {
+		t.Fatalf("proposal response = %+v, want sidecar fixture proposal record", response)
+	}
+	if response.Data.Status != projectassistant.ProposalStatusProposed || response.Data.Proposal.Title != "Queue fixture work" {
+		t.Fatalf("proposal ledger = %+v, want proposed sidecar assistant proposal", response.Data)
+	}
+	if len(response.Data.Proposal.Actions) != 1 || response.Data.Proposal.Actions[0].Kind != projectassistant.ActionCreateWorkItem || response.Data.Proposal.Actions[0].Reason != "Capture the next sidecar-backed project task." {
+		t.Fatalf("proposal actions = %+v, want converted create_work_item action", response.Data.Proposal.Actions)
+	}
+}
+
+func TestProjectAssistantAPI_ProposalReadSidecarFallsBackToNativeLedgerWhenMissing(t *testing.T) {
+	t.Parallel()
+	_, server := newProjectsCairnlineSidecarReadTestServer(t, "full")
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/project-assistant/propose", bytes.NewReader([]byte(`{
+		"id":"pa_native_sidecar",
+		"title":"Create native proposal",
+		"summary":"Create a Hecate-owned proposal while sidecar reads are enabled.",
+		"actions":[{
+			"kind":"create_project",
+			"reason":"Exercise native proposal fallback.",
+			"patch":{
+				"id":"proj_native_sidecar",
+				"name":"Native Sidecar Proposal"
+			}
+		}]
+	}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("propose status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/project-assistant/proposals/pa_native_sidecar", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get proposal status = %d body=%s, want 200 native fallback after sidecar miss", rec.Code, rec.Body.String())
+	}
+	var response projectAssistantProposalRecordResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode proposal record response: %v", err)
+	}
+	if response.Data.ID != "pa_native_sidecar" || response.Data.ProjectID != "proj_native_sidecar" || response.Data.Source != projectassistant.ProposalSourceAPI {
+		t.Fatalf("proposal record = %+v, want Hecate-owned API proposal after sidecar miss", response.Data)
+	}
+}
+
+func TestProjectAssistantAPI_ProposalReadCairnlineSidecarRequiresStructuredContent(t *testing.T) {
+	t.Parallel()
+	_, server := newProjectsCairnlineSidecarReadTestServer(t, "assistant.proposals.get-text-only")
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/project-assistant/proposals/pa_fixture", nil))
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("get proposal status = %d body=%s, want 502", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "structuredContent") {
+		t.Fatalf("error body = %s, want structuredContent diagnostic", rec.Body.String())
+	}
+}
+
+func TestProjectAssistantAPI_ProposalReadCairnlineSidecarRequiresMatchingID(t *testing.T) {
+	t.Parallel()
+	_, server := newProjectsCairnlineSidecarReadTestServer(t, "assistant.proposals.get-id-mismatch")
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/project-assistant/proposals/pa_fixture", nil))
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("get proposal status = %d body=%s, want 502", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "returned proposal id pa_fixture_other for requested id pa_fixture") {
+		t.Fatalf("error body = %s, want proposal id mismatch diagnostic", rec.Body.String())
+	}
+}
+
+func TestProjectAssistantAPI_ProposalReadCairnlineSidecarMissingProposal(t *testing.T) {
+	t.Parallel()
+	_, server := newProjectsCairnlineSidecarReadTestServer(t, "full")
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/project-assistant/proposals/pa_missing", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("get proposal status = %d body=%s, want 404", rec.Code, rec.Body.String())
 	}
 }
 

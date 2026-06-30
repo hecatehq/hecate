@@ -230,8 +230,8 @@ func TestProjectCoordinationBackendStatus_CairnlineSidecarReadRoutesReady(t *tes
 		t.Fatalf("read-routes gate = %+v, want blocked because only partial read routes are sidecar-backed", gate)
 	}
 	warnings := strings.Join(status.Warnings, "\n")
-	if !strings.Contains(warnings, "Only project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, activity, closeout-readiness, and operations-brief") || !strings.Contains(warnings, "assistant routes are not wired") {
-		t.Fatalf("warnings = %+v, want partial sidecar read warning", status.Warnings)
+	if !strings.Contains(warnings, "project-assistant-context, project-assistant-proposal") || !strings.Contains(warnings, "authoritative write migration") {
+		t.Fatalf("warnings = %+v, want sidecar read routes with write-migration warning", status.Warnings)
 	}
 }
 

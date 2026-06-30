@@ -469,8 +469,10 @@ func ProjectAssistantProposalStatus(status string) string {
 		return projectassistant.ApplyStatusApplied
 	case cairnline.AssistantProposalStatusPartial:
 		return projectassistant.ApplyStatusPartialDueToRuntimeFailure
-	case cairnline.AssistantProposalStatusRejected, cairnline.AssistantProposalStatusNeedsConfirm:
+	case cairnline.AssistantProposalStatusRejected:
 		return projectassistant.ApplyStatusBlockedBeforeApply
+	case cairnline.AssistantProposalStatusNeedsConfirm:
+		return projectassistant.ProposalStatusProposed
 	default:
 		return projectassistant.ProposalStatusProposed
 	}

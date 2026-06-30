@@ -685,9 +685,20 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 		}
 		record, ok := state.assistantProposals[input.ID]
 		if !ok {
+			record, ok = cairnlineSidecarFixtureDefaultAssistantProposal(input.ID)
+		}
+		if !ok {
 			return mcp.CallToolResult{Content: mcp.TextContent("fixture assistant proposal not found: " + input.ID), IsError: true}, nil
 		}
-		return mcp.CallToolResult{Content: mcp.TextContent("Assistant proposal " + input.ID + ": [" + record.Status + "] " + record.Proposal.Title), StructuredContent: mustRawJSON(record)}, nil
+		if cairnlineSidecarFixtureModeHas(mode, "assistant.proposals.get-id-mismatch") {
+			record.ID = "pa_fixture_other"
+			record.Proposal.ID = "pa_fixture_other"
+		}
+		result := mcp.CallToolResult{Content: mcp.TextContent("Assistant proposal " + input.ID + ": [" + record.Status + "] " + record.Proposal.Title)}
+		if !cairnlineSidecarFixtureTextOnly(mode, "assistant.proposals.get") {
+			result.StructuredContent = mustRawJSON(record)
+		}
+		return result, nil
 	case "assistant.apply":
 		var input struct {
 			ProposalID string                                       `json:"proposal_id"`
@@ -1951,6 +1962,38 @@ func cairnlineSidecarFixtureProjectAssistantProposals(state *cairnlineSidecarFix
 		}
 	}
 	return items
+}
+
+func cairnlineSidecarFixtureDefaultAssistantProposal(id string) (ProjectCairnlineSidecarAssistantProposalRecordItem, bool) {
+	if id != "pa_fixture" {
+		return ProjectCairnlineSidecarAssistantProposalRecordItem{}, false
+	}
+	return ProjectCairnlineSidecarAssistantProposalRecordItem{
+		ID:        "pa_fixture",
+		ProjectID: "proj_fixture",
+		Source:    "assistant",
+		Proposal: ProjectCairnlineSidecarAssistantProposalItem{
+			ID:                   "pa_fixture",
+			ProjectID:            "proj_fixture",
+			Title:                "Queue fixture work",
+			Summary:              "Create one reviewable work item from the sidecar assistant proposal fixture.",
+			RequiresConfirmation: true,
+			Actions: []ProjectCairnlineSidecarAssistantActionItem{{
+				Kind:    "create_work_item",
+				Summary: "Capture the next sidecar-backed project task.",
+				Target:  ProjectCairnlineSidecarAssistantTargetItem{ProjectID: "proj_fixture"},
+				WorkItem: &ProjectCairnlineSidecarWorkItem{
+					ID:        "work_from_sidecar_proposal",
+					ProjectID: "proj_fixture",
+					Title:     "Sidecar proposal work",
+					Brief:     "Read the proposal from the Cairnline sidecar.",
+					Status:    "open",
+					Priority:  "normal",
+				},
+			}},
+		},
+		Status: "proposed",
+	}, true
 }
 
 func cairnlineSidecarFixtureApplyAssistantProposal(state *cairnlineSidecarFixtureState, record ProjectCairnlineSidecarAssistantProposalRecordItem) ProjectCairnlineSidecarAssistantApplyResultItem {

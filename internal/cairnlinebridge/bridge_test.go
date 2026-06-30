@@ -276,6 +276,42 @@ func TestAssistantProposalRecordProjectsCairnlineLedgerBackToHecate(t *testing.T
 	}
 }
 
+func TestProjectAssistantProposalRecordKeepsNeedsConfirmationReviewable(t *testing.T) {
+	now := time.Date(2026, 6, 27, 13, 30, 0, 0, time.UTC)
+	source, ok := AssistantProposalRecord(bridgeAssistantProposalFixture(now))
+	if !ok {
+		t.Fatal("AssistantProposalRecord() ok = false, want portable proposal fixture")
+	}
+	result := cairnline.AssistantApplyResult{
+		ProposalID:       source.ID,
+		Status:           cairnline.AssistantApplyStatusNeedsConfirm,
+		Confirmed:        false,
+		TotalActionCount: len(source.Proposal.Actions),
+	}
+	source.Status = cairnline.AssistantProposalStatusNeedsConfirm
+	source.LatestResult = &result
+	source.ApplyAttempts = []cairnline.AssistantApplyAttempt{{
+		ID:         "paatt_bridge_needs_confirmation",
+		ProposalID: source.ID,
+		Status:     cairnline.AssistantApplyStatusNeedsConfirm,
+		Confirmed:  false,
+		Result:     result,
+		CreatedAt:  now,
+	}}
+	source.AppliedAt = nil
+
+	projected, ok := ProjectAssistantProposalRecord(source)
+	if !ok {
+		t.Fatal("ProjectAssistantProposalRecord() ok = false, want confirmation-required proposal projected")
+	}
+	if projected.Status != projectassistant.ProposalStatusProposed {
+		t.Fatalf("projected status = %q, want proposed so confirmation-required proposals remain reviewable", projected.Status)
+	}
+	if projected.LatestResult == nil || projected.LatestResult.Status != projectassistant.ApplyStatusBlockedBeforeApply || projected.LatestResult.Applied || projected.LatestResult.CommittedActionCount != 0 {
+		t.Fatalf("projected latest result = %+v, want explicit unconfirmed apply gate", projected.LatestResult)
+	}
+}
+
 func TestLoadSnapshotReadsHecateStores(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 6, 26, 12, 0, 0, 0, time.UTC)

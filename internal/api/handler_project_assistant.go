@@ -62,7 +62,15 @@ func (h *Handler) HandleProjectAssistantContext(w http.ResponseWriter, r *http.R
 	}
 	var context projectassistant.DraftContext
 	var err error
-	if h.projectReadRoutesUseCairnlineReadModel() {
+	if h.projectCairnlineSidecarReadRoutesEnabled() {
+		context, err = h.cairnlineSidecarProjectAssistantContext(r.Context(), projectassistant.ContextInput{
+			ProjectID:  req.ProjectID,
+			WorkItemID: req.WorkItemID,
+			Request:    req.Request,
+			RoleID:     req.RoleID,
+			DriverKind: req.DriverKind,
+		})
+	} else if h.projectReadRoutesUseCairnlineReadModel() {
 		context, err = h.cairnlineProjectAssistantContext(r.Context(), projectassistant.ContextInput{
 			ProjectID:  req.ProjectID,
 			WorkItemID: req.WorkItemID,
@@ -171,6 +179,9 @@ func (h *Handler) HandleChatProjectAssistantDraft(w http.ResponseWriter, r *http
 }
 
 func (h *Handler) projectAssistantDraft(ctx context.Context, command projectassistantapp.DraftCommand) (projectassistant.Proposal, error) {
+	if h.projectCairnlineSidecarReadRoutesEnabled() {
+		return h.cairnlineSidecarProjectAssistantDraft(ctx, command)
+	}
 	if h.projectReadRoutesUseCairnlineReadModel() {
 		return h.cairnlineProjectAssistantDraft(ctx, command)
 	}
@@ -202,27 +213,45 @@ func (h *Handler) HandleProjectAssistantPropose(w http.ResponseWriter, r *http.R
 }
 
 func (h *Handler) HandleProjectAssistantProposal(w http.ResponseWriter, r *http.Request) {
+	if h.projectCairnlineSidecarReadRoutesEnabled() {
+		id := r.PathValue("id")
+		record, ok, err := h.cairnlineSidecarProjectAssistantProposal(r.Context(), id)
+		if err != nil {
+			writeProjectAssistantError(w, err)
+			return
+		}
+		if !ok {
+			record, ok, err = h.hecateProjectAssistantProposal(r.Context(), id)
+			if err != nil {
+				writeProjectAssistantError(w, err)
+				return
+			}
+		}
+		writeProjectAssistantProposalRecord(w, record, ok)
+		return
+	}
 	if h.projectReadRoutesUseCairnlineReadModel() {
 		record, ok, err := h.cairnlineProjectAssistantProposal(r.Context(), r.PathValue("id"))
 		if err != nil {
 			writeProjectAssistantError(w, err)
 			return
 		}
-		if !ok {
-			WriteError(w, http.StatusNotFound, errCodeNotFound, "project assistant proposal not found")
-			return
-		}
-		WriteJSON(w, http.StatusOK, map[string]any{
-			"object": "project_assistant.proposal_record",
-			"data":   record,
-		})
+		writeProjectAssistantProposalRecord(w, record, ok)
 		return
 	}
-	record, ok, err := h.projectAssistantApplication().Proposal(r.Context(), r.PathValue("id"))
+	record, ok, err := h.hecateProjectAssistantProposal(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeProjectAssistantError(w, err)
 		return
 	}
+	writeProjectAssistantProposalRecord(w, record, ok)
+}
+
+func (h *Handler) hecateProjectAssistantProposal(ctx context.Context, id string) (projectassistant.ProposalRecord, bool, error) {
+	return h.projectAssistantApplication().Proposal(ctx, id)
+}
+
+func writeProjectAssistantProposalRecord(w http.ResponseWriter, record projectassistant.ProposalRecord, ok bool) {
 	if !ok {
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "project assistant proposal not found")
 		return
@@ -259,6 +288,38 @@ func (h *Handler) cairnlineProjectAssistantProposal(ctx context.Context, id stri
 	return cairnlineProjectAssistantProposalFromService(ctx, service, id)
 }
 
+func (h *Handler) cairnlineSidecarProjectAssistantProposal(ctx context.Context, id string) (projectassistant.ProposalRecord, bool, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return projectassistant.ProposalRecord{}, false, nil
+	}
+	result, err := h.callProjectCairnlineSidecarProjectReadTool(ctx, "assistant.proposals.get", map[string]string{"id": id})
+	if err != nil {
+		return projectassistant.ProposalRecord{}, false, err
+	}
+	if result.IsError {
+		if projectCairnlineSidecarToolErrorIsNotFound(result.Text) {
+			return projectassistant.ProposalRecord{}, false, nil
+		}
+		return projectassistant.ProposalRecord{}, false, projectCairnlineSidecarReadFailure("assistant.proposals.get returned a tool-level error: " + strings.TrimSpace(result.Text))
+	}
+	item, structuredReady, structuredErr := projectCairnlineSidecarStructuredAssistantProposal(result.Result.StructuredContent)
+	if structuredErr != nil {
+		return projectassistant.ProposalRecord{}, false, projectCairnlineSidecarReadFailure("assistant.proposals.get structuredContent parse failed: " + structuredErr.Error())
+	}
+	if !structuredReady {
+		return projectassistant.ProposalRecord{}, false, projectCairnlineSidecarReadFailure("assistant.proposals.get did not return typed structuredContent")
+	}
+	if strings.TrimSpace(item.ID) != id {
+		return projectassistant.ProposalRecord{}, false, projectCairnlineSidecarReadFailure("assistant.proposals.get returned proposal id " + strings.TrimSpace(item.ID) + " for requested id " + id)
+	}
+	record, ok, err := projectAssistantProposalRecordFromCairnlineSidecar(item)
+	if err != nil {
+		return projectassistant.ProposalRecord{}, false, projectCairnlineSidecarReadFailure("assistant.proposals.get conversion failed: " + err.Error())
+	}
+	return record, ok, nil
+}
+
 func cairnlineProjectAssistantProposalFromService(ctx context.Context, service *cairnline.Service, id string) (projectassistant.ProposalRecord, bool, error) {
 	item, err := service.GetAssistantProposal(ctx, id)
 	if errors.Is(err, cairnline.ErrNotFound) {
@@ -269,6 +330,19 @@ func cairnlineProjectAssistantProposalFromService(ctx context.Context, service *
 	}
 	record, ok := cairnlinebridge.ProjectAssistantProposalRecord(item)
 	return record, ok, nil
+}
+
+func projectAssistantProposalRecordFromCairnlineSidecar(item ProjectCairnlineSidecarAssistantProposalRecordItem) (projectassistant.ProposalRecord, bool, error) {
+	raw, err := json.Marshal(item)
+	if err != nil {
+		return projectassistant.ProposalRecord{}, false, err
+	}
+	var record cairnline.AssistantProposalRecord
+	if err := json.Unmarshal(raw, &record); err != nil {
+		return projectassistant.ProposalRecord{}, false, err
+	}
+	projected, ok := cairnlinebridge.ProjectAssistantProposalRecord(record)
+	return projected, ok, nil
 }
 
 func (h *Handler) HandleProjectAssistantApply(w http.ResponseWriter, r *http.Request) {
@@ -338,6 +412,8 @@ func projectAssistantErrorStatusCode(err error) (int, string) {
 		return http.StatusNotFound, errCodeNotFound
 	case errors.Is(err, projectassistant.ErrConfirmationRequired), errors.Is(err, projectassistant.ErrConflict):
 		return http.StatusConflict, errCodeConflict
+	case errors.Is(err, errProjectCairnlineSidecarReadFailed):
+		return http.StatusBadGateway, errCodeGatewayError
 	default:
 		return http.StatusInternalServerError, errCodeInternalError
 	}
