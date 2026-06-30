@@ -687,6 +687,18 @@ func TestLoadFromEnvProjectsCairnlineWriteAuthority(t *testing.T) {
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v, want nil for project memory, candidate, collaboration, skills, role, work-item, assignment, agent-profile, project metadata/default, root, context-source, identity, and assistant proposal Cairnline write authority opt-ins", err)
 	}
+
+	t.Setenv("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY", " all-portable, project-memory ")
+	cfg = LoadFromEnv()
+	if got := cfg.ProjectsCairnlineWriteAuthority(); len(got) != 13 || got[0] != "project-memory" || got[1] != "memory-candidates" || got[12] != "project-assistant-proposals" {
+		t.Fatalf("ProjectsCairnlineWriteAuthority() = %+v, want all-portable expansion with duplicate project-memory removed", got)
+	}
+	if !cfg.ProjectsCairnlineWriteAuthorityEnabled("project-context-sources") || !cfg.ProjectsCairnlineWriteAuthorityEnabled("project-identity") {
+		t.Fatalf("ProjectsCairnlineWriteAuthorityEnabled() did not include all-portable expansion: %+v", cfg.ProjectsCairnlineWriteAuthority())
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v, want nil for all-portable Cairnline write authority alias", err)
+	}
 }
 
 func TestValidateRejectsInvalidProjectsCoordinationBackend(t *testing.T) {

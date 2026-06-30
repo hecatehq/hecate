@@ -252,6 +252,9 @@ Cairnline first, then best-effort shadows the entry into Hecate-native memory
 stores for compatibility. Adding `memory-candidates` to that setting makes
 memory-candidate create/promote/reject Cairnline-first too; it requires
 `project-memory` because promotion creates accepted project memory.
+`HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=all-portable` expands to every
+current portable write-authority switchpoint for embedded dogfooding; Hecate
+runtime side effects and migration cutover remain separate gates.
 `project-metadata-defaults` is a scoped opt-in authority slice: project
 metadata/default-only PATCHes commit portable project metadata and launch
 defaults to embedded Cairnline first, then best-effort shadow Hecate's

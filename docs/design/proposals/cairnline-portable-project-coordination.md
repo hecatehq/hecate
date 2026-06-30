@@ -432,6 +432,10 @@ launch agents. Those remain explicit operator or orchestrator actions.
   first disabled-by-default Cairnline write-authority switchpoint: accepted
   project memory entry create/update/delete commits to embedded Cairnline first
   and then shadows back into Hecate-native memory stores.
+  `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=all-portable` expands to every
+  current portable write-authority switchpoint for embedded dogfooding, but it
+  does not make Hecate runtime side effects or migration cutover
+  Cairnline-owned.
   `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-memory,memory-candidates`
   also makes memory-candidate create/promote/reject Cairnline-first; the
   `memory-candidates` switch requires `project-memory` because promotion creates

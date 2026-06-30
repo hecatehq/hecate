@@ -534,10 +534,13 @@ sequenceDiagram
   closeout-readiness, and operations-brief reads through the standalone
   Cairnline MCP client. Draft/propose/apply mutations remain Hecate-owned
   unless their explicit write-authority switchpoints are enabled.
-- `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=none|project-memory|project-memory,memory-candidates|project-collaboration|project-skills|project-roles|project-work-items|project-assignments|agent-profiles|project-metadata-defaults|project-roots|project-context-sources|project-identity|project-assistant-proposals`
+- `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=none|all-portable|project-memory|project-memory,memory-candidates|project-collaboration|project-skills|project-roles|project-work-items|project-assignments|agent-profiles|project-metadata-defaults|project-roots|project-context-sources|project-identity|project-assistant-proposals`
   controls alpha Cairnline write-authority switchpoints while
   `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and
   `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded`. The default is `none`.
+  `all-portable` expands to every current portable write-authority switchpoint
+  for dogfooding; it does not make Hecate runtime side effects or migration
+  cutover Cairnline-owned.
   `project-memory` makes accepted project memory entry create/update/delete
   commit to the embedded Cairnline database first and then best-effort shadow
   the row back into Hecate-native memory stores. `memory-candidates` requires
@@ -2351,6 +2354,11 @@ today. `sidecar` exposes standalone MCP contract probe/connect surfaces and
 reports `cairnline_connector_ready=false`, so read/write routing and
 write-authority switchpoints stay disabled.
 `cairnline_read_source` reflects `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE`.
+`HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=all-portable` expands to every
+current portable write-authority switchpoint for dogfooding the embedded
+Cairnline authority path. It is not a migration or runtime cutover switch:
+Hecate-owned root scan/worktree, assignment-start, Project Assistant chat/runtime
+side effects, and migration/rollback gates still remain separate.
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-memory` enables the first
 disabled-by-default write authority switchpoint: accepted project memory entries
 commit to embedded Cairnline first and are then shadowed back into Hecate-native

@@ -486,6 +486,11 @@ project identity, project setup metadata, project work coordination records,
 collaboration metadata records, memory/candidate records, and Project Assistant
 proposal/apply records. None of these routes operator project reads or writes
 through the sidecar backend.
+`HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=all-portable` expands to every
+current portable write-authority dogfood switchpoint. It does not make Hecate
+runtime side effects or migration cutover Cairnline-owned: root
+scan/worktree creation, assignment-start dispatch, Project Assistant
+chat/runtime side effects, and migration/rollback remain separate gates.
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-memory` is an alpha
 write-authority dogfood switch for accepted project memory entries:
 create/update/delete commits to the embedded Cairnline database first and then
