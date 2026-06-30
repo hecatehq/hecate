@@ -2689,9 +2689,9 @@ Example response, with `write_switchpoints` shortened for readability:
 
 Local-only standalone Cairnline MCP contract probe. It starts the configured
 stdio command once, lists MCP tools, and returns whether the process exposes the
-minimum portable Projects tool surface Hecate would need for a future sidecar
-backend. It does not keep a persistent client, proxy Projects reads or writes,
-or make Cairnline authoritative.
+current portable Projects backend tool surface Hecate would need for a future
+sidecar backend. It does not keep a persistent client, proxy Projects reads or
+writes, or make Cairnline authoritative.
 
 The probe is controlled by:
 
@@ -2707,25 +2707,84 @@ Required tools:
 projects.list
 projects.get
 projects.create
+projects.update
+projects.delete
+roots.list
+roots.create
+roots.update
+roots.delete
+context_sources.list
+context_sources.create
+context_sources.update
+context_sources.delete
+projects.operations_brief
+projects.setup_readiness
+projects.health
+projects.activity
+assistant.propose
+assistant.proposals.list
+assistant.proposals.get
+assistant.apply
 profiles.list
+profiles.create
+profiles.update
+profiles.delete
 execution_profiles.list
+execution_profiles.create
+execution_profiles.update
+execution_profiles.delete
 skills.list
+skills.discover
+skills.create
+skills.update
 roles.list
+roles.create
+roles.update
+roles.delete
 work_items.list
+work_items.get
 work_items.create
+work_items.update
+work_items.delete
+work_items.closeout_readiness
 assignments.list
+assignments.get
 assignments.next
+assignments.create
+assignments.update
 assignments.claim
 assignments.release
 assignments.update_status
 assignments.context
 assignments.launch_packet
 assignments.complete
+assignments.delete
+artifacts.list
+artifacts.get
+artifacts.create
+evidence.list
+evidence.get
 evidence.record
+reviews.list
+reviews.get
 reviews.record
 handoffs.create
+handoffs.list
+handoffs.get
+handoffs.update
+handoffs.update_status
+handoffs.delete
+memory_entries.list
+memory_entries.get
+memory_entries.create
+memory_entries.update
+memory_entries.delete
 memory_candidates.create
-assistant.propose
+memory_candidates.list
+memory_candidates.get
+memory_candidates.promote
+memory_candidates.reject
+memory_candidates.delete
 ```
 
 Example response, shortened:
@@ -2741,7 +2800,7 @@ Example response, shortened:
     "args": ["-db", "/Users/alice/.local/share/hecate/cairnline/projects.db"],
     "database_path": "/Users/alice/.local/share/hecate/cairnline/projects.db",
     "probe_timeout_ms": 10000,
-    "tool_count": 22,
+    "tool_count": 81,
     "required_tools": ["projects.list", "projects.get", "projects.create"],
     "missing_tools": [],
     "tools": [{ "name": "projects.list" }],
@@ -2786,7 +2845,7 @@ Example response, shortened:
     "client_cache_entries": 1,
     "client_cache_in_use": 0,
     "client_cache_idle": 1,
-    "tool_count": 22,
+    "tool_count": 81,
     "required_tools": ["projects.list", "projects.get", "projects.create"],
     "missing_tools": [],
     "tools": [{ "name": "projects.list" }],
