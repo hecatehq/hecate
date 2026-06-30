@@ -360,13 +360,33 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 		if stored, ok := state.assignments[input.ProjectID][input.AssignmentID]; ok {
 			assignment = stored
 		}
+		projectID := input.ProjectID
+		if cairnlineSidecarFixtureModeHas(mode, "context-project-mismatch") {
+			projectID = "proj_other"
+		}
+		workItemID := assignment.WorkItemID
+		if cairnlineSidecarFixtureModeHas(mode, "context-route-mismatch") {
+			workItemID = "work_other"
+		}
 		result := mcp.CallToolResult{Content: mcp.TextContent("Assignment context " + input.AssignmentID + " for project " + input.ProjectID)}
-		if mode != "text-only" {
+		if !cairnlineSidecarFixtureTextOnly(mode, "assignments.context") {
 			result.StructuredContent = mustRawJSON(map[string]any{
+				"id": "ctx_fixture",
+				"project": map[string]any{
+					"id":              projectID,
+					"name":            "Fixture Project",
+					"default_root_id": "root_fixture",
+					"roots": []map[string]any{{
+						"id":     "root_fixture",
+						"path":   "/workspace/fixture",
+						"kind":   "git",
+						"active": true,
+					}},
+				},
 				"assignment": map[string]any{
 					"id":             assignment.ID,
-					"project_id":     assignment.ProjectID,
-					"work_item_id":   assignment.WorkItemID,
+					"project_id":     projectID,
+					"work_item_id":   workItemID,
 					"role_id":        assignment.RoleID,
 					"status":         assignment.Status,
 					"claimed_by":     assignment.ClaimedBy,
@@ -374,13 +394,18 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 					"execution_mode": assignment.ExecutionMode,
 				},
 				"work_item": map[string]any{
-					"id":    assignment.WorkItemID,
-					"title": firstNonEmpty(cairnlineSidecarFixtureWorkItemTitle(state, input.ProjectID, assignment.WorkItemID), "Fixture Work"),
+					"id":         workItemID,
+					"project_id": projectID,
+					"title":      firstNonEmpty(cairnlineSidecarFixtureWorkItemTitle(state, input.ProjectID, workItemID), "Fixture Work"),
+					"status":     "open",
+					"priority":   "normal",
 				},
 				"role": map[string]any{
-					"id":   assignment.RoleID,
-					"name": firstNonEmpty(cairnlineSidecarFixtureRoleName(state, input.ProjectID, assignment.RoleID), "Fixture Reviewer"),
+					"id":         assignment.RoleID,
+					"project_id": projectID,
+					"name":       firstNonEmpty(cairnlineSidecarFixtureRoleName(state, input.ProjectID, assignment.RoleID), "Fixture Reviewer"),
 				},
+				"warnings": []string{"fixture context warning"},
 			})
 		}
 		return result, nil

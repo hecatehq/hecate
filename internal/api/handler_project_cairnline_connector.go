@@ -140,7 +140,7 @@ func projectCairnlineConnectorReady(mode string) bool {
 func projectCairnlineConnectorDetail(mode string) string {
 	switch mode {
 	case "sidecar":
-		return "Cairnline sidecar connector is configured and can be exercised through local-only probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle/write/setup/work/collaboration/memory/assistant diagnostics. HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar routes only project list/detail, setup-readiness, health, skills, memory, memory candidates, roles, work items, assignment lists, artifact lists, handoff lists, activity, closeout readiness, and operations brief through the standalone Cairnline MCP client; other Projects routes remain on Hecate-native stores or embedded dogfood paths."
+		return "Cairnline sidecar connector is configured and can be exercised through local-only probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle/write/setup/work/collaboration/memory/assistant diagnostics. HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar routes only project list/detail, setup-readiness, health, skills, memory, memory candidates, roles, work items, assignment lists, assignment context, launch-readiness, assignment preflight, artifact lists, handoff lists, activity, closeout readiness, and operations brief through the standalone Cairnline MCP client; other Projects routes remain on Hecate-native stores or embedded dogfood paths."
 	default:
 		return "Hecate is using the embedded Cairnline Go package bridge for replacement-readiness dogfood."
 	}
@@ -150,7 +150,7 @@ func projectCairnlineConnectorWarning(mode string) string {
 	if mode != "sidecar" {
 		return ""
 	}
-	return "HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar enables standalone Cairnline MCP probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle/write/setup/work/collaboration/memory/assistant diagnostics; add HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar to route only project list/detail, setup-readiness, health, skills, memory, memory candidates, roles, work items, assignment lists, artifact lists, handoff lists, activity, closeout readiness, and operations brief through the sidecar."
+	return "HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar enables standalone Cairnline MCP probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle/write/setup/work/collaboration/memory/assistant diagnostics; add HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar to route only project list/detail, setup-readiness, health, skills, memory, memory candidates, roles, work items, assignment lists, assignment context, launch-readiness, assignment preflight, artifact lists, handoff lists, activity, closeout readiness, and operations brief through the sidecar."
 }
 
 func (h *Handler) HandleProjectCairnlineSidecarProbe(w http.ResponseWriter, r *http.Request) {
@@ -4014,6 +4014,21 @@ func projectCairnlineSidecarStructuredAssignmentContextIDs(raw json.RawMessage) 
 		WorkItemID:   strings.TrimSpace(context.WorkItem.ID),
 		RoleID:       strings.TrimSpace(context.Role.ID),
 	}, true, nil
+}
+
+func projectCairnlineSidecarStructuredAssignmentContext(raw json.RawMessage) (cairnline.AssignmentContext, bool, error) {
+	if len(raw) == 0 {
+		return cairnline.AssignmentContext{}, false, nil
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return cairnline.AssignmentContext{}, false, nil
+	}
+	var context cairnline.AssignmentContext
+	if err := json.Unmarshal(trimmed, &context); err != nil {
+		return cairnline.AssignmentContext{}, false, err
+	}
+	return context, true, nil
 }
 
 func projectCairnlineSidecarStructuredAssignmentContextAssignment(raw json.RawMessage) (ProjectCairnlineSidecarAssignmentItem, bool, error) {

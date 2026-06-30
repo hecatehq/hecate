@@ -40,6 +40,93 @@ func (h *Handler) cairnlineAssignmentLaunchPacket(ctx context.Context, assignmen
 	return view.service.AssignmentLaunchPacket(ctx, view.snapshot.Project.ID, assignment.ID)
 }
 
+func (h *Handler) contextPacketForCairnlineSidecarProjectAssignment(ctx context.Context, projectID, workItemID, assignmentID string) (chat.ContextPacket, bool, error) {
+	projectID = strings.TrimSpace(projectID)
+	workItemID = strings.TrimSpace(workItemID)
+	assignmentID = strings.TrimSpace(assignmentID)
+	projectItem, ok, err := h.cairnlineSidecarProject(ctx, projectID)
+	if err != nil {
+		return chat.ContextPacket{}, false, err
+	}
+	if !ok || strings.TrimSpace(projectItem.ID) != projectID {
+		return chat.ContextPacket{}, false, nil
+	}
+	context, ok, err := h.cairnlineSidecarAssignmentContext(ctx, projectID, assignmentID)
+	if err != nil {
+		return chat.ContextPacket{}, false, err
+	}
+	if !ok {
+		return chat.ContextPacket{}, false, nil
+	}
+	if cairnlineSidecarAssignmentContextRouteMismatch(context, projectID, workItemID, assignmentID) {
+		return chat.ContextPacket{}, false, nil
+	}
+	return cairnlineAssignmentContextPacket(context), true, nil
+}
+
+func cairnlineSidecarAssignmentContextRouteMismatch(context cairnline.AssignmentContext, projectID, workItemID, assignmentID string) bool {
+	projectID = strings.TrimSpace(projectID)
+	workItemID = strings.TrimSpace(workItemID)
+	assignmentID = strings.TrimSpace(assignmentID)
+	if strings.TrimSpace(context.Project.ID) != projectID {
+		return true
+	}
+	if strings.TrimSpace(context.WorkItem.ID) != workItemID {
+		return true
+	}
+	if strings.TrimSpace(context.WorkItem.ProjectID) != projectID {
+		return true
+	}
+	if strings.TrimSpace(context.Assignment.ID) != assignmentID {
+		return true
+	}
+	if strings.TrimSpace(context.Assignment.ProjectID) != projectID {
+		return true
+	}
+	if strings.TrimSpace(context.Assignment.WorkItemID) != workItemID {
+		return true
+	}
+	if context.Role != nil {
+		if roleID := strings.TrimSpace(context.Role.ID); strings.TrimSpace(context.Assignment.RoleID) != "" && roleID != strings.TrimSpace(context.Assignment.RoleID) {
+			return true
+		}
+		if roleProjectID := strings.TrimSpace(context.Role.ProjectID); roleProjectID != "" && roleProjectID != projectID {
+			return true
+		}
+	}
+	return false
+}
+
+func cairnlineAssignmentContextPacket(context cairnline.AssignmentContext) chat.ContextPacket {
+	root, rootOK, rootSelection := selectedCairnlineRoot(context.Project, context.WorkItem, context.Assignment)
+	workspace := ""
+	if rootOK {
+		workspace = strings.TrimSpace(root.Path)
+	}
+	packet := baseChatContextPacket(firstNonEmptyString(strings.TrimSpace(context.Assignment.ExecutionMode), cairnline.ExecutionMCPPull), "", "", workspace)
+	packet.ID = firstNonEmptyString(strings.TrimSpace(context.Assignment.ContextSnapshotID), strings.TrimSpace(context.ID), "cairnline_assignment_context_"+strings.TrimSpace(context.Assignment.ID))
+	packet.ExecutionProfile = strings.TrimSpace(context.Assignment.ExecutionProfileID)
+	packet.SystemPromptIncluded = false
+	packet.Refs = &chat.ContextRefs{
+		ProjectID:    strings.TrimSpace(context.Project.ID),
+		WorkItemID:   strings.TrimSpace(context.WorkItem.ID),
+		AssignmentID: strings.TrimSpace(context.Assignment.ID),
+		RoleID:       strings.TrimSpace(context.Assignment.RoleID),
+	}
+
+	appendCairnlineProjectSummary(&packet, context.Project)
+	appendCairnlineWorkItem(&packet, context.WorkItem)
+	appendCairnlineAssignment(&packet, context.Assignment)
+	if rootOK {
+		appendCairnlineRoot(&packet, root, rootSelection)
+	}
+	if context.Role != nil {
+		appendCairnlineRole(&packet, *context.Role)
+	}
+	appendCairnlineAssignmentContextRuntime(&packet, context)
+	return packet
+}
+
 func cairnlineAssignmentLaunchContextPacket(launch cairnline.AssignmentLaunchPacket) chat.ContextPacket {
 	root, rootOK, rootSelection := selectedCairnlineRoot(launch.Project, launch.WorkItem, launch.Assignment)
 	workspace := ""
@@ -619,6 +706,51 @@ func appendCairnlineLaunchRuntime(packet *chat.ContextPacket, launch cairnline.A
 			"read_backend":   "cairnline",
 			"launch_preview": "true",
 		},
+	})
+}
+
+func appendCairnlineAssignmentContextRuntime(packet *chat.ContextPacket, context cairnline.AssignmentContext) {
+	body := []string{
+		"Read backend: cairnline",
+		"Source tool: assignments.context",
+		"Portable execution mode: " + firstNonEmptyString(strings.TrimSpace(context.Assignment.ExecutionMode), cairnline.ExecutionMCPPull),
+		"Preview only: Hecate stores remain authoritative and no task, chat session, or external-agent run is created by this context read.",
+	}
+	if contextID := strings.TrimSpace(context.ID); contextID != "" {
+		body = append(body, "Cairnline assignment context: "+contextID)
+	}
+	if len(context.Warnings) > 0 {
+		body = append(body, "Warnings: "+strings.Join(compactContextIDs(context.Warnings), " "))
+	}
+	metadata := map[string]string{
+		"read_backend":   "cairnline",
+		"source_tool":    "assignments.context",
+		"project_id":     strings.TrimSpace(context.Project.ID),
+		"work_item_id":   strings.TrimSpace(context.WorkItem.ID),
+		"assignment_id":  strings.TrimSpace(context.Assignment.ID),
+		"role_id":        strings.TrimSpace(context.Assignment.RoleID),
+		"execution_mode": firstNonEmptyString(strings.TrimSpace(context.Assignment.ExecutionMode), cairnline.ExecutionMCPPull),
+	}
+	if contextID := strings.TrimSpace(context.ID); contextID != "" {
+		metadata["assignment_context_id"] = contextID
+	}
+	if len(context.Warnings) > 0 {
+		metadata["warnings"] = strings.Join(compactContextIDs(context.Warnings), " ")
+	}
+	appendContextPacketSourceWithSection(packet, contextSectionRuntime, chat.ContextSource{
+		Kind:   "cairnline_assignment_context",
+		Label:  "Cairnline assignment context",
+		Detail: strings.TrimSpace(context.Assignment.ID),
+		Trust:  contextTrustRuntimeState,
+	}, chat.ContextItem{
+		Kind:            "cairnline_assignment_context",
+		TrustLevel:      contextTrustRuntimeState,
+		Origin:          "cairnline.assignments.context",
+		Title:           "Cairnline assignment context",
+		Body:            strings.Join(body, "\n"),
+		Included:        false,
+		InclusionReason: "Read-model preview only",
+		Metadata:        metadata,
 	})
 }
 
