@@ -510,7 +510,7 @@ sequenceDiagram
   temporary project. Live Projects writes still use Hecate-native stores in
   sidecar mode. Live project list/detail reads use Hecate-native stores unless
   `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar` is also set; setup-readiness
-  uses the same sidecar source when it is configured.
+  and health use the same sidecar source when it is configured.
 - `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=auto|snapshot|embedded|sidecar` controls which
   Cairnline service backing configured read routes use while
   `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline`. With
@@ -2405,10 +2405,10 @@ falls back to the snapshot-seeded bridge, `snapshot` always uses the
 snapshot-seeded bridge, and `embedded` requires the mirror database and
 requested project row or proposal record to exist so replacement-readiness gaps
 fail loudly. With `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar`,
-`HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar` routes only project list/detail
-and setup-readiness through the standalone Cairnline MCP client; backend status
-reports those routes in `read_routes` while `read_model_switch_ready` remains
-false because the broader read model is not sidecar-backed yet.
+`HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar` routes only project list/detail,
+setup-readiness, and health through the standalone Cairnline MCP client; backend
+status reports those routes in `read_routes` while `read_model_switch_ready`
+remains false because the broader read model is not sidecar-backed yet.
 `read_routes` lists the live read families currently backed by the Cairnline
 read model. `write_adapter_ready=false` means writes and migration are still
 Hecate-owned. `write_adapter_seams` lists non-authoritative bridge proofs that
@@ -2846,7 +2846,7 @@ Example response, shortened:
   "data": {
     "ready": true,
     "status": "sidecar_probe_ready",
-    "detail": "Cairnline sidecar MCP server started and exposes the required portable Projects tool contract. Hecate still keeps live Projects writes on Hecate-native stores in sidecar mode; project list/detail and setup-readiness read routing requires HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar.",
+    "detail": "Cairnline sidecar MCP server started and exposes the required portable Projects tool contract. Hecate still keeps live Projects writes on Hecate-native stores in sidecar mode; project list/detail, setup-readiness, and health read routing requires HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar.",
     "command": "cairnline",
     "args": ["-db", "/Users/alice/.local/share/hecate/cairnline/projects.db"],
     "database_path": "/Users/alice/.local/share/hecate/cairnline/projects.db",
@@ -3059,7 +3059,7 @@ Example response, shortened:
   "data": {
     "ready": true,
     "status": "sidecar_client_ready",
-    "detail": "Cairnline sidecar MCP client connected and exposes the required portable Projects tool contract. Hecate still keeps live Projects writes on Hecate-native stores in sidecar mode; project list/detail and setup-readiness read routing requires HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar.",
+    "detail": "Cairnline sidecar MCP client connected and exposes the required portable Projects tool contract. Hecate still keeps live Projects writes on Hecate-native stores in sidecar mode; project list/detail, setup-readiness, and health read routing requires HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar.",
     "command": "cairnline",
     "args": ["-db", "/Users/alice/.local/share/hecate/cairnline/projects.db"],
     "database_path": "/Users/alice/.local/share/hecate/cairnline/projects.db",
@@ -5044,6 +5044,12 @@ reports `read_model_switch_ready=true`, portable health inputs are read from
 the Cairnline read model and then projected into Hecate's health/attention
 contract. Hecate still owns Hecate-specific provider/model default checks and
 action shapes. `read_backend` identifies the health-state read-model source.
+When `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar` and
+`HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar` are both configured, this route
+instead composes typed read-only Cairnline MCP sidecar calls for project detail,
+roles, work items, assignments, collaboration artifacts, handoffs, memory,
+profiles, and skills. The sidecar path requires typed `structuredContent`;
+malformed or text-only sidecar responses fail loudly with `502 gateway_error`.
 
 The five-item cap is applied after the server's attention derivation order. The
 summary reports returned, available, omitted, and limit counts so clients can

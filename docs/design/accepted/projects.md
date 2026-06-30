@@ -180,8 +180,8 @@ side effects through typed `structuredContent`, then deletes and verifies
 removal of the temporary project.
 When `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar` and
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar` are both configured, Hecate
-routes only project list/detail and setup-readiness reads through the cached
-standalone Cairnline MCP client. Other Projects reads, writes, mirrors,
+routes only project list/detail, setup-readiness, and health reads through the
+cached standalone Cairnline MCP client. Other Projects reads, writes, mirrors,
 dispatch, approvals, and write-authority switchpoints remain Hecate-native or
 on the embedded dogfood path until sidecar-specific adapters exist for those
 route families.
@@ -208,8 +208,8 @@ roles, artifacts, and handoffs from the Cairnline service records, then overlay
 Hecate-only runtime refs/timestamps where Hecate still owns execution.
 In embedded read-source modes, project identity and some compatibility
 scaffolding still come from Hecate until Cairnline becomes authoritative; the
-explicit sidecar read source is the narrow exception for project list/detail and
-setup-readiness. Project Assistant draft generation also uses the
+explicit sidecar read source is the narrow exception for project list/detail,
+setup-readiness, and health. Project Assistant draft generation also uses the
 Cairnline-projected context so preview and proposal assembly stay aligned,
 while the proposal ledger remains Hecate-owned unless
 `project-assistant-proposals` is enabled.

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/agentprofiles"
 	mcpclient "github.com/hecatehq/hecate/internal/mcp/client"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/orchestrator"
@@ -229,6 +230,141 @@ func projectWorkItemsFromCairnlineSidecar(items []ProjectCairnlineSidecarWorkIte
 	return out
 }
 
+func projectAssignmentsFromCairnlineSidecar(items []ProjectCairnlineSidecarAssignmentItem) []projectwork.Assignment {
+	out := make([]projectwork.Assignment, 0, len(items))
+	for _, item := range items {
+		out = append(out, projectwork.Assignment{
+			ID:         item.ID,
+			ProjectID:  item.ProjectID,
+			WorkItemID: item.WorkItemID,
+			RoleID:     item.RoleID,
+			RootID:     item.RootID,
+			DriverKind: projectWorkAssignmentDriverFromCairnline(item.ExecutionMode),
+			Status:     projectWorkAssignmentStatusFromCairnline(item.Status),
+			ExecutionRef: projectwork.NormalizeAssignmentExecutionRef(projectwork.AssignmentExecutionRef{
+				ContextSnapshotID: item.ContextSnapshotID,
+			}),
+			CreatedAt:   projectCairnlineSidecarTime(item.CreatedAt),
+			UpdatedAt:   projectCairnlineSidecarTime(item.UpdatedAt),
+			StartedAt:   projectCairnlineSidecarTime(item.StartedAt),
+			CompletedAt: projectCairnlineSidecarTime(item.CompletedAt),
+		})
+	}
+	return out
+}
+
+func projectArtifactsFromCairnlineSidecar(artifacts []ProjectCairnlineSidecarArtifactItem, evidence []ProjectCairnlineSidecarEvidenceItem, reviews []ProjectCairnlineSidecarReviewItem) []projectwork.CollaborationArtifact {
+	out := make([]projectwork.CollaborationArtifact, 0, len(artifacts))
+	for _, item := range artifacts {
+		out = append(out, projectGenericArtifactFromCairnlineSidecar(item))
+	}
+	for _, item := range evidence {
+		out = append(out, projectEvidenceFromCairnlineSidecar(item))
+	}
+	for _, item := range reviews {
+		out = append(out, projectReviewFromCairnlineSidecar(item))
+	}
+	return out
+}
+
+func projectGenericArtifactFromCairnlineSidecar(item ProjectCairnlineSidecarArtifactItem) projectwork.CollaborationArtifact {
+	return projectwork.CollaborationArtifact{
+		ID:           item.ID,
+		ProjectID:    item.ProjectID,
+		WorkItemID:   item.WorkItemID,
+		AssignmentID: item.AssignmentID,
+		Kind:         item.Kind,
+		Title:        item.Title,
+		Body:         item.Body,
+		AuthorRoleID: item.AuthorRoleID,
+		CreatedAt:    projectCairnlineSidecarTime(item.CreatedAt),
+		UpdatedAt:    projectCairnlineSidecarTime(item.UpdatedAt),
+	}
+}
+
+func projectEvidenceFromCairnlineSidecar(item ProjectCairnlineSidecarEvidenceItem) projectwork.CollaborationArtifact {
+	return projectwork.CollaborationArtifact{
+		ID:                 item.ID,
+		ProjectID:          item.ProjectID,
+		WorkItemID:         item.WorkItemID,
+		AssignmentID:       item.AssignmentID,
+		Kind:               projectwork.ArtifactKindEvidenceLink,
+		Title:              item.Title,
+		Body:               item.Body,
+		EvidenceSourceKind: firstNonEmptyString(strings.TrimSpace(item.SourceKind), projectwork.EvidenceSourceExternal),
+		EvidenceURL:        item.Locator,
+		EvidenceExternalID: item.ExternalID,
+		EvidenceProvider:   item.Provider,
+		EvidenceTrustLabel: item.TrustLabel,
+		CreatedAt:          projectCairnlineSidecarTime(item.CreatedAt),
+		UpdatedAt:          projectCairnlineSidecarTime(item.UpdatedAt),
+	}
+}
+
+func projectReviewFromCairnlineSidecar(item ProjectCairnlineSidecarReviewItem) projectwork.CollaborationArtifact {
+	return projectwork.CollaborationArtifact{
+		ID:                     item.ID,
+		ProjectID:              item.ProjectID,
+		WorkItemID:             item.WorkItemID,
+		AssignmentID:           item.AssignmentID,
+		Kind:                   projectwork.ArtifactKindReview,
+		Title:                  item.Title,
+		Body:                   item.Body,
+		AuthorRoleID:           item.ReviewerRoleID,
+		ReviewedAssignmentID:   item.AssignmentID,
+		ReviewVerdict:          projectHealthReviewVerdictFromCairnline(item.Verdict),
+		ReviewRisk:             projectHealthReviewRiskFromCairnline(item.Risk),
+		ReviewFollowUpRequired: projectHealthReviewRequiresFollowUpFromCairnline(item.Verdict),
+		CreatedAt:              projectCairnlineSidecarTime(item.CreatedAt),
+		UpdatedAt:              projectCairnlineSidecarTime(item.UpdatedAt),
+	}
+}
+
+func projectHandoffsFromCairnlineSidecar(items []ProjectCairnlineSidecarHandoffItem) []projectwork.Handoff {
+	out := make([]projectwork.Handoff, 0, len(items))
+	for _, item := range items {
+		out = append(out, projectwork.Handoff{
+			ID:                    item.ID,
+			ProjectID:             item.ProjectID,
+			WorkItemID:            item.WorkItemID,
+			SourceAssignmentID:    item.SourceAssignmentID,
+			SourceRunID:           item.SourceRunID,
+			SourceChatSessionID:   item.SourceChatSessionID,
+			SourceMessageID:       item.SourceMessageID,
+			TargetRoleID:          item.ToRoleID,
+			TargetAssignmentID:    item.TargetAssignmentID,
+			TargetWorkItemID:      item.TargetWorkItemID,
+			Title:                 item.Title,
+			Summary:               item.Body,
+			RecommendedNextAction: item.RecommendedNextAction,
+			LinkedArtifactIDs:     append([]string(nil), item.LinkedArtifactIDs...),
+			LinkedMemoryIDs:       append([]string(nil), item.LinkedMemoryIDs...),
+			ContextRefs:           append([]string(nil), item.ContextRefs...),
+			Status:                projectHealthHandoffStatusFromCairnline(item.Status),
+			ProvenanceKind:        item.ProvenanceKind,
+			TrustLabel:            item.TrustLabel,
+			CreatedByRoleID:       item.FromRoleID,
+			CreatedAt:             projectCairnlineSidecarTime(item.CreatedAt),
+			UpdatedAt:             projectCairnlineSidecarTime(item.UpdatedAt),
+			StatusChangedAt:       projectworkTime(projectCairnlineSidecarTime(item.StatusChangedAt), projectCairnlineSidecarTime(item.UpdatedAt)),
+		})
+	}
+	return out
+}
+
+func projectAgentProfilesFromCairnlineSidecar(items []ProjectCairnlineSidecarAgentProfileItem) []agentprofiles.Profile {
+	out := make([]agentprofiles.Profile, 0, len(items))
+	for _, item := range items {
+		out = append(out, agentprofiles.Profile{
+			ID:          item.ID,
+			Name:        item.Name,
+			Description: item.Description,
+			SkillIDs:    append([]string(nil), item.SkillIDs...),
+		})
+	}
+	return out
+}
+
 func projectSkillsFromCairnlineSidecar(items []ProjectCairnlineSidecarSkillItem) []projectskills.Skill {
 	out := make([]projectskills.Skill, 0, len(items))
 	for _, item := range items {
@@ -336,6 +472,27 @@ func projectCairnlineSidecarTime(value string) time.Time {
 		return time.Time{}
 	}
 	return parsed.UTC()
+}
+
+func projectCairnlineSidecarStructuredAgentProfiles(raw json.RawMessage) ([]ProjectCairnlineSidecarAgentProfileItem, bool, error) {
+	if len(raw) == 0 {
+		return nil, false, nil
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return nil, false, nil
+	}
+	if bytes.Equal(trimmed, []byte("null")) {
+		return []ProjectCairnlineSidecarAgentProfileItem{}, true, nil
+	}
+	var profiles []ProjectCairnlineSidecarAgentProfileItem
+	if err := json.Unmarshal(trimmed, &profiles); err != nil {
+		return nil, false, err
+	}
+	if profiles == nil {
+		profiles = []ProjectCairnlineSidecarAgentProfileItem{}
+	}
+	return profiles, true, nil
 }
 
 func projectCairnlineSidecarStructuredSkills(raw json.RawMessage) ([]ProjectCairnlineSidecarSkillItem, bool, error) {

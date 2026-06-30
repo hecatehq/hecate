@@ -2310,16 +2310,23 @@ type ProjectCairnlineSidecarProjectItem struct {
 }
 
 type ProjectCairnlineSidecarAssignmentItem struct {
-	ID            string   `json:"id"`
-	ProjectID     string   `json:"project_id,omitempty"`
-	WorkItemID    string   `json:"work_item_id,omitempty"`
-	RoleID        string   `json:"role_id,omitempty"`
-	ProfileID     string   `json:"profile_id,omitempty"`
-	ExecutionMode string   `json:"execution_mode,omitempty"`
-	Status        string   `json:"status,omitempty"`
-	ClaimedBy     string   `json:"claimed_by,omitempty"`
-	ExecutionRef  string   `json:"execution_ref,omitempty"`
-	SkillIDs      []string `json:"skill_ids,omitempty"`
+	ID                 string   `json:"id"`
+	ProjectID          string   `json:"project_id,omitempty"`
+	WorkItemID         string   `json:"work_item_id,omitempty"`
+	RoleID             string   `json:"role_id,omitempty"`
+	RootID             string   `json:"root_id,omitempty"`
+	ProfileID          string   `json:"profile_id,omitempty"`
+	ExecutionProfileID string   `json:"execution_profile_id,omitempty"`
+	ExecutionMode      string   `json:"execution_mode,omitempty"`
+	Status             string   `json:"status,omitempty"`
+	ClaimedBy          string   `json:"claimed_by,omitempty"`
+	ExecutionRef       string   `json:"execution_ref,omitempty"`
+	ContextSnapshotID  string   `json:"context_snapshot_id,omitempty"`
+	SkillIDs           []string `json:"skill_ids,omitempty"`
+	CreatedAt          string   `json:"created_at,omitempty"`
+	UpdatedAt          string   `json:"updated_at,omitempty"`
+	StartedAt          string   `json:"started_at,omitempty"`
+	CompletedAt        string   `json:"completed_at,omitempty"`
 }
 
 type ProjectCairnlineSidecarRoleItem struct {
@@ -2468,6 +2475,13 @@ type ProjectCairnlineSidecarMemoryCandidateItem struct {
 	PromotedMemoryID    string                                            `json:"promoted_memory_id,omitempty"`
 	CreatedAt           string                                            `json:"created_at,omitempty"`
 	UpdatedAt           string                                            `json:"updated_at,omitempty"`
+}
+
+type ProjectCairnlineSidecarAgentProfileItem struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name,omitempty"`
+	Description string   `json:"description,omitempty"`
+	SkillIDs    []string `json:"skill_ids,omitempty"`
 }
 
 type ProjectCairnlineSidecarMemoryCandidateSourceRef struct {

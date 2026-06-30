@@ -374,9 +374,9 @@ launch agents. Those remain explicit operator or orchestrator actions.
   narrow live-route exception is
   `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar` plus
   `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar`, which routes only project
-  list/detail reads through the cached standalone MCP client. Other live
-  Projects reads, writes, mirrors, and write-authority switchpoints do not route
-  through the sidecar yet.
+  list/detail, setup-readiness, and health reads through the cached standalone
+  MCP client. Other live Projects reads, writes, mirrors, and write-authority
+  switchpoints do not route through the sidecar yet.
 - Current Hecate embed experiments can serve project list/detail, setup
   readiness, health, skills, memory, memory candidates, roles, work items,
   assignment lists, assignment context, launch-readiness, assignment preflight,
@@ -392,8 +392,8 @@ launch agents. Those remain explicit operator or orchestrator actions.
   assignment-list, and operations brief reads now render work items,
   assignments, roles, artifacts, and handoffs from Cairnline service records,
   then overlay Hecate-only runtime refs/timestamps while Hecate still owns
-  execution. Outside the explicit sidecar project list/detail and
-  setup-readiness read source, project identity and some compatibility
+  execution. Outside the explicit sidecar project list/detail, setup-readiness,
+  and health read source, project identity and some compatibility
   scaffolding remain Hecate-owned until Cairnline becomes authoritative.
 - Project Assistant draft generation can use the same Cairnline-projected
   context as the inspect endpoint, so proposal assembly is exercised against the
