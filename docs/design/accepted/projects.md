@@ -182,11 +182,11 @@ When `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar` and
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar` are both configured, Hecate
 routes only project list/detail, setup-readiness, health, project skill list,
 project memory list, memory-candidate list, project role list, work-item
-list/detail, assignment-list, artifact-list, and handoff-list reads through the
-cached standalone Cairnline MCP client. Other Projects reads, writes, mirrors,
-dispatch, approvals, and write-authority switchpoints remain Hecate-native or
-on the embedded dogfood path until sidecar-specific adapters exist for those
-route families.
+list/detail, assignment-list, artifact-list, handoff-list, and
+closeout-readiness reads through the cached standalone Cairnline MCP client.
+Other Projects reads, writes, mirrors, dispatch, approvals, and write-authority
+switchpoints remain Hecate-native or on the embedded dogfood path until
+sidecar-specific adapters exist for those route families.
 Today, `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` is a
 replacement-readiness intent flag only: when the current stores are fully wired
 and the embedded connector is selected, it reports `cairnline_read_routes_ready`,
@@ -213,10 +213,10 @@ scaffolding still come from Hecate until Cairnline becomes authoritative; the
 explicit sidecar read-source routes are the narrow exception for project
 list/detail, setup-readiness, health, project skill list, project memory list,
 memory-candidate list, project role list, work-item list/detail, and
-assignment-list, artifact-list, and handoff-list reads. Project Assistant draft
-generation also uses the Cairnline-projected context so preview and proposal
-assembly stay aligned, while the proposal ledger remains Hecate-owned unless
-`project-assistant-proposals` is enabled.
+assignment-list, artifact-list, handoff-list, and closeout-readiness reads.
+Project Assistant draft generation also uses the Cairnline-projected context so
+preview and proposal assembly stay aligned, while the proposal ledger remains
+Hecate-owned unless `project-assistant-proposals` is enabled.
 Confirmed Project Assistant apply routes role, work-item, assignment, and
 handoff actions through the same opt-in Cairnline authority switchpoints when
 those switchpoints are enabled; project/default/chat/memory/runtime side

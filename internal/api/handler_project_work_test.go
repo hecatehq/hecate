@@ -1632,6 +1632,59 @@ func TestProjectWorkAPI_HandoffsCairnlineSidecarReadRequiresStructuredContent(t 
 	}
 }
 
+func TestProjectWorkAPI_CloseoutReadinessUsesCairnlineSidecarWhenConfigured(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "collaboration-fixture")
+	if handler.projectReadRoutesUseCairnlineReadModel() {
+		t.Fatal("sidecar closeout readiness enabled embedded Cairnline read-model routes")
+	}
+	if !handler.projectCairnlineSidecarReadRoutesEnabled() {
+		t.Fatal("sidecar read-route predicate = false, want true")
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/readiness", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("readiness status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response ProjectWorkItemReadinessEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode readiness response: %v", err)
+	}
+	if response.Object != "project_work_item_readiness" || response.Data.ProjectID != "proj_fixture" || response.Data.WorkItemID != "work_fixture" || response.Data.ReadBackend != "cairnline" {
+		t.Fatalf("readiness response = %+v, want sidecar Cairnline readiness", response)
+	}
+	if response.Data.Ready || response.Data.Status != "blocked" || response.Data.AssignmentCount != 1 || response.Data.CompletedAssignments != 0 {
+		t.Fatalf("readiness = %+v, want blocked sidecar closeout state", response.Data)
+	}
+	if !containsString(response.Data.Blockers, "1 assignment is still active") || !containsString(response.Data.Blockers, "1 handoff is pending") || response.Data.ReviewFollowUpCount != 1 {
+		t.Fatalf("readiness blockers = %+v follow-ups=%d, want active assignment, pending handoff, and review follow-up", response.Data.Blockers, response.Data.ReviewFollowUpCount)
+	}
+	if len(response.Data.ReviewFollowUps) != 1 || response.Data.ReviewFollowUps[0].ArtifactID != "review_fixture" || response.Data.ReviewFollowUps[0].ReviewVerdict != projectwork.ReviewVerdictChangesRequested {
+		t.Fatalf("review follow-ups = %+v, want sidecar review follow-up", response.Data.ReviewFollowUps)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/missing/readiness", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing work-item readiness status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+}
+
+func TestProjectWorkAPI_CloseoutReadinessCairnlineSidecarReadRequiresStructuredContent(t *testing.T) {
+	t.Parallel()
+	_, server := newProjectsCairnlineSidecarReadTestServer(t, "text-only")
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/readiness", nil))
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("readiness status = %d body=%s, want 502", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "structuredContent") {
+		t.Fatalf("error body = %s, want structuredContent diagnostic", rec.Body.String())
+	}
+}
+
 func TestProjectWorkAPI_CreateHandoffGeneratesOpaqueHandoffID(t *testing.T) {
 	t.Parallel()
 	_, server := newProjectWorkTestServer()
