@@ -583,6 +583,7 @@ type ProjectCoordinationBackendStatusResponse struct {
 	CairnlineSidecarAssignmentContextURL string                                       `json:"cairnline_sidecar_assignment_context_url,omitempty"`
 	CairnlineSidecarLaunchPacketURL      string                                       `json:"cairnline_sidecar_launch_packet_url,omitempty"`
 	CairnlineSidecarLifecycleURL         string                                       `json:"cairnline_sidecar_lifecycle_url,omitempty"`
+	CairnlineSidecarWriteURL             string                                       `json:"cairnline_sidecar_write_url,omitempty"`
 	EmbeddedReadModelURL                 string                                       `json:"embedded_read_model_url,omitempty"`
 	EmbeddedParityReportURL              string                                       `json:"embedded_parity_report_url,omitempty"`
 	SyncReadinessURL                     string                                       `json:"sync_readiness_url,omitempty"`
@@ -1709,6 +1710,11 @@ type ProjectCairnlineSidecarLifecycleEnvelope struct {
 	Data   ProjectCairnlineSidecarLifecycleResponse `json:"data"`
 }
 
+type ProjectCairnlineSidecarWriteEnvelope struct {
+	Object string                               `json:"object"`
+	Data   ProjectCairnlineSidecarWriteResponse `json:"data"`
+}
+
 type ProjectCairnlineSidecarDetailRequest struct {
 	ProjectID string `json:"project_id,omitempty"`
 }
@@ -1737,6 +1743,11 @@ type ProjectCairnlineSidecarLifecycleRequest struct {
 	AgentKind        string   `json:"agent_kind,omitempty"`
 	SkillIDs         []string `json:"skill_ids,omitempty"`
 	ExecutionModes   []string `json:"execution_modes,omitempty"`
+}
+
+type ProjectCairnlineSidecarWriteRequest struct {
+	ConfirmMutation bool   `json:"confirm_mutation,omitempty"`
+	ProjectName     string `json:"project_name,omitempty"`
 }
 
 type ProjectCairnlineSidecarProbeResponse struct {
@@ -2006,6 +2017,46 @@ type ProjectCairnlineSidecarLifecycleStep struct {
 	LaunchPacketCounts   ProjectCairnlineSidecarLaunchPacketCounts `json:"launch_packet_counts,omitempty"`
 	LaunchPacketWarnings []string                                  `json:"launch_packet_warnings,omitempty"`
 	StructuredParseError string                                    `json:"structured_parse_error,omitempty"`
+}
+
+type ProjectCairnlineSidecarWriteResponse struct {
+	Ready                 bool                               `json:"ready"`
+	Status                string                             `json:"status"`
+	Detail                string                             `json:"detail"`
+	Command               string                             `json:"command"`
+	Args                  []string                           `json:"args,omitempty"`
+	DatabasePath          string                             `json:"database_path,omitempty"`
+	ProbeTimeoutMS        int64                              `json:"probe_timeout_ms"`
+	PersistentClient      bool                               `json:"persistent_client,omitempty"`
+	ClientCacheConfigured bool                               `json:"client_cache_configured,omitempty"`
+	ClientCacheEntries    int                                `json:"client_cache_entries,omitempty"`
+	ClientCacheInUse      int                                `json:"client_cache_in_use,omitempty"`
+	ClientCacheIdle       int                                `json:"client_cache_idle,omitempty"`
+	ConfirmedMutation     bool                               `json:"confirmed_mutation"`
+	ProjectName           string                             `json:"project_name,omitempty"`
+	UpdatedProjectName    string                             `json:"updated_project_name,omitempty"`
+	SelectedProjectID     string                             `json:"selected_project_id,omitempty"`
+	Steps                 []ProjectCairnlineSidecarWriteStep `json:"steps,omitempty"`
+	CreatedProject        ProjectCairnlineSidecarProjectItem `json:"created_project,omitempty"`
+	UpdatedProject        ProjectCairnlineSidecarProjectItem `json:"updated_project,omitempty"`
+	CleanupVerified       bool                               `json:"cleanup_verified"`
+	Warnings              []string                           `json:"warnings,omitempty"`
+}
+
+type ProjectCairnlineSidecarWriteStep struct {
+	Name                   string                               `json:"name"`
+	Tool                   string                               `json:"tool"`
+	ReadOnly               bool                                 `json:"read_only"`
+	Status                 string                               `json:"status"`
+	ToolText               string                               `json:"tool_text,omitempty"`
+	ToolIsError            bool                                 `json:"tool_is_error,omitempty"`
+	StructuredContent      json.RawMessage                      `json:"structured_content,omitempty"`
+	Meta                   json.RawMessage                      `json:"meta,omitempty"`
+	StructuredReady        bool                                 `json:"structured_ready"`
+	StructuredProject      ProjectCairnlineSidecarProjectItem   `json:"structured_project,omitempty"`
+	StructuredProjects     []ProjectCairnlineSidecarProjectItem `json:"structured_projects,omitempty"`
+	StructuredProjectCount int                                  `json:"structured_project_count"`
+	StructuredParseError   string                               `json:"structured_parse_error,omitempty"`
 }
 
 type ProjectCairnlineSidecarProjectItem struct {

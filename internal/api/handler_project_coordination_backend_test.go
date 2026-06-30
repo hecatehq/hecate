@@ -51,6 +51,9 @@ func TestProjectCoordinationBackendStatus_DefaultHecateAuthoritative(t *testing.
 	if status.CairnlineSidecarLifecycleURL != projectCoordinationBackendSidecarLifecycleURL {
 		t.Fatalf("sidecar lifecycle URL = %q, want %q", status.CairnlineSidecarLifecycleURL, projectCoordinationBackendSidecarLifecycleURL)
 	}
+	if status.CairnlineSidecarWriteURL != projectCoordinationBackendSidecarWriteURL {
+		t.Fatalf("sidecar write URL = %q, want %q", status.CairnlineSidecarWriteURL, projectCoordinationBackendSidecarWriteURL)
+	}
 	if !status.CairnlineBridgeReady || status.CairnlineAuthoritative || status.ReadModelSwitchReady || status.WriteAdapterReady || status.ReplacementReady || len(status.Warnings) != 0 {
 		t.Fatalf("status = %+v, want bridge-ready but inactive Cairnline adapter flags", status)
 	}
@@ -118,7 +121,7 @@ func TestProjectCoordinationBackendStatus_CairnlineSidecarConnectorBlocksEmbedde
 	if status.Status != "cairnline_connector_not_ready" || status.CairnlineAuthoritative || status.ReadModelSwitchReady || status.WriteAdapterReady || status.ReplacementReady {
 		t.Fatalf("status = %+v, want sidecar connector mode to block live Cairnline routing", status)
 	}
-	if !strings.Contains(status.CairnlineConnectorDetail, "lifecycle diagnostics") || strings.Contains(status.CairnlineConnectorDetail, "read-smoke surfaces only") {
+	if !strings.Contains(status.CairnlineConnectorDetail, "lifecycle/write diagnostics") || strings.Contains(status.CairnlineConnectorDetail, "read-smoke surfaces only") {
 		t.Fatalf("connector detail = %q, want full sidecar diagnostic surface", status.CairnlineConnectorDetail)
 	}
 	if handler.projectReadRoutesUseCairnlineReadModel() || handler.projectIdentityWritesUseCairnlineAuthority() || handler.projectMemoryWritesUseCairnlineAuthority() || handler.projectAssignmentWritesUseCairnlineAuthority() {
@@ -147,6 +150,9 @@ func TestProjectCoordinationBackendStatus_CairnlineSidecarConnectorBlocksEmbedde
 	}
 	if status.CairnlineSidecarLifecycleURL != projectCoordinationBackendSidecarLifecycleURL {
 		t.Fatalf("sidecar lifecycle URL = %q, want %q", status.CairnlineSidecarLifecycleURL, projectCoordinationBackendSidecarLifecycleURL)
+	}
+	if status.CairnlineSidecarWriteURL != projectCoordinationBackendSidecarWriteURL {
+		t.Fatalf("sidecar write URL = %q, want %q", status.CairnlineSidecarWriteURL, projectCoordinationBackendSidecarWriteURL)
 	}
 	if len(status.ReadRoutes) != 0 {
 		t.Fatalf("read routes = %+v, want none in sidecar connector mode", status.ReadRoutes)

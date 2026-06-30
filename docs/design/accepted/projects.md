@@ -146,8 +146,13 @@ counts, and packet warnings. A lifecycle smoke at
 `POST /hecate/v1/projects/cairnline/sidecar-lifecycle-smoke` requires
 `confirm_mutation=true`, selects a compatible sidecar assignment through
 `assignments.next`, then claims, marks running, reads the launch packet, and
-completes it in the standalone Cairnline sidecar database only. Hecate does not
-yet route Projects reads, writes, or mirrors through the sidecar client.
+completes it in the standalone Cairnline sidecar database only. A write smoke
+at `POST /hecate/v1/projects/cairnline/sidecar-write-smoke` also requires
+`confirm_mutation=true`, creates a temporary rootless Cairnline project, finds
+it through typed `projects.list`, updates and verifies it through
+`projects.update` / `projects.get`, deletes it, and verifies the deleted record
+is missing. Hecate does not yet route Projects reads, writes, or mirrors through
+the sidecar client.
 Today, `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` is a
 replacement-readiness intent flag only: when the current stores are fully wired
 and the embedded connector is selected, it reports `cairnline_read_routes_ready`,

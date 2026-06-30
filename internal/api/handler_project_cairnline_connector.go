@@ -139,7 +139,7 @@ func projectCairnlineConnectorReady(mode string) bool {
 func projectCairnlineConnectorDetail(mode string) string {
 	switch mode {
 	case "sidecar":
-		return "Cairnline sidecar connector is configured and can be exercised through local-only probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle diagnostics, but Hecate does not yet route Projects reads or writes through the standalone Cairnline MCP client."
+		return "Cairnline sidecar connector is configured and can be exercised through local-only probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle/write diagnostics, but Hecate does not yet route Projects reads or writes through the standalone Cairnline MCP client."
 	default:
 		return "Hecate is using the embedded Cairnline Go package bridge for replacement-readiness dogfood."
 	}
@@ -249,6 +249,20 @@ func (h *Handler) HandleProjectCairnlineSidecarLifecycleSmoke(w http.ResponseWri
 	WriteJSON(w, http.StatusOK, ProjectCairnlineSidecarLifecycleEnvelope{
 		Object: "project_cairnline_sidecar_lifecycle",
 		Data:   h.projectCairnlineSidecarLifecycleSmoke(r.Context(), req),
+	})
+}
+
+func (h *Handler) HandleProjectCairnlineSidecarWriteSmoke(w http.ResponseWriter, r *http.Request) {
+	if !requireLoopbackClient(w, r, "Cairnline sidecar write smoke") {
+		return
+	}
+	var req ProjectCairnlineSidecarWriteRequest
+	if !decodeOptionalJSON(w, r, &req) {
+		return
+	}
+	WriteJSON(w, http.StatusOK, ProjectCairnlineSidecarWriteEnvelope{
+		Object: "project_cairnline_sidecar_write",
+		Data:   h.projectCairnlineSidecarWriteSmoke(r.Context(), req),
 	})
 }
 
@@ -1018,6 +1032,161 @@ func (h *Handler) projectCairnlineSidecarLifecycleSmoke(ctx context.Context, req
 	return response
 }
 
+func (h *Handler) projectCairnlineSidecarWriteSmoke(ctx context.Context, req ProjectCairnlineSidecarWriteRequest) ProjectCairnlineSidecarWriteResponse {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	cfg, dbPath, timeout := h.projectCairnlineSidecarMCPConfig()
+	projectName := strings.TrimSpace(req.ProjectName)
+	if projectName == "" {
+		projectName = "Hecate sidecar write smoke " + time.Now().UTC().Format("20060102T150405.000000000Z")
+	}
+	updatedProjectName := projectName + " updated"
+	response := ProjectCairnlineSidecarWriteResponse{
+		Ready:                 false,
+		Status:                "sidecar_write_not_run",
+		Detail:                "Cairnline sidecar write smoke has not run.",
+		Command:               cfg.Command,
+		Args:                  append([]string(nil), cfg.Args...),
+		DatabasePath:          dbPath,
+		ProbeTimeoutMS:        timeout.Milliseconds(),
+		PersistentClient:      true,
+		ClientCacheConfigured: h != nil,
+		ConfirmedMutation:     req.ConfirmMutation,
+		ProjectName:           projectName,
+		UpdatedProjectName:    updatedProjectName,
+	}
+	if h == nil {
+		response.Status = "sidecar_write_failed"
+		response.Detail = "Cairnline sidecar write smoke requires an API handler."
+		return response
+	}
+	if h.projectCairnlineConnectorMode() != "sidecar" {
+		response.Warnings = append(response.Warnings, "HECATE_PROJECTS_CAIRNLINE_CONNECTOR is not sidecar; this write smoke does not affect live Projects routing.")
+	}
+	if dbPath != "" && len(h.config.ProjectsCairnlineSidecarArgs()) > 0 {
+		response.Warnings = append(response.Warnings, "HECATE_PROJECTS_CAIRNLINE_SIDECAR_ARGS is set, so HECATE_PROJECTS_CAIRNLINE_SIDECAR_DB is reported but not appended automatically.")
+	}
+	if !req.ConfirmMutation {
+		response.Status = "sidecar_write_confirmation_required"
+		response.Detail = "Set confirm_mutation=true to let Hecate create, update, verify, delete, and re-check a temporary project in the standalone Cairnline sidecar. Hecate-native Projects stores are not mutated."
+		return response
+	}
+
+	cache := h.projectCairnlineSidecarMCPClientCache()
+	smokeCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	projectID := ""
+	cleanup := func() {
+		if projectID == "" || response.CleanupVerified {
+			return
+		}
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+		defer cleanupCancel()
+		cleanupStep := h.callProjectCairnlineSidecarWriteTool(cleanupCtx, cfg, cache, "cleanup_delete", "projects.delete", false, map[string]string{"id": projectID})
+		response.Steps = append(response.Steps, cleanupStep)
+		if cleanupStep.Status == "ready" {
+			verifyCleanupStep := h.callProjectCairnlineSidecarWriteTool(cleanupCtx, cfg, cache, "cleanup_get_after_delete", "projects.get", true, map[string]string{"id": projectID})
+			if verifyCleanupStep.Status == "tool_failed" {
+				verifyCleanupStep.Status = "expected_missing"
+				response.CleanupVerified = true
+				response.Warnings = append(response.Warnings, "Hecate deleted and verified removal of the temporary standalone Cairnline project after the write smoke failed; inspect the reported steps before retrying.")
+			} else {
+				response.Warnings = append(response.Warnings, "Hecate deleted the temporary standalone Cairnline project after the write smoke failed, but removal could not be verified; inspect the reported steps before retrying.")
+			}
+			response.Steps = append(response.Steps, verifyCleanupStep)
+			return
+		}
+		response.Warnings = append(response.Warnings, "Hecate tried to delete the temporary standalone Cairnline project after the write smoke failed, but cleanup did not succeed; inspect the standalone Cairnline sidecar before retrying.")
+	}
+	fail := func(status, detail string) ProjectCairnlineSidecarWriteResponse {
+		response.Status = status
+		response.Detail = detail
+		cleanup()
+		response.setSidecarCacheStats(cache.Stats())
+		return response
+	}
+	appendStep := func(step ProjectCairnlineSidecarWriteStep) bool {
+		response.Steps = append(response.Steps, step)
+		if step.Status == "tool_failed" {
+			response.Status = "sidecar_write_tool_failed"
+			response.Detail = "Cairnline sidecar " + step.Tool + " returned a tool-level error. Review the step output before retrying."
+			cleanup()
+			response.setSidecarCacheStats(cache.Stats())
+			return false
+		}
+		if step.Status == "failed" {
+			response.Status = "sidecar_write_failed"
+			response.Detail = firstNonEmpty(step.ToolText, "Cairnline sidecar "+step.Tool+" failed.")
+			cleanup()
+			response.setSidecarCacheStats(cache.Stats())
+			return false
+		}
+		return true
+	}
+
+	createStep := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "create_project", "projects.create", false, map[string]string{
+		"name":        projectName,
+		"description": "Temporary Hecate sidecar write smoke project. It should be deleted by the same diagnostic run.",
+	})
+	if !appendStep(createStep) {
+		return response
+	}
+
+	listStep := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "list_after_create", "projects.list", true, map[string]string{})
+	if !appendStep(listStep) {
+		return response
+	}
+	project, ok := projectCairnlineSidecarProjectByName(listStep.StructuredProjects, projectName)
+	if !ok || strings.TrimSpace(project.ID) == "" {
+		return fail("sidecar_write_created_project_not_listed", "Cairnline sidecar projects.create succeeded, but projects.list did not return the temporary project by name.")
+	}
+	projectID = strings.TrimSpace(project.ID)
+	response.SelectedProjectID = projectID
+	response.CreatedProject = project
+
+	updateStep := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "update_project", "projects.update", false, map[string]string{
+		"id":          projectID,
+		"name":        updatedProjectName,
+		"description": "Temporary Hecate sidecar write smoke project updated through projects.update.",
+	})
+	if !appendStep(updateStep) {
+		return response
+	}
+
+	getStep := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "get_after_update", "projects.get", true, map[string]string{"id": projectID})
+	if !appendStep(getStep) {
+		return response
+	}
+	updatedProject := getStep.StructuredProject
+	if strings.TrimSpace(updatedProject.ID) != projectID || strings.TrimSpace(updatedProject.Name) != updatedProjectName {
+		return fail("sidecar_write_update_verification_failed", "Cairnline sidecar projects.get did not return the expected project id and updated name after projects.update.")
+	}
+	response.UpdatedProject = updatedProject
+
+	deleteStep := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "delete_project", "projects.delete", false, map[string]string{"id": projectID})
+	if !appendStep(deleteStep) {
+		return response
+	}
+
+	verifyDeleteStep := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "get_after_delete", "projects.get", true, map[string]string{"id": projectID})
+	if verifyDeleteStep.Status == "tool_failed" {
+		verifyDeleteStep.Status = "expected_missing"
+		response.Steps = append(response.Steps, verifyDeleteStep)
+		response.CleanupVerified = true
+		response.Ready = true
+		response.Status = "sidecar_write_ready"
+		response.Detail = "Hecate created, listed, updated, verified, deleted, and confirmed removal of a temporary standalone Cairnline project through the persistent sidecar client. Hecate-native Projects stores were not mutated."
+		response.setSidecarCacheStats(cache.Stats())
+		return response
+	}
+	if !appendStep(verifyDeleteStep) {
+		return response
+	}
+	return fail("sidecar_write_delete_verification_failed", "Cairnline sidecar projects.delete succeeded, but projects.get still returned the temporary project.")
+}
+
 func projectCairnlineSidecarLifecycleShouldReleaseAfterFailure(steps []ProjectCairnlineSidecarLifecycleStep) bool {
 	claimed := false
 	for _, step := range steps {
@@ -1329,6 +1498,70 @@ func (h *Handler) callProjectCairnlineSidecarLifecycleTool(ctx context.Context, 
 	return step
 }
 
+func (h *Handler) callProjectCairnlineSidecarWriteTool(ctx context.Context, cfg types.MCPServerConfig, cache *mcpclient.SharedClientCache, name, tool string, readOnly bool, args any) ProjectCairnlineSidecarWriteStep {
+	step := ProjectCairnlineSidecarWriteStep{
+		Name:     name,
+		Tool:     tool,
+		ReadOnly: readOnly,
+		Status:   "not_run",
+	}
+	rawArgs, err := json.Marshal(args)
+	if err != nil {
+		step.Status = "failed"
+		step.ToolText = err.Error()
+		return step
+	}
+	result, err := orchestrator.CallCachedMCPServerTool(ctx, cfg, h.secretCipher, cache, tool, rawArgs)
+	if err != nil {
+		step.Status = "failed"
+		step.ToolText = err.Error()
+		return step
+	}
+	step.ToolText = result.Text
+	step.ToolIsError = result.IsError
+	step.StructuredContent = result.Result.StructuredContent
+	step.Meta = result.Result.Meta
+	if result.IsError {
+		step.Status = "tool_failed"
+		return step
+	}
+	switch tool {
+	case "projects.list":
+		projects, structuredReady, structuredErr := projectCairnlineSidecarStructuredProjects(result.Result.StructuredContent)
+		step.StructuredReady = structuredReady
+		step.StructuredProjects = projects
+		step.StructuredProjectCount = len(projects)
+		if structuredErr != nil {
+			step.StructuredParseError = structuredErr.Error()
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar projects.list returned structuredContent that Hecate could not parse as a project list: " + structuredErr.Error()
+			return step
+		}
+		if !structuredReady {
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar projects.list did not return structuredContent; the write smoke needs a typed project list to find the temporary project."
+			return step
+		}
+	case "projects.get":
+		project, structuredReady, structuredErr := projectCairnlineSidecarStructuredProject(result.Result.StructuredContent)
+		step.StructuredReady = structuredReady
+		step.StructuredProject = project
+		if structuredErr != nil {
+			step.StructuredParseError = structuredErr.Error()
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar projects.get returned structuredContent that Hecate could not parse as a project: " + structuredErr.Error()
+			return step
+		}
+		if !structuredReady {
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar projects.get did not return structuredContent; the write smoke needs typed project detail to verify the temporary project."
+			return step
+		}
+	}
+	step.Status = "ready"
+	return step
+}
+
 func (h *Handler) callProjectCairnlineSidecarCoordinationTool(ctx context.Context, cfg types.MCPServerConfig, cache *mcpclient.SharedClientCache, tool projectCairnlineSidecarCoordinationTool, projectID string) (ProjectCairnlineSidecarCoordinationListResult, error) {
 	args := json.RawMessage(`{}`)
 	if tool.ProjectScoped {
@@ -1381,6 +1614,16 @@ func projectCairnlineSidecarStructuredProjects(raw json.RawMessage) ([]ProjectCa
 		projects = []ProjectCairnlineSidecarProjectItem{}
 	}
 	return projects, true, nil
+}
+
+func projectCairnlineSidecarProjectByName(projects []ProjectCairnlineSidecarProjectItem, name string) (ProjectCairnlineSidecarProjectItem, bool) {
+	name = strings.TrimSpace(name)
+	for _, project := range projects {
+		if strings.TrimSpace(project.Name) == name {
+			return project, true
+		}
+	}
+	return ProjectCairnlineSidecarProjectItem{}, false
 }
 
 func projectCairnlineSidecarStructuredProject(raw json.RawMessage) (ProjectCairnlineSidecarProjectItem, bool, error) {
@@ -1651,6 +1894,15 @@ func (r *ProjectCairnlineSidecarLaunchPacketResponse) setSidecarCacheStats(stats
 }
 
 func (r *ProjectCairnlineSidecarLifecycleResponse) setSidecarCacheStats(stats mcpclient.CacheStats) {
+	if r == nil {
+		return
+	}
+	r.ClientCacheEntries = stats.Entries
+	r.ClientCacheInUse = stats.InUse
+	r.ClientCacheIdle = stats.Idle
+}
+
+func (r *ProjectCairnlineSidecarWriteResponse) setSidecarCacheStats(stats mcpclient.CacheStats) {
 	if r == nil {
 		return
 	}
