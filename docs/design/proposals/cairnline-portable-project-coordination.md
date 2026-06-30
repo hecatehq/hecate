@@ -342,7 +342,7 @@ launch agents. Those remain explicit operator or orchestrator actions.
 - Hecate can use the MCP server for side-by-side interoperability and the
   public Go package for controlled embed experiments.
 - Current Hecate sidecar experiments can probe a standalone Cairnline MCP
-  command for the minimum portable Projects tool contract via
+  command for the current portable Projects backend tool contract via
   `POST /hecate/v1/projects/cairnline/sidecar-probe` and can connect a cached
   sidecar MCP client via `POST /hecate/v1/projects/cairnline/sidecar-connect`.
   Hecate can also call read-only `projects.list`, `projects.get`,
@@ -352,7 +352,9 @@ launch agents. Those remain explicit operator or orchestrator actions.
   profile/skill/role/work/assignment list, assignment-context, and launch-packet
   contracts. Hecate also has an explicit confirmed sidecar lifecycle smoke that
   exercises `assignments.next`, claim, `update_status`, launch-packet read, and
-  complete against the standalone sidecar database only. This is
+  complete against the standalone sidecar database only, plus an explicit
+  confirmed sidecar write smoke that creates, lists, updates, gets, deletes, and
+  verifies deletion of a temporary rootless standalone Cairnline project. This is
   contract/client-lifecycle/read-shape and standalone mutation evidence only:
   Hecate does not yet route live Projects reads, writes, mirrors, or
   write-authority switchpoints through the sidecar.

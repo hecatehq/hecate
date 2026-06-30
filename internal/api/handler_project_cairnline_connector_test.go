@@ -936,6 +936,81 @@ func TestProjectCairnlineSidecarLifecycleSmoke_ReleasesEarlyClaimWhenFailureFoll
 	}
 }
 
+func TestProjectCairnlineSidecarWriteSmoke_RequiresConfirmation(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "full"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarWriteSmoke(t.Context(), ProjectCairnlineSidecarWriteRequest{ProjectName: "Fixture write smoke"})
+	if got.Ready || got.Status != "sidecar_write_confirmation_required" || got.ConfirmedMutation {
+		t.Fatalf("write smoke = %+v, want confirmation-required without mutation", got)
+	}
+	if len(got.Steps) != 0 || got.ClientCacheEntries != 0 {
+		t.Fatalf("steps/cache = %d/%d, want no sidecar calls before confirmation", len(got.Steps), got.ClientCacheEntries)
+	}
+}
+
+func TestProjectCairnlineSidecarWriteSmoke_CreatesUpdatesDeletesTemporaryProject(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "full"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarWriteSmoke(t.Context(), ProjectCairnlineSidecarWriteRequest{
+		ConfirmMutation: true,
+		ProjectName:     "Fixture write smoke",
+	})
+	if !got.Ready || got.Status != "sidecar_write_ready" || !got.CleanupVerified {
+		t.Fatalf("write smoke = %+v, want ready with verified cleanup", got)
+	}
+	if got.SelectedProjectID == "" || got.CreatedProject.Name != "Fixture write smoke" || got.UpdatedProject.Name != "Fixture write smoke updated" {
+		t.Fatalf("project ids = selected:%q created:%+v updated:%+v, want named temporary project", got.SelectedProjectID, got.CreatedProject, got.UpdatedProject)
+	}
+	if len(got.Steps) != 6 {
+		t.Fatalf("steps = %+v, want create/list/update/get/delete/get flow", got.Steps)
+	}
+	if got.Steps[0].Tool != "projects.create" || got.Steps[1].Tool != "projects.list" || got.Steps[2].Tool != "projects.update" || got.Steps[3].Tool != "projects.get" || got.Steps[4].Tool != "projects.delete" || got.Steps[5].Status != "expected_missing" {
+		t.Fatalf("steps = %+v, want write smoke order and missing-after-delete verification", got.Steps)
+	}
+}
+
+func TestProjectCairnlineSidecarWriteSmoke_CleansUpAfterUpdateFailure(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "project-update-tool-error"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarWriteSmoke(t.Context(), ProjectCairnlineSidecarWriteRequest{
+		ConfirmMutation: true,
+		ProjectName:     "Fixture write smoke cleanup",
+	})
+	if got.Ready || got.Status != "sidecar_write_tool_failed" || !got.CleanupVerified {
+		t.Fatalf("write smoke = %+v, want update tool failure with verified cleanup", got)
+	}
+	if len(got.Steps) != 5 || got.Steps[2].Tool != "projects.update" || !got.Steps[2].ToolIsError || got.Steps[3].Name != "cleanup_delete" || got.Steps[4].Status != "expected_missing" {
+		t.Fatalf("steps = %+v, want update failure followed by cleanup delete and verification", got.Steps)
+	}
+	if !strings.Contains(strings.Join(got.Warnings, "\n"), "deleted and verified removal") {
+		t.Fatalf("warnings = %+v, want verified cleanup warning", got.Warnings)
+	}
+}
+
 func TestProjectCairnlineSidecarLifecycleSmoke_WarnsWhenFailureAfterRunningCannotRelease(t *testing.T) {
 	handler := NewHandler(config.Config{
 		Projects: config.ProjectsConfig{

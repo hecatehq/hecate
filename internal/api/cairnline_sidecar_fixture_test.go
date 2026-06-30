@@ -28,7 +28,11 @@ func TestMain(m *testing.M) {
 func cairnlineSidecarFixtureMain(mode string) {
 	in := bufio.NewReader(os.Stdin)
 	enc := json.NewEncoder(os.Stdout)
-	state := &cairnlineSidecarFixtureState{assignmentStatus: "queued"}
+	state := &cairnlineSidecarFixtureState{
+		assignmentStatus: "queued",
+		projects:         make(map[string]ProjectCairnlineSidecarProjectItem),
+		deletedProjects:  make(map[string]struct{}),
+	}
 	for {
 		line, err := in.ReadBytes('\n')
 		if err != nil {
@@ -91,6 +95,9 @@ type cairnlineSidecarFixtureState struct {
 	assignmentStatus string
 	claimedBy        string
 	executionRef     string
+	projectSequence  int
+	projects         map[string]ProjectCairnlineSidecarProjectItem
+	deletedProjects  map[string]struct{}
 }
 
 func cairnlineSidecarFixtureTools(mode string) []mcp.Tool {
@@ -120,24 +127,7 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 		}
 		result := mcp.CallToolResult{Content: mcp.TextContent("Projects (1):\n- proj_fixture: Fixture Project")}
 		if mode != "text-only" {
-			result.StructuredContent = mustRawJSON([]ProjectCairnlineSidecarProjectItem{{
-				ID:          "proj_fixture",
-				Name:        "Fixture Project",
-				Description: "Structured fixture project",
-				Roots: []ProjectCairnlineSidecarRootItem{{
-					ID:     "root_fixture",
-					Path:   "/workspace/fixture",
-					Kind:   "local",
-					Active: true,
-				}},
-				ContextSources: []ProjectCairnlineSidecarSourceItem{{
-					ID:      "src_fixture",
-					Kind:    "workspace_instruction",
-					Title:   "AGENTS.md",
-					Locator: "AGENTS.md",
-					Enabled: true,
-				}},
-			}})
+			result.StructuredContent = mustRawJSON(cairnlineSidecarFixtureProjects(state))
 		}
 		return result, nil
 	case "profiles.list":
@@ -425,32 +415,116 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 		if input.ID == "" {
 			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "missing project id")
 		}
-		project := ProjectCairnlineSidecarProjectItem{
-			ID:          input.ID,
-			Name:        "Fixture Project",
-			Description: "Structured fixture project detail",
-			Roots: []ProjectCairnlineSidecarRootItem{{
-				ID:     "root_fixture",
-				Path:   "/workspace/fixture",
-				Kind:   "local",
-				Active: true,
-			}},
-			ContextSources: []ProjectCairnlineSidecarSourceItem{{
-				ID:      "src_fixture",
-				Kind:    "workspace_instruction",
-				Title:   "AGENTS.md",
-				Locator: "AGENTS.md",
-				Enabled: true,
-			}},
+		if _, ok := state.deletedProjects[input.ID]; ok {
+			return mcp.CallToolResult{
+				Content: mcp.TextContent("fixture project not found: " + input.ID),
+				IsError: true,
+			}, nil
 		}
-		result := mcp.CallToolResult{Content: mcp.TextContent("Project " + input.ID + ": Fixture Project")}
+		project := cairnlineSidecarFixtureProject(input.ID)
+		if stored, ok := state.projects[input.ID]; ok {
+			project = stored
+		}
+		result := mcp.CallToolResult{Content: mcp.TextContent("Project " + input.ID + ": " + project.Name)}
 		if mode != "text-only" {
 			result.StructuredContent = mustRawJSON(project)
 		}
 		return result, nil
+	case "projects.create":
+		var input struct {
+			Name        string `json:"name"`
+			Description string `json:"description"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid projects.create arguments")
+		}
+		if strings.TrimSpace(input.Name) == "" {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "missing project name")
+		}
+		state.projectSequence++
+		id := fmt.Sprintf("proj_write_fixture_%d", state.projectSequence)
+		state.projects[id] = ProjectCairnlineSidecarProjectItem{
+			ID:          id,
+			Name:        input.Name,
+			Description: input.Description,
+		}
+		delete(state.deletedProjects, id)
+		return mcp.CallToolResult{Content: mcp.TextContent("Created project " + id + ": " + input.Name)}, nil
+	case "projects.update":
+		if mode == "project-update-tool-error" {
+			return mcp.CallToolResult{
+				Content: mcp.TextContent("fixture projects.update failed"),
+				IsError: true,
+			}, nil
+		}
+		var input struct {
+			ID          string  `json:"id"`
+			Name        *string `json:"name"`
+			Description *string `json:"description"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid projects.update arguments")
+		}
+		project, ok := state.projects[input.ID]
+		if !ok {
+			return mcp.CallToolResult{
+				Content: mcp.TextContent("fixture project not found: " + input.ID),
+				IsError: true,
+			}, nil
+		}
+		if input.Name != nil {
+			project.Name = *input.Name
+		}
+		if input.Description != nil {
+			project.Description = *input.Description
+		}
+		state.projects[input.ID] = project
+		return mcp.CallToolResult{Content: mcp.TextContent("Updated project " + input.ID + ": " + project.Name)}, nil
+	case "projects.delete":
+		var input struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid projects.delete arguments")
+		}
+		if input.ID == "" {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "missing project id")
+		}
+		delete(state.projects, input.ID)
+		state.deletedProjects[input.ID] = struct{}{}
+		return mcp.CallToolResult{Content: mcp.TextContent("Deleted project " + input.ID)}, nil
 	default:
 		return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeMethodNotFound, params.Name)
 	}
+}
+
+func cairnlineSidecarFixtureProject(id string) ProjectCairnlineSidecarProjectItem {
+	return ProjectCairnlineSidecarProjectItem{
+		ID:          id,
+		Name:        "Fixture Project",
+		Description: "Structured fixture project",
+		Roots: []ProjectCairnlineSidecarRootItem{{
+			ID:     "root_fixture",
+			Path:   "/workspace/fixture",
+			Kind:   "local",
+			Active: true,
+		}},
+		ContextSources: []ProjectCairnlineSidecarSourceItem{{
+			ID:      "src_fixture",
+			Kind:    "workspace_instruction",
+			Title:   "AGENTS.md",
+			Locator: "AGENTS.md",
+			Enabled: true,
+		}},
+	}
+}
+
+func cairnlineSidecarFixtureProjects(state *cairnlineSidecarFixtureState) []ProjectCairnlineSidecarProjectItem {
+	projects := []ProjectCairnlineSidecarProjectItem{cairnlineSidecarFixtureProject("proj_fixture")}
+	for _, project := range state.projects {
+		projects = append(projects, project)
+	}
+	return projects
 }
 
 func cairnlineSidecarFixtureListResult(mode, text string, structured any) (mcp.CallToolResult, *mcp.RPCError) {
