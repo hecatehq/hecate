@@ -274,6 +274,18 @@ func TestValidateTaskWebSearchRejectsUnknownProvider(t *testing.T) {
 	}
 }
 
+func TestValidateTaskWebSearchRejectsUnknownSafeSearch(t *testing.T) {
+	cfg := Config{Server: ServerConfig{
+		TaskWebSearchProvider:   "brave",
+		TaskWebSearchAPIKey:     "key",
+		TaskWebSearchSafeSearch: "maximal",
+	}}
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "HECATE_TASK_WEB_SEARCH_SAFE_SEARCH") {
+		t.Fatalf("Validate() error = %v, want unsupported web search safe-search value", err)
+	}
+}
+
 func TestLoadFromEnvOperatorTerminalsOptIn(t *testing.T) {
 	cfg := LoadFromEnv()
 	if cfg.Server.OperatorTerminals {

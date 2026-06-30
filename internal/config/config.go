@@ -787,6 +787,11 @@ func (c Config) Validate() error {
 		if strings.TrimSpace(c.Server.TaskWebSearchAPIKey) == "" {
 			errs = append(errs, fmt.Errorf("HECATE_TASK_WEB_SEARCH_API_KEY or BRAVE_SEARCH_API_KEY is required when HECATE_TASK_WEB_SEARCH_PROVIDER=brave"))
 		}
+		switch strings.ToLower(strings.TrimSpace(c.Server.TaskWebSearchSafeSearch)) {
+		case "", "off", "moderate", "strict":
+		default:
+			errs = append(errs, fmt.Errorf("HECATE_TASK_WEB_SEARCH_SAFE_SEARCH must be one of off, moderate, or strict"))
+		}
 	default:
 		errs = append(errs, fmt.Errorf("HECATE_TASK_WEB_SEARCH_PROVIDER must be empty or brave"))
 	}

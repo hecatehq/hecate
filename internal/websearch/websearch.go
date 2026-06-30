@@ -12,10 +12,11 @@ import (
 )
 
 const (
-	ProviderBrave        = "brave"
-	DefaultBraveEndpoint = "https://api.search.brave.com/res/v1/web/search"
-	DefaultMaxResults    = 5
-	BraveMaxResults      = 20
+	ProviderBrave            = "brave"
+	DefaultBraveEndpoint     = "https://api.search.brave.com/res/v1/web/search"
+	DefaultMaxResults        = 5
+	DefaultExtraSnippetLimit = 3
+	BraveMaxResults          = 20
 )
 
 type Config struct {
@@ -131,8 +132,9 @@ func (c *BraveClient) Search(ctx context.Context, query Query) (Response, error)
 		return Response{}, fmt.Errorf("invalid Brave Search endpoint: %w", err)
 	}
 	values := endpoint.Query()
+	resultLimit := c.count(query.Count)
 	values.Set("q", q)
-	values.Set("count", fmt.Sprintf("%d", c.count(query.Count)))
+	values.Set("count", fmt.Sprintf("%d", resultLimit))
 	if query.Offset > 0 {
 		values.Set("offset", fmt.Sprintf("%d", query.Offset))
 	}
@@ -181,6 +183,9 @@ func (c *BraveClient) Search(ctx context.Context, query Query) (Response, error)
 	}
 	results := make([]Result, 0, len(payload.Web.Results))
 	for _, item := range payload.Web.Results {
+		if len(results) >= resultLimit {
+			break
+		}
 		title := strings.TrimSpace(item.Title)
 		urlStr := strings.TrimSpace(item.URL)
 		if title == "" && urlStr == "" {
@@ -190,7 +195,7 @@ func (c *BraveClient) Search(ctx context.Context, query Query) (Response, error)
 			Title:         title,
 			URL:           urlStr,
 			Description:   strings.TrimSpace(item.Description),
-			ExtraSnippets: trimNonEmpty(item.ExtraSnippets),
+			ExtraSnippets: trimNonEmpty(item.ExtraSnippets, DefaultExtraSnippetLimit),
 			Age:           strings.TrimSpace(item.Age),
 			Language:      strings.TrimSpace(item.Language),
 		})
@@ -239,7 +244,7 @@ func normalizeSafeSearch(value string) string {
 	case "", "moderate", "strict", "off":
 		return strings.ToLower(strings.TrimSpace(value))
 	default:
-		return strings.ToLower(strings.TrimSpace(value))
+		return ""
 	}
 }
 
@@ -252,9 +257,12 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func trimNonEmpty(values []string) []string {
+func trimNonEmpty(values []string, limit int) []string {
 	out := make([]string, 0, len(values))
 	for _, value := range values {
+		if limit > 0 && len(out) >= limit {
+			break
+		}
 		value = strings.TrimSpace(value)
 		if value != "" {
 			out = append(out, value)
