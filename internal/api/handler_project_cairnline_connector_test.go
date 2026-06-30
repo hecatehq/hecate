@@ -1179,6 +1179,93 @@ func TestProjectCairnlineSidecarWorkSmoke_CleansUpAfterContextFailure(t *testing
 	}
 }
 
+func TestProjectCairnlineSidecarCollaborationSmoke_RequiresConfirmation(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "full"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarCollaborationSmoke(t.Context(), ProjectCairnlineSidecarCollaborationRequest{ProjectName: "Fixture collaboration smoke"})
+	if got.Ready || got.Status != "sidecar_collaboration_confirmation_required" || got.ConfirmedMutation {
+		t.Fatalf("collaboration smoke = %+v, want confirmation-required without mutation", got)
+	}
+	if len(got.Steps) != 0 || got.ClientCacheEntries != 0 {
+		t.Fatalf("steps/cache = %d/%d, want no sidecar calls before confirmation", len(got.Steps), got.ClientCacheEntries)
+	}
+}
+
+func TestProjectCairnlineSidecarCollaborationSmoke_CreatesCollaborationRecords(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "full"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarCollaborationSmoke(t.Context(), ProjectCairnlineSidecarCollaborationRequest{
+		ConfirmMutation: true,
+		ProjectName:     "Fixture collaboration smoke",
+	})
+	if !got.Ready || got.Status != "sidecar_collaboration_ready" || !got.CleanupVerified {
+		t.Fatalf("collaboration smoke = %+v, want ready with verified cleanup", got)
+	}
+	if got.SelectedProjectID == "" || got.AuthorRoleID == "" || got.ReviewerRoleID == "" || got.WorkItemID == "" || got.AssignmentID == "" {
+		t.Fatalf("ids = project:%q author:%q reviewer:%q work:%q assignment:%q, want created collaboration ids", got.SelectedProjectID, got.AuthorRoleID, got.ReviewerRoleID, got.WorkItemID, got.AssignmentID)
+	}
+	if got.CreatedArtifact.Title != "Sidecar collaboration artifact" || got.CreatedArtifact.AssignmentID != got.AssignmentID || got.CreatedArtifact.Kind != "diagnostic_note" {
+		t.Fatalf("created artifact = %+v, want verified diagnostic artifact for assignment %q", got.CreatedArtifact, got.AssignmentID)
+	}
+	if got.CreatedEvidence.Title != "Sidecar collaboration evidence" || got.CreatedEvidence.AssignmentID != got.AssignmentID || got.CreatedEvidence.Locator == "" {
+		t.Fatalf("created evidence = %+v, want verified evidence for assignment %q", got.CreatedEvidence, got.AssignmentID)
+	}
+	if got.CreatedReview.Title != "Sidecar collaboration review" || got.CreatedReview.AssignmentID != got.AssignmentID || got.CreatedReview.ReviewerRoleID != got.ReviewerRoleID || got.CreatedReview.Verdict != "approved" {
+		t.Fatalf("created review = %+v, want verified approved review by reviewer role %q", got.CreatedReview, got.ReviewerRoleID)
+	}
+	if got.CreatedHandoff.Title != "Sidecar collaboration handoff" || got.CreatedHandoff.SourceAssignmentID != got.AssignmentID || got.CreatedHandoff.FromRoleID != got.AuthorRoleID || got.CreatedHandoff.ToRoleID != got.ReviewerRoleID || got.CreatedHandoff.Status != "open" {
+		t.Fatalf("created handoff = %+v, want verified open handoff from author to reviewer", got.CreatedHandoff)
+	}
+	if len(got.Steps) != 23 {
+		t.Fatalf("steps = %+v, want project/role/work/assignment/collaboration/delete flow", got.Steps)
+	}
+	if got.Steps[9].Tool != "artifacts.create" || got.Steps[12].Tool != "evidence.record" || got.Steps[15].Tool != "reviews.record" || got.Steps[18].Tool != "handoffs.create" || got.Steps[22].Status != "expected_missing" {
+		t.Fatalf("steps = %+v, want collaboration smoke order and missing-after-delete verification", got.Steps)
+	}
+}
+
+func TestProjectCairnlineSidecarCollaborationSmoke_CleansUpAfterReviewFailure(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "review-record-tool-error"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarCollaborationSmoke(t.Context(), ProjectCairnlineSidecarCollaborationRequest{
+		ConfirmMutation: true,
+		ProjectName:     "Fixture collaboration smoke cleanup",
+	})
+	if got.Ready || got.Status != "sidecar_collaboration_tool_failed" || !got.CleanupVerified {
+		t.Fatalf("collaboration smoke = %+v, want review tool failure with verified project cleanup", got)
+	}
+	if len(got.Steps) != 18 || got.Steps[15].Tool != "reviews.record" || !got.Steps[15].ToolIsError || got.Steps[16].Name != "cleanup_delete_project" || got.Steps[17].Status != "expected_missing" {
+		t.Fatalf("steps = %+v, want review failure followed by project cleanup delete and verification", got.Steps)
+	}
+	if !strings.Contains(strings.Join(got.Warnings, "\n"), "deleted and verified removal") {
+		t.Fatalf("warnings = %+v, want verified cleanup warning", got.Warnings)
+	}
+}
+
 func TestProjectCairnlineSidecarLifecycleSmoke_WarnsWhenFailureAfterRunningCannotRelease(t *testing.T) {
 	handler := NewHandler(config.Config{
 		Projects: config.ProjectsConfig{

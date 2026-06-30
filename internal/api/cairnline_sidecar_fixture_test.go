@@ -37,6 +37,10 @@ func cairnlineSidecarFixtureMain(mode string) {
 		roles:            make(map[string]map[string]ProjectCairnlineSidecarRoleItem),
 		workItems:        make(map[string]map[string]ProjectCairnlineSidecarWorkItem),
 		assignments:      make(map[string]map[string]ProjectCairnlineSidecarAssignmentItem),
+		artifacts:        make(map[string]map[string]ProjectCairnlineSidecarArtifactItem),
+		evidence:         make(map[string]map[string]ProjectCairnlineSidecarEvidenceItem),
+		reviews:          make(map[string]map[string]ProjectCairnlineSidecarReviewItem),
+		handoffs:         make(map[string]map[string]ProjectCairnlineSidecarHandoffItem),
 	}
 	for {
 		line, err := in.ReadBytes('\n')
@@ -108,9 +112,17 @@ type cairnlineSidecarFixtureState struct {
 	roleSequence       int
 	workSequence       int
 	assignmentSequence int
+	artifactSequence   int
+	evidenceSequence   int
+	reviewSequence     int
+	handoffSequence    int
 	roles              map[string]map[string]ProjectCairnlineSidecarRoleItem
 	workItems          map[string]map[string]ProjectCairnlineSidecarWorkItem
 	assignments        map[string]map[string]ProjectCairnlineSidecarAssignmentItem
+	artifacts          map[string]map[string]ProjectCairnlineSidecarArtifactItem
+	evidence           map[string]map[string]ProjectCairnlineSidecarEvidenceItem
+	reviews            map[string]map[string]ProjectCairnlineSidecarReviewItem
+	handoffs           map[string]map[string]ProjectCairnlineSidecarHandoffItem
 }
 
 func cairnlineSidecarFixtureTools(mode string) []mcp.Tool {
@@ -553,6 +565,10 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 		delete(state.roles, input.ID)
 		delete(state.workItems, input.ID)
 		delete(state.assignments, input.ID)
+		delete(state.artifacts, input.ID)
+		delete(state.evidence, input.ID)
+		delete(state.reviews, input.ID)
+		delete(state.handoffs, input.ID)
 		return mcp.CallToolResult{Content: mcp.TextContent("Deleted project " + input.ID)}, nil
 	case "roles.create":
 		var input struct {
@@ -854,6 +870,242 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 		}
 		delete(sources, input.SourceID)
 		return mcp.CallToolResult{Content: mcp.TextContent("Deleted context source " + input.SourceID), StructuredContent: mustRawJSON(source)}, nil
+	case "artifacts.create":
+		var input struct {
+			ProjectID      string `json:"project_id"`
+			WorkItemID     string `json:"work_item_id"`
+			AssignmentID   string `json:"assignment_id"`
+			Kind           string `json:"kind"`
+			Title          string `json:"title"`
+			Body           string `json:"body"`
+			AuthorRoleID   string `json:"author_role_id"`
+			ProvenanceKind string `json:"provenance_kind"`
+			TrustLabel     string `json:"trust_label"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid artifacts.create arguments")
+		}
+		if input.ProjectID == "" || input.WorkItemID == "" || input.Kind == "" || input.Body == "" {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "missing artifact create arguments")
+		}
+		state.artifactSequence++
+		id := fmt.Sprintf("artifact_write_fixture_%d", state.artifactSequence)
+		artifact := ProjectCairnlineSidecarArtifactItem{
+			ProjectID:      input.ProjectID,
+			ID:             id,
+			WorkItemID:     input.WorkItemID,
+			AssignmentID:   input.AssignmentID,
+			Kind:           input.Kind,
+			Title:          input.Title,
+			Body:           input.Body,
+			AuthorRoleID:   input.AuthorRoleID,
+			ProvenanceKind: input.ProvenanceKind,
+			TrustLabel:     input.TrustLabel,
+		}
+		cairnlineSidecarFixtureEnsureArtifacts(state, input.ProjectID)[id] = artifact
+		return mcp.CallToolResult{Content: mcp.TextContent("Created artifact " + id), StructuredContent: mustRawJSON(artifact)}, nil
+	case "artifacts.list":
+		projectID, workItemID := cairnlineSidecarFixtureProjectWorkIDs(params.Arguments)
+		items := cairnlineSidecarFixtureProjectArtifacts(state, projectID, workItemID)
+		return cairnlineSidecarFixtureListResult(mode, fmt.Sprintf("Artifacts for %s (%d)", workItemID, len(items)), items)
+	case "artifacts.get":
+		var input struct {
+			ProjectID  string `json:"project_id"`
+			WorkItemID string `json:"work_item_id"`
+			ArtifactID string `json:"artifact_id"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid artifacts.get arguments")
+		}
+		artifact, ok := state.artifacts[input.ProjectID][input.ArtifactID]
+		if !ok || artifact.WorkItemID != input.WorkItemID {
+			return mcp.CallToolResult{Content: mcp.TextContent("fixture artifact not found: " + input.ArtifactID), IsError: true}, nil
+		}
+		return mcp.CallToolResult{Content: mcp.TextContent("Artifact " + input.ArtifactID), StructuredContent: mustRawJSON(artifact)}, nil
+	case "evidence.record":
+		if mode == "evidence-record-tool-error" {
+			return mcp.CallToolResult{Content: mcp.TextContent("fixture evidence.record failed"), IsError: true}, nil
+		}
+		var input struct {
+			ProjectID    string `json:"project_id"`
+			WorkItemID   string `json:"work_item_id"`
+			AssignmentID string `json:"assignment_id"`
+			Title        string `json:"title"`
+			Body         string `json:"body"`
+			Locator      string `json:"locator"`
+			SourceKind   string `json:"source_kind"`
+			ExternalID   string `json:"external_id"`
+			Provider     string `json:"provider"`
+			TrustLabel   string `json:"trust_label"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid evidence.record arguments")
+		}
+		if input.ProjectID == "" || input.WorkItemID == "" || input.Title == "" {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "missing evidence record arguments")
+		}
+		state.evidenceSequence++
+		id := fmt.Sprintf("evidence_write_fixture_%d", state.evidenceSequence)
+		item := ProjectCairnlineSidecarEvidenceItem{
+			ProjectID:    input.ProjectID,
+			ID:           id,
+			WorkItemID:   input.WorkItemID,
+			AssignmentID: input.AssignmentID,
+			Title:        input.Title,
+			Body:         input.Body,
+			Locator:      input.Locator,
+			SourceKind:   input.SourceKind,
+			ExternalID:   input.ExternalID,
+			Provider:     input.Provider,
+			TrustLabel:   input.TrustLabel,
+		}
+		cairnlineSidecarFixtureEnsureEvidence(state, input.ProjectID)[id] = item
+		return mcp.CallToolResult{Content: mcp.TextContent("Recorded evidence " + id)}, nil
+	case "evidence.list":
+		projectID, workItemID := cairnlineSidecarFixtureProjectWorkIDs(params.Arguments)
+		items := cairnlineSidecarFixtureProjectEvidence(state, projectID, workItemID)
+		return cairnlineSidecarFixtureListResult(mode, fmt.Sprintf("Evidence for %s (%d)", workItemID, len(items)), items)
+	case "evidence.get":
+		var input struct {
+			ProjectID  string `json:"project_id"`
+			WorkItemID string `json:"work_item_id"`
+			EvidenceID string `json:"evidence_id"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid evidence.get arguments")
+		}
+		item, ok := state.evidence[input.ProjectID][input.EvidenceID]
+		if !ok || item.WorkItemID != input.WorkItemID {
+			return mcp.CallToolResult{Content: mcp.TextContent("fixture evidence not found: " + input.EvidenceID), IsError: true}, nil
+		}
+		return mcp.CallToolResult{Content: mcp.TextContent("Evidence " + input.EvidenceID), StructuredContent: mustRawJSON(item)}, nil
+	case "reviews.record":
+		if mode == "review-record-tool-error" {
+			return mcp.CallToolResult{Content: mcp.TextContent("fixture reviews.record failed"), IsError: true}, nil
+		}
+		var input struct {
+			ProjectID      string `json:"project_id"`
+			WorkItemID     string `json:"work_item_id"`
+			AssignmentID   string `json:"assignment_id"`
+			ReviewerRoleID string `json:"reviewer_role_id"`
+			Title          string `json:"title"`
+			Body           string `json:"body"`
+			Verdict        string `json:"verdict"`
+			Risk           string `json:"risk"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid reviews.record arguments")
+		}
+		if input.ProjectID == "" || input.WorkItemID == "" || input.Body == "" || input.Verdict == "" {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "missing review record arguments")
+		}
+		state.reviewSequence++
+		id := fmt.Sprintf("review_write_fixture_%d", state.reviewSequence)
+		review := ProjectCairnlineSidecarReviewItem{
+			ProjectID:      input.ProjectID,
+			ID:             id,
+			WorkItemID:     input.WorkItemID,
+			AssignmentID:   input.AssignmentID,
+			ReviewerRoleID: input.ReviewerRoleID,
+			Title:          input.Title,
+			Body:           input.Body,
+			Verdict:        input.Verdict,
+			Risk:           input.Risk,
+			Status:         "open",
+		}
+		cairnlineSidecarFixtureEnsureReviews(state, input.ProjectID)[id] = review
+		return mcp.CallToolResult{Content: mcp.TextContent("Recorded review " + id)}, nil
+	case "reviews.list":
+		projectID, workItemID := cairnlineSidecarFixtureProjectWorkIDs(params.Arguments)
+		items := cairnlineSidecarFixtureProjectReviews(state, projectID, workItemID)
+		return cairnlineSidecarFixtureListResult(mode, fmt.Sprintf("Reviews for %s (%d)", workItemID, len(items)), items)
+	case "reviews.get":
+		var input struct {
+			ProjectID  string `json:"project_id"`
+			WorkItemID string `json:"work_item_id"`
+			ReviewID   string `json:"review_id"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid reviews.get arguments")
+		}
+		review, ok := state.reviews[input.ProjectID][input.ReviewID]
+		if !ok || review.WorkItemID != input.WorkItemID {
+			return mcp.CallToolResult{Content: mcp.TextContent("fixture review not found: " + input.ReviewID), IsError: true}, nil
+		}
+		return mcp.CallToolResult{Content: mcp.TextContent("Review " + input.ReviewID), StructuredContent: mustRawJSON(review)}, nil
+	case "handoffs.create":
+		var input struct {
+			ProjectID             string   `json:"project_id"`
+			WorkItemID            string   `json:"work_item_id"`
+			SourceAssignmentID    string   `json:"source_assignment_id"`
+			SourceRunID           string   `json:"source_run_id"`
+			SourceChatSessionID   string   `json:"source_chat_session_id"`
+			SourceMessageID       string   `json:"source_message_id"`
+			FromRoleID            string   `json:"from_role_id"`
+			ToRoleID              string   `json:"to_role_id"`
+			TargetAssignmentID    string   `json:"target_assignment_id"`
+			TargetWorkItemID      string   `json:"target_work_item_id"`
+			Title                 string   `json:"title"`
+			Body                  string   `json:"body"`
+			RecommendedNextAction string   `json:"recommended_next_action"`
+			LinkedArtifactIDs     []string `json:"linked_artifact_ids"`
+			LinkedMemoryIDs       []string `json:"linked_memory_ids"`
+			ContextRefs           []string `json:"context_refs"`
+			Status                string   `json:"status"`
+			ProvenanceKind        string   `json:"provenance_kind"`
+			TrustLabel            string   `json:"trust_label"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid handoffs.create arguments")
+		}
+		if input.ProjectID == "" || input.WorkItemID == "" || input.Title == "" || input.Body == "" {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "missing handoff create arguments")
+		}
+		state.handoffSequence++
+		id := fmt.Sprintf("handoff_write_fixture_%d", state.handoffSequence)
+		status := firstNonEmpty(input.Status, "open")
+		handoff := ProjectCairnlineSidecarHandoffItem{
+			ProjectID:             input.ProjectID,
+			ID:                    id,
+			WorkItemID:            input.WorkItemID,
+			SourceAssignmentID:    input.SourceAssignmentID,
+			SourceRunID:           input.SourceRunID,
+			SourceChatSessionID:   input.SourceChatSessionID,
+			SourceMessageID:       input.SourceMessageID,
+			FromRoleID:            input.FromRoleID,
+			ToRoleID:              input.ToRoleID,
+			TargetAssignmentID:    input.TargetAssignmentID,
+			TargetWorkItemID:      input.TargetWorkItemID,
+			Title:                 input.Title,
+			Body:                  input.Body,
+			RecommendedNextAction: input.RecommendedNextAction,
+			LinkedArtifactIDs:     input.LinkedArtifactIDs,
+			LinkedMemoryIDs:       input.LinkedMemoryIDs,
+			ContextRefs:           input.ContextRefs,
+			Status:                status,
+			ProvenanceKind:        input.ProvenanceKind,
+			TrustLabel:            input.TrustLabel,
+		}
+		cairnlineSidecarFixtureEnsureHandoffs(state, input.ProjectID)[id] = handoff
+		return mcp.CallToolResult{Content: mcp.TextContent("Created handoff " + id)}, nil
+	case "handoffs.list":
+		projectID, workItemID := cairnlineSidecarFixtureProjectWorkIDs(params.Arguments)
+		items := cairnlineSidecarFixtureProjectHandoffs(state, projectID, workItemID)
+		return cairnlineSidecarFixtureListResult(mode, fmt.Sprintf("Handoffs for %s (%d)", workItemID, len(items)), items)
+	case "handoffs.get":
+		var input struct {
+			ProjectID  string `json:"project_id"`
+			WorkItemID string `json:"work_item_id"`
+			HandoffID  string `json:"handoff_id"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid handoffs.get arguments")
+		}
+		handoff, ok := state.handoffs[input.ProjectID][input.HandoffID]
+		if !ok || handoff.WorkItemID != input.WorkItemID {
+			return mcp.CallToolResult{Content: mcp.TextContent("fixture handoff not found: " + input.HandoffID), IsError: true}, nil
+		}
+		return mcp.CallToolResult{Content: mcp.TextContent("Handoff " + input.HandoffID), StructuredContent: mustRawJSON(handoff)}, nil
 	default:
 		return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeMethodNotFound, params.Name)
 	}
@@ -984,6 +1236,78 @@ func cairnlineSidecarFixtureProjectAssignments(state *cairnlineSidecarFixtureSta
 	return assignments
 }
 
+func cairnlineSidecarFixtureEnsureArtifacts(state *cairnlineSidecarFixtureState, projectID string) map[string]ProjectCairnlineSidecarArtifactItem {
+	if state.artifacts[projectID] == nil {
+		state.artifacts[projectID] = make(map[string]ProjectCairnlineSidecarArtifactItem)
+	}
+	return state.artifacts[projectID]
+}
+
+func cairnlineSidecarFixtureProjectArtifacts(state *cairnlineSidecarFixtureState, projectID, workItemID string) []ProjectCairnlineSidecarArtifactItem {
+	artifactsByID := state.artifacts[projectID]
+	artifacts := make([]ProjectCairnlineSidecarArtifactItem, 0, len(artifactsByID))
+	for _, artifact := range artifactsByID {
+		if workItemID == "" || artifact.WorkItemID == workItemID {
+			artifacts = append(artifacts, artifact)
+		}
+	}
+	return artifacts
+}
+
+func cairnlineSidecarFixtureEnsureEvidence(state *cairnlineSidecarFixtureState, projectID string) map[string]ProjectCairnlineSidecarEvidenceItem {
+	if state.evidence[projectID] == nil {
+		state.evidence[projectID] = make(map[string]ProjectCairnlineSidecarEvidenceItem)
+	}
+	return state.evidence[projectID]
+}
+
+func cairnlineSidecarFixtureProjectEvidence(state *cairnlineSidecarFixtureState, projectID, workItemID string) []ProjectCairnlineSidecarEvidenceItem {
+	evidenceByID := state.evidence[projectID]
+	items := make([]ProjectCairnlineSidecarEvidenceItem, 0, len(evidenceByID))
+	for _, item := range evidenceByID {
+		if workItemID == "" || item.WorkItemID == workItemID {
+			items = append(items, item)
+		}
+	}
+	return items
+}
+
+func cairnlineSidecarFixtureEnsureReviews(state *cairnlineSidecarFixtureState, projectID string) map[string]ProjectCairnlineSidecarReviewItem {
+	if state.reviews[projectID] == nil {
+		state.reviews[projectID] = make(map[string]ProjectCairnlineSidecarReviewItem)
+	}
+	return state.reviews[projectID]
+}
+
+func cairnlineSidecarFixtureProjectReviews(state *cairnlineSidecarFixtureState, projectID, workItemID string) []ProjectCairnlineSidecarReviewItem {
+	reviewsByID := state.reviews[projectID]
+	reviews := make([]ProjectCairnlineSidecarReviewItem, 0, len(reviewsByID))
+	for _, review := range reviewsByID {
+		if workItemID == "" || review.WorkItemID == workItemID {
+			reviews = append(reviews, review)
+		}
+	}
+	return reviews
+}
+
+func cairnlineSidecarFixtureEnsureHandoffs(state *cairnlineSidecarFixtureState, projectID string) map[string]ProjectCairnlineSidecarHandoffItem {
+	if state.handoffs[projectID] == nil {
+		state.handoffs[projectID] = make(map[string]ProjectCairnlineSidecarHandoffItem)
+	}
+	return state.handoffs[projectID]
+}
+
+func cairnlineSidecarFixtureProjectHandoffs(state *cairnlineSidecarFixtureState, projectID, workItemID string) []ProjectCairnlineSidecarHandoffItem {
+	handoffsByID := state.handoffs[projectID]
+	handoffs := make([]ProjectCairnlineSidecarHandoffItem, 0, len(handoffsByID))
+	for _, handoff := range handoffsByID {
+		if workItemID == "" || handoff.WorkItemID == workItemID {
+			handoffs = append(handoffs, handoff)
+		}
+	}
+	return handoffs
+}
+
 func cairnlineSidecarFixtureListResult(mode, text string, structured any) (mcp.CallToolResult, *mcp.RPCError) {
 	result := mcp.CallToolResult{Content: mcp.TextContent(text)}
 	if mode != "text-only" {
@@ -998,6 +1322,15 @@ func cairnlineSidecarFixtureProjectID(raw json.RawMessage) string {
 	}
 	_ = json.Unmarshal(raw, &input)
 	return input.ProjectID
+}
+
+func cairnlineSidecarFixtureProjectWorkIDs(raw json.RawMessage) (string, string) {
+	var input struct {
+		ProjectID  string `json:"project_id"`
+		WorkItemID string `json:"work_item_id"`
+	}
+	_ = json.Unmarshal(raw, &input)
+	return input.ProjectID, input.WorkItemID
 }
 
 func mustRawJSON(value any) json.RawMessage {

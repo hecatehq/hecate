@@ -359,7 +359,10 @@ launch agents. Those remain explicit operator or orchestrator actions.
   verifies typed root and context-source metadata on a temporary standalone
   Cairnline project, plus an explicit confirmed work smoke that creates typed
   role, work-item, assignment, assignment-context, and launch-packet metadata on
-  a temporary standalone Cairnline project. This is
+  a temporary standalone Cairnline project, plus an explicit confirmed
+  collaboration smoke that records and verifies typed artifact, evidence,
+  review, and handoff metadata on a temporary standalone Cairnline project. This
+  is
   contract/client-lifecycle/read-shape and standalone mutation evidence only:
   Hecate does not yet route live Projects reads, writes, mirrors, or
   write-authority switchpoints through the sidecar.
