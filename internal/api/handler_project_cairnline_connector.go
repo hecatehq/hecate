@@ -139,7 +139,7 @@ func projectCairnlineConnectorReady(mode string) bool {
 func projectCairnlineConnectorDetail(mode string) string {
 	switch mode {
 	case "sidecar":
-		return "Cairnline sidecar connector is configured and can be exercised through local-only probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle/write/setup/work diagnostics, but Hecate does not yet route Projects reads or writes through the standalone Cairnline MCP client."
+		return "Cairnline sidecar connector is configured and can be exercised through local-only probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle/write/setup/work/collaboration diagnostics, but Hecate does not yet route Projects reads or writes through the standalone Cairnline MCP client."
 	default:
 		return "Hecate is using the embedded Cairnline Go package bridge for replacement-readiness dogfood."
 	}
@@ -149,7 +149,7 @@ func projectCairnlineConnectorWarning(mode string) string {
 	if mode != "sidecar" {
 		return ""
 	}
-	return "HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar enables standalone Cairnline MCP probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle/write/setup/work diagnostic surfaces only; Cairnline read/write routing stays disabled until Hecate has a sidecar Projects backend adapter."
+	return "HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar enables standalone Cairnline MCP probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle/write/setup/work/collaboration diagnostic surfaces only; Cairnline read/write routing stays disabled until Hecate has a sidecar Projects backend adapter."
 }
 
 func (h *Handler) HandleProjectCairnlineSidecarProbe(w http.ResponseWriter, r *http.Request) {
@@ -291,6 +291,20 @@ func (h *Handler) HandleProjectCairnlineSidecarWorkSmoke(w http.ResponseWriter, 
 	WriteJSON(w, http.StatusOK, ProjectCairnlineSidecarWorkEnvelope{
 		Object: "project_cairnline_sidecar_work",
 		Data:   h.projectCairnlineSidecarWorkSmoke(r.Context(), req),
+	})
+}
+
+func (h *Handler) HandleProjectCairnlineSidecarCollaborationSmoke(w http.ResponseWriter, r *http.Request) {
+	if !requireLoopbackClient(w, r, "Cairnline sidecar collaboration smoke") {
+		return
+	}
+	var req ProjectCairnlineSidecarCollaborationRequest
+	if !decodeOptionalJSON(w, r, &req) {
+		return
+	}
+	WriteJSON(w, http.StatusOK, ProjectCairnlineSidecarCollaborationEnvelope{
+		Object: "project_cairnline_sidecar_collaboration",
+		Data:   h.projectCairnlineSidecarCollaborationSmoke(r.Context(), req),
 	})
 }
 
@@ -1668,6 +1682,350 @@ func (h *Handler) projectCairnlineSidecarWorkSmoke(ctx context.Context, req Proj
 	return fail("sidecar_work_project_delete_verification_failed", "Cairnline sidecar projects.delete succeeded, but projects.get still returned the temporary work project.")
 }
 
+func (h *Handler) projectCairnlineSidecarCollaborationSmoke(ctx context.Context, req ProjectCairnlineSidecarCollaborationRequest) ProjectCairnlineSidecarCollaborationResponse {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	cfg, dbPath, timeout := h.projectCairnlineSidecarMCPConfig()
+	projectName := strings.TrimSpace(req.ProjectName)
+	if projectName == "" {
+		projectName = "Hecate sidecar collaboration smoke " + time.Now().UTC().Format("20060102T150405.000000000Z")
+	}
+	const (
+		authorRoleName   = "Sidecar collaboration author"
+		reviewerRoleName = "Sidecar collaboration reviewer"
+		workTitle        = "Sidecar collaboration smoke task"
+		artifactTitle    = "Sidecar collaboration artifact"
+		evidenceTitle    = "Sidecar collaboration evidence"
+		reviewTitle      = "Sidecar collaboration review"
+		handoffTitle     = "Sidecar collaboration handoff"
+	)
+	response := ProjectCairnlineSidecarCollaborationResponse{
+		Ready:                 false,
+		Status:                "sidecar_collaboration_not_run",
+		Detail:                "Cairnline sidecar collaboration smoke has not run.",
+		Command:               cfg.Command,
+		Args:                  append([]string(nil), cfg.Args...),
+		DatabasePath:          dbPath,
+		ProbeTimeoutMS:        timeout.Milliseconds(),
+		PersistentClient:      true,
+		ClientCacheConfigured: h != nil,
+		ConfirmedMutation:     req.ConfirmMutation,
+		ProjectName:           projectName,
+	}
+	if h == nil {
+		response.Status = "sidecar_collaboration_failed"
+		response.Detail = "Cairnline sidecar collaboration smoke requires an API handler."
+		return response
+	}
+	if h.projectCairnlineConnectorMode() != "sidecar" {
+		response.Warnings = append(response.Warnings, "HECATE_PROJECTS_CAIRNLINE_CONNECTOR is not sidecar; this collaboration smoke does not affect live Projects routing.")
+	}
+	if dbPath != "" && len(h.config.ProjectsCairnlineSidecarArgs()) > 0 {
+		response.Warnings = append(response.Warnings, "HECATE_PROJECTS_CAIRNLINE_SIDECAR_ARGS is set, so HECATE_PROJECTS_CAIRNLINE_SIDECAR_DB is reported but not appended automatically.")
+	}
+	if !req.ConfirmMutation {
+		response.Status = "sidecar_collaboration_confirmation_required"
+		response.Detail = "Set confirm_mutation=true to let Hecate create, verify, and clean up temporary collaboration artifact, evidence, review, and handoff records in the standalone Cairnline sidecar. Hecate-native Projects stores are not mutated."
+		return response
+	}
+
+	cache := h.projectCairnlineSidecarMCPClientCache()
+	smokeCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	projectID := ""
+	cleanup := func() {
+		if projectID == "" || response.CleanupVerified {
+			return
+		}
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+		defer cleanupCancel()
+		cleanupStep := h.callProjectCairnlineSidecarWriteTool(cleanupCtx, cfg, cache, "cleanup_delete_project", "projects.delete", false, map[string]string{"id": projectID})
+		response.Steps = append(response.Steps, cleanupStep)
+		if cleanupStep.Status == "ready" {
+			verifyCleanupStep := h.callProjectCairnlineSidecarWriteTool(cleanupCtx, cfg, cache, "cleanup_get_after_project_delete", "projects.get", true, map[string]string{"id": projectID})
+			if verifyCleanupStep.Status == "tool_failed" {
+				verifyCleanupStep.Status = "expected_missing"
+				response.CleanupVerified = true
+				response.Warnings = append(response.Warnings, "Hecate deleted and verified removal of the temporary standalone Cairnline collaboration project after the collaboration smoke failed; inspect the reported steps before retrying.")
+			} else {
+				response.Warnings = append(response.Warnings, "Hecate deleted the temporary standalone Cairnline collaboration project after the collaboration smoke failed, but removal could not be verified; inspect the reported steps before retrying.")
+			}
+			response.Steps = append(response.Steps, verifyCleanupStep)
+			return
+		}
+		response.Warnings = append(response.Warnings, "Hecate tried to delete the temporary standalone Cairnline collaboration project after the collaboration smoke failed, but cleanup did not succeed; inspect the standalone Cairnline sidecar before retrying.")
+	}
+	fail := func(status, detail string) ProjectCairnlineSidecarCollaborationResponse {
+		response.Status = status
+		response.Detail = detail
+		cleanup()
+		response.setSidecarCacheStats(cache.Stats())
+		return response
+	}
+	appendStep := func(step ProjectCairnlineSidecarWriteStep) bool {
+		response.Steps = append(response.Steps, step)
+		if step.Status == "tool_failed" {
+			response.Status = "sidecar_collaboration_tool_failed"
+			response.Detail = "Cairnline sidecar " + step.Tool + " returned a tool-level error. Review the step output before retrying."
+			cleanup()
+			response.setSidecarCacheStats(cache.Stats())
+			return false
+		}
+		if step.Status == "failed" {
+			response.Status = "sidecar_collaboration_failed"
+			response.Detail = firstNonEmpty(step.ToolText, "Cairnline sidecar "+step.Tool+" failed.")
+			cleanup()
+			response.setSidecarCacheStats(cache.Stats())
+			return false
+		}
+		return true
+	}
+
+	createProject := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "create_project", "projects.create", false, map[string]string{
+		"name":        projectName,
+		"description": "Temporary Hecate sidecar collaboration smoke project. It should be deleted by the same diagnostic run.",
+	})
+	if !appendStep(createProject) {
+		return response
+	}
+	listProjects := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "list_after_project_create", "projects.list", true, map[string]string{})
+	if !appendStep(listProjects) {
+		return response
+	}
+	project, ok := projectCairnlineSidecarProjectByName(listProjects.StructuredProjects, projectName)
+	if !ok || strings.TrimSpace(project.ID) == "" {
+		return fail("sidecar_collaboration_created_project_not_listed", "Cairnline sidecar projects.create succeeded, but projects.list did not return the temporary collaboration project by name.")
+	}
+	projectID = strings.TrimSpace(project.ID)
+	response.SelectedProjectID = projectID
+
+	createAuthorRole := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "create_author_role", "roles.create", false, map[string]any{
+		"project_id":             projectID,
+		"name":                   authorRoleName,
+		"description":            "Temporary author role created by the Hecate sidecar collaboration smoke.",
+		"instructions":           "Produce collaboration evidence for the temporary smoke.",
+		"default_execution_mode": "mcp_pull",
+	})
+	if !appendStep(createAuthorRole) {
+		return response
+	}
+	createReviewerRole := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "create_reviewer_role", "roles.create", false, map[string]any{
+		"project_id":             projectID,
+		"name":                   reviewerRoleName,
+		"description":            "Temporary reviewer role created by the Hecate sidecar collaboration smoke.",
+		"instructions":           "Review collaboration evidence for the temporary smoke.",
+		"default_execution_mode": "manual",
+	})
+	if !appendStep(createReviewerRole) {
+		return response
+	}
+	listRoles := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "list_roles_after_create", "roles.list", true, map[string]string{"project_id": projectID})
+	if !appendStep(listRoles) {
+		return response
+	}
+	authorRole, ok := projectCairnlineSidecarRoleByName(listRoles.StructuredRoles, authorRoleName)
+	if !ok || strings.TrimSpace(authorRole.ID) == "" || authorRole.DefaultExecutionMode != "mcp_pull" {
+		return fail("sidecar_collaboration_author_role_verification_failed", "Cairnline sidecar roles.list did not return the expected temporary author role.")
+	}
+	reviewerRole, ok := projectCairnlineSidecarRoleByName(listRoles.StructuredRoles, reviewerRoleName)
+	if !ok || strings.TrimSpace(reviewerRole.ID) == "" || reviewerRole.DefaultExecutionMode != "manual" {
+		return fail("sidecar_collaboration_reviewer_role_verification_failed", "Cairnline sidecar roles.list did not return the expected temporary reviewer role.")
+	}
+	response.AuthorRoleID = strings.TrimSpace(authorRole.ID)
+	response.ReviewerRoleID = strings.TrimSpace(reviewerRole.ID)
+
+	createWork := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "create_work_item", "work_items.create", false, map[string]string{
+		"project_id":    projectID,
+		"title":         workTitle,
+		"brief":         "Temporary collaboration work item created by the Hecate sidecar collaboration smoke.",
+		"owner_role_id": response.AuthorRoleID,
+	})
+	if !appendStep(createWork) {
+		return response
+	}
+	listWork := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "list_work_items_after_create", "work_items.list", true, map[string]string{"project_id": projectID})
+	if !appendStep(listWork) {
+		return response
+	}
+	work, ok := projectCairnlineSidecarWorkItemByTitle(listWork.StructuredWorkItems, workTitle)
+	if !ok || strings.TrimSpace(work.ID) == "" || strings.TrimSpace(work.OwnerRoleID) != response.AuthorRoleID {
+		return fail("sidecar_collaboration_work_item_verification_failed", "Cairnline sidecar work_items.list did not return the expected temporary collaboration work item.")
+	}
+	response.WorkItemID = strings.TrimSpace(work.ID)
+
+	createAssignment := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "create_assignment", "assignments.create", false, map[string]any{
+		"project_id":         projectID,
+		"work_item_id":       response.WorkItemID,
+		"role_id":            response.AuthorRoleID,
+		"execution_mode":     "mcp_pull",
+		"desired_agent_kind": "any",
+	})
+	if !appendStep(createAssignment) {
+		return response
+	}
+	listAssignments := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "list_assignments_after_create", "assignments.list", true, map[string]string{"project_id": projectID})
+	if !appendStep(listAssignments) {
+		return response
+	}
+	assignment, ok := projectCairnlineSidecarAssignmentByWorkAndRole(listAssignments.StructuredAssignments, response.WorkItemID, response.AuthorRoleID)
+	if !ok || strings.TrimSpace(assignment.ID) == "" || assignment.ExecutionMode != "mcp_pull" {
+		return fail("sidecar_collaboration_assignment_verification_failed", "Cairnline sidecar assignments.list did not return the expected temporary collaboration assignment.")
+	}
+	response.AssignmentID = strings.TrimSpace(assignment.ID)
+
+	createArtifact := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "create_artifact", "artifacts.create", false, map[string]string{
+		"project_id":      projectID,
+		"work_item_id":    response.WorkItemID,
+		"assignment_id":   response.AssignmentID,
+		"kind":            "diagnostic_note",
+		"title":           artifactTitle,
+		"body":            "Temporary artifact created by the Hecate sidecar collaboration smoke.",
+		"author_role_id":  response.AuthorRoleID,
+		"provenance_kind": "hecate_sidecar_smoke",
+		"trust_label":     "diagnostic",
+	})
+	if !appendStep(createArtifact) {
+		return response
+	}
+	if createArtifact.StructuredArtifact.Title != artifactTitle || createArtifact.StructuredArtifact.AssignmentID != response.AssignmentID {
+		return fail("sidecar_collaboration_artifact_create_verification_failed", "Cairnline sidecar artifacts.create did not return the expected temporary artifact.")
+	}
+	listArtifacts := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "list_artifacts_after_create", "artifacts.list", true, map[string]string{"project_id": projectID, "work_item_id": response.WorkItemID})
+	if !appendStep(listArtifacts) {
+		return response
+	}
+	artifact, ok := projectCairnlineSidecarArtifactByTitle(listArtifacts.StructuredArtifacts, artifactTitle)
+	if !ok || strings.TrimSpace(artifact.ID) == "" || artifact.AssignmentID != response.AssignmentID || artifact.Kind != "diagnostic_note" {
+		return fail("sidecar_collaboration_artifact_list_verification_failed", "Cairnline sidecar artifacts.list did not return the expected temporary artifact.")
+	}
+	getArtifact := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "get_artifact", "artifacts.get", true, map[string]string{"project_id": projectID, "work_item_id": response.WorkItemID, "artifact_id": artifact.ID})
+	if !appendStep(getArtifact) {
+		return response
+	}
+	if getArtifact.StructuredArtifact.ID != artifact.ID || getArtifact.StructuredArtifact.Title != artifactTitle {
+		return fail("sidecar_collaboration_artifact_get_verification_failed", "Cairnline sidecar artifacts.get did not return the expected temporary artifact.")
+	}
+	response.CreatedArtifact = getArtifact.StructuredArtifact
+
+	recordEvidence := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "record_evidence", "evidence.record", false, map[string]string{
+		"project_id":    projectID,
+		"work_item_id":  response.WorkItemID,
+		"assignment_id": response.AssignmentID,
+		"title":         evidenceTitle,
+		"body":          "Temporary evidence created by the Hecate sidecar collaboration smoke.",
+		"locator":       "file://hecate-sidecar-collaboration-smoke.md",
+		"source_kind":   "diagnostic",
+		"provider":      "hecate",
+		"trust_label":   "diagnostic",
+	})
+	if !appendStep(recordEvidence) {
+		return response
+	}
+	listEvidence := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "list_evidence_after_record", "evidence.list", true, map[string]string{"project_id": projectID, "work_item_id": response.WorkItemID})
+	if !appendStep(listEvidence) {
+		return response
+	}
+	evidence, ok := projectCairnlineSidecarEvidenceByTitle(listEvidence.StructuredEvidence, evidenceTitle)
+	if !ok || strings.TrimSpace(evidence.ID) == "" || evidence.AssignmentID != response.AssignmentID || evidence.Locator == "" {
+		return fail("sidecar_collaboration_evidence_list_verification_failed", "Cairnline sidecar evidence.list did not return the expected temporary evidence.")
+	}
+	getEvidence := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "get_evidence", "evidence.get", true, map[string]string{"project_id": projectID, "work_item_id": response.WorkItemID, "evidence_id": evidence.ID})
+	if !appendStep(getEvidence) {
+		return response
+	}
+	if getEvidence.StructuredEvidenceItem.ID != evidence.ID || getEvidence.StructuredEvidenceItem.Title != evidenceTitle {
+		return fail("sidecar_collaboration_evidence_get_verification_failed", "Cairnline sidecar evidence.get did not return the expected temporary evidence.")
+	}
+	response.CreatedEvidence = getEvidence.StructuredEvidenceItem
+
+	recordReview := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "record_review", "reviews.record", false, map[string]string{
+		"project_id":       projectID,
+		"work_item_id":     response.WorkItemID,
+		"assignment_id":    response.AssignmentID,
+		"reviewer_role_id": response.ReviewerRoleID,
+		"title":            reviewTitle,
+		"body":             "Temporary review created by the Hecate sidecar collaboration smoke.",
+		"verdict":          "approved",
+		"risk":             "low",
+	})
+	if !appendStep(recordReview) {
+		return response
+	}
+	listReviews := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "list_reviews_after_record", "reviews.list", true, map[string]string{"project_id": projectID, "work_item_id": response.WorkItemID})
+	if !appendStep(listReviews) {
+		return response
+	}
+	review, ok := projectCairnlineSidecarReviewByTitle(listReviews.StructuredReviews, reviewTitle)
+	if !ok || strings.TrimSpace(review.ID) == "" || review.AssignmentID != response.AssignmentID || review.ReviewerRoleID != response.ReviewerRoleID || review.Verdict != "approved" {
+		return fail("sidecar_collaboration_review_list_verification_failed", "Cairnline sidecar reviews.list did not return the expected temporary review.")
+	}
+	getReview := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "get_review", "reviews.get", true, map[string]string{"project_id": projectID, "work_item_id": response.WorkItemID, "review_id": review.ID})
+	if !appendStep(getReview) {
+		return response
+	}
+	if getReview.StructuredReview.ID != review.ID || getReview.StructuredReview.Title != reviewTitle || getReview.StructuredReview.Verdict != "approved" {
+		return fail("sidecar_collaboration_review_get_verification_failed", "Cairnline sidecar reviews.get did not return the expected temporary review.")
+	}
+	response.CreatedReview = getReview.StructuredReview
+
+	createHandoff := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "create_handoff", "handoffs.create", false, map[string]any{
+		"project_id":              projectID,
+		"work_item_id":            response.WorkItemID,
+		"source_assignment_id":    response.AssignmentID,
+		"from_role_id":            response.AuthorRoleID,
+		"to_role_id":              response.ReviewerRoleID,
+		"title":                   handoffTitle,
+		"body":                    "Temporary handoff created by the Hecate sidecar collaboration smoke.",
+		"recommended_next_action": "Delete this smoke project after verification.",
+		"linked_artifact_ids":     []string{response.CreatedArtifact.ID},
+		"context_refs":            []string{response.CreatedEvidence.ID, response.CreatedReview.ID},
+		"status":                  "open",
+		"provenance_kind":         "hecate_sidecar_smoke",
+		"trust_label":             "diagnostic",
+	})
+	if !appendStep(createHandoff) {
+		return response
+	}
+	listHandoffs := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "list_handoffs_after_create", "handoffs.list", true, map[string]string{"project_id": projectID, "work_item_id": response.WorkItemID})
+	if !appendStep(listHandoffs) {
+		return response
+	}
+	handoff, ok := projectCairnlineSidecarHandoffByTitle(listHandoffs.StructuredHandoffs, handoffTitle)
+	if !ok || strings.TrimSpace(handoff.ID) == "" || handoff.SourceAssignmentID != response.AssignmentID || handoff.FromRoleID != response.AuthorRoleID || handoff.ToRoleID != response.ReviewerRoleID || handoff.Status != "open" {
+		return fail("sidecar_collaboration_handoff_list_verification_failed", "Cairnline sidecar handoffs.list did not return the expected temporary handoff.")
+	}
+	getHandoff := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "get_handoff", "handoffs.get", true, map[string]string{"project_id": projectID, "work_item_id": response.WorkItemID, "handoff_id": handoff.ID})
+	if !appendStep(getHandoff) {
+		return response
+	}
+	if getHandoff.StructuredHandoff.ID != handoff.ID || getHandoff.StructuredHandoff.Title != handoffTitle || getHandoff.StructuredHandoff.Status != "open" {
+		return fail("sidecar_collaboration_handoff_get_verification_failed", "Cairnline sidecar handoffs.get did not return the expected temporary handoff.")
+	}
+	response.CreatedHandoff = getHandoff.StructuredHandoff
+
+	deleteProject := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "delete_project", "projects.delete", false, map[string]string{"id": projectID})
+	if !appendStep(deleteProject) {
+		return response
+	}
+	verifyDelete := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "get_after_project_delete", "projects.get", true, map[string]string{"id": projectID})
+	if verifyDelete.Status == "tool_failed" {
+		verifyDelete.Status = "expected_missing"
+		response.Steps = append(response.Steps, verifyDelete)
+		response.CleanupVerified = true
+		response.Ready = true
+		response.Status = "sidecar_collaboration_ready"
+		response.Detail = "Hecate created and verified temporary standalone Cairnline artifact, evidence, review, and handoff metadata through the persistent sidecar client, then deleted the temporary project. Hecate-native Projects stores were not mutated."
+		response.setSidecarCacheStats(cache.Stats())
+		return response
+	}
+	if !appendStep(verifyDelete) {
+		return response
+	}
+	return fail("sidecar_collaboration_project_delete_verification_failed", "Cairnline sidecar projects.delete succeeded, but projects.get still returned the temporary collaboration project.")
+}
+
 func projectCairnlineSidecarLifecycleShouldReleaseAfterFailure(steps []ProjectCairnlineSidecarLifecycleStep) bool {
 	claimed := false
 	for _, step := range steps {
@@ -2148,6 +2506,130 @@ func (h *Handler) callProjectCairnlineSidecarWriteTool(ctx context.Context, cfg 
 			step.ToolText = "Cairnline sidecar assignments.list did not return structuredContent; the work smoke needs typed assignments to verify coordination mutations."
 			return step
 		}
+	case "artifacts.list":
+		artifacts, structuredReady, structuredErr := projectCairnlineSidecarStructuredArtifacts(result.Result.StructuredContent)
+		step.StructuredReady = structuredReady
+		step.StructuredArtifacts = artifacts
+		step.StructuredArtifactCount = len(artifacts)
+		if structuredErr != nil {
+			step.StructuredParseError = structuredErr.Error()
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar artifacts.list returned structuredContent that Hecate could not parse as an artifact list: " + structuredErr.Error()
+			return step
+		}
+		if !structuredReady {
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar artifacts.list did not return structuredContent; the collaboration smoke needs typed artifacts to verify collaboration mutations."
+			return step
+		}
+	case "artifacts.create", "artifacts.get":
+		artifact, structuredReady, structuredErr := projectCairnlineSidecarStructuredArtifact(result.Result.StructuredContent)
+		step.StructuredReady = structuredReady
+		step.StructuredArtifact = artifact
+		if structuredErr != nil {
+			step.StructuredParseError = structuredErr.Error()
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar " + tool + " returned structuredContent that Hecate could not parse as an artifact: " + structuredErr.Error()
+			return step
+		}
+		if !structuredReady {
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar " + tool + " did not return structuredContent; the collaboration smoke needs typed artifact detail to verify collaboration mutations."
+			return step
+		}
+	case "evidence.list":
+		evidence, structuredReady, structuredErr := projectCairnlineSidecarStructuredEvidence(result.Result.StructuredContent)
+		step.StructuredReady = structuredReady
+		step.StructuredEvidence = evidence
+		step.StructuredEvidenceCount = len(evidence)
+		if structuredErr != nil {
+			step.StructuredParseError = structuredErr.Error()
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar evidence.list returned structuredContent that Hecate could not parse as an evidence list: " + structuredErr.Error()
+			return step
+		}
+		if !structuredReady {
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar evidence.list did not return structuredContent; the collaboration smoke needs typed evidence to verify collaboration mutations."
+			return step
+		}
+	case "evidence.get":
+		evidence, structuredReady, structuredErr := projectCairnlineSidecarStructuredEvidenceItem(result.Result.StructuredContent)
+		step.StructuredReady = structuredReady
+		step.StructuredEvidenceItem = evidence
+		if structuredErr != nil {
+			step.StructuredParseError = structuredErr.Error()
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar evidence.get returned structuredContent that Hecate could not parse as evidence: " + structuredErr.Error()
+			return step
+		}
+		if !structuredReady {
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar evidence.get did not return structuredContent; the collaboration smoke needs typed evidence detail to verify collaboration mutations."
+			return step
+		}
+	case "reviews.list":
+		reviews, structuredReady, structuredErr := projectCairnlineSidecarStructuredReviews(result.Result.StructuredContent)
+		step.StructuredReady = structuredReady
+		step.StructuredReviews = reviews
+		step.StructuredReviewCount = len(reviews)
+		if structuredErr != nil {
+			step.StructuredParseError = structuredErr.Error()
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar reviews.list returned structuredContent that Hecate could not parse as a review list: " + structuredErr.Error()
+			return step
+		}
+		if !structuredReady {
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar reviews.list did not return structuredContent; the collaboration smoke needs typed reviews to verify collaboration mutations."
+			return step
+		}
+	case "reviews.get":
+		review, structuredReady, structuredErr := projectCairnlineSidecarStructuredReview(result.Result.StructuredContent)
+		step.StructuredReady = structuredReady
+		step.StructuredReview = review
+		if structuredErr != nil {
+			step.StructuredParseError = structuredErr.Error()
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar reviews.get returned structuredContent that Hecate could not parse as a review: " + structuredErr.Error()
+			return step
+		}
+		if !structuredReady {
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar reviews.get did not return structuredContent; the collaboration smoke needs typed review detail to verify collaboration mutations."
+			return step
+		}
+	case "handoffs.list":
+		handoffs, structuredReady, structuredErr := projectCairnlineSidecarStructuredHandoffs(result.Result.StructuredContent)
+		step.StructuredReady = structuredReady
+		step.StructuredHandoffs = handoffs
+		step.StructuredHandoffCount = len(handoffs)
+		if structuredErr != nil {
+			step.StructuredParseError = structuredErr.Error()
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar handoffs.list returned structuredContent that Hecate could not parse as a handoff list: " + structuredErr.Error()
+			return step
+		}
+		if !structuredReady {
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar handoffs.list did not return structuredContent; the collaboration smoke needs typed handoffs to verify collaboration mutations."
+			return step
+		}
+	case "handoffs.get":
+		handoff, structuredReady, structuredErr := projectCairnlineSidecarStructuredHandoff(result.Result.StructuredContent)
+		step.StructuredReady = structuredReady
+		step.StructuredHandoff = handoff
+		if structuredErr != nil {
+			step.StructuredParseError = structuredErr.Error()
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar handoffs.get returned structuredContent that Hecate could not parse as a handoff: " + structuredErr.Error()
+			return step
+		}
+		if !structuredReady {
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar handoffs.get did not return structuredContent; the collaboration smoke needs typed handoff detail to verify collaboration mutations."
+			return step
+		}
 	case "assignments.context":
 		contextIDs, structuredReady, structuredErr := projectCairnlineSidecarStructuredAssignmentContextIDs(result.Result.StructuredContent)
 		step.StructuredReady = structuredReady
@@ -2299,6 +2781,46 @@ func projectCairnlineSidecarAssignmentByWorkAndRole(assignments []ProjectCairnli
 	return ProjectCairnlineSidecarAssignmentItem{}, false
 }
 
+func projectCairnlineSidecarArtifactByTitle(artifacts []ProjectCairnlineSidecarArtifactItem, title string) (ProjectCairnlineSidecarArtifactItem, bool) {
+	title = strings.TrimSpace(title)
+	for _, artifact := range artifacts {
+		if strings.TrimSpace(artifact.Title) == title {
+			return artifact, true
+		}
+	}
+	return ProjectCairnlineSidecarArtifactItem{}, false
+}
+
+func projectCairnlineSidecarEvidenceByTitle(items []ProjectCairnlineSidecarEvidenceItem, title string) (ProjectCairnlineSidecarEvidenceItem, bool) {
+	title = strings.TrimSpace(title)
+	for _, item := range items {
+		if strings.TrimSpace(item.Title) == title {
+			return item, true
+		}
+	}
+	return ProjectCairnlineSidecarEvidenceItem{}, false
+}
+
+func projectCairnlineSidecarReviewByTitle(reviews []ProjectCairnlineSidecarReviewItem, title string) (ProjectCairnlineSidecarReviewItem, bool) {
+	title = strings.TrimSpace(title)
+	for _, review := range reviews {
+		if strings.TrimSpace(review.Title) == title {
+			return review, true
+		}
+	}
+	return ProjectCairnlineSidecarReviewItem{}, false
+}
+
+func projectCairnlineSidecarHandoffByTitle(handoffs []ProjectCairnlineSidecarHandoffItem, title string) (ProjectCairnlineSidecarHandoffItem, bool) {
+	title = strings.TrimSpace(title)
+	for _, handoff := range handoffs {
+		if strings.TrimSpace(handoff.Title) == title {
+			return handoff, true
+		}
+	}
+	return ProjectCairnlineSidecarHandoffItem{}, false
+}
+
 func projectCairnlineSidecarStructuredProject(raw json.RawMessage) (ProjectCairnlineSidecarProjectItem, bool, error) {
 	if len(raw) == 0 {
 		return ProjectCairnlineSidecarProjectItem{}, false, nil
@@ -2447,6 +2969,150 @@ func projectCairnlineSidecarStructuredAssignments(raw json.RawMessage) ([]Projec
 		assignments = []ProjectCairnlineSidecarAssignmentItem{}
 	}
 	return assignments, true, nil
+}
+
+func projectCairnlineSidecarStructuredArtifacts(raw json.RawMessage) ([]ProjectCairnlineSidecarArtifactItem, bool, error) {
+	if len(raw) == 0 {
+		return nil, false, nil
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return nil, false, nil
+	}
+	if bytes.Equal(trimmed, []byte("null")) {
+		return []ProjectCairnlineSidecarArtifactItem{}, true, nil
+	}
+	var artifacts []ProjectCairnlineSidecarArtifactItem
+	if err := json.Unmarshal(trimmed, &artifacts); err != nil {
+		return nil, false, err
+	}
+	if artifacts == nil {
+		artifacts = []ProjectCairnlineSidecarArtifactItem{}
+	}
+	return artifacts, true, nil
+}
+
+func projectCairnlineSidecarStructuredArtifact(raw json.RawMessage) (ProjectCairnlineSidecarArtifactItem, bool, error) {
+	if len(raw) == 0 {
+		return ProjectCairnlineSidecarArtifactItem{}, false, nil
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return ProjectCairnlineSidecarArtifactItem{}, false, nil
+	}
+	var artifact ProjectCairnlineSidecarArtifactItem
+	if err := json.Unmarshal(trimmed, &artifact); err != nil {
+		return ProjectCairnlineSidecarArtifactItem{}, false, err
+	}
+	return artifact, true, nil
+}
+
+func projectCairnlineSidecarStructuredEvidence(raw json.RawMessage) ([]ProjectCairnlineSidecarEvidenceItem, bool, error) {
+	if len(raw) == 0 {
+		return nil, false, nil
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return nil, false, nil
+	}
+	if bytes.Equal(trimmed, []byte("null")) {
+		return []ProjectCairnlineSidecarEvidenceItem{}, true, nil
+	}
+	var items []ProjectCairnlineSidecarEvidenceItem
+	if err := json.Unmarshal(trimmed, &items); err != nil {
+		return nil, false, err
+	}
+	if items == nil {
+		items = []ProjectCairnlineSidecarEvidenceItem{}
+	}
+	return items, true, nil
+}
+
+func projectCairnlineSidecarStructuredEvidenceItem(raw json.RawMessage) (ProjectCairnlineSidecarEvidenceItem, bool, error) {
+	if len(raw) == 0 {
+		return ProjectCairnlineSidecarEvidenceItem{}, false, nil
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return ProjectCairnlineSidecarEvidenceItem{}, false, nil
+	}
+	var item ProjectCairnlineSidecarEvidenceItem
+	if err := json.Unmarshal(trimmed, &item); err != nil {
+		return ProjectCairnlineSidecarEvidenceItem{}, false, err
+	}
+	return item, true, nil
+}
+
+func projectCairnlineSidecarStructuredReviews(raw json.RawMessage) ([]ProjectCairnlineSidecarReviewItem, bool, error) {
+	if len(raw) == 0 {
+		return nil, false, nil
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return nil, false, nil
+	}
+	if bytes.Equal(trimmed, []byte("null")) {
+		return []ProjectCairnlineSidecarReviewItem{}, true, nil
+	}
+	var reviews []ProjectCairnlineSidecarReviewItem
+	if err := json.Unmarshal(trimmed, &reviews); err != nil {
+		return nil, false, err
+	}
+	if reviews == nil {
+		reviews = []ProjectCairnlineSidecarReviewItem{}
+	}
+	return reviews, true, nil
+}
+
+func projectCairnlineSidecarStructuredReview(raw json.RawMessage) (ProjectCairnlineSidecarReviewItem, bool, error) {
+	if len(raw) == 0 {
+		return ProjectCairnlineSidecarReviewItem{}, false, nil
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return ProjectCairnlineSidecarReviewItem{}, false, nil
+	}
+	var review ProjectCairnlineSidecarReviewItem
+	if err := json.Unmarshal(trimmed, &review); err != nil {
+		return ProjectCairnlineSidecarReviewItem{}, false, err
+	}
+	return review, true, nil
+}
+
+func projectCairnlineSidecarStructuredHandoffs(raw json.RawMessage) ([]ProjectCairnlineSidecarHandoffItem, bool, error) {
+	if len(raw) == 0 {
+		return nil, false, nil
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return nil, false, nil
+	}
+	if bytes.Equal(trimmed, []byte("null")) {
+		return []ProjectCairnlineSidecarHandoffItem{}, true, nil
+	}
+	var handoffs []ProjectCairnlineSidecarHandoffItem
+	if err := json.Unmarshal(trimmed, &handoffs); err != nil {
+		return nil, false, err
+	}
+	if handoffs == nil {
+		handoffs = []ProjectCairnlineSidecarHandoffItem{}
+	}
+	return handoffs, true, nil
+}
+
+func projectCairnlineSidecarStructuredHandoff(raw json.RawMessage) (ProjectCairnlineSidecarHandoffItem, bool, error) {
+	if len(raw) == 0 {
+		return ProjectCairnlineSidecarHandoffItem{}, false, nil
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return ProjectCairnlineSidecarHandoffItem{}, false, nil
+	}
+	var handoff ProjectCairnlineSidecarHandoffItem
+	if err := json.Unmarshal(trimmed, &handoff); err != nil {
+		return ProjectCairnlineSidecarHandoffItem{}, false, err
+	}
+	return handoff, true, nil
 }
 
 func projectCairnlineSidecarStructuredAssignmentContextIDs(raw json.RawMessage) (ProjectCairnlineSidecarAssignmentContextIDs, bool, error) {
@@ -2708,6 +3374,15 @@ func (r *ProjectCairnlineSidecarSetupResponse) setSidecarCacheStats(stats mcpcli
 }
 
 func (r *ProjectCairnlineSidecarWorkResponse) setSidecarCacheStats(stats mcpclient.CacheStats) {
+	if r == nil {
+		return
+	}
+	r.ClientCacheEntries = stats.Entries
+	r.ClientCacheInUse = stats.InUse
+	r.ClientCacheIdle = stats.Idle
+}
+
+func (r *ProjectCairnlineSidecarCollaborationResponse) setSidecarCacheStats(stats mcpclient.CacheStats) {
 	if r == nil {
 		return
 	}
