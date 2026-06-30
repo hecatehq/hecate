@@ -1353,6 +1353,54 @@ func TestProjectWorkAPI_MirrorsRoleAndWorkItemMutationsToCairnlineWhenConfigured
 	}
 }
 
+func TestProjectWorkAPI_RolesUseCairnlineSidecarWhenConfigured(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "full")
+	if handler.projectReadRoutesUseCairnlineReadModel() {
+		t.Fatal("sidecar role list enabled embedded Cairnline read-model routes")
+	}
+	if !handler.projectCairnlineSidecarReadRoutesEnabled() {
+		t.Fatal("sidecar read-route predicate = false, want true")
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/roles", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("roles status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response ProjectWorkRolesResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode roles response: %v", err)
+	}
+	if response.Object != "project_roles" {
+		t.Fatalf("roles object = %q, want project_roles", response.Object)
+	}
+	role := findProjectWorkRoleForTest(t, response.Data, "role_fixture")
+	if role.ProjectID != "proj_fixture" || role.ReadBackend != "cairnline" || role.BuiltIn {
+		t.Fatalf("role = %+v, want sidecar Cairnline non-built-in fixture role", role)
+	}
+	if role.Name != "Fixture Reviewer" || role.DefaultDriverKind != "mcp_pull" || role.DefaultAgentProfile != "profile_fixture" {
+		t.Fatalf("role defaults = %+v, want portable sidecar role defaults", role)
+	}
+	if !reflect.DeepEqual(role.SkillIDs, []string{"skill_fixture"}) {
+		t.Fatalf("role skill ids = %+v, want fixture skill id", role.SkillIDs)
+	}
+}
+
+func TestProjectWorkAPI_RolesCairnlineSidecarReadRequiresStructuredContent(t *testing.T) {
+	t.Parallel()
+	_, server := newProjectsCairnlineSidecarReadTestServer(t, "text-only")
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/roles", nil))
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("roles status = %d body=%s, want 502", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "structuredContent") {
+		t.Fatalf("error body = %s, want structuredContent diagnostic", rec.Body.String())
+	}
+}
+
 func TestProjectWorkAPI_CreateHandoffGeneratesOpaqueHandoffID(t *testing.T) {
 	t.Parallel()
 	_, server := newProjectWorkTestServer()
