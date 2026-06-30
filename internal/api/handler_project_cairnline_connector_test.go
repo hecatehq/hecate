@@ -197,11 +197,43 @@ func TestProjectCairnlineSidecarReadSmoke_ProjectsListUsesPersistentClientCache(
 	if !strings.Contains(got.ToolText, "proj_fixture") {
 		t.Fatalf("tool text = %q, want fixture project evidence", got.ToolText)
 	}
+	if !got.StructuredReady || got.StructuredProjectCount != 1 {
+		t.Fatalf("structured readiness/count = %t/%d, want ready with one project", got.StructuredReady, got.StructuredProjectCount)
+	}
+	if len(got.StructuredProjects) != 1 || got.StructuredProjects[0].ID != "proj_fixture" || got.StructuredProjects[0].Name != "Fixture Project" {
+		t.Fatalf("structured projects = %+v, want fixture project", got.StructuredProjects)
+	}
+	if len(got.StructuredProjects[0].Roots) != 1 || got.StructuredProjects[0].Roots[0].ID != "root_fixture" {
+		t.Fatalf("structured roots = %+v, want fixture root", got.StructuredProjects[0].Roots)
+	}
 	if !got.PersistentClient || !got.ClientCacheConfigured {
 		t.Fatalf("read smoke persistent/cache flags = persistent:%t configured:%t, want true/true", got.PersistentClient, got.ClientCacheConfigured)
 	}
 	if got.ClientCacheEntries != 1 || got.ClientCacheInUse != 0 || got.ClientCacheIdle != 1 {
 		t.Fatalf("cache stats = entries:%d in_use:%d idle:%d, want 1/0/1", got.ClientCacheEntries, got.ClientCacheInUse, got.ClientCacheIdle)
+	}
+}
+
+func TestProjectCairnlineSidecarReadSmoke_TextOnlyProjectsListWarns(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "text-only"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarReadSmoke(t.Context())
+	if !got.Ready || got.Status != "sidecar_read_ready" {
+		t.Fatalf("read smoke = %+v, want tool-call ready", got)
+	}
+	if got.StructuredReady || got.StructuredProjectCount != 0 || len(got.StructuredProjects) != 0 {
+		t.Fatalf("structured fields = ready:%t count:%d projects:%+v, want text-only downgrade", got.StructuredReady, got.StructuredProjectCount, got.StructuredProjects)
+	}
+	if !strings.Contains(strings.Join(got.Warnings, "\n"), "Cairnline sidecar projects.list did not return structuredContent") {
+		t.Fatalf("warnings = %+v, want missing structuredContent warning", got.Warnings)
 	}
 }
 

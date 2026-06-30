@@ -111,8 +111,37 @@ func cairnlineSidecarFixtureCallTool(mode string, params mcp.CallToolParams) (mc
 				IsError: true,
 			}, nil
 		}
-		return mcp.CallToolResult{Content: mcp.TextContent("Projects (1):\n- proj_fixture: Fixture Project")}, nil
+		result := mcp.CallToolResult{Content: mcp.TextContent("Projects (1):\n- proj_fixture: Fixture Project")}
+		if mode != "text-only" {
+			result.StructuredContent = mustRawJSON([]ProjectCairnlineSidecarProjectItem{{
+				ID:          "proj_fixture",
+				Name:        "Fixture Project",
+				Description: "Structured fixture project",
+				Roots: []ProjectCairnlineSidecarRootItem{{
+					ID:     "root_fixture",
+					Path:   "/workspace/fixture",
+					Kind:   "local",
+					Active: true,
+				}},
+				ContextSources: []ProjectCairnlineSidecarSourceItem{{
+					ID:      "src_fixture",
+					Kind:    "workspace_instruction",
+					Title:   "AGENTS.md",
+					Locator: "AGENTS.md",
+					Enabled: true,
+				}},
+			}})
+		}
+		return result, nil
 	default:
 		return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeMethodNotFound, params.Name)
 	}
+}
+
+func mustRawJSON(value any) json.RawMessage {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
+	}
+	return raw
 }

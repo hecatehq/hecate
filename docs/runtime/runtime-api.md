@@ -2775,6 +2775,11 @@ arguments. This proves Hecate can perform a real MCP tool call through the
 persistent standalone Cairnline sidecar. It is diagnostic only: Hecate still
 keeps live Projects reads, writes, mirrors, dispatch, approvals, and
 write-authority switchpoints on Hecate-native stores in sidecar mode.
+`ready=true` means the MCP tool call succeeded. `structured_ready=true` means
+Hecate also parsed `projects.list` `structuredContent` as typed project-list
+data, which is the contract a future sidecar read adapter would consume.
+Text-only sidecars can still be `ready=true`, but return a warning and
+`structured_ready=false`.
 
 The response reports:
 
@@ -2784,6 +2789,10 @@ The response reports:
   than a transport/protocol error.
 - `structured_content` and `_meta` when the MCP result carries those optional
   fields.
+- `structured_ready`, `structured_project_count`, and `structured_projects`
+  with the typed project-list data Hecate parsed from `structuredContent`.
+- `structured_parse_error` when `structuredContent` was present but did not
+  match the expected project-list shape.
 - The same persistent-client cache counters as `sidecar-connect`.
 
 Example response, shortened:
@@ -2808,6 +2817,23 @@ Example response, shortened:
     "read_only": true,
     "tool_text": "Projects (1):\n- proj_123: Example Project",
     "tool_is_error": false,
+    "structured_ready": true,
+    "structured_project_count": 1,
+    "structured_projects": [
+      {
+        "id": "proj_123",
+        "name": "Example Project",
+        "description": "Portable coordination state",
+        "roots": [
+          {
+            "id": "root_main",
+            "path": "/Users/alice/projects/example",
+            "kind": "local",
+            "active": true
+          }
+        ]
+      }
+    ],
     "warnings": []
   }
 }
