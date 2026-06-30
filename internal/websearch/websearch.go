@@ -1,6 +1,7 @@
 package websearch
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -13,10 +14,17 @@ import (
 
 const (
 	ProviderBrave            = "brave"
+	ProviderTavily           = "tavily"
+	ProviderExa              = "exa"
 	DefaultBraveEndpoint     = "https://api.search.brave.com/res/v1/web/search"
+	DefaultTavilyEndpoint    = "https://api.tavily.com/search"
+	DefaultExaEndpoint       = "https://api.exa.ai/search"
 	DefaultMaxResults        = 5
 	DefaultExtraSnippetLimit = 3
 	BraveMaxResults          = 20
+	TavilyMaxResults         = 20
+	ExaMaxResults            = 20
+	DefaultTimeout           = 15 * time.Second
 )
 
 type Config struct {
@@ -31,7 +39,12 @@ type Config struct {
 }
 
 func (c Config) Enabled() bool {
-	return strings.EqualFold(strings.TrimSpace(c.Provider), ProviderBrave) && strings.TrimSpace(c.APIKey) != ""
+	switch c.NormalizedProvider() {
+	case ProviderBrave, ProviderTavily, ProviderExa:
+		return strings.TrimSpace(c.APIKey) != ""
+	default:
+		return false
+	}
 }
 
 func (c Config) NormalizedProvider() string {
@@ -74,9 +87,19 @@ func NewClient(cfg Config) (Client, error) {
 		return nil, nil
 	case ProviderBrave:
 		if strings.TrimSpace(cfg.APIKey) == "" {
-			return nil, fmt.Errorf("web search provider brave requires HECATE_TASK_WEB_SEARCH_API_KEY or BRAVE_SEARCH_API_KEY")
+			return nil, fmt.Errorf("web search provider brave requires HECATE_TASK_WEB_SEARCH_API_KEY or provider-specific API key alias")
 		}
 		return NewBraveClient(cfg), nil
+	case ProviderTavily:
+		if strings.TrimSpace(cfg.APIKey) == "" {
+			return nil, fmt.Errorf("web search provider tavily requires HECATE_TASK_WEB_SEARCH_API_KEY or provider-specific API key alias")
+		}
+		return NewTavilyClient(cfg), nil
+	case ProviderExa:
+		if strings.TrimSpace(cfg.APIKey) == "" {
+			return nil, fmt.Errorf("web search provider exa requires HECATE_TASK_WEB_SEARCH_API_KEY or provider-specific API key alias")
+		}
+		return NewExaClient(cfg), nil
 	default:
 		return nil, fmt.Errorf("unsupported web search provider %q", cfg.Provider)
 	}
@@ -99,7 +122,7 @@ func NewBraveClient(cfg Config) *BraveClient {
 	}
 	timeout := cfg.Timeout
 	if timeout <= 0 {
-		timeout = 15 * time.Second
+		timeout = DefaultTimeout
 	}
 	maxResults := cfg.MaxResults
 	if maxResults <= 0 {
@@ -222,6 +245,265 @@ func (c *BraveClient) count(requested int) int {
 	return requested
 }
 
+type TavilyClient struct {
+	apiKey     string
+	endpoint   string
+	httpClient *http.Client
+	maxResults int
+}
+
+func NewTavilyClient(cfg Config) *TavilyClient {
+	endpoint := strings.TrimSpace(cfg.Endpoint)
+	if endpoint == "" {
+		endpoint = DefaultTavilyEndpoint
+	}
+	timeout := cfg.Timeout
+	if timeout <= 0 {
+		timeout = DefaultTimeout
+	}
+	maxResults := cfg.MaxResults
+	if maxResults <= 0 {
+		maxResults = DefaultMaxResults
+	}
+	if maxResults > TavilyMaxResults {
+		maxResults = TavilyMaxResults
+	}
+	return &TavilyClient{
+		apiKey:     strings.TrimSpace(cfg.APIKey),
+		endpoint:   endpoint,
+		httpClient: &http.Client{Timeout: timeout},
+		maxResults: maxResults,
+	}
+}
+
+func (c *TavilyClient) Search(ctx context.Context, query Query) (Response, error) {
+	if c == nil {
+		return Response{}, fmt.Errorf("web search client is not configured")
+	}
+	q := strings.TrimSpace(query.Query)
+	if q == "" {
+		return Response{}, fmt.Errorf("query is required")
+	}
+	resultLimit := c.count(query.Count)
+	body := map[string]any{
+		"query":          q,
+		"max_results":    resultLimit,
+		"search_depth":   "basic",
+		"include_answer": false,
+	}
+	if timeRange := tavilyTimeRange(query.Freshness); timeRange != "" {
+		body["time_range"] = timeRange
+	}
+	rawReq, err := json.Marshal(body)
+	if err != nil {
+		return Response{}, fmt.Errorf("encode Tavily Search request: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(rawReq))
+	if err != nil {
+		return Response{}, fmt.Errorf("build Tavily Search request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return Response{}, err
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	if err != nil {
+		return Response{}, fmt.Errorf("read Tavily Search response: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body := strings.TrimSpace(string(raw))
+		if body == "" {
+			body = resp.Status
+		}
+		return Response{}, fmt.Errorf("Tavily Search returned %s: %s", resp.Status, body)
+	}
+
+	var payload tavilySearchResponse
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return Response{}, fmt.Errorf("decode Tavily Search response: %w", err)
+	}
+	results := make([]Result, 0, len(payload.Results))
+	for _, item := range payload.Results {
+		if len(results) >= resultLimit {
+			break
+		}
+		title := strings.TrimSpace(item.Title)
+		urlStr := strings.TrimSpace(item.URL)
+		if title == "" && urlStr == "" {
+			continue
+		}
+		results = append(results, Result{
+			Title:       title,
+			URL:         urlStr,
+			Description: strings.TrimSpace(item.Content),
+		})
+	}
+	original := strings.TrimSpace(payload.Query)
+	if original == "" {
+		original = q
+	}
+	return Response{
+		Provider: ProviderTavily,
+		Query:    original,
+		Results:  results,
+	}, nil
+}
+
+func (c *TavilyClient) count(requested int) int {
+	if requested <= 0 {
+		return c.maxResults
+	}
+	if requested > c.maxResults {
+		return c.maxResults
+	}
+	return requested
+}
+
+type tavilySearchResponse struct {
+	Query   string `json:"query"`
+	Results []struct {
+		Title   string `json:"title"`
+		URL     string `json:"url"`
+		Content string `json:"content"`
+	} `json:"results"`
+}
+
+type ExaClient struct {
+	apiKey     string
+	endpoint   string
+	httpClient *http.Client
+	maxResults int
+	country    string
+}
+
+func NewExaClient(cfg Config) *ExaClient {
+	endpoint := strings.TrimSpace(cfg.Endpoint)
+	if endpoint == "" {
+		endpoint = DefaultExaEndpoint
+	}
+	timeout := cfg.Timeout
+	if timeout <= 0 {
+		timeout = DefaultTimeout
+	}
+	maxResults := cfg.MaxResults
+	if maxResults <= 0 {
+		maxResults = DefaultMaxResults
+	}
+	if maxResults > ExaMaxResults {
+		maxResults = ExaMaxResults
+	}
+	return &ExaClient{
+		apiKey:     strings.TrimSpace(cfg.APIKey),
+		endpoint:   endpoint,
+		httpClient: &http.Client{Timeout: timeout},
+		maxResults: maxResults,
+		country:    strings.TrimSpace(cfg.Country),
+	}
+}
+
+func (c *ExaClient) Search(ctx context.Context, query Query) (Response, error) {
+	if c == nil {
+		return Response{}, fmt.Errorf("web search client is not configured")
+	}
+	q := strings.TrimSpace(query.Query)
+	if q == "" {
+		return Response{}, fmt.Errorf("query is required")
+	}
+	resultLimit := c.count(query.Count)
+	body := map[string]any{
+		"query":      q,
+		"numResults": resultLimit,
+		"contents": map[string]any{
+			"highlights": true,
+		},
+	}
+	if country := strings.TrimSpace(firstNonEmpty(query.Country, c.country)); country != "" {
+		body["userLocation"] = strings.ToUpper(country)
+	}
+	rawReq, err := json.Marshal(body)
+	if err != nil {
+		return Response{}, fmt.Errorf("encode Exa Search request: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(rawReq))
+	if err != nil {
+		return Response{}, fmt.Errorf("build Exa Search request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", c.apiKey)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return Response{}, err
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	if err != nil {
+		return Response{}, fmt.Errorf("read Exa Search response: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body := strings.TrimSpace(string(raw))
+		if body == "" {
+			body = resp.Status
+		}
+		return Response{}, fmt.Errorf("Exa Search returned %s: %s", resp.Status, body)
+	}
+
+	var payload exaSearchResponse
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return Response{}, fmt.Errorf("decode Exa Search response: %w", err)
+	}
+	results := make([]Result, 0, len(payload.Results))
+	for _, item := range payload.Results {
+		if len(results) >= resultLimit {
+			break
+		}
+		title := strings.TrimSpace(item.Title)
+		urlStr := strings.TrimSpace(item.URL)
+		if title == "" && urlStr == "" {
+			continue
+		}
+		results = append(results, Result{
+			Title:         title,
+			URL:           urlStr,
+			Description:   strings.TrimSpace(firstNonEmpty(item.Summary, item.Text)),
+			ExtraSnippets: trimNonEmpty(item.Highlights, DefaultExtraSnippetLimit),
+			Age:           strings.TrimSpace(item.PublishedDate),
+		})
+	}
+	return Response{
+		Provider: ProviderExa,
+		Query:    q,
+		Results:  results,
+	}, nil
+}
+
+func (c *ExaClient) count(requested int) int {
+	if requested <= 0 {
+		return c.maxResults
+	}
+	if requested > c.maxResults {
+		return c.maxResults
+	}
+	return requested
+}
+
+type exaSearchResponse struct {
+	Results []struct {
+		Title         string   `json:"title"`
+		URL           string   `json:"url"`
+		Text          string   `json:"text"`
+		Summary       string   `json:"summary"`
+		Highlights    []string `json:"highlights"`
+		PublishedDate string   `json:"publishedDate"`
+	} `json:"results"`
+}
+
 type braveWebSearchResponse struct {
 	Query struct {
 		Original             string `json:"original"`
@@ -269,4 +551,19 @@ func trimNonEmpty(values []string, limit int) []string {
 		}
 	}
 	return out
+}
+
+func tavilyTimeRange(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "pd", "d", "day":
+		return "day"
+	case "pw", "w", "week":
+		return "week"
+	case "pm", "m", "month":
+		return "month"
+	case "py", "y", "year":
+		return "year"
+	default:
+		return ""
+	}
 }

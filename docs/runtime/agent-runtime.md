@@ -149,8 +149,8 @@ Three things bound the loop:
 
 The agent gets eighteen tools by default. None require operator config beyond
 the approval policies; `http_request` reads the network policy from env.
-When `HECATE_TASK_WEB_SEARCH_PROVIDER=brave` and an API key are configured, the
-agent gets one additional built-in web-search tool.
+When `HECATE_TASK_WEB_SEARCH_PROVIDER` is `brave`, `tavily`, or `exa` and an API
+key is configured, the agent gets one additional built-in web-search tool.
 Project-linked Hecate Chat task-backed runs receive one additional
 proposal-only tool.
 
@@ -202,10 +202,10 @@ run reaches a terminal state or is cancelled.
 
 In addition to the built-ins, an `agent_loop` task can declare external MCP servers on the `mcp_servers` task field. Their tools join the LLM's catalog at run start under `mcp__<server>__<tool>` aliases — for example a `read_file` tool on a server aliased `fs` becomes `mcp__fs__read_file`. Approval gating is per-server (`auto` / `require_approval` / `block`), distinct from the built-in approval policy axis.
 
-Use MCP for search providers beyond the built-in Brave adapter, or when the
-search server needs organization-specific credentials, ranking, or retrieval
-logic. The native `web_search` tool deliberately returns search results only;
-fetching a result URL still goes through `http_request` and its HTTP policy.
+Use MCP when a search server needs organization-specific credentials, ranking,
+or retrieval logic beyond Hecate's configured native provider. The native
+`web_search` tool deliberately returns search results only; fetching a result
+URL still goes through `http_request` and its HTTP policy.
 
 See [`mcp.md#hecate-as-mcp-client`](mcp.md#hecate-as-mcp-client) for the full schema, transports (stdio + Streamable HTTP), secret-aware `env` / `headers`, lifecycle / caching contract, and dry-run probe.
 
@@ -361,24 +361,24 @@ The conversation viewer in the run-replay UI shows a `↻ retry from here` butto
 
 Env vars that affect agent_loop runs:
 
-| Variable                              | Default            | What it does                                                                                                      |
-| ------------------------------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------- |
-| `HECATE_TASK_AGENT_LOOP_MAX_TURNS`    | `8`                | Hard ceiling on LLM round-trips per run                                                                           |
-| `HECATE_TASK_AGENT_SYSTEM_PROMPT`     | `""`               | Global (broadest) layer of the three-layer system prompt                                                          |
-| `HECATE_TASK_HTTP_TIMEOUT`            | `30s`              | Timeout for the `http_request` tool                                                                               |
-| `HECATE_TASK_HTTP_MAX_RESPONSE_BYTES` | `262144` (256 KiB) | Response size cap for `http_request`                                                                              |
-| `HECATE_TASK_HTTP_ALLOW_PRIVATE_IPS`  | `false`            | When `false`, blocks loopback / RFC1918 / link-local destinations                                                 |
-| `HECATE_TASK_HTTP_ALLOWED_HOSTS`      | `""`               | Comma-separated exact-host allowlist; empty = all public hosts                                                    |
-| `HECATE_TASK_WEB_SEARCH_PROVIDER`     | `""`               | Empty disables native web search. `brave` enables the `web_search` tool                                           |
-| `HECATE_TASK_WEB_SEARCH_API_KEY`      | `""`               | API key for the configured search provider. `BRAVE_SEARCH_API_KEY` is also accepted for Brave                     |
-| `HECATE_TASK_WEB_SEARCH_ENDPOINT`     | provider default   | Optional provider endpoint override, mostly for tests or private proxies                                          |
-| `HECATE_TASK_WEB_SEARCH_TIMEOUT`      | `15s`              | Timeout for the search-provider request                                                                           |
-| `HECATE_TASK_WEB_SEARCH_MAX_RESULTS`  | `5`                | Maximum results returned per `web_search` call, capped by the provider limit                                      |
-| `HECATE_TASK_WEB_SEARCH_SAFE_SEARCH`  | `moderate`         | Provider safe-search default (`off`, `moderate`, or `strict` for Brave)                                           |
-| `HECATE_TASK_WEB_SEARCH_COUNTRY`      | `""`               | Optional default country code for searches                                                                        |
-| `HECATE_TASK_WEB_SEARCH_SEARCH_LANG`  | `""`               | Optional default search language                                                                                  |
-| `HECATE_TASK_SHELL_ALLOW_PRIVATE_IPS` | `false`            | Same private-IP block, applied to URLs in shell_exec / git_exec commands when the task has `sandbox_network=true` |
-| `HECATE_TASK_SHELL_ALLOWED_HOSTS`     | `""`               | Same exact-host allowlist, applied to shell_exec / git_exec command URLs                                          |
+| Variable                              | Default            | What it does                                                                                                          |
+| ------------------------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| `HECATE_TASK_AGENT_LOOP_MAX_TURNS`    | `8`                | Hard ceiling on LLM round-trips per run                                                                               |
+| `HECATE_TASK_AGENT_SYSTEM_PROMPT`     | `""`               | Global (broadest) layer of the three-layer system prompt                                                              |
+| `HECATE_TASK_HTTP_TIMEOUT`            | `30s`              | Timeout for the `http_request` tool                                                                                   |
+| `HECATE_TASK_HTTP_MAX_RESPONSE_BYTES` | `262144` (256 KiB) | Response size cap for `http_request`                                                                                  |
+| `HECATE_TASK_HTTP_ALLOW_PRIVATE_IPS`  | `false`            | When `false`, blocks loopback / RFC1918 / link-local destinations                                                     |
+| `HECATE_TASK_HTTP_ALLOWED_HOSTS`      | `""`               | Comma-separated exact-host allowlist; empty = all public hosts                                                        |
+| `HECATE_TASK_WEB_SEARCH_PROVIDER`     | `""`               | Empty disables native web search. Supported values: `brave`, `tavily`, `exa`                                          |
+| `HECATE_TASK_WEB_SEARCH_API_KEY`      | `""`               | API key for the configured search provider. Provider aliases: `BRAVE_SEARCH_API_KEY`, `TAVILY_API_KEY`, `EXA_API_KEY` |
+| `HECATE_TASK_WEB_SEARCH_ENDPOINT`     | provider default   | Optional provider endpoint override, mostly for tests or private proxies                                              |
+| `HECATE_TASK_WEB_SEARCH_TIMEOUT`      | `15s`              | Timeout for the search-provider request                                                                               |
+| `HECATE_TASK_WEB_SEARCH_MAX_RESULTS`  | `5`                | Maximum results returned per `web_search` call, capped by Hecate and the provider                                     |
+| `HECATE_TASK_WEB_SEARCH_SAFE_SEARCH`  | `moderate`         | Provider safe-search default (`off`, `moderate`, or `strict` for Brave)                                               |
+| `HECATE_TASK_WEB_SEARCH_COUNTRY`      | `""`               | Optional default country code for searches                                                                            |
+| `HECATE_TASK_WEB_SEARCH_SEARCH_LANG`  | `""`               | Optional default search language                                                                                      |
+| `HECATE_TASK_SHELL_ALLOW_PRIVATE_IPS` | `false`            | Same private-IP block, applied to URLs in shell_exec / git_exec commands when the task has `sandbox_network=true`     |
+| `HECATE_TASK_SHELL_ALLOWED_HOSTS`     | `""`               | Same exact-host allowlist, applied to shell_exec / git_exec command URLs                                              |
 
 For `HECATE_TASK_APPROVAL_POLICIES` (which gates mid-loop tool calls and the matching pre-execution task gates; valid values: `shell_exec`, `git_exec`, `file_write`, `network_egress`, `read_file`, `all_tools`) see [`runtime-api.md#approval-policy-configuration`](runtime-api.md#approval-policy-configuration). `shell_exec` gates one-shot shell calls plus native agent-loop terminal tools. `git_exec` gates arbitrary git commands plus structured `git_status` and `git_diff`. `file_write` gates full-file writes, exact-match `file_edit`, and structured `apply_patch` calls. `read_file` gates direct reads, structured search tools (`grep`, `glob`), and task artifact reads. For per-task `mcp_servers` knobs (max-servers cap, client-cache sizing, ping intervals) see [`runtime-api.md#runtime-backend-and-queue-configuration`](runtime-api.md#runtime-backend-and-queue-configuration) and [`mcp.md#resource-limits`](mcp.md#resource-limits).
 

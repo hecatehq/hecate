@@ -118,9 +118,8 @@ type ServerConfig struct {
 	// blocks private IPs unless TaskHTTPAllowPrivateIPs is true).
 	TaskHTTPAllowedHosts []string
 	// TaskWebSearch* knobs govern the optional agent_loop `web_search`
-	// tool. Empty provider disables the tool. The first stable backend
-	// is Brave Search because it is a simple HTTP JSON API with an
-	// operator-owned API key.
+	// tool. Empty provider disables the tool. Supported providers are
+	// Brave Search, Tavily, and Exa; all use operator-owned API keys.
 	TaskWebSearchProvider   string
 	TaskWebSearchAPIKey     string
 	TaskWebSearchEndpoint   string
@@ -506,7 +505,7 @@ func LoadFromEnv() Config {
 			TaskHTTPAllowPrivateIPs:        getEnvBool("HECATE_TASK_HTTP_ALLOW_PRIVATE_IPS", false),
 			TaskHTTPAllowedHosts:           splitCSV(getEnv("HECATE_TASK_HTTP_ALLOWED_HOSTS", "")),
 			TaskWebSearchProvider:          getEnv("HECATE_TASK_WEB_SEARCH_PROVIDER", ""),
-			TaskWebSearchAPIKey:            firstNonEmptyEnv("HECATE_TASK_WEB_SEARCH_API_KEY", "BRAVE_SEARCH_API_KEY"),
+			TaskWebSearchAPIKey:            firstNonEmptyEnv("HECATE_TASK_WEB_SEARCH_API_KEY", "BRAVE_SEARCH_API_KEY", "TAVILY_API_KEY", "EXA_API_KEY"),
 			TaskWebSearchEndpoint:          getEnv("HECATE_TASK_WEB_SEARCH_ENDPOINT", ""),
 			TaskWebSearchTimeout:           getEnvDuration("HECATE_TASK_WEB_SEARCH_TIMEOUT", 15*time.Second),
 			TaskWebSearchMaxResults:        getEnvInt("HECATE_TASK_WEB_SEARCH_MAX_RESULTS", 5),
@@ -783,17 +782,19 @@ func (c Config) Validate() error {
 	}
 	switch strings.ToLower(strings.TrimSpace(c.Server.TaskWebSearchProvider)) {
 	case "":
-	case "brave":
+	case "brave", "tavily", "exa":
 		if strings.TrimSpace(c.Server.TaskWebSearchAPIKey) == "" {
-			errs = append(errs, fmt.Errorf("HECATE_TASK_WEB_SEARCH_API_KEY or BRAVE_SEARCH_API_KEY is required when HECATE_TASK_WEB_SEARCH_PROVIDER=brave"))
+			errs = append(errs, fmt.Errorf("HECATE_TASK_WEB_SEARCH_API_KEY or provider-specific API key alias is required when HECATE_TASK_WEB_SEARCH_PROVIDER is set"))
 		}
+	default:
+		errs = append(errs, fmt.Errorf("HECATE_TASK_WEB_SEARCH_PROVIDER must be empty, brave, tavily, or exa"))
+	}
+	if strings.EqualFold(strings.TrimSpace(c.Server.TaskWebSearchProvider), "brave") {
 		switch strings.ToLower(strings.TrimSpace(c.Server.TaskWebSearchSafeSearch)) {
 		case "", "off", "moderate", "strict":
 		default:
 			errs = append(errs, fmt.Errorf("HECATE_TASK_WEB_SEARCH_SAFE_SEARCH must be one of off, moderate, or strict"))
 		}
-	default:
-		errs = append(errs, fmt.Errorf("HECATE_TASK_WEB_SEARCH_PROVIDER must be empty or brave"))
 	}
 
 	return errors.Join(errs...)

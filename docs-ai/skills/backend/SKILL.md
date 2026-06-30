@@ -270,7 +270,9 @@ Native `agent_loop` web search is optional. Keep provider clients in
 advertise `web_search` only when a provider is configured. `network_egress`
 must gate both `http_request` and configured `web_search`; result discovery
 does not fetch result URLs, which still belongs to `http_request` and its
-HTTP policy.
+HTTP policy. When adding or changing a provider, pin the provider-specific
+HTTP contract with `internal/websearch` unit tests and keep the fake-provider
+e2e path covering the shared `web_search` dispatcher behavior.
 
 Hecate owns the ACP process/session boundary, not provider-specific adapter
 implementation parity. Tests in this repository should use the repo-local fake
