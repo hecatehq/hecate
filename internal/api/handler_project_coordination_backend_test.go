@@ -45,6 +45,9 @@ func TestProjectCoordinationBackendStatus_DefaultHecateAuthoritative(t *testing.
 	if status.CairnlineSidecarAssignmentContextURL != projectCoordinationBackendSidecarAssignmentContextURL {
 		t.Fatalf("sidecar assignment context URL = %q, want %q", status.CairnlineSidecarAssignmentContextURL, projectCoordinationBackendSidecarAssignmentContextURL)
 	}
+	if status.CairnlineSidecarLaunchPacketURL != projectCoordinationBackendSidecarLaunchPacketURL {
+		t.Fatalf("sidecar launch packet URL = %q, want %q", status.CairnlineSidecarLaunchPacketURL, projectCoordinationBackendSidecarLaunchPacketURL)
+	}
 	if !status.CairnlineBridgeReady || status.CairnlineAuthoritative || status.ReadModelSwitchReady || status.WriteAdapterReady || status.ReplacementReady || len(status.Warnings) != 0 {
 		t.Fatalf("status = %+v, want bridge-ready but inactive Cairnline adapter flags", status)
 	}
@@ -132,6 +135,9 @@ func TestProjectCoordinationBackendStatus_CairnlineSidecarConnectorBlocksEmbedde
 	}
 	if status.CairnlineSidecarAssignmentContextURL != projectCoordinationBackendSidecarAssignmentContextURL {
 		t.Fatalf("sidecar assignment context URL = %q, want %q", status.CairnlineSidecarAssignmentContextURL, projectCoordinationBackendSidecarAssignmentContextURL)
+	}
+	if status.CairnlineSidecarLaunchPacketURL != projectCoordinationBackendSidecarLaunchPacketURL {
+		t.Fatalf("sidecar launch packet URL = %q, want %q", status.CairnlineSidecarLaunchPacketURL, projectCoordinationBackendSidecarLaunchPacketURL)
 	}
 	if len(status.ReadRoutes) != 0 {
 		t.Fatalf("read routes = %+v, want none in sidecar connector mode", status.ReadRoutes)
