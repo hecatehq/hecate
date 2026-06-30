@@ -578,6 +578,7 @@ type ProjectCoordinationBackendStatusResponse struct {
 	CairnlineSidecarProbeURL   string                                       `json:"cairnline_sidecar_probe_url,omitempty"`
 	CairnlineSidecarConnectURL string                                       `json:"cairnline_sidecar_connect_url,omitempty"`
 	CairnlineSidecarReadURL    string                                       `json:"cairnline_sidecar_read_url,omitempty"`
+	CairnlineSidecarDetailURL  string                                       `json:"cairnline_sidecar_detail_url,omitempty"`
 	EmbeddedReadModelURL       string                                       `json:"embedded_read_model_url,omitempty"`
 	EmbeddedParityReportURL    string                                       `json:"embedded_parity_report_url,omitempty"`
 	SyncReadinessURL           string                                       `json:"sync_readiness_url,omitempty"`
@@ -1679,6 +1680,15 @@ type ProjectCairnlineSidecarReadEnvelope struct {
 	Data   ProjectCairnlineSidecarReadResponse `json:"data"`
 }
 
+type ProjectCairnlineSidecarDetailEnvelope struct {
+	Object string                                `json:"object"`
+	Data   ProjectCairnlineSidecarDetailResponse `json:"data"`
+}
+
+type ProjectCairnlineSidecarDetailRequest struct {
+	ProjectID string `json:"project_id,omitempty"`
+}
+
 type ProjectCairnlineSidecarProbeResponse struct {
 	Ready                 bool                     `json:"ready"`
 	Status                string                   `json:"status"`
@@ -1723,6 +1733,41 @@ type ProjectCairnlineSidecarReadResponse struct {
 	StructuredProjects     []ProjectCairnlineSidecarProjectItem `json:"structured_projects,omitempty"`
 	StructuredParseError   string                               `json:"structured_parse_error,omitempty"`
 	Warnings               []string                             `json:"warnings,omitempty"`
+}
+
+type ProjectCairnlineSidecarDetailResponse struct {
+	Ready                    bool                               `json:"ready"`
+	Status                   string                             `json:"status"`
+	Detail                   string                             `json:"detail"`
+	Command                  string                             `json:"command"`
+	Args                     []string                           `json:"args,omitempty"`
+	DatabasePath             string                             `json:"database_path,omitempty"`
+	ProbeTimeoutMS           int64                              `json:"probe_timeout_ms"`
+	PersistentClient         bool                               `json:"persistent_client,omitempty"`
+	ClientCacheConfigured    bool                               `json:"client_cache_configured,omitempty"`
+	ClientCacheEntries       int                                `json:"client_cache_entries,omitempty"`
+	ClientCacheInUse         int                                `json:"client_cache_in_use,omitempty"`
+	ClientCacheIdle          int                                `json:"client_cache_idle,omitempty"`
+	Tool                     string                             `json:"tool"`
+	ReadOnly                 bool                               `json:"read_only"`
+	RequestedProjectID       string                             `json:"requested_project_id,omitempty"`
+	SelectedProjectID        string                             `json:"selected_project_id,omitempty"`
+	SelectedProjectSource    string                             `json:"selected_project_source,omitempty"`
+	ListToolText             string                             `json:"list_tool_text,omitempty"`
+	ListToolIsError          bool                               `json:"list_tool_is_error,omitempty"`
+	ListStructuredContent    json.RawMessage                    `json:"list_structured_content,omitempty"`
+	ListMeta                 json.RawMessage                    `json:"list_meta,omitempty"`
+	ListStructuredReady      bool                               `json:"list_structured_ready"`
+	ListProjectCount         int                                `json:"list_project_count"`
+	ListStructuredParseError string                             `json:"list_structured_parse_error,omitempty"`
+	ToolText                 string                             `json:"tool_text,omitempty"`
+	ToolIsError              bool                               `json:"tool_is_error,omitempty"`
+	StructuredContent        json.RawMessage                    `json:"structured_content,omitempty"`
+	Meta                     json.RawMessage                    `json:"meta,omitempty"`
+	StructuredReady          bool                               `json:"structured_ready"`
+	StructuredProject        ProjectCairnlineSidecarProjectItem `json:"structured_project,omitempty"`
+	StructuredParseError     string                             `json:"structured_parse_error,omitempty"`
+	Warnings                 []string                           `json:"warnings,omitempty"`
 }
 
 type ProjectCairnlineSidecarProjectItem struct {

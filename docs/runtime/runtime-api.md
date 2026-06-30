@@ -47,7 +47,7 @@ liveness probe and every other path requires trusted trusted proxy headers:
 context, exposed from `GET /hecate/v1/whoami` as `data.remote_identity`, added to
 the top-level HTTP span attributes, and accepted in place of the local
 runtime/inference shared tokens. Remote mode rejects local-only endpoints for
-workspace picker/open, reset-data, shutdown, MCP probe, Cairnline sidecar probe/connect/read smoke,
+workspace picker/open, reset-data, shutdown, MCP probe, Cairnline sidecar probe/connect/read/detail smoke,
 plugin-registry management, agent-adapter authenticate, and local provider and MCP registry discovery. Hecate-native `/hecate/v1/*` routes are explicitly
 classified for remote mode, and route coverage tests fail when a new registered
 route is not marked remote-safe or local-only.
@@ -469,8 +469,9 @@ sequenceDiagram
   `sidecar` can start a standalone Cairnline MCP process through the
   local-only `sidecar-probe` endpoint, connect a cached client through
   `POST /hecate/v1/projects/cairnline/sidecar-connect`, or call read-only
-  `projects.list` through `POST /hecate/v1/projects/cairnline/sidecar-read-smoke`,
-  but live Projects reads and writes still use Hecate-native stores.
+  `projects.list` / `projects.get` through the `sidecar-read-smoke` and
+  `sidecar-detail-smoke` endpoints, but live Projects reads and writes still
+  use Hecate-native stores.
 - `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=auto|snapshot|embedded` controls which
   Cairnline service backing configured read routes use while
   `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and
@@ -2478,7 +2479,10 @@ embedded SQLite rehearsal sync, which replaces that database from Hecate stores.
 Cairnline MCP contract probe. `cairnline_sidecar_connect_url` points at the
 local-only cached-client connect surface. `cairnline_sidecar_read_url` points at
 the local-only read smoke that calls Cairnline's read-only `projects.list` tool
-through that cached client. None of these changes live route authority.
+through that cached client. `cairnline_sidecar_detail_url` points at the
+local-only detail smoke that calls Cairnline's read-only `projects.get` tool,
+using either an explicit `project_id` or the first typed project from
+`projects.list`. None of these changes live route authority.
 
 Example response, with `write_switchpoints` shortened for readability:
 
@@ -2661,7 +2665,8 @@ Example response, with `write_switchpoints` shortened for readability:
     "mirror_parity_url": "/hecate/v1/projects/cairnline/mirror-parity",
     "cairnline_sidecar_probe_url": "/hecate/v1/projects/cairnline/sidecar-probe",
     "cairnline_sidecar_connect_url": "/hecate/v1/projects/cairnline/sidecar-connect",
-    "cairnline_sidecar_read_url": "/hecate/v1/projects/cairnline/sidecar-read-smoke"
+    "cairnline_sidecar_read_url": "/hecate/v1/projects/cairnline/sidecar-read-smoke",
+    "cairnline_sidecar_detail_url": "/hecate/v1/projects/cairnline/sidecar-detail-smoke"
   }
 }
 ```
@@ -2686,6 +2691,7 @@ Required tools:
 
 ```text
 projects.list
+projects.get
 projects.create
 roles.list
 work_items.create
@@ -2712,8 +2718,8 @@ Example response, shortened:
     "args": ["-db", "/Users/alice/.local/share/hecate/cairnline/projects.db"],
     "database_path": "/Users/alice/.local/share/hecate/cairnline/projects.db",
     "probe_timeout_ms": 10000,
-    "tool_count": 12,
-    "required_tools": ["projects.list", "projects.create"],
+    "tool_count": 13,
+    "required_tools": ["projects.list", "projects.get", "projects.create"],
     "missing_tools": [],
     "tools": [{ "name": "projects.list" }],
     "warnings": []
@@ -2757,8 +2763,8 @@ Example response, shortened:
     "client_cache_entries": 1,
     "client_cache_in_use": 0,
     "client_cache_idle": 1,
-    "tool_count": 12,
-    "required_tools": ["projects.list", "projects.create"],
+    "tool_count": 13,
+    "required_tools": ["projects.list", "projects.get", "projects.create"],
     "missing_tools": [],
     "tools": [{ "name": "projects.list" }],
     "warnings": []
@@ -2834,6 +2840,90 @@ Example response, shortened:
         ]
       }
     ],
+    "warnings": []
+  }
+}
+```
+
+### `POST /hecate/v1/projects/cairnline/sidecar-detail-smoke`
+
+Local-only standalone Cairnline MCP project-detail smoke. It uses the same
+sidecar command, database, timeout, and Cairnline-specific MCP client cache as
+`sidecar-connect`. With an empty body, Hecate first calls read-only
+`projects.list`, parses typed `structuredContent`, selects the first project id,
+and then calls read-only `projects.get`. With a body such as
+`{"project_id":"proj_123"}`, Hecate skips the list selection and calls
+`projects.get` directly.
+
+This endpoint is diagnostic only. It proves Hecate can read a typed project
+detail record through the standalone Cairnline sidecar, including roots and
+context-source metadata, but it does not switch live Projects routing,
+mirroring, dispatch, approvals, or write authority.
+
+The response reports:
+
+- `tool="projects.get"` and `read_only=true` for the detail call.
+- `requested_project_id` when the operator supplied one.
+- `selected_project_id` and `selected_project_source` (`request` or
+  `projects.list`) for the id Hecate passed to `projects.get`.
+- `list_*` fields when Hecate had to call `projects.list` to select a project.
+- `tool_text`, `tool_is_error`, `structured_content`, and `_meta` for the
+  `projects.get` result.
+- `structured_ready` and `structured_project` when Hecate parsed typed
+  `projects.get` `structuredContent`.
+- `structured_parse_error` when `projects.get` returned structured content that
+  did not match the expected project-detail shape.
+- The same persistent-client cache counters as `sidecar-connect`.
+
+Example response, shortened:
+
+```json
+{
+  "object": "project_cairnline_sidecar_detail",
+  "data": {
+    "ready": true,
+    "status": "sidecar_detail_ready",
+    "detail": "Hecate called the read-only Cairnline sidecar projects.get tool through the persistent sidecar client. Hecate still keeps live Projects reads and writes on Hecate-native stores in sidecar mode.",
+    "command": "cairnline",
+    "args": ["-db", "/Users/alice/.local/share/hecate/cairnline/projects.db"],
+    "database_path": "/Users/alice/.local/share/hecate/cairnline/projects.db",
+    "probe_timeout_ms": 10000,
+    "persistent_client": true,
+    "client_cache_configured": true,
+    "client_cache_entries": 1,
+    "client_cache_in_use": 0,
+    "client_cache_idle": 1,
+    "tool": "projects.get",
+    "read_only": true,
+    "selected_project_id": "proj_123",
+    "selected_project_source": "projects.list",
+    "list_structured_ready": true,
+    "list_project_count": 1,
+    "tool_text": "Project proj_123: Example Project",
+    "tool_is_error": false,
+    "structured_ready": true,
+    "structured_project": {
+      "id": "proj_123",
+      "name": "Example Project",
+      "description": "Portable coordination state",
+      "roots": [
+        {
+          "id": "root_main",
+          "path": "/Users/alice/projects/example",
+          "kind": "local",
+          "active": true
+        }
+      ],
+      "context_sources": [
+        {
+          "id": "ctxsrc_agents",
+          "kind": "workspace_instruction",
+          "title": "AGENTS.md",
+          "locator": "AGENTS.md",
+          "enabled": true
+        }
+      ]
+    },
     "warnings": []
   }
 }
