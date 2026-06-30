@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"sort"
 	"strconv"
@@ -81,18 +82,25 @@ type ProjectOperationsBriefTargetResponse struct {
 
 func (h *Handler) HandleProjectOperationsBrief(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
-	if !h.requireProject(w, r, projectID) {
+	if !h.projectCairnlineSidecarReadRoutesEnabled() && !h.requireProject(w, r, projectID) {
 		return
 	}
 	brief, err := h.renderProjectOperationsBrief(r.Context(), projectID)
 	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		if errors.Is(err, projects.ErrNotFound) {
+			WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
+			return
+		}
+		writeProjectReadRenderError(w, err)
 		return
 	}
 	WriteJSON(w, http.StatusOK, ProjectOperationsBriefEnvelope{Object: "project_operations_brief", Data: brief})
 }
 
 func (h *Handler) renderProjectOperationsBrief(ctx context.Context, projectID string) (ProjectOperationsBriefResponse, error) {
+	if h.projectCairnlineSidecarReadRoutesEnabled() {
+		return h.renderCairnlineSidecarProjectOperationsBrief(ctx, projectID)
+	}
 	project, ok, err := h.projects.Get(ctx, projectID)
 	if err != nil {
 		return ProjectOperationsBriefResponse{}, err
