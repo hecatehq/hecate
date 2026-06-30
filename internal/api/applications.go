@@ -97,6 +97,7 @@ func (h *Handler) projectAssistantApplication() *projectassistantapp.Application
 	if h.projectAssistant == nil {
 		h.projectAssistant = projectassistantapp.New(projectassistantapp.Options{
 			Projects:                 h.projects,
+			ProjectAuthority:         h.projectAssistantProjectAuthorityForApplication(),
 			Chats:                    h.agentChat,
 			Work:                     h.projectWork,
 			WorkAuthority:            h.projectAssistantWorkAuthorityForApplication(),

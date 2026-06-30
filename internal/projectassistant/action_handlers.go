@@ -14,7 +14,7 @@ import (
 )
 
 func (s *Service) applyCreateProject(ctx context.Context, action Action) (ActionResult, error) {
-	if s.projects == nil {
+	if s.projectAuthority == nil {
 		return ActionResult{}, ErrStoreNotConfigured
 	}
 	var patch projectPatch
@@ -24,10 +24,14 @@ func (s *Service) applyCreateProject(ctx context.Context, action Action) (Action
 	id := strings.TrimSpace(patch.ID)
 	if id == "" {
 		id = s.idgen("proj")
-	} else if _, ok, err := s.projects.Get(ctx, id); err != nil {
-		return ActionResult{}, err
-	} else if ok {
-		return ActionResult{}, fmt.Errorf("%w: project %q already exists", ErrConflict, id)
+	} else if s.projects != nil {
+		_, ok, err := s.projects.Get(ctx, id)
+		if err != nil {
+			return ActionResult{}, err
+		}
+		if ok {
+			return ActionResult{}, fmt.Errorf("%w: project %q already exists", ErrConflict, id)
+		}
 	}
 	roots, err := rootsForProjectPatch(patch, s.idgen)
 	if err != nil {
@@ -46,7 +50,7 @@ func (s *Service) applyCreateProject(ctx context.Context, action Action) (Action
 		DefaultSystemPrompt:      patch.DefaultSystemPrompt,
 		DefaultCompactToolOutput: patch.DefaultCompactToolOutput,
 	}
-	created, err := s.projects.Create(ctx, project)
+	created, err := s.projectAuthority.CreateProject(ctx, project)
 	if err != nil {
 		return ActionResult{}, mapProjectErr(err)
 	}
@@ -54,6 +58,9 @@ func (s *Service) applyCreateProject(ctx context.Context, action Action) (Action
 }
 
 func (s *Service) applyUpdateProject(ctx context.Context, action Action) (ActionResult, error) {
+	if s.projectAuthority == nil {
+		return ActionResult{}, ErrStoreNotConfigured
+	}
 	projectID := targetValue(action, "project_id")
 	if projectID == "" {
 		return ActionResult{}, fmt.Errorf("%w: target.project_id is required", ErrInvalid)
@@ -65,13 +72,9 @@ func (s *Service) applyUpdateProject(ctx context.Context, action Action) (Action
 	if err := decodePatch(action, &patch); err != nil {
 		return ActionResult{}, err
 	}
-	updated, err := s.projects.Update(ctx, projectID, func(project *projects.Project) {
-		if patch.Name != nil {
-			project.Name = *patch.Name
-		}
-		if patch.Description != nil {
-			project.Description = *patch.Description
-		}
+	updated, err := s.projectAuthority.UpdateProject(ctx, projectID, ProjectUpdateCommand{
+		Name:        patch.Name,
+		Description: patch.Description,
 	})
 	if err != nil {
 		return ActionResult{}, mapProjectErr(err)
@@ -80,6 +83,9 @@ func (s *Service) applyUpdateProject(ctx context.Context, action Action) (Action
 }
 
 func (s *Service) applyAttachProjectRoot(ctx context.Context, action Action) (ActionResult, error) {
+	if s.projectAuthority == nil {
+		return ActionResult{}, ErrStoreNotConfigured
+	}
 	projectID := targetValue(action, "project_id")
 	if projectID == "" {
 		return ActionResult{}, fmt.Errorf("%w: target.project_id is required", ErrInvalid)
@@ -92,9 +98,7 @@ func (s *Service) applyAttachProjectRoot(ctx context.Context, action Action) (Ac
 		return ActionResult{}, err
 	}
 	root := rootFromPatch(patch, s.idgen)
-	updated, err := s.projects.Update(ctx, projectID, func(project *projects.Project) {
-		project.Roots = append(project.Roots, root)
-	})
+	updated, err := s.projectAuthority.AttachProjectRoot(ctx, projectID, root)
 	if err != nil {
 		return ActionResult{}, mapProjectErr(err)
 	}
@@ -102,6 +106,9 @@ func (s *Service) applyAttachProjectRoot(ctx context.Context, action Action) (Ac
 }
 
 func (s *Service) applyRemoveProjectRoot(ctx context.Context, action Action) (ActionResult, error) {
+	if s.projectAuthority == nil {
+		return ActionResult{}, ErrStoreNotConfigured
+	}
 	projectID := targetValue(action, "project_id")
 	rootID := targetValue(action, "root_id")
 	if projectID == "" || rootID == "" {
@@ -114,18 +121,7 @@ func (s *Service) applyRemoveProjectRoot(ctx context.Context, action Action) (Ac
 	if !projectHasRoot(project, rootID) {
 		return ActionResult{}, fmt.Errorf("%w: root %q", ErrNotFound, rootID)
 	}
-	updated, err := s.projects.Update(ctx, projectID, func(project *projects.Project) {
-		roots := project.Roots[:0]
-		for _, root := range project.Roots {
-			if root.ID != rootID {
-				roots = append(roots, root)
-			}
-		}
-		project.Roots = roots
-		if project.DefaultRootID == rootID {
-			project.DefaultRootID = ""
-		}
-	})
+	updated, err := s.projectAuthority.RemoveProjectRoot(ctx, projectID, rootID)
 	if err != nil {
 		return ActionResult{}, mapProjectErr(err)
 	}
@@ -133,6 +129,9 @@ func (s *Service) applyRemoveProjectRoot(ctx context.Context, action Action) (Ac
 }
 
 func (s *Service) applySetProjectDefaults(ctx context.Context, action Action) (ActionResult, error) {
+	if s.projectAuthority == nil {
+		return ActionResult{}, ErrStoreNotConfigured
+	}
 	projectID := targetValue(action, "project_id")
 	if projectID == "" {
 		return ActionResult{}, fmt.Errorf("%w: target.project_id is required", ErrInvalid)
@@ -148,31 +147,15 @@ func (s *Service) applySetProjectDefaults(ctx context.Context, action Action) (A
 	if patch.DefaultRootID != nil && *patch.DefaultRootID != "" && !projectHasRoot(project, *patch.DefaultRootID) {
 		return ActionResult{}, fmt.Errorf("%w: root %q", ErrNotFound, *patch.DefaultRootID)
 	}
-	updated, err := s.projects.Update(ctx, projectID, func(project *projects.Project) {
-		if patch.DefaultRootID != nil {
-			project.DefaultRootID = *patch.DefaultRootID
-		}
-		if patch.DefaultProvider != nil {
-			project.DefaultProvider = *patch.DefaultProvider
-		}
-		if patch.DefaultModel != nil {
-			project.DefaultModel = *patch.DefaultModel
-		}
-		if patch.DefaultAgentProfile != nil {
-			project.DefaultAgentProfile = *patch.DefaultAgentProfile
-		}
-		if patch.DefaultToolsEnabled != nil {
-			project.DefaultToolsEnabled = patch.DefaultToolsEnabled
-		}
-		if patch.DefaultWorkspaceMode != nil {
-			project.DefaultWorkspaceMode = *patch.DefaultWorkspaceMode
-		}
-		if patch.DefaultSystemPrompt != nil {
-			project.DefaultSystemPrompt = *patch.DefaultSystemPrompt
-		}
-		if patch.DefaultCompactToolOutput != nil {
-			project.DefaultCompactToolOutput = patch.DefaultCompactToolOutput
-		}
+	updated, err := s.projectAuthority.SetProjectDefaults(ctx, projectID, ProjectDefaultsCommand{
+		DefaultRootID:            patch.DefaultRootID,
+		DefaultProvider:          patch.DefaultProvider,
+		DefaultModel:             patch.DefaultModel,
+		DefaultAgentProfile:      patch.DefaultAgentProfile,
+		DefaultToolsEnabled:      patch.DefaultToolsEnabled,
+		DefaultWorkspaceMode:     patch.DefaultWorkspaceMode,
+		DefaultSystemPrompt:      patch.DefaultSystemPrompt,
+		DefaultCompactToolOutput: patch.DefaultCompactToolOutput,
 	})
 	if err != nil {
 		return ActionResult{}, mapProjectErr(err)

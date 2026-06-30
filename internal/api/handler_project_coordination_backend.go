@@ -649,7 +649,7 @@ func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string) []Projec
 			item.LiveMirror = true
 			item.BlocksAuthority = true
 			item.Gap = "project-assistant-apply-side-effects"
-			item.Detail = "Project Assistant confirmed apply routes role, work-item, assignment, handoff, and memory-candidate actions through their opt-in Cairnline authority switchpoints when enabled; project/default/chat/runtime side effects still keep apply as a blocking mixed-authority gap."
+			item.Detail = "Project Assistant confirmed apply routes project metadata/default, role, work-item, assignment, handoff, and memory-candidate actions through their opt-in Cairnline authority switchpoints when enabled; root/chat/runtime side effects still keep apply as a blocking mixed-authority gap."
 		}
 		if projectCollaborationAuthoritative && item.Name == "collaboration-artifacts" {
 			item.CurrentAuthority = "cairnline"
@@ -792,13 +792,14 @@ func projectCairnlineProjectAssistantProposalWriteWarning(writeAuthority []strin
 
 func projectCairnlineProjectAssistantApplyWriteWarning(writeAuthority []string) string {
 	if projectCairnlineAssistantApplyPortableEffectsAuthoritative(writeAuthority) {
-		return "Project Assistant confirmed apply uses the enabled Cairnline authority seams for role, work-item, assignment, handoff, and memory-candidate actions, but project/default/chat/runtime side effects still keep apply as a mixed-authority replacement blocker."
+		return "Project Assistant confirmed apply uses the enabled Cairnline authority seams for project metadata/default, role, work-item, assignment, handoff, and memory-candidate actions, but root/chat/runtime side effects still keep apply as a mixed-authority replacement blocker."
 	}
 	return "Project Assistant confirmed apply side effects still execute through Hecate-owned mutation services, then best-effort mirror committed results into Cairnline."
 }
 
 func projectCairnlineAssistantApplyPortableEffectsAuthoritative(writeAuthority []string) bool {
-	return projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectRoles) ||
+	return projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectMetadataDefaults) ||
+		projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectRoles) ||
 		projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectWorkItems) ||
 		projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectAssignments) ||
 		projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectCollaboration) ||

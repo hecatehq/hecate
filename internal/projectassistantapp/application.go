@@ -18,6 +18,7 @@ type Application struct {
 
 type Options struct {
 	Projects                 projects.Store
+	ProjectAuthority         projectassistant.ProjectAuthority
 	Chats                    chat.Store
 	Work                     projectwork.Store
 	WorkAuthority            projectassistant.WorkAuthority
@@ -76,6 +77,7 @@ func New(options Options) *Application {
 	return &Application{
 		service: projectassistant.NewService(projectassistant.Stores{
 			Projects:                 options.Projects,
+			ProjectAuthority:         options.ProjectAuthority,
 			Chats:                    options.Chats,
 			Work:                     options.Work,
 			WorkAuthority:            workAuthority,

@@ -347,12 +347,18 @@ func (h *Handler) writeProjectAssistantActionResultToCairnline(ctx context.Conte
 	projectID := projectAssistantActionResultProjectID(result)
 	switch strings.TrimSpace(result.Kind) {
 	case projectassistant.ActionCreateProject:
+		if h.projectIdentityWritesUseCairnlineAuthority() {
+			return nil
+		}
 		project, ok := h.projectForCairnlineMirror(ctx, "project_assistant_apply_result", projectID)
 		if !ok {
 			return nil
 		}
 		return h.writeProjectIdentityToCairnline(ctx, project)
 	case projectassistant.ActionUpdateProject:
+		if h.projectMetadataDefaultsWritesUseCairnlineAuthority() {
+			return nil
+		}
 		project, ok := h.projectForCairnlineMirror(ctx, "project_assistant_apply_result", projectID)
 		if !ok {
 			return nil
@@ -380,6 +386,9 @@ func (h *Handler) writeProjectAssistantActionResultToCairnline(ctx context.Conte
 		}
 		return h.writeProjectDefaultsToCairnline(ctx, project)
 	case projectassistant.ActionSetProjectDefaults:
+		if h.projectMetadataDefaultsWritesUseCairnlineAuthority() {
+			return nil
+		}
 		project, ok := h.projectForCairnlineMirror(ctx, "project_assistant_apply_result", projectID)
 		if !ok {
 			return nil
@@ -810,23 +819,34 @@ func (h *Handler) deleteAgentProfileFromCairnline(ctx context.Context, profileID
 
 func (h *Handler) writeProjectAssistantProposalRecordToCairnline(ctx context.Context, record projectassistant.ProposalRecord) error {
 	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
-		projectID := strings.TrimSpace(record.ProjectID)
-		if projectID != "" && h != nil && h.projects != nil {
-			project, ok, err := h.projects.Get(ctx, projectID)
-			if err != nil {
-				return err
-			}
-			if ok {
-				// Proposal records only need the project row to exist; avoid
-				// replacing Cairnline-owned roots or sources while writing the ledger.
-				if _, err := cairnlinebridge.UpsertProjectMetadata(ctx, service, project); err != nil {
-					return err
-				}
-			}
+		if err := h.seedProjectMetadataForAssistantProposalRecord(ctx, service, record.ProjectID); err != nil {
+			return err
 		}
 		_, _, err := cairnlinebridge.UpsertAssistantProposalRecord(ctx, service, record)
 		return err
 	})
+}
+
+func (h *Handler) seedProjectMetadataForAssistantProposalRecord(ctx context.Context, service *cairnline.Service, projectID string) error {
+	projectID = strings.TrimSpace(projectID)
+	if projectID == "" || h == nil || h.projects == nil {
+		return nil
+	}
+	project, ok, err := h.projects.Get(ctx, projectID)
+	if err != nil || !ok {
+		return err
+	}
+	if h.projectIdentityWritesUseCairnlineAuthority() || h.projectMetadataDefaultsWritesUseCairnlineAuthority() {
+		if _, err := service.GetProject(ctx, projectID); err == nil {
+			return nil
+		} else if !errors.Is(err, cairnline.ErrNotFound) {
+			return err
+		}
+	}
+	// Proposal records only need the project row to exist; avoid replacing
+	// Cairnline-owned roots or sources while writing the ledger.
+	_, err = cairnlinebridge.UpsertProjectMetadata(ctx, service, project)
+	return err
 }
 
 func (h *Handler) writeProjectSkillsToCairnline(ctx context.Context, project projects.Project, skills []projectskills.Skill) error {

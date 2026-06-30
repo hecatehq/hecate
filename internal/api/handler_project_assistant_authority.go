@@ -212,17 +212,8 @@ func (s cairnlineProjectAssistantProposalAuthorityStore) writeRecord(ctx context
 	}
 	var written projectassistant.ProposalRecord
 	err := s.handler.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
-		projectID := strings.TrimSpace(record.ProjectID)
-		if projectID != "" && s.handler.projects != nil {
-			project, ok, err := s.handler.projects.Get(ctx, projectID)
-			if err != nil {
-				return err
-			}
-			if ok {
-				if _, err := cairnlinebridge.UpsertProjectMetadata(ctx, service, project); err != nil {
-					return err
-				}
-			}
+		if err := s.handler.seedProjectMetadataForAssistantProposalRecord(ctx, service, record.ProjectID); err != nil {
+			return err
 		}
 		item, ok := cairnlinebridge.AssistantProposalRecord(record)
 		if !ok {

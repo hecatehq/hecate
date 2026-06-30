@@ -129,6 +129,15 @@ func (s failingCreateRoleProjectWorkStore) CreateRole(context.Context, projectwo
 	return projectwork.AgentRoleProfile{}, s.err
 }
 
+type failingUpdateProjectStore struct {
+	projects.Store
+	err error
+}
+
+func (s failingUpdateProjectStore) Update(context.Context, string, func(*projects.Project)) (projects.Project, error) {
+	return projects.Project{}, s.err
+}
+
 type failingCreateMemoryCandidateStore struct {
 	*memory.MemoryStore
 	err error
@@ -1272,6 +1281,83 @@ func TestProjectAssistantAPI_CairnlineApplyMemoryCandidateAuthorityDoesNotBlockO
 	}
 	if _, ok, err := handler.memoryCandidates.GetCandidate(t.Context(), "proj_pa_apply_memory_authority", "memcand_apply_authority"); err != nil || ok {
 		t.Fatalf("shadow memory candidate ok=%v err=%v, want missing after injected shadow failure", ok, err)
+	}
+}
+
+func TestProjectAssistantAPI_CairnlineApplyProjectMetadataAuthorityDoesNotBlockOnShadowFailure(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectAssistantCairnlineMirrorTestHandler(t)
+	handler.config.Projects.CairnlineWriteAuthority = projectCairnlineWriteAuthorityProjectMetadataDefaults
+	baseProjects := projects.NewMemoryStore()
+	project, err := baseProjects.Create(t.Context(), projects.Project{
+		ID:            "proj_pa_apply_project_authority",
+		Name:          "Assistant Project Authority",
+		DefaultRootID: "root_main",
+		Roots: []projects.Root{{
+			ID:     "root_main",
+			Path:   "/workspace/main",
+			Kind:   "git",
+			Active: true,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	handler.SetProjectStore(failingUpdateProjectStore{
+		Store: baseProjects,
+		err:   errors.New("shadow project store unavailable"),
+	})
+	if !handler.projectMetadataDefaultsWritesUseCairnlineAuthority() {
+		t.Fatal("metadata/default write authority is disabled, want enabled for test")
+	}
+	proposal := projectassistant.Proposal{
+		ID:                   "pa_apply_project_authority",
+		Title:                "Update project through authority",
+		Summary:              "Project Assistant apply should use the Cairnline-first metadata/default authority seam.",
+		RequiresConfirmation: true,
+		Actions: []projectassistant.Action{
+			{
+				Kind:   projectassistant.ActionUpdateProject,
+				Reason: "Rename the project through the authority seam.",
+				Target: map[string]string{"project_id": "proj_pa_apply_project_authority"},
+				Patch:  json.RawMessage(`{"name":"Assistant Project Authority Updated","description":"Cairnline owns this metadata update."}`),
+			},
+			{
+				Kind:   projectassistant.ActionSetProjectDefaults,
+				Reason: "Set launch defaults through the authority seam.",
+				Target: map[string]string{"project_id": "proj_pa_apply_project_authority"},
+				Patch:  json.RawMessage(`{"default_root_id":"root_main","default_provider":"anthropic","default_model":"claude-sonnet-4-5"}`),
+			},
+		},
+	}
+	applyBody, err := json.Marshal(map[string]any{"proposal": proposal, "confirm": true})
+	if err != nil {
+		t.Fatalf("marshal apply body: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/project-assistant/apply", bytes.NewReader(applyBody)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("apply status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var applied projectAssistantApplyResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &applied); err != nil {
+		t.Fatalf("decode apply response: %v", err)
+	}
+	if applied.Data.Status != projectassistant.ApplyStatusApplied || !applied.Data.Applied || applied.Data.CommittedActionCount != 2 {
+		t.Fatalf("apply response = %+v, want applied project metadata/default actions despite Hecate shadow failure", applied.Data)
+	}
+
+	mirrored := getMirroredCairnlineProjectForTest(t, handler, project.ID)
+	if mirrored.Name != "Assistant Project Authority Updated" || mirrored.Description != "Cairnline owns this metadata update." || mirrored.DefaultRootID != "root_main" {
+		t.Fatalf("Cairnline project = %+v, want authoritative metadata/default update", mirrored)
+	}
+	assertMirroredExecutionProfileForTest(t, handler, mirrored.DefaultExecutionProfileID, "anthropic", "claude-sonnet-4-5")
+	native, ok, err := baseProjects.Get(t.Context(), project.ID)
+	if err != nil || !ok {
+		t.Fatalf("Get native project ok=%v err=%v", ok, err)
+	}
+	if native.Name != "Assistant Project Authority" || native.DefaultModel != "" {
+		t.Fatalf("native shadow project = %+v, want unchanged after injected shadow failure", native)
 	}
 }
 
