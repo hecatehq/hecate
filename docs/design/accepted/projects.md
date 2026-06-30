@@ -183,11 +183,17 @@ When `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar` and
 routes only project list/detail, setup-readiness, health, project skill list,
 project memory list, memory-candidate list, project role list, work-item
 list/detail, assignment-list, assignment-context, launch-readiness, assignment preflight,
-artifact-list, handoff-list, activity, closeout-readiness, and operations brief
-reads through the cached standalone Cairnline MCP client. Assignment-context
-reads consume typed `assignments.context` sidecar data. Launch-readiness and
-assignment preflight consume typed `assignments.launch_packet` sidecar data
-before applying Hecate runtime validation.
+artifact-list, handoff-list, Project Assistant context/proposal record reads,
+activity, closeout-readiness, and operations brief reads through the cached
+standalone Cairnline MCP client. Assignment-context reads consume typed
+`assignments.context` sidecar data. Launch-readiness and assignment preflight
+consume typed `assignments.launch_packet` sidecar data before applying Hecate
+runtime validation. Project Assistant context/proposal reads consume typed
+project, work, skill, memory, and `assistant.proposals.get` sidecar data.
+Proposal-record reads fall back to the Hecate-native proposal ledger only when
+the sidecar reports the proposal is missing, because draft/propose/apply
+mutations remain Hecate-owned unless their explicit write-authority switchpoints
+are enabled.
 Other Projects reads, writes, mirrors, dispatch, approvals, and write-authority
 switchpoints remain Hecate-native or on the embedded dogfood path until
 sidecar-specific adapters exist for those route families.

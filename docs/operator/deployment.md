@@ -439,9 +439,12 @@ reads. With `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar`,
 setup-readiness, health, project skill list, project memory list,
 memory-candidate list, project role list, work-item list/detail,
 assignment-list, assignment-context, launch-readiness, assignment preflight, artifact-list,
-handoff-list, activity, closeout-readiness, and operations brief reads through
-the standalone Cairnline MCP client; all other live Projects read routes remain
-Hecate-native or use the embedded dogfood read model when that is configured.
+handoff-list, Project Assistant context/proposal record reads, activity,
+closeout-readiness, and operations brief reads through the standalone Cairnline
+MCP client. Proposal-record reads fall back to the Hecate-native proposal
+ledger only when the sidecar reports the proposal is missing; draft/propose/apply
+mutations remain Hecate-owned unless their explicit write-authority switchpoints
+are enabled.
 Assignment-context reads use typed sidecar `assignments.context` data.
 Launch-readiness and assignment preflight use the typed sidecar
 `assignments.launch_packet` response as their coordination input, then apply
@@ -452,10 +455,11 @@ reads render the work graph from Cairnline service records and overlay
 Hecate-only runtime refs/timestamps while Hecate still owns execution. Outside
 the explicit sidecar read-source routes for project list/detail,
 setup-readiness, health, skills, memory, memory candidates, roles, work items,
-assignment lists, assignment context, launch-readiness, assignment preflight, artifact lists,
-handoff lists, activity, closeout readiness, and operations brief, project
-identity and some compatibility scaffolding remain Hecate-owned until Cairnline
-becomes authoritative. Project identity,
+assignment lists, assignment context, launch-readiness, assignment preflight,
+artifact lists, handoff lists, Project Assistant context/proposal reads,
+activity, closeout readiness, and operations brief, project identity and some
+compatibility scaffolding remain Hecate-owned until Cairnline becomes
+authoritative. Project identity,
 metadata/default, root,
 and context-source mutations still write Hecate stores first and then
 best-effort mirror into the embedded Cairnline database through
