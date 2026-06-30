@@ -133,6 +133,45 @@ func cairnlineSidecarFixtureCallTool(mode string, params mcp.CallToolParams) (mc
 			}})
 		}
 		return result, nil
+	case "projects.get":
+		if mode == "get-tool-error" {
+			return mcp.CallToolResult{
+				Content: mcp.TextContent("fixture projects.get failed"),
+				IsError: true,
+			}, nil
+		}
+		var input struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid projects.get arguments")
+		}
+		if input.ID == "" {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "missing project id")
+		}
+		project := ProjectCairnlineSidecarProjectItem{
+			ID:          input.ID,
+			Name:        "Fixture Project",
+			Description: "Structured fixture project detail",
+			Roots: []ProjectCairnlineSidecarRootItem{{
+				ID:     "root_fixture",
+				Path:   "/workspace/fixture",
+				Kind:   "local",
+				Active: true,
+			}},
+			ContextSources: []ProjectCairnlineSidecarSourceItem{{
+				ID:      "src_fixture",
+				Kind:    "workspace_instruction",
+				Title:   "AGENTS.md",
+				Locator: "AGENTS.md",
+				Enabled: true,
+			}},
+		}
+		result := mcp.CallToolResult{Content: mcp.TextContent("Project " + input.ID + ": Fixture Project")}
+		if mode != "text-only" {
+			result.StructuredContent = mustRawJSON(project)
+		}
+		return result, nil
 	default:
 		return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeMethodNotFound, params.Name)
 	}

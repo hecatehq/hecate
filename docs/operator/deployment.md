@@ -362,7 +362,9 @@ bridge. `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar` lets operators run
 check or `POST /hecate/v1/projects/cairnline/sidecar-connect` to connect a
 cached standalone Cairnline MCP client. Operators can then run
 `POST /hecate/v1/projects/cairnline/sidecar-read-smoke` to call the sidecar's
-read-only `projects.list` MCP tool through that persistent client. Projects
+read-only `projects.list` MCP tool, or
+`POST /hecate/v1/projects/cairnline/sidecar-detail-smoke` to call read-only
+`projects.get`, through that persistent client. Projects
 reads, writes, mirrors, and write-authority switchpoints still stay on
 Hecate-native stores until Hecate has a sidecar backend adapter.
 When the embedded Cairnline read adapter is fully wired,
@@ -411,9 +413,10 @@ The sidecar probe/connect surfaces are configured with
 `HECATE_PROJECTS_CAIRNLINE_SIDECAR_DB`, and
 `HECATE_PROJECTS_CAIRNLINE_SIDECAR_PROBE_TIMEOUT`. `sidecar-probe` verifies MCP
 tool presence only. `sidecar-connect` keeps the process warm in Hecate's
-Cairnline-specific MCP client cache. `sidecar-read-smoke` uses that cached
-client to call read-only `projects.list` and return diagnostic evidence, but it
-does not route operator project reads or writes through the sidecar backend.
+Cairnline-specific MCP client cache. `sidecar-read-smoke` and
+`sidecar-detail-smoke` use that cached client to call read-only `projects.list`
+and `projects.get` and return diagnostic evidence, but they do not route
+operator project reads or writes through the sidecar backend.
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-memory` is an alpha
 write-authority dogfood switch for accepted project memory entries:
 create/update/delete commits to the embedded Cairnline database first and then
