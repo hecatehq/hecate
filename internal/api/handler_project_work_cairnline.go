@@ -237,29 +237,11 @@ func (h *Handler) renderCairnlineSidecarProjectWorkItem(ctx context.Context, pro
 }
 
 func (h *Handler) renderCairnlineSidecarProjectWorkAssignments(ctx context.Context, projectID, workItemID string) ([]ProjectWorkAssignmentResponse, error) {
-	projectItem, ok, err := h.cairnlineSidecarProject(ctx, projectID)
+	project, err := h.cairnlineSidecarProjectWithRequiredWorkItem(ctx, projectID, workItemID)
 	if err != nil {
 		return nil, err
 	}
-	if !ok {
-		return nil, projects.ErrNotFound
-	}
-	project := projectFromCairnlineSidecar(projectItem)
 	workItemID = strings.TrimSpace(workItemID)
-	workItems, err := h.cairnlineSidecarProjectWorkItems(ctx, project.ID)
-	if err != nil {
-		return nil, err
-	}
-	foundWorkItem := false
-	for _, item := range workItems {
-		if item.ID == workItemID {
-			foundWorkItem = true
-			break
-		}
-	}
-	if !foundWorkItem {
-		return nil, projectwork.ErrNotFound
-	}
 	items, err := h.cairnlineSidecarProjectAssignments(ctx, project.ID)
 	if err != nil {
 		return nil, err
@@ -278,6 +260,100 @@ func (h *Handler) renderCairnlineSidecarProjectWorkAssignments(ctx context.Conte
 		data = append(data, projected)
 	}
 	return data, nil
+}
+
+func (h *Handler) renderCairnlineSidecarProjectWorkArtifacts(ctx context.Context, projectID, workItemID string) ([]ProjectWorkArtifactResponse, error) {
+	project, err := h.cairnlineSidecarProjectWithRequiredWorkItem(ctx, projectID, workItemID)
+	if err != nil {
+		return nil, err
+	}
+	workItemID = strings.TrimSpace(workItemID)
+	artifacts, err := h.cairnlineSidecarProjectArtifactList(ctx, project.ID, workItemID)
+	if err != nil {
+		return nil, err
+	}
+	evidence, err := h.cairnlineSidecarProjectEvidenceList(ctx, project.ID, workItemID)
+	if err != nil {
+		return nil, err
+	}
+	reviews, err := h.cairnlineSidecarProjectReviewList(ctx, project.ID, workItemID)
+	if err != nil {
+		return nil, err
+	}
+	items := projectArtifactsFromCairnlineSidecar(artifacts, evidence, reviews)
+	sortProjectWorkArtifactsForProjection(items)
+	data := make([]ProjectWorkArtifactResponse, 0, len(items))
+	for _, item := range items {
+		projected := renderProjectWorkArtifact(item)
+		projected.ReadBackend = "cairnline"
+		data = append(data, projected)
+	}
+	return data, nil
+}
+
+func (h *Handler) renderCairnlineSidecarProjectHandoffs(ctx context.Context, filter projectwork.HandoffFilter) ([]ProjectHandoffResponse, error) {
+	projectItem, ok, err := h.cairnlineSidecarProject(ctx, filter.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, projects.ErrNotFound
+	}
+	project := projectFromCairnlineSidecar(projectItem)
+	return h.renderCairnlineSidecarProjectHandoffsForProject(ctx, project.ID, filter)
+}
+
+func (h *Handler) renderCairnlineSidecarProjectWorkItemHandoffs(ctx context.Context, filter projectwork.HandoffFilter) ([]ProjectHandoffResponse, error) {
+	project, err := h.cairnlineSidecarProjectWithRequiredWorkItem(ctx, filter.ProjectID, filter.WorkItemID)
+	if err != nil {
+		return nil, err
+	}
+	return h.renderCairnlineSidecarProjectHandoffsForProject(ctx, project.ID, filter)
+}
+
+func (h *Handler) renderCairnlineSidecarProjectHandoffsForProject(ctx context.Context, projectID string, filter projectwork.HandoffFilter) ([]ProjectHandoffResponse, error) {
+	items, err := h.cairnlineSidecarProjectHandoffList(ctx, projectID, filter.WorkItemID)
+	if err != nil {
+		return nil, err
+	}
+	handoffs := projectHandoffsFromCairnlineSidecar(items)
+	status := strings.TrimSpace(filter.Status)
+	sortProjectHandoffsForProjection(handoffs)
+	data := make([]ProjectHandoffResponse, 0, len(handoffs))
+	for _, handoff := range handoffs {
+		if status != "" && handoff.Status != status {
+			continue
+		}
+		projected := renderProjectHandoff(handoff)
+		projected.ReadBackend = "cairnline"
+		data = append(data, projected)
+	}
+	return data, nil
+}
+
+func (h *Handler) cairnlineSidecarProjectWithRequiredWorkItem(ctx context.Context, projectID, workItemID string) (projects.Project, error) {
+	projectItem, ok, err := h.cairnlineSidecarProject(ctx, projectID)
+	if err != nil {
+		return projects.Project{}, err
+	}
+	if !ok {
+		return projects.Project{}, projects.ErrNotFound
+	}
+	project := projectFromCairnlineSidecar(projectItem)
+	workItemID = strings.TrimSpace(workItemID)
+	if workItemID == "" {
+		return projects.Project{}, projectwork.ErrNotFound
+	}
+	workItems, err := h.cairnlineSidecarProjectWorkItems(ctx, project.ID)
+	if err != nil {
+		return projects.Project{}, err
+	}
+	for _, item := range workItems {
+		if item.ID == workItemID {
+			return project, nil
+		}
+	}
+	return projects.Project{}, projectwork.ErrNotFound
 }
 
 func (h *Handler) renderCairnlineProjectWorkItems(ctx context.Context, projectID string) ([]ProjectWorkItemResponse, error) {
@@ -370,10 +446,7 @@ func cairnlineProjectWorkArtifacts(ctx context.Context, service *cairnline.Servi
 		out = append(out, projectHealthReviewFromCairnline(item))
 	}
 	sort.SliceStable(out, func(i, j int) bool {
-		if !out[i].CreatedAt.Equal(out[j].CreatedAt) {
-			return out[i].CreatedAt.Before(out[j].CreatedAt)
-		}
-		return out[i].ID < out[j].ID
+		return projectWorkArtifactProjectionLess(out[i], out[j])
 	})
 	return out, nil
 }
@@ -416,15 +489,38 @@ func cairnlineProjectHandoffs(ctx context.Context, service *cairnline.Service, p
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool {
-		if !out[i].UpdatedAt.Equal(out[j].UpdatedAt) {
-			return out[i].UpdatedAt.After(out[j].UpdatedAt)
-		}
-		if !out[i].CreatedAt.Equal(out[j].CreatedAt) {
-			return out[i].CreatedAt.After(out[j].CreatedAt)
-		}
-		return out[i].ID < out[j].ID
+		return projectHandoffProjectionLess(out[i], out[j])
 	})
 	return out, nil
+}
+
+func sortProjectWorkArtifactsForProjection(items []projectwork.CollaborationArtifact) {
+	sort.SliceStable(items, func(i, j int) bool {
+		return projectWorkArtifactProjectionLess(items[i], items[j])
+	})
+}
+
+func projectWorkArtifactProjectionLess(a, b projectwork.CollaborationArtifact) bool {
+	if !a.CreatedAt.Equal(b.CreatedAt) {
+		return a.CreatedAt.Before(b.CreatedAt)
+	}
+	return a.ID < b.ID
+}
+
+func sortProjectHandoffsForProjection(items []projectwork.Handoff) {
+	sort.SliceStable(items, func(i, j int) bool {
+		return projectHandoffProjectionLess(items[i], items[j])
+	})
+}
+
+func projectHandoffProjectionLess(a, b projectwork.Handoff) bool {
+	if !a.UpdatedAt.Equal(b.UpdatedAt) {
+		return a.UpdatedAt.After(b.UpdatedAt)
+	}
+	if !a.CreatedAt.Equal(b.CreatedAt) {
+		return a.CreatedAt.After(b.CreatedAt)
+	}
+	return a.ID < b.ID
 }
 
 func (h *Handler) renderCairnlineProjectWorkAssignments(ctx context.Context, projectID, workItemID string) ([]ProjectWorkAssignmentResponse, error) {

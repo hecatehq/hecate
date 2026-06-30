@@ -510,8 +510,9 @@ sequenceDiagram
   temporary project. Live Projects writes still use Hecate-native stores in
   sidecar mode. Live project list/detail reads use Hecate-native stores unless
   `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar` is also set; setup-readiness,
-  health, skills, memory, memory candidates, roles, work items, and assignment
-  lists use the same sidecar source when it is configured.
+  health, skills, memory, memory candidates, roles, work items, assignment
+  lists, artifact lists, and handoff lists use the same sidecar source when it
+  is configured.
 - `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=auto|snapshot|embedded|sidecar` controls which
   Cairnline service backing configured read routes use while
   `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline`. With
@@ -527,9 +528,9 @@ sequenceDiagram
   reads. With `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar`, `sidecar` routes
   project list/detail, setup-readiness, health, project skill list, project
   memory list, memory-candidate list, project role list, work-item list/detail,
-  and assignment-list reads through the standalone Cairnline MCP client; all
-  other live Projects read routes stay on Hecate-native or embedded dogfood
-  paths.
+  assignment-list, artifact-list, and handoff-list reads through the standalone
+  Cairnline MCP client; all other live Projects read routes stay on
+  Hecate-native or embedded dogfood paths.
 - `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=none|project-memory|project-memory,memory-candidates|project-collaboration|project-skills|project-roles|project-work-items|project-assignments|agent-profiles|project-metadata-defaults|project-roots|project-context-sources|project-identity|project-assistant-proposals`
   controls alpha Cairnline write-authority switchpoints while
   `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and
@@ -2410,9 +2411,10 @@ requested project row or proposal record to exist so replacement-readiness gaps
 fail loudly. With `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar`,
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar` routes only project list/detail,
 setup-readiness, health, project skill list, project memory list,
-memory-candidate list, project role list, work-item list/detail, and
-assignment-list reads through the standalone Cairnline MCP client; backend
-status reports those routes in `read_routes` while `read_model_switch_ready`
+memory-candidate list, project role list, work-item list/detail,
+assignment-list, artifact-list, and handoff-list reads through the standalone
+Cairnline MCP client; backend status reports those routes in `read_routes` while
+`read_model_switch_ready`
 remains false because the broader read model is not sidecar-backed yet.
 `read_routes` lists the live read families currently backed by the Cairnline
 read model. `write_adapter_ready=false` means writes and migration are still
@@ -2851,7 +2853,7 @@ Example response, shortened:
   "data": {
     "ready": true,
     "status": "sidecar_probe_ready",
-    "detail": "Cairnline sidecar MCP server started and exposes the required portable Projects tool contract. Hecate still keeps live Projects writes on Hecate-native stores in sidecar mode; project list/detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, and assignment-list read routing requires HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar.",
+    "detail": "Cairnline sidecar MCP server started and exposes the required portable Projects tool contract. Hecate still keeps live Projects writes on Hecate-native stores in sidecar mode; project list/detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, artifact-list, and handoff-list read routing requires HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar.",
     "command": "cairnline",
     "args": ["-db", "/Users/alice/.local/share/hecate/cairnline/projects.db"],
     "database_path": "/Users/alice/.local/share/hecate/cairnline/projects.db",
@@ -3064,7 +3066,7 @@ Example response, shortened:
   "data": {
     "ready": true,
     "status": "sidecar_client_ready",
-    "detail": "Cairnline sidecar MCP client connected and exposes the required portable Projects tool contract. Hecate still keeps live Projects writes on Hecate-native stores in sidecar mode; project list/detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, and assignment-list read routing requires HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar.",
+    "detail": "Cairnline sidecar MCP client connected and exposes the required portable Projects tool contract. Hecate still keeps live Projects writes on Hecate-native stores in sidecar mode; project list/detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, artifact-list, and handoff-list read routing requires HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar.",
     "command": "cairnline",
     "args": ["-db", "/Users/alice/.local/share/hecate/cairnline/projects.db"],
     "database_path": "/Users/alice/.local/share/hecate/cairnline/projects.db",
@@ -6017,11 +6019,18 @@ Responses use `{ "object": "project_handoffs", "data": [...] }`. When
 reports `read_model_switch_ready=true`, list responses are projected from
 Cairnline and include `read_backend: "cairnline"` on each handoff; writes still
 mutate Hecate's native project-work store.
+When `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar` and
+`HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar` are both configured, project
+handoff lists are read through typed `handoffs.list` on the standalone
+Cairnline MCP client. Handoff create/update/status/delete routes remain
+Hecate-owned unless a separate write-authority switchpoint is enabled.
 
 #### `GET /hecate/v1/projects/{id}/work-items/{work_item_id}/handoffs`
 
 Lists structured handoff records for one work item. Handoffs are sorted by
-latest update time, newest first.
+latest update time, newest first. In sidecar read-source mode, this endpoint
+first validates the work item through typed `work_items.list`, then reads
+handoffs through typed `handoffs.list`.
 
 ```json
 {
@@ -6115,6 +6124,12 @@ route reports `read_model_switch_ready=true`, this list is projected from
 Cairnline and includes `read_backend: "cairnline"` on each artifact. The
 portable projection includes generic collaboration artifacts plus evidence and
 review records.
+When `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar` and
+`HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar` are both configured, this
+endpoint validates the work item through typed `work_items.list`, then combines
+typed `artifacts.list`, `evidence.list`, and `reviews.list` from the standalone
+Cairnline MCP client. Collaboration artifact creation remains Hecate-owned
+unless a separate write-authority switchpoint is enabled.
 
 #### `POST /hecate/v1/projects/{id}/work-items/{work_item_id}/artifacts`
 
