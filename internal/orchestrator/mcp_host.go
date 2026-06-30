@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -297,14 +298,36 @@ func ProbeMCPServer(ctx context.Context, cfg types.MCPServerConfig, cipher secre
 	}
 	defer func() { _ = pool.Close() }()
 
-	// Pool.AllTools() is already populated by NewPool's bring-up
-	// (initialize + tools/list) so no extra round-trip is needed.
-	// We strip the namespacing for the response — the probe surface
-	// is for understanding the upstream, not the gateway's runtime
-	// alias.
-	tools := pool.AllTools()
+	return mcpProbeResultFromPoolTools(cfg.Name, pool.AllTools()), nil
+}
+
+// ProbeCachedMCPServer is the cached-client counterpart to
+// ProbeMCPServer. It validates/resolves cfg, acquires the upstream MCP
+// process from cache, exposes the tools/list snapshot, then releases
+// the client back to the cache instead of tearing it down. Use this
+// for operator-controlled infrastructure clients where "connect and
+// inspect" should leave a warm subprocess for future calls.
+func ProbeCachedMCPServer(ctx context.Context, cfg types.MCPServerConfig, cipher secrets.Cipher, cache *mcpclient.SharedClientCache) (*MCPProbeResult, error) {
+	if cache == nil {
+		return nil, errors.New("mcp cached probe: cache is required")
+	}
+	resolved, err := resolveEnvConfigs([]types.MCPServerConfig{cfg}, cipher)
+	if err != nil {
+		return nil, err
+	}
+	clientCfgs := toClientServerConfigs(resolved)
+	pool, err := mcpclient.NewPoolWithCache(ctx, clientCfgs, cache)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = pool.Close() }()
+
+	return mcpProbeResultFromPoolTools(cfg.Name, pool.AllTools()), nil
+}
+
+func mcpProbeResultFromPoolTools(serverName string, tools []mcpclient.NamespacedTool) *MCPProbeResult {
 	out := &MCPProbeResult{Tools: make([]mcpclient.NamespacedTool, 0, len(tools))}
-	prefix := mcpclient.NamespacedToolName(strings.TrimSpace(cfg.Name), "")
+	prefix := mcpclient.NamespacedToolName(strings.TrimSpace(serverName), "")
 	for _, t := range tools {
 		stripped := t
 		// Strip the "mcp__<name>__" prefix to surface the upstream
@@ -316,7 +339,7 @@ func ProbeMCPServer(ctx context.Context, cfg types.MCPServerConfig, cipher secre
 		}
 		out.Tools = append(out.Tools, stripped)
 	}
-	return out, nil
+	return out
 }
 
 // toClientServerConfigs converts the orchestrator-side config slice

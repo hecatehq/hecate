@@ -8,7 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/mcp"
+	mcpclient "github.com/hecatehq/hecate/internal/mcp/client"
 	"github.com/hecatehq/hecate/internal/orchestrator"
+	"github.com/hecatehq/hecate/internal/version"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -49,7 +52,7 @@ func projectCairnlineConnectorReady(mode string) bool {
 func projectCairnlineConnectorDetail(mode string) string {
 	switch mode {
 	case "sidecar":
-		return "Cairnline sidecar connector is configured and can be probed through the local-only sidecar probe endpoint, but Hecate does not yet route Projects reads or writes through a long-lived standalone Cairnline MCP client."
+		return "Cairnline sidecar connector is configured and can be connected through the local-only sidecar connect endpoint, but Hecate does not yet route Projects reads or writes through the standalone Cairnline MCP client."
 	default:
 		return "Hecate is using the embedded Cairnline Go package bridge for replacement-readiness dogfood."
 	}
@@ -59,7 +62,7 @@ func projectCairnlineConnectorWarning(mode string) string {
 	if mode != "sidecar" {
 		return ""
 	}
-	return "HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar enables the standalone Cairnline MCP probe only; Cairnline read/write routing stays disabled until Hecate has a persistent sidecar Projects backend."
+	return "HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar enables standalone Cairnline MCP connect/probe surfaces only; Cairnline read/write routing stays disabled until Hecate has a sidecar Projects backend adapter."
 }
 
 func (h *Handler) HandleProjectCairnlineSidecarProbe(w http.ResponseWriter, r *http.Request) {
@@ -69,6 +72,16 @@ func (h *Handler) HandleProjectCairnlineSidecarProbe(w http.ResponseWriter, r *h
 	WriteJSON(w, http.StatusOK, ProjectCairnlineSidecarProbeEnvelope{
 		Object: "project_cairnline_sidecar_probe",
 		Data:   h.projectCairnlineSidecarProbe(r.Context()),
+	})
+}
+
+func (h *Handler) HandleProjectCairnlineSidecarConnect(w http.ResponseWriter, r *http.Request) {
+	if !requireLoopbackClient(w, r, "Cairnline sidecar connect") {
+		return
+	}
+	WriteJSON(w, http.StatusOK, ProjectCairnlineSidecarClientEnvelope{
+		Object: "project_cairnline_sidecar_client",
+		Data:   h.projectCairnlineSidecarConnect(r.Context()),
 	})
 }
 
@@ -119,6 +132,87 @@ func (h *Handler) projectCairnlineSidecarProbe(ctx context.Context) ProjectCairn
 	response.Status = "sidecar_probe_ready"
 	response.Detail = "Cairnline sidecar MCP server started and exposes the required portable Projects tool contract. Hecate still keeps live Projects reads and writes on Hecate-native stores in sidecar mode."
 	return response
+}
+
+func (h *Handler) projectCairnlineSidecarConnect(ctx context.Context) ProjectCairnlineSidecarProbeResponse {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	cfg, dbPath, timeout := h.projectCairnlineSidecarMCPConfig()
+	response := ProjectCairnlineSidecarProbeResponse{
+		Ready:                 false,
+		Status:                "sidecar_client_not_connected",
+		Detail:                "Cairnline sidecar client has not connected.",
+		Command:               cfg.Command,
+		Args:                  append([]string(nil), cfg.Args...),
+		DatabasePath:          dbPath,
+		ProbeTimeoutMS:        timeout.Milliseconds(),
+		RequiredTools:         append([]string(nil), projectCairnlineSidecarRequiredTools...),
+		PersistentClient:      true,
+		ClientCacheConfigured: h != nil,
+	}
+	if h == nil {
+		response.Status = "sidecar_client_failed"
+		response.Detail = "Cairnline sidecar client requires an API handler."
+		return response
+	}
+	if h.projectCairnlineConnectorMode() != "sidecar" {
+		response.Warnings = append(response.Warnings, "HECATE_PROJECTS_CAIRNLINE_CONNECTOR is not sidecar; this client does not affect live Projects routing.")
+	}
+	if dbPath != "" && len(h.config.ProjectsCairnlineSidecarArgs()) > 0 {
+		response.Warnings = append(response.Warnings, "HECATE_PROJECTS_CAIRNLINE_SIDECAR_ARGS is set, so HECATE_PROJECTS_CAIRNLINE_SIDECAR_DB is reported but not appended automatically.")
+	}
+
+	cache := h.projectCairnlineSidecarMCPClientCache()
+	connectCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	result, err := orchestrator.ProbeCachedMCPServer(connectCtx, cfg, h.secretCipher, cache)
+	if err != nil {
+		response.Status = "sidecar_client_failed"
+		response.Detail = err.Error()
+		response.setSidecarCacheStats(cache.Stats())
+		return response
+	}
+	response.Tools = renderMCPProbeTools(result.Tools)
+	response.ToolCount = len(response.Tools)
+	response.MissingTools = projectCairnlineSidecarMissingTools(projectCairnlineSidecarToolNames(response.Tools))
+	response.setSidecarCacheStats(cache.Stats())
+	if len(response.MissingTools) > 0 {
+		response.Status = "sidecar_contract_incomplete"
+		response.Detail = "Cairnline sidecar MCP client connected, but it does not expose every tool Hecate needs for a future Projects backend connector."
+		return response
+	}
+	response.Ready = true
+	response.Status = "sidecar_client_ready"
+	response.Detail = "Cairnline sidecar MCP client connected and exposes the required portable Projects tool contract. Hecate still keeps live Projects reads and writes on Hecate-native stores in sidecar mode."
+	return response
+}
+
+func (h *Handler) projectCairnlineSidecarMCPClientCache() *mcpclient.SharedClientCache {
+	if h == nil {
+		return nil
+	}
+	h.projectCairnlineSidecarMu.Lock()
+	defer h.projectCairnlineSidecarMu.Unlock()
+	if h.projectCairnlineSidecarCache == nil {
+		h.projectCairnlineSidecarCache = mcpclient.NewSharedClientCacheWithOptions(mcpclient.SharedClientCacheOptions{
+			MaxEntries: 1,
+			Info: mcp.ClientInfo{
+				Name:    "hecate-cairnline-sidecar",
+				Version: version.Version,
+			},
+		})
+	}
+	return h.projectCairnlineSidecarCache
+}
+
+func (r *ProjectCairnlineSidecarProbeResponse) setSidecarCacheStats(stats mcpclient.CacheStats) {
+	if r == nil {
+		return
+	}
+	r.ClientCacheEntries = stats.Entries
+	r.ClientCacheInUse = stats.InUse
+	r.ClientCacheIdle = stats.Idle
 }
 
 func (h *Handler) projectCairnlineSidecarMCPConfig() (types.MCPServerConfig, string, time.Duration) {
