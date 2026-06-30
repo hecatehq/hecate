@@ -581,6 +581,7 @@ type ProjectCoordinationBackendStatusResponse struct {
 	CairnlineSidecarDetailURL            string                                       `json:"cairnline_sidecar_detail_url,omitempty"`
 	CairnlineSidecarCoordinationURL      string                                       `json:"cairnline_sidecar_coordination_url,omitempty"`
 	CairnlineSidecarAssignmentContextURL string                                       `json:"cairnline_sidecar_assignment_context_url,omitempty"`
+	CairnlineSidecarLaunchPacketURL      string                                       `json:"cairnline_sidecar_launch_packet_url,omitempty"`
 	EmbeddedReadModelURL                 string                                       `json:"embedded_read_model_url,omitempty"`
 	EmbeddedParityReportURL              string                                       `json:"embedded_parity_report_url,omitempty"`
 	SyncReadinessURL                     string                                       `json:"sync_readiness_url,omitempty"`
@@ -1697,6 +1698,11 @@ type ProjectCairnlineSidecarAssignmentContextEnvelope struct {
 	Data   ProjectCairnlineSidecarAssignmentContextResponse `json:"data"`
 }
 
+type ProjectCairnlineSidecarLaunchPacketEnvelope struct {
+	Object string                                      `json:"object"`
+	Data   ProjectCairnlineSidecarLaunchPacketResponse `json:"data"`
+}
+
 type ProjectCairnlineSidecarDetailRequest struct {
 	ProjectID string `json:"project_id,omitempty"`
 }
@@ -1706,6 +1712,11 @@ type ProjectCairnlineSidecarCoordinationRequest struct {
 }
 
 type ProjectCairnlineSidecarAssignmentContextRequest struct {
+	ProjectID    string `json:"project_id,omitempty"`
+	AssignmentID string `json:"assignment_id,omitempty"`
+}
+
+type ProjectCairnlineSidecarLaunchPacketRequest struct {
 	ProjectID    string `json:"project_id,omitempty"`
 	AssignmentID string `json:"assignment_id,omitempty"`
 }
@@ -1866,6 +1877,63 @@ type ProjectCairnlineSidecarAssignmentContextIDs struct {
 	ProjectID    string `json:"project_id,omitempty"`
 	WorkItemID   string `json:"work_item_id,omitempty"`
 	RoleID       string `json:"role_id,omitempty"`
+}
+
+type ProjectCairnlineSidecarLaunchPacketResponse struct {
+	Ready                    bool                                           `json:"ready"`
+	Status                   string                                         `json:"status"`
+	Detail                   string                                         `json:"detail"`
+	Command                  string                                         `json:"command"`
+	Args                     []string                                       `json:"args,omitempty"`
+	DatabasePath             string                                         `json:"database_path,omitempty"`
+	ProbeTimeoutMS           int64                                          `json:"probe_timeout_ms"`
+	PersistentClient         bool                                           `json:"persistent_client,omitempty"`
+	ClientCacheConfigured    bool                                           `json:"client_cache_configured,omitempty"`
+	ClientCacheEntries       int                                            `json:"client_cache_entries,omitempty"`
+	ClientCacheInUse         int                                            `json:"client_cache_in_use,omitempty"`
+	ClientCacheIdle          int                                            `json:"client_cache_idle,omitempty"`
+	Tool                     string                                         `json:"tool"`
+	ReadOnly                 bool                                           `json:"read_only"`
+	RequestedProjectID       string                                         `json:"requested_project_id,omitempty"`
+	RequestedAssignmentID    string                                         `json:"requested_assignment_id,omitempty"`
+	SelectedProjectID        string                                         `json:"selected_project_id,omitempty"`
+	SelectedProjectSource    string                                         `json:"selected_project_source,omitempty"`
+	SelectedAssignmentID     string                                         `json:"selected_assignment_id,omitempty"`
+	SelectedAssignmentSource string                                         `json:"selected_assignment_source,omitempty"`
+	ProjectList              *ProjectCairnlineSidecarCoordinationListResult `json:"project_list,omitempty"`
+	AssignmentList           *ProjectCairnlineSidecarCoordinationListResult `json:"assignment_list,omitempty"`
+	ToolText                 string                                         `json:"tool_text,omitempty"`
+	ToolIsError              bool                                           `json:"tool_is_error,omitempty"`
+	StructuredContent        json.RawMessage                                `json:"structured_content,omitempty"`
+	Meta                     json.RawMessage                                `json:"meta,omitempty"`
+	StructuredReady          bool                                           `json:"structured_ready"`
+	StructuredIDs            ProjectCairnlineSidecarLaunchPacketIDs         `json:"structured_ids,omitempty"`
+	StructuredCounts         ProjectCairnlineSidecarLaunchPacketCounts      `json:"structured_counts,omitempty"`
+	StructuredWarnings       []string                                       `json:"structured_warnings,omitempty"`
+	StructuredParseError     string                                         `json:"structured_parse_error,omitempty"`
+	Warnings                 []string                                       `json:"warnings,omitempty"`
+}
+
+type ProjectCairnlineSidecarLaunchPacketIDs struct {
+	LaunchPacketID     string `json:"launch_packet_id,omitempty"`
+	Kind               string `json:"kind,omitempty"`
+	ProjectID          string `json:"project_id,omitempty"`
+	AssignmentID       string `json:"assignment_id,omitempty"`
+	WorkItemID         string `json:"work_item_id,omitempty"`
+	RoleID             string `json:"role_id,omitempty"`
+	ProfileID          string `json:"profile_id,omitempty"`
+	ExecutionProfileID string `json:"execution_profile_id,omitempty"`
+}
+
+type ProjectCairnlineSidecarLaunchPacketCounts struct {
+	Skills           int `json:"skills"`
+	Artifacts        int `json:"artifacts"`
+	Evidence         int `json:"evidence"`
+	Reviews          int `json:"reviews"`
+	Handoffs         int `json:"handoffs"`
+	Memory           int `json:"memory"`
+	MemoryCandidates int `json:"memory_candidates"`
+	Warnings         int `json:"warnings"`
 }
 
 type ProjectCairnlineSidecarProjectItem struct {

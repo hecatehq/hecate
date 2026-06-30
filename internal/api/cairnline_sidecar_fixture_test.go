@@ -233,6 +233,69 @@ func cairnlineSidecarFixtureCallTool(mode string, params mcp.CallToolParams) (mc
 			})
 		}
 		return result, nil
+	case "assignments.launch_packet":
+		if mode == "launch-packet-tool-error" {
+			return mcp.CallToolResult{
+				Content: mcp.TextContent("fixture assignments.launch_packet failed"),
+				IsError: true,
+			}, nil
+		}
+		var input struct {
+			ProjectID    string `json:"project_id"`
+			AssignmentID string `json:"assignment_id"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid assignments.launch_packet arguments")
+		}
+		if input.ProjectID == "" || input.AssignmentID == "" {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "missing launch packet ids")
+		}
+		result := mcp.CallToolResult{Content: mcp.TextContent("Launch packet launch_fixture for " + input.AssignmentID)}
+		if mode != "text-only" {
+			result.StructuredContent = mustRawJSON(map[string]any{
+				"id":   "launch_fixture",
+				"kind": "assignment_launch_packet",
+				"project": map[string]any{
+					"id":   input.ProjectID,
+					"name": "Fixture Project",
+				},
+				"work_item": map[string]any{
+					"id":    "work_fixture",
+					"title": "Fixture Work",
+				},
+				"role": map[string]any{
+					"id":   "role_fixture",
+					"name": "Fixture Reviewer",
+				},
+				"profile": map[string]any{
+					"id":   "profile_fixture",
+					"name": "Fixture Profile",
+				},
+				"execution_profile": map[string]any{
+					"id":   "exec_fixture",
+					"name": "Fixture Execution",
+				},
+				"skills": []map[string]any{{
+					"id":    "skill_fixture",
+					"title": "Fixture Skill",
+				}},
+				"assignment": map[string]any{
+					"id":           input.AssignmentID,
+					"project_id":   input.ProjectID,
+					"work_item_id": "work_fixture",
+					"role_id":      "role_fixture",
+					"status":       "queued",
+				},
+				"artifacts":         []map[string]any{{"id": "artifact_fixture"}},
+				"evidence":          []map[string]any{{"id": "evidence_fixture"}},
+				"reviews":           []map[string]any{{"id": "review_fixture"}},
+				"handoffs":          []map[string]any{{"id": "handoff_fixture"}},
+				"memory":            []map[string]any{{"id": "memory_fixture"}},
+				"memory_candidates": []map[string]any{{"id": "candidate_fixture"}},
+				"warnings":          []string{"fixture warning"},
+			})
+		}
+		return result, nil
 	case "projects.get":
 		if mode == "get-tool-error" {
 			return mcp.CallToolResult{
