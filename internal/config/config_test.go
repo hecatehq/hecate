@@ -258,11 +258,49 @@ func TestLoadFromEnvTaskWebSearchBraveConfig(t *testing.T) {
 	}
 }
 
+func TestLoadFromEnvTaskWebSearchProviderAliases(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		provider  string
+		env       string
+		value     string
+		wantValue string
+	}{
+		{name: "tavily", provider: "tavily", env: "TAVILY_API_KEY", value: "tavily-key", wantValue: "tavily-key"},
+		{name: "exa", provider: "exa", env: "EXA_API_KEY", value: "exa-key", wantValue: "exa-key"},
+		{name: "generic wins", provider: "exa", env: "EXA_API_KEY", value: "exa-key", wantValue: "generic-key"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HECATE_TASK_WEB_SEARCH_PROVIDER", tc.provider)
+			t.Setenv("HECATE_TASK_WEB_SEARCH_API_KEY", "")
+			t.Setenv("BRAVE_SEARCH_API_KEY", "")
+			t.Setenv("TAVILY_API_KEY", "")
+			t.Setenv("EXA_API_KEY", "")
+			t.Setenv(tc.env, tc.value)
+			if tc.name == "generic wins" {
+				t.Setenv("HECATE_TASK_WEB_SEARCH_API_KEY", "generic-key")
+			}
+
+			cfg := LoadFromEnv()
+			if cfg.Server.TaskWebSearchProvider != tc.provider {
+				t.Fatalf("TaskWebSearchProvider = %q, want %s", cfg.Server.TaskWebSearchProvider, tc.provider)
+			}
+			if cfg.Server.TaskWebSearchAPIKey != tc.wantValue {
+				t.Fatalf("TaskWebSearchAPIKey = %q, want %s", cfg.Server.TaskWebSearchAPIKey, tc.wantValue)
+			}
+		})
+	}
+}
+
 func TestValidateTaskWebSearchProviderRequiresKey(t *testing.T) {
-	cfg := Config{Server: ServerConfig{TaskWebSearchProvider: "brave"}}
-	err := cfg.Validate()
-	if err == nil || !strings.Contains(err.Error(), "HECATE_TASK_WEB_SEARCH_API_KEY") {
-		t.Fatalf("Validate() error = %v, want missing web search key", err)
+	for _, provider := range []string{"brave", "tavily", "exa"} {
+		t.Run(provider, func(t *testing.T) {
+			cfg := Config{Server: ServerConfig{TaskWebSearchProvider: provider}}
+			err := cfg.Validate()
+			if err == nil || !strings.Contains(err.Error(), "HECATE_TASK_WEB_SEARCH_API_KEY") {
+				t.Fatalf("Validate() error = %v, want missing web search key", err)
+			}
+		})
 	}
 }
 

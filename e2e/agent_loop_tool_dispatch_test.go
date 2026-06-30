@@ -238,91 +238,103 @@ func TestAgentLoopTerminalToolsE2E(t *testing.T) {
 }
 
 func TestAgentLoopWebSearchToolE2E(t *testing.T) {
-	workDir := t.TempDir()
-	canonicalWorkDir, err := filepath.EvalSymlinks(workDir)
-	if err != nil {
-		t.Fatalf("canonicalize temp dir: %v", err)
+	cases := []struct {
+		provider string
+		endpoint func(t *testing.T) (string, *atomic.Int32)
+	}{
+		{provider: "brave", endpoint: fakeBraveSearchEndpoint},
+		{provider: "tavily", endpoint: fakeTavilySearchEndpoint},
+		{provider: "exa", endpoint: fakeExaSearchEndpoint},
 	}
-	workDir = canonicalWorkDir
-	searchEndpoint, searchCalls := fakeBraveSearchEndpoint(t)
-	upstream, captured := fakeAgentLoopWebSearchUpstream(t)
-	baseURL := gatewayServer(t,
-		"HECATE_TASK_APPROVAL_POLICIES=",
-		"PROVIDER_FAKE_API_KEY=dummy",
-		"PROVIDER_FAKE_BASE_URL="+upstream,
-		"PROVIDER_FAKE_KIND=local",
-		"PROVIDER_FAKE_MODELS="+agentLoopE2EModel,
-		"HECATE_TASK_WEB_SEARCH_PROVIDER=brave",
-		"HECATE_TASK_WEB_SEARCH_API_KEY=search-token",
-		"HECATE_TASK_WEB_SEARCH_ENDPOINT="+searchEndpoint,
-	)
+	for _, tc := range cases {
+		t.Run(tc.provider, func(t *testing.T) {
+			workDir := t.TempDir()
+			canonicalWorkDir, err := filepath.EvalSymlinks(workDir)
+			if err != nil {
+				t.Fatalf("canonicalize temp dir: %v", err)
+			}
+			workDir = canonicalWorkDir
+			searchEndpoint, searchCalls := tc.endpoint(t)
+			upstream, captured := fakeAgentLoopWebSearchUpstream(t)
+			baseURL := gatewayServer(t,
+				"HECATE_TASK_APPROVAL_POLICIES=",
+				"PROVIDER_FAKE_API_KEY=dummy",
+				"PROVIDER_FAKE_BASE_URL="+upstream,
+				"PROVIDER_FAKE_KIND=local",
+				"PROVIDER_FAKE_MODELS="+agentLoopE2EModel,
+				"HECATE_TASK_WEB_SEARCH_PROVIDER="+tc.provider,
+				"HECATE_TASK_WEB_SEARCH_API_KEY=search-token",
+				"HECATE_TASK_WEB_SEARCH_ENDPOINT="+searchEndpoint,
+			)
 
-	taskBody := fmt.Sprintf(`{
-		"title": "agent loop web search e2e",
-		"prompt": "Search for Hecate agent runtime, then summarize the result.",
-		"execution_kind": "agent_loop",
-		"requested_model": %q,
-		"working_directory": %q,
-		"sandbox_allowed_root": %q,
-		"workspace_mode": "in_place",
-		"timeout_ms": 10000
-	}`, agentLoopE2EModel, workDir, workDir)
-	created := postJSONDecode[e2eTaskResponse](t, baseURL+"/hecate/v1/tasks", taskBody)
-	if created.Data.ID == "" {
-		t.Fatal("created task id is empty")
-	}
+			taskBody := fmt.Sprintf(`{
+				"title": "agent loop web search e2e",
+				"prompt": "Search for Hecate agent runtime, then summarize the result.",
+				"execution_kind": "agent_loop",
+				"requested_model": %q,
+				"working_directory": %q,
+				"sandbox_allowed_root": %q,
+				"workspace_mode": "in_place",
+				"timeout_ms": 10000
+			}`, agentLoopE2EModel, workDir, workDir)
+			created := postJSONDecode[e2eTaskResponse](t, baseURL+"/hecate/v1/tasks", taskBody)
+			if created.Data.ID == "" {
+				t.Fatal("created task id is empty")
+			}
 
-	started := postJSONDecode[e2eTaskRunResponse](t, baseURL+"/hecate/v1/tasks/"+created.Data.ID+"/start", `{}`)
-	if started.Data.ID == "" {
-		t.Fatal("started run id is empty")
-	}
-	run := waitForE2ETaskRunTerminal(t, baseURL, created.Data.ID, started.Data.ID, 10*time.Second)
-	if run.Status != "completed" {
-		t.Fatalf("run status = %q last_error=%q, want completed", run.Status, run.LastError)
-	}
+			started := postJSONDecode[e2eTaskRunResponse](t, baseURL+"/hecate/v1/tasks/"+created.Data.ID+"/start", `{}`)
+			if started.Data.ID == "" {
+				t.Fatal("started run id is empty")
+			}
+			run := waitForE2ETaskRunTerminal(t, baseURL, created.Data.ID, started.Data.ID, 10*time.Second)
+			if run.Status != "completed" {
+				t.Fatalf("run status = %q last_error=%q, want completed", run.Status, run.LastError)
+			}
 
-	steps := getJSON[e2eTaskStepsResponse](t, baseURL+"/hecate/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/steps")
-	foundSearchStep := false
-	for _, step := range steps.Data {
-		if step.Kind != "tool" || step.ToolName != "web_search" {
-			continue
-		}
-		foundSearchStep = true
-		if step.Status != "completed" {
-			t.Fatalf("web_search step = %+v, want completed", step)
-		}
-		if step.OutputSummary["provider"] != "brave" {
-			t.Fatalf("web_search provider summary = %#v, want brave", step.OutputSummary)
-		}
-		assertE2ENumber(t, step.OutputSummary, "result_count", 1)
-	}
-	if !foundSearchStep {
-		t.Fatalf("web_search tool step not found in %+v", steps.Data)
-	}
+			steps := getJSON[e2eTaskStepsResponse](t, baseURL+"/hecate/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/steps")
+			foundSearchStep := false
+			for _, step := range steps.Data {
+				if step.Kind != "tool" || step.ToolName != "web_search" {
+					continue
+				}
+				foundSearchStep = true
+				if step.Status != "completed" {
+					t.Fatalf("web_search step = %+v, want completed", step)
+				}
+				if step.OutputSummary["provider"] != tc.provider {
+					t.Fatalf("web_search provider summary = %#v, want %s", step.OutputSummary, tc.provider)
+				}
+				assertE2ENumber(t, step.OutputSummary, "result_count", 1)
+			}
+			if !foundSearchStep {
+				t.Fatalf("web_search tool step not found in %+v", steps.Data)
+			}
 
-	events := getJSON[e2eTaskEventsResponse](t, baseURL+"/hecate/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/events")
-	foundToolProposal := false
-	for _, event := range events.Data {
-		if event.Type == "assistant.tool_call_proposed" && event.Data["tool_name"] == "web_search" {
-			foundToolProposal = true
-		}
-	}
-	if !foundToolProposal {
-		t.Fatalf("assistant.tool_call_proposed for web_search not found in %+v", events.Data)
-	}
+			events := getJSON[e2eTaskEventsResponse](t, baseURL+"/hecate/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/events")
+			foundToolProposal := false
+			for _, event := range events.Data {
+				if event.Type == "assistant.tool_call_proposed" && event.Data["tool_name"] == "web_search" {
+					foundToolProposal = true
+				}
+			}
+			if !foundToolProposal {
+				t.Fatalf("assistant.tool_call_proposed for web_search not found in %+v", events.Data)
+			}
 
-	bodies := capturedBodies(captured)
-	if len(bodies) != 2 {
-		t.Fatalf("upstream chat requests = %d, want 2: %+v", len(bodies), bodies)
-	}
-	if !requestAdvertisedTool(bodies[0], "web_search") {
-		t.Fatalf("first upstream request did not advertise web_search tool: %+v", bodies[0])
-	}
-	if !requestHasToolResult(bodies[1], "call-web-search-e2e", "https://example.test/hecate-runtime") {
-		t.Fatalf("second upstream request did not include web_search result URL: %+v", bodies[1])
-	}
-	if got := searchCalls.Load(); got != 1 {
-		t.Fatalf("search endpoint calls = %d, want 1", got)
+			bodies := capturedBodies(captured)
+			if len(bodies) != 2 {
+				t.Fatalf("upstream chat requests = %d, want 2: %+v", len(bodies), bodies)
+			}
+			if !requestAdvertisedTool(bodies[0], "web_search") {
+				t.Fatalf("first upstream request did not advertise web_search tool: %+v", bodies[0])
+			}
+			if !requestHasToolResult(bodies[1], "call-web-search-e2e", "https://example.test/hecate-runtime") {
+				t.Fatalf("second upstream request did not include web_search result URL: %+v", bodies[1])
+			}
+			if got := searchCalls.Load(); got != 1 {
+				t.Fatalf("search endpoint calls = %d, want 1", got)
+			}
+		})
 	}
 }
 
@@ -491,6 +503,75 @@ func fakeBraveSearchEndpoint(t *testing.T) (string, *atomic.Int32) {
 				"age": "June 2026",
 				"language": "en"
 			}]}
+		}`)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv.URL + "/search", &calls
+}
+
+func fakeTavilySearchEndpoint(t *testing.T) (string, *atomic.Int32) {
+	t.Helper()
+	var calls atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/search", func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if got := r.Header.Get("Authorization"); got != "Bearer search-token" {
+			t.Errorf("Authorization = %q, want Bearer search-token", got)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode Tavily request: %v", err)
+		}
+		if got := body["query"]; got != "hecate agent runtime" {
+			t.Errorf("query = %#v, want hecate agent runtime", got)
+		}
+		if got := body["max_results"]; got != float64(2) {
+			t.Errorf("max_results = %#v, want 2", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{
+			"query": "hecate agent runtime",
+			"results": [{
+				"title": "Hecate agent runtime",
+				"url": "https://example.test/hecate-runtime",
+				"content": "Runtime docs for Hecate agents."
+			}]
+		}`)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv.URL + "/search", &calls
+}
+
+func fakeExaSearchEndpoint(t *testing.T) (string, *atomic.Int32) {
+	t.Helper()
+	var calls atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/search", func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if got := r.Header.Get("x-api-key"); got != "search-token" {
+			t.Errorf("x-api-key = %q, want search-token", got)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode Exa request: %v", err)
+		}
+		if got := body["query"]; got != "hecate agent runtime" {
+			t.Errorf("query = %#v, want hecate agent runtime", got)
+		}
+		if got := body["numResults"]; got != float64(2) {
+			t.Errorf("numResults = %#v, want 2", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{
+			"results": [{
+				"title": "Hecate agent runtime",
+				"url": "https://example.test/hecate-runtime",
+				"text": "Runtime docs for Hecate agents.",
+				"highlights": ["Tools, approvals, and web search."],
+				"publishedDate": "2026-06-30"
+			}]
 		}`)
 	})
 	srv := httptest.NewServer(mux)
