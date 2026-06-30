@@ -354,10 +354,12 @@ launch agents. Those remain explicit operator or orchestrator actions.
   exercises `assignments.next`, claim, `update_status`, launch-packet read, and
   complete against the standalone sidecar database only, plus an explicit
   confirmed sidecar write smoke that creates, lists, updates, gets, deletes, and
-  verifies deletion of a temporary rootless standalone Cairnline project. This is
-  contract/client-lifecycle/read-shape and standalone mutation evidence only:
-  Hecate does not yet route live Projects reads, writes, mirrors, or
-  write-authority switchpoints through the sidecar.
+  verifies deletion of a temporary rootless standalone Cairnline project, and an
+  explicit confirmed setup smoke that creates, updates, lists, deletes, and
+  verifies typed root and context-source metadata on a temporary standalone
+  Cairnline project. This is contract/client-lifecycle/read-shape and standalone
+  mutation evidence only: Hecate does not yet route live Projects reads, writes,
+  mirrors, or write-authority switchpoints through the sidecar.
 - Current Hecate embed experiments can serve project list/detail, setup
   readiness, health, skills, memory, memory candidates, roles, work items,
   assignment lists, assignment context, launch-readiness, assignment preflight,

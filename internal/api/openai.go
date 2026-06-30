@@ -583,6 +583,7 @@ type ProjectCoordinationBackendStatusResponse struct {
 	CairnlineSidecarAssignmentContextURL string                                       `json:"cairnline_sidecar_assignment_context_url,omitempty"`
 	CairnlineSidecarLaunchPacketURL      string                                       `json:"cairnline_sidecar_launch_packet_url,omitempty"`
 	CairnlineSidecarLifecycleURL         string                                       `json:"cairnline_sidecar_lifecycle_url,omitempty"`
+	CairnlineSidecarSetupURL             string                                       `json:"cairnline_sidecar_setup_url,omitempty"`
 	CairnlineSidecarWriteURL             string                                       `json:"cairnline_sidecar_write_url,omitempty"`
 	EmbeddedReadModelURL                 string                                       `json:"embedded_read_model_url,omitempty"`
 	EmbeddedParityReportURL              string                                       `json:"embedded_parity_report_url,omitempty"`
@@ -1715,6 +1716,11 @@ type ProjectCairnlineSidecarWriteEnvelope struct {
 	Data   ProjectCairnlineSidecarWriteResponse `json:"data"`
 }
 
+type ProjectCairnlineSidecarSetupEnvelope struct {
+	Object string                               `json:"object"`
+	Data   ProjectCairnlineSidecarSetupResponse `json:"data"`
+}
+
 type ProjectCairnlineSidecarDetailRequest struct {
 	ProjectID string `json:"project_id,omitempty"`
 }
@@ -1746,6 +1752,11 @@ type ProjectCairnlineSidecarLifecycleRequest struct {
 }
 
 type ProjectCairnlineSidecarWriteRequest struct {
+	ConfirmMutation bool   `json:"confirm_mutation,omitempty"`
+	ProjectName     string `json:"project_name,omitempty"`
+}
+
+type ProjectCairnlineSidecarSetupRequest struct {
 	ConfirmMutation bool   `json:"confirm_mutation,omitempty"`
 	ProjectName     string `json:"project_name,omitempty"`
 }
@@ -2043,6 +2054,33 @@ type ProjectCairnlineSidecarWriteResponse struct {
 	Warnings              []string                           `json:"warnings,omitempty"`
 }
 
+type ProjectCairnlineSidecarSetupResponse struct {
+	Ready                 bool                               `json:"ready"`
+	Status                string                             `json:"status"`
+	Detail                string                             `json:"detail"`
+	Command               string                             `json:"command"`
+	Args                  []string                           `json:"args,omitempty"`
+	DatabasePath          string                             `json:"database_path,omitempty"`
+	ProbeTimeoutMS        int64                              `json:"probe_timeout_ms"`
+	PersistentClient      bool                               `json:"persistent_client,omitempty"`
+	ClientCacheConfigured bool                               `json:"client_cache_configured,omitempty"`
+	ClientCacheEntries    int                                `json:"client_cache_entries,omitempty"`
+	ClientCacheInUse      int                                `json:"client_cache_in_use,omitempty"`
+	ClientCacheIdle       int                                `json:"client_cache_idle,omitempty"`
+	ConfirmedMutation     bool                               `json:"confirmed_mutation"`
+	ProjectName           string                             `json:"project_name,omitempty"`
+	SelectedProjectID     string                             `json:"selected_project_id,omitempty"`
+	RootID                string                             `json:"root_id,omitempty"`
+	ContextSourceID       string                             `json:"context_source_id,omitempty"`
+	Steps                 []ProjectCairnlineSidecarWriteStep `json:"steps,omitempty"`
+	CreatedRoot           ProjectCairnlineSidecarRootItem    `json:"created_root,omitempty"`
+	UpdatedRoot           ProjectCairnlineSidecarRootItem    `json:"updated_root,omitempty"`
+	CreatedSource         ProjectCairnlineSidecarSourceItem  `json:"created_source,omitempty"`
+	UpdatedSource         ProjectCairnlineSidecarSourceItem  `json:"updated_source,omitempty"`
+	CleanupVerified       bool                               `json:"cleanup_verified"`
+	Warnings              []string                           `json:"warnings,omitempty"`
+}
+
 type ProjectCairnlineSidecarWriteStep struct {
 	Name                   string                               `json:"name"`
 	Tool                   string                               `json:"tool"`
@@ -2056,6 +2094,12 @@ type ProjectCairnlineSidecarWriteStep struct {
 	StructuredProject      ProjectCairnlineSidecarProjectItem   `json:"structured_project,omitempty"`
 	StructuredProjects     []ProjectCairnlineSidecarProjectItem `json:"structured_projects,omitempty"`
 	StructuredProjectCount int                                  `json:"structured_project_count"`
+	StructuredRoot         ProjectCairnlineSidecarRootItem      `json:"structured_root,omitempty"`
+	StructuredRoots        []ProjectCairnlineSidecarRootItem    `json:"structured_roots,omitempty"`
+	StructuredRootCount    int                                  `json:"structured_root_count"`
+	StructuredSource       ProjectCairnlineSidecarSourceItem    `json:"structured_source,omitempty"`
+	StructuredSources      []ProjectCairnlineSidecarSourceItem  `json:"structured_sources,omitempty"`
+	StructuredSourceCount  int                                  `json:"structured_source_count"`
 	StructuredParseError   string                               `json:"structured_parse_error,omitempty"`
 }
 
