@@ -4497,6 +4497,60 @@ func TestProjectWorkAPI_ProjectActivityCairnlineConfiguredUsesReadModel(t *testi
 	}
 }
 
+func TestProjectWorkAPI_ProjectActivityUsesCairnlineSidecarWhenConfigured(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "collaboration-fixture+strict-projects")
+	if handler.projectReadRoutesUseCairnlineReadModel() {
+		t.Fatal("sidecar activity enabled embedded Cairnline read-model routes")
+	}
+	if !handler.projectCairnlineSidecarReadRoutesEnabled() {
+		t.Fatal("sidecar read-route predicate = false, want true")
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/activity", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("activity status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response ProjectActivityEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode activity: %v", err)
+	}
+	if response.Object != "project_activity" || response.Data.ProjectID != "proj_fixture" || response.Data.ReadBackend != "cairnline" {
+		t.Fatalf("activity response = %+v, want sidecar Cairnline activity", response)
+	}
+	if response.Data.Summary.WorkItemCount != 1 || response.Data.Summary.AssignmentCount != 1 || response.Data.Summary.BlockedCount != 1 {
+		t.Fatalf("activity summary = %+v, want one blocked sidecar assignment", response.Data.Summary)
+	}
+	item := findProjectActivityItemForTest(t, response.Data.Buckets.Blocked, "asg_fixture")
+	if item.BlockingSignal != "not_started" || item.WorkItem.ID != "work_fixture" || item.Role.ID != "role_fixture" {
+		t.Fatalf("activity item = %+v, want queued sidecar assignment with work and role enrichment", item)
+	}
+	if item.ArtifactSummary.Count == 0 || item.HandoffSummary.Count == 0 {
+		t.Fatalf("activity item = %+v, want sidecar artifact and handoff enrichment", item)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/missing/activity", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing project activity status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+}
+
+func TestProjectWorkAPI_ProjectActivityCairnlineSidecarReadRequiresStructuredContent(t *testing.T) {
+	t.Parallel()
+	_, server := newProjectsCairnlineSidecarReadTestServer(t, "projects.activity-text-only")
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/activity", nil))
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("activity status = %d body=%s, want 502", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "structuredContent") {
+		t.Fatalf("error body = %s, want structuredContent diagnostic", rec.Body.String())
+	}
+}
+
 func TestProjectWorkAPI_ProjectActivityCairnlineMatchesHecate(t *testing.T) {
 	t.Parallel()
 	hecateHandler, hecateServer := newProjectWorkProjectionTestServer(t, "memory")

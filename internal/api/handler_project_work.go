@@ -329,12 +329,16 @@ type ProjectHandoffResponse struct {
 
 func (h *Handler) HandleProjectActivity(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
-	if !h.requireProject(w, r, projectID) {
+	if !h.projectCairnlineSidecarReadRoutesEnabled() && !h.requireProject(w, r, projectID) {
 		return
 	}
 	activity, err := h.renderProjectActivity(r.Context(), projectID)
 	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		if errors.Is(err, projects.ErrNotFound) {
+			WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
+			return
+		}
+		writeProjectReadRenderError(w, err)
 		return
 	}
 	WriteJSON(w, http.StatusOK, ProjectActivityEnvelope{Object: "project_activity", Data: activity})

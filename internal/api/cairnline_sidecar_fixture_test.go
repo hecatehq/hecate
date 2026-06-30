@@ -135,7 +135,7 @@ type cairnlineSidecarFixtureState struct {
 
 func cairnlineSidecarFixtureTools(mode string) []mcp.Tool {
 	names := append([]string(nil), projectCairnlineSidecarRequiredTools...)
-	if mode == "missing" {
+	if cairnlineSidecarFixtureModeHas(mode, "missing") {
 		names = []string{"projects.list"}
 	}
 	tools := make([]mcp.Tool, 0, len(names))
@@ -152,14 +152,14 @@ func cairnlineSidecarFixtureTools(mode string) []mcp.Tool {
 func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixtureState, params mcp.CallToolParams) (mcp.CallToolResult, *mcp.RPCError) {
 	switch params.Name {
 	case "projects.list":
-		if mode == "tool-error" {
+		if cairnlineSidecarFixtureModeHas(mode, "tool-error") {
 			return mcp.CallToolResult{
 				Content: mcp.TextContent("fixture projects.list failed"),
 				IsError: true,
 			}, nil
 		}
 		result := mcp.CallToolResult{Content: mcp.TextContent("Projects (1):\n- proj_fixture: Fixture Project")}
-		if mode != "text-only" {
+		if !cairnlineSidecarFixtureTextOnly(mode, "projects.list") {
 			result.StructuredContent = mustRawJSON(cairnlineSidecarFixtureProjects(state))
 		}
 		return result, nil
@@ -239,6 +239,22 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 			ClaimedBy:     state.claimedBy,
 			ExecutionRef:  state.executionRef,
 		}})
+	case "projects.activity":
+		projectID := cairnlineSidecarFixtureProjectID(params.Arguments)
+		activity := cairnlineSidecarFixtureProjectActivity(state, projectID)
+		result := mcp.CallToolResult{Content: mcp.TextContent("Project activity " + projectID)}
+		if !cairnlineSidecarFixtureTextOnly(mode, "projects.activity") {
+			result.StructuredContent = mustRawJSON(activity)
+		}
+		return result, nil
+	case "projects.operations_brief":
+		projectID := cairnlineSidecarFixtureProjectID(params.Arguments)
+		brief := cairnlineSidecarFixtureProjectOperationsBrief(state, projectID)
+		result := mcp.CallToolResult{Content: mcp.TextContent("Operations brief " + projectID)}
+		if !cairnlineSidecarFixtureTextOnly(mode, "projects.operations_brief") {
+			result.StructuredContent = mustRawJSON(brief)
+		}
+		return result, nil
 	case "assignments.next":
 		if mode == "assignment-list-empty" || state.assignmentStatus != "queued" {
 			return cairnlineSidecarFixtureListResult(mode, "No compatible assignments.", []map[string]any{})
@@ -474,7 +490,7 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 		state.executionRef = input.ExecutionRef
 		return mcp.CallToolResult{Content: mcp.TextContent("Updated assignment " + input.AssignmentID + ": " + input.Status)}, nil
 	case "projects.get":
-		if mode == "get-tool-error" {
+		if cairnlineSidecarFixtureModeHas(mode, "get-tool-error") {
 			return mcp.CallToolResult{
 				Content: mcp.TextContent("fixture projects.get failed"),
 				IsError: true,
@@ -495,6 +511,14 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 				IsError: true,
 			}, nil
 		}
+		if cairnlineSidecarFixtureModeHas(mode, "strict-projects") && input.ID != "proj_fixture" {
+			if _, ok := state.projects[input.ID]; !ok {
+				return mcp.CallToolResult{
+					Content: mcp.TextContent("fixture project not found: " + input.ID),
+					IsError: true,
+				}, nil
+			}
+		}
 		project := cairnlineSidecarFixtureProject(input.ID)
 		if stored, ok := state.projects[input.ID]; ok {
 			project = stored
@@ -502,7 +526,7 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 			project.ContextSources = cairnlineSidecarFixtureProjectSources(state, input.ID)
 		}
 		result := mcp.CallToolResult{Content: mcp.TextContent("Project " + input.ID + ": " + project.Name)}
-		if mode != "text-only" {
+		if !cairnlineSidecarFixtureTextOnly(mode, "projects.get") {
 			result.StructuredContent = mustRawJSON(project)
 		}
 		return result, nil
@@ -1011,7 +1035,7 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 	case "artifacts.list":
 		projectID, workItemID := cairnlineSidecarFixtureProjectWorkIDs(params.Arguments)
 		items := cairnlineSidecarFixtureProjectArtifacts(state, projectID, workItemID)
-		if len(items) == 0 && mode == "collaboration-fixture" {
+		if len(items) == 0 && cairnlineSidecarFixtureModeHas(mode, "collaboration-fixture") {
 			items = cairnlineSidecarFixtureDefaultArtifacts(projectID, workItemID)
 		}
 		return cairnlineSidecarFixtureListResult(mode, fmt.Sprintf("Artifacts for %s (%d)", workItemID, len(items)), items)
@@ -1071,7 +1095,7 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 	case "evidence.list":
 		projectID, workItemID := cairnlineSidecarFixtureProjectWorkIDs(params.Arguments)
 		items := cairnlineSidecarFixtureProjectEvidence(state, projectID, workItemID)
-		if len(items) == 0 && mode == "collaboration-fixture" {
+		if len(items) == 0 && cairnlineSidecarFixtureModeHas(mode, "collaboration-fixture") {
 			items = cairnlineSidecarFixtureDefaultEvidence(projectID, workItemID)
 		}
 		return cairnlineSidecarFixtureListResult(mode, fmt.Sprintf("Evidence for %s (%d)", workItemID, len(items)), items)
@@ -1128,7 +1152,7 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 	case "reviews.list":
 		projectID, workItemID := cairnlineSidecarFixtureProjectWorkIDs(params.Arguments)
 		items := cairnlineSidecarFixtureProjectReviews(state, projectID, workItemID)
-		if len(items) == 0 && mode == "collaboration-fixture" {
+		if len(items) == 0 && cairnlineSidecarFixtureModeHas(mode, "collaboration-fixture") {
 			items = cairnlineSidecarFixtureDefaultReviews(projectID, workItemID)
 		}
 		return cairnlineSidecarFixtureListResult(mode, fmt.Sprintf("Reviews for %s (%d)", workItemID, len(items)), items)
@@ -1204,7 +1228,7 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 	case "handoffs.list":
 		projectID, workItemID := cairnlineSidecarFixtureProjectWorkIDs(params.Arguments)
 		items := cairnlineSidecarFixtureProjectHandoffs(state, projectID, workItemID)
-		if len(items) == 0 && mode == "collaboration-fixture" {
+		if len(items) == 0 && cairnlineSidecarFixtureModeHas(mode, "collaboration-fixture") {
 			items = cairnlineSidecarFixtureDefaultHandoffs(projectID, workItemID)
 		}
 		return cairnlineSidecarFixtureListResult(mode, fmt.Sprintf("Handoffs for %s (%d)", workItemID, len(items)), items)
@@ -1957,9 +1981,208 @@ func cairnlineSidecarFixtureApplyAssistantProposal(state *cairnlineSidecarFixtur
 	return result
 }
 
+func cairnlineSidecarFixtureProjectActivity(state *cairnlineSidecarFixtureState, projectID string) map[string]any {
+	assignments := cairnlineSidecarFixtureProjectAssignments(state, projectID)
+	if len(assignments) == 0 {
+		assignments = []ProjectCairnlineSidecarAssignmentItem{{
+			ProjectID:     projectID,
+			ID:            "asg_fixture",
+			WorkItemID:    "work_fixture",
+			RoleID:        "role_fixture",
+			ProfileID:     "profile_fixture",
+			ExecutionMode: "mcp_pull",
+			Status:        state.assignmentStatus,
+			ClaimedBy:     state.claimedBy,
+			ExecutionRef:  state.executionRef,
+		}}
+	}
+	items := make([]map[string]any, 0, len(assignments))
+	buckets := map[string][]map[string]any{
+		"active":    {},
+		"blocked":   {},
+		"completed": {},
+		"other":     {},
+		"recent":    {},
+	}
+	counts := map[string]int{"assignments": len(assignments)}
+	for _, assignment := range assignments {
+		bucket := cairnlineSidecarFixtureActivityBucket(assignment.Status)
+		counts[bucket]++
+		counts[assignment.Status]++
+		item := map[string]any{
+			"bucket":             bucket,
+			"assignment_id":      assignment.ID,
+			"work_item_id":       assignment.WorkItemID,
+			"work_item_title":    firstNonEmpty(cairnlineSidecarFixtureWorkItemTitle(state, projectID, assignment.WorkItemID), "Fixture Work"),
+			"role_id":            assignment.RoleID,
+			"role_name":          firstNonEmpty(cairnlineSidecarFixtureRoleName(state, projectID, assignment.RoleID), "Fixture Reviewer"),
+			"root_id":            assignment.RootID,
+			"status":             assignment.Status,
+			"execution_mode":     assignment.ExecutionMode,
+			"desired_agent_kind": "any",
+			"execution_ref":      assignment.ExecutionRef,
+			"created_at":         "2026-06-30T00:00:00Z",
+			"updated_at":         "2026-06-30T00:01:00Z",
+		}
+		items = append(items, item)
+		buckets[bucket] = append(buckets[bucket], item)
+		buckets["recent"] = append(buckets["recent"], item)
+	}
+	return map[string]any{
+		"project_id": projectID,
+		"counts":     counts,
+		"buckets":    buckets,
+		"items":      items,
+		"created_at": "2026-06-30T00:02:00Z",
+	}
+}
+
+func cairnlineSidecarFixtureProjectOperationsBrief(state *cairnlineSidecarFixtureState, projectID string) map[string]any {
+	activity := cairnlineSidecarFixtureProjectActivity(state, projectID)
+	activityItems, _ := activity["items"].([]map[string]any)
+	items := make([]map[string]any, 0, len(activityItems)+2)
+	for _, item := range activityItems {
+		assignmentID, _ := item["assignment_id"].(string)
+		workItemID, _ := item["work_item_id"].(string)
+		status, _ := item["status"].(string)
+		items = append(items, map[string]any{
+			"kind":          "assignment",
+			"severity":      cairnlineSidecarFixtureOperationSeverity(status),
+			"status":        status,
+			"title":         "Review assignment " + assignmentID,
+			"detail":        firstNonEmpty(status, "queued"),
+			"work_item_id":  workItemID,
+			"assignment_id": assignmentID,
+			"updated_at":    "2026-06-30T00:03:00Z",
+		})
+	}
+	handoffs := cairnlineSidecarFixtureProjectHandoffs(state, projectID, "")
+	if len(handoffs) == 0 {
+		handoffs = cairnlineSidecarFixtureDefaultHandoffs(projectID, "")
+	}
+	openHandoffs := 0
+	for _, handoff := range handoffs {
+		if handoff.Status != "pending" {
+			continue
+		}
+		openHandoffs++
+		items = append(items, map[string]any{
+			"kind":         "handoff",
+			"severity":     "action",
+			"status":       handoff.Status,
+			"title":        firstNonEmpty(handoff.Title, "Review handoff"),
+			"detail":       firstNonEmpty(handoff.RecommendedNextAction, handoff.Body),
+			"work_item_id": handoff.WorkItemID,
+			"artifact_id":  handoff.ID,
+			"updated_at":   "2026-06-30T00:04:00Z",
+		})
+	}
+	reviews := cairnlineSidecarFixtureProjectReviews(state, projectID, "")
+	if len(reviews) == 0 {
+		reviews = cairnlineSidecarFixtureDefaultReviews(projectID, "")
+	}
+	reviewFollowUps := 0
+	for _, review := range reviews {
+		if review.Verdict != "changes_requested" {
+			continue
+		}
+		reviewFollowUps++
+		items = append(items, map[string]any{
+			"kind":         "review_follow_up",
+			"severity":     "action",
+			"status":       review.Status,
+			"title":        firstNonEmpty(review.Title, "Review follow-up"),
+			"detail":       firstNonEmpty(review.Body, "Review requested changes."),
+			"work_item_id": review.WorkItemID,
+			"artifact_id":  review.ID,
+			"updated_at":   "2026-06-30T00:05:00Z",
+		})
+	}
+	counts := map[string]any{
+		"work_items":                1,
+		"open_work_items":           1,
+		"assignments":               len(activityItems),
+		"active_assignments":        cairnlineSidecarFixtureInt(activity, "counts", "active"),
+		"blocked_assignments":       cairnlineSidecarFixtureInt(activity, "counts", "blocked"),
+		"pending_memory_candidates": 0,
+		"review_follow_ups":         reviewFollowUps,
+		"missing_evidence":          0,
+		"open_handoffs":             openHandoffs,
+		"closeout_ready":            0,
+	}
+	return map[string]any{
+		"project_id": projectID,
+		"status":     "attention",
+		"title":      "Project operations",
+		"detail":     "Fixture operations brief.",
+		"counts":     counts,
+		"items":      items,
+		"created_at": "2026-06-30T00:06:00Z",
+	}
+}
+
+func cairnlineSidecarFixtureActivityBucket(status string) string {
+	switch status {
+	case "claimed", "running", "awaiting_review":
+		return "active"
+	case "completed":
+		return "completed"
+	case "queued", "failed", "cancelled":
+		return "blocked"
+	default:
+		return "other"
+	}
+}
+
+func cairnlineSidecarFixtureOperationSeverity(status string) string {
+	switch status {
+	case "queued", "failed", "cancelled":
+		return "blocked"
+	case "claimed", "running", "awaiting_review":
+		return "active"
+	default:
+		return "info"
+	}
+}
+
+func cairnlineSidecarFixtureInt(value map[string]any, keys ...string) int {
+	var current any = value
+	for _, key := range keys {
+		next, ok := current.(map[string]int)
+		if ok {
+			return next[key]
+		}
+		generic, ok := current.(map[string]any)
+		if !ok {
+			return 0
+		}
+		current = generic[key]
+	}
+	if v, ok := current.(int); ok {
+		return v
+	}
+	return 0
+}
+
+func cairnlineSidecarFixtureModeHas(mode, flag string) bool {
+	for _, part := range strings.FieldsFunc(mode, func(r rune) bool {
+		return r == '+' || r == ','
+	}) {
+		if strings.TrimSpace(part) == flag {
+			return true
+		}
+	}
+	return false
+}
+
+func cairnlineSidecarFixtureTextOnly(mode, tool string) bool {
+	return cairnlineSidecarFixtureModeHas(mode, "text-only") ||
+		cairnlineSidecarFixtureModeHas(mode, tool+"-text-only")
+}
+
 func cairnlineSidecarFixtureListResult(mode, text string, structured any) (mcp.CallToolResult, *mcp.RPCError) {
 	result := mcp.CallToolResult{Content: mcp.TextContent(text)}
-	if mode != "text-only" {
+	if !cairnlineSidecarFixtureModeHas(mode, "text-only") {
 		result.StructuredContent = mustRawJSON(structured)
 	}
 	return result, nil

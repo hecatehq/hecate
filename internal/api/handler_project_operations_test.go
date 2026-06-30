@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -260,6 +261,58 @@ func TestProjectOperationsBrief_CairnlineConfiguredUsesReadModel(t *testing.T) {
 	memoryItem := findProjectOperationsItemForTest(t, response.Data.Items, "review_memory_candidates")
 	if memoryItem.Target.Surface != "memory" || memoryItem.Action.Type != projectOperationsActionOpenMemoryReview {
 		t.Fatalf("memory item = %+v, want memory review action", memoryItem)
+	}
+}
+
+func TestProjectOperationsBrief_UsesCairnlineSidecarWhenConfigured(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "collaboration-fixture+strict-projects")
+	if handler.projectReadRoutesUseCairnlineReadModel() {
+		t.Fatal("sidecar operations enabled embedded Cairnline read-model routes")
+	}
+	if !handler.projectCairnlineSidecarReadRoutesEnabled() {
+		t.Fatal("sidecar read-route predicate = false, want true")
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/operations/brief", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("operations status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response ProjectOperationsBriefEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode operations brief: %v", err)
+	}
+	if response.Object != "project_operations_brief" || response.Data.ProjectID != "proj_fixture" || response.Data.ReadBackend != "cairnline" {
+		t.Fatalf("operations response = %+v, want sidecar Cairnline operations", response)
+	}
+	start := findProjectOperationsItemForTest(t, response.Data.Items, "start_queued_assignment")
+	if start.Target.WorkItemID != "work_fixture" || start.Target.AssignmentID != "asg_fixture" || start.Action.Type != projectOperationsActionOpenAssignmentPreflight {
+		t.Fatalf("start item = %+v, want queued sidecar assignment preflight action", start)
+	}
+	review := findProjectOperationsItemForTest(t, response.Data.Items, "review_follow_up")
+	if review.Target.WorkItemID != "work_fixture" || review.Action.Type != projectOperationsActionOpenWorkItem {
+		t.Fatalf("review item = %+v, want sidecar review follow-up action", review)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/missing/operations/brief", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing project operations status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+}
+
+func TestProjectOperationsBrief_CairnlineSidecarReadRequiresStructuredContent(t *testing.T) {
+	t.Parallel()
+	_, server := newProjectsCairnlineSidecarReadTestServer(t, "projects.operations_brief-text-only")
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/operations/brief", nil))
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("operations status = %d body=%s, want 502", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "structuredContent") {
+		t.Fatalf("error body = %s, want structuredContent diagnostic", rec.Body.String())
 	}
 }
 

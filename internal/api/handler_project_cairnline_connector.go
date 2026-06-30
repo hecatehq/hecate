@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/mcp"
 	mcpclient "github.com/hecatehq/hecate/internal/mcp/client"
 	"github.com/hecatehq/hecate/internal/orchestrator"
@@ -139,7 +140,7 @@ func projectCairnlineConnectorReady(mode string) bool {
 func projectCairnlineConnectorDetail(mode string) string {
 	switch mode {
 	case "sidecar":
-		return "Cairnline sidecar connector is configured and can be exercised through local-only probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle/write/setup/work/collaboration/memory/assistant diagnostics. HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar routes only project list/detail, setup-readiness, health, skills, memory, memory candidates, roles, work items, assignment lists, artifact lists, handoff lists, and closeout readiness through the standalone Cairnline MCP client; other Projects routes remain on Hecate-native stores or embedded dogfood paths."
+		return "Cairnline sidecar connector is configured and can be exercised through local-only probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle/write/setup/work/collaboration/memory/assistant diagnostics. HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar routes only project list/detail, setup-readiness, health, skills, memory, memory candidates, roles, work items, assignment lists, artifact lists, handoff lists, activity, closeout readiness, and operations brief through the standalone Cairnline MCP client; other Projects routes remain on Hecate-native stores or embedded dogfood paths."
 	default:
 		return "Hecate is using the embedded Cairnline Go package bridge for replacement-readiness dogfood."
 	}
@@ -149,7 +150,7 @@ func projectCairnlineConnectorWarning(mode string) string {
 	if mode != "sidecar" {
 		return ""
 	}
-	return "HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar enables standalone Cairnline MCP probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle/write/setup/work/collaboration/memory/assistant diagnostics; add HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar to route only project list/detail, setup-readiness, health, skills, memory, memory candidates, roles, work items, assignment lists, artifact lists, handoff lists, and closeout readiness through the sidecar."
+	return "HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar enables standalone Cairnline MCP probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle/write/setup/work/collaboration/memory/assistant diagnostics; add HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar to route only project list/detail, setup-readiness, health, skills, memory, memory candidates, roles, work items, assignment lists, artifact lists, handoff lists, activity, closeout readiness, and operations brief through the sidecar."
 }
 
 func (h *Handler) HandleProjectCairnlineSidecarProbe(w http.ResponseWriter, r *http.Request) {
@@ -4030,6 +4031,36 @@ func projectCairnlineSidecarStructuredAssignmentContextAssignment(raw json.RawMe
 		return ProjectCairnlineSidecarAssignmentItem{}, false, err
 	}
 	return context.Assignment, true, nil
+}
+
+func projectCairnlineSidecarStructuredProjectActivity(raw json.RawMessage) (cairnline.ProjectActivity, bool, error) {
+	if len(raw) == 0 {
+		return cairnline.ProjectActivity{}, false, nil
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return cairnline.ProjectActivity{}, false, nil
+	}
+	var activity cairnline.ProjectActivity
+	if err := json.Unmarshal(trimmed, &activity); err != nil {
+		return cairnline.ProjectActivity{}, false, err
+	}
+	return activity, true, nil
+}
+
+func projectCairnlineSidecarStructuredProjectOperationsBrief(raw json.RawMessage) (cairnline.ProjectOperationsBrief, bool, error) {
+	if len(raw) == 0 {
+		return cairnline.ProjectOperationsBrief{}, false, nil
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return cairnline.ProjectOperationsBrief{}, false, nil
+	}
+	var brief cairnline.ProjectOperationsBrief
+	if err := json.Unmarshal(trimmed, &brief); err != nil {
+		return cairnline.ProjectOperationsBrief{}, false, err
+	}
+	return brief, true, nil
 }
 
 func projectCairnlineSidecarStructuredLaunchPacket(raw json.RawMessage) (ProjectCairnlineSidecarLaunchPacketIDs, ProjectCairnlineSidecarLaunchPacketCounts, []string, bool, error) {

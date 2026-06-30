@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/agentprofiles"
 	mcpclient "github.com/hecatehq/hecate/internal/mcp/client"
 	"github.com/hecatehq/hecate/internal/memory"
@@ -140,6 +141,42 @@ func (h *Handler) callProjectCairnlineSidecarProjectReadTool(ctx context.Context
 		return nil, projectCairnlineSidecarReadFailure(err.Error())
 	}
 	return result, nil
+}
+
+func (h *Handler) cairnlineSidecarProjectActivity(ctx context.Context, projectID string) (cairnline.ProjectActivity, error) {
+	result, err := h.callProjectCairnlineSidecarProjectReadTool(ctx, "projects.activity", map[string]string{"project_id": strings.TrimSpace(projectID)})
+	if err != nil {
+		return cairnline.ProjectActivity{}, err
+	}
+	if result.IsError {
+		return cairnline.ProjectActivity{}, projectCairnlineSidecarReadFailure("projects.activity returned a tool-level error: " + strings.TrimSpace(result.Text))
+	}
+	activity, structuredReady, structuredErr := projectCairnlineSidecarStructuredProjectActivity(result.Result.StructuredContent)
+	if structuredErr != nil {
+		return cairnline.ProjectActivity{}, projectCairnlineSidecarReadFailure("projects.activity structuredContent parse failed: " + structuredErr.Error())
+	}
+	if !structuredReady {
+		return cairnline.ProjectActivity{}, projectCairnlineSidecarReadFailure("projects.activity did not return typed structuredContent")
+	}
+	return activity, nil
+}
+
+func (h *Handler) cairnlineSidecarProjectOperationsBrief(ctx context.Context, projectID string) (cairnline.ProjectOperationsBrief, error) {
+	result, err := h.callProjectCairnlineSidecarProjectReadTool(ctx, "projects.operations_brief", map[string]string{"project_id": strings.TrimSpace(projectID)})
+	if err != nil {
+		return cairnline.ProjectOperationsBrief{}, err
+	}
+	if result.IsError {
+		return cairnline.ProjectOperationsBrief{}, projectCairnlineSidecarReadFailure("projects.operations_brief returned a tool-level error: " + strings.TrimSpace(result.Text))
+	}
+	brief, structuredReady, structuredErr := projectCairnlineSidecarStructuredProjectOperationsBrief(result.Result.StructuredContent)
+	if structuredErr != nil {
+		return cairnline.ProjectOperationsBrief{}, projectCairnlineSidecarReadFailure("projects.operations_brief structuredContent parse failed: " + structuredErr.Error())
+	}
+	if !structuredReady {
+		return cairnline.ProjectOperationsBrief{}, projectCairnlineSidecarReadFailure("projects.operations_brief did not return typed structuredContent")
+	}
+	return brief, nil
 }
 
 func renderProjectFromCairnlineSidecar(project ProjectCairnlineSidecarProjectItem) ProjectResponseItem {
