@@ -843,13 +843,32 @@ func (h *Handler) projectCairnlineSidecarLifecycleSmoke(ctx context.Context, req
 
 	projectID := selection.ProjectID
 	assignmentID := selection.AssignmentID
+	releaseEarlyClaim := func() bool {
+		if !projectCairnlineSidecarLifecycleShouldReleaseAfterFailure(response.Steps) {
+			return false
+		}
+		releaseStep := h.callProjectCairnlineSidecarLifecycleTool(smokeCtx, cfg, cache, "release_after_failure", "assignments.release", false, map[string]string{
+			"project_id":    projectID,
+			"assignment_id": assignmentID,
+			"claimed_by":    claimedBy,
+		})
+		response.Steps = append(response.Steps, releaseStep)
+		if releaseStep.Status == "ready" {
+			response.Warnings = append(response.Warnings, "Hecate released the standalone Cairnline sidecar assignment after the early lifecycle failure; inspect the reported steps before retrying.")
+			return true
+		}
+		response.Warnings = append(response.Warnings, "Hecate tried to release the standalone Cairnline sidecar assignment after the early lifecycle failure, but the release step did not succeed; inspect the reported assignment before retrying.")
+		return false
+	}
 	appendStep := func(step ProjectCairnlineSidecarLifecycleStep) bool {
 		response.Steps = append(response.Steps, step)
 		if step.Status == "tool_failed" {
 			response.Status = "sidecar_lifecycle_tool_failed"
 			response.Detail = "Cairnline sidecar " + step.Tool + " returned a tool-level error. Review the step output before retrying."
 			if projectCairnlineSidecarLifecycleHasCommittedMutation(response.Steps) {
-				response.Warnings = append(response.Warnings, "The standalone Cairnline sidecar assignment may have been mutated before this failure; inspect the reported assignment before retrying.")
+				if !releaseEarlyClaim() {
+					response.Warnings = append(response.Warnings, "The standalone Cairnline sidecar assignment may have been mutated before this failure; inspect the reported assignment before retrying.")
+				}
 			}
 			response.setSidecarCacheStats(cache.Stats())
 			return false
@@ -858,7 +877,9 @@ func (h *Handler) projectCairnlineSidecarLifecycleSmoke(ctx context.Context, req
 			response.Status = "sidecar_lifecycle_failed"
 			response.Detail = firstNonEmpty(step.ToolText, "Cairnline sidecar "+step.Tool+" failed.")
 			if projectCairnlineSidecarLifecycleHasCommittedMutation(response.Steps) {
-				response.Warnings = append(response.Warnings, "The standalone Cairnline sidecar assignment may have been mutated before this failure; inspect the reported assignment before retrying.")
+				if !releaseEarlyClaim() {
+					response.Warnings = append(response.Warnings, "The standalone Cairnline sidecar assignment may have been mutated before this failure; inspect the reported assignment before retrying.")
+				}
 			}
 			response.setSidecarCacheStats(cache.Stats())
 			return false
@@ -936,6 +957,22 @@ func (h *Handler) projectCairnlineSidecarLifecycleSmoke(ctx context.Context, req
 	response.Detail = "Hecate selected a compatible standalone Cairnline assignment, claimed it, marked it running, read its launch packet, and completed it through the persistent sidecar client. Hecate-native Projects stores were not mutated."
 	response.setSidecarCacheStats(cache.Stats())
 	return response
+}
+
+func projectCairnlineSidecarLifecycleShouldReleaseAfterFailure(steps []ProjectCairnlineSidecarLifecycleStep) bool {
+	claimed := false
+	for _, step := range steps {
+		if step.Status != "ready" || step.ReadOnly {
+			continue
+		}
+		switch step.Tool {
+		case "assignments.claim":
+			claimed = true
+		case "assignments.update_status", "assignments.complete", "assignments.release":
+			return false
+		}
+	}
+	return claimed
 }
 
 func projectCairnlineSidecarLifecycleHasCommittedMutation(steps []ProjectCairnlineSidecarLifecycleStep) bool {

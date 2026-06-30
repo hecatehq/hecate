@@ -3196,7 +3196,11 @@ confirmation, Hecate uses the same sidecar command, database, timeout, and
 Cairnline-specific MCP client cache as `sidecar-connect`.
 If a later lifecycle step fails after a successful mutation, the response
 includes a warning because the standalone sidecar assignment may already be
-claimed or running; inspect the returned steps before retrying.
+claimed or running; inspect the returned steps before retrying. If the failure
+happens after claim but before `assignments.update_status` succeeds, Hecate
+attempts a best-effort `assignments.release` cleanup and appends that cleanup
+step to the response. Once the assignment is marked running, Hecate does not
+try to release it.
 
 With an empty confirmed body, Hecate:
 

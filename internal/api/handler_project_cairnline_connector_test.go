@@ -902,7 +902,7 @@ func TestProjectCairnlineSidecarLifecycleSmoke_ToolLevelError(t *testing.T) {
 	}
 }
 
-func TestProjectCairnlineSidecarLifecycleSmoke_WarnsWhenFailureFollowsMutation(t *testing.T) {
+func TestProjectCairnlineSidecarLifecycleSmoke_ReleasesEarlyClaimWhenFailureFollowsMutation(t *testing.T) {
 	handler := NewHandler(config.Config{
 		Projects: config.ProjectsConfig{
 			CairnlineConnector:           "sidecar",
@@ -917,11 +917,40 @@ func TestProjectCairnlineSidecarLifecycleSmoke_WarnsWhenFailureFollowsMutation(t
 	if got.Ready || got.Status != "sidecar_lifecycle_tool_failed" {
 		t.Fatalf("lifecycle smoke = %+v, want tool-level failure after mutation", got)
 	}
-	if len(got.Steps) != 3 || got.Steps[0].Status != "ready" || got.Steps[2].Tool != "assignments.update_status" || !got.Steps[2].ToolIsError {
-		t.Fatalf("steps = %+v, want claim/context ready then update_status failure", got.Steps)
+	if len(got.Steps) != 4 || got.Steps[0].Status != "ready" || got.Steps[2].Tool != "assignments.update_status" || !got.Steps[2].ToolIsError || got.Steps[3].Tool != "assignments.release" || got.Steps[3].Status != "ready" {
+		t.Fatalf("steps = %+v, want claim/context ready, update_status failure, then release cleanup", got.Steps)
+	}
+	warnings := strings.Join(got.Warnings, "\n")
+	if !strings.Contains(warnings, "released the standalone Cairnline sidecar assignment") || strings.Contains(warnings, "may have been mutated") {
+		t.Fatalf("warnings = %+v, want release cleanup warning without unresolved mutation warning", got.Warnings)
+	}
+}
+
+func TestProjectCairnlineSidecarLifecycleSmoke_WarnsWhenFailureAfterRunningCannotRelease(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "launch-packet-tool-error"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarLifecycleSmoke(t.Context(), ProjectCairnlineSidecarLifecycleRequest{ConfirmMutation: true, ProjectID: "proj_requested", AssignmentID: "asg_requested"})
+	if got.Ready || got.Status != "sidecar_lifecycle_tool_failed" {
+		t.Fatalf("lifecycle smoke = %+v, want tool-level failure after running", got)
+	}
+	if len(got.Steps) != 5 || got.Steps[2].Tool != "assignments.update_status" || got.Steps[2].Status != "ready" || got.Steps[4].Tool != "assignments.launch_packet" || !got.Steps[4].ToolIsError {
+		t.Fatalf("steps = %+v, want running state then launch_packet failure", got.Steps)
+	}
+	for _, step := range got.Steps {
+		if step.Tool == "assignments.release" {
+			t.Fatalf("steps = %+v, did not expect release after running", got.Steps)
+		}
 	}
 	if !strings.Contains(strings.Join(got.Warnings, "\n"), "may have been mutated") {
-		t.Fatalf("warnings = %+v, want mutation warning", got.Warnings)
+		t.Fatalf("warnings = %+v, want unresolved mutation warning after running failure", got.Warnings)
 	}
 }
 
