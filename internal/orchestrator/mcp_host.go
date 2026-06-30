@@ -325,6 +325,52 @@ func ProbeCachedMCPServer(ctx context.Context, cfg types.MCPServerConfig, cipher
 	return mcpProbeResultFromPoolTools(cfg.Name, pool.AllTools()), nil
 }
 
+// CachedMCPToolCallResult is the diagnostic shape returned by
+// CallCachedMCPServerTool. It keeps the full MCP result for operator-facing
+// smoke checks while preserving the flattened text fallback used by the agent
+// loop.
+type CachedMCPToolCallResult struct {
+	ToolName string
+	Text     string
+	IsError  bool
+	Result   mcp.CallToolResult
+}
+
+// CallCachedMCPServerTool invokes a single tool on one MCP server through a
+// SharedClientCache. It is intentionally a narrow operator-diagnostic seam: the
+// agent loop still uses AgentMCPHostFactory, while sidecar/readiness probes can
+// prove a persistent client can do real work without wiring model-origin tool
+// dispatch to that sidecar.
+func CallCachedMCPServerTool(ctx context.Context, cfg types.MCPServerConfig, cipher secrets.Cipher, cache *mcpclient.SharedClientCache, toolName string, args json.RawMessage) (*CachedMCPToolCallResult, error) {
+	if cache == nil {
+		return nil, errors.New("cached mcp tool call requires a client cache")
+	}
+	toolName = strings.TrimSpace(toolName)
+	if toolName == "" {
+		return nil, errors.New("cached mcp tool call requires a tool name")
+	}
+	resolved, err := resolveEnvConfigs([]types.MCPServerConfig{cfg}, cipher)
+	if err != nil {
+		return nil, err
+	}
+	clientCfgs := toClientServerConfigs(resolved)
+	pool, err := mcpclient.NewPoolWithCache(ctx, clientCfgs, cache)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = pool.Close() }()
+	result, err := pool.CallDetailed(ctx, mcpclient.NamespacedToolName(strings.TrimSpace(cfg.Name), toolName), args)
+	if err != nil {
+		return nil, err
+	}
+	return &CachedMCPToolCallResult{
+		ToolName: toolName,
+		Text:     result.Text,
+		IsError:  result.IsError,
+		Result:   result.Result,
+	}, nil
+}
+
 func mcpProbeResultFromPoolTools(serverName string, tools []mcpclient.NamespacedTool) *MCPProbeResult {
 	out := &MCPProbeResult{Tools: make([]mcpclient.NamespacedTool, 0, len(tools))}
 	prefix := mcpclient.NamespacedToolName(strings.TrimSpace(serverName), "")

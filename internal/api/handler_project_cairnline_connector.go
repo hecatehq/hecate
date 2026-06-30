@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"path/filepath"
 	"sort"
@@ -62,7 +63,7 @@ func projectCairnlineConnectorWarning(mode string) string {
 	if mode != "sidecar" {
 		return ""
 	}
-	return "HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar enables standalone Cairnline MCP connect/probe surfaces only; Cairnline read/write routing stays disabled until Hecate has a sidecar Projects backend adapter."
+	return "HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar enables standalone Cairnline MCP probe/connect/read-smoke surfaces only; Cairnline read/write routing stays disabled until Hecate has a sidecar Projects backend adapter."
 }
 
 func (h *Handler) HandleProjectCairnlineSidecarProbe(w http.ResponseWriter, r *http.Request) {
@@ -82,6 +83,16 @@ func (h *Handler) HandleProjectCairnlineSidecarConnect(w http.ResponseWriter, r 
 	WriteJSON(w, http.StatusOK, ProjectCairnlineSidecarClientEnvelope{
 		Object: "project_cairnline_sidecar_client",
 		Data:   h.projectCairnlineSidecarConnect(r.Context()),
+	})
+}
+
+func (h *Handler) HandleProjectCairnlineSidecarReadSmoke(w http.ResponseWriter, r *http.Request) {
+	if !requireLoopbackClient(w, r, "Cairnline sidecar read smoke") {
+		return
+	}
+	WriteJSON(w, http.StatusOK, ProjectCairnlineSidecarReadEnvelope{
+		Object: "project_cairnline_sidecar_read",
+		Data:   h.projectCairnlineSidecarReadSmoke(r.Context()),
 	})
 }
 
@@ -188,6 +199,63 @@ func (h *Handler) projectCairnlineSidecarConnect(ctx context.Context) ProjectCai
 	return response
 }
 
+func (h *Handler) projectCairnlineSidecarReadSmoke(ctx context.Context) ProjectCairnlineSidecarReadResponse {
+	const toolName = "projects.list"
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	cfg, dbPath, timeout := h.projectCairnlineSidecarMCPConfig()
+	response := ProjectCairnlineSidecarReadResponse{
+		Ready:                 false,
+		Status:                "sidecar_read_not_run",
+		Detail:                "Cairnline sidecar read smoke has not run.",
+		Command:               cfg.Command,
+		Args:                  append([]string(nil), cfg.Args...),
+		DatabasePath:          dbPath,
+		ProbeTimeoutMS:        timeout.Milliseconds(),
+		PersistentClient:      true,
+		ClientCacheConfigured: h != nil,
+		Tool:                  toolName,
+		ReadOnly:              true,
+	}
+	if h == nil {
+		response.Status = "sidecar_read_failed"
+		response.Detail = "Cairnline sidecar read smoke requires an API handler."
+		return response
+	}
+	if h.projectCairnlineConnectorMode() != "sidecar" {
+		response.Warnings = append(response.Warnings, "HECATE_PROJECTS_CAIRNLINE_CONNECTOR is not sidecar; this read smoke does not affect live Projects routing.")
+	}
+	if dbPath != "" && len(h.config.ProjectsCairnlineSidecarArgs()) > 0 {
+		response.Warnings = append(response.Warnings, "HECATE_PROJECTS_CAIRNLINE_SIDECAR_ARGS is set, so HECATE_PROJECTS_CAIRNLINE_SIDECAR_DB is reported but not appended automatically.")
+	}
+
+	cache := h.projectCairnlineSidecarMCPClientCache()
+	readCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	result, err := orchestrator.CallCachedMCPServerTool(readCtx, cfg, h.secretCipher, cache, toolName, json.RawMessage(`{}`))
+	if err != nil {
+		response.Status = "sidecar_read_failed"
+		response.Detail = err.Error()
+		response.setSidecarCacheStats(cache.Stats())
+		return response
+	}
+	response.ToolText = result.Text
+	response.ToolIsError = result.IsError
+	response.StructuredContent = result.Result.StructuredContent
+	response.Meta = result.Result.Meta
+	response.setSidecarCacheStats(cache.Stats())
+	if result.IsError {
+		response.Status = "sidecar_read_tool_failed"
+		response.Detail = "Cairnline sidecar projects.list returned a tool-level error. Hecate still keeps live Projects reads and writes on Hecate-native stores in sidecar mode."
+		return response
+	}
+	response.Ready = true
+	response.Status = "sidecar_read_ready"
+	response.Detail = "Hecate called the read-only Cairnline sidecar projects.list tool through the persistent sidecar client. Hecate still keeps live Projects reads and writes on Hecate-native stores in sidecar mode."
+	return response
+}
+
 func (h *Handler) projectCairnlineSidecarMCPClientCache() *mcpclient.SharedClientCache {
 	if h == nil {
 		return nil
@@ -207,6 +275,15 @@ func (h *Handler) projectCairnlineSidecarMCPClientCache() *mcpclient.SharedClien
 }
 
 func (r *ProjectCairnlineSidecarProbeResponse) setSidecarCacheStats(stats mcpclient.CacheStats) {
+	if r == nil {
+		return
+	}
+	r.ClientCacheEntries = stats.Entries
+	r.ClientCacheInUse = stats.InUse
+	r.ClientCacheIdle = stats.Idle
+}
+
+func (r *ProjectCairnlineSidecarReadResponse) setSidecarCacheStats(stats mcpclient.CacheStats) {
 	if r == nil {
 		return
 	}

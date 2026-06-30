@@ -57,6 +57,13 @@ func cairnlineSidecarFixtureMain(mode string) {
 			}
 		case "tools/list":
 			result = mcp.ListToolsResult{Tools: cairnlineSidecarFixtureTools(mode)}
+		case "tools/call":
+			var params mcp.CallToolParams
+			if err := json.Unmarshal(req.Params, &params); err != nil {
+				rpcErr = mcp.NewError(mcp.ErrCodeInvalidParams, "invalid tools/call params")
+				break
+			}
+			result, rpcErr = cairnlineSidecarFixtureCallTool(mode, params)
 		default:
 			rpcErr = mcp.NewError(mcp.ErrCodeMethodNotFound, req.Method)
 		}
@@ -93,4 +100,19 @@ func cairnlineSidecarFixtureTools(mode string) []mcp.Tool {
 		})
 	}
 	return tools
+}
+
+func cairnlineSidecarFixtureCallTool(mode string, params mcp.CallToolParams) (mcp.CallToolResult, *mcp.RPCError) {
+	switch params.Name {
+	case "projects.list":
+		if mode == "tool-error" {
+			return mcp.CallToolResult{
+				Content: mcp.TextContent("fixture projects.list failed"),
+				IsError: true,
+			}, nil
+		}
+		return mcp.CallToolResult{Content: mcp.TextContent("Projects (1):\n- proj_fixture: Fixture Project")}, nil
+	default:
+		return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeMethodNotFound, params.Name)
+	}
 }

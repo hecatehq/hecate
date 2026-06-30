@@ -8,6 +8,7 @@ import (
 const projectCoordinationBackendReadinessURL = "/hecate/v1/projects/{id}/cairnline/read-model"
 const projectCoordinationBackendSidecarProbeURL = "/hecate/v1/projects/cairnline/sidecar-probe"
 const projectCoordinationBackendSidecarConnectURL = "/hecate/v1/projects/cairnline/sidecar-connect"
+const projectCoordinationBackendSidecarReadURL = "/hecate/v1/projects/cairnline/sidecar-read-smoke"
 const projectCoordinationBackendEmbeddedReadModelURL = "/hecate/v1/projects/{id}/cairnline/embedded-read-model"
 const projectCoordinationBackendEmbeddedParityReportURL = "/hecate/v1/projects/{id}/cairnline/embedded-parity-report"
 const projectCoordinationBackendSyncReadinessURL = "/hecate/v1/projects/cairnline/sync"
@@ -299,6 +300,7 @@ func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendS
 		ReplacementReadinessURL:    projectCoordinationBackendReadinessURL,
 		CairnlineSidecarProbeURL:   projectCoordinationBackendSidecarProbeURL,
 		CairnlineSidecarConnectURL: projectCoordinationBackendSidecarConnectURL,
+		CairnlineSidecarReadURL:    projectCoordinationBackendSidecarReadURL,
 		EmbeddedReadModelURL:       projectCoordinationBackendEmbeddedReadModelURL,
 		EmbeddedParityReportURL:    projectCoordinationBackendEmbeddedParityReportURL,
 		SyncReadinessURL:           projectCoordinationBackendSyncReadinessURL,

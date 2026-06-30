@@ -127,8 +127,10 @@ mirrors, still-Hecate-owned dispatch, and missing migration/rollback authority.
 dogfood connector. `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar` exposes
 local-only standalone Cairnline MCP contract probe/connect surfaces at
 `POST /hecate/v1/projects/cairnline/sidecar-probe` and
-`POST /hecate/v1/projects/cairnline/sidecar-connect`, but Hecate does not yet
-route Projects reads, writes, or mirrors through the sidecar client.
+`POST /hecate/v1/projects/cairnline/sidecar-connect`, plus a read smoke at
+`POST /hecate/v1/projects/cairnline/sidecar-read-smoke` that calls read-only
+`projects.list` through the cached sidecar client. Hecate does not yet route
+Projects reads, writes, or mirrors through the sidecar client.
 Today, `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` is a
 replacement-readiness intent flag only: when the current stores are fully wired
 and the embedded connector is selected, it reports `cairnline_read_routes_ready`,
