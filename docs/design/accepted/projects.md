@@ -131,8 +131,12 @@ local-only standalone Cairnline MCP contract probe/connect surfaces at
 `POST /hecate/v1/projects/cairnline/sidecar-read-smoke` that calls read-only
 `projects.list` and a detail smoke at
 `POST /hecate/v1/projects/cairnline/sidecar-detail-smoke` that calls read-only
-`projects.get` through the cached sidecar client. Hecate does not yet route
-Projects reads, writes, or mirrors through the sidecar client.
+`projects.get` through the cached sidecar client. A coordination-list smoke at
+`POST /hecate/v1/projects/cairnline/sidecar-coordination-smoke` calls
+read-only `projects.list`, `profiles.list`, `execution_profiles.list`,
+`skills.list`, `roles.list`, `work_items.list`, and `assignments.list` and
+reports whether each returned typed `structuredContent` arrays. Hecate does not
+yet route Projects reads, writes, or mirrors through the sidecar client.
 Today, `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` is a
 replacement-readiness intent flag only: when the current stores are fully wired
 and the embedded connector is selected, it reports `cairnline_read_routes_ready`,

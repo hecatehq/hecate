@@ -39,6 +39,9 @@ func TestProjectCoordinationBackendStatus_DefaultHecateAuthoritative(t *testing.
 	if status.CairnlineSidecarDetailURL != projectCoordinationBackendSidecarDetailURL {
 		t.Fatalf("sidecar detail URL = %q, want %q", status.CairnlineSidecarDetailURL, projectCoordinationBackendSidecarDetailURL)
 	}
+	if status.CairnlineSidecarCoordinationURL != projectCoordinationBackendSidecarCoordinationURL {
+		t.Fatalf("sidecar coordination URL = %q, want %q", status.CairnlineSidecarCoordinationURL, projectCoordinationBackendSidecarCoordinationURL)
+	}
 	if !status.CairnlineBridgeReady || status.CairnlineAuthoritative || status.ReadModelSwitchReady || status.WriteAdapterReady || status.ReplacementReady || len(status.Warnings) != 0 {
 		t.Fatalf("status = %+v, want bridge-ready but inactive Cairnline adapter flags", status)
 	}
@@ -120,6 +123,9 @@ func TestProjectCoordinationBackendStatus_CairnlineSidecarConnectorBlocksEmbedde
 	}
 	if status.CairnlineSidecarDetailURL != projectCoordinationBackendSidecarDetailURL {
 		t.Fatalf("sidecar detail URL = %q, want %q", status.CairnlineSidecarDetailURL, projectCoordinationBackendSidecarDetailURL)
+	}
+	if status.CairnlineSidecarCoordinationURL != projectCoordinationBackendSidecarCoordinationURL {
+		t.Fatalf("sidecar coordination URL = %q, want %q", status.CairnlineSidecarCoordinationURL, projectCoordinationBackendSidecarCoordinationURL)
 	}
 	if len(status.ReadRoutes) != 0 {
 		t.Fatalf("read routes = %+v, want none in sidecar connector mode", status.ReadRoutes)

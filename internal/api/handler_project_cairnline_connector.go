@@ -24,8 +24,13 @@ var projectCairnlineSidecarRequiredTools = []string{
 	"projects.list",
 	"projects.get",
 	"projects.create",
+	"profiles.list",
+	"execution_profiles.list",
+	"skills.list",
 	"roles.list",
+	"work_items.list",
 	"work_items.create",
+	"assignments.list",
 	"assignments.claim",
 	"assignments.context",
 	"assignments.complete",
@@ -34,6 +39,21 @@ var projectCairnlineSidecarRequiredTools = []string{
 	"handoffs.create",
 	"memory_candidates.create",
 	"assistant.propose",
+}
+
+type projectCairnlineSidecarCoordinationTool struct {
+	Name          string
+	ProjectScoped bool
+}
+
+var projectCairnlineSidecarCoordinationListTools = []projectCairnlineSidecarCoordinationTool{
+	{Name: "projects.list"},
+	{Name: "profiles.list"},
+	{Name: "execution_profiles.list"},
+	{Name: "skills.list", ProjectScoped: true},
+	{Name: "roles.list", ProjectScoped: true},
+	{Name: "work_items.list", ProjectScoped: true},
+	{Name: "assignments.list", ProjectScoped: true},
 }
 
 func (h *Handler) projectCairnlineConnectorMode() string {
@@ -110,6 +130,20 @@ func (h *Handler) HandleProjectCairnlineSidecarDetailSmoke(w http.ResponseWriter
 	WriteJSON(w, http.StatusOK, ProjectCairnlineSidecarDetailEnvelope{
 		Object: "project_cairnline_sidecar_detail",
 		Data:   h.projectCairnlineSidecarDetailSmoke(r.Context(), req),
+	})
+}
+
+func (h *Handler) HandleProjectCairnlineSidecarCoordinationSmoke(w http.ResponseWriter, r *http.Request) {
+	if !requireLoopbackClient(w, r, "Cairnline sidecar coordination smoke") {
+		return
+	}
+	var req ProjectCairnlineSidecarCoordinationRequest
+	if !decodeOptionalJSON(w, r, &req) {
+		return
+	}
+	WriteJSON(w, http.StatusOK, ProjectCairnlineSidecarCoordinationEnvelope{
+		Object: "project_cairnline_sidecar_coordination",
+		Data:   h.projectCairnlineSidecarCoordinationSmoke(r.Context(), req),
 	})
 }
 
@@ -406,6 +440,125 @@ func (h *Handler) projectCairnlineSidecarDetailSmoke(ctx context.Context, req Pr
 	return response
 }
 
+func (h *Handler) projectCairnlineSidecarCoordinationSmoke(ctx context.Context, req ProjectCairnlineSidecarCoordinationRequest) ProjectCairnlineSidecarCoordinationResponse {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	cfg, dbPath, timeout := h.projectCairnlineSidecarMCPConfig()
+	requestedProjectID := strings.TrimSpace(req.ProjectID)
+	response := ProjectCairnlineSidecarCoordinationResponse{
+		Ready:                 false,
+		Status:                "sidecar_coordination_not_run",
+		Detail:                "Cairnline sidecar coordination smoke has not run.",
+		Command:               cfg.Command,
+		Args:                  append([]string(nil), cfg.Args...),
+		DatabasePath:          dbPath,
+		ProbeTimeoutMS:        timeout.Milliseconds(),
+		PersistentClient:      true,
+		ClientCacheConfigured: h != nil,
+		ReadOnly:              true,
+		RequestedProjectID:    requestedProjectID,
+		ToolCount:             len(projectCairnlineSidecarCoordinationListTools),
+	}
+	if h == nil {
+		response.Status = "sidecar_coordination_failed"
+		response.Detail = "Cairnline sidecar coordination smoke requires an API handler."
+		return response
+	}
+	if h.projectCairnlineConnectorMode() != "sidecar" {
+		response.Warnings = append(response.Warnings, "HECATE_PROJECTS_CAIRNLINE_CONNECTOR is not sidecar; this coordination smoke does not affect live Projects routing.")
+	}
+	if dbPath != "" && len(h.config.ProjectsCairnlineSidecarArgs()) > 0 {
+		response.Warnings = append(response.Warnings, "HECATE_PROJECTS_CAIRNLINE_SIDECAR_ARGS is set, so HECATE_PROJECTS_CAIRNLINE_SIDECAR_DB is reported but not appended automatically.")
+	}
+
+	cache := h.projectCairnlineSidecarMCPClientCache()
+	smokeCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	projectID := requestedProjectID
+	for index, tool := range projectCairnlineSidecarCoordinationListTools {
+		if tool.ProjectScoped && projectID == "" {
+			response.Status = "sidecar_coordination_no_project"
+			response.Detail = "Hecate called Cairnline sidecar projects.list through the persistent sidecar client, but no project id was available for project-scoped coordination list tools."
+			response.setSidecarCacheStats(cache.Stats())
+			return response
+		}
+		result, err := h.callProjectCairnlineSidecarCoordinationTool(smokeCtx, cfg, cache, tool, projectID)
+		if err != nil {
+			response.Status = "sidecar_coordination_failed"
+			response.Detail = err.Error()
+			response.setSidecarCacheStats(cache.Stats())
+			return response
+		}
+		response.Lists = append(response.Lists, result)
+		if result.ToolIsError {
+			response.Status = "sidecar_coordination_tool_failed"
+			response.Detail = "Cairnline sidecar " + result.Tool + " returned a tool-level error. Hecate still keeps live Projects reads and writes on Hecate-native stores in sidecar mode."
+			response.setSidecarCacheStats(cache.Stats())
+			return response
+		}
+		if result.StructuredParseError != "" {
+			response.Warnings = append(response.Warnings, "Cairnline sidecar "+result.Tool+" returned structuredContent that Hecate could not parse as a list.")
+		} else if !result.StructuredReady {
+			response.Warnings = append(response.Warnings, "Cairnline sidecar "+result.Tool+" did not return structuredContent; Hecate verified the tool call but not a typed list contract.")
+		}
+		if index == 0 && projectID == "" && result.StructuredReady && result.StructuredCount > 0 {
+			projects, _, structuredErr := projectCairnlineSidecarStructuredProjects(result.StructuredContent)
+			if structuredErr == nil && len(projects) > 0 {
+				projectID = strings.TrimSpace(projects[0].ID)
+				response.SelectedProjectID = projectID
+				response.SelectedProjectSource = "projects.list"
+			}
+		}
+	}
+	if response.SelectedProjectID == "" && projectID != "" {
+		response.SelectedProjectID = projectID
+		if requestedProjectID != "" {
+			response.SelectedProjectSource = "request"
+		}
+	}
+	response.StructuredReady = projectCairnlineSidecarCoordinationStructuredReady(response.Lists)
+	response.Ready = true
+	response.Status = "sidecar_coordination_ready"
+	response.Detail = "Hecate called read-only Cairnline sidecar coordination list tools through the persistent sidecar client. Hecate still keeps live Projects reads and writes on Hecate-native stores in sidecar mode."
+	response.setSidecarCacheStats(cache.Stats())
+	return response
+}
+
+func (h *Handler) callProjectCairnlineSidecarCoordinationTool(ctx context.Context, cfg types.MCPServerConfig, cache *mcpclient.SharedClientCache, tool projectCairnlineSidecarCoordinationTool, projectID string) (ProjectCairnlineSidecarCoordinationListResult, error) {
+	args := json.RawMessage(`{}`)
+	if tool.ProjectScoped {
+		raw, err := json.Marshal(map[string]string{"project_id": projectID})
+		if err != nil {
+			return ProjectCairnlineSidecarCoordinationListResult{}, err
+		}
+		args = raw
+	}
+	result, err := orchestrator.CallCachedMCPServerTool(ctx, cfg, h.secretCipher, cache, tool.Name, args)
+	if err != nil {
+		return ProjectCairnlineSidecarCoordinationListResult{}, err
+	}
+	count, structuredReady, structuredErr := projectCairnlineSidecarStructuredArrayCount(result.Result.StructuredContent)
+	item := ProjectCairnlineSidecarCoordinationListResult{
+		Tool:                 tool.Name,
+		ReadOnly:             true,
+		ProjectScoped:        tool.ProjectScoped,
+		ProjectID:            projectID,
+		ToolText:             result.Text,
+		ToolIsError:          result.IsError,
+		StructuredContent:    result.Result.StructuredContent,
+		Meta:                 result.Result.Meta,
+		StructuredReady:      structuredReady,
+		StructuredCount:      count,
+		StructuredParseError: "",
+	}
+	if structuredErr != nil {
+		item.StructuredParseError = structuredErr.Error()
+	}
+	return item, nil
+}
+
 func projectCairnlineSidecarStructuredProjects(raw json.RawMessage) ([]ProjectCairnlineSidecarProjectItem, bool, error) {
 	if len(raw) == 0 {
 		return nil, false, nil
@@ -440,6 +593,36 @@ func projectCairnlineSidecarStructuredProject(raw json.RawMessage) (ProjectCairn
 		return ProjectCairnlineSidecarProjectItem{}, false, err
 	}
 	return project, true, nil
+}
+
+func projectCairnlineSidecarStructuredArrayCount(raw json.RawMessage) (int, bool, error) {
+	if len(raw) == 0 {
+		return 0, false, nil
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return 0, false, nil
+	}
+	if bytes.Equal(trimmed, []byte("null")) {
+		return 0, true, nil
+	}
+	var items []json.RawMessage
+	if err := json.Unmarshal(trimmed, &items); err != nil {
+		return 0, false, err
+	}
+	return len(items), true, nil
+}
+
+func projectCairnlineSidecarCoordinationStructuredReady(items []ProjectCairnlineSidecarCoordinationListResult) bool {
+	if len(items) != len(projectCairnlineSidecarCoordinationListTools) {
+		return false
+	}
+	for _, item := range items {
+		if item.ToolIsError || !item.StructuredReady || item.StructuredParseError != "" {
+			return false
+		}
+	}
+	return true
 }
 
 func decodeOptionalJSON(w http.ResponseWriter, r *http.Request, v any) bool {
@@ -495,6 +678,15 @@ func (r *ProjectCairnlineSidecarReadResponse) setSidecarCacheStats(stats mcpclie
 }
 
 func (r *ProjectCairnlineSidecarDetailResponse) setSidecarCacheStats(stats mcpclient.CacheStats) {
+	if r == nil {
+		return
+	}
+	r.ClientCacheEntries = stats.Entries
+	r.ClientCacheInUse = stats.InUse
+	r.ClientCacheIdle = stats.Idle
+}
+
+func (r *ProjectCairnlineSidecarCoordinationResponse) setSidecarCacheStats(stats mcpclient.CacheStats) {
 	if r == nil {
 		return
 	}

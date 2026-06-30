@@ -554,35 +554,36 @@ type ProjectCoordinationBackendStatusEnvelope struct {
 }
 
 type ProjectCoordinationBackendStatusResponse struct {
-	ConfiguredBackend          string                                       `json:"configured_backend"`
-	AuthoritativeBackend       string                                       `json:"authoritative_backend"`
-	StorageBackend             string                                       `json:"storage_backend"`
-	CairnlineConnector         string                                       `json:"cairnline_connector,omitempty"`
-	CairnlineConnectorReady    bool                                         `json:"cairnline_connector_ready"`
-	CairnlineConnectorDetail   string                                       `json:"cairnline_connector_detail,omitempty"`
-	CairnlineReadSource        string                                       `json:"cairnline_read_source,omitempty"`
-	CairnlineBridgeReady       bool                                         `json:"cairnline_bridge_ready"`
-	CairnlineAuthoritative     bool                                         `json:"cairnline_authoritative"`
-	ReadModelSwitchReady       bool                                         `json:"read_model_switch_ready"`
-	WriteAdapterReady          bool                                         `json:"write_adapter_ready"`
-	ReplacementReady           bool                                         `json:"replacement_ready"`
-	ReadRoutes                 []string                                     `json:"read_routes,omitempty"`
-	WriteAdapterSeams          []string                                     `json:"write_adapter_seams,omitempty"`
-	WriteAdapterGaps           []string                                     `json:"write_adapter_gaps,omitempty"`
-	ReplacementGates           []ProjectCoordinationBackendReplacementGate  `json:"replacement_gates,omitempty"`
-	WriteSwitchpoints          []ProjectCoordinationBackendWriteSwitchpoint `json:"write_switchpoints,omitempty"`
-	Status                     string                                       `json:"status"`
-	Detail                     string                                       `json:"detail"`
-	Warnings                   []string                                     `json:"warnings,omitempty"`
-	ReplacementReadinessURL    string                                       `json:"replacement_readiness_url,omitempty"`
-	CairnlineSidecarProbeURL   string                                       `json:"cairnline_sidecar_probe_url,omitempty"`
-	CairnlineSidecarConnectURL string                                       `json:"cairnline_sidecar_connect_url,omitempty"`
-	CairnlineSidecarReadURL    string                                       `json:"cairnline_sidecar_read_url,omitempty"`
-	CairnlineSidecarDetailURL  string                                       `json:"cairnline_sidecar_detail_url,omitempty"`
-	EmbeddedReadModelURL       string                                       `json:"embedded_read_model_url,omitempty"`
-	EmbeddedParityReportURL    string                                       `json:"embedded_parity_report_url,omitempty"`
-	SyncReadinessURL           string                                       `json:"sync_readiness_url,omitempty"`
-	MirrorParityURL            string                                       `json:"mirror_parity_url,omitempty"`
+	ConfiguredBackend               string                                       `json:"configured_backend"`
+	AuthoritativeBackend            string                                       `json:"authoritative_backend"`
+	StorageBackend                  string                                       `json:"storage_backend"`
+	CairnlineConnector              string                                       `json:"cairnline_connector,omitempty"`
+	CairnlineConnectorReady         bool                                         `json:"cairnline_connector_ready"`
+	CairnlineConnectorDetail        string                                       `json:"cairnline_connector_detail,omitempty"`
+	CairnlineReadSource             string                                       `json:"cairnline_read_source,omitempty"`
+	CairnlineBridgeReady            bool                                         `json:"cairnline_bridge_ready"`
+	CairnlineAuthoritative          bool                                         `json:"cairnline_authoritative"`
+	ReadModelSwitchReady            bool                                         `json:"read_model_switch_ready"`
+	WriteAdapterReady               bool                                         `json:"write_adapter_ready"`
+	ReplacementReady                bool                                         `json:"replacement_ready"`
+	ReadRoutes                      []string                                     `json:"read_routes,omitempty"`
+	WriteAdapterSeams               []string                                     `json:"write_adapter_seams,omitempty"`
+	WriteAdapterGaps                []string                                     `json:"write_adapter_gaps,omitempty"`
+	ReplacementGates                []ProjectCoordinationBackendReplacementGate  `json:"replacement_gates,omitempty"`
+	WriteSwitchpoints               []ProjectCoordinationBackendWriteSwitchpoint `json:"write_switchpoints,omitempty"`
+	Status                          string                                       `json:"status"`
+	Detail                          string                                       `json:"detail"`
+	Warnings                        []string                                     `json:"warnings,omitempty"`
+	ReplacementReadinessURL         string                                       `json:"replacement_readiness_url,omitempty"`
+	CairnlineSidecarProbeURL        string                                       `json:"cairnline_sidecar_probe_url,omitempty"`
+	CairnlineSidecarConnectURL      string                                       `json:"cairnline_sidecar_connect_url,omitempty"`
+	CairnlineSidecarReadURL         string                                       `json:"cairnline_sidecar_read_url,omitempty"`
+	CairnlineSidecarDetailURL       string                                       `json:"cairnline_sidecar_detail_url,omitempty"`
+	CairnlineSidecarCoordinationURL string                                       `json:"cairnline_sidecar_coordination_url,omitempty"`
+	EmbeddedReadModelURL            string                                       `json:"embedded_read_model_url,omitempty"`
+	EmbeddedParityReportURL         string                                       `json:"embedded_parity_report_url,omitempty"`
+	SyncReadinessURL                string                                       `json:"sync_readiness_url,omitempty"`
+	MirrorParityURL                 string                                       `json:"mirror_parity_url,omitempty"`
 }
 
 type ProjectCoordinationBackendReplacementGate struct {
@@ -1685,7 +1686,16 @@ type ProjectCairnlineSidecarDetailEnvelope struct {
 	Data   ProjectCairnlineSidecarDetailResponse `json:"data"`
 }
 
+type ProjectCairnlineSidecarCoordinationEnvelope struct {
+	Object string                                      `json:"object"`
+	Data   ProjectCairnlineSidecarCoordinationResponse `json:"data"`
+}
+
 type ProjectCairnlineSidecarDetailRequest struct {
+	ProjectID string `json:"project_id,omitempty"`
+}
+
+type ProjectCairnlineSidecarCoordinationRequest struct {
 	ProjectID string `json:"project_id,omitempty"`
 }
 
@@ -1768,6 +1778,43 @@ type ProjectCairnlineSidecarDetailResponse struct {
 	StructuredProject        ProjectCairnlineSidecarProjectItem `json:"structured_project,omitempty"`
 	StructuredParseError     string                             `json:"structured_parse_error,omitempty"`
 	Warnings                 []string                           `json:"warnings,omitempty"`
+}
+
+type ProjectCairnlineSidecarCoordinationResponse struct {
+	Ready                 bool                                            `json:"ready"`
+	Status                string                                          `json:"status"`
+	Detail                string                                          `json:"detail"`
+	Command               string                                          `json:"command"`
+	Args                  []string                                        `json:"args,omitempty"`
+	DatabasePath          string                                          `json:"database_path,omitempty"`
+	ProbeTimeoutMS        int64                                           `json:"probe_timeout_ms"`
+	PersistentClient      bool                                            `json:"persistent_client,omitempty"`
+	ClientCacheConfigured bool                                            `json:"client_cache_configured,omitempty"`
+	ClientCacheEntries    int                                             `json:"client_cache_entries,omitempty"`
+	ClientCacheInUse      int                                             `json:"client_cache_in_use,omitempty"`
+	ClientCacheIdle       int                                             `json:"client_cache_idle,omitempty"`
+	ReadOnly              bool                                            `json:"read_only"`
+	RequestedProjectID    string                                          `json:"requested_project_id,omitempty"`
+	SelectedProjectID     string                                          `json:"selected_project_id,omitempty"`
+	SelectedProjectSource string                                          `json:"selected_project_source,omitempty"`
+	ToolCount             int                                             `json:"tool_count"`
+	StructuredReady       bool                                            `json:"structured_ready"`
+	Lists                 []ProjectCairnlineSidecarCoordinationListResult `json:"lists,omitempty"`
+	Warnings              []string                                        `json:"warnings,omitempty"`
+}
+
+type ProjectCairnlineSidecarCoordinationListResult struct {
+	Tool                 string          `json:"tool"`
+	ReadOnly             bool            `json:"read_only"`
+	ProjectScoped        bool            `json:"project_scoped"`
+	ProjectID            string          `json:"project_id,omitempty"`
+	ToolText             string          `json:"tool_text,omitempty"`
+	ToolIsError          bool            `json:"tool_is_error,omitempty"`
+	StructuredContent    json.RawMessage `json:"structured_content,omitempty"`
+	Meta                 json.RawMessage `json:"meta,omitempty"`
+	StructuredReady      bool            `json:"structured_ready"`
+	StructuredCount      int             `json:"structured_count"`
+	StructuredParseError string          `json:"structured_parse_error,omitempty"`
 }
 
 type ProjectCairnlineSidecarProjectItem struct {

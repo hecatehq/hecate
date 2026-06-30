@@ -47,7 +47,7 @@ liveness probe and every other path requires trusted trusted proxy headers:
 context, exposed from `GET /hecate/v1/whoami` as `data.remote_identity`, added to
 the top-level HTTP span attributes, and accepted in place of the local
 runtime/inference shared tokens. Remote mode rejects local-only endpoints for
-workspace picker/open, reset-data, shutdown, MCP probe, Cairnline sidecar probe/connect/read/detail smoke,
+workspace picker/open, reset-data, shutdown, MCP probe, Cairnline sidecar probe/connect/read/detail/coordination smoke,
 plugin-registry management, agent-adapter authenticate, and local provider and MCP registry discovery. Hecate-native `/hecate/v1/*` routes are explicitly
 classified for remote mode, and route coverage tests fail when a new registered
 route is not marked remote-safe or local-only.
@@ -470,8 +470,10 @@ sequenceDiagram
   local-only `sidecar-probe` endpoint, connect a cached client through
   `POST /hecate/v1/projects/cairnline/sidecar-connect`, or call read-only
   `projects.list` / `projects.get` through the `sidecar-read-smoke` and
-  `sidecar-detail-smoke` endpoints, but live Projects reads and writes still
-  use Hecate-native stores.
+  `sidecar-detail-smoke` endpoints. `sidecar-coordination-smoke` also calls
+  the read-only portable coordination list tools and checks their typed
+  `structuredContent` arrays, but live Projects reads and writes still use
+  Hecate-native stores.
 - `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=auto|snapshot|embedded` controls which
   Cairnline service backing configured read routes use while
   `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and
@@ -2666,7 +2668,8 @@ Example response, with `write_switchpoints` shortened for readability:
     "cairnline_sidecar_probe_url": "/hecate/v1/projects/cairnline/sidecar-probe",
     "cairnline_sidecar_connect_url": "/hecate/v1/projects/cairnline/sidecar-connect",
     "cairnline_sidecar_read_url": "/hecate/v1/projects/cairnline/sidecar-read-smoke",
-    "cairnline_sidecar_detail_url": "/hecate/v1/projects/cairnline/sidecar-detail-smoke"
+    "cairnline_sidecar_detail_url": "/hecate/v1/projects/cairnline/sidecar-detail-smoke",
+    "cairnline_sidecar_coordination_url": "/hecate/v1/projects/cairnline/sidecar-coordination-smoke"
   }
 }
 ```
@@ -2693,8 +2696,13 @@ Required tools:
 projects.list
 projects.get
 projects.create
+profiles.list
+execution_profiles.list
+skills.list
 roles.list
+work_items.list
 work_items.create
+assignments.list
 assignments.claim
 assignments.context
 assignments.complete
@@ -2718,7 +2726,7 @@ Example response, shortened:
     "args": ["-db", "/Users/alice/.local/share/hecate/cairnline/projects.db"],
     "database_path": "/Users/alice/.local/share/hecate/cairnline/projects.db",
     "probe_timeout_ms": 10000,
-    "tool_count": 13,
+    "tool_count": 18,
     "required_tools": ["projects.list", "projects.get", "projects.create"],
     "missing_tools": [],
     "tools": [{ "name": "projects.list" }],
@@ -2763,7 +2771,7 @@ Example response, shortened:
     "client_cache_entries": 1,
     "client_cache_in_use": 0,
     "client_cache_idle": 1,
-    "tool_count": 13,
+    "tool_count": 18,
     "required_tools": ["projects.list", "projects.get", "projects.create"],
     "missing_tools": [],
     "tools": [{ "name": "projects.list" }],
@@ -2924,6 +2932,81 @@ Example response, shortened:
         }
       ]
     },
+    "warnings": []
+  }
+}
+```
+
+### `POST /hecate/v1/projects/cairnline/sidecar-coordination-smoke`
+
+Local-only standalone Cairnline MCP coordination-list smoke. It uses the same
+sidecar command, database, timeout, and Cairnline-specific MCP client cache as
+`sidecar-connect`. Hecate calls read-only `projects.list`, `profiles.list`,
+`execution_profiles.list`, `skills.list`, `roles.list`, `work_items.list`, and
+`assignments.list`. With an empty body, Hecate selects the first typed project
+id from `projects.list` before calling project-scoped tools. With a body such
+as `{"project_id":"proj_123"}`, Hecate uses that id for project-scoped tools.
+
+This endpoint is diagnostic only. It proves Hecate can call Cairnline's
+portable coordination list surfaces and parse each tool's `structuredContent`
+as a JSON array. It does not switch live Projects routing, mirroring, dispatch,
+approvals, or write authority. `ready=true` means all MCP tool calls succeeded.
+`structured_ready=true` means every called list surface returned parseable typed
+`structuredContent`; text-only results can be `ready=true` with
+`structured_ready=false` and warnings.
+
+The response reports:
+
+- `requested_project_id` when the operator supplied one.
+- `selected_project_id` and `selected_project_source` (`request` or
+  `projects.list`) for project-scoped list calls.
+- `tool_count` for the number of read-only list tools Hecate attempted.
+- `lists[]` with per-tool `tool`, `project_scoped`, `project_id`, `tool_text`,
+  `tool_is_error`, `structured_content`, `_meta`, `structured_ready`,
+  `structured_count`, and `structured_parse_error`.
+- The same persistent-client cache counters as `sidecar-connect`.
+
+Example response, shortened:
+
+```json
+{
+  "object": "project_cairnline_sidecar_coordination",
+  "data": {
+    "ready": true,
+    "status": "sidecar_coordination_ready",
+    "detail": "Hecate called read-only Cairnline sidecar coordination list tools through the persistent sidecar client. Hecate still keeps live Projects reads and writes on Hecate-native stores in sidecar mode.",
+    "command": "cairnline",
+    "args": ["-db", "/Users/alice/.local/share/hecate/cairnline/projects.db"],
+    "database_path": "/Users/alice/.local/share/hecate/cairnline/projects.db",
+    "probe_timeout_ms": 10000,
+    "persistent_client": true,
+    "client_cache_configured": true,
+    "client_cache_entries": 1,
+    "client_cache_in_use": 0,
+    "client_cache_idle": 1,
+    "read_only": true,
+    "selected_project_id": "proj_123",
+    "selected_project_source": "projects.list",
+    "tool_count": 7,
+    "structured_ready": true,
+    "lists": [
+      {
+        "tool": "projects.list",
+        "read_only": true,
+        "project_scoped": false,
+        "tool_text": "Projects (1):\n- proj_123: Example Project",
+        "structured_ready": true,
+        "structured_count": 1
+      },
+      {
+        "tool": "assignments.list",
+        "read_only": true,
+        "project_scoped": true,
+        "project_id": "proj_123",
+        "structured_ready": true,
+        "structured_count": 2
+      }
+    ],
     "warnings": []
   }
 }

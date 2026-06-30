@@ -133,6 +133,65 @@ func cairnlineSidecarFixtureCallTool(mode string, params mcp.CallToolParams) (mc
 			}})
 		}
 		return result, nil
+	case "profiles.list":
+		return cairnlineSidecarFixtureListResult(mode, "Profiles (1):\n- profile_fixture: Fixture Profile", []map[string]any{{
+			"id":          "profile_fixture",
+			"name":        "Fixture Profile",
+			"description": "Portable fixture profile",
+			"skill_ids":   []string{"skill_fixture"},
+		}})
+	case "execution_profiles.list":
+		return cairnlineSidecarFixtureListResult(mode, "Execution profiles (1):\n- exec_fixture: Fixture Execution", []map[string]any{{
+			"id":           "exec_fixture",
+			"name":         "Fixture Execution",
+			"agent_kind":   "any",
+			"model_hint":   "fixture-model",
+			"tools_policy": "readonly",
+		}})
+	case "skills.list":
+		if mode == "coordination-tool-error" {
+			return mcp.CallToolResult{
+				Content: mcp.TextContent("fixture skills.list failed"),
+				IsError: true,
+			}, nil
+		}
+		return cairnlineSidecarFixtureListResult(mode, "Skills (1):\n- skill_fixture: Fixture Skill", []map[string]any{{
+			"project_id":  cairnlineSidecarFixtureProjectID(params.Arguments),
+			"id":          "skill_fixture",
+			"title":       "Fixture Skill",
+			"path":        ".agents/skills/fixture/SKILL.md",
+			"enabled":     true,
+			"status":      "available",
+			"trust_label": "workspace_skill",
+		}})
+	case "roles.list":
+		return cairnlineSidecarFixtureListResult(mode, "Roles (1):\n- role_fixture: Fixture Reviewer", []map[string]any{{
+			"project_id":                   cairnlineSidecarFixtureProjectID(params.Arguments),
+			"id":                           "role_fixture",
+			"name":                         "Fixture Reviewer",
+			"default_profile_id":           "profile_fixture",
+			"default_execution_mode":       "mcp_pull",
+			"default_skill_ids":            []string{"skill_fixture"},
+			"default_execution_profile_id": "exec_fixture",
+		}})
+	case "work_items.list":
+		return cairnlineSidecarFixtureListResult(mode, "Work items (1):\n- work_fixture: Fixture Work", []map[string]any{{
+			"project_id": cairnlineSidecarFixtureProjectID(params.Arguments),
+			"id":         "work_fixture",
+			"title":      "Fixture Work",
+			"status":     "open",
+			"priority":   "normal",
+		}})
+	case "assignments.list":
+		return cairnlineSidecarFixtureListResult(mode, "Assignments (1):\n- asg_fixture: Fixture Assignment", []map[string]any{{
+			"project_id":     cairnlineSidecarFixtureProjectID(params.Arguments),
+			"id":             "asg_fixture",
+			"work_item_id":   "work_fixture",
+			"role_id":        "role_fixture",
+			"profile_id":     "profile_fixture",
+			"execution_mode": "mcp_pull",
+			"status":         "queued",
+		}})
 	case "projects.get":
 		if mode == "get-tool-error" {
 			return mcp.CallToolResult{
@@ -175,6 +234,22 @@ func cairnlineSidecarFixtureCallTool(mode string, params mcp.CallToolParams) (mc
 	default:
 		return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeMethodNotFound, params.Name)
 	}
+}
+
+func cairnlineSidecarFixtureListResult(mode, text string, structured any) (mcp.CallToolResult, *mcp.RPCError) {
+	result := mcp.CallToolResult{Content: mcp.TextContent(text)}
+	if mode != "text-only" {
+		result.StructuredContent = mustRawJSON(structured)
+	}
+	return result, nil
+}
+
+func cairnlineSidecarFixtureProjectID(raw json.RawMessage) string {
+	var input struct {
+		ProjectID string `json:"project_id"`
+	}
+	_ = json.Unmarshal(raw, &input)
+	return input.ProjectID
 }
 
 func mustRawJSON(value any) json.RawMessage {

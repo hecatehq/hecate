@@ -372,3 +372,150 @@ func TestProjectCairnlineSidecarDetailSmoke_ToolLevelError(t *testing.T) {
 		t.Fatalf("tool text = %q, want fixture tool-level error evidence", got.ToolText)
 	}
 }
+
+func TestProjectCairnlineSidecarCoordinationSmoke_ListsPortableSurfaces(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "full"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarCoordinationSmoke(t.Context(), ProjectCairnlineSidecarCoordinationRequest{})
+	if !got.Ready || got.Status != "sidecar_coordination_ready" || !got.StructuredReady {
+		t.Fatalf("coordination smoke = %+v, want structured ready", got)
+	}
+	if got.SelectedProjectID != "proj_fixture" || got.SelectedProjectSource != "projects.list" {
+		t.Fatalf("selected project = %q source %q, want fixture from projects.list", got.SelectedProjectID, got.SelectedProjectSource)
+	}
+	if got.ToolCount != len(projectCairnlineSidecarCoordinationListTools) || len(got.Lists) != len(projectCairnlineSidecarCoordinationListTools) {
+		t.Fatalf("tool count/list count = %d/%d, want %d", got.ToolCount, len(got.Lists), len(projectCairnlineSidecarCoordinationListTools))
+	}
+	for _, tool := range []string{"projects.list", "profiles.list", "execution_profiles.list", "skills.list", "roles.list", "work_items.list", "assignments.list"} {
+		item, ok := projectCairnlineSidecarCoordinationTestList(got.Lists, tool)
+		if !ok {
+			t.Fatalf("missing coordination list result for %s: %+v", tool, got.Lists)
+		}
+		if item.ToolIsError || !item.StructuredReady || item.StructuredCount != 1 || item.StructuredParseError != "" {
+			t.Fatalf("%s result = %+v, want one structured item", tool, item)
+		}
+	}
+	if item, _ := projectCairnlineSidecarCoordinationTestList(got.Lists, "skills.list"); item.ProjectID != "proj_fixture" || !item.ProjectScoped {
+		t.Fatalf("skills.list project scope = id:%q scoped:%t, want fixture project scoped", item.ProjectID, item.ProjectScoped)
+	}
+	if !got.PersistentClient || !got.ClientCacheConfigured {
+		t.Fatalf("coordination smoke persistent/cache flags = persistent:%t configured:%t, want true/true", got.PersistentClient, got.ClientCacheConfigured)
+	}
+	if got.ClientCacheEntries != 1 || got.ClientCacheInUse != 0 || got.ClientCacheIdle != 1 {
+		t.Fatalf("cache stats = entries:%d in_use:%d idle:%d, want 1/0/1", got.ClientCacheEntries, got.ClientCacheInUse, got.ClientCacheIdle)
+	}
+}
+
+func TestProjectCairnlineSidecarCoordinationSmoke_UsesRequestedProjectID(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "full"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarCoordinationSmoke(t.Context(), ProjectCairnlineSidecarCoordinationRequest{ProjectID: "proj_requested"})
+	if !got.Ready || got.Status != "sidecar_coordination_ready" || !got.StructuredReady {
+		t.Fatalf("coordination smoke = %+v, want structured ready", got)
+	}
+	if got.RequestedProjectID != "proj_requested" || got.SelectedProjectID != "proj_requested" || got.SelectedProjectSource != "request" {
+		t.Fatalf("project selection = requested:%q selected:%q source:%q, want explicit request", got.RequestedProjectID, got.SelectedProjectID, got.SelectedProjectSource)
+	}
+	if item, _ := projectCairnlineSidecarCoordinationTestList(got.Lists, "assignments.list"); item.ProjectID != "proj_requested" {
+		t.Fatalf("assignments.list project id = %q, want requested project", item.ProjectID)
+	}
+}
+
+func TestProjectCairnlineSidecarCoordinationSmoke_TextOnlyListsWarn(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "text-only"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarCoordinationSmoke(t.Context(), ProjectCairnlineSidecarCoordinationRequest{ProjectID: "proj_requested"})
+	if !got.Ready || got.Status != "sidecar_coordination_ready" || got.StructuredReady {
+		t.Fatalf("coordination smoke = %+v, want ready with structured warnings", got)
+	}
+	if len(got.Lists) != len(projectCairnlineSidecarCoordinationListTools) {
+		t.Fatalf("list count = %d, want %d", len(got.Lists), len(projectCairnlineSidecarCoordinationListTools))
+	}
+	for _, item := range got.Lists {
+		if item.StructuredReady || item.StructuredCount != 0 || item.StructuredParseError != "" {
+			t.Fatalf("%s result = %+v, want text-only downgrade", item.Tool, item)
+		}
+	}
+	if !strings.Contains(strings.Join(got.Warnings, "\n"), "did not return structuredContent") {
+		t.Fatalf("warnings = %+v, want missing structuredContent warning", got.Warnings)
+	}
+}
+
+func TestProjectCairnlineSidecarCoordinationSmoke_TextOnlyListCannotSelectProject(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "text-only"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarCoordinationSmoke(t.Context(), ProjectCairnlineSidecarCoordinationRequest{})
+	if got.Ready || got.Status != "sidecar_coordination_no_project" {
+		t.Fatalf("coordination smoke = %+v, want no typed project selection", got)
+	}
+	if got.SelectedProjectID != "" || len(got.Lists) != 3 {
+		t.Fatalf("selection/lists = selected:%q lists:%+v, want global list evidence only", got.SelectedProjectID, got.Lists)
+	}
+	for _, tool := range []string{"projects.list", "profiles.list", "execution_profiles.list"} {
+		if _, ok := projectCairnlineSidecarCoordinationTestList(got.Lists, tool); !ok {
+			t.Fatalf("lists = %+v, want %s before project-scoped stop", got.Lists, tool)
+		}
+	}
+}
+
+func TestProjectCairnlineSidecarCoordinationSmoke_ToolLevelError(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "coordination-tool-error"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarCoordinationSmoke(t.Context(), ProjectCairnlineSidecarCoordinationRequest{ProjectID: "proj_requested"})
+	if got.Ready || got.Status != "sidecar_coordination_tool_failed" {
+		t.Fatalf("coordination smoke = %+v, want tool-level failure", got)
+	}
+	item, ok := projectCairnlineSidecarCoordinationTestList(got.Lists, "skills.list")
+	if !ok || !item.ToolIsError || !strings.Contains(item.ToolText, "fixture skills.list failed") {
+		t.Fatalf("skills.list result = %+v ok=%t, want tool-level error", item, ok)
+	}
+}
+
+func projectCairnlineSidecarCoordinationTestList(items []ProjectCairnlineSidecarCoordinationListResult, tool string) (ProjectCairnlineSidecarCoordinationListResult, bool) {
+	for _, item := range items {
+		if item.Tool == tool {
+			return item, true
+		}
+	}
+	return ProjectCairnlineSidecarCoordinationListResult{}, false
+}
