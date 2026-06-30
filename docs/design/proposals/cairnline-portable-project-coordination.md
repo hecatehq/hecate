@@ -490,7 +490,7 @@ launch agents. Those remain explicit operator or orchestrator actions.
   Cairnline backend is configured. Hecate still commits first and remains
   authoritative for any mutation family whose opt-in Cairnline write-authority
   switchpoint is not enabled; Project Assistant confirmed apply uses enabled
-  project metadata/default, root, role/work-item/assignment/handoff, and
+  project create, project metadata/default, root, role/work-item/assignment/handoff, and
   memory-candidate authority seams and remains a mixed-authority blocker for
   chat/runtime side effects even when the proposal-ledger switchpoint is
   enabled. Role mirrors also seed referenced agent-profile metadata/execution

@@ -134,6 +134,15 @@ type failingUpdateProjectStore struct {
 	err error
 }
 
+type failingCreateProjectStore struct {
+	projects.Store
+	err error
+}
+
+func (s failingCreateProjectStore) Create(context.Context, projects.Project) (projects.Project, error) {
+	return projects.Project{}, s.err
+}
+
 func (s failingUpdateProjectStore) Update(context.Context, string, func(*projects.Project)) (projects.Project, error) {
 	return projects.Project{}, s.err
 }
@@ -1281,6 +1290,68 @@ func TestProjectAssistantAPI_CairnlineApplyMemoryCandidateAuthorityDoesNotBlockO
 	}
 	if _, ok, err := handler.memoryCandidates.GetCandidate(t.Context(), "proj_pa_apply_memory_authority", "memcand_apply_authority"); err != nil || ok {
 		t.Fatalf("shadow memory candidate ok=%v err=%v, want missing after injected shadow failure", ok, err)
+	}
+}
+
+func TestProjectAssistantAPI_CairnlineApplyProjectIdentityAuthorityDoesNotBlockOnShadowFailure(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectAssistantCairnlineMirrorTestHandler(t)
+	handler.config.Projects.CairnlineWriteAuthority = projectCairnlineWriteAuthorityProjectIdentity
+	baseProjects := projects.NewMemoryStore()
+	handler.SetProjectStore(failingCreateProjectStore{
+		Store: baseProjects,
+		err:   errors.New("shadow project store unavailable"),
+	})
+	if !handler.projectIdentityWritesUseCairnlineAuthority() {
+		t.Fatal("project identity write authority is disabled, want enabled for test")
+	}
+	proposal := projectassistant.Proposal{
+		ID:                   "pa_apply_project_identity_authority",
+		Title:                "Create project through authority",
+		Summary:              "Project Assistant apply should use the Cairnline-first project identity seam.",
+		RequiresConfirmation: true,
+		Actions: []projectassistant.Action{
+			{
+				Kind:   projectassistant.ActionCreateProject,
+				Reason: "Create the project through the authority seam.",
+				Patch: json.RawMessage(`{
+					"id":"proj_pa_apply_project_identity_authority",
+					"name":"Assistant Identity Authority",
+					"description":"Cairnline owns this project create.",
+					"roots":[{"id":"root_main","path":"/workspace/identity","kind":"git","active":true}],
+					"default_provider":"anthropic",
+					"default_model":"claude-sonnet-4-5"
+				}`),
+			},
+		},
+	}
+	applyBody, err := json.Marshal(map[string]any{"proposal": proposal, "confirm": true})
+	if err != nil {
+		t.Fatalf("marshal apply body: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/project-assistant/apply", bytes.NewReader(applyBody)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("apply status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var applied projectAssistantApplyResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &applied); err != nil {
+		t.Fatalf("decode apply response: %v", err)
+	}
+	if applied.Data.Status != projectassistant.ApplyStatusApplied || !applied.Data.Applied || applied.Data.CommittedActionCount != 1 {
+		t.Fatalf("apply response = %+v, want applied project create despite Hecate shadow failure", applied.Data)
+	}
+
+	mirrored := getMirroredCairnlineProjectForTest(t, handler, "proj_pa_apply_project_identity_authority")
+	if mirrored.Name != "Assistant Identity Authority" || mirrored.Description != "Cairnline owns this project create." || mirrored.DefaultRootID != "root_main" {
+		t.Fatalf("Cairnline project = %+v, want authoritative project create", mirrored)
+	}
+	if len(mirrored.Roots) != 1 || mirrored.Roots[0].ID != "root_main" || mirrored.Roots[0].Path != "/workspace/identity" {
+		t.Fatalf("Cairnline roots = %+v, want root_main", mirrored.Roots)
+	}
+	assertMirroredExecutionProfileForTest(t, handler, mirrored.DefaultExecutionProfileID, "anthropic", "claude-sonnet-4-5")
+	if _, ok, err := baseProjects.Get(t.Context(), "proj_pa_apply_project_identity_authority"); err != nil || ok {
+		t.Fatalf("shadow project ok=%v err=%v, want missing after injected shadow failure", ok, err)
 	}
 }
 
