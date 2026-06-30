@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -508,6 +509,137 @@ func TestProjectCairnlineSidecarCoordinationSmoke_ToolLevelError(t *testing.T) {
 	item, ok := projectCairnlineSidecarCoordinationTestList(got.Lists, "skills.list")
 	if !ok || !item.ToolIsError || !strings.Contains(item.ToolText, "fixture skills.list failed") {
 		t.Fatalf("skills.list result = %+v ok=%t, want tool-level error", item, ok)
+	}
+}
+
+func TestProjectCairnlineSidecarAssignmentContextSmoke_SelectsAssignmentFromStructuredLists(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "full"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarAssignmentContextSmoke(t.Context(), ProjectCairnlineSidecarAssignmentContextRequest{})
+	if !got.Ready || got.Status != "sidecar_assignment_context_ready" || !got.StructuredReady {
+		t.Fatalf("assignment context smoke = %+v, want structured ready", got)
+	}
+	if got.SelectedProjectID != "proj_fixture" || got.SelectedProjectSource != "projects.list" {
+		t.Fatalf("selected project = %q source %q, want fixture from projects.list", got.SelectedProjectID, got.SelectedProjectSource)
+	}
+	if got.SelectedAssignmentID != "asg_fixture" || got.SelectedAssignmentSource != "assignments.list" {
+		t.Fatalf("selected assignment = %q source %q, want fixture from assignments.list", got.SelectedAssignmentID, got.SelectedAssignmentSource)
+	}
+	if got.ProjectList == nil || got.AssignmentList == nil || !got.ProjectList.StructuredReady || got.ProjectList.StructuredCount != 1 || !got.AssignmentList.StructuredReady || got.AssignmentList.StructuredCount != 1 {
+		t.Fatalf("list readiness = projects %+v assignments %+v, want typed selection lists", got.ProjectList, got.AssignmentList)
+	}
+	if got.StructuredIDs.AssignmentID != "asg_fixture" || got.StructuredIDs.ProjectID != "proj_fixture" || got.StructuredIDs.WorkItemID != "work_fixture" || got.StructuredIDs.RoleID != "role_fixture" {
+		t.Fatalf("structured ids = %+v, want assignment/project/work/role ids", got.StructuredIDs)
+	}
+	if !strings.Contains(got.ToolText, "Assignment context asg_fixture") {
+		t.Fatalf("tool text = %q, want assignment context evidence", got.ToolText)
+	}
+	if !got.PersistentClient || !got.ClientCacheConfigured {
+		t.Fatalf("assignment context persistent/cache flags = persistent:%t configured:%t, want true/true", got.PersistentClient, got.ClientCacheConfigured)
+	}
+	if got.ClientCacheEntries != 1 || got.ClientCacheInUse != 0 || got.ClientCacheIdle != 1 {
+		t.Fatalf("cache stats = entries:%d in_use:%d idle:%d, want 1/0/1", got.ClientCacheEntries, got.ClientCacheInUse, got.ClientCacheIdle)
+	}
+}
+
+func TestProjectCairnlineSidecarAssignmentContextSmoke_UsesRequestedIDs(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "full"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarAssignmentContextSmoke(t.Context(), ProjectCairnlineSidecarAssignmentContextRequest{ProjectID: "proj_requested", AssignmentID: "asg_requested"})
+	if !got.Ready || got.Status != "sidecar_assignment_context_ready" || !got.StructuredReady {
+		t.Fatalf("assignment context smoke = %+v, want structured ready", got)
+	}
+	if got.SelectedProjectID != "proj_requested" || got.SelectedProjectSource != "request" || got.SelectedAssignmentID != "asg_requested" || got.SelectedAssignmentSource != "request" {
+		t.Fatalf("selection = project %q/%q assignment %q/%q, want request ids", got.SelectedProjectID, got.SelectedProjectSource, got.SelectedAssignmentID, got.SelectedAssignmentSource)
+	}
+	if got.ProjectList != nil || got.AssignmentList != nil {
+		t.Fatalf("selection lists = projects %+v assignments %+v, want skipped lists for explicit ids", got.ProjectList, got.AssignmentList)
+	}
+	if got.StructuredIDs.AssignmentID != "asg_requested" {
+		t.Fatalf("structured assignment id = %q, want requested", got.StructuredIDs.AssignmentID)
+	}
+	encoded, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("marshal response: %v", err)
+	}
+	if strings.Contains(string(encoded), "project_list") || strings.Contains(string(encoded), "assignment_list") {
+		t.Fatalf("encoded response = %s, want omitted selection lists for explicit ids", encoded)
+	}
+}
+
+func TestProjectCairnlineSidecarAssignmentContextSmoke_TextOnlyContextWarns(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "text-only"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarAssignmentContextSmoke(t.Context(), ProjectCairnlineSidecarAssignmentContextRequest{ProjectID: "proj_requested", AssignmentID: "asg_requested"})
+	if !got.Ready || got.Status != "sidecar_assignment_context_ready" || got.StructuredReady {
+		t.Fatalf("assignment context smoke = %+v, want ready with structured warning", got)
+	}
+	if got.StructuredIDs.AssignmentID != "" || !strings.Contains(strings.Join(got.Warnings, "\n"), "assignments.context did not return structuredContent") {
+		t.Fatalf("structured ids/warnings = %+v / %+v, want text-only warning", got.StructuredIDs, got.Warnings)
+	}
+}
+
+func TestProjectCairnlineSidecarAssignmentContextSmoke_NoAssignment(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "assignment-list-empty"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarAssignmentContextSmoke(t.Context(), ProjectCairnlineSidecarAssignmentContextRequest{})
+	if got.Ready || got.Status != "sidecar_assignment_context_no_assignment" {
+		t.Fatalf("assignment context smoke = %+v, want no assignment", got)
+	}
+	if got.AssignmentList == nil || got.SelectedProjectID != "proj_fixture" || got.SelectedAssignmentID != "" || !got.AssignmentList.StructuredReady || got.AssignmentList.StructuredCount != 0 {
+		t.Fatalf("selection/list = project:%q assignment:%q list:%+v, want empty assignment list after project selection", got.SelectedProjectID, got.SelectedAssignmentID, got.AssignmentList)
+	}
+}
+
+func TestProjectCairnlineSidecarAssignmentContextSmoke_ToolLevelError(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "context-tool-error"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarAssignmentContextSmoke(t.Context(), ProjectCairnlineSidecarAssignmentContextRequest{ProjectID: "proj_requested", AssignmentID: "asg_requested"})
+	if got.Ready || got.Status != "sidecar_assignment_context_tool_failed" {
+		t.Fatalf("assignment context smoke = %+v, want context tool-level failure", got)
+	}
+	if !got.ToolIsError || !strings.Contains(got.ToolText, "fixture assignments.context failed") {
+		t.Fatalf("tool result = error:%t text:%q, want fixture context tool error", got.ToolIsError, got.ToolText)
 	}
 }
 
