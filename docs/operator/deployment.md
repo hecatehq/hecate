@@ -400,9 +400,9 @@ candidate, reject/delete another candidate, and clean up the temporary
 standalone Cairnline project. Operators can also run
 `POST /hecate/v1/projects/cairnline/sidecar-assistant-smoke` with
 `confirm_mutation=true` to create and verify a temporary Project Assistant
-proposal ledger record, apply it with explicit confirmation, verify the created
-role/work/assignment side effects, and clean up the temporary standalone
-Cairnline project.
+proposal ledger record, verify unconfirmed apply returns `needs_confirmation`,
+apply it with explicit confirmation, verify the created role/work/assignment
+side effects, and clean up the temporary standalone Cairnline project.
 Those smokes delete their temporary project and verify removal.
 When the embedded Cairnline read adapter is fully wired,
 `GET /hecate/v1/projects/backend-status` reports

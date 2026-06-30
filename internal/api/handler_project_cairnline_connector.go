@@ -2526,6 +2526,24 @@ func (h *Handler) projectCairnlineSidecarAssistantSmoke(ctx context.Context, req
 		return fail("sidecar_assistant_proposal_get_verification_failed", "Cairnline sidecar assistant.proposals.get did not return the expected proposed assistant record.")
 	}
 
+	unconfirmedApplyStep := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "check_unconfirmed_assistant_apply", "assistant.apply", false, map[string]any{
+		"proposal_id": response.ProposalID,
+		"confirm":     false,
+	})
+	response.Steps = append(response.Steps, unconfirmedApplyStep)
+	if unconfirmedApplyStep.Status != "tool_failed" || !unconfirmedApplyStep.ToolIsError || !unconfirmedApplyStep.StructuredReady || unconfirmedApplyStep.StructuredAssistantApplyResult.ProposalID != response.ProposalID || unconfirmedApplyStep.StructuredAssistantApplyResult.Status != "needs_confirmation" || unconfirmedApplyStep.StructuredAssistantApplyResult.Applied || unconfirmedApplyStep.StructuredAssistantApplyResult.Confirmed {
+		return fail("sidecar_assistant_unconfirmed_apply_verification_failed", "Cairnline sidecar assistant.apply without confirm=true did not return the expected typed needs_confirmation result before side effects.")
+	}
+	response.UnconfirmedApplyResult = unconfirmedApplyStep.StructuredAssistantApplyResult
+
+	getNeedsConfirmationProposal := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "get_needs_confirmation_assistant_proposal", "assistant.proposals.get", true, map[string]string{"id": response.ProposalID})
+	if !appendStep(getNeedsConfirmationProposal) {
+		return response
+	}
+	if getNeedsConfirmationProposal.StructuredAssistantProposal.ID != response.ProposalID || getNeedsConfirmationProposal.StructuredAssistantProposal.Status != "needs_confirmation" || getNeedsConfirmationProposal.StructuredAssistantProposal.LatestResult == nil || len(getNeedsConfirmationProposal.StructuredAssistantProposal.ApplyAttempts) == 0 {
+		return fail("sidecar_assistant_unconfirmed_apply_ledger_verification_failed", "Cairnline sidecar assistant.proposals.get did not return the expected needs-confirmation proposal ledger state after unconfirmed apply.")
+	}
+
 	applyStep := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "apply_assistant_proposal", "assistant.apply", false, map[string]any{
 		"proposal_id": response.ProposalID,
 		"confirm":     true,
@@ -2930,6 +2948,17 @@ func (h *Handler) callProjectCairnlineSidecarWriteTool(ctx context.Context, cfg 
 	step.StructuredContent = result.Result.StructuredContent
 	step.Meta = result.Result.Meta
 	if result.IsError {
+		if tool == "assistant.apply" && len(result.Result.StructuredContent) > 0 {
+			applyResult, structuredReady, structuredErr := projectCairnlineSidecarStructuredAssistantApplyResult(result.Result.StructuredContent)
+			step.StructuredReady = structuredReady
+			step.StructuredAssistantApplyResult = applyResult
+			if structuredErr != nil {
+				step.StructuredParseError = structuredErr.Error()
+				step.Status = "failed"
+				step.ToolText = "Cairnline sidecar assistant.apply returned error structuredContent that Hecate could not parse as assistant apply result: " + structuredErr.Error()
+				return step
+			}
+		}
 		step.Status = "tool_failed"
 		return step
 	}
