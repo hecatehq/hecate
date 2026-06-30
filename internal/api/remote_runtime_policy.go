@@ -24,6 +24,7 @@ var remoteRuntimeLocalOnlyRoutes = []remoteRuntimeRoutePattern{
 	{method: http.MethodGet, path: "/hecate/v1/projects/backend-status"},
 	{method: http.MethodGet, path: "/hecate/v1/projects/cairnline/mirror-parity"},
 	{method: http.MethodPost, path: "/hecate/v1/projects/cairnline/sidecar-connect"},
+	{method: http.MethodPost, path: "/hecate/v1/projects/cairnline/sidecar-coordination-smoke"},
 	{method: http.MethodPost, path: "/hecate/v1/projects/cairnline/sidecar-detail-smoke"},
 	{method: http.MethodPost, path: "/hecate/v1/projects/cairnline/sidecar-probe"},
 	{method: http.MethodPost, path: "/hecate/v1/projects/cairnline/sidecar-read-smoke"},

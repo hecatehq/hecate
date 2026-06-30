@@ -345,11 +345,13 @@ launch agents. Those remain explicit operator or orchestrator actions.
   command for the minimum portable Projects tool contract via
   `POST /hecate/v1/projects/cairnline/sidecar-probe` and can connect a cached
   sidecar MCP client via `POST /hecate/v1/projects/cairnline/sidecar-connect`.
-  Hecate can also call read-only `projects.list` and `projects.get` through
-  local-only sidecar smoke endpoints to verify typed `structuredContent` for
-  project list/detail contracts. This is contract/client-lifecycle/read-shape
-  evidence only: Hecate does not yet route live Projects reads, writes,
-  mirrors, or write-authority switchpoints through the sidecar.
+  Hecate can also call read-only `projects.list`, `projects.get`, and the
+  portable coordination list tools through local-only sidecar smoke endpoints
+  to verify typed `structuredContent` for project list/detail and
+  profile/skill/role/work/assignment list contracts. This is
+  contract/client-lifecycle/read-shape evidence only: Hecate does not yet route
+  live Projects reads, writes, mirrors, or write-authority switchpoints through
+  the sidecar.
 - Current Hecate embed experiments can serve project list/detail, setup
   readiness, health, skills, memory, memory candidates, roles, work items,
   assignment lists, assignment context, launch-readiness, assignment preflight,

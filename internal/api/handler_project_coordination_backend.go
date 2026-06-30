@@ -10,6 +10,7 @@ const projectCoordinationBackendSidecarProbeURL = "/hecate/v1/projects/cairnline
 const projectCoordinationBackendSidecarConnectURL = "/hecate/v1/projects/cairnline/sidecar-connect"
 const projectCoordinationBackendSidecarReadURL = "/hecate/v1/projects/cairnline/sidecar-read-smoke"
 const projectCoordinationBackendSidecarDetailURL = "/hecate/v1/projects/cairnline/sidecar-detail-smoke"
+const projectCoordinationBackendSidecarCoordinationURL = "/hecate/v1/projects/cairnline/sidecar-coordination-smoke"
 const projectCoordinationBackendEmbeddedReadModelURL = "/hecate/v1/projects/{id}/cairnline/embedded-read-model"
 const projectCoordinationBackendEmbeddedParityReportURL = "/hecate/v1/projects/{id}/cairnline/embedded-parity-report"
 const projectCoordinationBackendSyncReadinessURL = "/hecate/v1/projects/cairnline/sync"
@@ -288,25 +289,26 @@ func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendS
 	}
 	connectorReady := projectCairnlineConnectorReady(connector)
 	response := ProjectCoordinationBackendStatusResponse{
-		ConfiguredBackend:          configured,
-		AuthoritativeBackend:       "hecate",
-		StorageBackend:             storageBackend,
-		CairnlineConnector:         connector,
-		CairnlineConnectorReady:    connectorReady,
-		CairnlineConnectorDetail:   projectCairnlineConnectorDetail(connector),
-		CairnlineReadSource:        readSource,
-		CairnlineBridgeReady:       true,
-		CairnlineAuthoritative:     false,
-		WriteAdapterReady:          false,
-		ReplacementReadinessURL:    projectCoordinationBackendReadinessURL,
-		CairnlineSidecarProbeURL:   projectCoordinationBackendSidecarProbeURL,
-		CairnlineSidecarConnectURL: projectCoordinationBackendSidecarConnectURL,
-		CairnlineSidecarReadURL:    projectCoordinationBackendSidecarReadURL,
-		CairnlineSidecarDetailURL:  projectCoordinationBackendSidecarDetailURL,
-		EmbeddedReadModelURL:       projectCoordinationBackendEmbeddedReadModelURL,
-		EmbeddedParityReportURL:    projectCoordinationBackendEmbeddedParityReportURL,
-		SyncReadinessURL:           projectCoordinationBackendSyncReadinessURL,
-		MirrorParityURL:            projectCoordinationBackendMirrorParityURL,
+		ConfiguredBackend:               configured,
+		AuthoritativeBackend:            "hecate",
+		StorageBackend:                  storageBackend,
+		CairnlineConnector:              connector,
+		CairnlineConnectorReady:         connectorReady,
+		CairnlineConnectorDetail:        projectCairnlineConnectorDetail(connector),
+		CairnlineReadSource:             readSource,
+		CairnlineBridgeReady:            true,
+		CairnlineAuthoritative:          false,
+		WriteAdapterReady:               false,
+		ReplacementReadinessURL:         projectCoordinationBackendReadinessURL,
+		CairnlineSidecarProbeURL:        projectCoordinationBackendSidecarProbeURL,
+		CairnlineSidecarConnectURL:      projectCoordinationBackendSidecarConnectURL,
+		CairnlineSidecarReadURL:         projectCoordinationBackendSidecarReadURL,
+		CairnlineSidecarDetailURL:       projectCoordinationBackendSidecarDetailURL,
+		CairnlineSidecarCoordinationURL: projectCoordinationBackendSidecarCoordinationURL,
+		EmbeddedReadModelURL:            projectCoordinationBackendEmbeddedReadModelURL,
+		EmbeddedParityReportURL:         projectCoordinationBackendEmbeddedParityReportURL,
+		SyncReadinessURL:                projectCoordinationBackendSyncReadinessURL,
+		MirrorParityURL:                 projectCoordinationBackendMirrorParityURL,
 	}
 	switch configured {
 	case "cairnline":
