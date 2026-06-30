@@ -213,11 +213,13 @@ the snapshot-seeded in-memory bridge projection.
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=snapshot` forces that snapshot-seeded
 bridge; `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded` requires the embedded
 mirror database and requested project row or proposal record so
-replacement-readiness gaps fail loudly during dogfood. Activity, work-item
-list/detail,
-assignment-list, and operations brief reads render work items, assignments,
-roles, artifacts, and handoffs from the Cairnline service records, then overlay
-Hecate-only runtime refs/timestamps where Hecate still owns execution.
+replacement-readiness gaps fail loudly during dogfood. In strict embedded mode,
+memory and memory-candidate list reads load directly from the embedded
+Cairnline project and memory records instead of loading a Hecate-native project
+snapshot first. Activity, work-item list/detail, assignment-list, and
+operations brief reads render work items, assignments, roles, artifacts, and
+handoffs from the Cairnline service records, then overlay Hecate-only runtime
+refs/timestamps where Hecate still owns execution.
 In embedded read-source modes, project identity and some compatibility
 scaffolding still come from Hecate until Cairnline becomes authoritative; the
 explicit sidecar read-source routes are the narrow exception for project

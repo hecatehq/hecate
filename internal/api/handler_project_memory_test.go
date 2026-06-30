@@ -746,6 +746,76 @@ func TestProjectMemoryAPI_CandidatesUseCairnlineReadModelWhenConfigured(t *testi
 	assertProjectMemoryCandidateProjectionParity(t, renderProjectMemoryCandidates(nativeCandidates, "hecate"), listed.Data)
 }
 
+func TestProjectMemoryAPI_StrictEmbeddedReadModelReadsMemoryWithoutHecateStores(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend: "cairnline",
+			CairnlineReadSource: "embedded",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	server := NewServer(quietLogger(), handler)
+	client := newAPITestClient(t, server)
+	const projectID = "proj_embedded_memory"
+
+	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+		if _, err := service.CreateProject(t.Context(), cairnline.Project{
+			ID:   projectID,
+			Name: "Embedded Memory",
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateMemoryEntry(t.Context(), cairnline.MemoryEntry{
+			ID:         "mem_embedded",
+			ProjectID:  projectID,
+			Title:      "Embedded note",
+			Body:       "Read directly from Cairnline.",
+			TrustLabel: memory.TrustLabelOperatorMemory,
+			SourceKind: memory.SourceKindOperator,
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateMemoryCandidate(t.Context(), cairnline.MemoryCandidate{
+			ID:                  "memcand_embedded",
+			ProjectID:           projectID,
+			Title:               "Embedded candidate",
+			Body:                "Review directly from Cairnline.",
+			SuggestedKind:       "note",
+			SuggestedTrustLabel: memory.TrustLabelGenerated,
+			SuggestedSourceKind: memory.SourceKindGenerated,
+			SourceRefs: []cairnline.MemoryCandidateSourceRef{{
+				Kind:  "operator",
+				ID:    "seed",
+				Title: "Seed",
+			}},
+		}); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("seed embedded Cairnline memory: %v", err)
+	}
+
+	listedMemory := mustRequestJSON[ProjectMemoryListResponse](client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/memory", "")
+	if listedMemory.Object != "project_memory" || len(listedMemory.Data) != 1 {
+		t.Fatalf("memory response = %+v, want one embedded Cairnline entry", listedMemory)
+	}
+	if got := listedMemory.Data[0]; got.ID != "mem_embedded" || got.ProjectID != projectID || got.ReadBackend != "cairnline" || !got.Enabled {
+		t.Fatalf("memory entry = %+v, want embedded Cairnline projection", got)
+	}
+
+	listedCandidates := mustRequestJSON[ProjectMemoryCandidateListResponse](client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/memory/candidates", "")
+	if listedCandidates.Object != "project_memory_candidates" || len(listedCandidates.Data) != 1 {
+		t.Fatalf("candidate response = %+v, want one embedded Cairnline candidate", listedCandidates)
+	}
+	if got := listedCandidates.Data[0]; got.ID != "memcand_embedded" || got.ProjectID != projectID || got.ReadBackend != "cairnline" || got.Status != memory.CandidateStatusPending || len(got.SourceRefs) != 1 {
+		t.Fatalf("memory candidate = %+v, want embedded Cairnline projection with source ref", got)
+	}
+
+	client.mustRequestStatus(http.StatusNotFound, http.MethodGet, "/hecate/v1/projects/proj_missing/memory", "")
+}
+
 func TestProjectMemoryAPI_ListUsesCairnlineSidecarWhenConfigured(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "memory-fixture")

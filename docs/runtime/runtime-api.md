@@ -526,9 +526,13 @@ sequenceDiagram
   routes require a populated embedded mirror database and fail if the database
   or requested project row/proposal record is missing. Run
   `POST /hecate/v1/projects/cairnline/sync` first when testing strict embedded
-  reads. With `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar`, `sidecar` routes
-  project list/detail, setup-readiness, health, project skill list, project
-  memory list, memory-candidate list, project role list, work-item list/detail,
+  reads. Strict embedded memory and memory-candidate list reads use the embedded
+  Cairnline project and memory records directly instead of loading a Hecate
+  snapshot first; other embedded read routes may still use Hecate snapshot
+  scaffolding until their route families are cut over. With
+  `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar`, `sidecar` routes project
+  list/detail, setup-readiness, health, project skill list, project memory list,
+  memory-candidate list, project role list, work-item list/detail,
   assignment-list, assignment-context, launch-readiness, assignment preflight, artifact-list,
   handoff-list, Project Assistant context/proposal reads, activity,
   closeout-readiness, and operations-brief reads through the standalone
@@ -2413,9 +2417,11 @@ entries, memory candidates, roles, work items, assignment lists, assignment
 context previews, assignment launch-readiness, assignment preflight, artifact
 lists, handoff lists, Project Assistant context/proposal reads, closeout
 readiness, activity inbox, and operations brief can be served from the Cairnline
-read model, while other live Projects reads still use Hecate. Those
-configured read routes still load Hecate snapshots as bridge scaffolding, but
-their Cairnline service read source is controlled by
+read model, while other live Projects reads still use Hecate. Most of those
+configured embedded read routes still load Hecate snapshots as bridge
+scaffolding, but strict embedded memory and memory-candidate list reads now
+load directly from the embedded Cairnline project and memory records. Their
+Cairnline service read source is controlled by
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE`: `auto` prefers the embedded mirror and
 falls back to the snapshot-seeded bridge, `snapshot` always uses the
 snapshot-seeded bridge, and `embedded` requires the mirror database and
@@ -4607,6 +4613,9 @@ reports `read_model_switch_ready=true`, this endpoint renders accepted project
 memory from the Cairnline read model and marks each item with
 `read_backend: "cairnline"`. Create, update, and delete requests still mutate
 Hecate's native memory stores until the Cairnline write adapter is ready.
+With `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded`, this list route reads
+directly from the embedded Cairnline project and memory records; it does not
+require a Hecate-native project or memory-store snapshot.
 When `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar` and
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar`, this endpoint reads the
 project and memory entries through the standalone Cairnline MCP client and
@@ -4691,6 +4700,9 @@ from the Cairnline read model and marks each item with
 `read_backend: "cairnline"`. Candidate creation, promotion, and rejection still
 mutate Hecate's native memory-candidate store until the Cairnline write adapter
 is ready.
+With `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded`, this list route reads
+directly from the embedded Cairnline project and memory-candidate records; it
+does not require a Hecate-native project or memory-candidate-store snapshot.
 When `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar` and
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar`, this endpoint reads the
 project and memory candidates through the standalone Cairnline MCP client and
