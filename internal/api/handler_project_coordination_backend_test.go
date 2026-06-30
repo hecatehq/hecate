@@ -66,8 +66,8 @@ func TestProjectCoordinationBackendStatus_DefaultHecateAuthoritative(t *testing.
 	if status.CairnlineSidecarMemoryURL != projectCoordinationBackendSidecarMemoryURL {
 		t.Fatalf("sidecar memory URL = %q, want %q", status.CairnlineSidecarMemoryURL, projectCoordinationBackendSidecarMemoryURL)
 	}
-	if status.CairnlineSidecarMemoryURL != projectCoordinationBackendSidecarMemoryURL {
-		t.Fatalf("sidecar memory URL = %q, want %q", status.CairnlineSidecarMemoryURL, projectCoordinationBackendSidecarMemoryURL)
+	if status.CairnlineSidecarAssistantURL != projectCoordinationBackendSidecarAssistantURL {
+		t.Fatalf("sidecar assistant URL = %q, want %q", status.CairnlineSidecarAssistantURL, projectCoordinationBackendSidecarAssistantURL)
 	}
 	if !status.CairnlineBridgeReady || status.CairnlineAuthoritative || status.ReadModelSwitchReady || status.WriteAdapterReady || status.ReplacementReady || len(status.Warnings) != 0 {
 		t.Fatalf("status = %+v, want bridge-ready but inactive Cairnline adapter flags", status)

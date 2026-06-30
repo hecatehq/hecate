@@ -29,20 +29,21 @@ func cairnlineSidecarFixtureMain(mode string) {
 	in := bufio.NewReader(os.Stdin)
 	enc := json.NewEncoder(os.Stdout)
 	state := &cairnlineSidecarFixtureState{
-		assignmentStatus: "queued",
-		projects:         make(map[string]ProjectCairnlineSidecarProjectItem),
-		deletedProjects:  make(map[string]struct{}),
-		roots:            make(map[string]map[string]ProjectCairnlineSidecarRootItem),
-		contextSources:   make(map[string]map[string]ProjectCairnlineSidecarSourceItem),
-		roles:            make(map[string]map[string]ProjectCairnlineSidecarRoleItem),
-		workItems:        make(map[string]map[string]ProjectCairnlineSidecarWorkItem),
-		assignments:      make(map[string]map[string]ProjectCairnlineSidecarAssignmentItem),
-		artifacts:        make(map[string]map[string]ProjectCairnlineSidecarArtifactItem),
-		evidence:         make(map[string]map[string]ProjectCairnlineSidecarEvidenceItem),
-		reviews:          make(map[string]map[string]ProjectCairnlineSidecarReviewItem),
-		handoffs:         make(map[string]map[string]ProjectCairnlineSidecarHandoffItem),
-		memoryEntries:    make(map[string]map[string]ProjectCairnlineSidecarMemoryEntryItem),
-		memoryCandidates: make(map[string]map[string]ProjectCairnlineSidecarMemoryCandidateItem),
+		assignmentStatus:   "queued",
+		projects:           make(map[string]ProjectCairnlineSidecarProjectItem),
+		deletedProjects:    make(map[string]struct{}),
+		roots:              make(map[string]map[string]ProjectCairnlineSidecarRootItem),
+		contextSources:     make(map[string]map[string]ProjectCairnlineSidecarSourceItem),
+		roles:              make(map[string]map[string]ProjectCairnlineSidecarRoleItem),
+		workItems:          make(map[string]map[string]ProjectCairnlineSidecarWorkItem),
+		assignments:        make(map[string]map[string]ProjectCairnlineSidecarAssignmentItem),
+		artifacts:          make(map[string]map[string]ProjectCairnlineSidecarArtifactItem),
+		evidence:           make(map[string]map[string]ProjectCairnlineSidecarEvidenceItem),
+		reviews:            make(map[string]map[string]ProjectCairnlineSidecarReviewItem),
+		handoffs:           make(map[string]map[string]ProjectCairnlineSidecarHandoffItem),
+		memoryEntries:      make(map[string]map[string]ProjectCairnlineSidecarMemoryEntryItem),
+		memoryCandidates:   make(map[string]map[string]ProjectCairnlineSidecarMemoryCandidateItem),
+		assistantProposals: make(map[string]ProjectCairnlineSidecarAssistantProposalRecordItem),
 	}
 	for {
 		line, err := in.ReadBytes('\n')
@@ -129,6 +130,7 @@ type cairnlineSidecarFixtureState struct {
 	handoffs           map[string]map[string]ProjectCairnlineSidecarHandoffItem
 	memoryEntries      map[string]map[string]ProjectCairnlineSidecarMemoryEntryItem
 	memoryCandidates   map[string]map[string]ProjectCairnlineSidecarMemoryCandidateItem
+	assistantProposals map[string]ProjectCairnlineSidecarAssistantProposalRecordItem
 }
 
 func cairnlineSidecarFixtureTools(mode string) []mcp.Tool {
@@ -577,7 +579,101 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 		delete(state.handoffs, input.ID)
 		delete(state.memoryEntries, input.ID)
 		delete(state.memoryCandidates, input.ID)
+		for proposalID, proposal := range state.assistantProposals {
+			if proposal.ProjectID == input.ID {
+				delete(state.assistantProposals, proposalID)
+			}
+		}
 		return mcp.CallToolResult{Content: mcp.TextContent("Deleted project " + input.ID)}, nil
+	case "assistant.propose":
+		var input ProjectCairnlineSidecarAssistantProposalItem
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid assistant.propose arguments")
+		}
+		if input.ID == "" || input.ProjectID == "" || input.Title == "" || len(input.Actions) == 0 {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "missing assistant proposal arguments")
+		}
+		input.RequiresConfirmation = true
+		record := ProjectCairnlineSidecarAssistantProposalRecordItem{
+			ID:        input.ID,
+			ProjectID: input.ProjectID,
+			Source:    firstNonEmpty(input.Source, "assistant"),
+			Proposal:  input,
+			Status:    "proposed",
+		}
+		state.assistantProposals[record.ID] = record
+		return mcp.CallToolResult{Content: mcp.TextContent("Assistant proposal " + record.ID + ": [proposed] " + input.Title), StructuredContent: mustRawJSON(record)}, nil
+	case "assistant.proposals.list":
+		var input struct {
+			ProjectID string `json:"project_id"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid assistant.proposals.list arguments")
+		}
+		items := cairnlineSidecarFixtureProjectAssistantProposals(state, input.ProjectID)
+		return cairnlineSidecarFixtureListResult(mode, fmt.Sprintf("Assistant proposals (%d)", len(items)), items)
+	case "assistant.proposals.get":
+		var input struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid assistant.proposals.get arguments")
+		}
+		record, ok := state.assistantProposals[input.ID]
+		if !ok {
+			return mcp.CallToolResult{Content: mcp.TextContent("fixture assistant proposal not found: " + input.ID), IsError: true}, nil
+		}
+		return mcp.CallToolResult{Content: mcp.TextContent("Assistant proposal " + input.ID + ": [" + record.Status + "] " + record.Proposal.Title), StructuredContent: mustRawJSON(record)}, nil
+	case "assistant.apply":
+		if mode == "assistant-apply-tool-error" {
+			return mcp.CallToolResult{Content: mcp.TextContent("fixture assistant.apply failed"), IsError: true}, nil
+		}
+		var input struct {
+			ProposalID string                                       `json:"proposal_id"`
+			Proposal   ProjectCairnlineSidecarAssistantProposalItem `json:"proposal"`
+			Confirm    bool                                         `json:"confirm"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid assistant.apply arguments")
+		}
+		record, ok := state.assistantProposals[input.ProposalID]
+		if !ok && input.Proposal.ID != "" {
+			record = ProjectCairnlineSidecarAssistantProposalRecordItem{
+				ID:        input.Proposal.ID,
+				ProjectID: input.Proposal.ProjectID,
+				Source:    firstNonEmpty(input.Proposal.Source, "assistant"),
+				Proposal:  input.Proposal,
+				Status:    "proposed",
+			}
+			input.ProposalID = record.ID
+			ok = true
+		}
+		if !ok {
+			return mcp.CallToolResult{Content: mcp.TextContent("fixture assistant proposal not found: " + input.ProposalID), IsError: true}, nil
+		}
+		if !input.Confirm {
+			result := ProjectCairnlineSidecarAssistantApplyResultItem{
+				ProposalID:       record.ID,
+				Status:           "needs_confirmation",
+				Applied:          false,
+				Confirmed:        false,
+				TotalActionCount: len(record.Proposal.Actions),
+			}
+			record.Status = "needs_confirmation"
+			record.LatestResult = &result
+			record.ApplyAttempts = append(record.ApplyAttempts, ProjectCairnlineSidecarAssistantApplyAttemptItem{ID: "attempt_" + record.ID + "_needs_confirmation", ProposalID: record.ID, Status: result.Status, Confirmed: false, Result: result})
+			state.assistantProposals[record.ID] = record
+			return mcp.CallToolResult{Content: mcp.TextContent("Assistant apply " + record.ID + ": needs_confirmation"), StructuredContent: mustRawJSON(result), IsError: true}, nil
+		}
+		result := cairnlineSidecarFixtureApplyAssistantProposal(state, record)
+		record.Status = result.Status
+		record.LatestResult = &result
+		record.ApplyAttempts = append(record.ApplyAttempts, ProjectCairnlineSidecarAssistantApplyAttemptItem{ID: "attempt_" + record.ID + "_applied", ProposalID: record.ID, Status: result.Status, Confirmed: true, Result: result})
+		if result.Applied {
+			record.AppliedAt = "fixture-applied-at"
+		}
+		state.assistantProposals[record.ID] = record
+		return mcp.CallToolResult{Content: mcp.TextContent(fmt.Sprintf("Assistant apply %s: %s actions=%d/%d", record.ID, result.Status, result.AppliedActionCount, result.TotalActionCount)), StructuredContent: mustRawJSON(result)}, nil
 	case "roles.create":
 		var input struct {
 			ProjectID                 string   `json:"project_id"`
@@ -1584,6 +1680,91 @@ func cairnlineSidecarFixtureProjectMemoryCandidates(state *cairnlineSidecarFixtu
 		candidates = append(candidates, candidate)
 	}
 	return candidates
+}
+
+func cairnlineSidecarFixtureProjectAssistantProposals(state *cairnlineSidecarFixtureState, projectID string) []ProjectCairnlineSidecarAssistantProposalRecordItem {
+	items := make([]ProjectCairnlineSidecarAssistantProposalRecordItem, 0, len(state.assistantProposals))
+	for _, item := range state.assistantProposals {
+		if projectID == "" || item.ProjectID == projectID {
+			items = append(items, item)
+		}
+	}
+	return items
+}
+
+func cairnlineSidecarFixtureApplyAssistantProposal(state *cairnlineSidecarFixtureState, record ProjectCairnlineSidecarAssistantProposalRecordItem) ProjectCairnlineSidecarAssistantApplyResultItem {
+	result := ProjectCairnlineSidecarAssistantApplyResultItem{
+		ProposalID:       record.ID,
+		Status:           "applied",
+		Applied:          true,
+		Confirmed:        true,
+		TotalActionCount: len(record.Proposal.Actions),
+		Actions:          make([]ProjectCairnlineSidecarAssistantActionResultItem, 0, len(record.Proposal.Actions)),
+	}
+	for idx, action := range record.Proposal.Actions {
+		actionResult := ProjectCairnlineSidecarAssistantActionResultItem{
+			Kind:   action.Kind,
+			Status: "applied",
+		}
+		switch action.Kind {
+		case "create_role":
+			if action.Role == nil || action.Role.ProjectID == "" || action.Role.ID == "" {
+				result.Status = "partial"
+				result.Applied = false
+				result.FailedActionIndex = &idx
+				actionResult.Status = "failed"
+				actionResult.Error = "missing role payload"
+				result.Actions = append(result.Actions, actionResult)
+				return result
+			}
+			cairnlineSidecarFixtureEnsureRoles(state, action.Role.ProjectID)[action.Role.ID] = *action.Role
+			actionResult.ProjectID = action.Role.ProjectID
+			actionResult.RoleID = action.Role.ID
+		case "create_work_item":
+			if action.WorkItem == nil || action.WorkItem.ProjectID == "" || action.WorkItem.ID == "" {
+				result.Status = "partial"
+				result.Applied = false
+				result.FailedActionIndex = &idx
+				actionResult.Status = "failed"
+				actionResult.Error = "missing work item payload"
+				result.Actions = append(result.Actions, actionResult)
+				return result
+			}
+			cairnlineSidecarFixtureEnsureWorkItems(state, action.WorkItem.ProjectID)[action.WorkItem.ID] = *action.WorkItem
+			actionResult.ProjectID = action.WorkItem.ProjectID
+			actionResult.WorkItemID = action.WorkItem.ID
+		case "create_assignment":
+			if action.Assignment == nil || action.Assignment.ProjectID == "" || action.Assignment.ID == "" {
+				result.Status = "partial"
+				result.Applied = false
+				result.FailedActionIndex = &idx
+				actionResult.Status = "failed"
+				actionResult.Error = "missing assignment payload"
+				result.Actions = append(result.Actions, actionResult)
+				return result
+			}
+			assignment := *action.Assignment
+			if assignment.Status == "" {
+				assignment.Status = "queued"
+			}
+			cairnlineSidecarFixtureEnsureAssignments(state, assignment.ProjectID)[assignment.ID] = assignment
+			actionResult.ProjectID = assignment.ProjectID
+			actionResult.WorkItemID = assignment.WorkItemID
+			actionResult.RoleID = assignment.RoleID
+			actionResult.AssignmentID = assignment.ID
+		default:
+			result.Status = "partial"
+			result.Applied = false
+			result.FailedActionIndex = &idx
+			actionResult.Status = "failed"
+			actionResult.Error = "unsupported action kind"
+			result.Actions = append(result.Actions, actionResult)
+			return result
+		}
+		result.AppliedActionCount++
+		result.Actions = append(result.Actions, actionResult)
+	}
+	return result
 }
 
 func cairnlineSidecarFixtureListResult(mode, text string, structured any) (mcp.CallToolResult, *mcp.RPCError) {

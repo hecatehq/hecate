@@ -48,11 +48,12 @@ context, exposed from `GET /hecate/v1/whoami` as `data.remote_identity`, added t
 the top-level HTTP span attributes, and accepted in place of the local
 runtime/inference shared tokens. Remote mode rejects local-only endpoints for
 workspace picker/open, reset-data, shutdown, MCP probe, Cairnline sidecar
-probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle/write/setup/work
-smoke, plugin-registry management, agent-adapter authenticate, and local
-provider and MCP registry discovery. Hecate-native `/hecate/v1/*` routes are explicitly
-classified for remote mode, and route coverage tests fail when a new registered
-route is not marked remote-safe or local-only.
+probe/connect/read/detail/coordination/assignment-context/launch-packet,
+Cairnline sidecar lifecycle/write/setup/work/collaboration/memory/assistant
+smokes, plugin-registry management, agent-adapter authenticate, and local
+provider and MCP registry discovery. Hecate-native `/hecate/v1/*` routes are
+explicitly classified for remote mode, and route coverage tests fail when a new
+registered route is not marked remote-safe or local-only.
 
 Remote mode disables local model providers by default. In that default posture,
 local presets are omitted, `kind=local` provider creates/updates are rejected,
@@ -501,7 +502,13 @@ sequenceDiagram
   `confirm_mutation=true`, it creates and verifies an accepted memory entry,
   creates and promotes one memory candidate into accepted memory, rejects and
   deletes another candidate, then deletes and verifies removal of the temporary
-  project. Live Projects reads and writes still use Hecate-native stores.
+  project. `sidecar-assistant-smoke` is the Project Assistant proposal/apply
+  smoke: after `confirm_mutation=true`, it creates a temporary rootless
+  standalone Cairnline project, creates and verifies an assistant proposal
+  ledger record, applies it with explicit confirmation, verifies the created
+  role/work/assignment side effects, then deletes and verifies removal of the
+  temporary project. Live Projects reads and writes still use Hecate-native
+  stores.
 - `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=auto|snapshot|embedded` controls which
   Cairnline service backing configured read routes use while
   `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and
@@ -2517,7 +2524,8 @@ tools, assignment context, launch packets, the explicitly confirmed standalone
 assignment lifecycle, the explicitly confirmed temporary-project write smoke,
 the explicitly confirmed temporary root/context-source setup smoke, and the
 explicitly confirmed temporary role/work/assignment/context/launch-packet work
-smoke. None of these changes live route authority.
+smoke, plus confirmed collaboration, memory, and Project Assistant
+proposal/apply smokes. None of these changes live route authority.
 
 Example response, with `write_switchpoints` shortened for readability:
 
@@ -2710,7 +2718,8 @@ Example response, with `write_switchpoints` shortened for readability:
     "cairnline_sidecar_write_url": "/hecate/v1/projects/cairnline/sidecar-write-smoke",
     "cairnline_sidecar_work_url": "/hecate/v1/projects/cairnline/sidecar-work-smoke",
     "cairnline_sidecar_collaboration_url": "/hecate/v1/projects/cairnline/sidecar-collaboration-smoke",
-    "cairnline_sidecar_memory_url": "/hecate/v1/projects/cairnline/sidecar-memory-smoke"
+    "cairnline_sidecar_memory_url": "/hecate/v1/projects/cairnline/sidecar-memory-smoke",
+    "cairnline_sidecar_assistant_url": "/hecate/v1/projects/cairnline/sidecar-assistant-smoke"
   }
 }
 ```
@@ -2911,6 +2920,91 @@ Example response, shortened:
     "rejected_memory_candidate": {
       "id": "memcand_456",
       "status": "rejected"
+    },
+    "cleanup_verified": true,
+    "warnings": []
+  }
+}
+```
+
+### `POST /hecate/v1/projects/cairnline/sidecar-assistant-smoke`
+
+Local-only standalone Cairnline MCP Project Assistant proposal/apply smoke.
+This endpoint mutates only the standalone Cairnline sidecar database after
+explicit confirmation. It does not mutate Hecate-native Projects stores, does
+not start a Hecate Task, does not launch an External Agent, and does not make
+Cairnline authoritative for live Projects routes.
+
+Without `confirm_mutation=true`, the endpoint returns
+`sidecar_assistant_confirmation_required` and makes no sidecar tool calls. With
+confirmation, Hecate uses the same sidecar command, database, timeout, and
+Cairnline-specific MCP client cache as `sidecar-connect`.
+
+The smoke creates a temporary rootless project, creates and verifies a
+confirmed-action Project Assistant proposal through `assistant.propose` /
+`assistant.proposals.list` / `assistant.proposals.get`, applies it through
+`assistant.apply` with `confirm=true`, verifies the applied proposal ledger
+state through another `assistant.proposals.get`, verifies the proposal side
+effects through `roles.list`, `work_items.list`, and `assignments.list`, then
+deletes the temporary project and expects a final `projects.get` to return a
+tool-level missing/error result. If a step fails after the temporary project id
+is known, Hecate attempts a best-effort project cleanup delete and verifies
+that cleanup through another `projects.get`.
+
+Example request:
+
+```json
+{
+  "confirm_mutation": true,
+  "project_name": "Hecate sidecar assistant smoke"
+}
+```
+
+Example response, shortened:
+
+```json
+{
+  "object": "project_cairnline_sidecar_assistant",
+  "data": {
+    "ready": true,
+    "status": "sidecar_assistant_ready",
+    "detail": "Hecate created, listed, fetched, applied, and verified a temporary standalone Cairnline Project Assistant proposal, then deleted the temporary project. Hecate-native Projects stores were not mutated.",
+    "command": "cairnline",
+    "args": ["-db", "/Users/alice/.local/share/hecate/cairnline/projects.db"],
+    "database_path": "/Users/alice/.local/share/hecate/cairnline/projects.db",
+    "probe_timeout_ms": 10000,
+    "persistent_client": true,
+    "client_cache_configured": true,
+    "confirmed_mutation": true,
+    "project_name": "Hecate sidecar assistant smoke",
+    "selected_project_id": "proj_123",
+    "proposal_id": "prop_proj_123_assistant_smoke",
+    "role_id": "role_proj_123_assistant",
+    "work_item_id": "work_proj_123_assistant",
+    "assignment_id": "asgn_proj_123_assistant",
+    "created_proposal": {
+      "id": "prop_proj_123_assistant_smoke",
+      "status": "proposed",
+      "proposal": {
+        "title": "Queue sidecar assistant assignment",
+        "requires_confirmation": true,
+        "actions": [
+          { "kind": "create_role" },
+          { "kind": "create_work_item" },
+          { "kind": "create_assignment" }
+        ]
+      }
+    },
+    "apply_result": {
+      "proposal_id": "prop_proj_123_assistant_smoke",
+      "status": "applied",
+      "applied": true,
+      "confirmed": true,
+      "applied_action_count": 3
+    },
+    "applied_proposal": {
+      "id": "prop_proj_123_assistant_smoke",
+      "status": "applied"
     },
     "cleanup_verified": true,
     "warnings": []

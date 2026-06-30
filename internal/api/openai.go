@@ -588,6 +588,7 @@ type ProjectCoordinationBackendStatusResponse struct {
 	CairnlineSidecarWorkURL              string                                       `json:"cairnline_sidecar_work_url,omitempty"`
 	CairnlineSidecarCollaborationURL     string                                       `json:"cairnline_sidecar_collaboration_url,omitempty"`
 	CairnlineSidecarMemoryURL            string                                       `json:"cairnline_sidecar_memory_url,omitempty"`
+	CairnlineSidecarAssistantURL         string                                       `json:"cairnline_sidecar_assistant_url,omitempty"`
 	EmbeddedReadModelURL                 string                                       `json:"embedded_read_model_url,omitempty"`
 	EmbeddedParityReportURL              string                                       `json:"embedded_parity_report_url,omitempty"`
 	SyncReadinessURL                     string                                       `json:"sync_readiness_url,omitempty"`
@@ -1739,6 +1740,11 @@ type ProjectCairnlineSidecarMemoryEnvelope struct {
 	Data   ProjectCairnlineSidecarMemoryResponse `json:"data"`
 }
 
+type ProjectCairnlineSidecarAssistantEnvelope struct {
+	Object string                                   `json:"object"`
+	Data   ProjectCairnlineSidecarAssistantResponse `json:"data"`
+}
+
 type ProjectCairnlineSidecarDetailRequest struct {
 	ProjectID string `json:"project_id,omitempty"`
 }
@@ -1790,6 +1796,11 @@ type ProjectCairnlineSidecarCollaborationRequest struct {
 }
 
 type ProjectCairnlineSidecarMemoryRequest struct {
+	ConfirmMutation bool   `json:"confirm_mutation,omitempty"`
+	ProjectName     string `json:"project_name,omitempty"`
+}
+
+type ProjectCairnlineSidecarAssistantRequest struct {
 	ConfirmMutation bool   `json:"confirm_mutation,omitempty"`
 	ProjectName     string `json:"project_name,omitempty"`
 }
@@ -2203,53 +2214,85 @@ type ProjectCairnlineSidecarMemoryResponse struct {
 	Warnings                []string                                   `json:"warnings,omitempty"`
 }
 
+type ProjectCairnlineSidecarAssistantResponse struct {
+	Ready                 bool                                               `json:"ready"`
+	Status                string                                             `json:"status"`
+	Detail                string                                             `json:"detail"`
+	Command               string                                             `json:"command"`
+	Args                  []string                                           `json:"args,omitempty"`
+	DatabasePath          string                                             `json:"database_path,omitempty"`
+	ProbeTimeoutMS        int64                                              `json:"probe_timeout_ms"`
+	PersistentClient      bool                                               `json:"persistent_client,omitempty"`
+	ClientCacheConfigured bool                                               `json:"client_cache_configured,omitempty"`
+	ClientCacheEntries    int                                                `json:"client_cache_entries,omitempty"`
+	ClientCacheInUse      int                                                `json:"client_cache_in_use,omitempty"`
+	ClientCacheIdle       int                                                `json:"client_cache_idle,omitempty"`
+	ConfirmedMutation     bool                                               `json:"confirmed_mutation"`
+	ProjectName           string                                             `json:"project_name,omitempty"`
+	SelectedProjectID     string                                             `json:"selected_project_id,omitempty"`
+	ProposalID            string                                             `json:"proposal_id,omitempty"`
+	RoleID                string                                             `json:"role_id,omitempty"`
+	WorkItemID            string                                             `json:"work_item_id,omitempty"`
+	AssignmentID          string                                             `json:"assignment_id,omitempty"`
+	Steps                 []ProjectCairnlineSidecarWriteStep                 `json:"steps,omitempty"`
+	CreatedProposal       ProjectCairnlineSidecarAssistantProposalRecordItem `json:"created_proposal,omitempty"`
+	AppliedProposal       ProjectCairnlineSidecarAssistantProposalRecordItem `json:"applied_proposal,omitempty"`
+	ApplyResult           ProjectCairnlineSidecarAssistantApplyResultItem    `json:"apply_result,omitempty"`
+	CleanupVerified       bool                                               `json:"cleanup_verified"`
+	Warnings              []string                                           `json:"warnings,omitempty"`
+}
+
 type ProjectCairnlineSidecarWriteStep struct {
-	Name                           string                                       `json:"name"`
-	Tool                           string                                       `json:"tool"`
-	ReadOnly                       bool                                         `json:"read_only"`
-	Status                         string                                       `json:"status"`
-	ToolText                       string                                       `json:"tool_text,omitempty"`
-	ToolIsError                    bool                                         `json:"tool_is_error,omitempty"`
-	StructuredContent              json.RawMessage                              `json:"structured_content,omitempty"`
-	Meta                           json.RawMessage                              `json:"meta,omitempty"`
-	StructuredReady                bool                                         `json:"structured_ready"`
-	StructuredProject              ProjectCairnlineSidecarProjectItem           `json:"structured_project,omitempty"`
-	StructuredProjects             []ProjectCairnlineSidecarProjectItem         `json:"structured_projects,omitempty"`
-	StructuredProjectCount         int                                          `json:"structured_project_count"`
-	StructuredRoot                 ProjectCairnlineSidecarRootItem              `json:"structured_root,omitempty"`
-	StructuredRoots                []ProjectCairnlineSidecarRootItem            `json:"structured_roots,omitempty"`
-	StructuredRootCount            int                                          `json:"structured_root_count"`
-	StructuredSource               ProjectCairnlineSidecarSourceItem            `json:"structured_source,omitempty"`
-	StructuredSources              []ProjectCairnlineSidecarSourceItem          `json:"structured_sources,omitempty"`
-	StructuredSourceCount          int                                          `json:"structured_source_count"`
-	StructuredRoles                []ProjectCairnlineSidecarRoleItem            `json:"structured_roles,omitempty"`
-	StructuredRoleCount            int                                          `json:"structured_role_count"`
-	StructuredWorkItems            []ProjectCairnlineSidecarWorkItem            `json:"structured_work_items,omitempty"`
-	StructuredWorkItemCount        int                                          `json:"structured_work_item_count"`
-	StructuredAssignments          []ProjectCairnlineSidecarAssignmentItem      `json:"structured_assignments,omitempty"`
-	StructuredAssignmentCount      int                                          `json:"structured_assignment_count"`
-	StructuredArtifact             ProjectCairnlineSidecarArtifactItem          `json:"structured_artifact,omitempty"`
-	StructuredArtifacts            []ProjectCairnlineSidecarArtifactItem        `json:"structured_artifacts,omitempty"`
-	StructuredArtifactCount        int                                          `json:"structured_artifact_count"`
-	StructuredEvidenceItem         ProjectCairnlineSidecarEvidenceItem          `json:"structured_evidence_item,omitempty"`
-	StructuredEvidence             []ProjectCairnlineSidecarEvidenceItem        `json:"structured_evidence,omitempty"`
-	StructuredEvidenceCount        int                                          `json:"structured_evidence_count"`
-	StructuredReview               ProjectCairnlineSidecarReviewItem            `json:"structured_review,omitempty"`
-	StructuredReviews              []ProjectCairnlineSidecarReviewItem          `json:"structured_reviews,omitempty"`
-	StructuredReviewCount          int                                          `json:"structured_review_count"`
-	StructuredHandoff              ProjectCairnlineSidecarHandoffItem           `json:"structured_handoff,omitempty"`
-	StructuredHandoffs             []ProjectCairnlineSidecarHandoffItem         `json:"structured_handoffs,omitempty"`
-	StructuredHandoffCount         int                                          `json:"structured_handoff_count"`
-	StructuredMemoryEntry          ProjectCairnlineSidecarMemoryEntryItem       `json:"structured_memory_entry,omitempty"`
-	StructuredMemoryEntries        []ProjectCairnlineSidecarMemoryEntryItem     `json:"structured_memory_entries,omitempty"`
-	StructuredMemoryEntryCount     int                                          `json:"structured_memory_entry_count"`
-	StructuredMemoryCandidate      ProjectCairnlineSidecarMemoryCandidateItem   `json:"structured_memory_candidate,omitempty"`
-	StructuredMemoryCandidates     []ProjectCairnlineSidecarMemoryCandidateItem `json:"structured_memory_candidates,omitempty"`
-	StructuredMemoryCandidateCount int                                          `json:"structured_memory_candidate_count"`
-	AssignmentContextIDs           ProjectCairnlineSidecarAssignmentContextIDs  `json:"assignment_context_ids,omitempty"`
-	LaunchPacketIDs                ProjectCairnlineSidecarLaunchPacketIDs       `json:"launch_packet_ids,omitempty"`
-	LaunchPacketWarnings           []string                                     `json:"launch_packet_warnings,omitempty"`
-	StructuredParseError           string                                       `json:"structured_parse_error,omitempty"`
+	Name                             string                                               `json:"name"`
+	Tool                             string                                               `json:"tool"`
+	ReadOnly                         bool                                                 `json:"read_only"`
+	Status                           string                                               `json:"status"`
+	ToolText                         string                                               `json:"tool_text,omitempty"`
+	ToolIsError                      bool                                                 `json:"tool_is_error,omitempty"`
+	StructuredContent                json.RawMessage                                      `json:"structured_content,omitempty"`
+	Meta                             json.RawMessage                                      `json:"meta,omitempty"`
+	StructuredReady                  bool                                                 `json:"structured_ready"`
+	StructuredProject                ProjectCairnlineSidecarProjectItem                   `json:"structured_project,omitempty"`
+	StructuredProjects               []ProjectCairnlineSidecarProjectItem                 `json:"structured_projects,omitempty"`
+	StructuredProjectCount           int                                                  `json:"structured_project_count"`
+	StructuredRoot                   ProjectCairnlineSidecarRootItem                      `json:"structured_root,omitempty"`
+	StructuredRoots                  []ProjectCairnlineSidecarRootItem                    `json:"structured_roots,omitempty"`
+	StructuredRootCount              int                                                  `json:"structured_root_count"`
+	StructuredSource                 ProjectCairnlineSidecarSourceItem                    `json:"structured_source,omitempty"`
+	StructuredSources                []ProjectCairnlineSidecarSourceItem                  `json:"structured_sources,omitempty"`
+	StructuredSourceCount            int                                                  `json:"structured_source_count"`
+	StructuredRoles                  []ProjectCairnlineSidecarRoleItem                    `json:"structured_roles,omitempty"`
+	StructuredRoleCount              int                                                  `json:"structured_role_count"`
+	StructuredWorkItems              []ProjectCairnlineSidecarWorkItem                    `json:"structured_work_items,omitempty"`
+	StructuredWorkItemCount          int                                                  `json:"structured_work_item_count"`
+	StructuredAssignments            []ProjectCairnlineSidecarAssignmentItem              `json:"structured_assignments,omitempty"`
+	StructuredAssignmentCount        int                                                  `json:"structured_assignment_count"`
+	StructuredArtifact               ProjectCairnlineSidecarArtifactItem                  `json:"structured_artifact,omitempty"`
+	StructuredArtifacts              []ProjectCairnlineSidecarArtifactItem                `json:"structured_artifacts,omitempty"`
+	StructuredArtifactCount          int                                                  `json:"structured_artifact_count"`
+	StructuredEvidenceItem           ProjectCairnlineSidecarEvidenceItem                  `json:"structured_evidence_item,omitempty"`
+	StructuredEvidence               []ProjectCairnlineSidecarEvidenceItem                `json:"structured_evidence,omitempty"`
+	StructuredEvidenceCount          int                                                  `json:"structured_evidence_count"`
+	StructuredReview                 ProjectCairnlineSidecarReviewItem                    `json:"structured_review,omitempty"`
+	StructuredReviews                []ProjectCairnlineSidecarReviewItem                  `json:"structured_reviews,omitempty"`
+	StructuredReviewCount            int                                                  `json:"structured_review_count"`
+	StructuredHandoff                ProjectCairnlineSidecarHandoffItem                   `json:"structured_handoff,omitempty"`
+	StructuredHandoffs               []ProjectCairnlineSidecarHandoffItem                 `json:"structured_handoffs,omitempty"`
+	StructuredHandoffCount           int                                                  `json:"structured_handoff_count"`
+	StructuredMemoryEntry            ProjectCairnlineSidecarMemoryEntryItem               `json:"structured_memory_entry,omitempty"`
+	StructuredMemoryEntries          []ProjectCairnlineSidecarMemoryEntryItem             `json:"structured_memory_entries,omitempty"`
+	StructuredMemoryEntryCount       int                                                  `json:"structured_memory_entry_count"`
+	StructuredMemoryCandidate        ProjectCairnlineSidecarMemoryCandidateItem           `json:"structured_memory_candidate,omitempty"`
+	StructuredMemoryCandidates       []ProjectCairnlineSidecarMemoryCandidateItem         `json:"structured_memory_candidates,omitempty"`
+	StructuredMemoryCandidateCount   int                                                  `json:"structured_memory_candidate_count"`
+	StructuredAssistantProposal      ProjectCairnlineSidecarAssistantProposalRecordItem   `json:"structured_assistant_proposal,omitempty"`
+	StructuredAssistantProposals     []ProjectCairnlineSidecarAssistantProposalRecordItem `json:"structured_assistant_proposals,omitempty"`
+	StructuredAssistantProposalCount int                                                  `json:"structured_assistant_proposal_count"`
+	StructuredAssistantApplyResult   ProjectCairnlineSidecarAssistantApplyResultItem      `json:"structured_assistant_apply_result,omitempty"`
+	AssignmentContextIDs             ProjectCairnlineSidecarAssignmentContextIDs          `json:"assignment_context_ids,omitempty"`
+	LaunchPacketIDs                  ProjectCairnlineSidecarLaunchPacketIDs               `json:"launch_packet_ids,omitempty"`
+	LaunchPacketWarnings             []string                                             `json:"launch_packet_warnings,omitempty"`
+	StructuredParseError             string                                               `json:"structured_parse_error,omitempty"`
 }
 
 type ProjectCairnlineSidecarProjectItem struct {
@@ -2431,6 +2474,93 @@ type ProjectCairnlineSidecarMemoryCandidateSourceRef struct {
 	ID    string `json:"id"`
 	Title string `json:"title,omitempty"`
 	URL   string `json:"url,omitempty"`
+}
+
+type ProjectCairnlineSidecarAssistantProposalRecordItem struct {
+	ID            string                                             `json:"id"`
+	ProjectID     string                                             `json:"project_id,omitempty"`
+	Source        string                                             `json:"source,omitempty"`
+	SourceID      string                                             `json:"source_id,omitempty"`
+	Proposal      ProjectCairnlineSidecarAssistantProposalItem       `json:"proposal"`
+	Status        string                                             `json:"status"`
+	LatestResult  *ProjectCairnlineSidecarAssistantApplyResultItem   `json:"latest_result,omitempty"`
+	ApplyAttempts []ProjectCairnlineSidecarAssistantApplyAttemptItem `json:"apply_attempts,omitempty"`
+	CreatedAt     string                                             `json:"created_at,omitempty"`
+	UpdatedAt     string                                             `json:"updated_at,omitempty"`
+	AppliedAt     string                                             `json:"applied_at,omitempty"`
+}
+
+type ProjectCairnlineSidecarAssistantProposalItem struct {
+	ID                   string                                       `json:"id"`
+	ProjectID            string                                       `json:"project_id,omitempty"`
+	Title                string                                       `json:"title"`
+	Summary              string                                       `json:"summary,omitempty"`
+	Warnings             []string                                     `json:"warnings,omitempty"`
+	Source               string                                       `json:"source,omitempty"`
+	RequiresConfirmation bool                                         `json:"requires_confirmation"`
+	Actions              []ProjectCairnlineSidecarAssistantActionItem `json:"actions,omitempty"`
+	CreatedAt            string                                       `json:"created_at,omitempty"`
+}
+
+type ProjectCairnlineSidecarAssistantActionItem struct {
+	Kind            string                                      `json:"kind"`
+	Title           string                                      `json:"title,omitempty"`
+	Summary         string                                      `json:"summary,omitempty"`
+	Target          ProjectCairnlineSidecarAssistantTargetItem  `json:"target,omitempty"`
+	Project         *ProjectCairnlineSidecarProjectItem         `json:"project,omitempty"`
+	Root            *ProjectCairnlineSidecarRootItem            `json:"root,omitempty"`
+	Role            *ProjectCairnlineSidecarRoleItem            `json:"role,omitempty"`
+	WorkItem        *ProjectCairnlineSidecarWorkItem            `json:"work_item,omitempty"`
+	Assignment      *ProjectCairnlineSidecarAssignmentItem      `json:"assignment,omitempty"`
+	Evidence        *ProjectCairnlineSidecarEvidenceItem        `json:"evidence,omitempty"`
+	Review          *ProjectCairnlineSidecarReviewItem          `json:"review,omitempty"`
+	Handoff         *ProjectCairnlineSidecarHandoffItem         `json:"handoff,omitempty"`
+	MemoryCandidate *ProjectCairnlineSidecarMemoryCandidateItem `json:"memory_candidate,omitempty"`
+}
+
+type ProjectCairnlineSidecarAssistantTargetItem struct {
+	ProjectID    string `json:"project_id,omitempty"`
+	RootID       string `json:"root_id,omitempty"`
+	RoleID       string `json:"role_id,omitempty"`
+	WorkItemID   string `json:"work_item_id,omitempty"`
+	AssignmentID string `json:"assignment_id,omitempty"`
+	ArtifactID   string `json:"artifact_id,omitempty"`
+	HandoffID    string `json:"handoff_id,omitempty"`
+}
+
+type ProjectCairnlineSidecarAssistantApplyResultItem struct {
+	ProposalID         string                                             `json:"proposal_id"`
+	Status             string                                             `json:"status"`
+	Applied            bool                                               `json:"applied"`
+	Confirmed          bool                                               `json:"confirmed"`
+	TotalActionCount   int                                                `json:"total_action_count"`
+	AppliedActionCount int                                                `json:"applied_action_count"`
+	FailedActionIndex  *int                                               `json:"failed_action_index,omitempty"`
+	Actions            []ProjectCairnlineSidecarAssistantActionResultItem `json:"actions,omitempty"`
+}
+
+type ProjectCairnlineSidecarAssistantActionResultItem struct {
+	Kind              string `json:"kind"`
+	Status            string `json:"status"`
+	ProjectID         string `json:"project_id,omitempty"`
+	RootID            string `json:"root_id,omitempty"`
+	RoleID            string `json:"role_id,omitempty"`
+	WorkItemID        string `json:"work_item_id,omitempty"`
+	AssignmentID      string `json:"assignment_id,omitempty"`
+	ArtifactID        string `json:"artifact_id,omitempty"`
+	HandoffID         string `json:"handoff_id,omitempty"`
+	MemoryCandidateID string `json:"memory_candidate_id,omitempty"`
+	Error             string `json:"error,omitempty"`
+}
+
+type ProjectCairnlineSidecarAssistantApplyAttemptItem struct {
+	ID           string                                          `json:"id"`
+	ProposalID   string                                          `json:"proposal_id"`
+	Status       string                                          `json:"status"`
+	Confirmed    bool                                            `json:"confirmed"`
+	Result       ProjectCairnlineSidecarAssistantApplyResultItem `json:"result"`
+	ErrorMessage string                                          `json:"error_message,omitempty"`
+	CreatedAt    string                                          `json:"created_at,omitempty"`
 }
 
 // MCPCacheStatsResponse is the wire shape for GET /hecate/v1/system/mcp/cache.
