@@ -47,7 +47,7 @@ liveness probe and every other path requires trusted trusted proxy headers:
 context, exposed from `GET /hecate/v1/whoami` as `data.remote_identity`, added to
 the top-level HTTP span attributes, and accepted in place of the local
 runtime/inference shared tokens. Remote mode rejects local-only endpoints for
-workspace picker/open, reset-data, shutdown, MCP probe, Cairnline sidecar probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle/write smoke,
+workspace picker/open, reset-data, shutdown, MCP probe, Cairnline sidecar probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle/write/setup smoke,
 plugin-registry management, agent-adapter authenticate, and local provider and MCP registry discovery. Hecate-native `/hecate/v1/*` routes are explicitly
 classified for remote mode, and route coverage tests fail when a new registered
 route is not marked remote-safe or local-only.
@@ -481,8 +481,12 @@ sequenceDiagram
   completes it in the standalone Cairnline sidecar database.
   `sidecar-write-smoke` is the project-identity mutation smoke: after
   `confirm_mutation=true`, it creates, lists, updates, reads, deletes, and
-  verifies deletion of a temporary standalone Cairnline project. Live Projects
-  reads and writes still use Hecate-native stores.
+  verifies deletion of a temporary standalone Cairnline project.
+  `sidecar-setup-smoke` is the project setup metadata mutation smoke: after
+  `confirm_mutation=true`, it creates a temporary standalone Cairnline project,
+  creates/updates/lists/deletes a root and context source, then deletes and
+  verifies removal of the temporary project. Live Projects reads and writes
+  still use Hecate-native stores.
 - `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=auto|snapshot|embedded` controls which
   Cairnline service backing configured read routes use while
   `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and
@@ -2495,8 +2499,9 @@ local-only detail smoke that calls Cairnline's read-only `projects.get` tool,
 using either an explicit `project_id` or the first typed project from
 `projects.list`. The remaining sidecar smoke URLs cover coordination list
 tools, assignment context, launch packets, the explicitly confirmed standalone
-assignment lifecycle, and the explicitly confirmed temporary-project write
-smoke. None of these changes live route authority.
+assignment lifecycle, the explicitly confirmed temporary-project write smoke,
+and the explicitly confirmed temporary root/context-source setup smoke. None of
+these changes live route authority.
 
 Example response, with `write_switchpoints` shortened for readability:
 
@@ -2685,6 +2690,7 @@ Example response, with `write_switchpoints` shortened for readability:
     "cairnline_sidecar_assignment_context_url": "/hecate/v1/projects/cairnline/sidecar-assignment-context-smoke",
     "cairnline_sidecar_launch_packet_url": "/hecate/v1/projects/cairnline/sidecar-launch-packet-smoke",
     "cairnline_sidecar_lifecycle_url": "/hecate/v1/projects/cairnline/sidecar-lifecycle-smoke",
+    "cairnline_sidecar_setup_url": "/hecate/v1/projects/cairnline/sidecar-setup-smoke",
     "cairnline_sidecar_write_url": "/hecate/v1/projects/cairnline/sidecar-write-smoke"
   }
 }
@@ -3426,6 +3432,94 @@ Example response, shortened:
     "updated_project": {
       "id": "proj_123",
       "name": "Hecate sidecar write smoke updated"
+    },
+    "warnings": []
+  }
+}
+```
+
+### `POST /hecate/v1/projects/cairnline/sidecar-setup-smoke`
+
+Local-only standalone Cairnline MCP project setup write smoke. This endpoint
+mutates only the standalone Cairnline sidecar database after explicit
+confirmation. It does not mutate Hecate-native Projects stores and does not
+make Cairnline authoritative for live Projects routes.
+
+Without `confirm_mutation=true`, the endpoint returns
+`sidecar_setup_confirmation_required` and makes no sidecar tool calls. With
+confirmation, Hecate uses the same sidecar command, database, timeout, and
+Cairnline-specific MCP client cache as `sidecar-connect`.
+
+The smoke creates a temporary rootless project, finds it through typed
+`projects.list`, creates and updates a root through `roots.create` /
+`roots.update`, verifies it through typed `roots.list`, creates and updates a
+workspace-instruction context source through `context_sources.create` /
+`context_sources.update`, verifies it through typed `context_sources.list`,
+deletes the source and root, verifies both no longer appear in their typed
+lists, then deletes the temporary project and expects a final `projects.get` to
+return a tool-level missing/error result. If a step fails after the temporary
+project id is known, Hecate attempts a best-effort project cleanup delete and
+verifies that cleanup through another `projects.get`.
+
+Example request:
+
+```json
+{
+  "confirm_mutation": true,
+  "project_name": "Hecate sidecar setup smoke"
+}
+```
+
+Example response, shortened:
+
+```json
+{
+  "object": "project_cairnline_sidecar_setup",
+  "data": {
+    "ready": true,
+    "status": "sidecar_setup_ready",
+    "detail": "Hecate created, updated, listed, deleted, and verified removal of temporary standalone Cairnline root and context-source setup metadata through the persistent sidecar client. Hecate-native Projects stores were not mutated.",
+    "command": "cairnline",
+    "args": ["-db", "/Users/alice/.local/share/hecate/cairnline/projects.db"],
+    "database_path": "/Users/alice/.local/share/hecate/cairnline/projects.db",
+    "probe_timeout_ms": 10000,
+    "persistent_client": true,
+    "client_cache_configured": true,
+    "confirmed_mutation": true,
+    "project_name": "Hecate sidecar setup smoke",
+    "selected_project_id": "proj_123",
+    "root_id": "root_setup_smoke",
+    "context_source_id": "src_setup_smoke",
+    "cleanup_verified": true,
+    "steps": [
+      {
+        "name": "create_root",
+        "tool": "roots.create",
+        "read_only": false,
+        "status": "ready",
+        "structured_ready": true
+      },
+      {
+        "name": "get_after_project_delete",
+        "tool": "projects.get",
+        "read_only": true,
+        "status": "expected_missing",
+        "tool_is_error": true,
+        "tool_text": "project not found: proj_123"
+      }
+    ],
+    "created_root": {
+      "id": "root_setup_smoke",
+      "path": "/tmp/hecate-sidecar-setup-smoke",
+      "kind": "local",
+      "active": true
+    },
+    "updated_source": {
+      "id": "src_setup_smoke",
+      "kind": "workspace_instruction",
+      "title": "Setup smoke guidance updated",
+      "locator": "AGENTS.md",
+      "enabled": false
     },
     "warnings": []
   }

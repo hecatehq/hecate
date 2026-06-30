@@ -51,6 +51,9 @@ func TestProjectCoordinationBackendStatus_DefaultHecateAuthoritative(t *testing.
 	if status.CairnlineSidecarLifecycleURL != projectCoordinationBackendSidecarLifecycleURL {
 		t.Fatalf("sidecar lifecycle URL = %q, want %q", status.CairnlineSidecarLifecycleURL, projectCoordinationBackendSidecarLifecycleURL)
 	}
+	if status.CairnlineSidecarSetupURL != projectCoordinationBackendSidecarSetupURL {
+		t.Fatalf("sidecar setup URL = %q, want %q", status.CairnlineSidecarSetupURL, projectCoordinationBackendSidecarSetupURL)
+	}
 	if status.CairnlineSidecarWriteURL != projectCoordinationBackendSidecarWriteURL {
 		t.Fatalf("sidecar write URL = %q, want %q", status.CairnlineSidecarWriteURL, projectCoordinationBackendSidecarWriteURL)
 	}
@@ -121,7 +124,7 @@ func TestProjectCoordinationBackendStatus_CairnlineSidecarConnectorBlocksEmbedde
 	if status.Status != "cairnline_connector_not_ready" || status.CairnlineAuthoritative || status.ReadModelSwitchReady || status.WriteAdapterReady || status.ReplacementReady {
 		t.Fatalf("status = %+v, want sidecar connector mode to block live Cairnline routing", status)
 	}
-	if !strings.Contains(status.CairnlineConnectorDetail, "lifecycle/write diagnostics") || strings.Contains(status.CairnlineConnectorDetail, "read-smoke surfaces only") {
+	if !strings.Contains(status.CairnlineConnectorDetail, "lifecycle/write/setup diagnostics") || strings.Contains(status.CairnlineConnectorDetail, "read-smoke surfaces only") {
 		t.Fatalf("connector detail = %q, want full sidecar diagnostic surface", status.CairnlineConnectorDetail)
 	}
 	if handler.projectReadRoutesUseCairnlineReadModel() || handler.projectIdentityWritesUseCairnlineAuthority() || handler.projectMemoryWritesUseCairnlineAuthority() || handler.projectAssignmentWritesUseCairnlineAuthority() {
@@ -151,6 +154,9 @@ func TestProjectCoordinationBackendStatus_CairnlineSidecarConnectorBlocksEmbedde
 	if status.CairnlineSidecarLifecycleURL != projectCoordinationBackendSidecarLifecycleURL {
 		t.Fatalf("sidecar lifecycle URL = %q, want %q", status.CairnlineSidecarLifecycleURL, projectCoordinationBackendSidecarLifecycleURL)
 	}
+	if status.CairnlineSidecarSetupURL != projectCoordinationBackendSidecarSetupURL {
+		t.Fatalf("sidecar setup URL = %q, want %q", status.CairnlineSidecarSetupURL, projectCoordinationBackendSidecarSetupURL)
+	}
 	if status.CairnlineSidecarWriteURL != projectCoordinationBackendSidecarWriteURL {
 		t.Fatalf("sidecar write URL = %q, want %q", status.CairnlineSidecarWriteURL, projectCoordinationBackendSidecarWriteURL)
 	}
@@ -167,7 +173,7 @@ func TestProjectCoordinationBackendStatus_CairnlineSidecarConnectorBlocksEmbedde
 		t.Fatalf("project-identity switchpoint = %+v, want Hecate authority while sidecar routing is not live", point)
 	}
 	warnings := strings.Join(status.Warnings, "\n")
-	if !strings.Contains(warnings, "HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar") || !strings.Contains(warnings, "lifecycle diagnostic surfaces") || strings.Contains(warnings, "read-smoke surfaces only") || !strings.Contains(warnings, "Hecate-native stores") {
+	if !strings.Contains(warnings, "HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar") || !strings.Contains(warnings, "lifecycle/write/setup diagnostic surfaces") || strings.Contains(warnings, "read-smoke surfaces only") || !strings.Contains(warnings, "Hecate-native stores") {
 		t.Fatalf("warnings = %+v, want full sidecar diagnostic warning", status.Warnings)
 	}
 }

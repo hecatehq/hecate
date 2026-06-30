@@ -151,8 +151,13 @@ at `POST /hecate/v1/projects/cairnline/sidecar-write-smoke` also requires
 `confirm_mutation=true`, creates a temporary rootless Cairnline project, finds
 it through typed `projects.list`, updates and verifies it through
 `projects.update` / `projects.get`, deletes it, and verifies the deleted record
-is missing. Hecate does not yet route Projects reads, writes, or mirrors through
-the sidecar client.
+is missing. A setup smoke at
+`POST /hecate/v1/projects/cairnline/sidecar-setup-smoke` requires
+`confirm_mutation=true`, creates a temporary rootless Cairnline project,
+creates/updates/lists/deletes a root and context source through typed
+`structuredContent`, then deletes and verifies removal of the temporary project.
+Hecate does not yet route Projects reads, writes, or mirrors through the sidecar
+client.
 Today, `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` is a
 replacement-readiness intent flag only: when the current stores are fully wired
 and the embedded connector is selected, it reports `cairnline_read_routes_ready`,

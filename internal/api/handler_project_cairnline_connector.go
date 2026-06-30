@@ -139,7 +139,7 @@ func projectCairnlineConnectorReady(mode string) bool {
 func projectCairnlineConnectorDetail(mode string) string {
 	switch mode {
 	case "sidecar":
-		return "Cairnline sidecar connector is configured and can be exercised through local-only probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle/write diagnostics, but Hecate does not yet route Projects reads or writes through the standalone Cairnline MCP client."
+		return "Cairnline sidecar connector is configured and can be exercised through local-only probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle/write/setup diagnostics, but Hecate does not yet route Projects reads or writes through the standalone Cairnline MCP client."
 	default:
 		return "Hecate is using the embedded Cairnline Go package bridge for replacement-readiness dogfood."
 	}
@@ -149,7 +149,7 @@ func projectCairnlineConnectorWarning(mode string) string {
 	if mode != "sidecar" {
 		return ""
 	}
-	return "HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar enables standalone Cairnline MCP probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle diagnostic surfaces only; Cairnline read/write routing stays disabled until Hecate has a sidecar Projects backend adapter."
+	return "HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar enables standalone Cairnline MCP probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle/write/setup diagnostic surfaces only; Cairnline read/write routing stays disabled until Hecate has a sidecar Projects backend adapter."
 }
 
 func (h *Handler) HandleProjectCairnlineSidecarProbe(w http.ResponseWriter, r *http.Request) {
@@ -263,6 +263,20 @@ func (h *Handler) HandleProjectCairnlineSidecarWriteSmoke(w http.ResponseWriter,
 	WriteJSON(w, http.StatusOK, ProjectCairnlineSidecarWriteEnvelope{
 		Object: "project_cairnline_sidecar_write",
 		Data:   h.projectCairnlineSidecarWriteSmoke(r.Context(), req),
+	})
+}
+
+func (h *Handler) HandleProjectCairnlineSidecarSetupSmoke(w http.ResponseWriter, r *http.Request) {
+	if !requireLoopbackClient(w, r, "Cairnline sidecar setup smoke") {
+		return
+	}
+	var req ProjectCairnlineSidecarSetupRequest
+	if !decodeOptionalJSON(w, r, &req) {
+		return
+	}
+	WriteJSON(w, http.StatusOK, ProjectCairnlineSidecarSetupEnvelope{
+		Object: "project_cairnline_sidecar_setup",
+		Data:   h.projectCairnlineSidecarSetupSmoke(r.Context(), req),
 	})
 }
 
@@ -1187,6 +1201,246 @@ func (h *Handler) projectCairnlineSidecarWriteSmoke(ctx context.Context, req Pro
 	return fail("sidecar_write_delete_verification_failed", "Cairnline sidecar projects.delete succeeded, but projects.get still returned the temporary project.")
 }
 
+func (h *Handler) projectCairnlineSidecarSetupSmoke(ctx context.Context, req ProjectCairnlineSidecarSetupRequest) ProjectCairnlineSidecarSetupResponse {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	cfg, dbPath, timeout := h.projectCairnlineSidecarMCPConfig()
+	projectName := strings.TrimSpace(req.ProjectName)
+	if projectName == "" {
+		projectName = "Hecate sidecar setup smoke " + time.Now().UTC().Format("20060102T150405.000000000Z")
+	}
+	response := ProjectCairnlineSidecarSetupResponse{
+		Ready:                 false,
+		Status:                "sidecar_setup_not_run",
+		Detail:                "Cairnline sidecar setup smoke has not run.",
+		Command:               cfg.Command,
+		Args:                  append([]string(nil), cfg.Args...),
+		DatabasePath:          dbPath,
+		ProbeTimeoutMS:        timeout.Milliseconds(),
+		PersistentClient:      true,
+		ClientCacheConfigured: h != nil,
+		ConfirmedMutation:     req.ConfirmMutation,
+		ProjectName:           projectName,
+		RootID:                "root_setup_smoke",
+		ContextSourceID:       "src_setup_smoke",
+	}
+	if h == nil {
+		response.Status = "sidecar_setup_failed"
+		response.Detail = "Cairnline sidecar setup smoke requires an API handler."
+		return response
+	}
+	if h.projectCairnlineConnectorMode() != "sidecar" {
+		response.Warnings = append(response.Warnings, "HECATE_PROJECTS_CAIRNLINE_CONNECTOR is not sidecar; this setup smoke does not affect live Projects routing.")
+	}
+	if dbPath != "" && len(h.config.ProjectsCairnlineSidecarArgs()) > 0 {
+		response.Warnings = append(response.Warnings, "HECATE_PROJECTS_CAIRNLINE_SIDECAR_ARGS is set, so HECATE_PROJECTS_CAIRNLINE_SIDECAR_DB is reported but not appended automatically.")
+	}
+	if !req.ConfirmMutation {
+		response.Status = "sidecar_setup_confirmation_required"
+		response.Detail = "Set confirm_mutation=true to let Hecate create, update, verify, delete, and re-check temporary roots and context sources in the standalone Cairnline sidecar. Hecate-native Projects stores are not mutated."
+		return response
+	}
+
+	cache := h.projectCairnlineSidecarMCPClientCache()
+	smokeCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	projectID := ""
+	cleanup := func() {
+		if projectID == "" || response.CleanupVerified {
+			return
+		}
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+		defer cleanupCancel()
+		cleanupStep := h.callProjectCairnlineSidecarWriteTool(cleanupCtx, cfg, cache, "cleanup_delete_project", "projects.delete", false, map[string]string{"id": projectID})
+		response.Steps = append(response.Steps, cleanupStep)
+		if cleanupStep.Status == "ready" {
+			verifyCleanupStep := h.callProjectCairnlineSidecarWriteTool(cleanupCtx, cfg, cache, "cleanup_get_after_project_delete", "projects.get", true, map[string]string{"id": projectID})
+			if verifyCleanupStep.Status == "tool_failed" {
+				verifyCleanupStep.Status = "expected_missing"
+				response.CleanupVerified = true
+				response.Warnings = append(response.Warnings, "Hecate deleted and verified removal of the temporary standalone Cairnline setup project after the setup smoke failed; inspect the reported steps before retrying.")
+			} else {
+				response.Warnings = append(response.Warnings, "Hecate deleted the temporary standalone Cairnline setup project after the setup smoke failed, but removal could not be verified; inspect the reported steps before retrying.")
+			}
+			response.Steps = append(response.Steps, verifyCleanupStep)
+			return
+		}
+		response.Warnings = append(response.Warnings, "Hecate tried to delete the temporary standalone Cairnline setup project after the setup smoke failed, but cleanup did not succeed; inspect the standalone Cairnline sidecar before retrying.")
+	}
+	fail := func(status, detail string) ProjectCairnlineSidecarSetupResponse {
+		response.Status = status
+		response.Detail = detail
+		cleanup()
+		response.setSidecarCacheStats(cache.Stats())
+		return response
+	}
+	appendStep := func(step ProjectCairnlineSidecarWriteStep) bool {
+		response.Steps = append(response.Steps, step)
+		if step.Status == "tool_failed" {
+			response.Status = "sidecar_setup_tool_failed"
+			response.Detail = "Cairnline sidecar " + step.Tool + " returned a tool-level error. Review the step output before retrying."
+			cleanup()
+			response.setSidecarCacheStats(cache.Stats())
+			return false
+		}
+		if step.Status == "failed" {
+			response.Status = "sidecar_setup_failed"
+			response.Detail = firstNonEmpty(step.ToolText, "Cairnline sidecar "+step.Tool+" failed.")
+			cleanup()
+			response.setSidecarCacheStats(cache.Stats())
+			return false
+		}
+		return true
+	}
+
+	createProject := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "create_project", "projects.create", false, map[string]string{
+		"name":        projectName,
+		"description": "Temporary Hecate sidecar setup smoke project. It should be deleted by the same diagnostic run.",
+	})
+	if !appendStep(createProject) {
+		return response
+	}
+	listProjects := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "list_after_project_create", "projects.list", true, map[string]string{})
+	if !appendStep(listProjects) {
+		return response
+	}
+	project, ok := projectCairnlineSidecarProjectByName(listProjects.StructuredProjects, projectName)
+	if !ok || strings.TrimSpace(project.ID) == "" {
+		return fail("sidecar_setup_created_project_not_listed", "Cairnline sidecar projects.create succeeded, but projects.list did not return the temporary setup project by name.")
+	}
+	projectID = strings.TrimSpace(project.ID)
+	response.SelectedProjectID = projectID
+
+	createRoot := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "create_root", "roots.create", false, map[string]any{
+		"project_id": projectID,
+		"id":         response.RootID,
+		"path":       "/tmp/hecate-sidecar-setup-smoke",
+		"kind":       "local",
+		"active":     true,
+	})
+	if !appendStep(createRoot) {
+		return response
+	}
+	if createRoot.StructuredRoot.ID != response.RootID || createRoot.StructuredRoot.Path != "/tmp/hecate-sidecar-setup-smoke" {
+		return fail("sidecar_setup_root_create_verification_failed", "Cairnline sidecar roots.create did not return the expected root id and path.")
+	}
+	response.CreatedRoot = createRoot.StructuredRoot
+
+	updateRoot := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "update_root", "roots.update", false, map[string]any{
+		"project_id": projectID,
+		"root_id":    response.RootID,
+		"path":       "/tmp/hecate-sidecar-setup-smoke-updated",
+		"kind":       "git_worktree",
+		"git_branch": "setup-smoke",
+		"active":     false,
+	})
+	if !appendStep(updateRoot) {
+		return response
+	}
+	if updateRoot.StructuredRoot.ID != response.RootID || updateRoot.StructuredRoot.Path != "/tmp/hecate-sidecar-setup-smoke-updated" || updateRoot.StructuredRoot.Active {
+		return fail("sidecar_setup_root_update_verification_failed", "Cairnline sidecar roots.update did not return the expected inactive updated root.")
+	}
+	response.UpdatedRoot = updateRoot.StructuredRoot
+
+	listRoots := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "list_roots_after_update", "roots.list", true, map[string]string{"project_id": projectID})
+	if !appendStep(listRoots) {
+		return response
+	}
+	if root, ok := projectCairnlineSidecarRootByID(listRoots.StructuredRoots, response.RootID); !ok || root.Path != "/tmp/hecate-sidecar-setup-smoke-updated" || root.Active {
+		return fail("sidecar_setup_root_list_verification_failed", "Cairnline sidecar roots.list did not return the updated inactive root.")
+	}
+
+	createSource := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "create_context_source", "context_sources.create", false, map[string]any{
+		"project_id":      projectID,
+		"id":              response.ContextSourceID,
+		"kind":            "workspace_instruction",
+		"title":           "Setup smoke guidance",
+		"locator":         "AGENTS.md",
+		"enabled":         true,
+		"format":          "agents_md",
+		"scope":           "workspace",
+		"trust_label":     "workspace_guidance",
+		"source_category": "instructions",
+		"metadata":        map[string]string{"root_id": response.RootID},
+	})
+	if !appendStep(createSource) {
+		return response
+	}
+	if createSource.StructuredSource.ID != response.ContextSourceID || createSource.StructuredSource.Title != "Setup smoke guidance" || !createSource.StructuredSource.Enabled {
+		return fail("sidecar_setup_source_create_verification_failed", "Cairnline sidecar context_sources.create did not return the expected enabled source.")
+	}
+	response.CreatedSource = createSource.StructuredSource
+
+	updateSource := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "update_context_source", "context_sources.update", false, map[string]any{
+		"project_id": projectID,
+		"source_id":  response.ContextSourceID,
+		"title":      "Setup smoke guidance updated",
+		"enabled":    false,
+		"metadata":   map[string]string{"root_id": response.RootID, "updated": "true"},
+	})
+	if !appendStep(updateSource) {
+		return response
+	}
+	if updateSource.StructuredSource.ID != response.ContextSourceID || updateSource.StructuredSource.Title != "Setup smoke guidance updated" || updateSource.StructuredSource.Enabled {
+		return fail("sidecar_setup_source_update_verification_failed", "Cairnline sidecar context_sources.update did not return the expected disabled updated source.")
+	}
+	response.UpdatedSource = updateSource.StructuredSource
+
+	listSources := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "list_sources_after_update", "context_sources.list", true, map[string]string{"project_id": projectID})
+	if !appendStep(listSources) {
+		return response
+	}
+	if source, ok := projectCairnlineSidecarSourceByID(listSources.StructuredSources, response.ContextSourceID); !ok || source.Title != "Setup smoke guidance updated" || source.Enabled {
+		return fail("sidecar_setup_source_list_verification_failed", "Cairnline sidecar context_sources.list did not return the updated disabled source.")
+	}
+
+	deleteSource := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "delete_context_source", "context_sources.delete", false, map[string]string{"project_id": projectID, "source_id": response.ContextSourceID})
+	if !appendStep(deleteSource) {
+		return response
+	}
+	listSourcesAfterDelete := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "list_sources_after_delete", "context_sources.list", true, map[string]string{"project_id": projectID})
+	if !appendStep(listSourcesAfterDelete) {
+		return response
+	}
+	if _, ok := projectCairnlineSidecarSourceByID(listSourcesAfterDelete.StructuredSources, response.ContextSourceID); ok {
+		return fail("sidecar_setup_source_delete_verification_failed", "Cairnline sidecar context_sources.delete succeeded, but context_sources.list still returned the temporary source.")
+	}
+
+	deleteRoot := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "delete_root", "roots.delete", false, map[string]string{"project_id": projectID, "root_id": response.RootID})
+	if !appendStep(deleteRoot) {
+		return response
+	}
+	listRootsAfterDelete := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "list_roots_after_delete", "roots.list", true, map[string]string{"project_id": projectID})
+	if !appendStep(listRootsAfterDelete) {
+		return response
+	}
+	if _, ok := projectCairnlineSidecarRootByID(listRootsAfterDelete.StructuredRoots, response.RootID); ok {
+		return fail("sidecar_setup_root_delete_verification_failed", "Cairnline sidecar roots.delete succeeded, but roots.list still returned the temporary root.")
+	}
+
+	deleteProject := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "delete_project", "projects.delete", false, map[string]string{"id": projectID})
+	if !appendStep(deleteProject) {
+		return response
+	}
+	verifyDelete := h.callProjectCairnlineSidecarWriteTool(smokeCtx, cfg, cache, "get_after_project_delete", "projects.get", true, map[string]string{"id": projectID})
+	if verifyDelete.Status == "tool_failed" {
+		verifyDelete.Status = "expected_missing"
+		response.Steps = append(response.Steps, verifyDelete)
+		response.CleanupVerified = true
+		response.Ready = true
+		response.Status = "sidecar_setup_ready"
+		response.Detail = "Hecate created, updated, listed, deleted, and verified removal of temporary standalone Cairnline root and context-source setup metadata through the persistent sidecar client. Hecate-native Projects stores were not mutated."
+		response.setSidecarCacheStats(cache.Stats())
+		return response
+	}
+	if !appendStep(verifyDelete) {
+		return response
+	}
+	return fail("sidecar_setup_project_delete_verification_failed", "Cairnline sidecar projects.delete succeeded, but projects.get still returned the temporary setup project.")
+}
+
 func projectCairnlineSidecarLifecycleShouldReleaseAfterFailure(steps []ProjectCairnlineSidecarLifecycleStep) bool {
 	claimed := false
 	for _, step := range steps {
@@ -1557,6 +1811,68 @@ func (h *Handler) callProjectCairnlineSidecarWriteTool(ctx context.Context, cfg 
 			step.ToolText = "Cairnline sidecar projects.get did not return structuredContent; the write smoke needs typed project detail to verify the temporary project."
 			return step
 		}
+	case "roots.list":
+		roots, structuredReady, structuredErr := projectCairnlineSidecarStructuredRoots(result.Result.StructuredContent)
+		step.StructuredReady = structuredReady
+		step.StructuredRoots = roots
+		step.StructuredRootCount = len(roots)
+		if structuredErr != nil {
+			step.StructuredParseError = structuredErr.Error()
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar roots.list returned structuredContent that Hecate could not parse as a root list: " + structuredErr.Error()
+			return step
+		}
+		if !structuredReady {
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar roots.list did not return structuredContent; the setup smoke needs typed roots to verify setup mutations."
+			return step
+		}
+	case "roots.create", "roots.update", "roots.delete":
+		root, structuredReady, structuredErr := projectCairnlineSidecarStructuredRoot(result.Result.StructuredContent)
+		step.StructuredReady = structuredReady
+		step.StructuredRoot = root
+		if structuredErr != nil {
+			step.StructuredParseError = structuredErr.Error()
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar " + tool + " returned structuredContent that Hecate could not parse as a root: " + structuredErr.Error()
+			return step
+		}
+		if !structuredReady {
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar " + tool + " did not return structuredContent; the setup smoke needs typed root detail to verify setup mutations."
+			return step
+		}
+	case "context_sources.list":
+		sources, structuredReady, structuredErr := projectCairnlineSidecarStructuredSources(result.Result.StructuredContent)
+		step.StructuredReady = structuredReady
+		step.StructuredSources = sources
+		step.StructuredSourceCount = len(sources)
+		if structuredErr != nil {
+			step.StructuredParseError = structuredErr.Error()
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar context_sources.list returned structuredContent that Hecate could not parse as a context source list: " + structuredErr.Error()
+			return step
+		}
+		if !structuredReady {
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar context_sources.list did not return structuredContent; the setup smoke needs typed context sources to verify setup mutations."
+			return step
+		}
+	case "context_sources.create", "context_sources.update", "context_sources.delete":
+		source, structuredReady, structuredErr := projectCairnlineSidecarStructuredSource(result.Result.StructuredContent)
+		step.StructuredReady = structuredReady
+		step.StructuredSource = source
+		if structuredErr != nil {
+			step.StructuredParseError = structuredErr.Error()
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar " + tool + " returned structuredContent that Hecate could not parse as a context source: " + structuredErr.Error()
+			return step
+		}
+		if !structuredReady {
+			step.Status = "failed"
+			step.ToolText = "Cairnline sidecar " + tool + " did not return structuredContent; the setup smoke needs typed context source detail to verify setup mutations."
+			return step
+		}
 	}
 	step.Status = "ready"
 	return step
@@ -1626,6 +1942,26 @@ func projectCairnlineSidecarProjectByName(projects []ProjectCairnlineSidecarProj
 	return ProjectCairnlineSidecarProjectItem{}, false
 }
 
+func projectCairnlineSidecarRootByID(roots []ProjectCairnlineSidecarRootItem, id string) (ProjectCairnlineSidecarRootItem, bool) {
+	id = strings.TrimSpace(id)
+	for _, root := range roots {
+		if strings.TrimSpace(root.ID) == id {
+			return root, true
+		}
+	}
+	return ProjectCairnlineSidecarRootItem{}, false
+}
+
+func projectCairnlineSidecarSourceByID(sources []ProjectCairnlineSidecarSourceItem, id string) (ProjectCairnlineSidecarSourceItem, bool) {
+	id = strings.TrimSpace(id)
+	for _, source := range sources {
+		if strings.TrimSpace(source.ID) == id {
+			return source, true
+		}
+	}
+	return ProjectCairnlineSidecarSourceItem{}, false
+}
+
 func projectCairnlineSidecarStructuredProject(raw json.RawMessage) (ProjectCairnlineSidecarProjectItem, bool, error) {
 	if len(raw) == 0 {
 		return ProjectCairnlineSidecarProjectItem{}, false, nil
@@ -1639,6 +1975,78 @@ func projectCairnlineSidecarStructuredProject(raw json.RawMessage) (ProjectCairn
 		return ProjectCairnlineSidecarProjectItem{}, false, err
 	}
 	return project, true, nil
+}
+
+func projectCairnlineSidecarStructuredRoots(raw json.RawMessage) ([]ProjectCairnlineSidecarRootItem, bool, error) {
+	if len(raw) == 0 {
+		return nil, false, nil
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return nil, false, nil
+	}
+	if bytes.Equal(trimmed, []byte("null")) {
+		return []ProjectCairnlineSidecarRootItem{}, true, nil
+	}
+	var roots []ProjectCairnlineSidecarRootItem
+	if err := json.Unmarshal(trimmed, &roots); err != nil {
+		return nil, false, err
+	}
+	if roots == nil {
+		roots = []ProjectCairnlineSidecarRootItem{}
+	}
+	return roots, true, nil
+}
+
+func projectCairnlineSidecarStructuredRoot(raw json.RawMessage) (ProjectCairnlineSidecarRootItem, bool, error) {
+	if len(raw) == 0 {
+		return ProjectCairnlineSidecarRootItem{}, false, nil
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return ProjectCairnlineSidecarRootItem{}, false, nil
+	}
+	var root ProjectCairnlineSidecarRootItem
+	if err := json.Unmarshal(trimmed, &root); err != nil {
+		return ProjectCairnlineSidecarRootItem{}, false, err
+	}
+	return root, true, nil
+}
+
+func projectCairnlineSidecarStructuredSources(raw json.RawMessage) ([]ProjectCairnlineSidecarSourceItem, bool, error) {
+	if len(raw) == 0 {
+		return nil, false, nil
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return nil, false, nil
+	}
+	if bytes.Equal(trimmed, []byte("null")) {
+		return []ProjectCairnlineSidecarSourceItem{}, true, nil
+	}
+	var sources []ProjectCairnlineSidecarSourceItem
+	if err := json.Unmarshal(trimmed, &sources); err != nil {
+		return nil, false, err
+	}
+	if sources == nil {
+		sources = []ProjectCairnlineSidecarSourceItem{}
+	}
+	return sources, true, nil
+}
+
+func projectCairnlineSidecarStructuredSource(raw json.RawMessage) (ProjectCairnlineSidecarSourceItem, bool, error) {
+	if len(raw) == 0 {
+		return ProjectCairnlineSidecarSourceItem{}, false, nil
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return ProjectCairnlineSidecarSourceItem{}, false, nil
+	}
+	var source ProjectCairnlineSidecarSourceItem
+	if err := json.Unmarshal(trimmed, &source); err != nil {
+		return ProjectCairnlineSidecarSourceItem{}, false, err
+	}
+	return source, true, nil
 }
 
 func projectCairnlineSidecarStructuredAssignments(raw json.RawMessage) ([]ProjectCairnlineSidecarAssignmentItem, bool, error) {
@@ -1903,6 +2311,15 @@ func (r *ProjectCairnlineSidecarLifecycleResponse) setSidecarCacheStats(stats mc
 }
 
 func (r *ProjectCairnlineSidecarWriteResponse) setSidecarCacheStats(stats mcpclient.CacheStats) {
+	if r == nil {
+		return
+	}
+	r.ClientCacheEntries = stats.Entries
+	r.ClientCacheInUse = stats.InUse
+	r.ClientCacheIdle = stats.Idle
+}
+
+func (r *ProjectCairnlineSidecarSetupResponse) setSidecarCacheStats(stats mcpclient.CacheStats) {
 	if r == nil {
 		return
 	}

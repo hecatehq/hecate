@@ -32,6 +32,8 @@ func cairnlineSidecarFixtureMain(mode string) {
 		assignmentStatus: "queued",
 		projects:         make(map[string]ProjectCairnlineSidecarProjectItem),
 		deletedProjects:  make(map[string]struct{}),
+		roots:            make(map[string]map[string]ProjectCairnlineSidecarRootItem),
+		contextSources:   make(map[string]map[string]ProjectCairnlineSidecarSourceItem),
 	}
 	for {
 		line, err := in.ReadBytes('\n')
@@ -98,6 +100,8 @@ type cairnlineSidecarFixtureState struct {
 	projectSequence  int
 	projects         map[string]ProjectCairnlineSidecarProjectItem
 	deletedProjects  map[string]struct{}
+	roots            map[string]map[string]ProjectCairnlineSidecarRootItem
+	contextSources   map[string]map[string]ProjectCairnlineSidecarSourceItem
 }
 
 func cairnlineSidecarFixtureTools(mode string) []mcp.Tool {
@@ -424,6 +428,8 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 		project := cairnlineSidecarFixtureProject(input.ID)
 		if stored, ok := state.projects[input.ID]; ok {
 			project = stored
+			project.Roots = cairnlineSidecarFixtureProjectRoots(state, input.ID)
+			project.ContextSources = cairnlineSidecarFixtureProjectSources(state, input.ID)
 		}
 		result := mcp.CallToolResult{Content: mcp.TextContent("Project " + input.ID + ": " + project.Name)}
 		if mode != "text-only" {
@@ -492,7 +498,217 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 		}
 		delete(state.projects, input.ID)
 		state.deletedProjects[input.ID] = struct{}{}
+		delete(state.roots, input.ID)
+		delete(state.contextSources, input.ID)
 		return mcp.CallToolResult{Content: mcp.TextContent("Deleted project " + input.ID)}, nil
+	case "roots.list":
+		var input struct {
+			ProjectID string `json:"project_id"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid roots.list arguments")
+		}
+		roots := cairnlineSidecarFixtureProjectRoots(state, input.ProjectID)
+		return cairnlineSidecarFixtureListResult(mode, fmt.Sprintf("Roots for %s (%d)", input.ProjectID, len(roots)), roots)
+	case "roots.create":
+		var input struct {
+			ProjectID string `json:"project_id"`
+			ID        string `json:"id"`
+			Path      string `json:"path"`
+			Kind      string `json:"kind"`
+			GitRemote string `json:"git_remote"`
+			GitBranch string `json:"git_branch"`
+			Active    *bool  `json:"active"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid roots.create arguments")
+		}
+		if input.ProjectID == "" || input.ID == "" || input.Path == "" {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "missing root create arguments")
+		}
+		active := true
+		if input.Active != nil {
+			active = *input.Active
+		}
+		root := ProjectCairnlineSidecarRootItem{
+			ID:        input.ID,
+			Path:      input.Path,
+			Kind:      input.Kind,
+			GitRemote: input.GitRemote,
+			GitBranch: input.GitBranch,
+			Active:    active,
+		}
+		cairnlineSidecarFixtureEnsureRoots(state, input.ProjectID)[input.ID] = root
+		return mcp.CallToolResult{Content: mcp.TextContent("Created root " + input.ID), StructuredContent: mustRawJSON(root)}, nil
+	case "roots.update":
+		if mode == "root-update-tool-error" {
+			return mcp.CallToolResult{
+				Content: mcp.TextContent("fixture roots.update failed"),
+				IsError: true,
+			}, nil
+		}
+		var input struct {
+			ProjectID string  `json:"project_id"`
+			RootID    string  `json:"root_id"`
+			Path      *string `json:"path"`
+			Kind      *string `json:"kind"`
+			GitRemote *string `json:"git_remote"`
+			GitBranch *string `json:"git_branch"`
+			Active    *bool   `json:"active"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid roots.update arguments")
+		}
+		roots := cairnlineSidecarFixtureEnsureRoots(state, input.ProjectID)
+		root, ok := roots[input.RootID]
+		if !ok {
+			return mcp.CallToolResult{Content: mcp.TextContent("fixture root not found: " + input.RootID), IsError: true}, nil
+		}
+		if input.Path != nil {
+			root.Path = *input.Path
+		}
+		if input.Kind != nil {
+			root.Kind = *input.Kind
+		}
+		if input.GitRemote != nil {
+			root.GitRemote = *input.GitRemote
+		}
+		if input.GitBranch != nil {
+			root.GitBranch = *input.GitBranch
+		}
+		if input.Active != nil {
+			root.Active = *input.Active
+		}
+		roots[input.RootID] = root
+		return mcp.CallToolResult{Content: mcp.TextContent("Updated root " + input.RootID), StructuredContent: mustRawJSON(root)}, nil
+	case "roots.delete":
+		var input struct {
+			ProjectID string `json:"project_id"`
+			RootID    string `json:"root_id"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid roots.delete arguments")
+		}
+		roots := cairnlineSidecarFixtureEnsureRoots(state, input.ProjectID)
+		root, ok := roots[input.RootID]
+		if !ok {
+			return mcp.CallToolResult{Content: mcp.TextContent("fixture root not found: " + input.RootID), IsError: true}, nil
+		}
+		delete(roots, input.RootID)
+		return mcp.CallToolResult{Content: mcp.TextContent("Deleted root " + input.RootID), StructuredContent: mustRawJSON(root)}, nil
+	case "context_sources.list":
+		var input struct {
+			ProjectID string `json:"project_id"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid context_sources.list arguments")
+		}
+		sources := cairnlineSidecarFixtureProjectSources(state, input.ProjectID)
+		return cairnlineSidecarFixtureListResult(mode, fmt.Sprintf("Context sources for %s (%d)", input.ProjectID, len(sources)), sources)
+	case "context_sources.create":
+		var input struct {
+			ProjectID      string            `json:"project_id"`
+			ID             string            `json:"id"`
+			Kind           string            `json:"kind"`
+			Title          string            `json:"title"`
+			Locator        string            `json:"locator"`
+			Enabled        *bool             `json:"enabled"`
+			Format         string            `json:"format"`
+			Scope          string            `json:"scope"`
+			TrustLabel     string            `json:"trust_label"`
+			SourceCategory string            `json:"source_category"`
+			Metadata       map[string]string `json:"metadata"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid context_sources.create arguments")
+		}
+		if input.ProjectID == "" || input.ID == "" || input.Title == "" {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "missing context source create arguments")
+		}
+		enabled := true
+		if input.Enabled != nil {
+			enabled = *input.Enabled
+		}
+		source := ProjectCairnlineSidecarSourceItem{
+			ID:             input.ID,
+			Kind:           input.Kind,
+			Title:          input.Title,
+			Locator:        input.Locator,
+			Enabled:        enabled,
+			Format:         input.Format,
+			Scope:          input.Scope,
+			TrustLabel:     input.TrustLabel,
+			SourceCategory: input.SourceCategory,
+			Metadata:       input.Metadata,
+		}
+		cairnlineSidecarFixtureEnsureSources(state, input.ProjectID)[input.ID] = source
+		return mcp.CallToolResult{Content: mcp.TextContent("Created context source " + input.ID), StructuredContent: mustRawJSON(source)}, nil
+	case "context_sources.update":
+		var input struct {
+			ProjectID      string            `json:"project_id"`
+			SourceID       string            `json:"source_id"`
+			Kind           *string           `json:"kind"`
+			Title          *string           `json:"title"`
+			Locator        *string           `json:"locator"`
+			Enabled        *bool             `json:"enabled"`
+			Format         *string           `json:"format"`
+			Scope          *string           `json:"scope"`
+			TrustLabel     *string           `json:"trust_label"`
+			SourceCategory *string           `json:"source_category"`
+			Metadata       map[string]string `json:"metadata"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid context_sources.update arguments")
+		}
+		sources := cairnlineSidecarFixtureEnsureSources(state, input.ProjectID)
+		source, ok := sources[input.SourceID]
+		if !ok {
+			return mcp.CallToolResult{Content: mcp.TextContent("fixture context source not found: " + input.SourceID), IsError: true}, nil
+		}
+		if input.Kind != nil {
+			source.Kind = *input.Kind
+		}
+		if input.Title != nil {
+			source.Title = *input.Title
+		}
+		if input.Locator != nil {
+			source.Locator = *input.Locator
+		}
+		if input.Enabled != nil {
+			source.Enabled = *input.Enabled
+		}
+		if input.Format != nil {
+			source.Format = *input.Format
+		}
+		if input.Scope != nil {
+			source.Scope = *input.Scope
+		}
+		if input.TrustLabel != nil {
+			source.TrustLabel = *input.TrustLabel
+		}
+		if input.SourceCategory != nil {
+			source.SourceCategory = *input.SourceCategory
+		}
+		if input.Metadata != nil {
+			source.Metadata = input.Metadata
+		}
+		sources[input.SourceID] = source
+		return mcp.CallToolResult{Content: mcp.TextContent("Updated context source " + input.SourceID), StructuredContent: mustRawJSON(source)}, nil
+	case "context_sources.delete":
+		var input struct {
+			ProjectID string `json:"project_id"`
+			SourceID  string `json:"source_id"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid context_sources.delete arguments")
+		}
+		sources := cairnlineSidecarFixtureEnsureSources(state, input.ProjectID)
+		source, ok := sources[input.SourceID]
+		if !ok {
+			return mcp.CallToolResult{Content: mcp.TextContent("fixture context source not found: " + input.SourceID), IsError: true}, nil
+		}
+		delete(sources, input.SourceID)
+		return mcp.CallToolResult{Content: mcp.TextContent("Deleted context source " + input.SourceID), StructuredContent: mustRawJSON(source)}, nil
 	default:
 		return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeMethodNotFound, params.Name)
 	}
@@ -522,9 +738,43 @@ func cairnlineSidecarFixtureProject(id string) ProjectCairnlineSidecarProjectIte
 func cairnlineSidecarFixtureProjects(state *cairnlineSidecarFixtureState) []ProjectCairnlineSidecarProjectItem {
 	projects := []ProjectCairnlineSidecarProjectItem{cairnlineSidecarFixtureProject("proj_fixture")}
 	for _, project := range state.projects {
+		project.Roots = cairnlineSidecarFixtureProjectRoots(state, project.ID)
+		project.ContextSources = cairnlineSidecarFixtureProjectSources(state, project.ID)
 		projects = append(projects, project)
 	}
 	return projects
+}
+
+func cairnlineSidecarFixtureEnsureRoots(state *cairnlineSidecarFixtureState, projectID string) map[string]ProjectCairnlineSidecarRootItem {
+	if state.roots[projectID] == nil {
+		state.roots[projectID] = make(map[string]ProjectCairnlineSidecarRootItem)
+	}
+	return state.roots[projectID]
+}
+
+func cairnlineSidecarFixtureProjectRoots(state *cairnlineSidecarFixtureState, projectID string) []ProjectCairnlineSidecarRootItem {
+	rootsByID := state.roots[projectID]
+	roots := make([]ProjectCairnlineSidecarRootItem, 0, len(rootsByID))
+	for _, root := range rootsByID {
+		roots = append(roots, root)
+	}
+	return roots
+}
+
+func cairnlineSidecarFixtureEnsureSources(state *cairnlineSidecarFixtureState, projectID string) map[string]ProjectCairnlineSidecarSourceItem {
+	if state.contextSources[projectID] == nil {
+		state.contextSources[projectID] = make(map[string]ProjectCairnlineSidecarSourceItem)
+	}
+	return state.contextSources[projectID]
+}
+
+func cairnlineSidecarFixtureProjectSources(state *cairnlineSidecarFixtureState, projectID string) []ProjectCairnlineSidecarSourceItem {
+	sourcesByID := state.contextSources[projectID]
+	sources := make([]ProjectCairnlineSidecarSourceItem, 0, len(sourcesByID))
+	for _, source := range sourcesByID {
+		sources = append(sources, source)
+	}
+	return sources
 }
 
 func cairnlineSidecarFixtureListResult(mode, text string, structured any) (mcp.CallToolResult, *mcp.RPCError) {
