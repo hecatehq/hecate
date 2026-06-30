@@ -160,7 +160,7 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 		}
 		result := mcp.CallToolResult{Content: mcp.TextContent("Projects (1):\n- proj_fixture: Fixture Project")}
 		if !cairnlineSidecarFixtureTextOnly(mode, "projects.list") {
-			result.StructuredContent = mustRawJSON(cairnlineSidecarFixtureProjects(state))
+			result.StructuredContent = mustRawJSON(cairnlineSidecarFixtureProjects(mode, state))
 		}
 		return result, nil
 	case "profiles.list":
@@ -415,18 +415,27 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 		if stored, ok := state.assignments[input.ProjectID][input.AssignmentID]; ok {
 			assignment = stored
 		}
+		projectID := input.ProjectID
+		if cairnlineSidecarFixtureModeHas(mode, "launch-packet-project-mismatch") {
+			projectID = "proj_other"
+		}
+		workItemID := assignment.WorkItemID
+		if cairnlineSidecarFixtureModeHas(mode, "launch-packet-route-mismatch") {
+			workItemID = "work_other"
+		}
 		result := mcp.CallToolResult{Content: mcp.TextContent("Launch packet launch_fixture for " + input.AssignmentID)}
-		if mode != "text-only" {
+		if !cairnlineSidecarFixtureTextOnly(mode, "assignments.launch_packet") {
 			result.StructuredContent = mustRawJSON(map[string]any{
 				"id":   "launch_fixture",
 				"kind": "assignment_launch_packet",
 				"project": map[string]any{
-					"id":   input.ProjectID,
+					"id":   projectID,
 					"name": "Fixture Project",
 				},
 				"work_item": map[string]any{
-					"id":    assignment.WorkItemID,
-					"title": firstNonEmpty(cairnlineSidecarFixtureWorkItemTitle(state, input.ProjectID, assignment.WorkItemID), "Fixture Work"),
+					"id":         workItemID,
+					"project_id": projectID,
+					"title":      firstNonEmpty(cairnlineSidecarFixtureWorkItemTitle(state, input.ProjectID, workItemID), "Fixture Work"),
 				},
 				"role": map[string]any{
 					"id":   assignment.RoleID,
@@ -437,8 +446,11 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 					"name": "Fixture Profile",
 				},
 				"execution_profile": map[string]any{
-					"id":   "exec_fixture",
-					"name": "Fixture Execution",
+					"id":           "exec_fixture",
+					"name":         "Fixture Execution",
+					"agent_kind":   "any",
+					"model_hint":   "fixture-model",
+					"tools_policy": "readonly",
 				},
 				"skills": []map[string]any{{
 					"id":    "skill_fixture",
@@ -446,8 +458,8 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 				}},
 				"assignment": map[string]any{
 					"id":             assignment.ID,
-					"project_id":     assignment.ProjectID,
-					"work_item_id":   assignment.WorkItemID,
+					"project_id":     projectID,
+					"work_item_id":   workItemID,
 					"role_id":        assignment.RoleID,
 					"status":         assignment.Status,
 					"claimed_by":     assignment.ClaimedBy,
@@ -519,7 +531,10 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 				}, nil
 			}
 		}
-		project := cairnlineSidecarFixtureProject(input.ID)
+		project := cairnlineSidecarFixtureProject(mode, input.ID)
+		if cairnlineSidecarFixtureModeHas(mode, "project-route-mismatch") {
+			project.ID = "proj_other"
+		}
 		if stored, ok := state.projects[input.ID]; ok {
 			project = stored
 			project.Roots = cairnlineSidecarFixtureProjectRoots(state, input.ID)
@@ -1486,11 +1501,12 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 	}
 }
 
-func cairnlineSidecarFixtureProject(id string) ProjectCairnlineSidecarProjectItem {
-	return ProjectCairnlineSidecarProjectItem{
-		ID:          id,
-		Name:        "Fixture Project",
-		Description: "Structured fixture project",
+func cairnlineSidecarFixtureProject(mode, id string) ProjectCairnlineSidecarProjectItem {
+	project := ProjectCairnlineSidecarProjectItem{
+		ID:            id,
+		Name:          "Fixture Project",
+		Description:   "Structured fixture project",
+		DefaultRootID: "root_fixture",
 		Roots: []ProjectCairnlineSidecarRootItem{{
 			ID:     "root_fixture",
 			Path:   "/workspace/fixture",
@@ -1505,10 +1521,16 @@ func cairnlineSidecarFixtureProject(id string) ProjectCairnlineSidecarProjectIte
 			Enabled: true,
 		}},
 	}
+	if cairnlineSidecarFixtureModeHas(mode, "temp-root") {
+		for i := range project.Roots {
+			project.Roots[i].Path = os.TempDir()
+		}
+	}
+	return project
 }
 
-func cairnlineSidecarFixtureProjects(state *cairnlineSidecarFixtureState) []ProjectCairnlineSidecarProjectItem {
-	projects := []ProjectCairnlineSidecarProjectItem{cairnlineSidecarFixtureProject("proj_fixture")}
+func cairnlineSidecarFixtureProjects(mode string, state *cairnlineSidecarFixtureState) []ProjectCairnlineSidecarProjectItem {
+	projects := []ProjectCairnlineSidecarProjectItem{cairnlineSidecarFixtureProject(mode, "proj_fixture")}
 	for _, project := range state.projects {
 		project.Roots = cairnlineSidecarFixtureProjectRoots(state, project.ID)
 		project.ContextSources = cairnlineSidecarFixtureProjectSources(state, project.ID)

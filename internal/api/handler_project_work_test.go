@@ -2285,6 +2285,112 @@ func TestProjectWorkAPI_PreflightAndStartIncludeCairnlineLaunchPacketEvidenceWhe
 	assertCairnlineLaunchPacketEvidenceForTest(t, started.Data)
 }
 
+func TestProjectWorkAPI_PreflightAssignmentUsesCairnlineSidecarLaunchPacketWhenConfigured(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "full+temp-root")
+	if handler.projectReadRoutesUseCairnlineReadModel() {
+		t.Fatal("sidecar preflight enabled embedded Cairnline read-model routes")
+	}
+	if !handler.projectCairnlineSidecarReadRoutesEnabled() {
+		t.Fatal("sidecar read-route predicate = false, want true")
+	}
+
+	packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/assignments/asg_fixture/preflight", "")
+	if packetResp.Data.ExecutionMode != chat.ExecutionModeHecateTask || packetResp.Data.Model != "fixture-model" {
+		t.Fatalf("sidecar preflight mode/model = %q/%q, want Hecate task fixture-model", packetResp.Data.ExecutionMode, packetResp.Data.Model)
+	}
+	if packetResp.Data.ExecutionProfile != "profile_fixture" || packetResp.Data.Workspace == "" {
+		t.Fatalf("sidecar preflight profile/workspace = %q/%q, want profile_fixture and resolved workspace", packetResp.Data.ExecutionProfile, packetResp.Data.Workspace)
+	}
+	if packetResp.Data.Refs == nil || packetResp.Data.Refs.ProjectID != "proj_fixture" || packetResp.Data.Refs.WorkItemID != "work_fixture" || packetResp.Data.Refs.AssignmentID != "asg_fixture" || packetResp.Data.Refs.RoleID != "role_fixture" {
+		t.Fatalf("sidecar preflight refs = %+v, want project/work/assignment/role refs", packetResp.Data.Refs)
+	}
+	if packetResp.Data.Refs.TaskID != "" || packetResp.Data.Refs.RunID != "" || packetResp.Data.Refs.SessionID != "" {
+		t.Fatalf("sidecar preflight refs = %+v, want no task/run/session side effects", packetResp.Data.Refs)
+	}
+	item := findRenderedContextItemByOrigin(packetResp.Data, "cairnline.assignment_launch_packet")
+	if item == nil || item.Section != contextSectionRuntime || item.Included {
+		t.Fatalf("sidecar launch packet item = %+v, want inspect-only runtime evidence", item)
+	}
+	for _, want := range []string{
+		"Ready: true",
+		"Project: proj_fixture",
+		"Work item: work_fixture",
+		"Assignment: asg_fixture",
+		"Execution mode: mcp_pull",
+		"Skills: 1; artifacts: 1; evidence: 1; reviews: 1; handoffs: 1; memory: 1; memory candidates: 1",
+	} {
+		if !strings.Contains(item.Body, want) {
+			t.Fatalf("sidecar launch packet body = %q, want %q", item.Body, want)
+		}
+	}
+	for key, want := range map[string]string{
+		"read_backend":         "cairnline",
+		"ready":                "true",
+		"project_id":           "proj_fixture",
+		"work_item_id":         "work_fixture",
+		"assignment_id":        "asg_fixture",
+		"role_id":              "role_fixture",
+		"execution_mode":       "mcp_pull",
+		"profile_id":           "profile_fixture",
+		"execution_profile_id": "exec_fixture",
+		"skill_count":          "1",
+	} {
+		if item.Metadata[key] != want {
+			t.Fatalf("sidecar launch packet metadata[%q] = %q, want %q in %+v", key, item.Metadata[key], want, item.Metadata)
+		}
+	}
+	tasks, err := handler.taskStore.ListTasks(t.Context(), taskstateFilterAll())
+	if err != nil {
+		t.Fatalf("ListTasks: %v", err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("tasks = %+v, want no task created by sidecar preflight", tasks)
+	}
+}
+
+func TestProjectWorkAPI_PreflightAssignmentCairnlineSidecarRequiresStructuredLaunchPacket(t *testing.T) {
+	t.Parallel()
+	_, server := newProjectsCairnlineSidecarReadTestServer(t, "assignments.launch_packet-text-only")
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/assignments/asg_fixture/preflight", nil))
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("preflight status = %d body=%s, want 502", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "structuredContent") {
+		t.Fatalf("error body = %s, want structuredContent diagnostic", rec.Body.String())
+	}
+}
+
+func TestProjectWorkAPI_PreflightAssignmentCairnlineSidecarRejectsRouteMismatch(t *testing.T) {
+	t.Parallel()
+	_, server := newProjectsCairnlineSidecarReadTestServer(t, "full+temp-root+launch-packet-route-mismatch")
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/assignments/asg_fixture/preflight", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("preflight status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "assignment not found") {
+		t.Fatalf("error body = %s, want scoped assignment not found", rec.Body.String())
+	}
+}
+
+func TestProjectWorkAPI_PreflightAssignmentCairnlineSidecarRejectsProjectMismatch(t *testing.T) {
+	t.Parallel()
+	_, server := newProjectsCairnlineSidecarReadTestServer(t, "full+temp-root+project-route-mismatch")
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/assignments/asg_fixture/preflight", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("preflight status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "project not found") {
+		t.Fatalf("error body = %s, want scoped project not found", rec.Body.String())
+	}
+}
+
 func TestProjectWorkAPI_PreflightAndStartSnapshotModelReadiness(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectWorkTestServerWithProviders(&fakeProvider{

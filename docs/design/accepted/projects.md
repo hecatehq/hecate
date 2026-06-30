@@ -182,9 +182,11 @@ When `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar` and
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar` are both configured, Hecate
 routes only project list/detail, setup-readiness, health, project skill list,
 project memory list, memory-candidate list, project role list, work-item
-list/detail, assignment-list, artifact-list, handoff-list, activity,
-closeout-readiness, and operations brief reads through the cached standalone
-Cairnline MCP client.
+list/detail, assignment-list, launch-readiness, assignment preflight,
+artifact-list, handoff-list, activity, closeout-readiness, and operations brief
+reads through the cached standalone Cairnline MCP client. Launch-readiness and
+assignment preflight consume typed `assignments.launch_packet` sidecar data
+before applying Hecate runtime validation.
 Other Projects reads, writes, mirrors, dispatch, approvals, and write-authority
 switchpoints remain Hecate-native or on the embedded dogfood path until
 sidecar-specific adapters exist for those route families.
@@ -214,8 +216,8 @@ scaffolding still come from Hecate until Cairnline becomes authoritative; the
 explicit sidecar read-source routes are the narrow exception for project
 list/detail, setup-readiness, health, project skill list, project memory list,
 memory-candidate list, project role list, work-item list/detail,
-assignment-list, artifact-list, handoff-list, activity, closeout-readiness, and
-operations brief reads.
+assignment-list, launch-readiness, assignment preflight, artifact-list,
+handoff-list, activity, closeout-readiness, and operations brief reads.
 Project Assistant draft generation also uses the Cairnline-projected context so
 preview and proposal assembly stay aligned, while the proposal ledger remains
 Hecate-owned unless `project-assistant-proposals` is enabled.

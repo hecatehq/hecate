@@ -376,10 +376,12 @@ launch agents. Those remain explicit operator or orchestrator actions.
   `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar`, which routes only project
   list/detail, setup-readiness, health, project skill list, project memory
   list, memory-candidate list, project role list, work-item list/detail,
-  assignment-list, artifact-list, handoff-list, activity, closeout-readiness,
-  and operations brief reads through the cached standalone MCP client. Other
-  live Projects reads, writes, mirrors, and write-authority switchpoints do not
-  route through the sidecar yet.
+  assignment-list, launch-readiness, assignment preflight, artifact-list,
+  handoff-list, activity, closeout-readiness, and operations brief reads through
+  the cached standalone MCP client. Launch-readiness and assignment preflight
+  consume typed sidecar `assignments.launch_packet` data before applying Hecate
+  runtime validation. Other live Projects reads, writes, mirrors, and
+  write-authority switchpoints do not route through the sidecar yet.
 - Current Hecate embed experiments can serve project list/detail, setup
   readiness, health, skills, memory, memory candidates, roles, work items,
   assignment lists, assignment context, launch-readiness, assignment preflight,
@@ -397,8 +399,9 @@ launch agents. Those remain explicit operator or orchestrator actions.
   then overlay Hecate-only runtime refs/timestamps while Hecate still owns
   execution. Outside the explicit sidecar read-source routes for project
   list/detail, setup-readiness, health, skills, memory, memory candidates, roles,
-  work items, assignment lists, artifact lists, handoff lists, activity,
-  closeout readiness, and operations brief, project identity and some
+  work items, assignment lists, launch-readiness, assignment preflight, artifact
+  lists, handoff lists, activity, closeout readiness, and operations brief,
+  project identity and some
   compatibility scaffolding remain Hecate-owned until Cairnline becomes
   authoritative.
 - Project Assistant draft generation can use the same Cairnline-projected
