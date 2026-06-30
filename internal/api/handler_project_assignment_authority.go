@@ -81,7 +81,7 @@ func (h *Handler) updateProjectWorkAssignmentWithCairnlineAuthority(ctx context.
 		if shadow, ok, err := h.loadProjectWorkAssignment(ctx, projectID, workItemID, assignmentID); err != nil {
 			return err
 		} else if ok {
-			assignment.ExecutionRef = shadow.ExecutionRef
+			overlayProjectAssignmentRuntimeShadow(&assignment, shadow)
 		}
 		applyProjectAssignmentUpdate(&assignment, cmd)
 		if err := validateProjectAssignmentForCairnlineAuthority(assignment); err != nil {
@@ -235,13 +235,27 @@ func applyProjectAssignmentUpdate(item *projectwork.Assignment, cmd projectworka
 
 func projectWorkAssignmentFromCairnlineAuthority(item cairnline.Assignment, native projectwork.Assignment) projectwork.Assignment {
 	out := projectWorkAssignmentFromCairnline(item)
-	if ref := projectwork.NormalizeAssignmentExecutionRef(native.ExecutionRef); !projectAssignmentExecutionRefEmpty(ref) {
-		out.ExecutionRef = ref
-	}
+	overlayProjectAssignmentRuntimeShadow(&out, native)
 	if out.ExecutionRef.ContextSnapshotID == "" {
 		out.ExecutionRef.ContextSnapshotID = strings.TrimSpace(item.ContextSnapshotID)
 	}
 	return out
+}
+
+func overlayProjectAssignmentRuntimeShadow(item *projectwork.Assignment, shadow projectwork.Assignment) {
+	if item == nil {
+		return
+	}
+	if ref := projectwork.NormalizeAssignmentExecutionRef(shadow.ExecutionRef); !projectAssignmentExecutionRefEmpty(ref) {
+		item.ExecutionRef = ref
+	}
+	item.ContextPacket = append([]byte(nil), shadow.ContextPacket...)
+	if !shadow.StartedAt.IsZero() {
+		item.StartedAt = shadow.StartedAt
+	}
+	if !shadow.CompletedAt.IsZero() {
+		item.CompletedAt = shadow.CompletedAt
+	}
 }
 
 func projectAssignmentExecutionRefEmpty(ref projectwork.AssignmentExecutionRef) bool {
@@ -274,6 +288,7 @@ func (h *Handler) shadowProjectAssignmentToHecate(ctx context.Context, operation
 		item.DriverKind = assignment.DriverKind
 		item.Status = assignment.Status
 		item.ExecutionRef = assignment.ExecutionRef
+		item.ContextPacket = append([]byte(nil), assignment.ContextPacket...)
 		item.StartedAt = assignment.StartedAt
 		item.CompletedAt = assignment.CompletedAt
 	})
