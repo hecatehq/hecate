@@ -181,8 +181,8 @@ removal of the temporary project.
 When `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar` and
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar` are both configured, Hecate
 routes only project list/detail, setup-readiness, health, project skill list,
-project memory list, and memory-candidate list reads through the cached
-standalone Cairnline MCP client. Other Projects reads, writes, mirrors,
+project memory list, memory-candidate list, and project role list reads through
+the cached standalone Cairnline MCP client. Other Projects reads, writes, mirrors,
 dispatch, approvals, and write-authority switchpoints remain Hecate-native or
 on the embedded dogfood path until sidecar-specific adapters exist for those
 route families.

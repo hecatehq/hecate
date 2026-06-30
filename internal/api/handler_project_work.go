@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/hecatehq/cairnline"
+	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/internal/projectworkapp"
 )
@@ -341,12 +342,16 @@ func (h *Handler) HandleProjectActivity(w http.ResponseWriter, r *http.Request) 
 
 func (h *Handler) HandleProjectWorkRoles(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
-	if !h.requireProject(w, r, projectID) {
+	if !h.projectCairnlineSidecarReadRoutesEnabled() && !h.requireProject(w, r, projectID) {
 		return
 	}
 	data, err := h.renderProjectWorkRoles(r.Context(), projectID)
 	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		if errors.Is(err, projects.ErrNotFound) {
+			WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
+			return
+		}
+		writeProjectReadRenderError(w, err)
 		return
 	}
 	WriteJSON(w, http.StatusOK, ProjectWorkRolesResponse{Object: "project_roles", Data: data})

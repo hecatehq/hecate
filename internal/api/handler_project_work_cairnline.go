@@ -8,6 +8,7 @@ import (
 
 	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/cairnlinebridge"
+	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectwork"
 )
 
@@ -90,6 +91,9 @@ func (h *Handler) renderCairnlineProjectHandoffs(ctx context.Context, filter pro
 }
 
 func (h *Handler) renderProjectWorkRoles(ctx context.Context, projectID string) ([]ProjectWorkRoleResponse, error) {
+	if h.projectCairnlineSidecarReadRoutesEnabled() {
+		return h.renderCairnlineSidecarProjectWorkRoles(ctx, projectID)
+	}
 	if h.projectReadRoutesUseCairnlineReadModel() {
 		return h.renderCairnlineProjectWorkRoles(ctx, projectID)
 	}
@@ -101,6 +105,28 @@ func (h *Handler) renderProjectWorkRoles(ctx context.Context, projectID string) 
 	for _, role := range roles {
 		projected := renderProjectWorkRole(role)
 		projected.ReadBackend = "hecate"
+		data = append(data, projected)
+	}
+	return data, nil
+}
+
+func (h *Handler) renderCairnlineSidecarProjectWorkRoles(ctx context.Context, projectID string) ([]ProjectWorkRoleResponse, error) {
+	projectItem, ok, err := h.cairnlineSidecarProject(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, projects.ErrNotFound
+	}
+	project := projectFromCairnlineSidecar(projectItem)
+	roles, err := h.cairnlineSidecarProjectRoles(ctx, project.ID)
+	if err != nil {
+		return nil, err
+	}
+	data := make([]ProjectWorkRoleResponse, 0, len(roles))
+	for _, role := range projectRolesFromCairnlineSidecar(roles) {
+		projected := renderProjectWorkRole(role)
+		projected.ReadBackend = "cairnline"
 		data = append(data, projected)
 	}
 	return data, nil
