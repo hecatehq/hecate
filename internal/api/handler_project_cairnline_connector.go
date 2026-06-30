@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -250,10 +251,41 @@ func (h *Handler) projectCairnlineSidecarReadSmoke(ctx context.Context) ProjectC
 		response.Detail = "Cairnline sidecar projects.list returned a tool-level error. Hecate still keeps live Projects reads and writes on Hecate-native stores in sidecar mode."
 		return response
 	}
+	structuredProjects, structuredReady, structuredErr := projectCairnlineSidecarStructuredProjects(result.Result.StructuredContent)
+	response.StructuredReady = structuredReady
+	response.StructuredProjectCount = len(structuredProjects)
+	response.StructuredProjects = structuredProjects
+	if structuredErr != nil {
+		response.StructuredParseError = structuredErr.Error()
+		response.Warnings = append(response.Warnings, "Cairnline sidecar projects.list returned structuredContent that Hecate could not parse as a project list.")
+	} else if !structuredReady {
+		response.Warnings = append(response.Warnings, "Cairnline sidecar projects.list did not return structuredContent; Hecate verified the tool call but not a typed project-list contract.")
+	}
 	response.Ready = true
 	response.Status = "sidecar_read_ready"
 	response.Detail = "Hecate called the read-only Cairnline sidecar projects.list tool through the persistent sidecar client. Hecate still keeps live Projects reads and writes on Hecate-native stores in sidecar mode."
 	return response
+}
+
+func projectCairnlineSidecarStructuredProjects(raw json.RawMessage) ([]ProjectCairnlineSidecarProjectItem, bool, error) {
+	if len(raw) == 0 {
+		return nil, false, nil
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return nil, false, nil
+	}
+	if bytes.Equal(trimmed, []byte("null")) {
+		return []ProjectCairnlineSidecarProjectItem{}, true, nil
+	}
+	var projects []ProjectCairnlineSidecarProjectItem
+	if err := json.Unmarshal(trimmed, &projects); err != nil {
+		return nil, false, err
+	}
+	if projects == nil {
+		projects = []ProjectCairnlineSidecarProjectItem{}
+	}
+	return projects, true, nil
 }
 
 func (h *Handler) projectCairnlineSidecarMCPClientCache() *mcpclient.SharedClientCache {

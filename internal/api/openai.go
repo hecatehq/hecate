@@ -1700,25 +1700,64 @@ type ProjectCairnlineSidecarProbeResponse struct {
 }
 
 type ProjectCairnlineSidecarReadResponse struct {
-	Ready                 bool            `json:"ready"`
-	Status                string          `json:"status"`
-	Detail                string          `json:"detail"`
-	Command               string          `json:"command"`
-	Args                  []string        `json:"args,omitempty"`
-	DatabasePath          string          `json:"database_path,omitempty"`
-	ProbeTimeoutMS        int64           `json:"probe_timeout_ms"`
-	PersistentClient      bool            `json:"persistent_client,omitempty"`
-	ClientCacheConfigured bool            `json:"client_cache_configured,omitempty"`
-	ClientCacheEntries    int             `json:"client_cache_entries,omitempty"`
-	ClientCacheInUse      int             `json:"client_cache_in_use,omitempty"`
-	ClientCacheIdle       int             `json:"client_cache_idle,omitempty"`
-	Tool                  string          `json:"tool"`
-	ReadOnly              bool            `json:"read_only"`
-	ToolText              string          `json:"tool_text,omitempty"`
-	ToolIsError           bool            `json:"tool_is_error,omitempty"`
-	StructuredContent     json.RawMessage `json:"structured_content,omitempty"`
-	Meta                  json.RawMessage `json:"meta,omitempty"`
-	Warnings              []string        `json:"warnings,omitempty"`
+	Ready                  bool                                 `json:"ready"`
+	Status                 string                               `json:"status"`
+	Detail                 string                               `json:"detail"`
+	Command                string                               `json:"command"`
+	Args                   []string                             `json:"args,omitempty"`
+	DatabasePath           string                               `json:"database_path,omitempty"`
+	ProbeTimeoutMS         int64                                `json:"probe_timeout_ms"`
+	PersistentClient       bool                                 `json:"persistent_client,omitempty"`
+	ClientCacheConfigured  bool                                 `json:"client_cache_configured,omitempty"`
+	ClientCacheEntries     int                                  `json:"client_cache_entries,omitempty"`
+	ClientCacheInUse       int                                  `json:"client_cache_in_use,omitempty"`
+	ClientCacheIdle        int                                  `json:"client_cache_idle,omitempty"`
+	Tool                   string                               `json:"tool"`
+	ReadOnly               bool                                 `json:"read_only"`
+	ToolText               string                               `json:"tool_text,omitempty"`
+	ToolIsError            bool                                 `json:"tool_is_error,omitempty"`
+	StructuredContent      json.RawMessage                      `json:"structured_content,omitempty"`
+	Meta                   json.RawMessage                      `json:"meta,omitempty"`
+	StructuredReady        bool                                 `json:"structured_ready"`
+	StructuredProjectCount int                                  `json:"structured_project_count"`
+	StructuredProjects     []ProjectCairnlineSidecarProjectItem `json:"structured_projects,omitempty"`
+	StructuredParseError   string                               `json:"structured_parse_error,omitempty"`
+	Warnings               []string                             `json:"warnings,omitempty"`
+}
+
+type ProjectCairnlineSidecarProjectItem struct {
+	ID                        string                              `json:"id"`
+	Name                      string                              `json:"name"`
+	Description               string                              `json:"description,omitempty"`
+	DefaultRootID             string                              `json:"default_root_id,omitempty"`
+	DefaultProfileID          string                              `json:"default_profile_id,omitempty"`
+	DefaultExecutionProfileID string                              `json:"default_execution_profile_id,omitempty"`
+	Roots                     []ProjectCairnlineSidecarRootItem   `json:"roots,omitempty"`
+	ContextSources            []ProjectCairnlineSidecarSourceItem `json:"context_sources,omitempty"`
+	CreatedAt                 string                              `json:"created_at,omitempty"`
+	UpdatedAt                 string                              `json:"updated_at,omitempty"`
+}
+
+type ProjectCairnlineSidecarRootItem struct {
+	ID        string `json:"id"`
+	Path      string `json:"path"`
+	Kind      string `json:"kind,omitempty"`
+	GitRemote string `json:"git_remote,omitempty"`
+	GitBranch string `json:"git_branch,omitempty"`
+	Active    bool   `json:"active"`
+}
+
+type ProjectCairnlineSidecarSourceItem struct {
+	ID             string            `json:"id"`
+	Kind           string            `json:"kind"`
+	Title          string            `json:"title"`
+	Locator        string            `json:"locator,omitempty"`
+	Enabled        bool              `json:"enabled"`
+	Format         string            `json:"format,omitempty"`
+	Scope          string            `json:"scope,omitempty"`
+	TrustLabel     string            `json:"trust_label,omitempty"`
+	SourceCategory string            `json:"source_category,omitempty"`
+	Metadata       map[string]string `json:"metadata,omitempty"`
 }
 
 // MCPCacheStatsResponse is the wire shape for GET /hecate/v1/system/mcp/cache.
