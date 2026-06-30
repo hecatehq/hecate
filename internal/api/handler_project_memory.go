@@ -61,10 +61,10 @@ type updateProjectMemoryRequest struct {
 
 func (h *Handler) HandleProjectMemoryEntries(w http.ResponseWriter, r *http.Request) {
 	projectID := strings.TrimSpace(r.PathValue("id"))
-	if !h.projectCairnlineSidecarReadRoutesEnabled() && !h.requireProjectExists(w, r, projectID) {
+	if !h.projectCairnlineSidecarReadRoutesEnabled() && !h.requiresEmbeddedCairnlineProjectReads() && !h.requireProjectExists(w, r, projectID) {
 		return
 	}
-	if !h.projectCairnlineSidecarReadRoutesEnabled() && !h.requireProjectMemoryStore(w) {
+	if !h.projectCairnlineSidecarReadRoutesEnabled() && !h.requiresEmbeddedCairnlineProjectReads() && !h.requireProjectMemoryStore(w) {
 		return
 	}
 	includeDisabled := requestBool(r, "include_disabled")
@@ -136,10 +136,10 @@ func (h *Handler) HandleCreateProjectMemoryEntry(w http.ResponseWriter, r *http.
 
 func (h *Handler) HandleProjectMemoryCandidates(w http.ResponseWriter, r *http.Request) {
 	projectID := strings.TrimSpace(r.PathValue("id"))
-	if !h.projectCairnlineSidecarReadRoutesEnabled() && !h.requireProjectExists(w, r, projectID) {
+	if !h.projectCairnlineSidecarReadRoutesEnabled() && !h.requiresEmbeddedCairnlineProjectReads() && !h.requireProjectExists(w, r, projectID) {
 		return
 	}
-	if !h.projectCairnlineSidecarReadRoutesEnabled() {
+	if !h.projectCairnlineSidecarReadRoutesEnabled() && !h.requiresEmbeddedCairnlineProjectReads() {
 		if _, ok := h.requireProjectMemoryCandidateStore(w); !ok {
 			return
 		}
@@ -480,6 +480,9 @@ func (h *Handler) renderProjectMemoryEntries(ctx context.Context, projectID stri
 }
 
 func (h *Handler) renderCairnlineProjectMemoryEntries(ctx context.Context, projectID string, includeDisabled bool) ([]ProjectMemoryResponseItem, error) {
+	if h.requiresEmbeddedCairnlineProjectReads() {
+		return h.renderStrictEmbeddedCairnlineProjectMemoryEntries(ctx, projectID, includeDisabled)
+	}
 	view, err := h.cairnlineProjectWorkView(ctx, projectID)
 	if err != nil {
 		return nil, err
@@ -487,6 +490,22 @@ func (h *Handler) renderCairnlineProjectMemoryEntries(ctx context.Context, proje
 	defer view.Close()
 	items, err := view.service.ListMemoryEntries(ctx, view.snapshot.Project.ID, includeDisabled)
 	if err != nil {
+		return nil, err
+	}
+	out := make([]ProjectMemoryResponseItem, 0, len(items))
+	for _, item := range items {
+		out = append(out, renderProjectMemory(projectMemoryFromCairnline(item), "cairnline"))
+	}
+	return out, nil
+}
+
+func (h *Handler) renderStrictEmbeddedCairnlineProjectMemoryEntries(ctx context.Context, projectID string, includeDisabled bool) ([]ProjectMemoryResponseItem, error) {
+	var items []cairnline.MemoryEntry
+	if err := h.withStrictEmbeddedCairnlineProjectRead(ctx, projectID, func(service *cairnline.Service) error {
+		var err error
+		items, err = service.ListMemoryEntries(ctx, projectID, includeDisabled)
+		return err
+	}); err != nil {
 		return nil, err
 	}
 	out := make([]ProjectMemoryResponseItem, 0, len(items))
@@ -533,6 +552,9 @@ func (h *Handler) renderProjectMemoryCandidates(ctx context.Context, projectID, 
 }
 
 func (h *Handler) renderCairnlineProjectMemoryCandidates(ctx context.Context, projectID, status string, includeResolved bool) ([]ProjectMemoryCandidateResponseItem, error) {
+	if h.requiresEmbeddedCairnlineProjectReads() {
+		return h.renderStrictEmbeddedCairnlineProjectMemoryCandidates(ctx, projectID, status, includeResolved)
+	}
 	view, err := h.cairnlineProjectWorkView(ctx, projectID)
 	if err != nil {
 		return nil, err
@@ -544,6 +566,26 @@ func (h *Handler) renderCairnlineProjectMemoryCandidates(ctx context.Context, pr
 		IncludeResolved: includeResolved,
 	})
 	if err != nil {
+		return nil, err
+	}
+	out := make([]ProjectMemoryCandidateResponseItem, 0, len(items))
+	for _, item := range items {
+		out = append(out, renderProjectMemoryCandidate(projectMemoryCandidateFromCairnline(item), "cairnline"))
+	}
+	return out, nil
+}
+
+func (h *Handler) renderStrictEmbeddedCairnlineProjectMemoryCandidates(ctx context.Context, projectID, status string, includeResolved bool) ([]ProjectMemoryCandidateResponseItem, error) {
+	var items []cairnline.MemoryCandidate
+	if err := h.withStrictEmbeddedCairnlineProjectRead(ctx, projectID, func(service *cairnline.Service) error {
+		var err error
+		items, err = service.ListMemoryCandidates(ctx, cairnline.MemoryCandidateFilter{
+			ProjectID:       projectID,
+			Status:          status,
+			IncludeResolved: includeResolved,
+		})
+		return err
+	}); err != nil {
 		return nil, err
 	}
 	out := make([]ProjectMemoryCandidateResponseItem, 0, len(items))
@@ -567,6 +609,24 @@ func (h *Handler) renderCairnlineSidecarProjectMemoryCandidates(ctx context.Cont
 		return nil, err
 	}
 	return renderProjectMemoryCandidates(projectMemoryCandidatesFromCairnlineSidecar(items), "cairnline"), nil
+}
+
+func (h *Handler) withStrictEmbeddedCairnlineProjectRead(ctx context.Context, projectID string, fn func(*cairnline.Service) error) error {
+	_, service, store, err := h.openCairnlineEmbeddedService(ctx)
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+	if _, err := service.GetProject(ctx, projectID); err != nil {
+		if errors.Is(err, cairnline.ErrNotFound) {
+			return projects.ErrNotFound
+		}
+		return err
+	}
+	if fn == nil {
+		return nil
+	}
+	return fn(service)
 }
 
 func renderProjectMemoryEntries(items []memory.Entry, readBackend string) []ProjectMemoryResponseItem {
