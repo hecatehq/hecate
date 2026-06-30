@@ -1277,6 +1277,22 @@ func normalizeProjectsCairnlineReadSource(value string) string {
 	return value
 }
 
+var projectsCairnlineAllPortableWriteAuthority = []string{
+	"project-memory",
+	"memory-candidates",
+	"project-collaboration",
+	"project-skills",
+	"project-work-items",
+	"project-roles",
+	"project-assignments",
+	"agent-profiles",
+	"project-metadata-defaults",
+	"project-roots",
+	"project-context-sources",
+	"project-identity",
+	"project-assistant-proposals",
+}
+
 func normalizeProjectsCairnlineWriteAuthority(value string) []string {
 	value = strings.ToLower(strings.TrimSpace(value))
 	if value == "" || value == "none" {
@@ -1285,16 +1301,25 @@ func normalizeProjectsCairnlineWriteAuthority(value string) []string {
 	parts := strings.Split(value, ",")
 	out := make([]string, 0, len(parts))
 	seen := make(map[string]struct{}, len(parts))
+	appendValue := func(part string) {
+		if _, exists := seen[part]; exists {
+			return
+		}
+		seen[part] = struct{}{}
+		out = append(out, part)
+	}
 	for _, part := range parts {
 		part = strings.ToLower(strings.TrimSpace(part))
 		if part == "" || part == "none" {
 			continue
 		}
-		if _, exists := seen[part]; exists {
+		if part == "all-portable" {
+			for _, expanded := range projectsCairnlineAllPortableWriteAuthority {
+				appendValue(expanded)
+			}
 			continue
 		}
-		seen[part] = struct{}{}
-		out = append(out, part)
+		appendValue(part)
 	}
 	return out
 }

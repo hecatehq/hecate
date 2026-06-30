@@ -726,6 +726,45 @@ func TestProjectCoordinationBackendStatus_CairnlineProjectAssistantApplyPortable
 	}
 }
 
+func TestProjectCoordinationBackendStatus_CairnlineAllPortableWriteAuthorityAliasConfigured(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			Backend:                 "sqlite",
+			CoordinationBackend:     "cairnline",
+			CairnlineReadSource:     "embedded",
+			CairnlineWriteAuthority: "all-portable",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+
+	status := handler.projectCoordinationBackendStatus()
+	for _, name := range []string{
+		"projects",
+		"context-sources",
+		"agent-profiles",
+		"skills",
+		"memory",
+		"memory-candidates",
+		"roles",
+		"work-items",
+		"assignments",
+		"artifacts",
+		"handoffs",
+		"project-assistant-proposals",
+	} {
+		if containsString(status.WriteAdapterGaps, name) {
+			t.Fatalf("write gaps = %+v, did not expect portable gap %q with all-portable authority alias", status.WriteAdapterGaps, name)
+		}
+	}
+	for _, name := range []string{"roots", "assignment-start", "project-assistant-apply-side-effects", "migration-cutover"} {
+		if !containsString(status.WriteAdapterGaps, name) {
+			t.Fatalf("write gaps = %+v, want remaining non-portable/migration gap %q with all-portable authority alias", status.WriteAdapterGaps, name)
+		}
+	}
+	if gate := findReplacementGate(status.ReplacementGates, "write-authority-switchpoints"); gate == nil || gate.Ready || gate.Status != "partial" || !strings.Contains(gate.Detail, "roots") || !strings.Contains(gate.Detail, "assignment-start") || !strings.Contains(gate.Detail, "project-assistant-apply-side-effects") {
+		t.Fatalf("write-authority gate = %+v, want partial write authority with remaining side-effect gaps", gate)
+	}
+}
+
 func TestProjectCoordinationBackendStatus_WriteAuthorityGateIgnoresMigrationGap(t *testing.T) {
 	gate := projectCairnlineWriteAuthorityReplacementGate([]string{"migration-cutover"})
 	if !gate.Ready || gate.Status != "ready" || !strings.Contains(gate.Detail, "migration, rollback, and final cutover still have separate gates") {
