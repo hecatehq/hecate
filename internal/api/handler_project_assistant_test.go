@@ -129,6 +129,15 @@ func (s failingCreateRoleProjectWorkStore) CreateRole(context.Context, projectwo
 	return projectwork.AgentRoleProfile{}, s.err
 }
 
+type failingCreateMemoryCandidateStore struct {
+	*memory.MemoryStore
+	err error
+}
+
+func (s failingCreateMemoryCandidateStore) CreateCandidate(context.Context, memory.Candidate) (memory.Candidate, error) {
+	return memory.Candidate{}, s.err
+}
+
 type failingProposalUpsertStore struct {
 	projectassistant.ProposalStore
 	err error
@@ -1199,6 +1208,70 @@ func TestProjectAssistantAPI_CairnlineApplyWorkAuthorityDoesNotBlockOnRoleShadow
 		if role.ID == "role_apply_authority" {
 			t.Fatalf("shadow role store unexpectedly contains %+v, want Cairnline authority to survive failed Hecate shadow", role)
 		}
+	}
+}
+
+func TestProjectAssistantAPI_CairnlineApplyMemoryCandidateAuthorityDoesNotBlockOnShadowFailure(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectAssistantCairnlineMirrorTestHandler(t)
+	handler.config.Projects.CairnlineWriteAuthority = strings.Join([]string{
+		"project-memory",
+		"memory-candidates",
+	}, ",")
+	handler.SetMemoryStore(failingCreateMemoryCandidateStore{
+		MemoryStore: memory.NewMemoryStore(),
+		err:         errors.New("shadow memory candidate store unavailable"),
+	})
+	client := newAPITestClient(t, server)
+	if _, err := handler.projects.Create(t.Context(), projects.Project{
+		ID:   "proj_pa_apply_memory_authority",
+		Name: "Assistant Apply Memory Authority",
+	}); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+
+	proposed := mustRequestJSON[projectAssistantProposalResponse](client, http.MethodPost, "/hecate/v1/project-assistant/propose", `{
+		"id":"pa_apply_memory_authority",
+		"title":"Create memory candidate through authority",
+		"summary":"Project Assistant apply should use the Cairnline-first memory candidate authority seam.",
+		"actions":[{
+			"kind":"create_memory_candidate",
+			"reason":"Capture a reviewable project lesson.",
+			"patch":{
+				"id":"memcand_apply_authority",
+				"project_id":"proj_pa_apply_memory_authority",
+				"title":"Authority-backed memory candidate",
+				"body":"Assistant memory-candidate apply should commit through Cairnline when candidate authority is enabled.",
+				"suggested_kind":"process",
+				"suggested_trust_label":"operator_reviewed",
+				"suggested_source_kind":"project_assistant",
+				"suggested_source_id":"pa_apply_memory_authority",
+				"source_refs":[{"kind":"proposal","id":"pa_apply_memory_authority","title":"Create memory candidate through authority"}]
+			}
+		}]
+	}`)
+	applied := mustRequestJSON[projectAssistantApplyResponse](client, http.MethodPost, "/hecate/v1/project-assistant/apply", projectJourneyJSON(t, map[string]any{
+		"proposal": proposed.Data,
+		"confirm":  true,
+	}))
+	if applied.Data.Status != projectassistant.ApplyStatusApplied || !applied.Data.Applied || applied.Data.CommittedActionCount != 1 {
+		t.Fatalf("apply response = %+v, want applied memory-candidate action despite Hecate shadow failure", applied.Data)
+	}
+
+	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+	if err != nil {
+		t.Fatalf("open Cairnline mirror: %v", err)
+	}
+	defer store.Close()
+	candidate, err := service.GetMemoryCandidate(t.Context(), "proj_pa_apply_memory_authority", "memcand_apply_authority")
+	if err != nil {
+		t.Fatalf("GetMemoryCandidate from Cairnline: %v", err)
+	}
+	if candidate.Status != cairnline.MemoryCandidatePending || candidate.SuggestedSourceKind != "project_assistant" || candidate.SuggestedSourceID != "pa_apply_memory_authority" || len(candidate.SourceRefs) != 1 || candidate.SourceRefs[0].ID != "pa_apply_memory_authority" {
+		t.Fatalf("Cairnline memory candidate = %+v, want authoritative assistant-sourced pending candidate", candidate)
+	}
+	if _, ok, err := handler.memoryCandidates.GetCandidate(t.Context(), "proj_pa_apply_memory_authority", "memcand_apply_authority"); err != nil || ok {
+		t.Fatalf("shadow memory candidate ok=%v err=%v, want missing after injected shadow failure", ok, err)
 	}
 }
 

@@ -558,7 +558,7 @@ func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string) []Projec
 	projectWorkItemsAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectWorkItems)
 	projectAssignmentsAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectAssignments)
 	projectAssistantProposalsAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectAssistantProposals)
-	projectAssistantWorkEffectsAuthoritative := projectCairnlineAssistantApplyWorkEffectsAuthoritative(writeAuthority)
+	projectAssistantPortableEffectsAuthoritative := projectCairnlineAssistantApplyPortableEffectsAuthoritative(writeAuthority)
 	for _, item := range projectCairnlineWriteSwitchpoints {
 		if projectIdentityAuthoritative && item.Name == "project-identity" {
 			item.CurrentAuthority = "cairnline"
@@ -639,17 +639,17 @@ func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string) []Projec
 			item.BlocksAuthority = false
 			item.Gap = ""
 			item.Detail = "Project Assistant draft/propose/apply-attempt ledger records commit to the embedded Cairnline database first, then best-effort shadow Hecate's proposal store for compatibility; confirmed apply side effects remain Hecate-owned."
-			if projectAssistantWorkEffectsAuthoritative {
-				item.Detail = "Project Assistant draft/propose/apply-attempt ledger records commit to the embedded Cairnline database first, then best-effort shadow Hecate's proposal store for compatibility; confirmed apply is mixed-authority when enabled work-family actions route through Cairnline."
+			if projectAssistantPortableEffectsAuthoritative {
+				item.Detail = "Project Assistant draft/propose/apply-attempt ledger records commit to the embedded Cairnline database first, then best-effort shadow Hecate's proposal store for compatibility; confirmed apply is mixed-authority when enabled portable actions route through Cairnline."
 			}
 		}
-		if projectAssistantWorkEffectsAuthoritative && item.Name == "project-assistant-apply-side-effects" {
+		if projectAssistantPortableEffectsAuthoritative && item.Name == "project-assistant-apply-side-effects" {
 			item.CurrentAuthority = "mixed"
-			item.CairnlineState = "partial_authoritative_via_work_switchpoints"
+			item.CairnlineState = "partial_authoritative_via_portable_switchpoints"
 			item.LiveMirror = true
 			item.BlocksAuthority = true
 			item.Gap = "project-assistant-apply-side-effects"
-			item.Detail = "Project Assistant confirmed apply routes role, work-item, assignment, and handoff actions through the same opt-in Cairnline authority switchpoints when enabled; project/default/chat/memory/runtime side effects still keep apply as a blocking mixed-authority gap."
+			item.Detail = "Project Assistant confirmed apply routes role, work-item, assignment, handoff, and memory-candidate actions through their opt-in Cairnline authority switchpoints when enabled; project/default/chat/runtime side effects still keep apply as a blocking mixed-authority gap."
 		}
 		if projectCollaborationAuthoritative && item.Name == "collaboration-artifacts" {
 			item.CurrentAuthority = "cairnline"
@@ -782,8 +782,8 @@ func projectCairnlineProjectAssignmentWriteWarning(writeAuthority []string) stri
 
 func projectCairnlineProjectAssistantProposalWriteWarning(writeAuthority []string) string {
 	if projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectAssistantProposals) {
-		if projectCairnlineAssistantApplyWorkEffectsAuthoritative(writeAuthority) {
-			return "Project Assistant proposal ledger mutations are opt-in Cairnline-authoritative and then best-effort shadowed into Hecate-native stores for compatibility; confirmed apply is mixed-authority when enabled work-family actions route through Cairnline."
+		if projectCairnlineAssistantApplyPortableEffectsAuthoritative(writeAuthority) {
+			return "Project Assistant proposal ledger mutations are opt-in Cairnline-authoritative and then best-effort shadowed into Hecate-native stores for compatibility; confirmed apply is mixed-authority when enabled portable actions route through Cairnline."
 		}
 		return "Project Assistant proposal ledger mutations are opt-in Cairnline-authoritative and then best-effort shadowed into Hecate-native stores for compatibility; confirmed apply side effects still execute through Hecate-owned project mutation services."
 	}
@@ -791,17 +791,19 @@ func projectCairnlineProjectAssistantProposalWriteWarning(writeAuthority []strin
 }
 
 func projectCairnlineProjectAssistantApplyWriteWarning(writeAuthority []string) string {
-	if projectCairnlineAssistantApplyWorkEffectsAuthoritative(writeAuthority) {
-		return "Project Assistant confirmed apply uses the enabled Cairnline authority seams for role, work-item, assignment, and handoff actions, but project/default/chat/memory/runtime side effects still keep apply as a mixed-authority replacement blocker."
+	if projectCairnlineAssistantApplyPortableEffectsAuthoritative(writeAuthority) {
+		return "Project Assistant confirmed apply uses the enabled Cairnline authority seams for role, work-item, assignment, handoff, and memory-candidate actions, but project/default/chat/runtime side effects still keep apply as a mixed-authority replacement blocker."
 	}
 	return "Project Assistant confirmed apply side effects still execute through Hecate-owned mutation services, then best-effort mirror committed results into Cairnline."
 }
 
-func projectCairnlineAssistantApplyWorkEffectsAuthoritative(writeAuthority []string) bool {
+func projectCairnlineAssistantApplyPortableEffectsAuthoritative(writeAuthority []string) bool {
 	return projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectRoles) ||
 		projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectWorkItems) ||
 		projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectAssignments) ||
-		projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectCollaboration)
+		projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectCollaboration) ||
+		(projectCairnlineWriteAuthorityEnabled(writeAuthority, "project-memory") &&
+			projectCairnlineWriteAuthorityEnabled(writeAuthority, "memory-candidates"))
 }
 
 func projectCairnlineReadSourceDetail(source string) string {

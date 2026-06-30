@@ -446,7 +446,7 @@ func (s *Service) applyUpdateHandoff(ctx context.Context, action Action) (Action
 }
 
 func (s *Service) applyCreateMemoryCandidate(ctx context.Context, action Action) (ActionResult, error) {
-	if s.memoryCandidates == nil {
+	if s.memoryCandidateAuthority == nil {
 		return ActionResult{}, ErrStoreNotConfigured
 	}
 	var patch memoryCandidatePatch
@@ -464,9 +464,8 @@ func (s *Service) applyCreateMemoryCandidate(ctx context.Context, action Action)
 	if id == "" {
 		id = s.idgen("memcand")
 	}
-	candidate, err := s.memoryCandidates.CreateCandidate(ctx, memory.Candidate{
+	candidate, err := s.memoryCandidateAuthority.CreateMemoryCandidate(ctx, projectID, MemoryCandidateCommand{
 		ID:                  id,
-		ProjectID:           projectID,
 		Title:               patch.Title,
 		Body:                patch.Body,
 		SuggestedKind:       patch.SuggestedKind,

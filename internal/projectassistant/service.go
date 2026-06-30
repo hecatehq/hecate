@@ -50,29 +50,31 @@ var (
 type IDGenerator func(prefix string) string
 
 type Service struct {
-	mu               sync.Mutex
-	projects         projects.Store
-	chats            chat.Store
-	work             projectwork.Store
-	workAuthority    WorkAuthority
-	projectSkills    projectskills.Store
-	memory           memory.Store
-	memoryCandidates memory.CandidateStore
-	proposals        ProposalStore
-	llm              LLMClient
-	idgen            IDGenerator
+	mu                       sync.Mutex
+	projects                 projects.Store
+	chats                    chat.Store
+	work                     projectwork.Store
+	workAuthority            WorkAuthority
+	projectSkills            projectskills.Store
+	memory                   memory.Store
+	memoryCandidates         memory.CandidateStore
+	memoryCandidateAuthority MemoryCandidateAuthority
+	proposals                ProposalStore
+	llm                      LLMClient
+	idgen                    IDGenerator
 }
 
 type Stores struct {
-	Projects         projects.Store
-	Chats            chat.Store
-	Work             projectwork.Store
-	WorkAuthority    WorkAuthority
-	ProjectSkills    projectskills.Store
-	Memory           memory.Store
-	MemoryCandidates memory.CandidateStore
-	Proposals        ProposalStore
-	LLM              LLMClient
+	Projects                 projects.Store
+	Chats                    chat.Store
+	Work                     projectwork.Store
+	WorkAuthority            WorkAuthority
+	ProjectSkills            projectskills.Store
+	Memory                   memory.Store
+	MemoryCandidates         memory.CandidateStore
+	MemoryCandidateAuthority MemoryCandidateAuthority
+	Proposals                ProposalStore
+	LLM                      LLMClient
 }
 
 type ProposalInput struct {
@@ -187,16 +189,17 @@ func NewService(stores Stores, idgen IDGenerator) *Service {
 		proposals = NewMemoryProposalStore()
 	}
 	return &Service{
-		projects:         stores.Projects,
-		chats:            stores.Chats,
-		work:             stores.Work,
-		workAuthority:    workAuthorityForStores(stores),
-		projectSkills:    stores.ProjectSkills,
-		memory:           stores.Memory,
-		memoryCandidates: stores.MemoryCandidates,
-		proposals:        proposals,
-		llm:              stores.LLM,
-		idgen:            idgen,
+		projects:                 stores.Projects,
+		chats:                    stores.Chats,
+		work:                     stores.Work,
+		workAuthority:            workAuthorityForStores(stores),
+		projectSkills:            stores.ProjectSkills,
+		memory:                   stores.Memory,
+		memoryCandidates:         stores.MemoryCandidates,
+		memoryCandidateAuthority: memoryCandidateAuthorityForStores(stores),
+		proposals:                proposals,
+		llm:                      stores.LLM,
+		idgen:                    idgen,
 	}
 }
 

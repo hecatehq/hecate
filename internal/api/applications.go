@@ -96,17 +96,18 @@ func (h *Handler) projectAssistantApplication() *projectassistantapp.Application
 	defer h.projectAssistantMu.Unlock()
 	if h.projectAssistant == nil {
 		h.projectAssistant = projectassistantapp.New(projectassistantapp.Options{
-			Projects:         h.projects,
-			Chats:            h.agentChat,
-			Work:             h.projectWork,
-			WorkAuthority:    h.projectAssistantWorkAuthorityForApplication(),
-			WorkApplication:  h.projectWorkApplication(),
-			ProjectSkills:    h.projectSkills,
-			Memory:           h.memory,
-			MemoryCandidates: h.memoryCandidates,
-			Proposals:        h.projectAssistantProposalStoreForApplication(),
-			LLM:              gatewayAgentLLMClient{service: h.service},
-			IDGenerator:      newOpaqueTaskResourceID,
+			Projects:                 h.projects,
+			Chats:                    h.agentChat,
+			Work:                     h.projectWork,
+			WorkAuthority:            h.projectAssistantWorkAuthorityForApplication(),
+			WorkApplication:          h.projectWorkApplication(),
+			ProjectSkills:            h.projectSkills,
+			Memory:                   h.memory,
+			MemoryCandidates:         h.memoryCandidates,
+			MemoryCandidateAuthority: h.projectAssistantMemoryCandidateAuthorityForApplication(),
+			Proposals:                h.projectAssistantProposalStoreForApplication(),
+			LLM:                      gatewayAgentLLMClient{service: h.service},
+			IDGenerator:              newOpaqueTaskResourceID,
 		})
 	}
 	return h.projectAssistant

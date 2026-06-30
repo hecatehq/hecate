@@ -415,8 +415,8 @@ can be served from the Cairnline read model. Project Assistant draft generation
 also uses the Cairnline-projected context in this mode, while proposal ledger
 writes remain Hecate-owned unless `project-assistant-proposals` is explicitly
 enabled. Confirmed Project Assistant apply routes role, work-item, assignment,
-and handoff actions through the same opt-in Cairnline authority switchpoints
-when those switchpoints are enabled; other apply side effects remain
+handoff, and memory-candidate actions through the same opt-in Cairnline
+authority switchpoints when those switchpoints are enabled; other apply side effects remain
 Hecate-owned and are best-effort mirrored into Cairnline as
 replacement-readiness evidence.
 Launch-readiness and assignment preflight read Cairnline coordination records
@@ -555,8 +555,8 @@ ledger mutations likewise best-effort mirror proposal records and apply attempts
 after Hecate commits unless `project-assistant-proposals` is enabled, in which
 case the proposal ledger commits to Cairnline first and shadows Hecate's
 proposal store for compatibility. Confirmed apply uses the enabled Cairnline
-authority seams for role, work-item, assignment, and handoff actions, but
-project/default/chat/memory/runtime side effects still keep apply as a
+authority seams for role, work-item, assignment, handoff, and memory-candidate
+actions, but project/default/chat/runtime side effects still keep apply as a
 mixed-authority replacement blocker.
 Other live Projects reads/writes still use Hecate-native
 stores until the remaining read routes, write adapter, and migration path are
@@ -581,7 +581,8 @@ proof seams separately from the live-route `write_adapter_gaps`; only
 and they are mirror-only unless their explicit Cairnline write-authority
 switchpoint is enabled; currently only the proposal-ledger switchpoint can be
 made Cairnline-authoritative, while apply side effects become mixed-authority
-only through the enabled role/work-item/assignment/handoff switchpoints. It
+through the enabled role/work-item/assignment/handoff and memory-candidate
+switchpoints. It
 also reports `replacement_ready`,
 `replacement_gates`, and `write_switchpoints` so operators can see the exact
 read-route, strict-embedded-probe, write-authority, and migration blockers
