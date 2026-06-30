@@ -350,10 +350,12 @@ launch agents. Those remain explicit operator or orchestrator actions.
   coordination list tools through local-only sidecar smoke endpoints to verify
   typed `structuredContent` for project list/detail,
   profile/skill/role/work/assignment list, assignment-context, and launch-packet
-  contracts. This is
-  contract/client-lifecycle/read-shape evidence only: Hecate does not yet route
-  live Projects reads, writes, mirrors, or write-authority switchpoints through
-  the sidecar.
+  contracts. Hecate also has an explicit confirmed sidecar lifecycle smoke that
+  exercises `assignments.next`, claim, `update_status`, launch-packet read, and
+  complete against the standalone sidecar database only. This is
+  contract/client-lifecycle/read-shape and standalone mutation evidence only:
+  Hecate does not yet route live Projects reads, writes, mirrors, or
+  write-authority switchpoints through the sidecar.
 - Current Hecate embed experiments can serve project list/detail, setup
   readiness, health, skills, memory, memory candidates, roles, work items,
   assignment lists, assignment context, launch-readiness, assignment preflight,

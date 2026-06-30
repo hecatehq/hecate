@@ -378,7 +378,12 @@ or request an assignment and confirm `assignments.context` returns typed
 assignment/project/work/role metadata. Operators can also run
 `POST /hecate/v1/projects/cairnline/sidecar-launch-packet-smoke` to confirm
 `assignments.launch_packet` returns typed launch-packet ids, counts, and packet
-warnings for the same MCP-pull path.
+warnings for the same MCP-pull path. The explicit mutation smoke at
+`POST /hecate/v1/projects/cairnline/sidecar-lifecycle-smoke` requires
+`confirm_mutation=true` and then proves `assignments.next`, claim,
+`update_status`, launch packet read, and complete against the standalone
+Cairnline sidecar database only; Hecate-native Projects stores remain
+authoritative and are not mutated by that smoke.
 When the embedded Cairnline read adapter is fully wired,
 `GET /hecate/v1/projects/backend-status` reports
 `read_model_switch_ready=true`, and project list/detail, setup readiness,
@@ -426,11 +431,12 @@ The sidecar probe/connect surfaces are configured with
 `HECATE_PROJECTS_CAIRNLINE_SIDECAR_PROBE_TIMEOUT`. `sidecar-probe` verifies MCP
 tool presence only. `sidecar-connect` keeps the process warm in Hecate's
 Cairnline-specific MCP client cache. `sidecar-read-smoke`,
-`sidecar-detail-smoke`, `sidecar-coordination-smoke`, and
+`sidecar-detail-smoke`, `sidecar-coordination-smoke`,
 `sidecar-assignment-context-smoke`, and `sidecar-launch-packet-smoke` use that
 cached client to call read-only Cairnline MCP tools and return diagnostic
-evidence, but they do not route operator project reads or writes through the
-sidecar backend.
+evidence. `sidecar-lifecycle-smoke` is opt-in mutation evidence for the
+standalone sidecar assignment lifecycle. None of these routes operator project
+reads or writes through the sidecar backend.
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-memory` is an alpha
 write-authority dogfood switch for accepted project memory entries:
 create/update/delete commits to the embedded Cairnline database first and then

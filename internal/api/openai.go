@@ -582,6 +582,7 @@ type ProjectCoordinationBackendStatusResponse struct {
 	CairnlineSidecarCoordinationURL      string                                       `json:"cairnline_sidecar_coordination_url,omitempty"`
 	CairnlineSidecarAssignmentContextURL string                                       `json:"cairnline_sidecar_assignment_context_url,omitempty"`
 	CairnlineSidecarLaunchPacketURL      string                                       `json:"cairnline_sidecar_launch_packet_url,omitempty"`
+	CairnlineSidecarLifecycleURL         string                                       `json:"cairnline_sidecar_lifecycle_url,omitempty"`
 	EmbeddedReadModelURL                 string                                       `json:"embedded_read_model_url,omitempty"`
 	EmbeddedParityReportURL              string                                       `json:"embedded_parity_report_url,omitempty"`
 	SyncReadinessURL                     string                                       `json:"sync_readiness_url,omitempty"`
@@ -1703,6 +1704,11 @@ type ProjectCairnlineSidecarLaunchPacketEnvelope struct {
 	Data   ProjectCairnlineSidecarLaunchPacketResponse `json:"data"`
 }
 
+type ProjectCairnlineSidecarLifecycleEnvelope struct {
+	Object string                                   `json:"object"`
+	Data   ProjectCairnlineSidecarLifecycleResponse `json:"data"`
+}
+
 type ProjectCairnlineSidecarDetailRequest struct {
 	ProjectID string `json:"project_id,omitempty"`
 }
@@ -1719,6 +1725,18 @@ type ProjectCairnlineSidecarAssignmentContextRequest struct {
 type ProjectCairnlineSidecarLaunchPacketRequest struct {
 	ProjectID    string `json:"project_id,omitempty"`
 	AssignmentID string `json:"assignment_id,omitempty"`
+}
+
+type ProjectCairnlineSidecarLifecycleRequest struct {
+	ProjectID        string   `json:"project_id,omitempty"`
+	AssignmentID     string   `json:"assignment_id,omitempty"`
+	ConfirmMutation  bool     `json:"confirm_mutation,omitempty"`
+	ClaimedBy        string   `json:"claimed_by,omitempty"`
+	ExecutionRef     string   `json:"execution_ref,omitempty"`
+	CompletionStatus string   `json:"completion_status,omitempty"`
+	AgentKind        string   `json:"agent_kind,omitempty"`
+	SkillIDs         []string `json:"skill_ids,omitempty"`
+	ExecutionModes   []string `json:"execution_modes,omitempty"`
 }
 
 type ProjectCairnlineSidecarProbeResponse struct {
@@ -1936,6 +1954,60 @@ type ProjectCairnlineSidecarLaunchPacketCounts struct {
 	Warnings         int `json:"warnings"`
 }
 
+type ProjectCairnlineSidecarLifecycleResponse struct {
+	Ready                    bool                                           `json:"ready"`
+	Status                   string                                         `json:"status"`
+	Detail                   string                                         `json:"detail"`
+	Command                  string                                         `json:"command"`
+	Args                     []string                                       `json:"args,omitempty"`
+	DatabasePath             string                                         `json:"database_path,omitempty"`
+	ProbeTimeoutMS           int64                                          `json:"probe_timeout_ms"`
+	PersistentClient         bool                                           `json:"persistent_client,omitempty"`
+	ClientCacheConfigured    bool                                           `json:"client_cache_configured,omitempty"`
+	ClientCacheEntries       int                                            `json:"client_cache_entries,omitempty"`
+	ClientCacheInUse         int                                            `json:"client_cache_in_use,omitempty"`
+	ClientCacheIdle          int                                            `json:"client_cache_idle,omitempty"`
+	ConfirmedMutation        bool                                           `json:"confirmed_mutation"`
+	RequestedProjectID       string                                         `json:"requested_project_id,omitempty"`
+	RequestedAssignmentID    string                                         `json:"requested_assignment_id,omitempty"`
+	SelectedProjectID        string                                         `json:"selected_project_id,omitempty"`
+	SelectedProjectSource    string                                         `json:"selected_project_source,omitempty"`
+	SelectedAssignmentID     string                                         `json:"selected_assignment_id,omitempty"`
+	SelectedAssignmentSource string                                         `json:"selected_assignment_source,omitempty"`
+	ClaimedBy                string                                         `json:"claimed_by,omitempty"`
+	ExecutionRef             string                                         `json:"execution_ref,omitempty"`
+	CompletionStatus         string                                         `json:"completion_status,omitempty"`
+	AgentKind                string                                         `json:"agent_kind,omitempty"`
+	SkillIDs                 []string                                       `json:"skill_ids,omitempty"`
+	ExecutionModes           []string                                       `json:"execution_modes,omitempty"`
+	ProjectList              *ProjectCairnlineSidecarCoordinationListResult `json:"project_list,omitempty"`
+	NextAssignmentList       *ProjectCairnlineSidecarCoordinationListResult `json:"next_assignment_list,omitempty"`
+	Steps                    []ProjectCairnlineSidecarLifecycleStep         `json:"steps,omitempty"`
+	FinalAssignment          ProjectCairnlineSidecarAssignmentItem          `json:"final_assignment,omitempty"`
+	LaunchPacketReady        bool                                           `json:"launch_packet_ready"`
+	LaunchPacketIDs          ProjectCairnlineSidecarLaunchPacketIDs         `json:"launch_packet_ids,omitempty"`
+	LaunchPacketCounts       ProjectCairnlineSidecarLaunchPacketCounts      `json:"launch_packet_counts,omitempty"`
+	LaunchPacketWarnings     []string                                       `json:"launch_packet_warnings,omitempty"`
+	Warnings                 []string                                       `json:"warnings,omitempty"`
+}
+
+type ProjectCairnlineSidecarLifecycleStep struct {
+	Name                 string                                    `json:"name"`
+	Tool                 string                                    `json:"tool"`
+	ReadOnly             bool                                      `json:"read_only"`
+	Status               string                                    `json:"status"`
+	ToolText             string                                    `json:"tool_text,omitempty"`
+	ToolIsError          bool                                      `json:"tool_is_error,omitempty"`
+	StructuredContent    json.RawMessage                           `json:"structured_content,omitempty"`
+	Meta                 json.RawMessage                           `json:"meta,omitempty"`
+	StructuredReady      bool                                      `json:"structured_ready"`
+	Assignment           ProjectCairnlineSidecarAssignmentItem     `json:"assignment,omitempty"`
+	LaunchPacketIDs      ProjectCairnlineSidecarLaunchPacketIDs    `json:"launch_packet_ids,omitempty"`
+	LaunchPacketCounts   ProjectCairnlineSidecarLaunchPacketCounts `json:"launch_packet_counts,omitempty"`
+	LaunchPacketWarnings []string                                  `json:"launch_packet_warnings,omitempty"`
+	StructuredParseError string                                    `json:"structured_parse_error,omitempty"`
+}
+
 type ProjectCairnlineSidecarProjectItem struct {
 	ID                        string                              `json:"id"`
 	Name                      string                              `json:"name"`
@@ -1957,6 +2029,8 @@ type ProjectCairnlineSidecarAssignmentItem struct {
 	ProfileID     string   `json:"profile_id,omitempty"`
 	ExecutionMode string   `json:"execution_mode,omitempty"`
 	Status        string   `json:"status,omitempty"`
+	ClaimedBy     string   `json:"claimed_by,omitempty"`
+	ExecutionRef  string   `json:"execution_ref,omitempty"`
 	SkillIDs      []string `json:"skill_ids,omitempty"`
 }
 
