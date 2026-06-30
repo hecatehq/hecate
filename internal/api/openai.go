@@ -554,36 +554,37 @@ type ProjectCoordinationBackendStatusEnvelope struct {
 }
 
 type ProjectCoordinationBackendStatusResponse struct {
-	ConfiguredBackend               string                                       `json:"configured_backend"`
-	AuthoritativeBackend            string                                       `json:"authoritative_backend"`
-	StorageBackend                  string                                       `json:"storage_backend"`
-	CairnlineConnector              string                                       `json:"cairnline_connector,omitempty"`
-	CairnlineConnectorReady         bool                                         `json:"cairnline_connector_ready"`
-	CairnlineConnectorDetail        string                                       `json:"cairnline_connector_detail,omitempty"`
-	CairnlineReadSource             string                                       `json:"cairnline_read_source,omitempty"`
-	CairnlineBridgeReady            bool                                         `json:"cairnline_bridge_ready"`
-	CairnlineAuthoritative          bool                                         `json:"cairnline_authoritative"`
-	ReadModelSwitchReady            bool                                         `json:"read_model_switch_ready"`
-	WriteAdapterReady               bool                                         `json:"write_adapter_ready"`
-	ReplacementReady                bool                                         `json:"replacement_ready"`
-	ReadRoutes                      []string                                     `json:"read_routes,omitempty"`
-	WriteAdapterSeams               []string                                     `json:"write_adapter_seams,omitempty"`
-	WriteAdapterGaps                []string                                     `json:"write_adapter_gaps,omitempty"`
-	ReplacementGates                []ProjectCoordinationBackendReplacementGate  `json:"replacement_gates,omitempty"`
-	WriteSwitchpoints               []ProjectCoordinationBackendWriteSwitchpoint `json:"write_switchpoints,omitempty"`
-	Status                          string                                       `json:"status"`
-	Detail                          string                                       `json:"detail"`
-	Warnings                        []string                                     `json:"warnings,omitempty"`
-	ReplacementReadinessURL         string                                       `json:"replacement_readiness_url,omitempty"`
-	CairnlineSidecarProbeURL        string                                       `json:"cairnline_sidecar_probe_url,omitempty"`
-	CairnlineSidecarConnectURL      string                                       `json:"cairnline_sidecar_connect_url,omitempty"`
-	CairnlineSidecarReadURL         string                                       `json:"cairnline_sidecar_read_url,omitempty"`
-	CairnlineSidecarDetailURL       string                                       `json:"cairnline_sidecar_detail_url,omitempty"`
-	CairnlineSidecarCoordinationURL string                                       `json:"cairnline_sidecar_coordination_url,omitempty"`
-	EmbeddedReadModelURL            string                                       `json:"embedded_read_model_url,omitempty"`
-	EmbeddedParityReportURL         string                                       `json:"embedded_parity_report_url,omitempty"`
-	SyncReadinessURL                string                                       `json:"sync_readiness_url,omitempty"`
-	MirrorParityURL                 string                                       `json:"mirror_parity_url,omitempty"`
+	ConfiguredBackend                    string                                       `json:"configured_backend"`
+	AuthoritativeBackend                 string                                       `json:"authoritative_backend"`
+	StorageBackend                       string                                       `json:"storage_backend"`
+	CairnlineConnector                   string                                       `json:"cairnline_connector,omitempty"`
+	CairnlineConnectorReady              bool                                         `json:"cairnline_connector_ready"`
+	CairnlineConnectorDetail             string                                       `json:"cairnline_connector_detail,omitempty"`
+	CairnlineReadSource                  string                                       `json:"cairnline_read_source,omitempty"`
+	CairnlineBridgeReady                 bool                                         `json:"cairnline_bridge_ready"`
+	CairnlineAuthoritative               bool                                         `json:"cairnline_authoritative"`
+	ReadModelSwitchReady                 bool                                         `json:"read_model_switch_ready"`
+	WriteAdapterReady                    bool                                         `json:"write_adapter_ready"`
+	ReplacementReady                     bool                                         `json:"replacement_ready"`
+	ReadRoutes                           []string                                     `json:"read_routes,omitempty"`
+	WriteAdapterSeams                    []string                                     `json:"write_adapter_seams,omitempty"`
+	WriteAdapterGaps                     []string                                     `json:"write_adapter_gaps,omitempty"`
+	ReplacementGates                     []ProjectCoordinationBackendReplacementGate  `json:"replacement_gates,omitempty"`
+	WriteSwitchpoints                    []ProjectCoordinationBackendWriteSwitchpoint `json:"write_switchpoints,omitempty"`
+	Status                               string                                       `json:"status"`
+	Detail                               string                                       `json:"detail"`
+	Warnings                             []string                                     `json:"warnings,omitempty"`
+	ReplacementReadinessURL              string                                       `json:"replacement_readiness_url,omitempty"`
+	CairnlineSidecarProbeURL             string                                       `json:"cairnline_sidecar_probe_url,omitempty"`
+	CairnlineSidecarConnectURL           string                                       `json:"cairnline_sidecar_connect_url,omitempty"`
+	CairnlineSidecarReadURL              string                                       `json:"cairnline_sidecar_read_url,omitempty"`
+	CairnlineSidecarDetailURL            string                                       `json:"cairnline_sidecar_detail_url,omitempty"`
+	CairnlineSidecarCoordinationURL      string                                       `json:"cairnline_sidecar_coordination_url,omitempty"`
+	CairnlineSidecarAssignmentContextURL string                                       `json:"cairnline_sidecar_assignment_context_url,omitempty"`
+	EmbeddedReadModelURL                 string                                       `json:"embedded_read_model_url,omitempty"`
+	EmbeddedParityReportURL              string                                       `json:"embedded_parity_report_url,omitempty"`
+	SyncReadinessURL                     string                                       `json:"sync_readiness_url,omitempty"`
+	MirrorParityURL                      string                                       `json:"mirror_parity_url,omitempty"`
 }
 
 type ProjectCoordinationBackendReplacementGate struct {
@@ -1691,12 +1692,22 @@ type ProjectCairnlineSidecarCoordinationEnvelope struct {
 	Data   ProjectCairnlineSidecarCoordinationResponse `json:"data"`
 }
 
+type ProjectCairnlineSidecarAssignmentContextEnvelope struct {
+	Object string                                           `json:"object"`
+	Data   ProjectCairnlineSidecarAssignmentContextResponse `json:"data"`
+}
+
 type ProjectCairnlineSidecarDetailRequest struct {
 	ProjectID string `json:"project_id,omitempty"`
 }
 
 type ProjectCairnlineSidecarCoordinationRequest struct {
 	ProjectID string `json:"project_id,omitempty"`
+}
+
+type ProjectCairnlineSidecarAssignmentContextRequest struct {
+	ProjectID    string `json:"project_id,omitempty"`
+	AssignmentID string `json:"assignment_id,omitempty"`
 }
 
 type ProjectCairnlineSidecarProbeResponse struct {
@@ -1817,6 +1828,46 @@ type ProjectCairnlineSidecarCoordinationListResult struct {
 	StructuredParseError string          `json:"structured_parse_error,omitempty"`
 }
 
+type ProjectCairnlineSidecarAssignmentContextResponse struct {
+	Ready                    bool                                           `json:"ready"`
+	Status                   string                                         `json:"status"`
+	Detail                   string                                         `json:"detail"`
+	Command                  string                                         `json:"command"`
+	Args                     []string                                       `json:"args,omitempty"`
+	DatabasePath             string                                         `json:"database_path,omitempty"`
+	ProbeTimeoutMS           int64                                          `json:"probe_timeout_ms"`
+	PersistentClient         bool                                           `json:"persistent_client,omitempty"`
+	ClientCacheConfigured    bool                                           `json:"client_cache_configured,omitempty"`
+	ClientCacheEntries       int                                            `json:"client_cache_entries,omitempty"`
+	ClientCacheInUse         int                                            `json:"client_cache_in_use,omitempty"`
+	ClientCacheIdle          int                                            `json:"client_cache_idle,omitempty"`
+	Tool                     string                                         `json:"tool"`
+	ReadOnly                 bool                                           `json:"read_only"`
+	RequestedProjectID       string                                         `json:"requested_project_id,omitempty"`
+	RequestedAssignmentID    string                                         `json:"requested_assignment_id,omitempty"`
+	SelectedProjectID        string                                         `json:"selected_project_id,omitempty"`
+	SelectedProjectSource    string                                         `json:"selected_project_source,omitempty"`
+	SelectedAssignmentID     string                                         `json:"selected_assignment_id,omitempty"`
+	SelectedAssignmentSource string                                         `json:"selected_assignment_source,omitempty"`
+	ProjectList              *ProjectCairnlineSidecarCoordinationListResult `json:"project_list,omitempty"`
+	AssignmentList           *ProjectCairnlineSidecarCoordinationListResult `json:"assignment_list,omitempty"`
+	ToolText                 string                                         `json:"tool_text,omitempty"`
+	ToolIsError              bool                                           `json:"tool_is_error,omitempty"`
+	StructuredContent        json.RawMessage                                `json:"structured_content,omitempty"`
+	Meta                     json.RawMessage                                `json:"meta,omitempty"`
+	StructuredReady          bool                                           `json:"structured_ready"`
+	StructuredIDs            ProjectCairnlineSidecarAssignmentContextIDs    `json:"structured_ids,omitempty"`
+	StructuredParseError     string                                         `json:"structured_parse_error,omitempty"`
+	Warnings                 []string                                       `json:"warnings,omitempty"`
+}
+
+type ProjectCairnlineSidecarAssignmentContextIDs struct {
+	AssignmentID string `json:"assignment_id,omitempty"`
+	ProjectID    string `json:"project_id,omitempty"`
+	WorkItemID   string `json:"work_item_id,omitempty"`
+	RoleID       string `json:"role_id,omitempty"`
+}
+
 type ProjectCairnlineSidecarProjectItem struct {
 	ID                        string                              `json:"id"`
 	Name                      string                              `json:"name"`
@@ -1828,6 +1879,17 @@ type ProjectCairnlineSidecarProjectItem struct {
 	ContextSources            []ProjectCairnlineSidecarSourceItem `json:"context_sources,omitempty"`
 	CreatedAt                 string                              `json:"created_at,omitempty"`
 	UpdatedAt                 string                              `json:"updated_at,omitempty"`
+}
+
+type ProjectCairnlineSidecarAssignmentItem struct {
+	ID            string   `json:"id"`
+	ProjectID     string   `json:"project_id,omitempty"`
+	WorkItemID    string   `json:"work_item_id,omitempty"`
+	RoleID        string   `json:"role_id,omitempty"`
+	ProfileID     string   `json:"profile_id,omitempty"`
+	ExecutionMode string   `json:"execution_mode,omitempty"`
+	Status        string   `json:"status,omitempty"`
+	SkillIDs      []string `json:"skill_ids,omitempty"`
 }
 
 type ProjectCairnlineSidecarRootItem struct {

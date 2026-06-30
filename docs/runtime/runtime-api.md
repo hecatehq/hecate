@@ -47,7 +47,7 @@ liveness probe and every other path requires trusted trusted proxy headers:
 context, exposed from `GET /hecate/v1/whoami` as `data.remote_identity`, added to
 the top-level HTTP span attributes, and accepted in place of the local
 runtime/inference shared tokens. Remote mode rejects local-only endpoints for
-workspace picker/open, reset-data, shutdown, MCP probe, Cairnline sidecar probe/connect/read/detail/coordination smoke,
+workspace picker/open, reset-data, shutdown, MCP probe, Cairnline sidecar probe/connect/read/detail/coordination/assignment-context smoke,
 plugin-registry management, agent-adapter authenticate, and local provider and MCP registry discovery. Hecate-native `/hecate/v1/*` routes are explicitly
 classified for remote mode, and route coverage tests fail when a new registered
 route is not marked remote-safe or local-only.
@@ -472,8 +472,10 @@ sequenceDiagram
   `projects.list` / `projects.get` through the `sidecar-read-smoke` and
   `sidecar-detail-smoke` endpoints. `sidecar-coordination-smoke` also calls
   the read-only portable coordination list tools and checks their typed
-  `structuredContent` arrays, but live Projects reads and writes still use
-  Hecate-native stores.
+  `structuredContent` arrays. `sidecar-assignment-context-smoke` calls
+  read-only `assignments.context` and checks typed assignment/project/work/role
+  context metadata, but live Projects reads and writes still use Hecate-native
+  stores.
 - `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=auto|snapshot|embedded` controls which
   Cairnline service backing configured read routes use while
   `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and
@@ -2669,7 +2671,8 @@ Example response, with `write_switchpoints` shortened for readability:
     "cairnline_sidecar_connect_url": "/hecate/v1/projects/cairnline/sidecar-connect",
     "cairnline_sidecar_read_url": "/hecate/v1/projects/cairnline/sidecar-read-smoke",
     "cairnline_sidecar_detail_url": "/hecate/v1/projects/cairnline/sidecar-detail-smoke",
-    "cairnline_sidecar_coordination_url": "/hecate/v1/projects/cairnline/sidecar-coordination-smoke"
+    "cairnline_sidecar_coordination_url": "/hecate/v1/projects/cairnline/sidecar-coordination-smoke",
+    "cairnline_sidecar_assignment_context_url": "/hecate/v1/projects/cairnline/sidecar-assignment-context-smoke"
   }
 }
 ```
@@ -3007,6 +3010,76 @@ Example response, shortened:
         "structured_count": 2
       }
     ],
+    "warnings": []
+  }
+}
+```
+
+### `POST /hecate/v1/projects/cairnline/sidecar-assignment-context-smoke`
+
+Local-only standalone Cairnline MCP assignment-context smoke. It uses the same
+sidecar command, database, timeout, and Cairnline-specific MCP client cache as
+`sidecar-connect`. With an empty body, Hecate calls read-only `projects.list`,
+selects the first typed project id, calls read-only `assignments.list`, selects
+the first typed assignment id, and then calls read-only `assignments.context`.
+With a body such as `{"project_id":"proj_123","assignment_id":"asg_123"}`,
+Hecate skips list selection and calls `assignments.context` directly.
+
+This endpoint is diagnostic only. It proves Hecate can read the MCP-pull
+assignment context shape a compatible agent would consume from a standalone
+Cairnline sidecar. It does not claim, start, mutate, dispatch, or complete
+assignments. `ready=true` means the MCP tool call succeeded.
+`structured_ready=true` means Hecate parsed `assignments.context`
+`structuredContent` and found assignment, project, work item, and role ids.
+
+The response reports:
+
+- `requested_project_id` / `requested_assignment_id` when the operator supplied
+  ids.
+- `selected_project_id` / `selected_assignment_id` and their selection sources
+  (`request`, `projects.list`, or `assignments.list`).
+- `project_list` and `assignment_list` evidence when Hecate had to select ids.
+- `tool="assignments.context"` and `read_only=true` for the context call.
+- `tool_text`, `tool_is_error`, `structured_content`, and `_meta` for the
+  `assignments.context` result.
+- `structured_ready`, `structured_ids`, and `structured_parse_error` for the
+  typed assignment-context contract, including assignment/project/work/role ids
+  when present.
+- The same persistent-client cache counters as `sidecar-connect`.
+
+Example response, shortened:
+
+```json
+{
+  "object": "project_cairnline_sidecar_assignment_context",
+  "data": {
+    "ready": true,
+    "status": "sidecar_assignment_context_ready",
+    "detail": "Hecate called the read-only Cairnline sidecar assignments.context tool through the persistent sidecar client. Hecate still keeps live Projects reads and writes on Hecate-native stores in sidecar mode.",
+    "command": "cairnline",
+    "args": ["-db", "/Users/alice/.local/share/hecate/cairnline/projects.db"],
+    "database_path": "/Users/alice/.local/share/hecate/cairnline/projects.db",
+    "probe_timeout_ms": 10000,
+    "persistent_client": true,
+    "client_cache_configured": true,
+    "client_cache_entries": 1,
+    "client_cache_in_use": 0,
+    "client_cache_idle": 1,
+    "tool": "assignments.context",
+    "read_only": true,
+    "selected_project_id": "proj_123",
+    "selected_project_source": "projects.list",
+    "selected_assignment_id": "asg_123",
+    "selected_assignment_source": "assignments.list",
+    "tool_text": "Assignment context asg_123 for project proj_123",
+    "tool_is_error": false,
+    "structured_ready": true,
+    "structured_ids": {
+      "assignment_id": "asg_123",
+      "project_id": "proj_123",
+      "work_item_id": "work_123",
+      "role_id": "role_reviewer"
+    },
     "warnings": []
   }
 }

@@ -183,6 +183,9 @@ func cairnlineSidecarFixtureCallTool(mode string, params mcp.CallToolParams) (mc
 			"priority":   "normal",
 		}})
 	case "assignments.list":
+		if mode == "assignment-list-empty" {
+			return cairnlineSidecarFixtureListResult(mode, "No assignments yet.", []map[string]any{})
+		}
 		return cairnlineSidecarFixtureListResult(mode, "Assignments (1):\n- asg_fixture: Fixture Assignment", []map[string]any{{
 			"project_id":     cairnlineSidecarFixtureProjectID(params.Arguments),
 			"id":             "asg_fixture",
@@ -192,6 +195,44 @@ func cairnlineSidecarFixtureCallTool(mode string, params mcp.CallToolParams) (mc
 			"execution_mode": "mcp_pull",
 			"status":         "queued",
 		}})
+	case "assignments.context":
+		if mode == "context-tool-error" {
+			return mcp.CallToolResult{
+				Content: mcp.TextContent("fixture assignments.context failed"),
+				IsError: true,
+			}, nil
+		}
+		var input struct {
+			ProjectID    string `json:"project_id"`
+			AssignmentID string `json:"assignment_id"`
+		}
+		if err := json.Unmarshal(params.Arguments, &input); err != nil {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid assignments.context arguments")
+		}
+		if input.ProjectID == "" || input.AssignmentID == "" {
+			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "missing assignment context ids")
+		}
+		result := mcp.CallToolResult{Content: mcp.TextContent("Assignment context " + input.AssignmentID + " for project " + input.ProjectID)}
+		if mode != "text-only" {
+			result.StructuredContent = mustRawJSON(map[string]any{
+				"assignment": map[string]any{
+					"id":           input.AssignmentID,
+					"project_id":   input.ProjectID,
+					"work_item_id": "work_fixture",
+					"role_id":      "role_fixture",
+					"status":       "queued",
+				},
+				"work_item": map[string]any{
+					"id":    "work_fixture",
+					"title": "Fixture Work",
+				},
+				"role": map[string]any{
+					"id":   "role_fixture",
+					"name": "Fixture Reviewer",
+				},
+			})
+		}
+		return result, nil
 	case "projects.get":
 		if mode == "get-tool-error" {
 			return mcp.CallToolResult{
