@@ -438,17 +438,19 @@ reads. With `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar`,
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar` routes only project list/detail,
 setup-readiness, health, project skill list, project memory list,
 memory-candidate list, project role list, work-item list/detail, and
-assignment-list reads through the standalone Cairnline MCP client; all other
-live Projects read routes remain Hecate-native or use the embedded dogfood read
-model when that is configured. Work-item list/detail and assignment-list reads
-render the work graph from Cairnline service records and overlay Hecate-only
-runtime refs/timestamps while Hecate still owns execution. Outside the explicit
-sidecar read-source routes for
+assignment-list, artifact-list, and handoff-list reads through the standalone
+Cairnline MCP client; all other live Projects read routes remain Hecate-native
+or use the embedded dogfood read model when that is configured. Work-item
+list/detail, assignment-list, artifact-list, and handoff-list reads render the
+work graph from Cairnline service records and overlay Hecate-only runtime
+refs/timestamps while Hecate still owns execution. Outside the explicit sidecar
+read-source routes for
 project list/detail, setup-readiness, health, skills, memory, memory candidates,
-roles, work items, and assignment lists, project identity and some compatibility
-scaffolding remain Hecate-owned until Cairnline becomes authoritative. Project
-identity, metadata/default, root, and context-source mutations still write Hecate
-stores first and then best-effort mirror into the embedded Cairnline database through
+roles, work items, assignment lists, artifact lists, and handoff lists, project
+identity and some compatibility scaffolding remain Hecate-owned until Cairnline
+becomes authoritative. Project identity, metadata/default, root, and
+context-source mutations still write Hecate stores first and then best-effort
+mirror into the embedded Cairnline database through
 their identity/metadata/root/source/default seams unless their explicit
 write-authority switchpoints are enabled; this is replacement-readiness
 evidence, not write authority.

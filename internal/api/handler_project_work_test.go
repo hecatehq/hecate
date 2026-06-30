@@ -1519,6 +1519,119 @@ func TestProjectWorkAPI_AssignmentsCairnlineSidecarReadRequiresStructuredContent
 	}
 }
 
+func TestProjectWorkAPI_ArtifactsUseCairnlineSidecarWhenConfigured(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "collaboration-fixture")
+	if handler.projectReadRoutesUseCairnlineReadModel() {
+		t.Fatal("sidecar artifact list enabled embedded Cairnline read-model routes")
+	}
+	if !handler.projectCairnlineSidecarReadRoutesEnabled() {
+		t.Fatal("sidecar read-route predicate = false, want true")
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/artifacts", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("artifacts status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response ProjectWorkArtifactsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode artifacts response: %v", err)
+	}
+	if response.Object != "project_collaboration_artifacts" || len(response.Data) != 3 {
+		t.Fatalf("artifacts response = %+v, want generic artifact, evidence, and review", response)
+	}
+	if response.Data[0].ID != "artifact_fixture" || response.Data[0].Kind != projectwork.ArtifactKindDecisionNote || response.Data[0].ReadBackend != "cairnline" {
+		t.Fatalf("generic artifact = %+v, want Cairnline-backed decision note", response.Data[0])
+	}
+	if response.Data[1].ID != "evidence_fixture" || response.Data[1].Kind != projectwork.ArtifactKindEvidenceLink || response.Data[1].EvidenceURL == "" || response.Data[1].ReadBackend != "cairnline" {
+		t.Fatalf("evidence artifact = %+v, want Cairnline-backed evidence link", response.Data[1])
+	}
+	if response.Data[2].ID != "review_fixture" || response.Data[2].Kind != projectwork.ArtifactKindReview || response.Data[2].ReviewVerdict != projectwork.ReviewVerdictChangesRequested || !response.Data[2].ReviewFollowUpRequired || response.Data[2].ReadBackend != "cairnline" {
+		t.Fatalf("review artifact = %+v, want Cairnline-backed review", response.Data[2])
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/missing/artifacts", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing work-item artifacts status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+}
+
+func TestProjectWorkAPI_ArtifactsCairnlineSidecarReadRequiresStructuredContent(t *testing.T) {
+	t.Parallel()
+	_, server := newProjectsCairnlineSidecarReadTestServer(t, "text-only")
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/artifacts", nil))
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("artifacts status = %d body=%s, want 502", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "structuredContent") {
+		t.Fatalf("error body = %s, want structuredContent diagnostic", rec.Body.String())
+	}
+}
+
+func TestProjectWorkAPI_HandoffsUseCairnlineSidecarWhenConfigured(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "collaboration-fixture")
+	if handler.projectReadRoutesUseCairnlineReadModel() {
+		t.Fatal("sidecar handoff list enabled embedded Cairnline read-model routes")
+	}
+	if !handler.projectCairnlineSidecarReadRoutesEnabled() {
+		t.Fatal("sidecar read-route predicate = false, want true")
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/handoffs?work_item_id=work_fixture&status=pending", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("project handoffs status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response ProjectHandoffsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode project handoffs response: %v", err)
+	}
+	if response.Object != "project_handoffs" || len(response.Data) != 1 {
+		t.Fatalf("project handoffs response = %+v, want one filtered handoff", response)
+	}
+	handoff := response.Data[0]
+	if handoff.ID != "handoff_fixture" || handoff.ProjectID != "proj_fixture" || handoff.WorkItemID != "work_fixture" || handoff.Status != projectwork.HandoffStatusPending || handoff.ReadBackend != "cairnline" {
+		t.Fatalf("project handoff = %+v, want sidecar Cairnline fixture handoff", handoff)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/handoffs", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("work-item handoffs status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode work-item handoffs response: %v", err)
+	}
+	if len(response.Data) != 1 || response.Data[0].ID != "handoff_fixture" || response.Data[0].ReadBackend != "cairnline" {
+		t.Fatalf("work-item handoffs response = %+v, want sidecar handoff", response)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/missing/handoffs", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing work-item handoffs status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+}
+
+func TestProjectWorkAPI_HandoffsCairnlineSidecarReadRequiresStructuredContent(t *testing.T) {
+	t.Parallel()
+	_, server := newProjectsCairnlineSidecarReadTestServer(t, "text-only")
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/handoffs", nil))
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("handoffs status = %d body=%s, want 502", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "structuredContent") {
+		t.Fatalf("error body = %s, want structuredContent diagnostic", rec.Body.String())
+	}
+}
+
 func TestProjectWorkAPI_CreateHandoffGeneratesOpaqueHandoffID(t *testing.T) {
 	t.Parallel()
 	_, server := newProjectWorkTestServer()

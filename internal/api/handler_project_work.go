@@ -901,6 +901,23 @@ func projectWorkAssignmentStatusFromRun(status string) string {
 func (h *Handler) HandleProjectWorkArtifacts(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
 	workItemID := r.PathValue("work_item_id")
+	if h.projectCairnlineSidecarReadRoutesEnabled() {
+		data, err := h.renderCairnlineSidecarProjectWorkArtifacts(r.Context(), projectID, workItemID)
+		if err != nil {
+			if errors.Is(err, projects.ErrNotFound) {
+				WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
+				return
+			}
+			if errors.Is(err, projectwork.ErrNotFound) {
+				WriteError(w, http.StatusNotFound, errCodeNotFound, "work item not found")
+				return
+			}
+			writeProjectReadRenderError(w, err)
+			return
+		}
+		WriteJSON(w, http.StatusOK, ProjectWorkArtifactsResponse{Object: "project_collaboration_artifacts", Data: data})
+		return
+	}
 	if !h.requireProjectWorkItem(w, r, projectID, workItemID) {
 		return
 	}
@@ -956,13 +973,26 @@ func (h *Handler) HandleCreateProjectWorkArtifact(w http.ResponseWriter, r *http
 
 func (h *Handler) HandleProjectHandoffs(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
-	if !h.requireProject(w, r, projectID) {
-		return
-	}
 	filter := projectwork.HandoffFilter{
 		ProjectID:  projectID,
 		WorkItemID: strings.TrimSpace(r.URL.Query().Get("work_item_id")),
 		Status:     strings.TrimSpace(r.URL.Query().Get("status")),
+	}
+	if h.projectCairnlineSidecarReadRoutesEnabled() {
+		data, err := h.renderCairnlineSidecarProjectHandoffs(r.Context(), filter)
+		if err != nil {
+			if errors.Is(err, projects.ErrNotFound) {
+				WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
+				return
+			}
+			writeProjectReadRenderError(w, err)
+			return
+		}
+		WriteJSON(w, http.StatusOK, ProjectHandoffsResponse{Object: "project_handoffs", Data: data})
+		return
+	}
+	if !h.requireProject(w, r, projectID) {
+		return
 	}
 	data, err := h.renderProjectHandoffs(r.Context(), filter)
 	if !writeProjectWorkError(w, err) {
@@ -974,6 +1004,27 @@ func (h *Handler) HandleProjectHandoffs(w http.ResponseWriter, r *http.Request) 
 func (h *Handler) HandleProjectWorkItemHandoffs(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
 	workItemID := r.PathValue("work_item_id")
+	if h.projectCairnlineSidecarReadRoutesEnabled() {
+		data, err := h.renderCairnlineSidecarProjectWorkItemHandoffs(r.Context(), projectwork.HandoffFilter{
+			ProjectID:  projectID,
+			WorkItemID: workItemID,
+			Status:     strings.TrimSpace(r.URL.Query().Get("status")),
+		})
+		if err != nil {
+			if errors.Is(err, projects.ErrNotFound) {
+				WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
+				return
+			}
+			if errors.Is(err, projectwork.ErrNotFound) {
+				WriteError(w, http.StatusNotFound, errCodeNotFound, "work item not found")
+				return
+			}
+			writeProjectReadRenderError(w, err)
+			return
+		}
+		WriteJSON(w, http.StatusOK, ProjectHandoffsResponse{Object: "project_handoffs", Data: data})
+		return
+	}
 	if !h.requireProjectWorkItem(w, r, projectID, workItemID) {
 		return
 	}

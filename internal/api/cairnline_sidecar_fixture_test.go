@@ -1011,6 +1011,9 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 	case "artifacts.list":
 		projectID, workItemID := cairnlineSidecarFixtureProjectWorkIDs(params.Arguments)
 		items := cairnlineSidecarFixtureProjectArtifacts(state, projectID, workItemID)
+		if len(items) == 0 && mode == "collaboration-fixture" {
+			items = cairnlineSidecarFixtureDefaultArtifacts(projectID, workItemID)
+		}
 		return cairnlineSidecarFixtureListResult(mode, fmt.Sprintf("Artifacts for %s (%d)", workItemID, len(items)), items)
 	case "artifacts.get":
 		var input struct {
@@ -1068,6 +1071,9 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 	case "evidence.list":
 		projectID, workItemID := cairnlineSidecarFixtureProjectWorkIDs(params.Arguments)
 		items := cairnlineSidecarFixtureProjectEvidence(state, projectID, workItemID)
+		if len(items) == 0 && mode == "collaboration-fixture" {
+			items = cairnlineSidecarFixtureDefaultEvidence(projectID, workItemID)
+		}
 		return cairnlineSidecarFixtureListResult(mode, fmt.Sprintf("Evidence for %s (%d)", workItemID, len(items)), items)
 	case "evidence.get":
 		var input struct {
@@ -1122,6 +1128,9 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 	case "reviews.list":
 		projectID, workItemID := cairnlineSidecarFixtureProjectWorkIDs(params.Arguments)
 		items := cairnlineSidecarFixtureProjectReviews(state, projectID, workItemID)
+		if len(items) == 0 && mode == "collaboration-fixture" {
+			items = cairnlineSidecarFixtureDefaultReviews(projectID, workItemID)
+		}
 		return cairnlineSidecarFixtureListResult(mode, fmt.Sprintf("Reviews for %s (%d)", workItemID, len(items)), items)
 	case "reviews.get":
 		var input struct {
@@ -1195,6 +1204,9 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 	case "handoffs.list":
 		projectID, workItemID := cairnlineSidecarFixtureProjectWorkIDs(params.Arguments)
 		items := cairnlineSidecarFixtureProjectHandoffs(state, projectID, workItemID)
+		if len(items) == 0 && mode == "collaboration-fixture" {
+			items = cairnlineSidecarFixtureDefaultHandoffs(projectID, workItemID)
+		}
 		return cairnlineSidecarFixtureListResult(mode, fmt.Sprintf("Handoffs for %s (%d)", workItemID, len(items)), items)
 	case "handoffs.get":
 		var input struct {
@@ -1582,6 +1594,25 @@ func cairnlineSidecarFixtureEnsureArtifacts(state *cairnlineSidecarFixtureState,
 	return state.artifacts[projectID]
 }
 
+func cairnlineSidecarFixtureDefaultArtifacts(projectID, workItemID string) []ProjectCairnlineSidecarArtifactItem {
+	workItemID, ok := cairnlineSidecarFixtureDefaultWorkItemID(workItemID)
+	if !ok {
+		return nil
+	}
+	return []ProjectCairnlineSidecarArtifactItem{{
+		ProjectID:    projectID,
+		ID:           "artifact_fixture",
+		WorkItemID:   workItemID,
+		AssignmentID: "asg_fixture",
+		Kind:         "decision_note",
+		Title:        "Fixture decision",
+		Body:         "Portable fixture artifact.",
+		AuthorRoleID: "role_fixture",
+		CreatedAt:    "2026-06-01T10:00:00Z",
+		UpdatedAt:    "2026-06-01T10:00:00Z",
+	}}
+}
+
 func cairnlineSidecarFixtureProjectArtifacts(state *cairnlineSidecarFixtureState, projectID, workItemID string) []ProjectCairnlineSidecarArtifactItem {
 	artifactsByID := state.artifacts[projectID]
 	artifacts := make([]ProjectCairnlineSidecarArtifactItem, 0, len(artifactsByID))
@@ -1598,6 +1629,28 @@ func cairnlineSidecarFixtureEnsureEvidence(state *cairnlineSidecarFixtureState, 
 		state.evidence[projectID] = make(map[string]ProjectCairnlineSidecarEvidenceItem)
 	}
 	return state.evidence[projectID]
+}
+
+func cairnlineSidecarFixtureDefaultEvidence(projectID, workItemID string) []ProjectCairnlineSidecarEvidenceItem {
+	workItemID, ok := cairnlineSidecarFixtureDefaultWorkItemID(workItemID)
+	if !ok {
+		return nil
+	}
+	return []ProjectCairnlineSidecarEvidenceItem{{
+		ProjectID:    projectID,
+		ID:           "evidence_fixture",
+		WorkItemID:   workItemID,
+		AssignmentID: "asg_fixture",
+		Title:        "Fixture evidence",
+		Body:         "Portable fixture evidence.",
+		Locator:      "https://example.com/evidence",
+		SourceKind:   "pull_request",
+		ExternalID:   "PR 632",
+		Provider:     "github",
+		TrustLabel:   "operator_provided",
+		CreatedAt:    "2026-06-01T11:00:00Z",
+		UpdatedAt:    "2026-06-01T11:00:00Z",
+	}}
 }
 
 func cairnlineSidecarFixtureProjectEvidence(state *cairnlineSidecarFixtureState, projectID, workItemID string) []ProjectCairnlineSidecarEvidenceItem {
@@ -1618,6 +1671,27 @@ func cairnlineSidecarFixtureEnsureReviews(state *cairnlineSidecarFixtureState, p
 	return state.reviews[projectID]
 }
 
+func cairnlineSidecarFixtureDefaultReviews(projectID, workItemID string) []ProjectCairnlineSidecarReviewItem {
+	workItemID, ok := cairnlineSidecarFixtureDefaultWorkItemID(workItemID)
+	if !ok {
+		return nil
+	}
+	return []ProjectCairnlineSidecarReviewItem{{
+		ProjectID:      projectID,
+		ID:             "review_fixture",
+		WorkItemID:     workItemID,
+		AssignmentID:   "asg_fixture",
+		ReviewerRoleID: "role_fixture",
+		Title:          "Fixture review",
+		Body:           "Portable fixture review.",
+		Verdict:        "changes_requested",
+		Risk:           "medium",
+		Status:         "open",
+		CreatedAt:      "2026-06-01T12:00:00Z",
+		UpdatedAt:      "2026-06-01T12:00:00Z",
+	}}
+}
+
 func cairnlineSidecarFixtureProjectReviews(state *cairnlineSidecarFixtureState, projectID, workItemID string) []ProjectCairnlineSidecarReviewItem {
 	reviewsByID := state.reviews[projectID]
 	reviews := make([]ProjectCairnlineSidecarReviewItem, 0, len(reviewsByID))
@@ -1634,6 +1708,42 @@ func cairnlineSidecarFixtureEnsureHandoffs(state *cairnlineSidecarFixtureState, 
 		state.handoffs[projectID] = make(map[string]ProjectCairnlineSidecarHandoffItem)
 	}
 	return state.handoffs[projectID]
+}
+
+func cairnlineSidecarFixtureDefaultHandoffs(projectID, workItemID string) []ProjectCairnlineSidecarHandoffItem {
+	workItemID, ok := cairnlineSidecarFixtureDefaultWorkItemID(workItemID)
+	if !ok {
+		return nil
+	}
+	return []ProjectCairnlineSidecarHandoffItem{{
+		ProjectID:             projectID,
+		ID:                    "handoff_fixture",
+		WorkItemID:            workItemID,
+		SourceAssignmentID:    "asg_fixture",
+		FromRoleID:            "role_fixture",
+		ToRoleID:              "role_fixture",
+		Title:                 "Fixture handoff",
+		Body:                  "Portable fixture handoff.",
+		RecommendedNextAction: "Review fixture follow-up.",
+		LinkedArtifactIDs:     []string{"artifact_fixture"},
+		Status:                "open",
+		ProvenanceKind:        "agent_draft",
+		TrustLabel:            "operator_reviewed",
+		CreatedAt:             "2026-06-01T13:00:00Z",
+		UpdatedAt:             "2026-06-01T13:00:00Z",
+		StatusChangedAt:       "2026-06-01T13:00:00Z",
+	}}
+}
+
+func cairnlineSidecarFixtureDefaultWorkItemID(workItemID string) (string, bool) {
+	workItemID = strings.TrimSpace(workItemID)
+	if workItemID == "" {
+		return "work_fixture", true
+	}
+	if workItemID == "work_fixture" {
+		return workItemID, true
+	}
+	return "", false
 }
 
 func cairnlineSidecarFixtureProjectHandoffs(state *cairnlineSidecarFixtureState, projectID, workItemID string) []ProjectCairnlineSidecarHandoffItem {

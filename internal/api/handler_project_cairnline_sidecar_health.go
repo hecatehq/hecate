@@ -122,7 +122,11 @@ func (h *Handler) cairnlineSidecarProjectAssignments(ctx context.Context, projec
 }
 
 func (h *Handler) cairnlineSidecarProjectArtifacts(ctx context.Context, projectID string) ([]ProjectCairnlineSidecarArtifactItem, error) {
-	result, err := h.callProjectCairnlineSidecarProjectReadTool(ctx, "artifacts.list", map[string]string{"project_id": strings.TrimSpace(projectID)})
+	return h.cairnlineSidecarProjectArtifactList(ctx, projectID, "")
+}
+
+func (h *Handler) cairnlineSidecarProjectArtifactList(ctx context.Context, projectID, workItemID string) ([]ProjectCairnlineSidecarArtifactItem, error) {
+	result, err := h.callProjectCairnlineSidecarProjectReadTool(ctx, "artifacts.list", projectCairnlineSidecarProjectWorkListArgs(projectID, workItemID))
 	if err != nil {
 		return nil, err
 	}
@@ -140,7 +144,11 @@ func (h *Handler) cairnlineSidecarProjectArtifacts(ctx context.Context, projectI
 }
 
 func (h *Handler) cairnlineSidecarProjectEvidence(ctx context.Context, projectID string) ([]ProjectCairnlineSidecarEvidenceItem, error) {
-	result, err := h.callProjectCairnlineSidecarProjectReadTool(ctx, "evidence.list", map[string]string{"project_id": strings.TrimSpace(projectID)})
+	return h.cairnlineSidecarProjectEvidenceList(ctx, projectID, "")
+}
+
+func (h *Handler) cairnlineSidecarProjectEvidenceList(ctx context.Context, projectID, workItemID string) ([]ProjectCairnlineSidecarEvidenceItem, error) {
+	result, err := h.callProjectCairnlineSidecarProjectReadTool(ctx, "evidence.list", projectCairnlineSidecarProjectWorkListArgs(projectID, workItemID))
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +166,11 @@ func (h *Handler) cairnlineSidecarProjectEvidence(ctx context.Context, projectID
 }
 
 func (h *Handler) cairnlineSidecarProjectReviews(ctx context.Context, projectID string) ([]ProjectCairnlineSidecarReviewItem, error) {
-	result, err := h.callProjectCairnlineSidecarProjectReadTool(ctx, "reviews.list", map[string]string{"project_id": strings.TrimSpace(projectID)})
+	return h.cairnlineSidecarProjectReviewList(ctx, projectID, "")
+}
+
+func (h *Handler) cairnlineSidecarProjectReviewList(ctx context.Context, projectID, workItemID string) ([]ProjectCairnlineSidecarReviewItem, error) {
+	result, err := h.callProjectCairnlineSidecarProjectReadTool(ctx, "reviews.list", projectCairnlineSidecarProjectWorkListArgs(projectID, workItemID))
 	if err != nil {
 		return nil, err
 	}
@@ -176,7 +188,11 @@ func (h *Handler) cairnlineSidecarProjectReviews(ctx context.Context, projectID 
 }
 
 func (h *Handler) cairnlineSidecarProjectHandoffs(ctx context.Context, projectID string) ([]ProjectCairnlineSidecarHandoffItem, error) {
-	result, err := h.callProjectCairnlineSidecarProjectReadTool(ctx, "handoffs.list", map[string]string{"project_id": strings.TrimSpace(projectID)})
+	return h.cairnlineSidecarProjectHandoffList(ctx, projectID, "")
+}
+
+func (h *Handler) cairnlineSidecarProjectHandoffList(ctx context.Context, projectID, workItemID string) ([]ProjectCairnlineSidecarHandoffItem, error) {
+	result, err := h.callProjectCairnlineSidecarProjectReadTool(ctx, "handoffs.list", projectCairnlineSidecarProjectWorkListArgs(projectID, workItemID))
 	if err != nil {
 		return nil, err
 	}
@@ -191,6 +207,14 @@ func (h *Handler) cairnlineSidecarProjectHandoffs(ctx context.Context, projectID
 		return nil, projectCairnlineSidecarReadFailure("handoffs.list did not return typed structuredContent")
 	}
 	return handoffs, nil
+}
+
+func projectCairnlineSidecarProjectWorkListArgs(projectID, workItemID string) map[string]string {
+	args := map[string]string{"project_id": strings.TrimSpace(projectID)}
+	if workItemID = strings.TrimSpace(workItemID); workItemID != "" {
+		args["work_item_id"] = workItemID
+	}
+	return args
 }
 
 func (h *Handler) cairnlineSidecarProjectMemoryCandidates(ctx context.Context, projectID string) ([]ProjectCairnlineSidecarMemoryCandidateItem, error) {
