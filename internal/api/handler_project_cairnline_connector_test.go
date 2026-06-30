@@ -1310,20 +1310,23 @@ func TestProjectCairnlineSidecarAssistantSmoke_AppliesProposal(t *testing.T) {
 	if got.CreatedProposal.ID != got.ProposalID || got.CreatedProposal.Status != "proposed" || len(got.CreatedProposal.Proposal.Actions) != 3 {
 		t.Fatalf("created proposal = %+v, want proposed record with three actions", got.CreatedProposal)
 	}
+	if got.UnconfirmedApplyResult.ProposalID != got.ProposalID || got.UnconfirmedApplyResult.Status != "needs_confirmation" || got.UnconfirmedApplyResult.Applied || got.UnconfirmedApplyResult.Confirmed {
+		t.Fatalf("unconfirmed apply result = %+v, want typed needs-confirmation safety result", got.UnconfirmedApplyResult)
+	}
 	if got.ApplyResult.ProposalID != got.ProposalID || got.ApplyResult.Status != "applied" || !got.ApplyResult.Applied || !got.ApplyResult.Confirmed || got.ApplyResult.AppliedActionCount != 3 {
 		t.Fatalf("apply result = %+v, want confirmed applied result for all actions", got.ApplyResult)
 	}
 	if got.AppliedProposal.ID != got.ProposalID || got.AppliedProposal.Status != "applied" || got.AppliedProposal.LatestResult == nil || len(got.AppliedProposal.ApplyAttempts) == 0 {
 		t.Fatalf("applied proposal = %+v, want applied ledger state", got.AppliedProposal)
 	}
-	if len(got.Steps) != 12 {
+	if len(got.Steps) != 14 {
 		t.Fatalf("steps = %+v, want project/proposal/apply/verify/delete flow", got.Steps)
 	}
-	if got.Steps[2].Tool != "assistant.propose" || got.Steps[3].Tool != "assistant.proposals.list" || got.Steps[4].Tool != "assistant.proposals.get" || got.Steps[5].Tool != "assistant.apply" || got.Steps[8].Tool != "work_items.list" || got.Steps[9].Tool != "assignments.list" || got.Steps[11].Status != "expected_missing" {
+	if got.Steps[2].Tool != "assistant.propose" || got.Steps[3].Tool != "assistant.proposals.list" || got.Steps[4].Tool != "assistant.proposals.get" || got.Steps[5].Tool != "assistant.apply" || got.Steps[5].Status != "tool_failed" || got.Steps[5].StructuredAssistantApplyResult.Status != "needs_confirmation" || got.Steps[6].Tool != "assistant.proposals.get" || got.Steps[7].Tool != "assistant.apply" || got.Steps[10].Tool != "work_items.list" || got.Steps[11].Tool != "assignments.list" || got.Steps[13].Status != "expected_missing" {
 		t.Fatalf("steps = %+v, want assistant smoke order and missing-after-delete verification", got.Steps)
 	}
-	if got.Steps[5].StructuredAssistantApplyResult.AppliedActionCount != 3 {
-		t.Fatalf("apply step = %+v, want typed apply result with three applied actions", got.Steps[5])
+	if got.Steps[7].StructuredAssistantApplyResult.AppliedActionCount != 3 {
+		t.Fatalf("apply step = %+v, want typed apply result with three applied actions", got.Steps[7])
 	}
 }
 
@@ -1345,7 +1348,7 @@ func TestProjectCairnlineSidecarAssistantSmoke_CleansUpAfterApplyFailure(t *test
 	if got.Ready || got.Status != "sidecar_assistant_tool_failed" || !got.CleanupVerified {
 		t.Fatalf("assistant smoke = %+v, want apply tool failure with verified project cleanup", got)
 	}
-	if len(got.Steps) != 8 || got.Steps[5].Tool != "assistant.apply" || !got.Steps[5].ToolIsError || got.Steps[6].Name != "cleanup_delete_project" || got.Steps[7].Status != "expected_missing" {
+	if len(got.Steps) != 10 || got.Steps[5].Tool != "assistant.apply" || got.Steps[5].StructuredAssistantApplyResult.Status != "needs_confirmation" || got.Steps[7].Tool != "assistant.apply" || !got.Steps[7].ToolIsError || got.Steps[8].Name != "cleanup_delete_project" || got.Steps[9].Status != "expected_missing" {
 		t.Fatalf("steps = %+v, want apply failure followed by project cleanup delete and verification", got.Steps)
 	}
 	if !strings.Contains(strings.Join(got.Warnings, "\n"), "deleted and verified removal") {

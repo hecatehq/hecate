@@ -625,9 +625,6 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 		}
 		return mcp.CallToolResult{Content: mcp.TextContent("Assistant proposal " + input.ID + ": [" + record.Status + "] " + record.Proposal.Title), StructuredContent: mustRawJSON(record)}, nil
 	case "assistant.apply":
-		if mode == "assistant-apply-tool-error" {
-			return mcp.CallToolResult{Content: mcp.TextContent("fixture assistant.apply failed"), IsError: true}, nil
-		}
 		var input struct {
 			ProposalID string                                       `json:"proposal_id"`
 			Proposal   ProjectCairnlineSidecarAssistantProposalItem `json:"proposal"`
@@ -635,6 +632,9 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 		}
 		if err := json.Unmarshal(params.Arguments, &input); err != nil {
 			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid assistant.apply arguments")
+		}
+		if mode == "assistant-apply-tool-error" && input.Confirm {
+			return mcp.CallToolResult{Content: mcp.TextContent("fixture assistant.apply failed"), IsError: true}, nil
 		}
 		record, ok := state.assistantProposals[input.ProposalID]
 		if !ok && input.Proposal.ID != "" {

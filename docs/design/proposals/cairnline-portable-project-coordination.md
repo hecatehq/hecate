@@ -366,12 +366,12 @@ launch agents. Those remain explicit operator or orchestrator actions.
   memory, promotes one memory candidate, rejects/deletes another candidate, and
   cleans up a temporary standalone Cairnline project, plus an explicit
   confirmed Project Assistant smoke that creates and verifies a temporary
-  proposal ledger record, applies it with explicit confirmation, verifies the
+  proposal ledger record, verifies unconfirmed apply returns
+  `needs_confirmation`, applies it with explicit confirmation, verifies the
   created role/work/assignment side effects, and cleans up the temporary
-  standalone Cairnline project. This is contract/client-lifecycle/read-shape
-  and standalone mutation evidence only: Hecate does not yet route live
-  Projects reads, writes, mirrors, or write-authority switchpoints through the
-  sidecar.
+  standalone Cairnline project. This is contract/client-lifecycle/read-shape and
+  standalone mutation evidence only: Hecate does not yet route live Projects
+  reads, writes, mirrors, or write-authority switchpoints through the sidecar.
 - Current Hecate embed experiments can serve project list/detail, setup
   readiness, health, skills, memory, memory candidates, roles, work items,
   assignment lists, assignment context, launch-readiness, assignment preflight,

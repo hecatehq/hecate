@@ -2215,31 +2215,32 @@ type ProjectCairnlineSidecarMemoryResponse struct {
 }
 
 type ProjectCairnlineSidecarAssistantResponse struct {
-	Ready                 bool                                               `json:"ready"`
-	Status                string                                             `json:"status"`
-	Detail                string                                             `json:"detail"`
-	Command               string                                             `json:"command"`
-	Args                  []string                                           `json:"args,omitempty"`
-	DatabasePath          string                                             `json:"database_path,omitempty"`
-	ProbeTimeoutMS        int64                                              `json:"probe_timeout_ms"`
-	PersistentClient      bool                                               `json:"persistent_client,omitempty"`
-	ClientCacheConfigured bool                                               `json:"client_cache_configured,omitempty"`
-	ClientCacheEntries    int                                                `json:"client_cache_entries,omitempty"`
-	ClientCacheInUse      int                                                `json:"client_cache_in_use,omitempty"`
-	ClientCacheIdle       int                                                `json:"client_cache_idle,omitempty"`
-	ConfirmedMutation     bool                                               `json:"confirmed_mutation"`
-	ProjectName           string                                             `json:"project_name,omitempty"`
-	SelectedProjectID     string                                             `json:"selected_project_id,omitempty"`
-	ProposalID            string                                             `json:"proposal_id,omitempty"`
-	RoleID                string                                             `json:"role_id,omitempty"`
-	WorkItemID            string                                             `json:"work_item_id,omitempty"`
-	AssignmentID          string                                             `json:"assignment_id,omitempty"`
-	Steps                 []ProjectCairnlineSidecarWriteStep                 `json:"steps,omitempty"`
-	CreatedProposal       ProjectCairnlineSidecarAssistantProposalRecordItem `json:"created_proposal,omitempty"`
-	AppliedProposal       ProjectCairnlineSidecarAssistantProposalRecordItem `json:"applied_proposal,omitempty"`
-	ApplyResult           ProjectCairnlineSidecarAssistantApplyResultItem    `json:"apply_result,omitempty"`
-	CleanupVerified       bool                                               `json:"cleanup_verified"`
-	Warnings              []string                                           `json:"warnings,omitempty"`
+	Ready                  bool                                               `json:"ready"`
+	Status                 string                                             `json:"status"`
+	Detail                 string                                             `json:"detail"`
+	Command                string                                             `json:"command"`
+	Args                   []string                                           `json:"args,omitempty"`
+	DatabasePath           string                                             `json:"database_path,omitempty"`
+	ProbeTimeoutMS         int64                                              `json:"probe_timeout_ms"`
+	PersistentClient       bool                                               `json:"persistent_client,omitempty"`
+	ClientCacheConfigured  bool                                               `json:"client_cache_configured,omitempty"`
+	ClientCacheEntries     int                                                `json:"client_cache_entries,omitempty"`
+	ClientCacheInUse       int                                                `json:"client_cache_in_use,omitempty"`
+	ClientCacheIdle        int                                                `json:"client_cache_idle,omitempty"`
+	ConfirmedMutation      bool                                               `json:"confirmed_mutation"`
+	ProjectName            string                                             `json:"project_name,omitempty"`
+	SelectedProjectID      string                                             `json:"selected_project_id,omitempty"`
+	ProposalID             string                                             `json:"proposal_id,omitempty"`
+	RoleID                 string                                             `json:"role_id,omitempty"`
+	WorkItemID             string                                             `json:"work_item_id,omitempty"`
+	AssignmentID           string                                             `json:"assignment_id,omitempty"`
+	Steps                  []ProjectCairnlineSidecarWriteStep                 `json:"steps,omitempty"`
+	CreatedProposal        ProjectCairnlineSidecarAssistantProposalRecordItem `json:"created_proposal,omitempty"`
+	UnconfirmedApplyResult ProjectCairnlineSidecarAssistantApplyResultItem    `json:"unconfirmed_apply_result,omitempty"`
+	AppliedProposal        ProjectCairnlineSidecarAssistantProposalRecordItem `json:"applied_proposal,omitempty"`
+	ApplyResult            ProjectCairnlineSidecarAssistantApplyResultItem    `json:"apply_result,omitempty"`
+	CleanupVerified        bool                                               `json:"cleanup_verified"`
+	Warnings               []string                                           `json:"warnings,omitempty"`
 }
 
 type ProjectCairnlineSidecarWriteStep struct {

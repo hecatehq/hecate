@@ -2942,14 +2942,16 @@ Cairnline-specific MCP client cache as `sidecar-connect`.
 
 The smoke creates a temporary rootless project, creates and verifies a
 confirmed-action Project Assistant proposal through `assistant.propose` /
-`assistant.proposals.list` / `assistant.proposals.get`, applies it through
-`assistant.apply` with `confirm=true`, verifies the applied proposal ledger
-state through another `assistant.proposals.get`, verifies the proposal side
-effects through `roles.list`, `work_items.list`, and `assignments.list`, then
-deletes the temporary project and expects a final `projects.get` to return a
-tool-level missing/error result. If a step fails after the temporary project id
-is known, Hecate attempts a best-effort project cleanup delete and verifies
-that cleanup through another `projects.get`.
+`assistant.proposals.list` / `assistant.proposals.get`, first verifies
+`assistant.apply` with `confirm=false` returns a typed `needs_confirmation`
+result without applying side effects, then applies it through `assistant.apply`
+with `confirm=true`. It verifies the applied proposal ledger state through
+another `assistant.proposals.get`, verifies the proposal side effects through
+`roles.list`, `work_items.list`, and `assignments.list`, then deletes the
+temporary project and expects a final `projects.get` to return a tool-level
+missing/error result. If a step fails after the temporary project id is known,
+Hecate attempts a best-effort project cleanup delete and verifies that cleanup
+through another `projects.get`.
 
 Example request:
 
@@ -2994,6 +2996,13 @@ Example response, shortened:
           { "kind": "create_assignment" }
         ]
       }
+    },
+    "unconfirmed_apply_result": {
+      "proposal_id": "prop_proj_123_assistant_smoke",
+      "status": "needs_confirmation",
+      "applied": false,
+      "confirmed": false,
+      "applied_action_count": 0
     },
     "apply_result": {
       "proposal_id": "prop_proj_123_assistant_smoke",
