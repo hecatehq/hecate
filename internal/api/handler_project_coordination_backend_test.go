@@ -672,7 +672,7 @@ func TestProjectCoordinationBackendStatus_CairnlineProjectAssistantProposalAutho
 	}
 }
 
-func TestProjectCoordinationBackendStatus_CairnlineProjectAssistantApplyWorkAuthorityConfigured(t *testing.T) {
+func TestProjectCoordinationBackendStatus_CairnlineProjectAssistantApplyPortableAuthorityConfigured(t *testing.T) {
 	handler := NewHandler(config.Config{
 		Projects: config.ProjectsConfig{
 			Backend:             "sqlite",
@@ -684,6 +684,8 @@ func TestProjectCoordinationBackendStatus_CairnlineProjectAssistantApplyWorkAuth
 				projectCairnlineWriteAuthorityProjectWorkItems,
 				projectCairnlineWriteAuthorityProjectAssignments,
 				projectCairnlineWriteAuthorityProjectCollaboration,
+				"project-memory",
+				"memory-candidates",
 			}, ","),
 		},
 	}, quietLogger(), nil, nil, nil, nil)
@@ -693,10 +695,10 @@ func TestProjectCoordinationBackendStatus_CairnlineProjectAssistantApplyWorkAuth
 		t.Fatalf("write gaps = %+v, want assistant apply side effects to remain a blocking mixed-authority gap", status.WriteAdapterGaps)
 	}
 	applyPoint := findWriteSwitchpoint(status.WriteSwitchpoints, "project-assistant-apply-side-effects")
-	if applyPoint == nil || applyPoint.CurrentAuthority != "mixed" || applyPoint.CairnlineState != "partial_authoritative_via_work_switchpoints" || !applyPoint.BlocksAuthority || applyPoint.Gap != "project-assistant-apply-side-effects" {
-		t.Fatalf("project-assistant-apply-side-effects switchpoint = %+v, want mixed authority through enabled work switchpoints", applyPoint)
+	if applyPoint == nil || applyPoint.CurrentAuthority != "mixed" || applyPoint.CairnlineState != "partial_authoritative_via_portable_switchpoints" || !applyPoint.BlocksAuthority || applyPoint.Gap != "project-assistant-apply-side-effects" {
+		t.Fatalf("project-assistant-apply-side-effects switchpoint = %+v, want mixed authority through enabled portable switchpoints", applyPoint)
 	}
-	for _, name := range []string{"roles", "work-items", "assignments", "artifacts", "handoffs", "project-assistant-proposals"} {
+	for _, name := range []string{"roles", "work-items", "assignments", "artifacts", "handoffs", "memory", "memory-candidates", "project-assistant-proposals"} {
 		if containsString(status.WriteAdapterGaps, name) {
 			t.Fatalf("write gaps = %+v, did not expect %q when underlying work/proposal switchpoints are enabled", status.WriteAdapterGaps, name)
 		}

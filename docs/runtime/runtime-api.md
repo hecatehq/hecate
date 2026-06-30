@@ -573,8 +573,9 @@ sequenceDiagram
   `project-assistant-proposals` makes Project Assistant draft/propose/apply-attempt
   ledger records Cairnline-first, then best-effort shadows Hecate's proposal
   store for compatibility. Confirmed Project Assistant apply uses enabled
-  role/work-item/assignment/handoff authority seams and still blocks replacement
-  on the remaining project/default/chat/memory/runtime side effects.
+  role/work-item/assignment/handoff and memory-candidate authority seams and
+  still blocks replacement on the remaining project/default/chat/runtime side
+  effects.
   `project-roots` makes project root create/update/delete plus root list
   replacement plus discovery-result replacement and worktree-created root
   record mutations Cairnline-first, then shadows Hecate's compatibility project
@@ -2527,10 +2528,12 @@ mirrors Project Assistant draft/propose/apply proposal records and apply-attempt
 history after Hecate commits unless
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-assistant-proposals` makes
 those ledger records Cairnline-first. `project-assistant-apply-side-effects-live-mirror`
-mirrors committed apply side effects after Hecate commits. Assignment-start
-dispatch still writes Hecate-native runtime stores first, while committed
-results and cleanup/conflict states mirror to Cairnline. Other non-mirrored live
-mutation routes still write only Hecate-native stores.
+mirrors remaining committed apply side effects after Hecate commits; enabled
+role/work-item/assignment/handoff and memory-candidate apply actions use their
+Cairnline authority seams first. Assignment-start dispatch still writes
+Hecate-native runtime stores first, while committed results and cleanup/conflict
+states mirror to Cairnline. Other non-mirrored live mutation routes still write
+only Hecate-native stores.
 `mirror_parity_url` points at a read-only check that compares Hecate's current
 project stores with the existing embedded Cairnline mirror database without
 creating or repairing it. `sync_readiness_url` points at the all-project
@@ -6268,9 +6271,9 @@ text-only sidecar output. Draft generation uses the same Cairnline-projected
 context so preview and proposal assembly do not drift, while proposal ledger
 writes remain Hecate-owned unless
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-assistant-proposals` is
-enabled. Confirmed apply uses enabled role/work-item/assignment/handoff
-Cairnline-authority seams and still blocks replacement on the remaining
-project/default/chat/memory/runtime side effects.
+enabled. Confirmed apply uses enabled role/work-item/assignment/handoff and
+memory-candidate Cairnline-authority seams and still blocks replacement on the
+remaining project/default/chat/runtime side effects.
 `GET /hecate/v1/project-assistant/proposals/{id}` uses the same configured
 Cairnline read source as the other read routes; strict embedded mode reads the
 proposal record from the embedded mirror instead of falling back to the native

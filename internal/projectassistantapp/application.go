@@ -17,17 +17,18 @@ type Application struct {
 }
 
 type Options struct {
-	Projects         projects.Store
-	Chats            chat.Store
-	Work             projectwork.Store
-	WorkAuthority    projectassistant.WorkAuthority
-	WorkApplication  *projectworkapp.Application
-	ProjectSkills    projectskills.Store
-	Memory           memory.Store
-	MemoryCandidates memory.CandidateStore
-	Proposals        projectassistant.ProposalStore
-	LLM              projectassistant.LLMClient
-	IDGenerator      projectassistant.IDGenerator
+	Projects                 projects.Store
+	Chats                    chat.Store
+	Work                     projectwork.Store
+	WorkAuthority            projectassistant.WorkAuthority
+	WorkApplication          *projectworkapp.Application
+	ProjectSkills            projectskills.Store
+	Memory                   memory.Store
+	MemoryCandidates         memory.CandidateStore
+	MemoryCandidateAuthority projectassistant.MemoryCandidateAuthority
+	Proposals                projectassistant.ProposalStore
+	LLM                      projectassistant.LLMClient
+	IDGenerator              projectassistant.IDGenerator
 }
 
 type ContextCommand struct {
@@ -74,15 +75,16 @@ func New(options Options) *Application {
 	}
 	return &Application{
 		service: projectassistant.NewService(projectassistant.Stores{
-			Projects:         options.Projects,
-			Chats:            options.Chats,
-			Work:             options.Work,
-			WorkAuthority:    workAuthority,
-			ProjectSkills:    options.ProjectSkills,
-			Memory:           options.Memory,
-			MemoryCandidates: options.MemoryCandidates,
-			Proposals:        options.Proposals,
-			LLM:              options.LLM,
+			Projects:                 options.Projects,
+			Chats:                    options.Chats,
+			Work:                     options.Work,
+			WorkAuthority:            workAuthority,
+			ProjectSkills:            options.ProjectSkills,
+			Memory:                   options.Memory,
+			MemoryCandidates:         options.MemoryCandidates,
+			MemoryCandidateAuthority: options.MemoryCandidateAuthority,
+			Proposals:                options.Proposals,
+			LLM:                      options.LLM,
 		}, options.IDGenerator),
 	}
 }

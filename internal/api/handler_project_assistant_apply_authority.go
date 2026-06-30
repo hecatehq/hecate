@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/hecatehq/cairnline"
+	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projectassistant"
 	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/internal/projectworkapp"
@@ -19,6 +21,13 @@ func (h *Handler) projectAssistantWorkAuthorityForApplication() projectassistant
 		return nil
 	}
 	return projectAssistantWorkAuthority{handler: h}
+}
+
+func (h *Handler) projectAssistantMemoryCandidateAuthorityForApplication() projectassistant.MemoryCandidateAuthority {
+	if h == nil {
+		return nil
+	}
+	return projectAssistantMemoryCandidateAuthority{handler: h}
 }
 
 func (authority projectAssistantWorkAuthority) CreateRole(ctx context.Context, projectID string, cmd projectassistant.WorkRoleCommand) (projectwork.AgentRoleProfile, error) {
@@ -194,4 +203,57 @@ func projectAssistantApplyWorkError(err error) error {
 		return fmt.Errorf("%w: %w", projectassistant.ErrConflict, err)
 	}
 	return err
+}
+
+type projectAssistantMemoryCandidateAuthority struct {
+	handler *Handler
+}
+
+func (authority projectAssistantMemoryCandidateAuthority) CreateMemoryCandidate(ctx context.Context, projectID string, cmd projectassistant.MemoryCandidateCommand) (memory.Candidate, error) {
+	h := authority.handler
+	if h == nil {
+		return memory.Candidate{}, projectassistant.ErrStoreNotConfigured
+	}
+	candidate := memory.Candidate{
+		ID:                  cmd.ID,
+		ProjectID:           projectID,
+		Title:               cmd.Title,
+		Body:                cmd.Body,
+		SuggestedKind:       cmd.SuggestedKind,
+		SuggestedTrustLabel: cmd.SuggestedTrustLabel,
+		SuggestedSourceKind: cmd.SuggestedSourceKind,
+		SuggestedSourceID:   cmd.SuggestedSourceID,
+		SourceRefs:          append([]memory.CandidateSourceRef(nil), cmd.SourceRefs...),
+		Status:              memory.CandidateStatusPending,
+	}
+	if h.projectMemoryCandidatesWriteUseCairnlineAuthority() {
+		created, err := h.createProjectMemoryCandidateWithCairnlineAuthority(ctx, projectID, candidate)
+		if err != nil {
+			return memory.Candidate{}, projectAssistantApplyMemoryCandidateError(err)
+		}
+		h.shadowProjectMemoryCandidateToHecate(ctx, "project_assistant_memory_candidate_authority_create_shadow", created)
+		return created, nil
+	}
+	if h.memoryCandidates == nil {
+		return memory.Candidate{}, projectassistant.ErrStoreNotConfigured
+	}
+	created, err := h.memoryCandidates.CreateCandidate(ctx, candidate)
+	return created, projectAssistantApplyMemoryCandidateError(err)
+}
+
+func projectAssistantApplyMemoryCandidateError(err error) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, cairnline.ErrNotFound):
+		return fmt.Errorf("%w: %w", memory.ErrNotFound, err)
+	case errors.Is(err, cairnline.ErrInvalid):
+		return fmt.Errorf("%w: %w", memory.ErrInvalid, err)
+	case errors.Is(err, cairnline.ErrDuplicate):
+		return fmt.Errorf("%w: %w", memory.ErrAlreadyExists, err)
+	case errors.Is(err, cairnline.ErrConflict):
+		return fmt.Errorf("%w: %w", memory.ErrConflict, err)
+	default:
+		return err
+	}
 }
