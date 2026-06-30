@@ -365,6 +365,9 @@ func (h *Handler) writeProjectAssistantActionResultToCairnline(ctx context.Conte
 		}
 		return h.writeProjectMetadataToCairnline(ctx, project)
 	case projectassistant.ActionAttachProjectRoot:
+		if h.projectRootWritesUseCairnlineAuthority() {
+			return nil
+		}
 		project, ok := h.projectForCairnlineMirror(ctx, "project_assistant_apply_result", projectID)
 		if !ok {
 			return nil
@@ -376,6 +379,9 @@ func (h *Handler) writeProjectAssistantActionResultToCairnline(ctx context.Conte
 		}
 		return h.writeProjectRootToCairnline(ctx, project, root)
 	case projectassistant.ActionRemoveProjectRoot:
+		if h.projectRootWritesUseCairnlineAuthority() {
+			return nil
+		}
 		project, ok := h.projectForCairnlineMirror(ctx, "project_assistant_apply_result", projectID)
 		if !ok {
 			return nil

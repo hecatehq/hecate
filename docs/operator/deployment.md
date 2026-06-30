@@ -414,11 +414,11 @@ context/proposal reads, closeout readiness, activity inbox, and operations brief
 can be served from the Cairnline read model. Project Assistant draft generation
 also uses the Cairnline-projected context in this mode, while proposal ledger
 writes remain Hecate-owned unless `project-assistant-proposals` is explicitly
-enabled. Confirmed Project Assistant apply routes role, work-item, assignment,
-handoff, memory-candidate, and project metadata/default actions through the same
-opt-in Cairnline authority switchpoints when those switchpoints are enabled; root,
-chat, and runtime side effects remain Hecate-owned and are best-effort mirrored into Cairnline as
-replacement-readiness evidence.
+enabled. Confirmed Project Assistant apply routes project metadata/default,
+root, role, work-item, assignment, handoff, and memory-candidate actions through
+the same opt-in Cairnline authority switchpoints when those switchpoints are
+enabled; chat and runtime side effects remain Hecate-owned and are best-effort
+mirrored into Cairnline as replacement-readiness evidence.
 Launch-readiness and assignment preflight read Cairnline coordination records
 before applying Hecate runtime checks.
 Assignment preflight/start context packets may include inspect-only Cairnline
@@ -555,9 +555,9 @@ ledger mutations likewise best-effort mirror proposal records and apply attempts
 after Hecate commits unless `project-assistant-proposals` is enabled, in which
 case the proposal ledger commits to Cairnline first and shadows Hecate's
 proposal store for compatibility. Confirmed apply uses the enabled Cairnline
-authority seams for project metadata/default, role, work-item, assignment,
-handoff, and memory-candidate actions, but root/chat/runtime side effects still
-keep apply as a mixed-authority replacement blocker.
+authority seams for project metadata/default, root, role, work-item,
+assignment, handoff, and memory-candidate actions, but chat/runtime side effects
+still keep apply as a mixed-authority replacement blocker.
 Other live Projects reads/writes still use Hecate-native
 stores until the remaining read routes, write adapter, and migration path are
 ready. Current bridge write experiments cover non-authoritative
@@ -581,8 +581,8 @@ proof seams separately from the live-route `write_adapter_gaps`; only
 and they are mirror-only unless their explicit Cairnline write-authority
 switchpoint is enabled; currently only the proposal-ledger switchpoint can be
 made Cairnline-authoritative, while apply side effects become mixed-authority
-through the enabled project metadata/default, role/work-item/assignment/handoff,
-and memory-candidate switchpoints. It
+through the enabled project metadata/default, root,
+role/work-item/assignment/handoff, and memory-candidate switchpoints. It
 also reports `replacement_ready`,
 `replacement_gates`, and `write_switchpoints` so operators can see the exact
 read-route, strict-embedded-probe, write-authority, and migration blockers
