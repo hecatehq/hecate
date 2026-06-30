@@ -179,6 +179,35 @@ func (h *Handler) cairnlineSidecarProjectOperationsBrief(ctx context.Context, pr
 	return brief, nil
 }
 
+func (h *Handler) cairnlineSidecarAssignmentLaunchPacket(ctx context.Context, projectID, assignmentID string) (cairnline.AssignmentLaunchPacket, bool, error) {
+	projectID = strings.TrimSpace(projectID)
+	assignmentID = strings.TrimSpace(assignmentID)
+	if projectID == "" || assignmentID == "" {
+		return cairnline.AssignmentLaunchPacket{}, false, nil
+	}
+	result, err := h.callProjectCairnlineSidecarProjectReadTool(ctx, "assignments.launch_packet", map[string]string{
+		"project_id":    projectID,
+		"assignment_id": assignmentID,
+	})
+	if err != nil {
+		return cairnline.AssignmentLaunchPacket{}, false, err
+	}
+	if result.IsError {
+		if projectCairnlineSidecarToolErrorIsNotFound(result.Text) {
+			return cairnline.AssignmentLaunchPacket{}, false, nil
+		}
+		return cairnline.AssignmentLaunchPacket{}, false, projectCairnlineSidecarReadFailure("assignments.launch_packet returned a tool-level error: " + strings.TrimSpace(result.Text))
+	}
+	packet, structuredReady, structuredErr := projectCairnlineSidecarStructuredAssignmentLaunchPacket(result.Result.StructuredContent)
+	if structuredErr != nil {
+		return cairnline.AssignmentLaunchPacket{}, false, projectCairnlineSidecarReadFailure("assignments.launch_packet structuredContent parse failed: " + structuredErr.Error())
+	}
+	if !structuredReady {
+		return cairnline.AssignmentLaunchPacket{}, false, projectCairnlineSidecarReadFailure("assignments.launch_packet did not return typed structuredContent")
+	}
+	return packet, true, nil
+}
+
 func renderProjectFromCairnlineSidecar(project ProjectCairnlineSidecarProjectItem) ProjectResponseItem {
 	converted := projectFromCairnlineSidecar(project)
 	return renderProjectWithBackend(converted, "cairnline")

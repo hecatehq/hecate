@@ -4063,6 +4063,21 @@ func projectCairnlineSidecarStructuredProjectOperationsBrief(raw json.RawMessage
 	return brief, true, nil
 }
 
+func projectCairnlineSidecarStructuredAssignmentLaunchPacket(raw json.RawMessage) (cairnline.AssignmentLaunchPacket, bool, error) {
+	if len(raw) == 0 {
+		return cairnline.AssignmentLaunchPacket{}, false, nil
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return cairnline.AssignmentLaunchPacket{}, false, nil
+	}
+	var packet cairnline.AssignmentLaunchPacket
+	if err := json.Unmarshal(trimmed, &packet); err != nil {
+		return cairnline.AssignmentLaunchPacket{}, false, err
+	}
+	return packet, true, nil
+}
+
 func projectCairnlineSidecarStructuredLaunchPacket(raw json.RawMessage) (ProjectCairnlineSidecarLaunchPacketIDs, ProjectCairnlineSidecarLaunchPacketCounts, []string, bool, error) {
 	if len(raw) == 0 {
 		return ProjectCairnlineSidecarLaunchPacketIDs{}, ProjectCairnlineSidecarLaunchPacketCounts{}, nil, false, nil
