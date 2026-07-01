@@ -604,6 +604,15 @@ sequenceDiagram
   to Cairnline first, then best-effort shadows Hecate's compatibility project
   row. Delete restores the Cairnline snapshot if Hecate compatibility cleanup
   fails. All other Projects mutations remain Hecate-owned.
+- `HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=disabled|embedded` is the
+  explicit cutover-mode arm. The default is `disabled`. `embedded` is accepted
+  only with `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline`,
+  `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded`, and
+  `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded`. It does not bypass read,
+  write-authority, strict embedded smoke, migration, rollback, or Hecate-owned
+  runtime side-effect gates; backend status reports the mode as an explicit
+  replacement gate so operators can distinguish "all portable writes are
+  Cairnline-first" from "the embedded replacement contract is armed."
 - `HECATE_PROJECTS_CAIRNLINE_SIDECAR_COMMAND`, `HECATE_PROJECTS_CAIRNLINE_SIDECAR_ARGS`,
   `HECATE_PROJECTS_CAIRNLINE_SIDECAR_DB`, and
   `HECATE_PROJECTS_CAIRNLINE_SIDECAR_PROBE_TIMEOUT` configure the standalone
@@ -2453,7 +2462,10 @@ read model is not sidecar-backed yet.
 read model. `replacement_target=embedded_cairnline_first` documents the
 current source-of-truth strategy: replace Hecate-native Projects with embedded
 Cairnline first, then keep the standalone Cairnline sidecar as the later
-interoperability and external-server boundary. `write_adapter_ready=true` means
+interoperability and external-server boundary. `replacement_mode` and
+`replacement_mode_armed` reflect
+`HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE`; the mode is a human/operator
+cutover arm, not permission to skip the other gates. `write_adapter_ready=true` means
 all portable project-state write-authority gaps known to this Hecate build are
 closed through explicit Cairnline switchpoints; it does not mean Hecate runtime
 side effects, migration, rollback, or final replacement are ready.
@@ -2476,11 +2488,11 @@ guaranteed to be exclusive: for example, `roots` can appear in
 can remain in `orchestrator_capabilities` while Hecate still owns discovery
 scans and Git worktree creation.
 `replacement_ready` stays `false` until read parity, strict embedded mirror
-probes, write-authority switchpoints, and migration/rollback gates are all
-ready. `next_replacement_action` is an advisory next operator step derived from
-the same status snapshot; it is not a command, permission, gate result, or proof
-that replacement is safe. It can include `config_hints`, which are environment
-setting suggestions such as a specific
+probes, write-authority switchpoints, migration/rollback gates, and explicit
+embedded replacement mode are all ready. `next_replacement_action` is an
+advisory next operator step derived from the same status snapshot; it is not a
+command, permission, gate result, or proof that replacement is safe. It can
+include `config_hints`, which are environment setting suggestions such as a specific
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY` value; clients must treat them as
 operator guidance, not as mutations to apply automatically. `replacement_gates`
 reports those high-level gates as structured checklist items so clients do not
@@ -2639,6 +2651,9 @@ Example response, with `write_switchpoints` shortened for readability:
     "replacement_ready": false,
     "replacement_target": "embedded_cairnline_first",
     "replacement_target_detail": "Hecate's Projects replacement path targets embedded Cairnline as the first source of truth; the standalone sidecar remains an interoperability and future external-server boundary.",
+    "replacement_mode": "disabled",
+    "replacement_mode_armed": false,
+    "replacement_mode_detail": "Embedded Cairnline replacement mode is disabled; Hecate will not report Projects as replaceable without an explicit operator cutover-mode opt-in.",
     "read_routes": [
       "project-list",
       "project-detail",

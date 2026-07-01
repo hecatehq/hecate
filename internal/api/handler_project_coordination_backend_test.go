@@ -76,6 +76,9 @@ func TestProjectCoordinationBackendStatus_DefaultHecateAuthoritative(t *testing.
 	if status.ReplacementTarget != "embedded_cairnline_first" || !strings.Contains(status.ReplacementTargetDetail, "embedded Cairnline") || !strings.Contains(status.ReplacementTargetDetail, "sidecar") {
 		t.Fatalf("replacement target/detail = %q/%q, want embedded-first target with sidecar boundary detail", status.ReplacementTarget, status.ReplacementTargetDetail)
 	}
+	if status.ReplacementMode != "disabled" || status.ReplacementModeArmed || !strings.Contains(status.ReplacementModeDetail, "disabled") {
+		t.Fatalf("replacement mode/detail = %q/%v/%q, want disabled mode", status.ReplacementMode, status.ReplacementModeArmed, status.ReplacementModeDetail)
+	}
 	if len(status.ReadRoutes) != 0 || len(status.WriteAdapterSeams) != 0 || len(status.WriteAdapterGaps) != 0 || len(status.PortableWriteGaps) != 0 || len(status.OrchestratorCapabilities) != 0 || len(status.SideEffectBlockers) != 0 || len(status.MigrationBlockers) != 0 || len(status.ReplacementGates) != 0 || len(status.WriteSwitchpoints) != 0 {
 		t.Fatalf("status = %+v, want no Cairnline route/seam/gap lists until Cairnline is configured", status)
 	}
@@ -311,6 +314,9 @@ func TestProjectCoordinationBackendStatus_CairnlineConfiguredReadRoutesReady(t *
 		t.Fatalf("strict embedded gate = %+v, want operator probe gate", gate)
 	} else if !containsString(gate.ProbeURLs, projectCoordinationBackendSyncReadinessURL) || !containsString(gate.ProbeURLs, projectCoordinationBackendMirrorParityURL) {
 		t.Fatalf("strict embedded gate probe URLs = %+v, want sync and mirror parity probes", gate.ProbeURLs)
+	}
+	if gate := findReplacementGate(status.ReplacementGates, "embedded-replacement-mode"); gate == nil || gate.Ready || gate.Status != "disabled" || !strings.Contains(gate.Detail, "HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded") {
+		t.Fatalf("embedded replacement mode gate = %+v, want disabled gate with config hint detail", gate)
 	}
 	if point := findWriteSwitchpoint(status.WriteSwitchpoints, "project-memory"); point == nil || point.CurrentAuthority != "hecate" || point.CairnlineState != "live_mirror_non_authoritative" || !point.LiveMirror || !point.BlocksAuthority || point.Gap != "memory" {
 		t.Fatalf("project-memory switchpoint = %+v, want Hecate-owned live mirror blocker", point)
@@ -821,6 +827,9 @@ func TestProjectCoordinationBackendStatus_CairnlineAllPortableWriteAuthorityAlia
 	if status.ReplacementTarget != "embedded_cairnline_first" {
 		t.Fatalf("replacement target = %q, want embedded-first Cairnline target", status.ReplacementTarget)
 	}
+	if status.ReplacementMode != "disabled" || status.ReplacementModeArmed {
+		t.Fatalf("replacement mode = %q armed=%v, want disabled by default", status.ReplacementMode, status.ReplacementModeArmed)
+	}
 	if !reflect.DeepEqual(status.OrchestratorCapabilities, []string{"roots", "assignment-start", "project-assistant-apply-side-effects"}) {
 		t.Fatalf("orchestrator capabilities = %+v, want remaining Hecate-owned orchestrator capabilities", status.OrchestratorCapabilities)
 	}
@@ -844,6 +853,33 @@ func TestProjectCoordinationBackendStatus_CairnlineAllPortableWriteAuthorityAlia
 	}
 }
 
+func TestProjectCoordinationBackendStatus_CairnlineEmbeddedReplacementModeArmed(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			Backend:                  "sqlite",
+			CoordinationBackend:      "cairnline",
+			CairnlineConnector:       "embedded",
+			CairnlineReadSource:      "embedded",
+			CairnlineWriteAuthority:  "all-portable",
+			CairnlineReplacementMode: "embedded",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+
+	status := handler.projectCoordinationBackendStatus()
+	if status.ReplacementMode != "embedded" || !status.ReplacementModeArmed || !strings.Contains(status.ReplacementModeDetail, "armed") {
+		t.Fatalf("replacement mode/detail = %q/%v/%q, want armed embedded mode", status.ReplacementMode, status.ReplacementModeArmed, status.ReplacementModeDetail)
+	}
+	if status.ReplacementReady {
+		t.Fatalf("replacement_ready = true, want false while migration/cutover blockers remain")
+	}
+	if gate := findReplacementGate(status.ReplacementGates, "embedded-replacement-mode"); gate == nil || !gate.Ready || gate.Status != "armed" || !strings.Contains(gate.Detail, "does not bypass") {
+		t.Fatalf("embedded replacement mode gate = %+v, want armed explicit-mode gate", gate)
+	}
+	if status.NextReplacementAction == nil || status.NextReplacementAction.ID != "rehearse-migration-cutover" {
+		t.Fatalf("next action = %+v, want migration rehearsal still prioritized while mode is armed", status.NextReplacementAction)
+	}
+}
+
 func TestProjectCoordinationBackendStatus_WriteAuthorityGateUsesPortableGaps(t *testing.T) {
 	gate := projectCairnlineWriteAuthorityReplacementGate(nil)
 	if !gate.Ready || gate.Status != "ready" || !strings.Contains(gate.Detail, "orchestrator capabilities") {
@@ -852,6 +888,18 @@ func TestProjectCoordinationBackendStatus_WriteAuthorityGateUsesPortableGaps(t *
 	gate = projectCairnlineWriteAuthorityReplacementGate([]string{"memory-candidates"})
 	if gate.Ready || gate.Status != "partial" || !strings.Contains(gate.Detail, "memory-candidates") {
 		t.Fatalf("write-authority gate = %+v, want partial when portable write gaps remain", gate)
+	}
+}
+
+func TestProjectCoordinationBackendStatus_ReplacementGatesReadyRequiresAllGates(t *testing.T) {
+	if projectCairnlineReplacementGatesReady(nil) {
+		t.Fatal("replacement gates ready = true, want false for empty gate list")
+	}
+	if projectCairnlineReplacementGatesReady([]ProjectCoordinationBackendReplacementGate{{ID: "read", Ready: true}, {ID: "write", Ready: false}}) {
+		t.Fatal("replacement gates ready = true, want false when any gate is blocked")
+	}
+	if !projectCairnlineReplacementGatesReady([]ProjectCoordinationBackendReplacementGate{{ID: "read", Ready: true}, {ID: "write", Ready: true}}) {
+		t.Fatal("replacement gates ready = false, want true when every gate is ready")
 	}
 }
 
@@ -876,6 +924,24 @@ func TestProjectCoordinationBackendStatus_NextActionWriteAuthorityHints(t *testi
 	}
 	if hints := projectCairnlineWriteAuthorityHintsForGap("assignment-start"); len(hints) != 0 {
 		t.Fatalf("assignment-start hints = %+v, want none because dispatch is not a portable write-authority switchpoint", hints)
+	}
+}
+
+func TestProjectCoordinationBackendStatus_NextActionReplacementModeHints(t *testing.T) {
+	status := ProjectCoordinationBackendStatusResponse{
+		ConfiguredBackend:       "cairnline",
+		CairnlineConnectorReady: true,
+		ReadModelSwitchReady:    true,
+		WriteAdapterReady:       true,
+		ReplacementMode:         "disabled",
+	}
+
+	action := projectCairnlineNextReplacementAction(status)
+	if action == nil || action.ID != "arm-embedded-replacement-mode" || action.Target != "embedded-replacement-mode" {
+		t.Fatalf("next action = %+v, want embedded replacement mode arming action", action)
+	}
+	if hint := findConfigHint(action.ConfigHints, "HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE"); hint == nil || hint.Value != "embedded" {
+		t.Fatalf("replacement mode hints = %+v, want embedded replacement mode hint", action.ConfigHints)
 	}
 }
 

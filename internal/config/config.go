@@ -246,6 +246,7 @@ type ProjectsConfig struct {
 	CairnlineSidecarProbeTimeout time.Duration
 	CairnlineReadSource          string
 	CairnlineWriteAuthority      string
+	CairnlineReplacementMode     string
 }
 
 func (c Config) ProjectsCoordinationBackend() string {
@@ -281,6 +282,10 @@ func (c Config) ProjectsCairnlineSidecarProbeTimeout() time.Duration {
 
 func (c Config) ProjectsCairnlineReadSource() string {
 	return normalizeProjectsCairnlineReadSource(c.Projects.CairnlineReadSource)
+}
+
+func (c Config) ProjectsCairnlineReplacementMode() string {
+	return normalizeProjectsCairnlineReplacementMode(c.Projects.CairnlineReplacementMode)
 }
 
 func (c Config) ProjectsCairnlineWriteAuthority() []string {
@@ -557,6 +562,7 @@ func LoadFromEnv() Config {
 			CairnlineSidecarProbeTimeout: getEnvDuration("HECATE_PROJECTS_CAIRNLINE_SIDECAR_PROBE_TIMEOUT", 10*time.Second),
 			CairnlineReadSource:          strings.ToLower(strings.TrimSpace(getEnv("HECATE_PROJECTS_CAIRNLINE_READ_SOURCE", "auto"))),
 			CairnlineWriteAuthority:      getEnv("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY", "none"),
+			CairnlineReplacementMode:     strings.ToLower(strings.TrimSpace(getEnv("HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE", "disabled"))),
 		},
 		OTel: loadOTelFromEnv(),
 		Governor: GovernorConfig{
@@ -643,8 +649,20 @@ func (c Config) Validate() error {
 	validateBackend("HECATE_PROJECTS_COORDINATION_BACKEND", c.ProjectsCoordinationBackend(), "hecate", "cairnline")
 	validateBackend("HECATE_PROJECTS_CAIRNLINE_CONNECTOR", c.ProjectsCairnlineConnector(), "embedded", "sidecar")
 	validateBackend("HECATE_PROJECTS_CAIRNLINE_READ_SOURCE", c.ProjectsCairnlineReadSource(), "auto", "snapshot", "embedded", "sidecar")
+	validateBackend("HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE", c.ProjectsCairnlineReplacementMode(), "disabled", "embedded")
 	if c.ProjectsCairnlineReadSource() == "sidecar" && c.ProjectsCairnlineConnector() != "sidecar" {
 		errs = append(errs, errors.New("HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar requires HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar"))
+	}
+	if c.ProjectsCairnlineReplacementMode() == "embedded" {
+		if c.ProjectsCoordinationBackend() != "cairnline" {
+			errs = append(errs, errors.New("HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded requires HECATE_PROJECTS_COORDINATION_BACKEND=cairnline"))
+		}
+		if c.ProjectsCairnlineConnector() != "embedded" {
+			errs = append(errs, errors.New("HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded requires HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded"))
+		}
+		if c.ProjectsCairnlineReadSource() != "embedded" {
+			errs = append(errs, errors.New("HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded requires HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded"))
+		}
 	}
 	for _, item := range c.ProjectsCairnlineWriteAuthority() {
 		validateBackend("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY", item, "project-memory", "memory-candidates", "project-collaboration", "project-skills", "project-work-items", "project-roles", "project-assignments", "agent-profiles", "project-metadata-defaults", "project-roots", "project-context-sources", "project-identity", "project-assistant-proposals")
@@ -1273,6 +1291,14 @@ func normalizeProjectsCairnlineReadSource(value string) string {
 	value = strings.ToLower(strings.TrimSpace(value))
 	if value == "" {
 		return "auto"
+	}
+	return value
+}
+
+func normalizeProjectsCairnlineReplacementMode(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return "disabled"
 	}
 	return value
 }

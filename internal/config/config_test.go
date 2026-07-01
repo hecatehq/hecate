@@ -597,6 +597,25 @@ func TestLoadFromEnvProjectsCairnlineConnector(t *testing.T) {
 	}
 }
 
+func TestLoadFromEnvProjectsCairnlineReplacementMode(t *testing.T) {
+	cfg := LoadFromEnv()
+	if got := cfg.ProjectsCairnlineReplacementMode(); got != "disabled" {
+		t.Fatalf("ProjectsCairnlineReplacementMode() = %q, want disabled", got)
+	}
+
+	t.Setenv("HECATE_PROJECTS_COORDINATION_BACKEND", "cairnline")
+	t.Setenv("HECATE_PROJECTS_CAIRNLINE_CONNECTOR", "embedded")
+	t.Setenv("HECATE_PROJECTS_CAIRNLINE_READ_SOURCE", "embedded")
+	t.Setenv("HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE", " Embedded ")
+	cfg = LoadFromEnv()
+	if got := cfg.ProjectsCairnlineReplacementMode(); got != "embedded" {
+		t.Fatalf("ProjectsCairnlineReplacementMode() = %q, want embedded", got)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v, want nil for embedded Cairnline replacement mode opt-in", err)
+	}
+}
+
 func TestLoadFromEnvProjectsCairnlineSidecarConfig(t *testing.T) {
 	cfg := LoadFromEnv()
 	if got := cfg.ProjectsCairnlineSidecarCommand(); got != "cairnline" {
@@ -750,6 +769,70 @@ func TestValidateRejectsInvalidProjectsCairnlineConnector(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "HECATE_PROJECTS_CAIRNLINE_CONNECTOR") {
 		t.Fatalf("Validate() error = %q, want HECATE_PROJECTS_CAIRNLINE_CONNECTOR", err)
+	}
+}
+
+func TestValidateRejectsInvalidProjectsCairnlineReplacementMode(t *testing.T) {
+	cfg := LoadFromEnv()
+	cfg.Projects.CairnlineReplacementMode = "sidecar"
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() error = nil, want invalid projects Cairnline replacement mode error")
+	}
+	if !strings.Contains(err.Error(), "HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE") {
+		t.Fatalf("Validate() error = %q, want HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE", err)
+	}
+}
+
+func TestValidateRejectsEmbeddedProjectsCairnlineReplacementModeWithoutStrictEmbeddedPrerequisites(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  func(Config) Config
+		want string
+	}{
+		{
+			name: "hecate backend",
+			cfg: func(cfg Config) Config {
+				cfg.Projects.CairnlineReplacementMode = "embedded"
+				cfg.Projects.CairnlineReadSource = "embedded"
+				return cfg
+			},
+			want: "HECATE_PROJECTS_COORDINATION_BACKEND=cairnline",
+		},
+		{
+			name: "sidecar connector",
+			cfg: func(cfg Config) Config {
+				cfg.Projects.CoordinationBackend = "cairnline"
+				cfg.Projects.CairnlineConnector = "sidecar"
+				cfg.Projects.CairnlineReadSource = "embedded"
+				cfg.Projects.CairnlineReplacementMode = "embedded"
+				return cfg
+			},
+			want: "HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded",
+		},
+		{
+			name: "non-strict read source",
+			cfg: func(cfg Config) Config {
+				cfg.Projects.CoordinationBackend = "cairnline"
+				cfg.Projects.CairnlineReadSource = "auto"
+				cfg.Projects.CairnlineReplacementMode = "embedded"
+				return cfg
+			},
+			want: "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := tt.cfg(LoadFromEnv())
+			err := cfg.Validate()
+			if err == nil {
+				t.Fatal("Validate() error = nil, want embedded replacement mode prerequisite error")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Validate() error = %q, want %q", err, tt.want)
+			}
+		})
 	}
 }
 

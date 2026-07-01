@@ -51,6 +51,8 @@ beforeEach(() => {
       read_model_switch_ready: false,
       write_adapter_ready: false,
       replacement_ready: false,
+      replacement_mode: "disabled",
+      replacement_mode_armed: false,
       status: "hecate_authoritative",
       detail:
         "Hecate-native project stores are authoritative. Cairnline bridge endpoints are available for replacement-readiness checks.",
@@ -92,6 +94,10 @@ describe("SettingsView", () => {
         replacement_target: "embedded_cairnline_first",
         replacement_target_detail:
           "Hecate's Projects replacement path targets embedded Cairnline as the first source of truth; the standalone sidecar remains an interoperability and future external-server boundary.",
+        replacement_mode: "disabled",
+        replacement_mode_armed: false,
+        replacement_mode_detail:
+          "Embedded Cairnline replacement mode is disabled; Hecate will not report Projects as replaceable without an explicit operator cutover-mode opt-in.",
         read_routes: ["project-list", "project-detail"],
         portable_write_gaps: ["agent-profiles", "memory-candidates"],
         orchestrator_capabilities: ["assignment-start"],
@@ -137,6 +143,13 @@ describe("SettingsView", () => {
               "/hecate/v1/projects/cairnline/mirror-parity",
             ],
           },
+          {
+            id: "embedded-replacement-mode",
+            ready: false,
+            status: "disabled",
+            detail:
+              "Embedded Cairnline replacement mode is disabled until the operator arms the explicit cutover contract.",
+          },
         ],
         status: "cairnline_read_routes_ready",
         detail: "Cairnline read routes are served from the read model.",
@@ -152,6 +165,8 @@ describe("SettingsView", () => {
     expect(screen.getByText(/2 read routes use Cairnline/i)).toBeTruthy();
     expect(screen.getByText(/Target: embedded cairnline first/i)).toBeTruthy();
     expect(screen.getByText(/standalone sidecar remains an interoperability/i)).toBeTruthy();
+    expect(screen.getByText(/Mode: disabled not armed/i)).toBeTruthy();
+    expect(screen.getByText(/explicit operator cutover-mode opt-in/i)).toBeTruthy();
     expect(screen.getByText("Portable write gaps")).toBeTruthy();
     expect(screen.getByText("Hecate orchestrator capabilities")).toBeTruthy();
     expect(screen.getByText("Next action")).toBeTruthy();

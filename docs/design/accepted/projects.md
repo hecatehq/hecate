@@ -133,7 +133,10 @@ The replacement target is embedded Cairnline first: Hecate should make the
 embedded Cairnline database authoritative for Projects before treating the
 standalone sidecar as the external MCP/server boundary. That keeps Hecate's
 operator UI and compatibility shadow stable while the portable contract is
-proven locally.
+proven locally. `HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded` is the
+explicit operator arm for that embedded contract; it is valid only with the
+embedded connector and strict embedded read source, and it does not bypass read,
+write-authority, migration, rollback, or Hecate-owned runtime side-effect gates.
 `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded` is the current live-route
 dogfood connector. `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar` exposes
 local-only standalone Cairnline MCP contract probe/connect surfaces at
@@ -605,6 +608,10 @@ after these gates are met:
   external-sidecar backend adapter. Sidecar diagnostics remain valuable MCP
   interoperability evidence, but they are not the first Hecate replacement
   target.
+- The embedded cutover contract is explicitly armed with
+  `HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded` after the read,
+  write-authority, migration, and rollback gates are ready; enabling all
+  portable write-authority switchpoints alone does not replace the backend.
 - Context packets, setup/health/operations summaries, activity projections, and
   closeout gates match current Hecate behavior or have documented intentional
   differences.

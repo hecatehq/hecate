@@ -364,6 +364,20 @@ function ProjectCoordinationBackendSettings({
                   {status.replacement_target_detail ? ` · ${status.replacement_target_detail}` : ""}
                 </div>
               )}
+              {status.replacement_mode && (
+                <div
+                  style={{
+                    color: status.replacement_mode_armed ? "var(--accent)" : "var(--t3)",
+                    fontSize: 11,
+                    lineHeight: 1.45,
+                    marginTop: 4,
+                  }}
+                >
+                  Mode: {status.replacement_mode.replaceAll("_", " ")}
+                  {status.replacement_mode_armed ? " armed" : " not armed"}
+                  {status.replacement_mode_detail ? ` · ${status.replacement_mode_detail}` : ""}
+                </div>
+              )}
             </div>
           </div>
           {nextAction && <ProjectBackendNextAction action={nextAction} />}
