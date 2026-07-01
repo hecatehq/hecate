@@ -1400,6 +1400,88 @@ func TestProjectWorkAPI_RolesUseCairnlineSidecarWhenConfigured(t *testing.T) {
 	}
 }
 
+func TestProjectWorkAPI_StrictEmbeddedReadModelReadsRolesWithoutHecateProject(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend: "cairnline",
+			CairnlineReadSource: "embedded",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	server := NewServer(quietLogger(), handler)
+	const projectID = "proj_embedded_roles"
+
+	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+		if _, err := service.CreateExecutionProfile(t.Context(), cairnline.ExecutionProfile{
+			ID:           "exec_external",
+			Name:         "External adapter",
+			ProviderHint: "anthropic",
+			ModelHint:    "claude-sonnet-4-5",
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateAgentProfile(t.Context(), cairnline.AgentProfile{
+			ID:   "profile_review",
+			Name: "Review profile",
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateProject(t.Context(), cairnline.Project{
+			ID:   projectID,
+			Name: "Embedded Roles",
+		}); err != nil {
+			return err
+		}
+		_, err := service.CreateRole(t.Context(), cairnline.Role{
+			ID:                        "role_reviewer",
+			ProjectID:                 projectID,
+			Name:                      "Reviewer",
+			Description:               "Reviews completed assignments.",
+			Instructions:              "Inspect evidence before approving.",
+			DefaultProfileID:          "profile_review",
+			DefaultExecutionProfileID: "exec_external",
+			DefaultSkillIDs:           []string{"review"},
+			DefaultExecutionMode:      cairnline.ExecutionExternalAdapter,
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("seed embedded Cairnline roles: %v", err)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("Hecate project store seeded ok=%v err=%v, want no project row", ok, err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+projectID+"/roles", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("roles status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response ProjectWorkRolesResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode roles response: %v", err)
+	}
+	role := findProjectWorkRoleForTest(t, response.Data, "role_reviewer")
+	if role.ProjectID != projectID || role.ReadBackend != "cairnline" || role.BuiltIn {
+		t.Fatalf("role = %+v, want embedded Cairnline non-built-in role", role)
+	}
+	if role.Name != "Reviewer" || role.DefaultDriverKind != projectwork.AssignmentDriverExternalAgent || role.DefaultAgentProfile != "profile_review" {
+		t.Fatalf("role defaults = %+v, want embedded Cairnline role defaults", role)
+	}
+	if role.DefaultProvider != "anthropic" || role.DefaultModel != "claude-sonnet-4-5" {
+		t.Fatalf("role provider/model = %q/%q, want execution profile hints", role.DefaultProvider, role.DefaultModel)
+	}
+	if !reflect.DeepEqual(role.SkillIDs, []string{"review"}) {
+		t.Fatalf("role skill ids = %+v, want review skill id", role.SkillIDs)
+	}
+
+	missingRec := httptest.NewRecorder()
+	server.ServeHTTP(missingRec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_missing/roles", nil))
+	if missingRec.Code != http.StatusNotFound {
+		t.Fatalf("missing status = %d body=%s, want 404", missingRec.Code, missingRec.Body.String())
+	}
+}
+
 func TestProjectWorkAPI_RolesCairnlineSidecarReadRequiresStructuredContent(t *testing.T) {
 	t.Parallel()
 	_, server := newProjectsCairnlineSidecarReadTestServer(t, "text-only")

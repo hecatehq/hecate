@@ -526,11 +526,11 @@ sequenceDiagram
   routes require a populated embedded mirror database and fail if the database
   or requested project row/proposal record is missing. Run
   `POST /hecate/v1/projects/cairnline/sync` first when testing strict embedded
-  reads. Strict embedded project list/detail, project skill list, memory, and
-  memory-candidate list reads use the embedded Cairnline project, skill, and
-  memory records directly instead of loading a Hecate snapshot first; other
-  embedded read routes may still use Hecate snapshot scaffolding until their
-  route families are cut over. With
+  reads. Strict embedded project list/detail, project skill list, project role
+  list, memory, and memory-candidate list reads use the embedded Cairnline
+  project, skill, role, and memory records directly instead of loading a Hecate
+  snapshot first; other embedded read routes may still use Hecate snapshot
+  scaffolding until their route families are cut over. With
   `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar`, `sidecar` routes project
   list/detail, setup-readiness, health, project skill list, project memory list,
   memory-candidate list, project role list, work-item list/detail,
@@ -2421,13 +2421,14 @@ readiness, activity inbox, and operations brief can be served from the Cairnline
 read model, while other live Projects reads still use Hecate. Most of those
 configured embedded read routes still load Hecate snapshots as bridge
 scaffolding, but strict embedded project list/detail, project skill list,
-memory, and memory-candidate list reads now load directly from the embedded
-Cairnline project, skill, and memory records. Their Cairnline service read
-source is controlled by `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE`: `auto` prefers
-the embedded mirror and falls back to the snapshot-seeded bridge, `snapshot`
-always uses the snapshot-seeded bridge, and `embedded` requires the mirror
-database and requested project row or proposal record to exist so
-replacement-readiness gaps fail loudly. With
+project role list, memory, and memory-candidate list reads now load directly
+from the embedded Cairnline project, skill, role, and memory records. Their
+Cairnline service read source is controlled by
+`HECATE_PROJECTS_CAIRNLINE_READ_SOURCE`: `auto` prefers the embedded mirror and
+falls back to the snapshot-seeded bridge, `snapshot` always uses the
+snapshot-seeded bridge, and `embedded` requires the mirror database and
+requested project row or proposal record to exist so replacement-readiness gaps
+fail loudly. With
 `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar`,
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar` routes only project list/detail,
 setup-readiness, health, project skill list, project memory list,

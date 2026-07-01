@@ -94,6 +94,9 @@ func (h *Handler) renderProjectWorkRoles(ctx context.Context, projectID string) 
 	if h.projectCairnlineSidecarReadRoutesEnabled() {
 		return h.renderCairnlineSidecarProjectWorkRoles(ctx, projectID)
 	}
+	if h.requiresEmbeddedCairnlineProjectReads() {
+		return h.renderStrictEmbeddedCairnlineProjectWorkRoles(ctx, projectID)
+	}
 	if h.projectReadRoutesUseCairnlineReadModel() {
 		return h.renderCairnlineProjectWorkRoles(ctx, projectID)
 	}
@@ -126,6 +129,34 @@ func (h *Handler) renderCairnlineSidecarProjectWorkRoles(ctx context.Context, pr
 	data := make([]ProjectWorkRoleResponse, 0, len(roles))
 	for _, role := range projectRolesFromCairnlineSidecar(roles) {
 		projected := renderProjectWorkRole(role)
+		projected.ReadBackend = "cairnline"
+		data = append(data, projected)
+	}
+	return data, nil
+}
+
+func (h *Handler) renderStrictEmbeddedCairnlineProjectWorkRoles(ctx context.Context, projectID string) ([]ProjectWorkRoleResponse, error) {
+	_, service, store, err := h.openCairnlineEmbeddedService(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer store.Close()
+	project, err := service.GetProject(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	roles, err := service.ListRoles(ctx, project.ID)
+	if err != nil {
+		return nil, err
+	}
+	executionProfiles, err := service.ListExecutionProfiles(ctx)
+	if err != nil {
+		return nil, err
+	}
+	executionProfilesByID := cairnlineExecutionProfilesByID(executionProfiles)
+	data := make([]ProjectWorkRoleResponse, 0, len(roles))
+	for _, role := range roles {
+		projected := renderProjectWorkRole(projectWorkRoleFromCairnline(role, executionProfilesByID, projectwork.AgentRoleProfile{}))
 		projected.ReadBackend = "cairnline"
 		data = append(data, projected)
 	}
