@@ -793,6 +793,9 @@ func markProjectWorkAssignmentReadBackend(items []ProjectWorkAssignmentResponse,
 }
 
 func (h *Handler) renderCairnlineProjectWorkItemReadiness(ctx context.Context, projectID, workItemID string) (ProjectWorkItemReadinessResponse, error) {
+	if h.requiresEmbeddedCairnlineProjectReads() {
+		return h.renderStrictEmbeddedCairnlineProjectWorkItemReadiness(ctx, projectID, workItemID)
+	}
 	view, err := h.cairnlineProjectWorkView(ctx, projectID)
 	if err != nil {
 		return ProjectWorkItemReadinessResponse{}, err
@@ -806,6 +809,50 @@ func (h *Handler) renderCairnlineProjectWorkItemReadiness(ctx context.Context, p
 		return ProjectWorkItemReadinessResponse{}, err
 	}
 	return renderCairnlineProjectWorkItemReadiness(readiness), nil
+}
+
+func (h *Handler) renderStrictEmbeddedCairnlineProjectWorkItemReadiness(ctx context.Context, projectID, workItemID string) (ProjectWorkItemReadinessResponse, error) {
+	_, service, store, err := h.openCairnlineEmbeddedService(ctx)
+	if err != nil {
+		return ProjectWorkItemReadinessResponse{}, err
+	}
+	defer store.Close()
+	project, err := service.GetProject(ctx, projectID)
+	if errors.Is(err, cairnline.ErrNotFound) {
+		return ProjectWorkItemReadinessResponse{}, projects.ErrNotFound
+	}
+	if err != nil {
+		return ProjectWorkItemReadinessResponse{}, err
+	}
+	workItemID = strings.TrimSpace(workItemID)
+	workItem, err := service.GetWorkItem(ctx, project.ID, workItemID)
+	if errors.Is(err, cairnline.ErrNotFound) {
+		return ProjectWorkItemReadinessResponse{}, projectwork.ErrNotFound
+	}
+	if err != nil {
+		return ProjectWorkItemReadinessResponse{}, err
+	}
+	assignments, err := service.ListAssignments(ctx, project.ID)
+	if err != nil {
+		return ProjectWorkItemReadinessResponse{}, err
+	}
+	artifacts, err := cairnlineProjectWorkArtifacts(ctx, service, project.ID, workItemID)
+	if err != nil {
+		return ProjectWorkItemReadinessResponse{}, err
+	}
+	handoffs, err := cairnlineProjectHandoffs(ctx, service, project.ID, workItemID, "")
+	if err != nil {
+		return ProjectWorkItemReadinessResponse{}, err
+	}
+	readiness := projectwork.EvaluateWorkItemReadiness(
+		projectWorkItemFromCairnline(workItem),
+		filterProjectWorkAssignments(projectWorkAssignmentsFromCairnline(assignments, nil), workItemID),
+		artifacts,
+		handoffs,
+	)
+	rendered := renderProjectWorkItemReadiness(readiness)
+	rendered.ReadBackend = "cairnline"
+	return rendered, nil
 }
 
 type cairnlineProjectWorkView struct {

@@ -395,16 +395,16 @@ launch agents. Those remain explicit operator or orchestrator actions.
   `embedded` requires a populated embedded mirror so read-route drift fails
   loudly during replacement-readiness dogfood. In strict embedded mode, project
   list/detail plus project skill list, project role list, work-item list/detail,
-  assignment-list, artifact-list, handoff-list, project memory list, and
-  memory-candidate list reads can load directly from embedded Cairnline rows
-  without first building a Hecate snapshot.
+  assignment-list, artifact-list, handoff-list, closeout-readiness, project
+  memory list, and memory-candidate list reads can load directly from embedded
+  Cairnline rows without first building a Hecate snapshot.
 - In configured Hecate embed mode, activity, work-item list/detail,
   assignment-list, and operations brief reads now render work items,
   assignments, roles, artifacts, and handoffs from Cairnline service records,
   then overlay Hecate-only runtime refs/timestamps while Hecate still owns
   execution. Outside the strict embedded direct-read exceptions for project
   list/detail plus skill, role, work-item, assignment-list, artifact-list,
-  handoff-list, and memory lists,
+  handoff-list, closeout-readiness, and memory lists,
   and outside the explicit sidecar read-source routes for project list/detail,
   setup-readiness, health, skills, memory, memory candidates, roles, work items,
   assignment lists, assignment context, launch-readiness, assignment preflight,

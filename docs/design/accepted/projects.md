@@ -215,11 +215,11 @@ bridge; `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded` requires the embedded
 mirror database and requested project row or proposal record so
 replacement-readiness gaps fail loudly during dogfood. In strict embedded mode,
 project list/detail plus project skill list, project role list, work-item
-list/detail, assignment-list, artifact-list, handoff-list, project memory list,
-and memory-candidate list reads load directly from the embedded Cairnline
-project, skill, role, work-item, assignment, artifact, evidence, review,
-handoff, and memory records instead of loading a Hecate-native project snapshot
-first.
+list/detail, assignment-list, artifact-list, handoff-list, closeout-readiness,
+project memory list, and memory-candidate list reads load directly from the
+embedded Cairnline project, skill, role, work-item, assignment, artifact,
+evidence, review, handoff, and memory records instead of loading a
+Hecate-native project snapshot first.
 Activity, assignment-list, and operations brief reads render work items,
 assignments, roles, artifacts, and handoffs from the Cairnline service records,
 then overlay Hecate-only runtime refs/timestamps where Hecate still owns
@@ -228,9 +228,9 @@ For remaining embedded read-route families, some project compatibility
 scaffolding still comes from Hecate until Cairnline becomes authoritative. The
 direct strict embedded exceptions are project list/detail, project skill list,
 project role list, work-item list/detail, assignment-list, artifact-list,
-handoff-list, project memory list, and memory-candidate list reads. The
-explicit sidecar read-source routes remain the broader standalone-process
-exception for project list/detail, setup-readiness,
+handoff-list, closeout-readiness, project memory list, and memory-candidate
+list reads. The explicit sidecar read-source routes remain the broader
+standalone-process exception for project list/detail, setup-readiness,
 health, project skill list, project memory list,
 memory-candidate list, project role list, work-item list/detail,
 assignment-list, assignment-context, launch-readiness, assignment preflight,
