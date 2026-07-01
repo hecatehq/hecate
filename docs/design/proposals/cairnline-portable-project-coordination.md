@@ -401,6 +401,10 @@ launch agents. Those remain explicit operator or orchestrator actions.
   memory-candidate list reads plus Project Assistant context/proposal reads can
   load directly from embedded Cairnline rows without first building a Hecate
   snapshot.
+- Embedded sync and mirror-parity responses include strict embedded smoke
+  evidence across those read families, including project-linked Hecate Chat
+  prelude/context reads and conditional nested work-item, assignment, and
+  proposal reads when matching records exist in the snapshot.
 - In configured Hecate embed mode, activity, work-item list/detail,
   assignment-list, assignment-context, launch-readiness, assignment preflight,
   Project Assistant context/proposal, and operations brief reads now render work

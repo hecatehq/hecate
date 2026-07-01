@@ -16,6 +16,7 @@ import (
 	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/cairnlinebridge"
 	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/projectassistant"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectwork"
 )
@@ -590,6 +591,10 @@ func (h *Handler) projectCairnlineStrictEmbeddedSmoke(ctx context.Context, snaps
 	strict := h.projectCairnlineStrictEmbeddedProbeHandler()
 	strict.config.Projects.CoordinationBackend = "cairnline"
 	strict.config.Projects.CairnlineReadSource = "embedded"
+	checkProjectCairnlineEmbeddedSmoke(smoke, "", "project-list", func() error {
+		_, err := strict.renderStrictEmbeddedCairnlineProjects(ctx)
+		return err
+	})
 	for _, snapshot := range snapshots {
 		projectID := strings.TrimSpace(snapshot.Project.ID)
 		if projectID == "" {
@@ -609,8 +614,58 @@ func (h *Handler) projectCairnlineStrictEmbeddedSmoke(ctx context.Context, snaps
 			_, err := strict.renderCairnlineProjectHealth(ctx, projectID)
 			return err
 		})
-		checkProjectCairnlineEmbeddedSmoke(smoke, projectID, "work-items", func() error {
+		checkProjectCairnlineEmbeddedSmoke(smoke, projectID, "skills", func() error {
+			_, err := strict.renderProjectSkills(ctx, projectID)
+			return err
+		})
+		checkProjectCairnlineEmbeddedSmoke(smoke, projectID, "memory", func() error {
+			_, err := strict.renderProjectMemoryEntries(ctx, projectID, true)
+			return err
+		})
+		checkProjectCairnlineEmbeddedSmoke(smoke, projectID, "memory-candidate", func() error {
+			_, err := strict.renderProjectMemoryCandidates(ctx, projectID, "", true)
+			return err
+		})
+		checkProjectCairnlineEmbeddedSmoke(smoke, projectID, "roles", func() error {
+			_, err := strict.renderProjectWorkRoles(ctx, projectID)
+			return err
+		})
+		checkProjectCairnlineEmbeddedSmoke(smoke, projectID, "work-item", func() error {
 			_, err := strict.renderCairnlineProjectWorkItems(ctx, projectID)
+			return err
+		})
+		if workItemID, ok := projectCairnlineSmokeFirstWorkItemID(snapshot); ok {
+			checkProjectCairnlineEmbeddedSmoke(smoke, projectID, "assignment-list", func() error {
+				_, err := strict.renderCairnlineProjectWorkAssignments(ctx, projectID, workItemID)
+				return err
+			})
+			checkProjectCairnlineEmbeddedSmoke(smoke, projectID, "artifact-list", func() error {
+				_, err := strict.renderProjectWorkArtifacts(ctx, projectID, workItemID)
+				return err
+			})
+			checkProjectCairnlineEmbeddedSmoke(smoke, projectID, "closeout-readiness", func() error {
+				_, err := strict.renderCairnlineProjectWorkItemReadiness(ctx, projectID, workItemID)
+				return err
+			})
+			if assignmentID, ok := projectCairnlineSmokeFirstAssignmentID(snapshot, workItemID); ok {
+				checkProjectCairnlineEmbeddedSmoke(smoke, projectID, "assignment-context", func() error {
+					_, ok, err := strict.contextPacketForStrictEmbeddedCairnlineProjectAssignment(ctx, projectID, workItemID, assignmentID)
+					if err != nil {
+						return err
+					}
+					if !ok {
+						return errors.New("embedded Cairnline assignment context packet not found")
+					}
+					return nil
+				})
+				checkProjectCairnlineEmbeddedSmoke(smoke, projectID, "launch-readiness", func() error {
+					_, err := strict.renderCairnlineProjectAssignmentLaunchReadiness(ctx, projectID, workItemID, assignmentID)
+					return err
+				})
+			}
+		}
+		checkProjectCairnlineEmbeddedSmoke(smoke, projectID, "handoff-list", func() error {
+			_, err := strict.renderProjectHandoffs(ctx, projectwork.HandoffFilter{ProjectID: projectID})
 			return err
 		})
 		checkProjectCairnlineEmbeddedSmoke(smoke, projectID, "activity", func() error {
@@ -640,6 +695,25 @@ func (h *Handler) projectCairnlineStrictEmbeddedSmoke(ctx context.Context, snaps
 			}
 			return errors.New("project chat context packet did not include the embedded project")
 		})
+		checkProjectCairnlineEmbeddedSmoke(smoke, projectID, "project-assistant-context", func() error {
+			_, err := strict.cairnlineProjectAssistantContext(ctx, projectassistant.ContextInput{
+				ProjectID: projectID,
+				Request:   "Smoke embedded Cairnline project assistant context.",
+			})
+			return err
+		})
+		if proposalID, ok := projectCairnlineSmokeFirstAssistantProposalID(snapshot); ok {
+			checkProjectCairnlineEmbeddedSmoke(smoke, projectID, "project-assistant-proposal", func() error {
+				_, ok, err := strict.cairnlineProjectAssistantProposal(ctx, proposalID)
+				if err != nil {
+					return err
+				}
+				if !ok {
+					return errors.New("embedded Cairnline project assistant proposal not found")
+				}
+				return nil
+			})
+		}
 		checkProjectCairnlineEmbeddedSmoke(smoke, projectID, "embedded-read-model", func() error {
 			readModel, err := strict.projectCairnlineEmbeddedReadModel(ctx, projectID)
 			if err != nil {
@@ -659,6 +733,37 @@ func (h *Handler) projectCairnlineStrictEmbeddedSmoke(ctx context.Context, snaps
 		smoke.Status = "failed"
 	}
 	return smoke
+}
+
+func projectCairnlineSmokeFirstWorkItemID(snapshot cairnlinebridge.Snapshot) (string, bool) {
+	for _, item := range snapshot.WorkItems {
+		if id := strings.TrimSpace(item.ID); id != "" {
+			return id, true
+		}
+	}
+	return "", false
+}
+
+func projectCairnlineSmokeFirstAssignmentID(snapshot cairnlinebridge.Snapshot, workItemID string) (string, bool) {
+	workItemID = strings.TrimSpace(workItemID)
+	for _, item := range snapshot.Assignments {
+		if strings.TrimSpace(item.WorkItemID) != workItemID {
+			continue
+		}
+		if id := strings.TrimSpace(item.ID); id != "" {
+			return id, true
+		}
+	}
+	return "", false
+}
+
+func projectCairnlineSmokeFirstAssistantProposalID(snapshot cairnlinebridge.Snapshot) (string, bool) {
+	for _, item := range snapshot.AssistantProposals {
+		if id := strings.TrimSpace(item.ID); id != "" {
+			return id, true
+		}
+	}
+	return "", false
 }
 
 func (h *Handler) projectCairnlineStrictEmbeddedProbeHandler() *Handler {

@@ -375,8 +375,12 @@ instead of implicit. For embedded sync and existing mirror-parity checks, that
 object also includes strict embedded smoke evidence: Hecate copies the current
 handler configuration, forces `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline`
 and `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded`, and exercises
-representative project read projections against the generated mirror database
-without mutating live configuration.
+project list/detail, setup, health, skills, memory, role, work/activity,
+operations, assignment context/readiness, collaboration artifact/handoff,
+Project Assistant, and project-linked Hecate Chat read projections against the
+generated mirror database without mutating live configuration. Nested
+work-item, assignment, and proposal reads are checked when matching records
+exist in the snapshot.
 When `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` is configured, live
 project identity, metadata/default, root, and context-source mutations still
 commit to Hecate stores first, then best-effort mirror into the embedded
