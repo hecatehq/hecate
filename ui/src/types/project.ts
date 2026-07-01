@@ -90,6 +90,14 @@ export type ProjectCoordinationBackendWriteSwitchpointRecord = {
   detail: string;
 };
 
+export type ProjectCoordinationBackendNextActionRecord = {
+  id: string;
+  label: string;
+  detail: string;
+  target?: string;
+  probe_urls?: string[];
+};
+
 export type ProjectCoordinationBackendStatusRecord = {
   configured_backend: string;
   authoritative_backend: string;
@@ -109,6 +117,7 @@ export type ProjectCoordinationBackendStatusRecord = {
   portable_write_gaps?: string[];
   side_effect_blockers?: string[];
   migration_blockers?: string[];
+  next_replacement_action?: ProjectCoordinationBackendNextActionRecord;
   replacement_gates?: ProjectCoordinationBackendReplacementGateRecord[];
   write_switchpoints?: ProjectCoordinationBackendWriteSwitchpointRecord[];
   status: string;

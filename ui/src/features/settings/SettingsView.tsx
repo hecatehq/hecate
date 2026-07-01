@@ -299,6 +299,7 @@ function ProjectCoordinationBackendSettings({
   const portableGaps = status?.portable_write_gaps ?? [];
   const sideEffectBlockers = status?.side_effect_blockers ?? [];
   const migrationBlockers = status?.migration_blockers ?? [];
+  const nextAction = status?.next_replacement_action;
   const statusBadge = status
     ? status.replacement_ready
       ? "ok"
@@ -350,6 +351,7 @@ function ProjectCoordinationBackendSettings({
               </div>
             </div>
           </div>
+          {nextAction && <ProjectBackendNextAction action={nextAction} />}
           <div
             style={{
               display: "grid",
@@ -375,6 +377,52 @@ function ProjectCoordinationBackendSettings({
         </article>
       )}
     </section>
+  );
+}
+
+function ProjectBackendNextAction({
+  action,
+}: {
+  action: NonNullable<ProjectCoordinationBackendStatusRecord["next_replacement_action"]>;
+}) {
+  const probes = action.probe_urls ?? [];
+  return (
+    <div
+      style={{
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius-sm)",
+        background: "var(--bg2)",
+        display: "grid",
+        gap: 7,
+        marginTop: 14,
+        padding: "10px 12px",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <span
+          style={{
+            color: "var(--t3)",
+            fontFamily: "var(--font-mono)",
+            fontSize: 10,
+            textTransform: "uppercase",
+          }}
+        >
+          Next action
+        </span>
+        {action.target && (
+          <span className="badge badge-muted" style={{ textTransform: "none" }}>
+            {action.target}
+          </span>
+        )}
+        {probes.length > 0 && (
+          <span className="badge badge-muted" style={{ textTransform: "none" }}>
+            {probes.length} probe{probes.length === 1 ? "" : "s"}
+          </span>
+        )}
+      </div>
+      <div style={{ color: "var(--t0)", fontSize: 13, fontWeight: 650 }}>{action.label}</div>
+      <div style={{ color: "var(--t2)", fontSize: 12, lineHeight: 1.45 }}>{action.detail}</div>
+    </div>
   );
 }
 

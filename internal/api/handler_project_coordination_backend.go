@@ -380,7 +380,7 @@ func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendS
 					"Project writes still use Hecate-native stores unless a separate embedded Cairnline authority switchpoint is explicitly enabled.",
 					"Full Cairnline replacement remains blocked on authoritative write migration.",
 				}
-				return response
+				return projectCairnlineStatusWithNextAction(response)
 			}
 			response.Status = "cairnline_connector_not_ready"
 			response.Detail = projectCairnlineConnectorDetail(connector) + " Hecate keeps Projects reads and writes on Hecate-native stores in this mode; use HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded for the current replacement-readiness dogfood path."
@@ -389,7 +389,7 @@ func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendS
 				projectCairnlineConnectorWarning(connector),
 				"Project reads and writes still use Hecate-native stores.",
 			}
-			return response
+			return projectCairnlineStatusWithNextAction(response)
 		}
 		response.ReadModelSwitchReady = readReady
 		if readReady {
@@ -414,7 +414,7 @@ func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendS
 				"Other project mutation routes still write only Hecate-native stores.",
 				"Cairnline write-adapter seams are non-authoritative proofs; live write authority and migration path are not ready.",
 			}
-			return response
+			return projectCairnlineStatusWithNextAction(response)
 		}
 		response.Status = "cairnline_configured_read_adapter_missing_sources"
 		response.Detail = "Cairnline is configured as the future Projects coordination backend, but the read adapter cannot project the full Hecate project graph from the currently wired stores."
@@ -426,7 +426,113 @@ func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendS
 		response.Status = "hecate_authoritative"
 		response.Detail = "Hecate-native project stores are authoritative. Cairnline bridge endpoints are available for replacement-readiness checks."
 	}
+	return projectCairnlineStatusWithNextAction(response)
+}
+
+func projectCairnlineStatusWithNextAction(response ProjectCoordinationBackendStatusResponse) ProjectCoordinationBackendStatusResponse {
+	response.NextReplacementAction = projectCairnlineNextReplacementAction(response)
 	return response
+}
+
+func projectCairnlineNextReplacementAction(status ProjectCoordinationBackendStatusResponse) *ProjectCoordinationBackendNextAction {
+	if status.ReplacementReady {
+		return &ProjectCoordinationBackendNextAction{
+			ID:     "replace-projects-backend",
+			Label:  "Replace the Projects backend",
+			Detail: "All Cairnline replacement gates are ready; the remaining action is an explicit operator cutover.",
+			Target: "cutover",
+		}
+	}
+	if status.ConfiguredBackend != "cairnline" {
+		return &ProjectCoordinationBackendNextAction{
+			ID:     "enable-cairnline-dogfood",
+			Label:  "Enable Cairnline dogfood",
+			Detail: "Configure Cairnline as the project coordination backend in a local dogfood runtime before moving any authority.",
+			Target: "configuration",
+			ProbeURLs: []string{
+				projectCoordinationBackendSidecarProbeURL,
+				projectCoordinationBackendSidecarConnectURL,
+			},
+		}
+	}
+	if !status.CairnlineConnectorReady {
+		return &ProjectCoordinationBackendNextAction{
+			ID:     "use-embedded-cairnline-connector",
+			Label:  "Use the embedded Cairnline connector",
+			Detail: "Sidecar mode is useful for MCP diagnostics and read smoke tests, but write-authority dogfood currently requires the embedded Cairnline connector.",
+			Target: "connector",
+			ProbeURLs: []string{
+				projectCoordinationBackendSidecarProbeURL,
+				projectCoordinationBackendSidecarConnectURL,
+			},
+		}
+	}
+	if !status.ReadModelSwitchReady && len(status.ReadRoutes) == 0 {
+		return &ProjectCoordinationBackendNextAction{
+			ID:     "complete-read-model-sources",
+			Label:  "Complete Cairnline read-model sources",
+			Detail: "Wire the remaining Hecate project stores into the Cairnline projection so live read routes can switch safely.",
+			Target: "read-routes",
+			ProbeURLs: []string{
+				projectCoordinationBackendReadinessURL,
+				projectCoordinationBackendEmbeddedReadModelURL,
+				projectCoordinationBackendEmbeddedParityReportURL,
+			},
+		}
+	}
+	if len(status.PortableWriteGaps) > 0 {
+		target := status.PortableWriteGaps[0]
+		return &ProjectCoordinationBackendNextAction{
+			ID:     "move-portable-write-authority",
+			Label:  "Move the next portable write authority",
+			Detail: "Close the next portable project-state gap by adding a Cairnline-authoritative switchpoint while keeping Hecate as compatibility shadow.",
+			Target: target,
+		}
+	}
+	if len(status.SideEffectBlockers) > 0 {
+		target := status.SideEffectBlockers[0]
+		label := "Separate the next Hecate-owned side effect"
+		detail := "Define the portable record boundary and keep runtime side effects in Hecate or another orchestrator before Cairnline can become authoritative."
+		if target == "roots" {
+			label = "Separate roots and worktree side effects"
+			detail = "Move portable root records toward Cairnline authority while keeping filesystem and Git worktree creation under Hecate's confined runtime boundary."
+		}
+		if target == "assignment-start" {
+			label = "Separate assignment coordination from launch"
+			detail = "Keep assignment records portable while treating task/external-agent launch as an orchestrator capability outside Cairnline core."
+		}
+		return &ProjectCoordinationBackendNextAction{
+			ID:     "separate-side-effect-boundary",
+			Label:  label,
+			Detail: detail,
+			Target: target,
+		}
+	}
+	if len(status.MigrationBlockers) > 0 {
+		return &ProjectCoordinationBackendNextAction{
+			ID:     "rehearse-migration-cutover",
+			Label:  "Rehearse migration and rollback",
+			Detail: "Run sync/parity/export rehearsal paths and document the explicit cutover and rollback procedure before replacement.",
+			Target: status.MigrationBlockers[0],
+			ProbeURLs: []string{
+				projectCoordinationBackendSyncReadinessURL,
+				projectCoordinationBackendMirrorParityURL,
+				projectCoordinationBackendExportURL,
+			},
+		}
+	}
+	return &ProjectCoordinationBackendNextAction{
+		ID:     "run-final-replacement-probes",
+		Label:  "Run final replacement probes",
+		Detail: "No blocker groups remain in the status snapshot; rerun read, parity, sync, and migration probes before marking the backend replaceable.",
+		Target: "replacement-gates",
+		ProbeURLs: []string{
+			projectCoordinationBackendReadinessURL,
+			projectCoordinationBackendEmbeddedParityReportURL,
+			projectCoordinationBackendSyncReadinessURL,
+			projectCoordinationBackendMirrorParityURL,
+		},
+	}
 }
 
 func projectCairnlineReplacementGates(readRoutesReady bool, writeGaps []string) []ProjectCoordinationBackendReplacementGate {

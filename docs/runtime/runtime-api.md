@@ -2466,11 +2466,13 @@ are Cairnline-authoritative and can remain in `side_effect_blockers` while
 Hecate still owns discovery scans and Git worktree creation.
 `replacement_ready` stays `false` until read parity, strict embedded mirror
 probes, write-authority switchpoints, and migration/rollback gates are all
-ready. `replacement_gates` reports those high-level gates as structured
-checklist items so clients do not need to parse warning prose. Each gate may
-include `probe_urls`, a list of route templates that produce supporting
-evidence for that gate; these URLs identify checks to run and are not proof
-that the gate has already passed. The
+ready. `next_replacement_action` is an advisory next operator step derived from
+the same status snapshot; it is not a command, permission, gate result, or proof
+that replacement is safe. `replacement_gates` reports those high-level gates as
+structured checklist items so clients do not need to parse warning prose. Each
+gate may include `probe_urls`, a list of route templates that produce
+supporting evidence for that gate; these URLs identify checks to run and are
+not proof that the gate has already passed. The
 `write-authority-switchpoints` gate can be `blocked`, `partial`, or `ready`;
 it ignores the separate `migration-cutover` gap because migration and rollback
 are reported by the `migration-and-rollback` gate.
@@ -2709,6 +2711,12 @@ Example response, with `write_switchpoints` shortened for readability:
     ],
     "side_effect_blockers": ["roots", "assignment-start", "project-assistant-apply-side-effects"],
     "migration_blockers": ["migration-cutover"],
+    "next_replacement_action": {
+      "id": "move-portable-write-authority",
+      "label": "Move the next portable write authority",
+      "detail": "Close the next portable project-state gap by adding a Cairnline-authoritative switchpoint while keeping Hecate as compatibility shadow.",
+      "target": "projects"
+    },
     "replacement_gates": [
       {
         "id": "read-routes",
