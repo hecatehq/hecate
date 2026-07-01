@@ -573,6 +573,7 @@ type ProjectCoordinationBackendStatusResponse struct {
 	PortableWriteGaps                    []string                                     `json:"portable_write_gaps,omitempty"`
 	SideEffectBlockers                   []string                                     `json:"side_effect_blockers,omitempty"`
 	MigrationBlockers                    []string                                     `json:"migration_blockers,omitempty"`
+	NextReplacementAction                *ProjectCoordinationBackendNextAction        `json:"next_replacement_action,omitempty"`
 	ReplacementGates                     []ProjectCoordinationBackendReplacementGate  `json:"replacement_gates,omitempty"`
 	WriteSwitchpoints                    []ProjectCoordinationBackendWriteSwitchpoint `json:"write_switchpoints,omitempty"`
 	Status                               string                                       `json:"status"`
@@ -597,6 +598,14 @@ type ProjectCoordinationBackendStatusResponse struct {
 	EmbeddedParityReportURL              string                                       `json:"embedded_parity_report_url,omitempty"`
 	SyncReadinessURL                     string                                       `json:"sync_readiness_url,omitempty"`
 	MirrorParityURL                      string                                       `json:"mirror_parity_url,omitempty"`
+}
+
+type ProjectCoordinationBackendNextAction struct {
+	ID        string   `json:"id"`
+	Label     string   `json:"label"`
+	Detail    string   `json:"detail"`
+	Target    string   `json:"target,omitempty"`
+	ProbeURLs []string `json:"probe_urls,omitempty"`
 }
 
 type ProjectCoordinationBackendReplacementGate struct {

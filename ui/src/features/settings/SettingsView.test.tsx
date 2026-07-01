@@ -54,6 +54,13 @@ beforeEach(() => {
       status: "hecate_authoritative",
       detail:
         "Hecate-native project stores are authoritative. Cairnline bridge endpoints are available for replacement-readiness checks.",
+      next_replacement_action: {
+        id: "enable-cairnline-dogfood",
+        label: "Enable Cairnline dogfood",
+        detail:
+          "Configure Cairnline as the project coordination backend in a local dogfood runtime before moving any authority.",
+        target: "configuration",
+      },
     },
   });
   vi.mocked(resetSystemData).mockReset();
@@ -86,6 +93,14 @@ describe("SettingsView", () => {
         portable_write_gaps: ["agent-profiles", "memory-candidates"],
         side_effect_blockers: ["assignment-start"],
         migration_blockers: ["migration-cutover"],
+        next_replacement_action: {
+          id: "move-portable-write-authority",
+          label: "Move the next portable write authority",
+          detail:
+            "Close the next portable project-state gap by adding a Cairnline-authoritative switchpoint while keeping Hecate as compatibility shadow.",
+          target: "agent-profiles",
+          probe_urls: ["/hecate/v1/projects/{id}/cairnline/read-model"],
+        },
         status: "cairnline_read_routes_ready",
         detail: "Cairnline read routes are served from the read model.",
       },
@@ -99,7 +114,10 @@ describe("SettingsView", () => {
     expect(screen.getByText("cairnline read routes ready")).toBeTruthy();
     expect(screen.getByText(/2 read routes use Cairnline/i)).toBeTruthy();
     expect(screen.getByText("Portable write gaps")).toBeTruthy();
-    expect(screen.getByText("agent-profiles")).toBeTruthy();
+    expect(screen.getByText("Next action")).toBeTruthy();
+    expect(screen.getByText("Move the next portable write authority")).toBeTruthy();
+    expect(screen.getAllByText("agent-profiles").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("1 probe")).toBeTruthy();
     expect(screen.getByText("memory-candidates")).toBeTruthy();
     expect(screen.getByText("assignment-start")).toBeTruthy();
     expect(screen.getByText("migration-cutover")).toBeTruthy();

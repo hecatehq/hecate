@@ -76,6 +76,9 @@ func TestProjectCoordinationBackendStatus_DefaultHecateAuthoritative(t *testing.
 	if len(status.ReadRoutes) != 0 || len(status.WriteAdapterSeams) != 0 || len(status.WriteAdapterGaps) != 0 || len(status.PortableWriteGaps) != 0 || len(status.SideEffectBlockers) != 0 || len(status.MigrationBlockers) != 0 || len(status.ReplacementGates) != 0 || len(status.WriteSwitchpoints) != 0 {
 		t.Fatalf("status = %+v, want no Cairnline route/seam/gap lists until Cairnline is configured", status)
 	}
+	if status.NextReplacementAction == nil || status.NextReplacementAction.ID != "enable-cairnline-dogfood" || status.NextReplacementAction.Target != "configuration" {
+		t.Fatalf("next action = %+v, want enable-cairnline-dogfood configuration action", status.NextReplacementAction)
+	}
 }
 
 func TestProjectCoordinationBackendStatus_CairnlineConfiguredMissingSources(t *testing.T) {
@@ -116,6 +119,9 @@ func TestProjectCoordinationBackendStatus_CairnlineConfiguredMissingSources(t *t
 	}
 	if point := findWriteSwitchpoint(status.WriteSwitchpoints, "assignment-start-dispatch"); point == nil || point.CurrentAuthority != "hecate" || point.CairnlineState != "result_mirror_only" || !point.LiveMirror || !point.BlocksAuthority || point.Gap != "assignment-start" {
 		t.Fatalf("assignment-start switchpoint = %+v, want Hecate-owned result mirror blocker", point)
+	}
+	if status.NextReplacementAction == nil || status.NextReplacementAction.ID != "complete-read-model-sources" || status.NextReplacementAction.Target != "read-routes" || !containsString(status.NextReplacementAction.ProbeURLs, projectCoordinationBackendEmbeddedParityReportURL) {
+		t.Fatalf("next action = %+v, want read-model source action with embedded parity probe", status.NextReplacementAction)
 	}
 }
 
@@ -197,6 +203,9 @@ func TestProjectCoordinationBackendStatus_CairnlineSidecarConnectorBlocksEmbedde
 	if point := findWriteSwitchpoint(status.WriteSwitchpoints, "project-identity"); point == nil || point.CurrentAuthority != "hecate" || !point.BlocksAuthority || point.Gap != "projects" {
 		t.Fatalf("project-identity switchpoint = %+v, want Hecate authority while sidecar routing is not live", point)
 	}
+	if status.NextReplacementAction == nil || status.NextReplacementAction.ID != "use-embedded-cairnline-connector" || status.NextReplacementAction.Target != "connector" {
+		t.Fatalf("next action = %+v, want embedded connector action for sidecar mode", status.NextReplacementAction)
+	}
 	warnings := strings.Join(status.Warnings, "\n")
 	if !strings.Contains(warnings, "HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar") || !strings.Contains(warnings, "lifecycle/write/setup/work/collaboration/memory/assistant diagnostics") || strings.Contains(warnings, "read-smoke surfaces only") || !strings.Contains(warnings, "Hecate-native stores") {
 		t.Fatalf("warnings = %+v, want full sidecar diagnostic warning", status.Warnings)
@@ -238,6 +247,9 @@ func TestProjectCoordinationBackendStatus_CairnlineSidecarReadRoutesReady(t *tes
 	warnings := strings.Join(status.Warnings, "\n")
 	if !strings.Contains(warnings, "project-assistant-context, project-assistant-proposal") || !strings.Contains(warnings, "authoritative write migration") {
 		t.Fatalf("warnings = %+v, want sidecar read routes with write-migration warning", status.Warnings)
+	}
+	if status.NextReplacementAction == nil || status.NextReplacementAction.ID != "use-embedded-cairnline-connector" || status.NextReplacementAction.Target != "connector" {
+		t.Fatalf("next action = %+v, want embedded connector action even when sidecar read routes are active", status.NextReplacementAction)
 	}
 }
 
@@ -311,6 +323,9 @@ func TestProjectCoordinationBackendStatus_CairnlineConfiguredReadRoutesReady(t *
 	}
 	if status.MirrorParityURL != projectCoordinationBackendMirrorParityURL {
 		t.Fatalf("mirror parity URL = %q, want %q", status.MirrorParityURL, projectCoordinationBackendMirrorParityURL)
+	}
+	if status.NextReplacementAction == nil || status.NextReplacementAction.ID != "move-portable-write-authority" || status.NextReplacementAction.Target != "projects" {
+		t.Fatalf("next action = %+v, want first portable write authority gap", status.NextReplacementAction)
 	}
 }
 
@@ -797,6 +812,9 @@ func TestProjectCoordinationBackendStatus_CairnlineAllPortableWriteAuthorityAlia
 	if gate := findReplacementGate(status.ReplacementGates, "write-authority-switchpoints"); gate == nil || gate.Ready || gate.Status != "partial" || !strings.Contains(gate.Detail, "roots") || !strings.Contains(gate.Detail, "assignment-start") || !strings.Contains(gate.Detail, "project-assistant-apply-side-effects") {
 		t.Fatalf("write-authority gate = %+v, want partial write authority with remaining side-effect gaps", gate)
 	}
+	if status.NextReplacementAction == nil || status.NextReplacementAction.ID != "separate-side-effect-boundary" || status.NextReplacementAction.Target != "roots" {
+		t.Fatalf("next action = %+v, want roots side-effect action after portable authority gaps close", status.NextReplacementAction)
+	}
 }
 
 func TestProjectCoordinationBackendStatus_WriteAuthorityGateIgnoresMigrationGap(t *testing.T) {
@@ -844,6 +862,9 @@ func TestProjectCoordinationBackendStatusRoute(t *testing.T) {
 	}
 	if !containsString(migrationGate.ProbeURLs, projectCoordinationBackendSyncReadinessURL) || !containsString(migrationGate.ProbeURLs, projectCoordinationBackendMirrorParityURL) || !containsString(migrationGate.ProbeURLs, projectCoordinationBackendExportURL) {
 		t.Fatalf("response migration gate probe URLs = %+v, want sync, mirror parity, and export probes", migrationGate.ProbeURLs)
+	}
+	if response.Data.NextReplacementAction == nil || response.Data.NextReplacementAction.ID != "move-portable-write-authority" || response.Data.NextReplacementAction.Target == "" {
+		t.Fatalf("response next action = %+v, want portable write-authority action", response.Data.NextReplacementAction)
 	}
 	migrationSwitchpoint := findWriteSwitchpoint(response.Data.WriteSwitchpoints, "migration-cutover")
 	if migrationSwitchpoint == nil || migrationSwitchpoint.CairnlineState != "snapshot_import_rehearsal_available" || !containsString(migrationSwitchpoint.Seams, "sync-rehearsal") {
