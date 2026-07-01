@@ -439,7 +439,12 @@ read routes require a populated
 `{HECATE_DATA_DIR}/cairnline/embedded/projects.db` and fail loudly when the
 mirror database, project row, or proposal record is missing; run
 `POST /hecate/v1/projects/cairnline/sync` first when dogfooding strict embedded
-reads. With `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar`,
+reads. The sync and mirror-parity responses include strict embedded smoke
+evidence that exercises project list/detail, setup, health, skills, memory,
+roles, work/activity/operations, assignment context/readiness, collaboration
+artifact/handoff, Project Assistant context/proposal, and project-linked Hecate
+Chat context reads against the embedded mirror where matching records exist.
+With `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar`,
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar` routes only project list/detail,
 setup-readiness, health, project skill list, project memory list,
 memory-candidate list, project role list, work-item list/detail,
