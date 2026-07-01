@@ -528,9 +528,10 @@ sequenceDiagram
   `POST /hecate/v1/projects/cairnline/sync` first when testing strict embedded
   reads. Strict embedded project list/detail, setup-readiness, health, project
   skill list, project role list, work-item list/detail, assignment-list,
-  assignment-context, activity, artifact-list, handoff-list, closeout-readiness,
-  operations brief, project memory list, and memory-candidate list reads use the
-  embedded Cairnline project, skill, role, work-item, assignment, artifact,
+  assignment-context, launch-readiness, assignment preflight, activity,
+  artifact-list, handoff-list, closeout-readiness, operations brief, project
+  memory list, and memory-candidate list reads use the embedded Cairnline
+  project, skill, role, work-item, assignment, launch-packet, artifact,
   evidence, review, handoff, and memory records directly instead of loading a
   Hecate snapshot first; other embedded read routes may still use Hecate
   snapshot scaffolding until their route families are cut over. With
@@ -2425,10 +2426,11 @@ read model, while other live Projects reads still use Hecate. Most of those
 configured embedded read routes still load Hecate snapshots as bridge
 scaffolding, but strict embedded project list/detail, setup-readiness, health,
 project skill list, project role list, work-item list/detail, assignment-list,
-assignment-context, activity, artifact-list, handoff-list, closeout-readiness,
-operations brief, project memory list, and memory-candidate list reads now load
-directly from the embedded Cairnline project, skill, role, work-item,
-assignment, artifact, evidence, review, handoff, and memory records. Their
+assignment-context, launch-readiness, assignment preflight, activity,
+artifact-list, handoff-list, closeout-readiness, operations brief, project
+memory list, and memory-candidate list reads now load directly from the embedded
+Cairnline project, skill, role, work-item, assignment, launch-packet, artifact,
+evidence, review, handoff, and memory records. Their
 Cairnline service read source is controlled by
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE`: `auto` prefers the embedded mirror and
 falls back to the snapshot-seeded bridge, `snapshot` always uses the
@@ -5840,6 +5842,10 @@ read from the Cairnline read model and the response includes
 task-store/runner availability, active execution lookup, workspace validation,
 provider/model readiness, and External Agent adapter validation.
 
+In strict embedded mode, the endpoint reads the launch packet directly from the
+embedded Cairnline database and does not require a matching Hecate-native
+project, work item, assignment, or role row.
+
 The response envelope is:
 
 ```json
@@ -5924,6 +5930,10 @@ portable assignment launch packet and summarizes portable project/work/root,
 role, profile, execution profile, skills, evidence, reviews, handoffs, memory,
 and memory-candidate counts. It is replacement-readiness evidence only; Hecate
 still owns dispatch validation and the subsequent start/prepare mutation.
+
+In strict embedded mode, preflight reads the launch packet directly from the
+embedded Cairnline database and does not require a matching Hecate-native
+project, work item, assignment, or role row.
 
 The Projects cockpit uses this endpoint before `Start assignment`, `Prepare
 chat`, and `Start from handoff` so the operator can review the effective launch
