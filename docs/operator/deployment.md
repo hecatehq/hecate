@@ -601,7 +601,10 @@ role/work-item/assignment/handoff, and memory-candidate switchpoints. It
 also reports `replacement_ready`,
 `replacement_gates`, and `write_switchpoints` so operators can see the exact
 read-route, strict-embedded-probe, write-authority, and migration blockers
-without parsing warning prose. `GET
+without parsing warning prose. It also groups the `write_adapter_gaps` stop list
+into `portable_write_gaps`, `side_effect_blockers`, and `migration_blockers`,
+so switchpoint work is separated from Hecate-owned runtime/workspace side
+effects and final cutover work. `GET
 /hecate/v1/projects/cairnline/mirror-parity` compares the existing embedded
 mirror database with Hecate's current stores without creating or repairing it;
 `GET /hecate/v1/projects/{id}/cairnline/embedded-read-model` reads operations,

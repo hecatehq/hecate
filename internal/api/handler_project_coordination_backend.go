@@ -364,6 +364,9 @@ func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendS
 		}
 		response.WriteAdapterSeams = append([]string(nil), projectCairnlineWriteAdapterSeamNames...)
 		response.WriteAdapterGaps = projectCairnlineWriteAdapterGapsSnapshot(effectiveWriteAuthority)
+		response.PortableWriteGaps = projectCairnlinePortableWriteGapsSnapshot(effectiveWriteAuthority, response.WriteAdapterGaps)
+		response.SideEffectBlockers = projectCairnlineSideEffectBlockersSnapshot(response.WriteAdapterGaps)
+		response.MigrationBlockers = projectCairnlineMigrationBlockersSnapshot(response.WriteAdapterGaps)
 		response.WriteSwitchpoints = projectCairnlineWriteSwitchpointsSnapshot(effectiveWriteAuthority)
 		response.ReplacementGates = projectCairnlineReplacementGates(readReady, response.WriteAdapterGaps)
 		if !connectorReady {
@@ -545,6 +548,44 @@ func projectCairnlineWriteAdapterGapsSnapshot(writeAuthority []string) []string 
 			continue
 		}
 		out = append(out, item)
+	}
+	return out
+}
+
+func projectCairnlinePortableWriteGapsSnapshot(writeAuthority, writeGaps []string) []string {
+	out := make([]string, 0, len(writeGaps))
+	projectRootsAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectRoots)
+	for _, item := range writeGaps {
+		switch item {
+		case "migration-cutover", "assignment-start", "project-assistant-apply-side-effects":
+			continue
+		case "roots":
+			if projectRootsAuthoritative {
+				continue
+			}
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func projectCairnlineSideEffectBlockersSnapshot(writeGaps []string) []string {
+	out := make([]string, 0, 3)
+	for _, item := range writeGaps {
+		switch item {
+		case "roots", "assignment-start", "project-assistant-apply-side-effects":
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func projectCairnlineMigrationBlockersSnapshot(writeGaps []string) []string {
+	out := make([]string, 0, 1)
+	for _, item := range writeGaps {
+		if item == "migration-cutover" {
+			out = append(out, item)
+		}
 	}
 	return out
 }

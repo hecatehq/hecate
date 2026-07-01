@@ -2454,6 +2454,16 @@ Hecate-owned. `write_adapter_seams` lists non-authoritative bridge proofs that
 can write Cairnline-shaped records during tests or local sync rehearsals;
 `write_adapter_gaps` lists mutation families whose live Hecate routes are not
 Cairnline-backed yet and therefore still block authority switch.
+`portable_write_gaps` groups the durable project-state gaps that can be closed
+by existing Cairnline write-authority switchpoints. `side_effect_blockers`
+groups still-Hecate-owned runtime/workspace effects such as root discovery or
+worktree creation, assignment dispatch, and Project Assistant chat/runtime side
+effects. `migration_blockers` lists remaining cutover/rollback work. These
+grouped fields are explanatory; the full machine-readable stop list remains
+`write_adapter_gaps`. The groups are not guaranteed to be exclusive: for
+example, `roots` can appear in `portable_write_gaps` until root metadata writes
+are Cairnline-authoritative and can remain in `side_effect_blockers` while
+Hecate still owns discovery scans and Git worktree creation.
 `replacement_ready` stays `false` until read parity, strict embedded mirror
 probes, write-authority switchpoints, and migration/rollback gates are all
 ready. `replacement_gates` reports those high-level gates as structured
@@ -2682,6 +2692,23 @@ Example response, with `write_switchpoints` shortened for readability:
       "project-assistant-apply-side-effects",
       "migration-cutover"
     ],
+    "portable_write_gaps": [
+      "projects",
+      "roots",
+      "context-sources",
+      "agent-profiles",
+      "skills",
+      "memory",
+      "memory-candidates",
+      "roles",
+      "work-items",
+      "assignments",
+      "artifacts",
+      "handoffs",
+      "project-assistant-proposals"
+    ],
+    "side_effect_blockers": ["roots", "assignment-start", "project-assistant-apply-side-effects"],
+    "migration_blockers": ["migration-cutover"],
     "replacement_gates": [
       {
         "id": "read-routes",
