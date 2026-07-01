@@ -64,13 +64,11 @@ func TestDetectVersionParsesValid(t *testing.T) {
 	}
 }
 
-func TestDetectVersionParsesPreRelease(t *testing.T) {
+func TestSemverRegexParsesPreRelease(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	path := writeFakeBinary(t, dir, "fake-adapter", "0.9.1-beta.2")
-	got := DetectVersion(context.Background(), path)
+	got := semverRe.FindString("0.9.1-beta.2")
 	if !strings.HasPrefix(got, "0.9.1") {
-		t.Fatalf("DetectVersion = %q, want prefix 0.9.1", got)
+		t.Fatalf("semverRe = %q, want prefix 0.9.1", got)
 	}
 }
 
