@@ -2450,9 +2450,12 @@ the standalone Cairnline MCP client; backend status reports those routes in
 `read_routes` while `read_model_switch_ready` remains false because the broader
 read model is not sidecar-backed yet.
 `read_routes` lists the live read families currently backed by the Cairnline
-read model. `write_adapter_ready=false` means writes and migration are still
-Hecate-owned. `write_adapter_seams` lists non-authoritative bridge proofs that
-can write Cairnline-shaped records during tests or local sync rehearsals;
+read model. `write_adapter_ready=true` means all portable project-state
+write-authority gaps known to this Hecate build are closed through explicit
+Cairnline switchpoints; it does not mean Hecate runtime side effects,
+migration, rollback, or final replacement are ready. `write_adapter_seams`
+lists non-authoritative bridge proofs that can write Cairnline-shaped records
+during tests or local sync rehearsals;
 `write_adapter_gaps` lists mutation families whose live Hecate routes are not
 Cairnline-backed yet. That broad diagnostic list includes both portable
 coordination-state gaps and Hecate-owned runtime/workspace capabilities.

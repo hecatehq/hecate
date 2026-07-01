@@ -367,6 +367,7 @@ func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendS
 		response.PortableWriteGaps = projectCairnlinePortableWriteGapsSnapshot(effectiveWriteAuthority, response.WriteAdapterGaps)
 		response.OrchestratorCapabilities = projectCairnlineOrchestratorCapabilitiesSnapshot(response.WriteAdapterGaps)
 		response.MigrationBlockers = projectCairnlineMigrationBlockersSnapshot(response.WriteAdapterGaps)
+		response.WriteAdapterReady = len(response.PortableWriteGaps) == 0
 		response.WriteSwitchpoints = projectCairnlineWriteSwitchpointsSnapshot(effectiveWriteAuthority)
 		response.ReplacementGates = projectCairnlineReplacementGates(readReady, response.PortableWriteGaps)
 		if !connectorReady {
