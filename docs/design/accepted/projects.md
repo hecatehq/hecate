@@ -218,32 +218,34 @@ project list/detail plus setup-readiness, health, project skill list, project
 role list, work-item list/detail, assignment-list, assignment-context,
 launch-readiness, assignment preflight, activity, artifact-list, handoff-list,
 closeout-readiness, operations brief, project memory list, and
-memory-candidate list reads load directly from the embedded Cairnline project,
-skill, role, work-item, assignment, launch-packet, artifact, evidence, review,
-handoff, and memory records instead of loading a Hecate-native project snapshot
+memory-candidate list reads plus Project Assistant context/proposal reads load
+directly from the embedded Cairnline project, skill, role, work-item,
+assignment, launch-packet, artifact, evidence, review, handoff, memory, and
+assistant proposal records instead of loading a Hecate-native project snapshot
 first.
 Activity, assignment-list, assignment-context, launch-readiness, assignment
-preflight, and operations brief reads render work items, assignments, roles,
-artifacts, and handoffs from the Cairnline service records, then overlay
-Hecate-only runtime refs/timestamps and runtime launch validation where Hecate
-still owns execution.
+preflight, Project Assistant context/proposal, and operations brief reads render
+work items, assignments, roles, artifacts, and handoffs from the Cairnline
+service records, then overlay Hecate-only runtime refs/timestamps and runtime
+launch validation where Hecate still owns execution.
 For remaining embedded read-route families, some project compatibility
 scaffolding still comes from Hecate until Cairnline becomes authoritative. The
 direct strict embedded exceptions are project list/detail, project skill list,
 setup-readiness, health, project role list, work-item list/detail,
 assignment-list, assignment-context, launch-readiness, assignment preflight,
 activity, artifact-list, handoff-list, closeout-readiness, operations brief,
-project memory list, and memory-candidate list reads. The explicit sidecar
-read-source routes remain the broader
+project memory list, memory-candidate list, and Project Assistant
+context/proposal reads. The explicit sidecar read-source routes remain the broader
 standalone-process exception for project list/detail, setup-readiness, health,
 project skill list, project memory list,
 memory-candidate list, project role list, work-item list/detail,
 assignment-list, assignment-context, launch-readiness, assignment preflight,
 artifact-list, handoff-list, activity, closeout-readiness, and operations brief
 reads.
-Project Assistant draft generation also uses the Cairnline-projected context so
-preview and proposal assembly stay aligned, while the proposal ledger remains
-Hecate-owned unless `project-assistant-proposals` is enabled.
+Project Assistant draft generation also uses the same Cairnline-projected
+context, including strict embedded direct context, so preview and proposal
+assembly stay aligned, while the proposal ledger remains Hecate-owned unless
+`project-assistant-proposals` is enabled.
 Confirmed Project Assistant apply routes project create, project
 metadata/default, root, role, work-item, assignment, handoff, and
 memory-candidate actions through the same opt-in Cairnline authority

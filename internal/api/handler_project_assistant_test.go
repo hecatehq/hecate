@@ -430,6 +430,166 @@ func TestProjectAssistantAPI_ContextUsesCairnlineReadModelWhenConfigured(t *test
 	}
 }
 
+func TestProjectAssistantAPI_ContextAndDraftStrictEmbeddedReadModelReadWithoutHecateProject(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend: "cairnline",
+			CairnlineReadSource: "embedded",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	server := NewServer(quietLogger(), handler)
+	const projectID = "proj_embedded_assistant"
+
+	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+		if _, err := service.CreateProject(t.Context(), cairnline.Project{
+			ID:            projectID,
+			Name:          "Embedded Assistant",
+			Description:   "Project Assistant reads strict embedded Cairnline state.",
+			DefaultRootID: "root_embedded_assistant",
+			Roots: []cairnline.Root{{
+				ID:     "root_embedded_assistant",
+				Path:   t.TempDir(),
+				Kind:   "git",
+				Active: true,
+			}},
+			ContextSources: []cairnline.Source{{
+				ID:         "ctx_embedded_assistant",
+				Kind:       "workspace_instruction",
+				Title:      "AGENTS.md",
+				Locator:    "AGENTS.md",
+				Enabled:    true,
+				Format:     "agents_md",
+				TrustLabel: "workspace_guidance",
+			}},
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateRole(t.Context(), cairnline.Role{
+			ID:                   "role_embedded_assistant",
+			ProjectID:            projectID,
+			Name:                 "Embedded Planner",
+			DefaultSkillIDs:      []string{"planning"},
+			DefaultExecutionMode: cairnline.ExecutionMCPPull,
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateProjectSkill(t.Context(), cairnline.ProjectSkill{
+			ID:          "planning",
+			ProjectID:   projectID,
+			Title:       "Planning",
+			Description: "Plan reviewable project work.",
+			Path:        ".agents/skills/planning/SKILL.md",
+			RootID:      "root_embedded_assistant",
+			Format:      cairnline.SkillFormatMarkdown,
+			Enabled:     true,
+			Status:      cairnline.SkillStatusAvailable,
+			TrustLabel:  cairnline.SkillTrustWorkspace,
+			SourceRefs:  []string{"ctx_embedded_assistant"},
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateWorkItem(t.Context(), cairnline.WorkItem{
+			ID:          "work_embedded_assistant",
+			ProjectID:   projectID,
+			Title:       "Shape embedded assistant work",
+			Brief:       "Use strict embedded Project Assistant context.",
+			Status:      cairnline.WorkStatusReady,
+			Priority:    cairnline.PriorityNormal,
+			OwnerRoleID: "role_embedded_assistant",
+			RootID:      "root_embedded_assistant",
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateAssignment(t.Context(), cairnline.Assignment{
+			ID:            "asgn_embedded_assistant",
+			ProjectID:     projectID,
+			WorkItemID:    "work_embedded_assistant",
+			RoleID:        "role_embedded_assistant",
+			RootID:        "root_embedded_assistant",
+			ExecutionMode: cairnline.ExecutionMCPPull,
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateMemoryEntry(t.Context(), cairnline.MemoryEntry{
+			ID:         "mem_embedded_assistant",
+			ProjectID:  projectID,
+			Title:      "Embedded assistant memory",
+			Body:       "Use embedded Cairnline rows for assistant context.",
+			Enabled:    true,
+			TrustLabel: memory.TrustLabelOperatorMemory,
+			SourceKind: memory.SourceKindOperator,
+		}); err != nil {
+			return err
+		}
+		_, err := service.CreateMemoryCandidate(t.Context(), cairnline.MemoryCandidate{
+			ID:                  "memcand_embedded_assistant",
+			ProjectID:           projectID,
+			Title:               "Embedded assistant candidate",
+			Body:                "Pending assistant memory candidate.",
+			Status:              cairnline.MemoryCandidatePending,
+			SuggestedKind:       "note",
+			SuggestedTrustLabel: memory.TrustLabelGenerated,
+			SuggestedSourceKind: memory.SourceKindGenerated,
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("seed embedded Cairnline assistant context: %v", err)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("Hecate project store seeded ok=%v err=%v, want no project row", ok, err)
+	}
+
+	client := newAPITestClient(t, server)
+	contextResp := mustRequestJSON[projectAssistantContextResponse](client, http.MethodPost, "/hecate/v1/project-assistant/context", `{
+		"project_id":"proj_embedded_assistant",
+		"work_item_id":"work_embedded_assistant",
+		"request":"Queue embedded assistant work"
+	}`)
+	if contextResp.Data.ReadBackend != "cairnline" || contextResp.Data.Project.ID != projectID {
+		t.Fatalf("embedded assistant context backend/project = %q/%+v, want Cairnline embedded project", contextResp.Data.ReadBackend, contextResp.Data.Project)
+	}
+	if contextResp.Data.SelectedWork == nil || contextResp.Data.SelectedWork.ID != "work_embedded_assistant" || contextResp.Data.Selection.RoleID != "role_embedded_assistant" || contextResp.Data.Selection.DriverKind != projectwork.AssignmentDriverHecateTask {
+		t.Fatalf("embedded assistant selected work/selection = %+v/%+v, want selected work owner and Hecate task driver", contextResp.Data.SelectedWork, contextResp.Data.Selection)
+	}
+	if !projectAssistantContextHasRole(contextResp.Data.Roles, "role_embedded_assistant") {
+		t.Fatalf("embedded assistant roles = %+v, want role from Cairnline", contextResp.Data.Roles)
+	}
+	if len(contextResp.Data.Skills) != 1 || contextResp.Data.Skills[0].ID != "planning" || len(contextResp.Data.Skills[0].SourceContextSourceIDs) != 1 {
+		t.Fatalf("embedded assistant skills = %+v, want skill metadata and provenance", contextResp.Data.Skills)
+	}
+	if len(contextResp.Data.Assignments) != 1 || contextResp.Data.Assignments[0].ID != "asgn_embedded_assistant" {
+		t.Fatalf("embedded assistant assignments = %+v, want assignment from Cairnline", contextResp.Data.Assignments)
+	}
+	if len(contextResp.Data.Memory) != 1 || contextResp.Data.Memory[0].ID != "mem_embedded_assistant" || len(contextResp.Data.MemoryCandidates) != 1 || contextResp.Data.MemoryCandidates[0].ID != "memcand_embedded_assistant" {
+		t.Fatalf("embedded assistant memory/candidates = %+v/%+v, want Cairnline memory context", contextResp.Data.Memory, contextResp.Data.MemoryCandidates)
+	}
+
+	draftResp := mustRequestJSON[projectAssistantProposalResponse](client, http.MethodPost, "/hecate/v1/project-assistant/draft", `{
+		"project_id":"proj_embedded_assistant",
+		"work_item_id":"work_embedded_assistant",
+		"request":"Queue embedded assistant implementation",
+		"draft_mode":"deterministic"
+	}`)
+	if draftResp.Object != "project_assistant.proposal" || !draftResp.Data.RequiresConfirmation {
+		t.Fatalf("embedded assistant draft response = %+v, want reviewable proposal for embedded project", draftResp)
+	}
+	if len(draftResp.Data.Actions) != 1 || draftResp.Data.Actions[0].Kind != projectassistant.ActionCreateAssignment {
+		t.Fatalf("embedded assistant draft actions = %+v, want create_assignment", draftResp.Data.Actions)
+	}
+	if draftResp.Data.Actions[0].Target["project_id"] != projectID {
+		t.Fatalf("embedded assistant draft target = %+v, want embedded project", draftResp.Data.Actions[0].Target)
+	}
+	var patch map[string]any
+	if err := json.Unmarshal(draftResp.Data.Actions[0].Patch, &patch); err != nil {
+		t.Fatalf("decode embedded assistant draft patch: %v", err)
+	}
+	if patch["project_id"] != projectID || patch["work_item_id"] != "work_embedded_assistant" || patch["role_id"] != "role_embedded_assistant" || patch["root_id"] != "root_embedded_assistant" {
+		t.Fatalf("embedded assistant draft patch = %+v, want selected embedded work assignment", patch)
+	}
+}
+
 func TestProjectAssistantAPI_ContextUsesCairnlineSidecarWhenConfigured(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "memory-fixture")

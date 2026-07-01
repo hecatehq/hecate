@@ -398,27 +398,29 @@ launch agents. Those remain explicit operator or orchestrator actions.
   work-item list/detail, assignment-list, assignment-context, launch-readiness,
   assignment preflight, activity, artifact-list, handoff-list,
   closeout-readiness, operations brief, project memory list, and
-  memory-candidate list reads can load directly from embedded Cairnline rows
-  without first building a Hecate snapshot.
+  memory-candidate list reads plus Project Assistant context/proposal reads can
+  load directly from embedded Cairnline rows without first building a Hecate
+  snapshot.
 - In configured Hecate embed mode, activity, work-item list/detail,
   assignment-list, assignment-context, launch-readiness, assignment preflight,
-  and operations brief reads now render work items, assignments, roles,
-  artifacts, and handoffs from Cairnline service records, then overlay
-  Hecate-only runtime refs/timestamps and runtime launch validation while Hecate
-  still owns execution. Outside the strict embedded direct-read exceptions for project
-  list/detail plus setup-readiness, health, skill, role, work-item,
-  assignment-list, assignment-context, launch-readiness, assignment preflight,
-  activity, artifact-list, handoff-list, closeout-readiness, operations brief,
-  and memory lists,
-  and outside the explicit sidecar read-source routes for project list/detail,
-  setup-readiness, health, skills, memory, memory candidates, roles, work items,
-  assignment lists, assignment context, launch-readiness, assignment preflight,
-  artifact lists, handoff lists, activity, closeout readiness, and operations
-  brief, some project compatibility
+  Project Assistant context/proposal, and operations brief reads now render work
+  items, assignments, roles, artifacts, and handoffs from Cairnline service
+  records, then overlay Hecate-only runtime refs/timestamps and runtime launch
+  validation while Hecate still owns execution. Outside the strict embedded
+  direct-read exceptions for project list/detail plus setup-readiness, health,
+  skill, role, work-item, assignment-list, assignment-context,
+  launch-readiness, assignment preflight, activity, artifact-list,
+  handoff-list, closeout-readiness, operations brief, memory lists, and Project
+  Assistant context/proposal, and outside the explicit sidecar read-source
+  routes for project list/detail, setup-readiness, health, skills, memory,
+  memory candidates, roles, work items, assignment lists, assignment context,
+  launch-readiness, assignment preflight, artifact lists, handoff lists,
+  activity, closeout readiness, and operations brief, some project compatibility
   scaffolding remains Hecate-owned until Cairnline becomes authoritative.
 - Project Assistant draft generation can use the same Cairnline-projected
-  context as the inspect endpoint, so proposal assembly is exercised against the
-  portable read model while proposal persistence and apply remain Hecate-owned.
+  context as the inspect endpoint, including strict embedded direct context, so
+  proposal assembly is exercised against the portable read model while proposal
+  persistence and apply remain Hecate-owned.
 - Hecate launch-readiness and assignment preflight can read Cairnline
   project/work/assignment/role coordination records before applying Hecate-owned
   runtime validation. Native assignment preflight/start context packets can
