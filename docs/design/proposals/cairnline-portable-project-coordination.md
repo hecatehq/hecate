@@ -393,18 +393,20 @@ launch agents. Those remain explicit operator or orchestrator actions.
   embedded mirror database when it already contains the requested project and
   otherwise uses the snapshot-seeded bridge; `snapshot` forces the bridge; and
   `embedded` requires a populated embedded mirror so read-route drift fails
-  loudly during replacement-readiness dogfood.
+  loudly during replacement-readiness dogfood. In strict embedded mode, project
+  list/detail plus memory and memory-candidate list reads can load directly from
+  embedded Cairnline rows without first building a Hecate snapshot.
 - In configured Hecate embed mode, activity, work-item list/detail,
   assignment-list, and operations brief reads now render work items,
   assignments, roles, artifacts, and handoffs from Cairnline service records,
   then overlay Hecate-only runtime refs/timestamps while Hecate still owns
-  execution. Outside the explicit sidecar read-source routes for project
-  list/detail, setup-readiness, health, skills, memory, memory candidates, roles,
-  work items, assignment lists, assignment context, launch-readiness, assignment preflight, artifact
-  lists, handoff lists, activity, closeout readiness, and operations brief,
-  project identity and some
-  compatibility scaffolding remain Hecate-owned until Cairnline becomes
-  authoritative.
+  execution. Outside the strict embedded direct-read exceptions for project
+  list/detail plus memory lists, and outside the explicit sidecar read-source
+  routes for project list/detail, setup-readiness, health, skills, memory,
+  memory candidates, roles, work items, assignment lists, assignment context,
+  launch-readiness, assignment preflight, artifact lists, handoff lists,
+  activity, closeout readiness, and operations brief, some project compatibility
+  scaffolding remains Hecate-owned until Cairnline becomes authoritative.
 - Project Assistant draft generation can use the same Cairnline-projected
   context as the inspect endpoint, so proposal assembly is exercised against the
   portable read model while proposal persistence and apply remain Hecate-owned.

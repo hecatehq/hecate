@@ -707,6 +707,9 @@ func (h *Handler) renderProjects(ctx context.Context) ([]ProjectResponseItem, er
 	if h.projectCairnlineSidecarReadRoutesEnabled() {
 		return h.renderCairnlineSidecarProjects(ctx)
 	}
+	if h.requiresEmbeddedCairnlineProjectReads() {
+		return h.renderStrictEmbeddedCairnlineProjects(ctx)
+	}
 	items, err := h.projects.List(ctx)
 	if err != nil {
 		return nil, err
@@ -717,6 +720,27 @@ func (h *Handler) renderProjects(ctx context.Context) ([]ProjectResponseItem, er
 	data := make([]ProjectResponseItem, 0, len(items))
 	for _, item := range items {
 		data = append(data, renderProject(item))
+	}
+	return data, nil
+}
+
+func (h *Handler) renderStrictEmbeddedCairnlineProjects(ctx context.Context) ([]ProjectResponseItem, error) {
+	_, service, store, err := h.openCairnlineEmbeddedService(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer store.Close()
+	items, err := service.ListProjects(ctx)
+	if err != nil {
+		return nil, err
+	}
+	data := make([]ProjectResponseItem, 0, len(items))
+	for _, item := range items {
+		project, err := h.renderCairnlineProjectFromService(ctx, service, item, projects.Project{})
+		if err != nil {
+			return nil, err
+		}
+		data = append(data, project)
 	}
 	return data, nil
 }
@@ -737,6 +761,9 @@ func (h *Handler) renderProject(ctx context.Context, projectID string) (*Project
 	if h.projectCairnlineSidecarReadRoutesEnabled() {
 		return h.renderCairnlineSidecarProject(ctx, projectID)
 	}
+	if h.requiresEmbeddedCairnlineProjectReads() {
+		return h.renderStrictEmbeddedCairnlineProject(ctx, projectID)
+	}
 	project, ok, err := h.projects.Get(ctx, projectID)
 	if err != nil || !ok {
 		return nil, err
@@ -750,6 +777,26 @@ func (h *Handler) renderProject(ctx context.Context, projectID string) (*Project
 	}
 	rendered := renderProject(project)
 	return &rendered, nil
+}
+
+func (h *Handler) renderStrictEmbeddedCairnlineProject(ctx context.Context, projectID string) (*ProjectResponseItem, error) {
+	_, service, store, err := h.openCairnlineEmbeddedService(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer store.Close()
+	item, err := service.GetProject(ctx, projectID)
+	if errors.Is(err, cairnline.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	project, err := h.renderCairnlineProjectFromService(ctx, service, item, projects.Project{})
+	if err != nil {
+		return nil, err
+	}
+	return &project, nil
 }
 
 func writeProjectReadRenderError(w http.ResponseWriter, err error) {
@@ -770,7 +817,11 @@ func (h *Handler) renderCairnlineProject(ctx context.Context, native projects.Pr
 	if err != nil {
 		return ProjectResponseItem{}, err
 	}
-	executionProfile, err := cairnlineExecutionProfileByID(ctx, view.service, project.DefaultExecutionProfileID)
+	return h.renderCairnlineProjectFromService(ctx, view.service, project, native)
+}
+
+func (h *Handler) renderCairnlineProjectFromService(ctx context.Context, service *cairnline.Service, project cairnline.Project, native projects.Project) (ProjectResponseItem, error) {
+	executionProfile, err := cairnlineExecutionProfileByID(ctx, service, project.DefaultExecutionProfileID)
 	if err != nil {
 		return ProjectResponseItem{}, err
 	}
@@ -850,8 +901,8 @@ func projectFromCairnline(item cairnline.Project, executionProfile *cairnline.Ex
 		DefaultWorkspaceMode:     native.DefaultWorkspaceMode,
 		DefaultSystemPrompt:      native.DefaultSystemPrompt,
 		DefaultCompactToolOutput: cloneBool(native.DefaultCompactToolOutput),
-		CreatedAt:                native.CreatedAt,
-		UpdatedAt:                native.UpdatedAt,
+		CreatedAt:                firstNonZeroTime(native.CreatedAt, item.CreatedAt),
+		UpdatedAt:                firstNonZeroTime(native.UpdatedAt, item.UpdatedAt),
 		LastOpenedAt:             native.LastOpenedAt,
 	}
 	if executionProfile != nil {
