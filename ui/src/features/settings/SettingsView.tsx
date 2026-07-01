@@ -312,7 +312,7 @@ function ProjectCoordinationBackendSettings({
     <section style={{ marginBottom: 20 }}>
       <SectionHeader
         title="Project coordination"
-        description="Current Projects backend authority and Cairnline replacement-readiness blockers."
+        description="Current Projects backend authority, Cairnline replacement readiness, and Hecate-owned orchestrator capabilities."
         meta={
           status
             ? `${status.configured_backend} configured · ${status.authoritative_backend} authoritative`
