@@ -604,7 +604,8 @@ read-route, strict-embedded-probe, write-authority, and migration blockers
 without parsing warning prose. It also groups the `write_adapter_gaps` stop list
 into `portable_write_gaps`, `side_effect_blockers`, and `migration_blockers`,
 so switchpoint work is separated from Hecate-owned runtime/workspace side
-effects and final cutover work. `GET
+effects and final cutover work. Settings shows the same backend-status summary
+under Project coordination for local operator inspection. `GET
 /hecate/v1/projects/cairnline/mirror-parity` compares the existing embedded
 mirror database with Hecate's current stores without creating or repairing it;
 `GET /hecate/v1/projects/{id}/cairnline/embedded-read-model` reads operations,

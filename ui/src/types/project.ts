@@ -71,6 +71,56 @@ export type ProjectDeleteResponse = {
   data: ProjectDeleteRecord;
 };
 
+export type ProjectCoordinationBackendReplacementGateRecord = {
+  id: string;
+  ready: boolean;
+  status: string;
+  detail: string;
+  probe_urls?: string[];
+};
+
+export type ProjectCoordinationBackendWriteSwitchpointRecord = {
+  name: string;
+  current_authority: string;
+  cairnline_state: string;
+  live_mirror: boolean;
+  blocks_authority: boolean;
+  seams?: string[];
+  gap?: string;
+  detail: string;
+};
+
+export type ProjectCoordinationBackendStatusRecord = {
+  configured_backend: string;
+  authoritative_backend: string;
+  storage_backend: string;
+  cairnline_connector?: string;
+  cairnline_connector_ready: boolean;
+  cairnline_connector_detail?: string;
+  cairnline_read_source?: string;
+  cairnline_bridge_ready: boolean;
+  cairnline_authoritative: boolean;
+  read_model_switch_ready: boolean;
+  write_adapter_ready: boolean;
+  replacement_ready: boolean;
+  read_routes?: string[];
+  write_adapter_seams?: string[];
+  write_adapter_gaps?: string[];
+  portable_write_gaps?: string[];
+  side_effect_blockers?: string[];
+  migration_blockers?: string[];
+  replacement_gates?: ProjectCoordinationBackendReplacementGateRecord[];
+  write_switchpoints?: ProjectCoordinationBackendWriteSwitchpointRecord[];
+  status: string;
+  detail: string;
+  warnings?: string[];
+};
+
+export type ProjectCoordinationBackendStatusResponse = {
+  object: string;
+  data: ProjectCoordinationBackendStatusRecord;
+};
+
 export type ProjectAssistantAction = {
   kind: string;
   target?: Record<string, string>;
