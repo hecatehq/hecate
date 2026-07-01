@@ -214,8 +214,8 @@ the snapshot-seeded in-memory bridge projection.
 bridge; `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded` requires the embedded
 mirror database and requested project row or proposal record so
 replacement-readiness gaps fail loudly during dogfood. In strict embedded mode,
-project list/detail plus setup-readiness, project skill list, project role list,
-work-item list/detail, assignment-list, artifact-list, handoff-list,
+project list/detail plus setup-readiness, health, project skill list, project
+role list, work-item list/detail, assignment-list, artifact-list, handoff-list,
 closeout-readiness, project memory list, and memory-candidate list reads load
 directly from the embedded Cairnline project, skill, role, work-item,
 assignment, artifact, evidence, review, handoff, and memory records instead of
@@ -227,7 +227,7 @@ execution.
 For remaining embedded read-route families, some project compatibility
 scaffolding still comes from Hecate until Cairnline becomes authoritative. The
 direct strict embedded exceptions are project list/detail, project skill list,
-setup-readiness, project role list, work-item list/detail, assignment-list,
+setup-readiness, health, project role list, work-item list/detail, assignment-list,
 artifact-list, handoff-list, closeout-readiness, project memory list, and
 memory-candidate list reads. The explicit sidecar read-source routes remain the
 broader standalone-process exception for project list/detail, setup-readiness,

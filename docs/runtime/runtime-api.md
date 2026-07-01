@@ -526,8 +526,8 @@ sequenceDiagram
   routes require a populated embedded mirror database and fail if the database
   or requested project row/proposal record is missing. Run
   `POST /hecate/v1/projects/cairnline/sync` first when testing strict embedded
-  reads. Strict embedded project list/detail, setup-readiness, project skill
-  list, project role list, work-item list/detail, assignment-list,
+  reads. Strict embedded project list/detail, setup-readiness, health, project
+  skill list, project role list, work-item list/detail, assignment-list,
   artifact-list, handoff-list, closeout-readiness, project memory list, and
   memory-candidate list reads use the embedded Cairnline project, skill, role,
   work-item, assignment, artifact, evidence, review, handoff, and memory records
@@ -2423,8 +2423,8 @@ lists, handoff lists, Project Assistant context/proposal reads, closeout
 readiness, activity inbox, and operations brief can be served from the Cairnline
 read model, while other live Projects reads still use Hecate. Most of those
 configured embedded read routes still load Hecate snapshots as bridge
-scaffolding, but strict embedded project list/detail, setup-readiness, project
-skill list, project role list, work-item list/detail, assignment-list,
+scaffolding, but strict embedded project list/detail, setup-readiness, health,
+project skill list, project role list, work-item list/detail, assignment-list,
 artifact-list, handoff-list, closeout-readiness, project memory list, and
 memory-candidate list reads now load directly from the embedded Cairnline
 project, skill, role, work-item, assignment, artifact, evidence, review,
