@@ -821,6 +821,15 @@ func TestProjectCoordinationBackendStatus_CairnlineAllPortableWriteAuthorityAlia
 	if status.NextReplacementAction == nil || status.NextReplacementAction.ID != "rehearse-migration-cutover" || status.NextReplacementAction.Target != "migration-cutover" {
 		t.Fatalf("next action = %+v, want migration rehearsal after portable authority gaps close", status.NextReplacementAction)
 	}
+	if hint := findConfigHint(status.NextReplacementAction.ConfigHints, "HECATE_PROJECTS_CAIRNLINE_CONNECTOR"); hint == nil || hint.Value != "embedded" {
+		t.Fatalf("next action config hints = %+v, want embedded connector hint", status.NextReplacementAction.ConfigHints)
+	}
+	if hint := findConfigHint(status.NextReplacementAction.ConfigHints, "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE"); hint == nil || hint.Value != "embedded" {
+		t.Fatalf("next action config hints = %+v, want strict embedded read-source hint", status.NextReplacementAction.ConfigHints)
+	}
+	if hint := findConfigHint(status.NextReplacementAction.ConfigHints, "HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY"); hint == nil || hint.Value != "all-portable" {
+		t.Fatalf("next action config hints = %+v, want all-portable authority hint", status.NextReplacementAction.ConfigHints)
+	}
 }
 
 func TestProjectCoordinationBackendStatus_WriteAuthorityGateUsesPortableGaps(t *testing.T) {

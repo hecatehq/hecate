@@ -607,8 +607,13 @@ warning prose. It also groups the broad `write_adapter_gaps` diagnostic list int
 `orchestrator_capabilities`, and `migration_blockers`, so durable
 coordination-state switchpoint work is separated from Hecate-owned
 runtime/workspace capabilities and final cutover work. Settings shows the same
-backend-status summary and next action under
-Project coordination for local operator inspection. `GET
+backend-status summary, next action, and replacement-gate checklist under
+Project coordination for local operator inspection. Once portable write gaps are
+closed, the migration next action reports strict embedded rehearsal hints for
+`HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded`,
+`HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded`, and
+`HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=all-portable`; these remain operator
+settings, not an automatic backend replacement. `GET
 /hecate/v1/projects/cairnline/mirror-parity` compares the existing embedded
 mirror database with Hecate's current stores without creating or repairing it;
 `GET /hecate/v1/projects/{id}/cairnline/embedded-read-model` reads operations,

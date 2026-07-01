@@ -107,6 +107,34 @@ describe("SettingsView", () => {
           ],
           probe_urls: ["/hecate/v1/projects/{id}/cairnline/read-model"],
         },
+        replacement_gates: [
+          {
+            id: "read-routes",
+            ready: true,
+            status: "ready",
+            detail:
+              "Configured live project read families can be served from Cairnline's projected read model.",
+            probe_urls: ["/hecate/v1/projects/{id}/cairnline/read-model"],
+          },
+          {
+            id: "write-authority-switchpoints",
+            ready: false,
+            status: "partial",
+            detail:
+              "Some portable project-state mutation switchpoints are Cairnline-authoritative; remaining portable write gaps: agent-profiles, memory-candidates.",
+          },
+          {
+            id: "migration-and-rollback",
+            ready: false,
+            status: "rehearsal_available",
+            detail:
+              "Embedded sync and project export return structured migration rehearsal evidence with rollback notes.",
+            probe_urls: [
+              "/hecate/v1/projects/cairnline/sync",
+              "/hecate/v1/projects/cairnline/mirror-parity",
+            ],
+          },
+        ],
         status: "cairnline_read_routes_ready",
         detail: "Cairnline read routes are served from the read model.",
       },
@@ -123,11 +151,17 @@ describe("SettingsView", () => {
     expect(screen.getByText("Hecate orchestrator capabilities")).toBeTruthy();
     expect(screen.getByText("Next action")).toBeTruthy();
     expect(screen.getByText("Move the next portable write authority")).toBeTruthy();
+    expect(screen.getByText("Replacement gates")).toBeTruthy();
+    expect(screen.getByText("read routes")).toBeTruthy();
+    expect(screen.getByText("write authority switchpoints")).toBeTruthy();
+    expect(screen.getByText("migration and rollback")).toBeTruthy();
+    expect(screen.getByText("partial")).toBeTruthy();
+    expect(screen.getByText("rehearsal available")).toBeTruthy();
     expect(screen.getAllByText("agent-profiles").length).toBeGreaterThanOrEqual(1);
     expect(
       screen.getByText("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=agent-profiles"),
     ).toBeTruthy();
-    expect(screen.getByText("1 probe")).toBeTruthy();
+    expect(screen.getAllByText("1 probe").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("memory-candidates")).toBeTruthy();
     expect(screen.getByText("assignment-start")).toBeTruthy();
     expect(screen.getByText("migration-cutover")).toBeTruthy();

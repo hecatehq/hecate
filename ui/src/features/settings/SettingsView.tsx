@@ -300,6 +300,7 @@ function ProjectCoordinationBackendSettings({
   const orchestratorCapabilities =
     status?.orchestrator_capabilities ?? status?.side_effect_blockers ?? [];
   const migrationBlockers = status?.migration_blockers ?? [];
+  const replacementGates = status?.replacement_gates ?? [];
   const nextAction = status?.next_replacement_action;
   const statusBadge = status
     ? status.replacement_ready
@@ -353,6 +354,7 @@ function ProjectCoordinationBackendSettings({
             </div>
           </div>
           {nextAction && <ProjectBackendNextAction action={nextAction} />}
+          {replacementGates.length > 0 && <ProjectBackendGateList gates={replacementGates} />}
           <div
             style={{
               display: "grid",
@@ -378,6 +380,72 @@ function ProjectCoordinationBackendSettings({
         </article>
       )}
     </section>
+  );
+}
+
+function ProjectBackendGateList({
+  gates,
+}: {
+  gates: NonNullable<ProjectCoordinationBackendStatusRecord["replacement_gates"]>;
+}) {
+  return (
+    <div style={{ display: "grid", gap: 8, marginTop: 14 }}>
+      <div
+        style={{
+          color: "var(--t3)",
+          fontFamily: "var(--font-mono)",
+          fontSize: 10,
+          textTransform: "uppercase",
+        }}
+      >
+        Replacement gates
+      </div>
+      <div style={{ display: "grid", gap: 7 }}>
+        {gates.map((gate) => {
+          const probes = gate.probe_urls ?? [];
+          return (
+            <div
+              key={gate.id}
+              style={{
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius-sm)",
+                display: "grid",
+                gap: 5,
+                padding: "8px 10px",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+                <ProjectBackendGateBadge ready={gate.ready} status={gate.status} />
+                <span style={{ color: "var(--t0)", fontSize: 12, fontWeight: 600 }}>
+                  {gate.id.replaceAll("-", " ")}
+                </span>
+                {probes.length > 0 && (
+                  <span className="badge badge-muted" style={{ textTransform: "none" }}>
+                    {probes.length} probe{probes.length === 1 ? "" : "s"}
+                  </span>
+                )}
+              </div>
+              <div style={{ color: "var(--t2)", fontSize: 11, lineHeight: 1.45 }}>
+                {gate.detail}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ProjectBackendGateBadge({ ready, status }: { ready: boolean; status: string }) {
+  const className = ready
+    ? "badge badge-green"
+    : status === "partial" || status === "operator_probe_required"
+      ? "badge badge-amber"
+      : "badge badge-muted";
+  return (
+    <span className={className} style={{ textTransform: "none" }}>
+      {status.replaceAll("_", " ")}
+    </span>
   );
 }
 
@@ -467,7 +535,7 @@ function projectBackendSummary(status: ProjectCoordinationBackendStatusRecord): 
     return "Hecate-native project stores are authoritative. Cairnline bridge diagnostics are available for replacement-readiness checks.";
   }
   if (status.read_model_switch_ready || readRoutes > 0) {
-    return `${readRoutes} read route${readRoutes === 1 ? "" : "s"} use Cairnline. ${portableGaps} portable write gap${portableGaps === 1 ? "" : "s"} and ${migrationBlockers} migration blocker${migrationBlockers === 1 ? "" : "s"} remain; ${orchestratorCapabilities} Hecate orchestrator capabilit${orchestratorCapabilities === 1 ? "y" : "ies"} stay outside Cairnline core.`;
+    return `${readRoutes} read route${readRoutes === 1 ? "" : "s"} use Cairnline. ${portableGaps} portable write gap${portableGaps === 1 ? "" : "s"} and ${migrationBlockers} migration blocker${migrationBlockers === 1 ? "" : "s"} remain; ${orchestratorCapabilities} Hecate orchestrator ${orchestratorCapabilities === 1 ? "capability stays" : "capabilities stay"} outside Cairnline core.`;
   }
   return "Cairnline is configured, but live read routes and replacement gates are not ready yet.";
 }
