@@ -140,6 +140,12 @@ func TestProjectCoordinationBackendStatus_CairnlineSidecarConnectorBlocksEmbedde
 	if !strings.Contains(status.CairnlineConnectorDetail, "lifecycle/write/setup/work/collaboration/memory/assistant diagnostics") || strings.Contains(status.CairnlineConnectorDetail, "read-smoke surfaces only") {
 		t.Fatalf("connector detail = %q, want full sidecar diagnostic surface", status.CairnlineConnectorDetail)
 	}
+	if !strings.Contains(status.CairnlineConnectorDetail, "project-assistant-context, project-assistant-proposal") {
+		t.Fatalf("connector detail = %q, want canonical sidecar read-route list", status.CairnlineConnectorDetail)
+	}
+	if !strings.Contains(strings.Join(status.Warnings, "\n"), "project-assistant-context, project-assistant-proposal") {
+		t.Fatalf("warnings = %+v, want sidecar connector warning to include canonical read-route list", status.Warnings)
+	}
 	if handler.projectReadRoutesUseCairnlineReadModel() || handler.projectIdentityWritesUseCairnlineAuthority() || handler.projectMemoryWritesUseCairnlineAuthority() || handler.projectAssignmentWritesUseCairnlineAuthority() {
 		t.Fatal("sidecar connector enabled embedded Cairnline read/write route predicates, want connect/probe-only mode")
 	}

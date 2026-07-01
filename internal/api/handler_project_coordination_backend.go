@@ -366,11 +366,11 @@ func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendS
 		if !connectorReady {
 			if h.projectCairnlineSidecarReadRoutesEnabled() {
 				response.Status = "cairnline_sidecar_read_routes_ready"
-				response.Detail = "Cairnline sidecar is configured as the project read source, so project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, project-assistant-context, project-assistant-proposal, activity, closeout-readiness, and operations-brief routes read through the persistent standalone Cairnline MCP client. Project writes and migration remain on Hecate-native stores or existing embedded dogfood paths."
+				response.Detail = "Cairnline sidecar is configured as the project read source, so " + projectCairnlineReadRouteList(projectCairnlineSidecarReadRouteNames) + " routes read through the persistent standalone Cairnline MCP client. Project writes and migration remain on Hecate-native stores or existing embedded dogfood paths."
 				response.ReadRoutes = append([]string(nil), projectCairnlineSidecarReadRouteNames...)
 				response.ReplacementGates = projectCairnlineReplacementGates(false, response.WriteAdapterGaps)
 				response.Warnings = []string{
-					"Only project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, project-assistant-context, project-assistant-proposal, activity, closeout-readiness, and operations-brief use the Cairnline sidecar MCP client in this mode.",
+					"Only " + projectCairnlineReadRouteList(projectCairnlineSidecarReadRouteNames) + " use the Cairnline sidecar MCP client in this mode.",
 					"Project writes still use Hecate-native stores unless a separate embedded Cairnline authority switchpoint is explicitly enabled.",
 					"Full Cairnline replacement remains blocked on authoritative write migration.",
 				}
@@ -389,9 +389,9 @@ func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendS
 		if readReady {
 			response.ReadRoutes = append([]string(nil), projectCairnlineReadRouteNames...)
 			response.Status = "cairnline_read_routes_ready"
-			response.Detail = "Cairnline is configured as the future Projects coordination backend, and the project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, project-assistant-context, project-assistant-proposal, activity, closeout-readiness, and operations brief read routes are served from the Cairnline read model. " + projectCairnlineReadSourceDetail(readSource) + " Hecate stores remain authoritative until the remaining live read routes, writes, and migration are ready."
+			response.Detail = "Cairnline is configured as the future Projects coordination backend, and the " + projectCairnlineReadRouteList(projectCairnlineReadRouteNames) + " read routes are served from the Cairnline read model. " + projectCairnlineReadSourceDetail(readSource) + " Hecate stores remain authoritative until the remaining writes and migration are ready."
 			response.Warnings = []string{
-				"Only the project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, project-assistant-context, project-assistant-proposal, activity, closeout-readiness, and operations brief live read routes use Cairnline.",
+				"Only the " + projectCairnlineReadRouteList(projectCairnlineReadRouteNames) + " live read routes use Cairnline.",
 				projectCairnlineReadSourceWarning(readSource),
 				projectCairnlineProjectIdentityWriteWarning(writeAuthority),
 				projectCairnlineProjectMetadataDefaultsWriteWarning(writeAuthority),
@@ -809,12 +809,16 @@ func projectCairnlineAssistantApplyPortableEffectsAuthoritative(writeAuthority [
 			projectCairnlineWriteAuthorityEnabled(writeAuthority, "memory-candidates"))
 }
 
+func projectCairnlineReadRouteList(routes []string) string {
+	return strings.Join(routes, ", ")
+}
+
 func projectCairnlineReadSourceDetail(source string) string {
 	switch source {
 	case "embedded":
 		return "Configured read routes require the embedded mirror database and requested project row or proposal record; if the mirror is missing or stale, the route fails loudly instead of falling back to a Hecate snapshot."
 	case "sidecar":
-		return "Configured read routes call the standalone Cairnline MCP sidecar through the persistent local client; only project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, project-assistant-context, project-assistant-proposal, activity, closeout-readiness, and operations-brief use this source."
+		return "Configured read routes call the standalone Cairnline MCP sidecar through the persistent local client; only " + projectCairnlineReadRouteList(projectCairnlineSidecarReadRouteNames) + " use this source."
 	case "snapshot":
 		return "Configured read routes use the snapshot-seeded in-memory Cairnline bridge projection and do not attempt the embedded mirror database."
 	default:
@@ -827,7 +831,7 @@ func projectCairnlineReadSourceWarning(source string) string {
 	case "embedded":
 		return "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded requires a populated embedded Cairnline mirror database and fails configured read routes when the database, project row, or proposal record is missing."
 	case "sidecar":
-		return "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar routes only project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, project-assistant-context, project-assistant-proposal, activity, closeout-readiness, and operations-brief through the standalone Cairnline MCP client; writes remain Hecate-owned unless a separate write-authority switchpoint is enabled."
+		return "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar routes only " + projectCairnlineReadRouteList(projectCairnlineSidecarReadRouteNames) + " through the standalone Cairnline MCP client; writes remain Hecate-owned unless a separate write-authority switchpoint is enabled."
 	case "snapshot":
 		return "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=snapshot keeps configured read routes on the snapshot-seeded in-memory Cairnline bridge projection even when an embedded mirror database exists."
 	default:
