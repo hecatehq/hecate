@@ -1013,11 +1013,17 @@ func (h *Handler) HandleProjectHandoffs(w http.ResponseWriter, r *http.Request) 
 		WriteJSON(w, http.StatusOK, ProjectHandoffsResponse{Object: "project_handoffs", Data: data})
 		return
 	}
-	if !h.requireProject(w, r, projectID) {
+	strictEmbeddedRead := h.projectReadRoutesUseCairnlineReadModel() && h.requiresEmbeddedCairnlineProjectReads()
+	if !strictEmbeddedRead && !h.requireProject(w, r, projectID) {
 		return
 	}
 	data, err := h.renderProjectHandoffs(r.Context(), filter)
-	if !writeProjectWorkError(w, err) {
+	if err != nil {
+		if errors.Is(err, projects.ErrNotFound) || errors.Is(err, cairnline.ErrNotFound) {
+			WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
+			return
+		}
+		_ = writeProjectWorkError(w, err)
 		return
 	}
 	WriteJSON(w, http.StatusOK, ProjectHandoffsResponse{Object: "project_handoffs", Data: data})
@@ -1047,15 +1053,25 @@ func (h *Handler) HandleProjectWorkItemHandoffs(w http.ResponseWriter, r *http.R
 		WriteJSON(w, http.StatusOK, ProjectHandoffsResponse{Object: "project_handoffs", Data: data})
 		return
 	}
-	if !h.requireProjectWorkItem(w, r, projectID, workItemID) {
+	strictEmbeddedRead := h.projectReadRoutesUseCairnlineReadModel() && h.requiresEmbeddedCairnlineProjectReads()
+	if !strictEmbeddedRead && !h.requireProjectWorkItem(w, r, projectID, workItemID) {
 		return
 	}
-	data, err := h.renderProjectHandoffs(r.Context(), projectwork.HandoffFilter{
+	data, err := h.renderProjectWorkItemHandoffs(r.Context(), projectwork.HandoffFilter{
 		ProjectID:  projectID,
 		WorkItemID: workItemID,
 		Status:     strings.TrimSpace(r.URL.Query().Get("status")),
 	})
-	if !writeProjectWorkError(w, err) {
+	if err != nil {
+		if errors.Is(err, projects.ErrNotFound) || errors.Is(err, cairnline.ErrNotFound) {
+			WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
+			return
+		}
+		if errors.Is(err, projectwork.ErrNotFound) {
+			WriteError(w, http.StatusNotFound, errCodeNotFound, "work item not found")
+			return
+		}
+		_ = writeProjectWorkError(w, err)
 		return
 	}
 	WriteJSON(w, http.StatusOK, ProjectHandoffsResponse{Object: "project_handoffs", Data: data})

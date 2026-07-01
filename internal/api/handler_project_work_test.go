@@ -2041,6 +2041,144 @@ func TestProjectWorkAPI_HandoffsUseCairnlineSidecarWhenConfigured(t *testing.T) 
 	}
 }
 
+func TestProjectWorkAPI_StrictEmbeddedReadModelReadsHandoffsWithoutHecateProject(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend: "cairnline",
+			CairnlineReadSource: "embedded",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	server := NewServer(quietLogger(), handler)
+	const projectID = "proj_embedded_handoffs"
+
+	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+		if _, err := service.CreateProject(t.Context(), cairnline.Project{
+			ID:   projectID,
+			Name: "Embedded Handoffs",
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateRole(t.Context(), cairnline.Role{
+			ID:        "role_source",
+			ProjectID: projectID,
+			Name:      "Source",
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateRole(t.Context(), cairnline.Role{
+			ID:        "role_target",
+			ProjectID: projectID,
+			Name:      "Target",
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateWorkItem(t.Context(), cairnline.WorkItem{
+			ID:        "work_embedded",
+			ProjectID: projectID,
+			Title:     "Read embedded handoffs",
+			Status:    cairnline.WorkStatusReady,
+			Priority:  cairnline.PriorityNormal,
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateWorkItem(t.Context(), cairnline.WorkItem{
+			ID:        "work_other",
+			ProjectID: projectID,
+			Title:     "Other handoffs",
+			Status:    cairnline.WorkStatusReady,
+			Priority:  cairnline.PriorityNormal,
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateAssignment(t.Context(), cairnline.Assignment{
+			ID:            "asgn_embedded",
+			ProjectID:     projectID,
+			WorkItemID:    "work_embedded",
+			RoleID:        "role_source",
+			Status:        cairnline.AssignmentCompleted,
+			ExecutionMode: cairnline.ExecutionMCPPull,
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateHandoff(t.Context(), cairnline.Handoff{
+			ID:                    "handoff_embedded",
+			ProjectID:             projectID,
+			WorkItemID:            "work_embedded",
+			SourceAssignmentID:    "asgn_embedded",
+			FromRoleID:            "role_source",
+			ToRoleID:              "role_target",
+			Title:                 "Continue embedded handoff reads",
+			Body:                  "Pick up the next review step.",
+			RecommendedNextAction: "Review evidence",
+			LinkedArtifactIDs:     []string{"artifact_embedded"},
+			ContextRefs:           []string{"ctx:embedded"},
+			Status:                cairnline.HandoffStatusOpen,
+			TrustLabel:            "operator",
+		}); err != nil {
+			return err
+		}
+		_, err := service.CreateHandoff(t.Context(), cairnline.Handoff{
+			ID:         "handoff_other",
+			ProjectID:  projectID,
+			WorkItemID: "work_other",
+			Title:      "Other handoff",
+			Body:       "Should not appear in work filter.",
+			Status:     cairnline.HandoffStatusOpen,
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("seed embedded Cairnline handoffs: %v", err)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("Hecate project store seeded ok=%v err=%v, want no project row", ok, err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+projectID+"/handoffs?work_item_id=work_embedded&status=pending", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("project handoffs status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response ProjectHandoffsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode project handoffs response: %v", err)
+	}
+	if response.Object != "project_handoffs" || len(response.Data) != 1 {
+		t.Fatalf("project handoffs response = %+v, want one filtered embedded handoff", response)
+	}
+	handoff := findProjectHandoffForTest(t, response.Data, "handoff_embedded")
+	if handoff.ReadBackend != "cairnline" || handoff.ProjectID != projectID || handoff.WorkItemID != "work_embedded" || handoff.Status != projectwork.HandoffStatusPending {
+		t.Fatalf("project handoff = %+v, want embedded Cairnline pending handoff", handoff)
+	}
+	if handoff.SourceAssignmentID != "asgn_embedded" || handoff.TargetRoleID != "role_target" || handoff.RecommendedNextAction != "Review evidence" || len(handoff.ContextRefs) != 1 {
+		t.Fatalf("project handoff metadata = %+v, want embedded Cairnline handoff metadata", handoff)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_embedded/handoffs", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("work-item handoffs status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode work-item handoffs response: %v", err)
+	}
+	if len(response.Data) != 1 || response.Data[0].ID != "handoff_embedded" || response.Data[0].ReadBackend != "cairnline" {
+		t.Fatalf("work-item handoffs response = %+v, want embedded Cairnline handoff", response)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/missing/handoffs", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing work-item handoffs status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_missing/handoffs", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing project handoffs status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+}
+
 func TestProjectWorkAPI_HandoffsCairnlineSidecarReadRequiresStructuredContent(t *testing.T) {
 	t.Parallel()
 	_, server := newProjectsCairnlineSidecarReadTestServer(t, "text-only")

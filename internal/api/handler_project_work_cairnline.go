@@ -88,8 +88,16 @@ func renderCairnlineProjectWorkArtifactResponses(items []projectwork.Collaborati
 }
 
 func (h *Handler) renderProjectHandoffs(ctx context.Context, filter projectwork.HandoffFilter) ([]ProjectHandoffResponse, error) {
+	return h.renderProjectHandoffsWithWorkItemRequirement(ctx, filter, false)
+}
+
+func (h *Handler) renderProjectWorkItemHandoffs(ctx context.Context, filter projectwork.HandoffFilter) ([]ProjectHandoffResponse, error) {
+	return h.renderProjectHandoffsWithWorkItemRequirement(ctx, filter, true)
+}
+
+func (h *Handler) renderProjectHandoffsWithWorkItemRequirement(ctx context.Context, filter projectwork.HandoffFilter, requireWorkItem bool) ([]ProjectHandoffResponse, error) {
 	if h.projectReadRoutesUseCairnlineReadModel() {
-		return h.renderCairnlineProjectHandoffs(ctx, filter)
+		return h.renderCairnlineProjectHandoffs(ctx, filter, requireWorkItem)
 	}
 	items, err := h.projectWork.ListHandoffs(ctx, filter)
 	if err != nil {
@@ -104,7 +112,10 @@ func (h *Handler) renderProjectHandoffs(ctx context.Context, filter projectwork.
 	return data, nil
 }
 
-func (h *Handler) renderCairnlineProjectHandoffs(ctx context.Context, filter projectwork.HandoffFilter) ([]ProjectHandoffResponse, error) {
+func (h *Handler) renderCairnlineProjectHandoffs(ctx context.Context, filter projectwork.HandoffFilter, requireWorkItem bool) ([]ProjectHandoffResponse, error) {
+	if h.requiresEmbeddedCairnlineProjectReads() {
+		return h.renderStrictEmbeddedCairnlineProjectHandoffs(ctx, filter, requireWorkItem)
+	}
 	view, err := h.cairnlineProjectWorkView(ctx, filter.ProjectID)
 	if err != nil {
 		return nil, err
@@ -117,13 +128,52 @@ func (h *Handler) renderCairnlineProjectHandoffs(ctx context.Context, filter pro
 	if err != nil {
 		return nil, err
 	}
+	return renderCairnlineProjectHandoffResponses(items), nil
+}
+
+func (h *Handler) renderStrictEmbeddedCairnlineProjectHandoffs(ctx context.Context, filter projectwork.HandoffFilter, requireWorkItem bool) ([]ProjectHandoffResponse, error) {
+	_, service, store, err := h.openCairnlineEmbeddedService(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer store.Close()
+	project, err := service.GetProject(ctx, filter.ProjectID)
+	if errors.Is(err, cairnline.ErrNotFound) {
+		return nil, projects.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	workItemID := strings.TrimSpace(filter.WorkItemID)
+	if requireWorkItem {
+		if workItemID == "" {
+			return nil, projectwork.ErrNotFound
+		}
+		if _, err := service.GetWorkItem(ctx, project.ID, workItemID); err != nil {
+			if errors.Is(err, cairnline.ErrNotFound) {
+				return nil, projectwork.ErrNotFound
+			}
+			return nil, err
+		}
+	}
+	items, err := cairnlineProjectHandoffs(ctx, service, project.ID, workItemID, strings.TrimSpace(filter.Status))
+	if errors.Is(err, cairnline.ErrNotFound) {
+		return nil, projectwork.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return renderCairnlineProjectHandoffResponses(items), nil
+}
+
+func renderCairnlineProjectHandoffResponses(items []projectwork.Handoff) []ProjectHandoffResponse {
 	data := make([]ProjectHandoffResponse, 0, len(items))
 	for _, item := range items {
 		projected := renderProjectHandoff(item)
 		projected.ReadBackend = "cairnline"
 		data = append(data, projected)
 	}
-	return data, nil
+	return data
 }
 
 func (h *Handler) renderProjectWorkRoles(ctx context.Context, projectID string) ([]ProjectWorkRoleResponse, error) {
