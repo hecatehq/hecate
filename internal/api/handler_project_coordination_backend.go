@@ -6,6 +6,7 @@ import (
 )
 
 const projectCoordinationBackendReadinessURL = "/hecate/v1/projects/{id}/cairnline/read-model"
+const projectCoordinationBackendExportURL = "/hecate/v1/projects/{id}/cairnline/export"
 const projectCoordinationBackendSidecarProbeURL = "/hecate/v1/projects/cairnline/sidecar-probe"
 const projectCoordinationBackendSidecarConnectURL = "/hecate/v1/projects/cairnline/sidecar-connect"
 const projectCoordinationBackendSidecarReadURL = "/hecate/v1/projects/cairnline/sidecar-read-smoke"
@@ -429,23 +430,26 @@ func projectCairnlineReplacementGates(readRoutesReady bool, writeGaps []string) 
 	writeGate := projectCairnlineWriteAuthorityReplacementGate(writeGaps)
 	return []ProjectCoordinationBackendReplacementGate{
 		{
-			ID:     "read-routes",
-			Ready:  readRoutesReady,
-			Status: projectReplacementGateStatus(readRoutesReady),
-			Detail: "Configured live project read families can be served from Cairnline's projected read model.",
+			ID:        "read-routes",
+			Ready:     readRoutesReady,
+			Status:    projectReplacementGateStatus(readRoutesReady),
+			Detail:    "Configured live project read families can be served from Cairnline's projected read model.",
+			ProbeURLs: []string{projectCoordinationBackendReadinessURL, projectCoordinationBackendEmbeddedReadModelURL, projectCoordinationBackendEmbeddedParityReportURL},
 		},
 		{
-			ID:     "strict-embedded-read-smoke",
-			Ready:  false,
-			Status: "operator_probe_required",
-			Detail: "Run the embedded sync/parity/smoke probes with HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded before treating the mirror database as a cutover candidate.",
+			ID:        "strict-embedded-read-smoke",
+			Ready:     false,
+			Status:    "operator_probe_required",
+			Detail:    "Run the embedded sync/parity/smoke probes with HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded before treating the mirror database as a cutover candidate.",
+			ProbeURLs: []string{projectCoordinationBackendSyncReadinessURL, projectCoordinationBackendMirrorParityURL},
 		},
 		writeGate,
 		{
-			ID:     "migration-and-rollback",
-			Ready:  false,
-			Status: "rehearsal_available",
-			Detail: "Embedded sync and project export return structured migration rehearsal evidence with rollback notes, but no authoritative Cairnline storage cutover switch exists yet.",
+			ID:        "migration-and-rollback",
+			Ready:     false,
+			Status:    "rehearsal_available",
+			Detail:    "Embedded sync and project export return structured migration rehearsal evidence with rollback notes, but no authoritative Cairnline storage cutover switch exists yet.",
+			ProbeURLs: []string{projectCoordinationBackendSyncReadinessURL, projectCoordinationBackendMirrorParityURL, projectCoordinationBackendExportURL},
 		},
 	}
 }

@@ -2457,7 +2457,10 @@ Cairnline-backed yet and therefore still block authority switch.
 `replacement_ready` stays `false` until read parity, strict embedded mirror
 probes, write-authority switchpoints, and migration/rollback gates are all
 ready. `replacement_gates` reports those high-level gates as structured
-checklist items so clients do not need to parse warning prose. The
+checklist items so clients do not need to parse warning prose. Each gate may
+include `probe_urls`, a list of route templates that produce supporting
+evidence for that gate; these URLs identify checks to run and are not proof
+that the gate has already passed. The
 `write-authority-switchpoints` gate can be `blocked`, `partial`, or `ready`;
 it ignores the separate `migration-cutover` gap because migration and rollback
 are reported by the `migration-and-rollback` gate.
@@ -2617,6 +2620,8 @@ Example response, with `write_switchpoints` shortened for readability:
       "handoff-list",
       "project-assistant-context",
       "project-assistant-proposal",
+      "project-chat-prelude",
+      "project-chat-context",
       "activity",
       "closeout-readiness",
       "operations-brief"
@@ -2682,13 +2687,22 @@ Example response, with `write_switchpoints` shortened for readability:
         "id": "read-routes",
         "ready": true,
         "status": "ready",
-        "detail": "Configured live project read families can be served from Cairnline's projected read model."
+        "detail": "Configured live project read families can be served from Cairnline's projected read model.",
+        "probe_urls": [
+          "/hecate/v1/projects/{id}/cairnline/read-model",
+          "/hecate/v1/projects/{id}/cairnline/embedded-read-model",
+          "/hecate/v1/projects/{id}/cairnline/embedded-parity-report"
+        ]
       },
       {
         "id": "strict-embedded-read-smoke",
         "ready": false,
         "status": "operator_probe_required",
-        "detail": "Run the embedded sync/parity/smoke probes with HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded before treating the mirror database as a cutover candidate."
+        "detail": "Run the embedded sync/parity/smoke probes with HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded before treating the mirror database as a cutover candidate.",
+        "probe_urls": [
+          "/hecate/v1/projects/cairnline/sync",
+          "/hecate/v1/projects/cairnline/mirror-parity"
+        ]
       },
       {
         "id": "write-authority-switchpoints",
@@ -2700,7 +2714,12 @@ Example response, with `write_switchpoints` shortened for readability:
         "id": "migration-and-rollback",
         "ready": false,
         "status": "rehearsal_available",
-        "detail": "Embedded sync and project export return structured migration rehearsal evidence with rollback notes, but no authoritative Cairnline storage cutover switch exists yet."
+        "detail": "Embedded sync and project export return structured migration rehearsal evidence with rollback notes, but no authoritative Cairnline storage cutover switch exists yet.",
+        "probe_urls": [
+          "/hecate/v1/projects/cairnline/sync",
+          "/hecate/v1/projects/cairnline/mirror-parity",
+          "/hecate/v1/projects/{id}/cairnline/export"
+        ]
       }
     ],
     "write_switchpoints": [
