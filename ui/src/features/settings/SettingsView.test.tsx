@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getPlugins, resetSystemData } from "../../lib/api";
+import { getPlugins, getProjectCoordinationBackendStatus, resetSystemData } from "../../lib/api";
 import { ConnectionsPanel } from "../connections/ConnectionsPanel";
 import { SettingsView } from "./SettingsView";
 import {
@@ -14,6 +14,7 @@ import { withRuntimeConsole } from "../../test/runtime-console-render";
 vi.mock("../../lib/api", async (importOriginal) => ({
   ...((await importOriginal()) as Record<string, unknown>),
   getPlugins: vi.fn(),
+  getProjectCoordinationBackendStatus: vi.fn(),
   resetSystemData: vi.fn(),
 }));
 
@@ -36,6 +37,25 @@ function capability(id: string, name: string, status = "supported") {
 beforeEach(() => {
   vi.mocked(getPlugins).mockReset();
   vi.mocked(getPlugins).mockResolvedValue({ object: "plugins", data: [] });
+  vi.mocked(getProjectCoordinationBackendStatus).mockReset();
+  vi.mocked(getProjectCoordinationBackendStatus).mockResolvedValue({
+    object: "project_coordination_backend_status",
+    data: {
+      configured_backend: "hecate",
+      authoritative_backend: "hecate",
+      storage_backend: "sqlite",
+      cairnline_connector: "embedded",
+      cairnline_connector_ready: true,
+      cairnline_bridge_ready: true,
+      cairnline_authoritative: false,
+      read_model_switch_ready: false,
+      write_adapter_ready: false,
+      replacement_ready: false,
+      status: "hecate_authoritative",
+      detail:
+        "Hecate-native project stores are authoritative. Cairnline bridge endpoints are available for replacement-readiness checks.",
+    },
+  });
   vi.mocked(resetSystemData).mockReset();
   sessionStorage.removeItem("hecate.settingsFocus");
   sessionStorage.removeItem("hecate.connectionsFocus");
@@ -47,6 +67,55 @@ beforeEach(() => {
 // gating and the MCP cache was pure informational stats). Usage lives
 // in the Usage workspace.
 describe("SettingsView", () => {
+  it("renders project coordination backend status", async () => {
+    vi.mocked(getProjectCoordinationBackendStatus).mockResolvedValue({
+      object: "project_coordination_backend_status",
+      data: {
+        configured_backend: "cairnline",
+        authoritative_backend: "hecate",
+        storage_backend: "sqlite",
+        cairnline_connector: "embedded",
+        cairnline_connector_ready: true,
+        cairnline_read_source: "embedded",
+        cairnline_bridge_ready: true,
+        cairnline_authoritative: false,
+        read_model_switch_ready: true,
+        write_adapter_ready: false,
+        replacement_ready: false,
+        read_routes: ["project-list", "project-detail"],
+        portable_write_gaps: ["agent-profiles", "memory-candidates"],
+        side_effect_blockers: ["assignment-start"],
+        migration_blockers: ["migration-cutover"],
+        status: "cairnline_read_routes_ready",
+        detail: "Cairnline read routes are served from the read model.",
+      },
+    });
+    const { state, actions } = setup();
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
+
+    expect(await screen.findByText("Project coordination")).toBeTruthy();
+    expect(screen.getByText("Cairnline dogfood active")).toBeTruthy();
+    expect(screen.getByText("cairnline configured · hecate authoritative")).toBeTruthy();
+    expect(screen.getByText("cairnline read routes ready")).toBeTruthy();
+    expect(screen.getByText(/2 read routes use Cairnline/i)).toBeTruthy();
+    expect(screen.getByText("Portable write gaps")).toBeTruthy();
+    expect(screen.getByText("agent-profiles")).toBeTruthy();
+    expect(screen.getByText("memory-candidates")).toBeTruthy();
+    expect(screen.getByText("assignment-start")).toBeTruthy();
+    expect(screen.getByText("migration-cutover")).toBeTruthy();
+  });
+
+  it("shows project backend load failures without hiding maintenance", async () => {
+    vi.mocked(getProjectCoordinationBackendStatus).mockRejectedValue(
+      new Error("backend status unavailable"),
+    );
+    const { state, actions } = setup();
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
+
+    expect(await screen.findByText("backend status unavailable")).toBeTruthy();
+    expect(screen.getByText("Maintenance")).toBeTruthy();
+  });
+
   it("renders maintenance cleanup without legacy tabs", () => {
     const { state, actions } = setup();
     render(withRuntimeConsole(<SettingsView />, { state, actions }));

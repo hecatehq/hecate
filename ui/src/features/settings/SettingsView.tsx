@@ -3,8 +3,9 @@ import { useRetention, type RetentionState } from "../../app/state/retention";
 import { useRetentionActions } from "../../app/state/coordinators/retention";
 import { useWiredDashboardActions } from "../../app/state/coordinators/wired";
 import { useSettings } from "../../app/state/settings";
-import { getPlugins, resetSystemData } from "../../lib/api";
+import { getPlugins, getProjectCoordinationBackendStatus, resetSystemData } from "../../lib/api";
 import type { PluginRecord } from "../../types/plugin";
+import type { ProjectCoordinationBackendStatusRecord } from "../../types/project";
 import { Badge, ConfirmModal, Icon, Icons, InlineError } from "../shared/ui";
 
 export function SettingsView() {
@@ -24,6 +25,10 @@ export function SettingsView() {
   const [plugins, setPlugins] = useState<PluginRecord[]>([]);
   const [pluginsLoading, setPluginsLoading] = useState(false);
   const [pluginsError, setPluginsError] = useState("");
+  const [projectBackendStatus, setProjectBackendStatus] =
+    useState<ProjectCoordinationBackendStatusRecord | null>(null);
+  const [projectBackendLoading, setProjectBackendLoading] = useState(false);
+  const [projectBackendError, setProjectBackendError] = useState("");
   // Retention runs aren't in the boot-time dashboard snapshot —
   // fetch on first SettingsView mount so the user doesn't see a
   // permanently empty list. `loadRuns` is a stable useCallback, so
@@ -38,7 +43,22 @@ export function SettingsView() {
 
   useEffect(() => {
     void loadPlugins();
+    void loadProjectBackendStatus();
   }, []);
+
+  async function loadProjectBackendStatus() {
+    setProjectBackendLoading(true);
+    setProjectBackendError("");
+    try {
+      const response = await getProjectCoordinationBackendStatus();
+      setProjectBackendStatus(response.data);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to load project backend status.";
+      setProjectBackendError(message);
+    } finally {
+      setProjectBackendLoading(false);
+    }
+  }
 
   async function loadPlugins() {
     setPluginsLoading(true);
@@ -80,6 +100,12 @@ export function SettingsView() {
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
+        <ProjectCoordinationBackendSettings
+          error={projectBackendError}
+          loading={projectBackendLoading}
+          status={projectBackendStatus}
+          onRefresh={() => void loadProjectBackendStatus()}
+        />
         <PluginRegistrySettings
           error={pluginsError}
           loading={pluginsLoading}
@@ -257,6 +283,177 @@ const RETENTION_SUBSYSTEMS = [
     description: "Resolved approval prompts. Durable grants are kept.",
   },
 ] as const;
+
+function ProjectCoordinationBackendSettings({
+  error,
+  loading,
+  onRefresh,
+  status,
+}: {
+  error: string;
+  loading: boolean;
+  onRefresh: () => void;
+  status: ProjectCoordinationBackendStatusRecord | null;
+}) {
+  const readRoutes = status?.read_routes ?? [];
+  const portableGaps = status?.portable_write_gaps ?? [];
+  const sideEffectBlockers = status?.side_effect_blockers ?? [];
+  const migrationBlockers = status?.migration_blockers ?? [];
+  const statusBadge = status
+    ? status.replacement_ready
+      ? "ok"
+      : status.configured_backend === "cairnline"
+        ? "warn"
+        : "disabled"
+    : "disabled";
+  return (
+    <section style={{ marginBottom: 20 }}>
+      <SectionHeader
+        title="Project coordination"
+        description="Current Projects backend authority and Cairnline replacement-readiness blockers."
+        meta={
+          status
+            ? `${status.configured_backend} configured · ${status.authoritative_backend} authoritative`
+            : "not loaded"
+        }
+        actions={
+          <button className="btn btn-ghost btn-sm" disabled={loading} onClick={onRefresh}>
+            <Icon d={Icons.refresh} size={13} /> {loading ? "Loading…" : "Refresh"}
+          </button>
+        }
+      />
+      {error && <InlineError message={error} />}
+      {!status && !error && (
+        <div className="card" style={{ padding: "14px 16px", color: "var(--t3)", fontSize: 12 }}>
+          {loading
+            ? "Loading project coordination status…"
+            : "Project coordination status unavailable."}
+        </div>
+      )}
+      {status && (
+        <article className="card" style={{ padding: "14px 16px" }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "var(--t0)" }}>
+                  {projectBackendTitle(status)}
+                </div>
+                <Badge status={statusBadge} label={status.status.replaceAll("_", " ")} />
+                {status.cairnline_connector && (
+                  <span className="badge badge-muted" style={{ textTransform: "none" }}>
+                    {status.cairnline_connector}
+                  </span>
+                )}
+              </div>
+              <div style={{ fontSize: 12, color: "var(--t2)", lineHeight: 1.45, marginTop: 8 }}>
+                {projectBackendSummary(status)}
+              </div>
+            </div>
+          </div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+              gap: 8,
+              marginTop: 14,
+            }}
+          >
+            <ProjectBackendMetric label="Read routes" value={readRoutes.length} />
+            <ProjectBackendMetric label="Portable gaps" value={portableGaps.length} />
+            <ProjectBackendMetric label="Side effects" value={sideEffectBlockers.length} />
+            <ProjectBackendMetric label="Migration" value={migrationBlockers.length} />
+          </div>
+          <div style={{ display: "grid", gap: 10, marginTop: 14 }}>
+            <ProjectBackendList title="Portable write gaps" items={portableGaps} empty="none" />
+            <ProjectBackendList
+              title="Side-effect blockers"
+              items={sideEffectBlockers}
+              empty="none"
+            />
+            <ProjectBackendList title="Migration blockers" items={migrationBlockers} empty="none" />
+          </div>
+        </article>
+      )}
+    </section>
+  );
+}
+
+function projectBackendTitle(status: ProjectCoordinationBackendStatusRecord): string {
+  if (status.replacement_ready) return "Cairnline replacement ready";
+  if (status.configured_backend === "cairnline") return "Cairnline dogfood active";
+  return "Hecate Projects active";
+}
+
+function projectBackendSummary(status: ProjectCoordinationBackendStatusRecord): string {
+  const readRoutes = status.read_routes?.length ?? 0;
+  const portableGaps = status.portable_write_gaps?.length ?? 0;
+  const sideEffectBlockers = status.side_effect_blockers?.length ?? 0;
+  const migrationBlockers = status.migration_blockers?.length ?? 0;
+  if (status.replacement_ready) {
+    return "Cairnline replacement gates are ready.";
+  }
+  if (status.configured_backend !== "cairnline") {
+    return "Hecate-native project stores are authoritative. Cairnline bridge diagnostics are available for replacement-readiness checks.";
+  }
+  if (status.read_model_switch_ready || readRoutes > 0) {
+    return `${readRoutes} read route${readRoutes === 1 ? "" : "s"} use Cairnline. ${portableGaps} portable write gap${portableGaps === 1 ? "" : "s"}, ${sideEffectBlockers} side-effect blocker${sideEffectBlockers === 1 ? "" : "s"}, and ${migrationBlockers} migration blocker${migrationBlockers === 1 ? "" : "s"} remain.`;
+  }
+  return "Cairnline is configured, but live read routes and replacement gates are not ready yet.";
+}
+
+function ProjectBackendMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div
+      style={{
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius-sm)",
+        background: "var(--bg3)",
+        padding: "9px 10px",
+      }}
+    >
+      <div style={{ color: "var(--t3)", fontSize: 10, textTransform: "uppercase" }}>{label}</div>
+      <div style={{ color: "var(--t0)", fontSize: 18, fontWeight: 650, marginTop: 3 }}>{value}</div>
+    </div>
+  );
+}
+
+function ProjectBackendList({
+  empty,
+  items,
+  title,
+}: {
+  empty: string;
+  items: string[];
+  title: string;
+}) {
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      <div
+        style={{
+          color: "var(--t3)",
+          fontFamily: "var(--font-mono)",
+          fontSize: 10,
+          textTransform: "uppercase",
+        }}
+      >
+        {title}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {items.length === 0 ? (
+          <span className="badge badge-green" style={{ textTransform: "none" }}>
+            {empty}
+          </span>
+        ) : (
+          items.map((item) => (
+            <span key={item} className="badge badge-muted" style={{ textTransform: "none" }}>
+              {item}
+            </span>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
 
 function PluginRegistrySettings({
   error,
