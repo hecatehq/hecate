@@ -93,7 +93,8 @@ side-by-side MCP server
 -> embedded read/write experiment
 -> parity adapter behind a feature flag
 -> state migration/import-export
--> replacement after dogfood
+-> embedded Cairnline replacement after dogfood
+-> optional external sidecar backend after embedded replacement is stable
 ```
 
 ## Product Boundary
@@ -530,8 +531,9 @@ launch agents. Those remain explicit operator or orchestrator actions.
   configured-route smoke tests after sync and live-mirror parity to prove normal
   project, setup, health, skill, memory, role, work, collaboration, assistant
   context, activity, and operations reads can run from the embedded database.
-- After V0 stabilizes, Hecate may embed the portable core as its Projects
-  backend or talk to the MCP server as a separate local coordination process.
+- After V0 stabilizes, Hecate should embed the portable core as its first
+  Projects backend replacement. Talking to the MCP server as a separate local
+  coordination process remains the later standalone/interoperability boundary.
 - Hecate remains the richer cockpit and orchestrator for supervised Hecate
   Tasks and External Agents.
 - Hecate integration tests should start only after Hecate consumes the

@@ -89,6 +89,9 @@ describe("SettingsView", () => {
         read_model_switch_ready: true,
         write_adapter_ready: false,
         replacement_ready: false,
+        replacement_target: "embedded_cairnline_first",
+        replacement_target_detail:
+          "Hecate's Projects replacement path targets embedded Cairnline as the first source of truth; the standalone sidecar remains an interoperability and future external-server boundary.",
         read_routes: ["project-list", "project-detail"],
         portable_write_gaps: ["agent-profiles", "memory-candidates"],
         orchestrator_capabilities: ["assignment-start"],
@@ -147,6 +150,8 @@ describe("SettingsView", () => {
     expect(screen.getByText("cairnline configured · hecate authoritative")).toBeTruthy();
     expect(screen.getByText("cairnline read routes ready")).toBeTruthy();
     expect(screen.getByText(/2 read routes use Cairnline/i)).toBeTruthy();
+    expect(screen.getByText(/Target: embedded cairnline first/i)).toBeTruthy();
+    expect(screen.getByText(/standalone sidecar remains an interoperability/i)).toBeTruthy();
     expect(screen.getByText("Portable write gaps")).toBeTruthy();
     expect(screen.getByText("Hecate orchestrator capabilities")).toBeTruthy();
     expect(screen.getByText("Next action")).toBeTruthy();

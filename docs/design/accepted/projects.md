@@ -129,6 +129,11 @@ that list into `portable_write_gaps`, `orchestrator_capabilities`, and
 switchpoint work apart from Hecate-owned runtime/workspace capabilities and
 final cutover work. `portable_write_gaps` drives the write-authority replacement
 gate; `orchestrator_capabilities` are intentionally outside Cairnline core.
+The replacement target is embedded Cairnline first: Hecate should make the
+embedded Cairnline database authoritative for Projects before treating the
+standalone sidecar as the external MCP/server boundary. That keeps Hecate's
+operator UI and compatibility shadow stable while the portable contract is
+proven locally.
 `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded` is the current live-route
 dogfood connector. `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar` exposes
 local-only standalone Cairnline MCP contract probe/connect surfaces at
@@ -595,6 +600,11 @@ after these gates are met:
   strict embedded configured-route smoke across representative project, setup,
   health, skill, memory, role, work, collaboration, assistant-context,
   activity, and operations route families before it becomes a write path.
+- The cutover sequence is embedded first, sidecar later: embedded Cairnline
+  becomes the Hecate Projects source of truth before Hecate grows a full
+  external-sidecar backend adapter. Sidecar diagnostics remain valuable MCP
+  interoperability evidence, but they are not the first Hecate replacement
+  target.
 - Context packets, setup/health/operations summaries, activity projections, and
   closeout gates match current Hecate behavior or have documented intentional
   differences.

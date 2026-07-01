@@ -2450,10 +2450,14 @@ the standalone Cairnline MCP client; backend status reports those routes in
 `read_routes` while `read_model_switch_ready` remains false because the broader
 read model is not sidecar-backed yet.
 `read_routes` lists the live read families currently backed by the Cairnline
-read model. `write_adapter_ready=true` means all portable project-state
-write-authority gaps known to this Hecate build are closed through explicit
-Cairnline switchpoints; it does not mean Hecate runtime side effects,
-migration, rollback, or final replacement are ready. `write_adapter_seams`
+read model. `replacement_target=embedded_cairnline_first` documents the
+current source-of-truth strategy: replace Hecate-native Projects with embedded
+Cairnline first, then keep the standalone Cairnline sidecar as the later
+interoperability and external-server boundary. `write_adapter_ready=true` means
+all portable project-state write-authority gaps known to this Hecate build are
+closed through explicit Cairnline switchpoints; it does not mean Hecate runtime
+side effects, migration, rollback, or final replacement are ready.
+`write_adapter_seams`
 lists non-authoritative bridge proofs that can write Cairnline-shaped records
 during tests or local sync rehearsals;
 `write_adapter_gaps` lists mutation families whose live Hecate routes are not
@@ -2633,6 +2637,8 @@ Example response, with `write_switchpoints` shortened for readability:
     "read_model_switch_ready": true,
     "write_adapter_ready": false,
     "replacement_ready": false,
+    "replacement_target": "embedded_cairnline_first",
+    "replacement_target_detail": "Hecate's Projects replacement path targets embedded Cairnline as the first source of truth; the standalone sidecar remains an interoperability and future external-server boundary.",
     "read_routes": [
       "project-list",
       "project-detail",
