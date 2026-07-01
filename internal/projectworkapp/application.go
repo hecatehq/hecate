@@ -9,6 +9,7 @@ import (
 	"github.com/hecatehq/hecate/internal/agentadapters"
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/orchestrator"
+	"github.com/hecatehq/hecate/internal/projectruntime"
 	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -56,6 +57,7 @@ type Application struct {
 	profileStore        AgentProfileStore
 	memoryStore         ProjectMemoryStore
 	skillStore          ProjectSkillStore
+	runtimeStore        projectruntime.Store
 	prepareTimeout      time.Duration
 	runtimeDefaultModel string
 	idgen               func(string) string
@@ -71,6 +73,7 @@ type Options struct {
 	ProfileStore        AgentProfileStore
 	MemoryStore         ProjectMemoryStore
 	SkillStore          ProjectSkillStore
+	RuntimeStore        projectruntime.Store
 	PrepareTimeout      time.Duration
 	RuntimeDefaultModel string
 	IDGenerator         func(string) string
@@ -257,6 +260,7 @@ func New(opts Options) *Application {
 		profileStore:        opts.ProfileStore,
 		memoryStore:         opts.MemoryStore,
 		skillStore:          opts.SkillStore,
+		runtimeStore:        opts.RuntimeStore,
 		prepareTimeout:      opts.PrepareTimeout,
 		runtimeDefaultModel: strings.TrimSpace(opts.RuntimeDefaultModel),
 		idgen:               opts.IDGenerator,
@@ -414,7 +418,7 @@ func (app *Application) CreateAssignment(ctx context.Context, projectID, workIte
 			driverKind = role.DefaultDriverKind
 		}
 	}
-	return app.store.CreateAssignment(ctx, projectwork.Assignment{
+	assignment, err := app.store.CreateAssignment(ctx, projectwork.Assignment{
 		ID:           id,
 		ProjectID:    projectID,
 		WorkItemID:   workItemID,
@@ -426,13 +430,17 @@ func (app *Application) CreateAssignment(ctx context.Context, projectID, workIte
 		StartedAt:    cmd.StartedAt,
 		CompletedAt:  cmd.CompletedAt,
 	})
+	if err != nil {
+		return projectwork.Assignment{}, err
+	}
+	return app.persistAssignmentRuntime(ctx, assignment)
 }
 
 func (app *Application) UpdateAssignment(ctx context.Context, projectID, assignmentID string, cmd UpdateAssignmentCommand) (projectwork.Assignment, error) {
 	if app == nil || app.store == nil {
 		return projectwork.Assignment{}, ErrStoreNotConfigured
 	}
-	return app.store.UpdateAssignment(ctx, projectID, assignmentID, func(item *projectwork.Assignment) {
+	assignment, err := app.store.UpdateAssignment(ctx, projectID, assignmentID, func(item *projectwork.Assignment) {
 		if cmd.RoleID != nil {
 			item.RoleID = *cmd.RoleID
 		}
@@ -455,13 +463,23 @@ func (app *Application) UpdateAssignment(ctx context.Context, projectID, assignm
 			item.CompletedAt = *cmd.CompletedAt
 		}
 	})
+	if err != nil {
+		return projectwork.Assignment{}, err
+	}
+	if cmd.ExecutionRef != nil || cmd.StartedAt != nil || cmd.CompletedAt != nil {
+		return app.persistAssignmentRuntime(ctx, assignment)
+	}
+	return app.ApplyAssignmentRuntime(ctx, assignment)
 }
 
 func (app *Application) DeleteAssignment(ctx context.Context, projectID, workItemID, assignmentID string) error {
 	if app == nil || app.store == nil {
 		return ErrStoreNotConfigured
 	}
-	return app.store.DeleteAssignment(ctx, projectID, workItemID, assignmentID)
+	if err := app.store.DeleteAssignment(ctx, projectID, workItemID, assignmentID); err != nil {
+		return err
+	}
+	return app.deleteAssignmentRuntime(ctx, projectID, assignmentID)
 }
 
 func (app *Application) CreateArtifact(ctx context.Context, projectID, workItemID string, cmd CreateArtifactCommand) (projectwork.CollaborationArtifact, error) {
@@ -601,6 +619,11 @@ func (app *Application) StartTaskAssignment(ctx context.Context, cmd StartTaskAs
 	if app.runner == nil {
 		return nil, ErrRunnerNotConfigured
 	}
+	assignmentWithRuntime, err := app.ApplyAssignmentRuntime(ctx, cmd.Assignment)
+	if err != nil {
+		return nil, err
+	}
+	cmd.Assignment = assignmentWithRuntime
 	if AssignmentIsTerminal(cmd.Assignment.Status) || cmd.Assignment.DriverKind != projectwork.AssignmentDriverHecateTask {
 		return &StartTaskAssignmentResult{Assignment: cmd.Assignment}, ErrAssignmentStartConflict
 	}
@@ -631,6 +654,9 @@ func (app *Application) StartTaskAssignment(ctx context.Context, cmd StartTaskAs
 		}
 	})
 	if err != nil {
+		return nil, err
+	}
+	if assignment, err = app.persistAssignmentRuntime(ctx, assignment); err != nil {
 		return nil, err
 	}
 	if claimRejected {
@@ -672,6 +698,9 @@ func (app *Application) StartTaskAssignment(ctx context.Context, cmd StartTaskAs
 			item.Status = projectwork.AssignmentStatusFailed
 			item.CompletedAt = app.now().UTC()
 		})
+		if updateErr == nil {
+			assignment, updateErr = app.persistAssignmentRuntime(ctx, assignment)
+		}
 		if updateErr != nil {
 			return &StartTaskAssignmentResult{Assignment: assignment, Task: task}, errors.Join(err, updateErr)
 		}
@@ -693,6 +722,9 @@ func (app *Application) StartTaskAssignment(ctx context.Context, cmd StartTaskAs
 			item.StartedAt = app.now().UTC()
 		}
 	})
+	if err == nil {
+		assignment, err = app.persistAssignmentRuntime(ctx, assignment)
+	}
 	if err != nil {
 		return &StartTaskAssignmentResult{Task: result.Task, Run: result.Run, TraceID: result.TraceID, SpanID: result.SpanID}, err
 	}
@@ -715,6 +747,11 @@ func (app *Application) StartExternalAgentAssignment(ctx context.Context, cmd St
 	if app.agentRunner == nil {
 		return nil, ErrAgentRunnerNotConfigured
 	}
+	assignmentWithRuntime, err := app.ApplyAssignmentRuntime(ctx, cmd.Assignment)
+	if err != nil {
+		return nil, err
+	}
+	cmd.Assignment = assignmentWithRuntime
 	if strings.TrimSpace(cmd.Assignment.ExecutionRef.ChatSessionID) != "" ||
 		AssignmentIsTerminal(cmd.Assignment.Status) ||
 		cmd.Assignment.DriverKind != projectwork.AssignmentDriverExternalAgent {
@@ -770,6 +807,9 @@ func (app *Application) StartExternalAgentAssignment(ctx context.Context, cmd St
 			item.StartedAt = app.now().UTC()
 		}
 	})
+	if err == nil {
+		assignment, err = app.persistAssignmentRuntime(ctx, assignment)
+	}
 	if err != nil {
 		app.cleanupExternalSession(session.ID)
 		return &StartExternalAgentAssignmentResult{Session: session}, err
@@ -779,6 +819,57 @@ func (app *Application) StartExternalAgentAssignment(ctx context.Context, cmd St
 		return &StartExternalAgentAssignmentResult{Assignment: assignment, Session: session}, ErrAssignmentStartConflict
 	}
 	return &StartExternalAgentAssignmentResult{Assignment: assignment, Session: session}, nil
+}
+
+func (app *Application) ApplyAssignmentRuntime(ctx context.Context, assignment projectwork.Assignment) (projectwork.Assignment, error) {
+	if app == nil || app.runtimeStore == nil || strings.TrimSpace(assignment.ProjectID) == "" || strings.TrimSpace(assignment.ID) == "" {
+		return assignment, nil
+	}
+	runtime, ok, err := app.runtimeStore.Get(ctx, assignment.ProjectID, assignment.ID)
+	if err != nil {
+		return projectwork.Assignment{}, err
+	}
+	if !ok {
+		return assignment, nil
+	}
+	return projectruntime.Apply(assignment, runtime), nil
+}
+
+func (app *Application) ApplyAssignmentsRuntime(ctx context.Context, assignments []projectwork.Assignment) ([]projectwork.Assignment, error) {
+	if app == nil || app.runtimeStore == nil || len(assignments) == 0 {
+		return assignments, nil
+	}
+	out := make([]projectwork.Assignment, 0, len(assignments))
+	for _, assignment := range assignments {
+		overlaid, err := app.ApplyAssignmentRuntime(ctx, assignment)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, overlaid)
+	}
+	return out, nil
+}
+
+func (app *Application) persistAssignmentRuntime(ctx context.Context, assignment projectwork.Assignment) (projectwork.Assignment, error) {
+	if app == nil || app.runtimeStore == nil {
+		return assignment, nil
+	}
+	runtime, err := app.runtimeStore.Upsert(ctx, projectruntime.FromAssignment(assignment))
+	if err != nil {
+		return projectwork.Assignment{}, err
+	}
+	return projectruntime.Apply(assignment, runtime), nil
+}
+
+func (app *Application) deleteAssignmentRuntime(ctx context.Context, projectID, assignmentID string) error {
+	if app == nil || app.runtimeStore == nil {
+		return nil
+	}
+	err := app.runtimeStore.Delete(ctx, projectID, assignmentID)
+	if errors.Is(err, projectruntime.ErrNotFound) {
+		return nil
+	}
+	return err
 }
 
 func (app *Application) loadRole(ctx context.Context, projectID, roleID string) (projectwork.AgentRoleProfile, bool, error) {
@@ -796,7 +887,7 @@ func (app *Application) loadRole(ctx context.Context, projectID, roleID string) 
 }
 
 func (app *Application) clearTaskClaim(ctx context.Context, projectID, assignmentID, taskID string) (projectwork.Assignment, error) {
-	return app.store.UpdateAssignment(ctx, projectID, assignmentID, func(item *projectwork.Assignment) {
+	assignment, err := app.store.UpdateAssignment(ctx, projectID, assignmentID, func(item *projectwork.Assignment) {
 		ref := projectwork.NormalizeAssignmentExecutionRef(item.ExecutionRef)
 		if ref.TaskID == taskID && ref.RunID == "" {
 			item.ExecutionRef = projectwork.AssignmentExecutionRef{}
@@ -805,6 +896,13 @@ func (app *Application) clearTaskClaim(ctx context.Context, projectID, assignmen
 			item.CompletedAt = time.Time{}
 		}
 	})
+	if err != nil {
+		return projectwork.Assignment{}, err
+	}
+	if err := app.deleteAssignmentRuntime(ctx, projectID, assignmentID); err != nil {
+		return assignment, err
+	}
+	return assignment, nil
 }
 
 func (app *Application) cleanupExternalSession(sessionID string) {

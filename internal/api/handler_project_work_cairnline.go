@@ -296,6 +296,10 @@ func (h *Handler) renderNativeProjectWorkItems(ctx context.Context, projectID st
 	if err != nil {
 		return nil, err
 	}
+	assignments, err = h.projectWorkApplication().ApplyAssignmentsRuntime(ctx, assignments)
+	if err != nil {
+		return nil, err
+	}
 	assignmentsByWorkItem := groupProjectWorkAssignmentsByWorkItem(assignments)
 	data := make([]ProjectWorkItemResponse, 0, len(items))
 	for _, item := range items {

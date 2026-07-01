@@ -143,6 +143,10 @@ func (h *Handler) renderNativeProjectOperationsBrief(ctx context.Context, projec
 	if err != nil {
 		return ProjectOperationsBriefResponse{}, err
 	}
+	assignments, err = h.projectWorkApplication().ApplyAssignmentsRuntime(ctx, assignments)
+	if err != nil {
+		return ProjectOperationsBriefResponse{}, err
+	}
 	handoffs, err := h.projectWork.ListHandoffs(ctx, projectwork.HandoffFilter{ProjectID: projectID})
 	if err != nil {
 		return ProjectOperationsBriefResponse{}, err

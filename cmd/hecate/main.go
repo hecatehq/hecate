@@ -31,6 +31,7 @@ import (
 	"github.com/hecatehq/hecate/internal/pluginregistry"
 	"github.com/hecatehq/hecate/internal/profiler"
 	"github.com/hecatehq/hecate/internal/projectassistant"
+	"github.com/hecatehq/hecate/internal/projectruntime"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
@@ -214,6 +215,7 @@ func runServe() {
 	projectStore := buildProjectStore(cfg, logger, sqliteClient, postgresClient)
 	memoryStore := buildMemoryStore(cfg, logger, sqliteClient, postgresClient)
 	projectWorkStore := buildProjectWorkStore(cfg, logger, sqliteClient, postgresClient)
+	projectRuntimeStore := buildProjectRuntimeStore(cfg, logger, sqliteClient, postgresClient)
 	projectSkillStore := buildProjectSkillStore(cfg, logger, sqliteClient, postgresClient)
 	projectAssistantProposalStore := buildProjectAssistantProposalStore(cfg, logger, sqliteClient, postgresClient)
 	pluginRegistryStore := buildPluginRegistryStore(cfg, logger, sqliteClient, postgresClient)
@@ -288,6 +290,7 @@ func runServe() {
 	handler.SetProjectStore(projectStore)
 	handler.SetMemoryStore(memoryStore)
 	handler.SetProjectWorkStore(projectWorkStore)
+	handler.SetProjectRuntimeStore(projectRuntimeStore)
 	handler.SetProjectSkillStore(projectSkillStore)
 	handler.SetProjectAssistantProposalStore(projectAssistantProposalStore)
 	handler.SetPluginRegistryStore(pluginRegistryStore)
@@ -876,6 +879,27 @@ func buildProjectWorkStore(cfg config.Config, logger *slog.Logger, sqliteClient 
 		return store
 	default:
 		return projectwork.NewMemoryStore()
+	}
+}
+
+func buildProjectRuntimeStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient, postgresClient *storage.PostgresClient) projectruntime.Store {
+	switch cfg.Projects.Backend {
+	case "sqlite":
+		store, err := projectruntime.NewSQLiteStore(context.Background(), sqliteClient)
+		if err != nil {
+			logger.Error("project runtime store init failed", slog.Any("error", err))
+			os.Exit(1)
+		}
+		return store
+	case "postgres":
+		store, err := projectruntime.NewPostgresStore(context.Background(), postgresClient)
+		if err != nil {
+			logger.Error("project runtime store init failed", slog.Any("error", err))
+			os.Exit(1)
+		}
+		return store
+	default:
+		return projectruntime.NewMemoryStore()
 	}
 }
 

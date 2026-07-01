@@ -284,6 +284,10 @@ func (h *Handler) loadProjectWorkAssignmentForCairnlineMirror(ctx context.Contex
 	}
 	for _, assignment := range assignments {
 		if assignment.ID == assignmentID {
+			assignment, err = h.projectWorkApplication().ApplyAssignmentRuntime(ctx, assignment)
+			if err != nil {
+				return projectwork.Assignment{}, false, err
+			}
 			return assignment, true, nil
 		}
 	}

@@ -1026,6 +1026,7 @@ func renderProjectDeleteResult(result projectapp.DeleteProjectResult) ProjectDel
 		ProjectName:                      result.Project.Name,
 		ChatSessionsDeleted:              result.ChatSessionsDeleted,
 		ProjectWorkRowsDeleted:           result.ProjectWorkRowsDeleted,
+		ProjectRuntimeRowsDeleted:        result.ProjectRuntimeRowsDeleted,
 		ProjectSkillsDeleted:             result.ProjectSkillsDeleted,
 		ProjectAssistantProposalsDeleted: result.ProjectAssistantProposalsDeleted,
 		MemoryEntriesDeleted:             result.MemoryEntriesDeleted,

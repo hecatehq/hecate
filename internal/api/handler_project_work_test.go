@@ -28,6 +28,7 @@ import (
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/projectassistant"
+	"github.com/hecatehq/hecate/internal/projectruntime"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
@@ -1060,12 +1061,14 @@ func TestProjectWorkAPI_CairnlineAssignmentAuthorityWritesCairnlineAndShadowsHec
 	startedAt := time.Date(2026, 6, 30, 10, 30, 0, 0, time.UTC)
 	completedAt := startedAt.Add(2 * time.Minute)
 	contextPacket := []byte(`{"id":"ctx_authority","items":[{"kind":"project_work","body":"persisted"}]}`)
-	if _, err := handler.projectWork.UpdateAssignment(t.Context(), projectID, "asgn_authority", func(item *projectwork.Assignment) {
-		item.ContextPacket = append([]byte(nil), contextPacket...)
-		item.StartedAt = startedAt
-		item.CompletedAt = completedAt
+	if _, err := handler.projectRuntime.Upsert(t.Context(), projectruntime.AssignmentRuntime{
+		ProjectID:     projectID,
+		AssignmentID:  "asgn_authority",
+		ContextPacket: contextPacket,
+		StartedAt:     startedAt,
+		CompletedAt:   completedAt,
 	}); err != nil {
-		t.Fatalf("seed assignment runtime shadow: %v", err)
+		t.Fatalf("seed assignment runtime overlay: %v", err)
 	}
 
 	updated := mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusOK, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/assignments/asgn_authority", projectJourneyJSON(t, map[string]any{
@@ -2582,6 +2585,9 @@ func TestProjectWorkAPI_ProjectDeletionCleansRows(t *testing.T) {
 	if _, err := handler.projectWork.CreateAssignment(ctx, projectwork.Assignment{ID: "asgn_cleanup", ProjectID: project.Data.ID, WorkItemID: "work_cleanup", RoleID: "software_developer"}); err != nil {
 		t.Fatalf("CreateAssignment: %v", err)
 	}
+	if _, err := handler.projectRuntime.Upsert(ctx, projectruntime.AssignmentRuntime{ProjectID: project.Data.ID, AssignmentID: "asgn_cleanup"}); err != nil {
+		t.Fatalf("UpsertRuntime: %v", err)
+	}
 	if _, err := handler.projectWork.CreateArtifact(ctx, projectwork.CollaborationArtifact{ID: "art_cleanup", ProjectID: project.Data.ID, WorkItemID: "work_cleanup", Kind: projectwork.ArtifactKindReview, Body: "Looks good."}); err != nil {
 		t.Fatalf("CreateArtifact: %v", err)
 	}
@@ -2595,14 +2601,17 @@ func TestProjectWorkAPI_ProjectDeletionCleansRows(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &deleted); err != nil {
 		t.Fatalf("decode delete response: %v", err)
 	}
-	if deleted.Data.ProjectID != project.Data.ID || deleted.Data.ProjectWorkRowsDeleted != 4 {
-		t.Fatalf("delete response = %+v, want project id and 4 project work rows", deleted)
+	if deleted.Data.ProjectID != project.Data.ID || deleted.Data.ProjectWorkRowsDeleted != 4 || deleted.Data.ProjectRuntimeRowsDeleted != 1 {
+		t.Fatalf("delete response = %+v, want project id, 4 project work rows, and 1 runtime row", deleted)
 	}
 	if items, err := handler.projectWork.ListWorkItems(ctx, project.Data.ID); err != nil || len(items) != 0 {
 		t.Fatalf("project work items after project delete = %+v err=%v, want none", items, err)
 	}
 	if roles, err := handler.projectWork.ListRoles(ctx, project.Data.ID); err != nil || projectWorkRoleExistsStore(roles, "role_custom", false) {
 		t.Fatalf("project roles after project delete = %+v err=%v, want custom role gone", roles, err)
+	}
+	if _, ok, err := handler.projectRuntime.Get(ctx, project.Data.ID, "asgn_cleanup"); err != nil || ok {
+		t.Fatalf("project runtime after project delete ok=%v err=%v, want none", ok, err)
 	}
 }
 

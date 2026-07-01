@@ -547,7 +547,10 @@ project skill discovery/update Cairnline-authoritative; `project-roles` and
 `project-work-items` can make role and work-item create/update/delete
 Cairnline-authoritative; `project-assignments` can make assignment record
 create/update/delete Cairnline-authoritative while keeping assignment
-start/dispatch Hecate-owned; and `project-collaboration` can make the
+start/dispatch Hecate-owned. Hecate stores task/chat execution refs, context
+packets, and launch timestamps in a separate project assignment runtime overlay
+before shadowing compatibility fields or mirroring replacement evidence. The
+`project-collaboration` switch can make the
 collaboration and handoff route family Cairnline-authoritative as opt-in
 dogfood switchpoints.
 Backend status
@@ -585,7 +588,8 @@ after these gates are met:
   Confirmed apply may use enabled project create, project metadata/default, root,
   role/work-item/assignment/handoff, and memory-candidate Cairnline-authority
   seams, but chat/runtime effects remain Hecate-owned orchestrator capabilities
-  outside Cairnline core and are mirrored as
+  outside Cairnline core. Assignment runtime effects live in Hecate's project
+  assignment runtime overlay and are mirrored as
   non-authoritative Cairnline replacement evidence. Assignment preflight/start
   packets may carry non-authoritative
   Cairnline launch-packet evidence, but assignment-start remains a Hecate-owned

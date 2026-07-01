@@ -573,9 +573,10 @@ sequenceDiagram
   work item back into Hecate-native project-work stores. `project-assignments`
   makes assignment create/update/delete record mutations Cairnline-first, then
   shadows portable assignment state back into Hecate-native project-work stores
-  for compatibility. Assignment start/dispatch remains Hecate-owned; only
-  committed start results, pre-dispatch cleanup/conflict states, and linked-chat
-  reconciliation updates are mirrored as replacement evidence. `agent-profiles`
+  for compatibility. Assignment start/dispatch remains Hecate-owned and writes
+  task/chat execution refs, context packets, and launch timestamps to Hecate's
+  project assignment runtime overlay before any compatibility shadow or
+  replacement-evidence mirror. `agent-profiles`
   makes global agent-profile
   create/update/delete Cairnline-first, writing Cairnline's separate portable
   profile and execution-posture records before shadowing Hecate's combined
@@ -784,7 +785,7 @@ POST /hecate/v1/mcp/probe
 
 Tool names come back un-namespaced — the operator wants to see what the upstream itself calls them, not the gateway's runtime alias. MCP Apps metadata is preserved when present: `_meta` is the raw upstream object, `ui_resource_uri` and `ui_visibility` are derived convenience fields, and `model_visible: false` means the tool is app-only and will not be shown to the agent-loop model. Bounded by a 10-second deadline; a stuck upstream surfaces as a 400 with the diagnostic rather than wedging the request.
 
-`POST /hecate/v1/system/reset-data` resets local operator state without restarting the gateway. It deletes chat sessions, projects, project memory entries and candidates, project work-coordination rows, plugin registry records, agent profiles, tasks, configured providers, policy rules, and saved external-agent approval grants. Chat sessions are deleted through the normal chat-delete path first, so live external-agent sessions are asked to delete their native ACP session before their rows disappear. If an adapter does not support `session/delete`, Hecate falls back to `session/close` and still tears down the owned process. When SQLite or Postgres is configured, it then clears remaining Hecate-prefixed database table rows while preserving schemas. It also removes the embedded Cairnline mirror database files under the Hecate data directory so replacement-readiness mirrors cannot resurrect stale project state after reset. Workspace files and external CLI auth files are not touched. The endpoint is local-only and blocked in remote runtime mode: non-loopback sockets and forwarded-client headers are rejected.
+`POST /hecate/v1/system/reset-data` resets local operator state without restarting the gateway. It deletes chat sessions, projects, project memory entries and candidates, project work-coordination rows, Hecate-owned project assignment runtime overlays, plugin registry records, agent profiles, tasks, configured providers, policy rules, and saved external-agent approval grants. Chat sessions are deleted through the normal chat-delete path first, so live external-agent sessions are asked to delete their native ACP session before their rows disappear. If an adapter does not support `session/delete`, Hecate falls back to `session/close` and still tears down the owned process. When SQLite or Postgres is configured, it then clears remaining Hecate-prefixed database table rows while preserving schemas. It also removes the embedded Cairnline mirror database files under the Hecate data directory so replacement-readiness mirrors cannot resurrect stale project state after reset. Workspace files and external CLI auth files are not touched. The endpoint is local-only and blocked in remote runtime mode: non-loopback sockets and forwarded-client headers are rejected.
 
 ```json
 → 200
@@ -793,6 +794,7 @@ Tool names come back un-namespaced — the operator wants to see what the upstre
   "data": {
     "projects_deleted": 1,
     "project_work_rows_deleted": 3,
+    "project_runtime_rows_deleted": 1,
     "plugins_deleted": 1,
     "agent_profiles_deleted": 1,
     "chat_sessions_deleted": 2,
@@ -2335,8 +2337,9 @@ POST /hecate/v1/projects/proj_.../context-sources/discover
 ### `DELETE /hecate/v1/projects/{id}`
 
 Deletes the project catalog entry, its roots, and chat sessions scoped to that
-project. It also deletes project memory entries, memory candidates, and project work-coordination
-rows for that project. Project-scoped External Agent chats are deleted through
+project. It also deletes project memory entries, memory candidates, project
+work-coordination rows, and Hecate-owned assignment runtime overlay rows for
+that project. Project-scoped External Agent chats are deleted through
 the normal chat-delete path, so Hecate asks the adapter to delete the native ACP
 session where supported. This does not delete workspace files. Unprojected
 chats and chats scoped to other projects stay untouched. Assignment links to
@@ -2353,6 +2356,7 @@ The response reports the scoped records Hecate cleaned up:
     "project_name": "Launch operations",
     "chat_sessions_deleted": 2,
     "project_work_rows_deleted": 8,
+    "project_runtime_rows_deleted": 2,
     "project_skills_deleted": 1,
     "memory_entries_deleted": 3,
     "memory_candidates_deleted": 4
@@ -2609,9 +2613,9 @@ mirrors remaining committed apply side effects after Hecate commits; enabled
 project create, project metadata/default, root,
 role/work-item/assignment/handoff, and memory-candidate apply actions use their
 Cairnline authority seams first. Assignment-start dispatch still writes
-Hecate-native runtime stores first, while committed results and cleanup/conflict
-states mirror to Cairnline. Other non-mirrored live mutation routes still write
-only Hecate-native stores.
+Hecate-owned project assignment runtime overlays first, while committed
+results and cleanup/conflict states mirror to Cairnline. Other non-mirrored
+live mutation routes still write only Hecate-native stores.
 `mirror_parity_url` points at a read-only check that compares Hecate's current
 project stores with the existing embedded Cairnline mirror database without
 creating or repairing it. `sync_readiness_url` points at the all-project

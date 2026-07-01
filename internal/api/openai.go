@@ -285,6 +285,7 @@ type ProjectDeleteResponseItem struct {
 	ProjectName                      string `json:"project_name,omitempty"`
 	ChatSessionsDeleted              int    `json:"chat_sessions_deleted"`
 	ProjectWorkRowsDeleted           int    `json:"project_work_rows_deleted"`
+	ProjectRuntimeRowsDeleted        int    `json:"project_runtime_rows_deleted"`
 	ProjectSkillsDeleted             int    `json:"project_skills_deleted"`
 	ProjectAssistantProposalsDeleted int    `json:"project_assistant_proposals_deleted"`
 	MemoryEntriesDeleted             int    `json:"memory_entries_deleted"`
@@ -2639,6 +2640,7 @@ type SystemResetDataResponseItem struct {
 	ProjectsDeleted                  int `json:"projects_deleted"`
 	ProjectSkillsDeleted             int `json:"project_skills_deleted"`
 	ProjectWorkRowsDeleted           int `json:"project_work_rows_deleted"`
+	ProjectRuntimeRowsDeleted        int `json:"project_runtime_rows_deleted"`
 	ProjectAssistantProposalsDeleted int `json:"project_assistant_proposals_deleted"`
 	PluginsDeleted                   int `json:"plugins_deleted"`
 	AgentProfilesDeleted             int `json:"agent_profiles_deleted"`

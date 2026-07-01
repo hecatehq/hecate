@@ -128,6 +128,10 @@ func (h *Handler) renderNativeProjectActivity(ctx context.Context, projectID str
 	if err != nil {
 		return ProjectActivityDataResponse{}, err
 	}
+	assignments, err = h.projectWorkApplication().ApplyAssignmentsRuntime(ctx, assignments)
+	if err != nil {
+		return ProjectActivityDataResponse{}, err
+	}
 	artifacts, err := h.projectWork.ListArtifacts(ctx, projectwork.ArtifactFilter{ProjectID: projectID})
 	if err != nil {
 		return ProjectActivityDataResponse{}, err
