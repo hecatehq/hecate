@@ -530,11 +530,12 @@ sequenceDiagram
   skill list, project role list, work-item list/detail, assignment-list,
   assignment-context, launch-readiness, assignment preflight, activity,
   artifact-list, handoff-list, closeout-readiness, operations brief, project
-  memory list, and memory-candidate list reads use the embedded Cairnline
-  project, skill, role, work-item, assignment, launch-packet, artifact,
-  evidence, review, handoff, and memory records directly instead of loading a
-  Hecate snapshot first; other embedded read routes may still use Hecate
-  snapshot scaffolding until their route families are cut over. With
+  memory list, and memory-candidate list reads plus Project Assistant
+  context/proposal reads use the embedded Cairnline project, skill, role,
+  work-item, assignment, launch-packet, artifact, evidence, review, handoff,
+  memory, and assistant proposal records directly instead of loading a Hecate
+  snapshot first; other embedded read routes may still use Hecate snapshot
+  scaffolding until their route families are cut over. With
   `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar`, `sidecar` routes project
   list/detail, setup-readiness, health, project skill list, project memory list,
   memory-candidate list, project role list, work-item list/detail,
@@ -2428,9 +2429,10 @@ scaffolding, but strict embedded project list/detail, setup-readiness, health,
 project skill list, project role list, work-item list/detail, assignment-list,
 assignment-context, launch-readiness, assignment preflight, activity,
 artifact-list, handoff-list, closeout-readiness, operations brief, project
-memory list, and memory-candidate list reads now load directly from the embedded
-Cairnline project, skill, role, work-item, assignment, launch-packet, artifact,
-evidence, review, handoff, and memory records. Their
+memory list, and memory-candidate list reads plus Project Assistant
+context/proposal reads now load directly from the embedded Cairnline project,
+skill, role, work-item, assignment, launch-packet, artifact, evidence, review,
+handoff, memory, and assistant proposal records. Their
 Cairnline service read source is controlled by
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE`: `auto` prefers the embedded mirror and
 falls back to the snapshot-seeded bridge, `snapshot` always uses the
@@ -6314,9 +6316,11 @@ from the configured Cairnline read source. With
 `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar` and
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar`, the context packet is composed
 from typed sidecar project/work/skill/memory read tools and rejects malformed or
-text-only sidecar output. Draft generation uses the same Cairnline-projected
-context so preview and proposal assembly do not drift, while proposal ledger
-writes remain Hecate-owned unless
+text-only sidecar output. In strict embedded mode, the context packet is seeded
+directly from the embedded Cairnline database and does not require a matching
+Hecate-native project row. Draft generation uses the same
+Cairnline-projected context so preview and proposal assembly do not drift,
+while proposal ledger writes remain Hecate-owned unless
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-assistant-proposals` is
 enabled. Confirmed apply uses enabled project create, project metadata/default,
 root, role/work-item/assignment/handoff, and memory-candidate
