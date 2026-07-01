@@ -73,7 +73,7 @@ func TestProjectCoordinationBackendStatus_DefaultHecateAuthoritative(t *testing.
 	if !status.CairnlineBridgeReady || status.CairnlineAuthoritative || status.ReadModelSwitchReady || status.WriteAdapterReady || status.ReplacementReady || len(status.Warnings) != 0 {
 		t.Fatalf("status = %+v, want bridge-ready but inactive Cairnline adapter flags", status)
 	}
-	if len(status.ReadRoutes) != 0 || len(status.WriteAdapterSeams) != 0 || len(status.WriteAdapterGaps) != 0 || len(status.PortableWriteGaps) != 0 || len(status.SideEffectBlockers) != 0 || len(status.MigrationBlockers) != 0 || len(status.ReplacementGates) != 0 || len(status.WriteSwitchpoints) != 0 {
+	if len(status.ReadRoutes) != 0 || len(status.WriteAdapterSeams) != 0 || len(status.WriteAdapterGaps) != 0 || len(status.PortableWriteGaps) != 0 || len(status.OrchestratorCapabilities) != 0 || len(status.SideEffectBlockers) != 0 || len(status.MigrationBlockers) != 0 || len(status.ReplacementGates) != 0 || len(status.WriteSwitchpoints) != 0 {
 		t.Fatalf("status = %+v, want no Cairnline route/seam/gap lists until Cairnline is configured", status)
 	}
 	if status.NextReplacementAction == nil || status.NextReplacementAction.ID != "enable-cairnline-dogfood" || status.NextReplacementAction.Target != "configuration" {
@@ -290,8 +290,8 @@ func TestProjectCoordinationBackendStatus_CairnlineConfiguredReadRoutesReady(t *
 	if !containsString(status.PortableWriteGaps, "projects") || !containsString(status.PortableWriteGaps, "roots") || !containsString(status.PortableWriteGaps, "agent-profiles") || containsString(status.PortableWriteGaps, "assignment-start") || containsString(status.PortableWriteGaps, "project-assistant-apply-side-effects") || containsString(status.PortableWriteGaps, "migration-cutover") {
 		t.Fatalf("portable write gaps = %+v, want portable gaps separated from side-effect and migration blockers", status.PortableWriteGaps)
 	}
-	if !reflect.DeepEqual(status.SideEffectBlockers, []string{"roots", "assignment-start", "project-assistant-apply-side-effects"}) {
-		t.Fatalf("side-effect blockers = %+v, want root/worktree, dispatch, and assistant side-effect blockers", status.SideEffectBlockers)
+	if !reflect.DeepEqual(status.OrchestratorCapabilities, []string{"roots", "assignment-start", "project-assistant-apply-side-effects"}) {
+		t.Fatalf("orchestrator capabilities = %+v, want root/worktree, dispatch, and assistant apply capabilities", status.OrchestratorCapabilities)
 	}
 	if !reflect.DeepEqual(status.MigrationBlockers, []string{"migration-cutover"}) {
 		t.Fatalf("migration blockers = %+v, want migration cutover blocker", status.MigrationBlockers)
@@ -528,8 +528,8 @@ func TestProjectCoordinationBackendStatus_CairnlineDirectRootSourceAuthorityConf
 	if containsString(status.PortableWriteGaps, "roots") || containsString(status.PortableWriteGaps, "context-sources") {
 		t.Fatalf("portable write gaps = %+v, want root/source portable switchpoint gaps removed", status.PortableWriteGaps)
 	}
-	if !containsString(status.SideEffectBlockers, "roots") {
-		t.Fatalf("side-effect blockers = %+v, want root scan/worktree blocker to remain", status.SideEffectBlockers)
+	if !containsString(status.OrchestratorCapabilities, "roots") {
+		t.Fatalf("orchestrator capabilities = %+v, want root scan/worktree capability to remain", status.OrchestratorCapabilities)
 	}
 	rootPoint := findWriteSwitchpoint(status.WriteSwitchpoints, "roots-and-worktrees")
 	if rootPoint == nil || rootPoint.CurrentAuthority != "mixed" || rootPoint.CairnlineState != "partial_authoritative_opt_in" || !rootPoint.LiveMirror || !rootPoint.BlocksAuthority || rootPoint.Gap != "roots" {
@@ -749,7 +749,7 @@ func TestProjectCoordinationBackendStatus_CairnlineProjectAssistantApplyPortable
 
 	status := handler.projectCoordinationBackendStatus()
 	if !containsString(status.WriteAdapterGaps, "project-assistant-apply-side-effects") {
-		t.Fatalf("write gaps = %+v, want assistant apply side effects to remain a blocking mixed-authority gap", status.WriteAdapterGaps)
+		t.Fatalf("write gaps = %+v, want assistant apply side effects to remain visible as a Hecate-owned capability", status.WriteAdapterGaps)
 	}
 	applyPoint := findWriteSwitchpoint(status.WriteSwitchpoints, "project-assistant-apply-side-effects")
 	if applyPoint == nil || applyPoint.CurrentAuthority != "mixed" || applyPoint.CairnlineState != "partial_authoritative_via_portable_switchpoints" || !applyPoint.BlocksAuthority || applyPoint.Gap != "project-assistant-apply-side-effects" {
@@ -761,14 +761,14 @@ func TestProjectCoordinationBackendStatus_CairnlineProjectAssistantApplyPortable
 		}
 	}
 	warnings := strings.Join(status.Warnings, "\n")
-	if !strings.Contains(warnings, "Project Assistant proposal ledger mutations are opt-in Cairnline-authoritative") || !strings.Contains(warnings, "confirmed apply is mixed-authority") || !strings.Contains(warnings, "Project Assistant confirmed apply uses enabled Cairnline authority seams") || !strings.Contains(warnings, "chat/runtime") {
+	if !strings.Contains(warnings, "Project Assistant proposal ledger mutations are opt-in Cairnline-authoritative") || !strings.Contains(warnings, "confirmed apply is mixed-authority") || !strings.Contains(warnings, "Project Assistant confirmed apply uses enabled Cairnline authority seams") || !strings.Contains(warnings, "orchestrator capabilities") {
 		t.Fatalf("warnings = %+v, want assistant proposal authority and mixed apply authority caveats", status.Warnings)
 	}
 	if status.ReplacementReady {
 		t.Fatalf("replacement_ready = true, want false until remaining write and migration gates are ready")
 	}
-	if gate := findReplacementGate(status.ReplacementGates, "write-authority-switchpoints"); gate == nil || gate.Ready || gate.Status != "partial" || !strings.Contains(gate.Detail, "project-assistant-apply-side-effects") {
-		t.Fatalf("write-authority gate = %+v, want partial write authority with mixed assistant apply gap", gate)
+	if gate := findReplacementGate(status.ReplacementGates, "write-authority-switchpoints"); gate == nil || gate.Ready || gate.Status != "partial" || strings.Contains(gate.Detail, "project-assistant-apply-side-effects") || !strings.Contains(gate.Detail, "agent-profiles") {
+		t.Fatalf("write-authority gate = %+v, want partial portable write authority without assistant side-effect capability", gate)
 	}
 }
 
@@ -809,24 +809,28 @@ func TestProjectCoordinationBackendStatus_CairnlineAllPortableWriteAuthorityAlia
 	if len(status.PortableWriteGaps) != 0 {
 		t.Fatalf("portable write gaps = %+v, want all portable gaps removed with all-portable authority alias", status.PortableWriteGaps)
 	}
-	if !reflect.DeepEqual(status.SideEffectBlockers, []string{"roots", "assignment-start", "project-assistant-apply-side-effects"}) {
-		t.Fatalf("side-effect blockers = %+v, want remaining non-portable side-effect blockers", status.SideEffectBlockers)
+	if !reflect.DeepEqual(status.OrchestratorCapabilities, []string{"roots", "assignment-start", "project-assistant-apply-side-effects"}) {
+		t.Fatalf("orchestrator capabilities = %+v, want remaining Hecate-owned orchestrator capabilities", status.OrchestratorCapabilities)
 	}
 	if !reflect.DeepEqual(status.MigrationBlockers, []string{"migration-cutover"}) {
 		t.Fatalf("migration blockers = %+v, want migration cutover blocker", status.MigrationBlockers)
 	}
-	if gate := findReplacementGate(status.ReplacementGates, "write-authority-switchpoints"); gate == nil || gate.Ready || gate.Status != "partial" || !strings.Contains(gate.Detail, "roots") || !strings.Contains(gate.Detail, "assignment-start") || !strings.Contains(gate.Detail, "project-assistant-apply-side-effects") {
-		t.Fatalf("write-authority gate = %+v, want partial write authority with remaining side-effect gaps", gate)
+	if gate := findReplacementGate(status.ReplacementGates, "write-authority-switchpoints"); gate == nil || !gate.Ready || gate.Status != "ready" || !strings.Contains(gate.Detail, "orchestrator capabilities") {
+		t.Fatalf("write-authority gate = %+v, want ready portable write authority with orchestrator capability caveat", gate)
 	}
-	if status.NextReplacementAction == nil || status.NextReplacementAction.ID != "separate-side-effect-boundary" || status.NextReplacementAction.Target != "roots" {
-		t.Fatalf("next action = %+v, want roots side-effect action after portable authority gaps close", status.NextReplacementAction)
+	if status.NextReplacementAction == nil || status.NextReplacementAction.ID != "rehearse-migration-cutover" || status.NextReplacementAction.Target != "migration-cutover" {
+		t.Fatalf("next action = %+v, want migration rehearsal after portable authority gaps close", status.NextReplacementAction)
 	}
 }
 
-func TestProjectCoordinationBackendStatus_WriteAuthorityGateIgnoresMigrationGap(t *testing.T) {
-	gate := projectCairnlineWriteAuthorityReplacementGate([]string{"migration-cutover"})
-	if !gate.Ready || gate.Status != "ready" || !strings.Contains(gate.Detail, "migration, rollback, and final cutover still have separate gates") {
-		t.Fatalf("write-authority gate = %+v, want ready when only migration gate remains", gate)
+func TestProjectCoordinationBackendStatus_WriteAuthorityGateUsesPortableGaps(t *testing.T) {
+	gate := projectCairnlineWriteAuthorityReplacementGate(nil)
+	if !gate.Ready || gate.Status != "ready" || !strings.Contains(gate.Detail, "orchestrator capabilities") {
+		t.Fatalf("write-authority gate = %+v, want ready when portable write gaps are closed", gate)
+	}
+	gate = projectCairnlineWriteAuthorityReplacementGate([]string{"memory-candidates"})
+	if gate.Ready || gate.Status != "partial" || !strings.Contains(gate.Detail, "memory-candidates") {
+		t.Fatalf("write-authority gate = %+v, want partial when portable write gaps remain", gate)
 	}
 }
 
@@ -880,8 +884,8 @@ func TestProjectCoordinationBackendStatusRoute(t *testing.T) {
 	if !response.Data.ReadModelSwitchReady || response.Data.Status != "cairnline_read_routes_ready" {
 		t.Fatalf("response = %+v, want Cairnline read routes ready for fully wired test handler", response)
 	}
-	if !containsString(response.Data.ReadRoutes, "project-detail") || !containsString(response.Data.ReadRoutes, "launch-readiness") || !containsString(response.Data.ReadRoutes, "assignment-preflight") || !containsString(response.Data.ReadRoutes, "project-assistant-context") || !containsString(response.Data.ReadRoutes, "project-assistant-proposal") || !containsString(response.Data.ReadRoutes, "project-chat-prelude") || !containsString(response.Data.ReadRoutes, "project-chat-context") || !containsString(response.Data.WriteAdapterSeams, "project-identity-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-roots-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-context-sources-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-defaults-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-skills-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-roles-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-work-items-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-assignments-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-assignment-start-result-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-assignment-chat-reconcile-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-collaboration-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-handoffs-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-memory-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-memory-candidates-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-assistant-proposal-ledger-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-assistant-apply-side-effects-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "handoffs") || !containsString(response.Data.WriteAdapterGaps, "memory-candidates") || !containsString(response.Data.PortableWriteGaps, "memory-candidates") || !containsString(response.Data.SideEffectBlockers, "assignment-start") || !containsString(response.Data.MigrationBlockers, "migration-cutover") {
-		t.Fatalf("response routes/seams/gaps = %+v / %+v / %+v portable=%+v side_effect=%+v migration=%+v, want structured readiness details", response.Data.ReadRoutes, response.Data.WriteAdapterSeams, response.Data.WriteAdapterGaps, response.Data.PortableWriteGaps, response.Data.SideEffectBlockers, response.Data.MigrationBlockers)
+	if !containsString(response.Data.ReadRoutes, "project-detail") || !containsString(response.Data.ReadRoutes, "launch-readiness") || !containsString(response.Data.ReadRoutes, "assignment-preflight") || !containsString(response.Data.ReadRoutes, "project-assistant-context") || !containsString(response.Data.ReadRoutes, "project-assistant-proposal") || !containsString(response.Data.ReadRoutes, "project-chat-prelude") || !containsString(response.Data.ReadRoutes, "project-chat-context") || !containsString(response.Data.WriteAdapterSeams, "project-identity-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-roots-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-context-sources-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-defaults-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-skills-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-roles-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-work-items-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-assignments-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-assignment-start-result-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-assignment-chat-reconcile-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-collaboration-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-handoffs-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-memory-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-memory-candidates-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-assistant-proposal-ledger-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "project-assistant-apply-side-effects-live-mirror") || !containsString(response.Data.WriteAdapterSeams, "handoffs") || !containsString(response.Data.WriteAdapterGaps, "memory-candidates") || !containsString(response.Data.PortableWriteGaps, "memory-candidates") || !containsString(response.Data.OrchestratorCapabilities, "assignment-start") || !containsString(response.Data.MigrationBlockers, "migration-cutover") {
+		t.Fatalf("response routes/seams/gaps = %+v / %+v / %+v portable=%+v orchestrator=%+v migration=%+v, want structured readiness details", response.Data.ReadRoutes, response.Data.WriteAdapterSeams, response.Data.WriteAdapterGaps, response.Data.PortableWriteGaps, response.Data.OrchestratorCapabilities, response.Data.MigrationBlockers)
 	}
 	if response.Data.ReplacementReady {
 		t.Fatalf("response replacement_ready = true, want false until write authority and migration gates are ready")

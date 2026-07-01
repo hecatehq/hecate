@@ -588,7 +588,8 @@ sequenceDiagram
   store for compatibility. Confirmed Project Assistant apply uses enabled
   project create, project metadata/default, root,
   role/work-item/assignment/handoff, and memory-candidate authority seams and
-  still blocks replacement on the remaining chat/runtime side effects.
+  leaves remaining chat/runtime effects as Hecate-owned orchestrator
+  capabilities outside Cairnline core.
   `project-roots` makes project root create/update/delete plus root list
   replacement plus discovery-result replacement and worktree-created root
   record mutations Cairnline-first, then shadows Hecate's compatibility project
@@ -2453,17 +2454,20 @@ read model. `write_adapter_ready=false` means writes and migration are still
 Hecate-owned. `write_adapter_seams` lists non-authoritative bridge proofs that
 can write Cairnline-shaped records during tests or local sync rehearsals;
 `write_adapter_gaps` lists mutation families whose live Hecate routes are not
-Cairnline-backed yet and therefore still block authority switch.
+Cairnline-backed yet. That broad diagnostic list includes both portable
+coordination-state gaps and Hecate-owned runtime/workspace capabilities.
 `portable_write_gaps` groups the durable project-state gaps that can be closed
-by existing Cairnline write-authority switchpoints. `side_effect_blockers`
-groups still-Hecate-owned runtime/workspace effects such as root discovery or
-worktree creation, assignment dispatch, and Project Assistant chat/runtime side
-effects. `migration_blockers` lists remaining cutover/rollback work. These
-grouped fields are explanatory; the full machine-readable stop list remains
-`write_adapter_gaps`. The groups are not guaranteed to be exclusive: for
-example, `roots` can appear in `portable_write_gaps` until root metadata writes
-are Cairnline-authoritative and can remain in `side_effect_blockers` while
-Hecate still owns discovery scans and Git worktree creation.
+by existing Cairnline write-authority switchpoints. It is the write-authority
+replacement blocker list. `orchestrator_capabilities` groups still-Hecate-owned
+runtime/workspace behavior such as root discovery or worktree creation,
+assignment dispatch, and Project Assistant chat/runtime effects. Those
+capabilities are intentionally outside Cairnline core and do not block
+Cairnline owning portable project coordination state. `migration_blockers`
+lists remaining cutover/rollback work. The groups are explanatory and not
+guaranteed to be exclusive: for example, `roots` can appear in
+`portable_write_gaps` until root metadata writes are Cairnline-authoritative and
+can remain in `orchestrator_capabilities` while Hecate still owns discovery
+scans and Git worktree creation.
 `replacement_ready` stays `false` until read parity, strict embedded mirror
 probes, write-authority switchpoints, and migration/rollback gates are all
 ready. `next_replacement_action` is an advisory next operator step derived from
@@ -2477,14 +2481,16 @@ need to parse warning prose. Each gate may include `probe_urls`, a list of route
 templates that produce supporting evidence for that gate; these URLs identify
 checks to run and are not proof that the gate has already passed. The
 `write-authority-switchpoints` gate can be `blocked`, `partial`, or `ready`;
-it ignores the separate `migration-cutover` gap because migration and rollback
-are reported by the `migration-and-rollback` gate.
+it is driven by `portable_write_gaps` and ignores Hecate-owned orchestrator
+capabilities and the separate `migration-cutover` gap because those are reported
+by their own status fields/gates.
 `write_switchpoints` maps each live mutation family to the current authority,
 the Cairnline state (`live_mirror_non_authoritative`, `result_mirror_only`,
 `snapshot_import_rehearsal_available`, `authoritative_opt_in` for enabled
 alpha write-authority switchpoints, or `partial_authoritative_opt_in` when only
 some routes in a family have moved), the related mirror seams, and whether that
-family still blocks replacement.
+family still blocks portable write authority or remains Hecate-owned runtime
+behavior.
 Non-authoritative bridge seams currently cover project/root/source/defaults,
 agent profiles, skills, roles, work items, assignment metadata upsert/delete plus
 lifecycle-status sync, create-if-missing generic artifacts/evidence/reviews,
@@ -2712,7 +2718,11 @@ Example response, with `write_switchpoints` shortened for readability:
       "handoffs",
       "project-assistant-proposals"
     ],
-    "side_effect_blockers": ["roots", "assignment-start", "project-assistant-apply-side-effects"],
+    "orchestrator_capabilities": [
+      "roots",
+      "assignment-start",
+      "project-assistant-apply-side-effects"
+    ],
     "migration_blockers": ["migration-cutover"],
     "next_replacement_action": {
       "id": "move-portable-write-authority",
@@ -6416,8 +6426,8 @@ while proposal ledger writes remain Hecate-owned unless
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-assistant-proposals` is
 enabled. Confirmed apply uses enabled project create, project metadata/default,
 root, role/work-item/assignment/handoff, and memory-candidate
-Cairnline-authority seams and still blocks replacement on the remaining
-chat/runtime side effects.
+Cairnline-authority seams and leaves remaining chat/runtime effects as
+Hecate-owned orchestrator capabilities outside Cairnline core.
 `GET /hecate/v1/project-assistant/proposals/{id}` uses the same configured
 Cairnline read source as the other read routes; strict embedded mode reads the
 proposal record from the embedded mirror instead of falling back to the native

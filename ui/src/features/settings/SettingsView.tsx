@@ -297,7 +297,8 @@ function ProjectCoordinationBackendSettings({
 }) {
   const readRoutes = status?.read_routes ?? [];
   const portableGaps = status?.portable_write_gaps ?? [];
-  const sideEffectBlockers = status?.side_effect_blockers ?? [];
+  const orchestratorCapabilities =
+    status?.orchestrator_capabilities ?? status?.side_effect_blockers ?? [];
   const migrationBlockers = status?.migration_blockers ?? [];
   const nextAction = status?.next_replacement_action;
   const statusBadge = status
@@ -362,14 +363,14 @@ function ProjectCoordinationBackendSettings({
           >
             <ProjectBackendMetric label="Read routes" value={readRoutes.length} />
             <ProjectBackendMetric label="Portable gaps" value={portableGaps.length} />
-            <ProjectBackendMetric label="Side effects" value={sideEffectBlockers.length} />
+            <ProjectBackendMetric label="Orchestrator" value={orchestratorCapabilities.length} />
             <ProjectBackendMetric label="Migration" value={migrationBlockers.length} />
           </div>
           <div style={{ display: "grid", gap: 10, marginTop: 14 }}>
             <ProjectBackendList title="Portable write gaps" items={portableGaps} empty="none" />
             <ProjectBackendList
-              title="Side-effect blockers"
-              items={sideEffectBlockers}
+              title="Hecate orchestrator capabilities"
+              items={orchestratorCapabilities}
               empty="none"
             />
             <ProjectBackendList title="Migration blockers" items={migrationBlockers} empty="none" />
@@ -456,7 +457,8 @@ function projectBackendTitle(status: ProjectCoordinationBackendStatusRecord): st
 function projectBackendSummary(status: ProjectCoordinationBackendStatusRecord): string {
   const readRoutes = status.read_routes?.length ?? 0;
   const portableGaps = status.portable_write_gaps?.length ?? 0;
-  const sideEffectBlockers = status.side_effect_blockers?.length ?? 0;
+  const orchestratorCapabilities =
+    status.orchestrator_capabilities?.length ?? status.side_effect_blockers?.length ?? 0;
   const migrationBlockers = status.migration_blockers?.length ?? 0;
   if (status.replacement_ready) {
     return "Cairnline replacement gates are ready.";
@@ -465,7 +467,7 @@ function projectBackendSummary(status: ProjectCoordinationBackendStatusRecord): 
     return "Hecate-native project stores are authoritative. Cairnline bridge diagnostics are available for replacement-readiness checks.";
   }
   if (status.read_model_switch_ready || readRoutes > 0) {
-    return `${readRoutes} read route${readRoutes === 1 ? "" : "s"} use Cairnline. ${portableGaps} portable write gap${portableGaps === 1 ? "" : "s"}, ${sideEffectBlockers} side-effect blocker${sideEffectBlockers === 1 ? "" : "s"}, and ${migrationBlockers} migration blocker${migrationBlockers === 1 ? "" : "s"} remain.`;
+    return `${readRoutes} read route${readRoutes === 1 ? "" : "s"} use Cairnline. ${portableGaps} portable write gap${portableGaps === 1 ? "" : "s"} and ${migrationBlockers} migration blocker${migrationBlockers === 1 ? "" : "s"} remain; ${orchestratorCapabilities} Hecate orchestrator capabilit${orchestratorCapabilities === 1 ? "y" : "ies"} stay outside Cairnline core.`;
   }
   return "Cairnline is configured, but live read routes and replacement gates are not ready yet.";
 }

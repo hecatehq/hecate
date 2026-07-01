@@ -123,10 +123,12 @@ is actually authoritative. It also reports `replacement_ready`,
 `replacement_gates`, and `write_switchpoints` so operator tools can distinguish
 ready read routes from strict embedded probe work, non-authoritative live
 mirrors, still-Hecate-owned dispatch, and missing migration/rollback authority.
-It keeps `write_adapter_gaps` as the compatibility stop list and also groups
-that list into `portable_write_gaps`, `side_effect_blockers`, and
-`migration_blockers`, so operator tooling can tell switchpoint work apart from
-runtime/workspace side effects and final cutover work.
+It keeps `write_adapter_gaps` as the broad diagnostic list and also groups
+that list into `portable_write_gaps`, `orchestrator_capabilities`, and
+`migration_blockers`, so operator tooling can tell durable coordination-state
+switchpoint work apart from Hecate-owned runtime/workspace capabilities and
+final cutover work. `portable_write_gaps` drives the write-authority replacement
+gate; `orchestrator_capabilities` are intentionally outside Cairnline core.
 `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded` is the current live-route
 dogfood connector. `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar` exposes
 local-only standalone Cairnline MCP contract probe/connect surfaces at
@@ -256,8 +258,8 @@ assembly stay aligned, while the proposal ledger remains Hecate-owned unless
 Confirmed Project Assistant apply routes project create, project
 metadata/default, root, role, work-item, assignment, handoff, and
 memory-candidate actions through the same opt-in Cairnline authority
-switchpoints when those switchpoints are enabled; chat/runtime side effects
-still keep apply as a mixed-authority replacement blocker.
+switchpoints when those switchpoints are enabled; chat/runtime effects remain
+Hecate-owned orchestrator capabilities outside Cairnline core.
 Project list/detail reconstruct default profile and execution posture from
 Cairnline project/execution-profile records where available. Launch-readiness
 and assignment preflight read
@@ -298,8 +300,7 @@ context-source list replacement, and context-source discovery-result
 replacement can commit to embedded Cairnline first, then best-effort shadow
 Hecate's compatibility project row. Worktree-created root records also move
 with `project-roots`, but Hecate still performs root discovery scans and Git
-worktree creation side effects, so the worktree side-effect gap still blocks
-full cutover.
+worktree creation as orchestrator capabilities outside Cairnline core.
 `project-collaboration` is another opt-in authority slice: collaboration
 artifact creation and handoff create/update/status/delete commit to embedded
 Cairnline first, then best-effort shadow the portable records into Hecate-native
@@ -331,8 +332,8 @@ Assistant draft/propose/apply-attempt ledger records commit to embedded
 Cairnline first, then best-effort shadow Hecate's proposal store for
 compatibility. Confirmed apply uses the enabled Cairnline authority seams for
 project create, project metadata/default, root, role, work-item, assignment,
-handoff, and memory-candidate actions, but chat/runtime side effects still keep
-Assistant apply as a mixed-authority replacement blocker.
+handoff, and memory-candidate actions, but chat/runtime effects remain
+Hecate-owned orchestrator capabilities outside Cairnline core.
 Assignment-start is still a Hecate-native dispatch mutation, committed
 assignment-start results and cleanup/conflict states are best-effort mirrored
 for replacement evidence, and other live Projects reads/writes still use the
@@ -447,7 +448,8 @@ commits proposal records and apply attempts unless `project-assistant-proposals`
 is enabled, in which case the proposal ledger commits to Cairnline first while
 confirmed apply uses enabled project create, project metadata/default, root,
 role/work-item/assignment/handoff, and memory-candidate authority seams and
-still blocks replacement on the remaining chat/runtime side effects.
+leaves remaining chat/runtime effects as Hecate-owned orchestrator capabilities
+outside Cairnline core.
 `POST /hecate/v1/projects/{id}/cairnline/export` writes a refreshable Cairnline
 SQLite export under Hecate's data directory and returns the same
 `migration_rehearsal` evidence for the single-project database. Both sync and
