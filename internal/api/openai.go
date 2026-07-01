@@ -567,6 +567,8 @@ type ProjectCoordinationBackendStatusResponse struct {
 	ReadModelSwitchReady                 bool                                         `json:"read_model_switch_ready"`
 	WriteAdapterReady                    bool                                         `json:"write_adapter_ready"`
 	ReplacementReady                     bool                                         `json:"replacement_ready"`
+	ReplacementTarget                    string                                       `json:"replacement_target,omitempty"`
+	ReplacementTargetDetail              string                                       `json:"replacement_target_detail,omitempty"`
 	ReadRoutes                           []string                                     `json:"read_routes,omitempty"`
 	WriteAdapterSeams                    []string                                     `json:"write_adapter_seams,omitempty"`
 	WriteAdapterGaps                     []string                                     `json:"write_adapter_gaps,omitempty"`

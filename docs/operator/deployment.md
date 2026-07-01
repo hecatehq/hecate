@@ -608,7 +608,10 @@ warning prose. It also groups the broad `write_adapter_gaps` diagnostic list int
 coordination-state switchpoint work is separated from Hecate-owned
 runtime/workspace capabilities and final cutover work. Settings shows the same
 backend-status summary, next action, and replacement-gate checklist under
-Project coordination for local operator inspection. Once portable write gaps are
+Project coordination for local operator inspection. The reported replacement
+target is embedded Cairnline first: Hecate should make the embedded Cairnline
+database the Projects source of truth before treating an external sidecar as the
+standalone/interoperability boundary. Once portable write gaps are
 closed, the migration next action reports strict embedded rehearsal hints for
 `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded`,
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded`, and

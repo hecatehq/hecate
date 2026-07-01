@@ -116,6 +116,8 @@ export type ProjectCoordinationBackendStatusRecord = {
   read_model_switch_ready: boolean;
   write_adapter_ready: boolean;
   replacement_ready: boolean;
+  replacement_target?: string;
+  replacement_target_detail?: string;
   read_routes?: string[];
   write_adapter_seams?: string[];
   write_adapter_gaps?: string[];

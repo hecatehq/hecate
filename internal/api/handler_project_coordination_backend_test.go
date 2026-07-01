@@ -73,6 +73,9 @@ func TestProjectCoordinationBackendStatus_DefaultHecateAuthoritative(t *testing.
 	if !status.CairnlineBridgeReady || status.CairnlineAuthoritative || status.ReadModelSwitchReady || status.WriteAdapterReady || status.ReplacementReady || len(status.Warnings) != 0 {
 		t.Fatalf("status = %+v, want bridge-ready but inactive Cairnline adapter flags", status)
 	}
+	if status.ReplacementTarget != "embedded_cairnline_first" || !strings.Contains(status.ReplacementTargetDetail, "embedded Cairnline") || !strings.Contains(status.ReplacementTargetDetail, "sidecar") {
+		t.Fatalf("replacement target/detail = %q/%q, want embedded-first target with sidecar boundary detail", status.ReplacementTarget, status.ReplacementTargetDetail)
+	}
 	if len(status.ReadRoutes) != 0 || len(status.WriteAdapterSeams) != 0 || len(status.WriteAdapterGaps) != 0 || len(status.PortableWriteGaps) != 0 || len(status.OrchestratorCapabilities) != 0 || len(status.SideEffectBlockers) != 0 || len(status.MigrationBlockers) != 0 || len(status.ReplacementGates) != 0 || len(status.WriteSwitchpoints) != 0 {
 		t.Fatalf("status = %+v, want no Cairnline route/seam/gap lists until Cairnline is configured", status)
 	}
@@ -814,6 +817,9 @@ func TestProjectCoordinationBackendStatus_CairnlineAllPortableWriteAuthorityAlia
 	}
 	if status.ReplacementReady {
 		t.Fatalf("replacement_ready = true, want false until migration and cutover gates are ready")
+	}
+	if status.ReplacementTarget != "embedded_cairnline_first" {
+		t.Fatalf("replacement target = %q, want embedded-first Cairnline target", status.ReplacementTarget)
 	}
 	if !reflect.DeepEqual(status.OrchestratorCapabilities, []string{"roots", "assignment-start", "project-assistant-apply-side-effects"}) {
 		t.Fatalf("orchestrator capabilities = %+v, want remaining Hecate-owned orchestrator capabilities", status.OrchestratorCapabilities)

@@ -351,6 +351,19 @@ function ProjectCoordinationBackendSettings({
               <div style={{ fontSize: 12, color: "var(--t2)", lineHeight: 1.45, marginTop: 8 }}>
                 {projectBackendSummary(status)}
               </div>
+              {status.replacement_target && (
+                <div
+                  style={{
+                    color: "var(--t3)",
+                    fontSize: 11,
+                    lineHeight: 1.45,
+                    marginTop: 6,
+                  }}
+                >
+                  Target: {status.replacement_target.replaceAll("_", " ")}
+                  {status.replacement_target_detail ? ` · ${status.replacement_target_detail}` : ""}
+                </div>
+              )}
             </div>
           </div>
           {nextAction && <ProjectBackendNextAction action={nextAction} />}

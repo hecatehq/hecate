@@ -335,6 +335,8 @@ func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendS
 		CairnlineAuthoritative:               false,
 		WriteAdapterReady:                    false,
 		ReplacementReadinessURL:              projectCoordinationBackendReadinessURL,
+		ReplacementTarget:                    "embedded_cairnline_first",
+		ReplacementTargetDetail:              "Hecate's Projects replacement path targets embedded Cairnline as the first source of truth; the standalone sidecar remains an interoperability and future external-server boundary.",
 		CairnlineSidecarProbeURL:             projectCoordinationBackendSidecarProbeURL,
 		CairnlineSidecarConnectURL:           projectCoordinationBackendSidecarConnectURL,
 		CairnlineSidecarReadURL:              projectCoordinationBackendSidecarReadURL,
