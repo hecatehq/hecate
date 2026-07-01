@@ -134,6 +134,23 @@ func (h *Handler) HandleProjectWorkAssignmentContext(w http.ResponseWriter, r *h
 		writeChatContextPacket(w, chatcontext.Normalize(packet, chatcontext.ProjectAssignmentRefs(projectID, workItemID, assignmentID, roleID)))
 		return
 	}
+	if h.projectReadRoutesUseCairnlineReadModel() && h.requiresEmbeddedCairnlineProjectReads() {
+		packet, ok, err := h.contextPacketForStrictEmbeddedCairnlineProjectAssignment(ctx, projectID, workItemID, assignmentID)
+		if err != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+			return
+		}
+		if !ok {
+			WriteError(w, http.StatusNotFound, errCodeNotFound, "project assignment context packet not found")
+			return
+		}
+		roleID := ""
+		if packet.Refs != nil {
+			roleID = packet.Refs.RoleID
+		}
+		writeChatContextPacket(w, chatcontext.Normalize(packet, chatcontext.ProjectAssignmentRefs(projectID, workItemID, assignmentID, roleID)))
+		return
+	}
 	if h.projectWork == nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project work store is not configured")
 		return

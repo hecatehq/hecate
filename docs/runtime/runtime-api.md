@@ -527,13 +527,13 @@ sequenceDiagram
   or requested project row/proposal record is missing. Run
   `POST /hecate/v1/projects/cairnline/sync` first when testing strict embedded
   reads. Strict embedded project list/detail, setup-readiness, health, project
-  skill list, project role list, work-item list/detail, assignment-list, activity,
-  artifact-list, handoff-list, closeout-readiness, operations brief, project
-  memory list, and memory-candidate list reads use the embedded Cairnline
-  project, skill, role, work-item, assignment, artifact, evidence, review,
-  handoff, and memory records directly instead of loading a Hecate snapshot
-  first; other embedded read routes may still use Hecate snapshot scaffolding
-  until their route families are cut over. With
+  skill list, project role list, work-item list/detail, assignment-list,
+  assignment-context, activity, artifact-list, handoff-list, closeout-readiness,
+  operations brief, project memory list, and memory-candidate list reads use the
+  embedded Cairnline project, skill, role, work-item, assignment, artifact,
+  evidence, review, handoff, and memory records directly instead of loading a
+  Hecate snapshot first; other embedded read routes may still use Hecate
+  snapshot scaffolding until their route families are cut over. With
   `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar`, `sidecar` routes project
   list/detail, setup-readiness, health, project skill list, project memory list,
   memory-candidate list, project role list, work-item list/detail,
@@ -2425,10 +2425,10 @@ read model, while other live Projects reads still use Hecate. Most of those
 configured embedded read routes still load Hecate snapshots as bridge
 scaffolding, but strict embedded project list/detail, setup-readiness, health,
 project skill list, project role list, work-item list/detail, assignment-list,
-activity, artifact-list, handoff-list, closeout-readiness, operations brief,
-project memory list, and memory-candidate list reads now load directly from the
-embedded Cairnline project, skill, role, work-item, assignment, artifact,
-evidence, review, handoff, and memory records. Their
+assignment-context, activity, artifact-list, handoff-list, closeout-readiness,
+operations brief, project memory list, and memory-candidate list reads now load
+directly from the embedded Cairnline project, skill, role, work-item,
+assignment, artifact, evidence, review, handoff, and memory records. Their
 Cairnline service read source is controlled by
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE`: `auto` prefers the embedded mirror and
 falls back to the snapshot-seeded bridge, `snapshot` always uses the
@@ -5811,6 +5811,10 @@ does not create a Task, Run, Chat session, external-agent execution, memory
 entry, artifact, or assignment update. It shows portable project/work/role,
 profile, skill, source, memory, evidence, review, and handoff metadata so the
 operator can inspect what Cairnline would hand to a compatible orchestrator.
+
+In strict embedded mode, the endpoint reads the assignment context directly
+from the embedded Cairnline database and does not require a matching
+Hecate-native project or assignment row.
 
 With the default Hecate backend, unstarted assignments, rows without a stored
 packet or execution link, or older runs that predate snapshots return
