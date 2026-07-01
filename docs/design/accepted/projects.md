@@ -123,6 +123,10 @@ is actually authoritative. It also reports `replacement_ready`,
 `replacement_gates`, and `write_switchpoints` so operator tools can distinguish
 ready read routes from strict embedded probe work, non-authoritative live
 mirrors, still-Hecate-owned dispatch, and missing migration/rollback authority.
+It keeps `write_adapter_gaps` as the compatibility stop list and also groups
+that list into `portable_write_gaps`, `side_effect_blockers`, and
+`migration_blockers`, so operator tooling can tell switchpoint work apart from
+runtime/workspace side effects and final cutover work.
 `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded` is the current live-route
 dogfood connector. `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar` exposes
 local-only standalone Cairnline MCP contract probe/connect surfaces at
@@ -541,7 +545,9 @@ reports these proofs as
 `write_adapter_seams`, while `write_adapter_gaps`
 remains the machine-readable live-route stop list until route switch points,
 atomic promotion semantics, and authoritative cutover semantics are
-implemented. The snapshot import/export rehearsal and rollback notes exist, but
+implemented. The grouped status fields are derived from that stop list and make
+the remaining replacement work easier to operate without changing authority
+semantics. The snapshot import/export rehearsal and rollback notes exist, but
 they are evidence for a future cutover rather than a storage authority switch.
 
 Current read-model parity includes queued-assignment attention semantics:
