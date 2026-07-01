@@ -25,6 +25,10 @@ func (app *Application) ReconcileChatSessionAssignments(ctx context.Context, ses
 	if err != nil {
 		return ReconcileChatSessionAssignmentsResult{}, err
 	}
+	assignments, err = app.ApplyAssignmentsRuntime(ctx, assignments)
+	if err != nil {
+		return ReconcileChatSessionAssignmentsResult{}, err
+	}
 	var result ReconcileChatSessionAssignmentsResult
 	for _, assignment := range assignments {
 		ref := projectwork.NormalizeAssignmentExecutionRef(assignment.ExecutionRef)
@@ -36,21 +40,21 @@ func (app *Application) ReconcileChatSessionAssignments(ctx context.Context, ses
 			continue
 		}
 		updated, err := app.store.UpdateAssignment(ctx, projectID, assignment.ID, func(item *projectwork.Assignment) {
-			current := ProjectAssignmentChatExecution(*item, session)
-			if current == nil || current.Missing || strings.TrimSpace(current.Status) == "" {
-				return
-			}
-			item.Status = current.Status
-			if ref := AssignmentExecutionRefForChat(*item, current, current.Status); ref != nil {
+			item.Status = projection.Status
+			if ref := AssignmentExecutionRefForChat(assignment, projection, projection.Status); ref != nil {
 				item.ExecutionRef = projectwork.NormalizeAssignmentExecutionRef(*ref)
 			}
-			if item.StartedAt.IsZero() && !current.StartedAt.IsZero() {
-				item.StartedAt = current.StartedAt
+			if item.StartedAt.IsZero() && !projection.StartedAt.IsZero() {
+				item.StartedAt = projection.StartedAt
 			}
-			if AssignmentIsTerminal(current.Status) {
-				item.CompletedAt = FirstNonZeroTime(item.CompletedAt, current.CompletedAt, current.ProjectedAt, app.now().UTC())
+			if AssignmentIsTerminal(projection.Status) {
+				item.CompletedAt = FirstNonZeroTime(item.CompletedAt, projection.CompletedAt, projection.ProjectedAt, app.now().UTC())
 			}
 		})
+		if err != nil {
+			return result, err
+		}
+		updated, err = app.persistAssignmentRuntime(ctx, updated)
 		if err != nil {
 			return result, err
 		}

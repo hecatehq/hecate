@@ -11,6 +11,7 @@ import (
 	"github.com/hecatehq/hecate/internal/agentadapters"
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/orchestrator"
+	"github.com/hecatehq/hecate/internal/projectruntime"
 	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/pkg/types"
@@ -139,6 +140,48 @@ func TestApplication_UpdateWorkItemDoneRequiresCloseoutReadiness(t *testing.T) {
 	}
 	if updated.Status != projectwork.WorkItemStatusDone {
 		t.Fatalf("updated status = %q, want done", updated.Status)
+	}
+}
+
+func TestApplication_WorkItemReadinessUsesRuntimeOverlay(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := projectwork.NewMemoryStore()
+	runtimeStore := projectruntime.NewMemoryStore()
+	app := New(Options{
+		Store:        store,
+		RuntimeStore: runtimeStore,
+		IDGenerator:  func(prefix string) string { return prefix + "_fixed" },
+	})
+	if _, err := app.CreateWorkItem(ctx, "proj_1", CreateWorkItemCommand{ID: "work_1", Title: "Build", Status: projectwork.WorkItemStatusReview}); err != nil {
+		t.Fatalf("CreateWorkItem() error = %v", err)
+	}
+	if _, err := app.CreateAssignment(ctx, "proj_1", "work_1", CreateAssignmentCommand{
+		ID:     "asgn_1",
+		RoleID: "software_developer",
+		Status: projectwork.AssignmentStatusCompleted,
+	}); err != nil {
+		t.Fatalf("CreateAssignment() error = %v", err)
+	}
+	if _, err := runtimeStore.Upsert(ctx, projectruntime.AssignmentRuntime{
+		ProjectID:    "proj_1",
+		AssignmentID: "asgn_1",
+		ExecutionRef: projectwork.AssignmentExecutionRef{
+			Kind:   projectwork.AssignmentExecutionKindTaskRun,
+			TaskID: "task_running",
+			Status: projectwork.AssignmentStatusRunning,
+		},
+	}); err != nil {
+		t.Fatalf("Upsert(runtime) error = %v", err)
+	}
+
+	readiness, err := app.WorkItemReadiness(ctx, "proj_1", "work_1")
+	if err != nil {
+		t.Fatalf("WorkItemReadiness() error = %v", err)
+	}
+	if readiness.Ready || len(readiness.Blockers) != 1 || readiness.Blockers[0] != "1 assignment is still active" {
+		t.Fatalf("readiness = %+v, want active runtime overlay blocker", readiness)
 	}
 }
 
@@ -494,6 +537,77 @@ func TestApplication_StartTaskAssignmentRejectsActiveAssignmentBeforeRunner(t *t
 	}
 	if runner.calls != 0 {
 		t.Fatalf("runner calls = %d, want 0 before conflict", runner.calls)
+	}
+}
+
+func TestApplication_StartTaskAssignmentUsesRuntimeOverlayForConflict(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	workStore := projectwork.NewMemoryStore()
+	runtimeStore := projectruntime.NewMemoryStore()
+	taskStore := taskstate.NewMemoryStore()
+	runner := &recordingTaskRunner{}
+	app := New(Options{
+		Store:        workStore,
+		RuntimeStore: runtimeStore,
+		TaskStore:    taskStore,
+		Runner:       runner,
+		IDGenerator:  func(prefix string) string { return prefix + "_fixed" },
+		Now: func() time.Time {
+			return time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
+		},
+	})
+	if _, err := app.CreateWorkItem(ctx, "proj_1", CreateWorkItemCommand{ID: "work_1", Title: "Build"}); err != nil {
+		t.Fatalf("CreateWorkItem() error = %v", err)
+	}
+	assignment, err := app.CreateAssignment(ctx, "proj_1", "work_1", CreateAssignmentCommand{
+		ID:         "asgn_1",
+		RoleID:     "software_developer",
+		DriverKind: projectwork.AssignmentDriverHecateTask,
+		Status:     projectwork.AssignmentStatusQueued,
+	})
+	if err != nil {
+		t.Fatalf("CreateAssignment() error = %v", err)
+	}
+	if _, err := runtimeStore.Upsert(ctx, projectruntime.AssignmentRuntime{
+		ProjectID:    "proj_1",
+		AssignmentID: "asgn_1",
+		ExecutionRef: projectwork.AssignmentExecutionRef{
+			Kind:   projectwork.AssignmentExecutionKindTaskRun,
+			TaskID: "task_existing",
+			Status: projectwork.AssignmentStatusQueued,
+		},
+		ContextPacket: []byte(`{"id":"ctx_existing"}`),
+	}); err != nil {
+		t.Fatalf("Upsert(runtime) error = %v", err)
+	}
+
+	overlaid, err := app.ApplyAssignmentRuntime(ctx, assignment)
+	if err != nil {
+		t.Fatalf("ApplyAssignmentRuntime() error = %v", err)
+	}
+	if overlaid.ExecutionRef.TaskID != "task_existing" || string(overlaid.ContextPacket) != `{"id":"ctx_existing"}` {
+		t.Fatalf("overlaid assignment = %+v, want runtime ref and packet", overlaid)
+	}
+
+	result, err := app.StartTaskAssignment(ctx, StartTaskAssignmentCommand{
+		ProjectID:  "proj_1",
+		WorkItemID: "work_1",
+		Assignment: assignment,
+		BuildTask: func(string) (types.Task, error) {
+			t.Fatal("BuildTask called for active runtime overlay")
+			return types.Task{}, nil
+		},
+	})
+	if !errors.Is(err, ErrAssignmentStartConflict) {
+		t.Fatalf("StartTaskAssignment() error = %v, want ErrAssignmentStartConflict", err)
+	}
+	if result == nil || result.Assignment.ExecutionRef.TaskID != "task_existing" {
+		t.Fatalf("StartTaskAssignment() result = %+v, want overlaid assignment", result)
+	}
+	if runner.calls != 0 {
+		t.Fatalf("runner calls = %d, want zero", runner.calls)
 	}
 }
 

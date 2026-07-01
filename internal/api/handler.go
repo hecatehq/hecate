@@ -26,6 +26,7 @@ import (
 	"github.com/hecatehq/hecate/internal/profiler"
 	"github.com/hecatehq/hecate/internal/projectassistant"
 	"github.com/hecatehq/hecate/internal/projectassistantapp"
+	"github.com/hecatehq/hecate/internal/projectruntime"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
@@ -55,6 +56,7 @@ type Handler struct {
 	memory                    memory.Store
 	memoryCandidates          memory.CandidateStore
 	projectWork               projectwork.Store
+	projectRuntime            projectruntime.Store
 	projectSkills             projectskills.Store
 	projectAssistantProposals projectassistant.ProposalStore
 	pluginRegistry            pluginregistry.Store
@@ -339,6 +341,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		memory:                    memoryStore,
 		memoryCandidates:          memoryStore,
 		projectWork:               projectwork.NewMemoryStore(),
+		projectRuntime:            projectruntime.NewMemoryStore(),
 		projectSkills:             projectskills.NewMemoryStore(),
 		projectAssistantProposals: projectassistant.NewMemoryProposalStore(),
 		pluginRegistry:            pluginregistry.NewMemoryStore(),
@@ -464,6 +467,16 @@ func (h *Handler) SetProjectWorkStore(store projectwork.Store) {
 		return
 	}
 	h.projectWork = store
+	h.projectAssistantMu.Lock()
+	h.projectAssistant = nil
+	h.projectAssistantMu.Unlock()
+}
+
+func (h *Handler) SetProjectRuntimeStore(store projectruntime.Store) {
+	if store == nil {
+		return
+	}
+	h.projectRuntime = store
 	h.projectAssistantMu.Lock()
 	h.projectAssistant = nil
 	h.projectAssistantMu.Unlock()

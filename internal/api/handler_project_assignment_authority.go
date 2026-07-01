@@ -9,6 +9,7 @@ import (
 	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/cairnlinebridge"
+	"github.com/hecatehq/hecate/internal/projectruntime"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/internal/projectworkapp"
@@ -276,6 +277,7 @@ func (h *Handler) shadowProjectAssignmentToHecate(ctx context.Context, operation
 		return
 	}
 	if _, err := h.projectWork.CreateAssignment(ctx, assignment); err == nil {
+		h.shadowProjectAssignmentRuntimeToHecate(ctx, operation, assignment)
 		return
 	} else if !errors.Is(err, projectwork.ErrDuplicate) {
 		h.logCairnlineMirrorError(ctx, operation, assignment.ProjectID, err)
@@ -294,7 +296,9 @@ func (h *Handler) shadowProjectAssignmentToHecate(ctx context.Context, operation
 	})
 	if err != nil {
 		h.logCairnlineMirrorError(ctx, operation, assignment.ProjectID, err)
+		return
 	}
+	h.shadowProjectAssignmentRuntimeToHecate(ctx, operation, assignment)
 }
 
 func (h *Handler) shadowProjectAssignmentDeleteToHecate(ctx context.Context, operation, projectID, workItemID, assignmentID string) {
@@ -303,6 +307,21 @@ func (h *Handler) shadowProjectAssignmentDeleteToHecate(ctx context.Context, ope
 	}
 	if err := h.projectWork.DeleteAssignment(ctx, projectID, workItemID, assignmentID); err != nil && !errors.Is(err, projectwork.ErrNotFound) {
 		h.logCairnlineMirrorError(ctx, operation, projectID, err)
+	}
+	if h.projectRuntime != nil {
+		err := h.projectRuntime.Delete(ctx, projectID, assignmentID)
+		if err != nil && !errors.Is(err, projectruntime.ErrNotFound) {
+			h.logCairnlineMirrorError(ctx, operation, projectID, err)
+		}
+	}
+}
+
+func (h *Handler) shadowProjectAssignmentRuntimeToHecate(ctx context.Context, operation string, assignment projectwork.Assignment) {
+	if h == nil || h.projectRuntime == nil {
+		return
+	}
+	if _, err := h.projectRuntime.Upsert(ctx, projectruntime.FromAssignment(assignment)); err != nil {
+		h.logCairnlineMirrorError(ctx, operation, assignment.ProjectID, err)
 	}
 }
 

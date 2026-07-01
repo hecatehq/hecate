@@ -37,6 +37,10 @@ type ProjectWorkStore interface {
 	DeleteProject(ctx context.Context, projectID string) (int, error)
 }
 
+type ProjectRuntimeStore interface {
+	DeleteProject(ctx context.Context, projectID string) (int, error)
+}
+
 type ProjectSkillStore interface {
 	DeleteProject(ctx context.Context, projectID string) (int, error)
 }
@@ -58,6 +62,7 @@ type Application struct {
 	chats                     ChatSessionStore
 	deleteChat                ChatDeleteFunc
 	projectWork               ProjectWorkStore
+	projectRuntime            ProjectRuntimeStore
 	projectSkills             ProjectSkillStore
 	projectAssistantProposals ProjectAssistantProposalStore
 	memory                    MemoryStore
@@ -69,6 +74,7 @@ type Options struct {
 	Chats                     ChatSessionStore
 	DeleteChat                ChatDeleteFunc
 	ProjectWork               ProjectWorkStore
+	ProjectRuntime            ProjectRuntimeStore
 	ProjectSkills             ProjectSkillStore
 	ProjectAssistantProposals ProjectAssistantProposalStore
 	Memory                    MemoryStore
@@ -79,6 +85,7 @@ type DeleteProjectResult struct {
 	Project                          projects.Project
 	ChatSessionsDeleted              int
 	ProjectWorkRowsDeleted           int
+	ProjectRuntimeRowsDeleted        int
 	ProjectSkillsDeleted             int
 	ProjectAssistantProposalsDeleted int
 	MemoryEntriesDeleted             int
@@ -91,6 +98,7 @@ func New(opts Options) *Application {
 		chats:                     opts.Chats,
 		deleteChat:                opts.DeleteChat,
 		projectWork:               opts.ProjectWork,
+		projectRuntime:            opts.ProjectRuntime,
 		projectSkills:             opts.ProjectSkills,
 		projectAssistantProposals: opts.ProjectAssistantProposals,
 		memory:                    opts.Memory,
@@ -336,6 +344,13 @@ func (app *Application) DeleteProject(ctx context.Context, id string) (DeletePro
 			return result, err
 		}
 		result.ProjectWorkRowsDeleted = deleted
+	}
+	if app.projectRuntime != nil {
+		deleted, err := app.projectRuntime.DeleteProject(ctx, projectID)
+		if err != nil {
+			return result, err
+		}
+		result.ProjectRuntimeRowsDeleted = deleted
 	}
 	if app.projectSkills != nil {
 		deleted, err := app.projectSkills.DeleteProject(ctx, projectID)
