@@ -228,7 +228,7 @@ var projectCairnlineWriteSwitchpoints = []ProjectCoordinationBackendWriteSwitchp
 		CurrentAuthority: "hecate",
 		CairnlineState:   "result_mirror_only",
 		LiveMirror:       true,
-		BlocksAuthority:  true,
+		BlocksAuthority:  false,
 		Seams:            []string{"project-assignment-start-result-live-mirror"},
 		Gap:              "assignment-start",
 		Detail:           "Assignment start still dispatches through Hecate runtime/task/external-agent authority; Cairnline receives only committed start results and cleanup/conflict states.",
@@ -288,7 +288,7 @@ var projectCairnlineWriteSwitchpoints = []ProjectCoordinationBackendWriteSwitchp
 		CurrentAuthority: "hecate",
 		CairnlineState:   "side_effect_mirror_only",
 		LiveMirror:       true,
-		BlocksAuthority:  true,
+		BlocksAuthority:  false,
 		Seams:            []string{"project-assistant-apply-side-effects-live-mirror"},
 		Gap:              "project-assistant-apply-side-effects",
 		Detail:           "Project Assistant confirmed apply still executes Hecate-owned project mutations, then mirrors committed side effects into Cairnline as replacement evidence.",
@@ -772,7 +772,7 @@ func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string) []Projec
 			item.CurrentAuthority = "mixed"
 			item.CairnlineState = "partial_authoritative_opt_in"
 			item.LiveMirror = true
-			item.BlocksAuthority = true
+			item.BlocksAuthority = false
 			item.Gap = "roots"
 			item.Detail = "Project root create/update/delete, root list replacement, discovery-result replacement, and worktree-created root record mutations commit to the embedded Cairnline database first, then best-effort shadow Hecate's compatibility row; Hecate still performs root discovery scans and Git worktree creation side effects."
 		}
@@ -839,7 +839,7 @@ func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string) []Projec
 			item.CurrentAuthority = "mixed"
 			item.CairnlineState = "partial_authoritative_via_portable_switchpoints"
 			item.LiveMirror = true
-			item.BlocksAuthority = true
+			item.BlocksAuthority = false
 			item.Gap = "project-assistant-apply-side-effects"
 			item.Detail = "Project Assistant confirmed apply routes covered portable actions through their enabled Cairnline authority switchpoints: project create, project metadata/default, root, role, work-item, assignment, handoff, and memory-candidate; chat/runtime effects remain Hecate-owned orchestrator capabilities outside Cairnline core."
 		}

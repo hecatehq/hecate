@@ -2793,7 +2793,7 @@ Example response, with `write_switchpoints` shortened for readability:
         "current_authority": "hecate",
         "cairnline_state": "result_mirror_only",
         "live_mirror": true,
-        "blocks_authority": true,
+        "blocks_authority": false,
         "seams": ["project-assignment-start-result-live-mirror"],
         "gap": "assignment-start",
         "detail": "Assignment start still dispatches through Hecate runtime/task/external-agent authority; Cairnline receives only committed start results and cleanup/conflict states."

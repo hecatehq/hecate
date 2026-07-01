@@ -120,8 +120,8 @@ func TestProjectCoordinationBackendStatus_CairnlineConfiguredMissingSources(t *t
 	if gate := findReplacementGate(status.ReplacementGates, "migration-and-rollback"); gate == nil || gate.Ready || gate.Status != "rehearsal_available" {
 		t.Fatalf("migration gate = %+v, want rehearsal-available blocker", gate)
 	}
-	if point := findWriteSwitchpoint(status.WriteSwitchpoints, "assignment-start-dispatch"); point == nil || point.CurrentAuthority != "hecate" || point.CairnlineState != "result_mirror_only" || !point.LiveMirror || !point.BlocksAuthority || point.Gap != "assignment-start" {
-		t.Fatalf("assignment-start switchpoint = %+v, want Hecate-owned result mirror blocker", point)
+	if point := findWriteSwitchpoint(status.WriteSwitchpoints, "assignment-start-dispatch"); point == nil || point.CurrentAuthority != "hecate" || point.CairnlineState != "result_mirror_only" || !point.LiveMirror || point.BlocksAuthority || point.Gap != "assignment-start" {
+		t.Fatalf("assignment-start switchpoint = %+v, want Hecate-owned result mirror capability outside portable write authority", point)
 	}
 	if status.NextReplacementAction == nil || status.NextReplacementAction.ID != "complete-read-model-sources" || status.NextReplacementAction.Target != "read-routes" || !containsString(status.NextReplacementAction.ProbeURLs, projectCoordinationBackendEmbeddedParityReportURL) {
 		t.Fatalf("next action = %+v, want read-model source action with embedded parity probe", status.NextReplacementAction)
@@ -446,8 +446,8 @@ func TestProjectCoordinationBackendStatus_CairnlineProjectMetadataDefaultsAuthor
 		t.Fatalf("project-identity switchpoint = %+v, want create/delete to remain Hecate-owned and blocking", identityPoint)
 	}
 	applyPoint := findWriteSwitchpoint(status.WriteSwitchpoints, "project-assistant-apply-side-effects")
-	if applyPoint == nil || applyPoint.CurrentAuthority != "mixed" || applyPoint.CairnlineState != "partial_authoritative_via_portable_switchpoints" || !applyPoint.BlocksAuthority || applyPoint.Gap != "project-assistant-apply-side-effects" {
-		t.Fatalf("project-assistant-apply-side-effects switchpoint = %+v, want mixed authority through metadata/default switchpoint", applyPoint)
+	if applyPoint == nil || applyPoint.CurrentAuthority != "mixed" || applyPoint.CairnlineState != "partial_authoritative_via_portable_switchpoints" || applyPoint.BlocksAuthority || applyPoint.Gap != "project-assistant-apply-side-effects" {
+		t.Fatalf("project-assistant-apply-side-effects switchpoint = %+v, want mixed orchestrator capability through metadata/default switchpoint", applyPoint)
 	}
 	if status.ReplacementReady {
 		t.Fatalf("replacement_ready = true, want false until remaining write and migration gates are ready")
@@ -477,8 +477,8 @@ func TestProjectCoordinationBackendStatus_CairnlineProjectIdentityAuthorityConfi
 		t.Fatalf("project-identity switchpoint = %+v, want opt-in Cairnline authority", point)
 	}
 	applyPoint := findWriteSwitchpoint(status.WriteSwitchpoints, "project-assistant-apply-side-effects")
-	if applyPoint == nil || applyPoint.CurrentAuthority != "mixed" || applyPoint.CairnlineState != "partial_authoritative_via_portable_switchpoints" || !applyPoint.BlocksAuthority || applyPoint.Gap != "project-assistant-apply-side-effects" {
-		t.Fatalf("project-assistant-apply-side-effects switchpoint = %+v, want mixed authority through project identity switchpoint", applyPoint)
+	if applyPoint == nil || applyPoint.CurrentAuthority != "mixed" || applyPoint.CairnlineState != "partial_authoritative_via_portable_switchpoints" || applyPoint.BlocksAuthority || applyPoint.Gap != "project-assistant-apply-side-effects" {
+		t.Fatalf("project-assistant-apply-side-effects switchpoint = %+v, want mixed orchestrator capability through project identity switchpoint", applyPoint)
 	}
 	if status.ReplacementReady {
 		t.Fatalf("replacement_ready = true, want false until remaining write and migration gates are ready")
@@ -532,8 +532,8 @@ func TestProjectCoordinationBackendStatus_CairnlineDirectRootSourceAuthorityConf
 		t.Fatalf("orchestrator capabilities = %+v, want root scan/worktree capability to remain", status.OrchestratorCapabilities)
 	}
 	rootPoint := findWriteSwitchpoint(status.WriteSwitchpoints, "roots-and-worktrees")
-	if rootPoint == nil || rootPoint.CurrentAuthority != "mixed" || rootPoint.CairnlineState != "partial_authoritative_opt_in" || !rootPoint.LiveMirror || !rootPoint.BlocksAuthority || rootPoint.Gap != "roots" {
-		t.Fatalf("roots-and-worktrees switchpoint = %+v, want partial opt-in authority with roots gap still blocking", rootPoint)
+	if rootPoint == nil || rootPoint.CurrentAuthority != "mixed" || rootPoint.CairnlineState != "partial_authoritative_opt_in" || !rootPoint.LiveMirror || rootPoint.BlocksAuthority || rootPoint.Gap != "roots" {
+		t.Fatalf("roots-and-worktrees switchpoint = %+v, want partial opt-in authority with root orchestration outside portable write authority", rootPoint)
 	}
 	sourcePoint := findWriteSwitchpoint(status.WriteSwitchpoints, "context-sources")
 	if sourcePoint == nil || sourcePoint.CurrentAuthority != "cairnline" || sourcePoint.CairnlineState != "authoritative_opt_in" || !sourcePoint.LiveMirror || sourcePoint.BlocksAuthority || sourcePoint.Gap != "" {
@@ -673,15 +673,15 @@ func TestProjectCoordinationBackendStatus_CairnlineProjectAssignmentsAuthorityCo
 		t.Fatalf("write gaps = %+v, want assignments removed for opt-in Cairnline authority", status.WriteAdapterGaps)
 	}
 	if !containsString(status.WriteAdapterGaps, "assignment-start") {
-		t.Fatalf("write gaps = %+v, want assignment-start to remain Hecate-owned and blocking", status.WriteAdapterGaps)
+		t.Fatalf("write gaps = %+v, want assignment-start to remain visible as a Hecate-owned orchestrator capability", status.WriteAdapterGaps)
 	}
 	point := findWriteSwitchpoint(status.WriteSwitchpoints, "assignments")
 	if point == nil || point.CurrentAuthority != "cairnline" || point.CairnlineState != "authoritative_opt_in" || !point.LiveMirror || point.BlocksAuthority || point.Gap != "" {
 		t.Fatalf("assignments switchpoint = %+v, want opt-in Cairnline authority", point)
 	}
 	startPoint := findWriteSwitchpoint(status.WriteSwitchpoints, "assignment-start-dispatch")
-	if startPoint == nil || startPoint.CurrentAuthority != "hecate" || startPoint.CairnlineState != "result_mirror_only" || !startPoint.BlocksAuthority || startPoint.Gap != "assignment-start" {
-		t.Fatalf("assignment-start switchpoint = %+v, want Hecate start authority to remain blocking", startPoint)
+	if startPoint == nil || startPoint.CurrentAuthority != "hecate" || startPoint.CairnlineState != "result_mirror_only" || startPoint.BlocksAuthority || startPoint.Gap != "assignment-start" {
+		t.Fatalf("assignment-start switchpoint = %+v, want Hecate start authority outside portable write authority", startPoint)
 	}
 	if status.ReplacementReady {
 		t.Fatalf("replacement_ready = true, want false until remaining write and migration gates are ready")
@@ -707,15 +707,15 @@ func TestProjectCoordinationBackendStatus_CairnlineProjectAssistantProposalAutho
 		t.Fatalf("write gaps = %+v, want assistant proposal ledger removed for opt-in Cairnline authority", status.WriteAdapterGaps)
 	}
 	if !containsString(status.WriteAdapterGaps, "project-assistant-apply-side-effects") {
-		t.Fatalf("write gaps = %+v, want assistant apply side effects to remain Hecate-owned and blocking", status.WriteAdapterGaps)
+		t.Fatalf("write gaps = %+v, want assistant apply side effects to remain visible as a Hecate-owned orchestrator capability", status.WriteAdapterGaps)
 	}
 	point := findWriteSwitchpoint(status.WriteSwitchpoints, "project-assistant-proposal-ledger")
 	if point == nil || point.CurrentAuthority != "cairnline" || point.CairnlineState != "authoritative_opt_in" || !point.LiveMirror || point.BlocksAuthority || point.Gap != "" {
 		t.Fatalf("project-assistant-proposal-ledger switchpoint = %+v, want opt-in Cairnline authority", point)
 	}
 	applyPoint := findWriteSwitchpoint(status.WriteSwitchpoints, "project-assistant-apply-side-effects")
-	if applyPoint == nil || applyPoint.CurrentAuthority != "hecate" || applyPoint.CairnlineState != "side_effect_mirror_only" || !applyPoint.BlocksAuthority || applyPoint.Gap != "project-assistant-apply-side-effects" {
-		t.Fatalf("project-assistant-apply-side-effects switchpoint = %+v, want Hecate-owned side-effect mirror blocker", applyPoint)
+	if applyPoint == nil || applyPoint.CurrentAuthority != "hecate" || applyPoint.CairnlineState != "side_effect_mirror_only" || applyPoint.BlocksAuthority || applyPoint.Gap != "project-assistant-apply-side-effects" {
+		t.Fatalf("project-assistant-apply-side-effects switchpoint = %+v, want Hecate-owned side-effect mirror capability outside portable write authority", applyPoint)
 	}
 	if status.ReplacementReady {
 		t.Fatalf("replacement_ready = true, want false until remaining write and migration gates are ready")
@@ -752,8 +752,8 @@ func TestProjectCoordinationBackendStatus_CairnlineProjectAssistantApplyPortable
 		t.Fatalf("write gaps = %+v, want assistant apply side effects to remain visible as a Hecate-owned capability", status.WriteAdapterGaps)
 	}
 	applyPoint := findWriteSwitchpoint(status.WriteSwitchpoints, "project-assistant-apply-side-effects")
-	if applyPoint == nil || applyPoint.CurrentAuthority != "mixed" || applyPoint.CairnlineState != "partial_authoritative_via_portable_switchpoints" || !applyPoint.BlocksAuthority || applyPoint.Gap != "project-assistant-apply-side-effects" {
-		t.Fatalf("project-assistant-apply-side-effects switchpoint = %+v, want mixed authority through enabled portable switchpoints", applyPoint)
+	if applyPoint == nil || applyPoint.CurrentAuthority != "mixed" || applyPoint.CairnlineState != "partial_authoritative_via_portable_switchpoints" || applyPoint.BlocksAuthority || applyPoint.Gap != "project-assistant-apply-side-effects" {
+		t.Fatalf("project-assistant-apply-side-effects switchpoint = %+v, want mixed orchestrator capability through enabled portable switchpoints", applyPoint)
 	}
 	for _, name := range []string{"roles", "work-items", "assignments", "artifacts", "handoffs", "memory", "memory-candidates", "project-assistant-proposals"} {
 		if containsString(status.WriteAdapterGaps, name) {

@@ -418,10 +418,10 @@ Project skill discovery/update can be switched to Cairnline-first authority with
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-skills`.
 Assignment create/update/delete
 routes mirror coordination metadata and lifecycle status after Hecate commits;
-assignment-start remains a Hecate-owned write gap because dispatch still carries
-runtime coupling that needs a narrower switch point, but successful start
-results and start-side conflict/cleanup states are best-effort mirrored after
-Hecate commits them. Linked external-agent chat reconciliation also mirrors the
+assignment-start remains a Hecate-owned orchestrator capability because dispatch
+still carries runtime coupling, but successful start results and start-side
+conflict/cleanup states are best-effort mirrored after Hecate commits them.
+Linked external-agent chat reconciliation also mirrors the
 committed assignment status/ref when Hecate updates the linked assignment from a
 chat session. Collaboration artifact creation, including generic artifacts,
 evidence links, and reviews, and handoff create/update/delete routes also mirror
@@ -576,17 +576,18 @@ after these gates are met:
   Cairnline-authoritative with the `project-assistant-proposals` switchpoint.
   Confirmed apply may use enabled project create, project metadata/default, root,
   role/work-item/assignment/handoff, and memory-candidate Cairnline-authority
-  seams, but chat/runtime side effects remain a mixed-authority replacement
-  blocker and are mirrored as
+  seams, but chat/runtime effects remain Hecate-owned orchestrator capabilities
+  outside Cairnline core and are mirrored as
   non-authoritative Cairnline replacement evidence. Assignment preflight/start
   packets may carry non-authoritative
   Cairnline launch-packet evidence, but assignment-start remains a Hecate-owned
-  write gap; committed start and linked-chat reconciliation results may be
-  mirrored only as replacement evidence. Backend-status `write_adapter_seams`
+  orchestrator capability; committed start and linked-chat reconciliation
+  results may be mirrored only as replacement evidence. Backend-status `write_adapter_seams`
   lists non-authoritative proof
-  coverage; `write_adapter_gaps` remains the machine-readable stop list for
-  mutation families that still need live switch points before authority can
-  move.
+  coverage; `write_adapter_gaps` remains a broad diagnostic list, while
+  `portable_write_gaps` is the machine-readable blocker list for mutation
+  families that still need live switch points before portable write authority
+  can move.
 - Import/export or migration covers existing Hecate local stores and can be
   rolled back during alpha; the embedded Cairnline sync database proves a
   durable all-project seed through Cairnline's native snapshot import with
