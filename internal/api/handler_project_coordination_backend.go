@@ -499,10 +499,11 @@ func projectCairnlineNextReplacementAction(status ProjectCoordinationBackendStat
 	}
 	if len(status.MigrationBlockers) > 0 {
 		return &ProjectCoordinationBackendNextAction{
-			ID:     "rehearse-migration-cutover",
-			Label:  "Rehearse migration and rollback",
-			Detail: "Run sync/parity/export rehearsal paths and document the explicit cutover and rollback procedure before replacement.",
-			Target: status.MigrationBlockers[0],
+			ID:          "rehearse-migration-cutover",
+			Label:       "Rehearse migration and rollback",
+			Detail:      "Run strict embedded sync/parity/export rehearsal paths and document the explicit cutover and rollback procedure before replacement.",
+			Target:      status.MigrationBlockers[0],
+			ConfigHints: projectCairnlineMigrationCutoverHints(),
 			ProbeURLs: []string{
 				projectCoordinationBackendSyncReadinessURL,
 				projectCoordinationBackendMirrorParityURL,
@@ -521,6 +522,14 @@ func projectCairnlineNextReplacementAction(status ProjectCoordinationBackendStat
 			projectCoordinationBackendSyncReadinessURL,
 			projectCoordinationBackendMirrorParityURL,
 		},
+	}
+}
+
+func projectCairnlineMigrationCutoverHints() []ProjectCoordinationBackendActionConfigHint {
+	return []ProjectCoordinationBackendActionConfigHint{
+		projectCairnlineConfigHint("HECATE_PROJECTS_CAIRNLINE_CONNECTOR", "embedded", "Use the embedded connector for current write-authority and migration rehearsal paths."),
+		projectCairnlineConfigHint("HECATE_PROJECTS_CAIRNLINE_READ_SOURCE", "embedded", "Force configured project reads to fail loudly when the embedded mirror is missing or stale during cutover rehearsal."),
+		projectCairnlineConfigHint("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY", "all-portable", "Keep all portable write-authority switchpoints enabled while rehearsing migration and rollback."),
 	}
 }
 
