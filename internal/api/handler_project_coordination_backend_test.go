@@ -809,6 +809,12 @@ func TestProjectCoordinationBackendStatus_CairnlineAllPortableWriteAuthorityAlia
 	if len(status.PortableWriteGaps) != 0 {
 		t.Fatalf("portable write gaps = %+v, want all portable gaps removed with all-portable authority alias", status.PortableWriteGaps)
 	}
+	if !status.WriteAdapterReady {
+		t.Fatalf("write_adapter_ready = false, want true when all portable write gaps are closed")
+	}
+	if status.ReplacementReady {
+		t.Fatalf("replacement_ready = true, want false until migration and cutover gates are ready")
+	}
 	if !reflect.DeepEqual(status.OrchestratorCapabilities, []string{"roots", "assignment-start", "project-assistant-apply-side-effects"}) {
 		t.Fatalf("orchestrator capabilities = %+v, want remaining Hecate-owned orchestrator capabilities", status.OrchestratorCapabilities)
 	}
