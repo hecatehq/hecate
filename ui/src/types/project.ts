@@ -95,6 +95,11 @@ export type ProjectCoordinationBackendNextActionRecord = {
   label: string;
   detail: string;
   target?: string;
+  config_hints?: Array<{
+    env: string;
+    value: string;
+    detail?: string;
+  }>;
   probe_urls?: string[];
 };
 
