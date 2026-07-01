@@ -3007,6 +3007,144 @@ func TestProjectWorkAPI_PreflightAssignmentUsesCairnlineSidecarLaunchPacketWhenC
 	}
 }
 
+func TestProjectWorkAPI_PreflightAssignmentStrictEmbeddedReadModelReadsWithoutHecateProject(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend: "cairnline",
+			CairnlineReadSource: "embedded",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	server := NewServer(quietLogger(), handler)
+	const projectID = "proj_embedded_launch_preflight"
+	workspace := t.TempDir()
+
+	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+		if _, err := service.CreateExecutionProfile(t.Context(), cairnline.ExecutionProfile{
+			ID:           "exec_embedded_launch_preflight",
+			Name:         "Embedded launch preflight",
+			ProviderHint: "anthropic",
+			ModelHint:    "claude-sonnet-4",
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateProject(t.Context(), cairnline.Project{
+			ID:                        projectID,
+			Name:                      "Embedded Launch Preflight",
+			Description:               "Coordinate launch preflight from embedded Cairnline.",
+			DefaultRootID:             "root_embedded_launch_preflight",
+			DefaultExecutionProfileID: "exec_embedded_launch_preflight",
+			Roots: []cairnline.Root{{
+				ID:     "root_embedded_launch_preflight",
+				Path:   workspace,
+				Kind:   "git",
+				Active: true,
+			}},
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateRole(t.Context(), cairnline.Role{
+			ID:                        "role_embedded_launch_preflight",
+			ProjectID:                 projectID,
+			Name:                      "Launch Reviewer",
+			DefaultExecutionProfileID: "exec_embedded_launch_preflight",
+			DefaultExecutionMode:      cairnline.ExecutionMCPPull,
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateWorkItem(t.Context(), cairnline.WorkItem{
+			ID:          "work_embedded_launch_preflight",
+			ProjectID:   projectID,
+			Title:       "Review embedded launch preflight",
+			Brief:       "Exercise embedded Cairnline launch readiness and preflight projection.",
+			Status:      cairnline.WorkStatusReady,
+			Priority:    cairnline.PriorityNormal,
+			OwnerRoleID: "role_embedded_launch_preflight",
+			RootID:      "root_embedded_launch_preflight",
+		}); err != nil {
+			return err
+		}
+		_, err := service.CreateAssignment(t.Context(), cairnline.Assignment{
+			ID:            "asgn_embedded_launch_preflight",
+			ProjectID:     projectID,
+			WorkItemID:    "work_embedded_launch_preflight",
+			RoleID:        "role_embedded_launch_preflight",
+			RootID:        "root_embedded_launch_preflight",
+			ExecutionMode: cairnline.ExecutionMCPPull,
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("seed embedded Cairnline launch preflight: %v", err)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("Hecate project store seeded ok=%v err=%v, want no project row", ok, err)
+	}
+
+	client := newAPITestClient(t, server)
+	readiness := mustRequestJSON[ProjectAssignmentLaunchReadinessEnvelope](client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_embedded_launch_preflight/assignments/asgn_embedded_launch_preflight/launch-readiness", "")
+	if readiness.Data.ReadBackend != "cairnline" || !readiness.Data.Ready || readiness.Data.Status != projectAssignmentLaunchReadinessStatusReady {
+		t.Fatalf("embedded launch readiness = %+v, want ready Cairnline read", readiness.Data)
+	}
+	if readiness.Data.Workspace != workspace || readiness.Data.RootID != "root_embedded_launch_preflight" || readiness.Data.Provider != "anthropic" || readiness.Data.Model != "claude-sonnet-4" {
+		t.Fatalf("embedded launch readiness target = workspace/provider/model/root %q/%q/%q/%q, want %q/anthropic/claude-sonnet-4/root", readiness.Data.Workspace, readiness.Data.Provider, readiness.Data.Model, readiness.Data.RootID, workspace)
+	}
+
+	packetResp := mustRequestJSON[ChatContextPacketResponse](client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_embedded_launch_preflight/assignments/asgn_embedded_launch_preflight/preflight", "")
+	if packetResp.Data.ExecutionMode != chat.ExecutionModeHecateTask || packetResp.Data.Provider != "anthropic" || packetResp.Data.Model != "claude-sonnet-4" || packetResp.Data.Workspace != workspace {
+		t.Fatalf("embedded preflight launch shape = mode/provider/model/workspace %q/%q/%q/%q, want hecate_task/anthropic/claude-sonnet-4/%q", packetResp.Data.ExecutionMode, packetResp.Data.Provider, packetResp.Data.Model, packetResp.Data.Workspace, workspace)
+	}
+	if packetResp.Data.Refs == nil || packetResp.Data.Refs.ProjectID != projectID || packetResp.Data.Refs.WorkItemID != "work_embedded_launch_preflight" || packetResp.Data.Refs.AssignmentID != "asgn_embedded_launch_preflight" || packetResp.Data.Refs.RoleID != "role_embedded_launch_preflight" {
+		t.Fatalf("embedded preflight refs = %+v, want embedded project/work/assignment/role refs", packetResp.Data.Refs)
+	}
+	if packetResp.Data.Refs.TaskID != "" || packetResp.Data.Refs.RunID != "" || packetResp.Data.Refs.SessionID != "" {
+		t.Fatalf("embedded preflight refs = %+v, want no task/run/session side effects", packetResp.Data.Refs)
+	}
+	item := findRenderedContextItemByKind(packetResp.Data, "cairnline_launch_packet")
+	if item == nil || item.Section != contextSectionRuntime || item.Included || item.Origin != "cairnline.assignment_launch_packet" {
+		t.Fatalf("embedded launch packet evidence = %+v, want inspect-only Cairnline runtime evidence", item)
+	}
+	for _, want := range []string{
+		"Ready: true",
+		"Project: " + projectID,
+		"Work item: work_embedded_launch_preflight",
+		"Assignment: asgn_embedded_launch_preflight",
+		"Execution mode: mcp_pull",
+		"Root: root_embedded_launch_preflight",
+	} {
+		if !strings.Contains(item.Body, want) {
+			t.Fatalf("embedded launch packet body = %q, want %q", item.Body, want)
+		}
+	}
+	for key, want := range map[string]string{
+		"read_backend":   "cairnline",
+		"ready":          "true",
+		"project_id":     projectID,
+		"work_item_id":   "work_embedded_launch_preflight",
+		"assignment_id":  "asgn_embedded_launch_preflight",
+		"role_id":        "role_embedded_launch_preflight",
+		"root_id":        "root_embedded_launch_preflight",
+		"execution_mode": "mcp_pull",
+	} {
+		if item.Metadata[key] != want {
+			t.Fatalf("embedded launch packet metadata[%q] = %q, want %q in %+v", key, item.Metadata[key], want, item.Metadata)
+		}
+	}
+	tasks, err := handler.taskStore.ListTasks(t.Context(), taskstateFilterAll())
+	if err != nil {
+		t.Fatalf("ListTasks: %v", err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("tasks = %+v, want no task created by embedded preflight", tasks)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_other/assignments/asgn_embedded_launch_preflight/preflight", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("route-mismatched embedded preflight status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+}
+
 func TestProjectWorkAPI_PreflightAssignmentCairnlineSidecarRequiresStructuredLaunchPacket(t *testing.T) {
 	t.Parallel()
 	_, server := newProjectsCairnlineSidecarReadTestServer(t, "assignments.launch_packet-text-only")

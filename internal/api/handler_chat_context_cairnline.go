@@ -32,6 +32,14 @@ func (h *Handler) contextPacketForCairnlineProjectAssignment(ctx context.Context
 }
 
 func (h *Handler) cairnlineAssignmentLaunchPacket(ctx context.Context, assignment projectwork.Assignment) (cairnline.AssignmentLaunchPacket, error) {
+	if h.requiresEmbeddedCairnlineProjectReads() {
+		_, service, store, err := h.openCairnlineEmbeddedService(ctx)
+		if err != nil {
+			return cairnline.AssignmentLaunchPacket{}, err
+		}
+		defer store.Close()
+		return service.AssignmentLaunchPacket(ctx, assignment.ProjectID, assignment.ID)
+	}
 	view, err := h.cairnlineProjectWorkView(ctx, assignment.ProjectID)
 	if err != nil {
 		return cairnline.AssignmentLaunchPacket{}, err
