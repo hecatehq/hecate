@@ -82,7 +82,8 @@ type ProjectOperationsBriefTargetResponse struct {
 
 func (h *Handler) HandleProjectOperationsBrief(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
-	if !h.projectCairnlineSidecarReadRoutesEnabled() && !h.requireProject(w, r, projectID) {
+	strictEmbeddedRead := h.projectReadRoutesUseCairnlineReadModel() && h.requiresEmbeddedCairnlineProjectReads()
+	if !h.projectCairnlineSidecarReadRoutesEnabled() && !strictEmbeddedRead && !h.requireProject(w, r, projectID) {
 		return
 	}
 	brief, err := h.renderProjectOperationsBrief(r.Context(), projectID)
@@ -100,6 +101,9 @@ func (h *Handler) HandleProjectOperationsBrief(w http.ResponseWriter, r *http.Re
 func (h *Handler) renderProjectOperationsBrief(ctx context.Context, projectID string) (ProjectOperationsBriefResponse, error) {
 	if h.projectCairnlineSidecarReadRoutesEnabled() {
 		return h.renderCairnlineSidecarProjectOperationsBrief(ctx, projectID)
+	}
+	if h.projectReadRoutesUseCairnlineReadModel() && h.requiresEmbeddedCairnlineProjectReads() {
+		return h.renderStrictEmbeddedCairnlineProjectOperationsBrief(ctx, projectID)
 	}
 	project, ok, err := h.projects.Get(ctx, projectID)
 	if err != nil {
