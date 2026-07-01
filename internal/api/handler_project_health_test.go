@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projects"
@@ -258,6 +259,202 @@ func TestProjectHealth_CairnlineConfiguredUsesReadModel(t *testing.T) {
 	candidate := findProjectHealthAttentionForTest(t, response.Data.Attention, "Memory candidate pending review")
 	if candidate.CandidateID != "memcand_health" || candidate.Action.CandidateID != "memcand_health" {
 		t.Fatalf("candidate attention = %+v, want Cairnline-backed memory candidate target", candidate)
+	}
+}
+
+func TestProjectHealth_StrictEmbeddedReadModelReadsWithoutHecateProject(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend: "cairnline",
+			CairnlineReadSource: "embedded",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	server := NewServer(quietLogger(), handler)
+	const projectID = "proj_embedded_health"
+
+	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+		if _, err := service.CreateExecutionProfile(t.Context(), cairnline.ExecutionProfile{
+			ID:           "exec_embedded_health",
+			Name:         "Embedded health runtime",
+			ProviderHint: "openai",
+			ModelHint:    "gpt-5",
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateAgentProfile(t.Context(), cairnline.AgentProfile{
+			ID:       "profile_embedded_health",
+			Name:     "Embedded Health Profile",
+			SkillIDs: []string{"health"},
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateProject(t.Context(), cairnline.Project{
+			ID:                        projectID,
+			Name:                      "Embedded Health",
+			Description:               "Coordinate health from embedded Cairnline.",
+			DefaultRootID:             "root_embedded_health",
+			DefaultProfileID:          "profile_embedded_health",
+			DefaultExecutionProfileID: "exec_embedded_health",
+			Roots: []cairnline.Root{{
+				ID:     "root_embedded_health",
+				Path:   "/workspace/embedded-health",
+				Kind:   "git",
+				Active: true,
+			}},
+			ContextSources: []cairnline.Source{{
+				ID:         "ctx_embedded_health",
+				Kind:       "workspace_instruction",
+				Title:      "AGENTS.md",
+				Locator:    "AGENTS.md",
+				Enabled:    true,
+				Format:     "agents_md",
+				TrustLabel: "workspace_guidance",
+			}},
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateRole(t.Context(), cairnline.Role{
+			ID:               "role_embedded_health",
+			ProjectID:        projectID,
+			Name:             "Health Reviewer",
+			DefaultProfileID: "profile_embedded_health",
+			DefaultSkillIDs:  []string{"health"},
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateProjectSkill(t.Context(), cairnline.ProjectSkill{
+			ID:          "health",
+			ProjectID:   projectID,
+			Title:       "Health",
+			Description: "Review project health.",
+			Path:        ".agents/skills/health/SKILL.md",
+			RootID:      "root_embedded_health",
+			Format:      cairnline.SkillFormatMarkdown,
+			Enabled:     true,
+			Status:      cairnline.SkillStatusAvailable,
+			TrustLabel:  cairnline.SkillTrustWorkspace,
+			SourceRefs:  []string{"ctx_embedded_health"},
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateWorkItem(t.Context(), cairnline.WorkItem{
+			ID:              "work_embedded_health",
+			ProjectID:       projectID,
+			Title:           "Review embedded health",
+			Brief:           "Exercise embedded Cairnline health projection.",
+			Status:          cairnline.WorkStatusReady,
+			Priority:        cairnline.PriorityNormal,
+			OwnerRoleID:     "role_embedded_health",
+			ReviewerRoleIDs: []string{"role_embedded_health"},
+			RootID:          "root_embedded_health",
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateAssignment(t.Context(), cairnline.Assignment{
+			ID:            "asgn_embedded_health",
+			ProjectID:     projectID,
+			WorkItemID:    "work_embedded_health",
+			RoleID:        "role_embedded_health",
+			RootID:        "root_embedded_health",
+			ProfileID:     "profile_embedded_health",
+			ExecutionMode: cairnline.ExecutionMCPPull,
+		}); err != nil {
+			return err
+		}
+		if _, err := service.ClaimAssignment(t.Context(), projectID, "asgn_embedded_health", "agent-health"); err != nil {
+			return err
+		}
+		if _, err := service.UpdateAssignmentStatus(t.Context(), projectID, "asgn_embedded_health", cairnline.AssignmentRunning, "run_embedded_health"); err != nil {
+			return err
+		}
+		if _, err := service.CreateReview(t.Context(), cairnline.Review{
+			ID:             "review_embedded_health",
+			ProjectID:      projectID,
+			WorkItemID:     "work_embedded_health",
+			AssignmentID:   "asgn_embedded_health",
+			ReviewerRoleID: "role_embedded_health",
+			Title:          "Embedded health review",
+			Body:           "Needs follow-up before closeout.",
+			Verdict:        cairnline.ReviewVerdictChangesRequested,
+			Risk:           cairnline.ReviewRiskMedium,
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateHandoff(t.Context(), cairnline.Handoff{
+			ID:                    "handoff_embedded_health",
+			ProjectID:             projectID,
+			WorkItemID:            "work_embedded_health",
+			SourceAssignmentID:    "asgn_embedded_health",
+			FromRoleID:            "role_embedded_health",
+			ToRoleID:              "role_embedded_health",
+			Title:                 "Health follow-up",
+			Body:                  "Create a follow-up assignment.",
+			RecommendedNextAction: "Queue a follow-up review.",
+			Status:                cairnline.HandoffStatusOpen,
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateMemoryEntry(t.Context(), cairnline.MemoryEntry{
+			ID:         "mem_embedded_health",
+			ProjectID:  projectID,
+			Title:      "Health note",
+			Body:       "Use embedded health projection.",
+			Enabled:    true,
+			TrustLabel: memory.TrustLabelOperatorMemory,
+			SourceKind: memory.SourceKindOperator,
+		}); err != nil {
+			return err
+		}
+		_, err := service.CreateMemoryCandidate(t.Context(), cairnline.MemoryCandidate{
+			ID:                  "memcand_embedded_health",
+			ProjectID:           projectID,
+			Title:               "Health candidate",
+			Body:                "Review this health candidate.",
+			Status:              cairnline.MemoryCandidatePending,
+			SuggestedKind:       "note",
+			SuggestedTrustLabel: memory.TrustLabelGenerated,
+			SuggestedSourceKind: memory.SourceKindGenerated,
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("seed embedded Cairnline health: %v", err)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("Hecate project store seeded ok=%v err=%v, want no project row", ok, err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+projectID+"/health", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("health status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response ProjectHealthEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode health: %v", err)
+	}
+	if response.Object != "project_health" || response.Data.ProjectID != projectID || response.Data.ReadBackend != "cairnline" {
+		t.Fatalf("health envelope = %+v, want embedded Cairnline health", response)
+	}
+	summary := response.Data.Summary
+	if summary.MissingDefaults || summary.MissingProjectRoot || summary.EnabledContextSourceCount != 1 || summary.EnabledMemoryCount != 1 || summary.PendingMemoryCandidateCount != 1 || summary.PendingHandoffCount != 1 || summary.ReviewFollowUpCount != 1 || summary.ChangesRequestedReviewCount != 1 {
+		t.Fatalf("health summary = %+v, want embedded defaults/root/context/memory/review/handoff counts", summary)
+	}
+	assertProjectHealthItemsHaveActions(t, response.Data.Attention, projectID)
+	handoff := findProjectHealthAttentionForTest(t, response.Data.Attention, "Pending handoff: Review embedded health")
+	assertProjectHealthActionForTest(t, handoff, projectActionOpenWorkItem, projectID)
+	review := findProjectHealthAttentionForTest(t, response.Data.Attention, "Review follow-up: Review embedded health")
+	assertProjectHealthActionForTest(t, review, projectActionOpenWorkItem, projectID)
+	candidate := findProjectHealthAttentionForTest(t, response.Data.Attention, "Memory candidate pending review")
+	if candidate.CandidateID != "memcand_embedded_health" || candidate.Action.CandidateID != "memcand_embedded_health" {
+		t.Fatalf("candidate attention = %+v, want embedded Cairnline memory candidate target", candidate)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_missing/health", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing project health status = %d body=%s, want 404", rec.Code, rec.Body.String())
 	}
 }
 
