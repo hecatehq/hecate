@@ -27,6 +27,10 @@ func (app *Application) WorkItemReadiness(ctx context.Context, projectID, workIt
 	if err != nil {
 		return WorkItemReadiness{}, err
 	}
+	assignments, err = app.ApplyAssignmentsRuntime(ctx, assignments)
+	if err != nil {
+		return WorkItemReadiness{}, err
+	}
 	artifacts, err := app.store.ListArtifacts(ctx, projectwork.ArtifactFilter{ProjectID: projectID, WorkItemID: workItemID})
 	if err != nil {
 		return WorkItemReadiness{}, err

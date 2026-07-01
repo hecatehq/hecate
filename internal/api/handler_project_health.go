@@ -124,6 +124,10 @@ func (h *Handler) renderNativeProjectHealth(ctx context.Context, projectID strin
 	if err != nil {
 		return ProjectHealthResponse{}, err
 	}
+	assignments, err = h.projectWorkApplication().ApplyAssignmentsRuntime(ctx, assignments)
+	if err != nil {
+		return ProjectHealthResponse{}, err
+	}
 	handoffs, err := h.projectWork.ListHandoffs(ctx, projectwork.HandoffFilter{ProjectID: projectID})
 	if err != nil {
 		return ProjectHealthResponse{}, err

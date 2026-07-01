@@ -15,6 +15,7 @@ import (
 	"github.com/hecatehq/hecate/internal/controlplane"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/pluginregistry"
+	"github.com/hecatehq/hecate/internal/projectruntime"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/internal/storage"
@@ -82,6 +83,12 @@ func TestSystemResetDataMemoryBackendDeletesStateAndClosesAgentSessions(t *testi
 	}); err != nil {
 		t.Fatalf("create project assignment: %v", err)
 	}
+	if _, err := handler.projectRuntime.Upsert(ctx, projectruntime.AssignmentRuntime{
+		ProjectID:    project.Data.ID,
+		AssignmentID: "asgn_reset",
+	}); err != nil {
+		t.Fatalf("create project runtime: %v", err)
+	}
 	if _, err := handler.memory.Create(ctx, memory.Entry{
 		ID:         "mem_reset",
 		ProjectID:  project.Data.ID,
@@ -139,8 +146,8 @@ func TestSystemResetDataMemoryBackendDeletesStateAndClosesAgentSessions(t *testi
 	if err := json.Unmarshal(rec.Body.Bytes(), &reset); err != nil {
 		t.Fatalf("decode reset response: %v", err)
 	}
-	if reset.Data.ProjectsDeleted != 1 || reset.Data.ProjectWorkRowsDeleted != 2 || reset.Data.PluginsDeleted != 1 || reset.Data.AgentProfilesDeleted != 1 || reset.Data.ChatSessionsDeleted != 2 || reset.Data.TasksDeleted != 1 || reset.Data.ProvidersDeleted != 1 || reset.Data.PolicyRulesDeleted != 1 {
-		t.Fatalf("reset stats = %+v, want one project, one plugin, one profile, two project-work rows, one task, provider, rule and two chats", reset.Data)
+	if reset.Data.ProjectsDeleted != 1 || reset.Data.ProjectWorkRowsDeleted != 2 || reset.Data.ProjectRuntimeRowsDeleted != 1 || reset.Data.PluginsDeleted != 1 || reset.Data.AgentProfilesDeleted != 1 || reset.Data.ChatSessionsDeleted != 2 || reset.Data.TasksDeleted != 1 || reset.Data.ProvidersDeleted != 1 || reset.Data.PolicyRulesDeleted != 1 {
+		t.Fatalf("reset stats = %+v, want one project, one runtime row, one plugin, one profile, two project-work rows, one task, provider, rule and two chats", reset.Data)
 	}
 	if len(runner.deletedSessions) != 2 {
 		t.Fatalf("deleted sessions = %#v, want two external chats deleted", runner.deletedSessions)

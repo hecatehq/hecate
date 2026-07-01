@@ -41,6 +41,11 @@ func (h *Handler) renderProjectedProjectWorkItemWithAssignments(ctx context.Cont
 }
 
 func (h *Handler) renderProjectedProjectWorkAssignment(ctx context.Context, item projectwork.Assignment) (ProjectWorkAssignmentResponse, error) {
+	var err error
+	item, err = h.projectWorkApplication().ApplyAssignmentRuntime(ctx, item)
+	if err != nil {
+		return ProjectWorkAssignmentResponse{}, err
+	}
 	response := renderProjectWorkAssignment(item)
 	projection, err := projectworkapp.ProjectAssignmentExecution(ctx, h.taskStore, item)
 	if err != nil {

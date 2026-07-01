@@ -9,6 +9,7 @@ import (
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projectassistant"
+	"github.com/hecatehq/hecate/internal/projectruntime"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
@@ -21,6 +22,7 @@ func TestApplication_DeleteProjectCleansProjectScopedStores(t *testing.T) {
 	projectStore := projects.NewMemoryStore()
 	chatStore := chat.NewMemoryStore()
 	workStore := projectwork.NewMemoryStore()
+	runtimeStore := projectruntime.NewMemoryStore()
 	skillStore := projectskills.NewMemoryStore()
 	proposalStore := projectassistant.NewMemoryProposalStore()
 	memoryStore := memory.NewMemoryStore()
@@ -48,8 +50,14 @@ func TestApplication_DeleteProjectCleansProjectScopedStores(t *testing.T) {
 	if _, err := workStore.CreateAssignment(ctx, projectwork.Assignment{ID: "asgn_delete", ProjectID: projectID, WorkItemID: "work_delete", RoleID: "software_developer"}); err != nil {
 		t.Fatalf("CreateAssignment(project): %v", err)
 	}
+	if _, err := runtimeStore.Upsert(ctx, projectruntime.AssignmentRuntime{ProjectID: projectID, AssignmentID: "asgn_delete"}); err != nil {
+		t.Fatalf("UpsertRuntime(project): %v", err)
+	}
 	if _, err := workStore.CreateWorkItem(ctx, projectwork.WorkItem{ID: "work_keep", ProjectID: otherProjectID, Title: "Keep"}); err != nil {
 		t.Fatalf("CreateWorkItem(other): %v", err)
+	}
+	if _, err := runtimeStore.Upsert(ctx, projectruntime.AssignmentRuntime{ProjectID: otherProjectID, AssignmentID: "asgn_keep"}); err != nil {
+		t.Fatalf("UpsertRuntime(other): %v", err)
 	}
 	if _, err := skillStore.UpsertDiscovered(ctx, projectID, []projectskills.Skill{{ID: "skill_delete", Title: "Delete", Path: "SKILL.md"}}); err != nil {
 		t.Fatalf("UpsertDiscovered(project): %v", err)
@@ -108,6 +116,7 @@ func TestApplication_DeleteProjectCleansProjectScopedStores(t *testing.T) {
 		Chats:                     chatStore,
 		DeleteChat:                deleteChatFromStore(chatStore, &deletedChats, false),
 		ProjectWork:               workStore,
+		ProjectRuntime:            runtimeStore,
 		ProjectSkills:             skillStore,
 		ProjectAssistantProposals: proposalStore,
 		Memory:                    memoryStore,
@@ -117,7 +126,7 @@ func TestApplication_DeleteProjectCleansProjectScopedStores(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DeleteProject() error = %v", err)
 	}
-	if result.Project.ID != projectID || result.ChatSessionsDeleted != 1 || result.ProjectWorkRowsDeleted != 2 ||
+	if result.Project.ID != projectID || result.ChatSessionsDeleted != 1 || result.ProjectWorkRowsDeleted != 2 || result.ProjectRuntimeRowsDeleted != 1 ||
 		result.ProjectSkillsDeleted != 1 || result.ProjectAssistantProposalsDeleted != 1 || result.MemoryEntriesDeleted != 1 || result.MemoryCandidatesDeleted != 1 {
 		t.Fatalf("DeleteProject() result = %+v, want project and scoped delete counts", result)
 	}
@@ -134,6 +143,12 @@ func TestApplication_DeleteProjectCleansProjectScopedStores(t *testing.T) {
 		items, err := workStore.ListWorkItems(ctx, projectID)
 		return len(items), err
 	}, 0)
+	if _, ok, err := runtimeStore.Get(ctx, projectID, "asgn_delete"); err != nil || ok {
+		t.Fatalf("Get(deleted runtime) ok=%v err=%v, want missing", ok, err)
+	}
+	if _, ok, err := runtimeStore.Get(ctx, otherProjectID, "asgn_keep"); err != nil || !ok {
+		t.Fatalf("Get(other runtime) ok=%v err=%v, want present", ok, err)
+	}
 	assertProjectAppListCount(t, "other project work", func() (int, error) {
 		items, err := workStore.ListWorkItems(ctx, otherProjectID)
 		return len(items), err

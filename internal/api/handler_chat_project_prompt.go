@@ -401,6 +401,11 @@ func (h *Handler) projectChatWorkSnapshot(ctx context.Context, projectID string)
 	if err != nil {
 		assignments = nil
 	}
+	if len(assignments) > 0 {
+		if overlaid, overlayErr := h.projectWorkApplication().ApplyAssignmentsRuntime(ctx, assignments); overlayErr == nil {
+			assignments = overlaid
+		}
+	}
 	assignmentsTruncated := len(assignments) > projectChatPromptAssignmentMaxItems
 	if assignmentsTruncated {
 		assignments = assignments[:projectChatPromptAssignmentMaxItems]

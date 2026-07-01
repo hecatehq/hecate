@@ -555,8 +555,11 @@ commit to Cairnline first and shadow back into Hecate. Committed
 assignment-start results, linked-chat reconciliation, collaboration artifact
 creation, and handoff create/update/delete mutations also best-effort mirror
 portable metadata after Hecate commits, but assignment start/dispatch remains
-Hecate-owned. Pre-dispatch cleanup and conflict states are mirrored back into
-Cairnline so replacement probes do not leave stale claimed assignment rows.
+Hecate-owned. Task/chat execution refs, context packets, and launch timestamps
+are stored in Hecate's project assignment runtime overlay before compatibility
+shadows or replacement-evidence mirrors are written. Pre-dispatch cleanup and
+conflict states are mirrored back into Cairnline so replacement probes do not
+leave stale claimed assignment rows.
 Project
 memory entries mirror after Hecate commits unless the
 `project-memory` Cairnline write-authority switchpoint is enabled; memory

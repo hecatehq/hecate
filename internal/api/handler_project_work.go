@@ -851,6 +851,10 @@ func (h *Handler) loadProjectWorkAssignment(ctx context.Context, projectID, work
 	}
 	for _, item := range items {
 		if item.ID == strings.TrimSpace(assignmentID) {
+			item, err = h.projectWorkApplication().ApplyAssignmentRuntime(ctx, item)
+			if err != nil {
+				return projectwork.Assignment{}, false, err
+			}
 			return item, true, nil
 		}
 	}
