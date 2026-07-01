@@ -3091,6 +3091,100 @@ func TestProjectWorkAPI_AssignmentContextUsesCairnlineSidecarWhenConfigured(t *t
 	}
 }
 
+func TestProjectWorkAPI_AssignmentContextStrictEmbeddedReadModelReadsWithoutHecateProject(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend: "cairnline",
+			CairnlineReadSource: "embedded",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	server := NewServer(quietLogger(), handler)
+	const projectID = "proj_embedded_assignment_context"
+
+	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+		if _, err := service.CreateProject(t.Context(), cairnline.Project{
+			ID:            projectID,
+			Name:          "Embedded Assignment Context",
+			Description:   "Coordinate assignment context from embedded Cairnline.",
+			DefaultRootID: "root_embedded_assignment_context",
+			Roots: []cairnline.Root{{
+				ID:     "root_embedded_assignment_context",
+				Path:   "/workspace/embedded-assignment-context",
+				Kind:   "git",
+				Active: true,
+			}},
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateRole(t.Context(), cairnline.Role{
+			ID:        "role_embedded_assignment_context",
+			ProjectID: projectID,
+			Name:      "Context Reviewer",
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateWorkItem(t.Context(), cairnline.WorkItem{
+			ID:          "work_embedded_assignment_context",
+			ProjectID:   projectID,
+			Title:       "Review embedded assignment context",
+			Brief:       "Exercise embedded Cairnline assignment context projection.",
+			Status:      cairnline.WorkStatusReady,
+			Priority:    cairnline.PriorityNormal,
+			OwnerRoleID: "role_embedded_assignment_context",
+			RootID:      "root_embedded_assignment_context",
+		}); err != nil {
+			return err
+		}
+		_, err := service.CreateAssignment(t.Context(), cairnline.Assignment{
+			ID:            "asgn_embedded_assignment_context",
+			ProjectID:     projectID,
+			WorkItemID:    "work_embedded_assignment_context",
+			RoleID:        "role_embedded_assignment_context",
+			RootID:        "root_embedded_assignment_context",
+			ExecutionMode: cairnline.ExecutionMCPPull,
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("seed embedded Cairnline assignment context: %v", err)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("Hecate project store seeded ok=%v err=%v, want no project row", ok, err)
+	}
+
+	packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_embedded_assignment_context/assignments/asgn_embedded_assignment_context/context", "")
+	if packetResp.Data.ExecutionMode != cairnline.ExecutionMCPPull {
+		t.Fatalf("assignment context execution mode = %q, want mcp_pull", packetResp.Data.ExecutionMode)
+	}
+	if packetResp.Data.Refs == nil || packetResp.Data.Refs.ProjectID != projectID || packetResp.Data.Refs.WorkItemID != "work_embedded_assignment_context" || packetResp.Data.Refs.AssignmentID != "asgn_embedded_assignment_context" || packetResp.Data.Refs.RoleID != "role_embedded_assignment_context" {
+		t.Fatalf("assignment context refs = %+v, want embedded project/work/assignment/role refs", packetResp.Data.Refs)
+	}
+	if packetResp.Data.Refs.TaskID != "" || packetResp.Data.Refs.RunID != "" || packetResp.Data.Refs.SessionID != "" {
+		t.Fatalf("assignment context refs = %+v, want no task/run/session side effects", packetResp.Data.Refs)
+	}
+	item := findRenderedContextItemByOrigin(packetResp.Data, "cairnline.assignments.context")
+	if item == nil || item.Section != contextSectionRuntime || item.Included || item.Metadata["read_backend"] != "cairnline" || item.Metadata["source_tool"] != "assignments.context" {
+		t.Fatalf("embedded assignment context runtime item = %+v, want inspect-only assignments.context metadata", item)
+	}
+	workItem := findRenderedContextItemByOrigin(packetResp.Data, "work_embedded_assignment_context")
+	if workItem == nil || workItem.Section != contextSectionProjectWork || !workItem.Included {
+		t.Fatalf("embedded assignment work item = %+v, want included project-work metadata", workItem)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_other/assignments/asgn_embedded_assignment_context/context", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("route-mismatched assignment context status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_missing/work-items/work_embedded_assignment_context/assignments/asgn_embedded_assignment_context/context", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing project assignment context status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+}
+
 func TestProjectWorkAPI_AssignmentContextCairnlineSidecarRequiresStructuredContent(t *testing.T) {
 	t.Parallel()
 	_, server := newProjectsCairnlineSidecarReadTestServer(t, "assignments.context-text-only")

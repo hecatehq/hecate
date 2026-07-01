@@ -40,6 +40,28 @@ func (h *Handler) cairnlineAssignmentLaunchPacket(ctx context.Context, assignmen
 	return view.service.AssignmentLaunchPacket(ctx, view.snapshot.Project.ID, assignment.ID)
 }
 
+func (h *Handler) contextPacketForStrictEmbeddedCairnlineProjectAssignment(ctx context.Context, projectID, workItemID, assignmentID string) (chat.ContextPacket, bool, error) {
+	projectID = strings.TrimSpace(projectID)
+	workItemID = strings.TrimSpace(workItemID)
+	assignmentID = strings.TrimSpace(assignmentID)
+	_, service, store, err := h.openCairnlineEmbeddedService(ctx)
+	if err != nil {
+		return chat.ContextPacket{}, false, err
+	}
+	defer store.Close()
+	context, err := service.AssignmentContext(ctx, projectID, assignmentID)
+	if errors.Is(err, cairnline.ErrNotFound) {
+		return chat.ContextPacket{}, false, nil
+	}
+	if err != nil {
+		return chat.ContextPacket{}, false, err
+	}
+	if cairnlineSidecarAssignmentContextRouteMismatch(context, projectID, workItemID, assignmentID) {
+		return chat.ContextPacket{}, false, nil
+	}
+	return cairnlineAssignmentContextPacket(context), true, nil
+}
+
 func (h *Handler) contextPacketForCairnlineSidecarProjectAssignment(ctx context.Context, projectID, workItemID, assignmentID string) (chat.ContextPacket, bool, error) {
 	projectID = strings.TrimSpace(projectID)
 	workItemID = strings.TrimSpace(workItemID)
