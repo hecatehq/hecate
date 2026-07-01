@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projects"
@@ -261,6 +262,139 @@ func TestProjectOperationsBrief_CairnlineConfiguredUsesReadModel(t *testing.T) {
 	memoryItem := findProjectOperationsItemForTest(t, response.Data.Items, "review_memory_candidates")
 	if memoryItem.Target.Surface != "memory" || memoryItem.Action.Type != projectOperationsActionOpenMemoryReview {
 		t.Fatalf("memory item = %+v, want memory review action", memoryItem)
+	}
+}
+
+func TestProjectOperationsBrief_StrictEmbeddedReadModelReadsWithoutHecateProject(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend: "cairnline",
+			CairnlineReadSource: "embedded",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	server := NewServer(quietLogger(), handler)
+	const projectID = "proj_embedded_operations"
+
+	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+		if _, err := service.CreateExecutionProfile(t.Context(), cairnline.ExecutionProfile{
+			ID:           "exec_embedded_operations",
+			Name:         "Embedded operations runtime",
+			ProviderHint: "openai",
+			ModelHint:    "gpt-5",
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateProject(t.Context(), cairnline.Project{
+			ID:                        projectID,
+			Name:                      "Embedded Operations",
+			Description:               "Coordinate operations from embedded Cairnline.",
+			DefaultRootID:             "root_embedded_operations",
+			DefaultExecutionProfileID: "exec_embedded_operations",
+			Roots: []cairnline.Root{{
+				ID:     "root_embedded_operations",
+				Path:   "/workspace/embedded-operations",
+				Kind:   "git",
+				Active: true,
+			}},
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateRole(t.Context(), cairnline.Role{
+			ID:        "role_embedded_operations",
+			ProjectID: projectID,
+			Name:      "Operations Reviewer",
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateWorkItem(t.Context(), cairnline.WorkItem{
+			ID:          "work_embedded_operations",
+			ProjectID:   projectID,
+			Title:       "Review embedded operations",
+			Brief:       "Exercise embedded Cairnline operations projection.",
+			Status:      cairnline.WorkStatusReady,
+			Priority:    cairnline.PriorityNormal,
+			OwnerRoleID: "role_embedded_operations",
+			RootID:      "root_embedded_operations",
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateAssignment(t.Context(), cairnline.Assignment{
+			ID:            "asgn_embedded_operations",
+			ProjectID:     projectID,
+			WorkItemID:    "work_embedded_operations",
+			RoleID:        "role_embedded_operations",
+			RootID:        "root_embedded_operations",
+			ExecutionMode: cairnline.ExecutionMCPPull,
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateHandoff(t.Context(), cairnline.Handoff{
+			ID:                    "handoff_embedded_operations",
+			ProjectID:             projectID,
+			WorkItemID:            "work_embedded_operations",
+			SourceAssignmentID:    "asgn_embedded_operations",
+			FromRoleID:            "role_embedded_operations",
+			ToRoleID:              "role_embedded_operations",
+			Title:                 "Operations follow-up",
+			Body:                  "Keep this handoff visible in operations.",
+			RecommendedNextAction: "Review the queued assignment.",
+			Status:                cairnline.HandoffStatusOpen,
+		}); err != nil {
+			return err
+		}
+		_, err := service.CreateMemoryCandidate(t.Context(), cairnline.MemoryCandidate{
+			ID:                  "memcand_embedded_operations",
+			ProjectID:           projectID,
+			Title:               "Operations candidate",
+			Body:                "Review this operations candidate.",
+			Status:              cairnline.MemoryCandidatePending,
+			SuggestedKind:       "note",
+			SuggestedTrustLabel: memory.TrustLabelGenerated,
+			SuggestedSourceKind: memory.SourceKindGenerated,
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("seed embedded Cairnline operations: %v", err)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("Hecate project store seeded ok=%v err=%v, want no project row", ok, err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+projectID+"/operations/brief", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("operations brief status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response ProjectOperationsBriefEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode operations brief: %v", err)
+	}
+	if response.Object != "project_operations_brief" || response.Data.ProjectID != projectID || response.Data.ReadBackend != "cairnline" {
+		t.Fatalf("operations response = %+v, want embedded Cairnline operations", response)
+	}
+	if response.Data.Summary.PendingMemoryCandidateCount != 1 || response.Data.Summary.PendingHandoffCount != 1 || response.Data.Summary.HighCount != 1 || response.Data.Summary.MediumCount == 0 {
+		t.Fatalf("operations summary = %+v, want queued assignment, memory, and handoff counts", response.Data.Summary)
+	}
+	start := findProjectOperationsItemForTest(t, response.Data.Items, "start_queued_assignment")
+	if start.Target.WorkItemID != "work_embedded_operations" || start.Target.AssignmentID != "asgn_embedded_operations" || start.Action.Type != projectOperationsActionOpenAssignmentPreflight || start.Status != "not_started" {
+		t.Fatalf("start item = %+v, want embedded queued assignment preflight action", start)
+	}
+	handoff := findProjectOperationsItemForTest(t, response.Data.Items, "review_pending_handoff")
+	if handoff.Handoff == nil || handoff.Handoff.ID != "handoff_embedded_operations" || handoff.Action.Type != projectOperationsActionOpenWorkItem {
+		t.Fatalf("handoff item = %+v, want embedded handoff action", handoff)
+	}
+	memoryItem := findProjectOperationsItemForTest(t, response.Data.Items, "review_memory_candidates")
+	if memoryItem.Target.Surface != "memory" || memoryItem.Action.Type != projectOperationsActionOpenMemoryReview {
+		t.Fatalf("memory item = %+v, want embedded memory review action", memoryItem)
+	}
+	requireProjectOperationsItemAbsentForTest(t, response.Data.Items, "configure_project_defaults")
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_missing/operations/brief", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing project operations status = %d body=%s, want 404", rec.Code, rec.Body.String())
 	}
 }
 
