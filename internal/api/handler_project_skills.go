@@ -28,16 +28,16 @@ func formatProjectSkillTime(value time.Time) string {
 
 func (h *Handler) HandleProjectSkills(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
-	if h.projectSkills == nil && !h.projectCairnlineSidecarReadRoutesEnabled() {
+	if h.projectSkills == nil && !h.projectCairnlineSidecarReadRoutesEnabled() && !h.requiresEmbeddedCairnlineProjectReads() {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project skills store is not configured")
 		return
 	}
-	if !h.projectCairnlineSidecarReadRoutesEnabled() && !h.requireProjectExists(w, r, projectID) {
+	if !h.projectCairnlineSidecarReadRoutesEnabled() && !h.requiresEmbeddedCairnlineProjectReads() && !h.requireProjectExists(w, r, projectID) {
 		return
 	}
 	items, err := h.renderProjectSkills(r.Context(), projectID)
 	if err != nil {
-		if errors.Is(err, projects.ErrNotFound) {
+		if errors.Is(err, projects.ErrNotFound) || errors.Is(err, cairnline.ErrNotFound) {
 			WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
 			return
 		}
@@ -148,6 +148,9 @@ func (h *Handler) renderProjectSkills(ctx context.Context, projectID string) ([]
 	if h.projectCairnlineSidecarReadRoutesEnabled() {
 		return h.renderCairnlineSidecarProjectSkills(ctx, projectID)
 	}
+	if h.requiresEmbeddedCairnlineProjectReads() {
+		return h.renderStrictEmbeddedCairnlineProjectSkills(ctx, projectID)
+	}
 	if h.projectReadRoutesUseCairnlineReadModel() {
 		return h.renderCairnlineProjectSkills(ctx, projectID)
 	}
@@ -156,6 +159,27 @@ func (h *Handler) renderProjectSkills(ctx context.Context, projectID string) ([]
 		return nil, err
 	}
 	return renderProjectSkills(items, "hecate"), nil
+}
+
+func (h *Handler) renderStrictEmbeddedCairnlineProjectSkills(ctx context.Context, projectID string) ([]ProjectSkillResponseItem, error) {
+	_, service, store, err := h.openCairnlineEmbeddedService(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer store.Close()
+	project, err := service.GetProject(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	items, err := service.ListProjectSkills(ctx, project.ID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ProjectSkillResponseItem, 0, len(items))
+	for _, item := range items {
+		out = append(out, renderProjectSkill(projectSkillFromCairnline(item, projectskills.Skill{}), "cairnline"))
+	}
+	return out, nil
 }
 
 func (h *Handler) renderCairnlineProjectSkills(ctx context.Context, projectID string) ([]ProjectSkillResponseItem, error) {

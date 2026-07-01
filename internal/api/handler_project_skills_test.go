@@ -224,6 +224,107 @@ func TestProjectSkillsAPI_ListUsesCairnlineReadModelWhenConfigured(t *testing.T)
 	assertProjectSkillsProjectionParity(t, renderProjectSkills(nativeSkills, "hecate"), listed.Data)
 }
 
+func TestProjectSkillsAPI_StrictEmbeddedReadModelReadsSkillsWithoutHecateStores(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend: "cairnline",
+			CairnlineReadSource: "embedded",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	server := NewServer(quietLogger(), handler)
+	const projectID = "proj_embedded_skills"
+	tools := true
+	network := false
+
+	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+		if _, err := service.CreateProject(t.Context(), cairnline.Project{
+			ID:   projectID,
+			Name: "Embedded Skills",
+			Roots: []cairnline.Root{{
+				ID:     "root_embedded_skills",
+				Path:   "/workspace/embedded-skills",
+				Kind:   "git",
+				Active: true,
+			}},
+			ContextSources: []cairnline.Source{{
+				ID:         "ctx_agents",
+				Kind:       "workspace_instruction",
+				Title:      "AGENTS.md",
+				Locator:    "AGENTS.md",
+				Enabled:    true,
+				Format:     "agents_md",
+				TrustLabel: "workspace_guidance",
+			}},
+		}); err != nil {
+			return err
+		}
+		_, err := service.CreateProjectSkill(t.Context(), cairnline.ProjectSkill{
+			ID:          "backend",
+			ProjectID:   projectID,
+			Title:       "Backend",
+			Description: "Build backend changes.",
+			Path:        ".agents/skills/backend/SKILL.md",
+			RootID:      "root_embedded_skills",
+			Format:      cairnline.SkillFormatMarkdown,
+			SuggestedTools: []string{
+				"git.diff",
+			},
+			RequiredPermissions: cairnline.RequiredPermissions{
+				Tools:   &tools,
+				Network: &network,
+			},
+			Enabled:    true,
+			Status:     cairnline.SkillStatusAvailable,
+			TrustLabel: cairnline.SkillTrustWorkspace,
+			SourceRefs: []string{"ctx_agents"},
+			Warnings:   []string{"metadata-only skill"},
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("seed embedded Cairnline skills: %v", err)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("Hecate project store seeded ok=%v err=%v, want no project row", ok, err)
+	}
+	if nativeSkills, err := handler.projectSkills.List(t.Context(), projectID); err != nil || len(nativeSkills) != 0 {
+		t.Fatalf("Hecate skill store rows = %+v err=%v, want none", nativeSkills, err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+projectID+"/skills", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var listed ProjectSkillsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+	backend := projectSkillResponseFor(listed.Data, "backend")
+	if backend == nil {
+		t.Fatalf("listed skills = %+v, want backend skill", listed.Data)
+	}
+	if backend.ReadBackend != "cairnline" || backend.ProjectID != projectID || backend.Path != ".agents/skills/backend/SKILL.md" || backend.RootID != "root_embedded_skills" {
+		t.Fatalf("backend skill = %+v, want embedded Cairnline skill projection", *backend)
+	}
+	if len(backend.SourceContextSourceIDs) != 1 || backend.SourceContextSourceIDs[0] != "ctx_agents" || len(backend.Warnings) != 1 || backend.Warnings[0] != "metadata-only skill" {
+		t.Fatalf("backend provenance = sources %+v warnings %+v, want embedded Cairnline provenance", backend.SourceContextSourceIDs, backend.Warnings)
+	}
+	if len(backend.SuggestedTools) != 1 || backend.SuggestedTools[0] != "git.diff" {
+		t.Fatalf("backend suggested tools = %+v, want embedded Cairnline suggested tools", backend.SuggestedTools)
+	}
+	if backend.RequiredPermissions == nil || backend.RequiredPermissions.Tools == nil || !*backend.RequiredPermissions.Tools || backend.RequiredPermissions.Network == nil || *backend.RequiredPermissions.Network {
+		t.Fatalf("backend required permissions = %+v, want embedded Cairnline permissions", backend.RequiredPermissions)
+	}
+
+	missingRec := httptest.NewRecorder()
+	server.ServeHTTP(missingRec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_missing/skills", nil))
+	if missingRec.Code != http.StatusNotFound {
+		t.Fatalf("missing status = %d body=%s, want 404", missingRec.Code, missingRec.Body.String())
+	}
+}
+
 func TestProjectSkillsAPI_ListUsesCairnlineSidecarWhenConfigured(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "full")
