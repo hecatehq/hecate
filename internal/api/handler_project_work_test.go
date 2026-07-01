@@ -2193,6 +2193,103 @@ func TestProjectWorkAPI_HandoffsCairnlineSidecarReadRequiresStructuredContent(t 
 	}
 }
 
+func TestProjectWorkAPI_StrictEmbeddedReadModelReadsCloseoutReadinessWithoutHecateProject(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend: "cairnline",
+			CairnlineReadSource: "embedded",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	server := NewServer(quietLogger(), handler)
+	const projectID = "proj_embedded_readiness"
+
+	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+		if _, err := service.CreateProject(t.Context(), cairnline.Project{
+			ID:   projectID,
+			Name: "Embedded Readiness",
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateRole(t.Context(), cairnline.Role{
+			ID:        "role_owner",
+			ProjectID: projectID,
+			Name:      "Owner",
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateWorkItem(t.Context(), cairnline.WorkItem{
+			ID:        "work_embedded",
+			ProjectID: projectID,
+			Title:     "Read embedded closeout readiness",
+			Status:    cairnline.WorkStatusReady,
+			Priority:  cairnline.PriorityNormal,
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateAssignment(t.Context(), cairnline.Assignment{
+			ID:            "asgn_embedded",
+			ProjectID:     projectID,
+			WorkItemID:    "work_embedded",
+			RoleID:        "role_owner",
+			ExecutionMode: cairnline.ExecutionMCPPull,
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CompleteAssignment(t.Context(), projectID, "asgn_embedded", cairnline.AssignmentCompleted, "run_embedded"); err != nil {
+			return err
+		}
+		_, err := service.CreateHandoff(t.Context(), cairnline.Handoff{
+			ID:                 "handoff_embedded",
+			ProjectID:          projectID,
+			WorkItemID:         "work_embedded",
+			SourceAssignmentID: "asgn_embedded",
+			FromRoleID:         "role_owner",
+			ToRoleID:           "role_owner",
+			Title:              "Follow up before closeout",
+			Body:               "Keep this work item open until reviewed.",
+			Status:             cairnline.HandoffStatusOpen,
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("seed embedded Cairnline readiness: %v", err)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("Hecate project store seeded ok=%v err=%v, want no project row", ok, err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_embedded/readiness", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("readiness status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response ProjectWorkItemReadinessEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode readiness response: %v", err)
+	}
+	if response.Object != "project_work_item_readiness" || response.Data.ProjectID != projectID || response.Data.WorkItemID != "work_embedded" || response.Data.ReadBackend != "cairnline" {
+		t.Fatalf("readiness response = %+v, want embedded Cairnline readiness", response)
+	}
+	if response.Data.Ready || response.Data.Status != "blocked" || response.Data.AssignmentCount != 1 || response.Data.CompletedAssignments != 1 {
+		t.Fatalf("readiness = %+v, want blocked embedded closeout state", response.Data)
+	}
+	if !containsString(response.Data.MissingEvidenceAssignmentIDs, "asgn_embedded") || !containsString(response.Data.Blockers, "1 completed assignment is missing evidence") || !containsString(response.Data.Blockers, "1 handoff is pending") {
+		t.Fatalf("readiness blockers = %+v missing=%+v, want missing evidence and pending handoff blockers", response.Data.Blockers, response.Data.MissingEvidenceAssignmentIDs)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/missing/readiness", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing work-item readiness status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_missing/work-items/work_embedded/readiness", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing project readiness status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+}
+
 func TestProjectWorkAPI_CloseoutReadinessUsesCairnlineSidecarWhenConfigured(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "collaboration-fixture")
