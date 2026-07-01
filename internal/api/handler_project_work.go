@@ -930,11 +930,21 @@ func (h *Handler) HandleProjectWorkArtifacts(w http.ResponseWriter, r *http.Requ
 		WriteJSON(w, http.StatusOK, ProjectWorkArtifactsResponse{Object: "project_collaboration_artifacts", Data: data})
 		return
 	}
-	if !h.requireProjectWorkItem(w, r, projectID, workItemID) {
+	strictEmbeddedRead := h.projectReadRoutesUseCairnlineReadModel() && h.requiresEmbeddedCairnlineProjectReads()
+	if !strictEmbeddedRead && !h.requireProjectWorkItem(w, r, projectID, workItemID) {
 		return
 	}
 	data, err := h.renderProjectWorkArtifacts(r.Context(), projectID, workItemID)
-	if !writeProjectWorkError(w, err) {
+	if err != nil {
+		if errors.Is(err, projects.ErrNotFound) || errors.Is(err, cairnline.ErrNotFound) {
+			WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
+			return
+		}
+		if errors.Is(err, projectwork.ErrNotFound) {
+			WriteError(w, http.StatusNotFound, errCodeNotFound, "work item not found")
+			return
+		}
+		_ = writeProjectWorkError(w, err)
 		return
 	}
 	WriteJSON(w, http.StatusOK, ProjectWorkArtifactsResponse{Object: "project_collaboration_artifacts", Data: data})

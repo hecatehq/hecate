@@ -1853,6 +1853,134 @@ func TestProjectWorkAPI_ArtifactsUseCairnlineSidecarWhenConfigured(t *testing.T)
 	}
 }
 
+func TestProjectWorkAPI_StrictEmbeddedReadModelReadsArtifactsWithoutHecateProject(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend: "cairnline",
+			CairnlineReadSource: "embedded",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	server := NewServer(quietLogger(), handler)
+	const projectID = "proj_embedded_artifacts"
+
+	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+		if _, err := service.CreateProject(t.Context(), cairnline.Project{
+			ID:   projectID,
+			Name: "Embedded Artifacts",
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateRole(t.Context(), cairnline.Role{
+			ID:        "role_reviewer",
+			ProjectID: projectID,
+			Name:      "Reviewer",
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateWorkItem(t.Context(), cairnline.WorkItem{
+			ID:        "work_embedded",
+			ProjectID: projectID,
+			Title:     "Read embedded artifacts",
+			Status:    cairnline.WorkStatusReady,
+			Priority:  cairnline.PriorityNormal,
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateAssignment(t.Context(), cairnline.Assignment{
+			ID:            "asgn_embedded",
+			ProjectID:     projectID,
+			WorkItemID:    "work_embedded",
+			RoleID:        "role_reviewer",
+			Status:        cairnline.AssignmentCompleted,
+			ExecutionMode: cairnline.ExecutionMCPPull,
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateArtifact(t.Context(), cairnline.Artifact{
+			ID:           "artifact_embedded",
+			ProjectID:    projectID,
+			WorkItemID:   "work_embedded",
+			AssignmentID: "asgn_embedded",
+			Kind:         projectwork.ArtifactKindDecisionNote,
+			Title:        "Decision",
+			Body:         "Use direct embedded artifact reads.",
+			AuthorRoleID: "role_reviewer",
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateEvidence(t.Context(), cairnline.Evidence{
+			ID:           "evidence_embedded",
+			ProjectID:    projectID,
+			WorkItemID:   "work_embedded",
+			AssignmentID: "asgn_embedded",
+			Title:        "Evidence",
+			Body:         "Runtime evidence.",
+			Locator:      "https://example.test/evidence",
+			ExternalID:   "EVID-1",
+			Provider:     "test",
+			TrustLabel:   cairnline.EvidenceTrustOperator,
+		}); err != nil {
+			return err
+		}
+		_, err := service.CreateReview(t.Context(), cairnline.Review{
+			ID:             "review_embedded",
+			ProjectID:      projectID,
+			WorkItemID:     "work_embedded",
+			AssignmentID:   "asgn_embedded",
+			ReviewerRoleID: "role_reviewer",
+			Title:          "Review",
+			Body:           "Needs a follow-up.",
+			Verdict:        cairnline.ReviewVerdictChangesRequested,
+			Risk:           cairnline.ReviewRiskMedium,
+			Status:         cairnline.ReviewStatusRecorded,
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("seed embedded Cairnline artifacts: %v", err)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("Hecate project store seeded ok=%v err=%v, want no project row", ok, err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_embedded/artifacts", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("artifacts status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response ProjectWorkArtifactsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode artifacts response: %v", err)
+	}
+	if response.Object != "project_collaboration_artifacts" || len(response.Data) != 3 {
+		t.Fatalf("artifacts response = %+v, want embedded generic artifact, evidence, and review", response)
+	}
+	artifact := findProjectWorkArtifactForTest(t, response.Data, "artifact_embedded")
+	if artifact.ReadBackend != "cairnline" || artifact.Kind != projectwork.ArtifactKindDecisionNote || artifact.AssignmentID != "asgn_embedded" {
+		t.Fatalf("generic artifact = %+v, want embedded Cairnline decision artifact", artifact)
+	}
+	evidence := findProjectWorkArtifactForTest(t, response.Data, "evidence_embedded")
+	if evidence.ReadBackend != "cairnline" || evidence.Kind != projectwork.ArtifactKindEvidenceLink || evidence.EvidenceURL != "https://example.test/evidence" || evidence.EvidenceExternalID != "EVID-1" || evidence.EvidenceProvider != "test" {
+		t.Fatalf("evidence artifact = %+v, want embedded Cairnline evidence artifact", evidence)
+	}
+	review := findProjectWorkArtifactForTest(t, response.Data, "review_embedded")
+	if review.ReadBackend != "cairnline" || review.Kind != projectwork.ArtifactKindReview || review.ReviewedAssignmentID != "asgn_embedded" || review.ReviewVerdict != projectwork.ReviewVerdictChangesRequested || review.ReviewRisk != projectwork.ReviewRiskMedium || !review.ReviewFollowUpRequired {
+		t.Fatalf("review artifact = %+v, want embedded Cairnline review artifact", review)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/missing/artifacts", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing work-item artifacts status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_missing/work-items/work_embedded/artifacts", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing project artifacts status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+}
+
 func TestProjectWorkAPI_ArtifactsCairnlineSidecarReadRequiresStructuredContent(t *testing.T) {
 	t.Parallel()
 	_, server := newProjectsCairnlineSidecarReadTestServer(t, "text-only")

@@ -30,6 +30,9 @@ func (h *Handler) renderProjectWorkArtifacts(ctx context.Context, projectID, wor
 }
 
 func (h *Handler) renderCairnlineProjectWorkArtifacts(ctx context.Context, projectID, workItemID string) ([]ProjectWorkArtifactResponse, error) {
+	if h.requiresEmbeddedCairnlineProjectReads() {
+		return h.renderStrictEmbeddedCairnlineProjectWorkArtifacts(ctx, projectID, workItemID)
+	}
 	view, err := h.cairnlineProjectWorkView(ctx, projectID)
 	if err != nil {
 		return nil, err
@@ -42,13 +45,46 @@ func (h *Handler) renderCairnlineProjectWorkArtifacts(ctx context.Context, proje
 	if err != nil {
 		return nil, err
 	}
+	return renderCairnlineProjectWorkArtifactResponses(items), nil
+}
+
+func (h *Handler) renderStrictEmbeddedCairnlineProjectWorkArtifacts(ctx context.Context, projectID, workItemID string) ([]ProjectWorkArtifactResponse, error) {
+	_, service, store, err := h.openCairnlineEmbeddedService(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer store.Close()
+	project, err := service.GetProject(ctx, projectID)
+	if errors.Is(err, cairnline.ErrNotFound) {
+		return nil, projects.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if _, err := service.GetWorkItem(ctx, project.ID, workItemID); err != nil {
+		if errors.Is(err, cairnline.ErrNotFound) {
+			return nil, projectwork.ErrNotFound
+		}
+		return nil, err
+	}
+	items, err := cairnlineProjectWorkArtifacts(ctx, service, project.ID, workItemID)
+	if errors.Is(err, cairnline.ErrNotFound) {
+		return nil, projectwork.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return renderCairnlineProjectWorkArtifactResponses(items), nil
+}
+
+func renderCairnlineProjectWorkArtifactResponses(items []projectwork.CollaborationArtifact) []ProjectWorkArtifactResponse {
 	data := make([]ProjectWorkArtifactResponse, 0, len(items))
 	for _, item := range items {
 		projected := renderProjectWorkArtifact(item)
 		projected.ReadBackend = "cairnline"
 		data = append(data, projected)
 	}
-	return data, nil
+	return data
 }
 
 func (h *Handler) renderProjectHandoffs(ctx context.Context, filter projectwork.HandoffFilter) ([]ProjectHandoffResponse, error) {
