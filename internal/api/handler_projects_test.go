@@ -400,6 +400,72 @@ func TestProjectsAPI_CairnlineConfiguredProjectDetailReadsEmbeddedMirror(t *test
 	}
 }
 
+func TestProjectsAPI_StrictEmbeddedReadModelReadsProjectsWithoutHecateStore(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend: "cairnline",
+			CairnlineReadSource: "embedded",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	server := NewServer(quietLogger(), handler)
+	client := newAPITestClient(t, server)
+	const projectID = "proj_embedded_project"
+
+	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+		if _, err := service.CreateExecutionProfile(t.Context(), cairnline.ExecutionProfile{
+			ID:             "exec_embedded",
+			Name:           "Embedded runtime",
+			ProviderHint:   "openai",
+			ModelHint:      "gpt-5",
+			ToolsPolicy:    "block",
+			AdapterOptions: map[string]any{"workspace_mode": "worktree", "compact_tool_output": true},
+		}); err != nil {
+			return err
+		}
+		_, err := service.CreateProject(t.Context(), cairnline.Project{
+			ID:                        projectID,
+			Name:                      "Embedded Project",
+			Description:               "Read directly from Cairnline.",
+			DefaultRootID:             "root_main",
+			DefaultProfileID:          "profile_architect",
+			DefaultExecutionProfileID: "exec_embedded",
+			Roots: []cairnline.Root{{
+				ID:        "root_main",
+				Path:      "/workspace/embedded",
+				Kind:      "git",
+				GitBranch: "main",
+				Active:    true,
+			}},
+			ContextSources: []cairnline.Source{{
+				ID:         "ctx_agents",
+				Kind:       "workspace_instruction",
+				Title:      "AGENTS.md",
+				Locator:    "AGENTS.md",
+				Enabled:    true,
+				Format:     "agents_md",
+				TrustLabel: "workspace_guidance",
+				Metadata:   map[string]string{"root_id": "root_main"},
+			}},
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("seed embedded Cairnline project: %v", err)
+	}
+
+	listed := mustRequestJSON[ProjectsResponse](client, http.MethodGet, "/hecate/v1/projects", "")
+	if listed.Object != "projects" || len(listed.Data) != 1 {
+		t.Fatalf("projects response = %+v, want one embedded Cairnline project", listed)
+	}
+	assertStrictEmbeddedProjectProjectionForTest(t, listed.Data[0], projectID)
+
+	detail := mustRequestJSON[ProjectResponse](client, http.MethodGet, "/hecate/v1/projects/"+projectID, "")
+	assertStrictEmbeddedProjectProjectionForTest(t, detail.Data, projectID)
+
+	client.mustRequestStatus(http.StatusNotFound, http.MethodGet, "/hecate/v1/projects/proj_missing", "")
+}
+
 func TestProjectsAPI_MirrorsIdentityMutationsToCairnlineWhenConfigured(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectsCairnlineMirrorTestServer(t)
@@ -1418,6 +1484,31 @@ func assertCairnlineProjectProjectionForTest(t *testing.T, project ProjectRespon
 	}
 	if source.Metadata["root_id"] != "root_main" {
 		t.Fatalf("context source metadata = %+v, want root_id", source.Metadata)
+	}
+}
+
+func assertStrictEmbeddedProjectProjectionForTest(t *testing.T, project ProjectResponseItem, projectID string) {
+	t.Helper()
+	if project.ID != projectID || project.ReadBackend != "cairnline" || project.Name != "Embedded Project" || project.Description != "Read directly from Cairnline." {
+		t.Fatalf("project = %+v, want direct embedded Cairnline project %s", project, projectID)
+	}
+	if project.DefaultRootID != "root_main" || project.DefaultAgentProfile != "profile_architect" || project.DefaultProvider != "openai" || project.DefaultModel != "gpt-5" || project.DefaultWorkspaceMode != "worktree" {
+		t.Fatalf("project defaults = %+v, want Cairnline project/execution-profile defaults", project)
+	}
+	if project.DefaultToolsEnabled == nil || *project.DefaultToolsEnabled {
+		t.Fatalf("default_tools_enabled = %v, want false from Cairnline execution profile", project.DefaultToolsEnabled)
+	}
+	if project.DefaultCompactToolOutput == nil || !*project.DefaultCompactToolOutput {
+		t.Fatalf("default_compact_tool_output = %v, want true from Cairnline execution profile", project.DefaultCompactToolOutput)
+	}
+	if project.CreatedAt == "" || project.UpdatedAt == "" {
+		t.Fatalf("project timestamps = created %q updated %q, want Cairnline timestamps", project.CreatedAt, project.UpdatedAt)
+	}
+	if len(project.Roots) != 1 || project.Roots[0].ID != "root_main" || project.Roots[0].Path != "/workspace/embedded" || project.Roots[0].Kind != "git" || project.Roots[0].GitBranch != "main" || !project.Roots[0].Active {
+		t.Fatalf("project roots = %+v, want embedded Cairnline root metadata", project.Roots)
+	}
+	if len(project.ContextSources) != 1 || project.ContextSources[0].ID != "ctx_agents" || project.ContextSources[0].Path != "AGENTS.md" || project.ContextSources[0].TrustLabel != "workspace_guidance" || project.ContextSources[0].Metadata["root_id"] != "root_main" {
+		t.Fatalf("project context sources = %+v, want embedded Cairnline source metadata", project.ContextSources)
 	}
 }
 

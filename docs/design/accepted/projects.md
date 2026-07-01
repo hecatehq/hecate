@@ -214,19 +214,22 @@ the snapshot-seeded in-memory bridge projection.
 bridge; `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded` requires the embedded
 mirror database and requested project row or proposal record so
 replacement-readiness gaps fail loudly during dogfood. In strict embedded mode,
-memory and memory-candidate list reads load directly from the embedded
-Cairnline project and memory records instead of loading a Hecate-native project
-snapshot first. Activity, work-item list/detail, assignment-list, and
-operations brief reads render work items, assignments, roles, artifacts, and
-handoffs from the Cairnline service records, then overlay Hecate-only runtime
-refs/timestamps where Hecate still owns execution.
-In embedded read-source modes, project identity and some compatibility
-scaffolding still come from Hecate until Cairnline becomes authoritative; the
-explicit sidecar read-source routes are the narrow exception for project
-list/detail, setup-readiness, health, project skill list, project memory list,
+project list/detail plus memory and memory-candidate list reads load directly
+from the embedded Cairnline project and memory records instead of loading a
+Hecate-native project snapshot first. Activity, work-item list/detail,
+assignment-list, and operations brief reads render work items, assignments,
+roles, artifacts, and handoffs from the Cairnline service records, then overlay
+Hecate-only runtime refs/timestamps where Hecate still owns execution.
+For remaining embedded read-route families, some project compatibility
+scaffolding still comes from Hecate until Cairnline becomes authoritative. The
+direct strict embedded exceptions are project list/detail, project memory list,
+and memory-candidate list reads. The explicit sidecar read-source routes remain
+the broader standalone-process exception for project list/detail,
+setup-readiness, health, project skill list, project memory list,
 memory-candidate list, project role list, work-item list/detail,
-assignment-list, assignment-context, launch-readiness, assignment preflight, artifact-list,
-handoff-list, activity, closeout-readiness, and operations brief reads.
+assignment-list, assignment-context, launch-readiness, assignment preflight,
+artifact-list, handoff-list, activity, closeout-readiness, and operations brief
+reads.
 Project Assistant draft generation also uses the Cairnline-projected context so
 preview and proposal assembly stay aligned, while the proposal ledger remains
 Hecate-owned unless `project-assistant-proposals` is enabled.
