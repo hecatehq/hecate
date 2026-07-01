@@ -365,16 +365,16 @@ func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendS
 		response.WriteAdapterSeams = append([]string(nil), projectCairnlineWriteAdapterSeamNames...)
 		response.WriteAdapterGaps = projectCairnlineWriteAdapterGapsSnapshot(effectiveWriteAuthority)
 		response.PortableWriteGaps = projectCairnlinePortableWriteGapsSnapshot(effectiveWriteAuthority, response.WriteAdapterGaps)
-		response.SideEffectBlockers = projectCairnlineSideEffectBlockersSnapshot(response.WriteAdapterGaps)
+		response.OrchestratorCapabilities = projectCairnlineOrchestratorCapabilitiesSnapshot(response.WriteAdapterGaps)
 		response.MigrationBlockers = projectCairnlineMigrationBlockersSnapshot(response.WriteAdapterGaps)
 		response.WriteSwitchpoints = projectCairnlineWriteSwitchpointsSnapshot(effectiveWriteAuthority)
-		response.ReplacementGates = projectCairnlineReplacementGates(readReady, response.WriteAdapterGaps)
+		response.ReplacementGates = projectCairnlineReplacementGates(readReady, response.PortableWriteGaps)
 		if !connectorReady {
 			if h.projectCairnlineSidecarReadRoutesEnabled() {
 				response.Status = "cairnline_sidecar_read_routes_ready"
 				response.Detail = "Cairnline sidecar is configured as the project read source, so " + projectCairnlineReadRouteList(projectCairnlineSidecarReadRouteNames) + " routes read through the persistent standalone Cairnline MCP client. Project writes and migration remain on Hecate-native stores or existing embedded dogfood paths."
 				response.ReadRoutes = append([]string(nil), projectCairnlineSidecarReadRouteNames...)
-				response.ReplacementGates = projectCairnlineReplacementGates(false, response.WriteAdapterGaps)
+				response.ReplacementGates = projectCairnlineReplacementGates(false, response.PortableWriteGaps)
 				response.Warnings = []string{
 					"Only " + projectCairnlineReadRouteList(projectCairnlineSidecarReadRouteNames) + " use the Cairnline sidecar MCP client in this mode.",
 					"Project writes still use Hecate-native stores unless a separate embedded Cairnline authority switchpoint is explicitly enabled.",
@@ -384,7 +384,7 @@ func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendS
 			}
 			response.Status = "cairnline_connector_not_ready"
 			response.Detail = projectCairnlineConnectorDetail(connector) + " Hecate keeps Projects reads and writes on Hecate-native stores in this mode; use HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded for the current replacement-readiness dogfood path."
-			response.ReplacementGates = projectCairnlineReplacementGates(false, response.WriteAdapterGaps)
+			response.ReplacementGates = projectCairnlineReplacementGates(false, response.PortableWriteGaps)
 			response.Warnings = []string{
 				projectCairnlineConnectorWarning(connector),
 				"Project reads and writes still use Hecate-native stores.",
@@ -497,25 +497,6 @@ func projectCairnlineNextReplacementAction(status ProjectCoordinationBackendStat
 			ConfigHints: projectCairnlineWriteAuthorityHintsForGap(target),
 		}
 	}
-	if len(status.SideEffectBlockers) > 0 {
-		target := status.SideEffectBlockers[0]
-		label := "Separate the next Hecate-owned side effect"
-		detail := "Define the portable record boundary and keep runtime side effects in Hecate or another orchestrator before Cairnline can become authoritative."
-		if target == "roots" {
-			label = "Separate roots and worktree side effects"
-			detail = "Move portable root records toward Cairnline authority while keeping filesystem and Git worktree creation under Hecate's confined runtime boundary."
-		}
-		if target == "assignment-start" {
-			label = "Separate assignment coordination from launch"
-			detail = "Keep assignment records portable while treating task/external-agent launch as an orchestrator capability outside Cairnline core."
-		}
-		return &ProjectCoordinationBackendNextAction{
-			ID:     "separate-side-effect-boundary",
-			Label:  label,
-			Detail: detail,
-			Target: target,
-		}
-	}
 	if len(status.MigrationBlockers) > 0 {
 		return &ProjectCoordinationBackendNextAction{
 			ID:     "rehearse-migration-cutover",
@@ -596,8 +577,8 @@ func projectCairnlineWriteAuthorityValuesForGap(gap string) []string {
 	}
 }
 
-func projectCairnlineReplacementGates(readRoutesReady bool, writeGaps []string) []ProjectCoordinationBackendReplacementGate {
-	writeGate := projectCairnlineWriteAuthorityReplacementGate(writeGaps)
+func projectCairnlineReplacementGates(readRoutesReady bool, portableWriteGaps []string) []ProjectCoordinationBackendReplacementGate {
+	writeGate := projectCairnlineWriteAuthorityReplacementGate(portableWriteGaps)
 	return []ProjectCoordinationBackendReplacementGate{
 		{
 			ID:        "read-routes",
@@ -624,39 +605,36 @@ func projectCairnlineReplacementGates(readRoutesReady bool, writeGaps []string) 
 	}
 }
 
-func projectCairnlineWriteAuthorityReplacementGate(writeGaps []string) ProjectCoordinationBackendReplacementGate {
-	remaining := projectCairnlineWriteSwitchpointGaps(writeGaps)
+func projectCairnlineWriteAuthorityReplacementGate(portableWriteGaps []string) ProjectCoordinationBackendReplacementGate {
+	remaining := append([]string(nil), portableWriteGaps...)
 	gate := ProjectCoordinationBackendReplacementGate{
 		ID:     "write-authority-switchpoints",
 		Ready:  false,
 		Status: "blocked",
-		Detail: "Live mutation routes still commit to Hecate-native stores first; Cairnline mirrors are replacement evidence, not write authority.",
+		Detail: "Portable project-state mutation routes still commit to Hecate-native stores first; Cairnline mirrors are replacement evidence, not write authority.",
 	}
 	switch {
 	case len(remaining) == 0:
 		gate.Ready = true
 		gate.Status = "ready"
-		gate.Detail = "All live mutation switchpoints that have landed are Cairnline-authoritative; migration, rollback, and final cutover still have separate gates."
-	case len(remaining) < projectCairnlineWriteSwitchpointGapCount():
+		gate.Detail = "All portable project-state mutation switchpoints that have landed are Cairnline-authoritative; Hecate-owned orchestrator capabilities, migration, rollback, and final cutover stay outside this gate."
+	case len(remaining) < projectCairnlinePortableWriteGapCount():
 		gate.Status = "partial"
-		gate.Detail = "Some live mutation switchpoints are Cairnline-authoritative; remaining write gaps: " + strings.Join(remaining, ", ") + "."
+		gate.Detail = "Some portable project-state mutation switchpoints are Cairnline-authoritative; remaining portable write gaps: " + strings.Join(remaining, ", ") + "."
 	}
 	return gate
 }
 
-func projectCairnlineWriteSwitchpointGaps(writeGaps []string) []string {
-	out := make([]string, 0, len(writeGaps))
-	for _, gap := range writeGaps {
-		if gap == "migration-cutover" {
+func projectCairnlinePortableWriteGapCount() int {
+	count := 0
+	for _, gap := range projectCairnlineWriteAdapterGapNames {
+		switch gap {
+		case "migration-cutover", "assignment-start", "project-assistant-apply-side-effects":
 			continue
 		}
-		out = append(out, gap)
+		count++
 	}
-	return out
-}
-
-func projectCairnlineWriteSwitchpointGapCount() int {
-	return len(projectCairnlineWriteAdapterGapNames) - 1
+	return count
 }
 
 func projectReplacementGateStatus(ready bool) string {
@@ -736,7 +714,7 @@ func projectCairnlinePortableWriteGapsSnapshot(writeAuthority, writeGaps []strin
 	return out
 }
 
-func projectCairnlineSideEffectBlockersSnapshot(writeGaps []string) []string {
+func projectCairnlineOrchestratorCapabilitiesSnapshot(writeGaps []string) []string {
 	out := make([]string, 0, 3)
 	for _, item := range writeGaps {
 		switch item {
@@ -863,7 +841,7 @@ func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string) []Projec
 			item.LiveMirror = true
 			item.BlocksAuthority = true
 			item.Gap = "project-assistant-apply-side-effects"
-			item.Detail = "Project Assistant confirmed apply routes covered portable actions through their enabled Cairnline authority switchpoints: project create, project metadata/default, root, role, work-item, assignment, handoff, and memory-candidate; chat/runtime side effects still keep apply as a blocking mixed-authority gap."
+			item.Detail = "Project Assistant confirmed apply routes covered portable actions through their enabled Cairnline authority switchpoints: project create, project metadata/default, root, role, work-item, assignment, handoff, and memory-candidate; chat/runtime effects remain Hecate-owned orchestrator capabilities outside Cairnline core."
 		}
 		if projectCollaborationAuthoritative && item.Name == "collaboration-artifacts" {
 			item.CurrentAuthority = "cairnline"
@@ -1006,7 +984,7 @@ func projectCairnlineProjectAssistantProposalWriteWarning(writeAuthority []strin
 
 func projectCairnlineProjectAssistantApplyWriteWarning(writeAuthority []string) string {
 	if projectCairnlineAssistantApplyPortableEffectsAuthoritative(writeAuthority) {
-		return "Project Assistant confirmed apply uses enabled Cairnline authority seams for the portable actions they cover: project create, project metadata/default, root, role, work-item, assignment, handoff, and memory-candidate; chat/runtime side effects still keep apply as a mixed-authority replacement blocker."
+		return "Project Assistant confirmed apply uses enabled Cairnline authority seams for the portable actions they cover: project create, project metadata/default, root, role, work-item, assignment, handoff, and memory-candidate; chat/runtime effects remain Hecate-owned orchestrator capabilities outside Cairnline core."
 	}
 	return "Project Assistant confirmed apply side effects still execute through Hecate-owned mutation services, then best-effort mirror committed results into Cairnline."
 }

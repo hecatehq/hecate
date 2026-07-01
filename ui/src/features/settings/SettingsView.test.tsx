@@ -91,7 +91,7 @@ describe("SettingsView", () => {
         replacement_ready: false,
         read_routes: ["project-list", "project-detail"],
         portable_write_gaps: ["agent-profiles", "memory-candidates"],
-        side_effect_blockers: ["assignment-start"],
+        orchestrator_capabilities: ["assignment-start"],
         migration_blockers: ["migration-cutover"],
         next_replacement_action: {
           id: "move-portable-write-authority",
@@ -120,6 +120,7 @@ describe("SettingsView", () => {
     expect(screen.getByText("cairnline read routes ready")).toBeTruthy();
     expect(screen.getByText(/2 read routes use Cairnline/i)).toBeTruthy();
     expect(screen.getByText("Portable write gaps")).toBeTruthy();
+    expect(screen.getByText("Hecate orchestrator capabilities")).toBeTruthy();
     expect(screen.getByText("Next action")).toBeTruthy();
     expect(screen.getByText("Move the next portable write authority")).toBeTruthy();
     expect(screen.getAllByText("agent-profiles").length).toBeGreaterThanOrEqual(1);

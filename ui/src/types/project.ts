@@ -120,6 +120,8 @@ export type ProjectCoordinationBackendStatusRecord = {
   write_adapter_seams?: string[];
   write_adapter_gaps?: string[];
   portable_write_gaps?: string[];
+  orchestrator_capabilities?: string[];
+  /** @deprecated use orchestrator_capabilities */
   side_effect_blockers?: string[];
   migration_blockers?: string[];
   next_replacement_action?: ProjectCoordinationBackendNextActionRecord;

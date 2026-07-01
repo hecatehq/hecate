@@ -571,6 +571,7 @@ type ProjectCoordinationBackendStatusResponse struct {
 	WriteAdapterSeams                    []string                                     `json:"write_adapter_seams,omitempty"`
 	WriteAdapterGaps                     []string                                     `json:"write_adapter_gaps,omitempty"`
 	PortableWriteGaps                    []string                                     `json:"portable_write_gaps,omitempty"`
+	OrchestratorCapabilities             []string                                     `json:"orchestrator_capabilities,omitempty"`
 	SideEffectBlockers                   []string                                     `json:"side_effect_blockers,omitempty"`
 	MigrationBlockers                    []string                                     `json:"migration_blockers,omitempty"`
 	NextReplacementAction                *ProjectCoordinationBackendNextAction        `json:"next_replacement_action,omitempty"`

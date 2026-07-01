@@ -572,7 +572,7 @@ case the proposal ledger commits to Cairnline first and shadows Hecate's
 proposal store for compatibility. Confirmed apply uses the enabled Cairnline
 authority seams for project create, project metadata/default, root, role,
 work-item, assignment, handoff, and memory-candidate actions, but chat/runtime
-side effects still keep apply as a mixed-authority replacement blocker.
+effects remain Hecate-owned orchestrator capabilities outside Cairnline core.
 Other live Projects reads/writes still use Hecate-native
 stores until the remaining read routes, write adapter, and migration path are
 ready. Current bridge write experiments cover non-authoritative
@@ -602,11 +602,12 @@ also reports `replacement_ready`, `next_replacement_action`,
 `replacement_gates`, and `write_switchpoints` so operators can see the
 suggested next step, relevant env-var hints, and the exact read-route,
 strict-embedded-probe, write-authority, and migration blockers without parsing
-warning prose. It also groups the `write_adapter_gaps` stop list into
+warning prose. It also groups the broad `write_adapter_gaps` diagnostic list into
 `portable_write_gaps`,
-`side_effect_blockers`, and `migration_blockers`, so switchpoint work is
-separated from Hecate-owned runtime/workspace side effects and final cutover
-work. Settings shows the same backend-status summary and next action under
+`orchestrator_capabilities`, and `migration_blockers`, so durable
+coordination-state switchpoint work is separated from Hecate-owned
+runtime/workspace capabilities and final cutover work. Settings shows the same
+backend-status summary and next action under
 Project coordination for local operator inspection. `GET
 /hecate/v1/projects/cairnline/mirror-parity` compares the existing embedded
 mirror database with Hecate's current stores without creating or repairing it;
