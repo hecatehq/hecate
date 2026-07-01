@@ -15,6 +15,7 @@ import (
 	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/cairnlinebridge"
+	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectwork"
 )
@@ -619,6 +620,25 @@ func (h *Handler) projectCairnlineStrictEmbeddedSmoke(ctx context.Context, snaps
 		checkProjectCairnlineEmbeddedSmoke(smoke, projectID, "operations-brief", func() error {
 			_, err := strict.renderCairnlineProjectOperationsBrief(ctx, snapshot.Project)
 			return err
+		})
+		checkProjectCairnlineEmbeddedSmoke(smoke, projectID, "project-chat-prelude", func() error {
+			prompt := strict.projectChatWorkflowSystemPrompt(ctx, chat.Session{ProjectID: projectID})
+			if !strings.Contains(prompt, projectID) {
+				return errors.New("project chat prelude did not include the embedded project")
+			}
+			return nil
+		})
+		checkProjectCairnlineEmbeddedSmoke(smoke, projectID, "project-chat-context", func() error {
+			packet := renderChatContextPacket(strict.directModelContextPacket(ctx, chat.Session{ProjectID: projectID}, "", "", ""))
+			if packet == nil {
+				return errors.New("project chat context packet was not rendered")
+			}
+			for _, item := range packet.Items {
+				if item.Kind == "project" && strings.TrimSpace(item.Origin) == projectID {
+					return nil
+				}
+			}
+			return errors.New("project chat context packet did not include the embedded project")
 		})
 		checkProjectCairnlineEmbeddedSmoke(smoke, projectID, "embedded-read-model", func() error {
 			readModel, err := strict.projectCairnlineEmbeddedReadModel(ctx, projectID)
