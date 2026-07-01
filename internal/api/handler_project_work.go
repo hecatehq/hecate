@@ -346,12 +346,12 @@ func (h *Handler) HandleProjectActivity(w http.ResponseWriter, r *http.Request) 
 
 func (h *Handler) HandleProjectWorkRoles(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
-	if !h.projectCairnlineSidecarReadRoutesEnabled() && !h.requireProject(w, r, projectID) {
+	if !h.projectCairnlineSidecarReadRoutesEnabled() && !h.requiresEmbeddedCairnlineProjectReads() && !h.requireProject(w, r, projectID) {
 		return
 	}
 	data, err := h.renderProjectWorkRoles(r.Context(), projectID)
 	if err != nil {
-		if errors.Is(err, projects.ErrNotFound) {
+		if errors.Is(err, projects.ErrNotFound) || errors.Is(err, cairnline.ErrNotFound) {
 			WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
 			return
 		}
