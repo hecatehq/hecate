@@ -192,6 +192,9 @@ func (h *Handler) renderProjectWorkItems(ctx context.Context, projectID string) 
 	if h.projectCairnlineSidecarReadRoutesEnabled() {
 		return h.renderCairnlineSidecarProjectWorkItems(ctx, projectID)
 	}
+	if h.requiresEmbeddedCairnlineProjectReads() {
+		return h.renderStrictEmbeddedCairnlineProjectWorkItems(ctx, projectID)
+	}
 	if h.projectReadRoutesUseCairnlineReadModel() {
 		return h.renderCairnlineProjectWorkItems(ctx, projectID)
 	}
@@ -219,6 +222,21 @@ func (h *Handler) renderNativeProjectWorkItems(ctx context.Context, projectID st
 		data = append(data, projected)
 	}
 	return data, nil
+}
+
+func (h *Handler) renderStrictEmbeddedCairnlineProjectWorkItems(ctx context.Context, projectID string) ([]ProjectWorkItemResponse, error) {
+	_, service, store, err := h.openCairnlineEmbeddedService(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer store.Close()
+	project, err := service.GetProject(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	return h.renderCairnlineProjectWorkItemsFromService(ctx, service, cairnlinebridge.Snapshot{
+		Project: projectFromCairnline(project, nil, projects.Project{}),
+	})
 }
 
 func (h *Handler) renderCairnlineSidecarProjectWorkItems(ctx context.Context, projectID string) ([]ProjectWorkItemResponse, error) {
@@ -465,6 +483,9 @@ func (h *Handler) renderCairnlineProjectWorkItemsFromService(ctx context.Context
 }
 
 func (h *Handler) renderCairnlineProjectWorkItem(ctx context.Context, projectID, workItemID string) (ProjectWorkItemResponse, error) {
+	if h.requiresEmbeddedCairnlineProjectReads() {
+		return h.renderStrictEmbeddedCairnlineProjectWorkItem(ctx, projectID, workItemID)
+	}
 	view, err := h.cairnlineProjectWorkView(ctx, projectID)
 	if err != nil {
 		return ProjectWorkItemResponse{}, err
@@ -492,6 +513,20 @@ func (h *Handler) renderCairnlineProjectWorkItem(ctx context.Context, projectID,
 		projected.ReadBackend = "cairnline"
 		markProjectWorkAssignmentReadBackend(projected.Assignments, "cairnline")
 		return projected, nil
+	}
+	return ProjectWorkItemResponse{}, projectwork.ErrNotFound
+}
+
+func (h *Handler) renderStrictEmbeddedCairnlineProjectWorkItem(ctx context.Context, projectID, workItemID string) (ProjectWorkItemResponse, error) {
+	items, err := h.renderStrictEmbeddedCairnlineProjectWorkItems(ctx, projectID)
+	if err != nil {
+		return ProjectWorkItemResponse{}, err
+	}
+	workItemID = strings.TrimSpace(workItemID)
+	for _, item := range items {
+		if item.ID == workItemID {
+			return item, nil
+		}
 	}
 	return ProjectWorkItemResponse{}, projectwork.ErrNotFound
 }

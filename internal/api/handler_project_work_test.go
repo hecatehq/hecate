@@ -1549,6 +1549,104 @@ func TestProjectWorkAPI_WorkItemsUseCairnlineSidecarWhenConfigured(t *testing.T)
 	}
 }
 
+func TestProjectWorkAPI_StrictEmbeddedReadModelReadsWorkItemsWithoutHecateProject(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend: "cairnline",
+			CairnlineReadSource: "embedded",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	server := NewServer(quietLogger(), handler)
+	const projectID = "proj_embedded_work"
+
+	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+		if _, err := service.CreateProject(t.Context(), cairnline.Project{
+			ID:   projectID,
+			Name: "Embedded Work",
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateRole(t.Context(), cairnline.Role{
+			ID:        "role_implementer",
+			ProjectID: projectID,
+			Name:      "Implementer",
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateWorkItem(t.Context(), cairnline.WorkItem{
+			ID:          "work_embedded",
+			ProjectID:   projectID,
+			Title:       "Wire direct work reads",
+			Brief:       "Exercise embedded Cairnline work-item projection.",
+			Status:      cairnline.WorkStatusReady,
+			Priority:    cairnline.PriorityNormal,
+			OwnerRoleID: "role_implementer",
+		}); err != nil {
+			return err
+		}
+		_, err := service.CreateAssignment(t.Context(), cairnline.Assignment{
+			ID:            "asgn_embedded",
+			ProjectID:     projectID,
+			WorkItemID:    "work_embedded",
+			RoleID:        "role_implementer",
+			Status:        cairnline.AssignmentQueued,
+			ExecutionMode: cairnline.ExecutionMCPPull,
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("seed embedded Cairnline work items: %v", err)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("Hecate project store seeded ok=%v err=%v, want no project row", ok, err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("work-items status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response ProjectWorkItemsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode work-items response: %v", err)
+	}
+	item := findProjectWorkItemForTest(t, response.Data, "work_embedded")
+	if item.ProjectID != projectID || item.ReadBackend != "cairnline" || item.Title != "Wire direct work reads" {
+		t.Fatalf("work item = %+v, want embedded Cairnline work item", item)
+	}
+	if item.Status != cairnline.WorkStatusReady || item.Priority != cairnline.PriorityNormal || item.OwnerRoleID != "role_implementer" {
+		t.Fatalf("work item metadata = %+v, want embedded Cairnline metadata", item)
+	}
+	if len(item.Assignments) != 1 || item.Assignments[0].ID != "asgn_embedded" || item.Assignments[0].ReadBackend != "cairnline" || item.Assignments[0].RoleID != "role_implementer" {
+		t.Fatalf("work item assignments = %+v, want embedded Cairnline assignment summary", item.Assignments)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_embedded", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("work-item detail status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var detail ProjectWorkItemEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil {
+		t.Fatalf("decode work-item detail response: %v", err)
+	}
+	if detail.Object != "project_work_item" || detail.Data.ID != "work_embedded" || detail.Data.ReadBackend != "cairnline" || len(detail.Data.Assignments) != 1 {
+		t.Fatalf("work-item detail = %+v, want embedded Cairnline detail", detail)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/missing", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing work-item status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_missing/work-items", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing project status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+}
+
 func TestProjectWorkAPI_WorkItemsCairnlineSidecarReadRequiresStructuredContent(t *testing.T) {
 	t.Parallel()
 	_, server := newProjectsCairnlineSidecarReadTestServer(t, "text-only")
