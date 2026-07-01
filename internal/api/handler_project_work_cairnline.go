@@ -644,22 +644,47 @@ func projectHandoffProjectionLess(a, b projectwork.Handoff) bool {
 }
 
 func (h *Handler) renderCairnlineProjectWorkAssignments(ctx context.Context, projectID, workItemID string) ([]ProjectWorkAssignmentResponse, error) {
+	if h.requiresEmbeddedCairnlineProjectReads() {
+		return h.renderStrictEmbeddedCairnlineProjectWorkAssignments(ctx, projectID, workItemID)
+	}
 	view, err := h.cairnlineProjectWorkView(ctx, projectID)
 	if err != nil {
 		return nil, err
 	}
 	defer view.Close()
-	if _, err := view.service.GetWorkItem(ctx, view.snapshot.Project.ID, workItemID); err != nil {
+	return h.renderCairnlineProjectWorkAssignmentsFromService(ctx, view.service, view.snapshot, workItemID)
+}
+
+func (h *Handler) renderStrictEmbeddedCairnlineProjectWorkAssignments(ctx context.Context, projectID, workItemID string) ([]ProjectWorkAssignmentResponse, error) {
+	_, service, store, err := h.openCairnlineEmbeddedService(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer store.Close()
+	project, err := service.GetProject(ctx, projectID)
+	if errors.Is(err, cairnline.ErrNotFound) {
+		return nil, projects.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return h.renderCairnlineProjectWorkAssignmentsFromService(ctx, service, cairnlinebridge.Snapshot{
+		Project: projectFromCairnline(project, nil, projects.Project{}),
+	}, workItemID)
+}
+
+func (h *Handler) renderCairnlineProjectWorkAssignmentsFromService(ctx context.Context, service *cairnline.Service, snapshot cairnlinebridge.Snapshot, workItemID string) ([]ProjectWorkAssignmentResponse, error) {
+	if _, err := service.GetWorkItem(ctx, snapshot.Project.ID, workItemID); err != nil {
 		if errors.Is(err, cairnline.ErrNotFound) {
 			return nil, projectwork.ErrNotFound
 		}
 		return nil, err
 	}
-	items, err := view.service.ListAssignments(ctx, view.snapshot.Project.ID)
+	items, err := service.ListAssignments(ctx, snapshot.Project.ID)
 	if err != nil {
 		return nil, err
 	}
-	assignments := projectWorkAssignmentsFromCairnline(items, view.snapshot.Assignments)
+	assignments := projectWorkAssignmentsFromCairnline(items, snapshot.Assignments)
 	data := make([]ProjectWorkAssignmentResponse, 0, len(items))
 	for _, assignment := range assignments {
 		if strings.TrimSpace(assignment.WorkItemID) != workItemID {
