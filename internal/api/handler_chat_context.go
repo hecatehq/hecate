@@ -638,6 +638,9 @@ func (h *Handler) projectContextSources(ctx context.Context, session chat.Sessio
 }
 
 func (h *Handler) projectSummary(ctx context.Context, projectID string) *projects.Project {
+	if project, ok := h.strictEmbeddedCairnlineProjectSummary(ctx, projectID); ok {
+		return project
+	}
 	if h == nil || h.projects == nil || strings.TrimSpace(projectID) == "" {
 		return nil
 	}
@@ -677,6 +680,9 @@ func (h *Handler) projectMemoryEntries(ctx context.Context, session chat.Session
 }
 
 func (h *Handler) enabledProjectMemoryEntries(ctx context.Context, projectID string) []memory.Entry {
+	if items, ok := h.strictEmbeddedCairnlineEnabledProjectMemoryEntries(ctx, projectID); ok {
+		return items
+	}
 	if h == nil || h.memory == nil || strings.TrimSpace(projectID) == "" {
 		return nil
 	}

@@ -254,11 +254,21 @@ func projectChatRootHints(project projects.Project) string {
 }
 
 func (h *Handler) projectChatRoleHints(ctx context.Context, projectID string) string {
+	if roles, ok := h.strictEmbeddedCairnlineProjectChatRoles(ctx, projectID); ok {
+		return projectChatRoleHintText(roles)
+	}
 	if h == nil || h.projectWork == nil || strings.TrimSpace(projectID) == "" {
 		return ""
 	}
 	roles, err := h.projectWork.ListRoles(ctx, strings.TrimSpace(projectID))
 	if err != nil || len(roles) == 0 {
+		return ""
+	}
+	return projectChatRoleHintText(roles)
+}
+
+func projectChatRoleHintText(roles []projectwork.AgentRoleProfile) string {
+	if len(roles) == 0 {
 		return ""
 	}
 	sort.SliceStable(roles, func(i, j int) bool {
@@ -329,6 +339,9 @@ type projectChatWorkSnapshot struct {
 }
 
 func (h *Handler) projectChatEnabledSkills(ctx context.Context, projectID string) []projectskills.Skill {
+	if items, ok := h.strictEmbeddedCairnlineProjectChatSkills(ctx, projectID); ok {
+		return items
+	}
 	if h == nil || h.projectSkills == nil || strings.TrimSpace(projectID) == "" {
 		return nil
 	}
@@ -347,6 +360,11 @@ func (h *Handler) projectChatEnabledSkills(ctx context.Context, projectID string
 		}
 		out = append(out, item)
 	}
+	sortProjectChatSkills(out)
+	return out
+}
+
+func sortProjectChatSkills(out []projectskills.Skill) {
 	sort.SliceStable(out, func(i, j int) bool {
 		left := firstNonEmptyString(strings.TrimSpace(out[i].Title), strings.TrimSpace(out[i].ID))
 		right := firstNonEmptyString(strings.TrimSpace(out[j].Title), strings.TrimSpace(out[j].ID))
@@ -355,10 +373,12 @@ func (h *Handler) projectChatEnabledSkills(ctx context.Context, projectID string
 		}
 		return strings.TrimSpace(out[i].ID) < strings.TrimSpace(out[j].ID)
 	})
-	return out
 }
 
 func (h *Handler) projectChatWorkSnapshot(ctx context.Context, projectID string) projectChatWorkSnapshot {
+	if snapshot, ok := h.strictEmbeddedCairnlineProjectChatWorkSnapshot(ctx, projectID); ok {
+		return snapshot
+	}
 	if h == nil || h.projectWork == nil || strings.TrimSpace(projectID) == "" {
 		return projectChatWorkSnapshot{}
 	}

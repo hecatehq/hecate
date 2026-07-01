@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/controlplane"
@@ -446,6 +447,183 @@ func TestProjectChatWorkflowSystemPromptSkipsExternalAgentSessions(t *testing.T)
 	})
 	if prompt != "" {
 		t.Fatalf("external-agent project prompt = %q, want empty", prompt)
+	}
+}
+
+func TestProjectChatWorkflowSystemPromptUsesStrictEmbeddedCairnlineProject(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend: "cairnline",
+			CairnlineReadSource: "embedded",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	const projectID = "proj_chat_embedded"
+	rootPath := t.TempDir()
+
+	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+		if _, err := service.CreateProject(t.Context(), cairnline.Project{
+			ID:            projectID,
+			Name:          "Embedded Chat",
+			Description:   "Project prompt comes from embedded Cairnline.",
+			DefaultRootID: "root_chat_embedded",
+			Roots: []cairnline.Root{{
+				ID:        "root_chat_embedded",
+				Path:      rootPath,
+				Kind:      "git",
+				GitBranch: "main",
+				Active:    true,
+			}},
+			ContextSources: []cairnline.Source{{
+				ID:         "ctx_chat_embedded",
+				Kind:       "workspace_instruction",
+				Title:      "AGENTS.md",
+				Locator:    "AGENTS.md",
+				Enabled:    true,
+				Format:     "agents_md",
+				TrustLabel: "workspace_guidance",
+			}},
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateRole(t.Context(), cairnline.Role{
+			ID:              "role_chat_planner",
+			ProjectID:       projectID,
+			Name:            "Chat Planner",
+			Description:     "Shapes chat-discovered work.",
+			DefaultSkillIDs: []string{"planning"},
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateProjectSkill(t.Context(), cairnline.ProjectSkill{
+			ID:          "planning",
+			ProjectID:   projectID,
+			Title:       "Planning",
+			Description: "Plan reviewable chat work.",
+			Path:        ".agents/skills/planning/SKILL.md",
+			RootID:      "root_chat_embedded",
+			Format:      cairnline.SkillFormatMarkdown,
+			Enabled:     true,
+			Status:      cairnline.SkillStatusAvailable,
+			TrustLabel:  cairnline.SkillTrustWorkspace,
+			SourceRefs:  []string{"ctx_chat_embedded"},
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateWorkItem(t.Context(), cairnline.WorkItem{
+			ID:          "work_chat_embedded",
+			ProjectID:   projectID,
+			Title:       "Plan embedded chat context",
+			Brief:       "Keep chat project prelude backed by Cairnline.",
+			Status:      cairnline.WorkStatusReady,
+			Priority:    "high",
+			OwnerRoleID: "role_chat_planner",
+			RootID:      "root_chat_embedded",
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateAssignment(t.Context(), cairnline.Assignment{
+			ID:            "asgn_chat_embedded",
+			ProjectID:     projectID,
+			WorkItemID:    "work_chat_embedded",
+			RoleID:        "role_chat_planner",
+			RootID:        "root_chat_embedded",
+			ExecutionMode: cairnline.ExecutionMCPPull,
+			Status:        cairnline.AssignmentQueued,
+		}); err != nil {
+			return err
+		}
+		_, err := service.CreateMemoryEntry(t.Context(), cairnline.MemoryEntry{
+			ID:         "mem_chat_embedded",
+			ProjectID:  projectID,
+			Title:      "Embedded chat memory",
+			Body:       "Hecate Chat should use embedded Cairnline project context.",
+			Enabled:    true,
+			TrustLabel: memory.TrustLabelOperatorMemory,
+			SourceKind: memory.SourceKindOperator,
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("seed embedded Cairnline chat project: %v", err)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("Hecate project store seeded ok=%v err=%v, want no native project row", ok, err)
+	}
+
+	prompt := handler.projectChatWorkflowSystemPrompt(t.Context(), chat.Session{ProjectID: projectID})
+	for _, want := range []string{
+		"Project: Embedded Chat (proj_chat_embedded)",
+		"Project roots (metadata only; files are not read):",
+		"- Root " + rootPath + " (root_chat_embedded): active=true, default=true, kind=git, branch=main",
+		"Role hints:",
+		"Chat Planner (role_chat_planner): Shapes chat-discovered work.",
+		"Project skills (metadata only; skill bodies are not loaded):",
+		"Planning (planning): Plan reviewable chat work. Path: .agents/skills/planning/SKILL.md",
+		"Active project work snapshot:",
+		"- Work item Plan embedded chat context (work_chat_embedded): status=ready, priority=high, owner_role=role_chat_planner",
+		"- Assignment asgn_chat_embedded: work_item=work_chat_embedded, role=role_chat_planner, status=queued, driver=hecate_task",
+		"Project memory: Embedded chat memory\nID: mem_chat_embedded\nTrust: operator_memory",
+		"Hecate Chat should use embedded Cairnline project context.",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("strict embedded project prompt missing %q:\n%s", want, prompt)
+		}
+	}
+
+	packet := renderChatContextPacket(handler.directModelContextPacket(t.Context(), chat.Session{ProjectID: projectID}, "openai", "gpt-4o-mini", ""))
+	if packet == nil ||
+		!chatContextPacketHasKind(*packet, "project") ||
+		!chatContextPacketHasKind(*packet, "project_skills") ||
+		!chatContextPacketHasKind(*packet, "project_work") {
+		t.Fatalf("strict embedded context packet missing project metadata: %+v", packet)
+	}
+}
+
+func TestProjectChatWorkflowSystemPromptStrictEmbeddedSkipsNativeFallback(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend: "cairnline",
+			CairnlineReadSource: "embedded",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	const projectID = "proj_chat_native_only"
+
+	if _, err := handler.projects.Create(t.Context(), projects.Project{
+		ID:          projectID,
+		Name:        "Native Only Chat Project",
+		Description: "This native row should not feed strict embedded chat.",
+	}); err != nil {
+		t.Fatalf("seed native project: %v", err)
+	}
+	if _, err := handler.memory.Create(t.Context(), memory.Entry{
+		ID:         "mem_native_only",
+		Scope:      memory.ScopeProject,
+		ProjectID:  projectID,
+		Title:      "Native-only memory",
+		Body:       "This native memory should not feed strict embedded chat.",
+		Enabled:    true,
+		TrustLabel: memory.TrustLabelOperatorMemory,
+		SourceKind: memory.SourceKindOperator,
+	}); err != nil {
+		t.Fatalf("seed native memory: %v", err)
+	}
+
+	prompt := handler.projectChatWorkflowSystemPrompt(t.Context(), chat.Session{ProjectID: projectID})
+	for _, notWant := range []string{
+		"Native Only Chat Project",
+		"This native row should not feed strict embedded chat.",
+		"Native-only memory",
+		"This native memory should not feed strict embedded chat.",
+	} {
+		if strings.Contains(prompt, notWant) {
+			t.Fatalf("strict embedded project prompt fell back to native content %q:\n%s", notWant, prompt)
+		}
+	}
+
+	packet := renderChatContextPacket(handler.directModelContextPacket(t.Context(), chat.Session{ProjectID: projectID}, "openai", "gpt-4o-mini", ""))
+	if packet != nil && (chatContextPacketHasKind(*packet, "project") || chatContextPacketHasKind(*packet, "memory")) {
+		t.Fatalf("strict embedded context packet fell back to native project or memory metadata: %+v", packet)
 	}
 }
 
