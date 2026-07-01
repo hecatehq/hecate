@@ -316,11 +316,13 @@ func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendS
 	storageBackend := ""
 	readSource := "auto"
 	connector := "embedded"
+	replacementMode := "disabled"
 	if h != nil {
 		configured = h.config.ProjectsCoordinationBackend()
 		storageBackend = h.config.Projects.Backend
 		readSource = h.config.ProjectsCairnlineReadSource()
 		connector = h.config.ProjectsCairnlineConnector()
+		replacementMode = h.config.ProjectsCairnlineReplacementMode()
 	}
 	connectorReady := projectCairnlineConnectorReady(connector)
 	response := ProjectCoordinationBackendStatusResponse{
@@ -337,6 +339,9 @@ func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendS
 		ReplacementReadinessURL:              projectCoordinationBackendReadinessURL,
 		ReplacementTarget:                    "embedded_cairnline_first",
 		ReplacementTargetDetail:              "Hecate's Projects replacement path targets embedded Cairnline as the first source of truth; the standalone sidecar remains an interoperability and future external-server boundary.",
+		ReplacementMode:                      replacementMode,
+		ReplacementModeArmed:                 replacementMode == "embedded",
+		ReplacementModeDetail:                projectCairnlineReplacementModeDetail(replacementMode),
 		CairnlineSidecarProbeURL:             projectCoordinationBackendSidecarProbeURL,
 		CairnlineSidecarConnectURL:           projectCoordinationBackendSidecarConnectURL,
 		CairnlineSidecarReadURL:              projectCoordinationBackendSidecarReadURL,
@@ -371,13 +376,13 @@ func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendS
 		response.MigrationBlockers = projectCairnlineMigrationBlockersSnapshot(response.WriteAdapterGaps)
 		response.WriteAdapterReady = len(response.PortableWriteGaps) == 0
 		response.WriteSwitchpoints = projectCairnlineWriteSwitchpointsSnapshot(effectiveWriteAuthority)
-		response.ReplacementGates = projectCairnlineReplacementGates(readReady, response.PortableWriteGaps)
+		response.ReplacementGates = projectCairnlineReplacementGates(readReady, response.PortableWriteGaps, replacementMode)
 		if !connectorReady {
 			if h.projectCairnlineSidecarReadRoutesEnabled() {
 				response.Status = "cairnline_sidecar_read_routes_ready"
 				response.Detail = "Cairnline sidecar is configured as the project read source, so " + projectCairnlineReadRouteList(projectCairnlineSidecarReadRouteNames) + " routes read through the persistent standalone Cairnline MCP client. Project writes and migration remain on Hecate-native stores or existing embedded dogfood paths."
 				response.ReadRoutes = append([]string(nil), projectCairnlineSidecarReadRouteNames...)
-				response.ReplacementGates = projectCairnlineReplacementGates(false, response.PortableWriteGaps)
+				response.ReplacementGates = projectCairnlineReplacementGates(false, response.PortableWriteGaps, replacementMode)
 				response.Warnings = []string{
 					"Only " + projectCairnlineReadRouteList(projectCairnlineSidecarReadRouteNames) + " use the Cairnline sidecar MCP client in this mode.",
 					"Project writes still use Hecate-native stores unless a separate embedded Cairnline authority switchpoint is explicitly enabled.",
@@ -387,7 +392,7 @@ func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendS
 			}
 			response.Status = "cairnline_connector_not_ready"
 			response.Detail = projectCairnlineConnectorDetail(connector) + " Hecate keeps Projects reads and writes on Hecate-native stores in this mode; use HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded for the current replacement-readiness dogfood path."
-			response.ReplacementGates = projectCairnlineReplacementGates(false, response.PortableWriteGaps)
+			response.ReplacementGates = projectCairnlineReplacementGates(false, response.PortableWriteGaps, replacementMode)
 			response.Warnings = []string{
 				projectCairnlineConnectorWarning(connector),
 				"Project reads and writes still use Hecate-native stores.",
@@ -433,6 +438,11 @@ func (h *Handler) projectCoordinationBackendStatus() ProjectCoordinationBackendS
 }
 
 func projectCairnlineStatusWithNextAction(response ProjectCoordinationBackendStatusResponse) ProjectCoordinationBackendStatusResponse {
+	response.ReplacementReady = projectCairnlineReplacementGatesReady(response.ReplacementGates)
+	if response.ReplacementReady {
+		response.AuthoritativeBackend = "cairnline"
+		response.CairnlineAuthoritative = true
+	}
 	response.NextReplacementAction = projectCairnlineNextReplacementAction(response)
 	return response
 }
@@ -514,6 +524,15 @@ func projectCairnlineNextReplacementAction(status ProjectCoordinationBackendStat
 			},
 		}
 	}
+	if status.ReplacementMode != "embedded" {
+		return &ProjectCoordinationBackendNextAction{
+			ID:          "arm-embedded-replacement-mode",
+			Label:       "Arm embedded Cairnline replacement mode",
+			Detail:      "All status-derived blocker groups are clear; explicitly arm embedded Cairnline replacement mode before final probes or cutover.",
+			Target:      "embedded-replacement-mode",
+			ConfigHints: projectCairnlineReplacementModeHints(),
+		}
+	}
 	return &ProjectCoordinationBackendNextAction{
 		ID:     "run-final-replacement-probes",
 		Label:  "Run final replacement probes",
@@ -525,6 +544,12 @@ func projectCairnlineNextReplacementAction(status ProjectCoordinationBackendStat
 			projectCoordinationBackendSyncReadinessURL,
 			projectCoordinationBackendMirrorParityURL,
 		},
+	}
+}
+
+func projectCairnlineReplacementModeHints() []ProjectCoordinationBackendActionConfigHint {
+	return []ProjectCoordinationBackendActionConfigHint{
+		projectCairnlineConfigHint("HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE", "embedded", "Arm the explicit embedded Cairnline replacement contract after read, write-authority, migration, and rollback gates are ready."),
 	}
 }
 
@@ -589,7 +614,7 @@ func projectCairnlineWriteAuthorityValuesForGap(gap string) []string {
 	}
 }
 
-func projectCairnlineReplacementGates(readRoutesReady bool, portableWriteGaps []string) []ProjectCoordinationBackendReplacementGate {
+func projectCairnlineReplacementGates(readRoutesReady bool, portableWriteGaps []string, replacementMode string) []ProjectCoordinationBackendReplacementGate {
 	writeGate := projectCairnlineWriteAuthorityReplacementGate(portableWriteGaps)
 	return []ProjectCoordinationBackendReplacementGate{
 		{
@@ -614,7 +639,44 @@ func projectCairnlineReplacementGates(readRoutesReady bool, portableWriteGaps []
 			Detail:    "Embedded sync and project export return structured migration rehearsal evidence with rollback notes, but no authoritative Cairnline storage cutover switch exists yet.",
 			ProbeURLs: []string{projectCoordinationBackendSyncReadinessURL, projectCoordinationBackendMirrorParityURL, projectCoordinationBackendExportURL},
 		},
+		projectCairnlineReplacementModeGate(replacementMode),
 	}
+}
+
+func projectCairnlineReplacementModeGate(replacementMode string) ProjectCoordinationBackendReplacementGate {
+	if replacementMode == "embedded" {
+		return ProjectCoordinationBackendReplacementGate{
+			ID:     "embedded-replacement-mode",
+			Ready:  true,
+			Status: "armed",
+			Detail: "HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded is set, so the operator has explicitly armed the embedded Cairnline cutover contract. This does not bypass read, write, migration, rollback, or Hecate-owned runtime side-effect gates.",
+		}
+	}
+	return ProjectCoordinationBackendReplacementGate{
+		ID:     "embedded-replacement-mode",
+		Ready:  false,
+		Status: "disabled",
+		Detail: "Embedded Cairnline replacement mode is disabled. Keep it disabled until read routes, portable write authority, migration rehearsal, and rollback checks are ready; then set HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded to arm the explicit cutover contract.",
+	}
+}
+
+func projectCairnlineReplacementModeDetail(replacementMode string) string {
+	if replacementMode == "embedded" {
+		return "Embedded Cairnline replacement mode is armed, but status still requires the read, write-authority, migration, rollback, and runtime-boundary gates before any backend can be considered replaceable."
+	}
+	return "Embedded Cairnline replacement mode is disabled; Hecate will not report Projects as replaceable without an explicit operator cutover-mode opt-in."
+}
+
+func projectCairnlineReplacementGatesReady(gates []ProjectCoordinationBackendReplacementGate) bool {
+	if len(gates) == 0 {
+		return false
+	}
+	for _, gate := range gates {
+		if !gate.Ready {
+			return false
+		}
+	}
+	return true
 }
 
 func projectCairnlineWriteAuthorityReplacementGate(portableWriteGaps []string) ProjectCoordinationBackendReplacementGate {

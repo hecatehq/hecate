@@ -611,12 +611,17 @@ backend-status summary, next action, and replacement-gate checklist under
 Project coordination for local operator inspection. The reported replacement
 target is embedded Cairnline first: Hecate should make the embedded Cairnline
 database the Projects source of truth before treating an external sidecar as the
-standalone/interoperability boundary. Once portable write gaps are
+standalone/interoperability boundary. `replacement_mode=disabled|embedded`
+reports the explicit operator cutover arm; `embedded` is only valid with the
+embedded connector and strict embedded read source, and it does not bypass the
+read, write-authority, migration, rollback, or Hecate-owned runtime side-effect
+gates. Once portable write gaps are
 closed, the migration next action reports strict embedded rehearsal hints for
 `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded`,
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded`, and
-`HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=all-portable`; these remain operator
-settings, not an automatic backend replacement. `GET
+`HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=all-portable`; after those gates are
+ready, `HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded` is the explicit
+operator arm, not an automatic backend replacement. `GET
 /hecate/v1/projects/cairnline/mirror-parity` compares the existing embedded
 mirror database with Hecate's current stores without creating or repairing it;
 `GET /hecate/v1/projects/{id}/cairnline/embedded-read-model` reads operations,
