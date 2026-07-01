@@ -1698,6 +1698,108 @@ func TestProjectWorkAPI_AssignmentsUseCairnlineSidecarWhenConfigured(t *testing.
 	}
 }
 
+func TestProjectWorkAPI_StrictEmbeddedReadModelReadsAssignmentsWithoutHecateProject(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend: "cairnline",
+			CairnlineReadSource: "embedded",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	server := NewServer(quietLogger(), handler)
+	const projectID = "proj_embedded_assignments"
+
+	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+		if _, err := service.CreateProject(t.Context(), cairnline.Project{
+			ID:   projectID,
+			Name: "Embedded Assignments",
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateRole(t.Context(), cairnline.Role{
+			ID:        "role_implementer",
+			ProjectID: projectID,
+			Name:      "Implementer",
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateWorkItem(t.Context(), cairnline.WorkItem{
+			ID:        "work_embedded",
+			ProjectID: projectID,
+			Title:     "Read embedded assignments",
+			Status:    cairnline.WorkStatusReady,
+			Priority:  cairnline.PriorityNormal,
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateWorkItem(t.Context(), cairnline.WorkItem{
+			ID:        "work_other",
+			ProjectID: projectID,
+			Title:     "Other work",
+			Status:    cairnline.WorkStatusReady,
+			Priority:  cairnline.PriorityNormal,
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateAssignment(t.Context(), cairnline.Assignment{
+			ID:            "asgn_embedded",
+			ProjectID:     projectID,
+			WorkItemID:    "work_embedded",
+			RoleID:        "role_implementer",
+			Status:        cairnline.AssignmentQueued,
+			ExecutionMode: cairnline.ExecutionMCPPull,
+		}); err != nil {
+			return err
+		}
+		_, err := service.CreateAssignment(t.Context(), cairnline.Assignment{
+			ID:            "asgn_other",
+			ProjectID:     projectID,
+			WorkItemID:    "work_other",
+			RoleID:        "role_implementer",
+			Status:        cairnline.AssignmentQueued,
+			ExecutionMode: cairnline.ExecutionMCPPull,
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("seed embedded Cairnline assignments: %v", err)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("Hecate project store seeded ok=%v err=%v, want no project row", ok, err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_embedded/assignments", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("assignments status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response ProjectWorkAssignmentsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode assignments response: %v", err)
+	}
+	if response.Object != "project_assignments" || len(response.Data) != 1 {
+		t.Fatalf("assignments response = %+v, want one embedded Cairnline assignment", response)
+	}
+	assignment := response.Data[0]
+	if assignment.ID != "asgn_embedded" || assignment.ProjectID != projectID || assignment.WorkItemID != "work_embedded" || assignment.ReadBackend != "cairnline" {
+		t.Fatalf("assignment = %+v, want embedded Cairnline assignment", assignment)
+	}
+	if assignment.RoleID != "role_implementer" || assignment.DriverKind != projectwork.AssignmentDriverHecateTask || assignment.Status != projectwork.AssignmentStatusQueued {
+		t.Fatalf("assignment defaults = %+v, want embedded Cairnline assignment metadata", assignment)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/missing/assignments", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing work-item assignments status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_missing/work-items/work_embedded/assignments", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing project assignments status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+}
+
 func TestProjectWorkAPI_AssignmentsCairnlineSidecarReadRequiresStructuredContent(t *testing.T) {
 	t.Parallel()
 	_, server := newProjectsCairnlineSidecarReadTestServer(t, "text-only")

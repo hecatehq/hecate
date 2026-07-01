@@ -656,6 +656,10 @@ func (h *Handler) HandleProjectWorkAssignments(w http.ResponseWriter, r *http.Re
 	if h.projectReadRoutesUseCairnlineReadModel() {
 		data, err := h.renderCairnlineProjectWorkAssignments(r.Context(), projectID, workItemID)
 		if err != nil {
+			if errors.Is(err, projects.ErrNotFound) || errors.Is(err, cairnline.ErrNotFound) {
+				WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
+				return
+			}
 			if errors.Is(err, projectwork.ErrNotFound) {
 				WriteError(w, http.StatusNotFound, errCodeNotFound, "work item not found")
 				return
