@@ -597,10 +597,11 @@ type ProjectCoordinationBackendStatusResponse struct {
 }
 
 type ProjectCoordinationBackendReplacementGate struct {
-	ID     string `json:"id"`
-	Ready  bool   `json:"ready"`
-	Status string `json:"status"`
-	Detail string `json:"detail"`
+	ID        string   `json:"id"`
+	Ready     bool     `json:"ready"`
+	Status    string   `json:"status"`
+	Detail    string   `json:"detail"`
+	ProbeURLs []string `json:"probe_urls,omitempty"`
 }
 
 type ProjectCoordinationBackendWriteSwitchpoint struct {

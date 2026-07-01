@@ -277,9 +277,13 @@ func TestProjectCoordinationBackendStatus_CairnlineConfiguredReadRoutesReady(t *
 	}
 	if gate := findReplacementGate(status.ReplacementGates, "read-routes"); gate == nil || !gate.Ready || gate.Status != "ready" {
 		t.Fatalf("read-routes gate = %+v, want ready gate", gate)
+	} else if !containsString(gate.ProbeURLs, projectCoordinationBackendReadinessURL) || !containsString(gate.ProbeURLs, projectCoordinationBackendEmbeddedReadModelURL) || !containsString(gate.ProbeURLs, projectCoordinationBackendEmbeddedParityReportURL) {
+		t.Fatalf("read-routes gate probe URLs = %+v, want read-model and embedded parity probes", gate.ProbeURLs)
 	}
 	if gate := findReplacementGate(status.ReplacementGates, "strict-embedded-read-smoke"); gate == nil || gate.Ready || gate.Status != "operator_probe_required" {
 		t.Fatalf("strict embedded gate = %+v, want operator probe gate", gate)
+	} else if !containsString(gate.ProbeURLs, projectCoordinationBackendSyncReadinessURL) || !containsString(gate.ProbeURLs, projectCoordinationBackendMirrorParityURL) {
+		t.Fatalf("strict embedded gate probe URLs = %+v, want sync and mirror parity probes", gate.ProbeURLs)
 	}
 	if point := findWriteSwitchpoint(status.WriteSwitchpoints, "project-memory"); point == nil || point.CurrentAuthority != "hecate" || point.CairnlineState != "live_mirror_non_authoritative" || !point.LiveMirror || !point.BlocksAuthority || point.Gap != "memory" {
 		t.Fatalf("project-memory switchpoint = %+v, want Hecate-owned live mirror blocker", point)
@@ -813,6 +817,9 @@ func TestProjectCoordinationBackendStatusRoute(t *testing.T) {
 	migrationGate := findReplacementGate(response.Data.ReplacementGates, "migration-and-rollback")
 	if migrationGate == nil || migrationGate.Status != "rehearsal_available" {
 		t.Fatalf("response migration gate = %+v, want rehearsal-available blocker", migrationGate)
+	}
+	if !containsString(migrationGate.ProbeURLs, projectCoordinationBackendSyncReadinessURL) || !containsString(migrationGate.ProbeURLs, projectCoordinationBackendMirrorParityURL) || !containsString(migrationGate.ProbeURLs, projectCoordinationBackendExportURL) {
+		t.Fatalf("response migration gate probe URLs = %+v, want sync, mirror parity, and export probes", migrationGate.ProbeURLs)
 	}
 	migrationSwitchpoint := findWriteSwitchpoint(response.Data.WriteSwitchpoints, "migration-cutover")
 	if migrationSwitchpoint == nil || migrationSwitchpoint.CairnlineState != "snapshot_import_rehearsal_available" || !containsString(migrationSwitchpoint.Seams, "sync-rehearsal") {
