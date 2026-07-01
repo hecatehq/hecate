@@ -410,11 +410,12 @@ When the embedded Cairnline read adapter is fully wired,
 health, skills, memory entries, memory candidates, roles, work-item
 list/detail, assignment-list, assignment-context, launch-readiness,
 assignment-preflight, artifact-list, handoff-list, Project Assistant
-context/proposal reads, closeout readiness, activity inbox, and operations brief
-can be served from the Cairnline read model. Project Assistant draft generation
-also uses the Cairnline-projected context in this mode, while proposal ledger
-writes remain Hecate-owned unless `project-assistant-proposals` is explicitly
-enabled. Confirmed Project Assistant apply routes project create, project
+context/proposal reads, project-linked Hecate Chat prelude/context reads,
+closeout readiness, activity inbox, and operations brief can be served from the
+Cairnline read model. Project Assistant draft generation also uses the
+Cairnline-projected context in this mode, while proposal ledger writes remain
+Hecate-owned unless `project-assistant-proposals` is explicitly enabled.
+Confirmed Project Assistant apply routes project create, project
 metadata/default, root, role, work-item, assignment, handoff, and
 memory-candidate actions through the same opt-in Cairnline authority
 switchpoints when those switchpoints are enabled; chat and runtime side effects
@@ -428,7 +429,10 @@ task/external agent supervision, approvals, and assignment mutation. Project
 reads backed by the Cairnline read model prefer the embedded Cairnline mirror
 database when that database already contains the requested project or proposal
 record; if the mirror database, project row, or proposal record is missing,
-they fall back to the snapshot-seeded in-memory bridge projection. Set
+they fall back to the snapshot-seeded in-memory bridge projection. Project-linked
+Hecate Chat prelude/context helpers use the embedded Cairnline graph directly in
+strict embedded mode so dogfood chat sessions do not require shadow Hecate
+project rows. Set
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=snapshot` to force the snapshot-seeded
 bridge, or `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded` to make configured
 read routes require a populated

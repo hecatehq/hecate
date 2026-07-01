@@ -205,8 +205,9 @@ plus project list/detail, setup readiness, health, skills, memory entries,
 memory candidates, roles, work-item list/detail, assignment-list,
 assignment-context, launch-readiness, assignment-preflight, artifact-list,
 handoff-list, Project Assistant context and proposal reads, closeout readiness,
-and operations brief can use the Cairnline read model for portable setup/work
-state. Configured read routes prefer the embedded Cairnline mirror database
+project-linked Hecate Chat prelude/context reads, and operations brief can use
+the Cairnline read model for portable setup/work state. Configured read routes
+prefer the embedded Cairnline mirror database
 when it already contains the requested project or proposal record; if the
 mirror database, project row, or proposal record is missing, they fall back to
 the snapshot-seeded in-memory bridge projection.
@@ -218,8 +219,9 @@ project list/detail plus setup-readiness, health, project skill list, project
 role list, work-item list/detail, assignment-list, assignment-context,
 launch-readiness, assignment preflight, activity, artifact-list, handoff-list,
 closeout-readiness, operations brief, project memory list, and
-memory-candidate list reads plus Project Assistant context/proposal reads load
-directly from the embedded Cairnline project, skill, role, work-item,
+memory-candidate list reads plus Project Assistant context/proposal reads and
+project-linked Hecate Chat prelude/context reads load directly from the embedded
+Cairnline project, skill, role, work-item,
 assignment, launch-packet, artifact, evidence, review, handoff, memory, and
 assistant proposal records instead of loading a Hecate-native project snapshot
 first.
@@ -234,8 +236,9 @@ direct strict embedded exceptions are project list/detail, project skill list,
 setup-readiness, health, project role list, work-item list/detail,
 assignment-list, assignment-context, launch-readiness, assignment preflight,
 activity, artifact-list, handoff-list, closeout-readiness, operations brief,
-project memory list, memory-candidate list, and Project Assistant
-context/proposal reads. The explicit sidecar read-source routes remain the broader
+project memory list, memory-candidate list, Project Assistant context/proposal
+reads, and project-linked Hecate Chat prelude/context reads. The explicit
+sidecar read-source routes remain the broader
 standalone-process exception for project list/detail, setup-readiness, health,
 project skill list, project memory list,
 memory-candidate list, project role list, work-item list/detail,
@@ -554,13 +557,15 @@ after these gates are met:
   routes are project list/detail, setup readiness, health, skills, memory
   entries, memory candidates, roles, activity, work-item list/detail, assignment
   lists, assignment context, launch-readiness, assignment preflight, artifact
-  lists, handoff lists, Project Assistant context/proposal reads, closeout
-  readiness, and operations brief. Draft generation may use the
+  lists, handoff lists, Project Assistant context/proposal reads,
+  project-linked Hecate Chat prelude/context reads, closeout readiness, and
+  operations brief. Draft generation may use the
   Cairnline-projected context, and proposal ledger writes may become
   Cairnline-authoritative with the `project-assistant-proposals` switchpoint.
   Confirmed apply may use enabled project create, project metadata/default, root,
   role/work-item/assignment/handoff, and memory-candidate Cairnline-authority
-  seams, but chat/runtime side effects remain a mixed-authority replacement blocker and are mirrored as
+  seams, but chat/runtime side effects remain a mixed-authority replacement
+  blocker and are mirrored as
   non-authoritative Cairnline replacement evidence. Assignment preflight/start
   packets may carry non-authoritative
   Cairnline launch-packet evidence, but assignment-start remains a Hecate-owned
