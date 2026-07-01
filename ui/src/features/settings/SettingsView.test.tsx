@@ -99,6 +99,12 @@ describe("SettingsView", () => {
           detail:
             "Close the next portable project-state gap by adding a Cairnline-authoritative switchpoint while keeping Hecate as compatibility shadow.",
           target: "agent-profiles",
+          config_hints: [
+            {
+              env: "HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY",
+              value: "agent-profiles",
+            },
+          ],
           probe_urls: ["/hecate/v1/projects/{id}/cairnline/read-model"],
         },
         status: "cairnline_read_routes_ready",
@@ -117,6 +123,9 @@ describe("SettingsView", () => {
     expect(screen.getByText("Next action")).toBeTruthy();
     expect(screen.getByText("Move the next portable write authority")).toBeTruthy();
     expect(screen.getAllByText("agent-profiles").length).toBeGreaterThanOrEqual(1);
+    expect(
+      screen.getByText("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=agent-profiles"),
+    ).toBeTruthy();
     expect(screen.getByText("1 probe")).toBeTruthy();
     expect(screen.getByText("memory-candidates")).toBeTruthy();
     expect(screen.getByText("assignment-start")).toBeTruthy();

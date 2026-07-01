@@ -2468,11 +2468,14 @@ Hecate still owns discovery scans and Git worktree creation.
 probes, write-authority switchpoints, and migration/rollback gates are all
 ready. `next_replacement_action` is an advisory next operator step derived from
 the same status snapshot; it is not a command, permission, gate result, or proof
-that replacement is safe. `replacement_gates` reports those high-level gates as
-structured checklist items so clients do not need to parse warning prose. Each
-gate may include `probe_urls`, a list of route templates that produce
-supporting evidence for that gate; these URLs identify checks to run and are
-not proof that the gate has already passed. The
+that replacement is safe. It can include `config_hints`, which are environment
+setting suggestions such as a specific
+`HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY` value; clients must treat them as
+operator guidance, not as mutations to apply automatically. `replacement_gates`
+reports those high-level gates as structured checklist items so clients do not
+need to parse warning prose. Each gate may include `probe_urls`, a list of route
+templates that produce supporting evidence for that gate; these URLs identify
+checks to run and are not proof that the gate has already passed. The
 `write-authority-switchpoints` gate can be `blocked`, `partial`, or `ready`;
 it ignores the separate `migration-cutover` gap because migration and rollback
 are reported by the `migration-and-rollback` gate.
@@ -2715,7 +2718,14 @@ Example response, with `write_switchpoints` shortened for readability:
       "id": "move-portable-write-authority",
       "label": "Move the next portable write authority",
       "detail": "Close the next portable project-state gap by adding a Cairnline-authoritative switchpoint while keeping Hecate as compatibility shadow.",
-      "target": "projects"
+      "target": "projects",
+      "config_hints": [
+        {
+          "env": "HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY",
+          "value": "project-identity,project-metadata-defaults",
+          "detail": "Add these comma-separated values to HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY; this gap requires the switchpoints together."
+        }
+      ]
     },
     "replacement_gates": [
       {

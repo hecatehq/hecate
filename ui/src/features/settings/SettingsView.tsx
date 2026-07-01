@@ -386,6 +386,7 @@ function ProjectBackendNextAction({
   action: NonNullable<ProjectCoordinationBackendStatusRecord["next_replacement_action"]>;
 }) {
   const probes = action.probe_urls ?? [];
+  const configHints = action.config_hints ?? [];
   return (
     <div
       style={{
@@ -422,6 +423,26 @@ function ProjectBackendNextAction({
       </div>
       <div style={{ color: "var(--t0)", fontSize: 13, fontWeight: 650 }}>{action.label}</div>
       <div style={{ color: "var(--t2)", fontSize: 12, lineHeight: 1.45 }}>{action.detail}</div>
+      {configHints.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {configHints.map((hint) => (
+            <span
+              key={`${hint.env}:${hint.value}`}
+              className="badge badge-muted"
+              style={{
+                fontFamily: "var(--font-mono)",
+                maxWidth: "100%",
+                overflowWrap: "anywhere",
+                textTransform: "none",
+                whiteSpace: "normal",
+              }}
+              title={hint.detail || `${hint.env}=${hint.value}`}
+            >
+              {hint.env}={hint.value}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

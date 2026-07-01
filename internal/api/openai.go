@@ -601,11 +601,18 @@ type ProjectCoordinationBackendStatusResponse struct {
 }
 
 type ProjectCoordinationBackendNextAction struct {
-	ID        string   `json:"id"`
-	Label     string   `json:"label"`
-	Detail    string   `json:"detail"`
-	Target    string   `json:"target,omitempty"`
-	ProbeURLs []string `json:"probe_urls,omitempty"`
+	ID          string                                       `json:"id"`
+	Label       string                                       `json:"label"`
+	Detail      string                                       `json:"detail"`
+	Target      string                                       `json:"target,omitempty"`
+	ConfigHints []ProjectCoordinationBackendActionConfigHint `json:"config_hints,omitempty"`
+	ProbeURLs   []string                                     `json:"probe_urls,omitempty"`
+}
+
+type ProjectCoordinationBackendActionConfigHint struct {
+	Env    string `json:"env"`
+	Value  string `json:"value"`
+	Detail string `json:"detail,omitempty"`
 }
 
 type ProjectCoordinationBackendReplacementGate struct {

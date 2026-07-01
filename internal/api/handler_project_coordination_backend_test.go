@@ -79,6 +79,9 @@ func TestProjectCoordinationBackendStatus_DefaultHecateAuthoritative(t *testing.
 	if status.NextReplacementAction == nil || status.NextReplacementAction.ID != "enable-cairnline-dogfood" || status.NextReplacementAction.Target != "configuration" {
 		t.Fatalf("next action = %+v, want enable-cairnline-dogfood configuration action", status.NextReplacementAction)
 	}
+	if hint := findConfigHint(status.NextReplacementAction.ConfigHints, "HECATE_PROJECTS_COORDINATION_BACKEND"); hint == nil || hint.Value != "cairnline" {
+		t.Fatalf("next action config hints = %+v, want coordination backend=cairnline", status.NextReplacementAction.ConfigHints)
+	}
 }
 
 func TestProjectCoordinationBackendStatus_CairnlineConfiguredMissingSources(t *testing.T) {
@@ -326,6 +329,9 @@ func TestProjectCoordinationBackendStatus_CairnlineConfiguredReadRoutesReady(t *
 	}
 	if status.NextReplacementAction == nil || status.NextReplacementAction.ID != "move-portable-write-authority" || status.NextReplacementAction.Target != "projects" {
 		t.Fatalf("next action = %+v, want first portable write authority gap", status.NextReplacementAction)
+	}
+	if hint := findConfigHint(status.NextReplacementAction.ConfigHints, "HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY"); hint == nil || hint.Value != "project-identity,project-metadata-defaults" {
+		t.Fatalf("next action config hints = %+v, want project identity + metadata defaults write authority", status.NextReplacementAction.ConfigHints)
 	}
 }
 
@@ -824,6 +830,30 @@ func TestProjectCoordinationBackendStatus_WriteAuthorityGateIgnoresMigrationGap(
 	}
 }
 
+func TestProjectCoordinationBackendStatus_NextActionWriteAuthorityHints(t *testing.T) {
+	tests := []struct {
+		gap  string
+		want string
+	}{
+		{gap: "projects", want: "project-identity,project-metadata-defaults"},
+		{gap: "memory-candidates", want: "project-memory,memory-candidates"},
+		{gap: "artifacts", want: "project-collaboration"},
+		{gap: "project-assistant-proposals", want: "project-assistant-proposals"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.gap, func(t *testing.T) {
+			hints := projectCairnlineWriteAuthorityHintsForGap(tt.gap)
+			hint := findConfigHint(hints, "HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY")
+			if hint == nil || hint.Value != tt.want || hint.Detail == "" {
+				t.Fatalf("hints = %+v, want write authority value %q with detail", hints, tt.want)
+			}
+		})
+	}
+	if hints := projectCairnlineWriteAuthorityHintsForGap("assignment-start"); len(hints) != 0 {
+		t.Fatalf("assignment-start hints = %+v, want none because dispatch is not a portable write-authority switchpoint", hints)
+	}
+}
+
 func TestProjectCoordinationBackendStatusRoute(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	cfg := config.Config{
@@ -866,6 +896,9 @@ func TestProjectCoordinationBackendStatusRoute(t *testing.T) {
 	if response.Data.NextReplacementAction == nil || response.Data.NextReplacementAction.ID != "move-portable-write-authority" || response.Data.NextReplacementAction.Target == "" {
 		t.Fatalf("response next action = %+v, want portable write-authority action", response.Data.NextReplacementAction)
 	}
+	if findConfigHint(response.Data.NextReplacementAction.ConfigHints, "HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY") == nil {
+		t.Fatalf("response next action config hints = %+v, want write authority hint", response.Data.NextReplacementAction.ConfigHints)
+	}
 	migrationSwitchpoint := findWriteSwitchpoint(response.Data.WriteSwitchpoints, "migration-cutover")
 	if migrationSwitchpoint == nil || migrationSwitchpoint.CairnlineState != "snapshot_import_rehearsal_available" || !containsString(migrationSwitchpoint.Seams, "sync-rehearsal") {
 		t.Fatalf("response migration switchpoint = %+v, want snapshot-import rehearsal blocker", migrationSwitchpoint)
@@ -896,6 +929,15 @@ func findReplacementGate(items []ProjectCoordinationBackendReplacementGate, id s
 func findWriteSwitchpoint(items []ProjectCoordinationBackendWriteSwitchpoint, name string) *ProjectCoordinationBackendWriteSwitchpoint {
 	for idx := range items {
 		if items[idx].Name == name {
+			return &items[idx]
+		}
+	}
+	return nil
+}
+
+func findConfigHint(items []ProjectCoordinationBackendActionConfigHint, env string) *ProjectCoordinationBackendActionConfigHint {
+	for idx := range items {
+		if items[idx].Env == env {
 			return &items[idx]
 		}
 	}

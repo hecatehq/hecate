@@ -449,6 +449,10 @@ func projectCairnlineNextReplacementAction(status ProjectCoordinationBackendStat
 			Label:  "Enable Cairnline dogfood",
 			Detail: "Configure Cairnline as the project coordination backend in a local dogfood runtime before moving any authority.",
 			Target: "configuration",
+			ConfigHints: []ProjectCoordinationBackendActionConfigHint{
+				projectCairnlineConfigHint("HECATE_PROJECTS_COORDINATION_BACKEND", "cairnline", "Enable Cairnline as the Projects coordination backend for local dogfooding."),
+				projectCairnlineConfigHint("HECATE_PROJECTS_CAIRNLINE_CONNECTOR", "embedded", "Use the embedded connector for the current write-authority dogfood path."),
+			},
 			ProbeURLs: []string{
 				projectCoordinationBackendSidecarProbeURL,
 				projectCoordinationBackendSidecarConnectURL,
@@ -461,6 +465,9 @@ func projectCairnlineNextReplacementAction(status ProjectCoordinationBackendStat
 			Label:  "Use the embedded Cairnline connector",
 			Detail: "Sidecar mode is useful for MCP diagnostics and read smoke tests, but write-authority dogfood currently requires the embedded Cairnline connector.",
 			Target: "connector",
+			ConfigHints: []ProjectCoordinationBackendActionConfigHint{
+				projectCairnlineConfigHint("HECATE_PROJECTS_CAIRNLINE_CONNECTOR", "embedded", "Use the embedded connector before enabling Cairnline write-authority switchpoints."),
+			},
 			ProbeURLs: []string{
 				projectCoordinationBackendSidecarProbeURL,
 				projectCoordinationBackendSidecarConnectURL,
@@ -483,10 +490,11 @@ func projectCairnlineNextReplacementAction(status ProjectCoordinationBackendStat
 	if len(status.PortableWriteGaps) > 0 {
 		target := status.PortableWriteGaps[0]
 		return &ProjectCoordinationBackendNextAction{
-			ID:     "move-portable-write-authority",
-			Label:  "Move the next portable write authority",
-			Detail: "Close the next portable project-state gap by adding a Cairnline-authoritative switchpoint while keeping Hecate as compatibility shadow.",
-			Target: target,
+			ID:          "move-portable-write-authority",
+			Label:       "Move the next portable write authority",
+			Detail:      "Close the next portable project-state gap by adding a Cairnline-authoritative switchpoint while keeping Hecate as compatibility shadow.",
+			Target:      target,
+			ConfigHints: projectCairnlineWriteAuthorityHintsForGap(target),
 		}
 	}
 	if len(status.SideEffectBlockers) > 0 {
@@ -532,6 +540,59 @@ func projectCairnlineNextReplacementAction(status ProjectCoordinationBackendStat
 			projectCoordinationBackendSyncReadinessURL,
 			projectCoordinationBackendMirrorParityURL,
 		},
+	}
+}
+
+func projectCairnlineConfigHint(env, value, detail string) ProjectCoordinationBackendActionConfigHint {
+	return ProjectCoordinationBackendActionConfigHint{
+		Env:    env,
+		Value:  value,
+		Detail: detail,
+	}
+}
+
+func projectCairnlineWriteAuthorityHintsForGap(gap string) []ProjectCoordinationBackendActionConfigHint {
+	values := projectCairnlineWriteAuthorityValuesForGap(gap)
+	if len(values) == 0 {
+		return nil
+	}
+	detail := "Add this value to HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY for embedded Cairnline write-authority dogfooding."
+	if len(values) > 1 {
+		detail = "Add these comma-separated values to HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY; this gap requires the switchpoints together."
+	}
+	return []ProjectCoordinationBackendActionConfigHint{
+		projectCairnlineConfigHint("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY", strings.Join(values, ","), detail),
+	}
+}
+
+func projectCairnlineWriteAuthorityValuesForGap(gap string) []string {
+	switch gap {
+	case "projects":
+		return []string{projectCairnlineWriteAuthorityProjectIdentity, projectCairnlineWriteAuthorityProjectMetadataDefaults}
+	case "roots":
+		return []string{projectCairnlineWriteAuthorityProjectRoots}
+	case "context-sources":
+		return []string{projectCairnlineWriteAuthorityProjectContextSources}
+	case "agent-profiles":
+		return []string{projectCairnlineWriteAuthorityAgentProfiles}
+	case "skills":
+		return []string{projectCairnlineWriteAuthorityProjectSkills}
+	case "memory":
+		return []string{"project-memory"}
+	case "memory-candidates":
+		return []string{"project-memory", "memory-candidates"}
+	case "roles":
+		return []string{projectCairnlineWriteAuthorityProjectRoles}
+	case "work-items":
+		return []string{projectCairnlineWriteAuthorityProjectWorkItems}
+	case "assignments":
+		return []string{projectCairnlineWriteAuthorityProjectAssignments}
+	case "artifacts", "handoffs":
+		return []string{projectCairnlineWriteAuthorityProjectCollaboration}
+	case "project-assistant-proposals":
+		return []string{projectCairnlineWriteAuthorityProjectAssistantProposals}
+	default:
+		return nil
 	}
 }
 

@@ -600,9 +600,10 @@ through the enabled project create, project metadata/default, root,
 role/work-item/assignment/handoff, and memory-candidate switchpoints. It
 also reports `replacement_ready`, `next_replacement_action`,
 `replacement_gates`, and `write_switchpoints` so operators can see the
-suggested next step plus the exact read-route, strict-embedded-probe,
-write-authority, and migration blockers without parsing warning prose. It also
-groups the `write_adapter_gaps` stop list into `portable_write_gaps`,
+suggested next step, relevant env-var hints, and the exact read-route,
+strict-embedded-probe, write-authority, and migration blockers without parsing
+warning prose. It also groups the `write_adapter_gaps` stop list into
+`portable_write_gaps`,
 `side_effect_blockers`, and `migration_blockers`, so switchpoint work is
 separated from Hecate-owned runtime/workspace side effects and final cutover
 work. Settings shows the same backend-status summary and next action under
