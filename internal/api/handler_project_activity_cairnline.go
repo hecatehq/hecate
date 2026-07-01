@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 
 	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/cairnlinebridge"
@@ -10,12 +11,33 @@ import (
 )
 
 func (h *Handler) renderCairnlineProjectActivity(ctx context.Context, projectID string) (ProjectActivityDataResponse, error) {
+	if h.requiresEmbeddedCairnlineProjectReads() {
+		return h.renderStrictEmbeddedCairnlineProjectActivity(ctx, projectID)
+	}
 	view, err := h.cairnlineProjectWorkView(ctx, projectID)
 	if err != nil {
 		return ProjectActivityDataResponse{}, err
 	}
 	defer view.Close()
 	return h.renderCairnlineProjectActivityFromService(ctx, view.service, view.snapshot)
+}
+
+func (h *Handler) renderStrictEmbeddedCairnlineProjectActivity(ctx context.Context, projectID string) (ProjectActivityDataResponse, error) {
+	_, service, store, err := h.openCairnlineEmbeddedService(ctx)
+	if err != nil {
+		return ProjectActivityDataResponse{}, err
+	}
+	defer store.Close()
+	project, err := service.GetProject(ctx, projectID)
+	if errors.Is(err, cairnline.ErrNotFound) {
+		return ProjectActivityDataResponse{}, projects.ErrNotFound
+	}
+	if err != nil {
+		return ProjectActivityDataResponse{}, err
+	}
+	return h.renderCairnlineProjectActivityFromService(ctx, service, cairnlinebridge.Snapshot{
+		Project: projectFromCairnline(project, nil, projects.Project{}),
+	})
 }
 
 func (h *Handler) renderCairnlineSidecarProjectActivity(ctx context.Context, projectID string) (ProjectActivityDataResponse, error) {

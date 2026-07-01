@@ -329,7 +329,8 @@ type ProjectHandoffResponse struct {
 
 func (h *Handler) HandleProjectActivity(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
-	if !h.projectCairnlineSidecarReadRoutesEnabled() && !h.requireProject(w, r, projectID) {
+	strictEmbeddedRead := h.projectReadRoutesUseCairnlineReadModel() && h.requiresEmbeddedCairnlineProjectReads()
+	if !h.projectCairnlineSidecarReadRoutesEnabled() && !strictEmbeddedRead && !h.requireProject(w, r, projectID) {
 		return
 	}
 	activity, err := h.renderProjectActivity(r.Context(), projectID)

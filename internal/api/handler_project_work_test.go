@@ -5359,6 +5359,127 @@ func TestProjectWorkAPI_ProjectActivityCairnlineConfiguredUsesReadModel(t *testi
 	}
 }
 
+func TestProjectWorkAPI_ProjectActivityStrictEmbeddedReadModelReadsWithoutHecateProject(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend: "cairnline",
+			CairnlineReadSource: "embedded",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	server := NewServer(quietLogger(), handler)
+	const projectID = "proj_embedded_activity"
+
+	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+		if _, err := service.CreateProject(t.Context(), cairnline.Project{
+			ID:            projectID,
+			Name:          "Embedded Activity",
+			DefaultRootID: "root_embedded_activity",
+			Roots: []cairnline.Root{{
+				ID:     "root_embedded_activity",
+				Path:   "/workspace/embedded-activity",
+				Kind:   "git",
+				Active: true,
+			}},
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateRole(t.Context(), cairnline.Role{
+			ID:        "role_embedded_activity",
+			ProjectID: projectID,
+			Name:      "Activity Reviewer",
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateWorkItem(t.Context(), cairnline.WorkItem{
+			ID:          "work_embedded_activity",
+			ProjectID:   projectID,
+			Title:       "Review embedded activity",
+			Brief:       "Exercise embedded Cairnline activity projection.",
+			Status:      cairnline.WorkStatusReady,
+			Priority:    cairnline.PriorityNormal,
+			OwnerRoleID: "role_embedded_activity",
+			RootID:      "root_embedded_activity",
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateAssignment(t.Context(), cairnline.Assignment{
+			ID:            "asgn_embedded_activity",
+			ProjectID:     projectID,
+			WorkItemID:    "work_embedded_activity",
+			RoleID:        "role_embedded_activity",
+			RootID:        "root_embedded_activity",
+			ExecutionMode: cairnline.ExecutionMCPPull,
+		}); err != nil {
+			return err
+		}
+		if _, err := service.ClaimAssignment(t.Context(), projectID, "asgn_embedded_activity", "agent-activity"); err != nil {
+			return err
+		}
+		if _, err := service.UpdateAssignmentStatus(t.Context(), projectID, "asgn_embedded_activity", cairnline.AssignmentRunning, "run_embedded_activity"); err != nil {
+			return err
+		}
+		if _, err := service.CreateEvidence(t.Context(), cairnline.Evidence{
+			ID:           "ev_embedded_activity",
+			ProjectID:    projectID,
+			WorkItemID:   "work_embedded_activity",
+			AssignmentID: "asgn_embedded_activity",
+			Title:        "Embedded activity evidence",
+			Body:         "Activity can render from embedded Cairnline rows.",
+			SourceKind:   "operator_note",
+		}); err != nil {
+			return err
+		}
+		_, err := service.CreateHandoff(t.Context(), cairnline.Handoff{
+			ID:                 "handoff_embedded_activity",
+			ProjectID:          projectID,
+			WorkItemID:         "work_embedded_activity",
+			SourceAssignmentID: "asgn_embedded_activity",
+			FromRoleID:         "role_embedded_activity",
+			ToRoleID:           "role_embedded_activity",
+			Title:              "Activity follow-up",
+			Body:               "Keep this handoff visible in activity.",
+			Status:             cairnline.HandoffStatusOpen,
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("seed embedded Cairnline activity: %v", err)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("Hecate project store seeded ok=%v err=%v, want no project row", ok, err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+projectID+"/activity", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("activity status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response ProjectActivityEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode activity: %v", err)
+	}
+	if response.Object != "project_activity" || response.Data.ProjectID != projectID || response.Data.ReadBackend != "cairnline" {
+		t.Fatalf("activity response = %+v, want embedded Cairnline activity", response)
+	}
+	if response.Data.Summary.WorkItemCount != 1 || response.Data.Summary.AssignmentCount != 1 || response.Data.Summary.ActiveCount != 1 || response.Data.Summary.RecentCount != 1 {
+		t.Fatalf("activity summary = %+v, want one active embedded assignment", response.Data.Summary)
+	}
+	item := findProjectActivityItemForTest(t, response.Data.Buckets.Active, "asgn_embedded_activity")
+	if item.BlockingSignal != "running" || item.WorkItem.ID != "work_embedded_activity" || item.Role.ID != "role_embedded_activity" {
+		t.Fatalf("activity item = %+v, want running embedded assignment with work and role enrichment", item)
+	}
+	if item.ArtifactSummary.Count != 1 || item.HandoffSummary.Count != 1 {
+		t.Fatalf("activity item = %+v, want embedded artifact and handoff enrichment", item)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_missing/activity", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing project activity status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+}
+
 func TestProjectWorkAPI_ProjectActivityUsesCairnlineSidecarWhenConfigured(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "collaboration-fixture+strict-projects")

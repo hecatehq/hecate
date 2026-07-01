@@ -527,7 +527,7 @@ sequenceDiagram
   or requested project row/proposal record is missing. Run
   `POST /hecate/v1/projects/cairnline/sync` first when testing strict embedded
   reads. Strict embedded project list/detail, setup-readiness, health, project
-  skill list, project role list, work-item list/detail, assignment-list,
+  skill list, project role list, work-item list/detail, assignment-list, activity,
   artifact-list, handoff-list, closeout-readiness, project memory list, and
   memory-candidate list reads use the embedded Cairnline project, skill, role,
   work-item, assignment, artifact, evidence, review, handoff, and memory records
@@ -2425,7 +2425,7 @@ read model, while other live Projects reads still use Hecate. Most of those
 configured embedded read routes still load Hecate snapshots as bridge
 scaffolding, but strict embedded project list/detail, setup-readiness, health,
 project skill list, project role list, work-item list/detail, assignment-list,
-artifact-list, handoff-list, closeout-readiness, project memory list, and
+activity, artifact-list, handoff-list, closeout-readiness, project memory list, and
 memory-candidate list reads now load directly from the embedded Cairnline
 project, skill, role, work-item, assignment, artifact, evidence, review,
 handoff, and memory records. Their
