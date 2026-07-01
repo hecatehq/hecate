@@ -394,6 +394,11 @@ func TestProjectCairnlineSyncAPI_WritesDurableAllProjectsSQLiteDB(t *testing.T) 
 	if second.Data.MigrationRehearsal.EmbeddedSmoke == nil || second.Data.MigrationRehearsal.EmbeddedSmoke.Status != "passed" || second.Data.MigrationRehearsal.EmbeddedSmoke.ProjectCount != 2 || second.Data.MigrationRehearsal.EmbeddedSmoke.ReadRouteChecks != 36 || second.Data.MigrationRehearsal.EmbeddedSmoke.ReadModelCount != 2 || second.Data.MigrationRehearsal.EmbeddedSmoke.LaunchPacketCount != 1 || second.Data.MigrationRehearsal.EmbeddedSmoke.LaunchPacketErrorCount != 0 || len(second.Data.MigrationRehearsal.EmbeddedSmoke.Errors) != 0 {
 		t.Fatalf("sync embedded smoke = %+v, want strict embedded route smoke across both synced projects", second.Data.MigrationRehearsal.EmbeddedSmoke)
 	}
+	for _, route := range []string{"project-list", "skills", "memory-candidate", "assignment-context", "launch-readiness", "project-assistant-context", "project-chat-context"} {
+		if !hasProjectCairnlineSmokeRoute(second.Data.MigrationRehearsal.EmbeddedSmoke, route) {
+			t.Fatalf("sync embedded smoke routes = %+v, want %q", second.Data.MigrationRehearsal.EmbeddedSmoke.ReadRoutes, route)
+		}
+	}
 	if !second.Data.Match || len(second.Data.Differences) != 0 || len(second.Data.IDDifferences) != 0 || len(second.Data.ContentDifferences) != 0 {
 		t.Fatalf("sync parity = match %v differences %+v id_differences %+v content_differences %+v, want exact count, id, and content match", second.Data.Match, second.Data.Differences, second.Data.IDDifferences, second.Data.ContentDifferences)
 	}
@@ -559,6 +564,11 @@ func TestProjectCairnlineMirrorParityAPI_ReportsLiveMirrorMatch(t *testing.T) {
 	}
 	if !hasProjectCairnlineMigrationCheck(response.Data.MigrationRehearsal.Checklist, "strict-embedded-read-smoke", "complete") || response.Data.MigrationRehearsal.EmbeddedSmoke == nil || response.Data.MigrationRehearsal.EmbeddedSmoke.Status != "passed" || response.Data.MigrationRehearsal.EmbeddedSmoke.ProjectCount != 1 || response.Data.MigrationRehearsal.EmbeddedSmoke.ReadRouteChecks != 16 || len(response.Data.MigrationRehearsal.EmbeddedSmoke.Errors) != 0 {
 		t.Fatalf("mirror embedded smoke = %+v checklist %+v, want read-only strict embedded route smoke", response.Data.MigrationRehearsal.EmbeddedSmoke, response.Data.MigrationRehearsal.Checklist)
+	}
+	for _, route := range []string{"project-list", "roles", "handoff-list", "project-chat-prelude", "embedded-read-model"} {
+		if !hasProjectCairnlineSmokeRoute(response.Data.MigrationRehearsal.EmbeddedSmoke, route) {
+			t.Fatalf("mirror embedded smoke routes = %+v, want %q", response.Data.MigrationRehearsal.EmbeddedSmoke.ReadRoutes, route)
+		}
 	}
 	if len(response.Data.Differences) != 0 || len(response.Data.IDDifferences) != 0 || len(response.Data.ContentDifferences) != 0 {
 		t.Fatalf("mirror parity differences = %+v id %+v content %+v, want none", response.Data.Differences, response.Data.IDDifferences, response.Data.ContentDifferences)
@@ -1120,6 +1130,18 @@ func hasProjectCairnlineContentDifference(items []ProjectCairnlineContentDiffere
 func hasProjectCairnlineMigrationCheck(items []ProjectCairnlineMigrationRehearsalCheck, id, status string) bool {
 	for _, item := range items {
 		if item.ID == id && item.Status == status {
+			return true
+		}
+	}
+	return false
+}
+
+func hasProjectCairnlineSmokeRoute(smoke *ProjectCairnlineMigrationEmbeddedSmoke, route string) bool {
+	if smoke == nil {
+		return false
+	}
+	for _, item := range smoke.ReadRoutes {
+		if item == route {
 			return true
 		}
 	}

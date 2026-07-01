@@ -359,6 +359,7 @@ type ProjectCairnlineMigrationEmbeddedSmoke struct {
 	ProjectCount             int                                           `json:"project_count"`
 	CheckedProjectIDs        []string                                      `json:"checked_project_ids,omitempty"`
 	ReadRouteChecks          int                                           `json:"read_route_checks"`
+	ReadRoutes               []string                                      `json:"read_routes,omitempty"`
 	ReadModelCount           int                                           `json:"read_model_count"`
 	LaunchPacketCount        int                                           `json:"launch_packet_count"`
 	LaunchPacketWarningCount int                                           `json:"launch_packet_warning_count"`
