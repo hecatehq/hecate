@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projects"
@@ -256,6 +257,132 @@ func TestProjectSetupReadiness_CairnlineConfiguredUsesReadModel(t *testing.T) {
 	}
 	if response.Data.Summary.MissingDefaults || !response.Data.Summary.HasPurpose || !response.Data.Summary.HasActiveRoot {
 		t.Fatalf("setup readiness summary = %+v, want Hecate defaults/purpose/root over Cairnline setup counts", response.Data.Summary)
+	}
+}
+
+func TestProjectSetupReadiness_StrictEmbeddedReadModelReadsWithoutHecateProject(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend: "cairnline",
+			CairnlineReadSource: "embedded",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	server := NewServer(quietLogger(), handler)
+	const projectID = "proj_embedded_setup"
+
+	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+		if _, err := service.CreateExecutionProfile(t.Context(), cairnline.ExecutionProfile{
+			ID:           "exec_embedded_setup",
+			Name:         "Embedded setup runtime",
+			ProviderHint: "openai",
+			ModelHint:    "gpt-5",
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateProject(t.Context(), cairnline.Project{
+			ID:                        projectID,
+			Name:                      "Embedded Setup",
+			Description:               "Coordinate setup from embedded Cairnline.",
+			DefaultRootID:             "root_embedded_setup",
+			DefaultExecutionProfileID: "exec_embedded_setup",
+			Roots: []cairnline.Root{{
+				ID:     "root_embedded_setup",
+				Path:   "/workspace/embedded-setup",
+				Kind:   "git",
+				Active: true,
+			}},
+			ContextSources: []cairnline.Source{{
+				ID:         "ctx_embedded_setup",
+				Kind:       "workspace_instruction",
+				Title:      "AGENTS.md",
+				Locator:    "AGENTS.md",
+				Enabled:    true,
+				Format:     "agents_md",
+				TrustLabel: "workspace_guidance",
+			}},
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateRole(t.Context(), cairnline.Role{
+			ID:        "role_embedded_setup",
+			ProjectID: projectID,
+			Name:      "Coordinator",
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateProjectSkill(t.Context(), cairnline.ProjectSkill{
+			ID:          "setup",
+			ProjectID:   projectID,
+			Title:       "Setup",
+			Description: "Coordinate project setup.",
+			Path:        ".agents/skills/setup/SKILL.md",
+			RootID:      "root_embedded_setup",
+			Format:      cairnline.SkillFormatMarkdown,
+			Enabled:     true,
+			Status:      cairnline.SkillStatusAvailable,
+			TrustLabel:  cairnline.SkillTrustWorkspace,
+			SourceRefs:  []string{"ctx_embedded_setup"},
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateMemoryEntry(t.Context(), cairnline.MemoryEntry{
+			ID:         "mem_embedded_setup",
+			ProjectID:  projectID,
+			Title:      "Setup note",
+			Body:       "Use explicit setup guidance.",
+			Enabled:    true,
+			TrustLabel: memory.TrustLabelOperatorMemory,
+			SourceKind: memory.SourceKindOperator,
+		}); err != nil {
+			return err
+		}
+		_, err := service.CreateMemoryCandidate(t.Context(), cairnline.MemoryCandidate{
+			ID:                  "memcand_embedded_setup",
+			ProjectID:           projectID,
+			Title:               "Setup candidate",
+			Body:                "Review this setup candidate.",
+			Status:              cairnline.MemoryCandidatePending,
+			SuggestedKind:       "note",
+			SuggestedTrustLabel: memory.TrustLabelGenerated,
+			SuggestedSourceKind: memory.SourceKindGenerated,
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("seed embedded Cairnline setup readiness: %v", err)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("Hecate project store seeded ok=%v err=%v, want no project row", ok, err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+projectID+"/setup-readiness", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("setup readiness status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response ProjectSetupReadinessEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode setup readiness: %v", err)
+	}
+	if response.Object != "project_setup_readiness" || response.Data.ProjectID != projectID || response.Data.ReadBackend != "cairnline" {
+		t.Fatalf("setup readiness envelope = %+v, want embedded Cairnline setup readiness", response)
+	}
+	if response.Data.ShowOnboarding || !response.Data.SetupStarted || !response.Data.FirstWorkReady {
+		t.Fatalf("setup readiness flags = %+v, want setup started and first work ready", response.Data)
+	}
+	summary := response.Data.Summary
+	if summary.WorkItemCount != 0 || summary.RoleCount != 1 || summary.SkillCount != 1 || summary.EnabledContextSourceCount != 1 || summary.SavedMemoryCount != 1 || summary.PendingMemoryCandidateCount != 1 {
+		t.Fatalf("setup readiness summary = %+v, want embedded setup counts", summary)
+	}
+	if summary.MissingDefaults || !summary.HasPurpose || !summary.HasActiveRoot {
+		t.Fatalf("setup readiness summary = %+v, want embedded purpose/root/defaults", summary)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_missing/setup-readiness", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing project setup readiness status = %d body=%s, want 404", rec.Code, rec.Body.String())
 	}
 }
 

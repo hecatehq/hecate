@@ -69,7 +69,8 @@ type ProjectSetupReadinessActionResponse struct {
 
 func (h *Handler) HandleProjectSetupReadiness(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
-	if !h.projectCairnlineSidecarReadRoutesEnabled() && !h.requireProject(w, r, projectID) {
+	strictEmbeddedRead := h.projectReadRoutesUseCairnlineReadModel() && h.requiresEmbeddedCairnlineProjectReads()
+	if !h.projectCairnlineSidecarReadRoutesEnabled() && !strictEmbeddedRead && !h.requireProject(w, r, projectID) {
 		return
 	}
 	readiness, err := h.renderProjectSetupReadiness(r.Context(), projectID)
