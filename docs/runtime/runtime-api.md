@@ -4384,9 +4384,13 @@ generated SQLite database is evidence for future migration rather than a source
 of truth. Sync and mirror-parity responses also include
 `migration_rehearsal.embedded_smoke` when an embedded Cairnline database was
 available. That smoke forces Hecate's read adapter to `cairnline + embedded`
-for representative project read routes (project detail, setup readiness,
-health, work items, activity, operations brief, and read model) without
-mutating live configuration.
+for project list/detail, setup, health, skills, memory, roles, work/activity,
+operations, assignment context/readiness, collaboration artifact/handoff,
+Project Assistant, project-linked Hecate Chat, and read-model routes without
+mutating live configuration. Nested work-item, assignment, and proposal reads
+are checked when matching records exist in the snapshot. `read_route_checks`
+counts every per-project check; `read_routes` lists the unique route/check
+families that were exercised.
 
 Example response:
 
@@ -4482,7 +4486,31 @@ Example response:
         "status": "passed",
         "project_count": 2,
         "checked_project_ids": ["proj_a", "proj_b"],
-        "read_route_checks": 14,
+        "read_route_checks": 37,
+        "read_routes": [
+          "project-list",
+          "project-detail",
+          "setup-readiness",
+          "health",
+          "skills",
+          "memory",
+          "memory-candidate",
+          "roles",
+          "work-item",
+          "assignment-list",
+          "artifact-list",
+          "closeout-readiness",
+          "assignment-context",
+          "launch-readiness",
+          "handoff-list",
+          "activity",
+          "operations-brief",
+          "project-chat-prelude",
+          "project-chat-context",
+          "project-assistant-context",
+          "project-assistant-proposal",
+          "embedded-read-model"
+        ],
         "read_model_count": 2,
         "launch_packet_count": 5,
         "launch_packet_warning_count": 0,

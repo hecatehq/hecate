@@ -809,6 +809,7 @@ func (h *Handler) projectCairnlineStrictEmbeddedProbeHandler() *Handler {
 
 func checkProjectCairnlineEmbeddedSmoke(smoke *ProjectCairnlineMigrationEmbeddedSmoke, projectID, check string, fn func() error) {
 	smoke.ReadRouteChecks++
+	smoke.ReadRoutes = appendUniqueProjectCairnlineSmokeRoute(smoke.ReadRoutes, check)
 	if err := fn(); err != nil {
 		smoke.Errors = append(smoke.Errors, ProjectCairnlineMigrationEmbeddedSmokeError{
 			ProjectID: projectID,
@@ -816,6 +817,19 @@ func checkProjectCairnlineEmbeddedSmoke(smoke *ProjectCairnlineMigrationEmbedded
 			Error:     err.Error(),
 		})
 	}
+}
+
+func appendUniqueProjectCairnlineSmokeRoute(items []string, route string) []string {
+	route = strings.TrimSpace(route)
+	if route == "" {
+		return items
+	}
+	for _, item := range items {
+		if item == route {
+			return items
+		}
+	}
+	return append(items, route)
 }
 
 func projectCairnlineMigrationSmokeStatus(smoke *ProjectCairnlineMigrationEmbeddedSmoke) string {
