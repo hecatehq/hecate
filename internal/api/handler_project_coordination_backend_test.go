@@ -266,8 +266,8 @@ func TestProjectCoordinationBackendStatus_CairnlineConfiguredReadRoutesReady(t *
 	if !strings.Contains(strings.Join(status.Warnings, "\n"), "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded") {
 		t.Fatalf("warnings = %+v, want embedded read-source warning", status.Warnings)
 	}
-	if !containsString(status.ReadRoutes, "project-list") || !containsString(status.ReadRoutes, "assignment-context") || !containsString(status.ReadRoutes, "launch-readiness") || !containsString(status.ReadRoutes, "assignment-preflight") || !containsString(status.ReadRoutes, "project-assistant-context") || !containsString(status.ReadRoutes, "project-assistant-proposal") || !containsString(status.ReadRoutes, "project-chat-prelude") || !containsString(status.ReadRoutes, "project-chat-context") || !containsString(status.ReadRoutes, "operations-brief") {
-		t.Fatalf("read routes = %+v, want structured Cairnline read-route coverage", status.ReadRoutes)
+	if !reflect.DeepEqual(status.ReadRoutes, projectCairnlineReadRouteNames) {
+		t.Fatalf("read routes = %+v, want canonical Cairnline read routes %+v", status.ReadRoutes, projectCairnlineReadRouteNames)
 	}
 	if !containsString(status.WriteAdapterGaps, "agent-profiles") || !containsString(status.WriteAdapterGaps, "assignments") || !containsString(status.WriteAdapterGaps, "project-assistant-proposals") || !containsString(status.WriteAdapterGaps, "project-assistant-apply-side-effects") || !containsString(status.WriteAdapterGaps, "migration-cutover") {
 		t.Fatalf("write gaps = %+v, want structured remaining write-adapter gaps", status.WriteAdapterGaps)
