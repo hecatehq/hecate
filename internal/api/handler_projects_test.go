@@ -707,6 +707,47 @@ func TestProjectsAPI_CairnlineReplacementModeCreatesCairnlineOnlyIdentity(t *tes
 	}
 }
 
+func TestProjectsAPI_CairnlineReplacementModeWithoutPortableAuthorityKeepsNativeIdentityShadow(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend:      "cairnline",
+			CairnlineConnector:       "embedded",
+			CairnlineReadSource:      "embedded",
+			CairnlineWriteAuthority:  projectCairnlineWriteAuthorityProjectIdentity,
+			CairnlineReplacementMode: "embedded",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	handler.SetProjectStore(projects.NewMemoryStore())
+	server := NewServer(quietLogger(), handler)
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects", bytes.NewReader([]byte(`{
+		"name":"Replacement Identity With Shadow",
+		"description":"replacement mode is armed, but portable write authority is incomplete",
+		"default_provider":"openai",
+		"default_model":"gpt-5"
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	var created ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), created.Data.ID); err != nil || !ok {
+		t.Fatalf("Hecate project store ok=%v err=%v after replacement-mode create, want compatibility identity shadow while portable authority is incomplete", ok, err)
+	}
+	status := handler.projectCoordinationBackendStatusWithContext(t.Context())
+	if status.ReplacementReady {
+		t.Fatalf("replacement_ready = true, want false while only project identity authority is enabled")
+	}
+	if !containsString(status.PortableWriteGaps, "memory") || !containsString(status.PortableWriteGaps, "work-items") {
+		t.Fatalf("portable write gaps = %+v, want remaining portable blockers", status.PortableWriteGaps)
+	}
+}
+
 func TestProjectsAPI_CairnlineIdentityAuthorityCommitsDeleteFirst(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectsCairnlineIdentityAuthorityTestServer(t)
