@@ -2583,9 +2583,12 @@ the cutover is armed and all replacement gates are ready, the next action become
 the Cairnline state (`live_mirror_non_authoritative`, `result_mirror_only`,
 `snapshot_import_rehearsal_available`, `authoritative_opt_in` for enabled
 alpha write-authority switchpoints, or `partial_authoritative_opt_in` when only
-some routes in a family have moved), the related mirror seams, and whether that
-family still blocks portable write authority or remains Hecate-owned runtime
-behavior.
+some routes in a family have moved). When strict embedded mirror parity and
+read smoke are verified, all portable write-authority gaps are closed, and
+`replacement_mode=embedded`, the `migration-cutover` switchpoint reports
+`embedded_cutover_armed` and no longer blocks authority. Each switchpoint also
+reports the related mirror seams and whether that family still blocks portable
+write authority or remains Hecate-owned runtime behavior.
 Non-authoritative bridge seams currently cover project/root/source/defaults,
 agent profiles, skills, roles, work items, assignment metadata upsert/delete plus
 lifecycle-status sync, create-if-missing generic artifacts/evidence/reviews,

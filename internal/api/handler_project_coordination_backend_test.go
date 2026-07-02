@@ -466,6 +466,9 @@ func TestProjectCoordinationBackendStatus_EmbeddedReplacementModeReportsCairnlin
 	if gate := findReplacementGate(status.ReplacementGates, "migration-and-rollback"); gate == nil || !gate.Ready || gate.Status != "ready" {
 		t.Fatalf("migration gate = %+v, want ready migration gate after embedded replacement cutover is armed", gate)
 	}
+	if point := findWriteSwitchpoint(status.WriteSwitchpoints, "migration-cutover"); point == nil || point.CurrentAuthority != "cairnline" || point.CairnlineState != "embedded_cutover_armed" || point.BlocksAuthority || point.Gap != "" {
+		t.Fatalf("migration cutover switchpoint = %+v, want armed Cairnline cutover switchpoint after replacement is ready", point)
+	}
 	if status.NextReplacementAction == nil || status.NextReplacementAction.ID != "monitor-cairnline-backend" {
 		t.Fatalf("next action = %+v, want monitor action after replacement is ready", status.NextReplacementAction)
 	}
