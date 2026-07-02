@@ -1057,6 +1057,16 @@ func TestProjectCoordinationBackendStatus_NextActionWriteAuthorityHints(t *testi
 	}
 }
 
+func TestProjectCoordinationBackendStatus_SidecarReadSourceWarningKeepsWritesEmbedded(t *testing.T) {
+	warning := projectCairnlineReadSourceWarning("sidecar")
+	if !strings.Contains(warning, "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar") ||
+		!strings.Contains(warning, "project-chat-prelude, project-chat-context") ||
+		!strings.Contains(warning, "HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded") ||
+		strings.Contains(warning, "unless a separate write-authority switchpoint is enabled") {
+		t.Fatalf("warning = %q, want sidecar read guidance with embedded write-authority boundary", warning)
+	}
+}
+
 func TestProjectCoordinationBackendStatus_NextActionReplacementModeHints(t *testing.T) {
 	status := ProjectCoordinationBackendStatusResponse{
 		ConfiguredBackend:       "cairnline",
