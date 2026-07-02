@@ -610,8 +610,9 @@ project identity, roots, work items, roles, and assignment dependencies from
 the embedded Cairnline graph when present, so dogfood writes no longer require
 a matching Hecate-native compatibility project row before the Cairnline commit.
 Hecate stores task/chat execution refs, context packets, and launch timestamps
-in a separate project assignment runtime overlay before shadowing compatibility
-fields or mirroring replacement evidence. The `project-collaboration` switch
+in a separate project assignment runtime overlay even when there is no native
+compatibility assignment row, before shadowing compatibility fields or mirroring
+replacement evidence. The `project-collaboration` switch
 can make the collaboration and handoff route family Cairnline-authoritative as
 opt-in dogfood switchpoints; dependency checks accept existing Cairnline records
 before falling back to Hecate shadows. `project-memory` and

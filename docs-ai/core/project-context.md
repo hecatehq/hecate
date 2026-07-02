@@ -68,7 +68,10 @@ context-source discovery, project skills, roles, work items, assignments,
 collaboration artifacts, handoffs, accepted memory, and memory candidates can
 operate from embedded Cairnline project graphs without a matching Hecate-native
 compatibility project row; keep any Hecate shadow writes best-effort and do not
-add native `requireProject*` guards ahead of those authority paths. Do not describe
+add native `requireProject*` guards ahead of those authority paths. Assignment
+runtime refs/context/timestamps belong in Hecate's separate runtime overlay, so
+do not make runtime preservation depend on a native compatibility assignment row.
+Do not describe
 `internal/cairnlinebridge` as only a future proof; it maps Hecate Projects to
 Cairnline snapshots and backs the current embedded/sidecar replacement probes.
 Project-linked Hecate Chat prelude/context helpers also use the configured
