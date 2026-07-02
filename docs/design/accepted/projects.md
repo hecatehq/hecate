@@ -641,9 +641,13 @@ after these gates are met:
   assignment runtime overlay and are mirrored as
   non-authoritative Cairnline replacement evidence. Assignment preflight/start
   packets may carry non-authoritative
-  Cairnline launch-packet evidence, but assignment-start remains a Hecate-owned
-  orchestrator capability; committed start and linked-chat reconciliation
-  results may be mirrored only as replacement evidence. Backend-status `write_adapter_seams`
+  Cairnline launch-packet evidence, and strict embedded reads may use a
+  Cairnline-only project graph as the source of launch inputs, but
+  assignment-start remains a Hecate-owned orchestrator capability. Hecate
+  creates only the narrow project-work/runtime shadow needed for claim and
+  dispatch, not a native project identity row; committed start and linked-chat
+  reconciliation results may be mirrored only as replacement evidence.
+  Backend-status `write_adapter_seams`
   lists non-authoritative proof
   coverage; `write_adapter_gaps` remains a broad diagnostic list, while
   `portable_write_gaps` is the machine-readable blocker list for mutation

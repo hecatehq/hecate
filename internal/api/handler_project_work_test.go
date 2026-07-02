@@ -3591,6 +3591,125 @@ func TestProjectWorkAPI_PreflightAssignmentStrictEmbeddedReadModelReadsWithoutHe
 	}
 }
 
+func TestProjectWorkAPI_StartAssignmentStrictEmbeddedReadModelLaunchesCairnlineOnlyProject(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend: "cairnline",
+			CairnlineReadSource: "embedded",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	server := NewServer(quietLogger(), handler)
+	const projectID = "proj_embedded_launch_start"
+	workspace := t.TempDir()
+
+	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+		if _, err := service.CreateExecutionProfile(t.Context(), cairnline.ExecutionProfile{
+			ID:           "exec_embedded_launch_start",
+			Name:         "Embedded launch start",
+			ProviderHint: "anthropic",
+			ModelHint:    "claude-sonnet-4",
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateProject(t.Context(), cairnline.Project{
+			ID:                        projectID,
+			Name:                      "Embedded Launch Start",
+			Description:               "Coordinate assignment launch from embedded Cairnline.",
+			DefaultRootID:             "root_embedded_launch_start",
+			DefaultExecutionProfileID: "exec_embedded_launch_start",
+			Roots: []cairnline.Root{{
+				ID:     "root_embedded_launch_start",
+				Path:   workspace,
+				Kind:   "git",
+				Active: true,
+			}},
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateRole(t.Context(), cairnline.Role{
+			ID:                        "role_embedded_launch_start",
+			ProjectID:                 projectID,
+			Name:                      "Launch Implementer",
+			Instructions:              "Use the embedded Cairnline graph.",
+			DefaultExecutionProfileID: "exec_embedded_launch_start",
+			DefaultExecutionMode:      cairnline.ExecutionOrchestrated,
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateWorkItem(t.Context(), cairnline.WorkItem{
+			ID:          "work_embedded_launch_start",
+			ProjectID:   projectID,
+			Title:       "Start embedded assignment",
+			Brief:       "Launch a Hecate task from a Cairnline-only project graph.",
+			Status:      cairnline.WorkStatusReady,
+			Priority:    cairnline.PriorityNormal,
+			OwnerRoleID: "role_embedded_launch_start",
+			RootID:      "root_embedded_launch_start",
+		}); err != nil {
+			return err
+		}
+		_, err := service.CreateAssignment(t.Context(), cairnline.Assignment{
+			ID:            "asgn_embedded_launch_start",
+			ProjectID:     projectID,
+			WorkItemID:    "work_embedded_launch_start",
+			RoleID:        "role_embedded_launch_start",
+			RootID:        "root_embedded_launch_start",
+			ExecutionMode: cairnline.ExecutionOrchestrated,
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("seed embedded Cairnline launch start: %v", err)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("Hecate project store seeded ok=%v err=%v, want no project row before launch", ok, err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_embedded_launch_start/assignments/asgn_embedded_launch_start/start", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start embedded assignment status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var assignment ProjectWorkAssignmentEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
+		t.Fatalf("decode assignment: %v", err)
+	}
+	ref := assignmentExecutionRefForTest(t, assignment.Data)
+	if ref.TaskID == "" || ref.RunID == "" || ref.ContextSnapshotID == "" {
+		t.Fatalf("assignment execution_ref = %+v, want task, run, and context links", ref)
+	}
+	if assignment.Data.ProjectID != projectID || assignment.Data.WorkItemID != "work_embedded_launch_start" || assignment.Data.RoleID != "role_embedded_launch_start" {
+		t.Fatalf("assignment linkage = %+v, want embedded Cairnline project/work/role linkage", assignment.Data)
+	}
+
+	task, found, err := handler.taskStore.GetTask(t.Context(), ref.TaskID)
+	if err != nil || !found {
+		t.Fatalf("GetTask(%q) found=%v err=%v, want task", ref.TaskID, found, err)
+	}
+	if task.ProjectID != projectID || task.WorkItemID != "work_embedded_launch_start" || task.AssignmentID != "asgn_embedded_launch_start" {
+		t.Fatalf("task linkage = project %q work %q assignment %q, want embedded Cairnline refs", task.ProjectID, task.WorkItemID, task.AssignmentID)
+	}
+	if task.RequestedProvider != "anthropic" || task.RequestedModel != "claude-sonnet-4" || task.WorkingDirectory != workspace {
+		t.Fatalf("task provider/model/workspace = %q/%q/%q, want anthropic/claude-sonnet-4/%q", task.RequestedProvider, task.RequestedModel, task.WorkingDirectory, workspace)
+	}
+	if !strings.Contains(task.Prompt, "Start embedded assignment") || !strings.Contains(task.SystemPrompt, "Use the embedded Cairnline graph.") {
+		t.Fatalf("task prompt/system = %q / %q, want Cairnline work and role context", task.Prompt, task.SystemPrompt)
+	}
+
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("Hecate project store ok=%v err=%v after launch, want no native project row", ok, err)
+	}
+	shadow := getStoredProjectWorkAssignmentForTest(t, handler, projectID, "work_embedded_launch_start", "asgn_embedded_launch_start")
+	if shadow.ExecutionRef.RunID != ref.RunID || shadow.ExecutionRef.ContextSnapshotID != ref.ContextSnapshotID {
+		t.Fatalf("Hecate assignment shadow ref = %+v, want run/context %q/%q", shadow.ExecutionRef, ref.RunID, ref.ContextSnapshotID)
+	}
+	mirrored := getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_embedded_launch_start")
+	if mirrored.Status != cairnlinebridge.AssignmentStatus(shadow.Status) || mirrored.ExecutionRef != ref.RunID || mirrored.ContextSnapshotID != ref.ContextSnapshotID {
+		t.Fatalf("mirrored Cairnline assignment = status %q ref %q context %q, want %q/%q/%q", mirrored.Status, mirrored.ExecutionRef, mirrored.ContextSnapshotID, cairnlinebridge.AssignmentStatus(shadow.Status), ref.RunID, ref.ContextSnapshotID)
+	}
+}
+
 func TestProjectWorkAPI_PreflightAssignmentCairnlineSidecarRequiresStructuredLaunchPacket(t *testing.T) {
 	t.Parallel()
 	_, server := newProjectsCairnlineSidecarReadTestServer(t, "assignments.launch_packet-text-only")

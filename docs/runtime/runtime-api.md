@@ -2648,7 +2648,12 @@ Mirror failures are logged.
 `project-assignment-start-result-live-mirror` best-effort mirrors
 committed assignment-start results after Hecate-owned dispatch completes or
 returns a committed cleanup/conflict state; it is replacement evidence, not
-runtime write authority. `project-assignment-chat-reconcile-live-mirror`
+runtime write authority. With strict embedded Cairnline reads, assignment
+start may load the launch project/work/assignment/role/root/defaults from a
+Cairnline-only graph, create only the narrow Hecate project-work/runtime
+shadow needed for the existing atomic claim and task/chat dispatch path, and
+mirror the committed result back to Cairnline without requiring a native
+Hecate project identity row. `project-assignment-chat-reconcile-live-mirror`
 best-effort mirrors assignment status/ref updates committed by linked
 external-agent chat reconciliation. `project-collaboration-live-mirror` mirrors
 collaboration artifact creation, including generic artifacts, evidence links,

@@ -229,6 +229,20 @@ func (h *Handler) projectForCairnlineMirror(ctx context.Context, operation, proj
 	if !h.projectCairnlineEmbeddedConnectorEnabled() {
 		return projects.Project{}, false
 	}
+	if h.requiresEmbeddedCairnlineProjectReads() {
+		project, err := h.projectFromEmbeddedCairnlineWriteAuthority(ctx, projectID)
+		if err == nil {
+			return project, true
+		}
+		if !errors.Is(err, cairnline.ErrNotFound) {
+			h.logCairnlineMirrorError(ctx, operation, projectID, err)
+			return projects.Project{}, false
+		}
+	}
+	if h.projects == nil {
+		h.logCairnlineMirrorError(ctx, operation, projectID, errors.New("project store is not configured for Cairnline mirror"))
+		return projects.Project{}, false
+	}
 	project, ok, err := h.projects.Get(ctx, projectID)
 	if err != nil {
 		h.logCairnlineMirrorError(ctx, operation, projectID, err)
