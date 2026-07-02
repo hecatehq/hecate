@@ -457,11 +457,12 @@ setup-readiness, health, project skill list, project memory list,
 memory-candidate list, project role list, work-item list/detail,
 assignment-list, assignment-context, launch-readiness, assignment preflight, artifact-list,
 handoff-list, Project Assistant context/proposal record reads, activity,
-closeout-readiness, and operations brief reads through the standalone Cairnline
-MCP client. Proposal-record reads fall back to the Hecate-native proposal
-ledger only when the sidecar reports the proposal is missing; draft/propose/apply
-mutations remain Hecate-owned unless their explicit write-authority switchpoints
-are enabled.
+project-linked Hecate Chat prelude/context reads, closeout-readiness, and
+operations brief reads through the standalone Cairnline MCP client.
+Proposal-record reads fall back to the Hecate-native proposal ledger only when
+the sidecar reports the proposal is missing; draft/propose/apply mutations
+remain Hecate-owned because write-authority switchpoints require
+`HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded`.
 Assignment-context reads use typed sidecar `assignments.context` data.
 Launch-readiness and assignment preflight use the typed sidecar
 `assignments.launch_packet` response as their coordination input, then apply

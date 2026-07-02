@@ -378,12 +378,15 @@ launch agents. Those remain explicit operator or orchestrator actions.
   list/detail, setup-readiness, health, project skill list, project memory
   list, memory-candidate list, project role list, work-item list/detail,
   assignment-list, assignment-context, launch-readiness, assignment preflight, artifact-list,
-  handoff-list, activity, closeout-readiness, and operations brief reads through
-  the cached standalone MCP client. Assignment-context reads consume typed
-  sidecar `assignments.context` data. Launch-readiness and assignment preflight
-  consume typed sidecar `assignments.launch_packet` data before applying Hecate
-  runtime validation. Other live Projects reads, writes, mirrors, and
-  write-authority switchpoints do not route through the sidecar yet.
+  handoff-list, Project Assistant context/proposal record reads,
+  project-linked Hecate Chat prelude/context reads, activity,
+  closeout-readiness, and operations brief reads through the cached standalone
+  MCP client. Assignment-context reads consume typed sidecar
+  `assignments.context` data. Launch-readiness and assignment preflight consume
+  typed sidecar `assignments.launch_packet` data before applying Hecate runtime
+  validation. Other live Projects reads, writes, mirrors, and write-authority
+  switchpoints do not route through the sidecar yet; write-authority
+  switchpoints require `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded`.
 - Current Hecate embed experiments can serve project list/detail, setup
   readiness, health, skills, memory, memory candidates, roles, work items,
   assignment lists, assignment context, launch-readiness, assignment preflight,

@@ -544,8 +544,8 @@ sequenceDiagram
   handoff-list, Project Assistant context/proposal reads, project-chat
   prelude/context reads, activity, closeout-readiness, and operations-brief
   reads through the standalone Cairnline MCP client. Draft/propose/apply
-  mutations remain Hecate-owned unless their explicit write-authority
-  switchpoints are enabled.
+  mutations remain Hecate-owned because write-authority switchpoints require
+  `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded`.
 - `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=none|all-portable|project-memory|project-memory,memory-candidates|project-collaboration|project-skills|project-roles|project-work-items|project-assignments|agent-profiles|project-metadata-defaults|project-roots|project-context-sources|project-identity|project-assistant-proposals`
   controls alpha Cairnline write-authority switchpoints while
   `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and
