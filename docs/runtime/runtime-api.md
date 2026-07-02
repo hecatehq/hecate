@@ -2677,13 +2677,14 @@ committed assignment-start results after Hecate-owned dispatch completes or
 returns a committed cleanup/conflict state; it is replacement evidence, not
 runtime write authority. With strict embedded Cairnline reads, assignment
 start may load the launch project/work/assignment/role/root/defaults from a
-Cairnline-only graph. Hecate-task assignment start can claim/progress the
-assignment in embedded Cairnline and persist only Hecate-owned task/run refs,
-context packets, and launch timestamps in the assignment runtime overlay when
-the native project-work store is absent. It does not require a native Hecate
-project identity row or compatibility assignment row. External-agent assignment
-start still uses the native project-work compatibility path until that runtime
-path has its own replacement slice. `project-assignment-chat-reconcile-live-mirror`
+Cairnline-only graph. Hecate-task and external-agent assignment start can
+claim/progress the assignment in embedded Cairnline and persist only
+Hecate-owned task/run or chat-session refs, context packets, and launch
+timestamps in the assignment runtime overlay when the native project-work store
+is absent. They do not require a native Hecate project identity row or
+compatibility assignment row; runtime dispatch, task execution, and
+external-agent supervision remain Hecate-owned.
+`project-assignment-chat-reconcile-live-mirror`
 best-effort mirrors assignment status/ref updates committed by linked
 external-agent chat reconciliation. `project-collaboration-live-mirror` mirrors
 collaboration artifact creation, including generic artifacts, evidence links,
@@ -2931,7 +2932,7 @@ Example response, with `write_switchpoints` shortened for readability:
         "blocks_authority": false,
         "seams": ["project-assignment-start-result-live-mirror"],
         "gap": "assignment-start",
-        "detail": "Assignment start still dispatches through Hecate runtime/task/external-agent authority; Cairnline receives only committed start results and cleanup/conflict states."
+        "detail": "Assignment start still dispatches through Hecate runtime/task/external-agent authority; strict embedded starts may claim/progress assignments in Cairnline while Hecate owns runtime refs, cleanup, and conflict handling."
       },
       {
         "name": "migration-cutover",
