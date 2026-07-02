@@ -4072,6 +4072,7 @@ func TestProjectWorkAPI_StartExternalAgentAssignmentStrictEmbeddedReadModelLaunc
 	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
 		t.Fatalf("Hecate project store seeded ok=%v err=%v, want no project row before launch", ok, err)
 	}
+	requireCairnlineOnlyProjectReadsForTest(t, handler, projectID)
 
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_embedded_external_start/assignments/asgn_embedded_external_start/start", bytes.NewReader([]byte(`{"driver_kind":"external_agent"}`))))
@@ -4106,16 +4107,120 @@ func TestProjectWorkAPI_StartExternalAgentAssignmentStrictEmbeddedReadModelLaunc
 	if session.ProjectID != projectID || session.AgentID != "codex" || session.NativeSessionID != "native_embedded_external" {
 		t.Fatalf("session = %+v, want prepared external agent session for Cairnline project", session)
 	}
-	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
-		t.Fatalf("Hecate project store ok=%v err=%v after launch, want no native project row", ok, err)
+	runtime, ok, err := handler.projectRuntime.Get(t.Context(), projectID, "asgn_embedded_external_start")
+	if err != nil || !ok {
+		t.Fatalf("Hecate assignment runtime ok=%v err=%v, want runtime overlay", ok, err)
 	}
-	shadow := getStoredProjectWorkAssignmentForTest(t, handler, projectID, "work_embedded_external_start", "asgn_embedded_external_start")
-	if shadow.ExecutionRef.ChatSessionID != ref.ChatSessionID || shadow.ExecutionRef.ContextSnapshotID != ref.ContextSnapshotID {
-		t.Fatalf("Hecate assignment shadow ref = %+v, want chat/context %q/%q", shadow.ExecutionRef, ref.ChatSessionID, ref.ContextSnapshotID)
+	if runtime.ExecutionRef.ChatSessionID != ref.ChatSessionID || runtime.ExecutionRef.ContextSnapshotID != ref.ContextSnapshotID {
+		t.Fatalf("Hecate assignment runtime ref = %+v, want chat/context %q/%q", runtime.ExecutionRef, ref.ChatSessionID, ref.ContextSnapshotID)
 	}
 	mirrored := getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_embedded_external_start")
-	if mirrored.Status != cairnlinebridge.AssignmentStatus(shadow.Status) || mirrored.ExecutionRef != ref.ChatSessionID || mirrored.ContextSnapshotID != ref.ContextSnapshotID {
-		t.Fatalf("mirrored Cairnline assignment = status %q ref %q context %q, want %q/%q/%q", mirrored.Status, mirrored.ExecutionRef, mirrored.ContextSnapshotID, cairnlinebridge.AssignmentStatus(shadow.Status), ref.ChatSessionID, ref.ContextSnapshotID)
+	if mirrored.Status != cairnlinebridge.AssignmentStatus(runtime.ExecutionRef.Status) || mirrored.ExecutionRef != ref.ChatSessionID || mirrored.ContextSnapshotID != ref.ContextSnapshotID {
+		t.Fatalf("mirrored Cairnline assignment = status %q ref %q context %q, want %q/%q/%q", mirrored.Status, mirrored.ExecutionRef, mirrored.ContextSnapshotID, cairnlinebridge.AssignmentStatus(runtime.ExecutionRef.Status), ref.ChatSessionID, ref.ContextSnapshotID)
+	}
+}
+
+func TestProjectWorkAPI_StartExternalAgentAssignmentStrictEmbeddedReadModelCleansPreparedSessionWhenClaimLost(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend: "cairnline",
+			CairnlineReadSource: "embedded",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	runner := &fakeAgentChatRunner{nativeSessionID: "native_embedded_external_lost_claim"}
+	handler.SetAgentChatRunner(runner)
+	handler.taskStore = nil
+	handler.taskRunner = nil
+	server := NewServer(quietLogger(), handler)
+	const projectID = "proj_embedded_external_claim_lost"
+	workspace := t.TempDir()
+
+	if _, err := handler.agentProfiles.Create(t.Context(), agentprofiles.Profile{
+		ID:                "prof_embedded_external_claim_lost",
+		Name:              "Embedded External Agent Claim Lost",
+		Surface:           agentprofiles.SurfaceExternalAgent,
+		ExecutionProfile:  "external_implementation",
+		ExternalAgentKind: "codex",
+	}); err != nil {
+		t.Fatalf("Create external profile: %v", err)
+	}
+	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+		if _, err := service.CreateProject(t.Context(), cairnline.Project{
+			ID:            projectID,
+			Name:          "Embedded External Claim Lost",
+			Description:   "Coordinate External Agent assignment launch from embedded Cairnline.",
+			DefaultRootID: "root_embedded_external_claim_lost",
+			Roots: []cairnline.Root{{
+				ID:     "root_embedded_external_claim_lost",
+				Path:   workspace,
+				Kind:   "git",
+				Active: true,
+			}},
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateRole(t.Context(), cairnline.Role{
+			ID:                   "role_embedded_external_claim_lost",
+			ProjectID:            projectID,
+			Name:                 "External Implementer",
+			Instructions:         "Use the embedded Cairnline graph before preparing the adapter session.",
+			DefaultProfileID:     "prof_embedded_external_claim_lost",
+			DefaultExecutionMode: cairnline.ExecutionExternalAdapter,
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateWorkItem(t.Context(), cairnline.WorkItem{
+			ID:          "work_embedded_external_claim_lost",
+			ProjectID:   projectID,
+			Title:       "Prepare embedded external assignment with lost claim",
+			Brief:       "Prepare an External Agent chat from a Cairnline-only project graph.",
+			Status:      cairnline.WorkStatusReady,
+			Priority:    cairnline.PriorityNormal,
+			OwnerRoleID: "role_embedded_external_claim_lost",
+			RootID:      "root_embedded_external_claim_lost",
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateAssignment(t.Context(), cairnline.Assignment{
+			ID:            "asgn_embedded_external_claim_lost",
+			ProjectID:     projectID,
+			WorkItemID:    "work_embedded_external_claim_lost",
+			RoleID:        "role_embedded_external_claim_lost",
+			RootID:        "root_embedded_external_claim_lost",
+			ExecutionMode: cairnline.ExecutionExternalAdapter,
+		}); err != nil {
+			return err
+		}
+		_, err := service.ClaimAssignment(t.Context(), projectID, "asgn_embedded_external_claim_lost", "other-agent")
+		return err
+	}); err != nil {
+		t.Fatalf("seed embedded Cairnline external lost claim: %v", err)
+	}
+	requireCairnlineOnlyProjectReadsForTest(t, handler, projectID)
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_embedded_external_claim_lost/assignments/asgn_embedded_external_claim_lost/start", bytes.NewReader([]byte(`{"driver_kind":"external_agent"}`))))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("start embedded external lost claim status = %d body=%s, want 409", rec.Code, rec.Body.String())
+	}
+	if len(runner.prepareRequests) != 1 {
+		t.Fatalf("prepare requests = %+v, want one prepared session before claim conflict cleanup", runner.prepareRequests)
+	}
+	sessionID := runner.prepareRequests[0].SessionID
+	if len(runner.deletedSessions) != 1 || runner.deletedSessions[0] != sessionID {
+		t.Fatalf("deleted sessions = %+v, want cleanup of prepared session %q", runner.deletedSessions, sessionID)
+	}
+	if _, ok, err := handler.agentChat.Get(t.Context(), sessionID); err != nil || ok {
+		t.Fatalf("Get chat session found=%v err=%v, want cleaned up prepared session", ok, err)
+	}
+	mirrored := getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_embedded_external_claim_lost")
+	if mirrored.Status != cairnline.AssignmentClaimed || mirrored.ClaimedBy != "other-agent" || mirrored.ExecutionRef != "" || mirrored.ContextSnapshotID != "" {
+		t.Fatalf("mirrored assignment = %+v, want existing external claim preserved", mirrored)
+	}
+	if _, ok, err := handler.projectRuntime.Get(t.Context(), projectID, "asgn_embedded_external_claim_lost"); err != nil || ok {
+		t.Fatalf("Hecate assignment runtime ok=%v err=%v, want no runtime overlay after claim conflict", ok, err)
 	}
 }
 

@@ -830,11 +830,7 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		return
 	}
 	if assignment.DriverKind == projectwork.AssignmentDriverExternalAgent {
-		if strictEmbeddedRead && h.projectWork == nil {
-			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project work store is not configured for external-agent assignment start")
-			return
-		}
-		if strictEmbeddedRead {
+		if strictEmbeddedRead && h.projectWork != nil {
 			inputs.Assignment = assignment
 			shadowedAssignment, err := h.shadowCairnlineAssignmentStartInputsToHecate(ctx, inputs)
 			if err != nil {
@@ -976,7 +972,7 @@ func (h *Handler) writeProjectTaskAssignmentStartResult(w http.ResponseWriter, c
 }
 
 func (h *Handler) startStrictEmbeddedCairnlineTaskAssignment(ctx context.Context, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile, plan projectworkapp.TaskAssignmentLaunchPlan, contextPacket chat.ContextPacket) (*projectworkapp.StartTaskAssignmentResult, error) {
-	claimed, err := h.claimStrictEmbeddedCairnlineTaskAssignment(ctx, assignment)
+	claimed, err := h.claimStrictEmbeddedCairnlineAssignment(ctx, assignment)
 	if err != nil {
 		return &projectworkapp.StartTaskAssignmentResult{Assignment: assignment}, err
 	}
@@ -1004,7 +1000,7 @@ func (h *Handler) startStrictEmbeddedCairnlineTaskAssignment(ctx context.Context
 		}
 		failed.Status = projectwork.AssignmentStatusFailed
 		failed.CompletedAt = time.Now().UTC()
-		failed, updateErr := h.persistStrictEmbeddedCairnlineTaskAssignment(ctx, failed)
+		failed, updateErr := h.persistStrictEmbeddedCairnlineAssignmentRuntime(ctx, failed)
 		if updateErr != nil {
 			err = errors.Join(err, updateErr)
 		}
@@ -1025,7 +1021,7 @@ func (h *Handler) startStrictEmbeddedCairnlineTaskAssignment(ctx context.Context
 	if running.StartedAt.IsZero() {
 		running.StartedAt = time.Now().UTC()
 	}
-	running, err = h.persistStrictEmbeddedCairnlineTaskAssignment(ctx, running)
+	running, err = h.persistStrictEmbeddedCairnlineAssignmentRuntime(ctx, running)
 	if err != nil {
 		return &projectworkapp.StartTaskAssignmentResult{Task: result.Task, Run: result.Run, TraceID: result.TraceID, SpanID: result.SpanID}, err
 	}
@@ -1038,7 +1034,7 @@ func (h *Handler) startStrictEmbeddedCairnlineTaskAssignment(ctx context.Context
 	}, nil
 }
 
-func (h *Handler) claimStrictEmbeddedCairnlineTaskAssignment(ctx context.Context, assignment projectwork.Assignment) (projectwork.Assignment, error) {
+func (h *Handler) claimStrictEmbeddedCairnlineAssignment(ctx context.Context, assignment projectwork.Assignment) (projectwork.Assignment, error) {
 	var claimed cairnline.Assignment
 	err := h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
 		item, err := service.ClaimAssignment(ctx, assignment.ProjectID, assignment.ID, "hecate")
@@ -1072,7 +1068,7 @@ func (h *Handler) releaseStrictEmbeddedCairnlineAssignmentClaim(ctx context.Cont
 	})
 }
 
-func (h *Handler) persistStrictEmbeddedCairnlineTaskAssignment(ctx context.Context, assignment projectwork.Assignment) (projectwork.Assignment, error) {
+func (h *Handler) persistStrictEmbeddedCairnlineAssignmentRuntime(ctx context.Context, assignment projectwork.Assignment) (projectwork.Assignment, error) {
 	var recorded projectwork.Assignment
 	err := h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
 		existing, err := service.GetAssignment(ctx, assignment.ProjectID, assignment.ID)
@@ -1099,7 +1095,7 @@ func (h *Handler) persistStrictEmbeddedCairnlineTaskAssignment(ctx context.Conte
 	if err != nil {
 		return assignment, err
 	}
-	h.shadowProjectAssignmentRuntimeToHecate(ctx, "project_assignment_start_cairnline_task_runtime", recorded)
+	h.shadowProjectAssignmentRuntimeToHecate(ctx, "project_assignment_start_cairnline_runtime", recorded)
 	return h.projectWorkApplication().ApplyAssignmentRuntime(ctx, recorded)
 }
 
@@ -1239,6 +1235,11 @@ func (h *Handler) startProjectExternalAgentAssignment(w http.ResponseWriter, r *
 		chatcontext.ProjectAssignmentRefs(project.ID, workItem.ID, assignment.ID, role.ID),
 	))
 	packetBytes := chatcontext.Marshal(contextPacket)
+	if h.projectReadRoutesUseCairnlineReadModel() && h.requiresEmbeddedCairnlineProjectReads() && h.projectWork == nil {
+		result, err := h.startStrictEmbeddedCairnlineExternalAgentAssignment(ctx, assignment, session, contextPacket.ID, packetBytes)
+		h.writeProjectExternalAgentAssignmentStartResult(w, ctx, assignment, plan.Adapter.Name, result, err)
+		return
+	}
 	result, err := h.projectWorkApplication().StartExternalAgentAssignment(ctx, projectworkapp.StartExternalAgentAssignmentCommand{
 		ProjectID:         project.ID,
 		Assignment:        assignment,
@@ -1246,16 +1247,106 @@ func (h *Handler) startProjectExternalAgentAssignment(w http.ResponseWriter, r *
 		ContextSnapshotID: contextPacket.ID,
 		ContextPacket:     packetBytes,
 	})
+	h.writeProjectExternalAgentAssignmentStartResult(w, ctx, assignment, plan.Adapter.Name, result, err)
+}
+
+func (h *Handler) startStrictEmbeddedCairnlineExternalAgentAssignment(ctx context.Context, assignment projectwork.Assignment, session chat.Session, contextSnapshotID string, packetBytes []byte) (*projectworkapp.StartExternalAgentAssignmentResult, error) {
+	if strings.TrimSpace(assignment.ExecutionRef.ChatSessionID) != "" ||
+		projectWorkAssignmentIsTerminal(assignment.Status) ||
+		assignment.DriverKind != projectwork.AssignmentDriverExternalAgent {
+		return &projectworkapp.StartExternalAgentAssignmentResult{Assignment: assignment}, projectworkapp.ErrAssignmentStartConflict
+	}
+	session, err := h.agentChat.Create(ctx, session)
+	if err != nil {
+		return nil, err
+	}
+	prepareCtx := ctx
+	cancel := func() {}
+	if agentChatPrepareTimeout > 0 {
+		prepareCtx, cancel = context.WithTimeout(ctx, agentChatPrepareTimeout)
+	}
+	prepared, prepareErr := h.agentChatRunner.PrepareSession(prepareCtx, agentadapters.PrepareSessionRequest{
+		SessionID:     session.ID,
+		AdapterID:     session.AgentID,
+		Workspace:     session.Workspace,
+		ConfigOptions: session.ConfigOptions,
+		MCPServers:    session.MCPServers,
+	})
+	cancel()
+	if prepareErr != nil {
+		_ = h.agentChat.Delete(context.Background(), session.ID)
+		return &projectworkapp.StartExternalAgentAssignmentResult{Session: session}, projectworkapp.ExternalAgentPrepareError{Err: prepareErr}
+	}
+
+	session, err = h.agentChat.UpdateSession(ctx, session.ID, func(item *chat.Session) {
+		item.DriverKind = prepared.DriverKind
+		item.NativeSessionID = prepared.NativeSessionID
+		item.ConfigOptions = prepared.ConfigOptions
+	})
+	if err != nil {
+		h.cleanupStrictEmbeddedExternalAgentSession(session.ID)
+		return &projectworkapp.StartExternalAgentAssignmentResult{Session: session}, err
+	}
+
+	claimed, err := h.claimStrictEmbeddedCairnlineAssignment(ctx, assignment)
+	if err != nil {
+		h.cleanupStrictEmbeddedExternalAgentSession(session.ID)
+		return &projectworkapp.StartExternalAgentAssignmentResult{Assignment: claimed, Session: session}, err
+	}
+	assignment = claimed
+	running := assignment
+	running.ExecutionRef = projectwork.NormalizeAssignmentExecutionRef(projectwork.AssignmentExecutionRef{
+		Kind:              projectwork.AssignmentExecutionKindChatSession,
+		ChatSessionID:     session.ID,
+		ContextSnapshotID: strings.TrimSpace(contextSnapshotID),
+		Status:            projectwork.AssignmentStatusRunning,
+	})
+	running.ContextPacket = append([]byte(nil), packetBytes...)
+	running.Status = projectwork.AssignmentStatusRunning
+	if running.StartedAt.IsZero() {
+		running.StartedAt = time.Now().UTC()
+	}
+	running, err = h.persistStrictEmbeddedCairnlineAssignmentRuntime(ctx, running)
+	if err != nil {
+		h.cleanupStrictEmbeddedExternalAgentSession(session.ID)
+		err = errors.Join(err, h.releaseStrictEmbeddedCairnlineAssignmentClaim(context.Background(), assignment.ProjectID, assignment.ID))
+		return &projectworkapp.StartExternalAgentAssignmentResult{Assignment: assignment, Session: session}, err
+	}
+	return &projectworkapp.StartExternalAgentAssignmentResult{Assignment: running, Session: session}, nil
+}
+
+func (h *Handler) cleanupStrictEmbeddedExternalAgentSession(sessionID string) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return
+	}
+	if h.agentChatRunner != nil {
+		cleanupCtx := context.Background()
+		cancel := func() {}
+		if agentChatPrepareTimeout > 0 {
+			cleanupCtx, cancel = context.WithTimeout(cleanupCtx, agentChatPrepareTimeout)
+		}
+		_ = h.agentChatRunner.DeleteSession(cleanupCtx, sessionID)
+		cancel()
+	}
+	if h.agentChat != nil {
+		_ = h.agentChat.Delete(context.Background(), sessionID)
+	}
+}
+
+func (h *Handler) writeProjectExternalAgentAssignmentStartResult(w http.ResponseWriter, ctx context.Context, assignment projectwork.Assignment, adapterName string, result *projectworkapp.StartExternalAgentAssignmentResult, err error) {
 	if err != nil {
 		var prepareErr projectworkapp.ExternalAgentPrepareError
 		if errors.As(err, &prepareErr) {
-			writeAgentChatPrepareError(w, plan.Adapter.Name, prepareErr.Unwrap())
+			writeAgentChatPrepareError(w, adapterName, prepareErr.Unwrap())
 			return
 		}
 		resultAssignment := assignment
 		if result != nil && result.Assignment.ID != "" {
 			resultAssignment = result.Assignment
-			h.mirrorProjectAssignmentStartResultToCairnline(ctx, result.Assignment)
+			if h.projectWork != nil {
+				h.mirrorProjectAssignmentStartResultToCairnline(ctx, result.Assignment)
+			}
 		}
 		if errors.Is(err, projectworkapp.ErrAssignmentStartConflict) {
 			projected, projectErr := h.renderProjectedProjectWorkAssignment(ctx, resultAssignment)
@@ -1269,7 +1360,9 @@ func (h *Handler) startProjectExternalAgentAssignment(w http.ResponseWriter, r *
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	h.mirrorProjectAssignmentStartResultToCairnline(ctx, result.Assignment)
+	if h.projectWork != nil {
+		h.mirrorProjectAssignmentStartResultToCairnline(ctx, result.Assignment)
+	}
 	projected, err := h.renderProjectedProjectWorkAssignment(ctx, result.Assignment)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())

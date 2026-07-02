@@ -235,7 +235,7 @@ var projectCairnlineWriteSwitchpoints = []ProjectCoordinationBackendWriteSwitchp
 		BlocksAuthority:  false,
 		Seams:            []string{"project-assignment-start-result-live-mirror"},
 		Gap:              "assignment-start",
-		Detail:           "Assignment start still dispatches through Hecate runtime/task/external-agent authority; Cairnline receives only committed start results and cleanup/conflict states.",
+		Detail:           "Assignment start still dispatches through Hecate runtime/task/external-agent authority; strict embedded starts may claim/progress assignments in Cairnline while Hecate owns runtime refs, cleanup, and conflict handling.",
 	},
 	{
 		Name:             "collaboration-artifacts",
