@@ -1157,6 +1157,9 @@ func TestProjectsAPI_CairnlineRootAuthorityCommitsDirectMutationsFirst(t *testin
 	if len(withRoot.Data.Roots) != 2 || withRoot.Data.DefaultRootID != "root_main" {
 		t.Fatalf("root create response = %+v, want Hecate compatibility row shadowed with two roots and stable default", withRoot.Data)
 	}
+	if withRoot.Data.ReadBackend != "cairnline" {
+		t.Fatalf("root create read_backend = %q, want cairnline for Cairnline-authoritative response", withRoot.Data.ReadBackend)
+	}
 	mirrored := getMirroredCairnlineProjectForTest(t, handler, created.Data.ID)
 	if feature := findMirroredCairnlineRootForTest(mirrored.Roots, "root_feature"); feature == nil || feature.Path != "/workspace/root-feature" || feature.Active {
 		t.Fatalf("mirrored root_feature = %+v in %+v, want inactive created root", feature, mirrored.Roots)
@@ -1276,6 +1279,9 @@ func TestProjectsAPI_CairnlineRootAuthorityCommitsListReplacementFirst(t *testin
 	if len(updated.Data.Roots) != 2 || updated.Data.Roots[0].ID != "root_next" || updated.Data.Roots[1].ID != "root_docs" || updated.Data.DefaultRootID != "root_next" {
 		t.Fatalf("root replacement response = %+v, want replacement roots with first root promoted to default", updated.Data)
 	}
+	if updated.Data.ReadBackend != "cairnline" {
+		t.Fatalf("root replacement read_backend = %q, want cairnline for Cairnline-authoritative response", updated.Data.ReadBackend)
+	}
 	mirrored := getMirroredCairnlineProjectForTest(t, handler, created.Data.ID)
 	if len(mirrored.Roots) != 2 || mirrored.Roots[0].ID != "root_next" || mirrored.Roots[1].ID != "root_docs" || mirrored.DefaultRootID != "root_next" {
 		t.Fatalf("mirrored roots after list replacement = %+v default=%q, want replacement committed to Cairnline first", mirrored.Roots, mirrored.DefaultRootID)
@@ -1315,6 +1321,9 @@ func TestProjectsAPI_CairnlineContextSourceAuthorityCommitsDirectMutationsFirst(
 	}
 	if len(withSource.Data.ContextSources) != 1 || withSource.Data.ContextSources[0].ID != "ctx_agents" {
 		t.Fatalf("source create response = %+v, want ctx_agents", withSource.Data.ContextSources)
+	}
+	if withSource.Data.ReadBackend != "cairnline" {
+		t.Fatalf("source create read_backend = %q, want cairnline for Cairnline-authoritative response", withSource.Data.ReadBackend)
 	}
 	mirrored := getMirroredCairnlineProjectForTest(t, handler, created.Data.ID)
 	if source := findMirroredCairnlineSourceForTest(mirrored.ContextSources, "ctx_agents"); source == nil || source.Locator != "AGENTS.md" || source.Format != "agents_md" {
@@ -1406,6 +1415,9 @@ func TestProjectsAPI_CairnlineContextSourceAuthorityCommitsListReplacementFirst(
 	}
 	if len(updated.Data.ContextSources) != 2 || updated.Data.ContextSources[0].ID != "ctx_agents" || updated.Data.ContextSources[1].ID != "ctx_claude" || updated.Data.ContextSources[1].Enabled {
 		t.Fatalf("source replacement response = %+v, want replacement sources with disabled ctx_claude", updated.Data.ContextSources)
+	}
+	if updated.Data.ReadBackend != "cairnline" {
+		t.Fatalf("source replacement read_backend = %q, want cairnline for Cairnline-authoritative response", updated.Data.ReadBackend)
 	}
 	mirrored := getMirroredCairnlineProjectForTest(t, handler, created.Data.ID)
 	if len(mirrored.ContextSources) != 2 || mirrored.ContextSources[0].ID != "ctx_agents" || mirrored.ContextSources[1].ID != "ctx_claude" || mirrored.ContextSources[1].Enabled {
@@ -1504,6 +1516,9 @@ func TestProjectsAPI_DefaultRootPatchCairnlineAuthorityUsesCairnlineOnlyRoots(t 
 	}
 	if updated.Data.DefaultRootID != "root_next" || updated.Data.DefaultProvider != "anthropic" || updated.Data.DefaultModel != "claude-sonnet-4-5" {
 		t.Fatalf("updated defaults = root %q provider/model %q/%q, want root_next anthropic/claude-sonnet-4-5", updated.Data.DefaultRootID, updated.Data.DefaultProvider, updated.Data.DefaultModel)
+	}
+	if updated.Data.ReadBackend != "cairnline" {
+		t.Fatalf("defaults update read_backend = %q, want cairnline for Cairnline-authoritative response", updated.Data.ReadBackend)
 	}
 	mirrored := getMirroredCairnlineProjectForTest(t, handler, projectID)
 	if mirrored.DefaultRootID != "root_next" {

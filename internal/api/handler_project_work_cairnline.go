@@ -658,14 +658,69 @@ func (h *Handler) renderCairnlineProjectWorkItemReadiness(ctx context.Context, p
 		return ProjectWorkItemReadinessResponse{}, err
 	}
 	defer view.Close()
-	readiness, err := view.service.WorkItemCloseoutReadiness(ctx, view.snapshot.Project.ID, workItemID)
-	if errors.Is(err, cairnline.ErrNotFound) {
-		return ProjectWorkItemReadinessResponse{}, projectwork.ErrNotFound
-	}
+	readiness, err := h.cairnlineProjectWorkItemReadiness(ctx, view.service, view.snapshot, workItemID)
 	if err != nil {
 		return ProjectWorkItemReadinessResponse{}, err
 	}
-	return renderCairnlineProjectWorkItemReadiness(readiness), nil
+	rendered := renderProjectWorkItemReadiness(readiness)
+	rendered.ReadBackend = "cairnline"
+	return rendered, nil
+}
+
+func (h *Handler) cairnlineProjectWorkItemReadiness(ctx context.Context, service *cairnline.Service, snapshot cairnlinebridge.Snapshot, workItemID string) (projectwork.WorkItemReadiness, error) {
+	workItem, err := service.GetWorkItem(ctx, snapshot.Project.ID, workItemID)
+	if errors.Is(err, cairnline.ErrNotFound) {
+		return projectwork.WorkItemReadiness{}, projectwork.ErrNotFound
+	}
+	if err != nil {
+		return projectwork.WorkItemReadiness{}, err
+	}
+	cairnlineAssignments, err := service.ListAssignments(ctx, snapshot.Project.ID)
+	if err != nil {
+		return projectwork.WorkItemReadiness{}, err
+	}
+	assignments := filterProjectWorkAssignments(projectWorkAssignmentsFromCairnline(cairnlineAssignments, snapshot.Assignments), workItemID)
+	assignments, err = h.applyRuntimeForCairnlineReadiness(ctx, assignments)
+	if err != nil {
+		return projectwork.WorkItemReadiness{}, err
+	}
+	artifacts, err := cairnlineProjectWorkArtifacts(ctx, service, snapshot.Project.ID, workItemID)
+	if err != nil {
+		return projectwork.WorkItemReadiness{}, err
+	}
+	handoffs, err := cairnlineProjectHandoffs(ctx, service, snapshot.Project.ID, workItemID, "")
+	if err != nil {
+		return projectwork.WorkItemReadiness{}, err
+	}
+	return projectwork.EvaluateWorkItemReadiness(projectWorkItemFromCairnline(workItem), assignments, artifacts, handoffs), nil
+}
+
+func (h *Handler) applyRuntimeForCairnlineReadiness(ctx context.Context, assignments []projectwork.Assignment) ([]projectwork.Assignment, error) {
+	projected, err := h.projectWorkApplication().ApplyAssignmentsRuntimeProjection(ctx, assignments)
+	if err != nil {
+		return nil, err
+	}
+	for index := range projected {
+		if index >= len(assignments) {
+			break
+		}
+		status := strings.TrimSpace(assignments[index].Status)
+		if !terminalProjectWorkAssignmentStatus(status) {
+			continue
+		}
+		projected[index].Status = status
+		projected[index].ExecutionRef.Status = status
+	}
+	return projected, nil
+}
+
+func terminalProjectWorkAssignmentStatus(status string) bool {
+	switch strings.TrimSpace(status) {
+	case projectwork.AssignmentStatusCompleted, projectwork.AssignmentStatusFailed, projectwork.AssignmentStatusCancelled:
+		return true
+	default:
+		return false
+	}
 }
 
 type cairnlineProjectWorkView struct {
