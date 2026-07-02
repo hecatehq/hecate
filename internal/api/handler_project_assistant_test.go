@@ -3083,6 +3083,60 @@ func TestProjectAssistantAPI_ApplyDoneUsesCairnlineProjectAuthority(t *testing.T
 	}
 }
 
+func TestProjectAssistantAPI_ApplyCreateWorkUsesCairnlineProjectAuthority(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineReplacementIdentityAuthorityTestServer(t)
+	client := newAPITestClient(t, server)
+
+	project := mustRequestJSONStatus[ProjectResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects", projectJourneyJSON(t, map[string]any{
+		"name": "Assistant Cairnline Work",
+	}))
+	projectID := project.Data.ID
+	if projectID == "" || project.Data.ReadBackend != "cairnline" {
+		t.Fatalf("project = %+v, want Cairnline project identity", project.Data)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("Hecate project store ok=%v err=%v after create, want no native project identity row", ok, err)
+	}
+
+	proposal := projectassistant.Proposal{
+		ID:                   "pa_assistant_cairnline_create_work",
+		Title:                "Create Cairnline work",
+		RequiresConfirmation: true,
+		Actions: []projectassistant.Action{{
+			Kind:   projectassistant.ActionCreateWorkItem,
+			Target: map[string]string{"project_id": projectID},
+			Patch: json.RawMessage(`{
+				"id":"work_assistant_cairnline_created",
+				"title":"Assistant-created Cairnline work",
+				"brief":"Create the first reviewable work item through Project Assistant apply.",
+				"status":"ready",
+				"priority":"normal"
+			}`),
+		}},
+	}
+	applied := mustRequestJSONStatus[projectAssistantApplyResponse](client, http.StatusOK, http.MethodPost, "/hecate/v1/project-assistant/apply", projectJourneyJSON(t, map[string]any{
+		"proposal": proposal,
+		"confirm":  true,
+	}))
+	if applied.Data.Status != projectassistant.ApplyStatusApplied || !applied.Data.Applied || applied.Data.CommittedActionCount != 1 || len(applied.Data.Actions) != 1 {
+		t.Fatalf("apply response = %+v, want applied create-work action", applied.Data)
+	}
+	if got := applied.Data.Actions[0]; got.Kind != projectassistant.ActionCreateWorkItem || got.ID != "work_assistant_cairnline_created" || got.Data["project_id"] != projectID {
+		t.Fatalf("apply action = %+v, want create_work_item result for Cairnline project", got)
+	}
+	work := mustRequestJSONStatus[ProjectWorkItemEnvelope](client, http.StatusOK, http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_assistant_cairnline_created", "")
+	if work.Data.Title != "Assistant-created Cairnline work" || work.Data.Status != projectwork.WorkItemStatusReady || work.Data.ReadBackend != "cairnline" {
+		t.Fatalf("work item = %+v, want Cairnline-backed assistant-created work", work.Data)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("Hecate project store ok=%v err=%v after assistant create-work, want no native project identity row", ok, err)
+	}
+	if mirroredWork := getMirroredCairnlineWorkItemForTest(t, handler, projectID, "work_assistant_cairnline_created"); mirroredWork.Title != "Assistant-created Cairnline work" || mirroredWork.Status != projectwork.WorkItemStatusReady {
+		t.Fatalf("mirrored Cairnline work = %+v, want assistant-created ready work", mirroredWork)
+	}
+}
+
 func getMirroredCairnlineAssistantProposalForTest(t *testing.T, handler *Handler, proposalID string) cairnline.AssistantProposalRecord {
 	t.Helper()
 	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
