@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hecatehq/hecate/internal/agentadapters"
+	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/pkg/types"
@@ -265,9 +267,16 @@ func TestProjectJourneyAPI_CairnlineReplacementModeCreatesWorkAndStartsWithoutNa
 	if mirrored.ExecutionRef != ref.RunID || mirrored.ContextSnapshotID != ref.ContextSnapshotID {
 		t.Fatalf("mirrored Cairnline assignment = ref %q context %q, want %q/%q", mirrored.ExecutionRef, mirrored.ContextSnapshotID, ref.RunID, ref.ContextSnapshotID)
 	}
+	runtime, ok, err := handler.projectRuntime.Get(t.Context(), projectID, "asgn_replacement")
+	if err != nil || !ok {
+		t.Fatalf("Hecate runtime overlay ok=%v err=%v after replacement start, want runtime refs", ok, err)
+	}
+	if runtime.ExecutionRef.RunID != ref.RunID || runtime.ExecutionRef.ContextSnapshotID != ref.ContextSnapshotID {
+		t.Fatalf("Hecate runtime overlay = %+v, want run/context %q/%q", runtime.ExecutionRef, ref.RunID, ref.ContextSnapshotID)
+	}
 	shadow := getStoredProjectWorkAssignmentForTest(t, handler, projectID, "work_replacement", "asgn_replacement")
-	if shadow.ExecutionRef.RunID != ref.RunID || shadow.ExecutionRef.ContextSnapshotID != ref.ContextSnapshotID {
-		t.Fatalf("Hecate runtime shadow assignment = %+v, want run/context %q/%q", shadow.ExecutionRef, ref.RunID, ref.ContextSnapshotID)
+	if shadow.ExecutionRef.RunID != "" || shadow.ExecutionRef.ContextSnapshotID != "" {
+		t.Fatalf("Hecate compatibility shadow assignment = %+v, want replacement-mode start refs to live only in runtime overlay", shadow.ExecutionRef)
 	}
 
 	completed := mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusOK, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/work-items/work_replacement/assignments/asgn_replacement", projectJourneyJSON(t, map[string]any{
@@ -361,6 +370,107 @@ func TestProjectJourneyAPI_CairnlineReplacementModeCreatesWorkAndStartsWithoutNa
 	}
 	if mirroredWork := getMirroredCairnlineWorkItemForTest(t, handler, projectID, "work_replacement"); mirroredWork.Status != projectwork.WorkItemStatusDone {
 		t.Fatalf("mirrored Cairnline work = %+v, want done", mirroredWork)
+	}
+}
+
+func TestProjectJourneyAPI_CairnlineReplacementModeStartsExternalAgentWithoutAdvancingNativeShadow(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineReplacementIdentityAuthorityTestServer(t)
+	runner := &fakeAgentChatRunner{nativeSessionID: "native_replacement_external"}
+	handler.SetAgentChatRunner(runner)
+	client := newAPITestClient(t, server)
+	root := t.TempDir()
+
+	if _, err := handler.agentProfiles.Create(t.Context(), agentprofiles.Profile{
+		ID:                "prof_replacement_external",
+		Name:              "Replacement external agent",
+		Surface:           agentprofiles.SurfaceExternalAgent,
+		ExecutionProfile:  "external_implementation",
+		ExternalAgentKind: "codex",
+	}); err != nil {
+		t.Fatalf("Create external profile: %v", err)
+	}
+
+	project := mustRequestJSONStatus[ProjectResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects", projectJourneyJSON(t, map[string]any{
+		"name": "Cairnline Replacement External Journey",
+		"roots": []map[string]any{{
+			"id":     "root_replacement_external",
+			"path":   root,
+			"kind":   "git",
+			"active": true,
+		}},
+	}))
+	projectID := project.Data.ID
+	if projectID == "" || project.Data.ReadBackend != "cairnline" {
+		t.Fatalf("project = %+v, want Cairnline replacement identity", project.Data)
+	}
+
+	role := mustRequestJSONStatus[ProjectWorkRoleEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/roles", projectJourneyJSON(t, map[string]any{
+		"id":                    "role_replacement_external",
+		"name":                  "Replacement external implementer",
+		"instructions":          "Prepare the external adapter session from Cairnline state.",
+		"default_driver_kind":   projectwork.AssignmentDriverExternalAgent,
+		"default_agent_profile": "prof_replacement_external",
+	}))
+	if role.Data.ID != "role_replacement_external" || role.Data.ReadBackend != "cairnline" {
+		t.Fatalf("role = %+v, want Cairnline-backed external role", role.Data)
+	}
+
+	work := mustRequestJSONStatus[ProjectWorkItemEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items", projectJourneyJSON(t, map[string]any{
+		"id":            "work_replacement_external",
+		"title":         "Prepare replacement external assignment",
+		"brief":         "Exercise replacement-mode External Agent launch with the compatibility store present.",
+		"status":        projectwork.WorkItemStatusReady,
+		"owner_role_id": "role_replacement_external",
+		"root_id":       "root_replacement_external",
+	}))
+	if work.Data.ID != "work_replacement_external" || work.Data.ReadBackend != "cairnline" {
+		t.Fatalf("work = %+v, want Cairnline-backed external work item", work.Data)
+	}
+
+	assignment := mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_replacement_external/assignments", projectJourneyJSON(t, map[string]any{
+		"id":          "asgn_replacement_external",
+		"role_id":     "role_replacement_external",
+		"root_id":     "root_replacement_external",
+		"driver_kind": projectwork.AssignmentDriverExternalAgent,
+	}))
+	if assignment.Data.ID != "asgn_replacement_external" || assignment.Data.ReadBackend != "cairnline" || assignment.Data.Status != projectwork.AssignmentStatusQueued {
+		t.Fatalf("assignment = %+v, want queued Cairnline-backed external assignment", assignment.Data)
+	}
+
+	started := mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusOK, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_replacement_external/assignments/asgn_replacement_external/start", `{"driver_kind":"external_agent"}`)
+	ref := assignmentExecutionRefForTest(t, started.Data)
+	if ref.ChatSessionID == "" || ref.ContextSnapshotID == "" || ref.TaskID != "" || ref.RunID != "" {
+		t.Fatalf("started assignment execution_ref = %+v, want chat/context links only", ref)
+	}
+	if started.Data.Status != projectwork.AssignmentStatusRunning || started.Data.ReadBackend != "cairnline" {
+		t.Fatalf("started assignment = %+v, want running Cairnline-backed external assignment", started.Data)
+	}
+	resolvedWorkspace, err := agentadapters.ValidateWorkspace(root)
+	if err != nil {
+		t.Fatalf("ValidateWorkspace: %v", err)
+	}
+	if len(runner.prepareRequests) != 1 || runner.prepareRequests[0].AdapterID != "codex" || runner.prepareRequests[0].SessionID != ref.ChatSessionID || runner.prepareRequests[0].Workspace != resolvedWorkspace {
+		t.Fatalf("prepare requests = %+v, want one codex session in workspace %q", runner.prepareRequests, resolvedWorkspace)
+	}
+	if len(runner.runRequests) != 0 {
+		t.Fatalf("run requests = %+v, want no automatic external-agent turn", runner.runRequests)
+	}
+
+	mirrored := getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_replacement_external")
+	if mirrored.ExecutionRef != ref.ChatSessionID || mirrored.ContextSnapshotID != ref.ContextSnapshotID {
+		t.Fatalf("mirrored Cairnline assignment = ref %q context %q, want %q/%q", mirrored.ExecutionRef, mirrored.ContextSnapshotID, ref.ChatSessionID, ref.ContextSnapshotID)
+	}
+	runtime, ok, err := handler.projectRuntime.Get(t.Context(), projectID, "asgn_replacement_external")
+	if err != nil || !ok {
+		t.Fatalf("Hecate runtime overlay ok=%v err=%v after replacement external start, want runtime refs", ok, err)
+	}
+	if runtime.ExecutionRef.ChatSessionID != ref.ChatSessionID || runtime.ExecutionRef.ContextSnapshotID != ref.ContextSnapshotID {
+		t.Fatalf("Hecate runtime overlay = %+v, want chat/context %q/%q", runtime.ExecutionRef, ref.ChatSessionID, ref.ContextSnapshotID)
+	}
+	shadow := getStoredProjectWorkAssignmentForTest(t, handler, projectID, "work_replacement_external", "asgn_replacement_external")
+	if shadow.ExecutionRef.ChatSessionID != "" || shadow.ExecutionRef.ContextSnapshotID != "" {
+		t.Fatalf("Hecate compatibility shadow assignment = %+v, want replacement-mode external start refs to live only in runtime overlay", shadow.ExecutionRef)
 	}
 }
 

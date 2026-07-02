@@ -816,6 +816,7 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		return
 	}
 	project, workItem, assignment, role := inputs.Project, inputs.WorkItem, inputs.Assignment, inputs.Role
+	strictEmbeddedRuntime := h.projectAssignmentStartUsesStrictEmbeddedCairnlineRuntime(strictEmbeddedRead)
 	if driver := strings.TrimSpace(req.DriverKind); driver != "" && driver != assignment.DriverKind {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, fmt.Sprintf("assignment driver_kind is %q, not %q", assignment.DriverKind, driver))
 		return
@@ -830,7 +831,7 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		return
 	}
 	if assignment.DriverKind == projectwork.AssignmentDriverExternalAgent {
-		if strictEmbeddedRead && h.projectWork != nil {
+		if strictEmbeddedRead && !strictEmbeddedRuntime && h.projectWork != nil {
 			inputs.Assignment = assignment
 			shadowedAssignment, err := h.shadowCairnlineAssignmentStartInputsToHecate(ctx, inputs)
 			if err != nil {
@@ -883,9 +884,9 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		contextPacket.ID = newChatID("ctx")
 	}
 
-	if strictEmbeddedRead && h.projectWork == nil {
+	if strictEmbeddedRuntime {
 		result, err := h.startStrictEmbeddedCairnlineTaskAssignment(ctx, project, workItem, assignment, role, plan, contextPacket)
-		h.writeProjectTaskAssignmentStartResult(w, ctx, assignment, result, err)
+		h.writeProjectTaskAssignmentStartResult(w, ctx, assignment, result, err, false)
 		return
 	}
 	if strictEmbeddedRead {
@@ -917,15 +918,22 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 			)))
 		},
 	})
-	h.writeProjectTaskAssignmentStartResult(w, ctx, assignment, result, err)
+	h.writeProjectTaskAssignmentStartResult(w, ctx, assignment, result, err, true)
 }
 
-func (h *Handler) writeProjectTaskAssignmentStartResult(w http.ResponseWriter, ctx context.Context, assignment projectwork.Assignment, result *projectworkapp.StartTaskAssignmentResult, err error) {
+func (h *Handler) projectAssignmentStartUsesStrictEmbeddedCairnlineRuntime(strictEmbeddedRead bool) bool {
+	if !strictEmbeddedRead {
+		return false
+	}
+	return h.projectWork == nil || h.config.ProjectsCairnlineReplacementMode() == "embedded"
+}
+
+func (h *Handler) writeProjectTaskAssignmentStartResult(w http.ResponseWriter, ctx context.Context, assignment projectwork.Assignment, result *projectworkapp.StartTaskAssignmentResult, err error, mirrorStartResult bool) {
 	if err != nil {
 		resultAssignment := assignment
 		if result != nil && result.Assignment.ID != "" {
 			resultAssignment = result.Assignment
-			if h.projectWork != nil {
+			if mirrorStartResult && h.projectWork != nil {
 				h.mirrorProjectAssignmentStartResultToCairnline(ctx, result.Assignment)
 			}
 		}
@@ -939,6 +947,9 @@ func (h *Handler) writeProjectTaskAssignmentStartResult(w http.ResponseWriter, c
 			if projectErr != nil {
 				WriteError(w, http.StatusInternalServerError, errCodeGatewayError, projectErr.Error())
 				return
+			}
+			if !mirrorStartResult {
+				projected.ReadBackend = "cairnline"
 			}
 			WriteJSON(w, http.StatusConflict, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
 			return
@@ -960,13 +971,16 @@ func (h *Handler) writeProjectTaskAssignmentStartResult(w http.ResponseWriter, c
 	if result.SpanID != "" {
 		w.Header().Set("X-Span-Id", result.SpanID)
 	}
-	if h.projectWork != nil {
+	if mirrorStartResult && h.projectWork != nil {
 		h.mirrorProjectAssignmentStartResultToCairnline(ctx, result.Assignment)
 	}
 	projected, err := h.renderProjectedProjectWorkAssignment(ctx, result.Assignment)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
+	}
+	if !mirrorStartResult {
+		projected.ReadBackend = "cairnline"
 	}
 	WriteJSON(w, http.StatusOK, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
 }
@@ -1243,9 +1257,10 @@ func (h *Handler) startProjectExternalAgentAssignment(w http.ResponseWriter, r *
 		chatcontext.ProjectAssignmentRefs(project.ID, workItem.ID, assignment.ID, role.ID),
 	))
 	packetBytes := chatcontext.Marshal(contextPacket)
-	if h.projectReadRoutesUseCairnlineReadModel() && h.requiresEmbeddedCairnlineProjectReads() && h.projectWork == nil {
+	strictEmbeddedRead := h.projectReadRoutesUseCairnlineReadModel() && h.requiresEmbeddedCairnlineProjectReads()
+	if h.projectAssignmentStartUsesStrictEmbeddedCairnlineRuntime(strictEmbeddedRead) {
 		result, err := h.startStrictEmbeddedCairnlineExternalAgentAssignment(ctx, assignment, session, contextPacket.ID, packetBytes)
-		h.writeProjectExternalAgentAssignmentStartResult(w, ctx, assignment, plan.Adapter.Name, result, err)
+		h.writeProjectExternalAgentAssignmentStartResult(w, ctx, assignment, plan.Adapter.Name, result, err, false)
 		return
 	}
 	result, err := h.projectWorkApplication().StartExternalAgentAssignment(ctx, projectworkapp.StartExternalAgentAssignmentCommand{
@@ -1255,7 +1270,7 @@ func (h *Handler) startProjectExternalAgentAssignment(w http.ResponseWriter, r *
 		ContextSnapshotID: contextPacket.ID,
 		ContextPacket:     packetBytes,
 	})
-	h.writeProjectExternalAgentAssignmentStartResult(w, ctx, assignment, plan.Adapter.Name, result, err)
+	h.writeProjectExternalAgentAssignmentStartResult(w, ctx, assignment, plan.Adapter.Name, result, err, true)
 }
 
 func (h *Handler) startStrictEmbeddedCairnlineExternalAgentAssignment(ctx context.Context, assignment projectwork.Assignment, session chat.Session, contextSnapshotID string, packetBytes []byte) (*projectworkapp.StartExternalAgentAssignmentResult, error) {
@@ -1342,7 +1357,7 @@ func (h *Handler) cleanupStrictEmbeddedExternalAgentSession(sessionID string) {
 	}
 }
 
-func (h *Handler) writeProjectExternalAgentAssignmentStartResult(w http.ResponseWriter, ctx context.Context, assignment projectwork.Assignment, adapterName string, result *projectworkapp.StartExternalAgentAssignmentResult, err error) {
+func (h *Handler) writeProjectExternalAgentAssignmentStartResult(w http.ResponseWriter, ctx context.Context, assignment projectwork.Assignment, adapterName string, result *projectworkapp.StartExternalAgentAssignmentResult, err error, mirrorStartResult bool) {
 	if err != nil {
 		var prepareErr projectworkapp.ExternalAgentPrepareError
 		if errors.As(err, &prepareErr) {
@@ -1352,7 +1367,7 @@ func (h *Handler) writeProjectExternalAgentAssignmentStartResult(w http.Response
 		resultAssignment := assignment
 		if result != nil && result.Assignment.ID != "" {
 			resultAssignment = result.Assignment
-			if h.projectWork != nil {
+			if mirrorStartResult && h.projectWork != nil {
 				h.mirrorProjectAssignmentStartResultToCairnline(ctx, result.Assignment)
 			}
 		}
@@ -1362,19 +1377,25 @@ func (h *Handler) writeProjectExternalAgentAssignmentStartResult(w http.Response
 				WriteError(w, http.StatusInternalServerError, errCodeGatewayError, projectErr.Error())
 				return
 			}
+			if !mirrorStartResult {
+				projected.ReadBackend = "cairnline"
+			}
 			WriteJSON(w, http.StatusConflict, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
 			return
 		}
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	if h.projectWork != nil {
+	if mirrorStartResult && h.projectWork != nil {
 		h.mirrorProjectAssignmentStartResultToCairnline(ctx, result.Assignment)
 	}
 	projected, err := h.renderProjectedProjectWorkAssignment(ctx, result.Assignment)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
+	}
+	if !mirrorStartResult {
+		projected.ReadBackend = "cairnline"
 	}
 	WriteJSON(w, http.StatusOK, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
 }

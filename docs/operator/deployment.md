@@ -584,11 +584,12 @@ portable metadata after Hecate commits, but assignment start/dispatch remains
 Hecate-owned. In strict embedded read mode, Hecate-task and external-agent
 assignment start can resolve the project, work item, assignment, role, root, and
 execution defaults from a Cairnline-only project graph. When the native
-project-work store is absent, Hecate claims and progresses the assignment in
-embedded Cairnline and stores only task/run or chat-session refs, context
-packets, and launch timestamps in Hecate's project assignment runtime overlay;
-it does not create a native Hecate project identity row or compatibility
-assignment row. Runtime dispatch, task execution, and external-agent supervision
+project-work store is absent, or when embedded replacement mode is armed,
+Hecate claims and progresses the assignment in embedded Cairnline and stores
+only task/run or chat-session refs, context packets, and launch timestamps in
+Hecate's project assignment runtime overlay; it does not create a native Hecate
+project identity row, and it does not advance compatibility assignment rows
+with runtime refs. Runtime dispatch, task execution, and external-agent supervision
 remain Hecate-owned. Pre-dispatch cleanup and conflict states are mirrored back
 into Cairnline so replacement probes do not leave stale claimed assignment rows.
 Linked external-agent chat reconciliation can also update the embedded
