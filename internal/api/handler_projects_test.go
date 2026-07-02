@@ -652,6 +652,9 @@ func TestProjectsAPI_CairnlineIdentityAuthorityCommitsCreateFirst(t *testing.T) 
 	if created.Data.Name != "Identity Authority" || created.Data.DefaultRootID != "root_main" || created.Data.DefaultProvider != "openai" || created.Data.DefaultModel != "gpt-5" || len(created.Data.Roots) != 1 || len(created.Data.ContextSources) != 1 {
 		t.Fatalf("created project = %+v, want Cairnline-authored project shadowed into Hecate", created.Data)
 	}
+	if created.Data.ReadBackend != "cairnline" {
+		t.Fatalf("created read_backend = %q, want Cairnline-authoritative mutation response", created.Data.ReadBackend)
+	}
 
 	mirrored := getMirroredCairnlineProjectForTest(t, handler, created.Data.ID)
 	if mirrored.Name != "Identity Authority" || mirrored.Description != "created through Cairnline" || mirrored.DefaultRootID != "root_main" || len(mirrored.Roots) != 1 || len(mirrored.ContextSources) != 1 {
@@ -681,6 +684,9 @@ func TestProjectsAPI_CairnlineReplacementModeCreatesCairnlineOnlyIdentity(t *tes
 	}
 	if created.Data.Name != "Replacement Identity" || created.Data.DefaultRootID != "root_main" || created.Data.DefaultProvider != "openai" || created.Data.DefaultModel != "gpt-5" {
 		t.Fatalf("created project = %+v, want Cairnline-authored replacement identity", created.Data)
+	}
+	if created.Data.ReadBackend != "cairnline" {
+		t.Fatalf("created read_backend = %q, want Cairnline-authoritative replacement response", created.Data.ReadBackend)
 	}
 	if _, ok, err := handler.projects.Get(t.Context(), created.Data.ID); err != nil || ok {
 		t.Fatalf("Hecate project store ok=%v err=%v after replacement create, want no native identity row", ok, err)

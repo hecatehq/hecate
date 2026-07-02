@@ -168,6 +168,97 @@ func TestProjectJourneyAPI_DiscoverStartInspectAndHandoff(t *testing.T) {
 	}
 }
 
+func TestProjectJourneyAPI_CairnlineReplacementModeCreatesWorkAndStartsWithoutNativeProjectIdentity(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineReplacementIdentityAuthorityTestServer(t)
+	client := newAPITestClient(t, server)
+	root := t.TempDir()
+
+	project := mustRequestJSONStatus[ProjectResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects", projectJourneyJSON(t, map[string]any{
+		"name": "Cairnline Replacement Journey",
+		"roots": []map[string]any{{
+			"id":     "root_replacement",
+			"path":   root,
+			"kind":   "git",
+			"active": true,
+		}},
+		"default_provider": "anthropic",
+		"default_model":    "claude-sonnet-4",
+	}))
+	projectID := project.Data.ID
+	if projectID == "" || project.Data.ReadBackend != "cairnline" || project.Data.DefaultRootID != "root_replacement" {
+		t.Fatalf("project = %+v, want created Cairnline replacement identity with default root", project.Data)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("Hecate project store ok=%v err=%v after create, want no native project identity row", ok, err)
+	}
+
+	role := mustRequestJSONStatus[ProjectWorkRoleEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/roles", projectJourneyJSON(t, map[string]any{
+		"id":                  "role_replacement",
+		"name":                "Replacement implementer",
+		"instructions":        "Use the Cairnline replacement graph.",
+		"default_driver_kind": "hecate_task",
+		"default_provider":    "anthropic",
+		"default_model":       "claude-sonnet-4",
+	}))
+	if role.Data.ID != "role_replacement" || role.Data.ProjectID != projectID || role.Data.ReadBackend != "cairnline" {
+		t.Fatalf("role = %+v, want replacement project role", role.Data)
+	}
+
+	work := mustRequestJSONStatus[ProjectWorkItemEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items", projectJourneyJSON(t, map[string]any{
+		"id":            "work_replacement",
+		"title":         "Start replacement assignment",
+		"brief":         "Exercise Cairnline-authoritative create, work, assignment, and launch.",
+		"status":        projectwork.WorkItemStatusReady,
+		"owner_role_id": "role_replacement",
+		"root_id":       "root_replacement",
+	}))
+	if work.Data.ID != "work_replacement" || work.Data.ReadBackend != "cairnline" || work.Data.RootID != "root_replacement" {
+		t.Fatalf("work = %+v, want Cairnline replacement work item", work.Data)
+	}
+
+	assignment := mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_replacement/assignments", projectJourneyJSON(t, map[string]any{
+		"id":          "asgn_replacement",
+		"role_id":     "role_replacement",
+		"root_id":     "root_replacement",
+		"driver_kind": projectwork.AssignmentDriverHecateTask,
+	}))
+	if assignment.Data.ID != "asgn_replacement" || assignment.Data.ReadBackend != "cairnline" || assignment.Data.Status != projectwork.AssignmentStatusQueued {
+		t.Fatalf("assignment = %+v, want queued Cairnline replacement assignment", assignment.Data)
+	}
+
+	started := mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusOK, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_replacement/assignments/asgn_replacement/start", `{}`)
+	ref := assignmentExecutionRefForTest(t, started.Data)
+	if ref.TaskID == "" || ref.RunID == "" || ref.ContextSnapshotID == "" {
+		t.Fatalf("started assignment execution_ref = %+v, want task/run/context links", ref)
+	}
+	task, found, err := handler.taskStore.GetTask(t.Context(), ref.TaskID)
+	if err != nil || !found {
+		t.Fatalf("GetTask(%q) found=%v err=%v, want task", ref.TaskID, found, err)
+	}
+	if task.ProjectID != projectID || task.WorkItemID != "work_replacement" || task.AssignmentID != "asgn_replacement" {
+		t.Fatalf("task linkage = project %q work %q assignment %q, want replacement refs", task.ProjectID, task.WorkItemID, task.AssignmentID)
+	}
+	if task.RequestedProvider != "anthropic" || task.RequestedModel != "claude-sonnet-4" || task.WorkingDirectory != root {
+		t.Fatalf("task provider/model/workspace = %q/%q/%q, want anthropic/claude-sonnet-4/%q", task.RequestedProvider, task.RequestedModel, task.WorkingDirectory, root)
+	}
+	if !strings.Contains(task.Prompt, "Start replacement assignment") || !strings.Contains(task.SystemPrompt, "Use the Cairnline replacement graph.") {
+		t.Fatalf("task prompt/system = %q / %q, want replacement work and role context", task.Prompt, task.SystemPrompt)
+	}
+
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("Hecate project store ok=%v err=%v after start, want no native project identity row", ok, err)
+	}
+	mirrored := getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_replacement")
+	if mirrored.ExecutionRef != ref.RunID || mirrored.ContextSnapshotID != ref.ContextSnapshotID {
+		t.Fatalf("mirrored Cairnline assignment = ref %q context %q, want %q/%q", mirrored.ExecutionRef, mirrored.ContextSnapshotID, ref.RunID, ref.ContextSnapshotID)
+	}
+	shadow := getStoredProjectWorkAssignmentForTest(t, handler, projectID, "work_replacement", "asgn_replacement")
+	if shadow.ExecutionRef.RunID != ref.RunID || shadow.ExecutionRef.ContextSnapshotID != ref.ContextSnapshotID {
+		t.Fatalf("Hecate runtime shadow assignment = %+v, want run/context %q/%q", shadow.ExecutionRef, ref.RunID, ref.ContextSnapshotID)
+	}
+}
+
 func projectJourneyJSON(t *testing.T, payload any) string {
 	t.Helper()
 	raw, err := json.Marshal(payload)

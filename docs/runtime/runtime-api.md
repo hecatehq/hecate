@@ -2554,8 +2554,8 @@ explicit embedded cutover switch: `migration_blockers` is empty, the
 `cairnline` for portable Projects coordination state. In armed embedded
 replacement mode with all portable write-authority gaps closed,
 Cairnline-authoritative project identity create returns the Cairnline record
-without creating a native Hecate project identity row; strict embedded read
-routes serve the new project from Cairnline.
+with `read_backend: "cairnline"` and without creating a native Hecate project
+identity row; strict embedded read routes serve the new project from Cairnline.
 When the next action is `rehearse-migration-cutover`, `config_hints` identify
 the strict embedded dogfood posture expected for the rehearsal:
 `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded`,
@@ -5779,6 +5779,9 @@ assignment.
 ```
 
 Returns `{ "object": "project_role", "data": { ... } }`.
+When `project-roles` Cairnline write authority is active, create and update
+responses are labelled with `read_backend: "cairnline"` because the mutation
+record is committed through Cairnline before any Hecate compatibility shadow.
 
 #### `PATCH /hecate/v1/projects/{id}/roles/{role_id}`
 
@@ -5849,6 +5852,11 @@ Returns:
   }
 }
 ```
+
+When `project-work-items` Cairnline write authority is active, create and
+update responses are labelled with `read_backend: "cairnline"` because the
+mutation record is committed through Cairnline before any Hecate compatibility
+shadow.
 
 #### `GET /hecate/v1/projects/{id}/work-items/{work_item_id}`
 

@@ -120,7 +120,7 @@ func (h *Handler) HandleCreateProject(w http.ResponseWriter, r *http.Request) {
 			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 			return
 		}
-		WriteJSON(w, http.StatusCreated, ProjectResponse{Object: "project", Data: renderProject(project)})
+		WriteJSON(w, http.StatusCreated, ProjectResponse{Object: "project", Data: renderProjectWithBackend(project, "cairnline")})
 		return
 	}
 	project, err = h.projects.Create(r.Context(), project)

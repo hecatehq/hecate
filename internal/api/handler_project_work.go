@@ -396,7 +396,11 @@ func (h *Handler) HandleCreateProjectWorkRole(w http.ResponseWriter, r *http.Req
 	if !usesCairnlineAuthority {
 		h.mirrorProjectRoleByIDToCairnline(r.Context(), "project_role_create", projectID, role)
 	}
-	WriteJSON(w, http.StatusCreated, ProjectWorkRoleEnvelope{Object: "project_role", Data: renderProjectWorkRole(role)})
+	projected := renderProjectWorkRole(role)
+	if usesCairnlineAuthority {
+		projected.ReadBackend = "cairnline"
+	}
+	WriteJSON(w, http.StatusCreated, ProjectWorkRoleEnvelope{Object: "project_role", Data: projected})
 }
 
 func (h *Handler) HandleUpdateProjectWorkRole(w http.ResponseWriter, r *http.Request) {
@@ -432,7 +436,11 @@ func (h *Handler) HandleUpdateProjectWorkRole(w http.ResponseWriter, r *http.Req
 	if !usesCairnlineAuthority {
 		h.mirrorProjectRoleByIDToCairnline(r.Context(), "project_role_update", projectID, role)
 	}
-	WriteJSON(w, http.StatusOK, ProjectWorkRoleEnvelope{Object: "project_role", Data: renderProjectWorkRole(role)})
+	projected := renderProjectWorkRole(role)
+	if usesCairnlineAuthority {
+		projected.ReadBackend = "cairnline"
+	}
+	WriteJSON(w, http.StatusOK, ProjectWorkRoleEnvelope{Object: "project_role", Data: projected})
 }
 
 func (h *Handler) HandleDeleteProjectWorkRole(w http.ResponseWriter, r *http.Request) {
@@ -514,6 +522,10 @@ func (h *Handler) HandleCreateProjectWorkItem(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
+	}
+	if usesCairnlineAuthority {
+		projected.ReadBackend = "cairnline"
+		markProjectWorkAssignmentReadBackend(projected.Assignments, "cairnline")
 	}
 	WriteJSON(w, http.StatusCreated, ProjectWorkItemEnvelope{Object: "project_work_item", Data: projected})
 }
@@ -615,6 +627,10 @@ func (h *Handler) HandleUpdateProjectWorkItem(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
+	}
+	if usesCairnlineAuthority {
+		projected.ReadBackend = "cairnline"
+		markProjectWorkAssignmentReadBackend(projected.Assignments, "cairnline")
 	}
 	WriteJSON(w, http.StatusOK, ProjectWorkItemEnvelope{Object: "project_work_item", Data: projected})
 }
