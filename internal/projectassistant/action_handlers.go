@@ -13,7 +13,7 @@ import (
 	"github.com/hecatehq/hecate/internal/projectwork"
 )
 
-func (s *Service) applyCreateProject(ctx context.Context, action Action) (ActionResult, error) {
+func (s *Service) applyCreateProject(ctx context.Context, action Action, _ []ActionResult) (ActionResult, error) {
 	if s.projectAuthority == nil {
 		return ActionResult{}, ErrStoreNotConfigured
 	}
@@ -57,7 +57,7 @@ func (s *Service) applyCreateProject(ctx context.Context, action Action) (Action
 	return ActionResult{Kind: ActionCreateProject, ID: created.ID, Data: map[string]string{"project_id": created.ID}}, nil
 }
 
-func (s *Service) applyUpdateProject(ctx context.Context, action Action) (ActionResult, error) {
+func (s *Service) applyUpdateProject(ctx context.Context, action Action, _ []ActionResult) (ActionResult, error) {
 	if s.projectAuthority == nil {
 		return ActionResult{}, ErrStoreNotConfigured
 	}
@@ -82,7 +82,7 @@ func (s *Service) applyUpdateProject(ctx context.Context, action Action) (Action
 	return ActionResult{Kind: ActionUpdateProject, ID: updated.ID, Data: map[string]string{"project_id": updated.ID}}, nil
 }
 
-func (s *Service) applyAttachProjectRoot(ctx context.Context, action Action) (ActionResult, error) {
+func (s *Service) applyAttachProjectRoot(ctx context.Context, action Action, _ []ActionResult) (ActionResult, error) {
 	if s.projectAuthority == nil {
 		return ActionResult{}, ErrStoreNotConfigured
 	}
@@ -105,7 +105,7 @@ func (s *Service) applyAttachProjectRoot(ctx context.Context, action Action) (Ac
 	return ActionResult{Kind: ActionAttachProjectRoot, ID: root.ID, Data: map[string]string{"project_id": updated.ID, "root_id": root.ID}}, nil
 }
 
-func (s *Service) applyRemoveProjectRoot(ctx context.Context, action Action) (ActionResult, error) {
+func (s *Service) applyRemoveProjectRoot(ctx context.Context, action Action, _ []ActionResult) (ActionResult, error) {
 	if s.projectAuthority == nil {
 		return ActionResult{}, ErrStoreNotConfigured
 	}
@@ -128,7 +128,7 @@ func (s *Service) applyRemoveProjectRoot(ctx context.Context, action Action) (Ac
 	return ActionResult{Kind: ActionRemoveProjectRoot, ID: rootID, Data: map[string]string{"project_id": updated.ID, "root_id": rootID}}, nil
 }
 
-func (s *Service) applySetProjectDefaults(ctx context.Context, action Action) (ActionResult, error) {
+func (s *Service) applySetProjectDefaults(ctx context.Context, action Action, _ []ActionResult) (ActionResult, error) {
 	if s.projectAuthority == nil {
 		return ActionResult{}, ErrStoreNotConfigured
 	}
@@ -163,7 +163,7 @@ func (s *Service) applySetProjectDefaults(ctx context.Context, action Action) (A
 	return ActionResult{Kind: ActionSetProjectDefaults, ID: updated.ID, Data: map[string]string{"project_id": updated.ID}}, nil
 }
 
-func (s *Service) applyMoveChatSession(ctx context.Context, action Action) (ActionResult, error) {
+func (s *Service) applyMoveChatSession(ctx context.Context, action Action, _ []ActionResult) (ActionResult, error) {
 	if s.chats == nil {
 		return ActionResult{}, ErrStoreNotConfigured
 	}
@@ -195,7 +195,7 @@ func (s *Service) applyMoveChatSession(ctx context.Context, action Action) (Acti
 	return ActionResult{Kind: ActionMoveChatSession, ID: updated.ID, Data: map[string]string{"chat_session_id": updated.ID, "project_id": updated.ProjectID}}, nil
 }
 
-func (s *Service) applyCreateRole(ctx context.Context, action Action) (ActionResult, error) {
+func (s *Service) applyCreateRole(ctx context.Context, action Action, _ []ActionResult) (ActionResult, error) {
 	if s.workAuthority == nil {
 		return ActionResult{}, ErrStoreNotConfigured
 	}
@@ -231,7 +231,7 @@ func (s *Service) applyCreateRole(ctx context.Context, action Action) (ActionRes
 	return ActionResult{Kind: ActionCreateRole, ID: role.ID, Data: map[string]string{"project_id": role.ProjectID, "role_id": role.ID}}, nil
 }
 
-func (s *Service) applyCreateWorkItem(ctx context.Context, action Action) (ActionResult, error) {
+func (s *Service) applyCreateWorkItem(ctx context.Context, action Action, _ []ActionResult) (ActionResult, error) {
 	if s.workAuthority == nil {
 		return ActionResult{}, ErrStoreNotConfigured
 	}
@@ -265,7 +265,7 @@ func (s *Service) applyCreateWorkItem(ctx context.Context, action Action) (Actio
 	return ActionResult{Kind: ActionCreateWorkItem, ID: item.ID, Data: map[string]string{"project_id": item.ProjectID, "work_item_id": item.ID}}, nil
 }
 
-func (s *Service) applyUpdateWorkItem(ctx context.Context, action Action) (ActionResult, error) {
+func (s *Service) applyUpdateWorkItem(ctx context.Context, action Action, previous []ActionResult) (ActionResult, error) {
 	if s.workAuthority == nil {
 		return ActionResult{}, ErrStoreNotConfigured
 	}
@@ -274,7 +274,7 @@ func (s *Service) applyUpdateWorkItem(ctx context.Context, action Action) (Actio
 	if projectID == "" || workItemID == "" {
 		return ActionResult{}, fmt.Errorf("%w: target.project_id and target.work_item_id are required", ErrInvalid)
 	}
-	if _, err := s.requireWorkItem(ctx, projectID, workItemID); err != nil {
+	if _, err := s.requireWorkItemForApply(ctx, projectID, workItemID, previous); err != nil {
 		return ActionResult{}, err
 	}
 	var patch updateWorkItemPatch
@@ -299,7 +299,7 @@ func (s *Service) applyUpdateWorkItem(ctx context.Context, action Action) (Actio
 	return ActionResult{Kind: ActionUpdateWorkItem, ID: item.ID, Data: map[string]string{"project_id": item.ProjectID, "work_item_id": item.ID}}, nil
 }
 
-func (s *Service) applyCreateAssignment(ctx context.Context, action Action) (ActionResult, error) {
+func (s *Service) applyCreateAssignment(ctx context.Context, action Action, previous []ActionResult) (ActionResult, error) {
 	if s.workAuthority == nil {
 		return ActionResult{}, ErrStoreNotConfigured
 	}
@@ -311,7 +311,7 @@ func (s *Service) applyCreateAssignment(ctx context.Context, action Action) (Act
 	if projectID == "" {
 		projectID = targetValue(action, "project_id")
 	}
-	item, err := s.requireWorkItem(ctx, projectID, patch.WorkItemID)
+	item, err := s.requireWorkItemForApply(ctx, projectID, patch.WorkItemID, previous)
 	if err != nil {
 		return ActionResult{}, err
 	}
@@ -340,10 +340,10 @@ func (s *Service) applyCreateAssignment(ctx context.Context, action Action) (Act
 	if err != nil {
 		return ActionResult{}, mapProjectWorkErr(err)
 	}
-	return ActionResult{Kind: ActionCreateAssignment, ID: assignment.ID, Data: map[string]string{"project_id": assignment.ProjectID, "assignment_id": assignment.ID}}, nil
+	return ActionResult{Kind: ActionCreateAssignment, ID: assignment.ID, Data: map[string]string{"project_id": assignment.ProjectID, "work_item_id": assignment.WorkItemID, "assignment_id": assignment.ID}}, nil
 }
 
-func (s *Service) applyCreateHandoff(ctx context.Context, action Action) (ActionResult, error) {
+func (s *Service) applyCreateHandoff(ctx context.Context, action Action, previous []ActionResult) (ActionResult, error) {
 	if s.workAuthority == nil {
 		return ActionResult{}, ErrStoreNotConfigured
 	}
@@ -355,14 +355,16 @@ func (s *Service) applyCreateHandoff(ctx context.Context, action Action) (Action
 	if projectID == "" {
 		projectID = targetValue(action, "project_id")
 	}
-	if _, err := s.requireWorkItem(ctx, projectID, patch.WorkItemID); err != nil {
+	item, err := s.requireWorkItemForApply(ctx, projectID, patch.WorkItemID, previous)
+	if err != nil {
 		return ActionResult{}, err
 	}
+	projectID = item.ProjectID
 	id := strings.TrimSpace(patch.ID)
 	if id == "" {
 		id = s.idgen("handoff")
 	}
-	handoff, err := s.workAuthority.CreateHandoff(ctx, projectID, patch.WorkItemID, WorkHandoffCommand{
+	handoff, err := s.workAuthority.CreateHandoff(ctx, projectID, item.ID, WorkHandoffCommand{
 		ID:                    id,
 		SourceAssignmentID:    patch.SourceAssignmentID,
 		SourceRunID:           patch.SourceRunID,
@@ -385,10 +387,10 @@ func (s *Service) applyCreateHandoff(ctx context.Context, action Action) (Action
 	if err != nil {
 		return ActionResult{}, mapProjectWorkErr(err)
 	}
-	return ActionResult{Kind: ActionCreateHandoff, ID: handoff.ID, Data: map[string]string{"project_id": handoff.ProjectID, "handoff_id": handoff.ID}}, nil
+	return ActionResult{Kind: ActionCreateHandoff, ID: handoff.ID, Data: map[string]string{"project_id": handoff.ProjectID, "work_item_id": handoff.WorkItemID, "handoff_id": handoff.ID}}, nil
 }
 
-func (s *Service) applyUpdateHandoff(ctx context.Context, action Action) (ActionResult, error) {
+func (s *Service) applyUpdateHandoff(ctx context.Context, action Action, previous []ActionResult) (ActionResult, error) {
 	if s.workAuthority == nil {
 		return ActionResult{}, ErrStoreNotConfigured
 	}
@@ -398,7 +400,7 @@ func (s *Service) applyUpdateHandoff(ctx context.Context, action Action) (Action
 	if projectID == "" || workItemID == "" || handoffID == "" {
 		return ActionResult{}, fmt.Errorf("%w: target.project_id, target.work_item_id, and target.handoff_id are required", ErrInvalid)
 	}
-	if _, err := s.requireWorkItem(ctx, projectID, workItemID); err != nil {
+	if _, err := s.requireWorkItemForApply(ctx, projectID, workItemID, previous); err != nil {
 		return ActionResult{}, err
 	}
 	var patch updateHandoffPatch
@@ -428,7 +430,7 @@ func (s *Service) applyUpdateHandoff(ctx context.Context, action Action) (Action
 	}, nil
 }
 
-func (s *Service) applyCreateMemoryCandidate(ctx context.Context, action Action) (ActionResult, error) {
+func (s *Service) applyCreateMemoryCandidate(ctx context.Context, action Action, _ []ActionResult) (ActionResult, error) {
 	if s.memoryCandidateAuthority == nil {
 		return ActionResult{}, ErrStoreNotConfigured
 	}
@@ -479,6 +481,53 @@ func (s *Service) requireProject(ctx context.Context, projectID string) (project
 		return projects.Project{}, fmt.Errorf("%w: project %q", ErrNotFound, projectID)
 	}
 	return project, nil
+}
+
+func (s *Service) requireWorkItemForApply(ctx context.Context, projectID, workItemID string, previous []ActionResult) (projectwork.WorkItem, error) {
+	item, err := s.requireWorkItem(ctx, projectID, workItemID)
+	if err == nil {
+		return item, nil
+	}
+	if !errors.Is(err, ErrNotFound) {
+		return projectwork.WorkItem{}, err
+	}
+	if item, ok := workItemFromApplyResults(projectID, workItemID, previous); ok {
+		if _, projectErr := s.requireProject(ctx, item.ProjectID); projectErr != nil {
+			return projectwork.WorkItem{}, projectErr
+		}
+		return item, nil
+	}
+	return projectwork.WorkItem{}, err
+}
+
+func workItemFromApplyResults(projectID, workItemID string, previous []ActionResult) (projectwork.WorkItem, bool) {
+	projectID = strings.TrimSpace(projectID)
+	workItemID = strings.TrimSpace(workItemID)
+	if workItemID == "" {
+		return projectwork.WorkItem{}, false
+	}
+	for idx := len(previous) - 1; idx >= 0; idx-- {
+		result := previous[idx]
+		if result.Kind != ActionCreateWorkItem && result.Kind != ActionUpdateWorkItem {
+			continue
+		}
+		resultWorkItemID := strings.TrimSpace(result.Data["work_item_id"])
+		if resultWorkItemID == "" {
+			resultWorkItemID = strings.TrimSpace(result.ID)
+		}
+		resultProjectID := strings.TrimSpace(result.Data["project_id"])
+		if resultWorkItemID != workItemID || (projectID != "" && resultProjectID != projectID) {
+			continue
+		}
+		if resultProjectID == "" {
+			resultProjectID = projectID
+		}
+		if resultProjectID == "" {
+			return projectwork.WorkItem{}, false
+		}
+		return projectwork.WorkItem{ID: resultWorkItemID, ProjectID: resultProjectID}, true
+	}
+	return projectwork.WorkItem{}, false
 }
 
 func (s *Service) requireWorkItem(ctx context.Context, projectID, workItemID string) (projectwork.WorkItem, error) {

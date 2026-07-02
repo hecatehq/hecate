@@ -45,7 +45,7 @@ func (s *Service) Apply(ctx context.Context, proposal Proposal, confirmed bool) 
 		return ApplyResult{}, fmt.Errorf("%w: proposal %q was already applied", ErrConflict, proposal.ID)
 	}
 	results := applyRecordResults(record)
-	if failedActionIndex, err := s.preflightApply(ctx, proposal.Actions, len(results)); err != nil {
+	if failedActionIndex, err := s.preflightApply(ctx, proposal.Actions, results); err != nil {
 		partial := applyResult(proposal.ID, ApplyStatusBlockedBeforeApply, false, len(proposal.Actions), &failedActionIndex, results)
 		if _, ledgerErr := s.proposals.RecordApplyAttempt(ctx, applyAttemptForResult(s.idgen("paatt"), confirmed, partial, err)); ledgerErr != nil {
 			err = fmt.Errorf("%v; record apply attempt: %w", err, ledgerErr)
@@ -60,7 +60,7 @@ func (s *Service) Apply(ctx context.Context, proposal Proposal, confirmed bool) 
 
 	for idx := len(results); idx < len(proposal.Actions); idx++ {
 		action := proposal.Actions[idx]
-		result, err := s.applyAction(ctx, action)
+		result, err := s.applyAction(ctx, action, results)
 		if err != nil {
 			partial := applyResult(proposal.ID, ApplyStatusPartialDueToRuntimeFailure, false, len(proposal.Actions), &idx, results)
 			if _, ledgerErr := s.proposals.RecordApplyAttempt(ctx, applyAttemptForResult(s.idgen("paatt"), confirmed, partial, err)); ledgerErr != nil {
@@ -120,7 +120,7 @@ func applyRecordResults(record ProposalRecord) []ActionResult {
 type applyActionSpec struct {
 	kind      string
 	preflight func(*applyPreflight, context.Context, Action) error
-	apply     func(*Service, context.Context, Action) (ActionResult, error)
+	apply     func(*Service, context.Context, Action, []ActionResult) (ActionResult, error)
 }
 
 // applyActionSpecs is the maintenance contract between preflight and durable
@@ -152,12 +152,12 @@ func lookupApplyActionSpec(kind string) (applyActionSpec, bool) {
 	return applyActionSpec{}, false
 }
 
-func (s *Service) applyAction(ctx context.Context, action Action) (ActionResult, error) {
+func (s *Service) applyAction(ctx context.Context, action Action, previous []ActionResult) (ActionResult, error) {
 	spec, ok := lookupApplyActionSpec(action.Kind)
 	if !ok {
 		return ActionResult{}, fmt.Errorf("%w: %s", ErrUnknownActionKind, action.Kind)
 	}
-	return spec.apply(s, ctx, action)
+	return spec.apply(s, ctx, action, previous)
 }
 
 func cloneActionResults(results []ActionResult) []ActionResult {
