@@ -437,7 +437,9 @@ context/proposal, and project-linked Hecate Chat prelude/context directly from
 the embedded Cairnline graph so dogfood routes do not require shadow
 Hecate-native project rows. Route selection in this mode is configuration-driven:
 direct-read routes attempt the embedded Cairnline graph without first requiring
-a Hecate-native snapshot projection. Set
+a Hecate-native snapshot projection, and Cairnline-authoritative portable write
+helpers use the embedded graph for project identity/root metadata before any
+Hecate-native compatibility shadow. Set
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=snapshot` to force the snapshot-seeded
 bridge, or `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded` to make configured
 read routes require a populated
