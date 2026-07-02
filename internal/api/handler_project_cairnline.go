@@ -62,32 +62,7 @@ func (h *Handler) HandleSyncProjectsToCairnline(w http.ResponseWriter, r *http.R
 }
 
 func (h *Handler) HandleProjectCairnlineMirrorParity(w http.ResponseWriter, r *http.Request) {
-	dbPath := h.cairnlineEmbeddedDatabasePath()
-	snapshots, err := cairnlinebridge.LoadSnapshots(r.Context(), h.cairnlineSnapshotSources())
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
-	if _, err := os.Stat(dbPath); err != nil {
-		if !os.IsNotExist(err) {
-			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-			return
-		}
-		item := projectCairnlineMissingMirrorParity(dbPath, snapshots)
-		WriteJSON(w, http.StatusOK, ProjectCairnlineSyncResponse{
-			Object: "project_cairnline_mirror_parity",
-			Data:   item,
-		})
-		return
-	}
-	service, store, err := cairnline.NewSQLiteService(r.Context(), dbPath)
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
-	defer store.Close()
-	smoke := h.projectCairnlineStrictEmbeddedSmoke(r.Context(), snapshots)
-	item, err := projectCairnlineServiceParity(r.Context(), dbPath, true, "mirror_parity", snapshots, service, smoke)
+	item, err := h.projectCairnlineMirrorParity(r.Context())
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
@@ -96,6 +71,31 @@ func (h *Handler) HandleProjectCairnlineMirrorParity(w http.ResponseWriter, r *h
 		Object: "project_cairnline_mirror_parity",
 		Data:   item,
 	})
+}
+
+func (h *Handler) projectCairnlineMirrorParity(ctx context.Context) (ProjectCairnlineSyncResponseItem, error) {
+	dbPath := h.cairnlineEmbeddedDatabasePath()
+	snapshots, err := cairnlinebridge.LoadSnapshots(ctx, h.cairnlineSnapshotSources())
+	if err != nil {
+		return ProjectCairnlineSyncResponseItem{}, err
+	}
+	if _, err := os.Stat(dbPath); err != nil {
+		if !os.IsNotExist(err) {
+			return ProjectCairnlineSyncResponseItem{}, err
+		}
+		return projectCairnlineMissingMirrorParity(dbPath, snapshots), nil
+	}
+	service, store, err := cairnline.NewSQLiteService(ctx, dbPath)
+	if err != nil {
+		return ProjectCairnlineSyncResponseItem{}, err
+	}
+	defer store.Close()
+	smoke := h.projectCairnlineStrictEmbeddedSmoke(ctx, snapshots)
+	item, err := projectCairnlineServiceParity(ctx, dbPath, true, "mirror_parity", snapshots, service, smoke)
+	if err != nil {
+		return ProjectCairnlineSyncResponseItem{}, err
+	}
+	return item, nil
 }
 
 func (h *Handler) HandleExportProjectToCairnline(w http.ResponseWriter, r *http.Request) {
