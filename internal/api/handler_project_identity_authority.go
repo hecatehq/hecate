@@ -20,6 +20,21 @@ func (h *Handler) projectIdentityWritesUseCairnlineAuthority() bool {
 		h.config.ProjectsCairnlineWriteAuthorityEnabled(projectCairnlineWriteAuthorityProjectIdentity)
 }
 
+func (h *Handler) projectCairnlineEmbeddedReplacementModeArmed() bool {
+	if h == nil {
+		return false
+	}
+	if h.config.ProjectsCoordinationBackend() != "cairnline" ||
+		!h.projectCairnlineEmbeddedConnectorEnabled() ||
+		h.config.ProjectsCairnlineReadSource() != "embedded" ||
+		h.config.ProjectsCairnlineReplacementMode() != "embedded" {
+		return false
+	}
+	writeAuthority := h.config.ProjectsCairnlineWriteAuthority()
+	writeGaps := projectCairnlineWriteAdapterGapsSnapshot(writeAuthority)
+	return len(projectCairnlinePortableWriteGapsSnapshot(writeAuthority, writeGaps)) == 0
+}
+
 func (h *Handler) createProjectWithCairnlineAuthority(ctx context.Context, project projects.Project) (projects.Project, error) {
 	if err := h.validateProjectMetadataDefaultsHecateCompatibility(ctx, project); err != nil {
 		return projects.Project{}, err
@@ -52,6 +67,9 @@ func (h *Handler) createProjectWithCairnlineAuthority(ctx context.Context, proje
 		return projects.Project{}, err
 	}
 	shadow := projectFromCairnlineProjectCreate(project, written)
+	if h.projectCairnlineEmbeddedReplacementModeArmed() {
+		return shadow, nil
+	}
 	if shadowed, ok := h.shadowProjectCreateToHecate(ctx, "project_identity_cairnline_authority_create", shadow); ok {
 		return shadowed, nil
 	}

@@ -90,6 +90,22 @@ func newProjectsCairnlineIdentityAuthorityTestServer(t *testing.T) (*Handler, ht
 	return handler, NewServer(quietLogger(), handler)
 }
 
+func newProjectsCairnlineReplacementIdentityAuthorityTestServer(t *testing.T) (*Handler, http.Handler) {
+	t.Helper()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend:      "cairnline",
+			CairnlineConnector:       "embedded",
+			CairnlineReadSource:      "embedded",
+			CairnlineWriteAuthority:  "all-portable",
+			CairnlineReplacementMode: "embedded",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	handler.SetProjectStore(projects.NewMemoryStore())
+	return handler, NewServer(quietLogger(), handler)
+}
+
 func newProjectsCairnlineRootSourceAuthorityTestServer(t *testing.T) (*Handler, http.Handler) {
 	t.Helper()
 	handler := NewHandler(config.Config{
@@ -642,6 +658,47 @@ func TestProjectsAPI_CairnlineIdentityAuthorityCommitsCreateFirst(t *testing.T) 
 		t.Fatalf("mirrored project = %+v, want identity create committed to Cairnline", mirrored)
 	}
 	assertMirroredExecutionProfileForTest(t, handler, mirrored.DefaultExecutionProfileID, "openai", "gpt-5")
+}
+
+func TestProjectsAPI_CairnlineReplacementModeCreatesCairnlineOnlyIdentity(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineReplacementIdentityAuthorityTestServer(t)
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects", bytes.NewReader([]byte(`{
+		"name":"Replacement Identity",
+		"description":"created only in Cairnline",
+		"roots":[{"id":"root_main","path":"/workspace/replacement","kind":"git","git_branch":"main"}],
+		"default_provider":"openai",
+		"default_model":"gpt-5"
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	var created ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	if created.Data.Name != "Replacement Identity" || created.Data.DefaultRootID != "root_main" || created.Data.DefaultProvider != "openai" || created.Data.DefaultModel != "gpt-5" {
+		t.Fatalf("created project = %+v, want Cairnline-authored replacement identity", created.Data)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), created.Data.ID); err != nil || ok {
+		t.Fatalf("Hecate project store ok=%v err=%v after replacement create, want no native identity row", ok, err)
+	}
+	mirrored := getMirroredCairnlineProjectForTest(t, handler, created.Data.ID)
+	if mirrored.Name != "Replacement Identity" || mirrored.Description != "created only in Cairnline" || mirrored.DefaultRootID != "root_main" || len(mirrored.Roots) != 1 {
+		t.Fatalf("mirrored project = %+v, want Cairnline-only replacement identity", mirrored)
+	}
+	assertMirroredExecutionProfileForTest(t, handler, mirrored.DefaultExecutionProfileID, "openai", "gpt-5")
+
+	listed := listProjectsForTest(t, server)
+	if len(listed) != 1 || listed[0].ID != created.Data.ID || listed[0].ReadBackend != "cairnline" {
+		t.Fatalf("listed projects = %+v, want strict embedded Cairnline read of replacement identity", listed)
+	}
+	detail := getProjectForTest(t, server, created.Data.ID)
+	if detail.ID != created.Data.ID || detail.ReadBackend != "cairnline" || detail.Name != "Replacement Identity" {
+		t.Fatalf("project detail = %+v, want strict embedded Cairnline replacement identity", detail)
+	}
 }
 
 func TestProjectsAPI_CairnlineIdentityAuthorityCommitsDeleteFirst(t *testing.T) {
@@ -1271,6 +1328,64 @@ func TestProjectsAPI_DefaultOnlyPatchMirrorsDefaultsWithoutReplacingCairnlineSta
 		t.Fatalf("mirrored context sources = %+v, want Cairnline-only source preserved", mirrored.ContextSources)
 	}
 	assertMirroredExecutionProfileForTest(t, handler, mirrored.DefaultExecutionProfileID, "anthropic", "claude-sonnet-4-5")
+}
+
+func TestProjectsAPI_DefaultRootPatchCairnlineAuthorityUsesCairnlineOnlyRoots(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend:     "cairnline",
+			CairnlineReadSource:     "embedded",
+			CairnlineWriteAuthority: projectCairnlineWriteAuthorityProjectMetadataDefaults,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	server := NewServer(quietLogger(), handler)
+	const projectID = "proj_defaults_cairnline_only_root"
+	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+		_, err := service.CreateProject(t.Context(), cairnline.Project{
+			ID:            projectID,
+			Name:          "Defaults Cairnline Only Root",
+			DefaultRootID: "root_main",
+			Roots: []cairnline.Root{
+				{ID: "root_main", Path: "/workspace/main", Kind: "git", Active: true},
+				{ID: "root_next", Path: "/workspace/next", Kind: "git_worktree", Active: true},
+			},
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("seed Cairnline-only project: %v", err)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("Hecate project store ok=%v err=%v before patch, want no native project row", ok, err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+projectID, bytes.NewReader([]byte(`{
+		"default_root_id":"root_next",
+		"default_provider":"anthropic",
+		"default_model":"claude-sonnet-4-5"
+	}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("defaults update status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var updated ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &updated); err != nil {
+		t.Fatalf("decode update response: %v", err)
+	}
+	if updated.Data.DefaultRootID != "root_next" || updated.Data.DefaultProvider != "anthropic" || updated.Data.DefaultModel != "claude-sonnet-4-5" {
+		t.Fatalf("updated defaults = root %q provider/model %q/%q, want root_next anthropic/claude-sonnet-4-5", updated.Data.DefaultRootID, updated.Data.DefaultProvider, updated.Data.DefaultModel)
+	}
+	mirrored := getMirroredCairnlineProjectForTest(t, handler, projectID)
+	if mirrored.DefaultRootID != "root_next" {
+		t.Fatalf("mirrored default root = %q, want root_next", mirrored.DefaultRootID)
+	}
+	if findMirroredCairnlineRootForTest(mirrored.Roots, "root_next") == nil {
+		t.Fatalf("mirrored roots = %+v, want root_next preserved", mirrored.Roots)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("Hecate project store ok=%v err=%v after patch, want no native project row", ok, err)
+	}
 }
 
 func TestProjectsAPI_MetadataPatchMirrorsMetadataWithoutReplacingCairnlineState(t *testing.T) {

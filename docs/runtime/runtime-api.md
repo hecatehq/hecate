@@ -2551,7 +2551,11 @@ embedded reads are verified, all portable write-authority gaps are closed, and
 `replacement_mode=embedded`, backend status treats replacement mode as that
 explicit embedded cutover switch: `migration_blockers` is empty, the
 `migration-and-rollback` gate is `ready`, and `authoritative_backend` reports
-`cairnline` for portable Projects coordination state.
+`cairnline` for portable Projects coordination state. In armed embedded
+replacement mode with all portable write-authority gaps closed,
+Cairnline-authoritative project identity create returns the Cairnline record
+without creating a native Hecate project identity row; strict embedded read
+routes serve the new project from Cairnline.
 When the next action is `rehearse-migration-cutover`, `config_hints` identify
 the strict embedded dogfood posture expected for the rehearsal:
 `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded`,
