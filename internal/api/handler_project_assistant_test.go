@@ -3137,6 +3137,113 @@ func TestProjectAssistantAPI_ApplyCreateWorkUsesCairnlineProjectAuthority(t *tes
 	}
 }
 
+func TestProjectAssistantAPI_ApplyCreatesAssignmentGraphWithCairnlineAuthority(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineReplacementIdentityAuthorityTestServer(t)
+	client := newAPITestClient(t, server)
+	root := t.TempDir()
+
+	project := mustRequestJSONStatus[ProjectResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects", projectJourneyJSON(t, map[string]any{
+		"name": "Assistant Cairnline Graph",
+		"roots": []map[string]any{{
+			"id":     "root_assistant_graph",
+			"path":   root,
+			"kind":   "git",
+			"active": true,
+		}},
+	}))
+	projectID := project.Data.ID
+	if projectID == "" || project.Data.ReadBackend != "cairnline" || project.Data.DefaultRootID != "root_assistant_graph" {
+		t.Fatalf("project = %+v, want Cairnline replacement identity with default root", project.Data)
+	}
+
+	proposal := projectassistant.Proposal{
+		ID:                   "pa_assistant_cairnline_graph",
+		Title:                "Create Cairnline graph",
+		RequiresConfirmation: true,
+		Actions: []projectassistant.Action{
+			{
+				Kind: projectassistant.ActionCreateRole,
+				Patch: json.RawMessage(`{
+					"id":"role_assistant_cairnline_graph",
+					"project_id":"` + projectID + `",
+					"name":"Assistant graph owner",
+					"instructions":"Own the assistant-created Cairnline assignment graph.",
+					"default_driver_kind":"hecate_task"
+				}`),
+			},
+			{
+				Kind: projectassistant.ActionCreateWorkItem,
+				Patch: json.RawMessage(`{
+					"id":"work_assistant_cairnline_graph",
+					"project_id":"` + projectID + `",
+					"title":"Assistant-created Cairnline graph",
+					"brief":"Create role, work item, and assignment through one confirmed proposal.",
+					"status":"ready",
+					"owner_role_id":"role_assistant_cairnline_graph"
+				}`),
+			},
+			{
+				Kind: projectassistant.ActionCreateAssignment,
+				Patch: json.RawMessage(`{
+					"id":"asgn_assistant_cairnline_graph",
+					"project_id":"` + projectID + `",
+					"work_item_id":"work_assistant_cairnline_graph",
+					"role_id":"role_assistant_cairnline_graph",
+					"root_id":"root_assistant_graph",
+					"driver_kind":"hecate_task",
+					"status":"queued"
+				}`),
+			},
+		},
+	}
+	applied := mustRequestJSONStatus[projectAssistantApplyResponse](client, http.StatusOK, http.MethodPost, "/hecate/v1/project-assistant/apply", projectJourneyJSON(t, map[string]any{
+		"proposal": proposal,
+		"confirm":  true,
+	}))
+	if applied.Data.Status != projectassistant.ApplyStatusApplied || !applied.Data.Applied || applied.Data.CommittedActionCount != 3 || len(applied.Data.Actions) != 3 {
+		t.Fatalf("apply response = %+v, want applied role/work/assignment graph", applied.Data)
+	}
+	roles := mustRequestJSONStatus[ProjectWorkRolesResponse](client, http.StatusOK, http.MethodGet, "/hecate/v1/projects/"+projectID+"/roles", "")
+	role := projectWorkRoleResponseForTest(roles.Data, "role_assistant_cairnline_graph")
+	if role == nil || role.ReadBackend != "cairnline" || role.Name != "Assistant graph owner" {
+		t.Fatalf("roles = %+v, want Cairnline-backed assistant-created role", roles.Data)
+	}
+	work := mustRequestJSONStatus[ProjectWorkItemEnvelope](client, http.StatusOK, http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_assistant_cairnline_graph", "")
+	if work.Data.ReadBackend != "cairnline" || work.Data.OwnerRoleID != "role_assistant_cairnline_graph" {
+		t.Fatalf("work = %+v, want Cairnline-backed assistant-created work item", work.Data)
+	}
+	assignments := mustRequestJSONStatus[ProjectWorkAssignmentsResponse](client, http.StatusOK, http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_assistant_cairnline_graph/assignments", "")
+	assignment := projectWorkAssignmentResponseForTest(assignments.Data, "asgn_assistant_cairnline_graph")
+	if assignment == nil || assignment.ReadBackend != "cairnline" || assignment.RoleID != "role_assistant_cairnline_graph" || assignment.RootID != "root_assistant_graph" || assignment.Status != projectwork.AssignmentStatusQueued {
+		t.Fatalf("assignments = %+v, want Cairnline-backed queued assistant-created assignment", assignments.Data)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("Hecate project store ok=%v err=%v after assistant graph apply, want no native project identity row", ok, err)
+	}
+	if mirroredAssignment := getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_assistant_cairnline_graph"); mirroredAssignment.RoleID != "role_assistant_cairnline_graph" || mirroredAssignment.RootID != "root_assistant_graph" {
+		t.Fatalf("mirrored Cairnline assignment = %+v, want assistant-created role/root assignment", mirroredAssignment)
+	}
+}
+
+func projectWorkRoleResponseForTest(items []ProjectWorkRoleResponse, id string) *ProjectWorkRoleResponse {
+	for idx := range items {
+		if items[idx].ID == id {
+			return &items[idx]
+		}
+	}
+	return nil
+}
+
+func projectWorkAssignmentResponseForTest(items []ProjectWorkAssignmentResponse, id string) *ProjectWorkAssignmentResponse {
+	for idx := range items {
+		if items[idx].ID == id {
+			return &items[idx]
+		}
+	}
+	return nil
+}
+
 func getMirroredCairnlineAssistantProposalForTest(t *testing.T, handler *Handler, proposalID string) cairnline.AssistantProposalRecord {
 	t.Helper()
 	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
