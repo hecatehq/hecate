@@ -101,25 +101,60 @@ func applyProjectMetadataDefaultsUpdate(project *projects.Project, req updatePro
 }
 
 func (h *Handler) validateProjectMetadataDefaultsHecateCompatibility(ctx context.Context, project projects.Project) error {
-	if h == nil || h.projects == nil {
-		return nil
-	}
 	if strings.TrimSpace(project.Name) == "" {
 		return fmt.Errorf("%w: project name is required", projects.ErrInvalid)
 	}
-	items, err := h.projects.List(ctx)
+	if h != nil && h.projects != nil {
+		items, err := h.projects.List(ctx)
+		if err != nil {
+			return err
+		}
+		projectID := strings.TrimSpace(project.ID)
+		nameKey := strings.ToLower(strings.TrimSpace(project.Name))
+		for _, existing := range items {
+			if strings.TrimSpace(existing.ID) == projectID {
+				continue
+			}
+			if strings.ToLower(strings.TrimSpace(existing.Name)) == nameKey {
+				return fmt.Errorf("%w: project name %q already exists", projects.ErrAlreadyExists, project.Name)
+			}
+		}
+	}
+	return h.validateProjectNameCairnlineAuthorityCompatibility(ctx, project)
+}
+
+func (h *Handler) validateProjectNameCairnlineAuthorityCompatibility(ctx context.Context, project projects.Project) error {
+	name := strings.TrimSpace(project.Name)
+	if name == "" {
+		return fmt.Errorf("%w: project name is required", projects.ErrInvalid)
+	}
+	if h == nil || !h.projectCairnlineEmbeddedConnectorEnabled() {
+		return nil
+	}
+	projectID := strings.TrimSpace(project.ID)
+	nameKey := strings.ToLower(name)
+	var conflict string
+	err := h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+		items, err := service.ListProjects(ctx)
+		if err != nil {
+			return err
+		}
+		for _, existing := range items {
+			if strings.TrimSpace(existing.ID) == projectID {
+				continue
+			}
+			if strings.ToLower(strings.TrimSpace(existing.Name)) == nameKey {
+				conflict = existing.Name
+				return nil
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		return err
 	}
-	projectID := strings.TrimSpace(project.ID)
-	nameKey := strings.ToLower(strings.TrimSpace(project.Name))
-	for _, existing := range items {
-		if strings.TrimSpace(existing.ID) == projectID {
-			continue
-		}
-		if strings.ToLower(strings.TrimSpace(existing.Name)) == nameKey {
-			return fmt.Errorf("%w: project name %q already exists", projects.ErrAlreadyExists, project.Name)
-		}
+	if conflict != "" {
+		return fmt.Errorf("%w: project name %q already exists", projects.ErrAlreadyExists, name)
 	}
 	return nil
 }

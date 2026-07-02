@@ -32,6 +32,9 @@ and role/memory suggestions.
 When setup context exists and the project has no work items yet, first-work
 creation opens with a draft title, brief, and owner role for operator review.
 
+Project names and concrete root paths are unique in Hecate's operator cockpit,
+including Cairnline replacement-mode project identity.
+
 ## Work Flow
 
 For each work item:
