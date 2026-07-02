@@ -794,14 +794,6 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 	projectID := r.PathValue("id")
 	workItemID := r.PathValue("work_item_id")
 	assignmentID := r.PathValue("assignment_id")
-	if h.taskStore == nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task store is not configured")
-		return
-	}
-	if h.taskRunner == nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task runner is not configured")
-		return
-	}
 	strictEmbeddedRead := h.projectReadRoutesUseCairnlineReadModel() && h.requiresEmbeddedCairnlineProjectReads()
 	if (!strictEmbeddedRead && h.projects == nil) || h.projectWork == nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project stores are not configured")
@@ -846,6 +838,14 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 	}
 	if assignment.DriverKind != projectwork.AssignmentDriverHecateTask {
 		WriteError(w, http.StatusConflict, errCodeConflict, fmt.Sprintf("assignment driver_kind %q is not supported; V1 supports %q and %q", assignment.DriverKind, projectwork.AssignmentDriverHecateTask, projectwork.AssignmentDriverExternalAgent))
+		return
+	}
+	if h.taskStore == nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task store is not configured")
+		return
+	}
+	if h.taskRunner == nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task runner is not configured")
 		return
 	}
 	active, err := projectWorkAssignmentHasActiveExecution(ctx, h.taskStore, assignment)

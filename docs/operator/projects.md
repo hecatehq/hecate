@@ -48,6 +48,9 @@ For each work item:
 
 Assignments keep their own execution records. Projects coordinate the work, but
 Tasks, Chats, and External Agents remain the execution surfaces.
+Starting a Hecate Task assignment requires the task runtime. Preparing an
+External Agent assignment uses the agent-chat adapter runtime and does not
+require the Hecate task runtime to be configured.
 
 The project header's **Needs Attention** menu is server-derived from
 `GET /hecate/v1/projects/{id}/health`. It surfaces compact setup and operations

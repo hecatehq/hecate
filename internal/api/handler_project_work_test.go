@@ -3774,6 +3774,10 @@ func TestProjectWorkAPI_StartExternalAgentAssignmentStrictEmbeddedReadModelLaunc
 	}, quietLogger(), nil, nil, nil, nil)
 	runner := &fakeAgentChatRunner{nativeSessionID: "native_embedded_external"}
 	handler.SetAgentChatRunner(runner)
+	// External Agent starts prepare chat sessions, so they should not require
+	// the native Hecate task runtime to be configured.
+	handler.taskStore = nil
+	handler.taskRunner = nil
 	server := NewServer(quietLogger(), handler)
 	const projectID = "proj_embedded_external_start"
 	workspace := t.TempDir()
