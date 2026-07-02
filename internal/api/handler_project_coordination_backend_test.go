@@ -1063,6 +1063,44 @@ func TestProjectCoordinationBackendStatus_NextActionWriteAuthorityHints(t *testi
 	}
 }
 
+func TestProjectCoordinationBackendStatus_PortableWriteGapsHaveEffectiveAuthorityHints(t *testing.T) {
+	nonPortableGaps := map[string]bool{
+		"assignment-start":                     true,
+		"project-assistant-apply-side-effects": true,
+		"migration-cutover":                    true,
+	}
+	for _, gap := range projectCairnlineWriteAdapterGapNames {
+		if nonPortableGaps[gap] {
+			continue
+		}
+		t.Run(gap, func(t *testing.T) {
+			values := projectCairnlineWriteAuthorityValuesForGap(gap)
+			if len(values) == 0 {
+				t.Fatalf("write authority values = nil, want config hint for portable gap %q", gap)
+			}
+			cfg := config.Config{
+				Projects: config.ProjectsConfig{
+					CairnlineWriteAuthority: strings.Join(values, ","),
+				},
+			}
+			writeAuthority := cfg.ProjectsCairnlineWriteAuthority()
+			for _, value := range values {
+				if !cfg.ProjectsCairnlineWriteAuthorityEnabled(value) {
+					t.Fatalf("write authority = %+v, want parsed value %q enabled", writeAuthority, value)
+				}
+			}
+			writeGaps := projectCairnlineWriteAdapterGapsSnapshot(writeAuthority)
+			portableGaps := projectCairnlinePortableWriteGapsSnapshot(writeAuthority, writeGaps)
+			if containsString(portableGaps, gap) {
+				t.Fatalf("portable gaps = %+v, want write authority values %+v to close %q", portableGaps, values, gap)
+			}
+			if gap == "roots" && (!containsString(writeGaps, "roots") || !containsString(projectCairnlineOrchestratorCapabilitiesSnapshot(writeGaps), "roots")) {
+				t.Fatalf("write gaps = %+v, want roots to remain visible as Hecate-owned Git/workspace capability after portable root metadata closes", writeGaps)
+			}
+		})
+	}
+}
+
 func TestProjectCoordinationBackendStatus_SidecarReadSourceWarningKeepsWritesEmbedded(t *testing.T) {
 	warning := projectCairnlineReadSourceWarning("sidecar")
 	if !strings.Contains(warning, "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar") ||
