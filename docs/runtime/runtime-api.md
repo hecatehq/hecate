@@ -2487,11 +2487,12 @@ first requiring a Hecate-native snapshot or compatibility project row. With
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar` routes only project list/detail,
 setup-readiness, health, project skill list, project memory list,
 memory-candidate list, project role list, work-item list/detail,
-assignment-list, assignment-context, launch-readiness, assignment preflight, artifact-list,
-handoff-list, activity, closeout-readiness, and operations-brief reads through
-the standalone Cairnline MCP client; backend status reports those routes in
-`read_routes` while `read_model_switch_ready` remains false because the broader
-read model is not sidecar-backed yet.
+assignment-list, assignment-context, launch-readiness, assignment preflight,
+artifact-list, handoff-list, project-assistant context/proposal, project-chat
+prelude/context, activity, closeout-readiness, and operations-brief reads
+through the standalone Cairnline MCP client; backend status reports those
+routes in `read_routes` while `read_model_switch_ready` remains false because
+the broader read model is not sidecar-backed yet.
 `read_routes` lists the live read families currently backed by the Cairnline
 read model. `replacement_target=embedded_cairnline_first` documents the
 current source-of-truth strategy: replace Hecate-native Projects with embedded
