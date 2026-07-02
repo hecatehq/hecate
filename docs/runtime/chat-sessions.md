@@ -159,9 +159,12 @@ surfaces without sending a chat message.
 Project-linked Hecate Chat also receives a bounded Hecate-owned prompt prelude
 with project-root metadata, role hints, enabled skill metadata, active work,
 and accepted project memory excerpts. Roots and skills are metadata only: the
-chat path does not read root files or inject `SKILL.md` bodies. External Agent
-sessions may share the same project filter and sidebar scope, but their prompt
-packing remains agent-owned and does not receive this Hecate prelude.
+chat path does not read root files or inject `SKILL.md` bodies. When Cairnline
+is the configured read source, that prelude and its context-packet metadata are
+assembled from the active embedded or sidecar Cairnline project graph rather
+than requiring a native Hecate project row. External Agent sessions may share
+the same project filter and sidebar scope, but their prompt packing remains
+agent-owned and does not receive this Hecate prelude.
 
 | Command               | Available when                          | Behavior                                                                    |
 | --------------------- | --------------------------------------- | --------------------------------------------------------------------------- |

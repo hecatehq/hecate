@@ -254,6 +254,9 @@ func projectChatRootHints(project projects.Project) string {
 }
 
 func (h *Handler) projectChatRoleHints(ctx context.Context, projectID string) string {
+	if roles, ok := h.sidecarCairnlineProjectChatRoles(ctx, projectID); ok {
+		return projectChatRoleHintText(roles)
+	}
 	if roles, ok := h.strictEmbeddedCairnlineProjectChatRoles(ctx, projectID); ok {
 		return projectChatRoleHintText(roles)
 	}
@@ -339,6 +342,9 @@ type projectChatWorkSnapshot struct {
 }
 
 func (h *Handler) projectChatEnabledSkills(ctx context.Context, projectID string) []projectskills.Skill {
+	if items, ok := h.sidecarCairnlineProjectChatSkills(ctx, projectID); ok {
+		return items
+	}
 	if items, ok := h.strictEmbeddedCairnlineProjectChatSkills(ctx, projectID); ok {
 		return items
 	}
@@ -376,6 +382,9 @@ func sortProjectChatSkills(out []projectskills.Skill) {
 }
 
 func (h *Handler) projectChatWorkSnapshot(ctx context.Context, projectID string) projectChatWorkSnapshot {
+	if snapshot, ok := h.sidecarCairnlineProjectChatWorkSnapshot(ctx, projectID); ok {
+		return snapshot
+	}
 	if snapshot, ok := h.strictEmbeddedCairnlineProjectChatWorkSnapshot(ctx, projectID); ok {
 		return snapshot
 	}

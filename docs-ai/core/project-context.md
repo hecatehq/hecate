@@ -71,6 +71,10 @@ compatibility project row; keep any Hecate shadow writes best-effort and do not
 add native `requireProject*` guards ahead of those authority paths. Do not describe
 `internal/cairnlinebridge` as only a future proof; it maps Hecate Projects to
 Cairnline snapshots and backs the current embedded/sidecar replacement probes.
+Project-linked Hecate Chat prelude/context helpers also use the configured
+Cairnline read source for project identity, roles, skills, work, and accepted
+memory, so sidecar-only or strict-embedded project identities must not fall back
+to native Hecate stores for those chat metadata paths.
 Model-backed assistant turns should carry a small context-inspector packet:
 execution mode, route/workspace metadata, source provenance, and visible
 transcript counts. Do not store full prompt bodies, raw transcript text, file
