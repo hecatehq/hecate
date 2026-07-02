@@ -395,7 +395,7 @@ func (h *Handler) projectCoordinationBackendStatusWithContext(ctx context.Contex
 				response.ReplacementGates = projectCairnlineReplacementGates(false, response.PortableWriteGaps, replacementMode, strictEmbeddedReadGate, migrationCutoverArmed)
 				response.Warnings = []string{
 					"Only " + projectCairnlineReadRouteList(projectCairnlineSidecarReadRouteNames) + " use the Cairnline sidecar MCP client in this mode.",
-					"Project writes still use Hecate-native stores unless a separate embedded Cairnline authority switchpoint is explicitly enabled.",
+					projectCairnlineSidecarWriteAuthorityWarning(writeAuthority),
 					"Full Cairnline replacement remains blocked on authoritative write migration.",
 				}
 				return projectCairnlineStatusWithNextAction(response)
@@ -405,7 +405,7 @@ func (h *Handler) projectCoordinationBackendStatusWithContext(ctx context.Contex
 			response.ReplacementGates = projectCairnlineReplacementGates(false, response.PortableWriteGaps, replacementMode, strictEmbeddedReadGate, migrationCutoverArmed)
 			response.Warnings = []string{
 				projectCairnlineConnectorWarning(connector),
-				"Project reads and writes still use Hecate-native stores.",
+				projectCairnlineSidecarWriteAuthorityWarning(writeAuthority),
 			}
 			return projectCairnlineStatusWithNextAction(response)
 		}
@@ -1215,6 +1215,13 @@ func projectCairnlineReadSourceWarning(source string) string {
 	default:
 		return "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=auto makes configured Cairnline read-model service reads prefer the embedded mirror database when it already contains the requested project or proposal record, and otherwise use a snapshot-seeded in-memory Cairnline bridge projection."
 	}
+}
+
+func projectCairnlineSidecarWriteAuthorityWarning(writeAuthority []string) string {
+	if len(writeAuthority) > 0 {
+		return "Configured HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY values (" + strings.Join(writeAuthority, ", ") + ") are ignored in sidecar connector mode; project writes still use Hecate-native stores unless HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded is used for embedded Cairnline write-authority dogfooding."
+	}
+	return "Project writes still use Hecate-native stores; current write-authority switchpoints require HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded."
 }
 
 func (h *Handler) cairnlineReadModelReadiness() (bool, []string) {
