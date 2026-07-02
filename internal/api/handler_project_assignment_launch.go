@@ -832,6 +832,15 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		return
 	}
 	if assignment.DriverKind == projectwork.AssignmentDriverExternalAgent {
+		if strictEmbeddedRead {
+			inputs.Assignment = assignment
+			shadowedAssignment, err := h.shadowCairnlineAssignmentStartInputsToHecate(ctx, inputs)
+			if err != nil {
+				WriteError(w, projectAssignmentPreflightHTTPStatus(err), projectAssignmentPreflightErrorCode(err), err.Error())
+				return
+			}
+			assignment = shadowedAssignment
+		}
 		h.startProjectExternalAgentAssignment(w, r, project, workItem, assignment, role)
 		return
 	}
