@@ -654,7 +654,8 @@ authoritative storage cutover switch still does not exist. When
 `HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded` is armed after strict
 embedded reads are verified and all portable write-authority gaps are closed,
 backend status treats that mode as the explicit embedded cutover switch, clears
-the migration blocker, and reports Cairnline as authoritative for portable
+the migration blocker, marks the `migration-cutover` write switchpoint as
+`embedded_cutover_armed`, and reports Cairnline as authoritative for portable
 Projects coordination state. In that armed mode with all portable
 write-authority gaps closed, new Cairnline-authoritative project identity
 creates no longer manufacture native Hecate project identity rows;

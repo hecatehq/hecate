@@ -681,7 +681,9 @@ after these gates are met:
   portable write-authority switchpoints alone does not replace the backend.
   Replacement mode plus all portable write authority can make new project
   identity creates Cairnline-only, but `replacement_ready` remains false until
-  strict embedded read smoke and migration/rollback gates are clean.
+  strict embedded read smoke and migration/rollback gates are clean. Once those
+  gates are clean, the `migration-cutover` switchpoint reports
+  `embedded_cutover_armed` instead of a blocking Hecate-owned cutover gap.
 - Context packets, setup/health/operations summaries, activity projections, and
   closeout gates match current Hecate behavior or have documented intentional
   differences.

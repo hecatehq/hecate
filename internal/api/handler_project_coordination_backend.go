@@ -383,8 +383,8 @@ func (h *Handler) projectCoordinationBackendStatusWithContext(ctx context.Contex
 		response.PortableWriteGaps = projectCairnlinePortableWriteGapsSnapshot(effectiveWriteAuthority, response.WriteAdapterGaps)
 		response.OrchestratorCapabilities = projectCairnlineOrchestratorCapabilitiesSnapshot(response.WriteAdapterGaps)
 		response.WriteAdapterReady = len(response.PortableWriteGaps) == 0
-		response.WriteSwitchpoints = projectCairnlineWriteSwitchpointsSnapshot(effectiveWriteAuthority)
 		migrationCutoverArmed := replacementMode == "embedded" && strictEmbeddedReadGate.Ready && len(response.PortableWriteGaps) == 0
+		response.WriteSwitchpoints = projectCairnlineWriteSwitchpointsSnapshot(effectiveWriteAuthority, migrationCutoverArmed)
 		response.MigrationBlockers = projectCairnlineMigrationBlockersSnapshot(response.WriteAdapterGaps, migrationCutoverArmed)
 		response.ReplacementGates = projectCairnlineReplacementGates(readReady, response.PortableWriteGaps, replacementMode, strictEmbeddedReadGate, migrationCutoverArmed)
 		if !connectorReady {
@@ -921,7 +921,7 @@ func projectCairnlineMigrationBlockersSnapshot(writeGaps []string, migrationCuto
 	return out
 }
 
-func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string) []ProjectCoordinationBackendWriteSwitchpoint {
+func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string, migrationCutoverArmed bool) []ProjectCoordinationBackendWriteSwitchpoint {
 	out := make([]ProjectCoordinationBackendWriteSwitchpoint, 0, len(projectCairnlineWriteSwitchpoints))
 	projectMemoryAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, "project-memory")
 	memoryCandidatesAuthoritative := projectMemoryAuthoritative && projectCairnlineWriteAuthorityEnabled(writeAuthority, "memory-candidates")
@@ -1060,6 +1060,13 @@ func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string) []Projec
 			item.BlocksAuthority = false
 			item.Gap = ""
 			item.Detail = "Project memory-candidate create, promote, and reject mutations commit to the embedded Cairnline database first, validating project identity from Cairnline when no Hecate-native project row exists, then best-effort shadow review state and promoted-memory references back into Hecate-native stores for compatibility."
+		}
+		if migrationCutoverArmed && item.Name == "migration-cutover" {
+			item.CurrentAuthority = "cairnline"
+			item.CairnlineState = "embedded_cutover_armed"
+			item.BlocksAuthority = false
+			item.Gap = ""
+			item.Detail = "Strict embedded mirror parity and read smoke are verified, all portable write-authority gaps are closed, and embedded replacement mode is armed as the explicit Cairnline cutover switch."
 		}
 		item.Seams = append([]string(nil), item.Seams...)
 		out = append(out, item)
