@@ -24,6 +24,9 @@ func (h *Handler) projectCairnlineEmbeddedReplacementModeArmed() bool {
 	if h == nil {
 		return false
 	}
+	// This is the write-path shadow switch for newly-created project identity.
+	// Backend status still owns the broader replacement-readiness verdict,
+	// including strict embedded mirror parity and read-smoke evidence.
 	if h.config.ProjectsCoordinationBackend() != "cairnline" ||
 		!h.projectCairnlineEmbeddedConnectorEnabled() ||
 		h.config.ProjectsCairnlineReadSource() != "embedded" ||

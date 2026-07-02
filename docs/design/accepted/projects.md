@@ -142,7 +142,10 @@ Projects coordination state. In that armed mode with all portable
 write-authority gaps closed, Cairnline-authoritative project identity create no
 longer creates a native Hecate project identity row; strict embedded reads serve
 the project from Cairnline, while Hecate keeps only the runtime/workspace
-compatibility shadows it still owns.
+compatibility shadows it still owns. The identity-create shadow switch is
+config-gated by replacement mode plus portable write authority; backend status
+remains the operator-facing readiness signal and still reports not-ready when
+strict embedded mirror/read-smoke evidence is missing or stale.
 It keeps `write_adapter_gaps` as the broad diagnostic list and also groups
 that list into `portable_write_gaps`, `orchestrator_capabilities`, and
 `migration_blockers`, so operator tooling can tell durable coordination-state
@@ -674,6 +677,9 @@ after these gates are met:
   `HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded` after the read,
   write-authority, migration, and rollback gates are ready; enabling all
   portable write-authority switchpoints alone does not replace the backend.
+  Replacement mode plus all portable write authority can make new project
+  identity creates Cairnline-only, but `replacement_ready` remains false until
+  strict embedded read smoke and migration/rollback gates are clean.
 - Context packets, setup/health/operations summaries, activity projections, and
   closeout gates match current Hecate behavior or have documented intentional
   differences.
