@@ -460,6 +460,17 @@ func TestProjectCoordinationBackendStatus_EmbeddedReplacementModeReportsCairnlin
 	if !status.ReplacementReady || status.AuthoritativeBackend != "cairnline" || !status.CairnlineAuthoritative {
 		t.Fatalf("status = %+v, want verified embedded replacement to report Cairnline authoritative", status)
 	}
+	if status.Status != "cairnline_authoritative" || !strings.Contains(status.Detail, "Cairnline as authoritative") {
+		t.Fatalf("status/detail = %q/%q, want authoritative Cairnline replacement wording", status.Status, status.Detail)
+	}
+	for _, warning := range status.Warnings {
+		if strings.Contains(warning, "Hecate stores remain authoritative") || strings.Contains(warning, "Other project mutation routes still write only Hecate-native stores") {
+			t.Fatalf("warning = %q, want replacement-ready runtime-boundary warning without stale Hecate-authoritative wording", warning)
+		}
+	}
+	if len(status.Warnings) == 0 || !strings.Contains(strings.Join(status.Warnings, "\n"), "Hecate still owns runtime/workspace side effects") {
+		t.Fatalf("warnings = %+v, want runtime/workspace side-effect boundary after replacement is ready", status.Warnings)
+	}
 	if len(status.MigrationBlockers) != 0 {
 		t.Fatalf("migration blockers = %+v, want none after embedded replacement cutover is armed", status.MigrationBlockers)
 	}

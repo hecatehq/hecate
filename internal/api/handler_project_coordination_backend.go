@@ -452,9 +452,26 @@ func projectCairnlineStatusWithNextAction(response ProjectCoordinationBackendSta
 	if response.ReplacementReady {
 		response.AuthoritativeBackend = "cairnline"
 		response.CairnlineAuthoritative = true
+		response.Status = "cairnline_authoritative"
+		response.Detail = projectCairnlineReplacementReadyDetail()
+		response.Warnings = projectCairnlineReplacementReadyWarnings(response.OrchestratorCapabilities)
 	}
 	response.NextReplacementAction = projectCairnlineNextReplacementAction(response)
 	return response
+}
+
+func projectCairnlineReplacementReadyDetail() string {
+	return "All Cairnline replacement gates are ready and embedded replacement mode is armed; Hecate is reporting Cairnline as authoritative for portable Projects coordination state."
+}
+
+func projectCairnlineReplacementReadyWarnings(orchestratorCapabilities []string) []string {
+	warnings := []string{
+		"Hecate still owns runtime/workspace side effects such as task/chat execution, External Agent supervision, approvals, traces, root discovery, and Git worktree creation.",
+	}
+	if len(orchestratorCapabilities) > 0 {
+		warnings = append(warnings, "Remaining Hecate-owned orchestrator capabilities: "+strings.Join(orchestratorCapabilities, ", ")+".")
+	}
+	return warnings
 }
 
 func projectCairnlineNextReplacementAction(status ProjectCoordinationBackendStatusResponse) *ProjectCoordinationBackendNextAction {
