@@ -18,6 +18,7 @@ import (
 	"github.com/hecatehq/hecate/internal/chatcontext"
 	"github.com/hecatehq/hecate/internal/gitrunner"
 	"github.com/hecatehq/hecate/internal/modelcaps"
+	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/requestscope"
 	"github.com/hecatehq/hecate/internal/taskapp"
 	"github.com/hecatehq/hecate/internal/telemetry"
@@ -62,7 +63,7 @@ func (h *Handler) HandleCreateChatSession(w http.ResponseWriter, r *http.Request
 	}
 	projectID := strings.TrimSpace(req.ProjectID)
 	if projectID != "" {
-		if _, ok, err := h.projects.Get(r.Context(), projectID); err != nil {
+		if ok, err := h.chatSessionProjectExists(r.Context(), projectID); err != nil {
 			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 			return
 		} else if !ok {
@@ -168,6 +169,35 @@ func (h *Handler) HandleCreateChatSession(w http.ResponseWriter, r *http.Request
 		return
 	}
 	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(result.Session, h.agentChatSnapshotConfig())})
+}
+
+func (h *Handler) chatSessionProjectExists(ctx context.Context, projectID string) (bool, error) {
+	projectID = strings.TrimSpace(projectID)
+	if projectID == "" {
+		return true, nil
+	}
+	if h.projectCairnlineSidecarReadRoutesEnabled() {
+		_, ok, err := h.cairnlineSidecarProject(ctx, projectID)
+		return ok, err
+	}
+	if h.requiresEmbeddedCairnlineProjectReads() {
+		view, err := h.cairnlineEmbeddedProjectWorkView(ctx, projectID)
+		if err != nil {
+			if errors.Is(err, projects.ErrNotFound) {
+				return false, nil
+			}
+			return false, err
+		}
+		if view != nil {
+			_ = view.Close()
+		}
+		return true, nil
+	}
+	if h == nil || h.projects == nil {
+		return false, errors.New("project store is not configured")
+	}
+	_, ok, err := h.projects.Get(ctx, projectID)
+	return ok, err
 }
 
 func normalizeChatAgentID(agentID string) string {
