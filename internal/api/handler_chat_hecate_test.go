@@ -908,6 +908,55 @@ func TestChatSessionsProjectID(t *testing.T) {
 	}
 }
 
+func TestChatSessionsProjectIDUsesStrictEmbeddedCairnlineProject(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	provider := &fakeProvider{name: "openai"}
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{provider}, config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend: "cairnline",
+			CairnlineReadSource: "embedded",
+		},
+	}, controlplane.NewMemoryStore())
+	handler := NewServer(logger, apiHandler)
+	client := newAPITestClient(t, handler)
+	const projectID = "proj_chat_cairnline_only"
+
+	if err := apiHandler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+		_, err := service.CreateProject(t.Context(), cairnline.Project{
+			ID:          projectID,
+			Name:        "Cairnline-only chat project",
+			Description: "Chat sessions should validate against embedded Cairnline.",
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("seed embedded Cairnline project: %v", err)
+	}
+	if _, ok, err := apiHandler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("native project exists = %t err=%v, want missing native project", ok, err)
+	}
+
+	created := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions",
+		fmt.Sprintf(`{"agent_id":"hecate","project_id":%q,"provider":"openai","model":"gpt-4o-mini"}`, projectID))
+	if created.Data.ProjectID != projectID {
+		t.Fatalf("created project_id = %q, want %q", created.Data.ProjectID, projectID)
+	}
+	if _, ok, err := apiHandler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("native project exists after chat create = %t err=%v, want missing native project", ok, err)
+	}
+
+	list := mustRequestJSON[ChatSessionsResponse](client, http.MethodGet, "/hecate/v1/chat/sessions", "")
+	if len(list.Data) != 1 || list.Data[0].ProjectID != projectID {
+		t.Fatalf("listed chat sessions = %+v, want one session for Cairnline-only project %q", list.Data, projectID)
+	}
+
+	recorder := client.mustRequestStatus(http.StatusNotFound, http.MethodPost, "/hecate/v1/chat/sessions",
+		`{"agent_id":"hecate","project_id":"proj_missing","provider":"openai","model":"gpt-4o-mini"}`)
+	if !strings.Contains(recorder.Body.String(), "project not found") {
+		t.Fatalf("missing project response = %s, want project not found", recorder.Body.String())
+	}
+}
+
 func TestHecateAgentChatCreateDefaultsTitle(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	provider := &fakeProvider{
