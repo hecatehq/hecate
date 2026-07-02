@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/gitrunner"
 	"github.com/hecatehq/hecate/internal/projects"
 )
@@ -30,17 +31,18 @@ type createProjectWorktreeRootRequest struct {
 }
 
 func (h *Handler) HandleDiscoverProjectRoots(w http.ResponseWriter, r *http.Request) {
-	if h.projects == nil {
+	usesCairnlineAuthority := h.projectRootWritesUseCairnlineAuthority()
+	project, err := h.projectForRootSourceMutation(r.Context(), r.PathValue("id"), usesCairnlineAuthority)
+	if errors.Is(err, errProjectStoreNotConfigured) {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project store is not configured")
 		return
 	}
-	project, ok, err := h.projects.Get(r.Context(), r.PathValue("id"))
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+	if errors.Is(err, projects.ErrNotFound) || errors.Is(err, cairnline.ErrNotFound) {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
 		return
 	}
-	if !ok {
-		WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
 	discovered, err := discoverProjectGitWorktreeRoots(r.Context(), project, gitrunner.NewLocalRunner())
@@ -53,7 +55,7 @@ func (h *Handler) HandleDiscoverProjectRoots(w http.ResponseWriter, r *http.Requ
 	if defaultRootID == "" && len(merged) > 0 {
 		defaultRootID = merged[0].ID
 	}
-	if h.projectRootWritesUseCairnlineAuthority() {
+	if usesCairnlineAuthority {
 		updated, err := h.replaceProjectRootsWithCairnlineAuthority(r.Context(), project.ID, merged, defaultRootID, "project_roots_cairnline_authority_discover")
 		writeProjectListReplaceCairnlineAuthorityResponse(w, updated, err)
 		return
@@ -74,17 +76,18 @@ func (h *Handler) HandleDiscoverProjectRoots(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *Handler) HandleCreateProjectWorktreeRoot(w http.ResponseWriter, r *http.Request) {
-	if h.projects == nil {
+	usesCairnlineAuthority := h.projectRootWritesUseCairnlineAuthority()
+	project, err := h.projectForRootSourceMutation(r.Context(), r.PathValue("id"), usesCairnlineAuthority)
+	if errors.Is(err, errProjectStoreNotConfigured) {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project store is not configured")
 		return
 	}
-	project, ok, err := h.projects.Get(r.Context(), r.PathValue("id"))
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+	if errors.Is(err, projects.ErrNotFound) || errors.Is(err, cairnline.ErrNotFound) {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
 		return
 	}
-	if !ok {
-		WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
 	var req createProjectWorktreeRootRequest
@@ -96,7 +99,7 @@ func (h *Handler) HandleCreateProjectWorktreeRoot(w http.ResponseWriter, r *http
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 		return
 	}
-	if h.projectRootWritesUseCairnlineAuthority() {
+	if usesCairnlineAuthority {
 		roots := append(append([]projects.Root(nil), project.Roots...), root)
 		defaultRootID := strings.TrimSpace(project.DefaultRootID)
 		if req.SetDefault {

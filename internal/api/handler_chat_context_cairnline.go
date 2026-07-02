@@ -10,6 +10,7 @@ import (
 	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/memory"
+	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
 )
@@ -32,14 +33,6 @@ func (h *Handler) contextPacketForCairnlineProjectAssignment(ctx context.Context
 }
 
 func (h *Handler) cairnlineAssignmentLaunchPacket(ctx context.Context, assignment projectwork.Assignment) (cairnline.AssignmentLaunchPacket, error) {
-	if h.requiresEmbeddedCairnlineProjectReads() {
-		_, service, store, err := h.openCairnlineEmbeddedService(ctx)
-		if err != nil {
-			return cairnline.AssignmentLaunchPacket{}, err
-		}
-		defer store.Close()
-		return service.AssignmentLaunchPacket(ctx, assignment.ProjectID, assignment.ID)
-	}
 	view, err := h.cairnlineProjectWorkView(ctx, assignment.ProjectID)
 	if err != nil {
 		return cairnline.AssignmentLaunchPacket{}, err
@@ -52,12 +45,15 @@ func (h *Handler) contextPacketForStrictEmbeddedCairnlineProjectAssignment(ctx c
 	projectID = strings.TrimSpace(projectID)
 	workItemID = strings.TrimSpace(workItemID)
 	assignmentID = strings.TrimSpace(assignmentID)
-	_, service, store, err := h.openCairnlineEmbeddedService(ctx)
+	view, err := h.cairnlineProjectWorkView(ctx, projectID)
+	if errors.Is(err, projects.ErrNotFound) {
+		return chat.ContextPacket{}, false, nil
+	}
 	if err != nil {
 		return chat.ContextPacket{}, false, err
 	}
-	defer store.Close()
-	context, err := service.AssignmentContext(ctx, projectID, assignmentID)
+	defer view.Close()
+	context, err := view.service.AssignmentContext(ctx, view.snapshot.Project.ID, assignmentID)
 	if errors.Is(err, cairnline.ErrNotFound) {
 		return chat.ContextPacket{}, false, nil
 	}

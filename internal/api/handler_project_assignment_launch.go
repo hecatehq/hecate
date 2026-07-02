@@ -421,9 +421,6 @@ type projectAssignmentLaunchInputs struct {
 }
 
 func (h *Handler) cairnlineProjectAssignmentLaunchInputs(ctx context.Context, projectID, workItemID, assignmentID string) (projectAssignmentLaunchInputs, error) {
-	if h.requiresEmbeddedCairnlineProjectReads() {
-		return h.strictEmbeddedCairnlineProjectAssignmentLaunchInputs(ctx, projectID, workItemID, assignmentID)
-	}
 	view, err := h.cairnlineProjectWorkView(ctx, projectID)
 	if errors.Is(err, projects.ErrNotFound) {
 		return projectAssignmentLaunchInputs{}, newProjectAssignmentPreflightError(http.StatusNotFound, errCodeNotFound, "project not found")
@@ -455,8 +452,9 @@ func (h *Handler) cairnlineProjectAssignmentLaunchInputs(ctx context.Context, pr
 	project := projectFromCairnline(launch.Project, projectExecutionProfile, snapshot.Project)
 	workItem := projectWorkItemFromCairnline(launch.WorkItem)
 	assignment := projectWorkAssignmentFromCairnline(launch.Assignment)
-	if native, ok := projectWorkAssignmentsByID(snapshot.Assignments)[assignment.ID]; ok {
-		assignment.ExecutionRef = native.ExecutionRef
+	assignment, err = h.cairnlineAssignmentWithRuntimeRef(ctx, project.ID, assignment, snapshot.Assignments)
+	if err != nil {
+		return projectAssignmentLaunchInputs{}, err
 	}
 	role, roleOK, err := cairnlineLaunchRole(ctx, service, snapshot, launch)
 	if err != nil {
@@ -468,65 +466,6 @@ func (h *Handler) cairnlineProjectAssignmentLaunchInputs(ctx context.Context, pr
 		Assignment: assignment,
 		Role:       role,
 		RoleOK:     roleOK,
-	}, nil
-}
-
-func (h *Handler) strictEmbeddedCairnlineProjectAssignmentLaunchInputs(ctx context.Context, projectID, workItemID, assignmentID string) (projectAssignmentLaunchInputs, error) {
-	projectID = strings.TrimSpace(projectID)
-	workItemID = strings.TrimSpace(workItemID)
-	assignmentID = strings.TrimSpace(assignmentID)
-	_, service, store, err := h.openCairnlineEmbeddedService(ctx)
-	if err != nil {
-		return projectAssignmentLaunchInputs{}, err
-	}
-	defer store.Close()
-	if _, err := service.GetProject(ctx, projectID); err != nil {
-		if errors.Is(err, cairnline.ErrNotFound) {
-			return projectAssignmentLaunchInputs{}, newProjectAssignmentPreflightError(http.StatusNotFound, errCodeNotFound, "project not found")
-		}
-		return projectAssignmentLaunchInputs{}, err
-	}
-	if _, err := service.GetWorkItem(ctx, projectID, workItemID); err != nil {
-		if errors.Is(err, cairnline.ErrNotFound) {
-			return projectAssignmentLaunchInputs{}, newProjectAssignmentPreflightError(http.StatusNotFound, errCodeNotFound, "work item not found")
-		}
-		return projectAssignmentLaunchInputs{}, err
-	}
-	launch, err := service.AssignmentLaunchPacket(ctx, projectID, assignmentID)
-	if errors.Is(err, cairnline.ErrNotFound) {
-		return projectAssignmentLaunchInputs{}, newProjectAssignmentPreflightError(http.StatusNotFound, errCodeNotFound, "assignment not found")
-	}
-	if err != nil {
-		return projectAssignmentLaunchInputs{}, err
-	}
-	if cairnlineSidecarLaunchPacketRouteMismatch(launch, projectID, workItemID, assignmentID) {
-		return projectAssignmentLaunchInputs{}, newProjectAssignmentPreflightError(http.StatusNotFound, errCodeNotFound, "assignment not found")
-	}
-	projectExecutionProfile, err := cairnlineExecutionProfileByID(ctx, service, launch.Project.DefaultExecutionProfileID)
-	if err != nil {
-		return projectAssignmentLaunchInputs{}, err
-	}
-	project := projectFromCairnline(launch.Project, projectExecutionProfile, projects.Project{})
-	workItem := projectWorkItemFromCairnline(launch.WorkItem)
-	assignment := projectWorkAssignmentFromCairnline(launch.Assignment)
-	if h.projectWork != nil {
-		if native, ok, err := h.loadProjectWorkAssignmentForCairnlineMirror(ctx, project.ID, assignment.ID); err != nil {
-			return projectAssignmentLaunchInputs{}, err
-		} else if ok {
-			assignment.ExecutionRef = native.ExecutionRef
-		}
-	}
-	role, roleOK, err := cairnlineLaunchRole(ctx, service, cairnlinebridge.Snapshot{}, launch)
-	if err != nil {
-		return projectAssignmentLaunchInputs{}, err
-	}
-	return projectAssignmentLaunchInputs{
-		Project:               project,
-		WorkItem:              workItem,
-		Assignment:            assignment,
-		Role:                  role,
-		RoleOK:                roleOK,
-		CairnlineLaunchPacket: launch,
 	}, nil
 }
 
@@ -573,6 +512,25 @@ func (h *Handler) cairnlineSidecarProjectAssignmentLaunchInputs(ctx context.Cont
 		RoleOK:                roleOK,
 		CairnlineLaunchPacket: launch,
 	}, nil
+}
+
+func (h *Handler) cairnlineAssignmentWithRuntimeRef(ctx context.Context, projectID string, assignment projectwork.Assignment, nativeAssignments []projectwork.Assignment) (projectwork.Assignment, error) {
+	if native, ok := projectWorkAssignmentsByID(nativeAssignments)[assignment.ID]; ok {
+		assignment.ExecutionRef = native.ExecutionRef
+		return assignment, nil
+	}
+	if h == nil || h.projectWork == nil {
+		return assignment, nil
+	}
+	native, ok, err := h.loadProjectWorkAssignmentForCairnlineMirror(ctx, projectID, assignment.ID)
+	if err != nil {
+		return assignment, err
+	}
+	if !ok {
+		return assignment, nil
+	}
+	assignment.ExecutionRef = native.ExecutionRef
+	return assignment, nil
 }
 
 func cairnlineSidecarLaunchPacketRouteMismatch(launch cairnline.AssignmentLaunchPacket, projectID, workItemID, assignmentID string) bool {

@@ -179,35 +179,106 @@ func (h *Handler) deleteProjectHandoffWithCairnlineAuthority(ctx context.Context
 }
 
 func (h *Handler) seedProjectArtifactDependenciesForCairnlineAuthority(ctx context.Context, service *cairnline.Service, artifact projectwork.CollaborationArtifact) error {
-	if err := h.writeProjectWorkItemDependencyToCairnline(ctx, service, "project_artifact_authority", artifact.ProjectID, artifact.WorkItemID); err != nil {
+	if err := h.writeProjectWorkItemDependencyForCairnlineAuthority(ctx, service, artifact.ProjectID, artifact.WorkItemID); err != nil {
 		return err
 	}
-	if err := h.writeProjectRoleDependencyToCairnline(ctx, service, artifact.ProjectID, artifact.AuthorRoleID); err != nil {
+	if err := h.writeProjectRoleDependencyForCairnlineAuthority(ctx, service, artifact.ProjectID, artifact.AuthorRoleID); err != nil {
 		return err
 	}
-	if err := h.writeProjectAssignmentDependencyToCairnline(ctx, service, artifact.ProjectID, artifact.AssignmentID); err != nil {
+	if err := h.writeProjectAssignmentDependencyForCairnlineAuthority(ctx, service, artifact.ProjectID, artifact.AssignmentID); err != nil {
 		return err
 	}
-	return h.writeProjectAssignmentDependencyToCairnline(ctx, service, artifact.ProjectID, artifact.ReviewedAssignmentID)
+	return h.writeProjectAssignmentDependencyForCairnlineAuthority(ctx, service, artifact.ProjectID, artifact.ReviewedAssignmentID)
 }
 
 func (h *Handler) seedProjectHandoffDependenciesForCairnlineAuthority(ctx context.Context, service *cairnline.Service, handoff projectwork.Handoff) error {
-	if err := h.writeProjectWorkItemDependencyToCairnline(ctx, service, "project_handoff_authority", handoff.ProjectID, handoff.WorkItemID); err != nil {
+	if err := h.writeProjectWorkItemDependencyForCairnlineAuthority(ctx, service, handoff.ProjectID, handoff.WorkItemID); err != nil {
 		return err
 	}
-	if err := h.writeProjectWorkItemDependencyToCairnline(ctx, service, "project_handoff_authority", handoff.ProjectID, handoff.TargetWorkItemID); err != nil {
+	if err := h.writeProjectWorkItemDependencyForCairnlineAuthority(ctx, service, handoff.ProjectID, handoff.TargetWorkItemID); err != nil {
 		return err
 	}
-	if err := h.writeProjectRoleDependencyToCairnline(ctx, service, handoff.ProjectID, handoff.CreatedByRoleID); err != nil {
+	if err := h.writeProjectRoleDependencyForCairnlineAuthority(ctx, service, handoff.ProjectID, handoff.CreatedByRoleID); err != nil {
 		return err
 	}
-	if err := h.writeProjectRoleDependencyToCairnline(ctx, service, handoff.ProjectID, handoff.TargetRoleID); err != nil {
+	if err := h.writeProjectRoleDependencyForCairnlineAuthority(ctx, service, handoff.ProjectID, handoff.TargetRoleID); err != nil {
 		return err
 	}
-	if err := h.writeProjectAssignmentDependencyToCairnline(ctx, service, handoff.ProjectID, handoff.SourceAssignmentID); err != nil {
+	if err := h.writeProjectAssignmentDependencyForCairnlineAuthority(ctx, service, handoff.ProjectID, handoff.SourceAssignmentID); err != nil {
 		return err
 	}
-	return h.writeProjectAssignmentDependencyToCairnline(ctx, service, handoff.ProjectID, handoff.TargetAssignmentID)
+	return h.writeProjectAssignmentDependencyForCairnlineAuthority(ctx, service, handoff.ProjectID, handoff.TargetAssignmentID)
+}
+
+func (h *Handler) writeProjectWorkItemDependencyForCairnlineAuthority(ctx context.Context, service *cairnline.Service, projectID, workItemID string) error {
+	workItemID = strings.TrimSpace(workItemID)
+	if workItemID == "" {
+		return nil
+	}
+	if _, err := service.GetWorkItem(ctx, projectID, workItemID); err == nil {
+		return nil
+	} else if !errors.Is(err, cairnline.ErrNotFound) {
+		return err
+	}
+	if h == nil || h.projectWork == nil {
+		return errors.Join(cairnline.ErrNotFound, errors.New("work item not found for Cairnline authority"))
+	}
+	item, ok, err := h.projectWork.GetWorkItem(ctx, projectID, workItemID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.Join(cairnline.ErrNotFound, errors.New("work item not found for Cairnline authority"))
+	}
+	project, err := h.projectForCairnlineWriteAuthority(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	if err := h.seedProjectWorkItemDependenciesForCairnlineAuthority(ctx, service, project, item); err != nil {
+		return err
+	}
+	_, err = cairnlinebridge.UpsertWorkItem(ctx, service, item)
+	return err
+}
+
+func (h *Handler) writeProjectRoleDependencyForCairnlineAuthority(ctx context.Context, service *cairnline.Service, projectID, roleID string) error {
+	roleID = strings.TrimSpace(roleID)
+	if roleID == "" {
+		return nil
+	}
+	if _, err := getCairnlineProjectRoleForAuthority(ctx, service, projectID, roleID); err == nil {
+		return nil
+	} else if !errors.Is(err, cairnline.ErrNotFound) {
+		return err
+	}
+	role, ok, err := h.loadProjectWorkRoleForCairnlineMirror(ctx, projectID, roleID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.Join(cairnline.ErrNotFound, errors.New("role not found for Cairnline authority"))
+	}
+	return h.writeProjectRoleRecordToCairnline(ctx, service, role)
+}
+
+func (h *Handler) writeProjectAssignmentDependencyForCairnlineAuthority(ctx context.Context, service *cairnline.Service, projectID, assignmentID string) error {
+	assignmentID = strings.TrimSpace(assignmentID)
+	if assignmentID == "" {
+		return nil
+	}
+	if _, err := service.GetAssignment(ctx, projectID, assignmentID); err == nil {
+		return nil
+	} else if !errors.Is(err, cairnline.ErrNotFound) {
+		return err
+	}
+	assignment, ok, err := h.loadProjectWorkAssignmentForCairnlineMirror(ctx, projectID, assignmentID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.Join(cairnline.ErrNotFound, errors.New("assignment not found for Cairnline authority"))
+	}
+	return h.writeProjectAssignmentRecordToCairnline(ctx, service, assignment)
 }
 
 func validateProjectHandoffForCairnlineAuthority(handoff projectwork.Handoff) error {

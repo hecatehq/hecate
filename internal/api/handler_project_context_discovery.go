@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/projects"
 )
 
@@ -16,13 +17,18 @@ const maxProjectInstructionDiscoveryDepth = 8
 
 func (h *Handler) HandleDiscoverProjectContextSources(w http.ResponseWriter, r *http.Request) {
 	projectID := strings.TrimSpace(r.PathValue("id"))
-	project, ok, err := h.projects.Get(r.Context(), projectID)
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+	usesCairnlineAuthority := h.projectContextSourceWritesUseCairnlineAuthority()
+	project, err := h.projectForRootSourceMutation(r.Context(), projectID, usesCairnlineAuthority)
+	if errors.Is(err, errProjectStoreNotConfigured) {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project store is not configured")
 		return
 	}
-	if !ok {
+	if errors.Is(err, projects.ErrNotFound) || errors.Is(err, cairnline.ErrNotFound) {
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
+		return
+	}
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
 	discovered, err := discoverProjectInstructionSources(project)
@@ -31,7 +37,7 @@ func (h *Handler) HandleDiscoverProjectContextSources(w http.ResponseWriter, r *
 		return
 	}
 	merged := mergeDiscoveredContextSources(project.ContextSources, discovered)
-	if h.projectContextSourceWritesUseCairnlineAuthority() {
+	if usesCairnlineAuthority {
 		project, err = h.replaceProjectContextSourcesWithCairnlineAuthority(r.Context(), projectID, merged, "project_context_sources_cairnline_authority_discover")
 		writeProjectListReplaceCairnlineAuthorityResponse(w, project, err)
 		return

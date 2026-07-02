@@ -48,21 +48,17 @@ func (h *Handler) HandleProjectSkills(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleDiscoverProjectSkills(w http.ResponseWriter, r *http.Request) {
-	if h.projectSkills == nil && !h.projectSkillWritesUseCairnlineAuthority() {
+	usesCairnlineAuthority := h.projectSkillWritesUseCairnlineAuthority()
+	if h.projectSkills == nil && !usesCairnlineAuthority {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project skills store is not configured")
 		return
 	}
-	project, ok, err := h.projects.Get(r.Context(), r.PathValue("id"))
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
-	if !ok {
-		WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
+	project, err := h.projectForProjectSkillMutation(r.Context(), r.PathValue("id"), usesCairnlineAuthority)
+	if writeProjectSkillProjectError(w, err) {
 		return
 	}
 	discovered, warnings := projectskills.Discover(r.Context(), project)
-	if h.projectSkillWritesUseCairnlineAuthority() {
+	if usesCairnlineAuthority {
 		items, err := h.upsertDiscoveredProjectSkillsWithCairnlineAuthority(r.Context(), project, discovered, warnings)
 		if writeProjectSkillAuthorityError(w, err) {
 			return
@@ -89,24 +85,20 @@ func (h *Handler) HandleDiscoverProjectSkills(w http.ResponseWriter, r *http.Req
 }
 
 func (h *Handler) HandleUpdateProjectSkill(w http.ResponseWriter, r *http.Request) {
-	if h.projectSkills == nil && !h.projectSkillWritesUseCairnlineAuthority() {
+	usesCairnlineAuthority := h.projectSkillWritesUseCairnlineAuthority()
+	if h.projectSkills == nil && !usesCairnlineAuthority {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project skills store is not configured")
 		return
 	}
-	project, ok, err := h.projects.Get(r.Context(), r.PathValue("id"))
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
-	if !ok {
-		WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
+	project, err := h.projectForProjectSkillMutation(r.Context(), r.PathValue("id"), usesCairnlineAuthority)
+	if writeProjectSkillProjectError(w, err) {
 		return
 	}
 	var req updateProjectSkillRequest
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	if h.projectSkillWritesUseCairnlineAuthority() {
+	if usesCairnlineAuthority {
 		item, err := h.updateProjectSkillWithCairnlineAuthority(r.Context(), project, r.PathValue("skill_id"), req)
 		if writeProjectSkillAuthorityError(w, err) {
 			return
@@ -148,9 +140,6 @@ func (h *Handler) renderProjectSkills(ctx context.Context, projectID string) ([]
 	if h.projectCairnlineSidecarReadRoutesEnabled() {
 		return h.renderCairnlineSidecarProjectSkills(ctx, projectID)
 	}
-	if h.requiresEmbeddedCairnlineProjectReads() {
-		return h.renderStrictEmbeddedCairnlineProjectSkills(ctx, projectID)
-	}
 	if h.projectReadRoutesUseCairnlineReadModel() {
 		return h.renderCairnlineProjectSkills(ctx, projectID)
 	}
@@ -159,27 +148,6 @@ func (h *Handler) renderProjectSkills(ctx context.Context, projectID string) ([]
 		return nil, err
 	}
 	return renderProjectSkills(items, "hecate"), nil
-}
-
-func (h *Handler) renderStrictEmbeddedCairnlineProjectSkills(ctx context.Context, projectID string) ([]ProjectSkillResponseItem, error) {
-	_, service, store, err := h.openCairnlineEmbeddedService(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer store.Close()
-	project, err := service.GetProject(ctx, projectID)
-	if err != nil {
-		return nil, err
-	}
-	items, err := service.ListProjectSkills(ctx, project.ID)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]ProjectSkillResponseItem, 0, len(items))
-	for _, item := range items {
-		out = append(out, renderProjectSkill(projectSkillFromCairnline(item, projectskills.Skill{}), "cairnline"))
-	}
-	return out, nil
 }
 
 func (h *Handler) renderCairnlineProjectSkills(ctx context.Context, projectID string) ([]ProjectSkillResponseItem, error) {

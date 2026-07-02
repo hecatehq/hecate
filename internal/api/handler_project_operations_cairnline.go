@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"time"
 
@@ -16,43 +15,20 @@ func (h *Handler) projectReadRoutesUseCairnlineReadModel() bool {
 	if !h.projectCairnlineEmbeddedConnectorEnabled() {
 		return false
 	}
+	if h.requiresEmbeddedCairnlineProjectReads() {
+		return true
+	}
 	ready, _ := h.cairnlineReadModelReadiness()
 	return ready
 }
 
-func (h *Handler) renderCairnlineProjectOperationsBrief(ctx context.Context, project projects.Project) (ProjectOperationsBriefResponse, error) {
-	if h.requiresEmbeddedCairnlineProjectReads() {
-		return h.renderStrictEmbeddedCairnlineProjectOperationsBrief(ctx, project.ID)
-	}
-	view, err := h.cairnlineProjectWorkView(ctx, project.ID)
+func (h *Handler) renderCairnlineProjectOperationsBrief(ctx context.Context, projectID string) (ProjectOperationsBriefResponse, error) {
+	view, err := h.cairnlineProjectWorkView(ctx, projectID)
 	if err != nil {
 		return ProjectOperationsBriefResponse{}, err
 	}
 	defer view.Close()
-	return h.renderCairnlineProjectOperationsBriefFromService(ctx, project, view.service, view.snapshot)
-}
-
-func (h *Handler) renderStrictEmbeddedCairnlineProjectOperationsBrief(ctx context.Context, projectID string) (ProjectOperationsBriefResponse, error) {
-	_, service, store, err := h.openCairnlineEmbeddedService(ctx)
-	if err != nil {
-		return ProjectOperationsBriefResponse{}, err
-	}
-	defer store.Close()
-	item, err := service.GetProject(ctx, projectID)
-	if errors.Is(err, cairnline.ErrNotFound) {
-		return ProjectOperationsBriefResponse{}, projects.ErrNotFound
-	}
-	if err != nil {
-		return ProjectOperationsBriefResponse{}, err
-	}
-	executionProfile, err := cairnlineExecutionProfileByID(ctx, service, item.DefaultExecutionProfileID)
-	if err != nil {
-		return ProjectOperationsBriefResponse{}, err
-	}
-	project := projectFromCairnline(item, executionProfile, projects.Project{})
-	return h.renderCairnlineProjectOperationsBriefFromService(ctx, project, service, cairnlinebridge.Snapshot{
-		Project: project,
-	})
+	return h.renderCairnlineProjectOperationsBriefFromService(ctx, view.snapshot.Project, view.service, view.snapshot)
 }
 
 func (h *Handler) renderCairnlineSidecarProjectOperationsBrief(ctx context.Context, projectID string) (ProjectOperationsBriefResponse, error) {

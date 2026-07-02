@@ -59,6 +59,18 @@ project-assignment starts record project metadata for inspection, but Hecate
 does not inject project memory bodies, source bodies, or skill bodies into
 adapter prompts; the adapter owns private prompt packing inside its native
 session.
+Cairnline is the portable coordination replacement path for Projects. Hecate
+still owns UI, task execution, approvals, external-agent supervision, traces,
+and context-packet rendering, but configured Cairnline read routes and opt-in
+write-authority switchpoints are live dogfood seams. The portable work
+authority routes for root discovery/worktree-created root records,
+context-source discovery, project skills, roles, work items, assignments,
+collaboration artifacts, handoffs, accepted memory, and memory candidates can
+operate from embedded Cairnline project graphs without a matching Hecate-native
+compatibility project row; keep any Hecate shadow writes best-effort and do not
+add native `requireProject*` guards ahead of those authority paths. Do not describe
+`internal/cairnlinebridge` as only a future proof; it maps Hecate Projects to
+Cairnline snapshots and backs the current embedded/sidecar replacement probes.
 Model-backed assistant turns should carry a small context-inspector packet:
 execution mode, route/workspace metadata, source provenance, and visible
 transcript counts. Do not store full prompt bodies, raw transcript text, file
@@ -102,6 +114,7 @@ internal/agentadapters/    ACP/process adapters for Codex, Claude Code, Cursor,
                              Grok Build
 internal/chat/        chat transcript persistence and runtime linkage
 internal/modelcaps/        model tool-capability merge logic and defaults
+internal/cairnlinebridge/  Hecate Projects to Cairnline mapping and replacement-readiness adapter seams
 
 ui/                        React/Vite operator UI (embedded via //go:embed ui/dist)
 e2e/                       binary-startup tests, build tag e2e (sub-tags: ollama, docker)

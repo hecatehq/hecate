@@ -82,15 +82,17 @@ Raw paths are not stable enough to be the durable identity:
 ## Cairnline Extraction
 
 Cairnline is the future portable coordination core for Projects-like state. It
-is not the active Hecate Projects backend yet. Hecate currently remains the
-runtime authority for project APIs, UI, task execution, approvals, external
-agent supervision, traces, and context-packet rendering.
+is not the default authoritative Hecate Projects backend yet, but Hecate now has
+live Cairnline read-route and opt-in write-authority switchpoints for
+replacement-readiness dogfood. Hecate currently remains the runtime authority
+for UI, task execution, approvals, external-agent supervision, traces, and
+context-packet rendering.
 
-The current `internal/cairnlinebridge` package is a replacement-readiness proof.
-It can load Hecate project state from the current project/profile/skills/work
-stores, convert that graph into Cairnline's versioned portable snapshot
-contract, then import it into a memory-backed or SQLite-backed Cairnline
-service:
+The current `internal/cairnlinebridge` package is the mapping and adapter seam
+for that replacement path. It can load Hecate project state from the current
+project/profile/skills/work stores, convert that graph into Cairnline's
+versioned portable snapshot contract, then import it into a memory-backed or
+SQLite-backed Cairnline service:
 
 - project identity, roots, default root, project default profile/execution
   posture references, and context-source provenance metadata including format,
@@ -110,9 +112,11 @@ metadata. The experimental read model also reports how many seeded assignments
 can produce a portable launch packet plus any packet warnings or
 per-assignment packet errors. It also exercises Cairnline's read-only closeout
 readiness, project operations brief, and project activity projection against
-seeded Hecate work state. It deliberately does not switch storage, proxy live
-API requests, replace Hecate task/external-agent execution, migrate existing
-local data, or make Cairnline authoritative.
+seeded Hecate work state. The configured read adapter and explicit
+write-authority switchpoints can serve or commit selected live route families
+through Cairnline during dogfood. They deliberately do not replace Hecate
+task/external-agent execution, migrate existing local data, or make Cairnline
+the full backend until the replacement gates are ready.
 
 For operator-triggered experiments, Hecate exposes local-only Cairnline bridge
 endpoints. `GET /hecate/v1/projects/backend-status` reports the configured
@@ -259,6 +263,9 @@ memory-candidate list, project role list, work-item list/detail,
 assignment-list, assignment-context, launch-readiness, assignment preflight,
 artifact-list, handoff-list, activity, closeout-readiness, and operations brief
 reads.
+Strict embedded route selection is configuration-driven: those routes use the
+embedded Cairnline project graph directly and do not require a Hecate-native
+snapshot or compatibility project row before attempting the read.
 Project Assistant draft generation also uses the same Cairnline-projected
 context, including strict embedded direct context, so preview and proposal
 assembly stay aligned, while the proposal ledger remains Hecate-owned unless
@@ -286,7 +293,10 @@ accepted project memory entry create/update/delete commits to embedded
 Cairnline first, then best-effort shadows the entry into Hecate-native memory
 stores for compatibility. Adding `memory-candidates` to that setting makes
 memory-candidate create/promote/reject Cairnline-first too; it requires
-`project-memory` because promotion creates accepted project memory.
+`project-memory` because promotion creates accepted project memory. These
+memory authority routes can validate project identity from the embedded
+Cairnline graph and do not require a matching Hecate-native compatibility
+project row before the Cairnline commit.
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=all-portable` expands to every
 current portable write-authority switchpoint for embedded dogfooding; Hecate
 runtime side effects and migration cutover remain separate gates.
@@ -308,7 +318,10 @@ context-source list replacement, and context-source discovery-result
 replacement can commit to embedded Cairnline first, then best-effort shadow
 Hecate's compatibility project row. Worktree-created root records also move
 with `project-roots`, but Hecate still performs root discovery scans and Git
-worktree creation as orchestrator capabilities outside Cairnline core.
+worktree creation as orchestrator capabilities outside Cairnline core. In
+these authority modes, root discovery, worktree-created root record mutations,
+and context-source discovery can resolve the starting project graph from
+embedded Cairnline without a matching Hecate-native project row.
 `project-collaboration` is another opt-in authority slice: collaboration
 artifact creation and handoff create/update/status/delete commit to embedded
 Cairnline first, then best-effort shadow the portable records into Hecate-native
@@ -318,8 +331,10 @@ a verdict-less review state and Hecate must not silently rewrite that shape.
 `project-skills` is a third opt-in authority slice: project skill discovery and
 metadata updates commit metadata-only skill records to embedded Cairnline first,
 then best-effort shadow the records into Hecate-native project-skill stores for
-compatibility. Skill bodies are still not loaded, injected, executed, or treated
-as permissions.
+compatibility. Skill discovery/update can validate project identity, roots, and
+context sources from the embedded Cairnline graph without a matching
+Hecate-native project row. Skill bodies are still not loaded, injected,
+executed, or treated as permissions.
 `project-roles` is a fourth opt-in authority slice: role create/update/delete
 commits to embedded Cairnline first, preserves Hecate's built-in-role
 protection, then best-effort shadows portable role defaults into Hecate-native
@@ -423,7 +438,9 @@ posture so the role can validate in Cairnline. Role and work-item
 create/update/delete can be switched to Cairnline-first authority with
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-roles,project-work-items`.
 Project skill discovery/update can be switched to Cairnline-first authority with
-`HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-skills`.
+`HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-skills`; in that mode,
+discovery/update can use roots and context sources from the embedded Cairnline
+graph without a Hecate-native compatibility project row.
 Assignment create/update/delete
 routes mirror coordination metadata and lifecycle status after Hecate commits;
 assignment-start remains a Hecate-owned orchestrator capability because dispatch
@@ -442,7 +459,10 @@ mirror after Hecate commits. Memory-candidate create/promote/reject routes mirro
 reviewable candidate state after Hecate commits unless
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-memory,memory-candidates` is
 enabled, in which case they commit to Cairnline first and then shadow candidate
-state and promoted memory references back into Hecate. Global
+state and promoted memory references back into Hecate. In those memory
+authority modes, Hecate can validate the project from the embedded Cairnline
+graph, keep Hecate memory rows as compatibility shadows, and leave the
+Hecate-native project row absent. Global
 agent-profile create/update/delete routes also mirror portable profile metadata
 and execution posture after Hecate commits unless
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=agent-profiles` is enabled. With
@@ -509,7 +529,9 @@ Cairnline-authoritative with list replacement, while discovered context-source
 records also move with `project-context-sources` and discovered root records
 move with `project-roots`; worktree-created root records also move with
 `project-roots`, while Hecate still performs the root/workspace scans and Git
-worktree creation side effects;
+worktree creation side effects; in those authority modes, discovery and
+worktree-created root record mutations can run against a Cairnline-only project
+graph;
 `agent-profiles-live-mirror` covers global
 agent-profile create/update/delete metadata and can be switched to Cairnline
 authority with `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=agent-profiles`;
@@ -540,19 +562,28 @@ Cairnline-authoritative with list replacement while context-source discovery
 records move with `project-context-sources` and root discovery records move
 with `project-roots`; worktree-created root records also move with
 `project-roots`, leaving the root/workspace scans and Git worktree creation
-side effects Hecate-owned; `agent-profiles` can make
+side effects Hecate-owned and allowing those authority routes to run against a
+Cairnline-only project graph; `agent-profiles` can make
 global agent-profile create/update/delete Cairnline-authoritative while Hecate
 shadows its combined profile row for compatibility; `project-skills` can make
-project skill discovery/update Cairnline-authoritative; `project-roles` and
-`project-work-items` can make role and work-item create/update/delete
+project skill discovery/update Cairnline-authoritative against a Cairnline-only
+project graph; `project-roles` and `project-work-items` can make role and
+work-item create/update/delete
 Cairnline-authoritative; `project-assignments` can make assignment record
 create/update/delete Cairnline-authoritative while keeping assignment
-start/dispatch Hecate-owned. Hecate stores task/chat execution refs, context
-packets, and launch timestamps in a separate project assignment runtime overlay
-before shadowing compatibility fields or mirroring replacement evidence. The
-`project-collaboration` switch can make the
-collaboration and handoff route family Cairnline-authoritative as opt-in
-dogfood switchpoints.
+start/dispatch Hecate-owned. These portable work-authority routes validate
+project identity, roots, work items, roles, and assignment dependencies from
+the embedded Cairnline graph when present, so dogfood writes no longer require
+a matching Hecate-native compatibility project row before the Cairnline commit.
+Hecate stores task/chat execution refs, context packets, and launch timestamps
+in a separate project assignment runtime overlay before shadowing compatibility
+fields or mirroring replacement evidence. The `project-collaboration` switch
+can make the collaboration and handoff route family Cairnline-authoritative as
+opt-in dogfood switchpoints; dependency checks accept existing Cairnline records
+before falling back to Hecate shadows. `project-memory` and
+`project-memory,memory-candidates` similarly allow accepted memory and
+reviewable memory-candidate writes to commit against a Cairnline-only project
+graph while Hecate-native memory rows remain best-effort compatibility shadows.
 Backend status
 reports these proofs as
 `write_adapter_seams`, while `write_adapter_gaps`

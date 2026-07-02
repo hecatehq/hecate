@@ -2,49 +2,22 @@ package api
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"time"
 
 	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/cairnlinebridge"
-	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectwork"
 )
 
 func (h *Handler) renderCairnlineProjectHealth(ctx context.Context, projectID string) (ProjectHealthResponse, error) {
-	if h.requiresEmbeddedCairnlineProjectReads() {
-		return h.renderStrictEmbeddedCairnlineProjectHealth(ctx, projectID)
-	}
 	view, err := h.cairnlineProjectWorkView(ctx, projectID)
 	if err != nil {
 		return ProjectHealthResponse{}, err
 	}
 	defer view.Close()
 	return h.renderCairnlineProjectHealthFromService(ctx, view.service, view.snapshot)
-}
-
-func (h *Handler) renderStrictEmbeddedCairnlineProjectHealth(ctx context.Context, projectID string) (ProjectHealthResponse, error) {
-	_, service, store, err := h.openCairnlineEmbeddedService(ctx)
-	if err != nil {
-		return ProjectHealthResponse{}, err
-	}
-	defer store.Close()
-	item, err := service.GetProject(ctx, projectID)
-	if errors.Is(err, cairnline.ErrNotFound) {
-		return ProjectHealthResponse{}, projects.ErrNotFound
-	}
-	if err != nil {
-		return ProjectHealthResponse{}, err
-	}
-	executionProfile, err := cairnlineExecutionProfileByID(ctx, service, item.DefaultExecutionProfileID)
-	if err != nil {
-		return ProjectHealthResponse{}, err
-	}
-	return h.renderCairnlineProjectHealthFromService(ctx, service, cairnlinebridge.Snapshot{
-		Project: projectFromCairnline(item, executionProfile, projects.Project{}),
-	})
 }
 
 func (h *Handler) renderCairnlineProjectHealthFromService(ctx context.Context, service *cairnline.Service, snapshot cairnlinebridge.Snapshot) (ProjectHealthResponse, error) {

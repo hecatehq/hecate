@@ -429,10 +429,15 @@ task/external agent supervision, approvals, and assignment mutation. Project
 reads backed by the Cairnline read model prefer the embedded Cairnline mirror
 database when that database already contains the requested project or proposal
 record; if the mirror database, project row, or proposal record is missing,
-they fall back to the snapshot-seeded in-memory bridge projection. Project-linked
-Hecate Chat prelude/context helpers use the embedded Cairnline graph directly in
-strict embedded mode so dogfood chat sessions do not require shadow Hecate
-project rows. Set
+they fall back to the snapshot-seeded in-memory bridge projection. Strict
+embedded mode reads project list/detail, setup readiness, health, skills,
+roles, work-item list/detail, assignment-list, artifact-list, handoff-list,
+activity, closeout-readiness, operations brief, Project Assistant
+context/proposal, and project-linked Hecate Chat prelude/context directly from
+the embedded Cairnline graph so dogfood routes do not require shadow
+Hecate-native project rows. Route selection in this mode is configuration-driven:
+direct-read routes attempt the embedded Cairnline graph without first requiring
+a Hecate-native snapshot projection. Set
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=snapshot` to force the snapshot-seeded
 bridge, or `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded` to make configured
 read routes require a populated
@@ -527,20 +532,27 @@ best-effort mirror after the Hecate store commit unless `project-roots` is
 enabled, in which case those root mutations plus discovery-result replacement
 and worktree-created root record mutations commit to Cairnline first and then
 shadow Hecate's compatibility project row. Hecate still performs the root
-discovery scan and Git worktree creation side effect.
+discovery scan and Git worktree creation side effect. In root authority mode,
+discovery and worktree-created root record mutations can resolve project
+identity and roots from the embedded Cairnline graph without a Hecate-native
+compatibility project row.
 Context-source create/update/delete and list replacement mutations likewise
 mirror after Hecate commits unless
 `project-context-sources` is enabled, in which case those source mutations
 plus discovery-result replacement commit to Cairnline first and then shadow
 Hecate's compatibility project row. Hecate still performs the workspace scan
-for its operator UI.
+for its operator UI. In source authority mode, context-source discovery can use
+project identity, roots, and existing sources from the embedded Cairnline graph
+without a Hecate-native compatibility project row.
 Project skill discovery and
 metadata updates also best-effort mirror metadata-only skill records after the
 Hecate store commit unless
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-skills` is enabled, in which
 case skill discovery/update commits metadata-only skill records to Cairnline
-first and then shadows them back into Hecate. Neither path loads, injects,
-executes, or grants permissions from skill bodies. Project role and work-item
+first and then shadows them back into Hecate. In skill authority mode, discovery
+can use roots and context sources from the embedded Cairnline graph without a
+Hecate-native compatibility project row. Neither path loads, injects, executes,
+or grants permissions from skill bodies. Project role and work-item
 mutations likewise mirror coordination metadata after Hecate commits unless
 `project-roles` or `project-work-items` is enabled, respectively. Role mirroring
 seeds referenced agent-profile metadata and execution posture when available,
@@ -551,7 +563,11 @@ profile and execution-posture records first and shadows Hecate's combined
 profile row back into Hecate for compatibility. Assignment create/update/delete
 mutations likewise mirror portable metadata after Hecate commits unless
 `project-assignments` is enabled, in which case assignment record mutations
-commit to Cairnline first and shadow back into Hecate. Committed
+commit to Cairnline first and shadow back into Hecate. When these role,
+work-item, and assignment authority switches are enabled, the write routes can
+validate against embedded Cairnline project/root/work/role records and do not
+need a matching Hecate-native compatibility project row before the Cairnline
+commit. Committed
 assignment-start results, linked-chat reconciliation, collaboration artifact
 creation, and handoff create/update/delete mutations also best-effort mirror
 portable metadata after Hecate commits, but assignment start/dispatch remains
@@ -565,9 +581,14 @@ memory entries mirror after Hecate commits unless the
 `project-memory` Cairnline write-authority switchpoint is enabled; memory
 candidates mirror after Hecate commits unless `project-memory,memory-candidates`
 is enabled, in which case candidate create/promote/reject commit to Cairnline
-first and then shadow back into Hecate. Collaboration artifact and handoff
+first and then shadow back into Hecate. In those memory authority modes,
+Hecate validates project identity from the embedded Cairnline graph and does
+not need a Hecate-native compatibility project row before committing the
+Cairnline record. Collaboration artifact and handoff
 routes mirror after Hecate commits unless `project-collaboration` is enabled,
 in which case they commit to Cairnline first and shadow back into Hecate.
+Collaboration authority accepts existing Cairnline work item, role, and
+assignment records as dependency evidence before falling back to Hecate shadows.
 Project Assistant draft/propose/apply
 ledger mutations likewise best-effort mirror proposal records and apply attempts
 after Hecate commits unless `project-assistant-proposals` is enabled, in which
@@ -597,10 +618,12 @@ proof seams separately from the live-route `write_adapter_gaps`; only
 `project-assistant-proposal-ledger-live-mirror` and
 `project-assistant-apply-side-effects-live-mirror` are wired to live mutations,
 and they are mirror-only unless their explicit Cairnline write-authority
-switchpoint is enabled; currently only the proposal-ledger switchpoint can be
-made Cairnline-authoritative, while apply side effects become mixed-authority
-through the enabled project create, project metadata/default, root,
-role/work-item/assignment/handoff, and memory-candidate switchpoints. It
+switchpoint is enabled. The portable switchpoints can make identity,
+metadata/defaults, roots, context sources, profiles, skills, roles, work items,
+assignments, collaboration records, accepted memory, memory candidates, and the
+proposal ledger Cairnline-authoritative, while apply side effects become
+mixed-authority through the enabled project create, project metadata/default,
+root, role/work-item/assignment/handoff, and memory-candidate switchpoints. It
 also reports `replacement_ready`, `next_replacement_action`,
 `replacement_gates`, and `write_switchpoints` so operators can see the
 suggested next step, relevant env-var hints, and the exact read-route,

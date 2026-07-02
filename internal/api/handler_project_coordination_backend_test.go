@@ -544,18 +544,24 @@ func TestProjectCoordinationBackendStatus_CairnlineDirectRootSourceAuthorityConf
 	if rootPoint == nil || rootPoint.CurrentAuthority != "mixed" || rootPoint.CairnlineState != "partial_authoritative_opt_in" || !rootPoint.LiveMirror || rootPoint.BlocksAuthority || rootPoint.Gap != "roots" {
 		t.Fatalf("roots-and-worktrees switchpoint = %+v, want partial opt-in authority with root orchestration outside portable write authority", rootPoint)
 	}
+	if !strings.Contains(rootPoint.Detail, "resolve project identity and roots from the embedded Cairnline graph") {
+		t.Fatalf("roots-and-worktrees detail = %q, want Cairnline-owned graph note", rootPoint.Detail)
+	}
 	sourcePoint := findWriteSwitchpoint(status.WriteSwitchpoints, "context-sources")
 	if sourcePoint == nil || sourcePoint.CurrentAuthority != "cairnline" || sourcePoint.CairnlineState != "authoritative_opt_in" || !sourcePoint.LiveMirror || sourcePoint.BlocksAuthority || sourcePoint.Gap != "" {
 		t.Fatalf("context-sources switchpoint = %+v, want opt-in authority including discovery-result replacement", sourcePoint)
+	}
+	if !strings.Contains(sourcePoint.Detail, "resolve project identity, roots, and existing sources from the embedded Cairnline graph") {
+		t.Fatalf("context-sources detail = %q, want Cairnline-owned graph note", sourcePoint.Detail)
 	}
 	if status.ReplacementReady {
 		t.Fatalf("replacement_ready = true, want false until remaining write and migration gates are ready")
 	}
 	warnings := strings.Join(status.Warnings, "\n")
-	if !strings.Contains(warnings, "Project root create/update/delete, root list replacement, discovery-result replacement, and worktree-created root record mutations are opt-in Cairnline-authoritative") || !strings.Contains(warnings, "Hecate still performs root discovery scans and Git worktree creation side effects") {
+	if !strings.Contains(warnings, "Project root create/update/delete, root list replacement, discovery-result replacement, and worktree-created root record mutations are opt-in Cairnline-authoritative") || !strings.Contains(warnings, "resolve project identity and roots from the embedded Cairnline graph") || !strings.Contains(warnings, "Hecate still performs root discovery scans and Git worktree creation side effects") {
 		t.Fatalf("warnings = %+v, want root authority plus scan/worktree caveat", status.Warnings)
 	}
-	if !strings.Contains(warnings, "Context-source create/update/delete, list replacement, and discovery-result replacement mutations are opt-in Cairnline-authoritative") || !strings.Contains(warnings, "Hecate still performs the workspace scan") {
+	if !strings.Contains(warnings, "Context-source create/update/delete, list replacement, and discovery-result replacement mutations are opt-in Cairnline-authoritative") || !strings.Contains(warnings, "resolve project identity, roots, and existing sources from the embedded Cairnline graph") || !strings.Contains(warnings, "Hecate still performs the workspace scan") {
 		t.Fatalf("warnings = %+v, want context-source authority plus scan caveat", status.Warnings)
 	}
 }

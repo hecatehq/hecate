@@ -848,7 +848,7 @@ func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string) []Projec
 			item.LiveMirror = true
 			item.BlocksAuthority = false
 			item.Gap = "roots"
-			item.Detail = "Project root create/update/delete, root list replacement, discovery-result replacement, and worktree-created root record mutations commit to the embedded Cairnline database first, then best-effort shadow Hecate's compatibility row; Hecate still performs root discovery scans and Git worktree creation side effects."
+			item.Detail = "Project root create/update/delete, root list replacement, discovery-result replacement, and worktree-created root record mutations commit to the embedded Cairnline database first, then best-effort shadow Hecate's compatibility row; discovery and worktree-created root record mutations can resolve project identity and roots from the embedded Cairnline graph, while Hecate still performs root discovery scans and Git worktree creation side effects."
 		}
 		if projectContextSourcesAuthoritative && item.Name == "context-sources" {
 			item.CurrentAuthority = "cairnline"
@@ -856,7 +856,7 @@ func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string) []Projec
 			item.LiveMirror = true
 			item.BlocksAuthority = false
 			item.Gap = ""
-			item.Detail = "Context-source create/update/delete, list replacement, and discovery-result replacement mutations commit to the embedded Cairnline database first, then best-effort shadow Hecate's compatibility row; Hecate still performs the workspace scan for its operator UI."
+			item.Detail = "Context-source create/update/delete, list replacement, and discovery-result replacement mutations commit to the embedded Cairnline database first, then best-effort shadow Hecate's compatibility row; discovery can resolve project identity, roots, and existing sources from the embedded Cairnline graph, while Hecate still performs the workspace scan for its operator UI."
 		}
 		if agentProfilesAuthoritative && item.Name == "agent-profiles" {
 			item.CurrentAuthority = "cairnline"
@@ -872,7 +872,7 @@ func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string) []Projec
 			item.LiveMirror = true
 			item.BlocksAuthority = false
 			item.Gap = ""
-			item.Detail = "Project skill discovery and update mutations commit metadata-only skill records to the embedded Cairnline database first, then best-effort shadow them back into Hecate-native stores for compatibility."
+			item.Detail = "Project skill discovery and update mutations commit metadata-only skill records to the embedded Cairnline database first, using Cairnline-owned roots and context sources when no Hecate-native project row exists, then best-effort shadow them back into Hecate-native stores for compatibility."
 		}
 		if projectRolesAuthoritative && item.Name == "roles" {
 			item.CurrentAuthority = "cairnline"
@@ -939,7 +939,7 @@ func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string) []Projec
 			item.LiveMirror = true
 			item.BlocksAuthority = false
 			item.Gap = ""
-			item.Detail = "Accepted project memory entry mutations commit to the embedded Cairnline database first, then best-effort shadow durable memory state back into Hecate-native stores for compatibility."
+			item.Detail = "Accepted project memory entry mutations commit to the embedded Cairnline database first, validating project identity from Cairnline when no Hecate-native project row exists, then best-effort shadow durable memory state back into Hecate-native stores for compatibility."
 		}
 		if memoryCandidatesAuthoritative && item.Name == "memory-candidates" {
 			item.CurrentAuthority = "cairnline"
@@ -947,7 +947,7 @@ func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string) []Projec
 			item.LiveMirror = true
 			item.BlocksAuthority = false
 			item.Gap = ""
-			item.Detail = "Project memory-candidate create, promote, and reject mutations commit to the embedded Cairnline database first, then best-effort shadow review state and promoted-memory references back into Hecate-native stores for compatibility."
+			item.Detail = "Project memory-candidate create, promote, and reject mutations commit to the embedded Cairnline database first, validating project identity from Cairnline when no Hecate-native project row exists, then best-effort shadow review state and promoted-memory references back into Hecate-native stores for compatibility."
 		}
 		item.Seams = append([]string(nil), item.Seams...)
 		out = append(out, item)
@@ -967,10 +967,10 @@ func projectCairnlineWriteAuthorityEnabled(items []string, name string) bool {
 
 func projectCairnlineProjectMemoryWriteWarning(writeAuthority []string) string {
 	if projectCairnlineWriteAuthorityEnabled(writeAuthority, "project-memory") && projectCairnlineWriteAuthorityEnabled(writeAuthority, "memory-candidates") {
-		return "Accepted project memory entry and memory-candidate mutations are opt-in Cairnline-authoritative and then best-effort shadowed into Hecate-native stores; candidate promotion also creates accepted memory through Cairnline."
+		return "Accepted project memory entry and memory-candidate mutations are opt-in Cairnline-authoritative, can validate project identity from embedded Cairnline when no Hecate-native project row exists, and are then best-effort shadowed into Hecate-native stores; candidate promotion also creates accepted memory through Cairnline."
 	}
 	if projectCairnlineWriteAuthorityEnabled(writeAuthority, "project-memory") {
-		return "Accepted project memory entry mutations are opt-in Cairnline-authoritative and then best-effort shadowed into Hecate-native stores; memory-candidate mutations still write Hecate-native stores first, then mirror reviewable candidate state into Cairnline."
+		return "Accepted project memory entry mutations are opt-in Cairnline-authoritative, can validate project identity from embedded Cairnline when no Hecate-native project row exists, and are then best-effort shadowed into Hecate-native stores; memory-candidate mutations still write Hecate-native stores first, then mirror reviewable candidate state into Cairnline."
 	}
 	return "Project memory entry and memory-candidate mutations still write Hecate-native stores first, then best-effort mirror accepted memory and reviewable candidate state into Cairnline."
 }
@@ -998,21 +998,21 @@ func projectCairnlineProjectIdentityWriteWarning(writeAuthority []string) string
 
 func projectCairnlineProjectRootWriteWarning(writeAuthority []string) string {
 	if projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectRoots) {
-		return "Project root create/update/delete, root list replacement, discovery-result replacement, and worktree-created root record mutations are opt-in Cairnline-authoritative and then best-effort shadowed into Hecate-native stores for compatibility; Hecate still performs root discovery scans and Git worktree creation side effects."
+		return "Project root create/update/delete, root list replacement, discovery-result replacement, and worktree-created root record mutations are opt-in Cairnline-authoritative and then best-effort shadowed into Hecate-native stores for compatibility; discovery and worktree-created root record mutations can resolve project identity and roots from the embedded Cairnline graph, while Hecate still performs root discovery scans and Git worktree creation side effects."
 	}
 	return "Root create/update/delete, root list replacement, root discovery, and worktree-created root record mutations still write Hecate-native stores first, then best-effort mirror through Cairnline's root-level API; Hecate owns the Git worktree creation side effect."
 }
 
 func projectCairnlineProjectContextSourceWriteWarning(writeAuthority []string) string {
 	if projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectContextSources) {
-		return "Context-source create/update/delete, list replacement, and discovery-result replacement mutations are opt-in Cairnline-authoritative and then best-effort shadowed into Hecate-native stores for compatibility; Hecate still performs the workspace scan for its operator UI."
+		return "Context-source create/update/delete, list replacement, and discovery-result replacement mutations are opt-in Cairnline-authoritative and then best-effort shadowed into Hecate-native stores for compatibility; discovery can resolve project identity, roots, and existing sources from the embedded Cairnline graph, while Hecate still performs the workspace scan for its operator UI."
 	}
 	return "Direct context-source create/update/delete, context-source list replacement, and discovery mutations still write Hecate-native stores first, then best-effort mirror through Cairnline's source-level API."
 }
 
 func projectCairnlineProjectSkillWriteWarning(writeAuthority []string) string {
 	if projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectSkills) {
-		return "Project skill discovery and metadata updates are opt-in Cairnline-authoritative and then best-effort shadowed into Hecate-native stores for compatibility."
+		return "Project skill discovery and metadata updates are opt-in Cairnline-authoritative, can use embedded Cairnline roots/context sources when no Hecate-native project row exists, and are then best-effort shadowed into Hecate-native stores for compatibility."
 	}
 	return "Project skill discovery and metadata updates still write Hecate-native stores first, then best-effort mirror metadata-only skill records into Cairnline."
 }
