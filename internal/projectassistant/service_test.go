@@ -1955,6 +1955,55 @@ func TestService_ApplyLoopFailureReportsCommittedProgressAcrossStores(t *testing
 	}
 }
 
+func TestService_PreflightApplyUsesCommittedActionResults(t *testing.T) {
+	t.Parallel()
+	for _, builder := range assistantFixtureBuilders() {
+		t.Run(builder.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			fixture := builder.build(t)
+			project := createTestProject(t, ctx, fixture.projects)
+
+			actions := []Action{
+				{
+					Kind: ActionCreateWorkItem,
+					Patch: rawPatch(t, map[string]any{
+						"id":         "work_committed_only",
+						"project_id": project.ID,
+						"title":      "Committed outside compatibility store",
+					}),
+				},
+				{
+					Kind: ActionCreateAssignment,
+					Patch: rawPatch(t, map[string]any{
+						"id":           "asgn_committed_only",
+						"project_id":   project.ID,
+						"work_item_id": "work_committed_only",
+						"role_id":      "software_developer",
+						"root_id":      project.Roots[0].ID,
+						"driver_kind":  projectwork.AssignmentDriverHecateTask,
+					}),
+				},
+			}
+			committed := []ActionResult{{
+				Kind: ActionCreateWorkItem,
+				ID:   "work_committed_only",
+				Data: map[string]string{
+					"project_id":   project.ID,
+					"work_item_id": "work_committed_only",
+				},
+			}}
+
+			if idx, err := fixture.service.preflightApply(ctx, actions, committed); err != nil {
+				t.Fatalf("preflightApply failed at %d: %v", idx, err)
+			}
+			if _, ok, err := fixture.work.GetWorkItem(ctx, project.ID, "work_committed_only"); err != nil || ok {
+				t.Fatalf("compatibility work item ok=%v err=%v, want absent committed-result-only item", ok, err)
+			}
+		})
+	}
+}
+
 func TestService_ApplyRejectsNonQueuedAssignmentProposal(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

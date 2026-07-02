@@ -129,6 +129,15 @@ func (s failingCreateRoleProjectWorkStore) CreateRole(context.Context, projectwo
 	return projectwork.AgentRoleProfile{}, s.err
 }
 
+type failingCreateWorkItemProjectWorkStore struct {
+	projectwork.Store
+	err error
+}
+
+func (s failingCreateWorkItemProjectWorkStore) CreateWorkItem(context.Context, projectwork.WorkItem) (projectwork.WorkItem, error) {
+	return projectwork.WorkItem{}, s.err
+}
+
 type failingUpdateProjectStore struct {
 	projects.Store
 	err error
@@ -1386,6 +1395,90 @@ func TestProjectAssistantAPI_CairnlineApplyWorkAuthorityDoesNotBlockOnRoleShadow
 		if role.ID == "role_apply_authority" {
 			t.Fatalf("shadow role store unexpectedly contains %+v, want Cairnline authority to survive failed Hecate shadow", role)
 		}
+	}
+}
+
+func TestProjectAssistantAPI_CairnlineApplyAssignmentGraphDoesNotDependOnWorkItemShadow(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineReplacementIdentityAuthorityTestServer(t)
+	handler.SetProjectWorkStore(failingCreateWorkItemProjectWorkStore{
+		Store: projectwork.NewMemoryStore(),
+		err:   errors.New("shadow work item store unavailable"),
+	})
+	client := newAPITestClient(t, server)
+	root := t.TempDir()
+
+	project := mustRequestJSONStatus[ProjectResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects", projectJourneyJSON(t, map[string]any{
+		"name": "Assistant Cairnline Shadowless Graph",
+		"roots": []map[string]any{{
+			"id":     "root_shadowless_graph",
+			"path":   root,
+			"kind":   "git",
+			"active": true,
+		}},
+	}))
+	projectID := project.Data.ID
+	if projectID == "" || project.Data.ReadBackend != "cairnline" {
+		t.Fatalf("project = %+v, want Cairnline-backed project", project.Data)
+	}
+
+	proposal := projectassistant.Proposal{
+		ID:                   "pa_shadowless_assignment_graph",
+		Title:                "Create graph without work item shadow",
+		RequiresConfirmation: true,
+		Actions: []projectassistant.Action{
+			{
+				Kind: projectassistant.ActionCreateRole,
+				Patch: json.RawMessage(`{
+					"id":"role_shadowless_graph",
+					"project_id":"` + projectID + `",
+					"name":"Shadowless owner",
+					"instructions":"Own the shadowless Cairnline graph.",
+					"default_driver_kind":"hecate_task"
+				}`),
+			},
+			{
+				Kind: projectassistant.ActionCreateWorkItem,
+				Patch: json.RawMessage(`{
+					"id":"work_shadowless_graph",
+					"project_id":"` + projectID + `",
+					"title":"Shadowless graph",
+					"brief":"Create the assignment graph even when Hecate work-item shadowing fails.",
+					"status":"ready",
+					"owner_role_id":"role_shadowless_graph"
+				}`),
+			},
+			{
+				Kind: projectassistant.ActionCreateAssignment,
+				Patch: json.RawMessage(`{
+					"id":"asgn_shadowless_graph",
+					"project_id":"` + projectID + `",
+					"work_item_id":"work_shadowless_graph",
+					"role_id":"role_shadowless_graph",
+					"root_id":"root_shadowless_graph",
+					"driver_kind":"hecate_task",
+					"status":"queued"
+				}`),
+			},
+		},
+	}
+	applied := mustRequestJSONStatus[projectAssistantApplyResponse](client, http.StatusOK, http.MethodPost, "/hecate/v1/project-assistant/apply", projectJourneyJSON(t, map[string]any{
+		"proposal": proposal,
+		"confirm":  true,
+	}))
+	if applied.Data.Status != projectassistant.ApplyStatusApplied || !applied.Data.Applied || applied.Data.CommittedActionCount != 3 || len(applied.Data.Actions) != 3 {
+		t.Fatalf("apply response = %+v, want applied role/work/assignment graph despite work-item shadow failure", applied.Data)
+	}
+	if _, ok, err := handler.projectWork.GetWorkItem(t.Context(), projectID, "work_shadowless_graph"); err != nil || ok {
+		t.Fatalf("Hecate shadow work item ok=%v err=%v, want absent shadow after injected failure", ok, err)
+	}
+	work := getMirroredCairnlineWorkItemForTest(t, handler, projectID, "work_shadowless_graph")
+	if work.Title != "Shadowless graph" || work.OwnerRoleID != "role_shadowless_graph" {
+		t.Fatalf("Cairnline work item = %+v, want authoritative assistant-created work item", work)
+	}
+	assignment := getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_shadowless_graph")
+	if assignment.WorkItemID != "work_shadowless_graph" || assignment.RoleID != "role_shadowless_graph" || assignment.RootID != "root_shadowless_graph" {
+		t.Fatalf("Cairnline assignment = %+v, want assignment linked to authoritative work item", assignment)
 	}
 }
 

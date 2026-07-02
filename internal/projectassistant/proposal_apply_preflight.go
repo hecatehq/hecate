@@ -21,7 +21,7 @@ type applyPreflight struct {
 	memoryCandidates map[string]memory.Candidate
 }
 
-func (s *Service) preflightApply(ctx context.Context, actions []Action, startIndex int) (int, error) {
+func (s *Service) preflightApply(ctx context.Context, actions []Action, committedResults []ActionResult) (int, error) {
 	preflight := &applyPreflight{
 		service:          s,
 		projects:         make(map[string]projects.Project),
@@ -31,6 +31,8 @@ func (s *Service) preflightApply(ctx context.Context, actions []Action, startInd
 		handoffs:         make(map[string]projectwork.Handoff),
 		memoryCandidates: make(map[string]memory.Candidate),
 	}
+	preflight.seedActionResults(committedResults)
+	startIndex := len(committedResults)
 	for idx := startIndex; idx < len(actions); idx++ {
 		if err := preflight.action(ctx, actions[idx]); err != nil {
 			return idx, err
@@ -45,6 +47,54 @@ func (p *applyPreflight) action(ctx context.Context, action Action) error {
 		return fmt.Errorf("%w: %s", ErrUnknownActionKind, action.Kind)
 	}
 	return spec.preflight(p, ctx, action)
+}
+
+func (p *applyPreflight) seedActionResults(results []ActionResult) {
+	for _, result := range results {
+		projectID := strings.TrimSpace(result.Data["project_id"])
+		switch result.Kind {
+		case ActionCreateWorkItem, ActionUpdateWorkItem:
+			workItemID := strings.TrimSpace(result.Data["work_item_id"])
+			if workItemID == "" {
+				workItemID = strings.TrimSpace(result.ID)
+			}
+			if projectID != "" && workItemID != "" {
+				p.workItems[scopedKey(projectID, workItemID)] = projectwork.WorkItem{ID: workItemID, ProjectID: projectID}
+			}
+		case ActionCreateAssignment:
+			assignmentID := strings.TrimSpace(result.Data["assignment_id"])
+			if assignmentID == "" {
+				assignmentID = strings.TrimSpace(result.ID)
+			}
+			if projectID != "" && assignmentID != "" {
+				p.assignments[scopedKey(projectID, assignmentID)] = projectwork.Assignment{
+					ID:         assignmentID,
+					ProjectID:  projectID,
+					WorkItemID: strings.TrimSpace(result.Data["work_item_id"]),
+				}
+			}
+		case ActionCreateHandoff, ActionUpdateHandoff:
+			handoffID := strings.TrimSpace(result.Data["handoff_id"])
+			if handoffID == "" {
+				handoffID = strings.TrimSpace(result.ID)
+			}
+			if projectID != "" && handoffID != "" {
+				p.handoffs[scopedKey(projectID, handoffID)] = projectwork.Handoff{
+					ID:         handoffID,
+					ProjectID:  projectID,
+					WorkItemID: strings.TrimSpace(result.Data["work_item_id"]),
+				}
+			}
+		case ActionCreateMemoryCandidate:
+			candidateID := strings.TrimSpace(result.Data["candidate_id"])
+			if candidateID == "" {
+				candidateID = strings.TrimSpace(result.ID)
+			}
+			if projectID != "" && candidateID != "" {
+				p.memoryCandidates[scopedKey(projectID, candidateID)] = memory.Candidate{ID: candidateID, ProjectID: projectID}
+			}
+		}
+	}
 }
 
 func (p *applyPreflight) createProject(ctx context.Context, action Action) error {
