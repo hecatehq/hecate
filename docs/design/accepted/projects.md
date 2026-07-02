@@ -127,6 +127,11 @@ is actually authoritative. It also reports `replacement_ready`,
 `replacement_gates`, and `write_switchpoints` so operator tools can distinguish
 ready read routes from strict embedded probe work, non-authoritative live
 mirrors, still-Hecate-owned dispatch, and missing migration/rollback authority.
+When configured for the embedded connector, strict embedded read source, and a
+runtime data directory, the strict embedded read-smoke gate is backed by the
+read-only mirror-parity probe: missing mirrors, drift, probe errors, and verified
+route smoke are reflected directly in backend status instead of relying only on
+manual checklist prose.
 It keeps `write_adapter_gaps` as the broad diagnostic list and also groups
 that list into `portable_write_gaps`, `orchestrator_capabilities`, and
 `migration_blockers`, so operator tooling can tell durable coordination-state

@@ -2526,7 +2526,14 @@ operator guidance, not as mutations to apply automatically. `replacement_gates`
 reports those high-level gates as structured checklist items so clients do not
 need to parse warning prose. Each gate may include `probe_urls`, a list of route
 templates that produce supporting evidence for that gate; these URLs identify
-checks to run and are not proof that the gate has already passed. The
+checks to run and are not proof that the gate has already passed unless the
+gate status itself is ready/verified. The `strict-embedded-read-smoke` gate is
+evidence-backed when Hecate is configured with the embedded connector,
+`HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded`, and a data directory: backend
+status runs the read-only mirror-parity check and reports `not_run` for a
+missing mirror, `drift_detected` for parity drift, `probe_error` when the
+inspection cannot run, and `verified` only when the existing mirror matches
+Hecate stores and strict embedded route smoke passes. The
 `write-authority-switchpoints` gate can be `blocked`, `partial`, or `ready`;
 it is driven by `portable_write_gaps` and ignores Hecate-owned orchestrator
 capabilities and the separate `migration-cutover` gap because those are reported
@@ -2827,8 +2834,8 @@ Example response, with `write_switchpoints` shortened for readability:
       {
         "id": "strict-embedded-read-smoke",
         "ready": false,
-        "status": "operator_probe_required",
-        "detail": "Run the embedded sync/parity/smoke probes with HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded before treating the mirror database as a cutover candidate.",
+        "status": "not_run",
+        "detail": "No embedded Cairnline mirror database exists yet; run /hecate/v1/projects/cairnline/sync and then /hecate/v1/projects/cairnline/mirror-parity.",
         "probe_urls": [
           "/hecate/v1/projects/cairnline/sync",
           "/hecate/v1/projects/cairnline/mirror-parity"

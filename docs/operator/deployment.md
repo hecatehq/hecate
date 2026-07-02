@@ -627,8 +627,14 @@ root, role/work-item/assignment/handoff, and memory-candidate switchpoints. It
 also reports `replacement_ready`, `next_replacement_action`,
 `replacement_gates`, and `write_switchpoints` so operators can see the
 suggested next step, relevant env-var hints, and the exact read-route,
-strict-embedded-probe, write-authority, and migration blockers without parsing
-warning prose. It also groups the broad `write_adapter_gaps` diagnostic list into
+strict-embedded-read-smoke, write-authority, and migration blockers without
+parsing warning prose. When the embedded connector, strict embedded read source,
+and a configured data directory are active, the strict read-smoke gate is driven
+by the same read-only mirror-parity evidence returned by
+`GET /hecate/v1/projects/cairnline/mirror-parity`: a missing mirror reports
+`not_run`, mirror drift reports `drift_detected`, and an exact mirror with passing
+strict embedded route smoke reports `verified`. It also groups the broad
+`write_adapter_gaps` diagnostic list into
 `portable_write_gaps`,
 `orchestrator_capabilities`, and `migration_blockers`, so durable
 coordination-state switchpoint work is separated from Hecate-owned

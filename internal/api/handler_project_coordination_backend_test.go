@@ -10,7 +10,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/config"
+	"github.com/hecatehq/hecate/internal/memory"
+	"github.com/hecatehq/hecate/internal/projects"
+	"github.com/hecatehq/hecate/internal/projectskills"
+	"github.com/hecatehq/hecate/internal/projectwork"
 )
 
 func TestProjectCoordinationBackendStatus_DefaultHecateAuthoritative(t *testing.T) {
@@ -341,6 +346,71 @@ func TestProjectCoordinationBackendStatus_CairnlineConfiguredReadRoutesReady(t *
 	}
 	if hint := findConfigHint(status.NextReplacementAction.ConfigHints, "HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY"); hint == nil || hint.Value != "project-identity,project-metadata-defaults" {
 		t.Fatalf("next action config hints = %+v, want project identity + metadata defaults write authority", status.NextReplacementAction.ConfigHints)
+	}
+}
+
+func TestProjectCoordinationBackendStatus_StrictEmbeddedReadSmokeGateMissingMirror(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			Backend:             "sqlite",
+			CoordinationBackend: "cairnline",
+			CairnlineReadSource: "embedded",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	handler.SetProjectStore(projects.NewMemoryStore())
+	handler.SetProjectWorkStore(projectwork.NewMemoryStore())
+	handler.SetProjectSkillStore(projectskills.NewMemoryStore())
+	handler.SetMemoryStore(memory.NewMemoryStore())
+	handler.SetAgentProfileStore(agentprofiles.NewMemoryStore())
+
+	status := handler.projectCoordinationBackendStatusWithContext(t.Context())
+	gate := findReplacementGate(status.ReplacementGates, "strict-embedded-read-smoke")
+	if gate == nil || gate.Ready || gate.Status != "not_run" {
+		t.Fatalf("strict embedded gate = %+v, want missing-mirror not_run gate", gate)
+	}
+	if !containsString(gate.ProbeURLs, projectCoordinationBackendSyncReadinessURL) || !strings.Contains(gate.Detail, projectCoordinationBackendSyncReadinessURL) {
+		t.Fatalf("strict embedded gate = %+v, want sync probe guidance", gate)
+	}
+	if status.ReplacementReady {
+		t.Fatalf("replacement_ready = true, want false while strict embedded smoke is not run")
+	}
+}
+
+func TestProjectCoordinationBackendStatus_StrictEmbeddedReadSmokeGateVerifiedAfterSync(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			Backend:                 "sqlite",
+			CoordinationBackend:     "cairnline",
+			CairnlineConnector:      "embedded",
+			CairnlineReadSource:     "embedded",
+			CairnlineWriteAuthority: "all-portable",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	handler.SetProjectStore(projects.NewMemoryStore())
+	handler.SetProjectWorkStore(projectwork.NewMemoryStore())
+	handler.SetProjectSkillStore(projectskills.NewMemoryStore())
+	handler.SetMemoryStore(memory.NewMemoryStore())
+	handler.SetAgentProfileStore(agentprofiles.NewMemoryStore())
+	server := NewServer(quietLogger(), handler)
+	client := newAPITestClient(t, server)
+
+	mustRequestJSONStatus[ProjectResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects", projectJourneyJSON(t, map[string]any{
+		"name": "Backend Status Strict Embedded",
+	}))
+	mustRequestJSONStatus[ProjectCairnlineSyncResponse](client, http.StatusOK, http.MethodPost, "/hecate/v1/projects/cairnline/sync", "")
+
+	status := handler.projectCoordinationBackendStatusWithContext(t.Context())
+	gate := findReplacementGate(status.ReplacementGates, "strict-embedded-read-smoke")
+	if gate == nil || !gate.Ready || gate.Status != "verified" || !strings.Contains(gate.Detail, "strict embedded read smoke passed") {
+		t.Fatalf("strict embedded gate = %+v, want verified strict embedded smoke gate", gate)
+	}
+	if status.ReplacementReady {
+		t.Fatalf("replacement_ready = true, want false while migration/cutover gate remains blocked")
+	}
+	if status.NextReplacementAction == nil || status.NextReplacementAction.ID != "rehearse-migration-cutover" {
+		t.Fatalf("next action = %+v, want migration rehearsal after read/write gates are ready", status.NextReplacementAction)
 	}
 }
 
