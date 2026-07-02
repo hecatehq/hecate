@@ -517,6 +517,28 @@ func TestProjectHealth_CairnlineSidecarRequiresStructuredContent(t *testing.T) {
 	}
 }
 
+func TestProjectHealth_CairnlineSidecarRequiresTypedActivity(t *testing.T) {
+	t.Parallel()
+	_, server := newProjectsCairnlineSidecarReadTestServer(t, "projects.activity-text-only")
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/health", nil))
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("health status = %d body=%s, want 502 for text-only sidecar activity", rec.Code, rec.Body.String())
+	}
+	var response struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if !strings.Contains(response.Error.Message, "projects.activity did not return typed structuredContent") {
+		t.Fatalf("error = %+v, want activity structuredContent failure", response.Error)
+	}
+}
+
 func TestProjectHealth_CairnlineMatchesHecateProjectionGraph(t *testing.T) {
 	t.Parallel()
 	hecateHandler, hecateServer := newProjectWorkProjectionTestServer(t, "memory")

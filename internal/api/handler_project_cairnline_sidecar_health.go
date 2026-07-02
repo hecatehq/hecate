@@ -17,6 +17,10 @@ func (h *Handler) renderCairnlineSidecarProjectHealth(ctx context.Context, proje
 		return ProjectHealthResponse{}, projects.ErrNotFound
 	}
 	project := projectFromCairnlineSidecar(projectItem)
+	activity, err := h.renderCairnlineSidecarProjectActivity(ctx, project.ID)
+	if err != nil {
+		return ProjectHealthResponse{}, err
+	}
 	roles, err := h.cairnlineSidecarProjectRoles(ctx, project.ID)
 	if err != nil {
 		return ProjectHealthResponse{}, err
@@ -63,10 +67,6 @@ func (h *Handler) renderCairnlineSidecarProjectHealth(ctx context.Context, proje
 	}
 
 	now := time.Now().UTC()
-	activity := ProjectActivityDataResponse{
-		ProjectID:   project.ID,
-		ReadBackend: "cairnline",
-	}
 	convertedWorkItems := projectWorkItemsFromCairnlineSidecar(workItems)
 	convertedAssignments := projectAssignmentsFromCairnlineSidecar(assignments)
 	convertedHandoffs := projectHandoffsFromCairnlineSidecar(handoffs)
