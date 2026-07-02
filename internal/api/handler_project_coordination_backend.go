@@ -71,6 +71,8 @@ var projectCairnlineSidecarReadRouteNames = []string{
 	"handoff-list",
 	"project-assistant-context",
 	"project-assistant-proposal",
+	"project-chat-prelude",
+	"project-chat-context",
 	"activity",
 	"closeout-readiness",
 	"operations-brief",

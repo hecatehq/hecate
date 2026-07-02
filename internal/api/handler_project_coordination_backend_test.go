@@ -255,11 +255,14 @@ func TestProjectCoordinationBackendStatus_CairnlineSidecarReadRoutesReady(t *tes
 	if !reflect.DeepEqual(status.ReadRoutes, projectCairnlineSidecarReadRouteNames) {
 		t.Fatalf("read routes = %+v, want sidecar read routes", status.ReadRoutes)
 	}
+	if !containsString(status.ReadRoutes, "project-chat-prelude") || !containsString(status.ReadRoutes, "project-chat-context") {
+		t.Fatalf("sidecar read routes = %+v, want project chat prelude/context included", status.ReadRoutes)
+	}
 	if gate := findReplacementGate(status.ReplacementGates, "read-routes"); gate == nil || gate.Ready || gate.Status != "blocked" {
-		t.Fatalf("read-routes gate = %+v, want blocked because only partial read routes are sidecar-backed", gate)
+		t.Fatalf("read-routes gate = %+v, want blocked while sidecar reads remain an interoperability mode", gate)
 	}
 	warnings := strings.Join(status.Warnings, "\n")
-	if !strings.Contains(warnings, "project-assistant-context, project-assistant-proposal") || !strings.Contains(warnings, "authoritative write migration") {
+	if !strings.Contains(warnings, "project-assistant-context, project-assistant-proposal") || !strings.Contains(warnings, "project-chat-prelude, project-chat-context") || !strings.Contains(warnings, "authoritative write migration") {
 		t.Fatalf("warnings = %+v, want sidecar read routes with write-migration warning", status.Warnings)
 	}
 	if status.NextReplacementAction == nil || status.NextReplacementAction.ID != "use-embedded-cairnline-connector" || status.NextReplacementAction.Target != "connector" {
