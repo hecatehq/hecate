@@ -171,6 +171,32 @@ func seedCairnlineOnlyProjectWorkGraphForTest(t *testing.T, handler *Handler, pr
 	}
 }
 
+func requireCairnlineOnlyProjectReadsForTest(t *testing.T, handler *Handler, projectID string) {
+	t.Helper()
+	if handler == nil {
+		t.Fatal("handler is nil")
+	}
+	projectID = strings.TrimSpace(projectID)
+	if handler.projects != nil && projectID != "" {
+		if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+			t.Fatalf("native project exists = %t err=%v, want missing native project", ok, err)
+		}
+	}
+	disableNativeProjectStoresForTest(t, handler)
+}
+
+func disableNativeProjectStoresForTest(t *testing.T, handler *Handler) {
+	t.Helper()
+	if handler == nil {
+		t.Fatal("handler is nil")
+	}
+	handler.projects = nil
+	handler.projectWork = nil
+	handler.projectSkills = nil
+	handler.memory = nil
+	handler.memoryCandidates = nil
+}
+
 type projectWorkErrorResponse struct {
 	Error struct {
 		Type    string `json:"type"`
@@ -1978,6 +2004,7 @@ func TestProjectWorkAPI_StrictEmbeddedReadModelReadsRolesWithoutHecateProject(t 
 	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
 		t.Fatalf("Hecate project store seeded ok=%v err=%v, want no project row", ok, err)
 	}
+	requireCairnlineOnlyProjectReadsForTest(t, handler, projectID)
 
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+projectID+"/roles", nil))
@@ -2128,6 +2155,7 @@ func TestProjectWorkAPI_StrictEmbeddedReadModelReadsWorkItemsWithoutHecateProjec
 	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
 		t.Fatalf("Hecate project store seeded ok=%v err=%v, want no project row", ok, err)
 	}
+	requireCairnlineOnlyProjectReadsForTest(t, handler, projectID)
 
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items", nil))
@@ -2294,6 +2322,7 @@ func TestProjectWorkAPI_StrictEmbeddedReadModelReadsAssignmentsWithoutHecateProj
 	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
 		t.Fatalf("Hecate project store seeded ok=%v err=%v, want no project row", ok, err)
 	}
+	requireCairnlineOnlyProjectReadsForTest(t, handler, projectID)
 
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_embedded/assignments", nil))
@@ -2470,6 +2499,7 @@ func TestProjectWorkAPI_StrictEmbeddedReadModelReadsArtifactsWithoutHecateProjec
 	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
 		t.Fatalf("Hecate project store seeded ok=%v err=%v, want no project row", ok, err)
 	}
+	requireCairnlineOnlyProjectReadsForTest(t, handler, projectID)
 
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_embedded/artifacts", nil))
@@ -2661,6 +2691,7 @@ func TestProjectWorkAPI_StrictEmbeddedReadModelReadsHandoffsWithoutHecateProject
 	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
 		t.Fatalf("Hecate project store seeded ok=%v err=%v, want no project row", ok, err)
 	}
+	requireCairnlineOnlyProjectReadsForTest(t, handler, projectID)
 
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+projectID+"/handoffs?work_item_id=work_embedded&status=pending", nil))
@@ -2785,6 +2816,7 @@ func TestProjectWorkAPI_StrictEmbeddedReadModelReadsCloseoutReadinessWithoutHeca
 	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
 		t.Fatalf("Hecate project store seeded ok=%v err=%v, want no project row", ok, err)
 	}
+	requireCairnlineOnlyProjectReadsForTest(t, handler, projectID)
 
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_embedded/readiness", nil))
@@ -3682,6 +3714,76 @@ func TestProjectWorkAPI_PreflightAssignmentStrictEmbeddedReadModelReadsWithoutHe
 	}
 }
 
+func TestProjectWorkAPI_StrictEmbeddedLaunchInputsUseRuntimeOverlayWithoutNativeProjectStores(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend: "cairnline",
+			CairnlineReadSource: "embedded",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	const projectID = "proj_embedded_launch_runtime"
+
+	seedCairnlineOnlyProjectWorkGraphForTest(t, handler, cairnline.Project{
+		ID:            projectID,
+		Name:          "Embedded Launch Runtime",
+		DefaultRootID: "root_embedded_launch_runtime",
+		Roots: []cairnline.Root{{
+			ID:     "root_embedded_launch_runtime",
+			Path:   "/workspace/embedded-launch-runtime",
+			Kind:   "git",
+			Active: true,
+		}},
+	}, []cairnline.Role{{
+		ID:        "role_embedded_launch_runtime",
+		ProjectID: projectID,
+		Name:      "Runtime Reviewer",
+	}}, []cairnline.WorkItem{{
+		ID:          "work_embedded_launch_runtime",
+		ProjectID:   projectID,
+		Title:       "Preserve launch runtime overlay",
+		Status:      cairnline.WorkStatusReady,
+		Priority:    cairnline.PriorityNormal,
+		OwnerRoleID: "role_embedded_launch_runtime",
+		RootID:      "root_embedded_launch_runtime",
+	}}, []cairnline.Assignment{{
+		ID:            "asgn_embedded_launch_runtime",
+		ProjectID:     projectID,
+		WorkItemID:    "work_embedded_launch_runtime",
+		RoleID:        "role_embedded_launch_runtime",
+		RootID:        "root_embedded_launch_runtime",
+		ExecutionMode: cairnline.ExecutionOrchestrated,
+	}})
+	if _, err := handler.projectRuntime.Upsert(t.Context(), projectruntime.AssignmentRuntime{
+		ProjectID:    projectID,
+		AssignmentID: "asgn_embedded_launch_runtime",
+		ExecutionRef: projectwork.AssignmentExecutionRef{
+			Kind:              projectwork.AssignmentExecutionKindTaskRun,
+			TaskID:            "task_runtime_overlay",
+			RunID:             "run_runtime_overlay",
+			ContextSnapshotID: "ctx_runtime_overlay",
+			Status:            projectwork.AssignmentStatusRunning,
+		},
+		ContextPacket: []byte(`{"id":"ctx_runtime_overlay"}`),
+	}); err != nil {
+		t.Fatalf("seed assignment runtime overlay: %v", err)
+	}
+	requireCairnlineOnlyProjectReadsForTest(t, handler, projectID)
+
+	inputs, err := handler.projectAssignmentStartInputs(t.Context(), projectID, "work_embedded_launch_runtime", "asgn_embedded_launch_runtime", true)
+	if err != nil {
+		t.Fatalf("projectAssignmentStartInputs() error = %v, want nil", err)
+	}
+	ref := inputs.Assignment.ExecutionRef
+	if ref.TaskID != "task_runtime_overlay" || ref.RunID != "run_runtime_overlay" || ref.ContextSnapshotID != "ctx_runtime_overlay" || ref.Status != projectwork.AssignmentStatusRunning {
+		t.Fatalf("assignment runtime ref = %+v, want runtime overlay without native project stores", ref)
+	}
+	if string(inputs.Assignment.ContextPacket) != `{"id":"ctx_runtime_overlay"}` {
+		t.Fatalf("assignment context packet = %s, want runtime overlay packet", string(inputs.Assignment.ContextPacket))
+	}
+}
+
 func TestProjectWorkAPI_StartAssignmentStrictEmbeddedReadModelLaunchesCairnlineOnlyProject(t *testing.T) {
 	t.Parallel()
 	handler := NewHandler(config.Config{
@@ -4073,6 +4175,7 @@ func TestProjectWorkAPI_AssignmentContextStrictEmbeddedReadModelReadsWithoutHeca
 	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
 		t.Fatalf("Hecate project store seeded ok=%v err=%v, want no project row", ok, err)
 	}
+	requireCairnlineOnlyProjectReadsForTest(t, handler, projectID)
 
 	packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_embedded_assignment_context/assignments/asgn_embedded_assignment_context/context", "")
 	if packetResp.Data.ExecutionMode != cairnline.ExecutionMCPPull {
@@ -6464,6 +6567,7 @@ func TestProjectWorkAPI_ProjectActivityStrictEmbeddedReadModelReadsWithoutHecate
 	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
 		t.Fatalf("Hecate project store seeded ok=%v err=%v, want no project row", ok, err)
 	}
+	requireCairnlineOnlyProjectReadsForTest(t, handler, projectID)
 
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+projectID+"/activity", nil))

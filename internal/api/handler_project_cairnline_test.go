@@ -802,6 +802,7 @@ func TestProjectCairnlineMirrorParityAPI_MatchesRepresentativeLiveProjectJourney
 	}
 
 	handler.config.Projects.CairnlineReadSource = "embedded"
+	disableNativeProjectStoresForTest(t, handler)
 	assertStrictEmbeddedCairnlineReadBackend(t, client, http.MethodGet, "/hecate/v1/projects", "", "project list")
 	assertStrictEmbeddedCairnlineReadBackend(t, client, http.MethodGet, "/hecate/v1/projects/"+projectID, "", "project detail")
 	assertStrictEmbeddedCairnlineReadBackend(t, client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/setup-readiness", "", "setup readiness")
