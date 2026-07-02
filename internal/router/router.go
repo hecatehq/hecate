@@ -135,7 +135,7 @@ func (r *RuleRouter) Fallbacks(ctx context.Context, req types.ChatRequest, curre
 }
 
 func (r *RuleRouter) routeExplicitProvider(ctx context.Context, req types.ChatRequest, explicitProvider, model string) (types.RouteDecision, error) {
-	entry, ok := r.catalog.Get(ctx, explicitProvider)
+	entry, ok := r.lookupProvider(ctx, explicitProvider)
 	if !ok {
 		return types.RouteDecision{}, fmt.Errorf("provider %q not found", explicitProvider)
 	}
@@ -160,6 +160,19 @@ func (r *RuleRouter) routeExplicitProvider(ctx context.Context, req types.ChatRe
 		Model:        routedModel,
 		Reason:       routeReasonForHealth(reason, entry.Status),
 	}, nil
+}
+
+func (r *RuleRouter) lookupProvider(ctx context.Context, provider string) (catalog.Entry, bool) {
+	entry, ok := r.catalog.Get(ctx, provider)
+	if ok {
+		return entry, true
+	}
+	for _, entry := range r.catalog.Snapshot(ctx) {
+		if catalog.EntryMatchesProvider(entry, provider) {
+			return entry, true
+		}
+	}
+	return catalog.Entry{}, false
 }
 
 func (r *RuleRouter) explicitModelCandidates(ctx context.Context, model string) []routeCandidate {

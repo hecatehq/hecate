@@ -157,6 +157,10 @@ func (p *AnthropicProvider) Name() string {
 	return p.config.Name
 }
 
+func (p *AnthropicProvider) Aliases() []string {
+	return append([]string(nil), p.config.Aliases...)
+}
+
 func (p *AnthropicProvider) Enabled() bool {
 	return p.config.Enabled
 }

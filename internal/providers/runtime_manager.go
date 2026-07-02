@@ -229,6 +229,7 @@ func (m *ControlPlaneRuntimeManager) resolvedConfigs(ctx context.Context) ([]con
 		}
 		cfg := config.OpenAICompatibleProviderConfig{
 			Name:         item.Name,
+			Aliases:      providerRuntimeAliases(item),
 			Kind:         item.Kind,
 			Protocol:     item.Protocol,
 			BaseURL:      item.BaseURL,
@@ -276,6 +277,27 @@ func (m *ControlPlaneRuntimeManager) resolvedConfigs(ctx context.Context) ([]con
 		out = append(out, cfg)
 	}
 	return out, nil
+}
+
+func providerRuntimeAliases(provider controlplane.Provider) []string {
+	out := make([]string, 0, 2)
+	for _, value := range []string{provider.ID, provider.PresetID} {
+		value = strings.TrimSpace(value)
+		if value == "" || strings.EqualFold(value, provider.Name) {
+			continue
+		}
+		seen := false
+		for _, existing := range out {
+			if strings.EqualFold(existing, value) {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			out = append(out, value)
+		}
+	}
+	return out
 }
 
 func hydrateControlPlaneProviderDefaults(provider controlplane.Provider) controlplane.Provider {

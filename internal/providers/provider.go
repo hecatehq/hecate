@@ -27,6 +27,13 @@ type Provider interface {
 	Supports(model string) bool
 }
 
+// AliasReporter lets provider-management surfaces expose stable identifiers
+// that differ from the runtime routing name, such as a control-plane provider
+// ID for an operator-named custom provider.
+type AliasReporter interface {
+	Aliases() []string
+}
+
 // CapabilityRefresher is implemented by providers that can bypass their
 // discovery cache for explicit operator refreshes.
 type CapabilityRefresher interface {

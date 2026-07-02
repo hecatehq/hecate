@@ -291,6 +291,23 @@ func TestProviderModelReadiness(t *testing.T) {
 			CredentialState: "missing",
 			Models:          []string{"claude-sonnet-4-5"},
 		},
+		{
+			Name:            "Fake Dogfood",
+			Kind:            providers.KindCloud,
+			Status:          "healthy",
+			Healthy:         true,
+			CredentialState: "configured",
+			Models:          []string{"dogfood-model"},
+		},
+		{
+			Provider:        &sequenceProvider{name: "Runtime Custom", aliases: []string{"custom-provider-id"}, kind: providers.KindCloud},
+			Name:            "Runtime Custom",
+			Kind:            providers.KindCloud,
+			Status:          "healthy",
+			Healthy:         true,
+			CredentialState: "configured",
+			Models:          []string{"custom-model"},
+		},
 	}
 
 	tests := []struct {
@@ -325,6 +342,26 @@ func TestProviderModelReadiness(t *testing.T) {
 			wantProvider:        "ollama",
 			wantReason:          "model_available",
 			wantMatchedProvider: "ollama",
+			wantStatus:          "ok",
+		},
+		{
+			name:                "explicit provider id matches display name slug",
+			provider:            "fake-dogfood",
+			model:               "dogfood-model",
+			wantReady:           true,
+			wantProvider:        "Fake Dogfood",
+			wantReason:          "model_available",
+			wantMatchedProvider: "Fake Dogfood",
+			wantStatus:          "ok",
+		},
+		{
+			name:                "explicit provider id matches reported alias",
+			provider:            "custom-provider-id",
+			model:               "custom-model",
+			wantReady:           true,
+			wantProvider:        "Runtime Custom",
+			wantReason:          "model_available",
+			wantMatchedProvider: "Runtime Custom",
 			wantStatus:          "ok",
 		},
 		{

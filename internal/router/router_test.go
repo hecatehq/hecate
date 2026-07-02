@@ -120,6 +120,7 @@ func TestRuleRouterOrdersProvidersAlphabetically(t *testing.T) {
 
 type fakeProvider struct {
 	name            string
+	aliases         []string
 	kind            providers.Kind
 	defaultModel    string
 	supportedModels []string
@@ -142,6 +143,7 @@ func (t staticHealthTracker) State(provider string) providers.HealthState {
 }
 
 func (p *fakeProvider) Name() string         { return p.name }
+func (p *fakeProvider) Aliases() []string    { return append([]string(nil), p.aliases...) }
 func (p *fakeProvider) Kind() providers.Kind { return p.kind }
 func (p *fakeProvider) DefaultModel() string { return p.defaultModel }
 func (p *fakeProvider) Chat(_ context.Context, _ types.ChatRequest) (*types.ChatResponse, error) {
@@ -235,6 +237,27 @@ func TestRuleRouterHonorsExplicitProvider(t *testing.T) {
 	}
 	if got.Reason != "pinned_provider" {
 		t.Fatalf("Route() reason = %q, want pinned_provider", got.Reason)
+	}
+}
+
+func TestRuleRouterHonorsExplicitProviderAlias(t *testing.T) {
+	t.Parallel()
+
+	registry := providers.NewRegistry(
+		&fakeProvider{name: "Fake Dogfood", aliases: []string{"fake-dogfood"}, kind: providers.KindCloud, defaultModel: "dogfood-model"},
+	)
+	router := NewRuleRouter("gpt-4o-mini", catalog.NewRegistryCatalog(registry, nil))
+
+	got, err := router.Route(context.Background(), types.ChatRequest{
+		Scope: types.RequestScope{
+			ProviderHint: "fake-dogfood",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Route() error = %v", err)
+	}
+	if got.Provider != "Fake Dogfood" || got.Model != "dogfood-model" || got.Reason != "pinned_provider" {
+		t.Fatalf("Route() = %+v, want Fake Dogfood default model via alias", got)
 	}
 }
 

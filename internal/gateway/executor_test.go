@@ -16,6 +16,7 @@ import (
 
 type sequenceProvider struct {
 	name      string
+	aliases   []string
 	kind      providers.Kind
 	responses []providerResponse
 	callCount int
@@ -27,6 +28,8 @@ type providerResponse struct {
 }
 
 func (p *sequenceProvider) Name() string { return p.name }
+
+func (p *sequenceProvider) Aliases() []string { return append([]string(nil), p.aliases...) }
 
 func (p *sequenceProvider) Kind() providers.Kind { return p.kind }
 
