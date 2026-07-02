@@ -662,6 +662,17 @@ func (h *Handler) projectCairnlineStrictEmbeddedSmoke(ctx context.Context, snaps
 					_, err := strict.renderCairnlineProjectAssignmentLaunchReadiness(ctx, projectID, workItemID, assignmentID)
 					return err
 				})
+				checkProjectCairnlineEmbeddedSmoke(smoke, projectID, "assignment-preflight", func() error {
+					inputs, err := strict.cairnlineProjectAssignmentLaunchInputs(ctx, projectID, workItemID, assignmentID)
+					if err != nil {
+						return err
+					}
+					if !inputs.RoleOK {
+						return errors.New("embedded Cairnline assignment role not found")
+					}
+					_, err = strict.projectAssignmentPreflightContext(ctx, inputs.Project, inputs.WorkItem, inputs.Assignment, inputs.Role)
+					return err
+				})
 			}
 		}
 		checkProjectCairnlineEmbeddedSmoke(smoke, projectID, "handoff-list", func() error {
