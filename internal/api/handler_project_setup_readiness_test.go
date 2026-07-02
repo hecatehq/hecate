@@ -355,6 +355,7 @@ func TestProjectSetupReadiness_StrictEmbeddedReadModelReadsWithoutHecateProject(
 	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
 		t.Fatalf("Hecate project store seeded ok=%v err=%v, want no project row", ok, err)
 	}
+	requireCairnlineOnlyProjectReadsForTest(t, handler, projectID)
 
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+projectID+"/setup-readiness", nil))

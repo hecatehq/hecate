@@ -516,8 +516,14 @@ func (h *Handler) cairnlineSidecarProjectAssignmentLaunchInputs(ctx context.Cont
 
 func (h *Handler) cairnlineAssignmentWithRuntimeRef(ctx context.Context, projectID string, assignment projectwork.Assignment, nativeAssignments []projectwork.Assignment) (projectwork.Assignment, error) {
 	if native, ok := projectWorkAssignmentsByID(nativeAssignments)[assignment.ID]; ok {
-		assignment.ExecutionRef = native.ExecutionRef
-		return assignment, nil
+		overlayProjectAssignmentRuntimeShadow(&assignment, native)
+	}
+	if h != nil {
+		overlaid, err := h.projectWorkApplication().ApplyAssignmentRuntime(ctx, assignment)
+		if err != nil {
+			return assignment, err
+		}
+		assignment = overlaid
 	}
 	if h == nil || h.projectWork == nil {
 		return assignment, nil
@@ -529,8 +535,8 @@ func (h *Handler) cairnlineAssignmentWithRuntimeRef(ctx context.Context, project
 	if !ok {
 		return assignment, nil
 	}
-	assignment.ExecutionRef = native.ExecutionRef
-	return assignment, nil
+	overlayProjectAssignmentRuntimeShadow(&assignment, native)
+	return h.projectWorkApplication().ApplyAssignmentRuntime(ctx, assignment)
 }
 
 func cairnlineSidecarLaunchPacketRouteMismatch(launch cairnline.AssignmentLaunchPacket, projectID, workItemID, assignmentID string) bool {

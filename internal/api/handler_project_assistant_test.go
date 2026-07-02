@@ -549,6 +549,7 @@ func TestProjectAssistantAPI_ContextAndDraftStrictEmbeddedReadModelReadWithoutHe
 	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
 		t.Fatalf("Hecate project store seeded ok=%v err=%v, want no project row", ok, err)
 	}
+	requireCairnlineOnlyProjectReadsForTest(t, handler, projectID)
 
 	client := newAPITestClient(t, server)
 	contextResp := mustRequestJSON[projectAssistantContextResponse](client, http.MethodPost, "/hecate/v1/project-assistant/context", `{
