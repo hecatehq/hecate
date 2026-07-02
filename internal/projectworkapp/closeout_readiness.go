@@ -100,6 +100,9 @@ func (app *Application) ApplyAssignmentExecutionProjection(ctx context.Context, 
 	if chatProjection == nil {
 		return assignment, nil
 	}
+	if chatProjection.Missing && strings.TrimSpace(assignment.ExecutionRef.Status) != "" {
+		return assignment, nil
+	}
 	if strings.TrimSpace(chatProjection.Status) != "" {
 		assignment.Status = chatProjection.Status
 	}
