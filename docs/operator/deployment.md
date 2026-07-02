@@ -515,9 +515,11 @@ best-effort shadows the row into Hecate-native memory stores. The default is
 `none`. `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-memory,memory-candidates`
 also makes memory-candidate create/promote/reject Cairnline-first; the
 `memory-candidates` switch requires `project-memory` because candidate promotion
-creates accepted project memory. All other Projects mutations remain
-Hecate-owned unless one of the other alpha write-authority switchpoints is
-explicitly listed.
+creates accepted project memory. Hecate's live memory-candidate authority
+surface is create/promote/reject; sidecar delete smoke tests are standalone
+Cairnline diagnostics, not Hecate route migration evidence. All other Projects
+mutations remain Hecate-owned unless one of the other alpha write-authority
+switchpoints is explicitly listed.
 Project metadata/default-only PATCHes also best-effort mirror after the Hecate
 store commit unless `project-metadata-defaults` is enabled, in which case those
 scoped updates commit portable metadata and launch defaults to Cairnline first

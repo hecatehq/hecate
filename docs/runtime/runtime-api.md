@@ -2406,7 +2406,9 @@ compatibility project row. Adding `memory-candidates` to that comma-separated
 setting makes candidate create/promote/reject Cairnline-first as well; it
 requires `project-memory` because candidate promotion creates accepted project
 memory, and candidate routes use the same Cairnline project-identity
-validation.
+validation. Hecate's live memory-candidate authority surface is
+create/promote/reject; standalone Cairnline sidecar delete smoke tests remain
+diagnostic and do not represent a Hecate route cutover.
 Adding `project-collaboration` makes generic collaboration artifact, evidence,
 review, and handoff mutations Cairnline-first, then shadows the portable records
 back into Hecate-native project-work stores for compatibility. In that alpha
