@@ -63,7 +63,7 @@ func (h *Handler) createProjectWorkItemWithCairnlineAuthority(ctx context.Contex
 
 func (h *Handler) updateProjectWorkItemWithCairnlineAuthority(ctx context.Context, projectID, workItemID string, cmd projectworkapp.UpdateWorkItemCommand) (projectwork.WorkItem, error) {
 	if cmd.Status != nil && strings.TrimSpace(*cmd.Status) == projectwork.WorkItemStatusDone {
-		readiness, err := h.projectWorkApplication().WorkItemReadiness(ctx, projectID, workItemID)
+		readiness, err := h.projectWorkItemCloseoutReadinessForCairnlineAuthority(ctx, projectID, workItemID)
 		if err != nil {
 			return projectwork.WorkItem{}, err
 		}
@@ -103,6 +103,63 @@ func (h *Handler) updateProjectWorkItemWithCairnlineAuthority(ctx context.Contex
 	}
 	h.shadowProjectWorkItemToHecate(ctx, "project_work_item_cairnline_authority_update", updated)
 	return updated, nil
+}
+
+func (h *Handler) projectWorkItemCloseoutReadinessForCairnlineAuthority(ctx context.Context, projectID, workItemID string) (projectwork.WorkItemReadiness, error) {
+	if h != nil && h.projectReadRoutesUseCairnlineReadModel() {
+		view, err := h.cairnlineProjectWorkView(ctx, projectID)
+		if err != nil {
+			return projectwork.WorkItemReadiness{}, err
+		}
+		defer view.Close()
+		readiness, err := view.service.WorkItemCloseoutReadiness(ctx, view.snapshot.Project.ID, workItemID)
+		if errors.Is(err, cairnline.ErrNotFound) {
+			return projectwork.WorkItemReadiness{}, projectwork.ErrNotFound
+		}
+		if err != nil {
+			return projectwork.WorkItemReadiness{}, err
+		}
+		return projectWorkItemReadinessFromCairnline(readiness), nil
+	}
+	return h.projectWorkApplication().WorkItemReadiness(ctx, projectID, workItemID)
+}
+
+func projectWorkItemReadinessFromCairnline(readiness cairnline.WorkItemCloseoutReadiness) projectwork.WorkItemReadiness {
+	return projectwork.WorkItemReadiness{
+		ProjectID:                    readiness.ProjectID,
+		WorkItemID:                   readiness.WorkItemID,
+		Ready:                        readiness.Ready,
+		Status:                       readiness.Status,
+		Title:                        readiness.Title,
+		Detail:                       readiness.Detail,
+		Blockers:                     renderCairnlineProjectWorkItemReadinessBlockers(readiness.Blockers),
+		Warnings:                     append([]string(nil), readiness.Warnings...),
+		AssignmentCount:              readiness.AssignmentCount,
+		CompletedAssignments:         readiness.CompletedAssignments,
+		ReviewFollowUpCount:          readiness.ReviewFollowUpCount,
+		ReviewFollowUpArtifactIDs:    append([]string(nil), readiness.ReviewFollowUpArtifactIDs...),
+		ReviewFollowUps:              projectWorkItemReviewFollowUpsFromCairnline(readiness.ReviewFollowUps),
+		MissingEvidenceAssignmentIDs: append([]string(nil), readiness.MissingEvidenceAssignmentIDs...),
+	}
+}
+
+func projectWorkItemReviewFollowUpsFromCairnline(items []cairnline.ReviewFollowUpReadiness) []projectwork.ReviewFollowUpReadiness {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]projectwork.ReviewFollowUpReadiness, 0, len(items))
+	for _, item := range items {
+		out = append(out, projectwork.ReviewFollowUpReadiness{
+			ArtifactID:           item.ArtifactID,
+			Title:                item.Title,
+			Status:               item.Status,
+			Blocker:              renderCairnlineProjectWorkItemReadinessBlocker(item.Blocker),
+			ReviewedAssignmentID: item.ReviewedAssignmentID,
+			ReviewVerdict:        item.ReviewVerdict,
+			ReviewRisk:           item.ReviewRisk,
+		})
+	}
+	return out
 }
 
 func (h *Handler) deleteProjectWorkItemWithCairnlineAuthority(ctx context.Context, projectID, workItemID string) error {
