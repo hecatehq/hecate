@@ -1773,6 +1773,133 @@ func TestProjectAssistantAPI_CairnlineApplyProjectRootAuthorityDoesNotBlockOnSha
 	}
 }
 
+func TestProjectAssistantAPI_CairnlineApplyProjectIdentityAuthorityDoesNotRequireHecateProjectStore(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectAssistantCairnlineMirrorTestHandler(t)
+	handler.config.Projects.CairnlineReadSource = "embedded"
+	handler.config.Projects.CairnlineWriteAuthority = projectCairnlineWriteAuthorityProjectIdentity
+	handler.projects = nil
+	client := newAPITestClient(t, server)
+
+	proposal := projectassistant.Proposal{
+		ID:                   "pa_apply_project_identity_cairnline_only",
+		Title:                "Create Cairnline-only project",
+		Summary:              "Project Assistant apply should use Cairnline identity authority without a native project store.",
+		RequiresConfirmation: true,
+		Actions: []projectassistant.Action{{
+			Kind: projectassistant.ActionCreateProject,
+			Patch: json.RawMessage(`{
+				"id":"proj_pa_apply_project_identity_cairnline_only",
+				"name":"Assistant Cairnline-only Identity",
+				"description":"Cairnline owns this project identity.",
+				"roots":[{"id":"root_main","path":"/workspace/cairnline-only","kind":"git","active":true}],
+				"default_provider":"anthropic",
+				"default_model":"claude-sonnet-4-5"
+			}`),
+		}},
+	}
+	applied := mustRequestJSONStatus[projectAssistantApplyResponse](client, http.StatusOK, http.MethodPost, "/hecate/v1/project-assistant/apply", projectJourneyJSON(t, map[string]any{
+		"proposal": proposal,
+		"confirm":  true,
+	}))
+	if applied.Data.Status != projectassistant.ApplyStatusApplied || !applied.Data.Applied || applied.Data.CommittedActionCount != 1 {
+		t.Fatalf("apply response = %+v, want applied project create without native project store", applied.Data)
+	}
+
+	mirrored := getMirroredCairnlineProjectForTest(t, handler, "proj_pa_apply_project_identity_cairnline_only")
+	if mirrored.Name != "Assistant Cairnline-only Identity" || mirrored.Description != "Cairnline owns this project identity." || mirrored.DefaultRootID != "root_main" {
+		t.Fatalf("Cairnline project = %+v, want authoritative project identity", mirrored)
+	}
+	if len(mirrored.Roots) != 1 || mirrored.Roots[0].ID != "root_main" || mirrored.Roots[0].Path != "/workspace/cairnline-only" {
+		t.Fatalf("Cairnline roots = %+v, want root_main", mirrored.Roots)
+	}
+	assertMirroredExecutionProfileForTest(t, handler, mirrored.DefaultExecutionProfileID, "anthropic", "claude-sonnet-4-5")
+
+	project := mustRequestJSONStatus[ProjectResponse](client, http.StatusOK, http.MethodGet, "/hecate/v1/projects/proj_pa_apply_project_identity_cairnline_only", "")
+	if project.Data.ReadBackend != "cairnline" || project.Data.ID != mirrored.ID {
+		t.Fatalf("project response = %+v, want strict embedded Cairnline project", project.Data)
+	}
+}
+
+func TestProjectAssistantAPI_CairnlineApplyProjectMetadataRootAuthorityDoesNotRequireHecateProjectStore(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectAssistantCairnlineMirrorTestHandler(t)
+	handler.config.Projects.CairnlineReadSource = "embedded"
+	handler.config.Projects.CairnlineWriteAuthority = strings.Join([]string{
+		projectCairnlineWriteAuthorityProjectMetadataDefaults,
+		projectCairnlineWriteAuthorityProjectRoots,
+	}, ",")
+	const projectID = "proj_pa_apply_project_cairnline_only"
+	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+		_, err := service.CreateProject(t.Context(), cairnline.Project{
+			ID:            projectID,
+			Name:          "Assistant Cairnline-only Project",
+			Description:   "Project Assistant mutates this through Cairnline only.",
+			DefaultRootID: "root_main",
+			Roots: []cairnline.Root{{
+				ID:     "root_main",
+				Path:   "/workspace/main",
+				Kind:   "git",
+				Active: true,
+			}},
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("seed Cairnline-only project: %v", err)
+	}
+	handler.projects = nil
+	client := newAPITestClient(t, server)
+
+	proposal := projectassistant.Proposal{
+		ID:                   "pa_apply_project_cairnline_only",
+		Title:                "Update Cairnline-only project",
+		Summary:              "Project Assistant apply should mutate project metadata, roots, and defaults without a native project store.",
+		RequiresConfirmation: true,
+		Actions: []projectassistant.Action{
+			{
+				Kind:   projectassistant.ActionUpdateProject,
+				Target: map[string]string{"project_id": projectID},
+				Patch:  json.RawMessage(`{"name":"Assistant Cairnline-only Project Updated","description":"Updated through Cairnline authority."}`),
+			},
+			{
+				Kind:   projectassistant.ActionAttachProjectRoot,
+				Target: map[string]string{"project_id": projectID},
+				Patch:  json.RawMessage(`{"id":"root_attached","path":"/workspace/attached","kind":"git_worktree","active":true}`),
+			},
+			{
+				Kind:   projectassistant.ActionSetProjectDefaults,
+				Target: map[string]string{"project_id": projectID},
+				Patch:  json.RawMessage(`{"default_root_id":"root_attached","default_provider":"anthropic","default_model":"claude-sonnet-4-5"}`),
+			},
+			{
+				Kind:   projectassistant.ActionRemoveProjectRoot,
+				Target: map[string]string{"project_id": projectID, "root_id": "root_main"},
+			},
+		},
+	}
+	applied := mustRequestJSONStatus[projectAssistantApplyResponse](client, http.StatusOK, http.MethodPost, "/hecate/v1/project-assistant/apply", projectJourneyJSON(t, map[string]any{
+		"proposal": proposal,
+		"confirm":  true,
+	}))
+	if applied.Data.Status != projectassistant.ApplyStatusApplied || !applied.Data.Applied || applied.Data.CommittedActionCount != 4 {
+		t.Fatalf("apply response = %+v, want applied project mutations without native project store", applied.Data)
+	}
+
+	mirrored := getMirroredCairnlineProjectForTest(t, handler, projectID)
+	if mirrored.Name != "Assistant Cairnline-only Project Updated" || mirrored.Description != "Updated through Cairnline authority." || mirrored.DefaultRootID != "root_attached" {
+		t.Fatalf("Cairnline project = %+v, want updated metadata/default root", mirrored)
+	}
+	if findMirroredCairnlineRootForTest(mirrored.Roots, "root_attached") == nil || findMirroredCairnlineRootForTest(mirrored.Roots, "root_main") != nil {
+		t.Fatalf("Cairnline roots = %+v, want attached root only", mirrored.Roots)
+	}
+	assertMirroredExecutionProfileForTest(t, handler, mirrored.DefaultExecutionProfileID, "anthropic", "claude-sonnet-4-5")
+
+	project := mustRequestJSONStatus[ProjectResponse](client, http.StatusOK, http.MethodGet, "/hecate/v1/projects/"+projectID, "")
+	if project.Data.ReadBackend != "cairnline" || project.Data.DefaultRootID != "root_attached" || len(project.Data.Roots) != 1 || project.Data.Roots[0].ID != "root_attached" {
+		t.Fatalf("project response = %+v, want strict embedded Cairnline project with attached root", project.Data)
+	}
+}
+
 func TestProjectAssistantAPI_ProposalRouteUsesStrictEmbeddedReadSource(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectAssistantCairnlineMirrorTestHandler(t)

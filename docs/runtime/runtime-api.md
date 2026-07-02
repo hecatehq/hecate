@@ -596,8 +596,10 @@ sequenceDiagram
   store for compatibility. Confirmed Project Assistant apply uses enabled
   project create, project metadata/default, root,
   role/work-item/assignment/handoff, and memory-candidate authority seams and
-  leaves remaining chat/runtime effects as Hecate-owned orchestrator
-  capabilities outside Cairnline core.
+  can use a Cairnline-only project graph for project
+  identity/metadata/default/root actions in strict embedded mode. Remaining
+  chat/runtime effects stay Hecate-owned orchestrator capabilities outside
+  Cairnline core.
   `project-roots` makes project root create/update/delete plus root list
   replacement plus discovery-result replacement and worktree-created root
   record mutations Cairnline-first, then shadows Hecate's compatibility project
@@ -6573,7 +6575,10 @@ while proposal ledger writes remain Hecate-owned unless
 enabled. Confirmed apply uses enabled project create, project metadata/default,
 root, role/work-item/assignment/handoff, and memory-candidate
 Cairnline-authority seams and leaves remaining chat/runtime effects as
-Hecate-owned orchestrator capabilities outside Cairnline core.
+Hecate-owned orchestrator capabilities outside Cairnline core. In strict
+embedded mode, confirmed apply can create project identity and update portable
+project metadata, defaults, and roots from the embedded Cairnline graph without
+requiring a Hecate-native compatibility project store.
 `GET /hecate/v1/project-assistant/proposals/{id}` uses the same configured
 Cairnline read source as the other read routes; strict embedded mode reads the
 proposal record from the embedded mirror instead of falling back to the native

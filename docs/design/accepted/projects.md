@@ -384,7 +384,11 @@ Cairnline first, then best-effort shadow Hecate's proposal store for
 compatibility. Confirmed apply uses the enabled Cairnline authority seams for
 project create, project metadata/default, root, role, work-item, assignment,
 handoff, and memory-candidate actions, but chat/runtime effects remain
-Hecate-owned orchestrator capabilities outside Cairnline core.
+Hecate-owned orchestrator capabilities outside Cairnline core. In strict
+embedded mode, the Project Assistant project authority can create project
+identity and mutate portable project metadata, defaults, and roots from the
+embedded Cairnline graph without requiring a Hecate-native compatibility
+project store.
 Assignment-start is still a Hecate-native dispatch mutation, committed
 assignment-start results and cleanup/conflict states are best-effort mirrored
 for replacement evidence, and other live Projects reads/writes still use the
@@ -648,8 +652,10 @@ after these gates are met:
   Cairnline-authoritative with the `project-assistant-proposals` switchpoint.
   Confirmed apply may use enabled project create, project metadata/default, root,
   role/work-item/assignment/handoff, and memory-candidate Cairnline-authority
-  seams, but chat/runtime effects remain Hecate-owned orchestrator capabilities
-  outside Cairnline core. Assignment runtime effects live in Hecate's project
+  seams, including project identity/metadata/default/root actions against a
+  Cairnline-only project graph in strict embedded mode, but chat/runtime
+  effects remain Hecate-owned orchestrator capabilities outside Cairnline core.
+  Assignment runtime effects live in Hecate's project
   assignment runtime overlay and are mirrored as
   non-authoritative Cairnline replacement evidence. Assignment preflight/start
   packets may carry non-authoritative

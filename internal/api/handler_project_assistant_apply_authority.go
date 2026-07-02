@@ -73,12 +73,15 @@ func (authority projectAssistantProjectAuthority) GetProject(ctx context.Context
 
 func (authority projectAssistantProjectAuthority) CreateProject(ctx context.Context, project projects.Project) (projects.Project, error) {
 	h := authority.handler
-	if h == nil || h.projects == nil {
+	if h == nil {
 		return projects.Project{}, projectassistant.ErrStoreNotConfigured
 	}
 	if h.projectIdentityWritesUseCairnlineAuthority() {
 		created, err := h.createProjectWithCairnlineAuthority(ctx, project)
 		return created, projectAssistantApplyProjectError(err)
+	}
+	if h.projects == nil {
+		return projects.Project{}, projectassistant.ErrStoreNotConfigured
 	}
 	created, err := h.projects.Create(ctx, project)
 	return created, projectAssistantApplyProjectError(err)
@@ -86,13 +89,16 @@ func (authority projectAssistantProjectAuthority) CreateProject(ctx context.Cont
 
 func (authority projectAssistantProjectAuthority) UpdateProject(ctx context.Context, projectID string, cmd projectassistant.ProjectUpdateCommand) (projects.Project, error) {
 	h := authority.handler
-	if h == nil || h.projects == nil {
+	if h == nil {
 		return projects.Project{}, projectassistant.ErrStoreNotConfigured
 	}
 	req := updateProjectRequest{Name: cmd.Name, Description: cmd.Description}
 	if h.projectMetadataDefaultsWritesUseCairnlineAuthority() && projectUpdateCanUseCairnlineMetadataDefaultsAuthority(req) {
 		updated, err := h.updateProjectMetadataDefaultsWithCairnlineAuthority(ctx, projectID, req)
 		return updated, projectAssistantApplyProjectError(err)
+	}
+	if h.projects == nil {
+		return projects.Project{}, projectassistant.ErrStoreNotConfigured
 	}
 	updated, err := h.projects.Update(ctx, projectID, func(project *projects.Project) {
 		if cmd.Name != nil {
@@ -107,12 +113,15 @@ func (authority projectAssistantProjectAuthority) UpdateProject(ctx context.Cont
 
 func (authority projectAssistantProjectAuthority) AttachProjectRoot(ctx context.Context, projectID string, root projects.Root) (projects.Project, error) {
 	h := authority.handler
-	if h == nil || h.projects == nil {
+	if h == nil {
 		return projects.Project{}, projectassistant.ErrStoreNotConfigured
 	}
 	if h.projectRootWritesUseCairnlineAuthority() {
 		updated, _, err := h.createProjectRootWithCairnlineAuthority(ctx, projectID, root)
 		return updated, projectAssistantApplyProjectError(err)
+	}
+	if h.projects == nil {
+		return projects.Project{}, projectassistant.ErrStoreNotConfigured
 	}
 	updated, err := h.projects.Update(ctx, projectID, func(project *projects.Project) {
 		project.Roots = append(project.Roots, root)
@@ -122,12 +131,15 @@ func (authority projectAssistantProjectAuthority) AttachProjectRoot(ctx context.
 
 func (authority projectAssistantProjectAuthority) RemoveProjectRoot(ctx context.Context, projectID, rootID string) (projects.Project, error) {
 	h := authority.handler
-	if h == nil || h.projects == nil {
+	if h == nil {
 		return projects.Project{}, projectassistant.ErrStoreNotConfigured
 	}
 	if h.projectRootWritesUseCairnlineAuthority() {
 		updated, _, err := h.deleteProjectRootWithCairnlineAuthority(ctx, projectID, rootID)
 		return updated, projectAssistantApplyProjectError(err)
+	}
+	if h.projects == nil {
+		return projects.Project{}, projectassistant.ErrStoreNotConfigured
 	}
 	updated, err := h.projects.Update(ctx, projectID, func(project *projects.Project) {
 		roots := project.Roots[:0]
@@ -146,7 +158,7 @@ func (authority projectAssistantProjectAuthority) RemoveProjectRoot(ctx context.
 
 func (authority projectAssistantProjectAuthority) SetProjectDefaults(ctx context.Context, projectID string, cmd projectassistant.ProjectDefaultsCommand) (projects.Project, error) {
 	h := authority.handler
-	if h == nil || h.projects == nil {
+	if h == nil {
 		return projects.Project{}, projectassistant.ErrStoreNotConfigured
 	}
 	req := updateProjectRequest{
@@ -162,6 +174,9 @@ func (authority projectAssistantProjectAuthority) SetProjectDefaults(ctx context
 	if h.projectMetadataDefaultsWritesUseCairnlineAuthority() && projectUpdateCanUseCairnlineMetadataDefaultsAuthority(req) {
 		updated, err := h.updateProjectMetadataDefaultsWithCairnlineAuthority(ctx, projectID, req)
 		return updated, projectAssistantApplyProjectError(err)
+	}
+	if h.projects == nil {
+		return projects.Project{}, projectassistant.ErrStoreNotConfigured
 	}
 	updated, err := h.projects.Update(ctx, projectID, func(project *projects.Project) {
 		if cmd.DefaultRootID != nil {
