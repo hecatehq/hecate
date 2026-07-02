@@ -24,8 +24,8 @@ func (s *Service) applyCreateProject(ctx context.Context, action Action) (Action
 	id := strings.TrimSpace(patch.ID)
 	if id == "" {
 		id = s.idgen("proj")
-	} else if s.projects != nil {
-		_, ok, err := s.projects.Get(ctx, id)
+	} else {
+		_, ok, err := s.projectAuthority.GetProject(ctx, id)
 		if err != nil {
 			return ActionResult{}, err
 		}
@@ -464,14 +464,14 @@ func (s *Service) applyCreateMemoryCandidate(ctx context.Context, action Action)
 }
 
 func (s *Service) requireProject(ctx context.Context, projectID string) (projects.Project, error) {
-	if s.projects == nil {
+	if s.projectAuthority == nil {
 		return projects.Project{}, ErrStoreNotConfigured
 	}
 	projectID = strings.TrimSpace(projectID)
 	if projectID == "" {
 		return projects.Project{}, fmt.Errorf("%w: project_id is required", ErrInvalid)
 	}
-	project, ok, err := s.projects.Get(ctx, projectID)
+	project, ok, err := s.projectAuthority.GetProject(ctx, projectID)
 	if err != nil {
 		return projects.Project{}, err
 	}
