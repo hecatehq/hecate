@@ -205,19 +205,13 @@ type DraftSelection struct {
 }
 
 func (s *Service) Context(ctx context.Context, input ContextInput) (DraftContext, error) {
-	if s == nil || s.projects == nil || s.work == nil {
+	if s == nil || s.projectAuthority == nil || s.work == nil {
 		return DraftContext{}, ErrStoreNotConfigured
 	}
 	projectID := strings.TrimSpace(input.ProjectID)
-	if projectID == "" {
-		return DraftContext{}, fmt.Errorf("%w: project_id is required", ErrInvalid)
-	}
-	project, ok, err := s.projects.Get(ctx, projectID)
+	project, err := s.requireProject(ctx, projectID)
 	if err != nil {
 		return DraftContext{}, err
-	}
-	if !ok {
-		return DraftContext{}, fmt.Errorf("%w: project %q", ErrNotFound, projectID)
 	}
 	roles, err := s.work.ListRoles(ctx, project.ID)
 	if err != nil {

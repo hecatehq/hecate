@@ -108,7 +108,7 @@ func (s *Service) draftReviewFollowUp(ctx context.Context, input DraftInput, dra
 }
 
 func (s *Service) loadReviewFollowUpDraftTarget(ctx context.Context, input DraftInput) (reviewFollowUpDraftTarget, error) {
-	if s == nil || s.projects == nil || s.work == nil {
+	if s == nil || s.projectAuthority == nil || s.work == nil {
 		return reviewFollowUpDraftTarget{}, ErrStoreNotConfigured
 	}
 	projectID := strings.TrimSpace(input.ProjectID)
