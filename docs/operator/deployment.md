@@ -665,6 +665,10 @@ Projects coordination state. In that armed mode with all portable
 write-authority gaps closed, new Cairnline-authoritative project identity
 creates no longer manufacture native Hecate project identity rows;
 compatibility shadows remain limited to Hecate-owned runtime/workspace needs.
+Once all replacement gates are ready, backend status reports
+`status=cairnline_authoritative` and keeps warnings focused on Hecate-owned
+runtime/workspace side effects instead of saying Hecate stores remain
+authoritative.
 It also groups the broad `write_adapter_gaps`
 diagnostic list into
 `portable_write_gaps`,

@@ -710,6 +710,9 @@ after these gates are met:
   strict embedded read smoke and migration/rollback gates are clean. Once those
   gates are clean, the `migration-cutover` switchpoint reports
   `embedded_cutover_armed` instead of a blocking Hecate-owned cutover gap.
+  At that point backend status reports `status=cairnline_authoritative`; any
+  warnings should describe the remaining Hecate-owned runtime/workspace
+  side-effect boundary, not stale Hecate-store authority.
 - Context packets, setup/health/operations summaries, activity projections, and
   closeout gates match current Hecate behavior or have documented intentional
   differences.

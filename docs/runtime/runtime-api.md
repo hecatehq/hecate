@@ -2576,6 +2576,11 @@ That identity-shadow behavior is a write-path switch, not the full readiness
 verdict: clients should use `replacement_ready` and `replacement_gates` to tell
 whether mirror parity, strict read smoke, migration, and rollback are actually
 clean.
+When every replacement gate is ready, `status` becomes
+`cairnline_authoritative`, `detail` describes Cairnline as authoritative for
+portable Projects coordination state, and warnings are limited to the remaining
+Hecate-owned runtime/workspace side-effect boundary rather than stale
+Hecate-store authority warnings.
 When the next action is `rehearse-migration-cutover`, `config_hints` identify
 the strict embedded dogfood posture expected for the rehearsal:
 `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded`,
