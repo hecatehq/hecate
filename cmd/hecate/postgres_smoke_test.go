@@ -15,6 +15,7 @@ import (
 	"github.com/hecatehq/hecate/internal/governor"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/orchestrator"
+	"github.com/hecatehq/hecate/internal/projectruntime"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
@@ -82,6 +83,10 @@ func TestPostgresStoresMigrateWhenDatabaseURLProvided(t *testing.T) {
 	projectWorkStore, err := projectwork.NewPostgresStore(ctx, client)
 	if err != nil {
 		t.Fatalf("projectwork.NewPostgresStore: %v", err)
+	}
+	projectRuntimeStore, err := projectruntime.NewPostgresStore(ctx, client)
+	if err != nil {
+		t.Fatalf("projectruntime.NewPostgresStore: %v", err)
 	}
 	projectSkillStore, err := projectskills.NewPostgresStore(ctx, client)
 	if err != nil {
@@ -284,6 +289,27 @@ func TestPostgresStoresMigrateWhenDatabaseURLProvided(t *testing.T) {
 		Title:     "Smoke work item",
 	}); err != nil {
 		t.Fatalf("project work item create: %v", err)
+	}
+
+	assignmentID := "assignment-" + suffix
+	if _, err := projectRuntimeStore.Upsert(ctx, projectruntime.AssignmentRuntime{
+		ProjectID:    projectID,
+		AssignmentID: assignmentID,
+		ExecutionRef: projectwork.AssignmentExecutionRef{
+			Kind:   projectwork.AssignmentExecutionKindTaskRun,
+			TaskID: taskID,
+			RunID:  runID,
+			Status: projectwork.AssignmentStatusRunning,
+		},
+		ContextPacket: []byte(`{"source":"postgres-smoke"}`),
+		StartedAt:     now,
+	}); err != nil {
+		t.Fatalf("project runtime upsert: %v", err)
+	}
+	if runtime, ok, err := projectRuntimeStore.Get(ctx, projectID, assignmentID); err != nil {
+		t.Fatalf("project runtime get: %v", err)
+	} else if !ok || runtime.ExecutionRef.RunID != runID || string(runtime.ContextPacket) != `{"source":"postgres-smoke"}` {
+		t.Fatalf("project runtime = %+v ok=%v, want task/run overlay", runtime, ok)
 	}
 
 	if _, err := projectSkillStore.UpsertDiscovered(ctx, projectID, []projectskills.Skill{{
