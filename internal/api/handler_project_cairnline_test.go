@@ -373,6 +373,30 @@ func TestProjectCairnlineSyncAPI_WritesDurableAllProjectsSQLiteDB(t *testing.T) 
 		"driver_kind": projectwork.AssignmentDriverHecateTask,
 		"root_id":     firstProject.Data.Roots[0].ID,
 	}))
+	if _, err := handler.projectAssistantProposals.UpsertProposal(t.Context(), projectassistant.ProposalRecord{
+		ID:        "pa_sync",
+		ProjectID: firstProject.Data.ID,
+		Source:    projectassistant.ProposalSourceDraft,
+		SourceID:  "strict-embedded-smoke",
+		Status:    projectassistant.ProposalStatusProposed,
+		Proposal: projectassistant.Proposal{
+			ID:      "pa_sync",
+			Title:   "Capture sync follow-up",
+			Summary: "Seed assistant proposal read coverage for strict embedded smoke.",
+			Actions: []projectassistant.Action{{
+				Kind:   projectassistant.ActionCreateWorkItem,
+				Target: map[string]string{"project_id": firstProject.Data.ID},
+				Patch: mustRawProjectCairnlinePatch(t, map[string]string{
+					"id":         "work_sync_followup",
+					"project_id": firstProject.Data.ID,
+					"title":      "Sync follow-up",
+				}),
+			}},
+			RequiresConfirmation: true,
+		},
+	}); err != nil {
+		t.Fatalf("Upsert sync assistant proposal: %v", err)
+	}
 
 	first := mustRequestJSON[ProjectCairnlineSyncResponse](client, http.MethodPost, "/hecate/v1/projects/cairnline/sync", "")
 	second := mustRequestJSON[ProjectCairnlineSyncResponse](client, http.MethodPost, "/hecate/v1/projects/cairnline/sync", "")
@@ -391,10 +415,10 @@ func TestProjectCairnlineSyncAPI_WritesDurableAllProjectsSQLiteDB(t *testing.T) 
 	if !hasProjectCairnlineMigrationCheck(second.Data.MigrationRehearsal.Checklist, "load-hecate-stores", "complete") || !hasProjectCairnlineMigrationCheck(second.Data.MigrationRehearsal.Checklist, "native-snapshot-import", "complete") || !hasProjectCairnlineMigrationCheck(second.Data.MigrationRehearsal.Checklist, "parity-check", "complete") || !hasProjectCairnlineMigrationCheck(second.Data.MigrationRehearsal.Checklist, "strict-embedded-read-smoke", "complete") || len(second.Data.MigrationRehearsal.Rollback) == 0 {
 		t.Fatalf("sync migration checklist = %+v rollback %+v, want explicit rehearsal checklist and rollback steps", second.Data.MigrationRehearsal.Checklist, second.Data.MigrationRehearsal.Rollback)
 	}
-	if second.Data.MigrationRehearsal.EmbeddedSmoke == nil || second.Data.MigrationRehearsal.EmbeddedSmoke.Status != "passed" || second.Data.MigrationRehearsal.EmbeddedSmoke.ProjectCount != 2 || second.Data.MigrationRehearsal.EmbeddedSmoke.ReadRouteChecks != 37 || second.Data.MigrationRehearsal.EmbeddedSmoke.ReadModelCount != 2 || second.Data.MigrationRehearsal.EmbeddedSmoke.LaunchPacketCount != 1 || second.Data.MigrationRehearsal.EmbeddedSmoke.LaunchPacketErrorCount != 0 || len(second.Data.MigrationRehearsal.EmbeddedSmoke.Errors) != 0 {
+	if second.Data.MigrationRehearsal.EmbeddedSmoke == nil || second.Data.MigrationRehearsal.EmbeddedSmoke.Status != "passed" || second.Data.MigrationRehearsal.EmbeddedSmoke.ProjectCount != 2 || second.Data.MigrationRehearsal.EmbeddedSmoke.ReadRouteChecks != 38 || second.Data.MigrationRehearsal.EmbeddedSmoke.ReadModelCount != 2 || second.Data.MigrationRehearsal.EmbeddedSmoke.LaunchPacketCount != 1 || second.Data.MigrationRehearsal.EmbeddedSmoke.LaunchPacketErrorCount != 0 || len(second.Data.MigrationRehearsal.EmbeddedSmoke.Errors) != 0 {
 		t.Fatalf("sync embedded smoke = %+v, want strict embedded route smoke across both synced projects", second.Data.MigrationRehearsal.EmbeddedSmoke)
 	}
-	for _, route := range []string{"project-list", "skills", "memory-candidate", "assignment-context", "launch-readiness", "assignment-preflight", "project-assistant-context", "project-chat-context"} {
+	for _, route := range projectCairnlineReadRouteNames {
 		if !hasProjectCairnlineSmokeRoute(second.Data.MigrationRehearsal.EmbeddedSmoke, route) {
 			t.Fatalf("sync embedded smoke routes = %+v, want %q", second.Data.MigrationRehearsal.EmbeddedSmoke.ReadRoutes, route)
 		}
