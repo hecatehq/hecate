@@ -908,6 +908,16 @@ func TestProjectWorkAPI_CairnlineCollaborationAuthorityWritesCairnlineAndShadows
 	if missingVerdict.Error.Type != errCodeInvalidRequest || !strings.Contains(missingVerdict.Error.Message, "review_verdict is required") {
 		t.Fatalf("missing verdict error = %+v, want invalid review verdict response", missingVerdict.Error)
 	}
+	missingAssignment := mustRequestJSONStatus[projectWorkErrorResponse](client, http.StatusNotFound, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/artifacts", projectJourneyJSON(t, map[string]any{
+		"id":            "art_authority_missing_assignment",
+		"assignment_id": "asgn_missing",
+		"kind":          "decision_note",
+		"title":         "Missing assignment",
+		"body":          "This artifact references an assignment that does not exist.",
+	}))
+	if missingAssignment.Error.Type != errCodeNotFound || !strings.Contains(missingAssignment.Error.Message, "assignment not found") {
+		t.Fatalf("missing assignment error = %+v, want assignment dependency error", missingAssignment.Error)
+	}
 
 	review := mustRequestJSONStatus[ProjectWorkArtifactEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/artifacts", projectJourneyJSON(t, map[string]any{
 		"id":                     "art_authority_review",
@@ -927,6 +937,18 @@ func TestProjectWorkAPI_CairnlineCollaborationAuthorityWritesCairnlineAndShadows
 		t.Fatalf("mirrored review = %+v, want Cairnline review metadata", mirroredReview)
 	}
 	assertHecateShadowArtifactForTest(t, handler, projectID, "work_authority", "art_authority_review", projectwork.ArtifactKindReview)
+
+	missingRole := mustRequestJSONStatus[projectWorkErrorResponse](client, http.StatusNotFound, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/handoffs", projectJourneyJSON(t, map[string]any{
+		"id":                      "handoff_authority_missing_role",
+		"source_assignment_id":    "asgn_authority",
+		"target_role_id":          "role_missing",
+		"title":                   "Missing target role",
+		"summary":                 "This handoff references a role that does not exist.",
+		"recommended_next_action": "Find a valid target role.",
+	}))
+	if missingRole.Error.Type != errCodeNotFound || !strings.Contains(missingRole.Error.Message, "role not found") {
+		t.Fatalf("missing role error = %+v, want role dependency error", missingRole.Error)
+	}
 
 	handoff := mustRequestJSONStatus[ProjectHandoffEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/handoffs", projectJourneyJSON(t, map[string]any{
 		"id":                      "handoff_authority",
@@ -1537,6 +1559,20 @@ func TestProjectWorkAPI_CairnlineCollaborationAuthorityWritesCairnlineOnlyProjec
 		ExecutionMode: cairnline.ExecutionManual,
 		Status:        cairnline.AssignmentCompleted,
 	}})
+
+	missingWork := mustRequestJSONStatus[projectWorkErrorResponse](client, http.StatusNotFound, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_missing/artifacts", projectJourneyJSON(t, map[string]any{
+		"id":                     "review_missing_work",
+		"assignment_id":          "asgn_cairnline_only",
+		"reviewed_assignment_id": "asgn_cairnline_only",
+		"kind":                   "review",
+		"body":                   "Review cannot attach to a missing work item.",
+		"author_role_id":         "role_cairnline_only",
+		"review_verdict":         projectwork.ReviewVerdictApproved,
+		"review_risk":            projectwork.ReviewRiskLow,
+	}))
+	if missingWork.Error.Type != errCodeNotFound || !strings.Contains(missingWork.Error.Message, "work item not found") {
+		t.Fatalf("missing Cairnline-only work item error = %+v, want work item dependency error", missingWork.Error)
+	}
 
 	review := mustRequestJSONStatus[ProjectWorkArtifactEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_cairnline_only/artifacts", projectJourneyJSON(t, map[string]any{
 		"id":                     "review_cairnline_only",
