@@ -2540,7 +2540,12 @@ capabilities and the separate `migration-cutover` gap because those are reported
 by their own status fields/gates. The `migration-and-rollback` gate reports
 `waiting_for_read_smoke` until strict embedded read-smoke evidence is verified;
 after that it reports `cutover_switch_missing` until Hecate has an explicit
-authoritative Cairnline storage cutover and rollback switch.
+authoritative Cairnline storage cutover and rollback switch. When strict
+embedded reads are verified, all portable write-authority gaps are closed, and
+`replacement_mode=embedded`, backend status treats replacement mode as that
+explicit embedded cutover switch: `migration_blockers` is empty, the
+`migration-and-rollback` gate is `ready`, and `authoritative_backend` reports
+`cairnline` for portable Projects coordination state.
 When the next action is `rehearse-migration-cutover`, `config_hints` identify
 the strict embedded dogfood posture expected for the rehearsal:
 `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded`,
@@ -2549,7 +2554,9 @@ the strict embedded dogfood posture expected for the rehearsal:
 operator-applied settings and do not flip Hecate into a replaced backend by
 themselves. Once strict embedded mirror parity and route smoke are verified, the
 next action becomes `implement-migration-cutover`, which is intentionally an
-implementation blocker rather than an automatic operator action.
+operator-controlled configuration step rather than an automatic mutation. Once
+the cutover is armed and all replacement gates are ready, the next action becomes
+`monitor-cairnline-backend`.
 `write_switchpoints` maps each live mutation family to the current authority,
 the Cairnline state (`live_mirror_non_authoritative`, `result_mirror_only`,
 `snapshot_import_rehearsal_available`, `authoritative_opt_in` for enabled

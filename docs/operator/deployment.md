@@ -636,8 +636,13 @@ by the same read-only mirror-parity evidence returned by
 strict embedded route smoke reports `verified`. The migration/rollback gate then
 reports `waiting_for_read_smoke` until that evidence is verified, and
 `cutover_switch_missing` once the read evidence is clean but the explicit
-authoritative storage cutover switch still does not exist. It also groups the
-broad `write_adapter_gaps` diagnostic list into
+authoritative storage cutover switch still does not exist. When
+`HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded` is armed after strict
+embedded reads are verified and all portable write-authority gaps are closed,
+backend status treats that mode as the explicit embedded cutover switch, clears
+the migration blocker, and reports Cairnline as authoritative for portable
+Projects coordination state. It also groups the broad `write_adapter_gaps`
+diagnostic list into
 `portable_write_gaps`,
 `orchestrator_capabilities`, and `migration_blockers`, so durable
 coordination-state switchpoint work is separated from Hecate-owned
@@ -656,9 +661,10 @@ closed, the migration next action reports strict embedded rehearsal hints for
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded`, and
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=all-portable`; after strict embedded
 read smoke is verified, the next action becomes implementing the missing
-migration cutover switch. After those gates are ready,
-`HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded` is the explicit operator
-arm, not an automatic backend replacement. `GET
+migration cutover switch by arming
+`HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded`. That status cutover does
+not move Hecate-owned runtime/workspace capabilities such as assignment dispatch
+or Project Assistant apply side effects into Cairnline core. `GET
 /hecate/v1/projects/cairnline/mirror-parity` compares the existing embedded
 mirror database with Hecate's current stores without creating or repairing it;
 `GET /hecate/v1/projects/{id}/cairnline/embedded-read-model` reads operations,
