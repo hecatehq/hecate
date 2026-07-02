@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -704,6 +705,50 @@ func TestProjectsAPI_CairnlineReplacementModeCreatesCairnlineOnlyIdentity(t *tes
 	detail := getProjectForTest(t, server, created.Data.ID)
 	if detail.ID != created.Data.ID || detail.ReadBackend != "cairnline" || detail.Name != "Replacement Identity" {
 		t.Fatalf("project detail = %+v, want strict embedded Cairnline replacement identity", detail)
+	}
+}
+
+func TestProjectsAPI_CairnlineReplacementModeRejectsDuplicateNameAndRootPath(t *testing.T) {
+	t.Parallel()
+	_, server := newProjectsCairnlineReplacementIdentityAuthorityTestServer(t)
+	client := newAPITestClient(t, server)
+
+	created := mustRequestJSONStatus[ProjectResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects", `{
+		"name":"Replacement Duplicate",
+		"roots":[{"id":"root_main","path":"/workspace/replacement-duplicate","kind":"git"}]
+	}`)
+
+	nameConflict := client.mustRequestStatus(http.StatusConflict, http.MethodPost, "/hecate/v1/projects", `{
+		"name":"Replacement Duplicate",
+		"roots":[{"id":"root_other","path":"/workspace/replacement-duplicate-other","kind":"git"}]
+	}`)
+	if !strings.Contains(nameConflict.Body.String(), "project name") {
+		t.Fatalf("duplicate name response = %s, want project name conflict", nameConflict.Body.String())
+	}
+
+	rootConflict := client.mustRequestStatus(http.StatusConflict, http.MethodPost, "/hecate/v1/projects", fmt.Sprintf(`{
+		"name":"Replacement Duplicate Root",
+		"roots":[{"id":"root_conflict","path":%q,"kind":"git"}]
+	}`, created.Data.Roots[0].Path))
+	if !strings.Contains(rootConflict.Body.String(), "project root path") {
+		t.Fatalf("duplicate root response = %s, want project root path conflict", rootConflict.Body.String())
+	}
+
+	other := mustRequestJSONStatus[ProjectResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects", `{
+		"name":"Replacement Unique",
+		"roots":[{"id":"root_unique","path":"/workspace/replacement-unique","kind":"git"}]
+	}`)
+	renameConflict := client.mustRequestStatus(http.StatusConflict, http.MethodPatch, "/hecate/v1/projects/"+other.Data.ID, `{
+		"name":"Replacement Duplicate"
+	}`)
+	if !strings.Contains(renameConflict.Body.String(), "project name") {
+		t.Fatalf("rename conflict response = %s, want project name conflict", renameConflict.Body.String())
+	}
+	updateRootConflict := client.mustRequestStatus(http.StatusConflict, http.MethodPatch, "/hecate/v1/projects/"+other.Data.ID, fmt.Sprintf(`{
+		"roots":[{"id":"root_unique","path":%q,"kind":"git"}]
+	}`, created.Data.Roots[0].Path))
+	if !strings.Contains(updateRootConflict.Body.String(), "project root path") {
+		t.Fatalf("update root conflict response = %s, want project root path conflict", updateRootConflict.Body.String())
 	}
 }
 

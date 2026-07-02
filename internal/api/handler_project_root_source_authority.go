@@ -450,23 +450,56 @@ func (h *Handler) validateProjectRootsHecateCompatibility(ctx context.Context, p
 			return fmt.Errorf("%w: default_root_id %q does not match a project root", projects.ErrInvalid, project.DefaultRootID)
 		}
 	}
-	if h == nil || h.projects == nil || len(rootPathKeys) == 0 {
+	if h != nil && h.projects != nil && len(rootPathKeys) > 0 {
+		items, err := h.projects.List(ctx)
+		if err != nil {
+			return err
+		}
+		projectID := strings.TrimSpace(project.ID)
+		for _, existing := range items {
+			if strings.TrimSpace(existing.ID) == projectID {
+				continue
+			}
+			for _, root := range existing.Roots {
+				if path, ok := rootPathKeys[projectRootPathKeyForCairnlineAuthority(root.Path)]; ok {
+					return fmt.Errorf("%w: project root path %q already belongs to project %q", projects.ErrAlreadyExists, path, existing.ID)
+				}
+			}
+		}
+	}
+	return h.validateProjectRootPathsCairnlineAuthorityCompatibility(ctx, project, rootPathKeys)
+}
+
+func (h *Handler) validateProjectRootPathsCairnlineAuthorityCompatibility(ctx context.Context, project projects.Project, rootPathKeys map[string]string) error {
+	if len(rootPathKeys) == 0 || h == nil || !h.projectCairnlineEmbeddedConnectorEnabled() {
 		return nil
 	}
-	items, err := h.projects.List(ctx)
+	projectID := strings.TrimSpace(project.ID)
+	var conflictPath, conflictProjectID string
+	err := h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+		items, err := service.ListProjects(ctx)
+		if err != nil {
+			return err
+		}
+		for _, existing := range items {
+			if strings.TrimSpace(existing.ID) == projectID {
+				continue
+			}
+			for _, root := range existing.Roots {
+				if path, ok := rootPathKeys[projectRootPathKeyForCairnlineAuthority(root.Path)]; ok {
+					conflictPath = path
+					conflictProjectID = existing.ID
+					return nil
+				}
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		return err
 	}
-	projectID := strings.TrimSpace(project.ID)
-	for _, existing := range items {
-		if strings.TrimSpace(existing.ID) == projectID {
-			continue
-		}
-		for _, root := range existing.Roots {
-			if path, ok := rootPathKeys[projectRootPathKeyForCairnlineAuthority(root.Path)]; ok {
-				return fmt.Errorf("%w: project root path %q already belongs to project %q", projects.ErrAlreadyExists, path, existing.ID)
-			}
-		}
+	if conflictPath != "" {
+		return fmt.Errorf("%w: project root path %q already belongs to project %q", projects.ErrAlreadyExists, conflictPath, conflictProjectID)
 	}
 	return nil
 }
