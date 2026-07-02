@@ -131,7 +131,9 @@ When configured for the embedded connector, strict embedded read source, and a
 runtime data directory, the strict embedded read-smoke gate is backed by the
 read-only mirror-parity probe: missing mirrors, drift, probe errors, and verified
 route smoke are reflected directly in backend status instead of relying only on
-manual checklist prose.
+manual checklist prose. The migration/rollback gate depends on that read-smoke
+evidence: it waits for verified strict embedded reads first, then reports the
+remaining missing authoritative cutover/rollback switch separately.
 It keeps `write_adapter_gaps` as the broad diagnostic list and also groups
 that list into `portable_write_gaps`, `orchestrator_capabilities`, and
 `migration_blockers`, so operator tooling can tell durable coordination-state

@@ -633,8 +633,11 @@ and a configured data directory are active, the strict read-smoke gate is driven
 by the same read-only mirror-parity evidence returned by
 `GET /hecate/v1/projects/cairnline/mirror-parity`: a missing mirror reports
 `not_run`, mirror drift reports `drift_detected`, and an exact mirror with passing
-strict embedded route smoke reports `verified`. It also groups the broad
-`write_adapter_gaps` diagnostic list into
+strict embedded route smoke reports `verified`. The migration/rollback gate then
+reports `waiting_for_read_smoke` until that evidence is verified, and
+`cutover_switch_missing` once the read evidence is clean but the explicit
+authoritative storage cutover switch still does not exist. It also groups the
+broad `write_adapter_gaps` diagnostic list into
 `portable_write_gaps`,
 `orchestrator_capabilities`, and `migration_blockers`, so durable
 coordination-state switchpoint work is separated from Hecate-owned
@@ -651,9 +654,11 @@ gates. Once portable write gaps are
 closed, the migration next action reports strict embedded rehearsal hints for
 `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded`,
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded`, and
-`HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=all-portable`; after those gates are
-ready, `HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded` is the explicit
-operator arm, not an automatic backend replacement. `GET
+`HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=all-portable`; after strict embedded
+read smoke is verified, the next action becomes implementing the missing
+migration cutover switch. After those gates are ready,
+`HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded` is the explicit operator
+arm, not an automatic backend replacement. `GET
 /hecate/v1/projects/cairnline/mirror-parity` compares the existing embedded
 mirror database with Hecate's current stores without creating or repairing it;
 `GET /hecate/v1/projects/{id}/cairnline/embedded-read-model` reads operations,

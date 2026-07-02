@@ -128,8 +128,8 @@ func TestProjectCoordinationBackendStatus_CairnlineConfiguredMissingSources(t *t
 	if gate := findReplacementGate(status.ReplacementGates, "write-authority-switchpoints"); gate == nil || gate.Ready || gate.Status != "blocked" {
 		t.Fatalf("write-authority gate = %+v, want blocking gate", gate)
 	}
-	if gate := findReplacementGate(status.ReplacementGates, "migration-and-rollback"); gate == nil || gate.Ready || gate.Status != "rehearsal_available" {
-		t.Fatalf("migration gate = %+v, want rehearsal-available blocker", gate)
+	if gate := findReplacementGate(status.ReplacementGates, "migration-and-rollback"); gate == nil || gate.Ready || gate.Status != "waiting_for_read_smoke" {
+		t.Fatalf("migration gate = %+v, want read-smoke waiting blocker", gate)
 	}
 	if point := findWriteSwitchpoint(status.WriteSwitchpoints, "assignment-start-dispatch"); point == nil || point.CurrentAuthority != "hecate" || point.CairnlineState != "result_mirror_only" || !point.LiveMirror || point.BlocksAuthority || point.Gap != "assignment-start" {
 		t.Fatalf("assignment-start switchpoint = %+v, want Hecate-owned result mirror capability outside portable write authority", point)
@@ -409,8 +409,11 @@ func TestProjectCoordinationBackendStatus_StrictEmbeddedReadSmokeGateVerifiedAft
 	if status.ReplacementReady {
 		t.Fatalf("replacement_ready = true, want false while migration/cutover gate remains blocked")
 	}
-	if status.NextReplacementAction == nil || status.NextReplacementAction.ID != "rehearse-migration-cutover" {
-		t.Fatalf("next action = %+v, want migration rehearsal after read/write gates are ready", status.NextReplacementAction)
+	if migrationGate := findReplacementGate(status.ReplacementGates, "migration-and-rollback"); migrationGate == nil || migrationGate.Ready || migrationGate.Status != "cutover_switch_missing" {
+		t.Fatalf("migration gate = %+v, want cutover-switch blocker after strict embedded verification", migrationGate)
+	}
+	if status.NextReplacementAction == nil || status.NextReplacementAction.ID != "implement-migration-cutover" {
+		t.Fatalf("next action = %+v, want cutover implementation after read/write gates are ready", status.NextReplacementAction)
 	}
 }
 
@@ -1054,8 +1057,8 @@ func TestProjectCoordinationBackendStatusRoute(t *testing.T) {
 		t.Fatalf("response replacement_ready = true, want false until write authority and migration gates are ready")
 	}
 	migrationGate := findReplacementGate(response.Data.ReplacementGates, "migration-and-rollback")
-	if migrationGate == nil || migrationGate.Status != "rehearsal_available" {
-		t.Fatalf("response migration gate = %+v, want rehearsal-available blocker", migrationGate)
+	if migrationGate == nil || migrationGate.Status != "waiting_for_read_smoke" {
+		t.Fatalf("response migration gate = %+v, want read-smoke waiting blocker", migrationGate)
 	}
 	if !containsString(migrationGate.ProbeURLs, projectCoordinationBackendSyncReadinessURL) || !containsString(migrationGate.ProbeURLs, projectCoordinationBackendMirrorParityURL) || !containsString(migrationGate.ProbeURLs, projectCoordinationBackendExportURL) {
 		t.Fatalf("response migration gate probe URLs = %+v, want sync, mirror parity, and export probes", migrationGate.ProbeURLs)
