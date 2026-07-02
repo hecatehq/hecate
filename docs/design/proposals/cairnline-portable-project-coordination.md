@@ -9,8 +9,8 @@
 > [Workspace instructions, skills, and profiles](workspace-instructions-skills-and-profiles.md)
 > for today's Hecate project, context, memory, skills, and agent-supervision
 > behavior.
-> **Next action:** use Cairnline beside Hecate and begin embed experiments, while
-> Hecate remains the richer incubator for cockpit and orchestration behavior.
+> **Next action:** keep the embedded Cairnline replacement path explicit and
+> gate-driven while Hecate remains the richer cockpit and orchestrator.
 
 Hecate Projects V1 has grown into a useful local coordination substrate:
 durable project identity, roots, roles, work items, assignments, evidence,
@@ -23,9 +23,10 @@ supervisor, approval implementation, or operator UI.
 This proposal documents a design-first extraction path for **Cairnline**, a
 standalone, agent-neutral project coordination server exposed over MCP. A local
 standalone scaffold exists at [hecatehq/cairnline](https://github.com/hecatehq/cairnline),
-including a public embeddable Go API, but this remains a proposal for Hecate
-integration and long-term extraction boundaries, not current Hecate runtime
-behavior.
+including a public embeddable Go API, and Hecate now imports that package for
+gated embedded replacement experiments. This remains the proposal for extraction
+boundaries and long-term product shape; the accepted Projects design and Runtime
+API docs remain the source of truth for current Hecate behavior.
 
 ## Summary
 
@@ -51,12 +52,16 @@ another orchestrator may later launch and supervise compatible agents.
 
 ## Replacement Readiness
 
-Cairnline is ready for **side-by-side dogfood** and small Hecate embed
-experiments once Hecate imports the public root package
-`github.com/hecatehq/cairnline`. It is not ready to replace Hecate's Projects
-backend yet.
+Cairnline is ready for **side-by-side dogfood** and explicit embedded
+replacement dogfood inside Hecate. It is not the default Hecate Projects backend:
+operators must configure the Cairnline coordination backend, embedded connector,
+strict embedded read source, all portable write-authority switchpoints, and
+`HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded` before Hecate reports
+Cairnline as authoritative.
 
-Hecate should replace its internal Projects stores with Cairnline only after:
+Hecate should treat Cairnline as the authoritative portable coordination store
+only when backend status reports `replacement_ready=true` and
+`status=cairnline_authoritative`. That cutover contract depends on:
 
 - Cairnline covers Hecate's current project, role, profile, skill, work item,
   assignment, generic artifact, evidence, review, handoff, memory-candidate,
@@ -73,8 +78,11 @@ Hecate should replace its internal Projects stores with Cairnline only after:
   replacement-readiness parity report counts execution profiles so this
   posture mapping is observable.
 - Hecate has an adapter from Hecate task / External Agent execution records to
-  Cairnline assignment coordination records.
-- Hecate can migrate or import/export existing local project state.
+  Cairnline assignment coordination records, while execution itself remains
+  Hecate-owned.
+- Hecate can migrate, import/export, and verify existing local project state
+  through embedded sync, mirror parity, strict embedded read smoke, and rollback
+  evidence.
 - Workspace root, worktree, evidence-link, and source-locator boundaries keep a
   documented security boundary in the Cairnline API. The current Cairnline
   package documents that boundary and tests unsafe guidance-path rejection for
@@ -90,10 +98,10 @@ The intended order is therefore:
 
 ```text
 side-by-side MCP server
--> embedded read/write experiment
--> parity adapter behind a feature flag
--> state migration/import-export
--> embedded Cairnline replacement after dogfood
+-> embedded read/write experiment behind explicit config
+-> parity adapter and mirror evidence behind feature flags
+-> state migration/import-export rehearsal
+-> embedded Cairnline replacement after verified dogfood
 -> optional external sidecar backend after embedded replacement is stable
 ```
 
@@ -539,24 +547,28 @@ launch agents. Those remain explicit operator or orchestrator actions.
   memory-candidate authority seams and remains a mixed-authority blocker for
   chat/runtime side effects even when the proposal-ledger switchpoint is
   enabled. Role mirrors also seed referenced agent-profile metadata/execution
-  posture when the profile store is available.
-  Assignment-start dispatch is still a Hecate-owned write
-  gap. Artifact/evidence/review update/delete semantics are absent because
-  Hecate currently records those as immutable collaboration artifacts. Route
-  switch points, atomic promotion semantics, migration, rollback, and the rest
-  of the mutation families must land before Cairnline can become authoritative.
+  posture when the profile store is available. Assignment-start dispatch remains
+  a Hecate-owned orchestrator capability: Hecate can claim/progress Cairnline
+  assignment records and mirror runtime refs, but Cairnline does not launch
+  tasks or External Agents. Artifact/evidence/review update/delete semantics are
+  absent because Hecate currently records those as immutable collaboration
+  artifacts. The explicit embedded replacement mode plus closed portable write
+  gaps, verified strict embedded reads, and migration/rollback evidence is the
+  contract that permits backend status to report Cairnline authoritative for
+  portable coordination state; Hecate-owned runtime/workspace side effects are
+  reported as the remaining boundary, not as portable core blockers.
 - Hecate can write a refreshable embedded Cairnline SQLite sync database for
-  the full Projects graph as a migration rehearsal before any dual-write or
-  authoritative write adapter exists. The sync response compares aggregate
-  Hecate snapshot counts, normalized record ID sets, and semantic
+  the full Projects graph as a migration rehearsal before or alongside
+  live-mirror and authoritative write-adapter experiments. The sync response
+  compares aggregate Hecate snapshot counts, normalized record ID sets, and semantic
   record-content digests with the embedded database and reports count-level,
   ID-set, and content-digest differences. Hecate also uses strict embedded
   configured-route smoke tests after sync and live-mirror parity to prove normal
   project, setup, health, skill, memory, role, work, collaboration, assistant
   context, activity, and operations reads can run from the embedded database.
-- After V0 stabilizes, Hecate should embed the portable core as its first
-  Projects backend replacement. Talking to the MCP server as a separate local
-  coordination process remains the later standalone/interoperability boundary.
+- Hecate should keep the embedded portable core as its first Projects backend
+  replacement target. Talking to the MCP server as a separate local coordination
+  process remains the later standalone/interoperability boundary.
 - Hecate remains the richer cockpit and orchestrator for supervised Hecate
   Tasks and External Agents.
 - Hecate integration tests should start only after Hecate consumes the
