@@ -81,6 +81,10 @@ assignment shadow.
 Assignment launch/preflight context must read inspect-only collaboration
 artifact and handoff metadata from the active Cairnline read model before
 falling back to Hecate-native project-work rows.
+Strict embedded assignment context reads must prefer a matching Hecate runtime
+overlay context packet after Hecate has launched the assignment, and use
+Cairnline's inspect-only assignment context only when no persisted runtime
+snapshot exists yet.
 Linked external-agent chat reconciliation must follow the same boundary: when
 native project-work stores are absent, reconcile status/ref changes back to the
 embedded Cairnline assignment plus Hecate's runtime overlay rather than

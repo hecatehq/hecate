@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/chatcontext"
@@ -135,7 +136,16 @@ func (h *Handler) HandleProjectWorkAssignmentContext(w http.ResponseWriter, r *h
 		return
 	}
 	if h.projectReadRoutesUseCairnlineReadModel() && h.requiresEmbeddedCairnlineProjectReads() {
-		packet, ok, err := h.contextPacketForStrictEmbeddedCairnlineProjectAssignment(ctx, projectID, workItemID, assignmentID)
+		packet, ok, err := h.contextPacketForStrictEmbeddedCairnlineRuntimeAssignment(ctx, projectID, workItemID, assignmentID)
+		if err != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+			return
+		}
+		if ok {
+			writeChatContextPacket(w, packet)
+			return
+		}
+		packet, ok, err = h.contextPacketForStrictEmbeddedCairnlineProjectAssignment(ctx, projectID, workItemID, assignmentID)
 		if err != nil {
 			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 			return
@@ -255,6 +265,56 @@ func (h *Handler) contextPacketForProjectAssignment(ctx context.Context, assignm
 		return packet, found, nil
 	}
 	return h.contextPacketForCairnlineProjectAssignment(ctx, assignment)
+}
+
+func (h *Handler) contextPacketForStrictEmbeddedCairnlineRuntimeAssignment(ctx context.Context, projectID, workItemID, assignmentID string) (chat.ContextPacket, bool, error) {
+	if h == nil || h.projectRuntime == nil {
+		return chat.ContextPacket{}, false, nil
+	}
+	projectID = strings.TrimSpace(projectID)
+	workItemID = strings.TrimSpace(workItemID)
+	assignmentID = strings.TrimSpace(assignmentID)
+	runtime, ok, err := h.projectRuntime.Get(ctx, projectID, assignmentID)
+	if err != nil || !ok || len(runtime.ContextPacket) == 0 {
+		return chat.ContextPacket{}, false, err
+	}
+	view, err := h.cairnlineProjectWorkView(ctx, projectID)
+	if errors.Is(err, projects.ErrNotFound) {
+		return chat.ContextPacket{}, false, nil
+	}
+	if err != nil {
+		return chat.ContextPacket{}, false, err
+	}
+	defer view.Close()
+	assignment, err := view.service.GetAssignment(ctx, view.snapshot.Project.ID, assignmentID)
+	if errors.Is(err, cairnline.ErrNotFound) {
+		return chat.ContextPacket{}, false, nil
+	}
+	if err != nil {
+		return chat.ContextPacket{}, false, err
+	}
+	if strings.TrimSpace(assignment.ProjectID) != projectID ||
+		strings.TrimSpace(assignment.WorkItemID) != workItemID ||
+		strings.TrimSpace(assignment.ID) != assignmentID {
+		return chat.ContextPacket{}, false, nil
+	}
+	packet, ok, err := chatcontext.FromProjectAssignmentPayload(runtime.ContextPacket)
+	if err != nil || !ok {
+		return chat.ContextPacket{}, ok, err
+	}
+	if packet.Refs == nil ||
+		strings.TrimSpace(packet.Refs.ProjectID) != projectID ||
+		strings.TrimSpace(packet.Refs.WorkItemID) != workItemID ||
+		strings.TrimSpace(packet.Refs.AssignmentID) != assignmentID {
+		return chat.ContextPacket{}, false, nil
+	}
+	roleID := strings.TrimSpace(packet.Refs.RoleID)
+	ref := projectwork.NormalizeAssignmentExecutionRef(runtime.ExecutionRef)
+	return chatcontext.Normalize(packet, chatcontext.MergeRefs(
+		chatcontext.ProjectAssignmentRefs(projectID, workItemID, assignmentID, roleID),
+		chatcontext.TaskRunRefs(ref.TaskID, ref.RunID, projectID),
+		chatcontext.ChatMessageRefs(ref.ChatSessionID, ref.MessageID, projectID),
+	)), true, nil
 }
 
 func (h *Handler) directModelContextPacket(ctx context.Context, session chat.Session, provider, model, systemPrompt string) chat.ContextPacket {
