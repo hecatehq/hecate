@@ -7,6 +7,7 @@ import (
 )
 
 type ProjectAuthority interface {
+	GetProject(ctx context.Context, projectID string) (projects.Project, bool, error)
 	CreateProject(ctx context.Context, project projects.Project) (projects.Project, error)
 	UpdateProject(ctx context.Context, projectID string, cmd ProjectUpdateCommand) (projects.Project, error)
 	AttachProjectRoot(ctx context.Context, projectID string, root projects.Root) (projects.Project, error)
@@ -42,6 +43,10 @@ func projectAuthorityForStores(stores Stores) ProjectAuthority {
 
 type storeProjectAuthority struct {
 	store projects.Store
+}
+
+func (authority storeProjectAuthority) GetProject(ctx context.Context, projectID string) (projects.Project, bool, error) {
+	return authority.store.Get(ctx, projectID)
 }
 
 func (authority storeProjectAuthority) CreateProject(ctx context.Context, project projects.Project) (projects.Project, error) {

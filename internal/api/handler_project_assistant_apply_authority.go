@@ -44,6 +44,33 @@ func (h *Handler) projectAssistantMemoryCandidateAuthorityForApplication() proje
 	return projectAssistantMemoryCandidateAuthority{handler: h}
 }
 
+func (authority projectAssistantProjectAuthority) GetProject(ctx context.Context, projectID string) (projects.Project, bool, error) {
+	h := authority.handler
+	if h == nil {
+		return projects.Project{}, false, projectassistant.ErrStoreNotConfigured
+	}
+	projectID = strings.TrimSpace(projectID)
+	if projectID == "" {
+		return projects.Project{}, false, nil
+	}
+	if h.requiresEmbeddedCairnlineProjectReads() {
+		view, err := h.cairnlineEmbeddedProjectWorkView(ctx, projectID)
+		if err != nil {
+			if errors.Is(err, projects.ErrNotFound) || errors.Is(err, cairnline.ErrNotFound) {
+				return projects.Project{}, false, nil
+			}
+			return projects.Project{}, false, projectAssistantApplyProjectError(err)
+		}
+		defer view.Close()
+		return view.snapshot.Project, true, nil
+	}
+	if h.projects == nil {
+		return projects.Project{}, false, projectassistant.ErrStoreNotConfigured
+	}
+	project, ok, err := h.projects.Get(ctx, projectID)
+	return project, ok, projectAssistantApplyProjectError(err)
+}
+
 func (authority projectAssistantProjectAuthority) CreateProject(ctx context.Context, project projects.Project) (projects.Project, error) {
 	h := authority.handler
 	if h == nil || h.projects == nil {

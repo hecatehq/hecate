@@ -48,7 +48,7 @@ func (p *applyPreflight) action(ctx context.Context, action Action) error {
 }
 
 func (p *applyPreflight) createProject(ctx context.Context, action Action) error {
-	if p.service.projects == nil {
+	if p.service.projectAuthority == nil {
 		return ErrStoreNotConfigured
 	}
 	var patch projectPatch
@@ -467,7 +467,7 @@ func (p *applyPreflight) createMemoryCandidate(ctx context.Context, action Actio
 }
 
 func (p *applyPreflight) requireProject(ctx context.Context, projectID string) (projects.Project, error) {
-	if p.service.projects == nil {
+	if p.service.projectAuthority == nil {
 		return projects.Project{}, ErrStoreNotConfigured
 	}
 	projectID = strings.TrimSpace(projectID)
@@ -477,7 +477,7 @@ func (p *applyPreflight) requireProject(ctx context.Context, projectID string) (
 	if project, ok := p.projects[projectID]; ok {
 		return project, nil
 	}
-	project, ok, err := p.service.projects.Get(ctx, projectID)
+	project, ok, err := p.service.projectAuthority.GetProject(ctx, projectID)
 	if err != nil {
 		return projects.Project{}, err
 	}
@@ -496,7 +496,10 @@ func (p *applyPreflight) projectExists(ctx context.Context, projectID string) (b
 	if _, ok := p.projects[projectID]; ok {
 		return true, nil
 	}
-	_, ok, err := p.service.projects.Get(ctx, projectID)
+	if p.service.projectAuthority == nil {
+		return false, ErrStoreNotConfigured
+	}
+	_, ok, err := p.service.projectAuthority.GetProject(ctx, projectID)
 	return ok, err
 }
 

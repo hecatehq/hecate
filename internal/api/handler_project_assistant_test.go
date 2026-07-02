@@ -2998,6 +2998,91 @@ func TestProjectAssistantAPI_ApplyDoneReturnsCloseoutReadiness(t *testing.T) {
 	}
 }
 
+func TestProjectAssistantAPI_ApplyDoneUsesCairnlineProjectAuthority(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineReplacementIdentityAuthorityTestServer(t)
+	client := newAPITestClient(t, server)
+
+	project := mustRequestJSONStatus[ProjectResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects", projectJourneyJSON(t, map[string]any{
+		"name": "Assistant Cairnline Closeout",
+	}))
+	projectID := project.Data.ID
+	if projectID == "" || project.Data.ReadBackend != "cairnline" {
+		t.Fatalf("project = %+v, want Cairnline project identity", project.Data)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("Hecate project store ok=%v err=%v after create, want no native project identity row", ok, err)
+	}
+
+	mustRequestJSONStatus[ProjectWorkRoleEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/roles", projectJourneyJSON(t, map[string]any{
+		"id":                  "role_assistant_closeout",
+		"name":                "Assistant closer",
+		"default_driver_kind": projectwork.AssignmentDriverHecateTask,
+	}))
+	work := mustRequestJSONStatus[ProjectWorkItemEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items", projectJourneyJSON(t, map[string]any{
+		"id":            "work_assistant_cairnline_closeout",
+		"title":         "Assistant Cairnline closeout",
+		"brief":         "Mark a Cairnline-only work item done through Project Assistant apply.",
+		"status":        projectwork.WorkItemStatusReview,
+		"owner_role_id": "role_assistant_closeout",
+	}))
+	if work.Data.ReadBackend != "cairnline" {
+		t.Fatalf("work = %+v, want Cairnline-backed work item", work.Data)
+	}
+	mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_assistant_cairnline_closeout/assignments", projectJourneyJSON(t, map[string]any{
+		"id":          "asgn_assistant_cairnline_closeout",
+		"role_id":     "role_assistant_closeout",
+		"driver_kind": projectwork.AssignmentDriverHecateTask,
+		"status":      projectwork.AssignmentStatusCompleted,
+	}))
+	mustRequestJSONStatus[ProjectWorkArtifactEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_assistant_cairnline_closeout/artifacts", projectJourneyJSON(t, map[string]any{
+		"id":                   "artifact_assistant_cairnline_evidence",
+		"assignment_id":        "asgn_assistant_cairnline_closeout",
+		"kind":                 projectwork.ArtifactKindEvidenceLink,
+		"title":                "Assistant Cairnline evidence",
+		"body":                 "The completed assignment has reviewable evidence.",
+		"author_role_id":       "role_assistant_closeout",
+		"evidence_url":         "https://example.invalid/hecate/assistant-cairnline-closeout",
+		"evidence_provider":    "operator",
+		"evidence_trust_label": projectwork.EvidenceTrustOperatorProvided,
+	}))
+	readiness := mustRequestJSONStatus[ProjectWorkItemReadinessEnvelope](client, http.StatusOK, http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_assistant_cairnline_closeout/readiness", "")
+	if !readiness.Data.Ready || readiness.Data.ReadBackend != "cairnline" || readiness.Data.CompletedAssignments != 1 {
+		t.Fatalf("readiness = %+v, want Cairnline-backed ready closeout", readiness.Data)
+	}
+
+	proposal := projectassistant.Proposal{
+		ID:                   "pa_assistant_cairnline_closeout",
+		Title:                "Mark Cairnline work done",
+		RequiresConfirmation: true,
+		Actions: []projectassistant.Action{{
+			Kind: projectassistant.ActionUpdateWorkItem,
+			Target: map[string]string{
+				"project_id":   projectID,
+				"work_item_id": "work_assistant_cairnline_closeout",
+			},
+			Patch: json.RawMessage(`{"status":"done"}`),
+		}},
+	}
+	applied := mustRequestJSONStatus[projectAssistantApplyResponse](client, http.StatusOK, http.MethodPost, "/hecate/v1/project-assistant/apply", projectJourneyJSON(t, map[string]any{
+		"proposal": proposal,
+		"confirm":  true,
+	}))
+	if applied.Data.Status != projectassistant.ApplyStatusApplied || !applied.Data.Applied || applied.Data.CommittedActionCount != 1 {
+		t.Fatalf("apply response = %+v, want applied closeout update", applied.Data)
+	}
+	closed := mustRequestJSONStatus[ProjectWorkItemEnvelope](client, http.StatusOK, http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_assistant_cairnline_closeout", "")
+	if closed.Data.Status != projectwork.WorkItemStatusDone || closed.Data.ReadBackend != "cairnline" {
+		t.Fatalf("closed work item = %+v, want Cairnline-backed done status", closed.Data)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("Hecate project store ok=%v err=%v after assistant closeout, want no native project identity row", ok, err)
+	}
+	if mirroredWork := getMirroredCairnlineWorkItemForTest(t, handler, projectID, "work_assistant_cairnline_closeout"); mirroredWork.Status != projectwork.WorkItemStatusDone {
+		t.Fatalf("mirrored Cairnline work = %+v, want done", mirroredWork)
+	}
+}
+
 func getMirroredCairnlineAssistantProposalForTest(t *testing.T, handler *Handler, proposalID string) cairnline.AssistantProposalRecord {
 	t.Helper()
 	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
