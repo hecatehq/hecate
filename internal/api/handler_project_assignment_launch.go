@@ -801,7 +801,7 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 	workItemID := r.PathValue("work_item_id")
 	assignmentID := r.PathValue("assignment_id")
 	strictEmbeddedRead := h.projectReadRoutesUseCairnlineReadModel() && h.requiresEmbeddedCairnlineProjectReads()
-	if (!strictEmbeddedRead && h.projects == nil) || h.projectWork == nil {
+	if !strictEmbeddedRead && (h.projects == nil || h.projectWork == nil) {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project stores are not configured")
 		return
 	}
@@ -830,6 +830,10 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		return
 	}
 	if assignment.DriverKind == projectwork.AssignmentDriverExternalAgent {
+		if strictEmbeddedRead && h.projectWork == nil {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project work store is not configured for external-agent assignment start")
+			return
+		}
 		if strictEmbeddedRead {
 			inputs.Assignment = assignment
 			shadowedAssignment, err := h.shadowCairnlineAssignmentStartInputsToHecate(ctx, inputs)
@@ -883,6 +887,11 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		contextPacket.ID = newChatID("ctx")
 	}
 
+	if strictEmbeddedRead && h.projectWork == nil {
+		result, err := h.startStrictEmbeddedCairnlineTaskAssignment(ctx, project, workItem, assignment, role, plan, contextPacket)
+		h.writeProjectTaskAssignmentStartResult(w, ctx, assignment, result, err)
+		return
+	}
 	if strictEmbeddedRead {
 		inputs.Assignment = assignment
 		shadowedAssignment, err := h.shadowCairnlineAssignmentStartInputsToHecate(ctx, inputs)
@@ -912,11 +921,22 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 			)))
 		},
 	})
+	h.writeProjectTaskAssignmentStartResult(w, ctx, assignment, result, err)
+}
+
+func (h *Handler) writeProjectTaskAssignmentStartResult(w http.ResponseWriter, ctx context.Context, assignment projectwork.Assignment, result *projectworkapp.StartTaskAssignmentResult, err error) {
 	if err != nil {
 		resultAssignment := assignment
 		if result != nil && result.Assignment.ID != "" {
 			resultAssignment = result.Assignment
-			h.mirrorProjectAssignmentStartResultToCairnline(ctx, result.Assignment)
+			if h.projectWork != nil {
+				h.mirrorProjectAssignmentStartResultToCairnline(ctx, result.Assignment)
+			}
+		}
+		var launchErr projectAssignmentPreflightError
+		if errors.As(err, &launchErr) {
+			WriteError(w, projectAssignmentPreflightHTTPStatus(err), projectAssignmentPreflightErrorCode(err), err.Error())
+			return
 		}
 		if errors.Is(err, projectworkapp.ErrAssignmentStartConflict) {
 			projected, projectErr := h.renderProjectedProjectWorkAssignment(ctx, resultAssignment)
@@ -944,13 +964,143 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 	if result.SpanID != "" {
 		w.Header().Set("X-Span-Id", result.SpanID)
 	}
-	h.mirrorProjectAssignmentStartResultToCairnline(ctx, result.Assignment)
+	if h.projectWork != nil {
+		h.mirrorProjectAssignmentStartResultToCairnline(ctx, result.Assignment)
+	}
 	projected, err := h.renderProjectedProjectWorkAssignment(ctx, result.Assignment)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
 	WriteJSON(w, http.StatusOK, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
+}
+
+func (h *Handler) startStrictEmbeddedCairnlineTaskAssignment(ctx context.Context, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile, plan projectworkapp.TaskAssignmentLaunchPlan, contextPacket chat.ContextPacket) (*projectworkapp.StartTaskAssignmentResult, error) {
+	claimed, err := h.claimStrictEmbeddedCairnlineTaskAssignment(ctx, assignment)
+	if err != nil {
+		return &projectworkapp.StartTaskAssignmentResult{Assignment: assignment}, err
+	}
+	assignment = claimed
+	taskID := newOpaqueTaskResourceID("task")
+	task := projectworkapp.NewAssignmentTask(taskID, project, workItem, assignment, role, plan, time.Now().UTC())
+	task, err = h.taskStore.CreateTask(ctx, task)
+	if err != nil {
+		return &projectworkapp.StartTaskAssignmentResult{Assignment: assignment}, errors.Join(err, h.releaseStrictEmbeddedCairnlineAssignmentClaim(context.Background(), assignment.ProjectID, assignment.ID))
+	}
+	contextPacket.Refs.TaskID = task.ID
+	result, err := h.taskRunner.StartTaskWithRunInitializer(ctx, task, newOpaqueTaskResourceID, func(run *types.TaskRun) {
+		contextPacket.Refs.RunID = run.ID
+		run.ContextPacket = chatcontext.Marshal(chatcontext.Normalize(contextPacket, chatcontext.MergeRefs(
+			chatcontext.TaskRunRefs(task.ID, run.ID, project.ID),
+			chatcontext.ProjectAssignmentRefs(project.ID, workItem.ID, assignment.ID, role.ID),
+		)))
+	})
+	if err != nil {
+		failed := assignment
+		failed.ExecutionRef = projectwork.AssignmentExecutionRef{
+			Kind:   projectwork.AssignmentExecutionKindTaskRun,
+			TaskID: task.ID,
+			Status: projectwork.AssignmentStatusFailed,
+		}
+		failed.Status = projectwork.AssignmentStatusFailed
+		failed.CompletedAt = time.Now().UTC()
+		failed, updateErr := h.persistStrictEmbeddedCairnlineTaskAssignment(ctx, failed)
+		if updateErr != nil {
+			err = errors.Join(err, updateErr)
+		}
+		return &projectworkapp.StartTaskAssignmentResult{Assignment: failed, Task: task}, err
+	}
+	status := projectworkapp.AssignmentStatusFromRun(result.Run.Status)
+	running := assignment
+	running.ExecutionRef = projectwork.NormalizeAssignmentExecutionRef(projectwork.AssignmentExecutionRef{
+		Kind:              projectwork.AssignmentExecutionKindTaskRun,
+		TaskID:            result.Task.ID,
+		RunID:             result.Run.ID,
+		ContextSnapshotID: contextPacket.ID,
+		Status:            status,
+		TraceID:           result.Run.TraceID,
+	})
+	running.ContextPacket = append([]byte(nil), result.Run.ContextPacket...)
+	running.Status = status
+	if running.StartedAt.IsZero() {
+		running.StartedAt = time.Now().UTC()
+	}
+	running, err = h.persistStrictEmbeddedCairnlineTaskAssignment(ctx, running)
+	if err != nil {
+		return &projectworkapp.StartTaskAssignmentResult{Task: result.Task, Run: result.Run, TraceID: result.TraceID, SpanID: result.SpanID}, err
+	}
+	return &projectworkapp.StartTaskAssignmentResult{
+		Assignment: running,
+		Task:       result.Task,
+		Run:        result.Run,
+		TraceID:    result.TraceID,
+		SpanID:     result.SpanID,
+	}, nil
+}
+
+func (h *Handler) claimStrictEmbeddedCairnlineTaskAssignment(ctx context.Context, assignment projectwork.Assignment) (projectwork.Assignment, error) {
+	var claimed cairnline.Assignment
+	err := h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+		item, err := service.ClaimAssignment(ctx, assignment.ProjectID, assignment.ID, "hecate")
+		if err != nil {
+			return err
+		}
+		claimed = item
+		return nil
+	})
+	if errors.Is(err, cairnline.ErrConflict) {
+		return assignment, projectworkapp.ErrAssignmentStartConflict
+	}
+	if errors.Is(err, cairnline.ErrNotFound) {
+		return assignment, newProjectAssignmentPreflightError(http.StatusNotFound, errCodeNotFound, "assignment not found")
+	}
+	if err != nil {
+		return assignment, err
+	}
+	out := projectWorkAssignmentFromCairnline(claimed)
+	out.Status = projectwork.AssignmentStatusQueued
+	return out, nil
+}
+
+func (h *Handler) releaseStrictEmbeddedCairnlineAssignmentClaim(ctx context.Context, projectID, assignmentID string) error {
+	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+		_, err := service.ReleaseAssignment(ctx, projectID, assignmentID, "hecate")
+		if errors.Is(err, cairnline.ErrConflict) || errors.Is(err, cairnline.ErrNotFound) {
+			return nil
+		}
+		return err
+	})
+}
+
+func (h *Handler) persistStrictEmbeddedCairnlineTaskAssignment(ctx context.Context, assignment projectwork.Assignment) (projectwork.Assignment, error) {
+	var recorded projectwork.Assignment
+	err := h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+		existing, err := service.GetAssignment(ctx, assignment.ProjectID, assignment.ID)
+		if err != nil {
+			return err
+		}
+		existing.Status = cairnlinebridge.AssignmentStatus(assignment.Status)
+		existing.ExecutionRef = firstNonEmptyString(
+			strings.TrimSpace(assignment.ExecutionRef.RunID),
+			strings.TrimSpace(assignment.ExecutionRef.TaskID),
+			strings.TrimSpace(assignment.ExecutionRef.ChatSessionID),
+			strings.TrimSpace(assignment.ExecutionRef.ContextSnapshotID),
+		)
+		existing.ContextSnapshotID = strings.TrimSpace(assignment.ExecutionRef.ContextSnapshotID)
+		existing.StartedAt = assignment.StartedAt
+		existing.CompletedAt = assignment.CompletedAt
+		written, err := service.UpdateAssignment(ctx, existing)
+		if err != nil {
+			return err
+		}
+		recorded = projectWorkAssignmentFromCairnlineAuthority(written, assignment)
+		return nil
+	})
+	if err != nil {
+		return assignment, err
+	}
+	h.shadowProjectAssignmentRuntimeToHecate(ctx, "project_assignment_start_cairnline_task_runtime", recorded)
+	return h.projectWorkApplication().ApplyAssignmentRuntime(ctx, recorded)
 }
 
 func (h *Handler) projectAssignmentStartInputs(ctx context.Context, projectID, workItemID, assignmentID string, strictEmbeddedRead bool) (projectAssignmentLaunchInputs, error) {

@@ -71,6 +71,11 @@ compatibility project row; keep any Hecate shadow writes best-effort and do not
 add native `requireProject*` guards ahead of those authority paths. Assignment
 runtime refs/context/timestamps belong in Hecate's separate runtime overlay, so
 do not make runtime preservation depend on a native compatibility assignment row.
+In strict embedded mode, Hecate-task assignment start may claim/progress the
+assignment directly in Cairnline and persist only the runtime overlay; do not
+reintroduce native project-work guards for that task-start path. External-agent
+assignment start still uses the compatibility project-work path until that
+runtime path is replaced separately.
 Do not describe
 `internal/cairnlinebridge` as only a future proof; it maps Hecate Projects to
 Cairnline snapshots and backs the current embedded/sidecar replacement probes.
