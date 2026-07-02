@@ -2684,7 +2684,10 @@ timestamps in the assignment runtime overlay when the native project-work store
 is absent or embedded replacement mode is armed. They do not require or advance
 a native Hecate project identity row, and they do not advance compatibility
 assignment rows with runtime refs; runtime dispatch, task execution, and
-external-agent supervision remain Hecate-owned.
+external-agent supervision remain Hecate-owned. Assignment launch/preflight
+context uses the active Cairnline read model for inspect-only collaboration
+artifact and handoff metadata, so Cairnline-only project graphs preserve the
+same evidence/review/handoff hints as native project-work rows.
 `project-assignment-chat-reconcile-live-mirror`
 best-effort mirrors assignment status/ref updates committed by linked
 external-agent chat reconciliation, and strict embedded reconciliation can

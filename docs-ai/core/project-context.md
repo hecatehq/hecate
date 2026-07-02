@@ -78,6 +78,9 @@ When embedded replacement mode is armed, prefer that Cairnline runtime path even
 if a compatibility project-work store is configured, and keep task/run or
 chat-session refs in the runtime overlay instead of advancing the native
 assignment shadow.
+Assignment launch/preflight context must read inspect-only collaboration
+artifact and handoff metadata from the active Cairnline read model before
+falling back to Hecate-native project-work rows.
 Linked external-agent chat reconciliation must follow the same boundary: when
 native project-work stores are absent, reconcile status/ref changes back to the
 embedded Cairnline assignment plus Hecate's runtime overlay rather than
