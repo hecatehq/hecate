@@ -51,7 +51,6 @@ type IDGenerator func(prefix string) string
 
 type Service struct {
 	mu                       sync.Mutex
-	projects                 projects.Store
 	projectAuthority         ProjectAuthority
 	chats                    chat.Store
 	work                     projectwork.Store
@@ -191,7 +190,6 @@ func NewService(stores Stores, idgen IDGenerator) *Service {
 		proposals = NewMemoryProposalStore()
 	}
 	return &Service{
-		projects:                 stores.Projects,
 		projectAuthority:         projectAuthorityForStores(stores),
 		chats:                    stores.Chats,
 		work:                     stores.Work,
