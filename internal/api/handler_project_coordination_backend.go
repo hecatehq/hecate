@@ -518,6 +518,19 @@ func projectCairnlineNextReplacementAction(status ProjectCoordinationBackendStat
 		}
 	}
 	if len(status.MigrationBlockers) > 0 {
+		if gate := projectCoordinationBackendReplacementGateByID(status.ReplacementGates, "migration-and-rollback"); gate != nil && gate.Status == "cutover_switch_missing" {
+			return &ProjectCoordinationBackendNextAction{
+				ID:     "implement-migration-cutover",
+				Label:  "Implement migration cutover",
+				Detail: "Strict embedded mirror parity and read smoke are verified; the remaining migration blocker is an explicit authoritative cutover and rollback switch.",
+				Target: status.MigrationBlockers[0],
+				ProbeURLs: []string{
+					projectCoordinationBackendSyncReadinessURL,
+					projectCoordinationBackendMirrorParityURL,
+					projectCoordinationBackendExportURL,
+				},
+			}
+		}
 		return &ProjectCoordinationBackendNextAction{
 			ID:          "rehearse-migration-cutover",
 			Label:       "Rehearse migration and rollback",
@@ -552,6 +565,15 @@ func projectCairnlineNextReplacementAction(status ProjectCoordinationBackendStat
 			projectCoordinationBackendMirrorParityURL,
 		},
 	}
+}
+
+func projectCoordinationBackendReplacementGateByID(gates []ProjectCoordinationBackendReplacementGate, id string) *ProjectCoordinationBackendReplacementGate {
+	for i := range gates {
+		if gates[i].ID == id {
+			return &gates[i]
+		}
+	}
+	return nil
 }
 
 func projectCairnlineReplacementModeHints() []ProjectCoordinationBackendActionConfigHint {
@@ -636,13 +658,7 @@ func projectCairnlineReplacementGates(readRoutesReady bool, portableWriteGaps []
 		},
 		strictEmbeddedReadGate,
 		writeGate,
-		{
-			ID:        "migration-and-rollback",
-			Ready:     false,
-			Status:    "rehearsal_available",
-			Detail:    "Embedded sync and project export return structured migration rehearsal evidence with rollback notes, but no authoritative Cairnline storage cutover switch exists yet.",
-			ProbeURLs: []string{projectCoordinationBackendSyncReadinessURL, projectCoordinationBackendMirrorParityURL, projectCoordinationBackendExportURL},
-		},
+		projectCairnlineMigrationRollbackReplacementGate(strictEmbeddedReadGate),
 		projectCairnlineReplacementModeGate(replacementMode),
 	}
 }
@@ -710,6 +726,21 @@ func (h *Handler) projectCairnlineStrictEmbeddedReadSmokeReplacementGate(ctx con
 	gate.Ready = true
 	gate.Status = "verified"
 	gate.Detail = fmt.Sprintf("Existing embedded Cairnline mirror matches Hecate stores and strict embedded read smoke passed across %d project(s) and %d route check(s).", smoke.ProjectCount, smoke.ReadRouteChecks)
+	return gate
+}
+
+func projectCairnlineMigrationRollbackReplacementGate(strictEmbeddedReadGate ProjectCoordinationBackendReplacementGate) ProjectCoordinationBackendReplacementGate {
+	gate := ProjectCoordinationBackendReplacementGate{
+		ID:        "migration-and-rollback",
+		Ready:     false,
+		Status:    "waiting_for_read_smoke",
+		Detail:    "Strict embedded mirror parity and read smoke must be verified before migration and rollback can be treated as rehearsed.",
+		ProbeURLs: []string{projectCoordinationBackendSyncReadinessURL, projectCoordinationBackendMirrorParityURL, projectCoordinationBackendExportURL},
+	}
+	if strictEmbeddedReadGate.Ready {
+		gate.Status = "cutover_switch_missing"
+		gate.Detail = "Strict embedded mirror parity and read smoke are verified, and rehearsal endpoints expose rollback notes, but no authoritative Cairnline storage cutover switch exists yet."
+	}
 	return gate
 }
 

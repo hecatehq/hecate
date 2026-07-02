@@ -2537,14 +2537,19 @@ Hecate stores and strict embedded route smoke passes. The
 `write-authority-switchpoints` gate can be `blocked`, `partial`, or `ready`;
 it is driven by `portable_write_gaps` and ignores Hecate-owned orchestrator
 capabilities and the separate `migration-cutover` gap because those are reported
-by their own status fields/gates.
+by their own status fields/gates. The `migration-and-rollback` gate reports
+`waiting_for_read_smoke` until strict embedded read-smoke evidence is verified;
+after that it reports `cutover_switch_missing` until Hecate has an explicit
+authoritative Cairnline storage cutover and rollback switch.
 When the next action is `rehearse-migration-cutover`, `config_hints` identify
 the strict embedded dogfood posture expected for the rehearsal:
 `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded`,
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded`, and
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=all-portable`. These are still
 operator-applied settings and do not flip Hecate into a replaced backend by
-themselves.
+themselves. Once strict embedded mirror parity and route smoke are verified, the
+next action becomes `implement-migration-cutover`, which is intentionally an
+implementation blocker rather than an automatic operator action.
 `write_switchpoints` maps each live mutation family to the current authority,
 the Cairnline state (`live_mirror_non_authoritative`, `result_mirror_only`,
 `snapshot_import_rehearsal_available`, `authoritative_opt_in` for enabled
@@ -2850,8 +2855,8 @@ Example response, with `write_switchpoints` shortened for readability:
       {
         "id": "migration-and-rollback",
         "ready": false,
-        "status": "rehearsal_available",
-        "detail": "Embedded sync and project export return structured migration rehearsal evidence with rollback notes, but no authoritative Cairnline storage cutover switch exists yet.",
+        "status": "waiting_for_read_smoke",
+        "detail": "Strict embedded mirror parity and read smoke must be verified before migration and rollback can be treated as rehearsed.",
         "probe_urls": [
           "/hecate/v1/projects/cairnline/sync",
           "/hecate/v1/projects/cairnline/mirror-parity",
