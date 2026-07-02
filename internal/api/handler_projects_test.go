@@ -752,6 +752,10 @@ func TestProjectsAPI_CairnlineIdentityAuthorityDeletesCairnlineOnlyProject(t *te
 	const projectID = "proj_identity_delete_cairnline_only"
 	handler, server := newProjectsCairnlineIdentityAuthorityTestServer(t)
 	handler.SetProjectWorkStore(projectwork.NewMemoryStore())
+	chatStore := chat.NewMemoryStore()
+	handler.SetAgentChatStore(chatStore)
+	runner := &fakeAgentChatRunner{}
+	handler.SetAgentChatRunner(runner)
 	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
 		_, err := service.CreateProject(t.Context(), cairnline.Project{
 			ID:   projectID,
@@ -768,13 +772,36 @@ func TestProjectsAPI_CairnlineIdentityAuthorityDeletesCairnlineOnlyProject(t *te
 	}); err != nil {
 		t.Fatalf("seed Hecate shadow work item: %v", err)
 	}
+	if _, err := chatStore.Create(t.Context(), chat.Session{
+		ID:        "chat_cairnline_only_project",
+		ProjectID: projectID,
+		AgentID:   chat.DefaultAgentID,
+	}); err != nil {
+		t.Fatalf("seed Hecate chat shadow: %v", err)
+	}
+	if _, err := chatStore.Create(t.Context(), chat.Session{
+		ID:              "chat_cairnline_only_external",
+		ProjectID:       projectID,
+		AgentID:         "codex",
+		DriverKind:      "acp",
+		NativeSessionID: "native_cairnline_only_external",
+	}); err != nil {
+		t.Fatalf("seed external chat shadow: %v", err)
+	}
+	if _, err := chatStore.Create(t.Context(), chat.Session{
+		ID:        "chat_other_project",
+		ProjectID: "proj_other",
+		AgentID:   chat.DefaultAgentID,
+	}); err != nil {
+		t.Fatalf("seed unrelated chat: %v", err)
+	}
 	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
 		t.Fatalf("native project exists = %t err=%v, want missing before delete", ok, err)
 	}
 
 	deleted := mustRequestJSONStatus[ProjectDeleteResponse](newAPITestClient(t, server), http.StatusOK, http.MethodDelete, "/hecate/v1/projects/"+projectID, "")
-	if deleted.Data.ProjectID != projectID || deleted.Data.ProjectName != "Cairnline-only delete" || deleted.Data.ProjectWorkRowsDeleted != 1 {
-		t.Fatalf("delete response = %+v, want Cairnline project identity and shadow work cleanup", deleted.Data)
+	if deleted.Data.ProjectID != projectID || deleted.Data.ProjectName != "Cairnline-only delete" || deleted.Data.ProjectWorkRowsDeleted != 1 || deleted.Data.ChatSessionsDeleted != 2 {
+		t.Fatalf("delete response = %+v, want Cairnline project identity plus shadow work/chat cleanup", deleted.Data)
 	}
 	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
 	if err != nil {
@@ -790,6 +817,16 @@ func TestProjectsAPI_CairnlineIdentityAuthorityDeletesCairnlineOnlyProject(t *te
 	}
 	if len(workItems) != 0 {
 		t.Fatalf("shadow work items after delete = %+v, want none", workItems)
+	}
+	sessions, err := chatStore.List(t.Context())
+	if err != nil {
+		t.Fatalf("List chat sessions after delete: %v", err)
+	}
+	if len(sessions) != 1 || sessions[0].ID != "chat_other_project" {
+		t.Fatalf("chat sessions after delete = %+v, want only unrelated chat", sessions)
+	}
+	if len(runner.deletedSessions) != 1 || runner.deletedSessions[0] != "chat_cairnline_only_external" {
+		t.Fatalf("deleted native sessions = %#v, want external project chat deleted", runner.deletedSessions)
 	}
 }
 
