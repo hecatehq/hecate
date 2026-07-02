@@ -120,6 +120,9 @@ func (h *Handler) projectForCairnlineWriteAuthority(ctx context.Context, project
 		return projects.Project{}, errors.New("handler is not configured")
 	}
 	projectID = strings.TrimSpace(projectID)
+	if h.requiresEmbeddedCairnlineProjectReads() {
+		return h.projectFromEmbeddedCairnlineWriteAuthority(ctx, projectID)
+	}
 	if h.projects != nil {
 		project, ok, err := h.projects.Get(ctx, projectID)
 		if err != nil {
@@ -129,6 +132,10 @@ func (h *Handler) projectForCairnlineWriteAuthority(ctx context.Context, project
 			return project, nil
 		}
 	}
+	return h.projectFromEmbeddedCairnlineWriteAuthority(ctx, projectID)
+}
+
+func (h *Handler) projectFromEmbeddedCairnlineWriteAuthority(ctx context.Context, projectID string) (projects.Project, error) {
 	var project projects.Project
 	err := h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
 		item, err := service.GetProject(ctx, projectID)

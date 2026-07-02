@@ -2425,6 +2425,10 @@ create default and closeout-readiness gate. In these opt-in authority modes,
 portable project-work write routes can validate project identity and roots from
 the embedded Cairnline project graph, so they no longer require a matching
 Hecate-native compatibility project row before reaching Cairnline authority.
+When `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded` is set, those authority
+helpers prefer the embedded Cairnline project graph over any Hecate-native
+compatibility shadow so stale shadows cannot override authoritative project/root
+metadata.
 Adding `agent-profiles` makes global agent-profile create/update/delete
 Cairnline-first, writing Cairnline's separate portable profile and
 execution-posture records before shadowing Hecate's combined profile row.

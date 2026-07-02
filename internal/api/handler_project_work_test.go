@@ -1381,6 +1381,65 @@ func TestProjectWorkAPI_CairnlineWorkItemAuthorityWritesCairnlineOnlyProject(t *
 	}
 }
 
+func TestProjectWorkAPI_CairnlineWorkItemAuthorityStrictEmbeddedUsesCairnlineProjectOverStaleNative(t *testing.T) {
+	t.Parallel()
+	const projectID = "proj_work_authority_stale_native"
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend:     "cairnline",
+			CairnlineReadSource:     "embedded",
+			CairnlineWriteAuthority: projectCairnlineWriteAuthorityProjectWorkItems,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	handler.SetProjectStore(projects.NewMemoryStore())
+	handler.SetProjectWorkStore(projectwork.NewMemoryStore())
+	handler.SetAgentProfileStore(agentprofiles.NewMemoryStore())
+	if _, err := handler.projects.Create(t.Context(), projects.Project{
+		ID:   projectID,
+		Name: "Stale native project",
+	}); err != nil {
+		t.Fatalf("create stale native project: %v", err)
+	}
+	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+		_, err := service.CreateProject(t.Context(), cairnline.Project{
+			ID:            projectID,
+			Name:          "Authoritative Cairnline project",
+			DefaultRootID: "root_authoritative",
+			Roots: []cairnline.Root{{
+				ID:     "root_authoritative",
+				Path:   "/workspace/authoritative",
+				Kind:   "git",
+				Active: true,
+			}},
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("seed authoritative Cairnline project: %v", err)
+	}
+
+	client := newAPITestClient(t, NewServer(quietLogger(), handler))
+	created := mustRequestJSONStatus[ProjectWorkItemEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items", projectJourneyJSON(t, map[string]any{
+		"id":      "work_authoritative_root",
+		"title":   "Use authoritative root metadata",
+		"root_id": "root_authoritative",
+	}))
+	if created.Data.RootID != "root_authoritative" {
+		t.Fatalf("created work item = %+v, want item using authoritative Cairnline root", created.Data)
+	}
+	mirroredWork := getMirroredCairnlineWorkItemForTest(t, handler, projectID, "work_authoritative_root")
+	if mirroredWork.RootID != "root_authoritative" {
+		t.Fatalf("mirrored work item = %+v, want authoritative Cairnline root", mirroredWork)
+	}
+	native, ok, err := handler.projects.Get(t.Context(), projectID)
+	if err != nil || !ok {
+		t.Fatalf("native project ok=%v error=%v, want stale compatibility row still present", ok, err)
+	}
+	if len(native.Roots) != 0 {
+		t.Fatalf("native project roots = %+v, want stale compatibility row not used for root validation", native.Roots)
+	}
+}
+
 func TestProjectWorkAPI_CairnlineAssignmentAuthorityWritesCairnlineOnlyProject(t *testing.T) {
 	t.Parallel()
 	const projectID = "proj_assignment_authority_cairnline_only"

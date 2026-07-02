@@ -254,7 +254,11 @@ project-linked Hecate Chat prelude/context reads load directly from the embedded
 Cairnline project, skill, role, work-item,
 assignment, launch-packet, artifact, evidence, review, handoff, memory, and
 assistant proposal records instead of loading a Hecate-native project snapshot
-first.
+first. Cairnline-authoritative portable write helpers follow the same strict
+embedded boundary for project identity/root metadata: when strict embedded reads
+are configured, they load the embedded Cairnline project graph before consulting
+any Hecate-native compatibility shadow, so stale shadows cannot win over the
+configured source of truth.
 Activity, assignment-list, assignment-context, launch-readiness, assignment
 preflight, Project Assistant context/proposal, and operations brief reads render
 work items, assignments, roles, artifacts, and handoffs from the Cairnline
