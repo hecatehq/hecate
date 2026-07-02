@@ -204,14 +204,26 @@ func TestProjectJourneyAPI_CairnlineReplacementModeCreatesWorkAndStartsWithoutNa
 	if role.Data.ID != "role_replacement" || role.Data.ProjectID != projectID || role.Data.ReadBackend != "cairnline" {
 		t.Fatalf("role = %+v, want replacement project role", role.Data)
 	}
+	reviewer := mustRequestJSONStatus[ProjectWorkRoleEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/roles", projectJourneyJSON(t, map[string]any{
+		"id":                  "role_reviewer",
+		"name":                "Replacement reviewer",
+		"instructions":        "Review the Cairnline replacement journey.",
+		"default_driver_kind": "hecate_task",
+		"default_provider":    "anthropic",
+		"default_model":       "claude-sonnet-4",
+	}))
+	if reviewer.Data.ID != "role_reviewer" || reviewer.Data.ProjectID != projectID || reviewer.Data.ReadBackend != "cairnline" {
+		t.Fatalf("reviewer role = %+v, want replacement reviewer role", reviewer.Data)
+	}
 
 	work := mustRequestJSONStatus[ProjectWorkItemEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items", projectJourneyJSON(t, map[string]any{
-		"id":            "work_replacement",
-		"title":         "Start replacement assignment",
-		"brief":         "Exercise Cairnline-authoritative create, work, assignment, and launch.",
-		"status":        projectwork.WorkItemStatusReady,
-		"owner_role_id": "role_replacement",
-		"root_id":       "root_replacement",
+		"id":                "work_replacement",
+		"title":             "Start replacement assignment",
+		"brief":             "Exercise Cairnline-authoritative create, work, assignment, launch, collaboration, and closeout.",
+		"status":            projectwork.WorkItemStatusReady,
+		"owner_role_id":     "role_replacement",
+		"root_id":           "root_replacement",
+		"reviewer_role_ids": []string{"role_reviewer"},
 	}))
 	if work.Data.ID != "work_replacement" || work.Data.ReadBackend != "cairnline" || work.Data.RootID != "root_replacement" {
 		t.Fatalf("work = %+v, want Cairnline replacement work item", work.Data)
@@ -256,6 +268,99 @@ func TestProjectJourneyAPI_CairnlineReplacementModeCreatesWorkAndStartsWithoutNa
 	shadow := getStoredProjectWorkAssignmentForTest(t, handler, projectID, "work_replacement", "asgn_replacement")
 	if shadow.ExecutionRef.RunID != ref.RunID || shadow.ExecutionRef.ContextSnapshotID != ref.ContextSnapshotID {
 		t.Fatalf("Hecate runtime shadow assignment = %+v, want run/context %q/%q", shadow.ExecutionRef, ref.RunID, ref.ContextSnapshotID)
+	}
+
+	completed := mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusOK, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/work-items/work_replacement/assignments/asgn_replacement", projectJourneyJSON(t, map[string]any{
+		"status": projectwork.AssignmentStatusCompleted,
+	}))
+	if completed.Data.Status != projectwork.AssignmentStatusCompleted || completed.Data.ReadBackend != "cairnline" {
+		t.Fatalf("completed assignment = %+v, want Cairnline-backed completed assignment", completed.Data)
+	}
+
+	evidence := mustRequestJSONStatus[ProjectWorkArtifactEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_replacement/artifacts", projectJourneyJSON(t, map[string]any{
+		"id":                   "artifact_replacement_evidence",
+		"assignment_id":        "asgn_replacement",
+		"kind":                 projectwork.ArtifactKindEvidenceLink,
+		"title":                "Replacement evidence",
+		"body":                 "Task and context links were created from a Cairnline-only project graph.",
+		"author_role_id":       "role_replacement",
+		"evidence_url":         "https://example.invalid/hecate/cairnline-replacement",
+		"evidence_provider":    "operator",
+		"evidence_trust_label": projectwork.EvidenceTrustOperatorProvided,
+	}))
+	if evidence.Data.Kind != projectwork.ArtifactKindEvidenceLink || evidence.Data.AssignmentID != "asgn_replacement" || evidence.Data.EvidenceURL != "https://example.invalid/hecate/cairnline-replacement" {
+		t.Fatalf("evidence = %+v, want assignment evidence response", evidence.Data)
+	}
+	mirroredEvidence := getMirroredCairnlineEvidenceForTest(t, handler, projectID, "work_replacement", "artifact_replacement_evidence")
+	if mirroredEvidence.Locator != "https://example.invalid/hecate/cairnline-replacement" || mirroredEvidence.Provider != "operator" {
+		t.Fatalf("mirrored evidence = %+v, want Cairnline-backed assignment evidence", mirroredEvidence)
+	}
+
+	review := mustRequestJSONStatus[ProjectWorkArtifactEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_replacement/artifacts", projectJourneyJSON(t, map[string]any{
+		"id":                        "artifact_replacement_review",
+		"assignment_id":             "asgn_replacement",
+		"reviewed_assignment_id":    "asgn_replacement",
+		"kind":                      projectwork.ArtifactKindReview,
+		"title":                     "Replacement review",
+		"body":                      "Approved replacement journey evidence.",
+		"author_role_id":            "role_reviewer",
+		"review_verdict":            projectwork.ReviewVerdictApproved,
+		"review_risk":               projectwork.ReviewRiskLow,
+		"review_follow_up_required": false,
+	}))
+	if review.Data.ReviewVerdict != projectwork.ReviewVerdictApproved || review.Data.ReviewFollowUpRequired {
+		t.Fatalf("review = %+v, want approved review response without follow-up", review.Data)
+	}
+	mirroredReview := getMirroredCairnlineReviewForTest(t, handler, projectID, "work_replacement", "artifact_replacement_review")
+	if mirroredReview.Verdict != projectwork.ReviewVerdictApproved || mirroredReview.Risk != projectwork.ReviewRiskLow {
+		t.Fatalf("mirrored review = %+v, want approved Cairnline-backed review without follow-up", mirroredReview)
+	}
+
+	handoff := mustRequestJSONStatus[ProjectHandoffEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_replacement/handoffs", projectJourneyJSON(t, map[string]any{
+		"id":                      "handoff_replacement_review",
+		"source_assignment_id":    "asgn_replacement",
+		"source_run_id":           ref.RunID,
+		"target_role_id":          "role_reviewer",
+		"title":                   "Replacement review handoff",
+		"summary":                 "Cairnline replacement journey evidence is ready.",
+		"recommended_next_action": "Review the recorded evidence and close the work item.",
+		"context_refs":            []string{ref.ContextSnapshotID},
+		"linked_artifact_ids":     []string{"artifact_replacement_evidence", "artifact_replacement_review"},
+		"created_by_role_id":      "role_replacement",
+		"provenance_kind":         "agent_draft",
+		"trust_label":             "operator_reviewed",
+	}))
+	if handoff.Data.Status != projectwork.HandoffStatusPending || handoff.Data.TargetRoleID != "role_reviewer" {
+		t.Fatalf("handoff = %+v, want pending review handoff response", handoff.Data)
+	}
+	mirroredHandoff := getMirroredCairnlineHandoffForTest(t, handler, projectID, "work_replacement", "handoff_replacement_review")
+	if mirroredHandoff.ToRoleID != "role_reviewer" || mirroredHandoff.Status != "open" {
+		t.Fatalf("mirrored handoff = %+v, want pending Cairnline-backed review handoff", mirroredHandoff)
+	}
+	accepted := mustRequestJSONStatus[ProjectHandoffEnvelope](client, http.StatusOK, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_replacement/handoffs/handoff_replacement_review/status", `{"status":"accepted"}`)
+	if accepted.Data.Status != projectwork.HandoffStatusAccepted {
+		t.Fatalf("accepted handoff = %+v, want accepted handoff response", accepted.Data)
+	}
+	mirroredHandoff = getMirroredCairnlineHandoffForTest(t, handler, projectID, "work_replacement", "handoff_replacement_review")
+	if mirroredHandoff.Status != projectwork.HandoffStatusAccepted {
+		t.Fatalf("mirrored accepted handoff = %+v, want accepted Cairnline-backed handoff", mirroredHandoff)
+	}
+
+	readiness := mustRequestJSONStatus[ProjectWorkItemReadinessEnvelope](client, http.StatusOK, http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_replacement/readiness", "")
+	if !readiness.Data.Ready || readiness.Data.Status != "ready" || readiness.Data.ReadBackend != "cairnline" || readiness.Data.CompletedAssignments != 1 {
+		t.Fatalf("readiness = %+v, want Cairnline-backed ready closeout", readiness.Data)
+	}
+	closed := mustRequestJSONStatus[ProjectWorkItemEnvelope](client, http.StatusOK, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/work-items/work_replacement", projectJourneyJSON(t, map[string]any{
+		"status": projectwork.WorkItemStatusDone,
+	}))
+	if closed.Data.Status != projectwork.WorkItemStatusDone || closed.Data.ReadBackend != "cairnline" {
+		t.Fatalf("closed work item = %+v, want Cairnline-backed done status", closed.Data)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("Hecate project store ok=%v err=%v after closeout, want no native project identity row", ok, err)
+	}
+	if mirroredWork := getMirroredCairnlineWorkItemForTest(t, handler, projectID, "work_replacement"); mirroredWork.Status != projectwork.WorkItemStatusDone {
+		t.Fatalf("mirrored Cairnline work = %+v, want done", mirroredWork)
 	}
 }
 
