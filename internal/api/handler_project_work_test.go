@@ -1204,6 +1204,14 @@ func TestProjectWorkAPI_CairnlineAssignmentAuthorityWritesCairnlineAndShadowsHec
 	if invalidDriver.Error.Type != errCodeInvalidRequest || !strings.Contains(invalidDriver.Error.Message, "unsupported assignment driver_kind") {
 		t.Fatalf("invalid driver response = %+v, want Hecate validation error", invalidDriver.Error)
 	}
+	invalidRoot := mustRequestJSONStatus[projectWorkErrorResponse](client, http.StatusNotFound, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/assignments", projectJourneyJSON(t, map[string]any{
+		"id":      "asgn_bad_root",
+		"role_id": "role_authority",
+		"root_id": "root_missing",
+	}))
+	if invalidRoot.Error.Type != errCodeNotFound || !strings.Contains(invalidRoot.Error.Message, "project root not found") {
+		t.Fatalf("invalid root response = %+v, want Cairnline root dependency error", invalidRoot.Error)
+	}
 
 	created := mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/assignments", projectJourneyJSON(t, map[string]any{
 		"id":      "asgn_authority",
@@ -1468,6 +1476,15 @@ func TestProjectWorkAPI_CairnlineAssignmentAuthorityWritesCairnlineOnlyProject(t
 		Priority:  cairnline.PriorityNormal,
 		RootID:    "root_cairnline_only",
 	}}, nil)
+
+	invalidRoot := mustRequestJSONStatus[projectWorkErrorResponse](client, http.StatusNotFound, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_cairnline_only/assignments", projectJourneyJSON(t, map[string]any{
+		"id":      "asgn_bad_root",
+		"role_id": "role_cairnline_only",
+		"root_id": "root_missing",
+	}))
+	if invalidRoot.Error.Type != errCodeNotFound || !strings.Contains(invalidRoot.Error.Message, "project root not found") {
+		t.Fatalf("invalid Cairnline-only root response = %+v, want Cairnline root dependency error", invalidRoot.Error)
+	}
 
 	created := mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_cairnline_only/assignments", projectJourneyJSON(t, map[string]any{
 		"id":      "asgn_cairnline_only",
