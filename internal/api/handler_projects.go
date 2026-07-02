@@ -203,7 +203,8 @@ func (h *Handler) HandleUpdateProject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if req.DefaultRootID != nil {
+	usesCairnlineMetadataDefaultsAuthority := h.projectMetadataDefaultsWritesUseCairnlineAuthority() && projectUpdateCanUseCairnlineMetadataDefaultsAuthority(req)
+	if req.DefaultRootID != nil && !usesCairnlineMetadataDefaultsAuthority {
 		defaultRootID := strings.TrimSpace(*req.DefaultRootID)
 		rootsToCheck := roots
 		if req.Roots == nil {
@@ -223,7 +224,7 @@ func (h *Handler) HandleUpdateProject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if h.projectMetadataDefaultsWritesUseCairnlineAuthority() && projectUpdateCanUseCairnlineMetadataDefaultsAuthority(req) {
+	if usesCairnlineMetadataDefaultsAuthority {
 		project, err := h.updateProjectMetadataDefaultsWithCairnlineAuthority(r.Context(), r.PathValue("id"), req)
 		if errors.Is(err, projects.ErrNotFound) || errors.Is(err, cairnline.ErrNotFound) {
 			WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")

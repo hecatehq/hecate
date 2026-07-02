@@ -530,7 +530,10 @@ context sources, and launch defaults after the Hecate store commit unless
 first and then shadows Hecate's compatibility project row. Delete restores the
 Cairnline snapshot if Hecate compatibility cleanup fails. Identity delete can
 also target a Cairnline-only project graph and clean Hecate compatibility shadow
-rows without requiring a matching native project row.
+rows without requiring a matching native project row. When embedded replacement
+mode is armed with all portable write-authority gaps closed, project-identity
+create returns the Cairnline record without creating a native Hecate project
+identity row; strict embedded reads then serve the new project from Cairnline.
 Project root create/update/delete and root list replacement mutations also
 best-effort mirror after the Hecate store commit unless `project-roots` is
 enabled, in which case those root mutations plus discovery-result replacement
@@ -649,7 +652,11 @@ authoritative storage cutover switch still does not exist. When
 embedded reads are verified and all portable write-authority gaps are closed,
 backend status treats that mode as the explicit embedded cutover switch, clears
 the migration blocker, and reports Cairnline as authoritative for portable
-Projects coordination state. It also groups the broad `write_adapter_gaps`
+Projects coordination state. In that armed mode with all portable
+write-authority gaps closed, new Cairnline-authoritative project identity
+creates no longer manufacture native Hecate project identity rows;
+compatibility shadows remain limited to Hecate-owned runtime/workspace needs.
+It also groups the broad `write_adapter_gaps`
 diagnostic list into
 `portable_write_gaps`,
 `orchestrator_capabilities`, and `migration_blockers`, so durable

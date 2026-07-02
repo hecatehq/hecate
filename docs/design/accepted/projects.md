@@ -138,7 +138,11 @@ embedded reads are verified, all portable write-authority gaps are closed, and
 `HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded` is armed, backend status
 treats that replacement mode as the explicit embedded cutover switch, clears the
 migration blocker, and reports embedded Cairnline as authoritative for portable
-Projects coordination state.
+Projects coordination state. In that armed mode with all portable
+write-authority gaps closed, Cairnline-authoritative project identity create no
+longer creates a native Hecate project identity row; strict embedded reads serve
+the project from Cairnline, while Hecate keeps only the runtime/workspace
+compatibility shadows it still owns.
 It keeps `write_adapter_gaps` as the broad diagnostic list and also groups
 that list into `portable_write_gaps`, `orchestrator_capabilities`, and
 `migration_blockers`, so operator tooling can tell durable coordination-state
