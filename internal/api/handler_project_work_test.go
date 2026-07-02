@@ -292,6 +292,31 @@ func TestProjectWorkAPI_CairnlineReadSourceEmbeddedRequiresMirror(t *testing.T) 
 	}
 }
 
+func TestProjectWorkAPI_StrictEmbeddedRuntimeRequiresReplacementAuthority(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend:      "cairnline",
+			CairnlineConnector:       "embedded",
+			CairnlineReadSource:      "embedded",
+			CairnlineReplacementMode: "embedded",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	handler.SetProjectWorkStore(projectwork.NewMemoryStore())
+	if handler.projectAssignmentStartUsesStrictEmbeddedCairnlineRuntime(true) {
+		t.Fatal("strict embedded runtime = true, want false until portable write authority gaps are closed")
+	}
+
+	handler.config.Projects.CairnlineWriteAuthority = "all-portable"
+	if !handler.projectAssignmentStartUsesStrictEmbeddedCairnlineRuntime(true) {
+		t.Fatal("strict embedded runtime = false, want true when replacement mode is armed and portable write gaps are closed")
+	}
+	if handler.projectAssignmentStartUsesStrictEmbeddedCairnlineRuntime(false) {
+		t.Fatal("strict embedded runtime = true without strict embedded reads")
+	}
+}
+
 func TestProjectWorkAPI_CairnlineReadSourceEmbeddedUsesCairnlineOnlyProject(t *testing.T) {
 	t.Parallel()
 	handler := NewHandler(config.Config{
