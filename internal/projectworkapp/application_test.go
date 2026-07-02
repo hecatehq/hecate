@@ -185,6 +185,60 @@ func TestApplication_WorkItemReadinessUsesRuntimeOverlay(t *testing.T) {
 	}
 }
 
+func TestApplication_WorkItemReadinessPreservesRuntimeChatStatusWhenChatMissing(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := projectwork.NewMemoryStore()
+	runtimeStore := projectruntime.NewMemoryStore()
+	app := New(Options{
+		Store:        store,
+		RuntimeStore: runtimeStore,
+		IDGenerator:  func(prefix string) string { return prefix + "_fixed" },
+	})
+	if _, err := app.CreateWorkItem(ctx, "proj_1", CreateWorkItemCommand{ID: "work_1", Title: "Build", Status: projectwork.WorkItemStatusReview}); err != nil {
+		t.Fatalf("CreateWorkItem() error = %v", err)
+	}
+	if _, err := app.CreateAssignment(ctx, "proj_1", "work_1", CreateAssignmentCommand{
+		ID:     "asgn_1",
+		RoleID: "software_developer",
+		Status: projectwork.AssignmentStatusQueued,
+	}); err != nil {
+		t.Fatalf("CreateAssignment() error = %v", err)
+	}
+	if _, err := runtimeStore.Upsert(ctx, projectruntime.AssignmentRuntime{
+		ProjectID:    "proj_1",
+		AssignmentID: "asgn_1",
+		ExecutionRef: projectwork.AssignmentExecutionRef{
+			Kind:          projectwork.AssignmentExecutionKindChatSession,
+			ChatSessionID: "chat_missing",
+			Status:        projectwork.AssignmentStatusCompleted,
+		},
+	}); err != nil {
+		t.Fatalf("Upsert(runtime) error = %v", err)
+	}
+	if _, err := store.CreateArtifact(ctx, projectwork.CollaborationArtifact{
+		ID:           "artifact_evidence",
+		ProjectID:    "proj_1",
+		WorkItemID:   "work_1",
+		AssignmentID: "asgn_1",
+		Kind:         projectwork.ArtifactKindEvidenceLink,
+		Title:        "Evidence",
+		Body:         "Evidence recorded.",
+		EvidenceURL:  "hecate://external-agents/chat_missing",
+	}); err != nil {
+		t.Fatalf("CreateArtifact(evidence) error = %v", err)
+	}
+
+	readiness, err := app.WorkItemReadiness(ctx, "proj_1", "work_1")
+	if err != nil {
+		t.Fatalf("WorkItemReadiness() error = %v", err)
+	}
+	if !readiness.Ready || readiness.CompletedAssignments != 1 || len(readiness.Blockers) != 0 {
+		t.Fatalf("readiness = %+v, want missing chat to preserve completed runtime status", readiness)
+	}
+}
+
 func TestApplication_UpdateWorkItemDoneAllowsManualEmptyCloseoutAndAlreadyDone(t *testing.T) {
 	t.Parallel()
 
