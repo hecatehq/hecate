@@ -802,7 +802,8 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task runner is not configured")
 		return
 	}
-	if h.projects == nil || h.projectWork == nil {
+	strictEmbeddedRead := h.projectReadRoutesUseCairnlineReadModel() && h.requiresEmbeddedCairnlineProjectReads()
+	if (!strictEmbeddedRead && h.projects == nil) || h.projectWork == nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project stores are not configured")
 		return
 	}
@@ -811,42 +812,12 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		return
 	}
 
-	project, ok, err := h.projects.Get(ctx, projectID)
+	inputs, err := h.projectAssignmentStartInputs(ctx, projectID, workItemID, assignmentID, strictEmbeddedRead)
 	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		WriteError(w, projectAssignmentPreflightHTTPStatus(err), projectAssignmentPreflightErrorCode(err), err.Error())
 		return
 	}
-	if !ok {
-		WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
-		return
-	}
-	workItem, ok, err := h.projectWork.GetWorkItem(ctx, projectID, workItemID)
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
-	if !ok {
-		WriteError(w, http.StatusNotFound, errCodeNotFound, "work item not found")
-		return
-	}
-	assignment, ok, err := h.loadProjectWorkAssignment(ctx, projectID, workItemID, assignmentID)
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
-	if !ok {
-		WriteError(w, http.StatusNotFound, errCodeNotFound, "assignment not found")
-		return
-	}
-	role, ok, err := h.loadProjectWorkRole(ctx, projectID, assignment.RoleID)
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
-	if !ok {
-		WriteError(w, http.StatusNotFound, errCodeNotFound, "assignment role not found")
-		return
-	}
+	project, workItem, assignment, role := inputs.Project, inputs.WorkItem, inputs.Assignment, inputs.Role
 	if driver := strings.TrimSpace(req.DriverKind); driver != "" && driver != assignment.DriverKind {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, fmt.Sprintf("assignment driver_kind is %q, not %q", assignment.DriverKind, driver))
 		return
@@ -895,6 +866,16 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 	h.appendCairnlineAssignmentLaunchPacketEvidence(ctx, &contextPacket, assignment)
 	if contextPacket.ID == "" {
 		contextPacket.ID = newChatID("ctx")
+	}
+
+	if strictEmbeddedRead {
+		inputs.Assignment = assignment
+		shadowedAssignment, err := h.shadowCairnlineAssignmentStartInputsToHecate(ctx, inputs)
+		if err != nil {
+			WriteError(w, projectAssignmentPreflightHTTPStatus(err), projectAssignmentPreflightErrorCode(err), err.Error())
+			return
+		}
+		assignment = shadowedAssignment
 	}
 
 	result, err := h.projectWorkApplication().StartTaskAssignment(ctx, projectworkapp.StartTaskAssignmentCommand{
@@ -955,6 +936,80 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		return
 	}
 	WriteJSON(w, http.StatusOK, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
+}
+
+func (h *Handler) projectAssignmentStartInputs(ctx context.Context, projectID, workItemID, assignmentID string, strictEmbeddedRead bool) (projectAssignmentLaunchInputs, error) {
+	if strictEmbeddedRead {
+		inputs, err := h.cairnlineProjectAssignmentLaunchInputs(ctx, projectID, workItemID, assignmentID)
+		if err != nil {
+			return projectAssignmentLaunchInputs{}, err
+		}
+		if !inputs.RoleOK {
+			return projectAssignmentLaunchInputs{}, newProjectAssignmentPreflightError(http.StatusNotFound, errCodeNotFound, "assignment role not found")
+		}
+		return inputs, nil
+	}
+	project, ok, err := h.projects.Get(ctx, projectID)
+	if err != nil {
+		return projectAssignmentLaunchInputs{}, err
+	}
+	if !ok {
+		return projectAssignmentLaunchInputs{}, newProjectAssignmentPreflightError(http.StatusNotFound, errCodeNotFound, "project not found")
+	}
+	workItem, ok, err := h.projectWork.GetWorkItem(ctx, projectID, workItemID)
+	if err != nil {
+		return projectAssignmentLaunchInputs{}, err
+	}
+	if !ok {
+		return projectAssignmentLaunchInputs{}, newProjectAssignmentPreflightError(http.StatusNotFound, errCodeNotFound, "work item not found")
+	}
+	assignment, ok, err := h.loadProjectWorkAssignment(ctx, projectID, workItemID, assignmentID)
+	if err != nil {
+		return projectAssignmentLaunchInputs{}, err
+	}
+	if !ok {
+		return projectAssignmentLaunchInputs{}, newProjectAssignmentPreflightError(http.StatusNotFound, errCodeNotFound, "assignment not found")
+	}
+	role, ok, err := h.loadProjectWorkRole(ctx, projectID, assignment.RoleID)
+	if err != nil {
+		return projectAssignmentLaunchInputs{}, err
+	}
+	if !ok {
+		return projectAssignmentLaunchInputs{}, newProjectAssignmentPreflightError(http.StatusNotFound, errCodeNotFound, "assignment role not found")
+	}
+	return projectAssignmentLaunchInputs{
+		Project:    project,
+		WorkItem:   workItem,
+		Assignment: assignment,
+		Role:       role,
+		RoleOK:     true,
+	}, nil
+}
+
+func (h *Handler) shadowCairnlineAssignmentStartInputsToHecate(ctx context.Context, inputs projectAssignmentLaunchInputs) (projectwork.Assignment, error) {
+	if h == nil || h.projectWork == nil {
+		return projectwork.Assignment{}, projectworkapp.ErrStoreNotConfigured
+	}
+	if inputs.RoleOK {
+		if _, ok := h.shadowProjectRoleToHecate(ctx, "project_assignment_start_cairnline_shadow", inputs.Role); !ok {
+			return projectwork.Assignment{}, errors.New("assignment role could not be shadowed for Hecate launch")
+		}
+	}
+	h.shadowProjectWorkItemToHecate(ctx, "project_assignment_start_cairnline_shadow", inputs.WorkItem)
+	if _, ok, err := h.projectWork.GetWorkItem(ctx, inputs.WorkItem.ProjectID, inputs.WorkItem.ID); err != nil {
+		return projectwork.Assignment{}, err
+	} else if !ok {
+		return projectwork.Assignment{}, errors.New("work item could not be shadowed for Hecate launch")
+	}
+	h.shadowProjectAssignmentToHecate(ctx, "project_assignment_start_cairnline_shadow", inputs.Assignment)
+	assignment, ok, err := h.loadProjectWorkAssignment(ctx, inputs.Assignment.ProjectID, inputs.Assignment.WorkItemID, inputs.Assignment.ID)
+	if err != nil {
+		return projectwork.Assignment{}, err
+	}
+	if !ok {
+		return projectwork.Assignment{}, errors.New("assignment could not be shadowed for Hecate launch")
+	}
+	return assignment, nil
 }
 
 func (h *Handler) projectExternalAgentAssignmentContextPacket(ctx context.Context, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile, plan projectworkapp.ExternalAgentAssignmentLaunchPlan, sessionID string) chat.ContextPacket {
