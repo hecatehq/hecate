@@ -2681,8 +2681,9 @@ Cairnline-only graph. Hecate-task and external-agent assignment start can
 claim/progress the assignment in embedded Cairnline and persist only
 Hecate-owned task/run or chat-session refs, context packets, and launch
 timestamps in the assignment runtime overlay when the native project-work store
-is absent. They do not require a native Hecate project identity row or
-compatibility assignment row; runtime dispatch, task execution, and
+is absent or embedded replacement mode is armed. They do not require or advance
+a native Hecate project identity row, and they do not advance compatibility
+assignment rows with runtime refs; runtime dispatch, task execution, and
 external-agent supervision remain Hecate-owned.
 `project-assignment-chat-reconcile-live-mirror`
 best-effort mirrors assignment status/ref updates committed by linked

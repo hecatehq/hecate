@@ -669,8 +669,9 @@ after these gates are met:
   orchestrator capabilities, but strict embedded mode can claim/progress the
   assignment in Cairnline and persist only task/run or chat-session refs,
   context packets, and timestamps in Hecate's runtime overlay when the native
-  project-work store is absent; it does not create a native project identity row
-  or compatibility assignment row.
+  project-work store is absent or embedded replacement mode is armed; it does
+  not create a native project identity row, and it does not advance
+  compatibility assignment rows with runtime refs.
   Linked external-agent chat reconciliation can update embedded Cairnline and
   the runtime overlay in the same no-native-project-work posture. Committed
   start and linked-chat reconciliation results may be mirrored only as
