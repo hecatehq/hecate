@@ -275,7 +275,7 @@ var projectCairnlineWriteSwitchpoints = []ProjectCoordinationBackendWriteSwitchp
 		BlocksAuthority:  true,
 		Seams:            []string{"project-memory-candidates-live-mirror"},
 		Gap:              "memory-candidates",
-		Detail:           "Memory-candidate create/promote/reject/delete still commits to Hecate first, then mirrors review state and promoted-memory references into Cairnline.",
+		Detail:           "Memory-candidate create/promote/reject still commits to Hecate first, then mirrors review state and promoted-memory references into Cairnline.",
 	},
 	{
 		Name:             "project-assistant-proposal-ledger",

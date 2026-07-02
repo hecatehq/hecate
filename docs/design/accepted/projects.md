@@ -317,10 +317,12 @@ accepted project memory entry create/update/delete commits to embedded
 Cairnline first, then best-effort shadows the entry into Hecate-native memory
 stores for compatibility. Adding `memory-candidates` to that setting makes
 memory-candidate create/promote/reject Cairnline-first too; it requires
-`project-memory` because promotion creates accepted project memory. These
-memory authority routes can validate project identity from the embedded
-Cairnline graph and do not require a matching Hecate-native compatibility
-project row before the Cairnline commit.
+`project-memory` because promotion creates accepted project memory. Hecate's
+live memory-candidate authority surface is create/promote/reject; standalone
+Cairnline sidecar delete smoke tests remain diagnostic and do not represent a
+Hecate route cutover. These memory authority routes can validate project
+identity from the embedded Cairnline graph and do not require a matching
+Hecate-native compatibility project row before the Cairnline commit.
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=all-portable` expands to every
 current portable write-authority switchpoint for embedded dogfooding; Hecate
 runtime side effects and migration cutover remain separate gates.

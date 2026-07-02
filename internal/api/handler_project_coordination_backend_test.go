@@ -337,6 +337,9 @@ func TestProjectCoordinationBackendStatus_CairnlineConfiguredReadRoutesReady(t *
 	if point := findWriteSwitchpoint(status.WriteSwitchpoints, "project-memory"); point == nil || point.CurrentAuthority != "hecate" || point.CairnlineState != "live_mirror_non_authoritative" || !point.LiveMirror || !point.BlocksAuthority || point.Gap != "memory" {
 		t.Fatalf("project-memory switchpoint = %+v, want Hecate-owned live mirror blocker", point)
 	}
+	if point := findWriteSwitchpoint(status.WriteSwitchpoints, "memory-candidates"); point == nil || !strings.Contains(point.Detail, "create/promote/reject still commits") || strings.Contains(point.Detail, "delete") {
+		t.Fatalf("memory-candidates switchpoint = %+v, want live Hecate API surface limited to create/promote/reject", point)
+	}
 	if point := findWriteSwitchpoint(status.WriteSwitchpoints, "migration-cutover"); point == nil || point.CurrentAuthority != "hecate" || point.CairnlineState != "snapshot_import_rehearsal_available" || point.LiveMirror || !point.BlocksAuthority || point.Gap != "migration-cutover" || !containsString(point.Seams, "sync-rehearsal") {
 		t.Fatalf("migration switchpoint = %+v, want snapshot-import rehearsal blocker", point)
 	}
