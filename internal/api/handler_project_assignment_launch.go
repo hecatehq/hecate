@@ -78,10 +78,6 @@ func (h *Handler) HandleProjectWorkAssignmentLaunchReadiness(w http.ResponseWrit
 	projectID := r.PathValue("id")
 	workItemID := r.PathValue("work_item_id")
 	assignmentID := r.PathValue("assignment_id")
-	if h.projects == nil || h.projectWork == nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project stores are not configured")
-		return
-	}
 	if h.projectCairnlineSidecarReadRoutesEnabled() {
 		readiness, err := h.renderCairnlineSidecarProjectAssignmentLaunchReadiness(ctx, projectID, workItemID, assignmentID)
 		if err != nil {
@@ -98,6 +94,10 @@ func (h *Handler) HandleProjectWorkAssignmentLaunchReadiness(w http.ResponseWrit
 			return
 		}
 		WriteJSON(w, http.StatusOK, ProjectAssignmentLaunchReadinessEnvelope{Object: "project_assignment_launch_readiness", Data: readiness})
+		return
+	}
+	if h.projects == nil || h.projectWork == nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project stores are not configured")
 		return
 	}
 	project, ok, err := h.projects.Get(ctx, projectID)
@@ -146,10 +146,6 @@ func (h *Handler) HandleProjectWorkAssignmentPreflight(w http.ResponseWriter, r 
 	projectID := r.PathValue("id")
 	workItemID := r.PathValue("work_item_id")
 	assignmentID := r.PathValue("assignment_id")
-	if h.projects == nil || h.projectWork == nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project stores are not configured")
-		return
-	}
 	if h.projectCairnlineSidecarReadRoutesEnabled() {
 		inputs, err := h.cairnlineSidecarProjectAssignmentLaunchInputs(ctx, projectID, workItemID, assignmentID)
 		if err != nil {
@@ -194,6 +190,10 @@ func (h *Handler) HandleProjectWorkAssignmentPreflight(w http.ResponseWriter, r 
 			return
 		}
 		writeChatContextPacket(w, contextPacket)
+		return
+	}
+	if h.projects == nil || h.projectWork == nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project stores are not configured")
 		return
 	}
 	project, ok, err := h.projects.Get(ctx, projectID)

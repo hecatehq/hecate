@@ -3579,6 +3579,10 @@ func TestProjectWorkAPI_PreflightAssignmentStrictEmbeddedReadModelReadsWithoutHe
 	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
 		t.Fatalf("Hecate project store seeded ok=%v err=%v, want no project row", ok, err)
 	}
+	// Strict embedded launch-readiness and preflight are read-only Cairnline
+	// projections; they should not require native Hecate project/work stores.
+	handler.projects = nil
+	handler.projectWork = nil
 
 	client := newAPITestClient(t, server)
 	readiness := mustRequestJSON[ProjectAssignmentLaunchReadinessEnvelope](client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_embedded_launch_preflight/assignments/asgn_embedded_launch_preflight/launch-readiness", "")

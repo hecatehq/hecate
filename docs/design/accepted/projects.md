@@ -654,8 +654,9 @@ after these gates are met:
   non-authoritative Cairnline replacement evidence. Assignment preflight/start
   packets may carry non-authoritative
   Cairnline launch-packet evidence, and strict embedded reads may use a
-  Cairnline-only project graph as the source of launch inputs, but
-  assignment-start remains a Hecate-owned orchestrator capability. Hecate
+  Cairnline-only project graph as the source of launch inputs. Launch-readiness
+  and preflight can use those inputs without native Hecate project/work stores,
+  but assignment-start remains a Hecate-owned orchestrator capability. Hecate
   creates only the narrow project-work/runtime shadow needed for claim and
   dispatch, not a native project identity row; committed start and linked-chat
   reconciliation results may be mirrored only as replacement evidence.
