@@ -816,6 +816,7 @@ func TestProjectCairnlineMirrorParityAPI_MatchesRepresentativeLiveProjectJourney
 	assertStrictEmbeddedCairnlineReadBackend(t, client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/"+work.Data.ID+"/assignments", "", "assignment list")
 	assertStrictEmbeddedCairnlineReadBackend(t, client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/"+work.Data.ID+"/assignments/"+assignment.Data.ID+"/context", "", "assignment context")
 	assertStrictEmbeddedCairnlineReadBackend(t, client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/"+work.Data.ID+"/assignments/"+assignment.Data.ID+"/launch-readiness", "", "launch readiness")
+	assertStrictEmbeddedCairnlineReadBackend(t, client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/"+work.Data.ID+"/assignments/"+assignment.Data.ID+"/preflight", "", "assignment preflight")
 	assertStrictEmbeddedCairnlineReadBackend(t, client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/"+work.Data.ID+"/artifacts", "", "artifact list")
 	assertStrictEmbeddedCairnlineReadBackend(t, client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/"+work.Data.ID+"/handoffs", "", "handoff list")
 	assertStrictEmbeddedCairnlineReadBackend(t, client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/activity", "", "activity")
