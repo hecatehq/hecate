@@ -52,6 +52,22 @@ type fakeAssistantLLM struct {
 	requests []types.ChatRequest
 }
 
+type readOnlyProjectAuthority struct {
+	ProjectAuthority
+	project projects.Project
+	err     error
+}
+
+func (authority readOnlyProjectAuthority) GetProject(_ context.Context, projectID string) (projects.Project, bool, error) {
+	if authority.err != nil {
+		return projects.Project{}, false, authority.err
+	}
+	if strings.TrimSpace(projectID) != authority.project.ID {
+		return projects.Project{}, false, nil
+	}
+	return authority.project, true, nil
+}
+
 func (f *fakeAssistantLLM) Chat(_ context.Context, req types.ChatRequest) (*types.ChatResponse, error) {
 	f.requests = append(f.requests, req)
 	if f.err != nil {
@@ -861,6 +877,49 @@ func TestService_ContextBuildsProjectAssistantPacketAcrossStores(t *testing.T) {
 				t.Fatalf("recent activity is empty, want context timeline entries")
 			}
 		})
+	}
+}
+
+func TestService_ContextReadsProjectFromAuthority(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	project := projects.Project{ID: "proj_authority_context", Name: "Authority Context"}
+	workStore := projectwork.NewMemoryStore()
+	if _, err := workStore.CreateRole(ctx, projectwork.AgentRoleProfile{
+		ID:                "planner",
+		ProjectID:         project.ID,
+		Name:              "Planning Lead",
+		DefaultDriverKind: projectwork.AssignmentDriverExternalAgent,
+	}); err != nil {
+		t.Fatalf("CreateRole: %v", err)
+	}
+	if _, err := workStore.CreateWorkItem(ctx, projectwork.WorkItem{
+		ID:          "work_authority_context",
+		ProjectID:   project.ID,
+		Title:       "Shape authority-backed context",
+		Status:      projectwork.WorkItemStatusReady,
+		OwnerRoleID: "planner",
+	}); err != nil {
+		t.Fatalf("CreateWorkItem: %v", err)
+	}
+	service := NewService(Stores{
+		ProjectAuthority: readOnlyProjectAuthority{project: project},
+		Work:             workStore,
+	}, sequenceIDGenerator())
+
+	packet, err := service.Context(ctx, ContextInput{
+		ProjectID:  project.ID,
+		WorkItemID: "work_authority_context",
+		Request:    "Queue authority-backed context work",
+	})
+	if err != nil {
+		t.Fatalf("Context: %v", err)
+	}
+	if packet.Project.ID != project.ID || packet.Project.Name != project.Name || packet.SelectedWork == nil || packet.SelectedWork.ID != "work_authority_context" {
+		t.Fatalf("context project/work = %+v/%+v, want authority project and selected work", packet.Project, packet.SelectedWork)
+	}
+	if packet.Selection.RoleID != "planner" || packet.Selection.DriverKind != projectwork.AssignmentDriverExternalAgent {
+		t.Fatalf("selection = %+v, want owner role selected from authority-backed context", packet.Selection)
 	}
 }
 
