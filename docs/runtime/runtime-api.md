@@ -2384,10 +2384,12 @@ being built.
 
 `configured_backend` reflects `HECATE_PROJECTS_COORDINATION_BACKEND`.
 `cairnline_connector` reflects `HECATE_PROJECTS_CAIRNLINE_CONNECTOR`.
-`embedded` is the only connector that can make live Hecate routes use Cairnline
-today. `sidecar` exposes standalone MCP contract probe/connect surfaces and
-reports `cairnline_connector_ready=false`, so read/write routing and
-write-authority switchpoints stay disabled.
+`embedded` is the only connector that can make live Hecate write routes use
+Cairnline today. `sidecar` exposes standalone MCP contract probe/connect
+surfaces and can serve the explicit sidecar read-route families when
+`HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar`; it still reports
+`cairnline_connector_ready=false` for replacement-readiness because
+write-authority switchpoints are ignored in sidecar connector mode.
 `cairnline_read_source` reflects `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE`.
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=all-portable` expands to every
 current portable write-authority switchpoint for dogfooding the embedded
@@ -6331,7 +6333,8 @@ When `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar` and
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar` are both configured, project
 handoff lists are read through typed `handoffs.list` on the standalone
 Cairnline MCP client. Handoff create/update/status/delete routes remain
-Hecate-owned unless a separate write-authority switchpoint is enabled.
+Hecate-owned unless an embedded Cairnline write-authority switchpoint is
+enabled.
 
 #### `GET /hecate/v1/projects/{id}/work-items/{work_item_id}/handoffs`
 
@@ -6437,7 +6440,7 @@ When `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar` and
 endpoint validates the work item through typed `work_items.list`, then combines
 typed `artifacts.list`, `evidence.list`, and `reviews.list` from the standalone
 Cairnline MCP client. Collaboration artifact creation remains Hecate-owned
-unless a separate write-authority switchpoint is enabled.
+unless an embedded Cairnline write-authority switchpoint is enabled.
 
 #### `POST /hecate/v1/projects/{id}/work-items/{work_item_id}/artifacts`
 

@@ -221,7 +221,7 @@ func TestProjectCoordinationBackendStatus_CairnlineSidecarConnectorBlocksEmbedde
 		t.Fatalf("next action = %+v, want embedded connector action for sidecar mode", status.NextReplacementAction)
 	}
 	warnings := strings.Join(status.Warnings, "\n")
-	if !strings.Contains(warnings, "HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar") || !strings.Contains(warnings, "lifecycle/write/setup/work/collaboration/memory/assistant diagnostics") || strings.Contains(warnings, "read-smoke surfaces only") || !strings.Contains(warnings, "Hecate-native stores") {
+	if !strings.Contains(warnings, "HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar") || !strings.Contains(warnings, "lifecycle/write/setup/work/collaboration/memory/assistant diagnostics") || strings.Contains(warnings, "read-smoke surfaces only") || !strings.Contains(warnings, "ignored in sidecar connector mode") || !strings.Contains(warnings, projectCairnlineWriteAuthorityProjectAssignments) {
 		t.Fatalf("warnings = %+v, want full sidecar diagnostic warning", status.Warnings)
 	}
 }
@@ -233,6 +233,11 @@ func TestProjectCoordinationBackendStatus_CairnlineSidecarReadRoutesReady(t *tes
 			CoordinationBackend: "cairnline",
 			CairnlineConnector:  "sidecar",
 			CairnlineReadSource: "sidecar",
+			CairnlineWriteAuthority: strings.Join([]string{
+				projectCairnlineWriteAuthorityProjectIdentity,
+				projectCairnlineWriteAuthorityProjectMetadataDefaults,
+				projectCairnlineWriteAuthorityProjectAssignments,
+			}, ","),
 		},
 	}, quietLogger(), nil, nil, nil, nil)
 
@@ -245,6 +250,9 @@ func TestProjectCoordinationBackendStatus_CairnlineSidecarReadRoutesReady(t *tes
 	}
 	if status.CairnlineAuthoritative || status.ReadModelSwitchReady || status.WriteAdapterReady || status.ReplacementReady {
 		t.Fatalf("status = %+v, want sidecar project reads without full replacement readiness", status)
+	}
+	if len(status.PortableWriteGaps) == 0 || !containsString(status.PortableWriteGaps, "projects") || !containsString(status.PortableWriteGaps, "assignments") {
+		t.Fatalf("portable write gaps = %+v, want sidecar mode to ignore configured write authority", status.PortableWriteGaps)
 	}
 	if handler.projectReadRoutesUseCairnlineReadModel() {
 		t.Fatal("sidecar project reads enabled embedded Cairnline read-model routes")
@@ -262,7 +270,7 @@ func TestProjectCoordinationBackendStatus_CairnlineSidecarReadRoutesReady(t *tes
 		t.Fatalf("read-routes gate = %+v, want blocked while sidecar reads remain an interoperability mode", gate)
 	}
 	warnings := strings.Join(status.Warnings, "\n")
-	if !strings.Contains(warnings, "project-assistant-context, project-assistant-proposal") || !strings.Contains(warnings, "project-chat-prelude, project-chat-context") || !strings.Contains(warnings, "authoritative write migration") {
+	if !strings.Contains(warnings, "project-assistant-context, project-assistant-proposal") || !strings.Contains(warnings, "project-chat-prelude, project-chat-context") || !strings.Contains(warnings, "ignored in sidecar connector mode") || !strings.Contains(warnings, projectCairnlineWriteAuthorityProjectIdentity) || !strings.Contains(warnings, "authoritative write migration") {
 		t.Fatalf("warnings = %+v, want sidecar read routes with write-migration warning", status.Warnings)
 	}
 	if status.NextReplacementAction == nil || status.NextReplacementAction.ID != "use-embedded-cairnline-connector" || status.NextReplacementAction.Target != "connector" {
