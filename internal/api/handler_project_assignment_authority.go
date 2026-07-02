@@ -79,10 +79,17 @@ func (h *Handler) updateProjectWorkAssignmentWithCairnlineAuthority(ctx context.
 			return cairnline.ErrNotFound
 		}
 		assignment := projectWorkAssignmentFromCairnline(existing)
-		if shadow, ok, err := h.loadProjectWorkAssignment(ctx, projectID, workItemID, assignmentID); err != nil {
+		if h != nil && h.projectWork != nil {
+			if shadow, ok, err := h.loadProjectWorkAssignment(ctx, projectID, workItemID, assignmentID); err != nil {
+				return err
+			} else if ok {
+				overlayProjectAssignmentRuntimeShadow(&assignment, shadow)
+			}
+		}
+		if overlaid, err := h.projectWorkApplication().ApplyAssignmentRuntime(ctx, assignment); err != nil {
 			return err
-		} else if ok {
-			overlayProjectAssignmentRuntimeShadow(&assignment, shadow)
+		} else {
+			assignment = overlaid
 		}
 		applyProjectAssignmentUpdate(&assignment, cmd)
 		if err := validateProjectAssignmentForCairnlineAuthority(assignment); err != nil {
@@ -163,17 +170,19 @@ func (h *Handler) projectWorkItemForCairnlineAssignmentAuthority(ctx context.Con
 }
 
 func (h *Handler) projectRoleForCairnlineAssignmentAuthority(ctx context.Context, service *cairnline.Service, projectID, roleID string) (projectwork.AgentRoleProfile, agentprofiles.Profile, error) {
-	if role, ok, err := h.loadProjectWorkRoleForCairnlineMirror(ctx, projectID, roleID); err != nil {
-		return projectwork.AgentRoleProfile{}, agentprofiles.Profile{}, err
-	} else if ok {
-		profile, err := h.writeRoleAgentProfileToCairnline(ctx, service, role)
-		if err != nil {
+	if h != nil && h.projectWork != nil {
+		if role, ok, err := h.loadProjectWorkRoleForCairnlineMirror(ctx, projectID, roleID); err != nil {
 			return projectwork.AgentRoleProfile{}, agentprofiles.Profile{}, err
+		} else if ok {
+			profile, err := h.writeRoleAgentProfileToCairnline(ctx, service, role)
+			if err != nil {
+				return projectwork.AgentRoleProfile{}, agentprofiles.Profile{}, err
+			}
+			if _, err := cairnlinebridge.UpsertRole(ctx, service, role); err != nil {
+				return projectwork.AgentRoleProfile{}, agentprofiles.Profile{}, err
+			}
+			return role, profile, nil
 		}
-		if _, err := cairnlinebridge.UpsertRole(ctx, service, role); err != nil {
-			return projectwork.AgentRoleProfile{}, agentprofiles.Profile{}, err
-		}
-		return role, profile, nil
 	}
 	role, err := getCairnlineProjectRoleForAuthority(ctx, service, projectID, roleID)
 	if err != nil {
@@ -273,7 +282,11 @@ func projectAssignmentExecutionRefEmpty(ref projectwork.AssignmentExecutionRef) 
 }
 
 func (h *Handler) shadowProjectAssignmentToHecate(ctx context.Context, operation string, assignment projectwork.Assignment) {
-	if h == nil || h.projectWork == nil {
+	if h == nil {
+		return
+	}
+	if h.projectWork == nil {
+		h.shadowProjectAssignmentRuntimeToHecate(ctx, operation, assignment)
 		return
 	}
 	if _, err := h.projectWork.CreateAssignment(ctx, assignment); err == nil {
@@ -302,17 +315,20 @@ func (h *Handler) shadowProjectAssignmentToHecate(ctx context.Context, operation
 }
 
 func (h *Handler) shadowProjectAssignmentDeleteToHecate(ctx context.Context, operation, projectID, workItemID, assignmentID string) {
-	if h == nil || h.projectWork == nil {
+	if h == nil {
 		return
-	}
-	if err := h.projectWork.DeleteAssignment(ctx, projectID, workItemID, assignmentID); err != nil && !errors.Is(err, projectwork.ErrNotFound) {
-		h.logCairnlineMirrorError(ctx, operation, projectID, err)
 	}
 	if h.projectRuntime != nil {
 		err := h.projectRuntime.Delete(ctx, projectID, assignmentID)
 		if err != nil && !errors.Is(err, projectruntime.ErrNotFound) {
 			h.logCairnlineMirrorError(ctx, operation, projectID, err)
 		}
+	}
+	if h.projectWork == nil {
+		return
+	}
+	if err := h.projectWork.DeleteAssignment(ctx, projectID, workItemID, assignmentID); err != nil && !errors.Is(err, projectwork.ErrNotFound) {
+		h.logCairnlineMirrorError(ctx, operation, projectID, err)
 	}
 }
 

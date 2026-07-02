@@ -579,11 +579,13 @@ sequenceDiagram
   `backlog` default and closeout-readiness gate before shadowing the resulting
   work item back into Hecate-native project-work stores. `project-assignments`
   makes assignment create/update/delete record mutations Cairnline-first, then
-  shadows portable assignment state back into Hecate-native project-work stores
-  for compatibility. Assignment start/dispatch remains Hecate-owned and writes
-  task/chat execution refs, context packets, and launch timestamps to Hecate's
-  project assignment runtime overlay before any compatibility shadow or
-  replacement-evidence mirror. `agent-profiles`
+  best-effort shadows portable assignment state back into Hecate-native
+  project-work stores for compatibility when that store is configured.
+  Assignment execution refs, context packets, and launch timestamps are
+  preserved in Hecate's separate project assignment runtime overlay even when no
+  native compatibility assignment row exists. Assignment start/dispatch remains
+  Hecate-owned and writes that runtime overlay before any compatibility shadow
+  or replacement-evidence mirror. `agent-profiles`
   makes global agent-profile
   create/update/delete Cairnline-first, writing Cairnline's separate portable
   profile and execution-posture records before shadowing Hecate's combined
@@ -2433,6 +2435,10 @@ create default and closeout-readiness gate. In these opt-in authority modes,
 portable project-work write routes can validate project identity and roots from
 the embedded Cairnline project graph, so they no longer require a matching
 Hecate-native compatibility project row before reaching Cairnline authority.
+Adding `project-assignments` makes assignment create/update/delete mutations
+Cairnline-first; Hecate keeps task/chat execution refs, context packets, and
+launch timestamps in the separate project assignment runtime overlay even when
+there is no native compatibility assignment row to shadow.
 When `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded` is set, those authority
 helpers prefer the embedded Cairnline project graph over any Hecate-native
 compatibility shadow so stale shadows cannot override authoritative project/root
