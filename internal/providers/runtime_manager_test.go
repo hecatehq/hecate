@@ -277,6 +277,50 @@ func TestControlPlaneRuntimeManagerHydratesPresetEndpointPaths(t *testing.T) {
 	}
 }
 
+func TestControlPlaneRuntimeManagerStampsProviderIDAlias(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewTextHandler(testWriter{t}, nil))
+	store := controlplane.NewMemoryStore()
+	key := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef0123456789abcdef"))
+	cipher, err := secrets.NewAESGCMCipher(key)
+	if err != nil {
+		t.Fatalf("NewAESGCMCipher() error = %v", err)
+	}
+
+	manager := NewControlPlaneRuntimeManager(logger, nil, store, cipher)
+	if _, err := manager.Upsert(context.Background(), controlplane.Provider{
+		ID:       "fake-dogfood",
+		Name:     "Fake Dogfood",
+		Kind:     "cloud",
+		Protocol: "openai",
+		BaseURL:  "https://fake-dogfood.example/v1",
+		Enabled:  true,
+	}, "fake-secret"); err != nil {
+		t.Fatalf("Upsert() error = %v", err)
+	}
+
+	provider, ok := manager.Registry().Get("Fake Dogfood")
+	if !ok {
+		t.Fatal("expected Fake Dogfood provider in registry")
+	}
+	reporter, ok := provider.(AliasReporter)
+	if !ok {
+		t.Fatalf("provider type = %T, want AliasReporter", provider)
+	}
+	aliases := reporter.Aliases()
+	found := false
+	for _, alias := range aliases {
+		if alias == "fake-dogfood" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("aliases = %#v, want fake-dogfood", aliases)
+	}
+}
+
 func TestControlPlaneRuntimeManagerAppliesFireworksAccountID(t *testing.T) {
 	t.Parallel()
 

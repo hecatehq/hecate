@@ -9,6 +9,7 @@ import (
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
+	"github.com/hecatehq/hecate/internal/providers"
 )
 
 func TestProjectWorkAPI_AssignmentLaunchReadinessReturnsNativePlanWithoutSideEffects(t *testing.T) {
@@ -83,6 +84,38 @@ func TestProjectWorkAPI_AssignmentLaunchReadinessReturnsNativePlanWithoutSideEff
 	}
 	if len(tasks) != 0 {
 		t.Fatalf("tasks = %+v, want no task created by launch readiness", tasks)
+	}
+}
+
+func TestProjectWorkAPI_AssignmentLaunchReadinessAcceptsProviderIDForNamedProvider(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServerWithProviders(&fakeProvider{
+		name: "Fake Dogfood",
+		capabilities: providers.Capabilities{
+			Name:         "Fake Dogfood",
+			Kind:         providers.KindCloud,
+			DefaultModel: "dogfood-model",
+			Models:       []string{"dogfood-model"},
+		},
+	})
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace:           t.TempDir(),
+		Driver:              projectwork.AssignmentDriverHecateTask,
+		WithoutRoleDefaults: true,
+	})
+	if _, err := handler.projects.Update(t.Context(), "proj_start", func(project *projects.Project) {
+		project.DefaultProvider = "fake-dogfood"
+		project.DefaultModel = "dogfood-model"
+	}); err != nil {
+		t.Fatalf("Update project defaults: %v", err)
+	}
+
+	readiness := mustRequestJSON[ProjectAssignmentLaunchReadinessEnvelope](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/launch-readiness", "")
+	if !readiness.Data.Ready || readiness.Data.Provider != "fake-dogfood" || readiness.Data.Model != "dogfood-model" {
+		t.Fatalf("readiness = %+v, want ready launch using saved provider id", readiness.Data)
+	}
+	if readiness.Data.ModelReadiness == nil || !readiness.Data.ModelReadiness.Ready || readiness.Data.ModelReadiness.MatchedProvider != "Fake Dogfood" {
+		t.Fatalf("model_readiness = %+v, want provider id to resolve to named runtime provider", readiness.Data.ModelReadiness)
 	}
 }
 

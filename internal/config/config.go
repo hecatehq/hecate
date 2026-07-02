@@ -418,6 +418,7 @@ type ProvidersConfig struct {
 
 type OpenAICompatibleProviderConfig struct {
 	Name         string        `json:"name"`
+	Aliases      []string      `json:"aliases,omitempty"`
 	Kind         string        `json:"kind"`
 	Protocol     string        `json:"protocol"`
 	BaseURL      string        `json:"base_url"`

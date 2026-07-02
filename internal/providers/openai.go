@@ -302,6 +302,10 @@ func (p *OpenAICompatibleProvider) Name() string {
 	return p.config.Name
 }
 
+func (p *OpenAICompatibleProvider) Aliases() []string {
+	return append([]string(nil), p.config.Aliases...)
+}
+
 func (p *OpenAICompatibleProvider) Enabled() bool {
 	return p.config.Enabled
 }

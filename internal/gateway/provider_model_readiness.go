@@ -69,7 +69,7 @@ func providerModelReadiness(entries []catalog.Entry, provider, model string) Pro
 	}
 	if provider != "" {
 		for _, entry := range entries {
-			if strings.EqualFold(entry.Name, provider) {
+			if catalog.EntryMatchesProvider(entry, provider) {
 				return providerModelReadinessForEntry(entry, entry.Name, model)
 			}
 		}
@@ -160,7 +160,7 @@ func providerModelAvailable(entry catalog.Entry, model string) bool {
 func suggestedModels(entries []catalog.Entry, provider string) []string {
 	out := make([]string, 0, 8)
 	for _, entry := range entries {
-		if provider != "" && !strings.EqualFold(entry.Name, provider) {
+		if provider != "" && !catalog.EntryMatchesProvider(entry, provider) {
 			continue
 		}
 		out = appendUniqueStrings(out, entry.Models...)
