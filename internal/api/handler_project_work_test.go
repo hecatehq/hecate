@@ -3858,6 +3858,7 @@ func TestProjectWorkAPI_StartAssignmentStrictEmbeddedReadModelLaunchesCairnlineO
 	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
 		t.Fatalf("Hecate project store seeded ok=%v err=%v, want no project row before launch", ok, err)
 	}
+	requireCairnlineOnlyProjectReadsForTest(t, handler, projectID)
 
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_embedded_launch_start/assignments/asgn_embedded_launch_start/start", bytes.NewReader([]byte(`{}`))))
@@ -3890,16 +3891,104 @@ func TestProjectWorkAPI_StartAssignmentStrictEmbeddedReadModelLaunchesCairnlineO
 		t.Fatalf("task prompt/system = %q / %q, want Cairnline work and role context", task.Prompt, task.SystemPrompt)
 	}
 
-	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
-		t.Fatalf("Hecate project store ok=%v err=%v after launch, want no native project row", ok, err)
+	runtime, ok, err := handler.projectRuntime.Get(t.Context(), projectID, "asgn_embedded_launch_start")
+	if err != nil || !ok {
+		t.Fatalf("Hecate assignment runtime ok=%v err=%v, want runtime overlay", ok, err)
 	}
-	shadow := getStoredProjectWorkAssignmentForTest(t, handler, projectID, "work_embedded_launch_start", "asgn_embedded_launch_start")
-	if shadow.ExecutionRef.RunID != ref.RunID || shadow.ExecutionRef.ContextSnapshotID != ref.ContextSnapshotID {
-		t.Fatalf("Hecate assignment shadow ref = %+v, want run/context %q/%q", shadow.ExecutionRef, ref.RunID, ref.ContextSnapshotID)
+	if runtime.ExecutionRef.RunID != ref.RunID || runtime.ExecutionRef.ContextSnapshotID != ref.ContextSnapshotID {
+		t.Fatalf("Hecate assignment runtime ref = %+v, want run/context %q/%q", runtime.ExecutionRef, ref.RunID, ref.ContextSnapshotID)
 	}
 	mirrored := getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_embedded_launch_start")
-	if mirrored.Status != cairnlinebridge.AssignmentStatus(shadow.Status) || mirrored.ExecutionRef != ref.RunID || mirrored.ContextSnapshotID != ref.ContextSnapshotID {
-		t.Fatalf("mirrored Cairnline assignment = status %q ref %q context %q, want %q/%q/%q", mirrored.Status, mirrored.ExecutionRef, mirrored.ContextSnapshotID, cairnlinebridge.AssignmentStatus(shadow.Status), ref.RunID, ref.ContextSnapshotID)
+	if mirrored.Status != cairnlinebridge.AssignmentStatus(runtime.ExecutionRef.Status) || mirrored.ExecutionRef != ref.RunID || mirrored.ContextSnapshotID != ref.ContextSnapshotID {
+		t.Fatalf("mirrored Cairnline assignment = status %q ref %q context %q, want %q/%q/%q", mirrored.Status, mirrored.ExecutionRef, mirrored.ContextSnapshotID, cairnlinebridge.AssignmentStatus(runtime.ExecutionRef.Status), ref.RunID, ref.ContextSnapshotID)
+	}
+}
+
+func TestProjectWorkAPI_StartAssignmentStrictEmbeddedReadModelReleasesCairnlineClaimWhenTaskCreateFails(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend: "cairnline",
+			CairnlineReadSource: "embedded",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	handler.taskStore = failingCreateTaskStore{Store: handler.taskStore}
+	server := NewServer(quietLogger(), handler)
+	const projectID = "proj_embedded_launch_task_create_fail"
+	workspace := t.TempDir()
+
+	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+		if _, err := service.CreateExecutionProfile(t.Context(), cairnline.ExecutionProfile{
+			ID:           "exec_embedded_launch_task_create_fail",
+			Name:         "Embedded launch task create fail",
+			ProviderHint: "anthropic",
+			ModelHint:    "claude-sonnet-4",
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateProject(t.Context(), cairnline.Project{
+			ID:                        projectID,
+			Name:                      "Embedded Launch Task Create Fail",
+			Description:               "Coordinate failed assignment launch from embedded Cairnline.",
+			DefaultRootID:             "root_embedded_launch_task_create_fail",
+			DefaultExecutionProfileID: "exec_embedded_launch_task_create_fail",
+			Roots: []cairnline.Root{{
+				ID:     "root_embedded_launch_task_create_fail",
+				Path:   workspace,
+				Kind:   "git",
+				Active: true,
+			}},
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateRole(t.Context(), cairnline.Role{
+			ID:                        "role_embedded_launch_task_create_fail",
+			ProjectID:                 projectID,
+			Name:                      "Launch Implementer",
+			Instructions:              "Use the embedded Cairnline graph.",
+			DefaultExecutionProfileID: "exec_embedded_launch_task_create_fail",
+			DefaultExecutionMode:      cairnline.ExecutionOrchestrated,
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateWorkItem(t.Context(), cairnline.WorkItem{
+			ID:          "work_embedded_launch_task_create_fail",
+			ProjectID:   projectID,
+			Title:       "Start embedded assignment with task create failure",
+			Brief:       "Launch a Hecate task from a Cairnline-only project graph.",
+			Status:      cairnline.WorkStatusReady,
+			Priority:    cairnline.PriorityNormal,
+			OwnerRoleID: "role_embedded_launch_task_create_fail",
+			RootID:      "root_embedded_launch_task_create_fail",
+		}); err != nil {
+			return err
+		}
+		_, err := service.CreateAssignment(t.Context(), cairnline.Assignment{
+			ID:            "asgn_embedded_launch_task_create_fail",
+			ProjectID:     projectID,
+			WorkItemID:    "work_embedded_launch_task_create_fail",
+			RoleID:        "role_embedded_launch_task_create_fail",
+			RootID:        "root_embedded_launch_task_create_fail",
+			ExecutionMode: cairnline.ExecutionOrchestrated,
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("seed embedded Cairnline launch task create failure: %v", err)
+	}
+	requireCairnlineOnlyProjectReadsForTest(t, handler, projectID)
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_embedded_launch_task_create_fail/assignments/asgn_embedded_launch_task_create_fail/start", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("task create failure status = %d body=%s, want 500", rec.Code, rec.Body.String())
+	}
+	mirrored := getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_embedded_launch_task_create_fail")
+	if mirrored.Status != cairnline.AssignmentQueued || mirrored.ClaimedBy != "" || mirrored.ExecutionRef != "" || mirrored.ContextSnapshotID != "" || !mirrored.StartedAt.IsZero() || !mirrored.CompletedAt.IsZero() {
+		t.Fatalf("mirrored assignment = %+v, want released queued claim for retry", mirrored)
+	}
+	if _, ok, err := handler.projectRuntime.Get(t.Context(), projectID, "asgn_embedded_launch_task_create_fail"); err != nil || ok {
+		t.Fatalf("Hecate assignment runtime ok=%v err=%v, want no runtime overlay on task create failure", ok, err)
 	}
 }
 

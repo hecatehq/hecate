@@ -662,11 +662,16 @@ after these gates are met:
   packets may carry non-authoritative
   Cairnline launch-packet evidence, and strict embedded reads may use a
   Cairnline-only project graph as the source of launch inputs. Launch-readiness
-  and preflight can use those inputs without native Hecate project/work stores,
-  but assignment-start remains a Hecate-owned orchestrator capability. Hecate
-  creates only the narrow project-work/runtime shadow needed for claim and
-  dispatch, not a native project identity row; committed start and linked-chat
-  reconciliation results may be mirrored only as replacement evidence.
+  and preflight can use those inputs without native Hecate project/work stores.
+  Hecate-task assignment start remains a Hecate-owned orchestrator capability,
+  but strict embedded mode can claim/progress the assignment in Cairnline and
+  persist only task/run refs, context packets, and timestamps in Hecate's
+  runtime overlay when the native project-work store is absent; it does not
+  create a native project identity row or compatibility assignment row.
+  External-agent assignment start still uses the native project-work
+  compatibility path until that runtime path has its own replacement slice.
+  Committed start and linked-chat reconciliation results may be mirrored only as
+  replacement evidence.
   Backend-status `write_adapter_seams`
   lists non-authoritative proof
   coverage; `write_adapter_gaps` remains a broad diagnostic list, while

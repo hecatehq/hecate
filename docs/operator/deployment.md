@@ -581,15 +581,17 @@ commit. Committed
 assignment-start results, linked-chat reconciliation, collaboration artifact
 creation, and handoff create/update/delete mutations also best-effort mirror
 portable metadata after Hecate commits, but assignment start/dispatch remains
-Hecate-owned. In strict embedded read mode, assignment start can resolve the
-project, work item, assignment, role, root, and execution defaults from a
-Cairnline-only project graph; Hecate creates a narrow project-work/runtime
-shadow for the atomic claim and dispatch path without creating a native Hecate
-project identity row. Task/chat execution refs, context packets, and launch
-timestamps are stored in Hecate's project assignment runtime overlay before
-compatibility shadows or replacement-evidence mirrors are written.
-Pre-dispatch cleanup and conflict states are mirrored back into Cairnline so
-replacement probes do not leave stale claimed assignment rows.
+Hecate-owned. In strict embedded read mode, Hecate-task assignment start can
+resolve the project, work item, assignment, role, root, and execution defaults
+from a Cairnline-only project graph. When the native project-work store is
+absent, Hecate claims and progresses the assignment in embedded Cairnline and
+stores only task/run refs, context packets, and launch timestamps in Hecate's
+project assignment runtime overlay; it does not create a native Hecate project
+identity row or compatibility assignment row. External-agent assignment start
+still uses the native project-work compatibility path until that runtime path
+has its own replacement slice. Pre-dispatch cleanup and conflict states are
+mirrored back into Cairnline so replacement probes do not leave stale claimed
+assignment rows.
 Project
 memory entries mirror after Hecate commits unless the
 `project-memory` Cairnline write-authority switchpoint is enabled; memory
