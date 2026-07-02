@@ -74,6 +74,10 @@ do not make runtime preservation depend on a native compatibility assignment row
 In strict embedded mode, Hecate-task and external-agent assignment start may
 claim/progress the assignment directly in Cairnline and persist only the runtime
 overlay; do not reintroduce native project-work guards for those start paths.
+Linked external-agent chat reconciliation must follow the same boundary: when
+native project-work stores are absent, reconcile status/ref changes back to the
+embedded Cairnline assignment plus Hecate's runtime overlay rather than
+requiring a compatibility assignment row.
 Do not describe
 `internal/cairnlinebridge` as only a future proof; it maps Hecate Projects to
 Cairnline snapshots and backs the current embedded/sidecar replacement probes.

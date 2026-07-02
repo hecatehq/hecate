@@ -591,6 +591,9 @@ it does not create a native Hecate project identity row or compatibility
 assignment row. Runtime dispatch, task execution, and external-agent supervision
 remain Hecate-owned. Pre-dispatch cleanup and conflict states are mirrored back
 into Cairnline so replacement probes do not leave stale claimed assignment rows.
+Linked external-agent chat reconciliation can also update the embedded
+Cairnline assignment and Hecate runtime overlay when no native project-work row
+exists.
 Project
 memory entries mirror after Hecate commits unless the
 `project-memory` Cairnline write-authority switchpoint is enabled; memory

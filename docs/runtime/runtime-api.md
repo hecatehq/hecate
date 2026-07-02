@@ -2686,7 +2686,10 @@ compatibility assignment row; runtime dispatch, task execution, and
 external-agent supervision remain Hecate-owned.
 `project-assignment-chat-reconcile-live-mirror`
 best-effort mirrors assignment status/ref updates committed by linked
-external-agent chat reconciliation. `project-collaboration-live-mirror` mirrors
+external-agent chat reconciliation, and strict embedded reconciliation can
+commit those linked-chat status/ref updates to embedded Cairnline plus Hecate's
+runtime overlay even when no native project-work row exists.
+`project-collaboration-live-mirror` mirrors
 collaboration artifact creation, including generic artifacts, evidence links,
 and reviews, and `project-handoffs-live-mirror` mirrors handoff
 create/update/delete mutations and status-transition timestamps after Hecate

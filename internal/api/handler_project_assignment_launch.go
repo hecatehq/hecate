@@ -1071,25 +1071,11 @@ func (h *Handler) releaseStrictEmbeddedCairnlineAssignmentClaim(ctx context.Cont
 func (h *Handler) persistStrictEmbeddedCairnlineAssignmentRuntime(ctx context.Context, assignment projectwork.Assignment) (projectwork.Assignment, error) {
 	var recorded projectwork.Assignment
 	err := h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
-		existing, err := service.GetAssignment(ctx, assignment.ProjectID, assignment.ID)
+		var err error
+		recorded, err = h.writeStrictEmbeddedCairnlineAssignmentRuntime(ctx, service, assignment)
 		if err != nil {
 			return err
 		}
-		existing.Status = cairnlinebridge.AssignmentStatus(assignment.Status)
-		existing.ExecutionRef = firstNonEmptyString(
-			strings.TrimSpace(assignment.ExecutionRef.RunID),
-			strings.TrimSpace(assignment.ExecutionRef.TaskID),
-			strings.TrimSpace(assignment.ExecutionRef.ChatSessionID),
-			strings.TrimSpace(assignment.ExecutionRef.ContextSnapshotID),
-		)
-		existing.ContextSnapshotID = strings.TrimSpace(assignment.ExecutionRef.ContextSnapshotID)
-		existing.StartedAt = assignment.StartedAt
-		existing.CompletedAt = assignment.CompletedAt
-		written, err := service.UpdateAssignment(ctx, existing)
-		if err != nil {
-			return err
-		}
-		recorded = projectWorkAssignmentFromCairnlineAuthority(written, assignment)
 		return nil
 	})
 	if err != nil {
@@ -1097,6 +1083,28 @@ func (h *Handler) persistStrictEmbeddedCairnlineAssignmentRuntime(ctx context.Co
 	}
 	h.shadowProjectAssignmentRuntimeToHecate(ctx, "project_assignment_start_cairnline_runtime", recorded)
 	return h.projectWorkApplication().ApplyAssignmentRuntime(ctx, recorded)
+}
+
+func (h *Handler) writeStrictEmbeddedCairnlineAssignmentRuntime(ctx context.Context, service *cairnline.Service, assignment projectwork.Assignment) (projectwork.Assignment, error) {
+	existing, err := service.GetAssignment(ctx, assignment.ProjectID, assignment.ID)
+	if err != nil {
+		return assignment, err
+	}
+	existing.Status = cairnlinebridge.AssignmentStatus(assignment.Status)
+	existing.ExecutionRef = firstNonEmptyString(
+		strings.TrimSpace(assignment.ExecutionRef.RunID),
+		strings.TrimSpace(assignment.ExecutionRef.TaskID),
+		strings.TrimSpace(assignment.ExecutionRef.ChatSessionID),
+		strings.TrimSpace(assignment.ExecutionRef.ContextSnapshotID),
+	)
+	existing.ContextSnapshotID = strings.TrimSpace(assignment.ExecutionRef.ContextSnapshotID)
+	existing.StartedAt = assignment.StartedAt
+	existing.CompletedAt = assignment.CompletedAt
+	written, err := service.UpdateAssignment(ctx, existing)
+	if err != nil {
+		return assignment, err
+	}
+	return projectWorkAssignmentFromCairnlineAuthority(written, assignment), nil
 }
 
 func (h *Handler) projectAssignmentStartInputs(ctx context.Context, projectID, workItemID, assignmentID string, strictEmbeddedRead bool) (projectAssignmentLaunchInputs, error) {
