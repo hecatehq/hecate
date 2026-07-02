@@ -326,7 +326,9 @@ remain Hecate-owned unless their separate switchpoints are enabled.
 portable identity, initial roots, context sources, launch defaults, and project
 identity removal to embedded Cairnline first, then best-effort shadows Hecate's
 compatibility project row. Delete restores the Cairnline snapshot if Hecate
-compatibility cleanup fails.
+compatibility cleanup fails. Identity delete can also target a Cairnline-only
+project graph and clean any Hecate compatibility shadow rows for that project
+without requiring a matching native project row.
 `project-roots` and `project-context-sources` are scoped partial authority
 slices: project root create/update/delete, root list replacement, root
 discovery-result replacement, context-source create/update/delete,

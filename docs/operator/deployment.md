@@ -528,7 +528,9 @@ Project create also best-effort mirrors portable identity, initial roots,
 context sources, and launch defaults after the Hecate store commit unless
 `project-identity` is enabled, in which case create/delete commits to Cairnline
 first and then shadows Hecate's compatibility project row. Delete restores the
-Cairnline snapshot if Hecate compatibility cleanup fails.
+Cairnline snapshot if Hecate compatibility cleanup fails. Identity delete can
+also target a Cairnline-only project graph and clean Hecate compatibility shadow
+rows without requiring a matching native project row.
 Project root create/update/delete and root list replacement mutations also
 best-effort mirror after the Hecate store commit unless `project-roots` is
 enabled, in which case those root mutations plus discovery-result replacement
