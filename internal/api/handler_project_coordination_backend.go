@@ -1209,7 +1209,7 @@ func projectCairnlineReadSourceWarning(source string) string {
 	case "embedded":
 		return "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded requires a populated embedded Cairnline mirror database and fails configured read routes when the database, project row, or proposal record is missing."
 	case "sidecar":
-		return "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar routes only " + projectCairnlineReadRouteList(projectCairnlineSidecarReadRouteNames) + " through the standalone Cairnline MCP client; writes remain Hecate-owned unless a separate write-authority switchpoint is enabled."
+		return "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar routes only " + projectCairnlineReadRouteList(projectCairnlineSidecarReadRouteNames) + " through the standalone Cairnline MCP client; writes remain Hecate-owned because current write-authority switchpoints require HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded."
 	case "snapshot":
 		return "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=snapshot keeps configured read routes on the snapshot-seeded in-memory Cairnline bridge projection even when an embedded mirror database exists."
 	default:

@@ -511,9 +511,10 @@ sequenceDiagram
   sidecar mode. Live project list/detail reads use Hecate-native stores unless
   `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar` is also set; setup-readiness,
   health, skills, memory, memory candidates, roles, work items, assignment
-  lists, launch-readiness, assignment preflight, artifact lists, handoff lists,
-  activity, closeout readiness, and operations brief use the same sidecar source
-  when it is configured.
+  lists, assignment context, launch-readiness, assignment preflight, artifact
+  lists, handoff lists, Project Assistant context/proposal, project-chat
+  prelude/context, activity, closeout readiness, and operations brief use the
+  same sidecar source when it is configured.
 - `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=auto|snapshot|embedded|sidecar` controls which
   Cairnline service backing configured read routes use while
   `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline`. With
@@ -3269,9 +3270,11 @@ Local-only standalone Cairnline MCP client connect/status surface. It uses the
 same command, database, timeout, and required-tool contract as
 `sidecar-probe`, but acquires the sidecar through Hecate's Cairnline-specific
 MCP client cache. A successful call leaves the sidecar process idle in that
-cache until the cache evicts it or Hecate shuts down. This is still not live
-Projects routing: read/write routes and write-authority switchpoints remain
-disabled in `sidecar` connector mode.
+cache until the cache evicts it or Hecate shuts down. This connection alone
+does not change live Projects routing. Add
+`HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar` to route the explicit sidecar
+read families through the standalone MCP client; write-authority switchpoints
+still require the embedded Cairnline connector.
 
 The response uses the same fields as `sidecar-probe` plus cache metadata:
 
@@ -3584,7 +3587,7 @@ Example response, shortened:
   "data": {
     "ready": true,
     "status": "sidecar_assignment_context_ready",
-    "detail": "Hecate called the read-only Cairnline sidecar assignments.context tool through the persistent sidecar client. Hecate still keeps live assignment/context reads and writes on Hecate-native stores or embedded dogfood paths in sidecar mode.",
+    "detail": "Hecate called the read-only Cairnline sidecar assignments.context tool through the persistent sidecar client. Project writes stay on Hecate-native stores in sidecar mode; HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar routes only project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, project-assistant-context, project-assistant-proposal, project-chat-prelude, project-chat-context, activity, closeout-readiness, operations-brief through the standalone Cairnline MCP client.",
     "command": "cairnline",
     "args": ["-db", "/Users/alice/.local/share/hecate/cairnline/projects.db"],
     "database_path": "/Users/alice/.local/share/hecate/cairnline/projects.db",
@@ -3655,7 +3658,7 @@ Example response, shortened:
   "data": {
     "ready": true,
     "status": "sidecar_launch_packet_ready",
-    "detail": "Hecate called the read-only Cairnline sidecar assignments.launch_packet tool through the persistent sidecar client. Hecate still keeps live assignment launch reads and writes on Hecate-native stores or embedded dogfood paths in sidecar mode.",
+    "detail": "Hecate called the read-only Cairnline sidecar assignments.launch_packet tool through the persistent sidecar client. Project writes stay on Hecate-native stores in sidecar mode; HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar routes only project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, project-assistant-context, project-assistant-proposal, project-chat-prelude, project-chat-context, activity, closeout-readiness, operations-brief through the standalone Cairnline MCP client.",
     "command": "cairnline",
     "args": ["-db", "/Users/alice/.local/share/hecate/cairnline/projects.db"],
     "database_path": "/Users/alice/.local/share/hecate/cairnline/projects.db",
