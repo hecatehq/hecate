@@ -187,6 +187,65 @@ describe("SettingsView", () => {
     expect(screen.getByText("migration-cutover")).toBeTruthy();
   });
 
+  it("renders authoritative Cairnline status with runtime boundary warnings", async () => {
+    vi.mocked(getProjectCoordinationBackendStatus).mockResolvedValue({
+      object: "project_coordination_backend_status",
+      data: {
+        configured_backend: "cairnline",
+        authoritative_backend: "cairnline",
+        storage_backend: "sqlite",
+        cairnline_connector: "embedded",
+        cairnline_connector_ready: true,
+        cairnline_read_source: "embedded",
+        cairnline_bridge_ready: true,
+        cairnline_authoritative: true,
+        read_model_switch_ready: true,
+        write_adapter_ready: true,
+        replacement_ready: true,
+        replacement_target: "embedded_cairnline_first",
+        replacement_mode: "embedded",
+        replacement_mode_armed: true,
+        read_routes: ["project-list"],
+        portable_write_gaps: [],
+        orchestrator_capabilities: ["assignment-start"],
+        migration_blockers: [],
+        warnings: [
+          "Hecate still owns runtime/workspace side effects such as task/chat execution.",
+          "Remaining Hecate-owned orchestrator capabilities: assignment-start.",
+        ],
+        next_replacement_action: {
+          id: "monitor-cairnline-backend",
+          label: "Monitor Cairnline backend",
+          detail:
+            "All Cairnline replacement gates are ready and embedded replacement mode is armed; Projects are reporting Cairnline as authoritative.",
+          target: "cairnline",
+        },
+        replacement_gates: [
+          {
+            id: "read-routes",
+            ready: true,
+            status: "ready",
+            detail: "Configured live project read families are served from Cairnline.",
+          },
+        ],
+        status: "cairnline_authoritative",
+        detail:
+          "All Cairnline replacement gates are ready and embedded replacement mode is armed; Hecate is reporting Cairnline as authoritative for portable Projects coordination state.",
+      },
+    });
+    const { state, actions } = setup();
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
+
+    expect(await screen.findByText("Cairnline owns portable project state")).toBeTruthy();
+    expect(screen.getByText("cairnline configured · cairnline authoritative")).toBeTruthy();
+    expect(screen.getByText("cairnline authoritative")).toBeTruthy();
+    expect(screen.getByText(/Hecate is reporting Cairnline as authoritative/i)).toBeTruthy();
+    expect(screen.getByText("Runtime boundary")).toBeTruthy();
+    expect(screen.getByText(/Hecate still owns runtime\/workspace side effects/i)).toBeTruthy();
+    expect(screen.getByText(/Remaining Hecate-owned orchestrator capabilities/i)).toBeTruthy();
+    expect(screen.getByText("Monitor Cairnline backend")).toBeTruthy();
+  });
+
   it("shows project backend load failures without hiding maintenance", async () => {
     vi.mocked(getProjectCoordinationBackendStatus).mockRejectedValue(
       new Error("backend status unavailable"),
