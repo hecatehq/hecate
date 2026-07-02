@@ -153,6 +153,10 @@ func projectCairnlineConnectorWarning(mode string) string {
 	return "HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar enables standalone Cairnline MCP probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle/write/setup/work/collaboration/memory/assistant diagnostics; add HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar to route only " + projectCairnlineReadRouteList(projectCairnlineSidecarReadRouteNames) + " through the sidecar."
 }
 
+func projectCairnlineSidecarLiveReadDetail() string {
+	return "Project writes stay on Hecate-native stores in sidecar mode; HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar routes only " + projectCairnlineReadRouteList(projectCairnlineSidecarReadRouteNames) + " through the standalone Cairnline MCP client."
+}
+
 func (h *Handler) HandleProjectCairnlineSidecarProbe(w http.ResponseWriter, r *http.Request) {
 	if !requireLoopbackClient(w, r, "Cairnline sidecar probe") {
 		return
@@ -382,7 +386,7 @@ func (h *Handler) projectCairnlineSidecarProbe(ctx context.Context) ProjectCairn
 	}
 	response.Ready = true
 	response.Status = "sidecar_probe_ready"
-	response.Detail = "Cairnline sidecar MCP server started and exposes the required portable Projects tool contract. Hecate still keeps live Projects reads and writes on Hecate-native stores in sidecar mode."
+	response.Detail = "Cairnline sidecar MCP server started and exposes the required portable Projects tool contract. " + projectCairnlineSidecarLiveReadDetail()
 	return response
 }
 
@@ -436,7 +440,7 @@ func (h *Handler) projectCairnlineSidecarConnect(ctx context.Context) ProjectCai
 	}
 	response.Ready = true
 	response.Status = "sidecar_client_ready"
-	response.Detail = "Cairnline sidecar MCP client connected and exposes the required portable Projects tool contract. Hecate still keeps live Projects reads and writes on Hecate-native stores in sidecar mode."
+	response.Detail = "Cairnline sidecar MCP client connected and exposes the required portable Projects tool contract. " + projectCairnlineSidecarLiveReadDetail()
 	return response
 }
 
@@ -488,7 +492,7 @@ func (h *Handler) projectCairnlineSidecarReadSmoke(ctx context.Context) ProjectC
 	response.setSidecarCacheStats(cache.Stats())
 	if result.IsError {
 		response.Status = "sidecar_read_tool_failed"
-		response.Detail = "Cairnline sidecar projects.list returned a tool-level error. Hecate still keeps live Projects reads and writes on Hecate-native stores in sidecar mode."
+		response.Detail = "Cairnline sidecar projects.list returned a tool-level error. " + projectCairnlineSidecarLiveReadDetail()
 		return response
 	}
 	structuredProjects, structuredReady, structuredErr := projectCairnlineSidecarStructuredProjects(result.Result.StructuredContent)
@@ -503,7 +507,7 @@ func (h *Handler) projectCairnlineSidecarReadSmoke(ctx context.Context) ProjectC
 	}
 	response.Ready = true
 	response.Status = "sidecar_read_ready"
-	response.Detail = "Hecate called the read-only Cairnline sidecar projects.list tool through the persistent sidecar client. Hecate still keeps live Projects reads and writes on Hecate-native stores in sidecar mode."
+	response.Detail = "Hecate called the read-only Cairnline sidecar projects.list tool through the persistent sidecar client. " + projectCairnlineSidecarLiveReadDetail()
 	return response
 }
 
@@ -562,7 +566,7 @@ func (h *Handler) projectCairnlineSidecarDetailSmoke(ctx context.Context, req Pr
 		response.ListMeta = listResult.Result.Meta
 		if listResult.IsError {
 			response.Status = "sidecar_detail_list_tool_failed"
-			response.Detail = "Cairnline sidecar projects.list returned a tool-level error before Hecate could select a project for projects.get. Hecate still keeps live Projects reads and writes on Hecate-native stores in sidecar mode."
+			response.Detail = "Cairnline sidecar projects.list returned a tool-level error before Hecate could select a project for projects.get. " + projectCairnlineSidecarLiveReadDetail()
 			response.setSidecarCacheStats(cache.Stats())
 			return response
 		}
@@ -610,7 +614,7 @@ func (h *Handler) projectCairnlineSidecarDetailSmoke(ctx context.Context, req Pr
 	response.setSidecarCacheStats(cache.Stats())
 	if result.IsError {
 		response.Status = "sidecar_detail_tool_failed"
-		response.Detail = "Cairnline sidecar projects.get returned a tool-level error. Hecate still keeps live Projects reads and writes on Hecate-native stores in sidecar mode."
+		response.Detail = "Cairnline sidecar projects.get returned a tool-level error. " + projectCairnlineSidecarLiveReadDetail()
 		return response
 	}
 	structuredProject, structuredReady, structuredErr := projectCairnlineSidecarStructuredProject(result.Result.StructuredContent)
@@ -626,7 +630,7 @@ func (h *Handler) projectCairnlineSidecarDetailSmoke(ctx context.Context, req Pr
 	}
 	response.Ready = true
 	response.Status = "sidecar_detail_ready"
-	response.Detail = "Hecate called the read-only Cairnline sidecar projects.get tool through the persistent sidecar client. Hecate still keeps live Projects reads and writes on Hecate-native stores in sidecar mode."
+	response.Detail = "Hecate called the read-only Cairnline sidecar projects.get tool through the persistent sidecar client. " + projectCairnlineSidecarLiveReadDetail()
 	return response
 }
 
@@ -684,7 +688,7 @@ func (h *Handler) projectCairnlineSidecarCoordinationSmoke(ctx context.Context, 
 		response.Lists = append(response.Lists, result)
 		if result.ToolIsError {
 			response.Status = "sidecar_coordination_tool_failed"
-			response.Detail = "Cairnline sidecar " + result.Tool + " returned a tool-level error. Hecate still keeps live Projects reads and writes on Hecate-native stores in sidecar mode."
+			response.Detail = "Cairnline sidecar " + result.Tool + " returned a tool-level error. " + projectCairnlineSidecarLiveReadDetail()
 			response.setSidecarCacheStats(cache.Stats())
 			return response
 		}
@@ -711,7 +715,7 @@ func (h *Handler) projectCairnlineSidecarCoordinationSmoke(ctx context.Context, 
 	response.StructuredReady = projectCairnlineSidecarCoordinationStructuredReady(response.Lists)
 	response.Ready = true
 	response.Status = "sidecar_coordination_ready"
-	response.Detail = "Hecate called read-only Cairnline sidecar coordination list tools through the persistent sidecar client. Hecate still keeps live Projects reads and writes on Hecate-native stores in sidecar mode."
+	response.Detail = "Hecate called read-only Cairnline sidecar coordination list tools through the persistent sidecar client. " + projectCairnlineSidecarLiveReadDetail()
 	response.setSidecarCacheStats(cache.Stats())
 	return response
 }
@@ -793,7 +797,7 @@ func (h *Handler) projectCairnlineSidecarAssignmentContextSmoke(ctx context.Cont
 	response.setSidecarCacheStats(cache.Stats())
 	if result.IsError {
 		response.Status = "sidecar_assignment_context_tool_failed"
-		response.Detail = "Cairnline sidecar assignments.context returned a tool-level error. Hecate still keeps live Projects reads and writes on Hecate-native stores in sidecar mode."
+		response.Detail = "Cairnline sidecar assignments.context returned a tool-level error. " + projectCairnlineSidecarLiveReadDetail()
 		return response
 	}
 	contextIDs, structuredReady, structuredErr := projectCairnlineSidecarStructuredAssignmentContextIDs(result.Result.StructuredContent)
@@ -811,7 +815,7 @@ func (h *Handler) projectCairnlineSidecarAssignmentContextSmoke(ctx context.Cont
 	}
 	response.Ready = true
 	response.Status = "sidecar_assignment_context_ready"
-	response.Detail = "Hecate called the read-only Cairnline sidecar assignments.context tool through the persistent sidecar client. Hecate still keeps live Projects reads and writes on Hecate-native stores in sidecar mode."
+	response.Detail = "Hecate called the read-only Cairnline sidecar assignments.context tool through the persistent sidecar client. " + projectCairnlineSidecarLiveReadDetail()
 	return response
 }
 
@@ -890,7 +894,7 @@ func (h *Handler) projectCairnlineSidecarLaunchPacketSmoke(ctx context.Context, 
 	response.setSidecarCacheStats(cache.Stats())
 	if result.IsError {
 		response.Status = "sidecar_launch_packet_tool_failed"
-		response.Detail = "Cairnline sidecar assignments.launch_packet returned a tool-level error. Hecate still keeps live Projects reads and writes on Hecate-native stores in sidecar mode."
+		response.Detail = "Cairnline sidecar assignments.launch_packet returned a tool-level error. " + projectCairnlineSidecarLiveReadDetail()
 		return response
 	}
 	ids, counts, packetWarnings, structuredReady, structuredErr := projectCairnlineSidecarStructuredLaunchPacket(result.Result.StructuredContent)
@@ -910,7 +914,7 @@ func (h *Handler) projectCairnlineSidecarLaunchPacketSmoke(ctx context.Context, 
 	}
 	response.Ready = true
 	response.Status = "sidecar_launch_packet_ready"
-	response.Detail = "Hecate called the read-only Cairnline sidecar assignments.launch_packet tool through the persistent sidecar client. Hecate still keeps live Projects reads and writes on Hecate-native stores in sidecar mode."
+	response.Detail = "Hecate called the read-only Cairnline sidecar assignments.launch_packet tool through the persistent sidecar client. " + projectCairnlineSidecarLiveReadDetail()
 	return response
 }
 

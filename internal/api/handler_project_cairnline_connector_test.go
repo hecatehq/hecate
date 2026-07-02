@@ -12,6 +12,18 @@ import (
 	"github.com/hecatehq/hecate/internal/config"
 )
 
+func assertSidecarLiveReadDetail(t *testing.T, detail string) {
+	t.Helper()
+	if strings.Contains(detail, "live Projects reads and writes") {
+		t.Fatalf("detail = %q, want no stale native-read claim", detail)
+	}
+	if !strings.Contains(detail, "Project writes stay on Hecate-native stores") ||
+		!strings.Contains(detail, "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar") ||
+		!strings.Contains(detail, "project-chat-prelude, project-chat-context") {
+		t.Fatalf("detail = %q, want sidecar read-route guidance with project chat routes", detail)
+	}
+}
+
 func TestProjectCairnlineSidecarMCPConfig_DefaultsToInMemoryProbe(t *testing.T) {
 	handler := NewHandler(config.Config{}, quietLogger(), nil, nil, nil, nil)
 
@@ -98,6 +110,7 @@ func TestProjectCairnlineSidecarProbe_Ready(t *testing.T) {
 	if len(got.MissingTools) != 0 {
 		t.Fatalf("missing tools = %+v, want none", got.MissingTools)
 	}
+	assertSidecarLiveReadDetail(t, got.Detail)
 	for _, name := range []string{"projects.update", "roots.create", "context_sources.update", "profiles.create", "assignments.create", "memory_entries.create", "assistant.apply", "memory_candidates.delete"} {
 		if !containsString(got.RequiredTools, name) {
 			t.Fatalf("required tools = %+v, want %q", got.RequiredTools, name)
@@ -154,6 +167,7 @@ func TestProjectCairnlineSidecarConnect_ReadyUsesPersistentClientCache(t *testin
 	if got.ToolCount != len(projectCairnlineSidecarRequiredTools) || len(got.MissingTools) != 0 {
 		t.Fatalf("tool count=%d missing=%+v, want full contract", got.ToolCount, got.MissingTools)
 	}
+	assertSidecarLiveReadDetail(t, got.Detail)
 	for _, name := range []string{"projects.activity", "skills.discover", "work_items.closeout_readiness", "artifacts.create", "handoffs.update_status", "memory_candidates.promote"} {
 		if !containsString(got.RequiredTools, name) {
 			t.Fatalf("required tools = %+v, want %q", got.RequiredTools, name)
