@@ -272,6 +272,10 @@ preflight, Project Assistant context/proposal, and operations brief reads render
 work items, assignments, roles, artifacts, and handoffs from the Cairnline
 service records, then overlay Hecate-only runtime refs/timestamps and runtime
 launch validation where Hecate still owns execution.
+For strict embedded assignment context, Hecate prefers a matching persisted
+runtime-overlay context packet after a Hecate-owned task/chat launch; queued
+assignments without that runtime snapshot continue to return Cairnline's
+inspect-only assignment context.
 For remaining embedded read-route families, some project compatibility
 scaffolding still comes from Hecate until Cairnline becomes authoritative. The
 direct strict embedded exceptions are project list/detail, project skill list,

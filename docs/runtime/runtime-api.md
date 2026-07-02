@@ -6082,7 +6082,11 @@ entry, artifact, or assignment update. It shows portable project/work/role,
 profile, skill, source, memory, evidence, review, and handoff metadata so the
 operator can inspect what Cairnline would hand to a compatible orchestrator.
 
-In strict embedded mode, the endpoint reads the assignment context directly
+In strict embedded mode, the endpoint first checks Hecate's assignment runtime
+overlay for a persisted task/chat execution context packet whose refs match the
+requested project, work item, and assignment. When that snapshot exists, the
+endpoint returns it so assignment context matches the launched execution. Before
+an assignment is started, it reads the inspect-only assignment context directly
 from the embedded Cairnline database and does not require a matching
 Hecate-native project or assignment row.
 

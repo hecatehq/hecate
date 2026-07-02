@@ -3927,6 +3927,28 @@ func TestProjectWorkAPI_StartAssignmentStrictEmbeddedReadModelLaunchesCairnlineO
 		t.Fatalf("Cairnline handoff context item = %+v, want inspect-only project_work handoff metadata", item)
 	}
 
+	assignmentPacket := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_embedded_launch_start/assignments/asgn_embedded_launch_start/context", "")
+	if assignmentPacket.Data.ID != ref.ContextSnapshotID {
+		t.Fatalf("assignment context id = %q, want persisted runtime context %q", assignmentPacket.Data.ID, ref.ContextSnapshotID)
+	}
+	if assignmentPacket.Data.Refs == nil || assignmentPacket.Data.Refs.TaskID != ref.TaskID || assignmentPacket.Data.Refs.RunID != ref.RunID || assignmentPacket.Data.Refs.ProjectID != projectID || assignmentPacket.Data.Refs.WorkItemID != "work_embedded_launch_start" || assignmentPacket.Data.Refs.AssignmentID != "asgn_embedded_launch_start" {
+		t.Fatalf("assignment context refs = %+v, want persisted task/run assignment refs", assignmentPacket.Data.Refs)
+	}
+	if item := findRenderedContextItemByOrigin(assignmentPacket.Data, "artifact_embedded_launch_start"); item == nil || item.Included || item.Section != contextSectionProjectWork {
+		t.Fatalf("assignment context artifact item = %+v, want persisted runtime artifact metadata", item)
+	}
+	if item := findRenderedContextItemByOrigin(assignmentPacket.Data, "handoff_embedded_launch_start"); item == nil || item.Included || item.Section != contextSectionProjectWork {
+		t.Fatalf("assignment context handoff item = %+v, want persisted runtime handoff metadata", item)
+	}
+	if item := findRenderedContextItemByOrigin(assignmentPacket.Data, "cairnline.assignments.context"); item != nil {
+		t.Fatalf("assignment context runtime item = %+v, want persisted runtime packet rather than inspect-only Cairnline preview", item)
+	}
+	mismatchRec := httptest.NewRecorder()
+	server.ServeHTTP(mismatchRec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_other/assignments/asgn_embedded_launch_start/context", nil))
+	if mismatchRec.Code != http.StatusNotFound {
+		t.Fatalf("route-mismatched runtime assignment context status = %d body=%s, want 404", mismatchRec.Code, mismatchRec.Body.String())
+	}
+
 	runtime, ok, err := handler.projectRuntime.Get(t.Context(), projectID, "asgn_embedded_launch_start")
 	if err != nil || !ok {
 		t.Fatalf("Hecate assignment runtime ok=%v err=%v, want runtime overlay", ok, err)
