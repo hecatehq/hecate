@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/hecatehq/cairnline"
@@ -13,9 +12,6 @@ import (
 )
 
 func (h *Handler) renderCairnlineProjectSetupReadiness(ctx context.Context, projectID string) (ProjectSetupReadinessResponse, error) {
-	if h.requiresEmbeddedCairnlineProjectReads() {
-		return h.renderStrictEmbeddedCairnlineProjectSetupReadiness(ctx, projectID)
-	}
 	view, err := h.cairnlineProjectWorkView(ctx, projectID)
 	if err != nil {
 		return ProjectSetupReadinessResponse{}, err
@@ -46,50 +42,6 @@ func (h *Handler) renderCairnlineProjectSetupReadiness(ctx context.Context, proj
 	}
 
 	return renderCairnlineProjectSetupReadinessFromRows(view.snapshot.Project, roles, workItems, entries, candidates, skills), nil
-}
-
-func (h *Handler) renderStrictEmbeddedCairnlineProjectSetupReadiness(ctx context.Context, projectID string) (ProjectSetupReadinessResponse, error) {
-	_, service, store, err := h.openCairnlineEmbeddedService(ctx)
-	if err != nil {
-		return ProjectSetupReadinessResponse{}, err
-	}
-	defer store.Close()
-	item, err := service.GetProject(ctx, projectID)
-	if errors.Is(err, cairnline.ErrNotFound) {
-		return ProjectSetupReadinessResponse{}, projects.ErrNotFound
-	}
-	if err != nil {
-		return ProjectSetupReadinessResponse{}, err
-	}
-	executionProfile, err := cairnlineExecutionProfileByID(ctx, service, item.DefaultExecutionProfileID)
-	if err != nil {
-		return ProjectSetupReadinessResponse{}, err
-	}
-	project := projectFromCairnline(item, executionProfile, projects.Project{})
-	roles, err := service.ListRoles(ctx, project.ID)
-	if err != nil {
-		return ProjectSetupReadinessResponse{}, err
-	}
-	workItems, err := service.ListWorkItems(ctx, project.ID)
-	if err != nil {
-		return ProjectSetupReadinessResponse{}, err
-	}
-	entries, err := service.ListMemoryEntries(ctx, project.ID, true)
-	if err != nil {
-		return ProjectSetupReadinessResponse{}, err
-	}
-	candidates, err := service.ListMemoryCandidates(ctx, cairnline.MemoryCandidateFilter{
-		ProjectID: project.ID,
-		Status:    cairnline.MemoryCandidatePending,
-	})
-	if err != nil {
-		return ProjectSetupReadinessResponse{}, err
-	}
-	skills, err := service.ListProjectSkills(ctx, project.ID)
-	if err != nil {
-		return ProjectSetupReadinessResponse{}, err
-	}
-	return renderCairnlineProjectSetupReadinessFromRows(project, roles, workItems, entries, candidates, skills), nil
 }
 
 func renderCairnlineProjectSetupReadinessFromRows(project projects.Project, roles []cairnline.Role, workItems []cairnline.WorkItem, entries []cairnline.MemoryEntry, candidates []cairnline.MemoryCandidate, skills []cairnline.ProjectSkill) ProjectSetupReadinessResponse {

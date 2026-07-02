@@ -253,7 +253,7 @@ func (h *Handler) HandleProjectCairnlineParityReport(w http.ResponseWriter, r *h
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	cairnlineOperations, err := h.renderCairnlineProjectOperationsBrief(r.Context(), snapshot.Project)
+	cairnlineOperations, err := h.renderCairnlineProjectOperationsBrief(r.Context(), snapshot.Project.ID)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
@@ -673,7 +673,7 @@ func (h *Handler) projectCairnlineStrictEmbeddedSmoke(ctx context.Context, snaps
 			return err
 		})
 		checkProjectCairnlineEmbeddedSmoke(smoke, projectID, "operations-brief", func() error {
-			_, err := strict.renderCairnlineProjectOperationsBrief(ctx, snapshot.Project)
+			_, err := strict.renderCairnlineProjectOperationsBrief(ctx, snapshot.Project.ID)
 			return err
 		})
 		checkProjectCairnlineEmbeddedSmoke(smoke, projectID, "project-chat-prelude", func() error {

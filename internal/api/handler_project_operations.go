@@ -102,8 +102,8 @@ func (h *Handler) renderProjectOperationsBrief(ctx context.Context, projectID st
 	if h.projectCairnlineSidecarReadRoutesEnabled() {
 		return h.renderCairnlineSidecarProjectOperationsBrief(ctx, projectID)
 	}
-	if h.projectReadRoutesUseCairnlineReadModel() && h.requiresEmbeddedCairnlineProjectReads() {
-		return h.renderStrictEmbeddedCairnlineProjectOperationsBrief(ctx, projectID)
+	if h.projectReadRoutesUseCairnlineReadModel() {
+		return h.renderCairnlineProjectOperationsBrief(ctx, projectID)
 	}
 	project, ok, err := h.projects.Get(ctx, projectID)
 	if err != nil {
@@ -111,9 +111,6 @@ func (h *Handler) renderProjectOperationsBrief(ctx context.Context, projectID st
 	}
 	if !ok {
 		return ProjectOperationsBriefResponse{}, projects.ErrNotFound
-	}
-	if h.projectReadRoutesUseCairnlineReadModel() {
-		return h.renderCairnlineProjectOperationsBrief(ctx, project)
 	}
 	return h.renderNativeProjectOperationsBrief(ctx, project)
 }

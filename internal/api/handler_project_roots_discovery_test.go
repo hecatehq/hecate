@@ -199,6 +199,50 @@ func TestProjectRootsDiscovery_CairnlineAuthorityCommitsDiscoveredRootsFirst(t *
 	}
 }
 
+func TestProjectRootsDiscovery_CairnlineAuthorityAcceptsCairnlineOnlyProject(t *testing.T) {
+	t.Parallel()
+	repo := initProjectRootDiscoveryRepo(t)
+	worktree := filepath.Join(t.TempDir(), "feature-worktree")
+	if err := exec.Command("git", "-C", repo, "worktree", "add", "-b", "feature/worktrees", worktree).Run(); err != nil {
+		t.Fatalf("git worktree add: %v", err)
+	}
+
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend:     "cairnline",
+			CairnlineWriteAuthority: projectCairnlineWriteAuthorityProjectRoots,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	projectStore := projects.NewMemoryStore()
+	handler.SetProjectStore(projectStore)
+	server := NewServer(quietLogger(), handler)
+	seedCairnlineProjectMainRootForTest(t, handler, "proj_roots_cairnline_only", repo)
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_roots_cairnline_only/roots/discover", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("discover status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var resp ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode discovery response: %v", err)
+	}
+	roots := make(map[string]ProjectRootResponseItem)
+	for _, root := range resp.Data.Roots {
+		roots[canonicalProjectRootDiscoveryTestPath(t, root.Path)] = root
+	}
+	if got := roots[canonicalProjectRootDiscoveryTestPath(t, repo)]; got.ID != "root_main" || !got.Active || got.Kind != "git" {
+		t.Fatalf("main root = %+v, want Cairnline-owned root_main", got)
+	}
+	if got := roots[canonicalProjectRootDiscoveryTestPath(t, worktree)]; got.ID == "" || got.Active || got.Kind != "git_worktree" || got.GitBranch != "feature/worktrees" {
+		t.Fatalf("discovered worktree root = %+v, want inactive feature worktree", got)
+	}
+	if _, ok, err := projectStore.Get(t.Context(), "proj_roots_cairnline_only"); err != nil || ok {
+		t.Fatalf("native project lookup ok=%v err=%v, want no native project row", ok, err)
+	}
+}
+
 func TestProjectRoots_CreateWorktreeRoot(t *testing.T) {
 	t.Parallel()
 	repo := initProjectRootDiscoveryRepo(t)
@@ -365,6 +409,48 @@ func TestProjectRoots_CreateWorktreeRoot_CairnlineAuthorityCommitsRootRecordFirs
 	}
 }
 
+func TestProjectRoots_CreateWorktreeRoot_CairnlineAuthorityAcceptsCairnlineOnlyProject(t *testing.T) {
+	t.Parallel()
+	repo := initProjectRootDiscoveryRepo(t)
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend:     "cairnline",
+			CairnlineWriteAuthority: projectCairnlineWriteAuthorityProjectRoots,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	projectStore := projects.NewMemoryStore()
+	handler.SetProjectStore(projectStore)
+	server := NewServer(quietLogger(), handler)
+	seedCairnlineProjectMainRootForTest(t, handler, "proj_roots_cairnline_only", repo)
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_roots_cairnline_only/roots/worktrees", bytes.NewReader([]byte(`{
+		"base_root_id":"root_main",
+		"branch":"feature/cairnline-only",
+		"active":true,
+		"set_default":true
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create worktree status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	var resp ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode create worktree response: %v", err)
+	}
+	created := resp.Data.Roots[len(resp.Data.Roots)-1]
+	wantPath := filepath.Join(repo, ".worktrees", "feature-cairnline-only")
+	if created.ID == "" || created.Kind != "git_worktree" || created.GitBranch != "feature/cairnline-only" || !created.Active || resp.Data.DefaultRootID != created.ID {
+		t.Fatalf("created root = %+v default=%q, want active default Cairnline-owned worktree", created, resp.Data.DefaultRootID)
+	}
+	if canonicalProjectRootDiscoveryTestPath(t, created.Path) != canonicalProjectRootDiscoveryTestPath(t, wantPath) {
+		t.Fatalf("created path = %q, want %q", created.Path, wantPath)
+	}
+	if _, ok, err := projectStore.Get(t.Context(), "proj_roots_cairnline_only"); err != nil || ok {
+		t.Fatalf("native project lookup ok=%v err=%v, want no native project row", ok, err)
+	}
+}
+
 func TestProjectRoots_CreateWorktreeRootRejectsOutsidePath(t *testing.T) {
 	t.Parallel()
 	repo := initProjectRootDiscoveryRepo(t)
@@ -480,5 +566,31 @@ func seedCairnlineProjectRootsForTest(t *testing.T, handler *Handler, projectID,
 		Enabled: true,
 	}); err != nil {
 		t.Fatalf("CreateContextSource(ctx_cairnline_only): %v", err)
+	}
+}
+
+func seedCairnlineProjectMainRootForTest(t *testing.T, handler *Handler, projectID, repo string) {
+	t.Helper()
+	dbPath := handler.cairnlineEmbeddedDatabasePath()
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+		t.Fatalf("create Cairnline mirror parent: %v", err)
+	}
+	service, store, err := cairnline.NewSQLiteService(t.Context(), dbPath)
+	if err != nil {
+		t.Fatalf("open Cairnline mirror: %v", err)
+	}
+	defer store.Close()
+	if _, err := service.CreateProject(t.Context(), cairnline.Project{
+		ID:            projectID,
+		Name:          "Roots",
+		DefaultRootID: "root_main",
+		Roots: []cairnline.Root{{
+			ID:     "root_main",
+			Path:   repo,
+			Kind:   "git",
+			Active: true,
+		}},
+	}); err != nil {
+		t.Fatalf("CreateProject(%s): %v", projectID, err)
 	}
 }

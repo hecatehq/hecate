@@ -21,6 +21,23 @@ func (h *Handler) projectSkillWritesUseCairnlineAuthority() bool {
 		h.config.ProjectsCairnlineWriteAuthorityEnabled(projectCairnlineWriteAuthorityProjectSkills)
 }
 
+func (h *Handler) projectForProjectSkillMutation(ctx context.Context, projectID string, usesCairnlineAuthority bool) (projects.Project, error) {
+	if usesCairnlineAuthority {
+		return h.projectForCairnlineWriteAuthority(ctx, projectID)
+	}
+	if h == nil || h.projects == nil {
+		return projects.Project{}, errors.New("project store is not configured")
+	}
+	project, ok, err := h.projects.Get(ctx, projectID)
+	if err != nil {
+		return projects.Project{}, err
+	}
+	if !ok {
+		return projects.Project{}, projects.ErrNotFound
+	}
+	return project, nil
+}
+
 func (h *Handler) upsertDiscoveredProjectSkillsWithCairnlineAuthority(ctx context.Context, project projects.Project, discovered []projectskills.Skill, warnings []string) ([]projectskills.Skill, error) {
 	var recorded []projectskills.Skill
 	err := h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
@@ -139,6 +156,18 @@ func (h *Handler) shadowProjectSkillUpdateToHecate(ctx context.Context, operatio
 		return
 	}
 	h.logCairnlineMirrorError(ctx, operation, projectID, err)
+}
+
+func writeProjectSkillProjectError(w http.ResponseWriter, err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, projects.ErrNotFound) || errors.Is(err, cairnline.ErrNotFound) {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
+		return true
+	}
+	WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+	return true
 }
 
 func writeProjectSkillAuthorityError(w http.ResponseWriter, err error) bool {

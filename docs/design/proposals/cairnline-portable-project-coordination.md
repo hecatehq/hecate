@@ -401,7 +401,9 @@ launch agents. Those remain explicit operator or orchestrator actions.
   closeout-readiness, operations brief, project memory list, and
   memory-candidate list reads plus Project Assistant context/proposal reads can
   load directly from embedded Cairnline rows without first building a Hecate
-  snapshot.
+  snapshot. Strict embedded route selection is configuration-driven, so those
+  direct-read routes attempt the embedded Cairnline graph even when no
+  Hecate-native compatibility project row exists.
 - Embedded sync and mirror-parity responses include strict embedded smoke
   evidence across those read families, including project-linked Hecate Chat
   prelude/context reads and conditional nested work-item, assignment, and
@@ -447,9 +449,11 @@ launch agents. Those remain explicit operator or orchestrator actions.
   `replacement_ready=false` until read parity, strict embedded mirror probes,
   authoritative write switchpoints, and migration/rollback gates are ready.
 - `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-memory` enables Hecate's
-  first disabled-by-default Cairnline write-authority switchpoint: accepted
-  project memory entry create/update/delete commits to embedded Cairnline first
-  and then shadows back into Hecate-native memory stores.
+  accepted-memory Cairnline write-authority switchpoint: accepted project
+  memory entry create/update/delete commits to embedded Cairnline first and then
+  shadows back into Hecate-native memory stores. That route can validate project
+  identity from the embedded Cairnline graph without requiring a Hecate-native
+  compatibility project row.
   `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=all-portable` expands to every
   current portable write-authority switchpoint for embedded dogfooding, but it
   does not make Hecate runtime side effects or migration cutover
@@ -457,7 +461,8 @@ launch agents. Those remain explicit operator or orchestrator actions.
   `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-memory,memory-candidates`
   also makes memory-candidate create/promote/reject Cairnline-first; the
   `memory-candidates` switch requires `project-memory` because promotion creates
-  accepted project memory. Additional opt-in switchpoints can make
+  accepted project memory, and uses the same embedded Cairnline project-identity
+  validation. Additional opt-in switchpoints can make
   project create (`project-identity`), metadata/default-only project PATCHes
   (`project-metadata-defaults`), direct root CRUD (`project-roots`),
   direct context-source CRUD
@@ -467,6 +472,15 @@ launch agents. Those remain explicit operator or orchestrator actions.
   (`project-work-items`), assignment record mutations (`project-assignments`),
   and global agent-profile mutations (`agent-profiles`) commit to Cairnline
   first and then shadow back into Hecate-native compatibility stores.
+  The portable work switchpoints can operate on embedded Cairnline project
+  graphs without a matching Hecate-native project row: root discovery and
+  worktree-created root record mutations use Cairnline-owned project identity
+  and roots, context-source discovery uses Cairnline-owned roots and existing
+  sources, skill discovery/update uses Cairnline-owned roots and context
+  sources, role/work-item writes load project identity and roots from
+  Cairnline, assignment writes validate Cairnline-owned work item/role/root
+  dependencies, and collaboration writes accept Cairnline-owned work
+  item/role/assignment records before falling back to Hecate shadows.
   Agent-profile authority writes
   Cairnline's separate portable profile and execution-posture records before
   shadowing Hecate's combined profile row. `project-identity` makes project
@@ -495,10 +509,16 @@ launch agents. Those remain explicit operator or orchestrator actions.
   create-if-missing generic artifact/evidence/review seams, handoff
   upsert/delete seams, plus accepted-memory and memory-candidate seams that
   preserve metadata, disabled state, provenance, resolved candidate state, and
-  promoted memory IDs. Accepted memory, memory-candidate review,
-  collaboration/handoff, metadata-only skill discovery/update, global
-  agent-profile, role, work-item, and assignment-record flows can additionally
-  run as opt-in Cairnline-first switchpoints above. The project
+  promoted memory IDs. Accepted memory and memory-candidate authority routes can
+  also run against a Cairnline-only project graph while Hecate-native memory
+  rows remain best-effort compatibility shadows. Root discovery,
+  worktree-created root records, context-source discovery, and metadata-only
+  skill discovery/update can likewise run against Cairnline-owned project
+  graphs without injecting or executing skill bodies. Accepted memory,
+  memory-candidate review, collaboration/handoff, root/source discovery,
+  metadata-only skill discovery/update, global agent-profile, role, work-item,
+  and assignment-record flows can additionally run as opt-in Cairnline-first
+  switchpoints above. The project
   identity/root
   discovery/worktree-creation/context-source discovery seam, the root-level
   direct root mutation seam, the source-level direct context-source mutation

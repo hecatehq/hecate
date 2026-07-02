@@ -14,43 +14,45 @@ func (h *Handler) projectChatStrictEmbeddedCairnlineReads() bool {
 	return h != nil && h.projectReadRoutesUseCairnlineReadModel() && h.requiresEmbeddedCairnlineProjectReads()
 }
 
-func (h *Handler) strictEmbeddedCairnlineProjectSummary(ctx context.Context, projectID string) (*projects.Project, bool) {
+func (h *Handler) strictEmbeddedCairnlineProjectChatView(ctx context.Context, projectID string) (*cairnlineProjectWorkView, bool) {
 	projectID = strings.TrimSpace(projectID)
 	if !h.projectChatStrictEmbeddedCairnlineReads() || projectID == "" {
 		return nil, false
 	}
-	_, service, store, err := h.openCairnlineEmbeddedService(ctx)
+	view, err := h.cairnlineProjectWorkView(ctx, projectID)
 	if err != nil {
 		return nil, true
 	}
-	defer store.Close()
-	project, err := service.GetProject(ctx, projectID)
-	if err != nil {
+	return view, true
+}
+
+func (h *Handler) strictEmbeddedCairnlineProjectSummary(ctx context.Context, projectID string) (*projects.Project, bool) {
+	view, ok := h.strictEmbeddedCairnlineProjectChatView(ctx, projectID)
+	if !ok {
+		return nil, false
+	}
+	if view == nil {
 		return nil, true
 	}
-	executionProfile, err := cairnlineExecutionProfileByID(ctx, service, project.DefaultExecutionProfileID)
-	if err != nil {
-		return nil, true
-	}
-	item := projectFromCairnline(project, executionProfile, projects.Project{})
+	defer view.Close()
+	item := view.snapshot.Project
 	return &item, true
 }
 
 func (h *Handler) strictEmbeddedCairnlineProjectChatRoles(ctx context.Context, projectID string) ([]projectwork.AgentRoleProfile, bool) {
-	projectID = strings.TrimSpace(projectID)
-	if !h.projectChatStrictEmbeddedCairnlineReads() || projectID == "" {
+	view, ok := h.strictEmbeddedCairnlineProjectChatView(ctx, projectID)
+	if !ok {
 		return nil, false
 	}
-	_, service, store, err := h.openCairnlineEmbeddedService(ctx)
+	if view == nil {
+		return nil, true
+	}
+	defer view.Close()
+	roles, err := view.service.ListRoles(ctx, view.snapshot.Project.ID)
 	if err != nil {
 		return nil, true
 	}
-	defer store.Close()
-	roles, err := service.ListRoles(ctx, projectID)
-	if err != nil {
-		return nil, true
-	}
-	executionProfiles, err := service.ListExecutionProfiles(ctx)
+	executionProfiles, err := view.service.ListExecutionProfiles(ctx)
 	if err != nil {
 		return nil, true
 	}
@@ -63,16 +65,15 @@ func (h *Handler) strictEmbeddedCairnlineProjectChatRoles(ctx context.Context, p
 }
 
 func (h *Handler) strictEmbeddedCairnlineProjectChatSkills(ctx context.Context, projectID string) ([]projectskills.Skill, bool) {
-	projectID = strings.TrimSpace(projectID)
-	if !h.projectChatStrictEmbeddedCairnlineReads() || projectID == "" {
+	view, ok := h.strictEmbeddedCairnlineProjectChatView(ctx, projectID)
+	if !ok {
 		return nil, false
 	}
-	_, service, store, err := h.openCairnlineEmbeddedService(ctx)
-	if err != nil {
+	if view == nil {
 		return nil, true
 	}
-	defer store.Close()
-	items, err := service.ListProjectSkills(ctx, projectID)
+	defer view.Close()
+	items, err := view.service.ListProjectSkills(ctx, view.snapshot.Project.ID)
 	if err != nil {
 		return nil, true
 	}
@@ -93,16 +94,16 @@ func (h *Handler) strictEmbeddedCairnlineProjectChatSkills(ctx context.Context, 
 }
 
 func (h *Handler) strictEmbeddedCairnlineProjectChatWorkSnapshot(ctx context.Context, projectID string) (projectChatWorkSnapshot, bool) {
-	projectID = strings.TrimSpace(projectID)
-	if !h.projectChatStrictEmbeddedCairnlineReads() || projectID == "" {
+	view, ok := h.strictEmbeddedCairnlineProjectChatView(ctx, projectID)
+	if !ok {
 		return projectChatWorkSnapshot{}, false
 	}
-	_, service, store, err := h.openCairnlineEmbeddedService(ctx)
-	if err != nil {
+	if view == nil {
 		return projectChatWorkSnapshot{}, true
 	}
-	defer store.Close()
-	workItems, err := service.ListWorkItems(ctx, projectID)
+	defer view.Close()
+	projectID = view.snapshot.Project.ID
+	workItems, err := view.service.ListWorkItems(ctx, projectID)
 	if err != nil {
 		workItems = nil
 	}
@@ -118,7 +119,7 @@ func (h *Handler) strictEmbeddedCairnlineProjectChatWorkSnapshot(ctx context.Con
 		filteredWorkItems = filteredWorkItems[:projectChatPromptWorkMaxItems]
 	}
 
-	assignments, err := service.ListAssignments(ctx, projectID)
+	assignments, err := view.service.ListAssignments(ctx, projectID)
 	if err != nil {
 		assignments = nil
 	}
@@ -142,16 +143,15 @@ func (h *Handler) strictEmbeddedCairnlineProjectChatWorkSnapshot(ctx context.Con
 }
 
 func (h *Handler) strictEmbeddedCairnlineEnabledProjectMemoryEntries(ctx context.Context, projectID string) ([]memory.Entry, bool) {
-	projectID = strings.TrimSpace(projectID)
-	if !h.projectChatStrictEmbeddedCairnlineReads() || projectID == "" {
+	view, ok := h.strictEmbeddedCairnlineProjectChatView(ctx, projectID)
+	if !ok {
 		return nil, false
 	}
-	_, service, store, err := h.openCairnlineEmbeddedService(ctx)
-	if err != nil {
+	if view == nil {
 		return nil, true
 	}
-	defer store.Close()
-	items, err := service.ListMemoryEntries(ctx, projectID, true)
+	defer view.Close()
+	items, err := view.service.ListMemoryEntries(ctx, view.snapshot.Project.ID, true)
 	if err != nil {
 		return nil, true
 	}

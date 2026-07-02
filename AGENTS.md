@@ -95,9 +95,9 @@ internal/
                           command shaping, id defaults, driver defaults,
                           store error boundaries, execution refs, activity
                           projection/status signals
-  cairnlinebridge/      Hecate Projects → Cairnline mapping proof for future
-                          portable coordination integration; not the active
-                          Projects backend
+  cairnlinebridge/      Hecate Projects → Cairnline mapping and live
+                          read/write adapter seams for the portable
+                          coordination replacement path
   projectassistant/     Project Assistant proposal domain: context building,
                           deterministic/model/bootstrap drafting, validation,
                           confirmed apply semantics

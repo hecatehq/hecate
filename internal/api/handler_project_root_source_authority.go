@@ -20,6 +20,8 @@ const (
 	projectCairnlineWriteAuthorityProjectContextSources = "project-context-sources"
 )
 
+var errProjectStoreNotConfigured = errors.New("project store is not configured")
+
 func (h *Handler) projectRootWritesUseCairnlineAuthority() bool {
 	return h != nil &&
 		h.projectCairnlineEmbeddedConnectorEnabled() &&
@@ -30,6 +32,23 @@ func (h *Handler) projectContextSourceWritesUseCairnlineAuthority() bool {
 	return h != nil &&
 		h.projectCairnlineEmbeddedConnectorEnabled() &&
 		h.config.ProjectsCairnlineWriteAuthorityEnabled(projectCairnlineWriteAuthorityProjectContextSources)
+}
+
+func (h *Handler) projectForRootSourceMutation(ctx context.Context, projectID string, usesCairnlineAuthority bool) (projects.Project, error) {
+	if usesCairnlineAuthority {
+		return h.projectForCairnlineWriteAuthority(ctx, projectID)
+	}
+	if h == nil || h.projects == nil {
+		return projects.Project{}, errProjectStoreNotConfigured
+	}
+	project, ok, err := h.projects.Get(ctx, projectID)
+	if err != nil {
+		return projects.Project{}, err
+	}
+	if !ok {
+		return projects.Project{}, projects.ErrNotFound
+	}
+	return project, nil
 }
 
 func (h *Handler) projectRootSourceListUpdateWritesUseCairnlineAuthority(req updateProjectRequest) bool {
@@ -534,6 +553,10 @@ func replaceProjectContextSourceByID(items []projects.ContextSource, id string, 
 func (h *Handler) shadowProjectRootsToHecate(ctx context.Context, operation string, project projects.Project, written cairnline.Project, rootID string) (projects.Project, projects.Root) {
 	project.Roots = projectRootsFromCairnline(written.Roots, project.Roots)
 	project.DefaultRootID = strings.TrimSpace(written.DefaultRootID)
+	if h == nil || h.projects == nil {
+		root, _ := findProjectRootByID(project.Roots, rootID)
+		return project, root
+	}
 	shadowed, err := h.projects.Update(ctx, project.ID, func(item *projects.Project) {
 		item.Roots = append([]projects.Root(nil), project.Roots...)
 		item.DefaultRootID = project.DefaultRootID
@@ -549,6 +572,10 @@ func (h *Handler) shadowProjectRootsToHecate(ctx context.Context, operation stri
 
 func (h *Handler) shadowProjectContextSourcesToHecate(ctx context.Context, operation string, project projects.Project, written cairnline.Project, sourceID string) (projects.Project, projects.ContextSource) {
 	project.ContextSources = projectContextSourcesFromCairnline(written.ContextSources)
+	if h == nil || h.projects == nil {
+		source, _ := findProjectContextSourceByID(project.ContextSources, sourceID)
+		return project, source
+	}
 	shadowed, err := h.projects.Update(ctx, project.ID, func(item *projects.Project) {
 		item.ContextSources = append([]projects.ContextSource(nil), project.ContextSources...)
 	})
@@ -575,6 +602,9 @@ func projectFromCairnlineRootSourceListReplace(project projects.Project, written
 
 func (h *Handler) shadowProjectRootSourceListsToHecate(ctx context.Context, operation string, project projects.Project, written cairnline.Project, replaceRoots, replaceSources bool) (projects.Project, bool) {
 	project = projectFromCairnlineRootSourceListReplace(project, written, replaceRoots, replaceSources)
+	if h == nil || h.projects == nil {
+		return project, false
+	}
 	shadowed, err := h.projects.Update(ctx, project.ID, func(item *projects.Project) {
 		if replaceRoots {
 			item.Roots = append([]projects.Root(nil), project.Roots...)

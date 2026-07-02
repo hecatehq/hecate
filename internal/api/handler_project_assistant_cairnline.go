@@ -16,25 +16,10 @@ import (
 )
 
 func (h *Handler) cairnlineProjectAssistantContext(ctx context.Context, input projectassistant.ContextInput) (projectassistant.DraftContext, error) {
-	if h.requiresEmbeddedCairnlineProjectReads() {
-		seed, err := h.strictEmbeddedCairnlineProjectAssistantContextSeed(ctx, input.ProjectID)
-		if err != nil {
-			return projectassistant.DraftContext{}, err
-		}
-		draftContext, err := projectassistant.NewService(projectassistant.Stores{
-			Projects:         seed.projects,
-			Work:             seed.work,
-			ProjectSkills:    seed.skills,
-			Memory:           seed.memory,
-			MemoryCandidates: seed.memory,
-		}, nil).Context(ctx, input)
-		if err != nil {
-			return projectassistant.DraftContext{}, err
-		}
-		draftContext.ReadBackend = "cairnline"
-		return draftContext, nil
-	}
 	view, err := h.cairnlineProjectWorkView(ctx, input.ProjectID)
+	if errors.Is(err, projects.ErrNotFound) {
+		return projectassistant.DraftContext{}, projectassistant.ErrNotFound
+	}
 	if err != nil {
 		return projectassistant.DraftContext{}, err
 	}
@@ -77,35 +62,10 @@ func (h *Handler) cairnlineSidecarProjectAssistantContext(ctx context.Context, i
 }
 
 func (h *Handler) cairnlineProjectAssistantDraft(ctx context.Context, command projectassistantapp.DraftCommand) (projectassistant.Proposal, error) {
-	if h.requiresEmbeddedCairnlineProjectReads() {
-		seed, err := h.strictEmbeddedCairnlineProjectAssistantContextSeed(ctx, command.ProjectID)
-		if err != nil {
-			return projectassistant.Proposal{}, err
-		}
-		return projectassistant.NewService(projectassistant.Stores{
-			Projects:         seed.projects,
-			Chats:            h.agentChat,
-			Work:             seed.work,
-			ProjectSkills:    seed.skills,
-			Memory:           seed.memory,
-			MemoryCandidates: seed.memory,
-			Proposals:        h.projectAssistantProposalStoreForApplication(),
-			LLM:              gatewayAgentLLMClient{service: h.service},
-		}, newOpaqueTaskResourceID).Draft(ctx, projectassistant.DraftInput{
-			ProjectID:        command.ProjectID,
-			WorkItemID:       command.WorkItemID,
-			Request:          command.Request,
-			RoleID:           command.RoleID,
-			DriverKind:       command.DriverKind,
-			DraftMode:        command.DraftMode,
-			ReviewArtifactID: command.ReviewArtifactID,
-			Provider:         command.Provider,
-			Model:            command.Model,
-			RequestID:        command.RequestID,
-			TraceID:          command.TraceID,
-		})
-	}
 	view, err := h.cairnlineProjectWorkView(ctx, command.ProjectID)
+	if errors.Is(err, projects.ErrNotFound) {
+		return projectassistant.Proposal{}, projectassistant.ErrNotFound
+	}
 	if err != nil {
 		return projectassistant.Proposal{}, err
 	}
@@ -213,17 +173,6 @@ func (h *Handler) cairnlineSidecarProjectAssistantContextSeed(ctx context.Contex
 
 func (h *Handler) cairnlineProjectAssistantContextSeed(ctx context.Context, service *cairnline.Service, snapshot cairnlinebridge.Snapshot) (cairnlineProjectAssistantContextSeed, error) {
 	return h.cairnlineProjectAssistantContextSeedFromService(ctx, service, snapshot.Project.ID, snapshot)
-}
-
-func (h *Handler) strictEmbeddedCairnlineProjectAssistantContextSeed(ctx context.Context, projectID string) (cairnlineProjectAssistantContextSeed, error) {
-	var seed cairnlineProjectAssistantContextSeed
-	projectID = strings.TrimSpace(projectID)
-	_, service, store, err := h.openCairnlineEmbeddedService(ctx)
-	if err != nil {
-		return seed, err
-	}
-	defer store.Close()
-	return h.cairnlineProjectAssistantContextSeedFromService(ctx, service, projectID, cairnlinebridge.Snapshot{})
 }
 
 func (h *Handler) cairnlineProjectAssistantContextSeedFromService(ctx context.Context, service *cairnline.Service, projectID string, snapshot cairnlinebridge.Snapshot) (cairnlineProjectAssistantContextSeed, error) {

@@ -139,6 +139,36 @@ func newProjectWorkCairnlineAssignmentAuthorityTestServer(t *testing.T) (*Handle
 	return handler, NewServer(quietLogger(), handler)
 }
 
+func seedCairnlineOnlyProjectWorkGraphForTest(t *testing.T, handler *Handler, project cairnline.Project, roles []cairnline.Role, workItems []cairnline.WorkItem, assignments []cairnline.Assignment) {
+	t.Helper()
+	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+		if _, err := service.CreateProject(t.Context(), project); err != nil {
+			return err
+		}
+		for _, role := range roles {
+			if _, err := service.CreateRole(t.Context(), role); err != nil {
+				return err
+			}
+		}
+		for _, item := range workItems {
+			if _, err := service.CreateWorkItem(t.Context(), item); err != nil {
+				return err
+			}
+		}
+		for _, assignment := range assignments {
+			if _, err := service.CreateAssignment(t.Context(), assignment); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("seed Cairnline-only project graph: %v", err)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), project.ID); err != nil || ok {
+		t.Fatalf("native project exists = %t err=%v, want missing native project", ok, err)
+	}
+}
+
 type projectWorkErrorResponse struct {
 	Error struct {
 		Type    string `json:"type"`
@@ -210,6 +240,9 @@ func TestProjectWorkAPI_CairnlineReadSourceEmbeddedRequiresMirror(t *testing.T) 
 	if !handler.requiresEmbeddedCairnlineProjectReads() {
 		t.Fatal("requiresEmbeddedCairnlineProjectReads() = false, want true for embedded read source")
 	}
+	if !handler.projectReadRoutesUseCairnlineReadModel() {
+		t.Fatal("projectReadRoutesUseCairnlineReadModel() = false, want true for strict embedded read source")
+	}
 
 	if _, err := handler.cairnlineProjectWorkView(t.Context(), "proj_read_source"); !errors.Is(err, cairnline.ErrNotFound) {
 		t.Fatalf("cairnlineProjectWorkView(embedded missing db) error = %v, want ErrNotFound", err)
@@ -228,6 +261,144 @@ func TestProjectWorkAPI_CairnlineReadSourceEmbeddedRequiresMirror(t *testing.T) 
 	store.Close()
 	if _, err := handler.cairnlineProjectWorkView(t.Context(), "proj_read_source"); !errors.Is(err, cairnline.ErrNotFound) {
 		t.Fatalf("cairnlineProjectWorkView(embedded missing project) error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestProjectWorkAPI_CairnlineReadSourceEmbeddedUsesCairnlineOnlyProject(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend: "cairnline",
+			CairnlineReadSource: "embedded",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	handler.SetProjectStore(projects.NewMemoryStore())
+	if err := os.MkdirAll(filepath.Dir(handler.cairnlineEmbeddedDatabasePath()), 0o700); err != nil {
+		t.Fatalf("create embedded Cairnline mirror parent: %v", err)
+	}
+	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+	if err != nil {
+		t.Fatalf("create embedded Cairnline mirror: %v", err)
+	}
+	defer store.Close()
+	if _, err := service.CreateProject(t.Context(), cairnline.Project{
+		ID:   "proj_embedded_only",
+		Name: "Embedded only",
+	}); err != nil {
+		t.Fatalf("CreateProject(cairnline only): %v", err)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), "proj_embedded_only"); err != nil || ok {
+		t.Fatalf("native project exists = %t err=%v, want missing native project", ok, err)
+	}
+
+	view, err := handler.cairnlineProjectWorkView(t.Context(), "proj_embedded_only")
+	if err != nil {
+		t.Fatalf("cairnlineProjectWorkView(embedded only) error = %v, want nil", err)
+	}
+	defer view.Close()
+	if view.snapshot.Project.ID != "proj_embedded_only" || view.snapshot.Project.Name != "Embedded only" {
+		t.Fatalf("snapshot project = %+v, want embedded Cairnline project", view.snapshot.Project)
+	}
+}
+
+func TestProjectWorkAPI_CairnlineReadSourceEmbeddedRoutesUseCairnlineOnlyProject(t *testing.T) {
+	t.Parallel()
+	const projectID = "proj_embedded_route"
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend: "cairnline",
+			CairnlineReadSource: "embedded",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	handler.SetProjectStore(projects.NewMemoryStore())
+	handler.SetProjectWorkStore(projectwork.NewMemoryStore())
+	handler.SetProjectSkillStore(projectskills.NewMemoryStore())
+	handler.SetMemoryStore(memory.NewMemoryStore())
+	handler.SetAgentProfileStore(agentprofiles.NewMemoryStore())
+	handler.SetProjectAssistantProposalStore(projectassistant.NewMemoryProposalStore())
+
+	if err := os.MkdirAll(filepath.Dir(handler.cairnlineEmbeddedDatabasePath()), 0o700); err != nil {
+		t.Fatalf("create embedded Cairnline mirror parent: %v", err)
+	}
+	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+	if err != nil {
+		t.Fatalf("create embedded Cairnline mirror: %v", err)
+	}
+	defer store.Close()
+	if _, err := service.CreateProject(t.Context(), cairnline.Project{
+		ID:          projectID,
+		Name:        "Embedded route",
+		Description: "Project exists only in embedded Cairnline.",
+	}); err != nil {
+		t.Fatalf("CreateProject(cairnline only): %v", err)
+	}
+	if _, err := service.CreateRole(t.Context(), cairnline.Role{
+		ID:                   "role_embedded_route",
+		ProjectID:            projectID,
+		Name:                 "Embedded route role",
+		DefaultExecutionMode: cairnline.ExecutionOrchestrated,
+	}); err != nil {
+		t.Fatalf("CreateRole(cairnline only): %v", err)
+	}
+	if _, err := service.CreateWorkItem(t.Context(), cairnline.WorkItem{
+		ID:          "work_embedded_route",
+		ProjectID:   projectID,
+		Title:       "Read embedded route work",
+		Brief:       "Served from the embedded Cairnline project graph.",
+		Status:      cairnline.WorkStatusReady,
+		Priority:    cairnline.PriorityNormal,
+		OwnerRoleID: "role_embedded_route",
+	}); err != nil {
+		t.Fatalf("CreateWorkItem(cairnline only): %v", err)
+	}
+	if _, err := service.CreateAssignment(t.Context(), cairnline.Assignment{
+		ID:            "asgn_embedded_route",
+		ProjectID:     projectID,
+		WorkItemID:    "work_embedded_route",
+		RoleID:        "role_embedded_route",
+		ExecutionMode: cairnline.ExecutionOrchestrated,
+		Status:        cairnline.AssignmentQueued,
+	}); err != nil {
+		t.Fatalf("CreateAssignment(cairnline only): %v", err)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("native project exists = %t err=%v, want missing native project", ok, err)
+	}
+
+	client := newAPITestClient(t, NewServer(quietLogger(), handler))
+	listed := mustRequestJSON[ProjectWorkItemsResponse](client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items", "")
+	listedItem := findProjectWorkItemForTest(t, listed.Data, "work_embedded_route")
+	if listedItem.ProjectID != projectID || listedItem.ReadBackend != "cairnline" || len(listedItem.Assignments) != 1 || listedItem.Assignments[0].ID != "asgn_embedded_route" {
+		t.Fatalf("listed work item = %+v, want Cairnline-only project work graph", listedItem)
+	}
+	if listedItem.Assignments[0].ReadBackend != "cairnline" || listedItem.Assignments[0].Status != projectwork.AssignmentStatusQueued {
+		t.Fatalf("listed assignment = %+v, want queued Cairnline assignment", listedItem.Assignments[0])
+	}
+
+	detail := mustRequestJSON[ProjectWorkItemEnvelope](client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_embedded_route", "")
+	if detail.Data.ReadBackend != "cairnline" || detail.Data.Title != "Read embedded route work" || len(detail.Data.Assignments) != 1 {
+		t.Fatalf("work item detail = %+v, want Cairnline-only detail projection", detail.Data)
+	}
+
+	assignments := mustRequestJSON[ProjectWorkAssignmentsResponse](client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_embedded_route/assignments", "")
+	if len(assignments.Data) != 1 || assignments.Data[0].ID != "asgn_embedded_route" || assignments.Data[0].ReadBackend != "cairnline" {
+		t.Fatalf("assignment list = %+v, want Cairnline-only assignment projection", assignments.Data)
+	}
+
+	readiness := mustRequestJSON[ProjectWorkItemReadinessEnvelope](client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_embedded_route/readiness", "")
+	if readiness.Data.ReadBackend != "cairnline" || readiness.Data.WorkItemID != "work_embedded_route" || readiness.Data.Ready {
+		t.Fatalf("readiness = %+v, want blocked Cairnline-only closeout readiness", readiness.Data)
+	}
+
+	activity := mustRequestJSON[ProjectActivityEnvelope](client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/activity", "")
+	if activity.Data.ReadBackend != "cairnline" || activity.Data.Summary.WorkItemCount != 1 || activity.Data.Summary.AssignmentCount != 1 {
+		t.Fatalf("activity = %+v, want Cairnline-only project activity", activity.Data)
+	}
+	item := findProjectActivityItemForTest(t, activity.Data.Buckets.Blocked, "asgn_embedded_route")
+	if item.WorkItem.ID != "work_embedded_route" || item.Role.ID != "role_embedded_route" {
+		t.Fatalf("activity item = %+v, want Cairnline-only work/role projection", item)
 	}
 }
 
@@ -1117,6 +1288,213 @@ func TestProjectWorkAPI_CairnlineAssignmentAuthorityWritesCairnlineAndShadowsHec
 		t.Fatalf("Hecate shadow assignments after delete = %+v, want empty", assignments)
 	}
 	client.mustRequestStatus(http.StatusNotFound, http.MethodDelete, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/assignments/asgn_authority", "")
+}
+
+func TestProjectWorkAPI_CairnlineRoleAuthorityWritesCairnlineOnlyProject(t *testing.T) {
+	t.Parallel()
+	const projectID = "proj_role_authority_cairnline_only"
+	handler, server := newProjectWorkCairnlineRoleAuthorityTestServer(t)
+	client := newAPITestClient(t, server)
+	seedCairnlineOnlyProjectWorkGraphForTest(t, handler, cairnline.Project{
+		ID:   projectID,
+		Name: "Role authority Cairnline only",
+	}, nil, nil, nil)
+
+	created := mustRequestJSONStatus[ProjectWorkRoleEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/roles", projectJourneyJSON(t, map[string]any{
+		"id":                  "role_cairnline_only",
+		"name":                "Cairnline-only reviewer",
+		"default_driver_kind": projectwork.AssignmentDriverExternalAgent,
+		"skill_ids":           []string{"review"},
+	}))
+	if created.Data.ID != "role_cairnline_only" || created.Data.ProjectID != projectID || created.Data.DefaultDriverKind != projectwork.AssignmentDriverExternalAgent {
+		t.Fatalf("created role response = %+v, want Cairnline-only project role", created.Data)
+	}
+	mirroredRole := getMirroredCairnlineRoleForTest(t, handler, projectID, "role_cairnline_only")
+	if mirroredRole.Name != "Cairnline-only reviewer" || mirroredRole.DefaultExecutionMode != cairnline.ExecutionExternalAdapter {
+		t.Fatalf("mirrored role = %+v, want Cairnline-authoritative role", mirroredRole)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("native project exists after role create = %t err=%v, want missing native project", ok, err)
+	}
+
+	updated := mustRequestJSONStatus[ProjectWorkRoleEnvelope](client, http.StatusOK, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/roles/role_cairnline_only", projectJourneyJSON(t, map[string]any{
+		"name":      "Updated Cairnline-only reviewer",
+		"skill_ids": []string{"review", "qa"},
+	}))
+	if updated.Data.Name != "Updated Cairnline-only reviewer" || !containsString(updated.Data.SkillIDs, "qa") {
+		t.Fatalf("updated role response = %+v, want edited Cairnline-only role", updated.Data)
+	}
+	client.mustRequestStatus(http.StatusNoContent, http.MethodDelete, "/hecate/v1/projects/"+projectID+"/roles/role_cairnline_only", "")
+	if role := mirroredCairnlineRoleForTest(t, handler, projectID, "role_cairnline_only"); role != nil {
+		t.Fatalf("deleted Cairnline-only role = %+v, want missing", role)
+	}
+}
+
+func TestProjectWorkAPI_CairnlineWorkItemAuthorityWritesCairnlineOnlyProject(t *testing.T) {
+	t.Parallel()
+	const projectID = "proj_work_authority_cairnline_only"
+	handler, server := newProjectWorkCairnlineWorkItemAuthorityTestServer(t)
+	client := newAPITestClient(t, server)
+	seedCairnlineOnlyProjectWorkGraphForTest(t, handler, cairnline.Project{
+		ID:            projectID,
+		Name:          "Work authority Cairnline only",
+		DefaultRootID: "root_cairnline_only",
+		Roots: []cairnline.Root{{
+			ID:     "root_cairnline_only",
+			Path:   "/workspace/cairnline-only",
+			Kind:   "git",
+			Active: true,
+		}},
+	}, []cairnline.Role{{
+		ID:        "role_cairnline_only",
+		ProjectID: projectID,
+		Name:      "Cairnline-only owner",
+	}}, nil, nil)
+
+	created := mustRequestJSONStatus[ProjectWorkItemEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items", projectJourneyJSON(t, map[string]any{
+		"id":            "work_cairnline_only",
+		"title":         "Create work from Cairnline-only project",
+		"owner_role_id": "role_cairnline_only",
+		"root_id":       "root_cairnline_only",
+	}))
+	if created.Data.ID != "work_cairnline_only" || created.Data.RootID != "root_cairnline_only" || created.Data.Status != projectwork.WorkItemStatusBacklog {
+		t.Fatalf("created work response = %+v, want Cairnline-only work item defaults", created.Data)
+	}
+	mirroredWork := getMirroredCairnlineWorkItemForTest(t, handler, projectID, "work_cairnline_only")
+	if mirroredWork.Title != "Create work from Cairnline-only project" || mirroredWork.RootID != "root_cairnline_only" {
+		t.Fatalf("mirrored work item = %+v, want Cairnline-authoritative work item", mirroredWork)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("native project exists after work item create = %t err=%v, want missing native project", ok, err)
+	}
+
+	updated := mustRequestJSONStatus[ProjectWorkItemEnvelope](client, http.StatusOK, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/work-items/work_cairnline_only", projectJourneyJSON(t, map[string]any{
+		"title":  "Updated Cairnline-only work",
+		"status": projectwork.WorkItemStatusReady,
+	}))
+	if updated.Data.Title != "Updated Cairnline-only work" || updated.Data.Status != projectwork.WorkItemStatusReady {
+		t.Fatalf("updated work response = %+v, want edited Cairnline-only work item", updated.Data)
+	}
+	client.mustRequestStatus(http.StatusNoContent, http.MethodDelete, "/hecate/v1/projects/"+projectID+"/work-items/work_cairnline_only", "")
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("native project exists after work delete = %t err=%v, want missing native project", ok, err)
+	}
+}
+
+func TestProjectWorkAPI_CairnlineAssignmentAuthorityWritesCairnlineOnlyProject(t *testing.T) {
+	t.Parallel()
+	const projectID = "proj_assignment_authority_cairnline_only"
+	handler, server := newProjectWorkCairnlineAssignmentAuthorityTestServer(t)
+	client := newAPITestClient(t, server)
+	seedCairnlineOnlyProjectWorkGraphForTest(t, handler, cairnline.Project{
+		ID:            projectID,
+		Name:          "Assignment authority Cairnline only",
+		DefaultRootID: "root_cairnline_only",
+		Roots: []cairnline.Root{{
+			ID:     "root_cairnline_only",
+			Path:   "/workspace/cairnline-only",
+			Kind:   "git",
+			Active: true,
+		}},
+	}, []cairnline.Role{{
+		ID:                   "role_cairnline_only",
+		ProjectID:            projectID,
+		Name:                 "Cairnline-only implementer",
+		DefaultExecutionMode: cairnline.ExecutionExternalAdapter,
+	}}, []cairnline.WorkItem{{
+		ID:        "work_cairnline_only",
+		ProjectID: projectID,
+		Title:     "Assign work from Cairnline-only project",
+		Status:    cairnline.WorkStatusReady,
+		Priority:  cairnline.PriorityNormal,
+		RootID:    "root_cairnline_only",
+	}}, nil)
+
+	created := mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_cairnline_only/assignments", projectJourneyJSON(t, map[string]any{
+		"id":      "asgn_cairnline_only",
+		"role_id": "role_cairnline_only",
+		"root_id": "root_cairnline_only",
+	}))
+	if created.Data.ReadBackend != "cairnline" || created.Data.DriverKind != projectwork.AssignmentDriverExternalAgent || created.Data.Status != projectwork.AssignmentStatusQueued {
+		t.Fatalf("created assignment response = %+v, want Cairnline-only assignment with role default driver", created.Data)
+	}
+	mirrored := getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_cairnline_only")
+	if mirrored.WorkItemID != "work_cairnline_only" || mirrored.ExecutionMode != cairnline.ExecutionExternalAdapter || mirrored.RootID != "root_cairnline_only" {
+		t.Fatalf("mirrored assignment = %+v, want Cairnline-authoritative assignment", mirrored)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("native project exists after assignment create = %t err=%v, want missing native project", ok, err)
+	}
+
+	updated := mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusOK, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/work-items/work_cairnline_only/assignments/asgn_cairnline_only", projectJourneyJSON(t, map[string]any{
+		"status": projectwork.AssignmentStatusCompleted,
+	}))
+	if updated.Data.Status != projectwork.AssignmentStatusCompleted {
+		t.Fatalf("updated assignment response = %+v, want completed Cairnline-only assignment", updated.Data)
+	}
+	client.mustRequestStatus(http.StatusNoContent, http.MethodDelete, "/hecate/v1/projects/"+projectID+"/work-items/work_cairnline_only/assignments/asgn_cairnline_only", "")
+}
+
+func TestProjectWorkAPI_CairnlineCollaborationAuthorityWritesCairnlineOnlyProject(t *testing.T) {
+	t.Parallel()
+	const projectID = "proj_collaboration_authority_cairnline_only"
+	handler, server := newProjectWorkCairnlineCollaborationAuthorityTestServer(t)
+	client := newAPITestClient(t, server)
+	seedCairnlineOnlyProjectWorkGraphForTest(t, handler, cairnline.Project{
+		ID:   projectID,
+		Name: "Collaboration authority Cairnline only",
+	}, []cairnline.Role{{
+		ID:        "role_cairnline_only",
+		ProjectID: projectID,
+		Name:      "Cairnline-only reviewer",
+	}}, []cairnline.WorkItem{{
+		ID:        "work_cairnline_only",
+		ProjectID: projectID,
+		Title:     "Review work from Cairnline-only project",
+		Status:    cairnline.WorkStatusReady,
+		Priority:  cairnline.PriorityNormal,
+	}}, []cairnline.Assignment{{
+		ID:            "asgn_cairnline_only",
+		ProjectID:     projectID,
+		WorkItemID:    "work_cairnline_only",
+		RoleID:        "role_cairnline_only",
+		ExecutionMode: cairnline.ExecutionManual,
+		Status:        cairnline.AssignmentCompleted,
+	}})
+
+	review := mustRequestJSONStatus[ProjectWorkArtifactEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_cairnline_only/artifacts", projectJourneyJSON(t, map[string]any{
+		"id":                     "review_cairnline_only",
+		"assignment_id":          "asgn_cairnline_only",
+		"reviewed_assignment_id": "asgn_cairnline_only",
+		"kind":                   "review",
+		"body":                   "Review recorded against a Cairnline-only assignment.",
+		"author_role_id":         "role_cairnline_only",
+		"review_verdict":         projectwork.ReviewVerdictApproved,
+		"review_risk":            projectwork.ReviewRiskLow,
+	}))
+	if review.Data.ID != "review_cairnline_only" || review.Data.ReviewVerdict != projectwork.ReviewVerdictApproved {
+		t.Fatalf("review response = %+v, want Cairnline-only review artifact", review.Data)
+	}
+	mirroredReview := getMirroredCairnlineReviewForTest(t, handler, projectID, "work_cairnline_only", "review_cairnline_only")
+	if mirroredReview.AssignmentID != "asgn_cairnline_only" || mirroredReview.ReviewerRoleID != "role_cairnline_only" {
+		t.Fatalf("mirrored review = %+v, want Cairnline-authoritative review", mirroredReview)
+	}
+	handoff := mustRequestJSONStatus[ProjectHandoffEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_cairnline_only/handoffs", projectJourneyJSON(t, map[string]any{
+		"id":                      "handoff_cairnline_only",
+		"source_assignment_id":    "asgn_cairnline_only",
+		"target_role_id":          "role_cairnline_only",
+		"title":                   "Cairnline-only handoff",
+		"summary":                 "Hand off a portable assignment.",
+		"recommended_next_action": "Continue from the recorded evidence.",
+		"created_by_role_id":      "role_cairnline_only",
+	}))
+	if handoff.Data.ID != "handoff_cairnline_only" || handoff.Data.Status != projectwork.HandoffStatusPending {
+		t.Fatalf("handoff response = %+v, want Cairnline-only pending handoff", handoff.Data)
+	}
+	client.mustRequestStatus(http.StatusNoContent, http.MethodDelete, "/hecate/v1/projects/"+projectID+"/work-items/work_cairnline_only/handoffs/handoff_cairnline_only", "")
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("native project exists after collaboration writes = %t err=%v, want missing native project", ok, err)
+	}
 }
 
 func TestProjectWorkAPI_MirrorsRoleAndWorkItemMutationsToCairnlineWhenConfigured(t *testing.T) {

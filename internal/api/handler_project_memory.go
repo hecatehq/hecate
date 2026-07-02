@@ -82,10 +82,11 @@ func (h *Handler) HandleProjectMemoryEntries(w http.ResponseWriter, r *http.Requ
 
 func (h *Handler) HandleCreateProjectMemoryEntry(w http.ResponseWriter, r *http.Request) {
 	projectID := strings.TrimSpace(r.PathValue("id"))
-	if !h.requireProjectExists(w, r, projectID) {
+	usesCairnlineAuthority := h.projectMemoryWritesUseCairnlineAuthority()
+	if !usesCairnlineAuthority && !h.requireProjectExists(w, r, projectID) {
 		return
 	}
-	if !h.requireProjectMemoryStore(w) {
+	if !usesCairnlineAuthority && !h.requireProjectMemoryStore(w) {
 		return
 	}
 	var req createProjectMemoryRequest
@@ -108,7 +109,7 @@ func (h *Handler) HandleCreateProjectMemoryEntry(w http.ResponseWriter, r *http.
 		Enabled:    enabled,
 	}
 	entry = normalizeProjectMemoryEntryForCairnlineAuthority(entry)
-	if h.projectMemoryWritesUseCairnlineAuthority() {
+	if usesCairnlineAuthority {
 		created, err := h.createProjectMemoryEntryWithCairnlineAuthority(r.Context(), projectID, entry)
 		if writeProjectMemoryMutationError(w, err, "project memory entry not found") {
 			return
@@ -162,12 +163,17 @@ func (h *Handler) HandleProjectMemoryCandidates(w http.ResponseWriter, r *http.R
 
 func (h *Handler) HandleCreateProjectMemoryCandidate(w http.ResponseWriter, r *http.Request) {
 	projectID := strings.TrimSpace(r.PathValue("id"))
-	if !h.requireProjectExists(w, r, projectID) {
+	usesCairnlineAuthority := h.projectMemoryCandidatesWriteUseCairnlineAuthority()
+	if !usesCairnlineAuthority && !h.requireProjectExists(w, r, projectID) {
 		return
 	}
-	candidateStore, ok := h.requireProjectMemoryCandidateStore(w)
-	if !ok {
-		return
+	var candidateStore memory.CandidateStore
+	if !usesCairnlineAuthority {
+		var ok bool
+		candidateStore, ok = h.requireProjectMemoryCandidateStore(w)
+		if !ok {
+			return
+		}
 	}
 	var req createProjectMemoryCandidateRequest
 	if !decodeJSON(w, r, &req) {
@@ -185,7 +191,7 @@ func (h *Handler) HandleCreateProjectMemoryCandidate(w http.ResponseWriter, r *h
 		SourceRefs:          candidateSourceRefsFromRequest(req.SourceRefs),
 		Status:              memory.CandidateStatusPending,
 	}
-	if h.projectMemoryCandidatesWriteUseCairnlineAuthority() {
+	if usesCairnlineAuthority {
 		created, err := h.createProjectMemoryCandidateWithCairnlineAuthority(r.Context(), projectID, candidate)
 		if writeProjectMemoryMutationError(w, err, "project memory candidate not found") {
 			return
@@ -213,19 +219,24 @@ func (h *Handler) HandleCreateProjectMemoryCandidate(w http.ResponseWriter, r *h
 
 func (h *Handler) HandlePromoteProjectMemoryCandidate(w http.ResponseWriter, r *http.Request) {
 	projectID := strings.TrimSpace(r.PathValue("id"))
-	if !h.requireProjectExists(w, r, projectID) {
+	usesCairnlineAuthority := h.projectMemoryCandidatesWriteUseCairnlineAuthority()
+	if !usesCairnlineAuthority && !h.requireProjectExists(w, r, projectID) {
 		return
 	}
-	candidateStore, ok := h.requireProjectMemoryCandidateStore(w)
-	if !ok {
-		return
+	var candidateStore memory.CandidateStore
+	if !usesCairnlineAuthority {
+		var ok bool
+		candidateStore, ok = h.requireProjectMemoryCandidateStore(w)
+		if !ok {
+			return
+		}
 	}
 	var req promoteProjectMemoryCandidateRequest
 	if !decodeJSON(w, r, &req) {
 		return
 	}
 	candidateID := r.PathValue("candidate_id")
-	if h.projectMemoryCandidatesWriteUseCairnlineAuthority() {
+	if usesCairnlineAuthority {
 		updated, promotedEntry, err := h.promoteProjectMemoryCandidateWithCairnlineAuthority(r.Context(), projectID, candidateID, req)
 		if writeProjectMemoryMutationError(w, err, "project memory candidate not found") {
 			return
@@ -302,19 +313,24 @@ func (h *Handler) HandlePromoteProjectMemoryCandidate(w http.ResponseWriter, r *
 
 func (h *Handler) HandleRejectProjectMemoryCandidate(w http.ResponseWriter, r *http.Request) {
 	projectID := strings.TrimSpace(r.PathValue("id"))
-	if !h.requireProjectExists(w, r, projectID) {
+	usesCairnlineAuthority := h.projectMemoryCandidatesWriteUseCairnlineAuthority()
+	if !usesCairnlineAuthority && !h.requireProjectExists(w, r, projectID) {
 		return
 	}
-	candidateStore, ok := h.requireProjectMemoryCandidateStore(w)
-	if !ok {
-		return
+	var candidateStore memory.CandidateStore
+	if !usesCairnlineAuthority {
+		var ok bool
+		candidateStore, ok = h.requireProjectMemoryCandidateStore(w)
+		if !ok {
+			return
+		}
 	}
 	var req rejectProjectMemoryCandidateRequest
 	if !decodeJSON(w, r, &req) {
 		return
 	}
 	candidateID := r.PathValue("candidate_id")
-	if h.projectMemoryCandidatesWriteUseCairnlineAuthority() {
+	if usesCairnlineAuthority {
 		updated, err := h.rejectProjectMemoryCandidateWithCairnlineAuthority(r.Context(), projectID, candidateID, req.Reason)
 		if writeProjectMemoryMutationError(w, err, "project memory candidate not found") {
 			return
@@ -355,17 +371,18 @@ func (h *Handler) HandleRejectProjectMemoryCandidate(w http.ResponseWriter, r *h
 
 func (h *Handler) HandleUpdateProjectMemoryEntry(w http.ResponseWriter, r *http.Request) {
 	projectID := strings.TrimSpace(r.PathValue("id"))
-	if !h.requireProjectExists(w, r, projectID) {
+	usesCairnlineAuthority := h.projectMemoryWritesUseCairnlineAuthority()
+	if !usesCairnlineAuthority && !h.requireProjectExists(w, r, projectID) {
 		return
 	}
-	if !h.requireProjectMemoryStore(w) {
+	if !usesCairnlineAuthority && !h.requireProjectMemoryStore(w) {
 		return
 	}
 	var req updateProjectMemoryRequest
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	if h.projectMemoryWritesUseCairnlineAuthority() {
+	if usesCairnlineAuthority {
 		entry, err := h.updateProjectMemoryEntryWithCairnlineAuthority(r.Context(), projectID, r.PathValue("memory_id"), func(item *memory.Entry) {
 			applyProjectMemoryUpdate(item, req)
 		})
@@ -397,13 +414,14 @@ func (h *Handler) HandleUpdateProjectMemoryEntry(w http.ResponseWriter, r *http.
 
 func (h *Handler) HandleDeleteProjectMemoryEntry(w http.ResponseWriter, r *http.Request) {
 	projectID := strings.TrimSpace(r.PathValue("id"))
-	if !h.requireProjectExists(w, r, projectID) {
+	usesCairnlineAuthority := h.projectMemoryWritesUseCairnlineAuthority()
+	if !usesCairnlineAuthority && !h.requireProjectExists(w, r, projectID) {
 		return
 	}
-	if !h.requireProjectMemoryStore(w) {
+	if !usesCairnlineAuthority && !h.requireProjectMemoryStore(w) {
 		return
 	}
-	if h.projectMemoryWritesUseCairnlineAuthority() {
+	if usesCairnlineAuthority {
 		err := h.deleteProjectMemoryEntryWithCairnlineAuthority(r.Context(), projectID, r.PathValue("memory_id"))
 		if writeProjectMemoryMutationError(w, err, "project memory entry not found") {
 			return
@@ -480,9 +498,6 @@ func (h *Handler) renderProjectMemoryEntries(ctx context.Context, projectID stri
 }
 
 func (h *Handler) renderCairnlineProjectMemoryEntries(ctx context.Context, projectID string, includeDisabled bool) ([]ProjectMemoryResponseItem, error) {
-	if h.requiresEmbeddedCairnlineProjectReads() {
-		return h.renderStrictEmbeddedCairnlineProjectMemoryEntries(ctx, projectID, includeDisabled)
-	}
 	view, err := h.cairnlineProjectWorkView(ctx, projectID)
 	if err != nil {
 		return nil, err
@@ -490,22 +505,6 @@ func (h *Handler) renderCairnlineProjectMemoryEntries(ctx context.Context, proje
 	defer view.Close()
 	items, err := view.service.ListMemoryEntries(ctx, view.snapshot.Project.ID, includeDisabled)
 	if err != nil {
-		return nil, err
-	}
-	out := make([]ProjectMemoryResponseItem, 0, len(items))
-	for _, item := range items {
-		out = append(out, renderProjectMemory(projectMemoryFromCairnline(item), "cairnline"))
-	}
-	return out, nil
-}
-
-func (h *Handler) renderStrictEmbeddedCairnlineProjectMemoryEntries(ctx context.Context, projectID string, includeDisabled bool) ([]ProjectMemoryResponseItem, error) {
-	var items []cairnline.MemoryEntry
-	if err := h.withStrictEmbeddedCairnlineProjectRead(ctx, projectID, func(service *cairnline.Service) error {
-		var err error
-		items, err = service.ListMemoryEntries(ctx, projectID, includeDisabled)
-		return err
-	}); err != nil {
 		return nil, err
 	}
 	out := make([]ProjectMemoryResponseItem, 0, len(items))
@@ -552,9 +551,6 @@ func (h *Handler) renderProjectMemoryCandidates(ctx context.Context, projectID, 
 }
 
 func (h *Handler) renderCairnlineProjectMemoryCandidates(ctx context.Context, projectID, status string, includeResolved bool) ([]ProjectMemoryCandidateResponseItem, error) {
-	if h.requiresEmbeddedCairnlineProjectReads() {
-		return h.renderStrictEmbeddedCairnlineProjectMemoryCandidates(ctx, projectID, status, includeResolved)
-	}
 	view, err := h.cairnlineProjectWorkView(ctx, projectID)
 	if err != nil {
 		return nil, err
@@ -566,26 +562,6 @@ func (h *Handler) renderCairnlineProjectMemoryCandidates(ctx context.Context, pr
 		IncludeResolved: includeResolved,
 	})
 	if err != nil {
-		return nil, err
-	}
-	out := make([]ProjectMemoryCandidateResponseItem, 0, len(items))
-	for _, item := range items {
-		out = append(out, renderProjectMemoryCandidate(projectMemoryCandidateFromCairnline(item), "cairnline"))
-	}
-	return out, nil
-}
-
-func (h *Handler) renderStrictEmbeddedCairnlineProjectMemoryCandidates(ctx context.Context, projectID, status string, includeResolved bool) ([]ProjectMemoryCandidateResponseItem, error) {
-	var items []cairnline.MemoryCandidate
-	if err := h.withStrictEmbeddedCairnlineProjectRead(ctx, projectID, func(service *cairnline.Service) error {
-		var err error
-		items, err = service.ListMemoryCandidates(ctx, cairnline.MemoryCandidateFilter{
-			ProjectID:       projectID,
-			Status:          status,
-			IncludeResolved: includeResolved,
-		})
-		return err
-	}); err != nil {
 		return nil, err
 	}
 	out := make([]ProjectMemoryCandidateResponseItem, 0, len(items))
@@ -609,24 +585,6 @@ func (h *Handler) renderCairnlineSidecarProjectMemoryCandidates(ctx context.Cont
 		return nil, err
 	}
 	return renderProjectMemoryCandidates(projectMemoryCandidatesFromCairnlineSidecar(items), "cairnline"), nil
-}
-
-func (h *Handler) withStrictEmbeddedCairnlineProjectRead(ctx context.Context, projectID string, fn func(*cairnline.Service) error) error {
-	_, service, store, err := h.openCairnlineEmbeddedService(ctx)
-	if err != nil {
-		return err
-	}
-	defer store.Close()
-	if _, err := service.GetProject(ctx, projectID); err != nil {
-		if errors.Is(err, cairnline.ErrNotFound) {
-			return projects.ErrNotFound
-		}
-		return err
-	}
-	if fn == nil {
-		return nil
-	}
-	return fn(service)
 }
 
 func renderProjectMemoryEntries(items []memory.Entry, readBackend string) []ProjectMemoryResponseItem {

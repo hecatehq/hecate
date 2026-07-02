@@ -481,6 +481,66 @@ func TestProjectMemoryAPI_CairnlineWriteAuthorityCommitsAcceptedMemoryFirst(t *t
 	}
 }
 
+func TestProjectMemoryAPI_CairnlineWriteAuthorityAcceptsCairnlineOnlyProject(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectMemoryCairnlineAuthorityTestServer(t)
+	client := newAPITestClient(t, server)
+	const projectID = "proj_cairnline_memory_only"
+	seedCairnlineOnlyProjectWorkGraphForTest(t, handler, cairnline.Project{
+		ID:   projectID,
+		Name: "Cairnline memory only",
+	}, nil, nil, nil)
+
+	created := mustRequestJSONStatus[ProjectMemoryResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/memory", `{
+		"title":"Cairnline-only note",
+		"body":"Accepted memory does not need a native Hecate project row.",
+		"enabled":false
+	}`)
+	if created.Data.ReadBackend != "cairnline" || created.Data.ProjectID != projectID || created.Data.Enabled {
+		t.Fatalf("created memory = %+v, want disabled Cairnline-backed entry for Cairnline-only project", created.Data)
+	}
+	mirroredMemory := getMirroredCairnlineMemoryEntryForTest(t, handler, projectID, created.Data.ID)
+	if mirroredMemory.Title != "Cairnline-only note" || mirroredMemory.Body != "Accepted memory does not need a native Hecate project row." || mirroredMemory.Enabled {
+		t.Fatalf("Cairnline memory = %+v, want authoritative entry on Cairnline-only project", mirroredMemory)
+	}
+	shadow, ok, err := handler.memory.Get(t.Context(), projectID, created.Data.ID)
+	if err != nil || !ok {
+		t.Fatalf("native shadow memory ok=%v error=%v, want present even without native project row", ok, err)
+	}
+	if shadow.ProjectID != projectID || shadow.Title != created.Data.Title {
+		t.Fatalf("native shadow memory = %+v, want Cairnline-only project id and title", shadow)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("native project exists = %t err=%v, want missing after memory create", ok, err)
+	}
+
+	updated := mustRequestJSON[ProjectMemoryResponse](client, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/memory/"+created.Data.ID, `{
+		"title":"Cairnline-only note updated",
+		"enabled":true,
+		"source_kind":"operator",
+		"source_id":"manual"
+	}`)
+	if updated.Data.ReadBackend != "cairnline" || updated.Data.Title != "Cairnline-only note updated" || !updated.Data.Enabled || updated.Data.SourceID != "manual" {
+		t.Fatalf("updated memory = %+v, want patched Cairnline-only entry", updated.Data)
+	}
+	mirroredMemory = getMirroredCairnlineMemoryEntryForTest(t, handler, projectID, created.Data.ID)
+	if mirroredMemory.Title != "Cairnline-only note updated" || !mirroredMemory.Enabled || mirroredMemory.SourceID != "manual" {
+		t.Fatalf("updated Cairnline memory = %+v, want patched authoritative entry", mirroredMemory)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("native project exists = %t err=%v, want still missing after memory update", ok, err)
+	}
+
+	client.mustRequestStatus(http.StatusNoContent, http.MethodDelete, "/hecate/v1/projects/"+projectID+"/memory/"+created.Data.ID, "")
+	assertCairnlineMemoryEntryMissingForTest(t, handler, projectID, created.Data.ID)
+	if _, ok, err := handler.memory.Get(t.Context(), projectID, created.Data.ID); err != nil || ok {
+		t.Fatalf("deleted native shadow ok=%v error=%v, want missing", ok, err)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("native project exists = %t err=%v, want still missing after memory delete", ok, err)
+	}
+}
+
 func TestShadowProjectMemoryEntryToHecateUpdatesExistingShadowInPlace(t *testing.T) {
 	t.Parallel()
 	store := &existingProjectMemoryShadowStore{
@@ -596,6 +656,72 @@ func TestProjectMemoryAPI_CairnlineWriteAuthorityCommitsMemoryCandidatesFirst(t 
 	retried := mustRequestJSON[ProjectMemoryCandidateResponse](client, http.MethodPost, "/hecate/v1/projects/"+projectID+"/memory/candidates/"+promoteCandidate.Data.ID+"/promote", `{}`)
 	if retried.Data.PromotedMemoryID != promoted.Data.PromotedMemoryID {
 		t.Fatalf("repeat promote id = %q, want %q", retried.Data.PromotedMemoryID, promoted.Data.PromotedMemoryID)
+	}
+}
+
+func TestProjectMemoryAPI_CairnlineCandidateAuthorityAcceptsCairnlineOnlyProject(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectMemoryCairnlineCandidateAuthorityTestServer(t)
+	client := newAPITestClient(t, server)
+	const projectID = "proj_cairnline_candidate_only"
+	seedCairnlineOnlyProjectWorkGraphForTest(t, handler, cairnline.Project{
+		ID:   projectID,
+		Name: "Cairnline candidate only",
+	}, nil, nil, nil)
+
+	candidate := mustRequestJSONStatus[ProjectMemoryCandidateResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/memory/candidates", `{
+		"title":"Cairnline-only candidate",
+		"body":"Reviewable memory candidates can start from a Cairnline-only project.",
+		"source_refs":[{"kind":"operator","id":"manual","title":"Operator note"}]
+	}`)
+	if candidate.Data.ReadBackend != "cairnline" || candidate.Data.ProjectID != projectID || candidate.Data.Status != memory.CandidateStatusPending || len(candidate.Data.SourceRefs) != 1 {
+		t.Fatalf("created candidate = %+v, want pending Cairnline-backed candidate for Cairnline-only project", candidate.Data)
+	}
+	mirroredCandidate := getMirroredCairnlineMemoryCandidateForTest(t, handler, projectID, candidate.Data.ID)
+	if mirroredCandidate.Title != "Cairnline-only candidate" || mirroredCandidate.Status != cairnline.MemoryCandidatePending {
+		t.Fatalf("Cairnline candidate = %+v, want authoritative pending candidate", mirroredCandidate)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("native project exists = %t err=%v, want missing after candidate create", ok, err)
+	}
+
+	promoted := mustRequestJSON[ProjectMemoryCandidateResponse](client, http.MethodPost, "/hecate/v1/projects/"+projectID+"/memory/candidates/"+candidate.Data.ID+"/promote", `{
+		"title":"Reviewed Cairnline-only lesson",
+		"body":"Promoting a candidate writes memory through Cairnline authority.",
+		"trust_label":"operator_memory",
+		"source_kind":"operator",
+		"source_id":"manual",
+		"enabled":true
+	}`)
+	if promoted.Data.ReadBackend != "cairnline" || promoted.Data.Status != memory.CandidateStatusPromoted || promoted.Data.PromotedMemoryID == "" {
+		t.Fatalf("promoted candidate = %+v, want Cairnline-backed promoted candidate", promoted.Data)
+	}
+	promotedMemory := getMirroredCairnlineMemoryEntryForTest(t, handler, projectID, promoted.Data.PromotedMemoryID)
+	if promotedMemory.Title != "Reviewed Cairnline-only lesson" || promotedMemory.TrustLabel != memory.TrustLabelOperatorMemory || !promotedMemory.Enabled {
+		t.Fatalf("promoted Cairnline memory = %+v, want reviewed enabled memory entry", promotedMemory)
+	}
+	shadowMemory, ok, err := handler.memory.Get(t.Context(), projectID, promoted.Data.PromotedMemoryID)
+	if err != nil || !ok || shadowMemory.Title != "Reviewed Cairnline-only lesson" {
+		t.Fatalf("native promoted memory shadow = %+v ok=%v error=%v, want present", shadowMemory, ok, err)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("native project exists = %t err=%v, want still missing after candidate promote", ok, err)
+	}
+
+	rejectCandidate := mustRequestJSONStatus[ProjectMemoryCandidateResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/memory/candidates", `{
+		"title":"Reject me",
+		"body":"This one should stay out of memory."
+	}`)
+	rejected := mustRequestJSON[ProjectMemoryCandidateResponse](client, http.MethodPost, "/hecate/v1/projects/"+projectID+"/memory/candidates/"+rejectCandidate.Data.ID+"/reject", `{"reason":"Not durable"}`)
+	if rejected.Data.ReadBackend != "cairnline" || rejected.Data.Status != memory.CandidateStatusRejected || rejected.Data.StatusReason != "Not durable" {
+		t.Fatalf("rejected candidate = %+v, want Cairnline-backed rejected candidate", rejected.Data)
+	}
+	mirroredRejected := getMirroredCairnlineMemoryCandidateForTest(t, handler, projectID, rejectCandidate.Data.ID)
+	if mirroredRejected.Status != cairnline.MemoryCandidateRejected || mirroredRejected.StatusReason != "Not durable" {
+		t.Fatalf("Cairnline rejected candidate = %+v, want rejected reason", mirroredRejected)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("native project exists = %t err=%v, want still missing after candidate reject", ok, err)
 	}
 }
 

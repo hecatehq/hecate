@@ -98,11 +98,14 @@ func (h *Handler) deleteProjectMemoryEntryWithCairnlineAuthority(ctx context.Con
 }
 
 func (h *Handler) seedProjectMetadataForCairnlineMemoryAuthority(ctx context.Context, service *cairnline.Service, projectID string) error {
-	project, ok := h.projectForCairnlineMirror(ctx, "project_memory_authority", projectID)
-	if !ok {
-		return errors.Join(cairnline.ErrNotFound, errors.New("project not found for Cairnline memory authority"))
+	project, err := h.projectForCairnlineWriteAuthority(ctx, projectID)
+	if err != nil {
+		if errors.Is(err, cairnline.ErrNotFound) {
+			return errors.Join(cairnline.ErrNotFound, errors.New("project not found for Cairnline memory authority"))
+		}
+		return err
 	}
-	_, err := cairnlinebridge.UpsertProjectMetadata(ctx, service, project)
+	_, err = cairnlinebridge.UpsertProjectMetadata(ctx, service, project)
 	return err
 }
 

@@ -116,15 +116,37 @@ func (h *Handler) deleteProjectWorkItemWithCairnlineAuthority(ctx context.Contex
 }
 
 func (h *Handler) projectForCairnlineWriteAuthority(ctx context.Context, projectID string) (projects.Project, error) {
-	if h == nil || h.projects == nil {
-		return projects.Project{}, errors.New("project store is not configured")
+	if h == nil {
+		return projects.Project{}, errors.New("handler is not configured")
 	}
-	project, ok, err := h.projects.Get(ctx, projectID)
+	projectID = strings.TrimSpace(projectID)
+	if h.projects != nil {
+		project, ok, err := h.projects.Get(ctx, projectID)
+		if err != nil {
+			return projects.Project{}, err
+		}
+		if ok {
+			return project, nil
+		}
+	}
+	var project projects.Project
+	err := h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+		item, err := service.GetProject(ctx, projectID)
+		if err != nil {
+			return err
+		}
+		executionProfile, err := cairnlineExecutionProfileByID(ctx, service, item.DefaultExecutionProfileID)
+		if err != nil {
+			return err
+		}
+		project = projectFromCairnline(item, executionProfile, projects.Project{})
+		return nil
+	})
 	if err != nil {
+		if errors.Is(err, cairnline.ErrNotFound) {
+			return projects.Project{}, errors.Join(cairnline.ErrNotFound, errors.New("project not found for Cairnline write authority"))
+		}
 		return projects.Project{}, err
-	}
-	if !ok {
-		return projects.Project{}, errors.Join(cairnline.ErrNotFound, errors.New("project not found for Cairnline write authority"))
 	}
 	return project, nil
 }

@@ -325,9 +325,78 @@ func TestProjectContextDiscovery_CairnlineAuthorityCommitsDiscoveredSourcesFirst
 	}
 }
 
+func TestProjectContextDiscovery_CairnlineAuthorityAcceptsCairnlineOnlyProject(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeDiscoveryFile(t, root, "AGENTS.md")
+
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend:     "cairnline",
+			CairnlineWriteAuthority: projectCairnlineWriteAuthorityProjectContextSources,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	projectStore := projects.NewMemoryStore()
+	handler.SetProjectStore(projectStore)
+	server := NewServer(quietLogger(), handler)
+
+	dbPath := handler.cairnlineEmbeddedDatabasePath()
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+		t.Fatalf("create Cairnline mirror directory: %v", err)
+	}
+	service, store, err := cairnline.NewSQLiteService(t.Context(), dbPath)
+	if err != nil {
+		t.Fatalf("open Cairnline mirror: %v", err)
+	}
+	if _, err := service.CreateProject(t.Context(), cairnline.Project{
+		ID:   "proj_guidance_cairnline_only",
+		Name: "Guidance Cairnline only",
+		Roots: []cairnline.Root{{
+			ID:     "root_main",
+			Path:   root,
+			Kind:   "local",
+			Active: true,
+		}},
+	}); err != nil {
+		t.Fatalf("CreateProject(cairnline seed): %v", err)
+	}
+	store.Close()
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_guidance_cairnline_only/context-sources/discover", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("discover status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var resp ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode discovery response: %v", err)
+	}
+	if got := projectContextSourceResponseByPath(resp.Data.ContextSources, "AGENTS.md"); got == nil || got.Kind != "workspace_instruction" || got.Metadata["root_id"] != "root_main" {
+		t.Fatalf("response AGENTS source = %+v, want discovered Cairnline-owned root guidance", got)
+	}
+	if _, ok, err := projectStore.Get(t.Context(), "proj_guidance_cairnline_only"); err != nil || ok {
+		t.Fatalf("native project lookup ok=%v err=%v, want no native project row", ok, err)
+	}
+
+	project := getMirroredCairnlineProjectForTest(t, handler, "proj_guidance_cairnline_only")
+	if got := findCairnlineSourceByLocatorForAPITest(project.ContextSources, "AGENTS.md"); got == nil || got.Kind != "workspace_instruction" {
+		t.Fatalf("Cairnline sources = %+v, want discovered AGENTS.md source", project.ContextSources)
+	}
+}
+
 func findCairnlineSourceForAPITest(sources []cairnline.Source, id string) *cairnline.Source {
 	for idx := range sources {
 		if sources[idx].ID == id {
+			return &sources[idx]
+		}
+	}
+	return nil
+}
+
+func findCairnlineSourceByLocatorForAPITest(sources []cairnline.Source, locator string) *cairnline.Source {
+	for idx := range sources {
+		if sources[idx].Locator == locator {
 			return &sources[idx]
 		}
 	}
