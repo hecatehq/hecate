@@ -925,7 +925,7 @@ func (h *Handler) projectAssignmentStartUsesStrictEmbeddedCairnlineRuntime(stric
 	if !strictEmbeddedRead {
 		return false
 	}
-	return h.projectWork == nil || h.config.ProjectsCairnlineReplacementMode() == "embedded"
+	return h.projectWork == nil || h.projectCairnlineEmbeddedReplacementModeArmed()
 }
 
 func (h *Handler) writeProjectTaskAssignmentStartResult(w http.ResponseWriter, ctx context.Context, assignment projectwork.Assignment, result *projectworkapp.StartTaskAssignmentResult, err error, mirrorStartResult bool) {
