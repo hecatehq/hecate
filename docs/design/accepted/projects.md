@@ -665,6 +665,9 @@ after these gates are met:
   Cairnline launch-packet evidence, and strict embedded reads may use a
   Cairnline-only project graph as the source of launch inputs. Launch-readiness
   and preflight can use those inputs without native Hecate project/work stores.
+  Launch/preflight context also reads inspect-only collaboration artifact and
+  handoff metadata from the active Cairnline read model, preserving
+  evidence/review/handoff hints for Cairnline-only graphs.
   Hecate-task and external-agent assignment start remain Hecate-owned
   orchestrator capabilities, but strict embedded mode can claim/progress the
   assignment in Cairnline and persist only task/run or chat-session refs,

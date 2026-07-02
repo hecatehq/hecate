@@ -3843,13 +3843,42 @@ func TestProjectWorkAPI_StartAssignmentStrictEmbeddedReadModelLaunchesCairnlineO
 		}); err != nil {
 			return err
 		}
-		_, err := service.CreateAssignment(t.Context(), cairnline.Assignment{
+		if _, err := service.CreateAssignment(t.Context(), cairnline.Assignment{
 			ID:            "asgn_embedded_launch_start",
 			ProjectID:     projectID,
 			WorkItemID:    "work_embedded_launch_start",
 			RoleID:        "role_embedded_launch_start",
 			RootID:        "root_embedded_launch_start",
 			ExecutionMode: cairnline.ExecutionOrchestrated,
+		}); err != nil {
+			return err
+		}
+		if _, err := service.CreateArtifact(t.Context(), cairnline.Artifact{
+			ID:           "artifact_embedded_launch_start",
+			ProjectID:    projectID,
+			WorkItemID:   "work_embedded_launch_start",
+			AssignmentID: "asgn_embedded_launch_start",
+			Kind:         projectwork.ArtifactKindBrief,
+			Title:        "Launch context artifact",
+			Body:         "Keep this Cairnline-only artifact visible in the start context.",
+			AuthorRoleID: "role_embedded_launch_start",
+		}); err != nil {
+			return err
+		}
+		_, err := service.CreateHandoff(t.Context(), cairnline.Handoff{
+			ID:                    "handoff_embedded_launch_start",
+			ProjectID:             projectID,
+			WorkItemID:            "work_embedded_launch_start",
+			SourceAssignmentID:    "asgn_embedded_launch_start",
+			FromRoleID:            "role_embedded_launch_start",
+			ToRoleID:              "role_embedded_launch_start",
+			Title:                 "Launch context handoff",
+			Body:                  "Keep this Cairnline-only handoff visible in the start context.",
+			RecommendedNextAction: "Inspect the persisted context packet.",
+			LinkedArtifactIDs:     []string{"artifact_embedded_launch_start"},
+			ContextRefs:           []string{"ctx_embedded_launch_start"},
+			Status:                cairnline.HandoffStatusOpen,
+			TrustLabel:            "operator_reviewed",
 		})
 		return err
 	}); err != nil {
@@ -3889,6 +3918,13 @@ func TestProjectWorkAPI_StartAssignmentStrictEmbeddedReadModelLaunchesCairnlineO
 	}
 	if !strings.Contains(task.Prompt, "Start embedded assignment") || !strings.Contains(task.SystemPrompt, "Use the embedded Cairnline graph.") {
 		t.Fatalf("task prompt/system = %q / %q, want Cairnline work and role context", task.Prompt, task.SystemPrompt)
+	}
+	packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/tasks/"+ref.TaskID+"/runs/"+ref.RunID+"/context", "")
+	if item := findRenderedContextItemByOrigin(packetResp.Data, "artifact_embedded_launch_start"); item == nil || item.Included || item.Section != contextSectionProjectWork {
+		t.Fatalf("Cairnline artifact context item = %+v, want inspect-only project_work artifact metadata", item)
+	}
+	if item := findRenderedContextItemByOrigin(packetResp.Data, "handoff_embedded_launch_start"); item == nil || item.Included || item.Section != contextSectionProjectWork {
+		t.Fatalf("Cairnline handoff context item = %+v, want inspect-only project_work handoff metadata", item)
 	}
 
 	runtime, ok, err := handler.projectRuntime.Get(t.Context(), projectID, "asgn_embedded_launch_start")

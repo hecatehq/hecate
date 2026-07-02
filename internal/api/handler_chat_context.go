@@ -700,6 +700,9 @@ func (h *Handler) enabledProjectMemoryEntries(ctx context.Context, projectID str
 }
 
 func (h *Handler) assignmentRelevantArtifacts(ctx context.Context, assignment projectwork.Assignment) []projectwork.CollaborationArtifact {
+	if items, ok := h.cairnlineAssignmentRelevantArtifacts(ctx, assignment); ok {
+		return items
+	}
 	if h == nil || h.projectWork == nil {
 		return nil
 	}
@@ -720,6 +723,9 @@ func (h *Handler) assignmentRelevantArtifacts(ctx context.Context, assignment pr
 }
 
 func (h *Handler) assignmentRelevantHandoffs(ctx context.Context, assignment projectwork.Assignment, roleID string) []projectwork.Handoff {
+	if items, ok := h.cairnlineAssignmentRelevantHandoffs(ctx, assignment, roleID); ok {
+		return items
+	}
 	if h == nil || h.projectWork == nil {
 		return nil
 	}
@@ -737,6 +743,78 @@ func (h *Handler) assignmentRelevantHandoffs(ctx context.Context, assignment pro
 		}
 	}
 	return filtered
+}
+
+func (h *Handler) cairnlineAssignmentRelevantArtifacts(ctx context.Context, assignment projectwork.Assignment) ([]projectwork.CollaborationArtifact, bool) {
+	if h == nil || strings.TrimSpace(assignment.ProjectID) == "" || strings.TrimSpace(assignment.WorkItemID) == "" {
+		return nil, false
+	}
+	if h.projectCairnlineSidecarReadRoutesEnabled() {
+		project, ok, err := h.cairnlineSidecarProject(ctx, assignment.ProjectID)
+		if err != nil || !ok {
+			return nil, true
+		}
+		artifacts, err := h.cairnlineSidecarProjectArtifactList(ctx, project.ID, assignment.WorkItemID)
+		if err != nil {
+			return nil, true
+		}
+		evidence, err := h.cairnlineSidecarProjectEvidenceList(ctx, project.ID, assignment.WorkItemID)
+		if err != nil {
+			return nil, true
+		}
+		reviews, err := h.cairnlineSidecarProjectReviewList(ctx, project.ID, assignment.WorkItemID)
+		if err != nil {
+			return nil, true
+		}
+		items := filterAssignmentArtifacts(projectArtifactsFromCairnlineSidecar(artifacts, evidence, reviews), assignment.ID)
+		sortProjectWorkArtifactsForProjection(items)
+		return items, true
+	}
+	if !h.projectReadRoutesUseCairnlineReadModel() {
+		return nil, false
+	}
+	view, err := h.cairnlineProjectWorkView(ctx, assignment.ProjectID)
+	if err != nil {
+		return nil, true
+	}
+	defer view.Close()
+	items, err := cairnlineProjectWorkArtifacts(ctx, view.service, view.snapshot.Project.ID, assignment.WorkItemID)
+	if err != nil {
+		return nil, true
+	}
+	return filterAssignmentArtifacts(items, assignment.ID), true
+}
+
+func (h *Handler) cairnlineAssignmentRelevantHandoffs(ctx context.Context, assignment projectwork.Assignment, roleID string) ([]projectwork.Handoff, bool) {
+	if h == nil || strings.TrimSpace(assignment.ProjectID) == "" || strings.TrimSpace(assignment.WorkItemID) == "" {
+		return nil, false
+	}
+	if h.projectCairnlineSidecarReadRoutesEnabled() {
+		project, ok, err := h.cairnlineSidecarProject(ctx, assignment.ProjectID)
+		if err != nil || !ok {
+			return nil, true
+		}
+		handoffs, err := h.cairnlineSidecarProjectHandoffList(ctx, project.ID, assignment.WorkItemID)
+		if err != nil {
+			return nil, true
+		}
+		items := filterAssignmentHandoffs(projectHandoffsFromCairnlineSidecar(handoffs), assignment.ID, roleID)
+		sortProjectHandoffsForProjection(items)
+		return items, true
+	}
+	if !h.projectReadRoutesUseCairnlineReadModel() {
+		return nil, false
+	}
+	view, err := h.cairnlineProjectWorkView(ctx, assignment.ProjectID)
+	if err != nil {
+		return nil, true
+	}
+	defer view.Close()
+	items, err := cairnlineProjectHandoffs(ctx, view.service, view.snapshot.Project.ID, assignment.WorkItemID, "")
+	if err != nil {
+		return nil, true
+	}
+	return filterAssignmentHandoffs(items, assignment.ID, roleID), true
 }
 
 func appendProjectMemory(packet *chat.ContextPacket, entries []memory.Entry, includedMemoryIDs map[string]bool) {
