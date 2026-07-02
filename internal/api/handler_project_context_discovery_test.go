@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -375,6 +376,9 @@ func TestProjectContextDiscovery_CairnlineAuthorityAcceptsCairnlineOnlyProject(t
 	if got := projectContextSourceResponseByPath(resp.Data.ContextSources, "AGENTS.md"); got == nil || got.Kind != "workspace_instruction" || got.Metadata["root_id"] != "root_main" {
 		t.Fatalf("response AGENTS source = %+v, want discovered Cairnline-owned root guidance", got)
 	}
+	if resp.Data.ReadBackend != "cairnline" {
+		t.Fatalf("discovery read_backend = %q, want cairnline for Cairnline-authoritative discovery response", resp.Data.ReadBackend)
+	}
 	if _, ok, err := projectStore.Get(t.Context(), "proj_guidance_cairnline_only"); err != nil || ok {
 		t.Fatalf("native project lookup ok=%v err=%v, want no native project row", ok, err)
 	}
@@ -382,6 +386,53 @@ func TestProjectContextDiscovery_CairnlineAuthorityAcceptsCairnlineOnlyProject(t
 	project := getMirroredCairnlineProjectForTest(t, handler, "proj_guidance_cairnline_only")
 	if got := findCairnlineSourceByLocatorForAPITest(project.ContextSources, "AGENTS.md"); got == nil || got.Kind != "workspace_instruction" {
 		t.Fatalf("Cairnline sources = %+v, want discovered AGENTS.md source", project.ContextSources)
+	}
+}
+
+func TestProjectContextDiscovery_CairnlineReplacementModeSkipsMissingCompatibilityShadowWarning(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeDiscoveryFile(t, root, "AGENTS.md")
+
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend:      "cairnline",
+			CairnlineConnector:       "embedded",
+			CairnlineReadSource:      "embedded",
+			CairnlineWriteAuthority:  "all-portable",
+			CairnlineReplacementMode: "embedded",
+		},
+	}, logger, nil, nil, nil, nil)
+	projectStore := projects.NewMemoryStore()
+	handler.SetProjectStore(projectStore)
+	server := NewServer(logger, handler)
+	client := newAPITestClient(t, server)
+
+	created := mustRequestJSONStatus[ProjectResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects", projectJourneyJSON(t, map[string]any{
+		"name": "Replacement guidance discovery",
+		"roots": []map[string]any{{
+			"id":     "root_main",
+			"path":   root,
+			"kind":   "local",
+			"active": true,
+		}},
+	}))
+	if _, ok, err := projectStore.Get(t.Context(), created.Data.ID); err != nil || ok {
+		t.Fatalf("native project lookup ok=%v err=%v, want no native project row", ok, err)
+	}
+
+	resp := mustRequestJSONStatus[ProjectResponse](client, http.StatusOK, http.MethodPost, "/hecate/v1/projects/"+created.Data.ID+"/context-sources/discover", `{}`)
+	if resp.Data.ReadBackend != "cairnline" {
+		t.Fatalf("discovery read_backend = %q, want cairnline for replacement-mode authoritative response", resp.Data.ReadBackend)
+	}
+	if got := projectContextSourceResponseByPath(resp.Data.ContextSources, "AGENTS.md"); got == nil || got.Kind != "workspace_instruction" {
+		t.Fatalf("response AGENTS source = %+v, want discovered workspace guidance", got)
+	}
+	if bytes.Contains(logs.Bytes(), []byte("cairnline project mirror write failed")) {
+		t.Fatalf("logs contain compatibility-shadow warning for intentional Cairnline-only project:\n%s", logs.String())
 	}
 }
 

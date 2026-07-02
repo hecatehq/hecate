@@ -11,6 +11,7 @@ import (
 	"github.com/hecatehq/hecate/internal/agentadapters"
 	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/memory"
+	"github.com/hecatehq/hecate/internal/projectruntime"
 	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -471,6 +472,80 @@ func TestProjectJourneyAPI_CairnlineReplacementModeStartsExternalAgentWithoutAdv
 	shadow := getStoredProjectWorkAssignmentForTest(t, handler, projectID, "work_replacement_external", "asgn_replacement_external")
 	if shadow.ExecutionRef.ChatSessionID != "" || shadow.ExecutionRef.ContextSnapshotID != "" {
 		t.Fatalf("Hecate compatibility shadow assignment = %+v, want replacement-mode external start refs to live only in runtime overlay", shadow.ExecutionRef)
+	}
+}
+
+func TestProjectJourneyAPI_CairnlineReplacementCloseoutReadinessUsesRuntimeOverlay(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineReplacementIdentityAuthorityTestServer(t)
+	client := newAPITestClient(t, server)
+	root := t.TempDir()
+
+	project := mustRequestJSONStatus[ProjectResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects", projectJourneyJSON(t, map[string]any{
+		"name": "Cairnline Runtime Overlay Closeout",
+		"roots": []map[string]any{{
+			"id":     "root_overlay",
+			"path":   root,
+			"kind":   "git",
+			"active": true,
+		}},
+	}))
+	projectID := project.Data.ID
+	mustRequestJSONStatus[ProjectWorkRoleEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/roles", projectJourneyJSON(t, map[string]any{
+		"id":                  "role_overlay",
+		"name":                "Runtime overlay implementer",
+		"default_driver_kind": projectwork.AssignmentDriverHecateTask,
+	}))
+	mustRequestJSONStatus[ProjectWorkItemEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items", projectJourneyJSON(t, map[string]any{
+		"id":            "work_overlay",
+		"title":         "Close with runtime overlay",
+		"status":        projectwork.WorkItemStatusReady,
+		"owner_role_id": "role_overlay",
+		"root_id":       "root_overlay",
+	}))
+	assignment := mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_overlay/assignments", projectJourneyJSON(t, map[string]any{
+		"id":          "asgn_overlay",
+		"role_id":     "role_overlay",
+		"root_id":     "root_overlay",
+		"driver_kind": projectwork.AssignmentDriverHecateTask,
+	}))
+	if assignment.Data.Status != projectwork.AssignmentStatusQueued || assignment.Data.ReadBackend != "cairnline" {
+		t.Fatalf("assignment = %+v, want queued Cairnline-backed assignment", assignment.Data)
+	}
+	if _, err := handler.projectRuntime.Upsert(t.Context(), projectruntime.AssignmentRuntime{
+		ProjectID:    projectID,
+		AssignmentID: "asgn_overlay",
+		ExecutionRef: projectwork.AssignmentExecutionRef{
+			Kind:              "task_run",
+			TaskID:            "task_overlay",
+			RunID:             "run_overlay",
+			ContextSnapshotID: "ctx_overlay",
+			Status:            projectwork.AssignmentStatusCompleted,
+		},
+	}); err != nil {
+		t.Fatalf("Upsert runtime overlay: %v", err)
+	}
+	mustRequestJSONStatus[ProjectWorkArtifactEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_overlay/artifacts", projectJourneyJSON(t, map[string]any{
+		"id":                   "artifact_overlay_evidence",
+		"assignment_id":        "asgn_overlay",
+		"kind":                 projectwork.ArtifactKindEvidenceLink,
+		"title":                "Runtime overlay evidence",
+		"body":                 "The Hecate runtime overlay completed while Cairnline still held the portable queued assignment.",
+		"author_role_id":       "role_overlay",
+		"evidence_url":         "hecate://tasks/task_overlay/runs/run_overlay",
+		"evidence_provider":    "hecate",
+		"evidence_trust_label": projectwork.EvidenceTrustOperatorProvided,
+	}))
+
+	readiness := mustRequestJSONStatus[ProjectWorkItemReadinessEnvelope](client, http.StatusOK, http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_overlay/readiness", "")
+	if !readiness.Data.Ready || readiness.Data.Status != "ready" || readiness.Data.ReadBackend != "cairnline" || readiness.Data.CompletedAssignments != 1 {
+		t.Fatalf("readiness = %+v, want runtime-overlay completed Cairnline closeout", readiness.Data)
+	}
+	closed := mustRequestJSONStatus[ProjectWorkItemEnvelope](client, http.StatusOK, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/work-items/work_overlay", projectJourneyJSON(t, map[string]any{
+		"status": projectwork.WorkItemStatusDone,
+	}))
+	if closed.Data.Status != projectwork.WorkItemStatusDone || closed.Data.ReadBackend != "cairnline" {
+		t.Fatalf("closed work item = %+v, want Cairnline-backed closeout", closed.Data)
 	}
 }
 

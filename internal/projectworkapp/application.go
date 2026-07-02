@@ -26,6 +26,8 @@ var (
 type TaskStore interface {
 	TaskRunLookupStore
 	CreateTask(ctx context.Context, task types.Task) (types.Task, error)
+	GetTask(ctx context.Context, taskID string) (types.Task, bool, error)
+	ListApprovals(ctx context.Context, taskID string) ([]types.TaskApproval, error)
 }
 
 type TaskRunLookupStore interface {
@@ -44,6 +46,7 @@ type AgentRunner interface {
 
 type ChatSessionStore interface {
 	Create(ctx context.Context, session chat.Session) (chat.Session, error)
+	Get(ctx context.Context, id string) (chat.Session, bool, error)
 	UpdateSession(ctx context.Context, id string, update func(*chat.Session)) (chat.Session, error)
 	Delete(ctx context.Context, id string) error
 }

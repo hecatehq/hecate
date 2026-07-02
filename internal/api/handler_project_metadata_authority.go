@@ -203,6 +203,9 @@ func (h *Handler) shadowProjectMetadataDefaultsToHecate(ctx context.Context, ope
 		item.DefaultCompactToolOutput = cloneBool(project.DefaultCompactToolOutput)
 	})
 	if err != nil {
+		if h.shouldSkipMissingProjectCompatibilityShadow(err) {
+			return project, false
+		}
 		h.logCairnlineMirrorError(ctx, operation, project.ID, err)
 		return project, false
 	}

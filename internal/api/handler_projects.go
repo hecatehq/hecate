@@ -242,7 +242,7 @@ func (h *Handler) HandleUpdateProject(w http.ResponseWriter, r *http.Request) {
 			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 			return
 		}
-		WriteJSON(w, http.StatusOK, ProjectResponse{Object: "project", Data: renderProject(project)})
+		WriteJSON(w, http.StatusOK, ProjectResponse{Object: "project", Data: renderCairnlineAuthorityProject(project)})
 		return
 	}
 	if h.projectRootSourceListUpdateWritesUseCairnlineAuthority(req) {

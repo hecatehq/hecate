@@ -595,6 +595,10 @@ func (h *Handler) shadowProjectRootsToHecate(ctx context.Context, operation stri
 		item.DefaultRootID = project.DefaultRootID
 	})
 	if err != nil {
+		if h.shouldSkipMissingProjectCompatibilityShadow(err) {
+			root, _ := findProjectRootByID(project.Roots, rootID)
+			return project, root
+		}
 		h.logCairnlineMirrorError(ctx, operation, project.ID, err)
 		root, _ := findProjectRootByID(project.Roots, rootID)
 		return project, root
@@ -613,6 +617,10 @@ func (h *Handler) shadowProjectContextSourcesToHecate(ctx context.Context, opera
 		item.ContextSources = append([]projects.ContextSource(nil), project.ContextSources...)
 	})
 	if err != nil {
+		if h.shouldSkipMissingProjectCompatibilityShadow(err) {
+			source, _ := findProjectContextSourceByID(project.ContextSources, sourceID)
+			return project, source
+		}
 		h.logCairnlineMirrorError(ctx, operation, project.ID, err)
 		source, _ := findProjectContextSourceByID(project.ContextSources, sourceID)
 		return project, source
@@ -648,10 +656,17 @@ func (h *Handler) shadowProjectRootSourceListsToHecate(ctx context.Context, oper
 		}
 	})
 	if err != nil {
+		if h.shouldSkipMissingProjectCompatibilityShadow(err) {
+			return project, false
+		}
 		h.logCairnlineMirrorError(ctx, operation, project.ID, err)
 		return project, false
 	}
 	return shadowed, true
+}
+
+func (h *Handler) shouldSkipMissingProjectCompatibilityShadow(err error) bool {
+	return errors.Is(err, projects.ErrNotFound)
 }
 
 func projectAppErrorFromCairnlineAuthority(err error, missing string) error {
@@ -710,7 +725,7 @@ func writeProjectRootCairnlineAuthorityResponse(w http.ResponseWriter, status in
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	WriteJSON(w, status, ProjectResponse{Object: "project", Data: renderProject(project)})
+	WriteJSON(w, status, ProjectResponse{Object: "project", Data: renderCairnlineAuthorityProject(project)})
 }
 
 func writeProjectListReplaceCairnlineAuthorityResponse(w http.ResponseWriter, project projects.Project, err error) {
@@ -730,7 +745,7 @@ func writeProjectListReplaceCairnlineAuthorityResponse(w http.ResponseWriter, pr
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	WriteJSON(w, http.StatusOK, ProjectResponse{Object: "project", Data: renderProject(project)})
+	WriteJSON(w, http.StatusOK, ProjectResponse{Object: "project", Data: renderCairnlineAuthorityProject(project)})
 }
 
 func writeProjectContextSourceCairnlineAuthorityResponse(w http.ResponseWriter, status int, project projects.Project, err error) {
@@ -754,5 +769,11 @@ func writeProjectContextSourceCairnlineAuthorityResponse(w http.ResponseWriter, 
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	WriteJSON(w, status, ProjectResponse{Object: "project", Data: renderProject(project)})
+	WriteJSON(w, status, ProjectResponse{Object: "project", Data: renderCairnlineAuthorityProject(project)})
+}
+
+func renderCairnlineAuthorityProject(project projects.Project) ProjectResponseItem {
+	rendered := renderProject(project)
+	rendered.ReadBackend = "cairnline"
+	return rendered
 }
