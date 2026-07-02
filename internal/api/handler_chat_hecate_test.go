@@ -957,6 +957,52 @@ func TestChatSessionsProjectIDUsesStrictEmbeddedCairnlineProject(t *testing.T) {
 	}
 }
 
+func TestProjectChatWorkflowSystemPromptUsesSidecarCairnlineProject(t *testing.T) {
+	handler, _ := newProjectsCairnlineSidecarReadTestServer(t, "memory-fixture")
+	const projectID = "proj_fixture"
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("native project exists = %t err=%v, want missing native project", ok, err)
+	}
+	entries := handler.enabledProjectMemoryEntries(t.Context(), projectID)
+	if len(entries) != 1 || entries[0].ID != "mem_fixture" || !entries[0].Enabled {
+		t.Fatalf("sidecar memory entries = %+v, want only enabled fixture memory", entries)
+	}
+
+	prompt := handler.projectChatWorkflowSystemPrompt(t.Context(), chat.Session{ProjectID: projectID})
+	for _, want := range []string{
+		"Project: Fixture Project (proj_fixture)",
+		"Project roots (metadata only; files are not read):",
+		"- Root /workspace/fixture (root_fixture): active=true, default=true, kind=local",
+		"Role hints:",
+		"Fixture Reviewer (role_fixture)",
+		"Project skills (metadata only; skill bodies are not loaded):",
+		"Fixture Skill (skill_fixture): Path: .agents/skills/fixture/SKILL.md",
+		"Active project work snapshot:",
+		"- Assignment asg_fixture: work_item=work_fixture, role=role_fixture, status=queued, driver=hecate_task",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("sidecar project prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	for _, notWant := range []string{
+		"Disabled fixture memory",
+		"This memory entry is disabled.",
+	} {
+		if strings.Contains(prompt, notWant) {
+			t.Fatalf("sidecar project prompt included disabled memory %q:\n%s", notWant, prompt)
+		}
+	}
+
+	packet := renderChatContextPacket(handler.directModelContextPacket(t.Context(), chat.Session{ProjectID: projectID}, "openai", "gpt-4o-mini", ""))
+	if packet == nil ||
+		!chatContextPacketHasKind(*packet, "project") ||
+		!chatContextPacketHasKind(*packet, "project_skills") ||
+		!chatContextPacketHasKind(*packet, "project_work") ||
+		!chatContextPacketHasKind(*packet, "memory") {
+		t.Fatalf("sidecar context packet missing project metadata: %+v", packet)
+	}
+}
+
 func TestHecateAgentChatCreateDefaultsTitle(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	provider := &fakeProvider{

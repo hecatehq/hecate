@@ -6765,10 +6765,13 @@ configured providers that expose the selected model.
 `project_id` is optional. When supplied, it must reference an existing project
 or Hecate returns `404 not_found`. When Cairnline project reads are configured,
 that existence check uses the active Cairnline read backend, so strict embedded
-replacement mode can create chats for Cairnline-only project identities. The
-chat transcript itself remains Hecate chat state. Project-scoped sessions are
-still normal chat sessions, but deleting the project later deletes those
-project-scoped transcripts as part of the project cleanup.
+replacement mode and sidecar read mode can create chats for Cairnline-only
+project identities. Project-linked Hecate Chat prelude/context assembly uses
+the same configured Cairnline read source for project identity, role, skill,
+work, and accepted-memory metadata. The chat transcript itself remains Hecate
+chat state. Project-scoped sessions are still normal chat sessions, but
+deleting the project later deletes those project-scoped transcripts as part of
+the project cleanup.
 
 `title` is optional session metadata. The Projects UI uses it when launching a
 chat from a project-work assignment so the empty chat shell is named after the
