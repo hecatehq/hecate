@@ -301,6 +301,7 @@ function ProjectCoordinationBackendSettings({
     status?.orchestrator_capabilities ?? status?.side_effect_blockers ?? [];
   const migrationBlockers = status?.migration_blockers ?? [];
   const replacementGates = status?.replacement_gates ?? [];
+  const statusWarnings = status?.warnings ?? [];
   const nextAction = status?.next_replacement_action;
   const statusBadge = status
     ? status.replacement_ready
@@ -403,6 +404,9 @@ function ProjectCoordinationBackendSettings({
               empty="none"
             />
             <ProjectBackendList title="Migration blockers" items={migrationBlockers} empty="none" />
+            {statusWarnings.length > 0 && (
+              <ProjectBackendList title="Runtime boundary" items={statusWarnings} empty="none" />
+            )}
           </div>
         </article>
       )}
@@ -544,7 +548,7 @@ function ProjectBackendNextAction({
 }
 
 function projectBackendTitle(status: ProjectCoordinationBackendStatusRecord): string {
-  if (status.replacement_ready) return "Cairnline replacement ready";
+  if (status.replacement_ready) return "Cairnline owns portable project state";
   if (status.configured_backend === "cairnline") return "Cairnline dogfood active";
   return "Hecate Projects active";
 }
@@ -556,7 +560,10 @@ function projectBackendSummary(status: ProjectCoordinationBackendStatusRecord): 
     status.orchestrator_capabilities?.length ?? status.side_effect_blockers?.length ?? 0;
   const migrationBlockers = status.migration_blockers?.length ?? 0;
   if (status.replacement_ready) {
-    return "Cairnline replacement gates are ready.";
+    return (
+      status.detail ||
+      "All replacement gates are ready and Cairnline is authoritative for portable Projects coordination state."
+    );
   }
   if (status.configured_backend !== "cairnline") {
     return "Hecate-native project stores are authoritative. Cairnline bridge diagnostics are available for replacement-readiness checks.";
