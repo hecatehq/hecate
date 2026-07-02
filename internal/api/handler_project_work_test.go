@@ -4118,6 +4118,32 @@ func TestProjectWorkAPI_StartExternalAgentAssignmentStrictEmbeddedReadModelLaunc
 	if mirrored.Status != cairnlinebridge.AssignmentStatus(runtime.ExecutionRef.Status) || mirrored.ExecutionRef != ref.ChatSessionID || mirrored.ContextSnapshotID != ref.ContextSnapshotID {
 		t.Fatalf("mirrored Cairnline assignment = status %q ref %q context %q, want %q/%q/%q", mirrored.Status, mirrored.ExecutionRef, mirrored.ContextSnapshotID, cairnlinebridge.AssignmentStatus(runtime.ExecutionRef.Status), ref.ChatSessionID, ref.ContextSnapshotID)
 	}
+
+	completedAt := time.Now().UTC().Add(time.Second)
+	session, err = handler.agentChat.AppendMessage(t.Context(), ref.ChatSessionID, chat.Message{
+		ID:          "msg_embedded_external_done",
+		Role:        "assistant",
+		Status:      "completed",
+		TraceID:     "trace_embedded_external_done",
+		CreatedAt:   completedAt.Add(-time.Second),
+		StartedAt:   completedAt.Add(-time.Second),
+		CompletedAt: completedAt,
+	})
+	if err != nil {
+		t.Fatalf("Append completed chat message: %v", err)
+	}
+	handler.reconcileProjectAssignmentsForChat(t.Context(), session)
+	runtime, ok, err = handler.projectRuntime.Get(t.Context(), projectID, "asgn_embedded_external_start")
+	if err != nil || !ok {
+		t.Fatalf("Hecate assignment runtime after reconcile ok=%v err=%v, want runtime overlay", ok, err)
+	}
+	if runtime.ExecutionRef.Status != projectwork.AssignmentStatusCompleted || runtime.ExecutionRef.MessageID != "msg_embedded_external_done" || runtime.ExecutionRef.TraceID != "trace_embedded_external_done" || runtime.CompletedAt.IsZero() {
+		t.Fatalf("Hecate assignment runtime after reconcile = %+v completed_at=%v, want completed chat projection", runtime.ExecutionRef, runtime.CompletedAt)
+	}
+	mirrored = getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_embedded_external_start")
+	if mirrored.Status != cairnline.AssignmentCompleted || mirrored.ExecutionRef != ref.ChatSessionID || mirrored.ContextSnapshotID != ref.ContextSnapshotID || mirrored.CompletedAt.IsZero() {
+		t.Fatalf("mirrored Cairnline assignment after reconcile = %+v, want completed chat assignment", mirrored)
+	}
 }
 
 func TestProjectWorkAPI_StartExternalAgentAssignmentStrictEmbeddedReadModelCleansPreparedSessionWhenClaimLost(t *testing.T) {

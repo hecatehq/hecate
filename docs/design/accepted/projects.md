@@ -482,7 +482,9 @@ require the task runtime. Successful start results and start-side
 conflict/cleanup states are best-effort mirrored after Hecate commits them.
 Linked external-agent chat reconciliation also mirrors the
 committed assignment status/ref when Hecate updates the linked assignment from a
-chat session. Collaboration artifact creation, including generic artifacts,
+chat session. In strict embedded mode, that reconciliation can update the
+embedded Cairnline assignment and Hecate runtime overlay without a native
+project-work row. Collaboration artifact creation, including generic artifacts,
 evidence links, and reviews, and handoff create/update/delete routes also mirror
 portable collaboration metadata after Hecate commits unless
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-collaboration` makes those
@@ -669,7 +671,9 @@ after these gates are met:
   context packets, and timestamps in Hecate's runtime overlay when the native
   project-work store is absent; it does not create a native project identity row
   or compatibility assignment row.
-  Committed start and linked-chat reconciliation results may be mirrored only as
+  Linked external-agent chat reconciliation can update embedded Cairnline and
+  the runtime overlay in the same no-native-project-work posture. Committed
+  start and linked-chat reconciliation results may be mirrored only as
   replacement evidence.
   Backend-status `write_adapter_seams`
   lists non-authoritative proof
