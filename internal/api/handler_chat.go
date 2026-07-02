@@ -64,6 +64,10 @@ func (h *Handler) HandleCreateChatSession(w http.ResponseWriter, r *http.Request
 	projectID := strings.TrimSpace(req.ProjectID)
 	if projectID != "" {
 		if ok, err := h.chatSessionProjectExists(r.Context(), projectID); err != nil {
+			if errors.Is(err, errProjectCairnlineSidecarReadFailed) {
+				WriteError(w, http.StatusBadGateway, errCodeGatewayError, err.Error())
+				return
+			}
 			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 			return
 		} else if !ok {

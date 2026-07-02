@@ -957,6 +957,18 @@ func TestChatSessionsProjectIDUsesStrictEmbeddedCairnlineProject(t *testing.T) {
 	}
 }
 
+func TestChatSessionsProjectIDMapsSidecarReadFailure(t *testing.T) {
+	_, server := newProjectsCairnlineSidecarReadTestServer(t, "projects.get-text-only")
+	client := newAPITestClient(t, server)
+
+	recorder := client.mustRequestStatus(http.StatusBadGateway, http.MethodPost, "/hecate/v1/chat/sessions",
+		`{"agent_id":"hecate","project_id":"proj_fixture","provider":"openai","model":"gpt-4o-mini"}`)
+	body := recorder.Body.String()
+	if !strings.Contains(body, errCodeGatewayError) || !strings.Contains(body, "cairnline sidecar project read failed") {
+		t.Fatalf("sidecar read failure response = %s, want gateway error with Cairnline sidecar detail", body)
+	}
+}
+
 func TestProjectChatWorkflowSystemPromptUsesSidecarCairnlineProject(t *testing.T) {
 	handler, _ := newProjectsCairnlineSidecarReadTestServer(t, "memory-fixture")
 	const projectID = "proj_fixture"
