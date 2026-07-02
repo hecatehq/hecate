@@ -560,8 +560,8 @@ launch agents. Those remain explicit operator or orchestrator actions.
 - Hecate can write a refreshable embedded Cairnline SQLite sync database for
   the full Projects graph as a migration rehearsal before or alongside
   live-mirror and authoritative write-adapter experiments. The sync response
-  compares aggregate Hecate snapshot counts, normalized record ID sets, and semantic
-  record-content digests with the embedded database and reports count-level,
+  compares aggregate Hecate snapshot counts, normalized record ID sets, and
+  semantic record-content digests with the embedded database and reports count-level,
   ID-set, and content-digest differences. Hecate also uses strict embedded
   configured-route smoke tests after sync and live-mirror parity to prove normal
   project, setup, health, skill, memory, role, work, collaboration, assistant
@@ -571,8 +571,8 @@ launch agents. Those remain explicit operator or orchestrator actions.
   process remains the later standalone/interoperability boundary.
 - Hecate remains the richer cockpit and orchestrator for supervised Hecate
   Tasks and External Agents.
-- Hecate integration tests should start only after Hecate consumes the
-  standalone core or server.
+- Hecate integration tests should continue covering embedded-core and sidecar
+  contract paths before any broader default-backend switch.
 
 ### 5. Assistant Module
 
