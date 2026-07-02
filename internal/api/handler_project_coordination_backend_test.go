@@ -417,6 +417,46 @@ func TestProjectCoordinationBackendStatus_StrictEmbeddedReadSmokeGateVerifiedAft
 	}
 }
 
+func TestProjectCoordinationBackendStatus_EmbeddedReplacementModeReportsCairnlineAuthoritativeAfterVerifiedCutover(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			Backend:                  "sqlite",
+			CoordinationBackend:      "cairnline",
+			CairnlineConnector:       "embedded",
+			CairnlineReadSource:      "embedded",
+			CairnlineWriteAuthority:  "all-portable",
+			CairnlineReplacementMode: "embedded",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	handler.SetProjectStore(projects.NewMemoryStore())
+	handler.SetProjectWorkStore(projectwork.NewMemoryStore())
+	handler.SetProjectSkillStore(projectskills.NewMemoryStore())
+	handler.SetMemoryStore(memory.NewMemoryStore())
+	handler.SetAgentProfileStore(agentprofiles.NewMemoryStore())
+	server := NewServer(quietLogger(), handler)
+	client := newAPITestClient(t, server)
+
+	mustRequestJSONStatus[ProjectResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects", projectJourneyJSON(t, map[string]any{
+		"name": "Backend Status Embedded Replacement",
+	}))
+	mustRequestJSONStatus[ProjectCairnlineSyncResponse](client, http.StatusOK, http.MethodPost, "/hecate/v1/projects/cairnline/sync", "")
+
+	status := handler.projectCoordinationBackendStatusWithContext(t.Context())
+	if !status.ReplacementReady || status.AuthoritativeBackend != "cairnline" || !status.CairnlineAuthoritative {
+		t.Fatalf("status = %+v, want verified embedded replacement to report Cairnline authoritative", status)
+	}
+	if len(status.MigrationBlockers) != 0 {
+		t.Fatalf("migration blockers = %+v, want none after embedded replacement cutover is armed", status.MigrationBlockers)
+	}
+	if gate := findReplacementGate(status.ReplacementGates, "migration-and-rollback"); gate == nil || !gate.Ready || gate.Status != "ready" {
+		t.Fatalf("migration gate = %+v, want ready migration gate after embedded replacement cutover is armed", gate)
+	}
+	if status.NextReplacementAction == nil || status.NextReplacementAction.ID != "monitor-cairnline-backend" {
+		t.Fatalf("next action = %+v, want monitor action after replacement is ready", status.NextReplacementAction)
+	}
+}
+
 func TestProjectCoordinationBackendStatus_CairnlineProjectMemoryAuthorityConfigured(t *testing.T) {
 	handler := NewHandler(config.Config{
 		Projects: config.ProjectsConfig{

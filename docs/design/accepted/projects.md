@@ -133,7 +133,12 @@ read-only mirror-parity probe: missing mirrors, drift, probe errors, and verifie
 route smoke are reflected directly in backend status instead of relying only on
 manual checklist prose. The migration/rollback gate depends on that read-smoke
 evidence: it waits for verified strict embedded reads first, then reports the
-remaining missing authoritative cutover/rollback switch separately.
+remaining missing authoritative cutover/rollback switch separately. Once strict
+embedded reads are verified, all portable write-authority gaps are closed, and
+`HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded` is armed, backend status
+treats that replacement mode as the explicit embedded cutover switch, clears the
+migration blocker, and reports embedded Cairnline as authoritative for portable
+Projects coordination state.
 It keeps `write_adapter_gaps` as the broad diagnostic list and also groups
 that list into `portable_write_gaps`, `orchestrator_capabilities`, and
 `migration_blockers`, so operator tooling can tell durable coordination-state

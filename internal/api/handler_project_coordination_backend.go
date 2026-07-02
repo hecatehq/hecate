@@ -380,16 +380,17 @@ func (h *Handler) projectCoordinationBackendStatusWithContext(ctx context.Contex
 		response.WriteAdapterGaps = projectCairnlineWriteAdapterGapsSnapshot(effectiveWriteAuthority)
 		response.PortableWriteGaps = projectCairnlinePortableWriteGapsSnapshot(effectiveWriteAuthority, response.WriteAdapterGaps)
 		response.OrchestratorCapabilities = projectCairnlineOrchestratorCapabilitiesSnapshot(response.WriteAdapterGaps)
-		response.MigrationBlockers = projectCairnlineMigrationBlockersSnapshot(response.WriteAdapterGaps)
 		response.WriteAdapterReady = len(response.PortableWriteGaps) == 0
 		response.WriteSwitchpoints = projectCairnlineWriteSwitchpointsSnapshot(effectiveWriteAuthority)
-		response.ReplacementGates = projectCairnlineReplacementGates(readReady, response.PortableWriteGaps, replacementMode, strictEmbeddedReadGate)
+		migrationCutoverArmed := replacementMode == "embedded" && strictEmbeddedReadGate.Ready && len(response.PortableWriteGaps) == 0
+		response.MigrationBlockers = projectCairnlineMigrationBlockersSnapshot(response.WriteAdapterGaps, migrationCutoverArmed)
+		response.ReplacementGates = projectCairnlineReplacementGates(readReady, response.PortableWriteGaps, replacementMode, strictEmbeddedReadGate, migrationCutoverArmed)
 		if !connectorReady {
 			if h.projectCairnlineSidecarReadRoutesEnabled() {
 				response.Status = "cairnline_sidecar_read_routes_ready"
 				response.Detail = "Cairnline sidecar is configured as the project read source, so " + projectCairnlineReadRouteList(projectCairnlineSidecarReadRouteNames) + " routes read through the persistent standalone Cairnline MCP client. Project writes and migration remain on Hecate-native stores or existing embedded dogfood paths."
 				response.ReadRoutes = append([]string(nil), projectCairnlineSidecarReadRouteNames...)
-				response.ReplacementGates = projectCairnlineReplacementGates(false, response.PortableWriteGaps, replacementMode, strictEmbeddedReadGate)
+				response.ReplacementGates = projectCairnlineReplacementGates(false, response.PortableWriteGaps, replacementMode, strictEmbeddedReadGate, migrationCutoverArmed)
 				response.Warnings = []string{
 					"Only " + projectCairnlineReadRouteList(projectCairnlineSidecarReadRouteNames) + " use the Cairnline sidecar MCP client in this mode.",
 					"Project writes still use Hecate-native stores unless a separate embedded Cairnline authority switchpoint is explicitly enabled.",
@@ -399,7 +400,7 @@ func (h *Handler) projectCoordinationBackendStatusWithContext(ctx context.Contex
 			}
 			response.Status = "cairnline_connector_not_ready"
 			response.Detail = projectCairnlineConnectorDetail(connector) + " Hecate keeps Projects reads and writes on Hecate-native stores in this mode; use HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded for the current replacement-readiness dogfood path."
-			response.ReplacementGates = projectCairnlineReplacementGates(false, response.PortableWriteGaps, replacementMode, strictEmbeddedReadGate)
+			response.ReplacementGates = projectCairnlineReplacementGates(false, response.PortableWriteGaps, replacementMode, strictEmbeddedReadGate, migrationCutoverArmed)
 			response.Warnings = []string{
 				projectCairnlineConnectorWarning(connector),
 				"Project reads and writes still use Hecate-native stores.",
@@ -457,10 +458,10 @@ func projectCairnlineStatusWithNextAction(response ProjectCoordinationBackendSta
 func projectCairnlineNextReplacementAction(status ProjectCoordinationBackendStatusResponse) *ProjectCoordinationBackendNextAction {
 	if status.ReplacementReady {
 		return &ProjectCoordinationBackendNextAction{
-			ID:     "replace-projects-backend",
-			Label:  "Replace the Projects backend",
-			Detail: "All Cairnline replacement gates are ready; the remaining action is an explicit operator cutover.",
-			Target: "cutover",
+			ID:     "monitor-cairnline-backend",
+			Label:  "Monitor Cairnline backend",
+			Detail: "All Cairnline replacement gates are ready and embedded replacement mode is armed; Projects are reporting Cairnline as authoritative.",
+			Target: "cairnline",
 		}
 	}
 	if status.ConfiguredBackend != "cairnline" {
@@ -643,7 +644,7 @@ func projectCairnlineWriteAuthorityValuesForGap(gap string) []string {
 	}
 }
 
-func projectCairnlineReplacementGates(readRoutesReady bool, portableWriteGaps []string, replacementMode string, strictEmbeddedReadGate ProjectCoordinationBackendReplacementGate) []ProjectCoordinationBackendReplacementGate {
+func projectCairnlineReplacementGates(readRoutesReady bool, portableWriteGaps []string, replacementMode string, strictEmbeddedReadGate ProjectCoordinationBackendReplacementGate, migrationCutoverArmed bool) []ProjectCoordinationBackendReplacementGate {
 	if strings.TrimSpace(strictEmbeddedReadGate.ID) == "" {
 		strictEmbeddedReadGate = projectCairnlineStrictEmbeddedReadSmokeDefaultGate()
 	}
@@ -658,7 +659,7 @@ func projectCairnlineReplacementGates(readRoutesReady bool, portableWriteGaps []
 		},
 		strictEmbeddedReadGate,
 		writeGate,
-		projectCairnlineMigrationRollbackReplacementGate(strictEmbeddedReadGate),
+		projectCairnlineMigrationRollbackReplacementGate(strictEmbeddedReadGate, migrationCutoverArmed),
 		projectCairnlineReplacementModeGate(replacementMode),
 	}
 }
@@ -729,7 +730,7 @@ func (h *Handler) projectCairnlineStrictEmbeddedReadSmokeReplacementGate(ctx con
 	return gate
 }
 
-func projectCairnlineMigrationRollbackReplacementGate(strictEmbeddedReadGate ProjectCoordinationBackendReplacementGate) ProjectCoordinationBackendReplacementGate {
+func projectCairnlineMigrationRollbackReplacementGate(strictEmbeddedReadGate ProjectCoordinationBackendReplacementGate, migrationCutoverArmed bool) ProjectCoordinationBackendReplacementGate {
 	gate := ProjectCoordinationBackendReplacementGate{
 		ID:        "migration-and-rollback",
 		Ready:     false,
@@ -740,6 +741,11 @@ func projectCairnlineMigrationRollbackReplacementGate(strictEmbeddedReadGate Pro
 	if strictEmbeddedReadGate.Ready {
 		gate.Status = "cutover_switch_missing"
 		gate.Detail = "Strict embedded mirror parity and read smoke are verified, and rehearsal endpoints expose rollback notes, but no authoritative Cairnline storage cutover switch exists yet."
+	}
+	if migrationCutoverArmed {
+		gate.Ready = true
+		gate.Status = "ready"
+		gate.Detail = "Strict embedded mirror parity and read smoke are verified, all portable write-authority gaps are closed, and embedded replacement mode is the explicit cutover switch."
 	}
 	return gate
 }
@@ -900,7 +906,10 @@ func projectCairnlineOrchestratorCapabilitiesSnapshot(writeGaps []string) []stri
 	return out
 }
 
-func projectCairnlineMigrationBlockersSnapshot(writeGaps []string) []string {
+func projectCairnlineMigrationBlockersSnapshot(writeGaps []string, migrationCutoverArmed bool) []string {
+	if migrationCutoverArmed {
+		return nil
+	}
 	out := make([]string, 0, 1)
 	for _, item := range writeGaps {
 		if item == "migration-cutover" {
