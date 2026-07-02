@@ -61,7 +61,7 @@ func (h *Handler) createProjectWithCairnlineAuthority(ctx context.Context, proje
 func (h *Handler) deleteProjectWithCairnlineAuthority(ctx context.Context, projectID string) (projectapp.DeleteProjectResult, error) {
 	snapshot, err := cairnlinebridge.LoadSnapshot(ctx, h.cairnlineSnapshotSources(), projectID)
 	if errors.Is(err, projects.ErrNotFound) {
-		return projectapp.DeleteProjectResult{}, projectapp.ErrProjectNotFound
+		return h.deleteCairnlineOnlyProjectWithAuthority(ctx, projectID)
 	}
 	if err != nil {
 		return projectapp.DeleteProjectResult{}, err
@@ -78,6 +78,49 @@ func (h *Handler) deleteProjectWithCairnlineAuthority(ctx context.Context, proje
 		return result, errors.Join(err, fmt.Errorf("restore Cairnline project snapshot after failed delete: %w", restoreErr))
 	}
 	return result, err
+}
+
+func (h *Handler) deleteCairnlineOnlyProjectWithAuthority(ctx context.Context, projectID string) (projectapp.DeleteProjectResult, error) {
+	var project projects.Project
+	var rollback cairnline.Snapshot
+	err := h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+		item, err := service.GetProject(ctx, strings.TrimSpace(projectID))
+		if err != nil {
+			return err
+		}
+		executionProfile, err := cairnlineExecutionProfileByID(ctx, service, item.DefaultExecutionProfileID)
+		if err != nil {
+			return err
+		}
+		project = projectFromCairnline(item, executionProfile, projects.Project{})
+		rollback, err = service.ExportSnapshot(ctx)
+		if err != nil {
+			return err
+		}
+		return cairnlinebridge.DeleteProject(ctx, service, project)
+	})
+	if errors.Is(err, cairnline.ErrNotFound) {
+		return projectapp.DeleteProjectResult{}, projectapp.ErrProjectNotFound
+	}
+	if err != nil {
+		return projectapp.DeleteProjectResult{}, projectAppErrorFromCairnlineAuthority(err, "project")
+	}
+	result, err := h.projectApplication().DeleteProjectScopedRows(ctx, project)
+	if err == nil {
+		return result, nil
+	}
+	if restoreErr := h.restoreCairnlineSnapshot(ctx, rollback); restoreErr != nil {
+		h.logCairnlineMirrorError(ctx, "project_identity_cairnline_authority_delete_cairnline_only_rollback", project.ID, restoreErr)
+		return result, errors.Join(err, fmt.Errorf("restore Cairnline snapshot after failed delete: %w", restoreErr))
+	}
+	return result, err
+}
+
+func (h *Handler) restoreCairnlineSnapshot(ctx context.Context, snapshot cairnline.Snapshot) error {
+	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+		_, err := service.ImportSnapshot(ctx, snapshot)
+		return err
+	})
 }
 
 func (h *Handler) restoreProjectSnapshotToCairnline(ctx context.Context, snapshot cairnlinebridge.Snapshot) error {

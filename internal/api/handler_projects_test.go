@@ -684,6 +684,84 @@ func TestProjectsAPI_CairnlineIdentityAuthorityCommitsDeleteFirst(t *testing.T) 
 	}
 }
 
+func TestProjectsAPI_CairnlineIdentityAuthorityDeletesCairnlineOnlyProject(t *testing.T) {
+	t.Parallel()
+	const projectID = "proj_identity_delete_cairnline_only"
+	handler, server := newProjectsCairnlineIdentityAuthorityTestServer(t)
+	handler.SetProjectWorkStore(projectwork.NewMemoryStore())
+	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+		_, err := service.CreateProject(t.Context(), cairnline.Project{
+			ID:   projectID,
+			Name: "Cairnline-only delete",
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("seed Cairnline-only project: %v", err)
+	}
+	if _, err := handler.projectWork.CreateWorkItem(t.Context(), projectwork.WorkItem{
+		ID:        "work_shadow",
+		ProjectID: projectID,
+		Title:     "Shadow cleanup",
+	}); err != nil {
+		t.Fatalf("seed Hecate shadow work item: %v", err)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("native project exists = %t err=%v, want missing before delete", ok, err)
+	}
+
+	deleted := mustRequestJSONStatus[ProjectDeleteResponse](newAPITestClient(t, server), http.StatusOK, http.MethodDelete, "/hecate/v1/projects/"+projectID, "")
+	if deleted.Data.ProjectID != projectID || deleted.Data.ProjectName != "Cairnline-only delete" || deleted.Data.ProjectWorkRowsDeleted != 1 {
+		t.Fatalf("delete response = %+v, want Cairnline project identity and shadow work cleanup", deleted.Data)
+	}
+	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+	if err != nil {
+		t.Fatalf("open Cairnline mirror after delete: %v", err)
+	}
+	defer store.Close()
+	if _, err := service.GetProject(t.Context(), projectID); !errors.Is(err, cairnline.ErrNotFound) {
+		t.Fatalf("Cairnline project after delete error = %v, want ErrNotFound", err)
+	}
+	workItems, err := handler.projectWork.ListWorkItems(t.Context(), projectID)
+	if err != nil {
+		t.Fatalf("ListWorkItems after delete: %v", err)
+	}
+	if len(workItems) != 0 {
+		t.Fatalf("shadow work items after delete = %+v, want none", workItems)
+	}
+}
+
+func TestProjectsAPI_CairnlineIdentityAuthorityRollsBackCairnlineOnlyDeleteWhenShadowCleanupFails(t *testing.T) {
+	t.Parallel()
+	const projectID = "proj_identity_delete_cairnline_only_rollback"
+	handler, server := newProjectsCairnlineIdentityAuthorityTestServer(t)
+	handler.SetProjectSkillStore(failingProjectSkillDeleteStore{
+		Store: projectskills.NewMemoryStore(),
+		err:   errors.New("skill cleanup failed"),
+	})
+	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+		_, err := service.CreateProject(t.Context(), cairnline.Project{
+			ID:   projectID,
+			Name: "Cairnline-only rollback",
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("seed Cairnline-only project: %v", err)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("native project exists = %t err=%v, want missing before delete", ok, err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/projects/"+projectID, nil))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("delete status = %d body=%s, want 500", rec.Code, rec.Body.String())
+	}
+	mirrored := getMirroredCairnlineProjectForTest(t, handler, projectID)
+	if mirrored.Name != "Cairnline-only rollback" {
+		t.Fatalf("rolled-back Cairnline project = %+v, want restored project", mirrored)
+	}
+}
+
 func TestProjectsAPI_CairnlineIdentityAuthorityRollsBackDeleteWhenCompatibilityCleanupFails(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectsCairnlineIdentityAuthorityTestServer(t)

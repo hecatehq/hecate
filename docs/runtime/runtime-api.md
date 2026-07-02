@@ -2450,7 +2450,9 @@ context-source discovery can run against a Cairnline-only project graph.
 Adding `project-identity` makes project create/delete Cairnline-first for
 portable identity, initial roots, context sources, launch defaults, and project
 identity removal, then shadows the compatibility project row. Delete restores
-the Cairnline snapshot if Hecate compatibility cleanup fails.
+the Cairnline snapshot if Hecate compatibility cleanup fails. Identity delete can
+also target a Cairnline-only project graph and clean any Hecate compatibility
+shadow rows for that project without requiring a matching native project row.
 `authoritative_backend` remains `hecate` until Hecate can run project read/write
 flows against Cairnline without UI-local fallback state. When
 `configured_backend=cairnline` and `cairnline_connector=embedded`, Hecate still

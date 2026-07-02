@@ -189,6 +189,43 @@ func TestApplication_DeleteProjectCleansProjectScopedStores(t *testing.T) {
 	}, 2)
 }
 
+func TestApplication_DeleteProjectScopedRowsDoesNotRequireProjectRow(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	projectStore := projects.NewMemoryStore()
+	workStore := projectwork.NewMemoryStore()
+	memoryStore := memory.NewMemoryStore()
+	projectID := "proj_scoped_only"
+
+	if _, err := workStore.CreateWorkItem(ctx, projectwork.WorkItem{ID: "work_scoped", ProjectID: projectID, Title: "Scoped"}); err != nil {
+		t.Fatalf("CreateWorkItem(project): %v", err)
+	}
+	if _, err := memoryStore.Create(ctx, memory.Entry{ID: "mem_scoped", Scope: memory.ScopeProject, ProjectID: projectID, Title: "Scoped", Body: "Scoped"}); err != nil {
+		t.Fatalf("Create(memory): %v", err)
+	}
+	app := New(Options{
+		Projects:         projectStore,
+		ProjectWork:      workStore,
+		Memory:           memoryStore,
+		MemoryCandidates: memoryStore,
+	})
+	result, err := app.DeleteProjectScopedRows(ctx, projects.Project{ID: projectID, Name: "Scoped only"})
+	if err != nil {
+		t.Fatalf("DeleteProjectScopedRows() error = %v", err)
+	}
+	if result.Project.ID != projectID || result.ProjectWorkRowsDeleted != 1 || result.MemoryEntriesDeleted != 1 {
+		t.Fatalf("DeleteProjectScopedRows() result = %+v, want scoped cleanup counts", result)
+	}
+	if _, ok, err := projectStore.Get(ctx, projectID); err != nil || ok {
+		t.Fatalf("Get(project) ok=%v err=%v, want still missing", ok, err)
+	}
+	assertProjectAppListCount(t, "project work", func() (int, error) {
+		items, err := workStore.ListWorkItems(ctx, projectID)
+		return len(items), err
+	}, 0)
+}
+
 func TestApplication_DeleteProjectStopsBeforeCleanupWhenProjectChatIsStopping(t *testing.T) {
 	t.Parallel()
 

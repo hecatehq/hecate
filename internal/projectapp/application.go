@@ -335,50 +335,8 @@ func (app *Application) DeleteProject(ctx context.Context, id string) (DeletePro
 	}
 
 	result := DeleteProjectResult{Project: project}
-	if err := app.deleteProjectChats(ctx, projectID, &result); err != nil {
+	if err := app.deleteProjectScopedRows(ctx, projectID, &result); err != nil {
 		return result, err
-	}
-	if app.projectWork != nil {
-		deleted, err := app.projectWork.DeleteProject(ctx, projectID)
-		if err != nil {
-			return result, err
-		}
-		result.ProjectWorkRowsDeleted = deleted
-	}
-	if app.projectRuntime != nil {
-		deleted, err := app.projectRuntime.DeleteProject(ctx, projectID)
-		if err != nil {
-			return result, err
-		}
-		result.ProjectRuntimeRowsDeleted = deleted
-	}
-	if app.projectSkills != nil {
-		deleted, err := app.projectSkills.DeleteProject(ctx, projectID)
-		if err != nil {
-			return result, err
-		}
-		result.ProjectSkillsDeleted = deleted
-	}
-	if app.projectAssistantProposals != nil {
-		deleted, err := app.projectAssistantProposals.DeleteProject(ctx, projectID)
-		if err != nil {
-			return result, err
-		}
-		result.ProjectAssistantProposalsDeleted = deleted
-	}
-	if app.memory != nil {
-		deleted, err := app.memory.DeleteByProjectID(ctx, projectID)
-		if err != nil {
-			return result, err
-		}
-		result.MemoryEntriesDeleted = deleted
-	}
-	if app.memoryCandidates != nil {
-		deleted, err := app.memoryCandidates.DeleteCandidatesByProjectID(ctx, projectID)
-		if err != nil {
-			return result, err
-		}
-		result.MemoryCandidatesDeleted = deleted
 	}
 	// Cross-store cleanup is retry-friendly rather than transactional: the
 	// project identity stays durable until every scoped cleanup step succeeds.
@@ -389,6 +347,70 @@ func (app *Application) DeleteProject(ctx context.Context, id string) (DeletePro
 		return result, err
 	}
 	return result, nil
+}
+
+func (app *Application) DeleteProjectScopedRows(ctx context.Context, project projects.Project) (DeleteProjectResult, error) {
+	if app == nil {
+		return DeleteProjectResult{}, ErrProjectStoreNotConfigured
+	}
+	projectID := strings.TrimSpace(project.ID)
+	if projectID == "" {
+		return DeleteProjectResult{}, ErrProjectNotFound
+	}
+	result := DeleteProjectResult{Project: project}
+	if err := app.deleteProjectScopedRows(ctx, projectID, &result); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func (app *Application) deleteProjectScopedRows(ctx context.Context, projectID string, result *DeleteProjectResult) error {
+	if err := app.deleteProjectChats(ctx, projectID, result); err != nil {
+		return err
+	}
+	if app.projectWork != nil {
+		deleted, err := app.projectWork.DeleteProject(ctx, projectID)
+		if err != nil {
+			return err
+		}
+		result.ProjectWorkRowsDeleted = deleted
+	}
+	if app.projectRuntime != nil {
+		deleted, err := app.projectRuntime.DeleteProject(ctx, projectID)
+		if err != nil {
+			return err
+		}
+		result.ProjectRuntimeRowsDeleted = deleted
+	}
+	if app.projectSkills != nil {
+		deleted, err := app.projectSkills.DeleteProject(ctx, projectID)
+		if err != nil {
+			return err
+		}
+		result.ProjectSkillsDeleted = deleted
+	}
+	if app.projectAssistantProposals != nil {
+		deleted, err := app.projectAssistantProposals.DeleteProject(ctx, projectID)
+		if err != nil {
+			return err
+		}
+		result.ProjectAssistantProposalsDeleted = deleted
+	}
+	if app.memory != nil {
+		deleted, err := app.memory.DeleteByProjectID(ctx, projectID)
+		if err != nil {
+			return err
+		}
+		result.MemoryEntriesDeleted = deleted
+	}
+	if app.memoryCandidates != nil {
+		deleted, err := app.memoryCandidates.DeleteCandidatesByProjectID(ctx, projectID)
+		if err != nil {
+			return err
+		}
+		result.MemoryCandidatesDeleted = deleted
+	}
+	return nil
 }
 
 func findProjectRoot(roots []projects.Root, id string) (projects.Root, bool) {
