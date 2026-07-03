@@ -7,6 +7,7 @@ import (
 	"strings"
 )
 
+const projectCoordinationBackendStatusURL = "/hecate/v1/projects/backend-status"
 const projectCoordinationBackendReadinessURL = "/hecate/v1/projects/{id}/cairnline/read-model"
 const projectCoordinationBackendExportURL = "/hecate/v1/projects/{id}/cairnline/export"
 const projectCoordinationBackendSidecarProbeURL = "/hecate/v1/projects/cairnline/sidecar-probe"
@@ -551,8 +552,10 @@ func projectCairnlineNextReplacementAction(status ProjectCoordinationBackendStat
 				projectCairnlineConfigHint("HECATE_PROJECTS_CAIRNLINE_CONNECTOR", "embedded", "Use the embedded connector for the current write-authority dogfood path."),
 			},
 			ProbeURLs: []string{
-				projectCoordinationBackendSidecarProbeURL,
-				projectCoordinationBackendSidecarConnectURL,
+				projectCoordinationBackendStatusURL,
+				projectCoordinationBackendReadinessURL,
+				projectCoordinationBackendEmbeddedReadModelURL,
+				projectCoordinationBackendEmbeddedParityReportURL,
 			},
 		}
 	}
@@ -566,8 +569,10 @@ func projectCairnlineNextReplacementAction(status ProjectCoordinationBackendStat
 				projectCairnlineConfigHint("HECATE_PROJECTS_CAIRNLINE_CONNECTOR", "embedded", "Use the embedded connector before enabling Cairnline write-authority switchpoints."),
 			},
 			ProbeURLs: []string{
-				projectCoordinationBackendSidecarProbeURL,
-				projectCoordinationBackendSidecarConnectURL,
+				projectCoordinationBackendStatusURL,
+				projectCoordinationBackendReadinessURL,
+				projectCoordinationBackendEmbeddedReadModelURL,
+				projectCoordinationBackendEmbeddedParityReportURL,
 			},
 		}
 	}
