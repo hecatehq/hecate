@@ -98,6 +98,33 @@ func TestProjectCoordinationBackendStatus_DefaultHecateAuthoritative(t *testing.
 	}
 }
 
+func TestProjectCoordinationBackendStatus_EnableDogfoodHintsEmbeddedReadSourceFromSidecar(t *testing.T) {
+	handler := &Handler{config: config.Config{
+		Projects: config.ProjectsConfig{
+			Backend:             "sqlite",
+			CairnlineConnector:  "sidecar",
+			CairnlineReadSource: "sidecar",
+		},
+	}}
+
+	status := handler.projectCoordinationBackendStatus()
+	if status.ConfiguredBackend != "hecate" || status.NextReplacementAction == nil || status.NextReplacementAction.ID != "enable-cairnline-dogfood" {
+		t.Fatalf("status = %+v, want Hecate-authoritative enable-dogfood next action", status)
+	}
+	if hint := findConfigHint(status.NextReplacementAction.ConfigHints, "HECATE_PROJECTS_COORDINATION_BACKEND"); hint == nil || hint.Value != "cairnline" {
+		t.Fatalf("next action config hints = %+v, want coordination backend=cairnline", status.NextReplacementAction.ConfigHints)
+	}
+	if hint := findConfigHint(status.NextReplacementAction.ConfigHints, "HECATE_PROJECTS_CAIRNLINE_CONNECTOR"); hint == nil || hint.Value != "embedded" {
+		t.Fatalf("next action config hints = %+v, want embedded connector hint", status.NextReplacementAction.ConfigHints)
+	}
+	if hint := findConfigHint(status.NextReplacementAction.ConfigHints, "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE"); hint == nil || hint.Value != "embedded" {
+		t.Fatalf("next action config hints = %+v, want embedded read-source hint", status.NextReplacementAction.ConfigHints)
+	}
+	if !hasEmbeddedDogfoodProbes(status.NextReplacementAction.Probes) {
+		t.Fatalf("next action probes = %+v, want embedded dogfood status/read-model probes", status.NextReplacementAction.Probes)
+	}
+}
+
 func TestProjectCoordinationBackendStatus_CairnlineConfiguredMissingSources(t *testing.T) {
 	handler := &Handler{config: config.Config{
 		Projects: config.ProjectsConfig{
