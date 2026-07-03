@@ -102,6 +102,30 @@ describe("SettingsView", () => {
         portable_write_gaps: ["agent-profiles", "memory-candidates"],
         orchestrator_capabilities: ["assignment-start"],
         migration_blockers: ["migration-cutover"],
+        write_switchpoints: [
+          {
+            name: "agent-profiles",
+            current_authority: "hecate",
+            cairnline_state: "live_mirror_non_authoritative",
+            live_mirror: true,
+            blocks_authority: true,
+            seams: ["agent-profiles-live-mirror"],
+            gap: "agent-profiles",
+            detail:
+              "Agent profile mutations still commit to Hecate first, then mirror portable profile metadata and execution posture into Cairnline.",
+          },
+          {
+            name: "assignment-start-dispatch",
+            current_authority: "hecate",
+            cairnline_state: "result_mirror_only",
+            live_mirror: true,
+            blocks_authority: false,
+            seams: ["project-assignment-start-result-live-mirror"],
+            gap: "assignment-start",
+            detail:
+              "Assignment start stays Hecate-owned and mirrors committed runtime refs into Cairnline.",
+          },
+        ],
         next_replacement_action: {
           id: "move-portable-write-authority",
           label: "Move the next portable write authority",
@@ -174,6 +198,16 @@ describe("SettingsView", () => {
     expect(screen.getByText("Probe checklist")).toBeTruthy();
     expect(screen.getByText("Inspect read model")).toBeTruthy();
     expect(screen.getByText("Replacement gates")).toBeTruthy();
+    expect(screen.getByText("Write switchpoints")).toBeTruthy();
+    expect(screen.getByText("agent profiles")).toBeTruthy();
+    expect(screen.getByText("live mirror non authoritative")).toHaveClass("badge-amber");
+    expect(screen.getByText("blocks authority")).toBeTruthy();
+    expect(screen.getByText("gap agent-profiles")).toBeTruthy();
+    expect(screen.getByText("agent-profiles-live-mirror")).toBeTruthy();
+    expect(screen.getByText("assignment start dispatch")).toBeTruthy();
+    expect(screen.getByText("result mirror only")).toBeTruthy();
+    expect(screen.getByText("non-blocking")).toBeTruthy();
+    expect(screen.getByText("project-assignment-start-result-live-mirror")).toBeTruthy();
     expect(screen.getByText("read routes")).toBeTruthy();
     expect(screen.getByText("write authority switchpoints")).toBeTruthy();
     expect(screen.getByText("migration and rollback")).toBeTruthy();
