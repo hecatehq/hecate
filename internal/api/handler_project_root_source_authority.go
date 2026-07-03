@@ -590,6 +590,10 @@ func (h *Handler) shadowProjectRootsToHecate(ctx context.Context, operation stri
 		root, _ := findProjectRootByID(project.Roots, rootID)
 		return project, root
 	}
+	if h.projectCairnlineEmbeddedReplacementModeArmed() {
+		root, _ := findProjectRootByID(project.Roots, rootID)
+		return project, root
+	}
 	shadowed, err := h.projects.Update(ctx, project.ID, func(item *projects.Project) {
 		item.Roots = append([]projects.Root(nil), project.Roots...)
 		item.DefaultRootID = project.DefaultRootID
@@ -610,6 +614,10 @@ func (h *Handler) shadowProjectRootsToHecate(ctx context.Context, operation stri
 func (h *Handler) shadowProjectContextSourcesToHecate(ctx context.Context, operation string, project projects.Project, written cairnline.Project, sourceID string) (projects.Project, projects.ContextSource) {
 	project.ContextSources = projectContextSourcesFromCairnline(written.ContextSources)
 	if h == nil || h.projects == nil {
+		source, _ := findProjectContextSourceByID(project.ContextSources, sourceID)
+		return project, source
+	}
+	if h.projectCairnlineEmbeddedReplacementModeArmed() {
 		source, _ := findProjectContextSourceByID(project.ContextSources, sourceID)
 		return project, source
 	}
@@ -644,6 +652,9 @@ func projectFromCairnlineRootSourceListReplace(project projects.Project, written
 func (h *Handler) shadowProjectRootSourceListsToHecate(ctx context.Context, operation string, project projects.Project, written cairnline.Project, replaceRoots, replaceSources bool) (projects.Project, bool) {
 	project = projectFromCairnlineRootSourceListReplace(project, written, replaceRoots, replaceSources)
 	if h == nil || h.projects == nil {
+		return project, false
+	}
+	if h.projectCairnlineEmbeddedReplacementModeArmed() {
 		return project, false
 	}
 	shadowed, err := h.projects.Update(ctx, project.ID, func(item *projects.Project) {

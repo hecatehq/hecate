@@ -587,8 +587,9 @@ sequenceDiagram
   Hecate-owned and writes that runtime overlay before any compatibility shadow
   or replacement-evidence mirror. `project-metadata-defaults` makes project metadata/default-only
   PATCHes Cairnline-first, then shadows Hecate's compatibility project row;
-  project create/delete, roots, context sources, last-opened-only updates, and
-  mixed metadata/root/source replacement PATCHes remain Hecate-owned.
+  armed embedded replacement mode skips that native project-row shadow. Project
+  create/delete, roots, context sources, last-opened-only updates, and mixed
+  metadata/root/source replacement PATCHes remain Hecate-owned.
   `project-assistant-proposals` makes Project Assistant draft/propose/apply-attempt
   ledger records Cairnline-first, then best-effort shadows Hecate's proposal
   store for compatibility; armed embedded replacement mode skips those native
@@ -602,13 +603,15 @@ sequenceDiagram
   `project-roots` makes project root create/update/delete plus root list
   replacement plus discovery-result replacement and worktree-created root
   record mutations Cairnline-first, then shadows Hecate's compatibility project
-  row; Hecate still performs the root discovery scan and Git worktree creation
-  side effect. In root authority mode, discovery and worktree-created root
-  record mutations can resolve project identity and roots from the embedded
-  Cairnline graph without a Hecate-native compatibility project row.
+  row; armed embedded replacement mode skips that native project-row root
+  shadow. Hecate still performs the root discovery scan and Git worktree
+  creation side effect. In root authority mode, discovery and worktree-created
+  root record mutations can resolve project identity and roots from the
+  embedded Cairnline graph without a Hecate-native compatibility project row.
   `project-context-sources` makes context-source create/update/delete plus
   context-source list replacement and discovery-result replacement
-  Cairnline-first, then shadows Hecate's compatibility project row; Hecate
+  Cairnline-first, then shadows Hecate's compatibility project row; armed
+  embedded replacement mode skips that native project-row source shadow. Hecate
   still performs the workspace scan for its operator UI. In source authority
   mode, context-source discovery can use project identity, roots, and existing
   sources from the embedded Cairnline graph without a Hecate-native
@@ -2444,18 +2447,21 @@ compatibility shadow so stale shadows cannot override authoritative project/root
 metadata. Runtime hint ids from that graph remain opaque; Hecate-owned
 provider/model defaults and launch policy still come from Hecate runtime state.
 Adding `project-metadata-defaults` makes project metadata/default-only PATCHes
-Cairnline-first, then shadows Hecate's compatibility project row; project
+Cairnline-first, then shadows Hecate's compatibility project row; armed
+embedded replacement mode skips that native project-row shadow. Project
 create/delete, roots, context sources, last-opened-only updates, and mixed
 root/source replacement PATCHes remain Hecate-owned.
 Adding `project-roots` makes project root create/update/delete plus root list
 replacement, discovery-result replacement, and worktree-created root record
-mutations Cairnline-first, then shadows the compatibility project row. Hecate
-still performs the root discovery scan and Git worktree creation side effect.
-In root authority mode, discovery and worktree-created root record mutations
-can run against a Cairnline-only project graph.
+mutations Cairnline-first, then shadows the compatibility project row; armed
+embedded replacement mode skips that native project-row root shadow. Hecate
+still performs the root discovery scan and Git worktree creation side effect. In
+root authority mode, discovery and worktree-created root record mutations can
+run against a Cairnline-only project graph.
 Adding `project-context-sources` makes context-source create/update/delete plus
 context-source list replacement and discovery-result replacement
-Cairnline-first, then shadows the compatibility project row. Hecate still
+Cairnline-first, then shadows the compatibility project row; armed embedded
+replacement mode skips that native project-row source shadow. Hecate still
 performs the workspace scan for its operator UI. In source authority mode,
 context-source discovery can run against a Cairnline-only project graph.
 Adding `project-identity` makes project create/delete Cairnline-first for

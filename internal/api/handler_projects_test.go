@@ -820,6 +820,109 @@ func TestProjectsAPI_CairnlineReplacementModeRejectsDuplicateNameAndRootPath(t *
 	}
 }
 
+func TestProjectsAPI_CairnlineReplacementModeSkipsNativeProjectRowShadows(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineReplacementIdentityAuthorityTestServer(t)
+	client := newAPITestClient(t, server)
+
+	created := mustRequestJSONStatus[ProjectResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects", `{
+		"name":"Replacement Project Row",
+		"roots":[{"id":"root_main","path":"/workspace/replacement-row","kind":"git","git_branch":"main"}]
+	}`)
+	projectID := created.Data.ID
+	if _, err := handler.projects.Create(t.Context(), projects.Project{
+		ID:          projectID,
+		Name:        "Stale native row",
+		Description: "This compatibility row should not be refreshed.",
+		Roots: []projects.Root{{
+			ID:     "root_native",
+			Path:   "/workspace/native-row",
+			Kind:   "git",
+			Active: true,
+		}},
+		ContextSources: []projects.ContextSource{{
+			ID:      "ctx_native",
+			Path:    "NATIVE.md",
+			Kind:    "doc",
+			Title:   "Native",
+			Enabled: true,
+		}},
+		DefaultRootID:   "root_native",
+		DefaultProvider: "native",
+		DefaultModel:    "native-model",
+	}); err != nil {
+		t.Fatalf("seed native compatibility project row: %v", err)
+	}
+
+	updated := mustRequestJSONStatus[ProjectResponse](client, http.StatusOK, http.MethodPatch, "/hecate/v1/projects/"+projectID, `{
+		"name":"Replacement Project Row Updated",
+		"description":"Cairnline owns the replacement row.",
+		"default_root_id":"root_main",
+		"default_provider":"anthropic",
+		"default_model":"claude-sonnet-4-5"
+	}`)
+	if updated.Data.Name != "Replacement Project Row Updated" || updated.Data.DefaultRootID != "root_main" || updated.Data.DefaultProvider != "anthropic" {
+		t.Fatalf("metadata update response = %+v, want Cairnline-updated metadata/defaults", updated.Data)
+	}
+	mirrored := getMirroredCairnlineProjectForTest(t, handler, projectID)
+	if mirrored.Name != "Replacement Project Row Updated" || mirrored.DefaultRootID != "root_main" {
+		t.Fatalf("Cairnline project after metadata update = %+v, want updated portable row", mirrored)
+	}
+	native, ok, err := handler.projects.Get(t.Context(), projectID)
+	if err != nil || !ok {
+		t.Fatalf("native compatibility row = ok %v err %v, want seeded stale row", ok, err)
+	}
+	if native.Name != "Stale native row" || native.DefaultProvider != "native" || native.DefaultRootID != "root_native" {
+		t.Fatalf("native compatibility row after metadata update = %+v, want stale row unchanged", native)
+	}
+
+	withRoot := mustRequestJSONStatus[ProjectResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/roots", `{
+		"id":"root_feature",
+		"path":"/workspace/replacement-row-feature",
+		"kind":"git_worktree",
+		"git_branch":"feature/replacement-row",
+		"active":false
+	}`)
+	if findProjectResponseRootForTest(withRoot.Data.Roots, "root_feature") == nil {
+		t.Fatalf("root create response roots = %+v, want Cairnline-created root_feature", withRoot.Data.Roots)
+	}
+	mirrored = getMirroredCairnlineProjectForTest(t, handler, projectID)
+	if findMirroredCairnlineRootForTest(mirrored.Roots, "root_feature") == nil {
+		t.Fatalf("Cairnline roots after root create = %+v, want root_feature", mirrored.Roots)
+	}
+	native, ok, err = handler.projects.Get(t.Context(), projectID)
+	if err != nil || !ok {
+		t.Fatalf("native compatibility row after root create = ok %v err %v, want seeded stale row", ok, err)
+	}
+	if findProjectRootByIDForTest(native.Roots, "root_feature") != nil || findProjectRootByIDForTest(native.Roots, "root_native") == nil {
+		t.Fatalf("native roots after root create = %+v, want stale native roots only", native.Roots)
+	}
+
+	withSource := mustRequestJSONStatus[ProjectResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/context-sources", `{
+		"id":"ctx_agents",
+		"path":"AGENTS.md",
+		"kind":"workspace_instruction",
+		"title":"AGENTS.md",
+		"format":"agents_md",
+		"scope":"workspace",
+		"trust_label":"workspace_guidance"
+	}`)
+	if findProjectResponseContextSourceForTest(withSource.Data.ContextSources, "ctx_agents") == nil {
+		t.Fatalf("source create response sources = %+v, want ctx_agents", withSource.Data.ContextSources)
+	}
+	mirrored = getMirroredCairnlineProjectForTest(t, handler, projectID)
+	if findMirroredCairnlineSourceForTest(mirrored.ContextSources, "ctx_agents") == nil {
+		t.Fatalf("Cairnline sources after source create = %+v, want ctx_agents", mirrored.ContextSources)
+	}
+	native, ok, err = handler.projects.Get(t.Context(), projectID)
+	if err != nil || !ok {
+		t.Fatalf("native compatibility row after source create = ok %v err %v, want seeded stale row", ok, err)
+	}
+	if findProjectContextSourceByIDForTest(native.ContextSources, "ctx_agents") != nil || findProjectContextSourceByIDForTest(native.ContextSources, "ctx_native") == nil {
+		t.Fatalf("native sources after source create = %+v, want stale native sources only", native.ContextSources)
+	}
+}
+
 func TestProjectsAPI_CairnlineReplacementModeWithoutPortableAuthorityKeepsNativeIdentityShadow(t *testing.T) {
 	t.Parallel()
 	handler := NewHandler(config.Config{
@@ -2138,7 +2241,25 @@ func findProjectResponseRootForTest(roots []ProjectRootResponseItem, id string) 
 	return nil
 }
 
+func findProjectRootByIDForTest(roots []projects.Root, id string) *projects.Root {
+	for idx := range roots {
+		if roots[idx].ID == id {
+			return &roots[idx]
+		}
+	}
+	return nil
+}
+
 func findProjectResponseContextSourceForTest(sources []ProjectContextSourceResponseItem, id string) *ProjectContextSourceResponseItem {
+	for idx := range sources {
+		if sources[idx].ID == id {
+			return &sources[idx]
+		}
+	}
+	return nil
+}
+
+func findProjectContextSourceByIDForTest(sources []projects.ContextSource, id string) *projects.ContextSource {
 	for idx := range sources {
 		if sources[idx].ID == id {
 			return &sources[idx]
