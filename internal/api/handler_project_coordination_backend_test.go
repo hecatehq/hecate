@@ -223,6 +223,12 @@ func TestProjectCoordinationBackendStatus_CairnlineSidecarConnectorBlocksEmbedde
 	if status.NextReplacementAction == nil || status.NextReplacementAction.ID != "use-embedded-cairnline-connector" || status.NextReplacementAction.Target != "connector" {
 		t.Fatalf("next action = %+v, want embedded connector action for sidecar mode", status.NextReplacementAction)
 	}
+	if hint := findConfigHint(status.NextReplacementAction.ConfigHints, "HECATE_PROJECTS_CAIRNLINE_CONNECTOR"); hint == nil || hint.Value != "embedded" {
+		t.Fatalf("next action config hints = %+v, want embedded connector hint", status.NextReplacementAction.ConfigHints)
+	}
+	if hint := findConfigHint(status.NextReplacementAction.ConfigHints, "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE"); hint != nil {
+		t.Fatalf("next action config hints = %+v, did not expect read-source hint when source is already embedded", status.NextReplacementAction.ConfigHints)
+	}
 	if !hasEmbeddedDogfoodProbes(status.NextReplacementAction.Probes) {
 		t.Fatalf("next action probes = %+v, want embedded connector status/read-model probes", status.NextReplacementAction.Probes)
 	}
@@ -281,6 +287,12 @@ func TestProjectCoordinationBackendStatus_CairnlineSidecarReadRoutesReady(t *tes
 	}
 	if status.NextReplacementAction == nil || status.NextReplacementAction.ID != "use-embedded-cairnline-connector" || status.NextReplacementAction.Target != "connector" {
 		t.Fatalf("next action = %+v, want embedded connector action even when sidecar read routes are active", status.NextReplacementAction)
+	}
+	if hint := findConfigHint(status.NextReplacementAction.ConfigHints, "HECATE_PROJECTS_CAIRNLINE_CONNECTOR"); hint == nil || hint.Value != "embedded" {
+		t.Fatalf("next action config hints = %+v, want embedded connector hint", status.NextReplacementAction.ConfigHints)
+	}
+	if hint := findConfigHint(status.NextReplacementAction.ConfigHints, "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE"); hint == nil || hint.Value != "embedded" {
+		t.Fatalf("next action config hints = %+v, want embedded read-source hint before embedded dogfood probes", status.NextReplacementAction.ConfigHints)
 	}
 	if !hasEmbeddedDogfoodProbes(status.NextReplacementAction.Probes) {
 		t.Fatalf("next action probes = %+v, want embedded connector status/read-model probes", status.NextReplacementAction.Probes)
