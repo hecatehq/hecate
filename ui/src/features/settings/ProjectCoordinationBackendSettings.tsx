@@ -70,6 +70,11 @@ export function ProjectCoordinationBackendSettings({
                     {status.cairnline_connector}
                   </span>
                 )}
+                {status.cairnline_read_source && (
+                  <span className="badge badge-muted" style={{ textTransform: "none" }}>
+                    reads: {projectBackendDisplayLabel(status.cairnline_read_source)}
+                  </span>
+                )}
               </div>
               <div style={{ fontSize: 12, color: "var(--t2)", lineHeight: 1.45, marginTop: 8 }}>
                 {projectBackendSummary(status)}

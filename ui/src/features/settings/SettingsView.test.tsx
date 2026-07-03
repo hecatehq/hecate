@@ -185,6 +185,7 @@ describe("SettingsView", () => {
 
     expect(await screen.findByText("Project coordination")).toBeTruthy();
     expect(screen.getByText("Cairnline dogfood active")).toBeTruthy();
+    expect(screen.getByText("reads: embedded")).toBeTruthy();
     expect(screen.getByText("cairnline configured · hecate authoritative")).toBeTruthy();
     expect(screen.getByText("cairnline read routes ready")).toBeTruthy();
     expect(screen.getByText(/2 read routes use Cairnline/i)).toBeTruthy();
