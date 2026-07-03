@@ -383,9 +383,12 @@ portable work item into Hecate-native project-work stores for compatibility.
 `project-assignments` is a sixth opt-in authority slice: assignment
 create/update/delete record mutations commit to embedded Cairnline first, then
 best-effort shadow portable assignment state into Hecate-native project-work
-stores for compatibility. Assignment start/dispatch remains Hecate-owned; only
-committed start results, pre-dispatch cleanup/conflict states, and linked-chat
-reconciliation updates are mirrored as replacement evidence.
+stores for compatibility. When this authority slice is enabled, assignment
+start first claims the coordination record in embedded Cairnline and releases
+that claim when Hecate-owned launch setup fails before a runtime record is
+committed. Assignment runtime dispatch remains Hecate-owned; committed start
+results, cleanup/conflict states, and linked-chat reconciliation updates are
+mirrored as replacement evidence.
 `project-assistant-proposals` is a seventh opt-in authority slice: Project
 Assistant draft/propose/apply-attempt ledger records commit to embedded
 Cairnline first, then best-effort shadow Hecate's proposal store for
@@ -484,10 +487,13 @@ graph without a Hecate-native compatibility project row.
 Assignment create/update/delete
 routes mirror coordination metadata and lifecycle status after Hecate commits;
 assignment-start remains a Hecate-owned orchestrator capability because dispatch
-still carries runtime coupling. Hecate Task starts require the task runtime,
-while External Agent starts prepare agent-chat adapter sessions and do not
-require the task runtime. Successful start results and start-side
-conflict/cleanup states are best-effort mirrored after Hecate commits them.
+still carries runtime coupling. With `project-assignments` authority enabled,
+Hecate claims the embedded Cairnline assignment before dispatch and releases the
+claim if launch setup fails before a task/run or chat-session reference is
+committed. Hecate Task starts require the task runtime, while External Agent
+starts prepare agent-chat adapter sessions and do not require the task runtime.
+Successful start results and start-side conflict/cleanup states are best-effort
+mirrored after Hecate commits them.
 Linked external-agent chat reconciliation also mirrors the
 committed assignment status/ref when Hecate updates the linked assignment from a
 chat session. In strict embedded mode, that reconciliation can update the

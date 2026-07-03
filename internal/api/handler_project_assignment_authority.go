@@ -144,6 +144,9 @@ func (h *Handler) seedProjectAssignmentDependenciesForCairnlineAuthority(ctx con
 	if err := h.seedProjectWorkItemDependenciesForCairnlineAuthority(ctx, service, project, workItem); err != nil {
 		return projectwork.AgentRoleProfile{}, agentprofiles.Profile{}, err
 	}
+	if _, err := cairnlinebridge.UpsertWorkItem(ctx, service, workItem); err != nil {
+		return projectwork.AgentRoleProfile{}, agentprofiles.Profile{}, err
+	}
 	if err := h.seedProjectAssignmentRootForCairnlineAuthority(ctx, service, project, assignment.RootID); err != nil {
 		return projectwork.AgentRoleProfile{}, agentprofiles.Profile{}, err
 	}

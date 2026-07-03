@@ -899,6 +899,21 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		assignment = shadowedAssignment
 	}
 
+	startClaimedBy := projectAssignmentStartClaimedBy(assignment)
+	claimedAssignment, cairnlineStartClaimed, err := h.claimProjectAssignmentStartInCairnlineAuthority(ctx, project, assignment, startClaimedBy)
+	if err != nil {
+		if errors.Is(err, projectworkapp.ErrAssignmentStartConflict) {
+			projected, projectErr := h.renderProjectedProjectWorkAssignment(ctx, claimedAssignment)
+			if projectErr != nil {
+				WriteError(w, http.StatusInternalServerError, errCodeGatewayError, projectErr.Error())
+				return
+			}
+			WriteJSON(w, http.StatusConflict, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
+			return
+		}
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
 	result, err := h.projectWorkApplication().StartTaskAssignment(ctx, projectworkapp.StartTaskAssignmentCommand{
 		ProjectID:         projectID,
 		WorkItemID:        workItemID,
@@ -918,6 +933,11 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 			)))
 		},
 	})
+	if err != nil && cairnlineStartClaimed {
+		if result == nil || result.Assignment.ID == "" {
+			h.releaseProjectAssignmentStartInCairnlineAuthority(ctx, assignment, startClaimedBy)
+		}
+	}
 	h.writeProjectTaskAssignmentStartResult(w, ctx, assignment, result, err, true)
 }
 
@@ -1263,6 +1283,21 @@ func (h *Handler) startProjectExternalAgentAssignment(w http.ResponseWriter, r *
 		h.writeProjectExternalAgentAssignmentStartResult(w, ctx, assignment, plan.Adapter.Name, result, err, false)
 		return
 	}
+	startClaimedBy := projectAssignmentStartClaimedBy(assignment)
+	claimedAssignment, cairnlineStartClaimed, err := h.claimProjectAssignmentStartInCairnlineAuthority(ctx, project, assignment, startClaimedBy)
+	if err != nil {
+		if errors.Is(err, projectworkapp.ErrAssignmentStartConflict) {
+			projected, projectErr := h.renderProjectedProjectWorkAssignment(ctx, claimedAssignment)
+			if projectErr != nil {
+				WriteError(w, http.StatusInternalServerError, errCodeGatewayError, projectErr.Error())
+				return
+			}
+			WriteJSON(w, http.StatusConflict, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
+			return
+		}
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
 	result, err := h.projectWorkApplication().StartExternalAgentAssignment(ctx, projectworkapp.StartExternalAgentAssignmentCommand{
 		ProjectID:         project.ID,
 		Assignment:        assignment,
@@ -1270,6 +1305,11 @@ func (h *Handler) startProjectExternalAgentAssignment(w http.ResponseWriter, r *
 		ContextSnapshotID: contextPacket.ID,
 		ContextPacket:     packetBytes,
 	})
+	if err != nil && cairnlineStartClaimed {
+		if result == nil || result.Assignment.ID == "" {
+			h.releaseProjectAssignmentStartInCairnlineAuthority(ctx, assignment, startClaimedBy)
+		}
+	}
 	h.writeProjectExternalAgentAssignmentStartResult(w, ctx, assignment, plan.Adapter.Name, result, err, true)
 }
 
