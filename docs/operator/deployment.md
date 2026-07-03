@@ -689,8 +689,9 @@ coordination-state switchpoint work is separated from Hecate-owned
 runtime/workspace capabilities and final cutover work. Settings shows the same
 backend-status summary, shows copyable next-action configuration hints, turns
 the next action's probes into a run-in-order checklist, keeps replacement gates
-as supporting evidence, and lists write-switchpoint authority/state rows under
-Project coordination for local operator inspection. The reported replacement
+and migration rehearsal evidence as supporting proof, and lists
+write-switchpoint authority/state rows under Project coordination for local
+operator inspection. The reported replacement
 target is embedded Cairnline first: Hecate should make the embedded Cairnline
 database the Projects source of truth before treating an external sidecar as the
 standalone/interoperability boundary. `replacement_mode=disabled|embedded`
