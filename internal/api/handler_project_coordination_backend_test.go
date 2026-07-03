@@ -93,6 +93,9 @@ func TestProjectCoordinationBackendStatus_DefaultHecateAuthoritative(t *testing.
 	if hint := findConfigHint(status.NextReplacementAction.ConfigHints, "HECATE_PROJECTS_COORDINATION_BACKEND"); hint == nil || hint.Value != "cairnline" {
 		t.Fatalf("next action config hints = %+v, want coordination backend=cairnline", status.NextReplacementAction.ConfigHints)
 	}
+	if !hasEmbeddedDogfoodProbes(status.NextReplacementAction.Probes) {
+		t.Fatalf("next action probes = %+v, want embedded dogfood status/read-model probes", status.NextReplacementAction.Probes)
+	}
 }
 
 func TestProjectCoordinationBackendStatus_CairnlineConfiguredMissingSources(t *testing.T) {
@@ -220,6 +223,9 @@ func TestProjectCoordinationBackendStatus_CairnlineSidecarConnectorBlocksEmbedde
 	if status.NextReplacementAction == nil || status.NextReplacementAction.ID != "use-embedded-cairnline-connector" || status.NextReplacementAction.Target != "connector" {
 		t.Fatalf("next action = %+v, want embedded connector action for sidecar mode", status.NextReplacementAction)
 	}
+	if !hasEmbeddedDogfoodProbes(status.NextReplacementAction.Probes) {
+		t.Fatalf("next action probes = %+v, want embedded connector status/read-model probes", status.NextReplacementAction.Probes)
+	}
 	warnings := strings.Join(status.Warnings, "\n")
 	if !strings.Contains(warnings, "HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar") || !strings.Contains(warnings, "lifecycle/write/setup/work/collaboration/memory/assistant diagnostics") || strings.Contains(warnings, "read-smoke surfaces only") || !strings.Contains(warnings, "ignored in sidecar connector mode") || !strings.Contains(warnings, projectCairnlineWriteAuthorityProjectAssignments) {
 		t.Fatalf("warnings = %+v, want full sidecar diagnostic warning", status.Warnings)
@@ -275,6 +281,9 @@ func TestProjectCoordinationBackendStatus_CairnlineSidecarReadRoutesReady(t *tes
 	}
 	if status.NextReplacementAction == nil || status.NextReplacementAction.ID != "use-embedded-cairnline-connector" || status.NextReplacementAction.Target != "connector" {
 		t.Fatalf("next action = %+v, want embedded connector action even when sidecar read routes are active", status.NextReplacementAction)
+	}
+	if !hasEmbeddedDogfoodProbes(status.NextReplacementAction.Probes) {
+		t.Fatalf("next action probes = %+v, want embedded connector status/read-model probes", status.NextReplacementAction.Probes)
 	}
 }
 
@@ -1252,4 +1261,13 @@ func hasProbe(items []ProjectCoordinationBackendProbe, method, url string) bool 
 		}
 	}
 	return false
+}
+
+func hasEmbeddedDogfoodProbes(items []ProjectCoordinationBackendProbe) bool {
+	return hasProbe(items, http.MethodGet, projectCoordinationBackendStatusURL) &&
+		hasProbe(items, http.MethodGet, projectCoordinationBackendReadinessURL) &&
+		hasProbe(items, http.MethodGet, projectCoordinationBackendEmbeddedReadModelURL) &&
+		hasProbe(items, http.MethodGet, projectCoordinationBackendEmbeddedParityReportURL) &&
+		!hasProbe(items, http.MethodPost, projectCoordinationBackendSidecarProbeURL) &&
+		!hasProbe(items, http.MethodPost, projectCoordinationBackendSidecarConnectURL)
 }

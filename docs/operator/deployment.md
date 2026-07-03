@@ -688,8 +688,10 @@ standalone/interoperability boundary. `replacement_mode=disabled|embedded`
 reports the explicit operator cutover arm; `embedded` is only valid with the
 embedded connector and strict embedded read source, and it does not bypass the
 read, write-authority, migration, rollback, or Hecate-owned runtime side-effect
-gates. Once portable write gaps are
-closed, the next action becomes `run-strict-embedded-read-smoke` until strict
+gates. The initial embedded dogfood and sidecar-to-embedded connector next
+actions point at backend-status and embedded read-model diagnostics; sidecar
+probe/connect routes remain separate standalone MCP diagnostics. Once portable
+write gaps are closed, the next action becomes `run-strict-embedded-read-smoke` until strict
 embedded mirror parity and route-smoke evidence are verified; that action
 reports strict embedded rehearsal hints for
 `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded`,
