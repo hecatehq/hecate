@@ -48,6 +48,9 @@ test("Projects journey: setup, first work, assignment, evidence, closeout", asyn
   await expect(page.getByText("Applied 3 actions")).toBeVisible();
   await page.getByRole("button", { name: "Dismiss" }).click();
   await expect(page.getByText("Setup ready")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Project onboarding" })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Project Assistant" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Set up project" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Create first work" })).toBeVisible();
   await page.getByRole("button", { name: "Create first work" }).click();
   await page.getByLabel("Title").fill("Verify launch checklist");
@@ -113,7 +116,7 @@ test("Projects rootless journey: plan work without setup or workspace", async ({
     page.getByText("Optional; attach files when this project needs them."),
   ).toBeVisible();
   const onboarding = page.getByRole("region", { name: "Project onboarding" });
-  await onboarding.getByRole("button", { name: "Create work" }).click();
+  await onboarding.getByRole("button", { name: "Create work: First work item" }).click();
 
   await page.getByLabel("Title").fill("Summarize interview themes");
   await page

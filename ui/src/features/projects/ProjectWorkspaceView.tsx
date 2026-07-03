@@ -634,6 +634,7 @@ function ProjectOnboardingPanel({
             </div>
             {check.status !== "ready" && !check.optional && check.action && (
               <button
+                aria-label={`${check.action.label}: ${check.label}`}
                 className="btn btn-ghost btn-sm"
                 disabled={bootstrapPending && check.action.type === "bootstrap_project"}
                 onClick={() => onAction(check.action!)}

@@ -374,13 +374,20 @@ describe("ProjectWorkspaceView", () => {
     expect(screen.getByText("Optional; attach files when this project needs them.")).toBeTruthy();
     expect(screen.getByText("optional")).toBeTruthy();
 
-    await userEvent.click(screen.getByRole("button", { name: "Add purpose" }));
-    await userEvent.click(screen.getByRole("button", { name: "Set defaults" }));
+    const onboarding = screen.getByRole("region", { name: "Project onboarding" });
+    await userEvent.click(
+      within(onboarding).getByRole("button", { name: "Add purpose: Project purpose" }),
+    );
+    await userEvent.click(
+      within(onboarding).getByRole("button", { name: "Set defaults: Provider and model" }),
+    );
     expect(screen.queryByRole("button", { name: "Review setup" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Set up" })).toBeNull();
     const firstWorkCheck = screen.getByRole("group", { name: "First work item" });
-    await userEvent.click(within(firstWorkCheck).getByRole("button", { name: "Create work" }));
-    await userEvent.click(screen.getAllByRole("button", { name: "Set up project" })[0]);
+    await userEvent.click(
+      within(firstWorkCheck).getByRole("button", { name: "Create work: First work item" }),
+    );
+    await userEvent.click(within(onboarding).getByRole("button", { name: "Set up project" }));
     await userEvent.click(screen.getByRole("button", { name: "Project settings" }));
 
     expect(handlers.onSetupReadinessAction).toHaveBeenCalledTimes(4);
