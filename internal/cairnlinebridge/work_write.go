@@ -75,6 +75,9 @@ func UpsertWorkItem(ctx context.Context, service *cairnline.Service, item projec
 	if strings.TrimSpace(mapped.ID) == "" {
 		return cairnline.WorkItem{}, errors.Join(cairnline.ErrInvalid, errors.New("work item id is required"))
 	}
+	if err := ensureWorkItemRoles(ctx, service, mapped); err != nil {
+		return cairnline.WorkItem{}, err
+	}
 	if _, err := service.GetWorkItem(ctx, mapped.ProjectID, mapped.ID); err != nil {
 		if !errors.Is(err, cairnline.ErrNotFound) {
 			return cairnline.WorkItem{}, err
@@ -82,6 +85,33 @@ func UpsertWorkItem(ctx context.Context, service *cairnline.Service, item projec
 		return service.CreateWorkItem(ctx, mapped)
 	}
 	return service.UpdateWorkItem(ctx, mapped)
+}
+
+func ensureWorkItemRoles(ctx context.Context, service *cairnline.Service, item cairnline.WorkItem) error {
+	existing, err := service.ListRoles(ctx, item.ProjectID)
+	if err != nil {
+		return err
+	}
+	rolesByID := make(map[string]struct{}, len(existing))
+	for _, role := range existing {
+		rolesByID[strings.TrimSpace(role.ID)] = struct{}{}
+	}
+	for _, roleID := range compactStrings(append([]string{item.OwnerRoleID}, item.ReviewerRoleIDs...)) {
+		if _, ok := rolesByID[roleID]; ok {
+			continue
+		}
+		// Work-item mirrors can arrive before the corresponding role mirror;
+		// seed a minimal record so Cairnline can preserve the role reference.
+		if _, err := service.CreateRole(ctx, cairnline.Role{
+			ID:        roleID,
+			ProjectID: item.ProjectID,
+			Name:      roleID,
+		}); err != nil && !errors.Is(err, cairnline.ErrDuplicate) {
+			return err
+		}
+		rolesByID[roleID] = struct{}{}
+	}
+	return nil
 }
 
 func DeleteWorkItem(ctx context.Context, service *cairnline.Service, projectID, id string) error {
