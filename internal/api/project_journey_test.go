@@ -302,6 +302,7 @@ func TestProjectJourneyAPI_CairnlineReplacementModeCreatesWorkAndStartsWithoutNa
 	if evidence.Data.Kind != projectwork.ArtifactKindEvidenceLink || evidence.Data.AssignmentID != "asgn_replacement" || evidence.Data.EvidenceURL != "https://example.invalid/hecate/cairnline-replacement" {
 		t.Fatalf("evidence = %+v, want assignment evidence response", evidence.Data)
 	}
+	assertNoNativeProjectWorkArtifactForJourney(t, handler, projectID, "work_replacement", "artifact_replacement_evidence")
 	mirroredEvidence := getMirroredCairnlineEvidenceForTest(t, handler, projectID, "work_replacement", "artifact_replacement_evidence")
 	if mirroredEvidence.Locator != "https://example.invalid/hecate/cairnline-replacement" || mirroredEvidence.Provider != "operator" {
 		t.Fatalf("mirrored evidence = %+v, want Cairnline-backed assignment evidence", mirroredEvidence)
@@ -322,6 +323,7 @@ func TestProjectJourneyAPI_CairnlineReplacementModeCreatesWorkAndStartsWithoutNa
 	if review.Data.ReviewVerdict != projectwork.ReviewVerdictApproved || review.Data.ReviewFollowUpRequired {
 		t.Fatalf("review = %+v, want approved review response without follow-up", review.Data)
 	}
+	assertNoNativeProjectWorkArtifactForJourney(t, handler, projectID, "work_replacement", "artifact_replacement_review")
 	mirroredReview := getMirroredCairnlineReviewForTest(t, handler, projectID, "work_replacement", "artifact_replacement_review")
 	if mirroredReview.Verdict != projectwork.ReviewVerdictApproved || mirroredReview.Risk != projectwork.ReviewRiskLow {
 		t.Fatalf("mirrored review = %+v, want approved Cairnline-backed review without follow-up", mirroredReview)
@@ -344,6 +346,7 @@ func TestProjectJourneyAPI_CairnlineReplacementModeCreatesWorkAndStartsWithoutNa
 	if handoff.Data.Status != projectwork.HandoffStatusPending || handoff.Data.TargetRoleID != "role_reviewer" {
 		t.Fatalf("handoff = %+v, want pending review handoff response", handoff.Data)
 	}
+	assertNoNativeProjectHandoffForJourney(t, handler, projectID, "work_replacement", "handoff_replacement_review")
 	mirroredHandoff := getMirroredCairnlineHandoffForTest(t, handler, projectID, "work_replacement", "handoff_replacement_review")
 	if mirroredHandoff.ToRoleID != "role_reviewer" || mirroredHandoff.Status != "open" {
 		t.Fatalf("mirrored handoff = %+v, want pending Cairnline-backed review handoff", mirroredHandoff)
@@ -352,6 +355,7 @@ func TestProjectJourneyAPI_CairnlineReplacementModeCreatesWorkAndStartsWithoutNa
 	if accepted.Data.Status != projectwork.HandoffStatusAccepted {
 		t.Fatalf("accepted handoff = %+v, want accepted handoff response", accepted.Data)
 	}
+	assertNoNativeProjectHandoffForJourney(t, handler, projectID, "work_replacement", "handoff_replacement_review")
 	mirroredHandoff = getMirroredCairnlineHandoffForTest(t, handler, projectID, "work_replacement", "handoff_replacement_review")
 	if mirroredHandoff.Status != projectwork.HandoffStatusAccepted {
 		t.Fatalf("mirrored accepted handoff = %+v, want accepted Cairnline-backed handoff", mirroredHandoff)
@@ -612,6 +616,38 @@ func assertNoNativeProjectWorkAssignmentForJourney(t *testing.T, handler *Handle
 	for _, assignment := range assignments {
 		if assignment.ID == assignmentID {
 			t.Fatalf("native project-work assignment %q exists in replacement mode: %+v", assignmentID, assignment)
+		}
+	}
+}
+
+func assertNoNativeProjectWorkArtifactForJourney(t *testing.T, handler *Handler, projectID, workItemID, artifactID string) {
+	t.Helper()
+	artifacts, err := handler.projectWork.ListArtifacts(t.Context(), projectwork.ArtifactFilter{
+		ProjectID:  projectID,
+		WorkItemID: workItemID,
+	})
+	if err != nil {
+		t.Fatalf("ListArtifacts(%q, %q): %v", projectID, workItemID, err)
+	}
+	for _, artifact := range artifacts {
+		if artifact.ID == artifactID {
+			t.Fatalf("native project-work artifact %q exists in replacement mode: %+v", artifactID, artifact)
+		}
+	}
+}
+
+func assertNoNativeProjectHandoffForJourney(t *testing.T, handler *Handler, projectID, workItemID, handoffID string) {
+	t.Helper()
+	handoffs, err := handler.projectWork.ListHandoffs(t.Context(), projectwork.HandoffFilter{
+		ProjectID:  projectID,
+		WorkItemID: workItemID,
+	})
+	if err != nil {
+		t.Fatalf("ListHandoffs(%q, %q): %v", projectID, workItemID, err)
+	}
+	for _, handoff := range handoffs {
+		if handoff.ID == handoffID {
+			t.Fatalf("native project handoff %q exists in replacement mode: %+v", handoffID, handoff)
 		}
 	}
 }

@@ -408,6 +408,9 @@ func (h *Handler) shadowProjectWorkArtifactToHecate(ctx context.Context, operati
 	if h == nil || h.projectWork == nil {
 		return
 	}
+	if h.projectCairnlineEmbeddedReplacementModeArmed() {
+		return
+	}
 	if _, err := h.projectWork.CreateArtifact(ctx, artifact); err != nil && !errors.Is(err, projectwork.ErrDuplicate) {
 		h.logProjectCollaborationShadowError(ctx, operation, artifact.ProjectID, artifact.ID, err)
 	}
@@ -415,6 +418,9 @@ func (h *Handler) shadowProjectWorkArtifactToHecate(ctx context.Context, operati
 
 func (h *Handler) shadowProjectHandoffToHecate(ctx context.Context, operation string, handoff projectwork.Handoff) {
 	if h == nil || h.projectWork == nil {
+		return
+	}
+	if h.projectCairnlineEmbeddedReplacementModeArmed() {
 		return
 	}
 	if existing, err := h.projectWork.UpdateHandoff(ctx, handoff.ProjectID, handoff.WorkItemID, handoff.ID, func(item *projectwork.Handoff) {
