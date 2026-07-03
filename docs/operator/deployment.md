@@ -648,10 +648,11 @@ also reports `replacement_ready`, `next_replacement_action`,
 suggested next step, relevant env-var hints, and the exact read-route,
 strict-embedded-read-smoke, write-authority, and migration blockers without
 parsing warning prose. Gates and next actions include method-aware `probes`
-alongside compatibility `probe_urls`, so Settings can distinguish POST smoke
-probes from GET read checks. When the embedded connector, strict embedded read
-source, and a configured data directory are active, the strict read-smoke gate
-is driven by the same read-only mirror-parity evidence returned by
+alongside compatibility `probe_urls`, so Settings can turn the next action into
+an ordered, copyable probe checklist and distinguish POST smoke/rehearsal routes
+from GET read checks. When the embedded connector, strict embedded read source,
+and a configured data directory are active, the strict read-smoke gate is driven
+by the same read-only mirror-parity evidence returned by
 `GET /hecate/v1/projects/cairnline/mirror-parity`: a missing mirror reports
 `not_run`, mirror drift reports `drift_detected`, and an exact mirror with passing
 strict embedded route smoke reports `verified`. The migration/rollback gate then
@@ -677,10 +678,11 @@ diagnostic list into
 `orchestrator_capabilities`, and `migration_blockers`, so durable
 coordination-state switchpoint work is separated from Hecate-owned
 runtime/workspace capabilities and final cutover work. Settings shows the same
-backend-status summary, next action, and replacement-gate checklist under
-Project coordination for local operator inspection. The reported replacement
-target is embedded Cairnline first: Hecate should make the embedded Cairnline
-database the Projects source of truth before treating an external sidecar as the
+backend-status summary, turns the next action's probes into a run-in-order
+checklist, and keeps replacement gates as supporting evidence under Project
+coordination for local operator inspection. The reported replacement target is
+embedded Cairnline first: Hecate should make the embedded Cairnline database the
+Projects source of truth before treating an external sidecar as the
 standalone/interoperability boundary. `replacement_mode=disabled|embedded`
 reports the explicit operator cutover arm; `embedded` is only valid with the
 embedded connector and strict embedded read source, and it does not bypass the

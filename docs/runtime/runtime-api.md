@@ -2550,7 +2550,10 @@ need to parse warning prose. Each gate and next action may include `probes`, a
 method-aware list of route templates that produce supporting evidence, plus the
 legacy `probe_urls` string list for compatibility. These probes identify checks
 to run and are not proof that the gate has already passed unless the gate
-status itself is ready/verified. The `strict-embedded-read-smoke` gate is
+status itself is ready/verified. Clients can use the method-aware list to render
+operator-safe probe checklists, with POST routes presented as smoke/rehearsal
+actions and GET routes presented as read checks. The
+`strict-embedded-read-smoke` gate is
 evidence-backed when Hecate is configured with the embedded connector,
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded`, and a data directory: backend
 status runs the read-only mirror-parity check and reports `not_run` for a

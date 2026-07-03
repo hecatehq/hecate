@@ -171,6 +171,8 @@ describe("SettingsView", () => {
     expect(screen.getByText("Hecate orchestrator capabilities")).toBeTruthy();
     expect(screen.getByText("Next action")).toBeTruthy();
     expect(screen.getByText("Move the next portable write authority")).toBeTruthy();
+    expect(screen.getByText("Probe checklist")).toBeTruthy();
+    expect(screen.getByText("Inspect read model")).toBeTruthy();
     expect(screen.getByText("Replacement gates")).toBeTruthy();
     expect(screen.getByText("read routes")).toBeTruthy();
     expect(screen.getByText("write authority switchpoints")).toBeTruthy();
@@ -270,11 +272,20 @@ describe("SettingsView", () => {
 
     expect(await screen.findByText("Run strict embedded read smoke")).toBeTruthy();
     expect(screen.getByText("strict-embedded-read-smoke")).toBeTruthy();
+    expect(screen.getByText("Probe checklist")).toBeTruthy();
+    expect(screen.getByText(/Run these routes in order/i)).toBeTruthy();
+    expect(screen.getByText("Step 1")).toBeTruthy();
+    expect(screen.getByText("Rebuild embedded mirror")).toBeTruthy();
+    expect(screen.getByText(/Refresh the Cairnline mirror/i)).toBeTruthy();
+    expect(screen.getByText("Step 2")).toBeTruthy();
+    expect(screen.getByText("Verify mirror parity")).toBeTruthy();
+    expect(screen.getByText(/Compare the existing embedded mirror/i)).toBeTruthy();
     expect(screen.getAllByText("Probe routes").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("POST").length).toBe(2);
     expect(screen.getAllByText("GET").length).toBe(2);
     expect(screen.getAllByText("/hecate/v1/projects/cairnline/sync").length).toBe(2);
     expect(screen.getAllByText("/hecate/v1/projects/cairnline/mirror-parity").length).toBe(2);
+    expect(screen.getAllByRole("button", { name: "copy" }).length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded")).toBeTruthy();
   });
 
