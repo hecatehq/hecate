@@ -9,7 +9,7 @@ import type {
   ProjectCoordinationBackendProbeRecord,
   ProjectCoordinationBackendStatusRecord,
 } from "../../types/project";
-import { Badge, ConfirmModal, Icon, Icons, InlineError } from "../shared/ui";
+import { Badge, ConfirmModal, CopyBtn, Icon, Icons, InlineError } from "../shared/ui";
 
 export function SettingsView() {
   const retention = useRetention();
@@ -527,7 +527,7 @@ function ProjectBackendNextAction({
       </div>
       <div style={{ color: "var(--t0)", fontSize: 13, fontWeight: 650 }}>{action.label}</div>
       <div style={{ color: "var(--t2)", fontSize: 12, lineHeight: 1.45 }}>{action.detail}</div>
-      {probes.length > 0 && <ProjectBackendProbeList probes={probes} />}
+      {probes.length > 0 && <ProjectBackendProbeList probes={probes} checklist />}
       {configHints.length > 0 && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
           {configHints.map((hint) => (
@@ -552,7 +552,13 @@ function ProjectBackendNextAction({
   );
 }
 
-function ProjectBackendProbeList({ probes }: { probes: ProjectCoordinationBackendProbeRecord[] }) {
+function ProjectBackendProbeList({
+  checklist = false,
+  probes,
+}: {
+  checklist?: boolean;
+  probes: ProjectCoordinationBackendProbeRecord[];
+}) {
   return (
     <div style={{ display: "grid", gap: 4 }}>
       <div
@@ -563,34 +569,89 @@ function ProjectBackendProbeList({ probes }: { probes: ProjectCoordinationBacken
           textTransform: "uppercase",
         }}
       >
-        Probe routes
+        {checklist ? "Probe checklist" : "Probe routes"}
       </div>
+      {checklist && (
+        <div style={{ color: "var(--t3)", fontSize: 11, lineHeight: 1.45 }}>
+          Run these routes in order from a local operator session. POST rows perform smoke or
+          rehearsal actions; GET rows inspect the resulting read model.
+        </div>
+      )}
       <div style={{ display: "grid", gap: 4 }}>
         {probes.map((probe, index) => (
-          <div
+          <ProjectBackendProbeRow
             key={`${probe.method}:${probe.url}:${index}`}
-            style={{
-              alignItems: "center",
-              background: "var(--bg3)",
-              border: "1px solid var(--border)",
-              borderRadius: "var(--radius-sm)",
-              color: "var(--t1)",
-              display: "flex",
-              gap: 7,
-              fontFamily: "var(--font-mono)",
-              fontSize: 11,
-              overflowWrap: "anywhere",
-              padding: "5px 7px",
-              whiteSpace: "normal",
-            }}
-          >
-            <span className="badge badge-muted" style={{ flexShrink: 0, textTransform: "none" }}>
-              {probe.method || "GET"}
-            </span>
-            <code style={{ overflowWrap: "anywhere", whiteSpace: "normal" }}>{probe.url}</code>
-          </div>
+            checklist={checklist}
+            index={index}
+            probe={probe}
+          />
         ))}
       </div>
+    </div>
+  );
+}
+
+function ProjectBackendProbeRow({
+  checklist,
+  index,
+  probe,
+}: {
+  checklist: boolean;
+  index: number;
+  probe: ProjectCoordinationBackendProbeRecord;
+}) {
+  const method = normalizedProjectBackendProbeMethod(probe.method);
+  const plan = projectBackendProbePlan(probe.url, method);
+  const copyText = `${method} ${probe.url}`;
+  return (
+    <div
+      style={{
+        alignItems: checklist ? "flex-start" : "center",
+        background: "var(--bg3)",
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius-sm)",
+        color: "var(--t1)",
+        display: "grid",
+        gap: 7,
+        gridTemplateColumns: checklist ? "auto minmax(0, 1fr) auto" : "auto minmax(0, 1fr) auto",
+        overflowWrap: "anywhere",
+        padding: checklist ? "8px 9px" : "5px 7px",
+        whiteSpace: "normal",
+      }}
+    >
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {checklist && (
+          <span className="badge badge-muted" style={{ textTransform: "none" }}>
+            Step {index + 1}
+          </span>
+        )}
+        <span
+          className={method === "POST" ? "badge badge-amber" : "badge badge-muted"}
+          style={{ flexShrink: 0, textTransform: "none" }}
+        >
+          {method}
+        </span>
+      </div>
+      <div style={{ display: "grid", gap: checklist ? 3 : 0, minWidth: 0 }}>
+        {checklist && (
+          <div style={{ color: "var(--t0)", fontSize: 12, fontWeight: 650 }}>{plan.label}</div>
+        )}
+        {checklist && (
+          <div style={{ color: "var(--t3)", fontSize: 11, lineHeight: 1.4 }}>{plan.detail}</div>
+        )}
+        <code
+          style={{
+            color: "var(--t1)",
+            fontFamily: "var(--font-mono)",
+            fontSize: 11,
+            overflowWrap: "anywhere",
+            whiteSpace: "normal",
+          }}
+        >
+          {probe.url}
+        </code>
+      </div>
+      <CopyBtn text={copyText} />
     </div>
   );
 }
@@ -605,6 +666,11 @@ function projectBackendProbes(
   return (probeURLs ?? []).map((url) => ({ method: projectBackendProbeMethod(url), url }));
 }
 
+function normalizedProjectBackendProbeMethod(method: string | undefined): string {
+  const normalized = (method || "GET").trim().toUpperCase();
+  return normalized || "GET";
+}
+
 function projectBackendProbeMethod(url: string): string {
   if (
     url === "/hecate/v1/projects/cairnline/sync" ||
@@ -614,6 +680,80 @@ function projectBackendProbeMethod(url: string): string {
     return "POST";
   }
   return "GET";
+}
+
+function projectBackendProbePlan(url: string, method: string): { label: string; detail: string } {
+  if (url === "/hecate/v1/projects/cairnline/sync") {
+    return {
+      label: "Rebuild embedded mirror",
+      detail:
+        "Refresh the Cairnline mirror from current Hecate project stores before checking reads.",
+    };
+  }
+  if (url === "/hecate/v1/projects/cairnline/mirror-parity") {
+    return {
+      label: "Verify mirror parity",
+      detail: "Compare the existing embedded mirror with Hecate's current project stores.",
+    };
+  }
+  if (url.includes("/embedded-read-model")) {
+    return {
+      label: "Inspect embedded read model",
+      detail: "Read the project projection directly from the embedded Cairnline graph.",
+    };
+  }
+  if (url.includes("/embedded-parity-report")) {
+    return {
+      label: "Compare embedded route shape",
+      detail: "Check that Cairnline-backed cockpit projections still match Hecate route shape.",
+    };
+  }
+  if (url.includes("/read-model")) {
+    return {
+      label: "Inspect read model",
+      detail: "Check the active Cairnline-backed read model for the selected project route.",
+    };
+  }
+  if (url.includes("/parity-report")) {
+    return {
+      label: "Compare project parity",
+      detail: "Compare Cairnline projection output with Hecate's native project view.",
+    };
+  }
+  if (url.includes("/sidecar-connect")) {
+    return {
+      label: "Connect sidecar client",
+      detail: "Start or reuse the local Cairnline MCP sidecar client before sidecar read checks.",
+    };
+  }
+  if (url.includes("/sidecar-probe")) {
+    return {
+      label: "Probe sidecar tools",
+      detail: "Confirm the standalone Cairnline MCP server exposes the expected tools.",
+    };
+  }
+  if (url.includes("/sidecar-")) {
+    return {
+      label: "Run sidecar smoke",
+      detail: "Exercise the named standalone Cairnline MCP smoke route and inspect its evidence.",
+    };
+  }
+  if (url.endsWith("/cairnline/export")) {
+    return {
+      label: "Export project",
+      detail: "Generate a project-level Cairnline export rehearsal for migration review.",
+    };
+  }
+  if (method === "POST") {
+    return {
+      label: "Run smoke route",
+      detail: "Execute the operator probe route and review the returned evidence.",
+    };
+  }
+  return {
+    label: "Inspect read route",
+    detail: "Read the diagnostic route and confirm the returned state matches the gate detail.",
+  };
 }
 
 function projectBackendTitle(status: ProjectCoordinationBackendStatusRecord): string {
