@@ -2546,10 +2546,11 @@ include `config_hints`, which are environment setting suggestions such as a spec
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY` value; clients must treat them as
 operator guidance, not as mutations to apply automatically. `replacement_gates`
 reports those high-level gates as structured checklist items so clients do not
-need to parse warning prose. Each gate may include `probe_urls`, a list of route
-templates that produce supporting evidence for that gate; these URLs identify
-checks to run and are not proof that the gate has already passed unless the
-gate status itself is ready/verified. The `strict-embedded-read-smoke` gate is
+need to parse warning prose. Each gate and next action may include `probes`, a
+method-aware list of route templates that produce supporting evidence, plus the
+legacy `probe_urls` string list for compatibility. These probes identify checks
+to run and are not proof that the gate has already passed unless the gate
+status itself is ready/verified. The `strict-embedded-read-smoke` gate is
 evidence-backed when Hecate is configured with the embedded connector,
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded`, and a data directory: backend
 status runs the read-only mirror-parity check and reports `not_run` for a
@@ -2893,6 +2894,20 @@ Example response, with `write_switchpoints` shortened for readability:
         "ready": true,
         "status": "ready",
         "detail": "Configured live project read families can be served from Cairnline's projected read model.",
+        "probes": [
+          {
+            "method": "GET",
+            "url": "/hecate/v1/projects/{id}/cairnline/read-model"
+          },
+          {
+            "method": "GET",
+            "url": "/hecate/v1/projects/{id}/cairnline/embedded-read-model"
+          },
+          {
+            "method": "GET",
+            "url": "/hecate/v1/projects/{id}/cairnline/embedded-parity-report"
+          }
+        ],
         "probe_urls": [
           "/hecate/v1/projects/{id}/cairnline/read-model",
           "/hecate/v1/projects/{id}/cairnline/embedded-read-model",
@@ -2904,6 +2919,16 @@ Example response, with `write_switchpoints` shortened for readability:
         "ready": false,
         "status": "not_run",
         "detail": "No embedded Cairnline mirror database exists yet; run /hecate/v1/projects/cairnline/sync and then /hecate/v1/projects/cairnline/mirror-parity.",
+        "probes": [
+          {
+            "method": "POST",
+            "url": "/hecate/v1/projects/cairnline/sync"
+          },
+          {
+            "method": "GET",
+            "url": "/hecate/v1/projects/cairnline/mirror-parity"
+          }
+        ],
         "probe_urls": [
           "/hecate/v1/projects/cairnline/sync",
           "/hecate/v1/projects/cairnline/mirror-parity"
@@ -2920,6 +2945,20 @@ Example response, with `write_switchpoints` shortened for readability:
         "ready": false,
         "status": "waiting_for_read_smoke",
         "detail": "Strict embedded mirror parity and read smoke must be verified before migration and rollback can be treated as rehearsed.",
+        "probes": [
+          {
+            "method": "POST",
+            "url": "/hecate/v1/projects/cairnline/sync"
+          },
+          {
+            "method": "GET",
+            "url": "/hecate/v1/projects/cairnline/mirror-parity"
+          },
+          {
+            "method": "POST",
+            "url": "/hecate/v1/projects/{id}/cairnline/export"
+          }
+        ],
         "probe_urls": [
           "/hecate/v1/projects/cairnline/sync",
           "/hecate/v1/projects/cairnline/mirror-parity",

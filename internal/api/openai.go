@@ -613,7 +613,13 @@ type ProjectCoordinationBackendNextAction struct {
 	Detail      string                                       `json:"detail"`
 	Target      string                                       `json:"target,omitempty"`
 	ConfigHints []ProjectCoordinationBackendActionConfigHint `json:"config_hints,omitempty"`
+	Probes      []ProjectCoordinationBackendProbe            `json:"probes,omitempty"`
 	ProbeURLs   []string                                     `json:"probe_urls,omitempty"`
+}
+
+type ProjectCoordinationBackendProbe struct {
+	Method string `json:"method"`
+	URL    string `json:"url"`
 }
 
 type ProjectCoordinationBackendActionConfigHint struct {
@@ -623,11 +629,12 @@ type ProjectCoordinationBackendActionConfigHint struct {
 }
 
 type ProjectCoordinationBackendReplacementGate struct {
-	ID        string   `json:"id"`
-	Ready     bool     `json:"ready"`
-	Status    string   `json:"status"`
-	Detail    string   `json:"detail"`
-	ProbeURLs []string `json:"probe_urls,omitempty"`
+	ID        string                            `json:"id"`
+	Ready     bool                              `json:"ready"`
+	Status    string                            `json:"status"`
+	Detail    string                            `json:"detail"`
+	Probes    []ProjectCoordinationBackendProbe `json:"probes,omitempty"`
+	ProbeURLs []string                          `json:"probe_urls,omitempty"`
 }
 
 type ProjectCoordinationBackendWriteSwitchpoint struct {

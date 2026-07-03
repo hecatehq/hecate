@@ -185,6 +185,7 @@ describe("SettingsView", () => {
     expect(screen.getAllByText("/hecate/v1/projects/{id}/cairnline/read-model").length).toBe(2);
     expect(screen.getByText("/hecate/v1/projects/cairnline/sync")).toBeTruthy();
     expect(screen.getByText("/hecate/v1/projects/cairnline/mirror-parity")).toBeTruthy();
+    expect(screen.getByText("POST")).toBeTruthy();
     expect(screen.getByText("memory-candidates")).toBeTruthy();
     expect(screen.getByText("assignment-start")).toBeTruthy();
     expect(screen.getByText("migration-cutover")).toBeTruthy();
@@ -222,6 +223,16 @@ describe("SettingsView", () => {
               value: "embedded",
             },
           ],
+          probes: [
+            {
+              method: "POST",
+              url: "/hecate/v1/projects/cairnline/sync",
+            },
+            {
+              method: "GET",
+              url: "/hecate/v1/projects/cairnline/mirror-parity",
+            },
+          ],
           probe_urls: [
             "/hecate/v1/projects/cairnline/sync",
             "/hecate/v1/projects/cairnline/mirror-parity",
@@ -234,6 +245,16 @@ describe("SettingsView", () => {
             status: "operator_probe_required",
             detail:
               "Run the embedded sync/parity/smoke probes with HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded before treating the mirror database as a cutover candidate.",
+            probes: [
+              {
+                method: "POST",
+                url: "/hecate/v1/projects/cairnline/sync",
+              },
+              {
+                method: "GET",
+                url: "/hecate/v1/projects/cairnline/mirror-parity",
+              },
+            ],
             probe_urls: [
               "/hecate/v1/projects/cairnline/sync",
               "/hecate/v1/projects/cairnline/mirror-parity",
@@ -250,6 +271,8 @@ describe("SettingsView", () => {
     expect(await screen.findByText("Run strict embedded read smoke")).toBeTruthy();
     expect(screen.getByText("strict-embedded-read-smoke")).toBeTruthy();
     expect(screen.getAllByText("Probe routes").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("POST").length).toBe(2);
+    expect(screen.getAllByText("GET").length).toBe(2);
     expect(screen.getAllByText("/hecate/v1/projects/cairnline/sync").length).toBe(2);
     expect(screen.getAllByText("/hecate/v1/projects/cairnline/mirror-parity").length).toBe(2);
     expect(screen.getByText("HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded")).toBeTruthy();
