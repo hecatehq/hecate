@@ -402,10 +402,11 @@ mirrored as replacement evidence.
 `project-assistant-proposals` is a seventh opt-in authority slice: Project
 Assistant draft/propose/apply-attempt ledger records commit to embedded
 Cairnline first, then best-effort shadow Hecate's proposal store for
-compatibility. Confirmed apply uses the enabled Cairnline authority seams for
-project create, project metadata/default, root, role, work-item, assignment,
-handoff, and memory-candidate actions, but chat/runtime effects remain
-Hecate-owned orchestrator capabilities outside Cairnline core. In strict
+compatibility; armed embedded replacement mode skips those native proposal
+compatibility shadows. Confirmed apply uses the enabled Cairnline authority
+seams for project create, project metadata/default, root, role, work-item,
+assignment, handoff, and memory-candidate actions, but chat/runtime effects
+remain Hecate-owned orchestrator capabilities outside Cairnline core. In strict
 embedded mode, the Project Assistant project authority can create project
 identity and mutate portable project metadata, defaults, and roots from the
 embedded Cairnline graph without requiring a Hecate-native compatibility
@@ -533,7 +534,8 @@ for compatibility. The delete mirror removes only the profile record because
 execution-profile posture can be shared. Project Assistant draft/propose/apply
 routes mirror the proposal ledger and committed apply side effects after Hecate
 commits proposal records and apply attempts unless `project-assistant-proposals`
-is enabled, in which case the proposal ledger commits to Cairnline first while
+is enabled, in which case the proposal ledger commits to Cairnline first,
+skips native proposal shadows in armed embedded replacement mode, and
 confirmed apply uses enabled project create, project metadata/default, root,
 role/work-item/assignment/handoff, and memory-candidate authority seams and
 leaves remaining chat/runtime effects as Hecate-owned orchestrator capabilities

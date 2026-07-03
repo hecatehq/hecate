@@ -543,6 +543,7 @@ func TestProjectCoordinationBackendStatus_EmbeddedReplacementModeReportsCairnlin
 		{name: "assignments", want: "skip native project-work assignment compatibility rows"},
 		{name: "collaboration-artifacts", want: "skips native project-work artifact compatibility rows"},
 		{name: "handoffs", want: "skip native project-work handoff compatibility rows"},
+		{name: "project-assistant-proposal-ledger", want: "skip native proposal ledger compatibility rows"},
 	} {
 		point := findWriteSwitchpoint(status.WriteSwitchpoints, tc.name)
 		if point == nil || !strings.Contains(point.Detail, tc.want) {
@@ -1133,6 +1134,13 @@ func TestProjectCoordinationBackendStatus_CairnlineEmbeddedReplacementModeArmed(
 		if point == nil || !strings.Contains(point.Detail, tc.want) {
 			t.Fatalf("%s switchpoint = %+v, want armed replacement-mode detail containing %q", tc.name, point, tc.want)
 		}
+	}
+	warnings := strings.Join(status.Warnings, "\n")
+	if !strings.Contains(warnings, "skip native proposal ledger compatibility rows in armed embedded replacement mode") {
+		t.Fatalf("warnings = %+v, want Project Assistant proposal warning to report no native proposal shadow", status.Warnings)
+	}
+	if strings.Contains(warnings, "Project Assistant proposal ledger mutations are opt-in Cairnline-authoritative and then best-effort shadowed into Hecate-native stores") {
+		t.Fatalf("warnings = %+v, want no stale Project Assistant native-shadow wording", status.Warnings)
 	}
 	if status.NextReplacementAction == nil || status.NextReplacementAction.ID != "run-strict-embedded-read-smoke" {
 		t.Fatalf("next action = %+v, want strict embedded smoke still prioritized while mode is armed", status.NextReplacementAction)
