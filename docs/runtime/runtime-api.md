@@ -2598,6 +2598,11 @@ next action becomes `implement-migration-cutover`, which is intentionally an
 operator-controlled configuration step rather than an automatic mutation. Once
 the cutover is armed and all replacement gates are ready, the next action becomes
 `monitor-cairnline-backend`.
+The initial embedded dogfood and sidecar-to-embedded connector actions point at
+backend-status plus embedded read-model diagnostics. If the current runtime is
+still using `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar`, those actions also
+include `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded` so the suggested
+configuration matches the embedded probe set.
 `write_switchpoints` maps each live mutation family to the current authority,
 the Cairnline state (`live_mirror_non_authoritative`, `result_mirror_only`,
 `snapshot_import_rehearsal_available`, `authoritative_opt_in` for enabled
