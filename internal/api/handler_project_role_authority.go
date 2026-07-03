@@ -237,6 +237,9 @@ func (h *Handler) shadowProjectRoleToHecate(ctx context.Context, operation strin
 	if h == nil || h.projectWork == nil {
 		return projectwork.AgentRoleProfile{}, false
 	}
+	if h.projectCairnlineEmbeddedReplacementModeArmed() {
+		return projectwork.AgentRoleProfile{}, false
+	}
 	if updated, err := h.projectWork.UpdateRole(ctx, role.ProjectID, role.ID, func(existing *projectwork.AgentRoleProfile) {
 		*existing = role
 	}); err == nil {

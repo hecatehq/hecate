@@ -296,6 +296,9 @@ func (h *Handler) shadowProjectWorkItemToHecate(ctx context.Context, operation s
 	if h == nil || h.projectWork == nil {
 		return
 	}
+	if h.projectCairnlineEmbeddedReplacementModeArmed() {
+		return
+	}
 	if _, err := h.projectWork.UpdateWorkItem(ctx, item.ProjectID, item.ID, func(existing *projectwork.WorkItem) {
 		*existing = item
 	}); err == nil {

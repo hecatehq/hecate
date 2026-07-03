@@ -2691,7 +2691,9 @@ makes role and work-item create/update/delete Cairnline-first and then shadows
 Hecate-native compatibility rows. When the embedded Cairnline graph already
 contains the project, those authority routes do not require a matching
 Hecate-native project row; Hecate's project-work rows remain a best-effort
-compatibility shadow.
+compatibility shadow. In armed embedded replacement mode with all portable write
+authority closed, these routes skip native project-work compatibility rows and
+serve their mutation responses from Cairnline instead.
 `project-assignments-live-mirror` mirrors assignment create/update/delete
 coordination metadata, lifecycle status, and Hecate-provided
 started/completed timestamps after Hecate commits without manufacturing missing
@@ -2701,7 +2703,11 @@ record create/update/delete mutations Cairnline-first and then shadows portable
 assignment state back into Hecate-native project-work stores. Assignment
 authority uses Cairnline-owned work item, role, and root records when present,
 so direct create/update/delete can operate on a Cairnline-only project graph.
-Mirror failures are logged.
+In armed embedded replacement mode with all portable write authority closed,
+assignment record mutations skip the native project-work compatibility row;
+Hecate still writes assignment execution refs, context packets, and timestamps
+to its runtime overlay. Mirror failures are logged outside that replacement
+posture.
 `project-assignment-start-result-live-mirror` best-effort mirrors
 committed assignment-start results after Hecate-owned dispatch completes or
 returns a committed cleanup/conflict state; it is replacement evidence, not
@@ -2715,12 +2721,17 @@ in embedded Cairnline and persist only Hecate-owned task/run or chat-session
 refs, context packets, and launch timestamps in the assignment runtime overlay
 when the native project-work store is absent or embedded replacement mode is
 armed. They do not require or advance a native Hecate project identity row, and
-they do not advance compatibility assignment rows with runtime refs; runtime
-dispatch, task execution, and external-agent supervision remain Hecate-owned.
+they do not create or advance role, work-item, or assignment compatibility rows
+with coordination/runtime state; runtime dispatch, task execution, and
+external-agent supervision remain Hecate-owned.
 Assignment launch/preflight context uses the active Cairnline read model for
 inspect-only collaboration artifact and handoff metadata, so Cairnline-only
 project graphs preserve the same evidence/review/handoff hints as native
 project-work rows.
+Project Assistant confirmed apply preflight also reads the embedded Cairnline
+work graph in this posture, which lets confirmed proposals close, hand off, or
+extend Cairnline-only work without depending on native project-work
+compatibility rows.
 `project-assignment-chat-reconcile-live-mirror`
 best-effort mirrors assignment status/ref updates committed by linked
 external-agent chat reconciliation, and strict embedded reconciliation can

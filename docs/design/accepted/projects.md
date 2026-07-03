@@ -146,10 +146,18 @@ Projects coordination state. In that armed mode with all portable
 write-authority gaps closed, Cairnline-authoritative project identity create no
 longer creates a native Hecate project identity row; strict embedded reads serve
 the project from Cairnline, while Hecate keeps only the runtime/workspace
-compatibility shadows it still owns. The identity-create shadow switch is
-config-gated by replacement mode plus portable write authority; backend status
-remains the operator-facing readiness signal and still reports not-ready when
-strict embedded mirror/read-smoke evidence is missing or stale.
+compatibility shadows it still owns. Role, work-item, and assignment record
+mutations also stop creating native project-work compatibility rows in this
+posture; assignment execution refs, context packets, and launch timestamps stay
+in Hecate's runtime overlay because Hecate still owns supervised execution. The
+Project Assistant apply path uses the same embedded Cairnline read model for
+confirmed-action preflight, so proposal application can validate and update
+Cairnline-only roles, work items, assignments, artifacts, and handoffs without
+recreating native project-work rows. The
+identity/create and project-work shadow switches are config-gated by replacement
+mode plus portable write authority; backend status remains the operator-facing
+readiness signal and still reports not-ready when strict embedded
+mirror/read-smoke evidence is missing or stale.
 It keeps `write_adapter_gaps` as the broad diagnostic list and also groups
 that list into `portable_write_gaps`, `orchestrator_capabilities`, and
 `migration_blockers`, so operator tooling can tell durable coordination-state
@@ -687,8 +695,9 @@ after these gates are met:
   assignment in Cairnline and persist only task/run or chat-session refs,
   context packets, and timestamps in Hecate's runtime overlay when the native
   project-work store is absent or embedded replacement mode is armed; it does
-  not create a native project identity row, and it does not advance
-  compatibility assignment rows with runtime refs.
+  not create a native project identity row, and it does not create or advance
+  role, work-item, or assignment compatibility rows with coordination/runtime
+  state.
   Linked external-agent chat reconciliation can update embedded Cairnline and
   the runtime overlay in the same no-native-project-work posture. Committed
   start and linked-chat reconciliation results may be mirrored only as

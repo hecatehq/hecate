@@ -218,6 +218,8 @@ func TestProjectJourneyAPI_CairnlineReplacementModeCreatesWorkAndStartsWithoutNa
 	if reviewer.Data.ID != "role_reviewer" || reviewer.Data.ProjectID != projectID || reviewer.Data.ReadBackend != "cairnline" {
 		t.Fatalf("reviewer role = %+v, want replacement reviewer role", reviewer.Data)
 	}
+	assertNoNativeProjectWorkRoleForJourney(t, handler, projectID, "role_replacement")
+	assertNoNativeProjectWorkRoleForJourney(t, handler, projectID, "role_reviewer")
 
 	work := mustRequestJSONStatus[ProjectWorkItemEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items", projectJourneyJSON(t, map[string]any{
 		"id":                "work_replacement",
@@ -231,6 +233,7 @@ func TestProjectJourneyAPI_CairnlineReplacementModeCreatesWorkAndStartsWithoutNa
 	if work.Data.ID != "work_replacement" || work.Data.ReadBackend != "cairnline" || work.Data.RootID != "root_replacement" {
 		t.Fatalf("work = %+v, want Cairnline replacement work item", work.Data)
 	}
+	assertNoNativeProjectWorkItemForJourney(t, handler, projectID, "work_replacement")
 
 	assignment := mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_replacement/assignments", projectJourneyJSON(t, map[string]any{
 		"id":          "asgn_replacement",
@@ -241,6 +244,7 @@ func TestProjectJourneyAPI_CairnlineReplacementModeCreatesWorkAndStartsWithoutNa
 	if assignment.Data.ID != "asgn_replacement" || assignment.Data.ReadBackend != "cairnline" || assignment.Data.Status != projectwork.AssignmentStatusQueued {
 		t.Fatalf("assignment = %+v, want queued Cairnline replacement assignment", assignment.Data)
 	}
+	assertNoNativeProjectWorkAssignmentForJourney(t, handler, projectID, "work_replacement", "asgn_replacement")
 
 	started := mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusOK, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_replacement/assignments/asgn_replacement/start", `{}`)
 	ref := assignmentExecutionRefForTest(t, started.Data)
@@ -275,10 +279,7 @@ func TestProjectJourneyAPI_CairnlineReplacementModeCreatesWorkAndStartsWithoutNa
 	if runtime.ExecutionRef.RunID != ref.RunID || runtime.ExecutionRef.ContextSnapshotID != ref.ContextSnapshotID {
 		t.Fatalf("Hecate runtime overlay = %+v, want run/context %q/%q", runtime.ExecutionRef, ref.RunID, ref.ContextSnapshotID)
 	}
-	shadow := getStoredProjectWorkAssignmentForTest(t, handler, projectID, "work_replacement", "asgn_replacement")
-	if shadow.ExecutionRef.RunID != "" || shadow.ExecutionRef.ContextSnapshotID != "" {
-		t.Fatalf("Hecate compatibility shadow assignment = %+v, want replacement-mode start refs to live only in runtime overlay", shadow.ExecutionRef)
-	}
+	assertNoNativeProjectWorkAssignmentForJourney(t, handler, projectID, "work_replacement", "asgn_replacement")
 
 	completed := mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusOK, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/work-items/work_replacement/assignments/asgn_replacement", projectJourneyJSON(t, map[string]any{
 		"status": projectwork.AssignmentStatusCompleted,
@@ -469,10 +470,7 @@ func TestProjectJourneyAPI_CairnlineReplacementModeStartsExternalAgentWithoutAdv
 	if runtime.ExecutionRef.ChatSessionID != ref.ChatSessionID || runtime.ExecutionRef.ContextSnapshotID != ref.ContextSnapshotID {
 		t.Fatalf("Hecate runtime overlay = %+v, want chat/context %q/%q", runtime.ExecutionRef, ref.ChatSessionID, ref.ContextSnapshotID)
 	}
-	shadow := getStoredProjectWorkAssignmentForTest(t, handler, projectID, "work_replacement_external", "asgn_replacement_external")
-	if shadow.ExecutionRef.ChatSessionID != "" || shadow.ExecutionRef.ContextSnapshotID != "" {
-		t.Fatalf("Hecate compatibility shadow assignment = %+v, want replacement-mode external start refs to live only in runtime overlay", shadow.ExecutionRef)
-	}
+	assertNoNativeProjectWorkAssignmentForJourney(t, handler, projectID, "work_replacement_external", "asgn_replacement_external")
 }
 
 func TestProjectJourneyAPI_CairnlineReplacementCloseoutReadinessUsesRuntimeOverlay(t *testing.T) {
@@ -576,6 +574,46 @@ func projectJourneyHasContextSource(items []ProjectContextSourceResponseItem, pa
 		}
 	}
 	return false
+}
+
+func assertNoNativeProjectWorkRoleForJourney(t *testing.T, handler *Handler, projectID, roleID string) {
+	t.Helper()
+	roles, err := handler.projectWork.ListRoles(t.Context(), projectID)
+	if err != nil {
+		t.Fatalf("ListRoles(%q): %v", projectID, err)
+	}
+	for _, role := range roles {
+		if role.ID == roleID && !role.BuiltIn {
+			t.Fatalf("native project-work role %q exists in replacement mode: %+v", roleID, role)
+		}
+	}
+}
+
+func assertNoNativeProjectWorkItemForJourney(t *testing.T, handler *Handler, projectID, workItemID string) {
+	t.Helper()
+	item, ok, err := handler.projectWork.GetWorkItem(t.Context(), projectID, workItemID)
+	if err != nil {
+		t.Fatalf("GetWorkItem(%q, %q): %v", projectID, workItemID, err)
+	}
+	if ok {
+		t.Fatalf("native project-work item %q exists in replacement mode: %+v", workItemID, item)
+	}
+}
+
+func assertNoNativeProjectWorkAssignmentForJourney(t *testing.T, handler *Handler, projectID, workItemID, assignmentID string) {
+	t.Helper()
+	assignments, err := handler.projectWork.ListAssignments(t.Context(), projectwork.AssignmentFilter{
+		ProjectID:  projectID,
+		WorkItemID: workItemID,
+	})
+	if err != nil {
+		t.Fatalf("ListAssignments(%q, %q): %v", projectID, workItemID, err)
+	}
+	for _, assignment := range assignments {
+		if assignment.ID == assignmentID {
+			t.Fatalf("native project-work assignment %q exists in replacement mode: %+v", assignmentID, assignment)
+		}
+	}
 }
 
 func assertJourneyContextItem(t *testing.T, packet ChatContextPacketItem, origin, section string, included bool) {
