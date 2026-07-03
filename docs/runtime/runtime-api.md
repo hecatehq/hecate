@@ -2708,6 +2708,13 @@ assignment record mutations skip the native project-work compatibility row;
 Hecate still writes assignment execution refs, context packets, and timestamps
 to its runtime overlay. Mirror failures are logged outside that replacement
 posture.
+`project-collaboration-live-mirror` mirrors collaboration artifact, evidence,
+review, and handoff records after Hecate commits unless
+`HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-collaboration` makes those
+records Cairnline-first. In armed embedded replacement mode with all portable
+write authority closed, Cairnline-authoritative collaboration mutations skip
+native project-work artifact and handoff compatibility rows; collaboration reads
+come from the active Cairnline read model.
 `project-assignment-start-result-live-mirror` best-effort mirrors
 committed assignment-start results after Hecate-owned dispatch completes or
 returns a committed cleanup/conflict state; it is replacement evidence, not
@@ -2721,9 +2728,9 @@ in embedded Cairnline and persist only Hecate-owned task/run or chat-session
 refs, context packets, and launch timestamps in the assignment runtime overlay
 when the native project-work store is absent or embedded replacement mode is
 armed. They do not require or advance a native Hecate project identity row, and
-they do not create or advance role, work-item, or assignment compatibility rows
-with coordination/runtime state; runtime dispatch, task execution, and
-external-agent supervision remain Hecate-owned.
+they do not create or advance role, work-item, assignment, collaboration
+artifact, or handoff compatibility rows with coordination/runtime state; runtime
+dispatch, task execution, and external-agent supervision remain Hecate-owned.
 Assignment launch/preflight context uses the active Cairnline read model for
 inspect-only collaboration artifact and handoff metadata, so Cairnline-only
 project graphs preserve the same evidence/review/handoff hints as native
