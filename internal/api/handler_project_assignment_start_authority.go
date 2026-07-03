@@ -36,13 +36,13 @@ func (h *Handler) claimProjectAssignmentStartInCairnlineAuthority(ctx context.Co
 			if !errors.Is(err, cairnline.ErrNotFound) {
 				return err
 			}
-			role, profile, seedErr := h.seedProjectAssignmentDependenciesForCairnlineAuthority(ctx, service, project, assignment)
+			role, seedErr := h.seedProjectAssignmentDependenciesForCairnlineAuthority(ctx, service, project, assignment)
 			if seedErr != nil {
 				return seedErr
 			}
 			seeded := assignment
 			seeded.DriverKind = resolvedProjectAssignmentDriverKind(seeded.DriverKind, role.DefaultDriverKind)
-			if _, upsertErr := cairnlinebridge.UpsertAssignment(ctx, service, seeded, role, profile); upsertErr != nil {
+			if _, upsertErr := cairnlinebridge.UpsertAssignment(ctx, service, seeded, role); upsertErr != nil {
 				return upsertErr
 			}
 		} else if existing.ID != "" && existing.WorkItemID != assignment.WorkItemID {

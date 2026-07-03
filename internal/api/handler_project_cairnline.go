@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/hecatehq/cairnline"
-	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/cairnlinebridge"
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/projectassistant"
@@ -541,7 +540,7 @@ func projectCairnlineMigrationRehearsal(operation string, databaseExists, match 
 			{
 				ID:     "load-hecate-stores",
 				Status: "complete",
-				Detail: "Loaded Hecate's authoritative project, profile, work, skill, memory, and assistant stores.",
+				Detail: "Loaded Hecate's authoritative project, work, skill, memory, and assistant stores.",
 			},
 			{
 				ID:     "native-snapshot-import",
@@ -874,7 +873,6 @@ func projectCairnlineSnapshotGraphCounts(snapshot cairnlinebridge.Snapshot) Proj
 	return ProjectCairnlineGraphParityCounts{
 		Roots:             len(snapshot.Project.Roots),
 		ContextSources:    len(snapshot.Project.ContextSources),
-		AgentProfiles:     len(snapshot.AgentProfiles),
 		ExecutionProfiles: cairnlinebridge.SnapshotExecutionProfileCount(snapshot),
 		Skills:            len(snapshot.Skills),
 		Roles:             len(snapshot.Roles),
@@ -906,11 +904,6 @@ func projectCairnlineServiceGraphCounts(ctx context.Context, service *cairnline.
 	if !found {
 		return counts, cairnline.ErrNotFound
 	}
-	profiles, err := service.ListAgentProfiles(ctx)
-	if err != nil {
-		return counts, err
-	}
-	counts.AgentProfiles = len(profiles)
 	executionProfiles, err := service.ListExecutionProfiles(ctx)
 	if err != nil {
 		return counts, err
@@ -974,15 +967,7 @@ func projectCairnlineServiceGraphCounts(ctx context.Context, service *cairnline.
 
 func projectCairnlineSnapshotAllCounts(snapshots []cairnlinebridge.Snapshot) ProjectCairnlineSyncCounts {
 	var counts ProjectCairnlineSyncCounts
-	profileIDs := map[string]struct{}{}
 	executionProfileIDs := map[string]struct{}{}
-	addProfileID := func(id string) {
-		id = strings.TrimSpace(id)
-		if id == "" {
-			return
-		}
-		profileIDs[id] = struct{}{}
-	}
 	addExecutionProfileID := func(id string) {
 		id = strings.TrimSpace(id)
 		if id == "" {
@@ -1007,10 +992,6 @@ func projectCairnlineSnapshotAllCounts(snapshots []cairnlinebridge.Snapshot) Pro
 		if executionProfile, ok := cairnlinebridge.ProjectExecutionProfile(snapshot.Project); ok {
 			addExecutionProfileID(executionProfile.ID)
 		}
-		for _, profile := range snapshot.AgentProfiles {
-			addProfileID(profile.ID)
-			addExecutionProfileID(cairnlinebridge.ExecutionProfile(profile).ID)
-		}
 		for _, role := range snapshot.Roles {
 			executionProfile, ok := cairnlinebridge.RoleExecutionProfile(role)
 			if !ok {
@@ -1019,7 +1000,6 @@ func projectCairnlineSnapshotAllCounts(snapshots []cairnlinebridge.Snapshot) Pro
 			addExecutionProfileID(executionProfile.ID)
 		}
 	}
-	counts.AgentProfiles = len(profileIDs)
 	counts.ExecutionProfiles = len(executionProfileIDs)
 	return counts
 }
@@ -1031,11 +1011,6 @@ func projectCairnlineServiceAllCounts(ctx context.Context, service *cairnline.Se
 		return counts, err
 	}
 	counts.Projects = len(projects)
-	profiles, err := service.ListAgentProfiles(ctx)
-	if err != nil {
-		return counts, err
-	}
-	counts.AgentProfiles = len(profiles)
 	executionProfiles, err := service.ListExecutionProfiles(ctx)
 	if err != nil {
 		return counts, err
@@ -1130,10 +1105,6 @@ func projectCairnlineSnapshotAllIDSets(snapshots []cairnlinebridge.Snapshot) Pro
 		if executionProfile, ok := cairnlinebridge.ProjectExecutionProfile(snapshot.Project); ok {
 			addProjectCairnlineSyncID(seen, &ids.ExecutionProfiles, "execution_profiles", executionProfile.ID)
 		}
-		for _, profile := range snapshot.AgentProfiles {
-			addProjectCairnlineSyncID(seen, &ids.AgentProfiles, "agent_profiles", profile.ID)
-			addProjectCairnlineSyncID(seen, &ids.ExecutionProfiles, "execution_profiles", cairnlinebridge.ExecutionProfile(profile).ID)
-		}
 		for _, skill := range snapshot.Skills {
 			addProjectCairnlineSyncID(seen, &ids.Skills, "skills", scopedCairnlineID(projectID, skill.ID))
 		}
@@ -1177,13 +1148,6 @@ func projectCairnlineServiceAllIDSets(ctx context.Context, service *cairnline.Se
 	projects, err := service.ListProjects(ctx)
 	if err != nil {
 		return ids, err
-	}
-	profiles, err := service.ListAgentProfiles(ctx)
-	if err != nil {
-		return ids, err
-	}
-	for _, profile := range profiles {
-		addProjectCairnlineSyncID(seen, &ids.AgentProfiles, "agent_profiles", profile.ID)
 	}
 	executionProfiles, err := service.ListExecutionProfiles(ctx)
 	if err != nil {
@@ -1311,12 +1275,6 @@ func projectCairnlineSnapshotAllContentDigests(ctx context.Context, snapshots []
 		executionProfileDigests[id] = struct{}{}
 		digests.add("execution_profiles", id, profile)
 	}
-	profileByID := map[string]agentprofiles.Profile{}
-	for _, snapshot := range snapshots {
-		for _, profile := range snapshot.AgentProfiles {
-			profileByID[profile.ID] = profile
-		}
-	}
 	for _, snapshot := range snapshots {
 		projectID := strings.TrimSpace(snapshot.Project.ID)
 		project := cairnlinebridge.Project(snapshot.Project)
@@ -1329,11 +1287,6 @@ func projectCairnlineSnapshotAllContentDigests(ctx context.Context, snapshots []
 		}
 		if executionProfile, ok := cairnlinebridge.ProjectExecutionProfile(snapshot.Project); ok {
 			addExecutionProfile(executionProfile)
-		}
-		for _, profile := range snapshot.AgentProfiles {
-			agentProfile := cairnlinebridge.AgentProfile(profile)
-			digests.add("agent_profiles", agentProfile.ID, agentProfile)
-			addExecutionProfile(cairnlinebridge.ExecutionProfile(profile))
 		}
 		for _, skill := range snapshot.Skills {
 			item := cairnlinebridge.ProjectSkill(skill)
@@ -1354,8 +1307,7 @@ func projectCairnlineSnapshotAllContentDigests(ctx context.Context, snapshots []
 		}
 		for _, assignment := range snapshot.Assignments {
 			role := roleByID[assignment.RoleID]
-			profile := profileByID[role.DefaultAgentProfile]
-			item := cairnlinebridge.Assignment(assignment, role, profile)
+			item := cairnlinebridge.Assignment(assignment, role)
 			digests.add("assignments", scopedCairnlineID(projectID, item.ID), item)
 			if packet, err := service.AssignmentLaunchPacket(ctx, projectID, item.ID); err == nil {
 				digests.add("launch_packets", scopedCairnlineID(projectID, item.ID), projectCairnlineStableLaunchPacket(packet))
@@ -1402,13 +1354,6 @@ func projectCairnlineServiceAllContentDigests(ctx context.Context, service *cair
 	projects, err := service.ListProjects(ctx)
 	if err != nil {
 		return digests, err
-	}
-	profiles, err := service.ListAgentProfiles(ctx)
-	if err != nil {
-		return digests, err
-	}
-	for _, profile := range profiles {
-		digests.add("agent_profiles", profile.ID, profile)
 	}
 	executionProfiles, err := service.ListExecutionProfiles(ctx)
 	if err != nil {
@@ -2037,7 +1982,6 @@ func appendProjectCairnlineParityDifference(differences []ProjectCairnlineParity
 func (h *Handler) cairnlineSnapshotSources() cairnlinebridge.SnapshotSources {
 	return cairnlinebridge.SnapshotSources{
 		Projects:         h.projects,
-		AgentProfiles:    h.agentProfiles,
 		Skills:           h.projectSkills,
 		Work:             h.projectWork,
 		Memory:           h.memory,

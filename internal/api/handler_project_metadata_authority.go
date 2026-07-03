@@ -169,20 +169,6 @@ func (h *Handler) seedProjectMetadataDefaultsDependenciesForCairnlineAuthority(c
 			return err
 		}
 	}
-	if strings.TrimSpace(project.DefaultAgentProfile) != "" {
-		if h == nil || h.agentProfiles == nil {
-			return nil
-		}
-		profile, ok, err := h.agentProfiles.Get(ctx, project.DefaultAgentProfile)
-		if err != nil {
-			return err
-		}
-		if ok {
-			if _, err := cairnlinebridge.UpsertAgentProfile(ctx, service, profile); err != nil {
-				return err
-			}
-		}
-	}
 	return nil
 }
 

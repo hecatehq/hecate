@@ -52,9 +52,6 @@ func (h *Handler) createProjectWorkRoleWithCairnlineAuthority(ctx context.Contex
 		} else if !errors.Is(err, cairnline.ErrNotFound) {
 			return err
 		}
-		if _, err := h.writeRoleAgentProfileToCairnline(ctx, service, role); err != nil {
-			return err
-		}
 		recorded, err := cairnlinebridge.UpsertRole(ctx, service, role)
 		if err != nil {
 			return err
@@ -96,9 +93,6 @@ func (h *Handler) updateProjectWorkRoleWithCairnlineAuthority(ctx context.Contex
 		applyProjectRoleUpdate(&role, cmd)
 		role = normalizeProjectRoleForCairnlineAuthority(role)
 		if err := validateProjectRoleForCairnlineAuthority(role); err != nil {
-			return err
-		}
-		if _, err := h.writeRoleAgentProfileToCairnline(ctx, service, role); err != nil {
 			return err
 		}
 		recorded, err := cairnlinebridge.UpsertRole(ctx, service, role)

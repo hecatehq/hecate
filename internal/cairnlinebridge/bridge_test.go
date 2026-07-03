@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/hecatehq/cairnline"
-	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projectassistant"
 	"github.com/hecatehq/hecate/internal/projects"
@@ -27,8 +26,8 @@ func TestSeedMirrorsProjectWorkIntoCairnline(t *testing.T) {
 	if err := Seed(ctx, service, snapshot); err != nil {
 		t.Fatalf("Seed() error = %v", err)
 	}
-	if got := SnapshotExecutionProfileCount(snapshot); got != 3 {
-		t.Fatalf("SnapshotExecutionProfileCount() = %d, want project, agent-profile, and role execution profiles", got)
+	if got := SnapshotExecutionProfileCount(snapshot); got != 2 {
+		t.Fatalf("SnapshotExecutionProfileCount() = %d, want project and role execution profiles", got)
 	}
 
 	packet, err := service.AssignmentLaunchPacket(ctx, "proj_hecate", "asgn_bridge")
@@ -72,8 +71,8 @@ func TestSeedMirrorsProjectWorkIntoCairnline(t *testing.T) {
 	if packet.Role.DefaultExecutionProfileID != roleExecutionProfileID(snapshot.Roles[0]) {
 		t.Fatalf("packet role = %+v, want role execution-profile default", packet.Role)
 	}
-	if packet.Profile == nil || packet.Profile.ID != "bridge_implementation" || packet.Profile.MemoryPolicy != agentprofiles.MemoryInclude {
-		t.Fatalf("packet profile = %+v, want mapped Hecate agent profile", packet.Profile)
+	if packet.Role.DefaultProfileID != "bridge_implementation" || packet.Assignment.ProfileID != "bridge_implementation" {
+		t.Fatalf("packet profile hints = role:%q assignment:%q, want unresolved Hecate preset id", packet.Role.DefaultProfileID, packet.Assignment.ProfileID)
 	}
 	if packet.ExecutionProfile == nil || packet.ExecutionProfile.ID != roleExecutionProfileID(snapshot.Roles[0]) || packet.ExecutionProfile.AgentKind != "hecate" || packet.ExecutionProfile.ProviderHint != "openai" || packet.ExecutionProfile.ModelHint != "gpt-5" {
 		t.Fatalf("packet execution profile = %+v, want mapped Hecate role execution defaults", packet.ExecutionProfile)
@@ -204,9 +203,6 @@ func TestCairnlineSnapshotMapsHecateSnapshotToPortableContract(t *testing.T) {
 	if len(snapshot.Projects) != 1 || snapshot.Projects[0].ID != source.Project.ID {
 		t.Fatalf("snapshot projects = %+v, want mapped Hecate project", snapshot.Projects)
 	}
-	if len(snapshot.AgentProfiles) != len(source.AgentProfiles) {
-		t.Fatalf("snapshot agent profiles = %+v, want %d", snapshot.AgentProfiles, len(source.AgentProfiles))
-	}
 	if len(snapshot.ExecutionProfiles) != SnapshotExecutionProfileCount(source) {
 		t.Fatalf("snapshot execution profiles = %+v, want %d unique execution profiles", snapshot.ExecutionProfiles, SnapshotExecutionProfileCount(source))
 	}
@@ -325,9 +321,6 @@ func TestLoadSnapshotReadsHecateStores(t *testing.T) {
 	}
 	if loaded.Project.ID != snapshot.Project.ID {
 		t.Fatalf("loaded project = %+v, want %q", loaded.Project, snapshot.Project.ID)
-	}
-	if !hasAgentProfile(loaded.AgentProfiles, "bridge_implementation") {
-		t.Fatalf("loaded profiles missing bridge_implementation: %+v", loaded.AgentProfiles)
 	}
 	if !hasRole(loaded.Roles, "bridge_developer") || !hasRole(loaded.Roles, "bridge_reviewer") {
 		t.Fatalf("loaded roles missing bridge roles: %+v", loaded.Roles)
@@ -1070,63 +1063,6 @@ func TestDeleteProjectRemovesProjectAndProjectExecutionProfile(t *testing.T) {
 	}
 }
 
-func TestUpsertAgentProfileMirrorsProfileAndExecutionPosture(t *testing.T) {
-	ctx := context.Background()
-	service := cairnline.NewMemoryService()
-	now := time.Date(2026, 6, 27, 11, 15, 0, 0, time.UTC)
-	profile := agentprofiles.Profile{
-		ID:                  "safe_external_review",
-		Name:                "Safe external review",
-		Description:         "Reviews external-agent work.",
-		Instructions:        "Inspect evidence before approval.",
-		Surface:             agentprofiles.SurfaceExternalAgent,
-		ProviderHint:        "anthropic",
-		ModelHint:           "claude-sonnet-4",
-		ExecutionProfile:    "review_runtime",
-		ToolsEnabled:        true,
-		WritesAllowed:       false,
-		NetworkAllowed:      false,
-		ApprovalPolicy:      agentprofiles.ApprovalRequire,
-		ProjectMemoryPolicy: agentprofiles.MemoryVisibleOnly,
-		ContextSourcePolicy: agentprofiles.ContextIncludeEnabled,
-		SkillIDs:            []string{"review", "review"},
-		CreatedAt:           now,
-		UpdatedAt:           now,
-	}
-
-	created, err := UpsertAgentProfile(ctx, service, profile)
-	if err != nil {
-		t.Fatalf("UpsertAgentProfile(create) error = %v", err)
-	}
-	if created.ID != "safe_external_review" || created.MemoryPolicy != agentprofiles.MemoryVisibleOnly || len(created.SkillIDs) != 1 || created.SkillIDs[0] != "review" {
-		t.Fatalf("created profile = %+v, want compacted profile metadata", created)
-	}
-	executionProfiles, err := service.ListExecutionProfiles(ctx)
-	if err != nil {
-		t.Fatalf("ListExecutionProfiles() error = %v", err)
-	}
-	if execution := findCairnlineExecutionProfile(executionProfiles, "review_runtime"); execution == nil || execution.AgentKind != cairnline.DesiredAgentAny || execution.ProviderHint != "anthropic" || execution.ModelHint != "claude-sonnet-4" || execution.ToolsPolicy != "allow" || execution.WritesPolicy != "block" {
-		t.Fatalf("execution profile = %+v, want profile posture", execution)
-	}
-
-	profile.Name = "External review"
-	profile.ModelHint = "claude-opus-4"
-	updated, err := UpsertAgentProfile(ctx, service, profile)
-	if err != nil {
-		t.Fatalf("UpsertAgentProfile(update) error = %v", err)
-	}
-	if updated.Name != "External review" {
-		t.Fatalf("updated profile = %+v, want renamed profile", updated)
-	}
-	executionProfiles, err = service.ListExecutionProfiles(ctx)
-	if err != nil {
-		t.Fatalf("ListExecutionProfiles() after update error = %v", err)
-	}
-	if execution := findCairnlineExecutionProfile(executionProfiles, "review_runtime"); execution == nil || execution.ModelHint != "claude-opus-4" {
-		t.Fatalf("execution profile after update = %+v, want updated model hint", execution)
-	}
-}
-
 func TestUpsertRoleMirrorsRoleAndExecutionDefaults(t *testing.T) {
 	ctx := context.Background()
 	service := cairnline.NewMemoryService()
@@ -1134,25 +1070,6 @@ func TestUpsertRoleMirrorsRoleAndExecutionDefaults(t *testing.T) {
 	if _, err := UpsertProject(ctx, service, projects.Project{ID: "proj_roles", Name: "Role Adapter"}); err != nil {
 		t.Fatalf("UpsertProject() error = %v", err)
 	}
-	profile := agentprofiles.Profile{
-		ID:                  "implementation",
-		Name:                "Implementation",
-		Surface:             agentprofiles.SurfaceHecateTask,
-		ProviderHint:        "openai",
-		ModelHint:           "gpt-5",
-		ToolsEnabled:        true,
-		WritesAllowed:       true,
-		NetworkAllowed:      false,
-		ApprovalPolicy:      agentprofiles.ApprovalRequire,
-		ProjectMemoryPolicy: agentprofiles.MemoryInclude,
-		ContextSourcePolicy: agentprofiles.ContextIncludeEnabled,
-		CreatedAt:           now,
-		UpdatedAt:           now,
-	}
-	if _, err := service.CreateAgentProfile(ctx, AgentProfile(profile)); err != nil {
-		t.Fatalf("CreateAgentProfile() error = %v", err)
-	}
-
 	role := projectwork.AgentRoleProfile{
 		ID:                  "developer",
 		ProjectID:           "proj_roles",
@@ -1301,26 +1218,7 @@ func TestUpsertAssignmentCreatesAndSyncsLifecycle(t *testing.T) {
 	if _, err := UpsertProject(ctx, service, project); err != nil {
 		t.Fatalf("UpsertProject() error = %v", err)
 	}
-	profile := agentprofiles.Profile{
-		ID:                  "implementation",
-		Name:                "Implementation",
-		Surface:             agentprofiles.SurfaceHecateTask,
-		ProviderHint:        "openai",
-		ModelHint:           "gpt-5",
-		ToolsEnabled:        true,
-		WritesAllowed:       true,
-		ApprovalPolicy:      agentprofiles.ApprovalRequire,
-		ProjectMemoryPolicy: agentprofiles.MemoryInclude,
-		ContextSourcePolicy: agentprofiles.ContextIncludeEnabled,
-		CreatedAt:           now,
-		UpdatedAt:           now,
-	}
-	if _, err := service.CreateAgentProfile(ctx, AgentProfile(profile)); err != nil {
-		t.Fatalf("CreateAgentProfile() error = %v", err)
-	}
-	if _, err := service.CreateExecutionProfile(ctx, ExecutionProfile(profile)); err != nil {
-		t.Fatalf("CreateExecutionProfile(profile) error = %v", err)
-	}
+	profileID := "implementation"
 	role := projectwork.AgentRoleProfile{
 		ID:                  "developer",
 		ProjectID:           project.ID,
@@ -1328,7 +1226,7 @@ func TestUpsertAssignmentCreatesAndSyncsLifecycle(t *testing.T) {
 		DefaultDriverKind:   projectwork.AssignmentDriverHecateTask,
 		DefaultProvider:     "openai",
 		DefaultModel:        "gpt-5",
-		DefaultAgentProfile: profile.ID,
+		DefaultAgentProfile: profileID,
 		SkillIDs:            []string{"backend"},
 		CreatedAt:           now,
 		UpdatedAt:           now,
@@ -1363,11 +1261,11 @@ func TestUpsertAssignmentCreatesAndSyncsLifecycle(t *testing.T) {
 		UpdatedAt: now,
 	}
 
-	queued, err := UpsertAssignment(ctx, service, assignment, role, profile)
+	queued, err := UpsertAssignment(ctx, service, assignment, role)
 	if err != nil {
 		t.Fatalf("UpsertAssignment(queued) error = %v", err)
 	}
-	if queued.Status != cairnline.AssignmentQueued || queued.ProfileID != profile.ID || queued.ExecutionProfileID != roleExecutionProfileID(role) || queued.ExecutionMode != cairnline.ExecutionOrchestrated || queued.ContextSnapshotID != "ctx_queued" {
+	if queued.Status != cairnline.AssignmentQueued || queued.ProfileID != profileID || queued.ExecutionProfileID != roleExecutionProfileID(role) || queued.ExecutionMode != cairnline.ExecutionOrchestrated || queued.ContextSnapshotID != "ctx_queued" {
 		t.Fatalf("queued assignment = %+v, want created orchestrated assignment metadata", queued)
 	}
 	if queued.DesiredAgent.Kind != "hecate" || len(queued.DesiredAgent.SkillIDs) != 1 || queued.DesiredAgent.SkillIDs[0] != "backend" {
@@ -1391,7 +1289,7 @@ func TestUpsertAssignmentCreatesAndSyncsLifecycle(t *testing.T) {
 		ProjectID:           project.ID,
 		Name:                "External Reviewer",
 		DefaultDriverKind:   projectwork.AssignmentDriverExternalAgent,
-		DefaultAgentProfile: profile.ID,
+		DefaultAgentProfile: profileID,
 		SkillIDs:            []string{"review", "review"},
 		CreatedAt:           now,
 		UpdatedAt:           now,
@@ -1403,7 +1301,7 @@ func TestUpsertAssignmentCreatesAndSyncsLifecycle(t *testing.T) {
 	assignment.RoleID = externalRole.ID
 	assignment.DriverKind = projectwork.AssignmentDriverExternalAgent
 	assignment.ExecutionRef = projectwork.AssignmentExecutionRef{ContextSnapshotID: "ctx_updated"}
-	updatedQueued, err := UpsertAssignment(ctx, service, assignment, externalRole, profile)
+	updatedQueued, err := UpsertAssignment(ctx, service, assignment, externalRole)
 	if err != nil {
 		t.Fatalf("UpsertAssignment(update queued metadata) error = %v", err)
 	}
@@ -1423,7 +1321,7 @@ func TestUpsertAssignmentCreatesAndSyncsLifecycle(t *testing.T) {
 	assignment.ExecutionRef = projectwork.AssignmentExecutionRef{}
 	assignment.StartedAt = time.Time{}
 	assignment.CompletedAt = time.Time{}
-	releasedQueued, err := UpsertAssignment(ctx, service, assignment, externalRole, profile)
+	releasedQueued, err := UpsertAssignment(ctx, service, assignment, externalRole)
 	if err != nil {
 		t.Fatalf("UpsertAssignment(release queued) error = %v", err)
 	}
@@ -1434,27 +1332,27 @@ func TestUpsertAssignmentCreatesAndSyncsLifecycle(t *testing.T) {
 	assignment.Status = projectwork.AssignmentStatusRunning
 	assignment.ExecutionRef = projectwork.AssignmentExecutionRef{TaskID: "task_1", RunID: "run_1", ContextSnapshotID: "ctx_running"}
 	assignment.StartedAt = now.Add(5 * time.Minute)
-	running, err := UpsertAssignment(ctx, service, assignment, externalRole, profile)
+	running, err := UpsertAssignment(ctx, service, assignment, externalRole)
 	if err != nil {
 		t.Fatalf("UpsertAssignment(running) error = %v", err)
 	}
 	if running.Status != cairnline.AssignmentRunning || running.ClaimedBy != "external_adapter" || running.ExecutionRef != "run_1" || running.WorkItemID != followUpWork.ID || running.RoleID != externalRole.ID || !running.StartedAt.Equal(assignment.StartedAt) {
 		t.Fatalf("running assignment = %+v, want claimed running assignment", running)
 	}
-	if _, err := UpsertAssignment(ctx, service, assignment, externalRole, profile); err != nil {
+	if _, err := UpsertAssignment(ctx, service, assignment, externalRole); err != nil {
 		t.Fatalf("UpsertAssignment(running idempotent) error = %v", err)
 	}
 
 	assignment.Status = projectwork.AssignmentStatusCompleted
 	assignment.CompletedAt = now.Add(10 * time.Minute)
-	completed, err := UpsertAssignment(ctx, service, assignment, externalRole, profile)
+	completed, err := UpsertAssignment(ctx, service, assignment, externalRole)
 	if err != nil {
 		t.Fatalf("UpsertAssignment(completed) error = %v", err)
 	}
 	if completed.Status != cairnline.AssignmentCompleted || completed.ExecutionRef != "run_1" || !completed.StartedAt.Equal(assignment.StartedAt) || !completed.CompletedAt.Equal(assignment.CompletedAt) {
 		t.Fatalf("completed assignment = %+v, want completed assignment with execution ref", completed)
 	}
-	if _, err := UpsertAssignment(ctx, service, assignment, externalRole, profile); err != nil {
+	if _, err := UpsertAssignment(ctx, service, assignment, externalRole); err != nil {
 		t.Fatalf("UpsertAssignment(completed idempotent) error = %v", err)
 	}
 
@@ -1484,30 +1382,12 @@ func TestRecordCollaborationArtifactsAndUpsertHandoff(t *testing.T) {
 	if _, err := UpsertProject(ctx, service, project); err != nil {
 		t.Fatalf("UpsertProject() error = %v", err)
 	}
-	profile := agentprofiles.Profile{
-		ID:                  "implementation",
-		Name:                "Implementation",
-		Surface:             agentprofiles.SurfaceHecateTask,
-		ToolsEnabled:        true,
-		WritesAllowed:       true,
-		ApprovalPolicy:      agentprofiles.ApprovalRequire,
-		ProjectMemoryPolicy: agentprofiles.MemoryInclude,
-		ContextSourcePolicy: agentprofiles.ContextIncludeEnabled,
-		CreatedAt:           now,
-		UpdatedAt:           now,
-	}
-	if _, err := service.CreateAgentProfile(ctx, AgentProfile(profile)); err != nil {
-		t.Fatalf("CreateAgentProfile() error = %v", err)
-	}
-	if _, err := service.CreateExecutionProfile(ctx, ExecutionProfile(profile)); err != nil {
-		t.Fatalf("CreateExecutionProfile(profile) error = %v", err)
-	}
 	role := projectwork.AgentRoleProfile{
 		ID:                  "developer",
 		ProjectID:           project.ID,
 		Name:                "Developer",
 		DefaultDriverKind:   projectwork.AssignmentDriverHecateTask,
-		DefaultAgentProfile: profile.ID,
+		DefaultAgentProfile: "implementation",
 		CreatedAt:           now,
 		UpdatedAt:           now,
 	}
@@ -1537,7 +1417,7 @@ func TestRecordCollaborationArtifactsAndUpsertHandoff(t *testing.T) {
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}
-	if _, err := UpsertAssignment(ctx, service, assignment, role, profile); err != nil {
+	if _, err := UpsertAssignment(ctx, service, assignment, role); err != nil {
 		t.Fatalf("UpsertAssignment() error = %v", err)
 	}
 
@@ -1899,21 +1779,10 @@ func TestUpsertMemoryCandidateMirrorsResolvedState(t *testing.T) {
 	}
 }
 
-func TestSeedSnapshotsMirrorsMultipleProjectsWithSharedProfiles(t *testing.T) {
+func TestSeedSnapshotsMirrorsMultipleProjectsWithPresetHintsOnly(t *testing.T) {
 	ctx := context.Background()
 	service := cairnline.NewMemoryService()
 	now := time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC)
-	sharedProfile := agentprofiles.Profile{
-		ID:                  "shared_architect",
-		Name:                "Shared architect",
-		Surface:             agentprofiles.SurfaceHecateTask,
-		ModelHint:           "gpt-5",
-		ProviderHint:        "openai",
-		ProjectMemoryPolicy: agentprofiles.MemoryInclude,
-		ContextSourcePolicy: agentprofiles.ContextIncludeEnabled,
-		CreatedAt:           now,
-		UpdatedAt:           now,
-	}
 	snapshots := []Snapshot{{
 		Project: projects.Project{
 			ID:                  "proj_one",
@@ -1924,7 +1793,6 @@ func TestSeedSnapshotsMirrorsMultipleProjectsWithSharedProfiles(t *testing.T) {
 			CreatedAt:           now,
 			UpdatedAt:           now,
 		},
-		AgentProfiles: []agentprofiles.Profile{sharedProfile},
 	}, {
 		Project: projects.Project{
 			ID:                  "proj_two",
@@ -1933,7 +1801,6 @@ func TestSeedSnapshotsMirrorsMultipleProjectsWithSharedProfiles(t *testing.T) {
 			CreatedAt:           now,
 			UpdatedAt:           now,
 		},
-		AgentProfiles: []agentprofiles.Profile{sharedProfile},
 	}}
 
 	if err := SeedSnapshots(ctx, service, snapshots); err != nil {
@@ -1946,19 +1813,17 @@ func TestSeedSnapshotsMirrorsMultipleProjectsWithSharedProfiles(t *testing.T) {
 	if len(projects) != 2 {
 		t.Fatalf("projects = %+v, want two seeded projects", projects)
 	}
-	profiles, err := service.ListAgentProfiles(ctx)
-	if err != nil {
-		t.Fatalf("ListAgentProfiles() error = %v", err)
-	}
-	if len(profiles) != 1 || profiles[0].ID != "shared_architect" {
-		t.Fatalf("profiles = %+v, want shared profile inserted once", profiles)
-	}
 	executionProfiles, err := service.ListExecutionProfiles(ctx)
 	if err != nil {
 		t.Fatalf("ListExecutionProfiles() error = %v", err)
 	}
-	if len(executionProfiles) != 2 {
-		t.Fatalf("execution profiles = %+v, want shared agent profile plus project execution defaults", executionProfiles)
+	if len(executionProfiles) != 1 || executionProfiles[0].ID != projectExecutionProfileID(snapshots[0].Project) {
+		t.Fatalf("execution profiles = %+v, want only project execution defaults", executionProfiles)
+	}
+	for _, item := range projects {
+		if item.DefaultProfileID != "shared_architect" {
+			t.Fatalf("project = %+v, want opaque preset hint preserved", item)
+		}
 	}
 }
 
@@ -2098,24 +1963,6 @@ func bridgeSnapshotFixture(now time.Time) Snapshot {
 			CreatedAt: now,
 			UpdatedAt: now,
 		},
-		AgentProfiles: []agentprofiles.Profile{{
-			ID:                  "bridge_implementation",
-			Name:                "Bridge Implementation",
-			Description:         "Implement scoped changes with tests.",
-			Instructions:        "Prefer small, reviewable changes.",
-			Surface:             agentprofiles.SurfaceHecateTask,
-			ProviderHint:        "ollama",
-			ModelHint:           "qwen3-coder",
-			ToolsEnabled:        true,
-			WritesAllowed:       true,
-			NetworkAllowed:      false,
-			ApprovalPolicy:      agentprofiles.ApprovalRequire,
-			ProjectMemoryPolicy: agentprofiles.MemoryInclude,
-			ContextSourcePolicy: agentprofiles.ContextIncludeEnabled,
-			SkillIDs:            []string{"backend"},
-			CreatedAt:           now,
-			UpdatedAt:           now,
-		}},
 		Skills: []projectskills.Skill{{
 			ID:                     "backend",
 			ProjectID:              "proj_hecate",
@@ -2456,7 +2303,6 @@ func bridgeMemorySources() SnapshotSources {
 	memoryStore := memory.NewMemoryStore()
 	return SnapshotSources{
 		Projects:         projects.NewMemoryStore(),
-		AgentProfiles:    agentprofiles.NewMemoryStore(),
 		Skills:           projectskills.NewMemoryStore(),
 		Work:             projectwork.NewMemoryStore(),
 		Memory:           memoryStore,
@@ -2469,11 +2315,6 @@ func seedHecateSources(t *testing.T, ctx context.Context, sources SnapshotSource
 	t.Helper()
 	if _, err := sources.Projects.Create(ctx, snapshot.Project); err != nil {
 		t.Fatalf("Create project: %v", err)
-	}
-	for _, profile := range snapshot.AgentProfiles {
-		if _, err := sources.AgentProfiles.Create(ctx, profile); err != nil {
-			t.Fatalf("Create profile %q: %v", profile.ID, err)
-		}
 	}
 	if _, err := sources.Skills.UpsertDiscovered(ctx, snapshot.Project.ID, snapshot.Skills); err != nil {
 		t.Fatalf("Upsert skills: %v", err)
@@ -2526,15 +2367,6 @@ func seedHecateSources(t *testing.T, ctx context.Context, sources SnapshotSource
 			}
 		}
 	}
-}
-
-func hasAgentProfile(profiles []agentprofiles.Profile, id string) bool {
-	for _, profile := range profiles {
-		if profile.ID == id {
-			return true
-		}
-	}
-	return false
 }
 
 func hasRole(roles []projectwork.AgentRoleProfile, id string) bool {

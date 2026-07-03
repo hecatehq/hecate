@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/hecatehq/cairnline"
-	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projectassistant"
 	"github.com/hecatehq/hecate/internal/projects"
@@ -21,7 +20,6 @@ import (
 
 type Snapshot struct {
 	Project            projects.Project
-	AgentProfiles      []agentprofiles.Profile
 	Skills             []projectskills.Skill
 	Roles              []projectwork.AgentRoleProfile
 	WorkItems          []projectwork.WorkItem
@@ -45,9 +43,6 @@ func SnapshotExecutionProfileCount(snapshot Snapshot) int {
 	if executionProfile, ok := ProjectExecutionProfile(snapshot.Project); ok {
 		add(executionProfile.ID)
 	}
-	for _, profile := range snapshot.AgentProfiles {
-		add(ExecutionProfile(profile).ID)
-	}
 	for _, role := range snapshot.Roles {
 		executionProfile, ok := RoleExecutionProfile(role)
 		if !ok {
@@ -62,7 +57,7 @@ func Seed(ctx context.Context, service *cairnline.Service, snapshot Snapshot) er
 	return SeedSnapshots(ctx, service, []Snapshot{snapshot})
 }
 
-func seedProjectScopedSnapshot(ctx context.Context, service *cairnline.Service, snapshot Snapshot, profilesByID map[string]agentprofiles.Profile) error {
+func seedProjectScopedSnapshot(ctx context.Context, service *cairnline.Service, snapshot Snapshot) error {
 	if _, err := service.CreateProject(ctx, Project(snapshot.Project)); err != nil {
 		return err
 	}
@@ -85,8 +80,7 @@ func seedProjectScopedSnapshot(ctx context.Context, service *cairnline.Service, 
 	}
 	for _, assignment := range snapshot.Assignments {
 		role := rolesByID[assignment.RoleID]
-		profile := profilesByID[role.DefaultAgentProfile]
-		item := Assignment(assignment, role, profile)
+		item := Assignment(assignment, role)
 		if _, err := service.CreateAssignment(ctx, item); err != nil {
 			return err
 		}
@@ -138,19 +132,6 @@ func seedProjectScopedSnapshot(ctx context.Context, service *cairnline.Service, 
 		}
 	}
 	return nil
-}
-
-func createExecutionProfileOnce(ctx context.Context, service *cairnline.Service, seen map[string]struct{}, profile cairnline.ExecutionProfile) error {
-	id := strings.TrimSpace(profile.ID)
-	if id == "" {
-		return nil
-	}
-	if _, ok := seen[id]; ok {
-		return nil
-	}
-	seen[id] = struct{}{}
-	_, err := service.CreateExecutionProfile(ctx, profile)
-	return err
 }
 
 func Project(project projects.Project) cairnline.Project {
@@ -209,38 +190,6 @@ func Source(item projects.ContextSource) cairnline.Source {
 		Metadata:       stringMapString(item.Metadata),
 		CreatedAt:      item.CreatedAt,
 		UpdatedAt:      item.UpdatedAt,
-	}
-}
-
-func AgentProfile(profile agentprofiles.Profile) cairnline.AgentProfile {
-	return cairnline.AgentProfile{
-		ID:           strings.TrimSpace(profile.ID),
-		Name:         strings.TrimSpace(profile.Name),
-		Description:  strings.TrimSpace(profile.Description),
-		Instructions: strings.TrimSpace(profile.Instructions),
-		MemoryPolicy: strings.TrimSpace(profile.ProjectMemoryPolicy),
-		SourcePolicy: strings.TrimSpace(profile.ContextSourcePolicy),
-		SkillIDs:     compactStrings(profile.SkillIDs),
-		CreatedAt:    profile.CreatedAt,
-		UpdatedAt:    profile.UpdatedAt,
-	}
-}
-
-func ExecutionProfile(profile agentprofiles.Profile) cairnline.ExecutionProfile {
-	return cairnline.ExecutionProfile{
-		ID:             firstNonEmpty(strings.TrimSpace(profile.ExecutionProfile), strings.TrimSpace(profile.ID)),
-		Name:           strings.TrimSpace(profile.Name),
-		Description:    strings.TrimSpace(profile.Description),
-		AgentKind:      executionAgentKind(profile),
-		ModelHint:      strings.TrimSpace(profile.ModelHint),
-		ProviderHint:   strings.TrimSpace(profile.ProviderHint),
-		ToolsPolicy:    boolPolicy(profile.ToolsEnabled),
-		WritesPolicy:   boolPolicy(profile.WritesAllowed),
-		NetworkPolicy:  boolPolicy(profile.NetworkAllowed),
-		ApprovalPolicy: strings.TrimSpace(profile.ApprovalPolicy),
-		AdapterOptions: stringMapAny(profile.ExternalAgentOptions),
-		CreatedAt:      profile.CreatedAt,
-		UpdatedAt:      profile.UpdatedAt,
 	}
 }
 
@@ -340,7 +289,7 @@ func WorkItem(item projectwork.WorkItem) cairnline.WorkItem {
 	}
 }
 
-func Assignment(assignment projectwork.Assignment, role projectwork.AgentRoleProfile, profile agentprofiles.Profile) cairnline.Assignment {
+func Assignment(assignment projectwork.Assignment, role projectwork.AgentRoleProfile) cairnline.Assignment {
 	return cairnline.Assignment{
 		ID:                 strings.TrimSpace(assignment.ID),
 		ProjectID:          strings.TrimSpace(assignment.ProjectID),
@@ -348,7 +297,7 @@ func Assignment(assignment projectwork.Assignment, role projectwork.AgentRolePro
 		RoleID:             strings.TrimSpace(assignment.RoleID),
 		RootID:             strings.TrimSpace(assignment.RootID),
 		ProfileID:          strings.TrimSpace(role.DefaultAgentProfile),
-		ExecutionProfileID: firstNonEmpty(roleExecutionProfileID(role), strings.TrimSpace(profile.ExecutionProfile), strings.TrimSpace(profile.ID)),
+		ExecutionProfileID: roleExecutionProfileID(role),
 		ExecutionMode:      ExecutionMode(assignment.DriverKind),
 		Status:             AssignmentStatus(assignment.Status),
 		DesiredAgent: cairnline.DesiredAgent{
@@ -622,20 +571,6 @@ func claimedBy(assignment cairnline.Assignment) string {
 		return "hecate"
 	}
 	return "external_adapter"
-}
-
-func executionAgentKind(profile agentprofiles.Profile) string {
-	if profile.ExternalAgentKind != "" {
-		return strings.TrimSpace(profile.ExternalAgentKind)
-	}
-	switch strings.TrimSpace(profile.Surface) {
-	case agentprofiles.SurfaceHecateTask, agentprofiles.SurfaceHecateChat:
-		return "hecate"
-	case agentprofiles.SurfaceExternalAgent:
-		return cairnline.DesiredAgentAny
-	default:
-		return cairnline.DesiredAgentAny
-	}
 }
 
 func roleExecutionProfileID(role projectwork.AgentRoleProfile) string {

@@ -283,13 +283,6 @@ func TestProjectHealth_StrictEmbeddedReadModelReadsWithoutHecateProject(t *testi
 		}); err != nil {
 			return err
 		}
-		if _, err := service.CreateAgentProfile(t.Context(), cairnline.AgentProfile{
-			ID:       "profile_embedded_health",
-			Name:     "Embedded Health Profile",
-			SkillIDs: []string{"health"},
-		}); err != nil {
-			return err
-		}
 		if _, err := service.CreateProject(t.Context(), cairnline.Project{
 			ID:                        projectID,
 			Name:                      "Embedded Health",

@@ -439,8 +439,9 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 				"id":   "launch_fixture",
 				"kind": "assignment_launch_packet",
 				"project": map[string]any{
-					"id":   projectID,
-					"name": "Fixture Project",
+					"id":                 projectID,
+					"name":               "Fixture Project",
+					"default_profile_id": firstNonEmpty(assignment.ProfileID, "profile_fixture"),
 				},
 				"work_item": map[string]any{
 					"id":         workItemID,
@@ -448,12 +449,9 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 					"title":      firstNonEmpty(cairnlineSidecarFixtureWorkItemTitle(state, input.ProjectID, workItemID), "Fixture Work"),
 				},
 				"role": map[string]any{
-					"id":   assignment.RoleID,
-					"name": firstNonEmpty(cairnlineSidecarFixtureRoleName(state, input.ProjectID, assignment.RoleID), "Fixture Reviewer"),
-				},
-				"profile": map[string]any{
-					"id":   firstNonEmpty(assignment.ProfileID, "profile_fixture"),
-					"name": "Fixture Profile",
+					"id":                 assignment.RoleID,
+					"name":               firstNonEmpty(cairnlineSidecarFixtureRoleName(state, input.ProjectID, assignment.RoleID), "Fixture Reviewer"),
+					"default_profile_id": firstNonEmpty(assignment.ProfileID, "profile_fixture"),
 				},
 				"execution_profile": map[string]any{
 					"id":           "exec_fixture",
@@ -475,6 +473,7 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 					"claimed_by":     assignment.ClaimedBy,
 					"execution_ref":  assignment.ExecutionRef,
 					"execution_mode": assignment.ExecutionMode,
+					"profile_id":     firstNonEmpty(assignment.ProfileID, "profile_fixture"),
 				},
 				"artifacts":         []map[string]any{{"id": "artifact_fixture"}},
 				"evidence":          []map[string]any{{"id": "evidence_fixture"}},

@@ -1399,12 +1399,9 @@ func (h *Handler) cairnlineReadModelReadiness() (bool, []string) {
 		return false, []string{"Hecate handler is not configured."}
 	}
 	sources := h.cairnlineSnapshotSources()
-	missing := make([]string, 0, 7)
+	missing := make([]string, 0, 6)
 	if sources.Projects == nil {
 		missing = append(missing, "projects store")
-	}
-	if sources.AgentProfiles == nil {
-		missing = append(missing, "agent presets store")
 	}
 	if sources.Skills == nil {
 		missing = append(missing, "project skills store")

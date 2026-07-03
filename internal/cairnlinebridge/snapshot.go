@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/hecatehq/cairnline"
-	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projectassistant"
 	"github.com/hecatehq/hecate/internal/projects"
@@ -18,7 +17,6 @@ var ErrSourceNotConfigured = errors.New("cairnline bridge source not configured"
 
 type SnapshotSources struct {
 	Projects         projects.Store
-	AgentProfiles    agentprofiles.Store
 	Skills           projectskills.Store
 	Work             projectwork.Store
 	Memory           memory.Store
@@ -57,9 +55,7 @@ func CairnlineSnapshot(snapshots []Snapshot) cairnline.Snapshot {
 	out := cairnline.Snapshot{
 		Version: cairnline.SnapshotVersion,
 	}
-	profilesByID := make(map[string]agentprofiles.Profile)
 	rolesByID := make(map[string]projectwork.AgentRoleProfile)
-	seenAgentProfiles := make(map[string]struct{})
 	seenExecutionProfiles := make(map[string]struct{})
 	addExecutionProfile := func(profile cairnline.ExecutionProfile) {
 		id := strings.TrimSpace(profile.ID)
@@ -75,26 +71,6 @@ func CairnlineSnapshot(snapshots []Snapshot) cairnline.Snapshot {
 	for _, snapshot := range snapshots {
 		if executionProfile, ok := ProjectExecutionProfile(snapshot.Project); ok {
 			addExecutionProfile(executionProfile)
-		}
-		for _, profile := range snapshot.AgentProfiles {
-			if _, seen := profilesByID[profile.ID]; seen {
-				continue
-			}
-			profilesByID[profile.ID] = profile
-		}
-	}
-	for _, snapshot := range snapshots {
-		for _, profile := range snapshot.AgentProfiles {
-			id := strings.TrimSpace(profile.ID)
-			if id == "" {
-				continue
-			}
-			if _, seen := seenAgentProfiles[id]; seen {
-				continue
-			}
-			seenAgentProfiles[id] = struct{}{}
-			out.AgentProfiles = append(out.AgentProfiles, AgentProfile(profile))
-			addExecutionProfile(ExecutionProfile(profile))
 		}
 	}
 	for _, snapshot := range snapshots {
@@ -116,8 +92,7 @@ func CairnlineSnapshot(snapshots []Snapshot) cairnline.Snapshot {
 		}
 		for _, assignment := range snapshot.Assignments {
 			role := rolesByID[assignment.RoleID]
-			profile := profilesByID[role.DefaultAgentProfile]
-			out.Assignments = append(out.Assignments, Assignment(assignment, role, profile))
+			out.Assignments = append(out.Assignments, Assignment(assignment, role))
 		}
 		for _, artifact := range snapshot.Artifacts {
 			if item, ok := Artifact(artifact); ok {
@@ -197,9 +172,6 @@ func LoadSnapshot(ctx context.Context, sources SnapshotSources, projectID string
 	if sources.Projects == nil {
 		return Snapshot{}, errors.Join(ErrSourceNotConfigured, errors.New("projects store is required"))
 	}
-	if sources.AgentProfiles == nil {
-		return Snapshot{}, errors.Join(ErrSourceNotConfigured, errors.New("agent presets store is required"))
-	}
 	if sources.Work == nil {
 		return Snapshot{}, errors.Join(ErrSourceNotConfigured, errors.New("project work store is required"))
 	}
@@ -209,10 +181,6 @@ func LoadSnapshot(ctx context.Context, sources SnapshotSources, projectID string
 	}
 	if !ok {
 		return Snapshot{}, projects.ErrNotFound
-	}
-	profiles, err := sources.AgentProfiles.List(ctx)
-	if err != nil {
-		return Snapshot{}, err
 	}
 	var skills []projectskills.Skill
 	if sources.Skills != nil {
@@ -269,7 +237,6 @@ func LoadSnapshot(ctx context.Context, sources SnapshotSources, projectID string
 	}
 	return Snapshot{
 		Project:            project,
-		AgentProfiles:      profiles,
 		Skills:             skills,
 		Roles:              roles,
 		WorkItems:          workItems,

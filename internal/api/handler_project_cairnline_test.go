@@ -193,8 +193,8 @@ func TestProjectCairnlineExportAPI_WritesRefreshableSQLiteExport(t *testing.T) {
 	if readModel.Data.RootCount != 1 || readModel.Data.ContextSourceCount != 0 || readModel.Data.WorkItemCount != 1 || readModel.Data.AssignmentCount != 1 || readModel.Data.ArtifactCount != 2 || readModel.Data.HandoffCount != 1 || readModel.Data.MemoryEntryCount != 1 || readModel.Data.MemoryCandidateCount != 1 || readModel.Data.AssistantProposalCount != 1 || readModel.Data.LaunchPacketCount != 1 {
 		t.Fatalf("read model counts = %+v, want bridged project counts", readModel.Data)
 	}
-	if readModel.Data.AgentProfileCount == 0 || readModel.Data.ExecutionProfileCount == 0 {
-		t.Fatalf("read model profile counts = agent %d execution %d, want seeded built-in/project profiles", readModel.Data.AgentProfileCount, readModel.Data.ExecutionProfileCount)
+	if readModel.Data.AgentProfileCount != 0 || readModel.Data.ExecutionProfileCount != 0 {
+		t.Fatalf("read model profile counts = agent %d execution %d, want Hecate presets excluded from portable read model", readModel.Data.AgentProfileCount, readModel.Data.ExecutionProfileCount)
 	}
 	if readModel.Data.LaunchPacketWarningCount != 0 || len(readModel.Data.LaunchPacketErrors) != 0 {
 		t.Fatalf("launch packet summary = warnings %d errors %+v, want clean portable packet coverage", readModel.Data.LaunchPacketWarningCount, readModel.Data.LaunchPacketErrors)
@@ -432,8 +432,8 @@ func TestProjectCairnlineSyncAPI_WritesDurableAllProjectsSQLiteDB(t *testing.T) 
 	if second.Data.Hecate.LaunchPackets != 1 || second.Data.Cairnline.LaunchPackets != 1 || second.Data.Hecate.LaunchWarnings != 0 || second.Data.Cairnline.LaunchWarnings != 0 || second.Data.Hecate.LaunchErrors != 0 || second.Data.Cairnline.LaunchErrors != 0 {
 		t.Fatalf("sync launch packet counts = hecate %+v cairnline %+v, want one clean packet", second.Data.Hecate, second.Data.Cairnline)
 	}
-	if second.Data.Hecate.AgentProfiles == 0 || second.Data.Cairnline.AgentProfiles == 0 || second.Data.Hecate.ExecutionProfiles == 0 || second.Data.Cairnline.ExecutionProfiles == 0 || second.Data.Hecate.Roles == 0 || second.Data.Cairnline.Roles == 0 {
-		t.Fatalf("sync profile/role counts = hecate %+v cairnline %+v, want seeded portable defaults", second.Data.Hecate, second.Data.Cairnline)
+	if second.Data.Hecate.AgentProfiles != 0 || second.Data.Cairnline.AgentProfiles != 0 || second.Data.Hecate.ExecutionProfiles != 0 || second.Data.Cairnline.ExecutionProfiles != 0 || second.Data.Hecate.Roles == 0 || second.Data.Cairnline.Roles != second.Data.Hecate.Roles {
+		t.Fatalf("sync portable counts = hecate %+v cairnline %+v, want roles mirrored and Hecate presets excluded", second.Data.Hecate, second.Data.Cairnline)
 	}
 	if !filepath.IsAbs(second.Data.DatabasePath) {
 		t.Fatalf("sync database path = %q, want absolute path", second.Data.DatabasePath)
@@ -597,8 +597,8 @@ func TestProjectCairnlineMirrorParityAPI_ReportsLiveMirrorMatch(t *testing.T) {
 	if len(response.Data.Differences) != 0 || len(response.Data.IDDifferences) != 0 || len(response.Data.ContentDifferences) != 0 {
 		t.Fatalf("mirror parity differences = %+v id %+v content %+v, want none", response.Data.Differences, response.Data.IDDifferences, response.Data.ContentDifferences)
 	}
-	if response.Data.Hecate.AgentProfiles == 0 || response.Data.Cairnline.AgentProfiles != response.Data.Hecate.AgentProfiles {
-		t.Fatalf("agent profile mirror counts = hecate %+v cairnline %+v, want built-in profiles seeded into the live mirror", response.Data.Hecate, response.Data.Cairnline)
+	if response.Data.Hecate.AgentProfiles != 0 || response.Data.Cairnline.AgentProfiles != 0 {
+		t.Fatalf("agent profile mirror counts = hecate %+v cairnline %+v, want Hecate presets excluded from live mirror", response.Data.Hecate, response.Data.Cairnline)
 	}
 }
 
@@ -755,10 +755,10 @@ func TestProjectCairnlineMirrorParityAPI_MatchesRepresentativeLiveProjectJourney
 		response.Data.Hecate.MemoryCandidates != 1 || response.Data.Cairnline.MemoryCandidates != 1 {
 		t.Fatalf("mirror counts = hecate %+v cairnline %+v, want representative graph parity", response.Data.Hecate, response.Data.Cairnline)
 	}
-	if response.Data.Hecate.AgentProfiles == 0 || response.Data.Cairnline.AgentProfiles != response.Data.Hecate.AgentProfiles ||
+	if response.Data.Hecate.AgentProfiles != 0 || response.Data.Cairnline.AgentProfiles != 0 ||
 		response.Data.Hecate.ExecutionProfiles == 0 || response.Data.Cairnline.ExecutionProfiles != response.Data.Hecate.ExecutionProfiles ||
 		response.Data.Hecate.Roles == 0 || response.Data.Cairnline.Roles != response.Data.Hecate.Roles {
-		t.Fatalf("profile/role mirror counts = hecate %+v cairnline %+v, want built-in and custom coordination metadata parity", response.Data.Hecate, response.Data.Cairnline)
+		t.Fatalf("profile/role mirror counts = hecate %+v cairnline %+v, want opaque preset hints and execution defaults mirrored without profile rows", response.Data.Hecate, response.Data.Cairnline)
 	}
 
 	readModel := mustRequestJSONStatus[ProjectCairnlineReadModelResponse](client, http.StatusOK, http.MethodGet, "/hecate/v1/projects/"+projectID+"/cairnline/embedded-read-model", "")
