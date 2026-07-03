@@ -431,6 +431,9 @@ func TestProjectCoordinationBackendStatus_StrictEmbeddedReadSmokeGateMissingMirr
 	if gate == nil || gate.Ready || gate.Status != "not_run" {
 		t.Fatalf("strict embedded gate = %+v, want missing-mirror not_run gate", gate)
 	}
+	if status.MigrationRehearsal == nil || status.MigrationRehearsal.Operation != "mirror_parity" || status.MigrationRehearsal.Status != "not_run" || status.MigrationRehearsal.CutoverReady {
+		t.Fatalf("migration rehearsal = %+v, want not-run mirror parity evidence while mirror is missing", status.MigrationRehearsal)
+	}
 	if !containsString(gate.ProbeURLs, projectCoordinationBackendSyncReadinessURL) || !strings.Contains(gate.Detail, projectCoordinationBackendSyncReadinessURL) {
 		t.Fatalf("strict embedded gate = %+v, want sync probe guidance", gate)
 	}
@@ -468,11 +471,16 @@ func TestProjectCoordinationBackendStatus_StrictEmbeddedReadSmokeGateVerifiedAft
 	if gate == nil || !gate.Ready || gate.Status != "verified" || !strings.Contains(gate.Detail, "strict embedded read smoke passed") {
 		t.Fatalf("strict embedded gate = %+v, want verified strict embedded smoke gate", gate)
 	}
+	if status.MigrationRehearsal == nil || status.MigrationRehearsal.Operation != "mirror_parity" || status.MigrationRehearsal.Status != "verified" || !projectCairnlineMigrationRollbackEvidenceReady(status.MigrationRehearsal) {
+		t.Fatalf("migration rehearsal = %+v, want backend status to expose verified mirror-parity rollback evidence", status.MigrationRehearsal)
+	}
 	if status.ReplacementReady {
 		t.Fatalf("replacement_ready = true, want false while migration/cutover gate remains blocked")
 	}
 	if migrationGate := findReplacementGate(status.ReplacementGates, "migration-and-rollback"); migrationGate == nil || migrationGate.Ready || migrationGate.Status != "cutover_switch_missing" {
 		t.Fatalf("migration gate = %+v, want cutover-switch blocker after strict embedded verification", migrationGate)
+	} else if !strings.Contains(migrationGate.Detail, "rollback notes") {
+		t.Fatalf("migration gate = %+v, want rollback evidence detail", migrationGate)
 	}
 	if status.NextReplacementAction == nil || status.NextReplacementAction.ID != "implement-migration-cutover" {
 		t.Fatalf("next action = %+v, want cutover implementation after read/write gates are ready", status.NextReplacementAction)
@@ -521,6 +529,9 @@ func TestProjectCoordinationBackendStatus_EmbeddedReplacementModeReportsCairnlin
 	}
 	if len(status.MigrationBlockers) != 0 {
 		t.Fatalf("migration blockers = %+v, want none after embedded replacement cutover is armed", status.MigrationBlockers)
+	}
+	if status.MigrationRehearsal == nil || !projectCairnlineMigrationRollbackEvidenceReady(status.MigrationRehearsal) || len(status.MigrationRehearsal.Rollback) == 0 {
+		t.Fatalf("migration rehearsal = %+v, want replacement-ready status to expose verified rollback evidence", status.MigrationRehearsal)
 	}
 	if gate := findReplacementGate(status.ReplacementGates, "migration-and-rollback"); gate == nil || !gate.Ready || gate.Status != "ready" {
 		t.Fatalf("migration gate = %+v, want ready migration gate after embedded replacement cutover is armed", gate)
@@ -1095,6 +1106,20 @@ func TestProjectCoordinationBackendStatus_WriteAuthorityGateUsesPortableGaps(t *
 	gate = projectCairnlineWriteAuthorityReplacementGate([]string{"memory-candidates"})
 	if gate.Ready || gate.Status != "partial" || !strings.Contains(gate.Detail, "memory-candidates") {
 		t.Fatalf("write-authority gate = %+v, want partial when portable write gaps remain", gate)
+	}
+}
+
+func TestProjectCoordinationBackendStatus_MigrationRollbackGateRequiresRehearsalEvidence(t *testing.T) {
+	strictGate := ProjectCoordinationBackendReplacementGate{ID: "strict-embedded-read-smoke", Ready: true, Status: "verified"}
+	gate := projectCairnlineMigrationRollbackReplacementGate(strictGate, nil, false)
+	if gate.Ready || gate.Status != "rehearsal_incomplete" || !strings.Contains(gate.Detail, "does not include mirror-parity") {
+		t.Fatalf("migration gate = %+v, want missing rehearsal evidence blocker", gate)
+	}
+
+	rehearsal := projectCairnlineMigrationRehearsal("mirror_parity", true, true, nil)
+	gate = projectCairnlineMigrationRollbackReplacementGate(strictGate, &rehearsal, true)
+	if gate.Ready || gate.Status != "rehearsal_incomplete" || !strings.Contains(gate.Detail, "strict-embedded-read-smoke") {
+		t.Fatalf("migration gate = %+v, want incomplete smoke evidence to block even when replacement mode is armed", gate)
 	}
 }
 

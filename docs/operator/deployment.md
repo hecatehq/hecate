@@ -660,10 +660,14 @@ and a configured data directory are active, the strict read-smoke gate is driven
 by the same read-only mirror-parity evidence returned by
 `GET /hecate/v1/projects/cairnline/mirror-parity`: a missing mirror reports
 `not_run`, mirror drift reports `drift_detected`, and an exact mirror with passing
-strict embedded route smoke reports `verified`. The migration/rollback gate then
-reports `waiting_for_read_smoke` until that evidence is verified, and
-`cutover_switch_missing` once the read evidence is clean but the explicit
-authoritative storage cutover switch still does not exist. When
+strict embedded route smoke reports `verified`. Backend status also exposes the
+same mirror-parity `migration_rehearsal` object so operators can inspect the
+snapshot-import checklist, rollback notes, and strict embedded smoke details
+without calling the probe endpoint separately. The migration/rollback gate then
+reports `waiting_for_read_smoke` until read evidence is verified,
+`rehearsal_incomplete` when the attached rehearsal evidence is missing or
+incomplete, and `cutover_switch_missing` once the rehearsal evidence is clean
+but the explicit authoritative storage cutover switch still does not exist. When
 `HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded` is armed after strict
 embedded reads are verified and all portable write-authority gaps are closed,
 backend status treats that mode as the explicit embedded cutover switch, clears

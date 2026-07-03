@@ -131,9 +131,13 @@ When configured for the embedded connector, strict embedded read source, and a
 runtime data directory, the strict embedded read-smoke gate is backed by the
 read-only mirror-parity probe: missing mirrors, drift, probe errors, and verified
 route smoke are reflected directly in backend status instead of relying only on
-manual checklist prose. The migration/rollback gate depends on that read-smoke
-evidence: it waits for verified strict embedded reads first, then reports the
-remaining missing authoritative cutover/rollback switch separately. Once strict
+manual checklist prose. Backend status also carries the mirror-parity
+`migration_rehearsal` object when available, so the replacement gate can inspect
+snapshot-import/parity/smoke checks and rollback notes as structured evidence.
+The migration/rollback gate depends on that read-smoke and rehearsal evidence:
+it waits for verified strict embedded reads first, reports incomplete rehearsal
+evidence separately, then reports the remaining missing authoritative
+cutover/rollback switch. Once strict
 embedded reads are verified, all portable write-authority gaps are closed, and
 `HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded` is armed, backend status
 treats that replacement mode as the explicit embedded cutover switch, clears the
