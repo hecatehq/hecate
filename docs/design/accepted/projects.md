@@ -525,15 +525,10 @@ enabled, in which case they commit to Cairnline first and then shadow candidate
 state and promoted memory references back into Hecate. In those memory
 authority modes, Hecate can validate the project from the embedded Cairnline
 graph, keep Hecate memory rows as compatibility shadows, and leave the
-Hecate-native project row absent. Global
-Agent Preset create/update/delete routes also mirror Hecate-owned preset compatibility metadata
-and execution posture after Hecate commits unless
-`HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=agent-profiles` is enabled. With
-that opt-in switchpoint, Agent Preset create/update/delete commits
-Cairnline embedded compatibility records for Hecate preset metadata and runtime posture first, then
-best-effort shadows Hecate's combined preset row back into Hecate-native stores
-for compatibility. The delete mirror removes only the profile record because
-execution-profile posture can be shared. Project Assistant draft/propose/apply
+Hecate-native project row absent. Global Agent Preset create/update/delete routes
+can best-effort mirror Hecate-owned preset compatibility metadata and execution
+posture after Hecate commits. That mirror is a Hecate bridge hint, not a
+Cairnline write-authority switchpoint. Project Assistant draft/propose/apply
 routes mirror the proposal ledger and committed apply side effects after Hecate
 commits proposal records and apply attempts unless `project-assistant-proposals`
 is enabled, in which case the proposal ledger commits to Cairnline first,
@@ -550,8 +545,8 @@ but they are still proofs, not the live Projects backend.
 
 The first non-authoritative write-adapter seams exist in `cairnlinebridge` for
 project identity, embedded roots, context sources, project defaults,
-project-level execution-profile cleanup, agent-profile upserts/deletes with
-execution-posture upsert, project skill metadata upserts,
+project-level execution-profile cleanup, Hecate preset compatibility
+upserts/deletes with execution-posture upsert, project skill metadata upserts,
 role upserts/deletes with role-level execution-profile cleanup, work-item
 upserts/deletes, assignment metadata upsert/delete plus lifecycle-status sync,
 and project memory entry/candidate upserts and deletes. Create-if-missing seams
@@ -596,9 +591,6 @@ move with `project-roots`; worktree-created root records also move with
 worktree creation side effects; in those authority modes, discovery and
 worktree-created root record mutations can run against a Cairnline-only project
 graph;
-`agent-profiles-live-mirror` covers global
-Agent Preset create/update/delete metadata and can be switched to Cairnline
-authority with `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=agent-profiles`;
 `project-skills-live-mirror` covers project skill discovery/update metadata,
 with native skill-registry compatibility rows skipped in armed embedded
 replacement mode;
@@ -629,9 +621,7 @@ records move with `project-context-sources` and root discovery records move
 with `project-roots`; worktree-created root records also move with
 `project-roots`, leaving the root/workspace scans and Git worktree creation
 side effects Hecate-owned and allowing those authority routes to run against a
-Cairnline-only project graph; `agent-profiles` can make
-global Agent Preset create/update/delete Cairnline-authoritative while Hecate
-shadows its combined preset row for compatibility; `project-skills` can make
+Cairnline-only project graph; `project-skills` can make
 project skill discovery/update Cairnline-authoritative against a Cairnline-only
 project graph; `project-roles` and `project-work-items` can make role and
 work-item create/update/delete

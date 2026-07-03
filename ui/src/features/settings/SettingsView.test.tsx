@@ -99,7 +99,7 @@ describe("SettingsView", () => {
         replacement_mode_detail:
           "Embedded Cairnline replacement mode is disabled; Hecate will not report Projects as replaceable without an explicit operator cutover-mode opt-in.",
         read_routes: ["project-list", "project-detail"],
-        portable_write_gaps: ["agent-profiles", "memory-candidates"],
+        portable_write_gaps: ["project-skills", "memory-candidates"],
         orchestrator_capabilities: ["assignment-start"],
         migration_blockers: ["migration-cutover"],
         migration_rehearsal: {
@@ -145,15 +145,15 @@ describe("SettingsView", () => {
         },
         write_switchpoints: [
           {
-            name: "agent-profiles",
+            name: "skills",
             current_authority: "hecate",
             cairnline_state: "live_mirror_non_authoritative",
             live_mirror: true,
             blocks_authority: true,
-            seams: ["agent-profiles-live-mirror"],
-            gap: "agent-profiles",
+            seams: ["project-skills-live-mirror"],
+            gap: "skills",
             detail:
-              "Agent Preset CRUD still commits to Hecate first, then mirrors Hecate-specific preset compatibility metadata and runtime posture into Cairnline.",
+              "Project skill discovery/update still commits metadata to Hecate first, then mirrors metadata-only skill records into Cairnline.",
           },
           {
             name: "assignment-start-dispatch",
@@ -172,12 +172,12 @@ describe("SettingsView", () => {
           label: "Move the next portable write authority",
           detail:
             "Close the next portable project-state gap by adding a Cairnline-authoritative switchpoint while keeping Hecate as compatibility shadow.",
-          target: "agent-profiles",
+          target: "project-skills",
           config_hints: [
             {
               env: "HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY",
-              value: "agent-profiles",
-              detail: "Enable the profile switchpoint before moving profile writes.",
+              value: "project-skills",
+              detail: "Enable the skill switchpoint before moving skill metadata writes.",
             },
           ],
           probe_urls: ["/hecate/v1/projects/{id}/cairnline/read-model"],
@@ -196,7 +196,7 @@ describe("SettingsView", () => {
             ready: false,
             status: "partial",
             detail:
-              "Some portable project-state mutation switchpoints are Cairnline-authoritative; remaining portable write gaps: agent-profiles, memory-candidates.",
+              "Some portable project-state mutation switchpoints are Cairnline-authoritative; remaining portable write gaps: project-skills, memory-candidates.",
           },
           {
             id: "migration-and-rollback",
@@ -252,11 +252,11 @@ describe("SettingsView", () => {
     expect(screen.getByText("embedded smoke passed")).toBeTruthy();
     expect(screen.getByText("38 route checks")).toBeTruthy();
     expect(screen.getByText("Write switchpoints")).toBeTruthy();
-    expect(screen.getAllByText("agent presets").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("skills").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("live mirror non authoritative")).toHaveClass("badge-amber");
     expect(screen.getByText("blocks authority")).toBeTruthy();
-    expect(screen.getByText("gap agent presets")).toBeTruthy();
-    expect(screen.getByText("agent presets live mirror")).toBeTruthy();
+    expect(screen.getByText("gap skills")).toBeTruthy();
+    expect(screen.getByText("project skills live mirror")).toBeTruthy();
     expect(screen.getByText("assignment start dispatch")).toBeTruthy();
     expect(screen.getByText("result mirror only")).toBeTruthy();
     expect(screen.getByText("non-blocking")).toBeTruthy();
@@ -267,11 +267,11 @@ describe("SettingsView", () => {
     expect(screen.getByText("partial")).toBeTruthy();
     expect(screen.getByText("rehearsal available")).toBeTruthy();
     expect(
-      screen.getByText("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=agent-profiles"),
+      screen.getByText("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-skills"),
     ).toBeTruthy();
     expect(screen.getByText("Configuration hints")).toBeTruthy();
     expect(
-      screen.getByText("Enable the profile switchpoint before moving profile writes."),
+      screen.getByText("Enable the skill switchpoint before moving skill metadata writes."),
     ).toBeTruthy();
     expect(screen.getAllByText("1 probe").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("/hecate/v1/projects/{id}/cairnline/read-model").length).toBe(2);
