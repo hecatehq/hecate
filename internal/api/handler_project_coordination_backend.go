@@ -457,7 +457,64 @@ func projectCairnlineStatusWithNextAction(response ProjectCoordinationBackendSta
 		response.Warnings = projectCairnlineReplacementReadyWarnings(response.OrchestratorCapabilities)
 	}
 	response.NextReplacementAction = projectCairnlineNextReplacementAction(response)
+	projectCairnlineHydrateProbeMetadata(&response)
 	return response
+}
+
+func projectCairnlineHydrateProbeMetadata(response *ProjectCoordinationBackendStatusResponse) {
+	if response == nil {
+		return
+	}
+	for i := range response.ReplacementGates {
+		if len(response.ReplacementGates[i].Probes) == 0 {
+			response.ReplacementGates[i].Probes = projectCairnlineProbesForURLs(response.ReplacementGates[i].ProbeURLs)
+		}
+	}
+	if response.NextReplacementAction != nil && len(response.NextReplacementAction.Probes) == 0 {
+		response.NextReplacementAction.Probes = projectCairnlineProbesForURLs(response.NextReplacementAction.ProbeURLs)
+	}
+}
+
+func projectCairnlineProbesForURLs(urls []string) []ProjectCoordinationBackendProbe {
+	if len(urls) == 0 {
+		return nil
+	}
+	probes := make([]ProjectCoordinationBackendProbe, 0, len(urls))
+	for _, url := range urls {
+		url = strings.TrimSpace(url)
+		if url == "" {
+			continue
+		}
+		probes = append(probes, ProjectCoordinationBackendProbe{
+			Method: projectCairnlineProbeMethod(url),
+			URL:    url,
+		})
+	}
+	return probes
+}
+
+func projectCairnlineProbeMethod(url string) string {
+	switch strings.TrimSpace(url) {
+	case projectCoordinationBackendSyncReadinessURL,
+		projectCoordinationBackendExportURL,
+		projectCoordinationBackendSidecarProbeURL,
+		projectCoordinationBackendSidecarConnectURL,
+		projectCoordinationBackendSidecarReadURL,
+		projectCoordinationBackendSidecarDetailURL,
+		projectCoordinationBackendSidecarCoordinationURL,
+		projectCoordinationBackendSidecarAssignmentContextURL,
+		projectCoordinationBackendSidecarLaunchPacketURL,
+		projectCoordinationBackendSidecarLifecycleURL,
+		projectCoordinationBackendSidecarSetupURL,
+		projectCoordinationBackendSidecarWriteURL,
+		projectCoordinationBackendSidecarWorkURL,
+		projectCoordinationBackendSidecarCollaborationURL,
+		projectCoordinationBackendSidecarMemoryURL,
+		projectCoordinationBackendSidecarAssistantURL:
+		return http.MethodPost
+	default:
+		return http.MethodGet
+	}
 }
 
 func projectCairnlineReplacementReadyDetail() string {

@@ -5,7 +5,10 @@ import { useWiredDashboardActions } from "../../app/state/coordinators/wired";
 import { useSettings } from "../../app/state/settings";
 import { getPlugins, getProjectCoordinationBackendStatus, resetSystemData } from "../../lib/api";
 import type { PluginRecord } from "../../types/plugin";
-import type { ProjectCoordinationBackendStatusRecord } from "../../types/project";
+import type {
+  ProjectCoordinationBackendProbeRecord,
+  ProjectCoordinationBackendStatusRecord,
+} from "../../types/project";
 import { Badge, ConfirmModal, Icon, Icons, InlineError } from "../shared/ui";
 
 export function SettingsView() {
@@ -433,7 +436,7 @@ function ProjectBackendGateList({
       </div>
       <div style={{ display: "grid", gap: 7 }}>
         {gates.map((gate) => {
-          const probes = gate.probe_urls ?? [];
+          const probes = projectBackendProbes(gate.probes, gate.probe_urls);
           return (
             <div
               key={gate.id}
@@ -486,7 +489,7 @@ function ProjectBackendNextAction({
 }: {
   action: NonNullable<ProjectCoordinationBackendStatusRecord["next_replacement_action"]>;
 }) {
-  const probes = action.probe_urls ?? [];
+  const probes = projectBackendProbes(action.probes, action.probe_urls);
   const configHints = action.config_hints ?? [];
   return (
     <div
@@ -549,7 +552,7 @@ function ProjectBackendNextAction({
   );
 }
 
-function ProjectBackendProbeList({ probes }: { probes: string[] }) {
+function ProjectBackendProbeList({ probes }: { probes: ProjectCoordinationBackendProbeRecord[] }) {
   return (
     <div style={{ display: "grid", gap: 4 }}>
       <div
@@ -564,13 +567,16 @@ function ProjectBackendProbeList({ probes }: { probes: string[] }) {
       </div>
       <div style={{ display: "grid", gap: 4 }}>
         {probes.map((probe, index) => (
-          <code
-            key={`${probe}:${index}`}
+          <div
+            key={`${probe.method}:${probe.url}:${index}`}
             style={{
+              alignItems: "center",
               background: "var(--bg3)",
               border: "1px solid var(--border)",
               borderRadius: "var(--radius-sm)",
               color: "var(--t1)",
+              display: "flex",
+              gap: 7,
               fontFamily: "var(--font-mono)",
               fontSize: 11,
               overflowWrap: "anywhere",
@@ -578,12 +584,36 @@ function ProjectBackendProbeList({ probes }: { probes: string[] }) {
               whiteSpace: "normal",
             }}
           >
-            {probe}
-          </code>
+            <span className="badge badge-muted" style={{ flexShrink: 0, textTransform: "none" }}>
+              {probe.method || "GET"}
+            </span>
+            <code style={{ overflowWrap: "anywhere", whiteSpace: "normal" }}>{probe.url}</code>
+          </div>
         ))}
       </div>
     </div>
   );
+}
+
+function projectBackendProbes(
+  probes: ProjectCoordinationBackendProbeRecord[] | undefined,
+  probeURLs: string[] | undefined,
+): ProjectCoordinationBackendProbeRecord[] {
+  if (probes && probes.length > 0) {
+    return probes;
+  }
+  return (probeURLs ?? []).map((url) => ({ method: projectBackendProbeMethod(url), url }));
+}
+
+function projectBackendProbeMethod(url: string): string {
+  if (
+    url === "/hecate/v1/projects/cairnline/sync" ||
+    url.endsWith("/cairnline/export") ||
+    url.includes("/cairnline/sidecar-")
+  ) {
+    return "POST";
+  }
+  return "GET";
 }
 
 function projectBackendTitle(status: ProjectCoordinationBackendStatusRecord): string {

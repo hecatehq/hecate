@@ -76,7 +76,13 @@ export type ProjectCoordinationBackendReplacementGateRecord = {
   ready: boolean;
   status: string;
   detail: string;
+  probes?: ProjectCoordinationBackendProbeRecord[];
   probe_urls?: string[];
+};
+
+export type ProjectCoordinationBackendProbeRecord = {
+  method: string;
+  url: string;
 };
 
 export type ProjectCoordinationBackendWriteSwitchpointRecord = {
@@ -100,6 +106,7 @@ export type ProjectCoordinationBackendNextActionRecord = {
     value: string;
     detail?: string;
   }>;
+  probes?: ProjectCoordinationBackendProbeRecord[];
   probe_urls?: string[];
 };
 

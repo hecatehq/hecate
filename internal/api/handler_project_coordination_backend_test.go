@@ -992,6 +992,9 @@ func TestProjectCoordinationBackendStatus_CairnlineAllPortableWriteAuthorityAlia
 	if !containsString(status.NextReplacementAction.ProbeURLs, projectCoordinationBackendSyncReadinessURL) || !containsString(status.NextReplacementAction.ProbeURLs, projectCoordinationBackendMirrorParityURL) {
 		t.Fatalf("next action probe URLs = %+v, want strict embedded sync and mirror-parity probes", status.NextReplacementAction.ProbeURLs)
 	}
+	if !hasProbe(status.NextReplacementAction.Probes, http.MethodPost, projectCoordinationBackendSyncReadinessURL) || !hasProbe(status.NextReplacementAction.Probes, http.MethodGet, projectCoordinationBackendMirrorParityURL) {
+		t.Fatalf("next action probes = %+v, want POST sync and GET mirror-parity probes", status.NextReplacementAction.Probes)
+	}
 	if hint := findConfigHint(status.NextReplacementAction.ConfigHints, "HECATE_PROJECTS_CAIRNLINE_CONNECTOR"); hint == nil || hint.Value != "embedded" {
 		t.Fatalf("next action config hints = %+v, want embedded connector hint", status.NextReplacementAction.ConfigHints)
 	}
@@ -1030,6 +1033,9 @@ func TestProjectCoordinationBackendStatus_CairnlineEmbeddedReplacementModeArmed(
 	}
 	if !containsString(status.NextReplacementAction.ProbeURLs, projectCoordinationBackendSyncReadinessURL) || !containsString(status.NextReplacementAction.ProbeURLs, projectCoordinationBackendMirrorParityURL) {
 		t.Fatalf("next action probe URLs = %+v, want strict embedded sync and mirror-parity probes", status.NextReplacementAction.ProbeURLs)
+	}
+	if !hasProbe(status.NextReplacementAction.Probes, http.MethodPost, projectCoordinationBackendSyncReadinessURL) || !hasProbe(status.NextReplacementAction.Probes, http.MethodGet, projectCoordinationBackendMirrorParityURL) {
+		t.Fatalf("next action probes = %+v, want POST sync and GET mirror-parity probes", status.NextReplacementAction.Probes)
 	}
 }
 
@@ -1185,6 +1191,9 @@ func TestProjectCoordinationBackendStatusRoute(t *testing.T) {
 	if !containsString(migrationGate.ProbeURLs, projectCoordinationBackendSyncReadinessURL) || !containsString(migrationGate.ProbeURLs, projectCoordinationBackendMirrorParityURL) || !containsString(migrationGate.ProbeURLs, projectCoordinationBackendExportURL) {
 		t.Fatalf("response migration gate probe URLs = %+v, want sync, mirror parity, and export probes", migrationGate.ProbeURLs)
 	}
+	if !hasProbe(migrationGate.Probes, http.MethodPost, projectCoordinationBackendSyncReadinessURL) || !hasProbe(migrationGate.Probes, http.MethodGet, projectCoordinationBackendMirrorParityURL) || !hasProbe(migrationGate.Probes, http.MethodPost, projectCoordinationBackendExportURL) {
+		t.Fatalf("response migration gate probes = %+v, want POST sync, GET mirror parity, and POST export probes", migrationGate.Probes)
+	}
 	if response.Data.NextReplacementAction == nil || response.Data.NextReplacementAction.ID != "move-portable-write-authority" || response.Data.NextReplacementAction.Target == "" {
 		t.Fatalf("response next action = %+v, want portable write-authority action", response.Data.NextReplacementAction)
 	}
@@ -1234,4 +1243,13 @@ func findConfigHint(items []ProjectCoordinationBackendActionConfigHint, env stri
 		}
 	}
 	return nil
+}
+
+func hasProbe(items []ProjectCoordinationBackendProbe, method, url string) bool {
+	for _, item := range items {
+		if item.Method == method && item.URL == url {
+			return true
+		}
+	}
+	return false
 }
