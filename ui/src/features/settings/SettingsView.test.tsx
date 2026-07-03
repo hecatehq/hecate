@@ -136,6 +136,7 @@ describe("SettingsView", () => {
             {
               env: "HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY",
               value: "agent-profiles",
+              detail: "Enable the profile switchpoint before moving profile writes.",
             },
           ],
           probe_urls: ["/hecate/v1/projects/{id}/cairnline/read-model"],
@@ -216,6 +217,10 @@ describe("SettingsView", () => {
     expect(screen.getAllByText("agent-profiles").length).toBeGreaterThanOrEqual(1);
     expect(
       screen.getByText("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=agent-profiles"),
+    ).toBeTruthy();
+    expect(screen.getByText("Configuration hints")).toBeTruthy();
+    expect(
+      screen.getByText("Enable the profile switchpoint before moving profile writes."),
     ).toBeTruthy();
     expect(screen.getAllByText("1 probe").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("/hecate/v1/projects/{id}/cairnline/read-model").length).toBe(2);

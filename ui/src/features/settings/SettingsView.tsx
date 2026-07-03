@@ -623,26 +623,70 @@ function ProjectBackendNextAction({
       <div style={{ color: "var(--t0)", fontSize: 13, fontWeight: 650 }}>{action.label}</div>
       <div style={{ color: "var(--t2)", fontSize: 12, lineHeight: 1.45 }}>{action.detail}</div>
       {probes.length > 0 && <ProjectBackendProbeList probes={probes} checklist />}
-      {configHints.length > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {configHints.map((hint) => (
-            <span
-              key={`${hint.env}:${hint.value}`}
-              className="badge badge-muted"
+      {configHints.length > 0 && <ProjectBackendConfigHints hints={configHints} />}
+    </div>
+  );
+}
+
+function ProjectBackendConfigHints({
+  hints,
+}: {
+  hints: NonNullable<
+    NonNullable<ProjectCoordinationBackendStatusRecord["next_replacement_action"]>["config_hints"]
+  >;
+}) {
+  return (
+    <div style={{ display: "grid", gap: 4 }}>
+      <div
+        style={{
+          color: "var(--t3)",
+          fontFamily: "var(--font-mono)",
+          fontSize: 10,
+          textTransform: "uppercase",
+        }}
+      >
+        Configuration hints
+      </div>
+      <div style={{ display: "grid", gap: 4 }}>
+        {hints.map((hint) => {
+          const assignment = `${hint.env}=${hint.value}`;
+          return (
+            <div
+              key={assignment}
               style={{
-                fontFamily: "var(--font-mono)",
-                maxWidth: "100%",
-                overflowWrap: "anywhere",
-                textTransform: "none",
-                whiteSpace: "normal",
+                alignItems: "center",
+                background: "var(--bg3)",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius-sm)",
+                display: "grid",
+                gap: 7,
+                gridTemplateColumns: "minmax(0, 1fr) auto",
+                padding: "7px 9px",
               }}
-              title={hint.detail || `${hint.env}=${hint.value}`}
             >
-              {hint.env}={hint.value}
-            </span>
-          ))}
-        </div>
-      )}
+              <div style={{ display: "grid", gap: hint.detail ? 3 : 0, minWidth: 0 }}>
+                <code
+                  style={{
+                    color: "var(--t1)",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 11,
+                    overflowWrap: "anywhere",
+                    whiteSpace: "normal",
+                  }}
+                >
+                  {assignment}
+                </code>
+                {hint.detail && (
+                  <span style={{ color: "var(--t3)", fontSize: 11, lineHeight: 1.4 }}>
+                    {hint.detail}
+                  </span>
+                )}
+              </div>
+              <CopyBtn text={assignment} />
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

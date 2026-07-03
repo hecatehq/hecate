@@ -678,13 +678,13 @@ diagnostic list into
 `orchestrator_capabilities`, and `migration_blockers`, so durable
 coordination-state switchpoint work is separated from Hecate-owned
 runtime/workspace capabilities and final cutover work. Settings shows the same
-backend-status summary, turns the next action's probes into a run-in-order
-checklist, keeps replacement gates as supporting evidence, and lists
-write-switchpoint authority/state rows under Project coordination for local
-operator inspection. The reported replacement target is embedded Cairnline
-first: Hecate should make the embedded Cairnline database the Projects source of
-truth before treating an external sidecar as the standalone/interoperability
-boundary. `replacement_mode=disabled|embedded`
+backend-status summary, shows copyable next-action configuration hints, turns
+the next action's probes into a run-in-order checklist, keeps replacement gates
+as supporting evidence, and lists write-switchpoint authority/state rows under
+Project coordination for local operator inspection. The reported replacement
+target is embedded Cairnline first: Hecate should make the embedded Cairnline
+database the Projects source of truth before treating an external sidecar as the
+standalone/interoperability boundary. `replacement_mode=disabled|embedded`
 reports the explicit operator cutover arm; `embedded` is only valid with the
 embedded connector and strict embedded read source, and it does not bypass the
 read, write-authority, migration, rollback, or Hecate-owned runtime side-effect
