@@ -617,10 +617,12 @@ Project Assistant draft/propose/apply
 ledger mutations likewise best-effort mirror proposal records and apply attempts
 after Hecate commits unless `project-assistant-proposals` is enabled, in which
 case the proposal ledger commits to Cairnline first and shadows Hecate's
-proposal store for compatibility. Confirmed apply uses the enabled Cairnline
-authority seams for project create, project metadata/default, root, role,
-work-item, assignment, handoff, and memory-candidate actions, but chat/runtime
-effects remain Hecate-owned orchestrator capabilities outside Cairnline core.
+proposal store for compatibility; armed embedded replacement mode skips those
+native proposal compatibility shadows. Confirmed apply uses the enabled
+Cairnline authority seams for project create, project metadata/default, root,
+role, work-item, assignment, handoff, and memory-candidate actions, but
+chat/runtime effects remain Hecate-owned orchestrator capabilities outside
+Cairnline core.
 Other live Projects reads/writes still use Hecate-native
 stores until the remaining read routes, write adapter, and migration path are
 ready. Current bridge write experiments cover non-authoritative

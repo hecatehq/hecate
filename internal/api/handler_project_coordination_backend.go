@@ -431,7 +431,7 @@ func (h *Handler) projectCoordinationBackendStatusWithContext(ctx context.Contex
 				projectCairnlineProjectAssignmentWriteWarning(writeAuthority),
 				projectCairnlineProjectCollaborationWriteWarning(writeAuthority),
 				projectCairnlineProjectMemoryWriteWarning(writeAuthority),
-				projectCairnlineProjectAssistantProposalWriteWarning(writeAuthority),
+				projectCairnlineProjectAssistantProposalWriteWarning(writeAuthority, nativeShadowSkipArmed),
 				projectCairnlineProjectAssistantApplyWriteWarning(writeAuthority),
 				"Other project mutation routes still write only Hecate-native stores.",
 				"Cairnline write-adapter seams are non-authoritative proofs; live write authority and migration path are not ready.",
@@ -1204,6 +1204,9 @@ func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string, nativeSh
 			if projectAssistantPortableEffectsAuthoritative {
 				item.Detail = "Project Assistant draft/propose/apply-attempt ledger records commit to the embedded Cairnline database first, then best-effort shadow Hecate's proposal store for compatibility; confirmed apply is mixed-authority when enabled portable actions route through Cairnline."
 			}
+			if nativeShadowSkipArmed {
+				item.Detail = "Project Assistant draft/propose/apply-attempt ledger records commit to the embedded Cairnline database first and, in armed embedded replacement mode, skip native proposal ledger compatibility rows; confirmed apply remains mixed-authority when enabled portable actions route through Cairnline."
+			}
 		}
 		if projectAssistantPortableEffectsAuthoritative && item.Name == "project-assistant-apply-side-effects" {
 			item.CurrentAuthority = "mixed"
@@ -1355,8 +1358,14 @@ func projectCairnlineProjectAssignmentWriteWarning(writeAuthority []string) stri
 	return "Project assignment create/update/delete mutations still write Hecate-native stores first, then best-effort mirror coordination metadata into Cairnline; assignment start remains Hecate-owned and best-effort mirrors committed start and linked-chat reconciliation results."
 }
 
-func projectCairnlineProjectAssistantProposalWriteWarning(writeAuthority []string) string {
+func projectCairnlineProjectAssistantProposalWriteWarning(writeAuthority []string, nativeShadowSkipArmed bool) string {
 	if projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectAssistantProposals) {
+		if nativeShadowSkipArmed {
+			if projectCairnlineAssistantApplyPortableEffectsAuthoritative(writeAuthority) {
+				return "Project Assistant proposal ledger mutations are opt-in Cairnline-authoritative and skip native proposal ledger compatibility rows in armed embedded replacement mode; confirmed apply is mixed-authority when enabled portable actions route through Cairnline."
+			}
+			return "Project Assistant proposal ledger mutations are opt-in Cairnline-authoritative and skip native proposal ledger compatibility rows in armed embedded replacement mode; confirmed apply side effects still execute through Hecate-owned project mutation services."
+		}
 		if projectCairnlineAssistantApplyPortableEffectsAuthoritative(writeAuthority) {
 			return "Project Assistant proposal ledger mutations are opt-in Cairnline-authoritative and then best-effort shadowed into Hecate-native stores for compatibility; confirmed apply is mixed-authority when enabled portable actions route through Cairnline."
 		}

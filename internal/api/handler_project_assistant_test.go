@@ -1287,6 +1287,67 @@ func TestProjectAssistantAPI_CairnlineProposalAuthorityCommitsLedgerFirst(t *tes
 	}
 }
 
+func TestProjectAssistantAPI_CairnlineReplacementModeSkipsNativeProposalShadows(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectAssistantCairnlineMirrorTestHandler(t)
+	handler.config.Projects.CairnlineConnector = "embedded"
+	handler.config.Projects.CairnlineReadSource = "embedded"
+	handler.config.Projects.CairnlineWriteAuthority = "all-portable"
+	handler.config.Projects.CairnlineReplacementMode = "embedded"
+	client := newAPITestClient(t, server)
+	project := mustRequestJSONStatus[ProjectResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects", `{
+		"name":"Assistant Replacement Proposal"
+	}`)
+
+	proposed := mustRequestJSON[projectAssistantProposalResponse](client, http.MethodPost, "/hecate/v1/project-assistant/propose", projectJourneyJSON(t, map[string]any{
+		"id":      "pa_replacement_no_shadow",
+		"title":   "Create replacement work",
+		"summary": "The Project Assistant proposal ledger should not create a native compatibility shadow in replacement mode.",
+		"actions": []map[string]any{{
+			"kind":   "create_work_item",
+			"reason": "Capture the first reviewable task.",
+			"patch": map[string]any{
+				"id":         "work_replacement_no_shadow",
+				"project_id": project.Data.ID,
+				"title":      "Replacement assistant work",
+				"brief":      "Verify apply can use the Cairnline-only proposal ledger.",
+				"status":     "ready",
+			},
+		}},
+	}))
+	written := getMirroredCairnlineAssistantProposalForTest(t, handler, proposed.Data.ID)
+	if written.Status != cairnline.AssistantProposalStatusProposed || written.ProjectID != project.Data.ID {
+		t.Fatalf("Cairnline proposal = %+v, want proposed replacement-mode ledger record", written)
+	}
+	if _, ok, err := handler.projectAssistantProposals.GetProposal(t.Context(), proposed.Data.ID); err != nil || ok {
+		t.Fatalf("native proposal = ok %v err %v, want no compatibility shadow after propose", ok, err)
+	}
+
+	record := mustRequestJSON[projectAssistantProposalRecordResponse](client, http.MethodGet, "/hecate/v1/project-assistant/proposals/"+proposed.Data.ID, "")
+	if record.Data.ID != proposed.Data.ID || record.Data.ProjectID != project.Data.ID {
+		t.Fatalf("proposal record = %+v, want strict embedded Cairnline proposal", record.Data)
+	}
+	authorityRecord, ok, err := handler.projectAssistantProposalStoreForApplication().GetProposal(t.Context(), proposed.Data.ID)
+	if err != nil || !ok || authorityRecord.Fingerprint == "" {
+		t.Fatalf("authority proposal = %+v ok %v err %v, want Cairnline proposal with internal fingerprint", authorityRecord, ok, err)
+	}
+
+	applied := mustRequestJSON[projectAssistantApplyResponse](client, http.MethodPost, "/hecate/v1/project-assistant/apply", projectJourneyJSON(t, map[string]any{
+		"proposal": proposed.Data,
+		"confirm":  true,
+	}))
+	if applied.Data.Status != projectassistant.ApplyStatusApplied || !applied.Data.Applied || applied.Data.CommittedActionCount != 1 {
+		t.Fatalf("apply response = %+v, want applied Cairnline-only proposal ledger", applied.Data)
+	}
+	appliedLedger := getMirroredCairnlineAssistantProposalForTest(t, handler, proposed.Data.ID)
+	if appliedLedger.Status != cairnline.AssistantProposalStatusApplied || appliedLedger.LatestResult == nil || !appliedLedger.LatestResult.Applied || len(appliedLedger.ApplyAttempts) != 1 {
+		t.Fatalf("Cairnline applied proposal = %+v, want applied ledger result and attempt", appliedLedger)
+	}
+	if _, ok, err := handler.projectAssistantProposals.GetProposal(t.Context(), proposed.Data.ID); err != nil || ok {
+		t.Fatalf("native proposal after apply = ok %v err %v, want no compatibility shadow", ok, err)
+	}
+}
+
 func TestProjectAssistantAPI_CairnlineProposalAuthorityDoesNotBlockOnShadowUpsertFailure(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectAssistantCairnlineMirrorTestHandler(t)

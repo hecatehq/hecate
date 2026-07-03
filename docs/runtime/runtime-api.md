@@ -595,7 +595,8 @@ sequenceDiagram
   mixed metadata/root/source replacement PATCHes remain Hecate-owned.
   `project-assistant-proposals` makes Project Assistant draft/propose/apply-attempt
   ledger records Cairnline-first, then best-effort shadows Hecate's proposal
-  store for compatibility. Confirmed Project Assistant apply uses enabled
+  store for compatibility; armed embedded replacement mode skips those native
+  proposal compatibility shadows. Confirmed Project Assistant apply uses enabled
   project create, project metadata/default, root,
   role/work-item/assignment/handoff, and memory-candidate authority seams and
   can use a Cairnline-only project graph for project
@@ -6686,8 +6687,9 @@ Hecate-native project row. Draft generation uses the same
 Cairnline-projected context so preview and proposal assembly do not drift,
 while proposal ledger writes remain Hecate-owned unless
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-assistant-proposals` is
-enabled. Confirmed apply uses enabled project create, project metadata/default,
-root, role/work-item/assignment/handoff, and memory-candidate
+enabled; armed embedded replacement mode then skips native proposal ledger
+compatibility shadows. Confirmed apply uses enabled project create, project
+metadata/default, root, role/work-item/assignment/handoff, and memory-candidate
 Cairnline-authority seams and leaves remaining chat/runtime effects as
 Hecate-owned orchestrator capabilities outside Cairnline core. In strict
 embedded mode, confirmed apply can create project identity and update portable

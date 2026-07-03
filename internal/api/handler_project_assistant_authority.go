@@ -117,7 +117,7 @@ func (s cairnlineProjectAssistantProposalAuthorityStore) UpdateProposalApplyStat
 	if err != nil {
 		return projectassistant.ProposalRecord{}, projectAssistantCairnlineAuthorityError(err)
 	}
-	if s.shadow != nil {
+	if !s.skipHecateCompatibilityShadow() && s.shadow != nil {
 		if shadowed, err := s.shadow.UpdateProposalApplyState(ctx, proposalID, result); err == nil {
 			return shadowed, nil
 		} else if s.handler != nil {
@@ -149,7 +149,7 @@ func (s cairnlineProjectAssistantProposalAuthorityStore) RecordApplyAttempt(ctx 
 	if err != nil {
 		return projectassistant.ProposalRecord{}, projectAssistantCairnlineAuthorityError(err)
 	}
-	if s.shadow != nil {
+	if !s.skipHecateCompatibilityShadow() && s.shadow != nil {
 		if shadowed, err := s.shadow.RecordApplyAttempt(ctx, attempt); err == nil {
 			return shadowed, nil
 		} else if s.handler != nil {
@@ -237,7 +237,7 @@ func (s cairnlineProjectAssistantProposalAuthorityStore) writeRecord(ctx context
 }
 
 func (s cairnlineProjectAssistantProposalAuthorityStore) shadowProposalRecord(ctx context.Context, operation string, record projectassistant.ProposalRecord) (projectassistant.ProposalRecord, bool) {
-	if s.shadow == nil {
+	if s.skipHecateCompatibilityShadow() || s.shadow == nil {
 		return projectassistant.ProposalRecord{}, false
 	}
 	shadowed, err := s.shadow.UpsertProposal(ctx, record)
@@ -248,6 +248,10 @@ func (s cairnlineProjectAssistantProposalAuthorityStore) shadowProposalRecord(ct
 		return projectassistant.ProposalRecord{}, false
 	}
 	return shadowed, true
+}
+
+func (s cairnlineProjectAssistantProposalAuthorityStore) skipHecateCompatibilityShadow() bool {
+	return s.handler != nil && s.handler.projectCairnlineEmbeddedReplacementModeArmed()
 }
 
 func normalizeProjectAssistantProposalRecordForAuthority(record projectassistant.ProposalRecord) (projectassistant.ProposalRecord, error) {
