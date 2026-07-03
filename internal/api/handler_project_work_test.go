@@ -1057,6 +1057,59 @@ func TestProjectWorkAPI_CairnlineCollaborationAuthorityWritesCairnlineAndShadows
 	client.mustRequestStatus(http.StatusNotFound, http.MethodDelete, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/handoffs/handoff_authority", "")
 }
 
+func TestProjectWorkAPI_CairnlineCollaborationAuthorityUsesEmbeddedWorkItemWithoutHecateRow(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend:     "cairnline",
+			CairnlineWriteAuthority: projectCairnlineWriteAuthorityProjectCollaboration,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	handler.SetProjectStore(projects.NewMemoryStore())
+	handler.SetProjectWorkStore(projectwork.NewMemoryStore())
+	handler.SetProjectSkillStore(projectskills.NewMemoryStore())
+	handler.SetMemoryStore(memory.NewMemoryStore())
+	handler.SetAgentProfileStore(agentprofiles.NewMemoryStore())
+	handler.SetProjectAssistantProposalStore(projectassistant.NewMemoryProposalStore())
+	server := NewServer(quietLogger(), handler)
+	client := newAPITestClient(t, server)
+
+	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+		if _, err := service.CreateProject(t.Context(), cairnline.Project{
+			ID:   "proj_cairnline_collab_only",
+			Name: "Cairnline collaboration only",
+		}); err != nil {
+			return err
+		}
+		_, err := service.CreateWorkItem(t.Context(), cairnline.WorkItem{
+			ID:        "work_cairnline_collab_only",
+			ProjectID: "proj_cairnline_collab_only",
+			Title:     "Cairnline-only collaboration work",
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("seed Cairnline-only collaboration graph: %v", err)
+	}
+
+	evidence := mustRequestJSONStatus[ProjectWorkArtifactEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/proj_cairnline_collab_only/work-items/work_cairnline_collab_only/artifacts", projectJourneyJSON(t, map[string]any{
+		"id":           "art_cairnline_collab_only",
+		"kind":         "evidence_link",
+		"body":         "Evidence attached to a Cairnline-only work item.",
+		"evidence_url": "https://example.invalid/cairnline-collab-only",
+	}))
+	if evidence.Data.ID != "art_cairnline_collab_only" || evidence.Data.ProjectID != "proj_cairnline_collab_only" || evidence.Data.WorkItemID != "work_cairnline_collab_only" {
+		t.Fatalf("evidence response = %+v, want Cairnline-authoritative evidence", evidence.Data)
+	}
+	mirroredEvidence := getMirroredCairnlineEvidenceForTest(t, handler, "proj_cairnline_collab_only", "work_cairnline_collab_only", "art_cairnline_collab_only")
+	if mirroredEvidence.Locator != "https://example.invalid/cairnline-collab-only" {
+		t.Fatalf("mirrored evidence = %+v, want Cairnline evidence locator", mirroredEvidence)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), "proj_cairnline_collab_only"); err != nil || ok {
+		t.Fatalf("Hecate project row ok=%v err=%v, want absent compatibility project row", ok, err)
+	}
+}
+
 func TestProjectWorkAPI_CairnlineWorkItemAuthorityWritesCairnlineAndShadowsHecate(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectWorkCairnlineWorkItemAuthorityTestServer(t)
@@ -1146,6 +1199,62 @@ func TestProjectWorkAPI_CairnlineWorkItemAuthorityWritesCairnlineAndShadowsHecat
 		t.Fatalf("deleted Hecate shadow work item ok=%v err=%v, want not found", ok, err)
 	}
 	client.mustRequestStatus(http.StatusNotFound, http.MethodDelete, "/hecate/v1/projects/"+projectID+"/work-items/work_authority", "")
+}
+
+func TestProjectWorkAPI_CairnlineWorkItemAuthorityUsesEmbeddedProjectWithoutHecateRow(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend:     "cairnline",
+			CairnlineWriteAuthority: projectCairnlineWriteAuthorityProjectWorkItems,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	handler.SetProjectStore(projects.NewMemoryStore())
+	handler.SetProjectWorkStore(projectwork.NewMemoryStore())
+	handler.SetProjectSkillStore(projectskills.NewMemoryStore())
+	handler.SetMemoryStore(memory.NewMemoryStore())
+	handler.SetAgentProfileStore(agentprofiles.NewMemoryStore())
+	handler.SetProjectAssistantProposalStore(projectassistant.NewMemoryProposalStore())
+	server := NewServer(quietLogger(), handler)
+	client := newAPITestClient(t, server)
+
+	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+		if _, err := service.CreateProject(t.Context(), cairnline.Project{
+			ID:          "proj_cairnline_authority_only",
+			Name:        "Cairnline authority only",
+			Description: "No Hecate-native compatibility project row exists.",
+		}); err != nil {
+			return err
+		}
+		_, _, err := service.CreateRoot(t.Context(), "proj_cairnline_authority_only", cairnline.Root{
+			ID:     "root_cairnline_authority_only",
+			Path:   "/workspace/cairnline-authority-only",
+			Kind:   "folder",
+			Active: true,
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("seed Cairnline-only authority project: %v", err)
+	}
+
+	work := mustRequestJSONStatus[ProjectWorkItemEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/proj_cairnline_authority_only/work-items", projectJourneyJSON(t, map[string]any{
+		"id":       "work_cairnline_authority_only",
+		"title":    "Create from Cairnline project",
+		"priority": "high",
+		"root_id":  "root_cairnline_authority_only",
+	}))
+	if work.Data.ID != "work_cairnline_authority_only" || work.Data.ProjectID != "proj_cairnline_authority_only" || work.Data.Priority != "high" || work.Data.RootID != "root_cairnline_authority_only" {
+		t.Fatalf("work item response = %+v, want Cairnline-authoritative work item", work.Data)
+	}
+	mirroredWork := getMirroredCairnlineWorkItemForTest(t, handler, "proj_cairnline_authority_only", "work_cairnline_authority_only")
+	if mirroredWork.Title != "Create from Cairnline project" || mirroredWork.ProjectID != "proj_cairnline_authority_only" || mirroredWork.RootID != "root_cairnline_authority_only" {
+		t.Fatalf("mirrored work item = %+v, want authoritative Cairnline record", mirroredWork)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), "proj_cairnline_authority_only"); err != nil || ok {
+		t.Fatalf("Hecate project row ok=%v err=%v, want absent compatibility project row", ok, err)
+	}
+	assertHecateShadowWorkItemForTest(t, handler, "proj_cairnline_authority_only", "work_cairnline_authority_only", projectwork.WorkItemStatusBacklog)
 }
 
 func TestProjectWorkAPI_CairnlineRoleAuthorityWritesCairnlineAndShadowsHecate(t *testing.T) {
@@ -5494,6 +5603,58 @@ func TestProjectWorkAPI_StartExternalAgentAssignmentMirrorsResultToCairnline(t *
 	}
 }
 
+func TestProjectWorkAPI_StartExternalAgentAssignmentWithCairnlineAuthorityReleasesClaimWhenPrepareFails(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkCairnlineAssignmentAuthorityTestServer(t)
+	runner := &fakeAgentChatRunner{prepareErr: errors.New("prepare failed")}
+	handler.SetAgentChatRunner(runner)
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace:           t.TempDir(),
+		Driver:              projectwork.AssignmentDriverExternalAgent,
+		WithoutRoleDefaults: true,
+	})
+	if _, err := handler.agentProfiles.Create(t.Context(), agentprofiles.Profile{
+		ID:                  "prof_external",
+		Name:                "External implementer",
+		Surface:             agentprofiles.SurfaceExternalAgent,
+		ExecutionProfile:    "external_implementation",
+		ExternalAgentKind:   "codex",
+		ProjectMemoryPolicy: agentprofiles.MemoryVisibleOnly,
+		ContextSourcePolicy: agentprofiles.ContextVisibleOnly,
+	}); err != nil {
+		t.Fatalf("Create external profile: %v", err)
+	}
+	if _, err := handler.projectWork.UpdateRole(t.Context(), "proj_start", "role_backend", func(role *projectwork.AgentRoleProfile) {
+		role.DefaultAgentProfile = "prof_external"
+	}); err != nil {
+		t.Fatalf("Update role profile: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{"driver_kind":"external_agent"}`))))
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("prepare failure status = %d body=%s, want 502", rec.Code, rec.Body.String())
+	}
+	if len(runner.prepareRequests) != 1 {
+		t.Fatalf("prepare requests = %d, want 1", len(runner.prepareRequests))
+	}
+	sessions, err := handler.agentChat.List(t.Context())
+	if err != nil {
+		t.Fatalf("List chat sessions: %v", err)
+	}
+	if len(sessions) != 0 {
+		t.Fatalf("chat sessions = %+v, want prepared session cleaned up", sessions)
+	}
+	stored := getStoredProjectWorkAssignmentForTest(t, handler, "proj_start", "work_start", "asgn_start")
+	if stored.Status != projectwork.AssignmentStatusQueued || stored.ExecutionRef.ChatSessionID != "" {
+		t.Fatalf("stored assignment = %+v, want queued retry state after prepare failure", stored)
+	}
+	mirrored := getMirroredCairnlineAssignmentForTest(t, handler, "proj_start", "asgn_start")
+	if mirrored.Status != cairnline.AssignmentQueued || mirrored.ClaimedBy != "" || mirrored.ExecutionRef != "" || mirrored.ContextSnapshotID != "" || !mirrored.StartedAt.IsZero() || !mirrored.CompletedAt.IsZero() {
+		t.Fatalf("mirrored assignment = %+v, want released queued claim for retry", mirrored)
+	}
+}
+
 func TestProjectWorkAPI_ExternalAgentChatTurnReconcilesAssignmentStatus(t *testing.T) {
 	t.Parallel()
 
@@ -6530,6 +6691,87 @@ func TestProjectWorkAPI_StartAssignmentReleasesMirroredCairnlineClaimWhenTaskCre
 	}
 }
 
+func TestProjectWorkAPI_StartAssignmentWithCairnlineAuthorityRejectsClaimedAssignment(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkCairnlineAssignmentAuthorityTestServer(t)
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace: t.TempDir(),
+		Driver:    projectwork.AssignmentDriverHecateTask,
+	})
+	assignment := getStoredProjectWorkAssignmentForTest(t, handler, "proj_start", "work_start", "asgn_start")
+	if err := handler.writeProjectAssignmentToCairnline(t.Context(), assignment); err != nil {
+		t.Fatalf("writeProjectAssignmentToCairnline() error = %v", err)
+	}
+	func() {
+		service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+		if err != nil {
+			t.Fatalf("open Cairnline mirror: %v", err)
+		}
+		defer store.Close()
+		claimed, err := service.ClaimAssignment(t.Context(), "proj_start", "asgn_start", "other-agent")
+		if err != nil {
+			t.Fatalf("ClaimAssignment(other-agent) error = %v", err)
+		}
+		if claimed.Status != cairnline.AssignmentClaimed || claimed.ClaimedBy != "other-agent" {
+			t.Fatalf("claimed assignment = %+v, want other-agent claim", claimed)
+		}
+	}()
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("preclaimed start status = %d body=%s, want 409", rec.Code, rec.Body.String())
+	}
+	tasks, err := handler.taskStore.ListTasks(t.Context(), taskstateFilterAll())
+	if err != nil {
+		t.Fatalf("ListTasks: %v", err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("tasks = %+v, want no Hecate task when Cairnline claim blocks start", tasks)
+	}
+	mirrored := getMirroredCairnlineAssignmentForTest(t, handler, "proj_start", "asgn_start")
+	if mirrored.Status != cairnline.AssignmentClaimed || mirrored.ClaimedBy != "other-agent" || mirrored.ExecutionRef != "" {
+		t.Fatalf("mirrored assignment = %+v, want preserved other-agent claim", mirrored)
+	}
+}
+
+func TestProjectWorkAPI_StartAssignmentWithCairnlineAuthorityClaimsAndReleasesWhenTaskCreateFails(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkCairnlineAssignmentAuthorityTestServer(t)
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace: t.TempDir(),
+		Driver:    projectwork.AssignmentDriverHecateTask,
+	})
+	sawClaim := false
+	handler.taskStore = inspectingFailingCreateTaskStore{
+		Store: handler.taskStore,
+		Inspect: func() {
+			mirrored := getMirroredCairnlineAssignmentForTest(t, handler, "proj_start", "asgn_start")
+			if mirrored.Status != cairnline.AssignmentClaimed || mirrored.ClaimedBy != projectAssignmentStartClaimedByHecate {
+				t.Fatalf("mirrored assignment during task create = %+v, want Hecate Cairnline claim", mirrored)
+			}
+			sawClaim = true
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("task create failure status = %d body=%s, want 500", rec.Code, rec.Body.String())
+	}
+	if !sawClaim {
+		t.Fatalf("did not observe Cairnline claim during task creation; response body=%s", rec.Body.String())
+	}
+	stored := getStoredProjectWorkAssignmentForTest(t, handler, "proj_start", "work_start", "asgn_start")
+	if stored.Status != projectwork.AssignmentStatusQueued || stored.ExecutionRef.TaskID != "" || stored.ExecutionRef.RunID != "" {
+		t.Fatalf("stored assignment = %+v, want queued retry state after task create failure", stored)
+	}
+	mirrored := getMirroredCairnlineAssignmentForTest(t, handler, "proj_start", "asgn_start")
+	if mirrored.Status != cairnline.AssignmentQueued || mirrored.ClaimedBy != "" || mirrored.ExecutionRef != "" || mirrored.ContextSnapshotID != "" || !mirrored.StartedAt.IsZero() || !mirrored.CompletedAt.IsZero() {
+		t.Fatalf("mirrored assignment = %+v, want released queued claim for retry", mirrored)
+	}
+}
+
 func TestProjectWorkAPI_AssignmentExecutionProjection(t *testing.T) {
 	t.Parallel()
 	for _, backend := range []string{"memory", "sqlite"} {
@@ -7554,6 +7796,18 @@ type failingCreateTaskStore struct {
 }
 
 func (s failingCreateTaskStore) CreateTask(context.Context, types.Task) (types.Task, error) {
+	return types.Task{}, errors.New("create task failed")
+}
+
+type inspectingFailingCreateTaskStore struct {
+	taskstate.Store
+	Inspect func()
+}
+
+func (s inspectingFailingCreateTaskStore) CreateTask(context.Context, types.Task) (types.Task, error) {
+	if s.Inspect != nil {
+		s.Inspect()
+	}
 	return types.Task{}, errors.New("create task failed")
 }
 

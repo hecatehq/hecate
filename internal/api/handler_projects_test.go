@@ -15,9 +15,11 @@ import (
 	"time"
 
 	"github.com/hecatehq/cairnline"
+	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/memory"
+	"github.com/hecatehq/hecate/internal/projectassistant"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
@@ -62,6 +64,11 @@ func newProjectsCairnlineMirrorTestServer(t *testing.T) (*Handler, http.Handler)
 		Projects: config.ProjectsConfig{CoordinationBackend: "cairnline"},
 	}, quietLogger(), nil, nil, nil, nil)
 	handler.SetProjectStore(projects.NewMemoryStore())
+	handler.SetProjectWorkStore(projectwork.NewMemoryStore())
+	handler.SetProjectSkillStore(projectskills.NewMemoryStore())
+	handler.SetMemoryStore(memory.NewMemoryStore())
+	handler.SetAgentProfileStore(agentprofiles.NewMemoryStore())
+	handler.SetProjectAssistantProposalStore(projectassistant.NewMemoryProposalStore())
 	return handler, NewServer(quietLogger(), handler)
 }
 
@@ -75,6 +82,11 @@ func newProjectsCairnlineMetadataDefaultsAuthorityTestServer(t *testing.T) (*Han
 		},
 	}, quietLogger(), nil, nil, nil, nil)
 	handler.SetProjectStore(projects.NewMemoryStore())
+	handler.SetProjectWorkStore(projectwork.NewMemoryStore())
+	handler.SetProjectSkillStore(projectskills.NewMemoryStore())
+	handler.SetMemoryStore(memory.NewMemoryStore())
+	handler.SetAgentProfileStore(agentprofiles.NewMemoryStore())
+	handler.SetProjectAssistantProposalStore(projectassistant.NewMemoryProposalStore())
 	return handler, NewServer(quietLogger(), handler)
 }
 
@@ -367,6 +379,72 @@ func TestProjectsAPI_CairnlineReadsMatchHecateProjectProjection(t *testing.T) {
 		t.Fatalf("project list counts = hecate:%d cairnline:%d, want one each", len(hecateList), len(cairnlineList))
 	}
 	assertProjectProjectionParity(t, hecateList[0], cairnlineList[0], "list")
+}
+
+func TestProjectsAPI_CairnlineProjectListAndDetailUseEmbeddedMirrorMembership(t *testing.T) {
+	t.Parallel()
+
+	handler, server := newProjectsCairnlineMirrorTestServer(t)
+	handler.config.Projects.CairnlineReadSource = "embedded"
+	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+		_, err := service.CreateProject(t.Context(), cairnline.Project{
+			ID:          "proj_cairnline_only",
+			Name:        "Cairnline only",
+			Description: "Exists only in the embedded Cairnline mirror",
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("seed embedded Cairnline project: %v", err)
+	}
+	seedCairnlineOnlyProjectGraphForTest(t, handler, "proj_cairnline_only")
+
+	items := listProjectsForTest(t, server)
+	if len(items) != 1 {
+		t.Fatalf("project list = %+v, want one Cairnline-backed project", items)
+	}
+	if items[0].ID != "proj_cairnline_only" || items[0].ReadBackend != "cairnline" || items[0].Name != "Cairnline only" {
+		t.Fatalf("project list item = %+v, want embedded Cairnline mirror membership", items[0])
+	}
+
+	detail := getProjectForTest(t, server, "proj_cairnline_only")
+	if detail.ID != "proj_cairnline_only" || detail.ReadBackend != "cairnline" || detail.Name != "Cairnline only" {
+		t.Fatalf("project detail = %+v, want embedded Cairnline mirror membership", detail)
+	}
+
+	cairnlineOnlyProjectRoutes := map[string][]string{
+		"/hecate/v1/projects/proj_cairnline_only/setup-readiness":                            {`"read_backend":"cairnline"`, `"role_count":1`, `"skill_count":1`},
+		"/hecate/v1/projects/proj_cairnline_only/health":                                     {`"read_backend":"cairnline"`, `"pending_memory_candidate_count":1`},
+		"/hecate/v1/projects/proj_cairnline_only/operations/brief":                           {`"read_backend":"cairnline"`, `"project_id":"proj_cairnline_only"`},
+		"/hecate/v1/projects/proj_cairnline_only/activity":                                   {`"read_backend":"cairnline"`, `"assignment_count":1`},
+		"/hecate/v1/projects/proj_cairnline_only/skills":                                     {`"read_backend":"cairnline"`, `"id":"skill_cairnline_only"`},
+		"/hecate/v1/projects/proj_cairnline_only/memory?include_disabled=1":                  {`"read_backend":"cairnline"`, `"id":"mem_cairnline_only"`},
+		"/hecate/v1/projects/proj_cairnline_only/memory/candidates?include_resolved=1":       {`"read_backend":"cairnline"`, `"id":"memcand_cairnline_only"`},
+		"/hecate/v1/projects/proj_cairnline_only/roles":                                      {`"read_backend":"cairnline"`, `"id":"role_cairnline_only"`},
+		"/hecate/v1/projects/proj_cairnline_only/work-items":                                 {`"read_backend":"cairnline"`, `"id":"work_cairnline_only"`},
+		"/hecate/v1/projects/proj_cairnline_only/work-items/work_cairnline_only":             {`"read_backend":"cairnline"`, `"id":"work_cairnline_only"`},
+		"/hecate/v1/projects/proj_cairnline_only/work-items/work_cairnline_only/readiness":   {`"read_backend":"cairnline"`, `"work_item_id":"work_cairnline_only"`},
+		"/hecate/v1/projects/proj_cairnline_only/work-items/work_cairnline_only/assignments": {`"read_backend":"cairnline"`, `"id":"asgn_cairnline_only"`},
+		"/hecate/v1/projects/proj_cairnline_only/work-items/work_cairnline_only/artifacts":   {`"read_backend":"cairnline"`, `"id":"ev_cairnline_only"`, `"id":"rev_cairnline_only"`},
+		"/hecate/v1/projects/proj_cairnline_only/work-items/work_cairnline_only/handoffs":    {`"read_backend":"cairnline"`, `"id":"handoff_cairnline_only"`},
+	}
+	for path, fragments := range cairnlineOnlyProjectRoutes {
+		assertProjectRouteOKContainsForTest(t, server, path, fragments...)
+	}
+}
+
+func assertProjectRouteOKContainsForTest(t *testing.T, server http.Handler, path string, fragments ...string) {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET %s status = %d body=%s, want 200", path, rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, fragment := range fragments {
+		if !strings.Contains(body, fragment) {
+			t.Fatalf("GET %s body = %s, want fragment %q", path, body, fragment)
+		}
+	}
 }
 
 func TestProjectsAPI_CairnlineConfiguredProjectDetailReadsEmbeddedMirror(t *testing.T) {
@@ -1085,6 +1163,41 @@ func TestProjectsAPI_CairnlineMetadataDefaultsAuthorityCommitsScopedUpdatesFirst
 	mirrored = getMirroredCairnlineProjectForTest(t, handler, created.Data.ID)
 	if mirrored.Name != "Mixed Root Replacement" || len(mirrored.Roots) != 1 || mirrored.Roots[0].ID != "root_replaced" {
 		t.Fatalf("mirrored mixed root patch = %+v, want root replacement still mirrored through Hecate-owned path", mirrored)
+	}
+}
+
+func TestProjectsAPI_CairnlineMetadataDefaultsAuthorityValidatesDefaultRootFromEmbeddedProject(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineMetadataDefaultsAuthorityTestServer(t)
+	client := newAPITestClient(t, server)
+
+	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+		if _, err := service.CreateProject(t.Context(), cairnline.Project{
+			ID:   "proj_cairnline_defaults_only",
+			Name: "Cairnline defaults only",
+		}); err != nil {
+			return err
+		}
+		_, _, err := service.CreateRoot(t.Context(), "proj_cairnline_defaults_only", cairnline.Root{
+			ID:     "root_cairnline_defaults_only",
+			Path:   "/workspace/cairnline-defaults-only",
+			Kind:   "folder",
+			Active: true,
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("seed Cairnline-only defaults project: %v", err)
+	}
+
+	updated := mustRequestJSONStatus[ProjectResponse](client, http.StatusOK, http.MethodPatch, "/hecate/v1/projects/proj_cairnline_defaults_only", projectJourneyJSON(t, map[string]any{
+		"default_root_id": "root_cairnline_defaults_only",
+	}))
+	if updated.Data.ID != "proj_cairnline_defaults_only" || updated.Data.DefaultRootID != "root_cairnline_defaults_only" {
+		t.Fatalf("updated project = %+v, want Cairnline default root", updated.Data)
+	}
+	mirrored := getMirroredCairnlineProjectForTest(t, handler, "proj_cairnline_defaults_only")
+	if mirrored.DefaultRootID != "root_cairnline_defaults_only" {
+		t.Fatalf("mirrored default_root_id = %q, want root_cairnline_defaults_only", mirrored.DefaultRootID)
 	}
 }
 
@@ -2111,6 +2224,110 @@ func seedCairnlineOnlyProjectGraphForTest(t *testing.T, handler *Handler, projec
 		Enabled: true,
 	}); err != nil {
 		t.Fatalf("CreateContextSource(cairnline-only): %v", err)
+	}
+	if _, err := service.CreateProjectSkill(t.Context(), cairnline.ProjectSkill{
+		ID:          "skill_cairnline_only",
+		ProjectID:   projectID,
+		Title:       "Cairnline-only skill",
+		Description: "Metadata-only portable skill.",
+		Path:        ".agents/skills/cairnline-only/SKILL.md",
+		RootID:      "root_cairnline_only",
+		Format:      cairnline.SkillFormatMarkdown,
+		Status:      cairnline.SkillStatusAvailable,
+		TrustLabel:  cairnline.SkillTrustWorkspace,
+		SourceRefs:  []string{"ctx_cairnline_only"},
+	}); err != nil {
+		t.Fatalf("CreateProjectSkill(cairnline-only): %v", err)
+	}
+	role, err := service.CreateRole(t.Context(), cairnline.Role{
+		ID:                   "role_cairnline_only",
+		ProjectID:            projectID,
+		Name:                 "Cairnline coordinator",
+		Description:          "Coordinates portable project work.",
+		DefaultSkillIDs:      []string{"skill_cairnline_only"},
+		DefaultExecutionMode: cairnline.ExecutionMCPPull,
+	})
+	if err != nil {
+		t.Fatalf("CreateRole(cairnline-only): %v", err)
+	}
+	work, err := service.CreateWorkItem(t.Context(), cairnline.WorkItem{
+		ID:              "work_cairnline_only",
+		ProjectID:       projectID,
+		Title:           "Coordinate Cairnline-only work",
+		Brief:           "Prove read routes do not require native Hecate rows.",
+		OwnerRoleID:     role.ID,
+		ReviewerRoleIDs: []string{role.ID},
+		RootID:          "root_cairnline_only",
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkItem(cairnline-only): %v", err)
+	}
+	assignment, err := service.CreateAssignment(t.Context(), cairnline.Assignment{
+		ID:            "asgn_cairnline_only",
+		ProjectID:     projectID,
+		WorkItemID:    work.ID,
+		RoleID:        role.ID,
+		RootID:        "root_cairnline_only",
+		ExecutionMode: cairnline.ExecutionMCPPull,
+		DesiredAgent:  cairnline.DesiredAgent{Kind: cairnline.DesiredAgentAny, SkillIDs: []string{"skill_cairnline_only"}},
+	})
+	if err != nil {
+		t.Fatalf("CreateAssignment(cairnline-only): %v", err)
+	}
+	if _, err := service.CreateEvidence(t.Context(), cairnline.Evidence{
+		ID:           "ev_cairnline_only",
+		ProjectID:    projectID,
+		WorkItemID:   work.ID,
+		AssignmentID: assignment.ID,
+		Title:        "Cairnline-only evidence",
+		Locator:      "https://example.test/cairnline-only",
+	}); err != nil {
+		t.Fatalf("CreateEvidence(cairnline-only): %v", err)
+	}
+	review, err := service.CreateReview(t.Context(), cairnline.Review{
+		ID:             "rev_cairnline_only",
+		ProjectID:      projectID,
+		WorkItemID:     work.ID,
+		AssignmentID:   assignment.ID,
+		ReviewerRoleID: role.ID,
+		Title:          "Cairnline-only review",
+		Body:           "Needs a follow-up to stay visible in health and operations.",
+		Verdict:        cairnline.ReviewVerdictChangesRequested,
+	})
+	if err != nil {
+		t.Fatalf("CreateReview(cairnline-only): %v", err)
+	}
+	if _, err := service.CreateHandoff(t.Context(), cairnline.Handoff{
+		ID:                 "handoff_cairnline_only",
+		ProjectID:          projectID,
+		WorkItemID:         work.ID,
+		SourceAssignmentID: assignment.ID,
+		FromRoleID:         role.ID,
+		ToRoleID:           role.ID,
+		Title:              "Cairnline-only handoff",
+		Body:               "Continue this portable project from Cairnline state.",
+		LinkedArtifactIDs:  []string{review.ID},
+	}); err != nil {
+		t.Fatalf("CreateHandoff(cairnline-only): %v", err)
+	}
+	if _, err := service.CreateMemoryEntry(t.Context(), cairnline.MemoryEntry{
+		ID:         "mem_cairnline_only",
+		ProjectID:  projectID,
+		Title:      "Cairnline-only memory",
+		Body:       "Portable project state is authoritative.",
+		TrustLabel: cairnline.MemoryTrustOperator,
+	}); err != nil {
+		t.Fatalf("CreateMemoryEntry(cairnline-only): %v", err)
+	}
+	if _, err := service.CreateMemoryCandidate(t.Context(), cairnline.MemoryCandidate{
+		ID:                  "memcand_cairnline_only",
+		ProjectID:           projectID,
+		Title:               "Cairnline-only candidate",
+		Body:                "Review this candidate from Cairnline state.",
+		SuggestedTrustLabel: cairnline.MemoryTrustGenerated,
+		SourceRefs:          []cairnline.MemoryCandidateSourceRef{{Kind: "assignment", ID: assignment.ID, Title: assignment.ID}},
+	}); err != nil {
+		t.Fatalf("CreateMemoryCandidate(cairnline-only): %v", err)
 	}
 }
 

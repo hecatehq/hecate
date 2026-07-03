@@ -2705,19 +2705,22 @@ Mirror failures are logged.
 `project-assignment-start-result-live-mirror` best-effort mirrors
 committed assignment-start results after Hecate-owned dispatch completes or
 returns a committed cleanup/conflict state; it is replacement evidence, not
-runtime write authority. With strict embedded Cairnline reads, assignment
-start may load the launch project/work/assignment/role/root/defaults from a
-Cairnline-only graph. Hecate-task and external-agent assignment start can
-claim/progress the assignment in embedded Cairnline and persist only
-Hecate-owned task/run or chat-session refs, context packets, and launch
-timestamps in the assignment runtime overlay when the native project-work store
-is absent or embedded replacement mode is armed. They do not require or advance
-a native Hecate project identity row, and they do not advance compatibility
-assignment rows with runtime refs; runtime dispatch, task execution, and
-external-agent supervision remain Hecate-owned. Assignment launch/preflight
-context uses the active Cairnline read model for inspect-only collaboration
-artifact and handoff metadata, so Cairnline-only project graphs preserve the
-same evidence/review/handoff hints as native project-work rows.
+runtime write authority. With `project-assignments` authority enabled, Hecate
+claims the embedded Cairnline assignment before non-strict dispatch and releases
+that claim if launch setup fails before a runtime record is committed. With
+strict embedded Cairnline reads, assignment start may load the launch
+project/work/assignment/role/root/defaults from a Cairnline-only graph.
+Hecate-task and external-agent assignment start can claim/progress the assignment
+in embedded Cairnline and persist only Hecate-owned task/run or chat-session
+refs, context packets, and launch timestamps in the assignment runtime overlay
+when the native project-work store is absent or embedded replacement mode is
+armed. They do not require or advance a native Hecate project identity row, and
+they do not advance compatibility assignment rows with runtime refs; runtime
+dispatch, task execution, and external-agent supervision remain Hecate-owned.
+Assignment launch/preflight context uses the active Cairnline read model for
+inspect-only collaboration artifact and handoff metadata, so Cairnline-only
+project graphs preserve the same evidence/review/handoff hints as native
+project-work rows.
 `project-assignment-chat-reconcile-live-mirror`
 best-effort mirrors assignment status/ref updates committed by linked
 external-agent chat reconciliation, and strict embedded reconciliation can

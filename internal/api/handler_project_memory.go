@@ -444,12 +444,22 @@ func (h *Handler) HandleDeleteProjectMemoryEntry(w http.ResponseWriter, r *http.
 }
 
 func (h *Handler) requireProjectExists(w http.ResponseWriter, r *http.Request, projectID string) bool {
-	if h.projects == nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project store is not configured")
-		return false
-	}
 	if projectID == "" {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project id is required")
+		return false
+	}
+	if h.projectReadRoutesUseCairnlineReadModel() {
+		project, err := h.renderProject(r.Context(), projectID)
+		if err != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+			return false
+		}
+		if project != nil {
+			return true
+		}
+	}
+	if h.projects == nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project store is not configured")
 		return false
 	}
 	_, ok, err := h.projects.Get(r.Context(), projectID)
