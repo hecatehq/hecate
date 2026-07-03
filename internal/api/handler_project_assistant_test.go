@@ -3240,6 +3240,7 @@ func TestProjectAssistantAPI_ApplyDoneUsesCairnlineProjectAuthority(t *testing.T
 		"name":                "Assistant closer",
 		"default_driver_kind": projectwork.AssignmentDriverHecateTask,
 	}))
+	assertNoNativeProjectWorkRoleForJourney(t, handler, projectID, "role_assistant_closeout")
 	work := mustRequestJSONStatus[ProjectWorkItemEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items", projectJourneyJSON(t, map[string]any{
 		"id":            "work_assistant_cairnline_closeout",
 		"title":         "Assistant Cairnline closeout",
@@ -3250,12 +3251,14 @@ func TestProjectAssistantAPI_ApplyDoneUsesCairnlineProjectAuthority(t *testing.T
 	if work.Data.ReadBackend != "cairnline" {
 		t.Fatalf("work = %+v, want Cairnline-backed work item", work.Data)
 	}
+	assertNoNativeProjectWorkItemForJourney(t, handler, projectID, "work_assistant_cairnline_closeout")
 	mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_assistant_cairnline_closeout/assignments", projectJourneyJSON(t, map[string]any{
 		"id":          "asgn_assistant_cairnline_closeout",
 		"role_id":     "role_assistant_closeout",
 		"driver_kind": projectwork.AssignmentDriverHecateTask,
 		"status":      projectwork.AssignmentStatusCompleted,
 	}))
+	assertNoNativeProjectWorkAssignmentForJourney(t, handler, projectID, "work_assistant_cairnline_closeout", "asgn_assistant_cairnline_closeout")
 	mustRequestJSONStatus[ProjectWorkArtifactEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_assistant_cairnline_closeout/artifacts", projectJourneyJSON(t, map[string]any{
 		"id":                   "artifact_assistant_cairnline_evidence",
 		"assignment_id":        "asgn_assistant_cairnline_closeout",
@@ -3270,6 +3273,28 @@ func TestProjectAssistantAPI_ApplyDoneUsesCairnlineProjectAuthority(t *testing.T
 	readiness := mustRequestJSONStatus[ProjectWorkItemReadinessEnvelope](client, http.StatusOK, http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_assistant_cairnline_closeout/readiness", "")
 	if !readiness.Data.Ready || readiness.Data.ReadBackend != "cairnline" || readiness.Data.CompletedAssignments != 1 {
 		t.Fatalf("readiness = %+v, want Cairnline-backed ready closeout", readiness.Data)
+	}
+	assistantWork := handler.projectAssistantWorkStoreForApplication()
+	if assistantWork.Backend() != "cairnline" {
+		t.Fatalf("Project Assistant work backend = %q, want cairnline", assistantWork.Backend())
+	}
+	assistantRoles, err := assistantWork.ListRoles(t.Context(), projectID)
+	if err != nil {
+		t.Fatalf("Project Assistant ListRoles: %v", err)
+	}
+	if !projectAssistantRoleSeenForTest(assistantRoles, "role_assistant_closeout", false) || !projectAssistantRoleSeenForTest(assistantRoles, "reviewer_qa", true) {
+		t.Fatalf("Project Assistant roles = %+v, want Cairnline custom role plus built-in reviewer", assistantRoles)
+	}
+	if assistantItem, ok, err := assistantWork.GetWorkItem(t.Context(), projectID, "work_assistant_cairnline_closeout"); err != nil || !ok || assistantItem.Status != projectwork.WorkItemStatusReview {
+		t.Fatalf("Project Assistant GetWorkItem ok=%v err=%v item=%+v, want Cairnline work item", ok, err, assistantItem)
+	}
+	assistantAssignments, err := assistantWork.ListAssignments(t.Context(), projectwork.AssignmentFilter{ProjectID: projectID, WorkItemID: "work_assistant_cairnline_closeout"})
+	if err != nil || len(assistantAssignments) != 1 || assistantAssignments[0].ID != "asgn_assistant_cairnline_closeout" {
+		t.Fatalf("Project Assistant assignments = %+v err=%v, want Cairnline assignment", assistantAssignments, err)
+	}
+	assistantArtifacts, err := assistantWork.ListArtifacts(t.Context(), projectwork.ArtifactFilter{ProjectID: projectID, WorkItemID: "work_assistant_cairnline_closeout", AssignmentID: "asgn_assistant_cairnline_closeout"})
+	if err != nil || len(assistantArtifacts) != 1 || assistantArtifacts[0].ID != "artifact_assistant_cairnline_evidence" {
+		t.Fatalf("Project Assistant artifacts = %+v err=%v, want Cairnline evidence artifact", assistantArtifacts, err)
 	}
 
 	proposal := projectassistant.Proposal{
@@ -3299,9 +3324,21 @@ func TestProjectAssistantAPI_ApplyDoneUsesCairnlineProjectAuthority(t *testing.T
 	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
 		t.Fatalf("Hecate project store ok=%v err=%v after assistant closeout, want no native project identity row", ok, err)
 	}
+	assertNoNativeProjectWorkRoleForJourney(t, handler, projectID, "role_assistant_closeout")
+	assertNoNativeProjectWorkItemForJourney(t, handler, projectID, "work_assistant_cairnline_closeout")
+	assertNoNativeProjectWorkAssignmentForJourney(t, handler, projectID, "work_assistant_cairnline_closeout", "asgn_assistant_cairnline_closeout")
 	if mirroredWork := getMirroredCairnlineWorkItemForTest(t, handler, projectID, "work_assistant_cairnline_closeout"); mirroredWork.Status != projectwork.WorkItemStatusDone {
 		t.Fatalf("mirrored Cairnline work = %+v, want done", mirroredWork)
 	}
+}
+
+func projectAssistantRoleSeenForTest(items []projectwork.AgentRoleProfile, id string, builtIn bool) bool {
+	for _, item := range items {
+		if item.ID == id && item.BuiltIn == builtIn {
+			return true
+		}
+	}
+	return false
 }
 
 func TestProjectAssistantAPI_ApplyCreateWorkUsesCairnlineProjectAuthority(t *testing.T) {

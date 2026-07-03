@@ -101,7 +101,7 @@ func (h *Handler) projectAssistantApplication() *projectassistantapp.Application
 			Projects:                 h.projects,
 			ProjectAuthority:         h.projectAssistantProjectAuthorityForApplication(),
 			Chats:                    h.agentChat,
-			Work:                     h.projectWork,
+			Work:                     h.projectAssistantWorkStoreForApplication(),
 			WorkAuthority:            h.projectAssistantWorkAuthorityForApplication(),
 			WorkApplication:          h.projectWorkApplication(),
 			ProjectSkills:            h.projectSkills,

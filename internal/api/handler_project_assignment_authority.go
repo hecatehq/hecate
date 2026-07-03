@@ -288,6 +288,10 @@ func (h *Handler) shadowProjectAssignmentToHecate(ctx context.Context, operation
 	if h == nil {
 		return
 	}
+	if h.projectCairnlineEmbeddedReplacementModeArmed() {
+		h.shadowProjectAssignmentRuntimeToHecate(ctx, operation, assignment)
+		return
+	}
 	if h.projectWork == nil {
 		h.shadowProjectAssignmentRuntimeToHecate(ctx, operation, assignment)
 		return
