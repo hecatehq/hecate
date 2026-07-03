@@ -2108,12 +2108,6 @@ func TestProjectWorkAPI_StrictEmbeddedReadModelReadsRolesWithoutHecateProject(t 
 		}); err != nil {
 			return err
 		}
-		if _, err := service.CreateAgentProfile(t.Context(), cairnline.AgentProfile{
-			ID:   "profile_review",
-			Name: "Review profile",
-		}); err != nil {
-			return err
-		}
 		if _, err := service.CreateProject(t.Context(), cairnline.Project{
 			ID:   projectID,
 			Name: "Embedded Roles",

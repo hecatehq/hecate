@@ -603,11 +603,7 @@ func cairnlineSidecarLaunchRole(launch cairnline.AssignmentLaunchPacket) (projec
 		role.ProjectID = strings.TrimSpace(firstNonEmpty(launch.Role.ProjectID, launch.Assignment.ProjectID, launch.Project.ID))
 	}
 	if strings.TrimSpace(role.DefaultAgentProfile) == "" {
-		profileID := strings.TrimSpace(launch.Assignment.ProfileID)
-		if launch.Profile != nil {
-			profileID = firstNonEmpty(strings.TrimSpace(launch.Profile.ID), profileID)
-		}
-		role.DefaultAgentProfile = profileID
+		role.DefaultAgentProfile = strings.TrimSpace(launch.Assignment.ProfileID)
 	}
 	if launch.ExecutionProfile != nil {
 		if strings.TrimSpace(role.DefaultProvider) == "" {

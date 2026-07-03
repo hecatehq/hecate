@@ -185,9 +185,6 @@ func cairnlineAssignmentLaunchContextPacket(launch cairnline.AssignmentLaunchPac
 	if launch.Role != nil {
 		appendCairnlineRole(&packet, *launch.Role)
 	}
-	if launch.Profile != nil {
-		appendCairnlineAgentProfile(&packet, *launch.Profile)
-	}
 	if launch.ExecutionProfile != nil {
 		appendCairnlineExecutionProfile(&packet, *launch.ExecutionProfile)
 	}
@@ -223,9 +220,6 @@ func appendCairnlineAssignmentLaunchPacketEvidenceItem(packet *chat.ContextPacke
 		rootDetail = firstNonEmptyString(rootID, "unresolved") + " (" + firstNonEmptyString(rootPath, "no path") + "; " + firstNonEmptyString(rootSelection, "fallback") + ")"
 	}
 	profileID := strings.TrimSpace(launch.Assignment.ProfileID)
-	if launch.Profile != nil {
-		profileID = firstNonEmptyString(strings.TrimSpace(launch.Profile.ID), profileID)
-	}
 	executionProfileID := strings.TrimSpace(launch.Assignment.ExecutionProfileID)
 	if launch.ExecutionProfile != nil {
 		executionProfileID = firstNonEmptyString(strings.TrimSpace(launch.ExecutionProfile.ID), executionProfileID)
@@ -326,9 +320,6 @@ func cairnlineAssignmentLaunchPacketEvidenceMetadata(launch cairnline.Assignment
 		"handoff_count":          fmt.Sprintf("%d", len(launch.Handoffs)),
 		"memory_count":           fmt.Sprintf("%d", len(launch.Memory)),
 		"memory_candidate_count": fmt.Sprintf("%d", len(launch.MemoryCandidates)),
-	}
-	if launch.Profile != nil {
-		metadata["profile_id"] = firstNonEmptyString(strings.TrimSpace(launch.Profile.ID), metadata["profile_id"])
 	}
 	if launch.ExecutionProfile != nil {
 		metadata["execution_profile_id"] = firstNonEmptyString(strings.TrimSpace(launch.ExecutionProfile.ID), metadata["execution_profile_id"])
@@ -489,39 +480,6 @@ func appendCairnlineRole(packet *chat.ContextPacket, role cairnline.Role) {
 		TrustLevel:      contextTrustRuntimeState,
 		Origin:          strings.TrimSpace(role.ID),
 		Title:           firstNonEmptyString(strings.TrimSpace(role.Name), strings.TrimSpace(role.ID)),
-		Body:            strings.Join(body, "\n"),
-		Included:        true,
-		InclusionReason: cairnlineAssignmentContextReason,
-	})
-}
-
-func appendCairnlineAgentProfile(packet *chat.ContextPacket, profile cairnline.AgentProfile) {
-	body := []string{
-		"ID: " + strings.TrimSpace(profile.ID),
-		"Name: " + firstNonEmptyString(strings.TrimSpace(profile.Name), strings.TrimSpace(profile.ID)),
-		"Context policy: " + firstNonEmptyString(strings.TrimSpace(profile.ContextPolicy), "inherit"),
-		"Memory policy: " + firstNonEmptyString(strings.TrimSpace(profile.MemoryPolicy), "inherit"),
-		"Source policy: " + firstNonEmptyString(strings.TrimSpace(profile.SourcePolicy), "inherit"),
-	}
-	if description := strings.TrimSpace(profile.Description); description != "" {
-		body = append(body, "Description: "+description)
-	}
-	if instructions := strings.TrimSpace(profile.Instructions); instructions != "" {
-		body = append(body, "Instructions:\n"+instructions)
-	}
-	if skills := compactContextIDs(profile.SkillIDs); len(skills) > 0 {
-		body = append(body, "Skills: "+strings.Join(skills, ", "))
-	}
-	appendContextPacketSourceWithSection(packet, contextSectionProfile, chat.ContextSource{
-		Kind:   "agent_profile",
-		Label:  firstNonEmptyString(strings.TrimSpace(profile.Name), strings.TrimSpace(profile.ID)),
-		Detail: strings.TrimSpace(profile.ID),
-		Trust:  contextTrustRuntimeState,
-	}, chat.ContextItem{
-		Kind:            "agent_profile",
-		TrustLevel:      contextTrustRuntimeState,
-		Origin:          strings.TrimSpace(profile.ID),
-		Title:           firstNonEmptyString(strings.TrimSpace(profile.Name), strings.TrimSpace(profile.ID)),
 		Body:            strings.Join(body, "\n"),
 		Included:        true,
 		InclusionReason: cairnlineAssignmentContextReason,
@@ -819,9 +777,6 @@ func cairnlineRequestedSkillIDs(launch cairnline.AssignmentLaunchPacket) []strin
 	ids = append(ids, launch.Assignment.DesiredAgent.SkillIDs...)
 	if launch.Role != nil {
 		ids = append(ids, launch.Role.DefaultSkillIDs...)
-	}
-	if launch.Profile != nil {
-		ids = append(ids, launch.Profile.SkillIDs...)
 	}
 	for _, skill := range launch.Skills {
 		ids = append(ids, skill.ID)

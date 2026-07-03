@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/hecatehq/cairnline"
-	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/projectwork"
 )
 
@@ -126,11 +125,11 @@ func DeleteWorkItem(ctx context.Context, service *cairnline.Service, projectID, 
 // their current Cairnline status so metadata parity does not bypass claim
 // ownership; claimed rows move back to queued through ReleaseAssignment when
 // Hecate clears a pre-dispatch claim for retry.
-func UpsertAssignment(ctx context.Context, service *cairnline.Service, assignment projectwork.Assignment, role projectwork.AgentRoleProfile, profile agentprofiles.Profile) (cairnline.Assignment, error) {
+func UpsertAssignment(ctx context.Context, service *cairnline.Service, assignment projectwork.Assignment, role projectwork.AgentRoleProfile) (cairnline.Assignment, error) {
 	if service == nil {
 		return cairnline.Assignment{}, errors.Join(ErrSourceNotConfigured, errors.New("cairnline service is required"))
 	}
-	item := Assignment(assignment, role, profile)
+	item := Assignment(assignment, role)
 	if strings.TrimSpace(item.ID) == "" {
 		return cairnline.Assignment{}, errors.Join(cairnline.ErrInvalid, errors.New("assignment id is required"))
 	}

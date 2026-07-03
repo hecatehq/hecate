@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/hecatehq/cairnline"
-	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/cairnlinebridge"
 	"github.com/hecatehq/hecate/internal/projectwork"
 )
@@ -56,10 +55,6 @@ func (h *Handler) renderCairnlineProjectHealthFromService(ctx context.Context, s
 	if err != nil {
 		return ProjectHealthResponse{}, err
 	}
-	profiles, err := service.ListAgentProfiles(ctx)
-	if err != nil {
-		return ProjectHealthResponse{}, err
-	}
 	skills, err := service.ListProjectSkills(ctx, snapshot.Project.ID)
 	if err != nil {
 		return ProjectHealthResponse{}, err
@@ -87,7 +82,7 @@ func (h *Handler) renderCairnlineProjectHealthFromService(ctx context.Context, s
 		artifacts,
 		projectSetupMemoryEntriesFromCairnline(memoryEntries),
 		projectSetupMemoryCandidatesFromCairnline(memoryCandidates),
-		projectHealthProfilesFromCairnline(profiles),
+		nil,
 		projectSetupSkillsFromCairnline(skills),
 		staleAssignments,
 	)
@@ -154,18 +149,6 @@ func projectWorkAssignmentsFromCairnline(items []cairnline.Assignment, native []
 			}
 		}
 		out = append(out, projected)
-	}
-	return out
-}
-
-func projectHealthProfilesFromCairnline(items []cairnline.AgentProfile) []agentprofiles.Profile {
-	out := make([]agentprofiles.Profile, 0, len(items))
-	for _, item := range items {
-		out = append(out, agentprofiles.Profile{
-			ID:       item.ID,
-			Name:     item.Name,
-			SkillIDs: append([]string(nil), item.SkillIDs...),
-		})
 	}
 	return out
 }

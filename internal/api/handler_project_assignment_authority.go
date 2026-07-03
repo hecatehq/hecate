@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/hecatehq/cairnline"
-	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/cairnlinebridge"
 	"github.com/hecatehq/hecate/internal/projectruntime"
 	"github.com/hecatehq/hecate/internal/projects"
@@ -45,12 +44,12 @@ func (h *Handler) createProjectWorkAssignmentWithCairnlineAuthority(ctx context.
 	}
 	var recorded projectwork.Assignment
 	err = h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
-		role, profile, err := h.seedProjectAssignmentDependenciesForCairnlineAuthority(ctx, service, project, assignment)
+		role, err := h.seedProjectAssignmentDependenciesForCairnlineAuthority(ctx, service, project, assignment)
 		if err != nil {
 			return err
 		}
 		assignment.DriverKind = resolvedProjectAssignmentDriverKind(assignment.DriverKind, role.DefaultDriverKind)
-		written, err := cairnlinebridge.UpsertAssignment(ctx, service, assignment, role, profile)
+		written, err := cairnlinebridge.UpsertAssignment(ctx, service, assignment, role)
 		if err != nil {
 			return err
 		}
@@ -95,11 +94,11 @@ func (h *Handler) updateProjectWorkAssignmentWithCairnlineAuthority(ctx context.
 		if err := validateProjectAssignmentForCairnlineAuthority(assignment); err != nil {
 			return err
 		}
-		role, profile, err := h.seedProjectAssignmentDependenciesForCairnlineAuthority(ctx, service, project, assignment)
+		role, err := h.seedProjectAssignmentDependenciesForCairnlineAuthority(ctx, service, project, assignment)
 		if err != nil {
 			return err
 		}
-		written, err := cairnlinebridge.UpsertAssignment(ctx, service, assignment, role, profile)
+		written, err := cairnlinebridge.UpsertAssignment(ctx, service, assignment, role)
 		if err != nil {
 			return err
 		}
@@ -133,28 +132,28 @@ func (h *Handler) deleteProjectWorkAssignmentWithCairnlineAuthority(ctx context.
 	return nil
 }
 
-func (h *Handler) seedProjectAssignmentDependenciesForCairnlineAuthority(ctx context.Context, service *cairnline.Service, project projects.Project, assignment projectwork.Assignment) (projectwork.AgentRoleProfile, agentprofiles.Profile, error) {
+func (h *Handler) seedProjectAssignmentDependenciesForCairnlineAuthority(ctx context.Context, service *cairnline.Service, project projects.Project, assignment projectwork.Assignment) (projectwork.AgentRoleProfile, error) {
 	if _, err := cairnlinebridge.UpsertProjectMetadata(ctx, service, project); err != nil {
-		return projectwork.AgentRoleProfile{}, agentprofiles.Profile{}, err
+		return projectwork.AgentRoleProfile{}, err
 	}
 	workItem, err := h.projectWorkItemForCairnlineAssignmentAuthority(ctx, service, assignment.ProjectID, assignment.WorkItemID)
 	if err != nil {
-		return projectwork.AgentRoleProfile{}, agentprofiles.Profile{}, err
+		return projectwork.AgentRoleProfile{}, err
 	}
 	if err := h.seedProjectWorkItemDependenciesForCairnlineAuthority(ctx, service, project, workItem); err != nil {
-		return projectwork.AgentRoleProfile{}, agentprofiles.Profile{}, err
+		return projectwork.AgentRoleProfile{}, err
 	}
 	if _, err := cairnlinebridge.UpsertWorkItem(ctx, service, workItem); err != nil {
-		return projectwork.AgentRoleProfile{}, agentprofiles.Profile{}, err
+		return projectwork.AgentRoleProfile{}, err
 	}
 	if err := h.seedProjectAssignmentRootForCairnlineAuthority(ctx, service, project, assignment.RootID); err != nil {
-		return projectwork.AgentRoleProfile{}, agentprofiles.Profile{}, err
+		return projectwork.AgentRoleProfile{}, err
 	}
-	role, profile, err := h.projectRoleForCairnlineAssignmentAuthority(ctx, service, assignment.ProjectID, assignment.RoleID)
+	role, err := h.projectRoleForCairnlineAssignmentAuthority(ctx, service, assignment.ProjectID, assignment.RoleID)
 	if err != nil {
-		return projectwork.AgentRoleProfile{}, agentprofiles.Profile{}, err
+		return projectwork.AgentRoleProfile{}, err
 	}
-	return role, profile, nil
+	return role, nil
 }
 
 func (h *Handler) projectWorkItemForCairnlineAssignmentAuthority(ctx context.Context, service *cairnline.Service, projectID, workItemID string) (projectwork.WorkItem, error) {
@@ -172,30 +171,26 @@ func (h *Handler) projectWorkItemForCairnlineAssignmentAuthority(ctx context.Con
 	return projectWorkItemFromCairnline(item), nil
 }
 
-func (h *Handler) projectRoleForCairnlineAssignmentAuthority(ctx context.Context, service *cairnline.Service, projectID, roleID string) (projectwork.AgentRoleProfile, agentprofiles.Profile, error) {
+func (h *Handler) projectRoleForCairnlineAssignmentAuthority(ctx context.Context, service *cairnline.Service, projectID, roleID string) (projectwork.AgentRoleProfile, error) {
 	if h != nil && h.projectWork != nil {
 		if role, ok, err := h.loadProjectWorkRoleForCairnlineMirror(ctx, projectID, roleID); err != nil {
-			return projectwork.AgentRoleProfile{}, agentprofiles.Profile{}, err
+			return projectwork.AgentRoleProfile{}, err
 		} else if ok {
-			profile, err := h.writeRoleAgentProfileToCairnline(ctx, service, role)
-			if err != nil {
-				return projectwork.AgentRoleProfile{}, agentprofiles.Profile{}, err
-			}
 			if _, err := cairnlinebridge.UpsertRole(ctx, service, role); err != nil {
-				return projectwork.AgentRoleProfile{}, agentprofiles.Profile{}, err
+				return projectwork.AgentRoleProfile{}, err
 			}
-			return role, profile, nil
+			return role, nil
 		}
 	}
 	role, err := getCairnlineProjectRoleForAuthority(ctx, service, projectID, roleID)
 	if err != nil {
-		return projectwork.AgentRoleProfile{}, agentprofiles.Profile{}, err
+		return projectwork.AgentRoleProfile{}, err
 	}
 	native, err := h.projectWorkRoleFromCairnlineAuthority(ctx, service, role, projectwork.AgentRoleProfile{})
 	if err != nil {
-		return projectwork.AgentRoleProfile{}, agentprofiles.Profile{}, err
+		return projectwork.AgentRoleProfile{}, err
 	}
-	return native, agentprofiles.Profile{}, nil
+	return native, nil
 }
 
 func resolvedProjectAssignmentDriverKind(driverKind, roleDefault string) string {

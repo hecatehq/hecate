@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/hecatehq/cairnline"
-	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/cairnlinebridge"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projectassistant"
@@ -563,36 +562,8 @@ func (h *Handler) writeProjectRoleToCairnline(ctx context.Context, project proje
 }
 
 func (h *Handler) writeProjectRoleRecordToCairnline(ctx context.Context, service *cairnline.Service, role projectwork.AgentRoleProfile) error {
-	if _, err := h.writeRoleAgentProfileToCairnline(ctx, service, role); err != nil {
-		return err
-	}
 	_, err := cairnlinebridge.UpsertRole(ctx, service, role)
 	return err
-}
-
-func (h *Handler) writeRoleAgentProfileToCairnline(ctx context.Context, service *cairnline.Service, role projectwork.AgentRoleProfile) (agentprofiles.Profile, error) {
-	profileID := strings.TrimSpace(role.DefaultAgentProfile)
-	if profileID == "" || h == nil || h.agentProfiles == nil {
-		return agentprofiles.Profile{}, nil
-	}
-	profile, ok, err := h.agentProfiles.Get(ctx, profileID)
-	if err != nil {
-		return agentprofiles.Profile{}, err
-	}
-	if !ok {
-		return agentprofiles.Profile{}, nil
-	}
-	executionProfileID := strings.TrimSpace(cairnlinebridge.ExecutionProfile(profile).ID)
-	exists, err := cairnlineExecutionProfileIDExists(ctx, service, executionProfileID)
-	if err != nil {
-		return agentprofiles.Profile{}, err
-	}
-	if exists {
-		_, err = upsertCairnlineAgentProfileMetadata(ctx, service, profile)
-		return profile, err
-	}
-	_, err = cairnlinebridge.UpsertAgentProfile(ctx, service, profile)
-	return profile, err
 }
 
 func (h *Handler) deleteProjectRoleFromCairnline(ctx context.Context, role projectwork.AgentRoleProfile) error {
@@ -640,14 +611,10 @@ func (h *Handler) writeProjectAssignmentRecordToCairnline(ctx context.Context, s
 	if !ok {
 		return errors.Join(cairnline.ErrNotFound, errors.New("assignment role not found for Cairnline mirror"))
 	}
-	profile, err := h.writeRoleAgentProfileToCairnline(ctx, service, role)
-	if err != nil {
-		return err
-	}
 	if _, err := cairnlinebridge.UpsertRole(ctx, service, role); err != nil {
 		return err
 	}
-	_, err = cairnlinebridge.UpsertAssignment(ctx, service, assignment, role, profile)
+	_, err = cairnlinebridge.UpsertAssignment(ctx, service, assignment, role)
 	return err
 }
 
@@ -868,64 +835,7 @@ func (h *Handler) withCairnlineEmbeddedMirrorService(ctx context.Context, fn fun
 		return err
 	}
 	defer store.Close()
-	if err := h.seedAgentProfilesToCairnline(ctx, service); err != nil {
-		return err
-	}
 	return fn(service)
-}
-
-func (h *Handler) seedAgentProfilesToCairnline(ctx context.Context, service *cairnline.Service) error {
-	if h == nil || h.agentProfiles == nil || service == nil {
-		return nil
-	}
-	profiles, err := h.agentProfiles.List(ctx)
-	if err != nil {
-		return err
-	}
-	seenExecutionProfiles := map[string]struct{}{}
-	for _, profile := range profiles {
-		executionProfileID := strings.TrimSpace(cairnlinebridge.ExecutionProfile(profile).ID)
-		if _, seen := seenExecutionProfiles[executionProfileID]; seen {
-			if _, err := upsertCairnlineAgentProfileMetadata(ctx, service, profile); err != nil {
-				return err
-			}
-			continue
-		}
-		seenExecutionProfiles[executionProfileID] = struct{}{}
-		if _, err := cairnlinebridge.UpsertAgentProfile(ctx, service, profile); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func upsertCairnlineAgentProfileMetadata(ctx context.Context, service *cairnline.Service, profile agentprofiles.Profile) (cairnline.AgentProfile, error) {
-	item := cairnlinebridge.AgentProfile(profile)
-	written, err := service.UpdateAgentProfile(ctx, item)
-	if err != nil {
-		if !errors.Is(err, cairnline.ErrNotFound) {
-			return cairnline.AgentProfile{}, err
-		}
-		return service.CreateAgentProfile(ctx, item)
-	}
-	return written, nil
-}
-
-func cairnlineExecutionProfileIDExists(ctx context.Context, service *cairnline.Service, id string) (bool, error) {
-	id = strings.TrimSpace(id)
-	if service == nil || id == "" {
-		return false, nil
-	}
-	profiles, err := service.ListExecutionProfiles(ctx)
-	if err != nil {
-		return false, err
-	}
-	for _, profile := range profiles {
-		if strings.TrimSpace(profile.ID) == id {
-			return true, nil
-		}
-	}
-	return false, nil
 }
 
 func (h *Handler) seedProjectRolesToCairnline(ctx context.Context, service *cairnline.Service, projectID string) error {

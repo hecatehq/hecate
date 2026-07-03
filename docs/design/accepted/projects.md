@@ -488,10 +488,11 @@ mirror to Cairnline. They can be switched to Cairnline-first authority with
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-skills`. Neither path loads,
 injects, or executes `SKILL.md` bodies.
 Project role and work-item create/update/delete routes also mirror coordination
-metadata into Cairnline after Hecate commits; when a mirrored role references
-an Agent Preset, the mirror also seeds Hecate-specific preset compatibility
-metadata and runtime posture so the role can validate in Cairnline. Role and work-item
-create/update/delete can be switched to Cairnline-first authority with
+metadata into Cairnline after Hecate commits. When a mirrored role references
+an Agent Preset, Cairnline records that preset id as an opaque host hint rather
+than a portable profile row; Hecate remains responsible for resolving preset
+policy at launch. Role and work-item create/update/delete can be switched to
+Cairnline-first authority with
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-roles,project-work-items`.
 Project skill discovery/update can be switched to Cairnline-first authority with
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-skills`; in that mode,
@@ -544,8 +545,7 @@ but they are still proofs, not the live Projects backend.
 
 The first non-authoritative write-adapter seams exist in `cairnlinebridge` for
 project identity, embedded roots, context sources, project defaults,
-project-level execution-profile cleanup, Hecate preset compatibility
-upserts/deletes with execution-posture upsert, project skill metadata upserts,
+project-level execution-profile cleanup, project skill metadata upserts,
 role upserts/deletes with role-level execution-profile cleanup, work-item
 upserts/deletes, assignment metadata upsert/delete plus lifecycle-status sync,
 and project memory entry/candidate upserts and deletes. Create-if-missing seams
@@ -557,7 +557,7 @@ suggested tool names, and nullable permission hints while remaining
 metadata-only; it never loads, injects, or executes `SKILL.md` bodies.
 The memory seam preserves accepted-memory fields, disabled state, candidate
 provenance, and resolved candidate state including Hecate-owned promoted memory
-IDs. The assignment seam updates existing role/root/profile/driver/context
+IDs. The assignment seam updates existing role/root/preset-hint/driver/context
 metadata and mirrors Hecate-provided started/completed timestamps without
 manufacturing lifecycle times during import; Cairnline's own claim, progress,
 and completion methods remain the live MCP execution path. Evidence and review
@@ -659,7 +659,7 @@ Hecate is ready to replace its internal Projects backend with Cairnline only
 after these gates are met:
 
 - Cairnline has durable storage and MCP/API parity for Hecate's project, role,
-  profile, context-source provenance metadata, skill, work item, assignment,
+  host-owned preset hints, context-source provenance metadata, skill, work item, assignment,
   artifact, handoff, accepted-memory, memory-candidate, and assistant-proposal
   ledger flows.
 - Hecate has feature-flagged adapters that can run all read/write Projects

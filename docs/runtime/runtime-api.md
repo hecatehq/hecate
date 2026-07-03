@@ -2672,10 +2672,9 @@ write authority closed, Cairnline-authoritative skill discovery/update skips
 native project-skill compatibility rows and reads come from the active Cairnline
 read model. `project-roles-live-mirror` and
 `project-work-items-live-mirror` mirror role/work-item coordination metadata
-after Hecate commits. Role mirroring also seeds the referenced Agent Preset as
-Hecate-specific preset compatibility metadata and runtime posture when the
-preset store is available, so Cairnline role validation can pass without
-requiring a full sync first.
+after Hecate commits. Role mirroring preserves referenced Agent Preset ids as
+opaque host-owned hints; it does not seed Hecate preset rows or preset-derived
+runtime posture into Cairnline.
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-roles,project-work-items`
 makes role and work-item create/update/delete Cairnline-first and then shadows
 Hecate-native compatibility rows. When the embedded Cairnline graph already
@@ -4294,7 +4293,12 @@ warnings is replacement evidence, but not a clean parity pass.
 The response is useful for replacement-readiness checks: it shows whether
 Cairnline can reconstruct the portable operations brief and activity inbox from
 current Hecate state. It does not make Cairnline authoritative, does not proxy
-live Projects reads or writes, and does not migrate Hecate's stores.
+live Projects reads or writes, and does not migrate Hecate's stores. Agent
+Presets are Hecate runtime configuration and are excluded from the portable
+Cairnline graph; preset ids may still appear as opaque host hints on projects,
+roles, and assignments. Execution-profile counts cover only portable
+project-level and role-level launch-default records derived from Hecate
+project/role defaults.
 
 Example response:
 
@@ -4306,8 +4310,8 @@ Example response:
     "read_source": "snapshot_seeded_memory",
     "root_count": 1,
     "context_source_count": 2,
-    "agent_profile_count": 4,
-    "execution_profile_count": 5,
+    "agent_profile_count": 0,
+    "execution_profile_count": 2,
     "skill_count": 3,
     "role_count": 6,
     "work_item_count": 2,
@@ -4391,8 +4395,8 @@ Example response:
       "graph": {
         "roots": 1,
         "context_sources": 2,
-        "agent_profiles": 4,
-        "execution_profiles": 5,
+        "agent_profiles": 0,
+        "execution_profiles": 2,
         "skills": 3,
         "roles": 6,
         "work_items": 1,
@@ -4457,8 +4461,8 @@ Example response:
       "graph": {
         "roots": 1,
         "context_sources": 2,
-        "agent_profiles": 4,
-        "execution_profiles": 5,
+        "agent_profiles": 0,
+        "execution_profiles": 2,
         "skills": 3,
         "roles": 6,
         "work_items": 1,
@@ -4580,8 +4584,8 @@ Example response:
     "database_path": "/Users/alice/Library/Application Support/hecate/cairnline/embedded/projects.db",
     "root_count": 1,
     "context_source_count": 2,
-    "agent_profile_count": 4,
-    "execution_profile_count": 5,
+    "agent_profile_count": 0,
+    "execution_profile_count": 2,
     "skill_count": 3,
     "role_count": 6,
     "work_item_count": 2,
@@ -4615,10 +4619,11 @@ It exists to prove that live best-effort mirror writes have kept the embedded
 Cairnline graph aligned with Hecate. `database_exists=false` means no live
 mirror database is present; the endpoint still reports Hecate-side counts and
 ID differences without creating files. `match=false` means the existing mirror
-has count, record-ID, semantic-content, or launch-packet drift. Built-in agent
-profiles and built-in project roles are included in the comparison because
-Hecate's replacement read model exposes them as durable portable coordination
-metadata.
+has count, record-ID, semantic-content, or launch-packet drift. Built-in
+project roles are included in the comparison because Hecate's replacement read
+model exposes them as durable portable coordination metadata. Agent Presets are
+not included as Cairnline profile rows; only opaque preset ids and
+project/role-level execution defaults participate in portable parity.
 
 The response shape matches the sync response, except `object` is
 `project_cairnline_mirror_parity`, `database_exists` may be `false`, and
@@ -4690,8 +4695,8 @@ Example response:
       "projects": 2,
       "roots": 2,
       "context_sources": 3,
-      "agent_profiles": 4,
-      "execution_profiles": 5,
+      "agent_profiles": 0,
+      "execution_profiles": 2,
       "skills": 3,
       "roles": 8,
       "work_items": 2,
@@ -4709,8 +4714,8 @@ Example response:
       "projects": 2,
       "roots": 2,
       "context_sources": 3,
-      "agent_profiles": 4,
-      "execution_profiles": 5,
+      "agent_profiles": 0,
+      "execution_profiles": 2,
       "skills": 3,
       "roles": 8,
       "work_items": 2,
@@ -4739,7 +4744,7 @@ Example response:
         {
           "id": "load-hecate-stores",
           "status": "complete",
-          "detail": "Loaded Hecate's authoritative project, profile, work, skill, memory, and assistant stores."
+          "detail": "Loaded Hecate's authoritative project, work, skill, memory, and assistant stores."
         },
         {
           "id": "native-snapshot-import",
@@ -4841,8 +4846,8 @@ Example response:
     "database_path": "/Users/alice/.hecate/cairnline/projects/proj_....db",
     "root_count": 1,
     "context_source_count": 2,
-    "agent_profile_count": 4,
-    "execution_profile_count": 5,
+    "agent_profile_count": 0,
+    "execution_profile_count": 2,
     "skill_count": 3,
     "role_count": 6,
     "work_item_count": 2,
@@ -4866,7 +4871,7 @@ Example response:
         {
           "id": "load-hecate-stores",
           "status": "complete",
-          "detail": "Loaded Hecate's authoritative project, profile, work, skill, memory, and assistant stores."
+          "detail": "Loaded Hecate's authoritative project, work, skill, memory, and assistant stores."
         },
         {
           "id": "native-snapshot-import",
@@ -6265,7 +6270,7 @@ records from the Cairnline read model before applying Hecate-owned runtime
 validation. It also appends an inspect-only `runtime` /
 `cairnline_launch_packet` item. That item reports whether Cairnline can build a
 portable assignment launch packet and summarizes portable project/work/root,
-role, Hecate preset/runtime hints, skills, evidence, reviews,
+role, Hecate preset-id/runtime hints, skills, evidence, reviews,
 handoffs, memory, and memory-candidate counts. It is replacement-readiness
 evidence only; Hecate still owns dispatch validation and the subsequent
 start/prepare mutation.
