@@ -533,6 +533,22 @@ func TestProjectCoordinationBackendStatus_EmbeddedReplacementModeReportsCairnlin
 	if point := findWriteSwitchpoint(status.WriteSwitchpoints, "skills"); point == nil || !strings.Contains(point.Detail, "skip native project-skill compatibility rows") {
 		t.Fatalf("skills switchpoint = %+v, want armed replacement-mode no-native-skill-shadow detail", point)
 	}
+	for _, tc := range []struct {
+		name string
+		want string
+	}{
+		{name: "project-identity", want: "skips native project identity compatibility rows"},
+		{name: "roles", want: "skip native project-work role compatibility rows"},
+		{name: "work-items", want: "skip native project-work item compatibility rows"},
+		{name: "assignments", want: "skip native project-work assignment compatibility rows"},
+		{name: "collaboration-artifacts", want: "skips native project-work artifact compatibility rows"},
+		{name: "handoffs", want: "skip native project-work handoff compatibility rows"},
+	} {
+		point := findWriteSwitchpoint(status.WriteSwitchpoints, tc.name)
+		if point == nil || !strings.Contains(point.Detail, tc.want) {
+			t.Fatalf("%s switchpoint = %+v, want detail containing %q", tc.name, point, tc.want)
+		}
+	}
 	if len(status.MigrationBlockers) != 0 {
 		t.Fatalf("migration blockers = %+v, want none after embedded replacement cutover is armed", status.MigrationBlockers)
 	}
@@ -1100,6 +1116,23 @@ func TestProjectCoordinationBackendStatus_CairnlineEmbeddedReplacementModeArmed(
 	}
 	if gate := findReplacementGate(status.ReplacementGates, "embedded-replacement-mode"); gate == nil || !gate.Ready || gate.Status != "armed" || !strings.Contains(gate.Detail, "does not bypass") {
 		t.Fatalf("embedded replacement mode gate = %+v, want armed explicit-mode gate", gate)
+	}
+	for _, tc := range []struct {
+		name string
+		want string
+	}{
+		{name: "project-identity", want: "skips native project identity compatibility rows"},
+		{name: "skills", want: "skip native project-skill compatibility rows"},
+		{name: "roles", want: "skip native project-work role compatibility rows"},
+		{name: "work-items", want: "skip native project-work item compatibility rows"},
+		{name: "assignments", want: "skip native project-work assignment compatibility rows"},
+		{name: "collaboration-artifacts", want: "skips native project-work artifact compatibility rows"},
+		{name: "handoffs", want: "skip native project-work handoff compatibility rows"},
+	} {
+		point := findWriteSwitchpoint(status.WriteSwitchpoints, tc.name)
+		if point == nil || !strings.Contains(point.Detail, tc.want) {
+			t.Fatalf("%s switchpoint = %+v, want armed replacement-mode detail containing %q", tc.name, point, tc.want)
+		}
 	}
 	if status.NextReplacementAction == nil || status.NextReplacementAction.ID != "run-strict-embedded-read-smoke" {
 		t.Fatalf("next action = %+v, want strict embedded smoke still prioritized while mode is armed", status.NextReplacementAction)
