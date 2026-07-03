@@ -232,6 +232,50 @@ describe("SettingsView", () => {
     expect(screen.getByText("migration-cutover")).toBeTruthy();
   });
 
+  it("labels backend-status probes in the project backend checklist", async () => {
+    vi.mocked(getProjectCoordinationBackendStatus).mockResolvedValue({
+      object: "project_coordination_backend_status",
+      data: {
+        configured_backend: "hecate",
+        authoritative_backend: "hecate",
+        storage_backend: "sqlite",
+        cairnline_connector: "embedded",
+        cairnline_connector_ready: true,
+        cairnline_bridge_ready: true,
+        cairnline_authoritative: false,
+        read_model_switch_ready: false,
+        write_adapter_ready: false,
+        replacement_ready: false,
+        replacement_mode: "disabled",
+        replacement_mode_armed: false,
+        status: "hecate_authoritative",
+        detail:
+          "Hecate-native project stores are authoritative. Cairnline bridge endpoints are available for replacement-readiness checks.",
+        next_replacement_action: {
+          id: "enable-cairnline-dogfood",
+          label: "Enable Cairnline dogfood",
+          detail:
+            "Configure Cairnline as the project coordination backend in a local dogfood runtime before moving any authority.",
+          target: "configuration",
+          probes: [
+            {
+              method: "GET",
+              url: "/hecate/v1/projects/backend-status",
+            },
+          ],
+        },
+      },
+    });
+    const { state, actions } = setup();
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
+
+    expect(await screen.findByText("Enable Cairnline dogfood")).toBeTruthy();
+    expect(screen.getByText("Probe checklist")).toBeTruthy();
+    expect(screen.getByText("Verify backend status")).toBeTruthy();
+    expect(screen.getByText(/reports the expected connector and next action/i)).toBeTruthy();
+    expect(screen.getByText("/hecate/v1/projects/backend-status")).toBeTruthy();
+  });
+
   it("shows strict embedded smoke probe routes in the next project backend action", async () => {
     vi.mocked(getProjectCoordinationBackendStatus).mockResolvedValue({
       object: "project_coordination_backend_status",

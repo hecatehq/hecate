@@ -540,6 +540,13 @@ function projectBackendProbeMethod(url: string): string {
 }
 
 function projectBackendProbePlan(url: string, method: string): { label: string; detail: string } {
+  if (url === "/hecate/v1/projects/backend-status") {
+    return {
+      label: "Verify backend status",
+      detail:
+        "Confirm the Projects coordination backend reports the expected connector and next action.",
+    };
+  }
   if (url === "/hecate/v1/projects/cairnline/sync") {
     return {
       label: "Rebuild embedded mirror",
