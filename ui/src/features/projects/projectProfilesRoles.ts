@@ -127,7 +127,7 @@ export function profileReferenceSummary(
 ) {
   const references: string[] = [];
   if (project.default_agent_profile === profile.id) {
-    references.push("this project's default profile");
+    references.push("this project's default preset");
   }
   const roleNames = roles
     .filter((role) => role.default_agent_profile === profile.id)

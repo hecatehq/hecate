@@ -63,11 +63,11 @@ Hecate already separates the pieces that ADK and A2A tend to bundle together:
 | Hecate concept   | Current role                                                                                                                       | ADK / A2A alignment                                                                             |
 | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | Model provider   | OpenAI, Anthropic, Ollama, LM Studio, and compatible backends answer LLM calls.                                                    | Keep separate. ADK and A2A agents are not model providers.                                      |
-| Native runtime   | `agent_loop` runs Hecate-owned tool loops with approvals, artifacts, events, cost accounting, and sandboxed tool calls.            | Borrow ADK concepts for profiles, workflow graphs, and evaluation; do not replace this runtime. |
+| Native runtime   | `agent_loop` runs Hecate-owned tool loops with approvals, artifacts, events, cost accounting, and sandboxed tool calls.            | Borrow ADK concepts for runtime policy, workflow graphs, and evaluation; do not replace this runtime. |
 | Agent adapter    | ACP-backed Codex, Claude Code, Cursor Agent, Grok Build, and future opaque coding agents.                                          | A remote A2A agent can become another External Agent target.                                    |
 | Protocol adapter | ACP, MCP, OpenAI-compatible HTTP, Anthropic Messages.                                                                              | A2A belongs here.                                                                               |
 | MCP              | Hecate as an MCP server and as an MCP client for external tools.                                                                   | Keep MCP as the agent-to-tool/control-plane protocol. A2A should not displace MCP.              |
-| Agent profile    | Saved runtime posture: model/provider hints, tools, approvals, skills, memory/context activation, and system/profile instructions. | Align profile fields with ADK's agent/tool/session vocabulary where useful.                     |
+| Agent Preset     | Saved runtime posture: model/provider hints, tools, approvals, skills, memory/context activation, and system/preset instructions. | Align preset fields with ADK's agent/tool/session vocabulary where useful.                     |
 | Runbook          | Named workflow pattern with inputs, evidence, approvals, and stop conditions.                                                      | Borrow ADK graph/workflow and evaluation ideas as Hecate-native runbooks.                       |
 
 This keeps the accepted external-agent distinction intact: providers answer LLM
@@ -89,7 +89,7 @@ Suggested mapping:
 
 | ADK concept      | Hecate-native shape                                                                              |
 | ---------------- | ------------------------------------------------------------------------------------------------ |
-| Agent            | Hecate agent profile, Hecate-owned `agent_loop`, or External Agent adapter depending on context. |
+| Agent            | Hecate Agent Preset, Hecate-owned `agent_loop`, or External Agent adapter depending on context. |
 | Tool             | Built-in task tool or namespaced MCP tool.                                                       |
 | Runner           | Orchestrator plus task runner.                                                                   |
 | Session          | Chat session, task context, or External Agent native session metadata.                           |
@@ -99,9 +99,9 @@ Suggested mapping:
 | Workflow / graph | Hecate runbook steps and evidence requirements.                                                  |
 | Evaluation       | Hecate replay/eval suites for `agent_loop`, chat, and External Agent turns.                      |
 
-### Agent Profiles
+### Agent Presets
 
-Agent Profiles V1 should be easy to compare to an ADK agent definition:
+Agent Presets should be easy to compare to an ADK agent definition:
 
 - name, description, and intended use
 - model/provider or adapter hint

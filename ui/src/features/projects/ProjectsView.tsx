@@ -368,7 +368,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
       setAgentProfilesError("");
     } catch (error) {
       if (cancelled?.()) return;
-      setAgentProfilesError(errorMessage(error, "Failed to load agent profiles."));
+      setAgentProfilesError(errorMessage(error, "Failed to load agent presets."));
     }
   }, []);
 
@@ -875,7 +875,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
       refreshProjectHealth(selectedProjectID);
       return payload.data;
     } catch (error) {
-      setProfilesError(errorMessage(error, "Failed to create agent profile."));
+      setProfilesError(errorMessage(error, "Failed to create agent preset."));
       return undefined;
     } finally {
       setProfilesPending(false);
@@ -893,7 +893,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
       refreshProjectHealth(selectedProjectID);
       return payload.data;
     } catch (error) {
-      setProfilesError(errorMessage(error, "Failed to update agent profile."));
+      setProfilesError(errorMessage(error, "Failed to update agent preset."));
       return undefined;
     } finally {
       setProfilesPending(false);
@@ -909,7 +909,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
       refreshProjectHealth(selectedProjectID);
       return true;
     } catch (error) {
-      setProfilesError(errorMessage(error, "Failed to delete agent profile."));
+      setProfilesError(errorMessage(error, "Failed to delete agent preset."));
       return false;
     } finally {
       setProfilesPending(false);
@@ -2410,8 +2410,8 @@ function ProjectHeader({
           <button
             className="btn btn-ghost btn-sm"
             type="button"
-            aria-label="Agent profiles"
-            title="Agent profiles"
+            aria-label="Agent presets"
+            title="Agent presets"
             onClick={onManageProfiles}
             disabled={!project}
             style={projectHeaderActionButtonStyle}

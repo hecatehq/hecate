@@ -153,7 +153,7 @@ describe("SettingsView", () => {
             seams: ["agent-profiles-live-mirror"],
             gap: "agent-profiles",
             detail:
-              "Agent profile mutations still commit to Hecate first, then mirror portable profile metadata and execution posture into Cairnline.",
+              "Agent Preset CRUD still commits to Hecate first, then mirrors Hecate-specific preset compatibility metadata and runtime posture into Cairnline.",
           },
           {
             name: "assignment-start-dispatch",
@@ -252,21 +252,20 @@ describe("SettingsView", () => {
     expect(screen.getByText("embedded smoke passed")).toBeTruthy();
     expect(screen.getByText("38 route checks")).toBeTruthy();
     expect(screen.getByText("Write switchpoints")).toBeTruthy();
-    expect(screen.getByText("agent profiles")).toBeTruthy();
+    expect(screen.getAllByText("agent presets").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("live mirror non authoritative")).toHaveClass("badge-amber");
     expect(screen.getByText("blocks authority")).toBeTruthy();
-    expect(screen.getByText("gap agent-profiles")).toBeTruthy();
-    expect(screen.getByText("agent-profiles-live-mirror")).toBeTruthy();
+    expect(screen.getByText("gap agent presets")).toBeTruthy();
+    expect(screen.getByText("agent presets live mirror")).toBeTruthy();
     expect(screen.getByText("assignment start dispatch")).toBeTruthy();
     expect(screen.getByText("result mirror only")).toBeTruthy();
     expect(screen.getByText("non-blocking")).toBeTruthy();
-    expect(screen.getByText("project-assignment-start-result-live-mirror")).toBeTruthy();
+    expect(screen.getByText("project assignment start result live mirror")).toBeTruthy();
     expect(screen.getByText("read routes")).toBeTruthy();
     expect(screen.getByText("write authority switchpoints")).toBeTruthy();
     expect(screen.getByText("migration and rollback")).toBeTruthy();
     expect(screen.getByText("partial")).toBeTruthy();
     expect(screen.getByText("rehearsal available")).toBeTruthy();
-    expect(screen.getAllByText("agent-profiles").length).toBeGreaterThanOrEqual(1);
     expect(
       screen.getByText("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=agent-profiles"),
     ).toBeTruthy();
@@ -279,9 +278,9 @@ describe("SettingsView", () => {
     expect(screen.getByText("/hecate/v1/projects/cairnline/sync")).toBeTruthy();
     expect(screen.getByText("/hecate/v1/projects/cairnline/mirror-parity")).toBeTruthy();
     expect(screen.getByText("POST")).toBeTruthy();
-    expect(screen.getByText("memory-candidates")).toBeTruthy();
-    expect(screen.getByText("assignment-start")).toBeTruthy();
-    expect(screen.getByText("migration-cutover")).toBeTruthy();
+    expect(screen.getByText("memory candidates")).toBeTruthy();
+    expect(screen.getByText("assignment start")).toBeTruthy();
+    expect(screen.getByText("migration cutover")).toBeTruthy();
   });
 
   it("labels backend-status probes in the project backend checklist", async () => {
@@ -406,7 +405,7 @@ describe("SettingsView", () => {
     render(withRuntimeConsole(<SettingsView />, { state, actions }));
 
     expect(await screen.findByText("Run strict embedded read smoke")).toBeTruthy();
-    expect(screen.getByText("strict-embedded-read-smoke")).toBeTruthy();
+    expect(screen.getAllByText("strict embedded read smoke").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("Probe checklist")).toBeTruthy();
     expect(screen.getByText(/Run these routes in order/i)).toBeTruthy();
     expect(screen.getByText("Step 1")).toBeTruthy();

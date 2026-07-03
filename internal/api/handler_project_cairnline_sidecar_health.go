@@ -57,10 +57,6 @@ func (h *Handler) renderCairnlineSidecarProjectHealth(ctx context.Context, proje
 	if err != nil {
 		return ProjectHealthResponse{}, err
 	}
-	profiles, err := h.cairnlineSidecarAgentProfiles(ctx)
-	if err != nil {
-		return ProjectHealthResponse{}, err
-	}
 	skills, err := h.cairnlineSidecarProjectSkills(ctx, project.ID)
 	if err != nil {
 		return ProjectHealthResponse{}, err
@@ -84,7 +80,7 @@ func (h *Handler) renderCairnlineSidecarProjectHealth(ctx context.Context, proje
 		convertedArtifacts,
 		convertedMemoryEntries,
 		convertedMemoryCandidates,
-		projectAgentProfilesFromCairnlineSidecar(profiles),
+		nil,
 		projectSkillsFromCairnlineSidecar(skills),
 		staleAssignments,
 	)
@@ -219,22 +215,4 @@ func projectCairnlineSidecarProjectWorkListArgs(projectID, workItemID string) ma
 
 func (h *Handler) cairnlineSidecarProjectMemoryCandidates(ctx context.Context, projectID string) ([]ProjectCairnlineSidecarMemoryCandidateItem, error) {
 	return h.cairnlineSidecarProjectMemoryCandidateList(ctx, projectID, "", true)
-}
-
-func (h *Handler) cairnlineSidecarAgentProfiles(ctx context.Context) ([]ProjectCairnlineSidecarAgentProfileItem, error) {
-	result, err := h.callProjectCairnlineSidecarProjectReadTool(ctx, "profiles.list", map[string]string{})
-	if err != nil {
-		return nil, err
-	}
-	if result.IsError {
-		return nil, projectCairnlineSidecarReadFailure("profiles.list returned a tool-level error: " + strings.TrimSpace(result.Text))
-	}
-	profiles, structuredReady, structuredErr := projectCairnlineSidecarStructuredAgentProfiles(result.Result.StructuredContent)
-	if structuredErr != nil {
-		return nil, projectCairnlineSidecarReadFailure("profiles.list structuredContent parse failed: " + structuredErr.Error())
-	}
-	if !structuredReady {
-		return nil, projectCairnlineSidecarReadFailure("profiles.list did not return typed structuredContent")
-	}
-	return profiles, nil
 }

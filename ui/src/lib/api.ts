@@ -901,13 +901,13 @@ export async function discoverProjectContextSources(projectID: string): Promise<
 }
 
 export async function getAgentProfiles(): Promise<AgentProfilesResponse> {
-  return fetchJSON<AgentProfilesResponse>(`${HECATE_API}/agent-profiles`);
+  return fetchJSON<AgentProfilesResponse>(`${HECATE_API}/agent-presets`);
 }
 
 export async function createAgentProfile(
   payload: CreateAgentProfilePayload,
 ): Promise<AgentProfileResponse> {
-  return fetchJSON<AgentProfileResponse>(`${HECATE_API}/agent-profiles`, {
+  return fetchJSON<AgentProfileResponse>(`${HECATE_API}/agent-presets`, {
     method: "POST",
     body: payload,
   });
@@ -917,14 +917,14 @@ export async function updateAgentProfile(
   id: string,
   payload: UpdateAgentProfilePayload,
 ): Promise<AgentProfileResponse> {
-  return fetchJSON<AgentProfileResponse>(`${HECATE_API}/agent-profiles/${encodeURIComponent(id)}`, {
+  return fetchJSON<AgentProfileResponse>(`${HECATE_API}/agent-presets/${encodeURIComponent(id)}`, {
     method: "PATCH",
     body: payload,
   });
 }
 
 export async function deleteAgentProfile(id: string): Promise<void> {
-  return fetchJSON<void>(`${HECATE_API}/agent-profiles/${encodeURIComponent(id)}`, {
+  return fetchJSON<void>(`${HECATE_API}/agent-presets/${encodeURIComponent(id)}`, {
     method: "DELETE",
   });
 }

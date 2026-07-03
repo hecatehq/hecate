@@ -242,8 +242,8 @@ func appendCairnlineAssignmentLaunchPacketEvidenceItem(packet *chat.ContextPacke
 		"Execution mode: " + firstNonEmptyString(strings.TrimSpace(launch.Assignment.ExecutionMode), cairnline.ExecutionMCPPull),
 		"Role: " + firstNonEmptyString(roleLabel, "none"),
 		"Desired agent: " + firstNonEmptyString(strings.TrimSpace(launch.Assignment.DesiredAgent.Kind), cairnline.DesiredAgentAny),
-		"Profile: " + firstNonEmptyString(profileID, "inherit"),
-		"Execution profile: " + firstNonEmptyString(executionProfileID, "inherit"),
+		"Agent preset: " + firstNonEmptyString(profileID, "inherit"),
+		"Runtime profile: " + firstNonEmptyString(executionProfileID, "inherit"),
 		"Root: " + rootDetail,
 		fmt.Sprintf("Skills: %d; artifacts: %d; evidence: %d; reviews: %d; handoffs: %d; memory: %d; memory candidates: %d",
 			len(launch.Skills),
@@ -404,8 +404,8 @@ func appendCairnlineAssignment(packet *chat.ContextPacket, item cairnline.Assign
 		"Execution mode: " + firstNonEmptyString(strings.TrimSpace(item.ExecutionMode), cairnline.ExecutionMCPPull),
 		"Role: " + firstNonEmptyString(strings.TrimSpace(item.RoleID), "none"),
 		"Desired agent: " + firstNonEmptyString(strings.TrimSpace(item.DesiredAgent.Kind), cairnline.DesiredAgentAny),
-		"Profile: " + firstNonEmptyString(strings.TrimSpace(item.ProfileID), "inherit"),
-		"Execution profile: " + firstNonEmptyString(strings.TrimSpace(item.ExecutionProfileID), "inherit"),
+		"Agent preset: " + firstNonEmptyString(strings.TrimSpace(item.ProfileID), "inherit"),
+		"Runtime profile: " + firstNonEmptyString(strings.TrimSpace(item.ExecutionProfileID), "inherit"),
 	}
 	if rootID := strings.TrimSpace(item.RootID); rootID != "" {
 		body = append(body, "Root override: "+rootID)
@@ -472,8 +472,8 @@ func appendCairnlineRole(packet *chat.ContextPacket, role cairnline.Role) {
 	body := []string{
 		"Description: " + firstNonEmptyString(strings.TrimSpace(role.Description), "No description recorded."),
 		"Instructions: " + firstNonEmptyString(strings.TrimSpace(role.Instructions), "No role instructions recorded."),
-		"Default profile: " + firstNonEmptyString(strings.TrimSpace(role.DefaultProfileID), "none"),
-		"Default execution profile: " + firstNonEmptyString(strings.TrimSpace(role.DefaultExecutionProfileID), "none"),
+		"Default preset: " + firstNonEmptyString(strings.TrimSpace(role.DefaultProfileID), "none"),
+		"Default runtime profile: " + firstNonEmptyString(strings.TrimSpace(role.DefaultExecutionProfileID), "none"),
 		"Default execution mode: " + firstNonEmptyString(strings.TrimSpace(role.DefaultExecutionMode), "inherit"),
 	}
 	if skills := compactContextIDs(role.DefaultSkillIDs); len(skills) > 0 {

@@ -198,7 +198,7 @@ func LoadSnapshot(ctx context.Context, sources SnapshotSources, projectID string
 		return Snapshot{}, errors.Join(ErrSourceNotConfigured, errors.New("projects store is required"))
 	}
 	if sources.AgentProfiles == nil {
-		return Snapshot{}, errors.Join(ErrSourceNotConfigured, errors.New("agent profiles store is required"))
+		return Snapshot{}, errors.Join(ErrSourceNotConfigured, errors.New("agent presets store is required"))
 	}
 	if sources.Work == nil {
 		return Snapshot{}, errors.Join(ErrSourceNotConfigured, errors.New("project work store is required"))

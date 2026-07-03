@@ -289,8 +289,8 @@ The operator-tunable system prompt is composed from three layers, broadest first
 Layers are concatenated with blank lines between them. Empty layers are skipped (no wasted message). The composed prompt is the second system message in the conversation; the workspace-environment message above is the first.
 
 Project assignment tasks set `workspace_system_prompt_policy="exclude"` and use
-the project/profile context builder instead. That keeps project memory and
-workspace-instruction bodies controlled by the resolved agent profile:
+the project/preset context builder instead. That keeps project memory and
+workspace-instruction bodies controlled by the resolved Agent Preset:
 `project_memory_policy=include` can include bounded project memory bodies, and
 `context_source_policy=include_enabled` can include bounded portable `AGENTS.md`
 workspace-instruction bodies. Host-specific guidance files and `SKILL.md` bodies

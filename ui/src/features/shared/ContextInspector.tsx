@@ -318,7 +318,7 @@ function ContextSummary({ packet }: { packet: ContextPacketRecord }) {
       >
         <ContextMetaCell label="Mode" value={modeValue} />
         <ContextMetaCell label="Provider / model" value={modelValue} />
-        <ContextMetaCell label="Execution profile" value={profileValue} />
+        <ContextMetaCell label="Runtime profile" value={profileValue} />
         <ContextMetaCell label="Workspace" value={workspaceValue} />
         <ContextMetaCell label="System prompt" value={systemPromptValue} />
         {projectLinkedHecateChatPacket(packet) && (
@@ -589,7 +589,7 @@ function humanExecutionMode(mode: string): string {
 function humanSectionLabel(section: string): string {
   switch (section) {
     case "profile":
-      return "Profile";
+      return "Agent preset";
     case "instructions":
       return "Instructions";
     case "skills":

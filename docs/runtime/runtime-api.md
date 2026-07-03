@@ -143,7 +143,7 @@ object when available.
 - [Usage endpoints](#usage-endpoints)
 - [Health and discovery endpoints](#health-and-discovery-endpoints)
 - [Plugin registry endpoints](#plugin-registry-endpoints)
-- [Agent profile endpoints](#agent-profile-endpoints)
+- [Agent Preset endpoints](#agent-preset-endpoints)
 - [Project endpoints](#project-endpoints)
 - [Project Assistant endpoints](#project-assistant-endpoints)
 - [Chat session endpoints](#chat-session-endpoints)
@@ -179,7 +179,7 @@ The `task` resource accepts these fields on `POST /hecate/v1/tasks`:
 Task responses may also include `workspace_system_prompt_policy`. Empty /
 omitted means the normal workspace `CLAUDE.md` / `AGENTS.md` prompt layer is
 eligible. `exclude` means the runner skips that compatibility layer for the
-task; native project assignments set this so profile context-source policy
+task; native project assignments set this so Agent Preset context-source policy
 controls any workspace-instruction body inclusion.
 
 Task responses also include `work_item_id` and `assignment_id` when a
@@ -586,10 +586,10 @@ sequenceDiagram
   native compatibility assignment row exists. Assignment start/dispatch remains
   Hecate-owned and writes that runtime overlay before any compatibility shadow
   or replacement-evidence mirror. `agent-profiles`
-  makes global agent-profile
-  create/update/delete Cairnline-first, writing Cairnline's separate portable
-  profile and execution-posture records before shadowing Hecate's combined
-  profile row. `project-metadata-defaults` makes project metadata/default-only
+  makes global Agent Preset
+  create/update/delete Cairnline-first, writing Hecate-specific preset
+  compatibility metadata and runtime-posture records before shadowing Hecate's
+  combined preset row. `project-metadata-defaults` makes project metadata/default-only
   PATCHes Cairnline-first, then shadows Hecate's compatibility project row;
   project create/delete, roots, context sources, last-opened-only updates, and
   mixed metadata/root/source replacement PATCHes remain Hecate-owned.
@@ -802,7 +802,7 @@ POST /hecate/v1/mcp/probe
 
 Tool names come back un-namespaced — the operator wants to see what the upstream itself calls them, not the gateway's runtime alias. MCP Apps metadata is preserved when present: `_meta` is the raw upstream object, `ui_resource_uri` and `ui_visibility` are derived convenience fields, and `model_visible: false` means the tool is app-only and will not be shown to the agent-loop model. Bounded by a 10-second deadline; a stuck upstream surfaces as a 400 with the diagnostic rather than wedging the request.
 
-`POST /hecate/v1/system/reset-data` resets local operator state without restarting the gateway. It deletes chat sessions, projects, project memory entries and candidates, project work-coordination rows, Hecate-owned project assignment runtime overlays, plugin registry records, agent profiles, tasks, configured providers, policy rules, and saved external-agent approval grants. Chat sessions are deleted through the normal chat-delete path first, so live external-agent sessions are asked to delete their native ACP session before their rows disappear. If an adapter does not support `session/delete`, Hecate falls back to `session/close` and still tears down the owned process. When SQLite or Postgres is configured, it then clears remaining Hecate-prefixed database table rows while preserving schemas. It also removes the embedded Cairnline mirror database files under the Hecate data directory so replacement-readiness mirrors cannot resurrect stale project state after reset. Workspace files and external CLI auth files are not touched. The endpoint is local-only and blocked in remote runtime mode: non-loopback sockets and forwarded-client headers are rejected.
+`POST /hecate/v1/system/reset-data` resets local operator state without restarting the gateway. It deletes chat sessions, projects, project memory entries and candidates, project work-coordination rows, Hecate-owned project assignment runtime overlays, plugin registry records, Agent Preset rows, tasks, configured providers, policy rules, and saved external-agent approval grants. Chat sessions are deleted through the normal chat-delete path first, so live external-agent sessions are asked to delete their native ACP session before their rows disappear. If an adapter does not support `session/delete`, Hecate falls back to `session/close` and still tears down the owned process. When SQLite or Postgres is configured, it then clears remaining Hecate-prefixed database table rows while preserving schemas. It also removes the embedded Cairnline mirror database files under the Hecate data directory so replacement-readiness mirrors cannot resurrect stale project state after reset. Workspace files and external CLI auth files are not touched. The endpoint is local-only and blocked in remote runtime mode: non-loopback sockets and forwarded-client headers are rejected.
 
 ```json
 → 200
@@ -1703,19 +1703,19 @@ Hecate-owned requirement for approval.
 unsupported permissions, unresolved secret-binding requests, disabled
 capabilities, and slash-command collisions. It does not call external services.
 
-## Agent profile endpoints
+## Agent preset endpoints
 
-Agent profiles are reusable runtime postures for project work, Hecate Chat,
-task-backed runs, and external-agent launches. They describe defaults and
+Agent presets are reusable Hecate runtime postures for project work, Hecate
+Chat, task-backed runs, and external-agent launches. They describe defaults and
 constraints such as instructions, surface, provider/model hints, tool/write/
 network posture, approval policy, project-memory policy, context-source
 policy, skill ids, and external-agent options. `skill_ids` resolve against the
 selected project's skills registry when project work starts. Hecate snapshots
 resolved/skipped skill metadata and warnings into the context packet, but it
 does not install skills, execute scripts, grant tools, or inject `SKILL.md`
-bodies from an agent profile.
+bodies from an agent preset.
 
-Hecate also exposes an immutable built-in profile catalog. Built-ins are
+Hecate also exposes an immutable built-in preset catalog. Built-ins are
 returned by list/get requests with `built_in: true`, can be selected by project
 or role defaults, and are resolved at assignment launch without being persisted
 as `agent_profiles` rows. `POST`, `PATCH`, and `DELETE` against built-in ids
@@ -1723,7 +1723,7 @@ return `409 conflict`.
 If an older persisted row uses a now-reserved built-in id, list/get responses
 prefer the immutable built-in and suppress the stored duplicate.
 
-Built-in profile ids:
+Built-in preset ids:
 
 ```text
 project_assignment
@@ -1738,18 +1738,18 @@ review_qa
 safe_external_review
 ```
 
-Built-in profiles are portable runtime postures and intentionally avoid
+Built-in presets are portable runtime postures and intentionally avoid
 project-specific `skill_ids`. Bind discovered project skills through roles or
-custom profiles so missing project-local skills do not create warnings in every
+custom presets so missing project-local skills do not create warnings in every
 project.
 
-Profile responses use the normal Hecate envelope:
+Preset responses use the normal Hecate envelope:
 
 ```json
-GET /hecate/v1/agent-profiles
+GET /hecate/v1/agent-presets
 → 200
 {
-  "object": "agent_profiles",
+  "object": "agent_presets",
   "data": [
     {
       "id": "prof_...",
@@ -1779,11 +1779,11 @@ GET /hecate/v1/agent-profiles
 
 Supported endpoints:
 
-- `GET /hecate/v1/agent-profiles`
-- `POST /hecate/v1/agent-profiles`
-- `GET /hecate/v1/agent-profiles/{id}`
-- `PATCH /hecate/v1/agent-profiles/{id}`
-- `DELETE /hecate/v1/agent-profiles/{id}`
+- `GET /hecate/v1/agent-presets`
+- `POST /hecate/v1/agent-presets`
+- `GET /hecate/v1/agent-presets/{id}`
+- `PATCH /hecate/v1/agent-presets/{id}`
+- `DELETE /hecate/v1/agent-presets/{id}`
 
 Enums:
 
@@ -1794,9 +1794,9 @@ Enums:
 | `project_memory_policy` | `inherit`, `include`, `visible_only`, `exclude`         |
 | `context_source_policy` | `inherit`, `include_enabled`, `visible_only`, `exclude` |
 
-Project assignment starts resolve profiles in this order: role default,
+Project assignment starts resolve presets in this order: role default,
 project default, built-in `project_assignment` fallback. The start path
-snapshots the resolved profile, provider/model hints, execution profile,
+snapshots the resolved preset, provider/model hints, runtime profile,
 memory policy, context-source policy, skill ids, and warnings into the task/run
 context packet. For native project assignments, `project_memory_policy=include`
 marks enabled project memory active and includes bounded memory bodies in the
@@ -1816,7 +1816,7 @@ Projects are the durable Hecate identity for a work area: code, research,
 writing, design, ops, planning, support, or any other operator-coordinated
 effort. A project can exist without a workspace root. When local files or code
 matter, it can remember one or more concrete workspace roots and future defaults
-such as provider, model, agent profile, tools posture, workspace mode, system
+such as provider, model, agent preset, tools posture, workspace mode, system
 prompt, compact command-output preference, and trusted context-source metadata.
 
 The project catalog implementation is intentionally lightweight:
@@ -1864,8 +1864,8 @@ When `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and the backend status
 reports `read_model_switch_ready=true`, this endpoint renders portable project
 identity, roots, default root, and context-source metadata from the Cairnline
 read model and marks each item with `read_backend: "cairnline"`. Project
-default profile and execution posture are read from Cairnline's project and
-execution-profile records where available; Hecate-only timestamps such as
+default agent preset and runtime posture are read from Cairnline's project and
+Hecate-specific bridge runtime records where available; Hecate-only timestamps such as
 `last_opened_at` remain enriched from Hecate's native project store. Create,
 update, delete, root, and context-source mutations still commit to
 Hecate-native stores first; when Cairnline is configured they also best-effort
@@ -1941,7 +1941,7 @@ use a stable locator such as `note:research-goals` and store the note text in
 `metadata.note`. Source metadata is visible to Project Assistant and context
 inspectors, but Hecate does not fetch URLs, execute sources, or blindly inject
 source bodies into prompts. Assignment prompt inclusion is still governed by
-profile context-source policy and currently only includes bounded portable
+Agent Preset context-source policy and currently only includes bounded portable
 workspace guidance (`kind: "workspace_instruction"`, `format: "agents_md"`).
 Clients that render `path` as a link must validate the scheme first; Hecate
 stores operator-provided locators as-is.
@@ -2444,9 +2444,9 @@ When `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded` is set, those authority
 helpers prefer the embedded Cairnline project graph over any Hecate-native
 compatibility shadow so stale shadows cannot override authoritative project/root
 metadata.
-Adding `agent-profiles` makes global agent-profile create/update/delete
-Cairnline-first, writing Cairnline's separate portable profile and
-execution-posture records before shadowing Hecate's combined profile row.
+Adding `agent-profiles` makes global Agent Preset create/update/delete
+Cairnline-first, writing Hecate-specific preset compatibility metadata and
+runtime posture records before shadowing Hecate's combined preset row.
 Adding `project-metadata-defaults` makes project metadata/default-only PATCHes
 Cairnline-first, then shadows Hecate's compatibility project row; project
 create/delete, roots, context sources, last-opened-only updates, and mixed
@@ -2629,7 +2629,7 @@ read smoke are verified, all portable write-authority gaps are closed, and
 reports the related mirror seams and whether that family still blocks portable
 write authority or remains Hecate-owned runtime behavior.
 Non-authoritative bridge seams currently cover project/root/source/defaults,
-agent profiles, skills, roles, work items, assignment metadata upsert/delete plus
+Hecate-specific Agent Preset compatibility records, skills, roles, work items, assignment metadata upsert/delete plus
 lifecycle-status sync, create-if-missing generic artifacts/evidence/reviews,
 handoffs, memory entries, memory candidates, Project Assistant proposal-ledger
 import, and all-project sync rehearsal. The
@@ -2678,18 +2678,19 @@ Hecate-native project row. In armed embedded replacement mode with all portable
 write authority closed, Cairnline-authoritative skill discovery/update skips
 native project-skill compatibility rows and reads come from the active Cairnline
 read model. `agent-profiles-live-mirror` mirrors
-global agent-profile create/update/delete metadata and execution posture after
+global Agent Preset create/update/delete metadata and execution posture after
 Hecate commits unless
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=agent-profiles` is enabled. With
-that opt-in switchpoint, agent-profile create/update/delete commits
-Cairnline's separate portable profile and execution-posture records first, then
-best-effort shadows Hecate's combined profile row back into Hecate-native stores
-for compatibility; delete removes only the portable profile record because
-execution-profile posture can be shared. `project-roles-live-mirror` and
+that opt-in switchpoint, Agent Preset create/update/delete commits
+Cairnline embedded compatibility records for Hecate preset metadata and runtime posture first, then
+best-effort shadows Hecate's combined preset row back into Hecate-native stores
+for compatibility; delete removes only the Hecate-specific preset metadata
+record because shared runtime posture records can be reused. `project-roles-live-mirror` and
 `project-work-items-live-mirror` mirror role/work-item coordination metadata
-after Hecate commits. Role mirroring also seeds the referenced agent profile and
-execution posture when the profile store is available, so Cairnline role
-validation can pass without requiring a full sync first.
+after Hecate commits. Role mirroring also seeds the referenced Agent Preset as
+Hecate-specific preset compatibility metadata and runtime posture when the
+preset store is available, so Cairnline role validation can pass without
+requiring a full sync first.
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-roles,project-work-items`
 makes role and work-item create/update/delete Cairnline-first and then shadows
 Hecate-native compatibility rows. When the embedded Cairnline graph already
@@ -3055,7 +3056,7 @@ Example response, with `write_switchpoints` shortened for readability:
       "Project metadata/default updates still write Hecate-native stores first, then best-effort mirror through Cairnline's project-metadata and project-defaults seams.",
       "Root create/update/delete, root list replacement, root discovery, and worktree-created root record mutations still write Hecate-native stores first, then best-effort mirror through Cairnline's root-level API; Hecate owns the Git worktree creation side effect.",
       "Direct context-source create/update/delete, context-source list replacement, and discovery mutations still write Hecate-native stores first, then best-effort mirror through Cairnline's source-level API.",
-      "Agent profile create/update/delete mutations still write Hecate-native stores first, then best-effort mirror portable profile metadata and execution posture into Cairnline.",
+      "Agent Preset create/update/delete mutations still write Hecate-native stores first, then best-effort mirror Hecate-owned preset compatibility metadata and runtime posture into Cairnline.",
       "Project skill discovery and metadata updates still write Hecate-native stores first, then best-effort mirror metadata-only skill records into Cairnline.",
       "Project role and work-item mutations still write Hecate-native stores first, then best-effort mirror coordination metadata into Cairnline unless project-roles or project-work-items write authority is explicitly enabled.",
       "Project assignment create/update/delete mutations still write Hecate-native stores first, then best-effort mirror coordination metadata into Cairnline; assignment start remains Hecate-owned and best-effort mirrors committed start and linked-chat reconciliation results.",
@@ -3129,14 +3130,6 @@ assistant.propose
 assistant.proposals.list
 assistant.proposals.get
 assistant.apply
-profiles.list
-profiles.create
-profiles.update
-profiles.delete
-execution_profiles.list
-execution_profiles.create
-execution_profiles.update
-execution_profiles.delete
 skills.list
 skills.discover
 skills.create
@@ -3598,9 +3591,8 @@ Example response, shortened:
 
 Local-only standalone Cairnline MCP coordination-list smoke. It uses the same
 sidecar command, database, timeout, and Cairnline-specific MCP client cache as
-`sidecar-connect`. Hecate calls read-only `projects.list`, `profiles.list`,
-`execution_profiles.list`, `skills.list`, `roles.list`, `work_items.list`, and
-`assignments.list`. With an empty body, Hecate selects the first typed project
+`sidecar-connect`. Hecate calls read-only `projects.list`, `skills.list`,
+`roles.list`, `work_items.list`, and `assignments.list`. With an empty body, Hecate selects the first typed project
 id from `projects.list` before calling project-scoped tools. With a body such
 as `{"project_id":"proj_123"}`, Hecate uses that id for project-scoped tools.
 
@@ -4307,7 +4299,7 @@ Local-only experimental bridge endpoint. It loads the selected project from
 Hecate's authoritative Projects stores, seeds an in-memory Cairnline service,
 and returns Cairnline's portable read projections for the project without
 writing an export database. The seeded project preserves roots,
-`default_root_id`, project default profile/execution-profile references, and
+`default_root_id`, project default agent-preset/runtime references, and
 context-source provenance metadata including source format, scope, category,
 trust label, and metadata labels so replacement-readiness checks exercise
 Hecate's workspace, launch-default, and context-control inputs. It also imports
@@ -5136,9 +5128,9 @@ instead of overwriting the existing record.
 
 Role list responses merge built-in roles with project custom roles. Built-ins
 are listable but immutable and are not seeded as duplicate project rows. The
-built-in role ids and default profile mappings are:
+built-in role ids and default preset mappings are:
 
-| Role id              | Default driver | Default profile           |
+| Role id              | Default driver | Default preset            |
 | -------------------- | -------------- | ------------------------- |
 | `product_manager`    | `hecate_task`  | `planning`                |
 | `architect`          | `hecate_task`  | `architecture`            |
@@ -5431,7 +5423,7 @@ standalone activity rows for them.
 
 Returns a read-only Project attention summary for the selected project. The
 endpoint derives compact operator rows from existing project state: missing
-provider/model defaults, missing active roots, missing agent profile refs,
+provider/model defaults, missing active roots, missing agent preset refs,
 project skill registry conflicts or unresolved/disabled referenced skills,
 pending handoffs, review artifacts that need a follow-up path, stale or missing
 linked assignment execution, failed/cancelled External Agent assignments,
@@ -5809,7 +5801,7 @@ rediscovery.
 Skill capability metadata is advisory. Skills do not grant tools, writes,
 network access, approval bypasses, script execution, or memory writes. During
 assignment launch planning, Hecate compares resolved project skills with the
-resolved agent profile and surfaces mismatches as launch-readiness and
+resolved agent preset and surfaces mismatches as launch-readiness and
 context-inspector warnings for operator review.
 
 #### `PATCH /hecate/v1/projects/{id}/skills/{skill_id}`
@@ -6187,7 +6179,7 @@ Hecate-native project or assignment row.
 With the default Hecate backend, unstarted assignments, rows without a stored
 packet or execution link, or older runs that predate snapshots return
 `404 not_found`. The Projects cockpit uses this endpoint for the assignment
-`Inspect context` action so operators can inspect the resolved profile, launch
+`Inspect context` action so operators can inspect the resolved Agent Preset, launch
 instructions, memory, project sources, work context, runtime refs, and skipped
 or inspect-only items without reopening the raw task or chat transcript.
 
@@ -6271,7 +6263,7 @@ Returns a launch context packet for a queued assignment without creating or
 mutating a Task, Run, Chat session, memory entry, artifact, or assignment
 record. Hecate performs the same launch-shape validation used by assignment
 start: project/work/assignment/role lookup, stored driver support, active
-execution checks, workspace resolution, resolved profile, provider/model hints
+execution checks, workspace resolution, resolved Agent Preset, provider/model hints
 for native assignments, External Agent adapter/options for external-agent
 assignments, skill metadata resolution, and prompt-context policy metadata.
 The packet includes a `project_work` / `project_root` item describing the
@@ -6293,9 +6285,10 @@ records from the Cairnline read model before applying Hecate-owned runtime
 validation. It also appends an inspect-only `runtime` /
 `cairnline_launch_packet` item. That item reports whether Cairnline can build a
 portable assignment launch packet and summarizes portable project/work/root,
-role, profile, execution profile, skills, evidence, reviews, handoffs, memory,
-and memory-candidate counts. It is replacement-readiness evidence only; Hecate
-still owns dispatch validation and the subsequent start/prepare mutation.
+role, Hecate preset/runtime hints, skills, evidence, reviews,
+handoffs, memory, and memory-candidate counts. It is replacement-readiness
+evidence only; Hecate still owns dispatch validation and the subsequent
+start/prepare mutation.
 
 In strict embedded mode, preflight reads the launch packet directly from the
 embedded Cairnline database and does not require a matching Hecate-native
@@ -6305,7 +6298,7 @@ The Projects cockpit uses this endpoint before `Start assignment`, `Prepare
 chat`, and `Start from handoff` so the operator can review the effective launch
 context before dispatch. The UI disables confirmation when
 `/launch-readiness` reports blockers and offers repair actions for Project
-Settings, Roles, Agent Profiles, and Connections. Project-local actions repair
+Settings, Roles, Agent Presets, and Connections. Project-local actions repair
 defaults that feed assignment resolution; Connections remains the
 provider/model readiness surface. `POST /start` remains the authoritative
 mutation path and the task runner/gateway still performs the actual route
@@ -6356,7 +6349,7 @@ success it also persists a structured context packet on the created run, updates
 assignment with `execution_ref.task_id`, latest `execution_ref.run_id`, status,
 and timestamps before returning the updated assignment:
 
-The persisted context packet records the resolved profile and applies its
+The persisted context packet records the resolved Agent Preset and applies its
 project memory/context-source policies. For native assignments, it also records
 the same `runtime` / `launch_readiness` metadata captured by preflight so later
 run-context inspection can show what provider/model readiness looked like when
@@ -7551,7 +7544,7 @@ and External Agent project-assignment packets mark project memory/source
 records as visible-only because Hecate records metadata for inspection but does
 not inject those bodies into adapter prompts. Native project-assignment packets
 can mark project memory and eligible source metadata included only when the
-resolved profile policy activated bounded prompt inclusion; handoffs and
+resolved Agent Preset policy activated bounded prompt inclusion; handoffs and
 artifact refs remain metadata-only.
 
 Legacy packets can omit `id`, `execution_profile`, `refs`, or `section`. The

@@ -350,7 +350,7 @@ The backend covers settings, encrypted provider credentials, audit events,
 provider health history, usage events, retention history, projects, chat
 sessions, external-agent approvals/grants, tasks, and the task queue.
 The project backend also carries project memory, project work, project skills,
-and agent profiles. The chat backend also carries external-agent approval rows
+and agent preset records. The chat backend also carries external-agent approval rows
 and durable grants so transcripts and approval history move together.
 
 `HECATE_PROJECTS_COORDINATION_BACKEND=hecate|cairnline` is separate from the
@@ -366,9 +366,8 @@ read-only `projects.list` MCP tool, or
 `POST /hecate/v1/projects/cairnline/sidecar-detail-smoke` to call read-only
 `projects.get`, through that persistent client. Operators can also run
 `POST /hecate/v1/projects/cairnline/sidecar-coordination-smoke` to call the
-read-only portable coordination list tools (`projects.list`, `profiles.list`,
-`execution_profiles.list`, `skills.list`, `roles.list`, `work_items.list`, and
-`assignments.list`) and confirm Hecate can parse their typed
+read-only portable coordination list tools (`projects.list`, `skills.list`,
+`roles.list`, `work_items.list`, and `assignments.list`) and confirm Hecate can parse their typed
 `structuredContent` arrays. Projects
 reads, writes, mirrors, and write-authority switchpoints still stay on
 Hecate-native stores until Hecate has a sidecar backend adapter. For MCP-pull
@@ -569,13 +568,13 @@ can use roots and context sources from the embedded Cairnline graph without a
 Hecate-native compatibility project row. Neither path loads, injects, executes,
 or grants permissions from skill bodies. Project role and work-item
 mutations likewise mirror coordination metadata after Hecate commits unless
-`project-roles` or `project-work-items` is enabled, respectively. Role mirroring
-seeds referenced agent-profile metadata and execution posture when available,
-and global agent-profile CRUD best-effort mirrors portable profile metadata and
-execution posture after Hecate commits unless `agent-profiles` is enabled, in
-which case profile create/update/delete commits Cairnline's separate portable
-profile and execution-posture records first and shadows Hecate's combined
-profile row back into Hecate for compatibility. Assignment create/update/delete
+`project-roles` or `project-work-items` is enabled, respectively. Hecate-owned
+Agent Preset CRUD can also best-effort mirror private preset compatibility
+metadata and runtime posture into the embedded Cairnline bridge after Hecate
+commits unless `agent-profiles` is enabled, in which case Agent Preset
+create/update/delete writes those Hecate-specific compatibility records first
+and shadows Hecate's combined preset row back into Hecate for compatibility.
+Assignment create/update/delete
 mutations likewise mirror portable metadata after Hecate commits unless
 `project-assignments` is enabled, in which case assignment record mutations
 commit to Cairnline first and shadow back into Hecate. When these role,
@@ -626,7 +625,8 @@ Cairnline core.
 Other live Projects reads/writes still use Hecate-native
 stores until the remaining read routes, write adapter, and migration path are
 ready. Current bridge write experiments cover non-authoritative
-project/root/source/defaults, agent profiles, skills, roles, work items,
+project/root/source/defaults, Hecate-specific Agent Preset compatibility
+records, skills, roles, work items,
 assignment metadata upsert/delete, assignment-start result and linked-chat
 reconciliation sync, memory, memory-candidate, create-only collaboration
 artifact/evidence/review, and handoff shapes. Backend status reports those
@@ -645,7 +645,7 @@ proof seams separately from the live-route `write_adapter_gaps`; only
 `project-assistant-apply-side-effects-live-mirror` are wired to live mutations,
 and they are mirror-only unless their explicit Cairnline write-authority
 switchpoint is enabled. The portable switchpoints can make identity,
-metadata/defaults, roots, context sources, profiles, skills, roles, work items,
+metadata/defaults, roots, context sources, skills, roles, work items,
 assignments, collaboration records, accepted memory, memory candidates, and the
 proposal ledger Cairnline-authoritative, while apply side effects become
 mixed-authority through the enabled project create, project metadata/default,
@@ -748,11 +748,11 @@ Deployment-specific notes:
   `HECATE_POSTGRES_TEST_URL=... go test ./cmd/hecate -run TestPostgresStoresMigrateWhenDatabaseURLProvided`
   smoke exercises every Postgres-backed store against a real database.
 - Projects are the durable identity foundation for project-scoped history,
-  defaults, memory, profiles, skills, context sources, and project work. Chat
+  defaults, memory, Agent Presets, skills, context sources, and project work. Chat
   sessions and tasks can carry `project_id` for UI grouping and runtime
   inspection, and context packets snapshot project-scoped memory/source
   decisions. Native project assignments can include bounded project memory and
-  portable `AGENTS.md` prompt context when the resolved profile asks for it;
+  portable `AGENTS.md` prompt context when the resolved Agent Preset asks for it;
   Hecate-owned project chat has an explicit bounded project prelude, while
   External Agent paths keep project memory/source bodies metadata-only unless a
   future adapter-specific prompt policy is added.

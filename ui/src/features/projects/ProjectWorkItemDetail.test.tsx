@@ -576,7 +576,7 @@ describe("ProjectWorkItemDetail", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("marks missing launch profiles in the posture preview", async () => {
+  it("marks missing launch presets in the posture preview", async () => {
     getProjectAssignmentLaunchReadinessMock.mockResolvedValueOnce({
       object: "project_assignment_launch_readiness",
       data: launchReadiness({
@@ -591,7 +591,7 @@ describe("ProjectWorkItemDetail", () => {
           network_allowed: false,
         },
         warnings: [
-          'Referenced agent profile "missing_profile" was not found; using stored profile id as execution_profile hint.',
+          'Referenced agent preset "missing_profile" was not found; using stored preset id as execution_profile hint.',
         ],
       }),
     });
@@ -600,7 +600,7 @@ describe("ProjectWorkItemDetail", () => {
     const readiness = screen.getByRole("region", { name: "Assignment launch readiness" });
     await userEvent.click(within(readiness).getByRole("button", { name: "Check readiness" }));
 
-    expect(await within(readiness).findByText("missing_profile (profile missing)")).toBeTruthy();
+    expect(await within(readiness).findByText("missing_profile (preset missing)")).toBeTruthy();
     expect(within(readiness).getByText("tools off · writes off · network off")).toBeTruthy();
   });
 
@@ -615,7 +615,7 @@ describe("ProjectWorkItemDetail", () => {
         external_agent_id: "codex",
         session_title: "Implementation follow-up",
         warnings: [
-          "Project skill Review (review) declares network enabled, but resolved profile implementation has network disabled.",
+          "Project skill Review (review) declares network enabled, but resolved preset implementation has network disabled.",
         ],
       }),
     });

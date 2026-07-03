@@ -613,7 +613,7 @@ func (h *Handler) projectAssignmentContextPacket(ctx context.Context, project pr
 			"Driver: " + driverKind,
 			"Provider: " + firstNonEmptyString(strings.TrimSpace(provider), "auto"),
 			"Model: " + firstNonEmptyString(strings.TrimSpace(model), "project/runtime default"),
-			"Profile: " + firstNonEmptyString(strings.TrimSpace(executionProfile), "none"),
+			"Agent preset: " + firstNonEmptyString(strings.TrimSpace(executionProfile), "none"),
 			"Root: " + firstNonEmptyString(strings.TrimSpace(root.ID), "project default"),
 			"Role defaults: " + formatAssignmentHints([]assignmentHint{
 				{"driver", role.DefaultDriverKind},
@@ -946,9 +946,9 @@ func appendProjectMemoryForProfilePolicy(packet *chat.ContextPacket, entries []m
 	case agentprofiles.MemoryExclude:
 		return
 	case agentprofiles.MemoryInclude:
-		appendProjectMemoryWithInclusion(packet, entries, true, "Activated by agent profile project_memory_policy=include")
+		appendProjectMemoryWithInclusion(packet, entries, true, "Activated by agent preset project_memory_policy=include")
 	default:
-		appendProjectMemoryWithInclusion(packet, entries, false, "Visible only by agent profile project_memory_policy="+firstNonEmptyString(strings.TrimSpace(profile.ProjectMemoryPolicy), agentprofiles.MemoryInherit))
+		appendProjectMemoryWithInclusion(packet, entries, false, "Visible only by agent preset project_memory_policy="+firstNonEmptyString(strings.TrimSpace(profile.ProjectMemoryPolicy), agentprofiles.MemoryInherit))
 	}
 }
 
@@ -993,9 +993,9 @@ func appendProjectContextSourcesForProfilePolicy(packet *chat.ContextPacket, sou
 	case agentprofiles.ContextExclude:
 		return
 	case agentprofiles.ContextIncludeEnabled:
-		appendProjectContextSourcesWithInclusion(packet, sources, true, "Activated by agent profile context_source_policy=include_enabled; eligible source bodies may be loaded into the native assignment prompt")
+		appendProjectContextSourcesWithInclusion(packet, sources, true, "Activated by agent preset context_source_policy=include_enabled; eligible source bodies may be loaded into the native assignment prompt")
 	default:
-		appendProjectContextSourcesWithInclusion(packet, sources, false, "Visible only by agent profile context_source_policy="+firstNonEmptyString(strings.TrimSpace(profile.ContextSourcePolicy), agentprofiles.ContextInherit))
+		appendProjectContextSourcesWithInclusion(packet, sources, false, "Visible only by agent preset context_source_policy="+firstNonEmptyString(strings.TrimSpace(profile.ContextSourcePolicy), agentprofiles.ContextInherit))
 	}
 }
 
@@ -1049,7 +1049,7 @@ func appendResolvedAgentProfile(packet *chat.ContextPacket, profile projectworka
 		"Name: " + firstNonEmptyString(profile.Name, profile.ID),
 		"Source: " + firstNonEmptyString(profile.Source, "unknown"),
 		"Surface: " + firstNonEmptyString(profile.Surface, "any"),
-		"Execution profile: " + firstNonEmptyString(profile.ExecutionProfile, profile.ID),
+		"Runtime profile: " + firstNonEmptyString(profile.ExecutionProfile, profile.ID),
 		"Provider hint: " + firstNonEmptyString(profile.ProviderHint, "inherit"),
 		"Model hint: " + firstNonEmptyString(profile.ModelHint, "inherit"),
 		"Tools enabled: " + boolLabel(profile.ToolsEnabled),
@@ -1083,7 +1083,7 @@ func appendResolvedAgentProfile(packet *chat.ContextPacket, profile projectworka
 		Title:           firstNonEmptyString(profile.Name, profile.ID),
 		Body:            strings.Join(body, "\n"),
 		Included:        !profile.Missing,
-		InclusionReason: firstNonEmptyString(profile.Source, "resolved profile"),
+		InclusionReason: firstNonEmptyString(profile.Source, "resolved preset"),
 	})
 	for _, warning := range profile.Warnings {
 		appendContextPacketSourceWithSection(packet, contextSectionProfile, chat.ContextSource{

@@ -489,7 +489,7 @@ from the target repository.
 - Store context packets for proposals and checks.
 - Show "what did the agent see?" per iteration.
 - Surface memory candidates in the memory UI.
-- Support project/profile-selected memory as read-only context.
+- Support project/preset-selected memory as read-only context.
 
 ### V3 — Multi-strategy Experiments
 

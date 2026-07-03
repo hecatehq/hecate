@@ -109,12 +109,12 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
   capability repair hint. Ollama models can be enriched from their native
   capability metadata; generic OpenAI-compatible local models often remain
   `unknown` until the provider reports richer metadata.
-- Workspace modes are available for task/project starts, and named agent
-  profiles now have a core API, profile-management UI, project/role default
-  selection, project-skill pickers, and profile-driven assignment context-packet
+- Workspace modes are available for task/project starts, and named Agent
+  Presets now have a core API, preset-management UI, project/role default
+  selection, project-skill pickers, and preset-driven assignment context-packet
   memory/source activation. Native project assignments can include bounded
   project memory and portable `AGENTS.md` workspace-instruction bodies when the
-  resolved profile explicitly asks for inclusion. Broader prompt-content policy
+  resolved Agent Preset explicitly asks for inclusion. Broader prompt-content policy
   for chats, external-agent starts, host-specific guidance files, and arbitrary
   project source documents is still beta-hardening work. Tools-on chat still
   uses the selected workspace with the current chat runtime posture.

@@ -57,13 +57,14 @@ Start with [Workflow runbooks v0](proposals/workflow-runbooks-v0.md), then read
 flow and [Context assembly](proposals/context-assembly-and-injection-boundaries.md)
 for the context packet boundary.
 
-### Workspace Instructions, Skills, And Profiles
+### Workspace Instructions, Skills, And Agent Presets
 
-Workspace instructions, reusable skills, agent profiles, presets, and runbooks
-are deliberately separate concepts. Start with
+Workspace instructions, reusable skills, Hecate Agent Presets, portable project
+roles, desired-agent hints, and runbooks are deliberately separate concepts.
+Start with
 [Workspace instructions, skills, and profiles](proposals/workspace-instructions-skills-and-profiles.md)
-before implementing Agent Profiles V1, skill registry support, or workspace
-`AGENTS.md` discovery.
+before changing Agent Presets, skill registry support, or workspace `AGENTS.md`
+discovery.
 
 ### Agent And Chat Runtime
 

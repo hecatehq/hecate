@@ -310,7 +310,7 @@ function ProjectBackendSwitchpointList({
             >
               <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
                 <span style={{ color: "var(--t0)", fontSize: 12, fontWeight: 650 }}>
-                  {switchpoint.name.replaceAll("-", " ")}
+                  {projectBackendDisplayLabel(switchpoint.name)}
                 </span>
                 <span className="badge badge-muted" style={{ textTransform: "none" }}>
                   {projectBackendDisplayLabel(switchpoint.current_authority)}
@@ -340,7 +340,7 @@ function ProjectBackendSwitchpointList({
                 )}
                 {switchpoint.gap && (
                   <span className="badge badge-muted" style={{ textTransform: "none" }}>
-                    gap {switchpoint.gap}
+                    gap {projectBackendDisplayLabel(switchpoint.gap)}
                   </span>
                 )}
               </div>
@@ -355,7 +355,7 @@ function ProjectBackendSwitchpointList({
                       className="badge badge-muted"
                       style={{ fontSize: 9, textTransform: "none" }}
                     >
-                      {seam}
+                      {projectBackendDisplayLabel(seam)}
                     </span>
                   ))}
                 </div>
@@ -492,7 +492,7 @@ function ProjectBackendNextAction({
         </span>
         {action.target && (
           <span className="badge badge-muted" style={{ textTransform: "none" }}>
-            {action.target}
+            {projectBackendDisplayLabel(action.target)}
           </span>
         )}
         {probes.length > 0 && (
@@ -784,7 +784,18 @@ function projectBackendProbePlan(url: string, method: string): { label: string; 
 }
 
 function projectBackendDisplayLabel(value: string): string {
+  switch (value) {
+    case "agent-profiles":
+      return "agent presets";
+    case "agent-profiles-live-mirror":
+      return "agent presets live mirror";
+  }
   return value.replaceAll("_", " ").replaceAll("-", " ");
+}
+
+function projectBackendListItemLabel(value: string): string {
+  if (value.includes(" ")) return value;
+  return projectBackendDisplayLabel(value);
 }
 
 function projectBackendSwitchpointStateBadge(state: string, liveMirror: boolean): string {
@@ -871,7 +882,7 @@ function ProjectBackendList({
         ) : (
           items.map((item) => (
             <span key={item} className="badge badge-muted" style={{ textTransform: "none" }}>
-              {item}
+              {projectBackendListItemLabel(item)}
             </span>
           ))
         )}

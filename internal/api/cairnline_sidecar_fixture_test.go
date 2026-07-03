@@ -163,21 +163,6 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 			result.StructuredContent = mustRawJSON(cairnlineSidecarFixtureProjects(mode, state))
 		}
 		return result, nil
-	case "profiles.list":
-		return cairnlineSidecarFixtureListResult(mode, "Profiles (1):\n- profile_fixture: Fixture Profile", []map[string]any{{
-			"id":          "profile_fixture",
-			"name":        "Fixture Profile",
-			"description": "Portable fixture profile",
-			"skill_ids":   []string{"skill_fixture"},
-		}})
-	case "execution_profiles.list":
-		return cairnlineSidecarFixtureListResult(mode, "Execution profiles (1):\n- exec_fixture: Fixture Execution", []map[string]any{{
-			"id":           "exec_fixture",
-			"name":         "Fixture Execution",
-			"agent_kind":   "any",
-			"model_hint":   "fixture-model",
-			"tools_policy": "readonly",
-		}})
 	case "skills.list":
 		if mode == "coordination-tool-error" {
 			return mcp.CallToolResult{

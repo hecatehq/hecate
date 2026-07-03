@@ -841,7 +841,7 @@ describe("ConsoleShell navigation", () => {
     expect(request?.draft).toContain("- Provider: ollama");
     expect(request?.draft).toContain("- Model: qwen2.5-coder");
     expect(request?.draft).toContain(
-      "Role defaults: driver=hecate_task, provider=anthropic, model=claude-sonnet-4, profile=implementation",
+      "Role defaults: driver=hecate_task, provider=anthropic, model=claude-sonnet-4, preset=implementation",
     );
     expect(onSelectWorkspace).toHaveBeenCalledWith("chats");
   });

@@ -111,7 +111,7 @@ func TestProjectCairnlineSidecarProbe_Ready(t *testing.T) {
 		t.Fatalf("missing tools = %+v, want none", got.MissingTools)
 	}
 	assertSidecarLiveReadDetail(t, got.Detail)
-	for _, name := range []string{"projects.update", "roots.create", "context_sources.update", "profiles.create", "assignments.create", "memory_entries.create", "assistant.apply", "memory_candidates.delete"} {
+	for _, name := range []string{"projects.update", "roots.create", "context_sources.update", "skills.update", "assignments.create", "memory_entries.create", "assistant.apply", "memory_candidates.delete"} {
 		if !containsString(got.RequiredTools, name) {
 			t.Fatalf("required tools = %+v, want %q", got.RequiredTools, name)
 		}
@@ -419,7 +419,7 @@ func TestProjectCairnlineSidecarCoordinationSmoke_ListsPortableSurfaces(t *testi
 	if got.ToolCount != len(projectCairnlineSidecarCoordinationListTools) || len(got.Lists) != len(projectCairnlineSidecarCoordinationListTools) {
 		t.Fatalf("tool count/list count = %d/%d, want %d", got.ToolCount, len(got.Lists), len(projectCairnlineSidecarCoordinationListTools))
 	}
-	for _, tool := range []string{"projects.list", "profiles.list", "execution_profiles.list", "skills.list", "roles.list", "work_items.list", "assignments.list"} {
+	for _, tool := range []string{"projects.list", "skills.list", "roles.list", "work_items.list", "assignments.list"} {
 		item, ok := projectCairnlineSidecarCoordinationTestList(got.Lists, tool)
 		if !ok {
 			t.Fatalf("missing coordination list result for %s: %+v", tool, got.Lists)
@@ -505,10 +505,10 @@ func TestProjectCairnlineSidecarCoordinationSmoke_TextOnlyListCannotSelectProjec
 	if got.Ready || got.Status != "sidecar_coordination_no_project" {
 		t.Fatalf("coordination smoke = %+v, want no typed project selection", got)
 	}
-	if got.SelectedProjectID != "" || len(got.Lists) != 3 {
+	if got.SelectedProjectID != "" || len(got.Lists) != 1 {
 		t.Fatalf("selection/lists = selected:%q lists:%+v, want global list evidence only", got.SelectedProjectID, got.Lists)
 	}
-	for _, tool := range []string{"projects.list", "profiles.list", "execution_profiles.list"} {
+	for _, tool := range []string{"projects.list"} {
 		if _, ok := projectCairnlineSidecarCoordinationTestList(got.Lists, tool); !ok {
 			t.Fatalf("lists = %+v, want %s before project-scoped stop", got.Lists, tool)
 		}

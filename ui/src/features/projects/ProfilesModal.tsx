@@ -100,14 +100,14 @@ export function ProfilesModal({
   return (
     <>
       <Modal
-        title="Agent profiles"
+        title="Agent presets"
         onClose={onClose}
         width={840}
         footer={
           <div style={{ display: "flex", gap: 8, width: "100%" }}>
             {editingBuiltIn && (
               <span className="badge badge-muted" style={{ alignSelf: "center" }}>
-                Built-in profile
+                Built-in preset
               </span>
             )}
             {selectedProfile && !editingNew && !editingBuiltIn && (
@@ -118,7 +118,7 @@ export function ProfilesModal({
                 onClick={() => setDeleteProfile(selectedProfile)}
                 style={{ color: "var(--red)" }}
               >
-                Delete profile
+                Delete preset
               </button>
             )}
             {!editingBuiltIn && (
@@ -129,7 +129,7 @@ export function ProfilesModal({
                 onClick={() => void submit()}
                 style={{ marginLeft: "auto" }}
               >
-                {pending ? "Saving..." : editingNew ? "Create profile" : "Save profile"}
+                {pending ? "Saving..." : editingNew ? "Create preset" : "Save preset"}
               </button>
             )}
           </div>
@@ -154,7 +154,7 @@ export function ProfilesModal({
               style={{ justifyContent: "flex-start" }}
             >
               <Icon d={Icons.plus} size={12} />
-              New profile
+              New preset
             </button>
             {profiles.map((profile) => (
               <button
@@ -185,7 +185,7 @@ export function ProfilesModal({
             {error && <InlineError message={error} />}
             <div style={{ display: "grid", gridTemplateColumns: "160px 1fr", gap: 10 }}>
               <label style={profileRoleFieldStyle}>
-                <span style={profileRoleFieldLabelStyle}>Profile id</span>
+                <span style={profileRoleFieldLabelStyle}>Preset id</span>
                 <input
                   className="input"
                   value={form.id}
@@ -252,7 +252,7 @@ export function ProfilesModal({
                 </select>
               </label>
               <label style={profileRoleFieldStyle}>
-                <span style={profileRoleFieldLabelStyle}>Execution profile</span>
+                <span style={profileRoleFieldLabelStyle}>Runtime profile</span>
                 <input
                   className="input"
                   value={form.executionProfile}
@@ -395,7 +395,7 @@ export function ProfilesModal({
               value={form.skillIDs}
             />
             <div style={profileRoleSubtleTextStyle}>
-              Profiles set runtime posture and skill references. Skills do not grant tools, writes,
+              Presets set runtime posture and skill references. Skills do not grant tools, writes,
               network, or approvals.
             </div>
           </form>
@@ -403,17 +403,17 @@ export function ProfilesModal({
       </Modal>
       {deleteProfile && (
         <ConfirmModal
-          title="Delete agent profile"
+          title="Delete agent preset"
           danger
           pending={pending}
-          confirmLabel="Delete agent profile"
+          confirmLabel="Delete agent preset"
           onClose={() => setDeleteProfile(null)}
           onConfirm={() => void deleteSelectedProfile(deleteProfile)}
           message={
             <>
               Delete <strong>{deleteProfile.name || deleteProfile.id}</strong>.{" "}
               {profileReferenceSummary(deleteProfile, project, roles)} Other projects may also
-              reference this global profile.
+              reference this global preset.
             </>
           }
         />

@@ -81,10 +81,10 @@ describe("ProfilesModal", () => {
       />,
     );
 
-    await userEvent.type(screen.getByLabelText("Profile id"), "implementation");
+    await userEvent.type(screen.getByLabelText("Preset id"), "implementation");
     await userEvent.type(screen.getByLabelText("Name"), "Implementation");
     await userEvent.click(screen.getByLabelText("Use skill Backend"));
-    await userEvent.click(screen.getByRole("button", { name: "Create profile" }));
+    await userEvent.click(screen.getByRole("button", { name: "Create preset" }));
 
     expect(onCreate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -120,7 +120,7 @@ describe("ProfilesModal", () => {
     await userEvent.clear(screen.getByLabelText("Name"));
     await userEvent.type(screen.getByLabelText("Name"), "Implementation lead");
     await userEvent.type(screen.getByLabelText("Instructions"), "Ship the scoped change.");
-    await userEvent.click(screen.getByRole("button", { name: "Save profile" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save preset" }));
 
     expect(onUpdate).toHaveBeenCalledWith(
       "implementation",
@@ -155,9 +155,9 @@ describe("ProfilesModal", () => {
     );
 
     expect(screen.getAllByText("built-in").length).toBeGreaterThan(0);
-    expect(screen.getByText("Built-in profile")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Save profile" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Delete profile" })).not.toBeInTheDocument();
+    expect(screen.getByText("Built-in preset")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save preset" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete preset" })).not.toBeInTheDocument();
     expect(screen.getByLabelText("Name")).toBeDisabled();
     expect(screen.getByLabelText("Use skill Backend")).toBeDisabled();
   });
@@ -180,15 +180,15 @@ describe("ProfilesModal", () => {
       />,
     );
 
-    await userEvent.click(screen.getByRole("button", { name: "Delete profile" }));
+    await userEvent.click(screen.getByRole("button", { name: "Delete preset" }));
 
     expect(
       screen.getByText(
-        /Referenced by this project's default profile; roles Developer\. Those references will fall back until changed\./,
+        /Referenced by this project's default preset; roles Developer\. Those references will fall back until changed\./,
       ),
     ).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Delete agent profile" }));
+    await userEvent.click(screen.getByRole("button", { name: "Delete agent preset" }));
 
     expect(onDelete).toHaveBeenCalledWith(expect.objectContaining({ id: "implementation" }));
   });
