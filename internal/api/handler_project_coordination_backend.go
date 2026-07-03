@@ -387,7 +387,8 @@ func (h *Handler) projectCoordinationBackendStatusWithContext(ctx context.Contex
 		response.WriteAdapterReady = len(response.PortableWriteGaps) == 0
 		migrationCutoverArmed := replacementMode == "embedded" && strictEmbeddedReadGate.Ready && projectCairnlineMigrationRollbackEvidenceReady(migrationRehearsal) && len(response.PortableWriteGaps) == 0
 		response.WriteAdapterGaps = projectCairnlineWriteAdapterGapsAfterMigrationCutover(writeAdapterGaps, migrationCutoverArmed)
-		response.WriteSwitchpoints = projectCairnlineWriteSwitchpointsSnapshot(effectiveWriteAuthority, migrationCutoverArmed)
+		nativeShadowSkipArmed := replacementMode == "embedded" && len(response.PortableWriteGaps) == 0
+		response.WriteSwitchpoints = projectCairnlineWriteSwitchpointsSnapshot(effectiveWriteAuthority, nativeShadowSkipArmed, migrationCutoverArmed)
 		response.MigrationBlockers = projectCairnlineMigrationBlockersSnapshot(response.WriteAdapterGaps, migrationCutoverArmed)
 		response.ReplacementGates = projectCairnlineReplacementGates(readReady, response.PortableWriteGaps, replacementMode, strictEmbeddedReadGate, migrationRehearsal, migrationCutoverArmed)
 		if !connectorReady {
@@ -1089,7 +1090,7 @@ func projectCairnlineWriteAdapterGapsAfterMigrationCutover(writeGaps []string, m
 	return out
 }
 
-func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string, migrationCutoverArmed bool) []ProjectCoordinationBackendWriteSwitchpoint {
+func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string, nativeShadowSkipArmed, migrationCutoverArmed bool) []ProjectCoordinationBackendWriteSwitchpoint {
 	out := make([]ProjectCoordinationBackendWriteSwitchpoint, 0, len(projectCairnlineWriteSwitchpoints))
 	projectMemoryAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, "project-memory")
 	memoryCandidatesAuthoritative := projectMemoryAuthoritative && projectCairnlineWriteAuthorityEnabled(writeAuthority, "memory-candidates")
@@ -1113,6 +1114,9 @@ func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string, migratio
 			item.BlocksAuthority = false
 			item.Gap = ""
 			item.Detail = "Project create/delete commits portable identity, roots, context sources, launch defaults, and project identity removal to the embedded Cairnline database first, then best-effort shadows Hecate's compatibility row; delete rolls the Cairnline snapshot back if Hecate compatibility cleanup fails."
+			if nativeShadowSkipArmed {
+				item.Detail = "Project create/delete commits portable identity, roots, context sources, launch defaults, and project identity removal to the embedded Cairnline database first and, in armed embedded replacement mode, skips native project identity compatibility rows."
+			}
 		}
 		if projectMetadataDefaultsAuthoritative && item.Name == "project-metadata-defaults" {
 			item.CurrentAuthority = "cairnline"
@@ -1153,7 +1157,7 @@ func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string, migratio
 			item.BlocksAuthority = false
 			item.Gap = ""
 			item.Detail = "Project skill discovery and update mutations commit metadata-only skill records to the embedded Cairnline database first, using Cairnline-owned roots and context sources when no Hecate-native project row exists, then best-effort shadow them back into Hecate-native stores for compatibility."
-			if migrationCutoverArmed {
+			if nativeShadowSkipArmed {
 				item.Detail = "Project skill discovery and update mutations commit metadata-only skill records to the embedded Cairnline database first and, in armed embedded replacement mode, skip native project-skill compatibility rows."
 			}
 		}
@@ -1164,6 +1168,9 @@ func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string, migratio
 			item.BlocksAuthority = false
 			item.Gap = ""
 			item.Detail = "Project role create, update, and delete mutations commit to the embedded Cairnline database first, then best-effort shadow portable role defaults back into Hecate-native stores for compatibility."
+			if nativeShadowSkipArmed {
+				item.Detail = "Project role create, update, and delete mutations commit to the embedded Cairnline database first and, in armed embedded replacement mode, skip native project-work role compatibility rows."
+			}
 		}
 		if projectWorkItemsAuthoritative && item.Name == "work-items" {
 			item.CurrentAuthority = "cairnline"
@@ -1172,6 +1179,9 @@ func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string, migratio
 			item.BlocksAuthority = false
 			item.Gap = ""
 			item.Detail = "Work-item create, update, and delete mutations commit to the embedded Cairnline database first, then best-effort shadow portable work-item state back into Hecate-native stores for compatibility."
+			if nativeShadowSkipArmed {
+				item.Detail = "Work-item create, update, and delete mutations commit to the embedded Cairnline database first and, in armed embedded replacement mode, skip native project-work item compatibility rows."
+			}
 		}
 		if projectAssignmentsAuthoritative && item.Name == "assignments" {
 			item.CurrentAuthority = "cairnline"
@@ -1180,6 +1190,9 @@ func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string, migratio
 			item.BlocksAuthority = false
 			item.Gap = ""
 			item.Detail = "Assignment create, update, and delete record mutations commit to the embedded Cairnline database first, then best-effort shadow portable assignment state back into Hecate-native stores for compatibility; assignment start claims the Cairnline coordination record before Hecate-owned dispatch and releases that claim when launch setup fails before a runtime record is committed."
+			if nativeShadowSkipArmed {
+				item.Detail = "Assignment create, update, and delete record mutations commit to the embedded Cairnline database first and, in armed embedded replacement mode, skip native project-work assignment compatibility rows while Hecate keeps assignment execution refs, context packets, and launch timestamps in its runtime overlay."
+			}
 		}
 		if projectAssistantProposalsAuthoritative && item.Name == "project-assistant-proposal-ledger" {
 			item.CurrentAuthority = "cairnline"
@@ -1207,6 +1220,9 @@ func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string, migratio
 			item.BlocksAuthority = false
 			item.Gap = ""
 			item.Detail = "Generic artifact, evidence, and review creation commits to the embedded Cairnline database first, then best-effort shadows the portable collaboration record back into Hecate-native stores for compatibility."
+			if nativeShadowSkipArmed {
+				item.Detail = "Generic artifact, evidence, and review creation commits to the embedded Cairnline database first and, in armed embedded replacement mode, skips native project-work artifact compatibility rows."
+			}
 		}
 		if projectCollaborationAuthoritative && item.Name == "handoffs" {
 			item.CurrentAuthority = "cairnline"
@@ -1215,6 +1231,9 @@ func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string, migratio
 			item.BlocksAuthority = false
 			item.Gap = ""
 			item.Detail = "Handoff create, update, status, and delete mutations commit to the embedded Cairnline database first, then best-effort shadow portable handoff state back into Hecate-native stores for compatibility."
+			if nativeShadowSkipArmed {
+				item.Detail = "Handoff create, update, status, and delete mutations commit to the embedded Cairnline database first and, in armed embedded replacement mode, skip native project-work handoff compatibility rows."
+			}
 		}
 		if projectMemoryAuthoritative && item.Name == "project-memory" {
 			item.CurrentAuthority = "cairnline"
