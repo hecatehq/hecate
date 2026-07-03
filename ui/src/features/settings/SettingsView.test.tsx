@@ -182,9 +182,77 @@ describe("SettingsView", () => {
       screen.getByText("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=agent-profiles"),
     ).toBeTruthy();
     expect(screen.getAllByText("1 probe").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("/hecate/v1/projects/{id}/cairnline/read-model").length).toBe(2);
+    expect(screen.getByText("/hecate/v1/projects/cairnline/sync")).toBeTruthy();
+    expect(screen.getByText("/hecate/v1/projects/cairnline/mirror-parity")).toBeTruthy();
     expect(screen.getByText("memory-candidates")).toBeTruthy();
     expect(screen.getByText("assignment-start")).toBeTruthy();
     expect(screen.getByText("migration-cutover")).toBeTruthy();
+  });
+
+  it("shows strict embedded smoke probe routes in the next project backend action", async () => {
+    vi.mocked(getProjectCoordinationBackendStatus).mockResolvedValue({
+      object: "project_coordination_backend_status",
+      data: {
+        configured_backend: "cairnline",
+        authoritative_backend: "hecate",
+        storage_backend: "sqlite",
+        cairnline_connector: "embedded",
+        cairnline_connector_ready: true,
+        cairnline_read_source: "embedded",
+        cairnline_bridge_ready: true,
+        cairnline_authoritative: false,
+        read_model_switch_ready: true,
+        write_adapter_ready: true,
+        replacement_ready: false,
+        replacement_mode: "disabled",
+        replacement_mode_armed: false,
+        portable_write_gaps: [],
+        orchestrator_capabilities: ["assignment-start"],
+        migration_blockers: ["migration-cutover"],
+        next_replacement_action: {
+          id: "run-strict-embedded-read-smoke",
+          label: "Run strict embedded read smoke",
+          detail:
+            "Portable write authority is clear; verify the embedded Cairnline mirror and strict read-smoke evidence before treating migration cutover as the next blocker.",
+          target: "strict-embedded-read-smoke",
+          config_hints: [
+            {
+              env: "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE",
+              value: "embedded",
+            },
+          ],
+          probe_urls: [
+            "/hecate/v1/projects/cairnline/sync",
+            "/hecate/v1/projects/cairnline/mirror-parity",
+          ],
+        },
+        replacement_gates: [
+          {
+            id: "strict-embedded-read-smoke",
+            ready: false,
+            status: "operator_probe_required",
+            detail:
+              "Run the embedded sync/parity/smoke probes with HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded before treating the mirror database as a cutover candidate.",
+            probe_urls: [
+              "/hecate/v1/projects/cairnline/sync",
+              "/hecate/v1/projects/cairnline/mirror-parity",
+            ],
+          },
+        ],
+        status: "cairnline_read_routes_ready",
+        detail: "Cairnline read routes are served from the read model.",
+      },
+    });
+    const { state, actions } = setup();
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
+
+    expect(await screen.findByText("Run strict embedded read smoke")).toBeTruthy();
+    expect(screen.getByText("strict-embedded-read-smoke")).toBeTruthy();
+    expect(screen.getAllByText("Probe routes").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("/hecate/v1/projects/cairnline/sync").length).toBe(2);
+    expect(screen.getAllByText("/hecate/v1/projects/cairnline/mirror-parity").length).toBe(2);
+    expect(screen.getByText("HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded")).toBeTruthy();
   });
 
   it("renders authoritative Cairnline status with runtime boundary warnings", async () => {

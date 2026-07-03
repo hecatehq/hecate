@@ -459,6 +459,7 @@ function ProjectBackendGateList({
               <div style={{ color: "var(--t2)", fontSize: 11, lineHeight: 1.45 }}>
                 {gate.detail}
               </div>
+              {probes.length > 0 && <ProjectBackendProbeList probes={probes} />}
             </div>
           );
         })}
@@ -523,6 +524,7 @@ function ProjectBackendNextAction({
       </div>
       <div style={{ color: "var(--t0)", fontSize: 13, fontWeight: 650 }}>{action.label}</div>
       <div style={{ color: "var(--t2)", fontSize: 12, lineHeight: 1.45 }}>{action.detail}</div>
+      {probes.length > 0 && <ProjectBackendProbeList probes={probes} />}
       {configHints.length > 0 && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
           {configHints.map((hint) => (
@@ -543,6 +545,43 @@ function ProjectBackendNextAction({
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function ProjectBackendProbeList({ probes }: { probes: string[] }) {
+  return (
+    <div style={{ display: "grid", gap: 4 }}>
+      <div
+        style={{
+          color: "var(--t3)",
+          fontFamily: "var(--font-mono)",
+          fontSize: 10,
+          textTransform: "uppercase",
+        }}
+      >
+        Probe routes
+      </div>
+      <div style={{ display: "grid", gap: 4 }}>
+        {probes.map((probe, index) => (
+          <code
+            key={`${probe}:${index}`}
+            style={{
+              background: "var(--bg3)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--radius-sm)",
+              color: "var(--t1)",
+              fontFamily: "var(--font-mono)",
+              fontSize: 11,
+              overflowWrap: "anywhere",
+              padding: "5px 7px",
+              whiteSpace: "normal",
+            }}
+          >
+            {probe}
+          </code>
+        ))}
+      </div>
     </div>
   );
 }
