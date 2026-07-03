@@ -580,6 +580,7 @@ type ProjectCoordinationBackendStatusResponse struct {
 	OrchestratorCapabilities             []string                                     `json:"orchestrator_capabilities,omitempty"`
 	SideEffectBlockers                   []string                                     `json:"side_effect_blockers,omitempty"`
 	MigrationBlockers                    []string                                     `json:"migration_blockers,omitempty"`
+	MigrationRehearsal                   *ProjectCairnlineMigrationRehearsal          `json:"migration_rehearsal,omitempty"`
 	NextReplacementAction                *ProjectCoordinationBackendNextAction        `json:"next_replacement_action,omitempty"`
 	ReplacementGates                     []ProjectCoordinationBackendReplacementGate  `json:"replacement_gates,omitempty"`
 	WriteSwitchpoints                    []ProjectCoordinationBackendWriteSwitchpoint `json:"write_switchpoints,omitempty"`

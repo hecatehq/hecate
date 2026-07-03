@@ -373,7 +373,8 @@ func (h *Handler) projectCoordinationBackendStatusWithContext(ctx context.Contex
 	switch configured {
 	case "cairnline":
 		readReady, sourceWarnings := h.cairnlineReadModelReadiness()
-		strictEmbeddedReadGate := h.projectCairnlineStrictEmbeddedReadSmokeReplacementGate(ctx, connectorReady, readSource, readReady)
+		strictEmbeddedReadGate, migrationRehearsal := h.projectCairnlineStrictEmbeddedReadSmokeReplacementGate(ctx, connectorReady, readSource, readReady)
+		response.MigrationRehearsal = migrationRehearsal
 		writeAuthority := h.config.ProjectsCairnlineWriteAuthority()
 		effectiveWriteAuthority := writeAuthority
 		if !connectorReady {
@@ -384,16 +385,16 @@ func (h *Handler) projectCoordinationBackendStatusWithContext(ctx context.Contex
 		response.PortableWriteGaps = projectCairnlinePortableWriteGapsSnapshot(effectiveWriteAuthority, response.WriteAdapterGaps)
 		response.OrchestratorCapabilities = projectCairnlineOrchestratorCapabilitiesSnapshot(response.WriteAdapterGaps)
 		response.WriteAdapterReady = len(response.PortableWriteGaps) == 0
-		migrationCutoverArmed := replacementMode == "embedded" && strictEmbeddedReadGate.Ready && len(response.PortableWriteGaps) == 0
+		migrationCutoverArmed := replacementMode == "embedded" && strictEmbeddedReadGate.Ready && projectCairnlineMigrationRollbackEvidenceReady(migrationRehearsal) && len(response.PortableWriteGaps) == 0
 		response.WriteSwitchpoints = projectCairnlineWriteSwitchpointsSnapshot(effectiveWriteAuthority, migrationCutoverArmed)
 		response.MigrationBlockers = projectCairnlineMigrationBlockersSnapshot(response.WriteAdapterGaps, migrationCutoverArmed)
-		response.ReplacementGates = projectCairnlineReplacementGates(readReady, response.PortableWriteGaps, replacementMode, strictEmbeddedReadGate, migrationCutoverArmed)
+		response.ReplacementGates = projectCairnlineReplacementGates(readReady, response.PortableWriteGaps, replacementMode, strictEmbeddedReadGate, migrationRehearsal, migrationCutoverArmed)
 		if !connectorReady {
 			if h.projectCairnlineSidecarReadRoutesEnabled() {
 				response.Status = "cairnline_sidecar_read_routes_ready"
 				response.Detail = "Cairnline sidecar is configured as the project read source, so " + projectCairnlineReadRouteList(projectCairnlineSidecarReadRouteNames) + " routes read through the persistent standalone Cairnline MCP client. Project writes and migration remain on Hecate-native stores or existing embedded dogfood paths."
 				response.ReadRoutes = append([]string(nil), projectCairnlineSidecarReadRouteNames...)
-				response.ReplacementGates = projectCairnlineReplacementGates(false, response.PortableWriteGaps, replacementMode, strictEmbeddedReadGate, migrationCutoverArmed)
+				response.ReplacementGates = projectCairnlineReplacementGates(false, response.PortableWriteGaps, replacementMode, strictEmbeddedReadGate, migrationRehearsal, migrationCutoverArmed)
 				response.Warnings = []string{
 					"Only " + projectCairnlineReadRouteList(projectCairnlineSidecarReadRouteNames) + " use the Cairnline sidecar MCP client in this mode.",
 					projectCairnlineSidecarWriteAuthorityWarning(writeAuthority),
@@ -403,7 +404,7 @@ func (h *Handler) projectCoordinationBackendStatusWithContext(ctx context.Contex
 			}
 			response.Status = "cairnline_connector_not_ready"
 			response.Detail = projectCairnlineConnectorDetail(connector) + " Hecate keeps Projects reads and writes on Hecate-native stores in this mode; use HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded for the current replacement-readiness dogfood path."
-			response.ReplacementGates = projectCairnlineReplacementGates(false, response.PortableWriteGaps, replacementMode, strictEmbeddedReadGate, migrationCutoverArmed)
+			response.ReplacementGates = projectCairnlineReplacementGates(false, response.PortableWriteGaps, replacementMode, strictEmbeddedReadGate, migrationRehearsal, migrationCutoverArmed)
 			response.Warnings = []string{
 				projectCairnlineConnectorWarning(connector),
 				projectCairnlineSidecarWriteAuthorityWarning(writeAuthority),
@@ -742,7 +743,7 @@ func projectCairnlineWriteAuthorityValuesForGap(gap string) []string {
 	}
 }
 
-func projectCairnlineReplacementGates(readRoutesReady bool, portableWriteGaps []string, replacementMode string, strictEmbeddedReadGate ProjectCoordinationBackendReplacementGate, migrationCutoverArmed bool) []ProjectCoordinationBackendReplacementGate {
+func projectCairnlineReplacementGates(readRoutesReady bool, portableWriteGaps []string, replacementMode string, strictEmbeddedReadGate ProjectCoordinationBackendReplacementGate, migrationRehearsal *ProjectCairnlineMigrationRehearsal, migrationCutoverArmed bool) []ProjectCoordinationBackendReplacementGate {
 	if strings.TrimSpace(strictEmbeddedReadGate.ID) == "" {
 		strictEmbeddedReadGate = projectCairnlineStrictEmbeddedReadSmokeDefaultGate()
 	}
@@ -757,7 +758,7 @@ func projectCairnlineReplacementGates(readRoutesReady bool, portableWriteGaps []
 		},
 		strictEmbeddedReadGate,
 		writeGate,
-		projectCairnlineMigrationRollbackReplacementGate(strictEmbeddedReadGate, migrationCutoverArmed),
+		projectCairnlineMigrationRollbackReplacementGate(strictEmbeddedReadGate, migrationRehearsal, migrationCutoverArmed),
 		projectCairnlineReplacementModeGate(replacementMode),
 	}
 }
@@ -772,47 +773,48 @@ func projectCairnlineStrictEmbeddedReadSmokeDefaultGate() ProjectCoordinationBac
 	}
 }
 
-func (h *Handler) projectCairnlineStrictEmbeddedReadSmokeReplacementGate(ctx context.Context, connectorReady bool, readSource string, readRoutesReady bool) ProjectCoordinationBackendReplacementGate {
+func (h *Handler) projectCairnlineStrictEmbeddedReadSmokeReplacementGate(ctx context.Context, connectorReady bool, readSource string, readRoutesReady bool) (ProjectCoordinationBackendReplacementGate, *ProjectCairnlineMigrationRehearsal) {
 	gate := projectCairnlineStrictEmbeddedReadSmokeDefaultGate()
 	if !connectorReady {
 		gate.Status = "blocked"
 		gate.Detail = "Strict embedded read smoke requires the embedded Cairnline connector; configure HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded before using the embedded mirror as a replacement candidate."
-		return gate
+		return gate, nil
 	}
 	if readSource != "embedded" {
 		gate.Detail = "Set HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded and run the embedded sync/parity/smoke probes before treating the mirror database as a cutover candidate."
-		return gate
+		return gate, nil
 	}
 	if !readRoutesReady {
 		gate.Status = "blocked"
 		gate.Detail = "Strict embedded read smoke cannot run until the Cairnline read adapter can load the full Hecate project graph."
-		return gate
+		return gate, nil
 	}
 	if strings.TrimSpace(h.config.Server.DataDir) == "" {
 		gate.Detail = "Run backend status with a configured Hecate data directory, then run the embedded sync/parity/smoke probes with HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded before treating the mirror database as a cutover candidate."
-		return gate
+		return gate, nil
 	}
 	item, err := h.projectCairnlineMirrorParity(ctx)
 	if err != nil {
 		gate.Status = "probe_error"
 		gate.Detail = "Strict embedded read smoke could not inspect the embedded Cairnline mirror: " + err.Error()
-		return gate
+		return gate, nil
 	}
+	migrationRehearsal := item.MigrationRehearsal
 	if !item.DatabaseExists {
 		gate.Status = "not_run"
 		gate.Detail = "No embedded Cairnline mirror database exists yet; run " + projectCoordinationBackendSyncReadinessURL + " and then " + projectCoordinationBackendMirrorParityURL + "."
-		return gate
+		return gate, &migrationRehearsal
 	}
 	if !item.Match {
 		gate.Status = "drift_detected"
 		gate.Detail = "The embedded Cairnline mirror exists but no longer matches Hecate's authoritative stores; rerun the sync and mirror-parity probes before cutover."
-		return gate
+		return gate, &migrationRehearsal
 	}
 	smoke := item.MigrationRehearsal.EmbeddedSmoke
 	if smoke == nil {
 		gate.Status = "operator_probe_required"
 		gate.Detail = "The embedded Cairnline mirror matches Hecate stores, but strict embedded read smoke evidence is missing; rerun the mirror-parity probe."
-		return gate
+		return gate, &migrationRehearsal
 	}
 	if smoke.Status != "passed" {
 		gate.Status = smoke.Status
@@ -820,15 +822,15 @@ func (h *Handler) projectCairnlineStrictEmbeddedReadSmokeReplacementGate(ctx con
 			gate.Status = "failed"
 		}
 		gate.Detail = fmt.Sprintf("The embedded Cairnline mirror matches Hecate stores, but strict embedded read smoke reported %s with %d error(s).", gate.Status, len(smoke.Errors))
-		return gate
+		return gate, &migrationRehearsal
 	}
 	gate.Ready = true
 	gate.Status = "verified"
 	gate.Detail = fmt.Sprintf("Existing embedded Cairnline mirror matches Hecate stores and strict embedded read smoke passed across %d project(s) and %d route check(s).", smoke.ProjectCount, smoke.ReadRouteChecks)
-	return gate
+	return gate, &migrationRehearsal
 }
 
-func projectCairnlineMigrationRollbackReplacementGate(strictEmbeddedReadGate ProjectCoordinationBackendReplacementGate, migrationCutoverArmed bool) ProjectCoordinationBackendReplacementGate {
+func projectCairnlineMigrationRollbackReplacementGate(strictEmbeddedReadGate ProjectCoordinationBackendReplacementGate, migrationRehearsal *ProjectCairnlineMigrationRehearsal, migrationCutoverArmed bool) ProjectCoordinationBackendReplacementGate {
 	gate := ProjectCoordinationBackendReplacementGate{
 		ID:        "migration-and-rollback",
 		Ready:     false,
@@ -836,16 +838,70 @@ func projectCairnlineMigrationRollbackReplacementGate(strictEmbeddedReadGate Pro
 		Detail:    "Strict embedded mirror parity and read smoke must be verified before migration and rollback can be treated as rehearsed.",
 		ProbeURLs: []string{projectCoordinationBackendSyncReadinessURL, projectCoordinationBackendMirrorParityURL, projectCoordinationBackendExportURL},
 	}
-	if strictEmbeddedReadGate.Ready {
-		gate.Status = "cutover_switch_missing"
-		gate.Detail = "Strict embedded mirror parity and read smoke are verified, and rehearsal endpoints expose rollback notes, but no authoritative Cairnline storage cutover switch exists yet."
-	}
-	if migrationCutoverArmed {
+	if migrationCutoverArmed && projectCairnlineMigrationRollbackEvidenceReady(migrationRehearsal) {
 		gate.Ready = true
 		gate.Status = "ready"
-		gate.Detail = "Strict embedded mirror parity and read smoke are verified, all portable write-authority gaps are closed, and embedded replacement mode is the explicit cutover switch."
+		gate.Detail = "Strict embedded mirror parity, route smoke, snapshot-import evidence, and rollback notes are verified; all portable write-authority gaps are closed; embedded replacement mode is the explicit cutover switch."
+		return gate
 	}
+	if !strictEmbeddedReadGate.Ready {
+		return gate
+	}
+	if blocker := projectCairnlineMigrationRollbackEvidenceBlocker(migrationRehearsal); blocker != "" {
+		gate.Status = "rehearsal_incomplete"
+		gate.Detail = "Strict embedded read smoke is verified, but migration and rollback evidence is incomplete: " + blocker + "."
+		return gate
+	}
+	gate.Status = "cutover_switch_missing"
+	gate.Detail = "Strict embedded mirror parity, route smoke, snapshot-import evidence, and rollback notes are verified, but no explicit authoritative Cairnline storage cutover switch is armed yet."
 	return gate
+}
+
+func projectCairnlineMigrationRollbackEvidenceReady(migrationRehearsal *ProjectCairnlineMigrationRehearsal) bool {
+	return projectCairnlineMigrationRollbackEvidenceBlocker(migrationRehearsal) == ""
+}
+
+func projectCairnlineMigrationRollbackEvidenceBlocker(migrationRehearsal *ProjectCairnlineMigrationRehearsal) string {
+	if migrationRehearsal == nil {
+		return "backend status does not include mirror-parity rehearsal evidence"
+	}
+	if migrationRehearsal.Operation != "mirror_parity" {
+		return "expected mirror_parity rehearsal evidence, got " + migrationRehearsal.Operation
+	}
+	if migrationRehearsal.Status != "verified" {
+		return "mirror-parity rehearsal status is " + migrationRehearsal.Status
+	}
+	requiredChecks := []ProjectCairnlineMigrationRehearsalCheck{
+		{ID: "load-hecate-stores", Status: "complete"},
+		{ID: "native-snapshot-import", Status: "complete"},
+		{ID: "parity-check", Status: "complete"},
+		{ID: "strict-embedded-read-smoke", Status: "complete"},
+		{ID: "rollback-plan", Status: "documented"},
+	}
+	for _, check := range requiredChecks {
+		if !projectCairnlineMigrationChecklistHas(migrationRehearsal.Checklist, check.ID, check.Status) {
+			return fmt.Sprintf("check %q is not %q", check.ID, check.Status)
+		}
+	}
+	if len(migrationRehearsal.Rollback) == 0 {
+		return "rollback steps are missing"
+	}
+	if migrationRehearsal.EmbeddedSmoke == nil {
+		return "strict embedded smoke details are missing"
+	}
+	if migrationRehearsal.EmbeddedSmoke.Status != "passed" {
+		return "strict embedded smoke status is " + migrationRehearsal.EmbeddedSmoke.Status
+	}
+	return ""
+}
+
+func projectCairnlineMigrationChecklistHas(items []ProjectCairnlineMigrationRehearsalCheck, id, status string) bool {
+	for _, item := range items {
+		if item.ID == id && item.Status == status {
+			return true
+		}
+	}
+	return false
 }
 
 func projectCairnlineReplacementModeGate(replacementMode string) ProjectCoordinationBackendReplacementGate {

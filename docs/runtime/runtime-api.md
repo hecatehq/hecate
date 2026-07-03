@@ -2560,13 +2560,22 @@ status runs the read-only mirror-parity check and reports `not_run` for a
 missing mirror, `drift_detected` for parity drift, `probe_error` when the
 inspection cannot run, and `verified` only when the existing mirror matches
 Hecate stores and strict embedded route smoke passes. The
+same backend-status response includes `migration_rehearsal` when that
+mirror-parity probe can run. That object is the same structured rehearsal
+evidence returned by `/hecate/v1/projects/cairnline/mirror-parity`: snapshot
+import mode, snapshot version, checklist, rollback notes, and strict embedded
+smoke details. The `migration-and-rollback` gate uses this object directly
+rather than only relying on prose. It treats missing evidence, non-verified
+mirror parity, incomplete import/parity/smoke checks, missing rollback steps, or
+non-passing embedded smoke as `rehearsal_incomplete`.
 `write-authority-switchpoints` gate can be `blocked`, `partial`, or `ready`;
 it is driven by `portable_write_gaps` and ignores Hecate-owned orchestrator
 capabilities and the separate `migration-cutover` gap because those are reported
 by their own status fields/gates. The `migration-and-rollback` gate reports
 `waiting_for_read_smoke` until strict embedded read-smoke evidence is verified;
-after that it reports `cutover_switch_missing` until Hecate has an explicit
-authoritative Cairnline storage cutover and rollback switch. When strict
+after that, with complete migration rehearsal evidence attached, it reports
+`cutover_switch_missing` until Hecate has an explicit authoritative Cairnline
+storage cutover and rollback switch. When strict
 embedded reads are verified, all portable write-authority gaps are closed, and
 `replacement_mode=embedded`, backend status treats replacement mode as that
 explicit embedded cutover switch: `migration_blockers` is empty, the

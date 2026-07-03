@@ -110,6 +110,40 @@ export type ProjectCoordinationBackendNextActionRecord = {
   probe_urls?: string[];
 };
 
+export type ProjectCairnlineMigrationRehearsalRecord = {
+  operation: string;
+  import_mode: string;
+  snapshot_version: number;
+  source_authority: string;
+  target: string;
+  refreshes_target: boolean;
+  authoritative: boolean;
+  cutover_ready: boolean;
+  status: string;
+  checklist: Array<{
+    id: string;
+    status: string;
+    detail: string;
+  }>;
+  rollback: string[];
+  embedded_smoke?: {
+    status: string;
+    project_count: number;
+    checked_project_ids?: string[];
+    read_route_checks: number;
+    read_routes?: string[];
+    read_model_count: number;
+    launch_packet_count: number;
+    launch_packet_warning_count: number;
+    launch_packet_error_count: number;
+    errors?: Array<{
+      project_id?: string;
+      check: string;
+      error: string;
+    }>;
+  };
+};
+
 export type ProjectCoordinationBackendStatusRecord = {
   configured_backend: string;
   authoritative_backend: string;
@@ -136,6 +170,7 @@ export type ProjectCoordinationBackendStatusRecord = {
   /** @deprecated use orchestrator_capabilities */
   side_effect_blockers?: string[];
   migration_blockers?: string[];
+  migration_rehearsal?: ProjectCairnlineMigrationRehearsalRecord;
   next_replacement_action?: ProjectCoordinationBackendNextActionRecord;
   replacement_gates?: ProjectCoordinationBackendReplacementGateRecord[];
   write_switchpoints?: ProjectCoordinationBackendWriteSwitchpointRecord[];
