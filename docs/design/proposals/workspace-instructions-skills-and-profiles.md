@@ -1,8 +1,8 @@
-# Workspace Instructions, Skills, And Profiles
+# Workspace Instructions, Skills, And Agent Presets
 
-> **Status:** proposal; Agent Profiles V1 core, workspace-guidance discovery,
+> **Status:** proposal; Agent Presets V1 core, workspace-guidance discovery,
 > project skills registry core/UI, role skill ids, assignment skill resolution,
-> profile-management UI, skill pickers, and Bootstrap V2 registry-based role
+> preset-management UI, skill pickers, and Bootstrap V2 registry-based role
 > suggestions, and native-assignment prompt inclusion for project memory plus
 > portable `AGENTS.md` guidance are implemented.
 > **Current source of truth:** [Context assembly and injection boundaries](context-assembly-and-injection-boundaries.md),
@@ -16,12 +16,12 @@
 
 Hecate needs a clean vocabulary for several things that are easy to blur:
 workspace `AGENTS.md` files, other Markdown instruction files, reusable
-`SKILL.md` packages, agent profiles, presets, memory, and workflow runbooks.
+`SKILL.md` packages, Agent Presets, memory, and workflow runbooks.
 They are all "context" in the broad sense, but they have different authority,
 lifecycle, safety, and UI needs.
 
 This proposal defines the layering Hecate should use while finishing Agent
-Profiles V1 and before implementing Skills V1 and planner/runbook features.
+Presets V1 and before implementing planner/runbook features.
 
 ## External Alignment
 
@@ -92,8 +92,8 @@ source of truth.
 | Workspace instructions    | Repo/workspace-authored guidance such as `AGENTS.md`, nested `AGENTS.md`, `CLAUDE.md`, `.cursor/rules`, and similar.                                | Durable operator memory, reusable procedures, model/provider/tool posture.                |
 | Project context sources   | Operator-selected files/docs/source metadata attached to a Hecate project.                                                                          | Prompt rendering or authority decisions by themselves.                                    |
 | Skills                    | Reusable procedures or capability guidance packaged as `SKILL.md` plus optional references/templates/scripts.                                       | Tool grants, sandbox bypasses, durable memory, project identity, or autonomous execution. |
-| Agent profiles            | Saved runtime posture: model/provider hints, tool policy, memory/context activation, skills, approvals, adapter hints, system/profile instructions. | Project identity, durable memory storage, or a concrete workflow instance.                |
-| Presets                   | Authoring-time templates for creating/updating projects, profiles, or runbooks.                                                                     | Runtime identity after they are applied.                                                  |
+| Agent Presets             | Saved Hecate runtime posture: model/provider hints, tool policy, memory/context activation, skills, approvals, adapter hints, and system/preset instructions. | Project identity, durable memory storage, or a concrete workflow instance.                |
+| Templates                 | Authoring-time templates for creating/updating projects, presets, or runbooks.                                                                     | Runtime identity after they are applied.                                                  |
 | Runbooks / workflow modes | Concrete workflow patterns such as `review`, `qa`, `ship`, or `investigate`, including inputs, evidence, approvals, and stop conditions.            | General-purpose agent identity, memory, or separate execution runtime.                    |
 | Memory                    | Operator-approved durable facts/preferences and generated candidates awaiting approval.                                                             | Workspace documentation, skill instructions, or automatic transcript mining.              |
 
@@ -102,7 +102,7 @@ Short version:
 ```text
 Workspace instructions tell an agent what this workspace expects.
 Skills tell an agent how to perform a reusable procedure.
-Profiles choose the runtime posture and which skills/context are active.
+Agent Presets choose the Hecate runtime posture and which skills/context are active.
 Runbooks define a concrete workflow execution.
 Memory carries operator-approved durable knowledge.
 ```
@@ -314,16 +314,16 @@ V1 non-goals:
 Hecate should still record compatibility metadata, including unknown
 frontmatter fields, but unknown fields must not become behavior.
 
-## Agent Profiles
+## Agent Presets
 
-Agent profiles are the next core substrate. They turn loose profile strings
+Agent Presets are the next core substrate. They turn loose profile strings
 into saved runtime posture that projects, roles, chats, assignments, and future
 external-agent launches can resolve consistently.
 
-Minimal profile shape:
+Minimal preset shape:
 
 ```go
-type AgentProfile struct {
+type AgentPreset struct {
     ID          string
     Name        string
     Description string
@@ -357,56 +357,56 @@ Resolution order:
 explicit launch override
 → assignment role default
 → project default
-→ built-in fallback profile
+→ built-in fallback preset
 ```
 
 Resolution output should be snapshotted into context packets:
 
-- selected profile id
-- effective profile fields
+- selected preset id
+- effective preset fields
 - active skill ids and resolution status
 - active memory/context policies
 - missing/disabled skill warnings
-- permission conflicts such as read-only profile versus skill requesting writes
+- permission conflicts such as read-only preset versus skill requesting writes
 
-Profiles can reference skills, but profiles are not skills. A profile answers
+Presets can reference skills, but presets are not skills. A preset answers
 "how should this agent run?" A skill answers "what reusable procedure is
 available?" A runbook answers "what workflow is being executed?"
 
 ## Runbooks And Planner
 
-Runbooks should build on profiles and skills after they exist. A runbook can
-require compatible profiles/skills, evidence artifacts, approvals, and stop
+Runbooks should build on presets and skills after they exist. A runbook can
+require compatible presets/skills, evidence artifacts, approvals, and stop
 conditions:
 
 ```text
 Runbook "review"
-  compatible profiles: reviewer, security-reviewer
+  compatible presets: reviewer, security-reviewer
   required skills: diff-aware-review
   permissions: read-only
   required artifacts: final report
 ```
 
 Planner UI should come later as a draft surface. It can propose work items,
-roles, assignments, profiles, skills, handoff expectations, and context bundles,
+roles, assignments, presets, skills, handoff expectations, and context bundles,
 but the operator approves before anything is created or started.
 
 ## What Hecate Needs
 
 Recommended sequence:
 
-1. **Agent Profiles V1 Core** — partially implemented.
-   - Profile store with memory/SQLite parity.
+1. **Agent Presets V1 Core** — partially implemented.
+   - Preset store with memory/SQLite parity.
    - CRUD/list API.
-   - Profile-management UI for creating, editing, and deleting saved profiles.
+   - Preset-management UI for creating, editing, and deleting saved presets.
    - Resolution helper with explicit/role/project/fallback order.
    - `skill_ids` resolve against the project skills registry during project
      work starts.
-   - Context packet fields for resolved profile metadata.
-   - Implemented: profile memory/source policies drive project-assignment
+   - Context packet fields for resolved preset metadata.
+   - Implemented: preset memory/source policies drive project-assignment
      context packet active / visible-only / omitted state.
    - Implemented: native project assignments include bounded project memory and
-     portable `AGENTS.md` bodies only when the resolved profile policy explicitly
+     portable `AGENTS.md` bodies only when the resolved preset policy explicitly
      includes them.
 
 2. **Workspace Instructions V1 Core** — partially implemented.

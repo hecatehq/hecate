@@ -189,7 +189,7 @@ func (app *Application) ResolveExternalAgentAssignmentLaunchPlan(ctx context.Con
 	}
 	adapterID := strings.TrimSpace(profile.ExternalAgentKind)
 	if adapterID == "" {
-		return ExternalAgentAssignmentLaunchPlan{}, launchPlanError(LaunchPlanUnprocessable, "external-agent assignment requires an agent profile with external_agent_kind")
+		return ExternalAgentAssignmentLaunchPlan{}, launchPlanError(LaunchPlanUnprocessable, "external-agent assignment requires an agent preset with external_agent_kind")
 	}
 	adapter, ok := agentadapters.BuiltInByID(adapterID)
 	if !ok {
@@ -298,7 +298,7 @@ func (app *Application) ResolveAssignmentProfile(ctx context.Context, role proje
 			ApprovalPolicy:      agentprofiles.ApprovalInherit,
 			ProjectMemoryPolicy: agentprofiles.MemoryInherit,
 			ContextSourcePolicy: agentprofiles.ContextInherit,
-			Warnings:            []string{fmt.Sprintf("Referenced agent profile %q was not found; using stored profile id as execution_profile hint.", candidate.id)},
+			Warnings:            []string{fmt.Sprintf("Referenced agent preset %q was not found; using stored preset id as execution_profile hint.", candidate.id)},
 		}, nil
 	}
 	if profile, ok := agentprofiles.BuiltInProfile("project_assignment"); ok {
@@ -387,13 +387,13 @@ func projectSkillCapabilityWarnings(skill projectskills.Skill, profile ResolvedA
 		if actual {
 			got = "enabled"
 		}
-		warnings = append(warnings, fmt.Sprintf("Project skill %s declares %s %s, but resolved profile %s has %s %s.", label, name, wanted, firstNonEmpty(profile.ID, "unknown"), name, got))
+		warnings = append(warnings, fmt.Sprintf("Project skill %s declares %s %s, but resolved preset %s has %s %s.", label, name, wanted, firstNonEmpty(profile.ID, "unknown"), name, got))
 	}
 	appendPermissionWarning("tools", skill.RequiredPermissions.Tools, profile.ToolsEnabled)
 	appendPermissionWarning("writes", skill.RequiredPermissions.Writes, profile.WritesAllowed)
 	appendPermissionWarning("network", skill.RequiredPermissions.Network, profile.NetworkAllowed)
 	if toolsSummary := projectskills.SuggestedToolsSummary(skill.SuggestedTools); toolsSummary != "" && skill.RequiredPermissions.Tools == nil && !profile.ToolsEnabled {
-		warnings = append(warnings, fmt.Sprintf("Project skill %s suggests tools (%s), but resolved profile %s has tools disabled.", label, toolsSummary, firstNonEmpty(profile.ID, "unknown")))
+		warnings = append(warnings, fmt.Sprintf("Project skill %s suggests tools (%s), but resolved preset %s has tools disabled.", label, toolsSummary, firstNonEmpty(profile.ID, "unknown")))
 	}
 	return warnings
 }
@@ -496,17 +496,17 @@ func AssignmentPrompt(project projects.Project, workItem projectwork.WorkItem, a
 			"- Driver: " + driver,
 			"- Provider: " + provider,
 			"- Model: " + model,
-			"- Profile: " + profile,
+			"- Agent preset: " + profile,
 			"- Role defaults: " + formatAssignmentHints([]assignmentHint{
 				{"driver", role.DefaultDriverKind},
 				{"provider", role.DefaultProvider},
 				{"model", role.DefaultModel},
-				{"profile", role.DefaultAgentProfile},
+				{"preset", role.DefaultAgentProfile},
 			}),
 			"- Project defaults: " + formatAssignmentHints([]assignmentHint{
 				{"provider", project.DefaultProvider},
 				{"model", project.DefaultModel},
-				{"profile", project.DefaultAgentProfile},
+				{"preset", project.DefaultAgentProfile},
 				{"workspace_mode", project.DefaultWorkspaceMode},
 			}),
 		}, "\n"),
@@ -521,7 +521,7 @@ func AssignmentSystemPrompt(project projects.Project, role projectwork.AgentRole
 		parts = append(parts, "Project system prompt:\n"+prompt)
 	}
 	if instructions := strings.TrimSpace(profile.Instructions); instructions != "" && !profile.Missing {
-		parts = append(parts, "Agent profile instructions:\n"+instructions)
+		parts = append(parts, "Agent preset instructions:\n"+instructions)
 	}
 	if instructions := strings.TrimSpace(role.Instructions); instructions != "" {
 		parts = append(parts, "Role instructions:\n"+instructions)

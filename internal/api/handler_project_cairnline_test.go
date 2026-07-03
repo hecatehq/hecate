@@ -619,7 +619,7 @@ func TestProjectCairnlineMirrorParityAPI_MatchesRepresentativeLiveProjectJourney
 	writeProjectJourneyFile(t, root, "AGENTS.md", "# Project guidance\n\nUse small changes.\nSkill: `.hecate/skills/backend/SKILL.md`.\n")
 	writeProjectJourneyFile(t, root, ".hecate/skills/backend/SKILL.md", "---\nname: Backend\ndescription: Backend work.\n---\n# Backend\n")
 
-	profile := mustRequestJSONStatus[AgentProfileResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/agent-profiles", projectJourneyJSON(t, map[string]any{
+	profile := mustRequestJSONStatus[AgentProfileResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/agent-presets", projectJourneyJSON(t, map[string]any{
 		"id":                    "live_profile",
 		"name":                  "Live Profile",
 		"surface":               agentprofiles.SurfaceHecateTask,

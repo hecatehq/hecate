@@ -353,7 +353,7 @@ func projectHealthProfileAttentionItems(project projects.Project, roles []projec
 	return []ProjectHealthAttentionItem{{
 		ID:        projectHealthItemID(project.ID, "profiles", "missing"),
 		ProjectID: project.ID,
-		Title:     "Agent profile reference missing",
+		Title:     "Agent Preset reference missing",
 		Detail:    "Project or role defaults reference " + projectHealthSummarizeIDs(missing) + ".",
 		Status:    "stale_unknown",
 		Action:    newProjectActionOpenProfiles(project.ID),

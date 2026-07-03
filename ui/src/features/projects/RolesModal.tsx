@@ -217,7 +217,7 @@ export function RolesModal({
               </select>
             </label>
             <label style={profileRoleFieldStyle}>
-              <span style={profileRoleFieldLabelStyle}>Default profile</span>
+              <span style={profileRoleFieldLabelStyle}>Default preset</span>
               <select
                 className="input"
                 value={form.defaultAgentProfile}

@@ -63,7 +63,7 @@ Hecate should treat Cairnline as the authoritative portable coordination store
 only when backend status reports `replacement_ready=true` and
 `status=cairnline_authoritative`. That cutover contract depends on:
 
-- Cairnline covers Hecate's current project, role, profile, skill, work item,
+- Cairnline covers Hecate's current project, role, skill, work item,
   assignment, generic artifact, evidence, review, handoff, memory-candidate,
   assistant-proposal ledger and committed apply side effects, root, and
   closeout flows.
@@ -71,12 +71,10 @@ only when backend status reports `replacement_ready=true` and
   `.agents/skills`, `.hecate/skills`, and enabled guidance-linked local skill
   roots while keeping Cairnline-native `.cairnline/skills` available for
   standalone projects.
-- Hecate project-level and role-level default profile/provider/model posture is
-  preserved as Cairnline project/role profile and execution-profile defaults,
-  so assignment launch packets do not silently fall back to agent-profile
-  execution hints when a project or role is more specific; Hecate's
-  replacement-readiness parity report counts execution profiles so this
-  posture mapping is observable.
+- Hecate project-level and role-level Agent Preset/provider/model posture stays
+  Hecate-owned. Replacement reviews should compare Cairnline coordination
+  records with Hecate launch readiness/context evidence so portable assignment
+  state does not silently lose host-specific launch intent.
 - Hecate has an adapter from Hecate task / External Agent execution records to
   Cairnline assignment coordination records, while execution itself remains
   Hecate-owned.
@@ -114,15 +112,14 @@ Cairnline owns coordination state:
 | Project           | Durable identity for any body of work, not necessarily code, GitHub, or a folder.                |
 | Root / workspace  | Optional concrete filesystem location used only when local files matter.                         |
 | Role              | Project-native responsibility such as architect, implementer, reviewer, researcher, or operator. |
-| Agent profile     | Portable behavior and context policy for an agent.                                               |
-| Execution profile | Optional host/runtime-specific hints such as model, provider, tools, writes, network, approvals. |
+| Desired agent     | Portable hint about who or what should claim work, for example `codex`, `claude`, `human`, or `any`. |
 | Skill metadata    | Referenced capability/instruction metadata only; no body injection or execution in core.         |
 | Work item         | Reviewable unit of work.                                                                         |
-| Assignment        | Durable coordination record binding work item, role, profile, and desired execution mode.        |
+| Assignment        | Durable coordination record binding work item, role, desired agent metadata, and desired execution mode. |
 | Evidence/review   | Structured collaboration artifacts attached to work or assignment state.                         |
 | Handoff           | Structured transfer from one role, agent, or work context to another.                            |
 | Memory candidate  | Proposed durable memory awaiting explicit approval.                                              |
-| Context snapshot  | Inspectable record of project/work/profile/source metadata assembled for an agent-facing action. |
+| Context snapshot  | Inspectable record of project/work/source metadata assembled for an agent-facing action. |
 
 Hecate-specific runtime concerns stay outside the portable core:
 
@@ -134,6 +131,8 @@ Hecate-specific runtime concerns stay outside the portable core:
 - Hecate operator shell/chrome
 - provider credentials, browser cookies, secrets, and external-agent private
   memory
+- agent presets, runtime profiles, provider/model settings, sandbox policy, and
+  launch permissions
 
 ## Assignment And Execution Ladder
 
@@ -188,14 +187,6 @@ roles.list
 roles.create
 roles.update
 
-profiles.list
-profiles.create
-profiles.update
-
-execution_profiles.list
-execution_profiles.create
-execution_profiles.update
-
 skills.list
 skills.discover
 skills.update
@@ -239,8 +230,6 @@ Assignment {
   work_item_id
   role_id
   root_id?
-  profile_id?
-  execution_profile_id?
   execution_mode: "manual" | "mcp_pull" | "external_adapter" | "orchestrated"
   status: "queued" | "claimed" | "running" | "awaiting_review" | "completed" | "failed" | "cancelled"
   desired_agent?: {
@@ -260,43 +249,15 @@ Role {
   name
   description
   instructions
-  default_profile_id?
   default_skill_ids[]
   default_execution_mode?
 }
 ```
 
-```ts
-AgentProfile {
-  id
-  name
-  description
-  instructions
-  context_policy
-  memory_policy
-  source_policy
-  skill_ids[]
-}
-```
-
-```ts
-ExecutionProfile {
-  id
-  agent_kind?: "codex" | "claude" | "cursor" | "hecate" | "human" | "any"
-  model_hint?
-  provider_hint?
-  tools_policy?
-  writes_policy?
-  network_policy?
-  approval_policy?
-  adapter_options?
-}
-```
-
-Profiles deliberately split into portable behavior/context policy and optional
-execution/runtime hints. A generic MCP client can use the portable profile and
-ignore runtime hints it does not understand. An orchestrator can interpret an
-execution profile through its own policy layer.
+Cairnline should not expose agent presets or runtime profiles as portable MCP
+concepts. Hecate can map Cairnline roles, desired-agent hints, and skill ids to
+Hecate-owned Agent Presets and runtime launch policy at its orchestration
+boundary.
 
 ## Project Assistant
 
@@ -324,7 +285,7 @@ launch agents. Those remain explicit operator or orchestrator actions.
 ### 2. Contract Extraction Pass
 
 - Identify Hecate-specific fields in `projects`, `projectwork`,
-  `projectskills`, `projectassistant`, agent profiles, and context packets.
+  `projectskills`, `projectassistant`, Agent Presets, and context packets.
 - Separate portable coordination concepts from Hecate runtime execution
   concepts.
 - Define stable MCP tool names, resource names, IDs, status transitions, and
@@ -358,7 +319,7 @@ launch agents. Those remain explicit operator or orchestrator actions.
   `assignments.context`, `assignments.launch_packet`, and the portable
   coordination list tools through local-only sidecar smoke endpoints to verify
   typed `structuredContent` for project list/detail,
-  profile/skill/role/work/assignment list, assignment-context, and launch-packet
+  skill/role/work/assignment list, assignment-context, and launch-packet
   contracts. Hecate also has an explicit confirmed sidecar lifecycle smoke that
   exercises `assignments.next`, claim, `update_status`, launch-packet read, and
   complete against the standalone sidecar database only, plus an explicit
@@ -480,9 +441,9 @@ launch agents. Those remain explicit operator or orchestrator actions.
   (`project-context-sources`), collaboration/handoff routes
   (`project-collaboration`), metadata-only skill discovery/update
   (`project-skills`), role mutations (`project-roles`), work-item mutations
-  (`project-work-items`), assignment record mutations (`project-assignments`),
-  and global agent-profile mutations (`agent-profiles`) commit to Cairnline
-  first and then shadow back into Hecate-native compatibility stores.
+  (`project-work-items`), and assignment record mutations
+  (`project-assignments`) commit to Cairnline first and then shadow back into
+  Hecate-native compatibility stores.
   The portable work switchpoints can operate on embedded Cairnline project
   graphs without a matching Hecate-native project row: root discovery and
   worktree-created root record mutations use Cairnline-owned project identity
@@ -492,9 +453,8 @@ launch agents. Those remain explicit operator or orchestrator actions.
   Cairnline, assignment writes validate Cairnline-owned work item/role/root
   dependencies, and collaboration writes accept Cairnline-owned work
   item/role/assignment records before falling back to Hecate shadows.
-  Agent-profile authority writes
-  Cairnline's separate portable profile and execution-posture records before
-  shadowing Hecate's combined profile row. `project-identity` makes project
+  Hecate Agent Preset create/update/delete remains Hecate-owned.
+  `project-identity` makes project
   create/delete commit portable identity, initial roots, context sources,
   launch defaults, and project identity removal to Cairnline first before
   shadowing Hecate's compatibility project row. Delete restores the Cairnline
@@ -511,10 +471,10 @@ launch agents. Those remain explicit operator or orchestrator actions.
 - Hecate has a non-authoritative bridge write seam for project identity,
   embedded roots, root discovery/worktree-created root records, direct root
   create/update/delete, context-source discovery, direct context-source
-  create/update/delete, project defaults, and project-level execution-profile
-  cleanup. Hecate also has a non-authoritative project skill metadata upsert
+  create/update/delete, and project defaults. Hecate also has a
+  non-authoritative project skill metadata upsert
   seam that preserves operator-disabled state and provenance without loading or
-  executing skill bodies, agent-profile upsert/delete seams, role/work-item
+  executing skill bodies, role/work-item
   upsert seams, assignment metadata upsert/delete plus lifecycle-status sync,
   committed start-result mirror, linked-chat reconciliation mirror,
   create-if-missing generic artifact/evidence/review seams, handoff
@@ -527,13 +487,13 @@ launch agents. Those remain explicit operator or orchestrator actions.
   skill discovery/update can likewise run against Cairnline-owned project
   graphs without injecting or executing skill bodies. Accepted memory,
   memory-candidate review, collaboration/handoff, root/source discovery,
-  metadata-only skill discovery/update, global agent-profile, role, work-item,
+  metadata-only skill discovery/update, role, work-item,
   and assignment-record flows can additionally run as opt-in Cairnline-first
   switchpoints above. The project
   identity/root
   discovery/worktree-creation/context-source discovery seam, the root-level
   direct root mutation seam, the source-level direct context-source mutation
-  seam, the global agent-profile seam, the
+  seam, the
   metadata-only project-skill discovery/update seam, the
   role/work-item/assignment coordination seams, the assignment start/reconcile
   result seams, the collaboration artifact create seam, the handoff mutation
@@ -546,8 +506,7 @@ launch agents. Those remain explicit operator or orchestrator actions.
   project create, project metadata/default, root, role/work-item/assignment/handoff, and
   memory-candidate authority seams and remains a mixed-authority blocker for
   chat/runtime side effects even when the proposal-ledger switchpoint is
-  enabled. Role mirrors also seed referenced agent-profile metadata/execution
-  posture when the profile store is available. Assignment-start dispatch remains
+  enabled. Assignment-start dispatch remains
   a Hecate-owned orchestrator capability: Hecate can claim/progress Cairnline
   assignment records and mirror runtime refs, but Cairnline does not launch
   tasks or External Agents. Artifact/evidence/review update/delete semantics are
@@ -602,7 +561,7 @@ launch agents. Those remain explicit operator or orchestrator actions.
 
 Standalone implementation should include:
 
-- Core store tests for projects, roles, profiles, work items, assignments,
+- Core store tests for projects, roles, work items, assignments,
   artifacts, handoffs, and memory candidates.
 - SQLite migration and persistence tests.
 - MCP contract tests for list, create, update, claim, context, and complete

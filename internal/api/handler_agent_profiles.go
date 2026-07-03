@@ -17,7 +17,7 @@ func (h *Handler) HandleAgentProfiles(w http.ResponseWriter, r *http.Request) {
 	for _, item := range items {
 		data = append(data, renderAgentProfile(item))
 	}
-	WriteJSON(w, http.StatusOK, AgentProfilesResponse{Object: "agent_profiles", Data: data})
+	WriteJSON(w, http.StatusOK, AgentProfilesResponse{Object: "agent_presets", Data: data})
 }
 
 func (h *Handler) HandleCreateAgentProfile(w http.ResponseWriter, r *http.Request) {
@@ -32,35 +32,35 @@ func (h *Handler) HandleCreateAgentProfile(w http.ResponseWriter, r *http.Reques
 	if h.agentProfileWritesUseCairnlineAuthority() {
 		created, err := h.createAgentProfileWithCairnlineAuthority(r.Context(), profile)
 		if errors.Is(err, agentprofiles.ErrInvalid) {
-			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "invalid agent profile")
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "invalid agent preset")
 			return
 		}
 		if errors.Is(err, agentprofiles.ErrBuiltIn) {
-			WriteError(w, http.StatusConflict, errCodeConflict, "built-in agent profile cannot be created")
+			WriteError(w, http.StatusConflict, errCodeConflict, "built-in agent preset cannot be created")
 			return
 		}
 		if err != nil {
 			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 			return
 		}
-		WriteJSON(w, http.StatusCreated, AgentProfileResponse{Object: "agent_profile", Data: renderAgentProfile(created)})
+		WriteJSON(w, http.StatusCreated, AgentProfileResponse{Object: "agent_preset", Data: renderAgentProfile(created)})
 		return
 	}
 	profile, err := h.agentProfiles.Create(r.Context(), profile)
 	if errors.Is(err, agentprofiles.ErrInvalid) {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "invalid agent profile")
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "invalid agent preset")
 		return
 	}
 	if errors.Is(err, agentprofiles.ErrBuiltIn) {
-		WriteError(w, http.StatusConflict, errCodeConflict, "built-in agent profile cannot be created")
+		WriteError(w, http.StatusConflict, errCodeConflict, "built-in agent preset cannot be created")
 		return
 	}
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	h.mirrorAgentProfileToCairnline(r.Context(), "agent_profile_create", profile)
-	WriteJSON(w, http.StatusCreated, AgentProfileResponse{Object: "agent_profile", Data: renderAgentProfile(profile)})
+	h.mirrorAgentProfileToCairnline(r.Context(), "agent_preset_create", profile)
+	WriteJSON(w, http.StatusCreated, AgentProfileResponse{Object: "agent_preset", Data: renderAgentProfile(profile)})
 }
 
 func (h *Handler) HandleAgentProfile(w http.ResponseWriter, r *http.Request) {
@@ -70,10 +70,10 @@ func (h *Handler) HandleAgentProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ok {
-		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent profile not found")
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent preset not found")
 		return
 	}
-	WriteJSON(w, http.StatusOK, AgentProfileResponse{Object: "agent_profile", Data: renderAgentProfile(profile)})
+	WriteJSON(w, http.StatusOK, AgentProfileResponse{Object: "agent_preset", Data: renderAgentProfile(profile)})
 }
 
 func (h *Handler) HandleUpdateAgentProfile(w http.ResponseWriter, r *http.Request) {
@@ -84,55 +84,55 @@ func (h *Handler) HandleUpdateAgentProfile(w http.ResponseWriter, r *http.Reques
 	if h.agentProfileWritesUseCairnlineAuthority() {
 		profile, err := h.updateAgentProfileWithCairnlineAuthority(r.Context(), r.PathValue("id"), req)
 		if errors.Is(err, agentprofiles.ErrNotFound) {
-			WriteError(w, http.StatusNotFound, errCodeNotFound, "agent profile not found")
+			WriteError(w, http.StatusNotFound, errCodeNotFound, "agent preset not found")
 			return
 		}
 		if errors.Is(err, agentprofiles.ErrBuiltIn) {
-			WriteError(w, http.StatusConflict, errCodeConflict, "built-in agent profile cannot be updated")
+			WriteError(w, http.StatusConflict, errCodeConflict, "built-in agent preset cannot be updated")
 			return
 		}
 		if errors.Is(err, agentprofiles.ErrInvalid) {
-			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "invalid agent profile")
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "invalid agent preset")
 			return
 		}
 		if err != nil {
 			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 			return
 		}
-		WriteJSON(w, http.StatusOK, AgentProfileResponse{Object: "agent_profile", Data: renderAgentProfile(profile)})
+		WriteJSON(w, http.StatusOK, AgentProfileResponse{Object: "agent_preset", Data: renderAgentProfile(profile)})
 		return
 	}
 	profile, err := h.agentProfiles.Update(r.Context(), r.PathValue("id"), func(item *agentprofiles.Profile) {
 		applyAgentProfileUpdate(item, req)
 	})
 	if errors.Is(err, agentprofiles.ErrNotFound) {
-		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent profile not found")
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent preset not found")
 		return
 	}
 	if errors.Is(err, agentprofiles.ErrBuiltIn) {
-		WriteError(w, http.StatusConflict, errCodeConflict, "built-in agent profile cannot be updated")
+		WriteError(w, http.StatusConflict, errCodeConflict, "built-in agent preset cannot be updated")
 		return
 	}
 	if errors.Is(err, agentprofiles.ErrInvalid) {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "invalid agent profile")
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "invalid agent preset")
 		return
 	}
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	h.mirrorAgentProfileToCairnline(r.Context(), "agent_profile_update", profile)
-	WriteJSON(w, http.StatusOK, AgentProfileResponse{Object: "agent_profile", Data: renderAgentProfile(profile)})
+	h.mirrorAgentProfileToCairnline(r.Context(), "agent_preset_update", profile)
+	WriteJSON(w, http.StatusOK, AgentProfileResponse{Object: "agent_preset", Data: renderAgentProfile(profile)})
 }
 
 func (h *Handler) HandleDeleteAgentProfile(w http.ResponseWriter, r *http.Request) {
 	profileID := r.PathValue("id")
 	if h.agentProfileWritesUseCairnlineAuthority() {
 		if err := h.deleteAgentProfileWithCairnlineAuthority(r.Context(), profileID); errors.Is(err, agentprofiles.ErrNotFound) {
-			WriteError(w, http.StatusNotFound, errCodeNotFound, "agent profile not found")
+			WriteError(w, http.StatusNotFound, errCodeNotFound, "agent preset not found")
 			return
 		} else if errors.Is(err, agentprofiles.ErrBuiltIn) {
-			WriteError(w, http.StatusConflict, errCodeConflict, "built-in agent profile cannot be deleted")
+			WriteError(w, http.StatusConflict, errCodeConflict, "built-in agent preset cannot be deleted")
 			return
 		} else if err != nil {
 			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
@@ -142,16 +142,16 @@ func (h *Handler) HandleDeleteAgentProfile(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if err := h.agentProfiles.Delete(r.Context(), profileID); errors.Is(err, agentprofiles.ErrNotFound) {
-		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent profile not found")
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent preset not found")
 		return
 	} else if errors.Is(err, agentprofiles.ErrBuiltIn) {
-		WriteError(w, http.StatusConflict, errCodeConflict, "built-in agent profile cannot be deleted")
+		WriteError(w, http.StatusConflict, errCodeConflict, "built-in agent preset cannot be deleted")
 		return
 	} else if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	h.mirrorAgentProfileDeleteToCairnline(r.Context(), "agent_profile_delete", profileID)
+	h.mirrorAgentProfileDeleteToCairnline(r.Context(), "agent_preset_delete", profileID)
 	w.WriteHeader(http.StatusNoContent)
 }
 

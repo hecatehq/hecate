@@ -45,7 +45,7 @@ func TestAgentProfilesAPI_CRUD(t *testing.T) {
 	server := newAgentProfilesTestServer()
 
 	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/agent-profiles", bytes.NewReader([]byte(`{
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/agent-presets", bytes.NewReader([]byte(`{
 		"id":"prof_backend",
 		"name":"Backend implementer",
 		"description":"Go runtime work",
@@ -71,7 +71,7 @@ func TestAgentProfilesAPI_CRUD(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
 		t.Fatalf("decode create response: %v", err)
 	}
-	if created.Object != "agent_profile" || created.Data.ID != "prof_backend" || created.Data.ExecutionProfile != "implementation" {
+	if created.Object != "agent_preset" || created.Data.ID != "prof_backend" || created.Data.ExecutionProfile != "implementation" {
 		t.Fatalf("created = %+v, want profile envelope", created)
 	}
 	if created.Data.BuiltIn {
@@ -82,7 +82,7 @@ func TestAgentProfilesAPI_CRUD(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/agent-profiles/prof_backend", bytes.NewReader([]byte(`{
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/agent-presets/prof_backend", bytes.NewReader([]byte(`{
 		"name":"Backend reviewer",
 		"writes_allowed":false,
 		"approval_policy":"block"
@@ -99,7 +99,7 @@ func TestAgentProfilesAPI_CRUD(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/agent-profiles", nil))
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/agent-presets", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list status = %d body=%s, want 200", rec.Code, rec.Body.String())
 	}
@@ -107,14 +107,25 @@ func TestAgentProfilesAPI_CRUD(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil {
 		t.Fatalf("decode list response: %v", err)
 	}
-	if listed.Object != "agent_profiles" || !agentProfileResponseIDExists(listed.Data, "implementation") || !agentProfileResponseIDExists(listed.Data, "prof_backend") {
+	if listed.Object != "agent_presets" || !agentProfileResponseIDExists(listed.Data, "implementation") || !agentProfileResponseIDExists(listed.Data, "prof_backend") {
 		t.Fatalf("listed = %+v, want built-ins plus created profile", listed)
 	}
 
 	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/agent-profiles/prof_backend", nil))
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/agent-presets/prof_backend", nil))
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("delete status = %d body=%s, want 204", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAgentProfilesAPI_OldProfileRouteRemoved(t *testing.T) {
+	t.Parallel()
+	server := newAgentProfilesTestServer()
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/agent-profiles", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("old route status = %d body=%s, want 404", rec.Code, rec.Body.String())
 	}
 }
 
@@ -123,7 +134,7 @@ func TestAgentProfilesAPI_MirrorsMutationsToCairnlineWhenConfigured(t *testing.T
 	handler, server := newAgentProfilesCairnlineMirrorTestServer(t)
 
 	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/agent-profiles", bytes.NewReader([]byte(`{
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/agent-presets", bytes.NewReader([]byte(`{
 		"id":"prof_cairnline",
 		"name":"Cairnline profile",
 		"description":"Mirrored posture",
@@ -152,7 +163,7 @@ func TestAgentProfilesAPI_MirrorsMutationsToCairnlineWhenConfigured(t *testing.T
 	}
 
 	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/agent-profiles/prof_cairnline", bytes.NewReader([]byte(`{
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/agent-presets/prof_cairnline", bytes.NewReader([]byte(`{
 		"name":"Updated Cairnline profile",
 		"project_memory_policy":"visible_only",
 		"skill_ids":["review"]
@@ -166,7 +177,7 @@ func TestAgentProfilesAPI_MirrorsMutationsToCairnlineWhenConfigured(t *testing.T
 	}
 
 	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/agent-profiles/prof_cairnline", nil))
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/agent-presets/prof_cairnline", nil))
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("delete status = %d body=%s, want 204", rec.Code, rec.Body.String())
 	}
@@ -181,7 +192,7 @@ func TestAgentProfilesAPI_CairnlineWriteAuthorityCommitsProfilesFirst(t *testing
 	handler, server := newAgentProfilesCairnlineAuthorityTestServer(t)
 
 	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/agent-profiles", bytes.NewReader([]byte(`{
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/agent-presets", bytes.NewReader([]byte(`{
 		"id":"prof_bad",
 		"name":"Bad",
 		"surface":"terminal"
@@ -194,7 +205,7 @@ func TestAgentProfilesAPI_CairnlineWriteAuthorityCommitsProfilesFirst(t *testing
 	}
 
 	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/agent-profiles", bytes.NewReader([]byte(`{
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/agent-presets", bytes.NewReader([]byte(`{
 		"id":"prof_authority",
 		"name":"Authority profile",
 		"description":"Cairnline owns this profile.",
@@ -236,7 +247,7 @@ func TestAgentProfilesAPI_CairnlineWriteAuthorityCommitsProfilesFirst(t *testing
 	}
 
 	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/agent-profiles/prof_authority", bytes.NewReader([]byte(`{
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/agent-presets/prof_authority", bytes.NewReader([]byte(`{
 		"name":"Updated authority profile",
 		"model_hint":"claude-opus-4",
 		"writes_allowed":false,
@@ -265,7 +276,7 @@ func TestAgentProfilesAPI_CairnlineWriteAuthorityCommitsProfilesFirst(t *testing
 	}
 
 	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/agent-profiles/prof_authority", nil))
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/agent-presets/prof_authority", nil))
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("delete status = %d body=%s, want 204", rec.Code, rec.Body.String())
 	}
@@ -278,7 +289,7 @@ func TestAgentProfilesAPI_CairnlineWriteAuthorityCommitsProfilesFirst(t *testing
 	}
 
 	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/agent-profiles/prof_authority", nil))
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/agent-presets/prof_authority", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("delete missing status = %d body=%s, want 404", rec.Code, rec.Body.String())
 	}
@@ -289,7 +300,7 @@ func TestAgentProfilesAPI_BuiltInProfilesAreReadOnly(t *testing.T) {
 	server := newAgentProfilesTestServer()
 
 	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/agent-profiles/implementation", nil))
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/agent-presets/implementation", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("get built-in status = %d body=%s, want 200", rec.Code, rec.Body.String())
 	}
@@ -302,17 +313,17 @@ func TestAgentProfilesAPI_BuiltInProfilesAreReadOnly(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/agent-profiles", bytes.NewReader([]byte(`{"id":"implementation","name":"Override"}`))))
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/agent-presets", bytes.NewReader([]byte(`{"id":"implementation","name":"Override"}`))))
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("create built-in status = %d body=%s, want 409", rec.Code, rec.Body.String())
 	}
 	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/agent-profiles/implementation", bytes.NewReader([]byte(`{"name":"Override"}`))))
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/agent-presets/implementation", bytes.NewReader([]byte(`{"name":"Override"}`))))
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("patch built-in status = %d body=%s, want 409", rec.Code, rec.Body.String())
 	}
 	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/agent-profiles/implementation", nil))
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/agent-presets/implementation", nil))
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("delete built-in status = %d body=%s, want 409", rec.Code, rec.Body.String())
 	}
@@ -323,7 +334,7 @@ func TestAgentProfilesAPI_RejectsInvalidEnums(t *testing.T) {
 	server := newAgentProfilesTestServer()
 
 	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/agent-profiles", bytes.NewReader([]byte(`{
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/agent-presets", bytes.NewReader([]byte(`{
 		"id":"prof_bad",
 		"name":"Bad",
 		"surface":"terminal"
@@ -347,7 +358,7 @@ func TestAgentProfilesAPI_GeneratesIDsAndReturnsNotFound(t *testing.T) {
 	server := newAgentProfilesTestServer()
 
 	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/agent-profiles", bytes.NewReader([]byte(`{"name":"Generated"}`))))
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/agent-presets", bytes.NewReader([]byte(`{"name":"Generated"}`))))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create status = %d body=%s, want 201", rec.Code, rec.Body.String())
 	}
@@ -360,12 +371,12 @@ func TestAgentProfilesAPI_GeneratesIDsAndReturnsNotFound(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/agent-profiles/prof_missing", nil))
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/agent-presets/prof_missing", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("get missing status = %d body=%s, want 404", rec.Code, rec.Body.String())
 	}
 	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/agent-profiles/prof_missing", nil))
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/agent-presets/prof_missing", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("delete missing status = %d body=%s, want 404", rec.Code, rec.Body.String())
 	}

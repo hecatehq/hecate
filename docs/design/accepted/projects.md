@@ -16,7 +16,7 @@ instead of expanding this foundation document.
 
 Hecate should distinguish **Projects** from **Workspaces**.
 
-A project is the durable Hecate identity for a codebase or work area. It owns memory scopes, chat/task grouping, default runtime choices, trusted context sources, and agent-profile defaults. A workspace is a concrete filesystem root used by one chat, task, run, or external-agent session.
+A project is the durable Hecate identity for a codebase or work area. It owns memory scopes, chat/task grouping, default runtime choices, trusted context sources, and Agent Preset defaults. A workspace is a concrete filesystem root used by one chat, task, run, or external-agent session.
 
 Today Hecate often uses a raw workspace path as both identity and runtime location. That works for early local flows, but it becomes confusing once we add durable memory, imported contexts, multiple checkouts of the same repo, temporary task workspaces, editor-owned workspaces, and future assistant layers.
 
@@ -27,7 +27,7 @@ Today Hecate often uses a raw workspace path as both identity and runtime locati
 - The directory where a task or agent is allowed to read/write.
 - The UI label for where a chat is happening.
 - The implicit scope for memories or instructions.
-- The thing future agent profiles would likely attach to.
+- The thing future agent runtime presets would likely attach to.
 - Sometimes a source checkout, sometimes a temporary clone, sometimes an in-place working tree.
 
 Raw paths are not stable enough to be the durable identity:
@@ -48,8 +48,9 @@ Raw paths are not stable enough to be the durable identity:
 | Chat           | Conversation attached to an optional project and, when running, a concrete workspace.                                                                        |
 | Task           | Durable runtime object attached to an optional project and a concrete workspace mode.                                                                        |
 | Run            | One execution attempt under a task. Runs never define project identity by themselves.                                                                        |
-| Agent profile  | Reusable agent configuration for Hecate Chat or an external agent: model/adapter controls, tools, memory sources, system instructions, and safety posture.   |
-| Preset         | Template for creating or updating a project default or agent profile. Presets are not used directly at runtime once applied.                                 |
+| Agent Preset   | Reusable Hecate runtime configuration for Hecate Chat, project assignments, or an external agent: model/adapter hints, tools, memory/source policy, instructions, and safety posture. |
+| Runtime profile | Hecate launch/safety posture such as execution profile string, tool/write/network posture, approvals, and adapter options.                                    |
+| Project role   | Responsibility needed by the work, such as architect, implementer, reviewer, researcher, release manager, designer, or operator.                              |
 | Context packet | A snapshot of what Hecate assembled for a model/agent call, including project and workspace metadata.                                                        |
 
 ## Goals
@@ -64,9 +65,9 @@ Raw paths are not stable enough to be the durable identity:
 - Treat branches and Git worktrees as concrete root metadata, not project
   identity. A project can span the main checkout and linked worktrees while
   preserving one memory/context/work history.
-- Let project defaults feed new chats and tasks: provider, model, agent profile, tools, command-output compaction, approval posture, workspace mode, and system prompt where applicable.
+- Let project defaults feed new chats and tasks: provider, model, Agent Preset, tools, command-output compaction, approval posture, workspace mode, and system prompt where applicable.
 - Let context assembly use project-level sources: project instructions, selected docs, saved memories, and trusted files.
-- Let Hecate Chat and external-agent chats share project memory when their active agent profile opts into it.
+- Let Hecate Chat and external-agent chats share project memory when their active Agent Preset opts into it.
 - Make UI history clearer: “these chats/tasks belong to this project,” not just “these happened under similar-looking paths.”
 
 ## Non-goals
@@ -90,14 +91,15 @@ context-packet rendering.
 
 The current `internal/cairnlinebridge` package is the mapping and adapter seam
 for that replacement path. It can load Hecate project state from the current
-project/profile/skills/work stores, convert that graph into Cairnline's
+project/agent-preset/skills/work stores, convert that graph into Cairnline's
 versioned portable snapshot contract, then import it into a memory-backed or
 SQLite-backed Cairnline service:
 
-- project identity, roots, default root, project default profile/execution
+- project identity, roots, default root, project default Agent Preset/runtime
   posture references, and context-source provenance metadata including format,
   scope, source category, and trusted metadata labels;
-- agent profiles and project/role execution posture;
+- Hecate-specific Agent Preset compatibility records and runtime posture
+  derived from Hecate Agent Presets and project/role defaults;
 - skills metadata, roles, work items, and root-scoped assignments;
 - assignment-scoped collaboration evidence links, reviews, handoffs with
   source/target refs, status-transition timestamps, and linked
@@ -184,8 +186,8 @@ local-only standalone Cairnline MCP contract probe/connect surfaces at
 `POST /hecate/v1/projects/cairnline/sidecar-detail-smoke` that calls read-only
 `projects.get` through the cached sidecar client. A coordination-list smoke at
 `POST /hecate/v1/projects/cairnline/sidecar-coordination-smoke` calls
-read-only `projects.list`, `profiles.list`, `execution_profiles.list`,
-`skills.list`, `roles.list`, `work_items.list`, and `assignments.list` and
+read-only `projects.list`, `skills.list`, `roles.list`, `work_items.list`, and
+`assignments.list` and
 reports whether each returned typed `structuredContent` arrays. An
 assignment-context smoke at
 `POST /hecate/v1/projects/cairnline/sidecar-assignment-context-smoke` calls
@@ -317,8 +319,8 @@ metadata/default, root, role, work-item, assignment, handoff, and
 memory-candidate actions through the same opt-in Cairnline authority
 switchpoints when those switchpoints are enabled; chat/runtime effects remain
 Hecate-owned orchestrator capabilities outside Cairnline core.
-Project list/detail reconstruct default profile and execution posture from
-Cairnline project/execution-profile records where available. Launch-readiness
+Project list/detail reconstruct default agent-preset and runtime posture from
+Cairnline project/Hecate-specific bridge runtime records where available. Launch-readiness
 and assignment preflight read
 project/work/assignment/role coordination records from Cairnline when
 configured, then apply Hecate runtime validation. Native assignment preflight
@@ -487,8 +489,8 @@ mirror to Cairnline. They can be switched to Cairnline-first authority with
 injects, or executes `SKILL.md` bodies.
 Project role and work-item create/update/delete routes also mirror coordination
 metadata into Cairnline after Hecate commits; when a mirrored role references
-an agent profile, the mirror also seeds that profile metadata and execution
-posture so the role can validate in Cairnline. Role and work-item
+an Agent Preset, the mirror also seeds Hecate-specific preset compatibility
+metadata and runtime posture so the role can validate in Cairnline. Role and work-item
 create/update/delete can be switched to Cairnline-first authority with
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-roles,project-work-items`.
 Project skill discovery/update can be switched to Cairnline-first authority with
@@ -524,12 +526,12 @@ state and promoted memory references back into Hecate. In those memory
 authority modes, Hecate can validate the project from the embedded Cairnline
 graph, keep Hecate memory rows as compatibility shadows, and leave the
 Hecate-native project row absent. Global
-agent-profile create/update/delete routes also mirror portable profile metadata
+Agent Preset create/update/delete routes also mirror Hecate-owned preset compatibility metadata
 and execution posture after Hecate commits unless
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=agent-profiles` is enabled. With
-that opt-in switchpoint, agent-profile create/update/delete commits
-Cairnline's separate portable profile and execution-posture records first, then
-best-effort shadows Hecate's combined profile row back into Hecate-native stores
+that opt-in switchpoint, Agent Preset create/update/delete commits
+Cairnline embedded compatibility records for Hecate preset metadata and runtime posture first, then
+best-effort shadows Hecate's combined preset row back into Hecate-native stores
 for compatibility. The delete mirror removes only the profile record because
 execution-profile posture can be shared. Project Assistant draft/propose/apply
 routes mirror the proposal ledger and committed apply side effects after Hecate
@@ -595,7 +597,7 @@ worktree creation side effects; in those authority modes, discovery and
 worktree-created root record mutations can run against a Cairnline-only project
 graph;
 `agent-profiles-live-mirror` covers global
-agent-profile create/update/delete metadata and can be switched to Cairnline
+Agent Preset create/update/delete metadata and can be switched to Cairnline
 authority with `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=agent-profiles`;
 `project-skills-live-mirror` covers project skill discovery/update metadata,
 with native skill-registry compatibility rows skipped in armed embedded
@@ -628,8 +630,8 @@ with `project-roots`; worktree-created root records also move with
 `project-roots`, leaving the root/workspace scans and Git worktree creation
 side effects Hecate-owned and allowing those authority routes to run against a
 Cairnline-only project graph; `agent-profiles` can make
-global agent-profile create/update/delete Cairnline-authoritative while Hecate
-shadows its combined profile row for compatibility; `project-skills` can make
+global Agent Preset create/update/delete Cairnline-authoritative while Hecate
+shadows its combined preset row for compatibility; `project-skills` can make
 project skill discovery/update Cairnline-authoritative against a Cairnline-only
 project graph; `project-roles` and `project-work-items` can make role and
 work-item create/update/delete
@@ -851,9 +853,9 @@ Memory layers:
 This keeps short-lived conversation facts out of project memory unless the
 operator explicitly saves them or promotes a pending memory candidate.
 
-Agent profiles decide whether project memory is used for a given agent. For
-example, a Hecate Chat profile can inject project memory into the provider
-prompt, while a Claude Code profile can send the same project memory only if the
+Agent Presets decide whether project memory is used for a given agent. For
+example, a Hecate Chat preset can inject project memory into the provider
+prompt, while a Claude Code preset can send the same project memory only if the
 ACP adapter exposes a safe instruction/config surface. If no such surface
 exists, Hecate can still show the project memory in the context inspector as
 operator-side notes. Those notes are structured project-scoped memory entries
@@ -861,25 +863,25 @@ with Markdown-compatible bodies, not Markdown files as the default durable
 storage format.
 
 External memory providers should plug in behind the Hecate memory service and
-be selected by agent profile. Projects define the durable scope; profiles define
+be selected by Agent Preset. Projects define the durable scope; presets define
 which local/external memory sources participate for a specific agent.
 
-## Profiles And Presets
+## Roles, Agent Presets, And Runtime Profiles
 
-Projects, profiles, and presets have separate jobs:
+Projects, roles, presets, and runtime profiles have separate jobs:
 
 | Object        | Job                                                                                                                                                                  | Runtime role                                                             |
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | Project       | Durable identity for a codebase/work area. Owns defaults, history grouping, and project memory.                                                                      | Active runtime scope.                                                    |
-| Agent profile | Saved configuration for an agent in a project or globally: Hecate/Codex/Claude/Cursor, model/adapter controls, tools, approvals, memory sources, system prompt, RTK. | Active runtime configuration.                                            |
-| Preset        | Reusable template such as "code review", "implementation", "docs", "safe external agent", "fast local model", or local MCP toolsets.                                 | Applied to create/update a profile or project default; not a live scope. |
+| Project role  | Responsibility the work needs: architect, implementer, reviewer, researcher, release manager, designer, operator.                                                     | Assignment responsibility and handoff target.                            |
+| Agent Preset  | Saved behavior/context posture for a Hecate-managed or Hecate-supervised agent: instructions, model/adapter hints, tools, approvals, memory/source policy, skills.     | Active runtime configuration selected by role/project defaults.          |
+| Runtime profile | Launch/safety posture: execution profile string, tool/write/network posture, approval policy, and adapter options.                                                   | Hecate-owned execution constraint, not portable Cairnline policy.        |
 
-In other words: a project can choose a default agent profile, and a profile can
-be created from a preset. After application, Hecate should persist the resolved
-profile/settings. Presets stay authoring-time templates; profiles are runtime
-configuration; projects are durable work scopes. Context packets may record
-`source_preset_id` for audit, but the runtime should not depend on a mutable
-preset staying unchanged.
+In other words: a project can choose a default Agent Preset, a role can refine
+that preset for a responsibility, and Hecate resolves those choices into
+runtime launch behavior. Cairnline records portable coordination intent and
+legacy host hints; Hecate enforces provider/model, approval, sandbox, write,
+network, and adapter policy.
 
 Local MCP exposure should use the same preset vocabulary rather than a separate
 taxonomy. The initial built-in MCP toolset presets are `readonly`, `operator`,
@@ -895,7 +897,7 @@ Context assembly should include both project and workspace metadata:
 - `workspace`: concrete execution path.
 - `workspace_mode`: in-place, isolated clone, temporary, or editor-owned.
 - `project_context`: saved memories, project instructions, selected docs, and trusted repo guidance.
-- `agent_profile_context`: selected memory sources, profile instructions, and adapter/model controls.
+- `agent_preset_context`: selected memory sources, preset instructions, and adapter/model controls.
 - `workspace_context`: files, diffs, tool output, and runtime artifacts from the concrete workspace.
 
 This prevents future context systems from confusing “same path today” with “same durable project.”
@@ -916,12 +918,12 @@ The Projects UI should stay lightweight but operational:
 - Show project roots/worktrees with branch and active/default status so the
   operator knows which checkout an assignment will use.
 - Let future “Use model” and “Use external agent” flows attach to the same project when started from the same workspace.
-- Let agent profiles expose whether project memory is injected, visible only,
+- Let Agent Presets expose whether project memory is injected, visible only,
   or disabled for that agent.
 - Show compact activity and needs-attention surfaces in the project cockpit that
   derive operational status from existing activity, assignment execution
   rollups, handoff summaries, project defaults, memory entries, memory
-  candidates, context-source metadata, agent profile references, and project
+  candidates, context-source metadata, Agent Preset references, and project
   skills registry status.
 - Keep the project details surface focused on defaults, memory, trusted docs,
   activity, and assignment drill-downs.
@@ -1035,7 +1037,7 @@ entries, and memory candidates; explicit decisions are only shown when existing
 `decision_note` artifacts are present. The Projects cockpit keeps Activity
 Inbox focused on live assignment buckets from the activity response. Needs
 Attention is derived by the server project health endpoint from existing
-project defaults, roots, profile/skill refs, handoffs, review artifacts,
+project defaults, roots, preset/skill refs, handoffs, review artifacts,
 assignment execution links, memory candidates, and memory/context metadata so
 operators can separate actionable setup gaps, blocked or stale assignments,
 pending handoffs, memory review work, and context readiness without adding a
@@ -1093,13 +1095,13 @@ Because Hecate has no stable users yet, later cleanup can remove legacy path-der
    task-backed turns.
 5. Thread project identity into chat context packets. Done for itemized project context-source metadata.
 6. Add project-scoped memory. Done.
-7. Add agent-profile memory-source selection. Done for profile memory/source
+7. Add Agent Preset memory-source selection. Done for preset memory/source
    policy snapshots, bounded native-assignment prompt inclusion, and
    project-linked Hecate Chat prelude inspection.
 8. Move relevant defaults from ad hoc chat/task state into project defaults.
-   Partial: provider, model, workspace mode, and agent profile defaults are
-   project defaults; assignment starts resolve role/project/fallback profiles,
-   including immutable built-in profile defaults.
+   Partial: provider, model, workspace mode, and Agent Preset defaults are
+   project defaults; assignment starts resolve role/project/fallback presets,
+   including immutable built-in preset defaults.
 9. Add project activity aggregation. Done for the read-only V1 inbox.
 10. Add structured handoffs. Done for memory + SQLite store parity, API, UI
     actions, and activity projection signals.
@@ -1118,7 +1120,7 @@ Projects V1 is considered structurally complete when an operator can:
   as a GitHub/code project.
 - Run project setup to discover guidance and skills metadata, then review the
   proposed memory/role changes before applying them.
-- Configure project defaults, roles, profiles, skills, provider/model posture,
+- Configure project defaults, roles, skills, provider/model posture,
   memory/source policies, roots, and worktrees explicitly.
 - Create a work item, draft or manually create assignments, start Hecate Task
   or External Agent execution, inspect launch context, record evidence/reviews,
@@ -1155,7 +1157,7 @@ Out of scope for this document and Projects V1:
   selected project.
 - Task tests that task/run records preserve `project_id`.
 - Memory tests that project memory appears only for matching `project_id`.
-- Profile tests proving Hecate Chat and external-agent profiles can opt into the
+- Preset tests proving Hecate Chat and external-agent presets can opt into the
   same project memory without sharing private adapter memory.
 - API journey: create project, discover guidance/skills, add memory, create and
   start assignment, inspect context, create handoff/follow-up assignment.
@@ -1172,6 +1174,6 @@ Out of scope for this document and Projects V1:
 - How should project defaults interact with per-chat overrides?
 - Should imported Claude/Codex contexts create projects automatically?
 - Should a project have one preferred workspace mode or separate defaults for Hecate Chat, Tasks, and External Agents?
-- Which agent profiles should opt into project memory by default?
+- Which Agent Presets should opt into project memory by default?
 - What structured fields are needed for review/evidence querying once the V1
   markdown-body artifact model is not enough?

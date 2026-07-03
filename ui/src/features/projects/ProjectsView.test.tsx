@@ -362,9 +362,9 @@ vi.mock("../../lib/api", async (importOriginal) => {
       data: [],
     })),
     getProjectSkills: vi.fn(async () => ({ object: "project_skills", data: [] })),
-    getAgentProfiles: vi.fn(async () => ({ object: "agent_profiles", data: [] })),
-    createAgentProfile: vi.fn(async () => ({ object: "agent_profile", data: null })),
-    updateAgentProfile: vi.fn(async () => ({ object: "agent_profile", data: null })),
+    getAgentProfiles: vi.fn(async () => ({ object: "agent_presets", data: [] })),
+    createAgentProfile: vi.fn(async () => ({ object: "agent_preset", data: null })),
+    updateAgentProfile: vi.fn(async () => ({ object: "agent_preset", data: null })),
     deleteAgentProfile: vi.fn(async () => undefined),
     draftProjectAssistant: vi.fn(async () => ({
       object: "project_assistant.proposal",
@@ -735,7 +735,7 @@ function resetProjectWorkMocks() {
       items: [
         {
           section: "profile",
-          kind: "agent_profile",
+          kind: "agent_preset",
           trust_level: "runtime_state",
           origin: "implementation",
           title: "Implementation profile",
@@ -954,7 +954,7 @@ function resetProjectWorkMocks() {
     data: [],
   });
   vi.mocked(getAgentProfiles).mockResolvedValue({
-    object: "agent_profiles",
+    object: "agent_presets",
     data: [
       {
         id: "implementation",
@@ -980,7 +980,7 @@ function resetProjectWorkMocks() {
     ],
   });
   vi.mocked(createAgentProfile).mockImplementation(async (payload) => ({
-    object: "agent_profile",
+    object: "agent_preset",
     data: {
       id: payload.id || "profile_new",
       name: payload.name,
@@ -1004,7 +1004,7 @@ function resetProjectWorkMocks() {
     },
   }));
   vi.mocked(updateAgentProfile).mockImplementation(async (id, payload) => ({
-    object: "agent_profile",
+    object: "agent_preset",
     data: {
       id,
       name: payload.name || "Implementation",
@@ -1644,7 +1644,7 @@ describe("ProjectsView index", () => {
     expect(actionLabels[0]).toMatch(/^Project attention/);
     expect(actionLabels.slice(1)).toEqual([
       "Roles",
-      "Agent profiles",
+      "Agent presets",
       "Project settings",
       "Refresh project work",
     ]);
@@ -3067,7 +3067,7 @@ describe("ProjectsView cockpit", () => {
     );
     const dialog = await screen.findByRole("dialog", { name: "Assignment asgn_1 context" });
     expect(dialog).toBeTruthy();
-    expect(within(dialog).getByText("Profile")).toBeTruthy();
+    expect(within(dialog).getByText("Agent preset")).toBeTruthy();
     expect(within(dialog).getByText("Skills")).toBeTruthy();
     expect(within(dialog).getByText("Memory")).toBeTruthy();
     expect(within(dialog).getByText("Project sources")).toBeTruthy();
@@ -5026,7 +5026,7 @@ describe("ProjectsView cockpit", () => {
     expect(request.draft).toContain("- Provider: ollama");
     expect(request.draft).toContain("- Model: qwen2.5-coder");
     expect(request.draft).toContain(
-      "Role defaults: driver=hecate_task, provider=anthropic, model=claude-sonnet-4, profile=implementation",
+      "Role defaults: driver=hecate_task, provider=anthropic, model=claude-sonnet-4, preset=implementation",
     );
     expect(request.draft).toContain("Linked runtime ids:");
     expect(request.draft).toContain("task=task_1, run=run_1");
@@ -6001,7 +6001,7 @@ describe("ProjectsView cockpit", () => {
     fireEvent.change(within(dialog).getByLabelText("Default driver"), {
       target: { value: "hecate_task" },
     });
-    fireEvent.change(within(dialog).getByLabelText("Default profile"), {
+    fireEvent.change(within(dialog).getByLabelText("Default preset"), {
       target: { value: "implementation" },
     });
     fireEvent.change(within(dialog).getByLabelText("Default provider"), {
@@ -6030,7 +6030,7 @@ describe("ProjectsView cockpit", () => {
     expect(within(dialog).getByRole("button", { name: "Delete role" })).toBeTruthy();
   });
 
-  it("creates agent profiles with project skill selections", async () => {
+  it("creates agent presets with project skill selections", async () => {
     resetProjectWorkMocks();
     vi.mocked(getProjectSkills).mockResolvedValue({
       object: "project_skills",
@@ -6043,10 +6043,10 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
-    await userEvent.click(await screen.findByRole("button", { name: "Agent profiles" }));
-    const dialog = screen.getByRole("dialog", { name: "Agent profiles" });
-    await userEvent.click(within(dialog).getByRole("button", { name: "New profile" }));
-    fireEvent.change(within(dialog).getByLabelText("Profile id"), {
+    await userEvent.click(await screen.findByRole("button", { name: "Agent presets" }));
+    const dialog = screen.getByRole("dialog", { name: "Agent presets" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "New preset" }));
+    fireEvent.change(within(dialog).getByLabelText("Preset id"), {
       target: { value: "reviewer" },
     });
     fireEvent.change(within(dialog).getByLabelText("Name"), {
@@ -6061,7 +6061,7 @@ describe("ProjectsView cockpit", () => {
     fireEvent.change(within(dialog).getByLabelText("Surface"), {
       target: { value: "hecate_task" },
     });
-    fireEvent.change(within(dialog).getByLabelText("Execution profile"), {
+    fireEvent.change(within(dialog).getByLabelText("Runtime profile"), {
       target: { value: "review" },
     });
     fireEvent.change(within(dialog).getByLabelText("Provider hint"), {
@@ -6081,7 +6081,7 @@ describe("ProjectsView cockpit", () => {
       target: { value: "visible_only" },
     });
     await userEvent.click(await within(dialog).findByLabelText("Use skill Backend"));
-    await userEvent.click(within(dialog).getByRole("button", { name: "Create profile" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Create preset" }));
 
     expect(createAgentProfile).toHaveBeenCalledWith({
       id: "reviewer",
@@ -6103,7 +6103,7 @@ describe("ProjectsView cockpit", () => {
     });
   });
 
-  it("updates and deletes agent profiles", async () => {
+  it("updates and deletes agent presets", async () => {
     resetProjectWorkMocks();
     window.localStorage.setItem("hecate.project", project.id);
     const state = createRuntimeConsoleFixture({
@@ -6112,12 +6112,12 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
-    await userEvent.click(await screen.findByRole("button", { name: "Agent profiles" }));
-    const dialog = screen.getByRole("dialog", { name: "Agent profiles" });
+    await userEvent.click(await screen.findByRole("button", { name: "Agent presets" }));
+    const dialog = screen.getByRole("dialog", { name: "Agent presets" });
     fireEvent.change(within(dialog).getByLabelText("Name"), {
       target: { value: "Implementation reviewer" },
     });
-    await userEvent.click(within(dialog).getByRole("button", { name: "Save profile" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save preset" }));
 
     expect(updateAgentProfile).toHaveBeenCalledWith(
       "implementation",
@@ -6129,10 +6129,10 @@ describe("ProjectsView cockpit", () => {
       }),
     );
 
-    await userEvent.click(await within(dialog).findByRole("button", { name: "Delete profile" }));
+    await userEvent.click(await within(dialog).findByRole("button", { name: "Delete preset" }));
     expect(deleteAgentProfile).not.toHaveBeenCalled();
-    expect(screen.getByText(/Other projects may also reference this global profile/i)).toBeTruthy();
-    await userEvent.click(screen.getByRole("button", { name: "Delete agent profile" }));
+    expect(screen.getByText(/Other projects may also reference this global preset/i)).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Delete agent preset" }));
     expect(deleteAgentProfile).toHaveBeenCalledWith("implementation");
   });
 
@@ -6628,7 +6628,7 @@ describe("ProjectsView cockpit", () => {
     expect(notice.textContent).toContain('No routable provider reports model "dogfood-model"');
     expect(within(preflight).getByRole("button", { name: "Open project settings" })).toBeTruthy();
     expect(within(preflight).getByRole("button", { name: "Manage roles" })).toBeTruthy();
-    expect(within(preflight).getByRole("button", { name: "Agent profiles" })).toBeTruthy();
+    expect(within(preflight).getByRole("button", { name: "Agent presets" })).toBeTruthy();
     expect(within(preflight).getByRole("button", { name: "Open Connections" })).toBeTruthy();
     const confirm = within(preflight).getByRole("button", { name: "Start assignment" });
     expect(confirm).toBeDisabled();

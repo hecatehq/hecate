@@ -43,14 +43,6 @@ var projectCairnlineSidecarRequiredTools = []string{
 	"assistant.proposals.list",
 	"assistant.proposals.get",
 	"assistant.apply",
-	"profiles.list",
-	"profiles.create",
-	"profiles.update",
-	"profiles.delete",
-	"execution_profiles.list",
-	"execution_profiles.create",
-	"execution_profiles.update",
-	"execution_profiles.delete",
 	"skills.list",
 	"skills.discover",
 	"skills.create",
@@ -112,8 +104,6 @@ type projectCairnlineSidecarCoordinationTool struct {
 
 var projectCairnlineSidecarCoordinationListTools = []projectCairnlineSidecarCoordinationTool{
 	{Name: "projects.list"},
-	{Name: "profiles.list"},
-	{Name: "execution_profiles.list"},
 	{Name: "skills.list", ProjectScoped: true},
 	{Name: "roles.list", ProjectScoped: true},
 	{Name: "work_items.list", ProjectScoped: true},

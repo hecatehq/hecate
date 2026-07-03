@@ -201,9 +201,9 @@ export function ProjectSettingsPanel({
                 </div>
               </div>
               <div style={fieldStyle}>
-                <span style={fieldLabelStyle}>Agent profile</span>
+                <span style={fieldLabelStyle}>Agent preset</span>
                 <select
-                  aria-label="Default agent profile"
+                  aria-label="Default agent preset"
                   className="input"
                   value={form.defaultAgentProfile}
                   onChange={(event) =>
@@ -418,13 +418,13 @@ function ProfilePosturePreview({ profile }: { profile: AgentProfileRecord | null
   if (!profile) {
     return (
       <div style={{ ...subtleTextStyle, marginTop: 4 }}>
-        Uses the built-in project_assignment posture until a saved profile is selected.
+        Uses the built-in project_assignment posture until a saved preset is selected.
       </div>
     );
   }
   const details = [
     profile.surface,
-    profile.execution_profile ? `profile ${profile.execution_profile}` : "",
+    profile.execution_profile ? `runtime ${profile.execution_profile}` : "",
     profile.provider_hint || profile.model_hint
       ? `hints ${[profile.provider_hint, profile.model_hint].filter(Boolean).join("/")}`
       : "",

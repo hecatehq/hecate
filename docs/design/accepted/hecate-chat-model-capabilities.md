@@ -3,7 +3,7 @@
 > **Status:** accepted; partially implemented alpha direction.
 > **Current source of truth:** [Chat sessions](../../runtime/chat-sessions.md),
 > [Agent runtime](../../runtime/agent-runtime.md), and [Runtime API](../../runtime/runtime-api.md).
-> **Next action:** wire workspace modes and named agent profiles into Hecate
+> **Next action:** wire workspace modes and named Agent Presets into Hecate
 > Chat setup, implement automatic capability probes, and broaden e2e hardening.
 >
 > **Terminology note:** this design record was written while "Hecate Agent" was the
@@ -42,7 +42,7 @@ requirements after the baseline bridge are:
 - streamed assistant text for task-backed Hecate Agent turns _(implemented)_
 - local composer queueing while a backing task is busy _(implemented)_
 - task workspace modes exposed in Hecate Chat setup
-- named agent profiles consumed by Hecate Chat setup
+- named Agent Presets consumed by Hecate Chat setup
 - richer automatic capability detection with visible status
 
 ## Why
@@ -167,13 +167,13 @@ tools-on task-backed turns and back again.
 External Agent sessions store their adapter id in `agent_id`. Hecate Chat
 sessions use `agent_id="hecate"`.
 
-### Agent profiles
+### Agent Presets
 
-Agent profiles are saved runtime configurations for Hecate Chat or an external
-agent. They should not be confused with presets, which are authoring-time
-templates, or with External Agent integrations, which are supervised subprocesses.
+Agent Presets are saved runtime configurations for Hecate Chat or an external
+agent. They are Hecate-owned behavior and safety posture, while External Agent
+integrations are supervised subprocesses.
 
-A profile defines:
+A preset defines:
 
 - display name and description
 - default provider/model or provider/model policy
@@ -184,14 +184,14 @@ A profile defines:
 - cost, turn, timeout, and network guardrails
 - optional model capability requirements
 
-The initial built-in profile is the current default Hecate Chat tools-on behavior:
+The initial built-in preset is the current default Hecate Chat tools-on behavior:
 selected provider/model, selected workspace, `agent_loop`, task approvals,
 artifacts, sandboxed tool calls, and OTel. Operators can later create named
-profiles such as "Reviewer", "Builder", or "SRE" without changing the chat
+presets such as "Reviewer", "Builder", or "SRE" without changing the chat
 session model.
 
-Sessions snapshot the selected profile id and effective profile settings at
-creation time. Profile edits should not silently rewrite historical sessions.
+Sessions snapshot the selected preset id and effective preset settings at
+creation time. Preset edits should not silently rewrite historical sessions.
 
 ### First prompt
 
@@ -199,7 +199,7 @@ For `execution_mode="hecate_task"` the first user message:
 
 1. Validates that the selected model is known tool-capable
    (`tool_calling="basic"` or `parallel`).
-2. Applies the selected Hecate Agent profile.
+2. Applies the selected Hecate Agent Preset.
 3. Creates a visible task with `execution_kind="agent_loop"`.
 4. Marks the task origin as `origin_kind="chat"` and
    `origin_id=<chat_session_id>`.
@@ -380,7 +380,7 @@ and exposes external-agent approvals.
 
 Memory and SQLite must persist:
 
-- agent profiles
+- agent presets
 - selected `agent_profile_id`
 - `agent_id`
 - task-backed Hecate Chat task/run linkage fields on chat sessions
@@ -418,8 +418,8 @@ Minimum coverage:
   link to the backing Task.
 - Busy-state UX and local queued-prompt behavior in Chats.
 - Workspace mode selection and task creation parity.
-- Agent profile CRUD, profile selection, session snapshotting, and built-in
-  default profile behavior.
+- Agent Preset CRUD, preset selection, session snapshotting, and built-in
+  default preset behavior.
 - Richer provider-native capability detection, cooldown, and failure behavior.
 
 ## Implementation Status
@@ -455,8 +455,8 @@ Done in the core bridge:
 Still required for a complete Hecate Chat tools-on experience:
 
 - workspace modes in the chat setup
-- named agent profiles in the chat setup; profile Core/API exists, but Chat
-  does not yet select or snapshot a named chat profile
+- named Agent Presets in the chat setup; preset Core/API exists, but Chat does
+  not yet select or snapshot a named chat preset
 - automatic capability probing
 - broader e2e/product hardening around workspace modes, profiles, automatic
   capability detection, and mixed long-running sessions
@@ -468,7 +468,7 @@ The missing stable-scope pieces should land in this order:
 1. **Workspace modes.** Expose the same workspace choices that Tasks supports,
    store the selected mode on the session/task, and fail early when a requested
    mode cannot be honored.
-2. **Agent profiles.** Add named profiles for model policy,
+2. **Agent Presets.** Add named presets for model policy,
    workspace mode, system prompt, tools/MCP, approvals, and guardrails. Store a
    snapshot on each session so history remains explainable.
 3. **Automatic probing.** Add bounded, visible capability probes for configured

@@ -1250,7 +1250,7 @@ function AssignmentLaunchReadinessPreview({
       </div>
       {state.status === "idle" && (
         <div style={subtleTextStyle}>
-          Check the resolved driver, workspace, profile, and launch target before opening the full
+          Check the resolved driver, workspace, preset, and launch target before opening the full
           preflight.
         </div>
       )}
@@ -1437,7 +1437,7 @@ function AssignmentLaunchReadinessNotice({
       onClick: repairActions?.onOpenProjectSettings,
     },
     { key: "roles", label: "Manage roles", onClick: repairActions?.onManageRoles },
-    { key: "profiles", label: "Agent profiles", onClick: repairActions?.onManageProfiles },
+    { key: "profiles", label: "Agent presets", onClick: repairActions?.onManageProfiles },
     { key: "connections", label: "Open Connections", onClick: repairActions?.onOpenConnections },
   ].filter((action) => action.onClick);
   return (
@@ -1890,17 +1890,17 @@ function projectAssignmentLaunchDraft({
     `- Driver: ${resolvedDriver}`,
     `- Provider: ${firstNonEmpty(provider, "auto")}`,
     `- Model: ${firstNonEmpty(model, "project/runtime default")}`,
-    `- Profile: ${firstNonEmpty(resolvedProfile, "none")}`,
+    `- Agent preset: ${firstNonEmpty(resolvedProfile, "none")}`,
     `- Role defaults: ${formatHintList([
       ["driver", role?.default_driver_kind],
       ["provider", role?.default_provider],
       ["model", role?.default_model],
-      ["profile", role?.default_agent_profile],
+      ["preset", role?.default_agent_profile],
     ])}`,
     `- Project defaults: ${formatHintList([
       ["provider", project.default_provider],
       ["model", project.default_model],
-      ["profile", project.default_agent_profile],
+      ["preset", project.default_agent_profile],
       ["workspace_mode", project.default_workspace_mode],
     ])}`,
   ];
@@ -1959,7 +1959,7 @@ function assignmentLaunchPostureRows(
   }
   const profile = assignmentLaunchProfilePosture(readiness);
   if (profile) {
-    rows.push({ label: "Profile", value: profile });
+    rows.push({ label: "Preset", value: profile });
   }
   const capabilities = assignmentLaunchCapabilityPosture(readiness);
   if (capabilities) {
@@ -2002,7 +2002,7 @@ function assignmentLaunchProfilePosture(readiness: ProjectAssignmentLaunchReadin
     labelWithID(posture?.name, posture?.id ?? ""),
   );
   if (!profile) return "";
-  return posture?.missing ? `${profile} (profile missing)` : profile;
+  return posture?.missing ? `${profile} (preset missing)` : profile;
 }
 
 function assignmentLaunchCapabilityPosture(

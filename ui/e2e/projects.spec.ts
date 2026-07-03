@@ -295,8 +295,8 @@ async function mockProjectJourneyAPIs(page: Page) {
     settingsConfig: MOCK_SETTINGS_CONFIG_WITH_PROVIDERS,
   });
 
-  await page.route(/\/hecate\/v1\/agent-profiles(?:\?.*)?$/, (route) =>
-    route.fulfill(ok({ object: "agent_profiles", data: [] })),
+  await page.route(/\/hecate\/v1\/agent-presets(?:\?.*)?$/, (route) =>
+    route.fulfill(ok({ object: "agent_presets", data: [] })),
   );
 
   await page.route("/hecate/v1/workspace-dialog", (route) =>

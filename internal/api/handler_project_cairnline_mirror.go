@@ -989,7 +989,7 @@ func (h *Handler) logCairnlineAgentProfileMirrorError(ctx context.Context, opera
 	if h != nil && h.logger != nil {
 		logger = h.logger
 	}
-	logger.WarnContext(ctx, "cairnline agent profile mirror write failed",
+	logger.WarnContext(ctx, "cairnline agent preset mirror write failed",
 		"operation", operation,
 		"profile_id", profileID,
 		"err", err)

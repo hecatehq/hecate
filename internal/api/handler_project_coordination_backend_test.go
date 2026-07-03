@@ -842,8 +842,8 @@ func TestProjectCoordinationBackendStatus_CairnlineAgentProfilesAuthorityConfigu
 	if status.ReplacementReady {
 		t.Fatalf("replacement_ready = true, want false until remaining write and migration gates are ready")
 	}
-	if !strings.Contains(strings.Join(status.Warnings, "\n"), "Agent profile create/update/delete mutations are opt-in Cairnline-authoritative") {
-		t.Fatalf("warnings = %+v, want agent-profile authority warning", status.Warnings)
+	if !strings.Contains(strings.Join(status.Warnings, "\n"), "Agent Preset create/update/delete mutations are opt-in Cairnline-authoritative") {
+		t.Fatalf("warnings = %+v, want agent-preset authority warning", status.Warnings)
 	}
 }
 

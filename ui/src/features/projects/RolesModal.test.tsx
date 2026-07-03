@@ -73,7 +73,7 @@ describe("RolesModal", () => {
     fireEvent.change(screen.getByLabelText("Default driver"), {
       target: { value: "hecate_task" },
     });
-    fireEvent.change(screen.getByLabelText("Default profile"), {
+    fireEvent.change(screen.getByLabelText("Default preset"), {
       target: { value: "implementation" },
     });
     await userEvent.click(screen.getByLabelText("Use skill Backend"));

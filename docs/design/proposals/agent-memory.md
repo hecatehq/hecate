@@ -21,7 +21,7 @@ memory feature. Memory entries are visible, scoped, editable, and included in a
 model call only through the context assembly pipeline.
 
 [Projects](../accepted/projects.md) provide the durable default scope for memory. Agent
-profiles choose which memory sources and scopes a given agent uses. Context
+Presets choose which memory sources and scopes a given agent uses. Context
 assembly remains the enforcement layer that decides what enters a specific
 model or adapter call. Project-team orchestration should use context packets
 for work-item briefs, handoffs, reviews, and decision notes before promoting any
@@ -35,7 +35,7 @@ Memory is one input to the context pipeline:
 
 ```mermaid
 flowchart LR
-    A["Project"] --> B["Agent profile"]
+    A["Project"] --> B["Agent Preset"]
     B --> C["Memory service"]
     C --> D["Context assembly"]
     D --> E["Context window management"]
@@ -48,7 +48,7 @@ flowchart LR
 - [Context window management](llm-context-window-management.md) counts memory
   tokens and may warn/block if memory plus transcript exceeds the model limit.
 - [Projects](../accepted/projects.md) provide the default durable scope for memory.
-- Agent profiles select which memory scopes and external memory providers the
+- Agent Presets select which memory scopes and external memory providers the
   active agent should use.
 - Memory itself only stores durable entries and scopes. It does not perform
   retrieval, summarization, or prompt rendering.
@@ -58,14 +58,14 @@ flowchart LR
 1. **Operator-authored persistence.** Entries survive restarts, chats, and task
    runs.
 2. **Scoped activation.** Entries can apply globally, to a project, to a
-   chat/session, to a runtime surface, or through a named agent profile.
+   chat/session, to a runtime surface, or through a named Agent Preset.
 3. **Full visibility.** Operators can see which memory entries are active before
    sending and can inspect which entries influenced a completed message/run.
 4. **Provider-neutral behavior.** Memory works the same whether the next call
    routes to OpenAI, Anthropic, Gemini, a local provider, or another compatible
    backend.
 5. **Agent-neutral project memory.** Hecate Chat and external-agent chats can
-   both use project memory when their active agent profile opts into it.
+   both use project memory when their active Agent Preset opts into it.
 6. **No silent writes.** The model cannot quietly create or edit memory. Any
    future "remember this" flow must be explicit and operator-approved.
 
@@ -124,15 +124,14 @@ Scope semantics:
 | `global`        | Every Hecate-controlled model call.                                  |
 | `project`       | Active `project_id` matches.                                         |
 | `chat`          | Active chat/session ID matches.                                      |
-| `agent_profile` | Active agent profile opts into the entry or backing source.          |
+| `agent_profile` | Active Agent Preset opts into the entry or backing source. The stored scope value remains `agent_profile` for compatibility. |
 | `surface`       | Runtime surface matches `surface`, such as Hecate Chat or task runs. |
 | `composite`     | Project, chat, profile, and/or surface constraints all match.        |
 
-Agent profiles can reference a set of memory entries, memory scopes, or
-external memory sources, but they should not become memory themselves. A profile
-is a reusable runtime configuration; memory is durable context. Presets are one
-step earlier: templates that create or update profiles/project defaults. Once a
-preset is applied, the resolved profile settings control memory activation.
+Agent Presets can reference a set of memory entries, memory scopes, or external
+memory sources, but they should not become memory themselves. A preset is a
+reusable runtime configuration; memory is durable context. Once a preset is
+selected, the resolved preset settings control memory activation.
 
 ## Memory Layers
 
@@ -141,7 +140,7 @@ preset is applied, the resolved profile settings control memory activation.
 | Global memory           | Durable                           | Whole local Hecate instance | Explicit only                                           |
 | Project memory          | Durable                           | One `project_id`            | Explicit save from chat/task                            |
 | Chat/session memory     | Session-local or durable-per-chat | One chat/session            | Never auto-promoted                                     |
-| Profile-selected memory | Durable selection rule            | One agent profile           | References scopes/sources; does not store memory itself |
+| Preset-selected memory  | Durable selection rule            | One Agent Preset            | References scopes/sources; does not store memory itself |
 | Current context         | Per request                       | One model/agent call        | Not memory                                              |
 
 Project memory should be the default durable scope. Chat/session memory is for
@@ -155,12 +154,12 @@ files are not the default storage format or source of truth.
 ## External Memory Providers
 
 External memory providers should integrate behind Hecate's memory service, with
-agent profiles as the user-facing control plane.
+Agent Presets as the user-facing control plane.
 
 Responsibilities:
 
 - **Project** owns the default durable memory scope.
-- **Agent profile** selects which memory scopes and external memory providers an
+- **Agent Preset** selects which memory scopes and external memory providers an
   agent should use.
 - **Memory service** normalizes local and external entries into Hecate
   `MemoryEntry` records or read-only `ContextItem` candidates.
@@ -173,7 +172,7 @@ future integrations with external memory systems.
 
 External memory provider rules:
 
-1. External memory reads are optional per agent profile.
+1. External memory reads are optional per Agent Preset.
 2. External memory writes require explicit operator approval.
 3. External provider output is not trusted more than local operator memory
    unless the operator marks that source as trusted.
@@ -265,7 +264,7 @@ GET    /hecate/v1/memory/active?project_id=proj_...&chat_session_id=chat_...&age
 ```
 
 `/active` is an introspection endpoint. It returns entries that would become
-`operator_memory` context items for the supplied project, chat, agent profile,
+`operator_memory` context items for the supplied project, chat, Agent Preset,
 and surface, but it does not render a prompt and does not apply
 context-window truncation.
 
@@ -277,7 +276,7 @@ string concatenation.
 For every model-backed chat message, external-agent session, or task run:
 
 1. Context assembly asks the memory service for scoped active entries and
-   profile-selected external memory candidates.
+   preset-selected external memory candidates.
 2. Each matching entry becomes a `ContextItem` with
    `trust_level=operator_memory`, `kind=memory`, and `origin=<memory_id>`.
 3. The context packet stores the memory item IDs and snapshots enough title/body
@@ -355,8 +354,8 @@ visibility at the point of use.
 | 1   | Landed: project-scoped `internal/memory/` store with memory + SQLite backends, CRUD API, UI management surface. |
 | 2   | Landed for chat packets: enabled project memory emits labelled `memory` context items.                          |
 | 3   | Landed for project handoffs: handoff records can reference memory IDs without writing or promoting memory.      |
-| 4   | Add `/active` introspection once profiles/surface selection exist beyond project scope.                         |
-| 5   | Agent profile memory-source selection for Hecate Chat and external agents.                                      |
+| 4   | Add `/active` introspection once preset/surface selection exist beyond project scope.                           |
+| 5   | Agent Preset memory-source selection for Hecate Chat and external agents.                                       |
 | 6   | Extend active-memory indicators into Chat/Task Detail and standalone task-run context packets.                  |
 | 7   | Docs, screenshots, and e2e coverage for scoped memory visibility.                                               |
 
@@ -366,7 +365,7 @@ memory will have no durable "what saw this entry?" audit trail.
 ## Test Plan
 
 - Store parity tests for memory and SQLite.
-- Scope matching unit tests for global, project, chat, agent profile, surface, and composite
+- Scope matching unit tests for global, project, chat, Agent Preset, surface, and composite
   entries.
 - API tests for CRUD, disabled entries, and `/active`.
 - Context assembly tests proving memory items are labelled `operator_memory`.

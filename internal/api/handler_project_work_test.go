@@ -3415,8 +3415,8 @@ func TestProjectWorkAPI_StartAssignmentCreatesNativeTaskRun(t *testing.T) {
 		"Work item:\n- Title: Native assignment start",
 		"Assignment:\n- ID: asgn_start",
 		"Role:\n- Name: Backend engineer",
-		"Execution hints:\n- Driver: hecate_task\n- Provider: anthropic\n- Model: claude-sonnet-4\n- Profile: implementation",
-		"Role defaults: provider=anthropic, model=claude-sonnet-4, profile=implementation",
+		"Execution hints:\n- Driver: hecate_task\n- Provider: anthropic\n- Model: claude-sonnet-4\n- Agent preset: implementation",
+		"Role defaults: provider=anthropic, model=claude-sonnet-4, preset=implementation",
 		"Project defaults: provider=ollama, model=qwen2.5-coder, workspace_mode=in_place",
 		"Request:\nExecute this assignment as a native agent_loop task.",
 	} {
@@ -5377,7 +5377,7 @@ func TestProjectWorkAPI_StartAssignmentSnapshotsResolvedAgentProfile(t *testing.
 	if task.RequestedProvider != "anthropic" || task.RequestedModel != "claude-sonnet-4" || task.ExecutionProfile != "role_profile" {
 		t.Fatalf("task provider/model/profile = %q/%q/%q, want role profile hints", task.RequestedProvider, task.RequestedModel, task.ExecutionProfile)
 	}
-	if !strings.Contains(task.SystemPrompt, "Agent profile instructions:\nUse the profile-specific review checklist.") {
+	if !strings.Contains(task.SystemPrompt, "Agent preset instructions:\nUse the profile-specific review checklist.") {
 		t.Fatalf("task system prompt = %q, want profile instructions", task.SystemPrompt)
 	}
 
@@ -5397,7 +5397,7 @@ func TestProjectWorkAPI_StartAssignmentSnapshotsResolvedAgentProfile(t *testing.
 		"Source: role_default",
 		"Provider hint: anthropic",
 		"Model hint: claude-sonnet-4",
-		"Execution profile: role_profile",
+		"Runtime profile: role_profile",
 		"Instructions:\nUse the profile-specific review checklist.",
 		"Skills: backend, review",
 	} {
@@ -6003,11 +6003,11 @@ func TestProjectWorkAPI_StartAssignmentSnapshotsMissingProfileWarning(t *testing
 	if profileItem == nil || profileItem.Included || profileItem.Section != contextSectionProfile {
 		t.Fatalf("profile item = %+v, want excluded missing profile item", profileItem)
 	}
-	if !strings.Contains(profileItem.Body, "profile \"prof_missing\" was not found") {
-		t.Fatalf("profile body = %q, want missing profile warning", profileItem.Body)
+	if !strings.Contains(profileItem.Body, "agent preset \"prof_missing\" was not found") {
+		t.Fatalf("profile body = %q, want missing preset warning", profileItem.Body)
 	}
 	warning := findRenderedContextItemByKind(packetResp.Data, "profile_warning")
-	if warning == nil || warning.Included || !strings.Contains(warning.Body, "profile \"prof_missing\" was not found") {
+	if warning == nil || warning.Included || !strings.Contains(warning.Body, "agent preset \"prof_missing\" was not found") {
 		t.Fatalf("profile warning = %+v, want excluded warning item", warning)
 	}
 }
@@ -6210,9 +6210,9 @@ func TestProjectWorkAPI_StartAssignmentFallsBackToProjectDefaults(t *testing.T) 
 	for _, want := range []string{
 		"- Provider: ollama",
 		"- Model: qwen2.5-coder",
-		"- Profile: project_review",
+		"- Agent preset: project_review",
 		"Role defaults: none",
-		"Project defaults: provider=ollama, model=qwen2.5-coder, profile=project_review, workspace_mode=in_place",
+		"Project defaults: provider=ollama, model=qwen2.5-coder, preset=project_review, workspace_mode=in_place",
 	} {
 		if !strings.Contains(task.Prompt, want) {
 			t.Fatalf("task prompt = %q, want project-default fragment %q", task.Prompt, want)

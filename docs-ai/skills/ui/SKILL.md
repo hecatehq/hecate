@@ -194,7 +194,7 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   surface, and add parent-page tests only when loading, controller wiring, or
   mutation orchestration changes.
 - Project defaults/root editing lives in `ProjectSettingsPanel` plus
-  `CreateProjectWorktreeModal`. Agent profile and project role editing lives in
+  `CreateProjectWorktreeModal`. Agent Preset and project role editing lives in
   `ProfilesModal` and `RolesModal`, with shared profile/role form mapping in
   `projectProfilesRoles.ts`. Work item, assignment, and handoff editing lives in
   `ProjectWorkItemModals`, `ProjectAssignmentModals`, and `ProjectHandoffModal`,
@@ -465,11 +465,11 @@ When the Go side adds a required prop (e.g. `streamTurnCosts`), update the `setu
   shared right-side inspector pattern, and Work Coordination / Timeline /
   Memory / Skills are workspace tabs. Needs Attention rows should route to the
   matching operator surface: settings for setup gaps, Memory for context and
-  candidates, Skills for project skill registry issues, Profiles/Roles for
+  candidates, Skills for project skill registry issues, Presets/Roles for
   broken references, and Work Coordination for assignment/activity issues.
   Assignment launch preflight must keep Connections as the provider/model
   readiness repair surface while linking project-local defaults back to Project
-  Settings, Roles, and Agent Profiles. Work with Project Assistant Bootstrap
+  Settings, Roles, and Agent Presets. Work with Project Assistant Bootstrap
   through one reviewable proposal path: UI helpers may refresh guidance/skills
   first, but they should still call the normal draft/apply flow rather than
   mutating setup directly. New-project onboarding should make setup the primary

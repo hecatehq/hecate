@@ -91,9 +91,9 @@ assistant should see or control Hecate without bypassing Hecate's own runtime,
 approval, and audit model.
 
 Hecate should ship a small set of built-in local MCP toolset presets as agent
-profile support matures. These presets are templates for which Hecate tools are
-exposed through the MCP server; after a preset is applied, the resolved profile
-configuration should be persisted like any other profile setting.
+preset support matures. These presets are templates for which Hecate tools are
+exposed through the MCP server; after a preset is applied, the resolved Agent
+Preset configuration should be persisted like any other preset setting.
 
 | Preset          | Scenario                                | Tool exposure                                                                                                                  | Security posture                                                                                    |
 | --------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |

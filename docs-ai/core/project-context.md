@@ -19,20 +19,20 @@ what did it cost, what happens on the next failure, and where is the trace.
 Hecate's own boundary is the runtime/control plane: projects, chats, tasks,
 providers, supervised external agents, approvals, tool policy, storage, and
 observability. Higher-level assistant behavior should be built from those
-primitives through agent profiles, presets, project memory, and context
+primitives through agent presets, runtime profiles, project memory, and context
 assembly rather than hidden prompt glue or provider-specific shortcuts.
 The Projects surface is the operator cockpit for coordinating project-scoped
 teams of agents: project roles describe who should do the work, assignments and
 handoffs record collaboration state, Tasks and Chats remain the execution
 surfaces, project memory/context carries reviewed knowledge forward, and the
-project skills registry exposes local `SKILL.md` metadata for roles/profiles
-without granting tools, injecting bodies, or executing skill scripts. The
-operator UI can manage agent profiles and pick registered project skills for
-roles/profiles; those selections remain metadata until launch-time resolution.
+project skills registry exposes local `SKILL.md` metadata for roles and agent
+presets without granting tools, injecting bodies, or executing skill scripts.
+The operator UI can manage agent presets and pick registered project skills for
+roles/presets; those selections remain metadata until launch-time resolution.
 Projects V1 is a usable local cockpit substrate, not a Planner/Manager agent:
 new project work should improve setup, inspection, evidence, and deliberate
 operator actions unless a separate proposal changes that boundary.
-Agent profile responses include immutable built-in profiles such as
+Agent preset responses include immutable built-in presets such as
 `implementation`, `planning`, and `review_qa`; those built-ins are selectable
 defaults, not persisted rows or operator-editable project memory.
 Project roots are concrete checkouts, not project identity: one project can span
@@ -46,10 +46,10 @@ first active root. Worktree creation is an explicit operator action and is
 bounded to a direct child of the selected base root's `.worktrees/` directory
 in V1; do not create or assume sibling/nested checkout paths outside registered
 roots.
-Profile memory/source policies now control whether assignment context packets
+Preset memory/source policies now control whether assignment context packets
 mark project memory and source metadata active, visible-only, or omitted. Native
 project assignments can include bounded project memory and portable `AGENTS.md`
-workspace-instruction bodies only when the resolved profile explicitly includes
+workspace-instruction bodies only when the resolved preset explicitly includes
 them; host-specific guidance files and skill bodies remain metadata-only.
 Project-linked Hecate Chat uses a bounded project prelude in the chat system
 prompt and records that policy in the context packet; project context-source

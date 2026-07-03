@@ -186,7 +186,7 @@ var projectCairnlineWriteSwitchpoints = []ProjectCoordinationBackendWriteSwitchp
 		BlocksAuthority:  true,
 		Seams:            []string{"agent-profiles-live-mirror"},
 		Gap:              "agent-profiles",
-		Detail:           "Global agent-profile CRUD still commits to Hecate first, then mirrors portable profile metadata and execution posture into Cairnline.",
+		Detail:           "Agent Preset CRUD still commits to Hecate first, then mirrors Hecate-specific preset compatibility metadata and runtime posture into Cairnline.",
 	},
 	{
 		Name:             "skills",
@@ -206,7 +206,7 @@ var projectCairnlineWriteSwitchpoints = []ProjectCoordinationBackendWriteSwitchp
 		BlocksAuthority:  true,
 		Seams:            []string{"project-roles-live-mirror"},
 		Gap:              "roles",
-		Detail:           "Role mutations still commit to Hecate first, then mirror coordination metadata and referenced portable profile posture into Cairnline.",
+		Detail:           "Role mutations still commit to Hecate first, then mirror coordination metadata and referenced Agent Preset posture into Cairnline bridge compatibility records.",
 	},
 	{
 		Name:             "work-items",
@@ -1148,7 +1148,7 @@ func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string, nativeSh
 			item.LiveMirror = true
 			item.BlocksAuthority = false
 			item.Gap = ""
-			item.Detail = "Agent profile create, update, and delete mutations commit portable profile metadata plus execution posture to the embedded Cairnline database first, then best-effort shadow Hecate's combined profile row back into Hecate-native stores for compatibility."
+			item.Detail = "Agent Preset create, update, and delete mutations commit Hecate-specific preset compatibility metadata plus runtime posture to the embedded Cairnline database first, then best-effort shadow Hecate's combined preset row back into Hecate-native stores for compatibility."
 		}
 		if projectSkillsAuthoritative && item.Name == "skills" {
 			item.CurrentAuthority = "cairnline"
@@ -1331,9 +1331,9 @@ func projectCairnlineProjectSkillWriteWarning(writeAuthority []string) string {
 
 func projectCairnlineAgentProfileWriteWarning(writeAuthority []string) string {
 	if projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityAgentProfiles) {
-		return "Agent profile create/update/delete mutations are opt-in Cairnline-authoritative and then best-effort shadowed into Hecate-native stores for compatibility; Cairnline stores portable profile metadata and execution posture as separate records."
+		return "Agent Preset create/update/delete mutations are opt-in Cairnline-authoritative and then best-effort shadowed into Hecate-native stores for compatibility; Cairnline stores Hecate-specific preset compatibility metadata and runtime posture as separate records."
 	}
-	return "Agent profile create/update/delete mutations still write Hecate-native stores first, then best-effort mirror portable profile metadata and execution posture into Cairnline."
+	return "Agent Preset create/update/delete mutations still write Hecate-native stores first, then best-effort mirror Hecate-specific preset compatibility metadata and runtime posture into Cairnline."
 }
 
 func projectCairnlineProjectWorkItemWriteWarning(writeAuthority []string) string {
@@ -1440,7 +1440,7 @@ func (h *Handler) cairnlineReadModelReadiness() (bool, []string) {
 		missing = append(missing, "projects store")
 	}
 	if sources.AgentProfiles == nil {
-		missing = append(missing, "agent profiles store")
+		missing = append(missing, "agent presets store")
 	}
 	if sources.Skills == nil {
 		missing = append(missing, "project skills store")

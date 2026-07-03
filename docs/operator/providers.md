@@ -294,7 +294,7 @@ offer safe first-step actions such as **Add provider**, **Open provider**, or
 Chats and Projects link back to Connections rather than duplicating
 provider-editing controls, except for safe one-click repairs such as accepting a
 backend-suggested model or refreshing provider readiness. Project assignment
-preflight may also point at Project Settings, Roles, or Agent Profiles when the
+preflight may also point at Project Settings, Roles, or Agent Presets when the
 bad provider/model choice came from project-local defaults.
 
 The Chats workspace consumes the same readiness model at composition time. A
