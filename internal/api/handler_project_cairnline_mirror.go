@@ -184,18 +184,6 @@ func (h *Handler) mirrorProjectMemoryCandidateToCairnline(ctx context.Context, o
 	}
 }
 
-func (h *Handler) mirrorAgentProfileToCairnline(ctx context.Context, operation string, profile agentprofiles.Profile) {
-	if err := h.writeAgentProfileToCairnline(ctx, profile); err != nil {
-		h.logCairnlineAgentProfileMirrorError(ctx, operation, profile.ID, err)
-	}
-}
-
-func (h *Handler) mirrorAgentProfileDeleteToCairnline(ctx context.Context, operation, profileID string) {
-	if err := h.deleteAgentProfileFromCairnline(ctx, profileID); err != nil {
-		h.logCairnlineAgentProfileMirrorError(ctx, operation, profileID, err)
-	}
-}
-
 func (h *Handler) mirrorProjectAssistantProposalByIDToCairnline(ctx context.Context, operation, proposalID string) {
 	record, ok, err := h.loadProjectAssistantProposalForCairnlineMirror(ctx, proposalID)
 	if err != nil {
@@ -825,22 +813,6 @@ func (h *Handler) writeProjectMemoryCandidateToCairnline(ctx context.Context, ca
 	})
 }
 
-func (h *Handler) writeAgentProfileToCairnline(ctx context.Context, profile agentprofiles.Profile) error {
-	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
-		_, err := cairnlinebridge.UpsertAgentProfile(ctx, service, profile)
-		return err
-	})
-}
-
-func (h *Handler) deleteAgentProfileFromCairnline(ctx context.Context, profileID string) error {
-	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
-		if err := cairnlinebridge.DeleteAgentProfile(ctx, service, profileID); err != nil && !errors.Is(err, cairnline.ErrNotFound) {
-			return err
-		}
-		return nil
-	})
-}
-
 func (h *Handler) writeProjectAssistantProposalRecordToCairnline(ctx context.Context, record projectassistant.ProposalRecord) error {
 	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
 		if err := h.seedProjectMetadataForAssistantProposalRecord(ctx, service, record.ProjectID); err != nil {
@@ -981,16 +953,5 @@ func (h *Handler) logCairnlineMirrorError(ctx context.Context, operation, projec
 	logger.WarnContext(ctx, "cairnline project mirror write failed",
 		"operation", operation,
 		"project_id", projectID,
-		"err", err)
-}
-
-func (h *Handler) logCairnlineAgentProfileMirrorError(ctx context.Context, operation, profileID string, err error) {
-	logger := slog.Default()
-	if h != nil && h.logger != nil {
-		logger = h.logger
-	}
-	logger.WarnContext(ctx, "cairnline agent preset mirror write failed",
-		"operation", operation,
-		"profile_id", profileID,
 		"err", err)
 }

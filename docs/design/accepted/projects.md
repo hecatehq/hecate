@@ -525,10 +525,9 @@ enabled, in which case they commit to Cairnline first and then shadow candidate
 state and promoted memory references back into Hecate. In those memory
 authority modes, Hecate can validate the project from the embedded Cairnline
 graph, keep Hecate memory rows as compatibility shadows, and leave the
-Hecate-native project row absent. Global Agent Preset create/update/delete routes
-can best-effort mirror Hecate-owned preset compatibility metadata and execution
-posture after Hecate commits. That mirror is a Hecate bridge hint, not a
-Cairnline write-authority switchpoint. Project Assistant draft/propose/apply
+Hecate-native project row absent. Agent Preset create/update/delete remains
+Hecate-owned and is not a Cairnline write-authority switchpoint. Project
+Assistant draft/propose/apply
 routes mirror the proposal ledger and committed apply side effects after Hecate
 commits proposal records and apply attempts unless `project-assistant-proposals`
 is enabled, in which case the proposal ledger commits to Cairnline first,
