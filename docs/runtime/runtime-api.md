@@ -2593,7 +2593,10 @@ When every replacement gate is ready, `status` becomes
 `cairnline_authoritative`, `detail` describes Cairnline as authoritative for
 portable Projects coordination state, and warnings are limited to the remaining
 Hecate-owned runtime/workspace side-effect boundary rather than stale
-Hecate-store authority warnings.
+Hecate-store authority warnings. At that point `migration-cutover` is also
+removed from `write_adapter_gaps`; Hecate-owned runtime/workspace capabilities
+such as `assignment-start` can still remain in `write_adapter_gaps` and
+`orchestrator_capabilities` because they are not portable Cairnline core.
 When all portable write-authority gaps are closed but strict embedded mirror
 evidence is not yet verified, the next action is
 `run-strict-embedded-read-smoke`; `config_hints` identify the strict embedded

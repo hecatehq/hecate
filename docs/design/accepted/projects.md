@@ -716,7 +716,11 @@ after these gates are met:
   `embedded_cutover_armed` instead of a blocking Hecate-owned cutover gap.
   At that point backend status reports `status=cairnline_authoritative`; any
   warnings should describe the remaining Hecate-owned runtime/workspace
-  side-effect boundary, not stale Hecate-store authority.
+  side-effect boundary, not stale Hecate-store authority. The broad
+  `write_adapter_gaps` diagnostic also stops listing `migration-cutover` after
+  the embedded cutover switch is armed, while non-portable runtime/workspace
+  capabilities such as `assignment-start` can remain visible as Hecate-owned
+  boundaries.
 - Context packets, setup/health/operations summaries, activity projections, and
   closeout gates match current Hecate behavior or have documented intentional
   differences.

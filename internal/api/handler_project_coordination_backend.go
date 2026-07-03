@@ -381,11 +381,12 @@ func (h *Handler) projectCoordinationBackendStatusWithContext(ctx context.Contex
 			effectiveWriteAuthority = nil
 		}
 		response.WriteAdapterSeams = append([]string(nil), projectCairnlineWriteAdapterSeamNames...)
-		response.WriteAdapterGaps = projectCairnlineWriteAdapterGapsSnapshot(effectiveWriteAuthority)
-		response.PortableWriteGaps = projectCairnlinePortableWriteGapsSnapshot(effectiveWriteAuthority, response.WriteAdapterGaps)
-		response.OrchestratorCapabilities = projectCairnlineOrchestratorCapabilitiesSnapshot(response.WriteAdapterGaps)
+		writeAdapterGaps := projectCairnlineWriteAdapterGapsSnapshot(effectiveWriteAuthority)
+		response.PortableWriteGaps = projectCairnlinePortableWriteGapsSnapshot(effectiveWriteAuthority, writeAdapterGaps)
+		response.OrchestratorCapabilities = projectCairnlineOrchestratorCapabilitiesSnapshot(writeAdapterGaps)
 		response.WriteAdapterReady = len(response.PortableWriteGaps) == 0
 		migrationCutoverArmed := replacementMode == "embedded" && strictEmbeddedReadGate.Ready && projectCairnlineMigrationRollbackEvidenceReady(migrationRehearsal) && len(response.PortableWriteGaps) == 0
+		response.WriteAdapterGaps = projectCairnlineWriteAdapterGapsAfterMigrationCutover(writeAdapterGaps, migrationCutoverArmed)
 		response.WriteSwitchpoints = projectCairnlineWriteSwitchpointsSnapshot(effectiveWriteAuthority, migrationCutoverArmed)
 		response.MigrationBlockers = projectCairnlineMigrationBlockersSnapshot(response.WriteAdapterGaps, migrationCutoverArmed)
 		response.ReplacementGates = projectCairnlineReplacementGates(readReady, response.PortableWriteGaps, replacementMode, strictEmbeddedReadGate, migrationRehearsal, migrationCutoverArmed)
@@ -1070,6 +1071,20 @@ func projectCairnlineMigrationBlockersSnapshot(writeGaps []string, migrationCuto
 		if item == "migration-cutover" {
 			out = append(out, item)
 		}
+	}
+	return out
+}
+
+func projectCairnlineWriteAdapterGapsAfterMigrationCutover(writeGaps []string, migrationCutoverArmed bool) []string {
+	if !migrationCutoverArmed {
+		return append([]string(nil), writeGaps...)
+	}
+	out := make([]string, 0, len(writeGaps))
+	for _, item := range writeGaps {
+		if item == "migration-cutover" {
+			continue
+		}
+		out = append(out, item)
 	}
 	return out
 }

@@ -533,6 +533,12 @@ func TestProjectCoordinationBackendStatus_EmbeddedReplacementModeReportsCairnlin
 	if len(status.MigrationBlockers) != 0 {
 		t.Fatalf("migration blockers = %+v, want none after embedded replacement cutover is armed", status.MigrationBlockers)
 	}
+	if containsString(status.WriteAdapterGaps, "migration-cutover") {
+		t.Fatalf("write adapter gaps = %+v, want migration-cutover cleared after embedded replacement cutover is armed", status.WriteAdapterGaps)
+	}
+	if !containsString(status.WriteAdapterGaps, "assignment-start") || !containsString(status.OrchestratorCapabilities, "assignment-start") {
+		t.Fatalf("write adapter gaps = %+v orchestrator = %+v, want Hecate-owned runtime capability still reported after cutover", status.WriteAdapterGaps, status.OrchestratorCapabilities)
+	}
 	if status.MigrationRehearsal == nil || !projectCairnlineMigrationRollbackEvidenceReady(status.MigrationRehearsal) || len(status.MigrationRehearsal.Rollback) == 0 {
 		t.Fatalf("migration rehearsal = %+v, want replacement-ready status to expose verified rollback evidence", status.MigrationRehearsal)
 	}

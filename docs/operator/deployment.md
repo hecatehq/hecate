@@ -680,7 +680,10 @@ compatibility shadows remain limited to Hecate-owned runtime/workspace needs.
 Once all replacement gates are ready, backend status reports
 `status=cairnline_authoritative` and keeps warnings focused on Hecate-owned
 runtime/workspace side effects instead of saying Hecate stores remain
-authoritative.
+authoritative. The same status snapshot clears `migration-cutover` from the
+broad `write_adapter_gaps` diagnostic once the embedded cutover switch is
+armed, while Hecate-owned runtime/workspace capabilities such as
+`assignment-start` may still appear there and under `orchestrator_capabilities`.
 It also groups the broad `write_adapter_gaps`
 diagnostic list into
 `portable_write_gaps`,
