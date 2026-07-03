@@ -306,6 +306,7 @@ function ProjectCoordinationBackendSettings({
   const replacementGates = status?.replacement_gates ?? [];
   const statusWarnings = status?.warnings ?? [];
   const nextAction = status?.next_replacement_action;
+  const writeSwitchpoints = status?.write_switchpoints ?? [];
   const statusBadge = status
     ? status.replacement_ready
       ? "ok"
@@ -386,6 +387,9 @@ function ProjectCoordinationBackendSettings({
           </div>
           {nextAction && <ProjectBackendNextAction action={nextAction} />}
           {replacementGates.length > 0 && <ProjectBackendGateList gates={replacementGates} />}
+          {writeSwitchpoints.length > 0 && (
+            <ProjectBackendSwitchpointList switchpoints={writeSwitchpoints} />
+          )}
           <div
             style={{
               display: "grid",
@@ -414,6 +418,97 @@ function ProjectCoordinationBackendSettings({
         </article>
       )}
     </section>
+  );
+}
+
+function ProjectBackendSwitchpointList({
+  switchpoints,
+}: {
+  switchpoints: NonNullable<ProjectCoordinationBackendStatusRecord["write_switchpoints"]>;
+}) {
+  return (
+    <div style={{ display: "grid", gap: 8, marginTop: 14 }}>
+      <div
+        style={{
+          color: "var(--t3)",
+          fontFamily: "var(--font-mono)",
+          fontSize: 10,
+          textTransform: "uppercase",
+        }}
+      >
+        Write switchpoints
+      </div>
+      <div style={{ display: "grid", gap: 7 }}>
+        {switchpoints.map((switchpoint) => {
+          const seams = switchpoint.seams ?? [];
+          return (
+            <div
+              key={switchpoint.name}
+              style={{
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius-sm)",
+                display: "grid",
+                gap: 6,
+                padding: "8px 10px",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+                <span style={{ color: "var(--t0)", fontSize: 12, fontWeight: 650 }}>
+                  {switchpoint.name.replaceAll("-", " ")}
+                </span>
+                <span className="badge badge-muted" style={{ textTransform: "none" }}>
+                  {projectBackendDisplayLabel(switchpoint.current_authority)}
+                </span>
+                <span
+                  className={projectBackendSwitchpointStateBadge(
+                    switchpoint.cairnline_state,
+                    switchpoint.live_mirror,
+                  )}
+                  style={{ textTransform: "none" }}
+                >
+                  {projectBackendDisplayLabel(switchpoint.cairnline_state)}
+                </span>
+                {switchpoint.blocks_authority ? (
+                  <span className="badge badge-amber" style={{ textTransform: "none" }}>
+                    blocks authority
+                  </span>
+                ) : (
+                  <span className="badge badge-green" style={{ textTransform: "none" }}>
+                    non-blocking
+                  </span>
+                )}
+                {switchpoint.live_mirror && (
+                  <span className="badge badge-muted" style={{ textTransform: "none" }}>
+                    live mirror
+                  </span>
+                )}
+                {switchpoint.gap && (
+                  <span className="badge badge-muted" style={{ textTransform: "none" }}>
+                    gap {switchpoint.gap}
+                  </span>
+                )}
+              </div>
+              <div style={{ color: "var(--t2)", fontSize: 11, lineHeight: 1.45 }}>
+                {switchpoint.detail}
+              </div>
+              {seams.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                  {seams.map((seam) => (
+                    <span
+                      key={seam}
+                      className="badge badge-muted"
+                      style={{ fontSize: 9, textTransform: "none" }}
+                    >
+                      {seam}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -754,6 +849,22 @@ function projectBackendProbePlan(url: string, method: string): { label: string; 
     label: "Inspect read route",
     detail: "Read the diagnostic route and confirm the returned state matches the gate detail.",
   };
+}
+
+function projectBackendDisplayLabel(value: string): string {
+  return value.replaceAll("_", " ").replaceAll("-", " ");
+}
+
+function projectBackendSwitchpointStateBadge(state: string, liveMirror: boolean): string {
+  if (
+    state === "authoritative_opt_in" ||
+    state === "partial_authoritative_opt_in" ||
+    state === "embedded_cutover_armed"
+  ) {
+    return "badge badge-green";
+  }
+  if (liveMirror) return "badge badge-amber";
+  return "badge badge-muted";
 }
 
 function projectBackendTitle(status: ProjectCoordinationBackendStatusRecord): string {
