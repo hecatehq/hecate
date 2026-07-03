@@ -1254,6 +1254,13 @@ func TestUpsertWorkItemMirrorsWorkItemMutations(t *testing.T) {
 	if created.ID != item.ID || created.Status != projectwork.WorkItemStatusBacklog || created.Priority != "high" || created.RootID != "root_main" || len(created.ReviewerRoleIDs) != 1 || created.ReviewerRoleIDs[0] != "reviewer" {
 		t.Fatalf("created work item = %+v, want mapped Hecate work item metadata", created)
 	}
+	mirroredRoles, err := service.ListRoles(ctx, item.ProjectID)
+	if err != nil {
+		t.Fatalf("ListRoles() error = %v", err)
+	}
+	if !hasCairnlineRole(mirroredRoles, "writer") || !hasCairnlineRole(mirroredRoles, "reviewer") {
+		t.Fatalf("mirrored roles = %+v, want work item role placeholders", mirroredRoles)
+	}
 
 	item.Title = "Document adapter updated"
 	item.Status = projectwork.WorkItemStatusReady
@@ -2531,6 +2538,15 @@ func hasAgentProfile(profiles []agentprofiles.Profile, id string) bool {
 }
 
 func hasRole(roles []projectwork.AgentRoleProfile, id string) bool {
+	for _, role := range roles {
+		if role.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func hasCairnlineRole(roles []cairnline.Role, id string) bool {
 	for _, role := range roles {
 		if role.ID == id {
 			return true
