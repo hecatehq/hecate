@@ -709,9 +709,10 @@ reports strict embedded rehearsal hints for
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=all-portable`; after strict embedded
 read smoke is verified, the next action becomes implementing the missing
 migration cutover switch by arming
-`HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded`. That status cutover does
-not move Hecate-owned runtime/workspace capabilities such as assignment dispatch
-or Project Assistant apply side effects into Cairnline core. `GET
+`HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded`; backend status includes
+that env var as a copyable next-action config hint. That status cutover does not
+move Hecate-owned runtime/workspace capabilities such as assignment dispatch or
+Project Assistant apply side effects into Cairnline core. `GET
 /hecate/v1/projects/cairnline/mirror-parity` compares the existing embedded
 mirror database with Hecate's current stores without creating or repairing it;
 `GET /hecate/v1/projects/{id}/cairnline/embedded-read-model` reads operations,

@@ -485,6 +485,9 @@ func TestProjectCoordinationBackendStatus_StrictEmbeddedReadSmokeGateVerifiedAft
 	if status.NextReplacementAction == nil || status.NextReplacementAction.ID != "implement-migration-cutover" {
 		t.Fatalf("next action = %+v, want cutover implementation after read/write gates are ready", status.NextReplacementAction)
 	}
+	if hint := findConfigHint(status.NextReplacementAction.ConfigHints, "HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE"); hint == nil || hint.Value != "embedded" {
+		t.Fatalf("next action config hints = %+v, want embedded replacement mode hint", status.NextReplacementAction.ConfigHints)
+	}
 }
 
 func TestProjectCoordinationBackendStatus_EmbeddedReplacementModeReportsCairnlineAuthoritativeAfterVerifiedCutover(t *testing.T) {

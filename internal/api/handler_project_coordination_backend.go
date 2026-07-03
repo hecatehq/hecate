@@ -610,10 +610,11 @@ func projectCairnlineNextReplacementAction(status ProjectCoordinationBackendStat
 	if len(status.MigrationBlockers) > 0 {
 		if gate := projectCoordinationBackendReplacementGateByID(status.ReplacementGates, "migration-and-rollback"); gate != nil && gate.Status == "cutover_switch_missing" {
 			return &ProjectCoordinationBackendNextAction{
-				ID:     "implement-migration-cutover",
-				Label:  "Implement migration cutover",
-				Detail: "Strict embedded mirror parity and read smoke are verified; the remaining migration blocker is an explicit authoritative cutover and rollback switch.",
-				Target: status.MigrationBlockers[0],
+				ID:          "implement-migration-cutover",
+				Label:       "Implement migration cutover",
+				Detail:      "Strict embedded mirror parity and read smoke are verified; the remaining migration blocker is an explicit authoritative cutover and rollback switch.",
+				Target:      status.MigrationBlockers[0],
+				ConfigHints: projectCairnlineReplacementModeHints(),
 				ProbeURLs: []string{
 					projectCoordinationBackendSyncReadinessURL,
 					projectCoordinationBackendMirrorParityURL,
