@@ -40,18 +40,18 @@ Raw paths are not stable enough to be the durable identity:
 
 ## Terminology
 
-| Term           | Meaning                                                                                                                                                      |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Project        | Durable Hecate object representing a codebase or work area. Identified by `project_id`. Owns defaults, memories, history grouping, and context sources.      |
-| Workspace      | Concrete filesystem root used for execution. A project can have one or more workspaces over time.                                                            |
-| Project root   | A saved checkout/workspace path for a project. Roots can represent the main checkout, a linked Git worktree, an editor-owned workspace, or a temporary root. |
-| Chat           | Conversation attached to an optional project and, when running, a concrete workspace.                                                                        |
-| Task           | Durable runtime object attached to an optional project and a concrete workspace mode.                                                                        |
-| Run            | One execution attempt under a task. Runs never define project identity by themselves.                                                                        |
-| Agent Preset   | Reusable Hecate runtime configuration for Hecate Chat, project assignments, or an external agent: model/adapter hints, tools, memory/source policy, instructions, and safety posture. |
-| Runtime profile | Hecate launch/safety posture such as execution profile string, tool/write/network posture, approvals, and adapter options.                                    |
-| Project role   | Responsibility needed by the work, such as architect, implementer, reviewer, researcher, release manager, designer, or operator.                              |
-| Context packet | A snapshot of what Hecate assembled for a model/agent call, including project and workspace metadata.                                                        |
+| Term            | Meaning                                                                                                                                                                               |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Project         | Durable Hecate object representing a codebase or work area. Identified by `project_id`. Owns defaults, memories, history grouping, and context sources.                               |
+| Workspace       | Concrete filesystem root used for execution. A project can have one or more workspaces over time.                                                                                     |
+| Project root    | A saved checkout/workspace path for a project. Roots can represent the main checkout, a linked Git worktree, an editor-owned workspace, or a temporary root.                          |
+| Chat            | Conversation attached to an optional project and, when running, a concrete workspace.                                                                                                 |
+| Task            | Durable runtime object attached to an optional project and a concrete workspace mode.                                                                                                 |
+| Run             | One execution attempt under a task. Runs never define project identity by themselves.                                                                                                 |
+| Agent Preset    | Reusable Hecate runtime configuration for Hecate Chat, project assignments, or an external agent: model/adapter hints, tools, memory/source policy, instructions, and safety posture. |
+| Runtime profile | Hecate launch/safety posture such as execution profile string, tool/write/network posture, approvals, and adapter options.                                                            |
+| Project role    | Responsibility needed by the work, such as architect, implementer, reviewer, researcher, release manager, designer, or operator.                                                      |
+| Context packet  | A snapshot of what Hecate assembled for a model/agent call, including project and workspace metadata.                                                                                 |
 
 ## Goals
 
@@ -870,12 +870,12 @@ which local/external memory sources participate for a specific agent.
 
 Projects, roles, presets, and runtime profiles have separate jobs:
 
-| Object        | Job                                                                                                                                                                  | Runtime role                                                             |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| Project       | Durable identity for a codebase/work area. Owns defaults, history grouping, and project memory.                                                                      | Active runtime scope.                                                    |
-| Project role  | Responsibility the work needs: architect, implementer, reviewer, researcher, release manager, designer, operator.                                                     | Assignment responsibility and handoff target.                            |
-| Agent Preset  | Saved behavior/context posture for a Hecate-managed or Hecate-supervised agent: instructions, model/adapter hints, tools, approvals, memory/source policy, skills.     | Active runtime configuration selected by role/project defaults.          |
-| Runtime profile | Launch/safety posture: execution profile string, tool/write/network posture, approval policy, and adapter options.                                                   | Hecate-owned execution constraint, not portable Cairnline policy.        |
+| Object          | Job                                                                                                                                                                | Runtime role                                                      |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
+| Project         | Durable identity for a codebase/work area. Owns defaults, history grouping, and project memory.                                                                    | Active runtime scope.                                             |
+| Project role    | Responsibility the work needs: architect, implementer, reviewer, researcher, release manager, designer, operator.                                                  | Assignment responsibility and handoff target.                     |
+| Agent Preset    | Saved behavior/context posture for a Hecate-managed or Hecate-supervised agent: instructions, model/adapter hints, tools, approvals, memory/source policy, skills. | Active runtime configuration selected by role/project defaults.   |
+| Runtime profile | Launch/safety posture: execution profile string, tool/write/network posture, approval policy, and adapter options.                                                 | Hecate-owned execution constraint, not portable Cairnline policy. |
 
 In other words: a project can choose a default Agent Preset, a role can refine
 that preset for a responsibility, and Hecate resolves those choices into

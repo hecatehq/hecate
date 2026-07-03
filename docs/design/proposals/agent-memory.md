@@ -119,14 +119,14 @@ const (
 
 Scope semantics:
 
-| Scope           | Activates when                                                       |
-| --------------- | -------------------------------------------------------------------- |
-| `global`        | Every Hecate-controlled model call.                                  |
-| `project`       | Active `project_id` matches.                                         |
-| `chat`          | Active chat/session ID matches.                                      |
+| Scope           | Activates when                                                                                                               |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `global`        | Every Hecate-controlled model call.                                                                                          |
+| `project`       | Active `project_id` matches.                                                                                                 |
+| `chat`          | Active chat/session ID matches.                                                                                              |
 | `agent_profile` | Active Agent Preset opts into the entry or backing source. The stored scope value remains `agent_profile` for compatibility. |
-| `surface`       | Runtime surface matches `surface`, such as Hecate Chat or task runs. |
-| `composite`     | Project, chat, profile, and/or surface constraints all match.        |
+| `surface`       | Runtime surface matches `surface`, such as Hecate Chat or task runs.                                                         |
+| `composite`     | Project, chat, profile, and/or surface constraints all match.                                                                |
 
 Agent Presets can reference a set of memory entries, memory scopes, or external
 memory sources, but they should not become memory themselves. A preset is a
@@ -135,13 +135,13 @@ selected, the resolved preset settings control memory activation.
 
 ## Memory Layers
 
-| Layer                   | Persistence                       | Scope                       | Promotion                                               |
-| ----------------------- | --------------------------------- | --------------------------- | ------------------------------------------------------- |
-| Global memory           | Durable                           | Whole local Hecate instance | Explicit only                                           |
-| Project memory          | Durable                           | One `project_id`            | Explicit save from chat/task                            |
-| Chat/session memory     | Session-local or durable-per-chat | One chat/session            | Never auto-promoted                                     |
-| Preset-selected memory  | Durable selection rule            | One Agent Preset            | References scopes/sources; does not store memory itself |
-| Current context         | Per request                       | One model/agent call        | Not memory                                              |
+| Layer                  | Persistence                       | Scope                       | Promotion                                               |
+| ---------------------- | --------------------------------- | --------------------------- | ------------------------------------------------------- |
+| Global memory          | Durable                           | Whole local Hecate instance | Explicit only                                           |
+| Project memory         | Durable                           | One `project_id`            | Explicit save from chat/task                            |
+| Chat/session memory    | Session-local or durable-per-chat | One chat/session            | Never auto-promoted                                     |
+| Preset-selected memory | Durable selection rule            | One Agent Preset            | References scopes/sources; does not store memory itself |
+| Current context        | Per request                       | One model/agent call        | Not memory                                              |
 
 Project memory should be the default durable scope. Chat/session memory is for
 short-lived continuity and notes inside one conversation. If something learned

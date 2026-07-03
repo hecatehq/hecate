@@ -60,15 +60,15 @@ Facts, accessed 2026-06-08:
 
 Hecate already separates the pieces that ADK and A2A tend to bundle together:
 
-| Hecate concept   | Current role                                                                                                                       | ADK / A2A alignment                                                                             |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| Model provider   | OpenAI, Anthropic, Ollama, LM Studio, and compatible backends answer LLM calls.                                                    | Keep separate. ADK and A2A agents are not model providers.                                      |
-| Native runtime   | `agent_loop` runs Hecate-owned tool loops with approvals, artifacts, events, cost accounting, and sandboxed tool calls.            | Borrow ADK concepts for runtime policy, workflow graphs, and evaluation; do not replace this runtime. |
-| Agent adapter    | ACP-backed Codex, Claude Code, Cursor Agent, Grok Build, and future opaque coding agents.                                          | A remote A2A agent can become another External Agent target.                                    |
-| Protocol adapter | ACP, MCP, OpenAI-compatible HTTP, Anthropic Messages.                                                                              | A2A belongs here.                                                                               |
-| MCP              | Hecate as an MCP server and as an MCP client for external tools.                                                                   | Keep MCP as the agent-to-tool/control-plane protocol. A2A should not displace MCP.              |
-| Agent Preset     | Saved runtime posture: model/provider hints, tools, approvals, skills, memory/context activation, and system/preset instructions. | Align preset fields with ADK's agent/tool/session vocabulary where useful.                     |
-| Runbook          | Named workflow pattern with inputs, evidence, approvals, and stop conditions.                                                      | Borrow ADK graph/workflow and evaluation ideas as Hecate-native runbooks.                       |
+| Hecate concept   | Current role                                                                                                                      | ADK / A2A alignment                                                                                   |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Model provider   | OpenAI, Anthropic, Ollama, LM Studio, and compatible backends answer LLM calls.                                                   | Keep separate. ADK and A2A agents are not model providers.                                            |
+| Native runtime   | `agent_loop` runs Hecate-owned tool loops with approvals, artifacts, events, cost accounting, and sandboxed tool calls.           | Borrow ADK concepts for runtime policy, workflow graphs, and evaluation; do not replace this runtime. |
+| Agent adapter    | ACP-backed Codex, Claude Code, Cursor Agent, Grok Build, and future opaque coding agents.                                         | A remote A2A agent can become another External Agent target.                                          |
+| Protocol adapter | ACP, MCP, OpenAI-compatible HTTP, Anthropic Messages.                                                                             | A2A belongs here.                                                                                     |
+| MCP              | Hecate as an MCP server and as an MCP client for external tools.                                                                  | Keep MCP as the agent-to-tool/control-plane protocol. A2A should not displace MCP.                    |
+| Agent Preset     | Saved runtime posture: model/provider hints, tools, approvals, skills, memory/context activation, and system/preset instructions. | Align preset fields with ADK's agent/tool/session vocabulary where useful.                            |
+| Runbook          | Named workflow pattern with inputs, evidence, approvals, and stop conditions.                                                     | Borrow ADK graph/workflow and evaluation ideas as Hecate-native runbooks.                             |
 
 This keeps the accepted external-agent distinction intact: providers answer LLM
 calls, agent adapters drive coding-agent loops, and protocol adapters define
@@ -87,17 +87,17 @@ Hecate-specific storage and API shapes.
 
 Suggested mapping:
 
-| ADK concept      | Hecate-native shape                                                                              |
-| ---------------- | ------------------------------------------------------------------------------------------------ |
+| ADK concept      | Hecate-native shape                                                                             |
+| ---------------- | ----------------------------------------------------------------------------------------------- |
 | Agent            | Hecate Agent Preset, Hecate-owned `agent_loop`, or External Agent adapter depending on context. |
-| Tool             | Built-in task tool or namespaced MCP tool.                                                       |
-| Runner           | Orchestrator plus task runner.                                                                   |
-| Session          | Chat session, task context, or External Agent native session metadata.                           |
-| State            | Context packet, run state, session metadata, and runtime records.                                |
-| Memory           | Operator-approved Hecate memory scoped by project/profile.                                       |
-| Artifact         | Hecate task artifact, chat diff artifact, or future portable artifact storage record.            |
-| Workflow / graph | Hecate runbook steps and evidence requirements.                                                  |
-| Evaluation       | Hecate replay/eval suites for `agent_loop`, chat, and External Agent turns.                      |
+| Tool             | Built-in task tool or namespaced MCP tool.                                                      |
+| Runner           | Orchestrator plus task runner.                                                                  |
+| Session          | Chat session, task context, or External Agent native session metadata.                          |
+| State            | Context packet, run state, session metadata, and runtime records.                               |
+| Memory           | Operator-approved Hecate memory scoped by project/profile.                                      |
+| Artifact         | Hecate task artifact, chat diff artifact, or future portable artifact storage record.           |
+| Workflow / graph | Hecate runbook steps and evidence requirements.                                                 |
+| Evaluation       | Hecate replay/eval suites for `agent_loop`, chat, and External Agent turns.                     |
 
 ### Agent Presets
 
