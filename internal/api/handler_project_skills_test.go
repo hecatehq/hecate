@@ -809,6 +809,15 @@ func projectSkillResponseHas(items []ProjectSkillResponseItem, id string, enable
 	return false
 }
 
+func stringSliceContains(items []string, value string) bool {
+	for _, item := range items {
+		if item == value {
+			return true
+		}
+	}
+	return false
+}
+
 func projectSkillResponseFor(items []ProjectSkillResponseItem, id string) *ProjectSkillResponseItem {
 	for idx := range items {
 		if items[idx].ID == id {
