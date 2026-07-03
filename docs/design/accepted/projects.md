@@ -351,7 +351,8 @@ runtime side effects and migration cutover remain separate gates.
 `project-metadata-defaults` is a scoped opt-in authority slice: project
 metadata/default-only PATCHes commit portable project metadata and launch
 defaults to embedded Cairnline first, then best-effort shadow Hecate's
-compatibility project row. Project create/delete, roots, context sources,
+compatibility project row. Armed embedded replacement mode skips that native
+project-row shadow. Project create/delete, roots, context sources,
 last-opened-only updates, and mixed metadata/root/source replacement PATCHes
 remain Hecate-owned unless their separate switchpoints are enabled.
 `project-identity` is a scoped authority slice: project create/delete commits
@@ -366,10 +367,11 @@ slices: project root create/update/delete, root list replacement, root
 discovery-result replacement, context-source create/update/delete,
 context-source list replacement, and context-source discovery-result
 replacement can commit to embedded Cairnline first, then best-effort shadow
-Hecate's compatibility project row. Worktree-created root records also move
+Hecate's compatibility project row. Armed embedded replacement mode skips those
+native project-row root/source shadows. Worktree-created root records also move
 with `project-roots`, but Hecate still performs root discovery scans and Git
-worktree creation as orchestrator capabilities outside Cairnline core. In
-these authority modes, root discovery, worktree-created root record mutations,
+worktree creation as orchestrator capabilities outside Cairnline core. In these
+authority modes, root discovery, worktree-created root record mutations,
 and context-source discovery can resolve the starting project graph from
 embedded Cairnline without a matching Hecate-native project row.
 `project-collaboration` is another opt-in authority slice: collaboration

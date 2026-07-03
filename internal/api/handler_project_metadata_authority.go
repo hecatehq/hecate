@@ -176,6 +176,9 @@ func (h *Handler) shadowProjectMetadataDefaultsToHecate(ctx context.Context, ope
 	if h == nil || h.projects == nil {
 		return project, false
 	}
+	if h.projectCairnlineEmbeddedReplacementModeArmed() {
+		return project, false
+	}
 	updated, err := h.projects.Update(ctx, project.ID, func(item *projects.Project) {
 		item.Name = project.Name
 		item.Description = project.Description

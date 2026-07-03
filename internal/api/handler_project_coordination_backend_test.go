@@ -1096,6 +1096,9 @@ func TestProjectCoordinationBackendStatus_CairnlineEmbeddedReplacementModeArmed(
 		want string
 	}{
 		{name: "project-identity", want: "skips native project identity compatibility rows"},
+		{name: "project-metadata-defaults", want: "skip native project-row compatibility shadows"},
+		{name: "roots-and-worktrees", want: "skip native project-row root compatibility shadows"},
+		{name: "context-sources", want: "skip native project-row context-source compatibility shadows"},
 		{name: "skills", want: "skip native project-skill compatibility rows"},
 		{name: "roles", want: "skip native project-work role compatibility rows"},
 		{name: "work-items", want: "skip native project-work item compatibility rows"},
@@ -1109,6 +1112,15 @@ func TestProjectCoordinationBackendStatus_CairnlineEmbeddedReplacementModeArmed(
 		}
 	}
 	warnings := strings.Join(status.Warnings, "\n")
+	for _, want := range []string{
+		"skip native project-row compatibility shadows in armed embedded replacement mode",
+		"skip native project-row root compatibility shadows in armed embedded replacement mode",
+		"skip native project-row context-source compatibility shadows in armed embedded replacement mode",
+	} {
+		if !strings.Contains(warnings, want) {
+			t.Fatalf("warnings = %+v, want warning containing %q", status.Warnings, want)
+		}
+	}
 	if !strings.Contains(warnings, "skip native proposal ledger compatibility rows in armed embedded replacement mode") {
 		t.Fatalf("warnings = %+v, want Project Assistant proposal warning to report no native proposal shadow", status.Warnings)
 	}
