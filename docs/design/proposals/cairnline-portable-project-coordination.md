@@ -107,19 +107,19 @@ side-by-side MCP server
 
 Cairnline owns coordination state:
 
-| Concept           | Portable meaning                                                                                 |
-| ----------------- | ------------------------------------------------------------------------------------------------ |
-| Project           | Durable identity for any body of work, not necessarily code, GitHub, or a folder.                |
-| Root / workspace  | Optional concrete filesystem location used only when local files matter.                         |
-| Role              | Project-native responsibility such as architect, implementer, reviewer, researcher, or operator. |
-| Desired agent     | Portable hint about who or what should claim work, for example `codex`, `claude`, `human`, or `any`. |
-| Skill metadata    | Referenced capability/instruction metadata only; no body injection or execution in core.         |
-| Work item         | Reviewable unit of work.                                                                         |
-| Assignment        | Durable coordination record binding work item, role, desired agent metadata, and desired execution mode. |
-| Evidence/review   | Structured collaboration artifacts attached to work or assignment state.                         |
-| Handoff           | Structured transfer from one role, agent, or work context to another.                            |
-| Memory candidate  | Proposed durable memory awaiting explicit approval.                                              |
-| Context snapshot  | Inspectable record of project/work/source metadata assembled for an agent-facing action. |
+| Concept          | Portable meaning                                                                                         |
+| ---------------- | -------------------------------------------------------------------------------------------------------- |
+| Project          | Durable identity for any body of work, not necessarily code, GitHub, or a folder.                        |
+| Root / workspace | Optional concrete filesystem location used only when local files matter.                                 |
+| Role             | Project-native responsibility such as architect, implementer, reviewer, researcher, or operator.         |
+| Desired agent    | Portable hint about who or what should claim work, for example `codex`, `claude`, `human`, or `any`.     |
+| Skill metadata   | Referenced capability/instruction metadata only; no body injection or execution in core.                 |
+| Work item        | Reviewable unit of work.                                                                                 |
+| Assignment       | Durable coordination record binding work item, role, desired agent metadata, and desired execution mode. |
+| Evidence/review  | Structured collaboration artifacts attached to work or assignment state.                                 |
+| Handoff          | Structured transfer from one role, agent, or work context to another.                                    |
+| Memory candidate | Proposed durable memory awaiting explicit approval.                                                      |
+| Context snapshot | Inspectable record of project/work/source metadata assembled for an agent-facing action.                 |
 
 Hecate-specific runtime concerns stay outside the portable core:
 
