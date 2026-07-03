@@ -1176,7 +1176,7 @@ func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string, migratio
 			item.LiveMirror = true
 			item.BlocksAuthority = false
 			item.Gap = ""
-			item.Detail = "Assignment create, update, and delete record mutations commit to the embedded Cairnline database first, then best-effort shadow portable assignment state back into Hecate-native stores for compatibility; assignment start remains Hecate-owned."
+			item.Detail = "Assignment create, update, and delete record mutations commit to the embedded Cairnline database first, then best-effort shadow portable assignment state back into Hecate-native stores for compatibility; assignment start claims the Cairnline coordination record before Hecate-owned dispatch and releases that claim when launch setup fails before a runtime record is committed."
 		}
 		if projectAssistantProposalsAuthoritative && item.Name == "project-assistant-proposal-ledger" {
 			item.CurrentAuthority = "cairnline"
@@ -1328,7 +1328,7 @@ func projectCairnlineProjectWorkItemWriteWarning(writeAuthority []string) string
 
 func projectCairnlineProjectAssignmentWriteWarning(writeAuthority []string) string {
 	if projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectAssignments) {
-		return "Project assignment create/update/delete record mutations are opt-in Cairnline-authoritative and then best-effort shadowed into Hecate-native stores for compatibility; assignment start remains Hecate-owned and best-effort mirrors committed start and linked-chat reconciliation results."
+		return "Project assignment create/update/delete record mutations are opt-in Cairnline-authoritative and then best-effort shadowed into Hecate-native stores for compatibility; assignment start claims the Cairnline coordination record before Hecate-owned dispatch, releases that claim on pre-runtime setup failure, and best-effort mirrors committed start and linked-chat reconciliation results."
 	}
 	return "Project assignment create/update/delete mutations still write Hecate-native stores first, then best-effort mirror coordination metadata into Cairnline; assignment start remains Hecate-owned and best-effort mirrors committed start and linked-chat reconciliation results."
 }

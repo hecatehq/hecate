@@ -911,8 +911,10 @@ func TestProjectCoordinationBackendStatus_CairnlineProjectAssignmentsAuthorityCo
 		t.Fatalf("replacement_ready = true, want false until remaining write and migration gates are ready")
 	}
 	warnings := strings.Join(status.Warnings, "\n")
-	if !strings.Contains(warnings, "Project assignment create/update/delete record mutations are opt-in Cairnline-authoritative") || !strings.Contains(warnings, "assignment start remains Hecate-owned") {
-		t.Fatalf("warnings = %+v, want assignment authority plus Hecate-owned start warning", status.Warnings)
+	if !strings.Contains(warnings, "Project assignment create/update/delete record mutations are opt-in Cairnline-authoritative") ||
+		!strings.Contains(warnings, "assignment start claims the Cairnline coordination record before Hecate-owned dispatch") ||
+		!strings.Contains(warnings, "releases that claim on pre-runtime setup failure") {
+		t.Fatalf("warnings = %+v, want assignment authority plus Cairnline claim/Hecate-owned dispatch warning", status.Warnings)
 	}
 }
 
