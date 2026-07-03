@@ -547,10 +547,9 @@ func projectCairnlineNextReplacementAction(status ProjectCoordinationBackendStat
 			Label:  "Enable Cairnline dogfood",
 			Detail: "Configure Cairnline as the project coordination backend in a local dogfood runtime before moving any authority.",
 			Target: "configuration",
-			ConfigHints: []ProjectCoordinationBackendActionConfigHint{
+			ConfigHints: append([]ProjectCoordinationBackendActionConfigHint{
 				projectCairnlineConfigHint("HECATE_PROJECTS_COORDINATION_BACKEND", "cairnline", "Enable Cairnline as the Projects coordination backend for local dogfooding."),
-				projectCairnlineConfigHint("HECATE_PROJECTS_CAIRNLINE_CONNECTOR", "embedded", "Use the embedded connector for the current write-authority dogfood path."),
-			},
+			}, projectCairnlineEmbeddedDogfoodHints(status.CairnlineReadSource)...),
 			ProbeURLs: []string{
 				projectCoordinationBackendStatusURL,
 				projectCoordinationBackendReadinessURL,
@@ -561,13 +560,11 @@ func projectCairnlineNextReplacementAction(status ProjectCoordinationBackendStat
 	}
 	if !status.CairnlineConnectorReady {
 		return &ProjectCoordinationBackendNextAction{
-			ID:     "use-embedded-cairnline-connector",
-			Label:  "Use the embedded Cairnline connector",
-			Detail: "Sidecar mode is useful for MCP diagnostics and read smoke tests, but write-authority dogfood currently requires the embedded Cairnline connector.",
-			Target: "connector",
-			ConfigHints: []ProjectCoordinationBackendActionConfigHint{
-				projectCairnlineConfigHint("HECATE_PROJECTS_CAIRNLINE_CONNECTOR", "embedded", "Use the embedded connector before enabling Cairnline write-authority switchpoints."),
-			},
+			ID:          "use-embedded-cairnline-connector",
+			Label:       "Use the embedded Cairnline connector",
+			Detail:      "Sidecar mode is useful for MCP diagnostics and read smoke tests, but write-authority dogfood currently requires the embedded Cairnline connector.",
+			Target:      "connector",
+			ConfigHints: projectCairnlineEmbeddedDogfoodHints(status.CairnlineReadSource),
 			ProbeURLs: []string{
 				projectCoordinationBackendStatusURL,
 				projectCoordinationBackendReadinessURL,
@@ -680,6 +677,16 @@ func projectCairnlineMigrationCutoverHints() []ProjectCoordinationBackendActionC
 		projectCairnlineConfigHint("HECATE_PROJECTS_CAIRNLINE_READ_SOURCE", "embedded", "Force configured project reads to fail loudly when the embedded mirror is missing or stale during cutover rehearsal."),
 		projectCairnlineConfigHint("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY", "all-portable", "Keep all portable write-authority switchpoints enabled while rehearsing migration and rollback."),
 	}
+}
+
+func projectCairnlineEmbeddedDogfoodHints(readSource string) []ProjectCoordinationBackendActionConfigHint {
+	hints := []ProjectCoordinationBackendActionConfigHint{
+		projectCairnlineConfigHint("HECATE_PROJECTS_CAIRNLINE_CONNECTOR", "embedded", "Use the embedded connector for current write-authority and embedded read-model dogfood paths."),
+	}
+	if readSource == "sidecar" {
+		hints = append(hints, projectCairnlineConfigHint("HECATE_PROJECTS_CAIRNLINE_READ_SOURCE", "embedded", "Switch project reads back to the embedded read source before running embedded dogfood status/read-model probes."))
+	}
+	return hints
 }
 
 func projectCairnlineConfigHint(env, value, detail string) ProjectCoordinationBackendActionConfigHint {

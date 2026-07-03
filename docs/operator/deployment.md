@@ -503,6 +503,11 @@ project identity, project setup metadata, project work coordination records,
 collaboration metadata records, memory/candidate records, and Project Assistant
 proposal/apply records. None of these routes operator project reads or writes
 through the sidecar backend.
+The backend-status next action treats embedded dogfood as the replacement path:
+when it points at embedded status/read-model probes from a sidecar read-source
+runtime, it also includes
+`HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded` alongside the embedded
+connector hint so the suggested configuration matches the probe set.
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=all-portable` expands to every
 current portable write-authority dogfood switchpoint. It does not make Hecate
 runtime side effects or migration cutover Cairnline-owned: root
