@@ -986,8 +986,11 @@ func TestProjectCoordinationBackendStatus_CairnlineAllPortableWriteAuthorityAlia
 	if gate := findReplacementGate(status.ReplacementGates, "write-authority-switchpoints"); gate == nil || !gate.Ready || gate.Status != "ready" || !strings.Contains(gate.Detail, "orchestrator capabilities") {
 		t.Fatalf("write-authority gate = %+v, want ready portable write authority with orchestrator capability caveat", gate)
 	}
-	if status.NextReplacementAction == nil || status.NextReplacementAction.ID != "rehearse-migration-cutover" || status.NextReplacementAction.Target != "migration-cutover" {
-		t.Fatalf("next action = %+v, want migration rehearsal after portable authority gaps close", status.NextReplacementAction)
+	if status.NextReplacementAction == nil || status.NextReplacementAction.ID != "run-strict-embedded-read-smoke" || status.NextReplacementAction.Target != "strict-embedded-read-smoke" {
+		t.Fatalf("next action = %+v, want strict embedded smoke after portable authority gaps close", status.NextReplacementAction)
+	}
+	if !containsString(status.NextReplacementAction.ProbeURLs, projectCoordinationBackendSyncReadinessURL) || !containsString(status.NextReplacementAction.ProbeURLs, projectCoordinationBackendMirrorParityURL) {
+		t.Fatalf("next action probe URLs = %+v, want strict embedded sync and mirror-parity probes", status.NextReplacementAction.ProbeURLs)
 	}
 	if hint := findConfigHint(status.NextReplacementAction.ConfigHints, "HECATE_PROJECTS_CAIRNLINE_CONNECTOR"); hint == nil || hint.Value != "embedded" {
 		t.Fatalf("next action config hints = %+v, want embedded connector hint", status.NextReplacementAction.ConfigHints)
@@ -1022,8 +1025,11 @@ func TestProjectCoordinationBackendStatus_CairnlineEmbeddedReplacementModeArmed(
 	if gate := findReplacementGate(status.ReplacementGates, "embedded-replacement-mode"); gate == nil || !gate.Ready || gate.Status != "armed" || !strings.Contains(gate.Detail, "does not bypass") {
 		t.Fatalf("embedded replacement mode gate = %+v, want armed explicit-mode gate", gate)
 	}
-	if status.NextReplacementAction == nil || status.NextReplacementAction.ID != "rehearse-migration-cutover" {
-		t.Fatalf("next action = %+v, want migration rehearsal still prioritized while mode is armed", status.NextReplacementAction)
+	if status.NextReplacementAction == nil || status.NextReplacementAction.ID != "run-strict-embedded-read-smoke" {
+		t.Fatalf("next action = %+v, want strict embedded smoke still prioritized while mode is armed", status.NextReplacementAction)
+	}
+	if !containsString(status.NextReplacementAction.ProbeURLs, projectCoordinationBackendSyncReadinessURL) || !containsString(status.NextReplacementAction.ProbeURLs, projectCoordinationBackendMirrorParityURL) {
+		t.Fatalf("next action probe URLs = %+v, want strict embedded sync and mirror-parity probes", status.NextReplacementAction.ProbeURLs)
 	}
 }
 

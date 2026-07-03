@@ -2581,8 +2581,10 @@ When every replacement gate is ready, `status` becomes
 portable Projects coordination state, and warnings are limited to the remaining
 Hecate-owned runtime/workspace side-effect boundary rather than stale
 Hecate-store authority warnings.
-When the next action is `rehearse-migration-cutover`, `config_hints` identify
-the strict embedded dogfood posture expected for the rehearsal:
+When all portable write-authority gaps are closed but strict embedded mirror
+evidence is not yet verified, the next action is
+`run-strict-embedded-read-smoke`; `config_hints` identify the strict embedded
+dogfood posture expected for the rehearsal:
 `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded`,
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded`, and
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=all-portable`. These are still

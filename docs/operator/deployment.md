@@ -684,7 +684,9 @@ reports the explicit operator cutover arm; `embedded` is only valid with the
 embedded connector and strict embedded read source, and it does not bypass the
 read, write-authority, migration, rollback, or Hecate-owned runtime side-effect
 gates. Once portable write gaps are
-closed, the migration next action reports strict embedded rehearsal hints for
+closed, the next action becomes `run-strict-embedded-read-smoke` until strict
+embedded mirror parity and route-smoke evidence are verified; that action
+reports strict embedded rehearsal hints for
 `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded`,
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded`, and
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=all-portable`; after strict embedded

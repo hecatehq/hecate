@@ -537,6 +537,16 @@ func projectCairnlineNextReplacementAction(status ProjectCoordinationBackendStat
 			ConfigHints: projectCairnlineWriteAuthorityHintsForGap(target),
 		}
 	}
+	if gate := projectCoordinationBackendReplacementGateByID(status.ReplacementGates, "strict-embedded-read-smoke"); gate != nil && !gate.Ready {
+		return &ProjectCoordinationBackendNextAction{
+			ID:          "run-strict-embedded-read-smoke",
+			Label:       "Run strict embedded read smoke",
+			Detail:      "Portable write authority is clear; verify the embedded Cairnline mirror and strict read-smoke evidence before treating migration cutover as the next blocker.",
+			Target:      "strict-embedded-read-smoke",
+			ConfigHints: projectCairnlineMigrationCutoverHints(),
+			ProbeURLs:   append([]string(nil), gate.ProbeURLs...),
+		}
+	}
 	if len(status.MigrationBlockers) > 0 {
 		if gate := projectCoordinationBackendReplacementGateByID(status.ReplacementGates, "migration-and-rollback"); gate != nil && gate.Status == "cutover_switch_missing" {
 			return &ProjectCoordinationBackendNextAction{
