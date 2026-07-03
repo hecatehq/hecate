@@ -125,6 +125,9 @@ func (h *Handler) shadowProjectSkillsToHecate(ctx context.Context, operation, pr
 	if h == nil || h.projectSkills == nil || len(skills) == 0 {
 		return
 	}
+	if h.projectCairnlineEmbeddedReplacementModeArmed() {
+		return
+	}
 	if _, err := h.projectSkills.UpsertDiscovered(ctx, projectID, skills); err != nil {
 		h.logCairnlineMirrorError(ctx, operation, projectID, err)
 	}
@@ -132,6 +135,9 @@ func (h *Handler) shadowProjectSkillsToHecate(ctx context.Context, operation, pr
 
 func (h *Handler) shadowProjectSkillUpdateToHecate(ctx context.Context, operation, projectID string, skill projectskills.Skill) {
 	if h == nil || h.projectSkills == nil {
+		return
+	}
+	if h.projectCairnlineEmbeddedReplacementModeArmed() {
 		return
 	}
 	_, err := h.projectSkills.Update(ctx, projectID, skill.ID, func(item *projectskills.Skill) {

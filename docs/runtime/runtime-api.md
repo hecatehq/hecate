@@ -2673,7 +2673,10 @@ Cairnline-first; it does not load, inject, or execute `SKILL.md` bodies, and
 preserves suggested tool names plus nullable permission hints as inspectable
 metadata only. Those authority routes can validate the project, roots, and
 context sources from the embedded Cairnline graph without creating a
-Hecate-native project row. `agent-profiles-live-mirror` mirrors
+Hecate-native project row. In armed embedded replacement mode with all portable
+write authority closed, Cairnline-authoritative skill discovery/update skips
+native project-skill compatibility rows and reads come from the active Cairnline
+read model. `agent-profiles-live-mirror` mirrors
 global agent-profile create/update/delete metadata and execution posture after
 Hecate commits unless
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=agent-profiles` is enabled. With
@@ -2728,9 +2731,10 @@ in embedded Cairnline and persist only Hecate-owned task/run or chat-session
 refs, context packets, and launch timestamps in the assignment runtime overlay
 when the native project-work store is absent or embedded replacement mode is
 armed. They do not require or advance a native Hecate project identity row, and
-they do not create or advance role, work-item, assignment, collaboration
-artifact, or handoff compatibility rows with coordination/runtime state; runtime
-dispatch, task execution, and external-agent supervision remain Hecate-owned.
+they do not create or advance native project-skill compatibility rows or role,
+work-item, assignment, collaboration artifact, or handoff compatibility rows
+with coordination/runtime state; runtime dispatch, task execution, and
+external-agent supervision remain Hecate-owned.
 Assignment launch/preflight context uses the active Cairnline read model for
 inspect-only collaboration artifact and handoff metadata, so Cairnline-only
 project graphs preserve the same evidence/review/handoff hints as native

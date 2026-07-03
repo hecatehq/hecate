@@ -1153,6 +1153,9 @@ func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string, migratio
 			item.BlocksAuthority = false
 			item.Gap = ""
 			item.Detail = "Project skill discovery and update mutations commit metadata-only skill records to the embedded Cairnline database first, using Cairnline-owned roots and context sources when no Hecate-native project row exists, then best-effort shadow them back into Hecate-native stores for compatibility."
+			if migrationCutoverArmed {
+				item.Detail = "Project skill discovery and update mutations commit metadata-only skill records to the embedded Cairnline database first and, in armed embedded replacement mode, skip native project-skill compatibility rows."
+			}
 		}
 		if projectRolesAuthoritative && item.Name == "roles" {
 			item.CurrentAuthority = "cairnline"

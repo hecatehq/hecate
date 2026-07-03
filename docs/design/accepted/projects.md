@@ -146,11 +146,12 @@ Projects coordination state. In that armed mode with all portable
 write-authority gaps closed, Cairnline-authoritative project identity create no
 longer creates a native Hecate project identity row; strict embedded reads serve
 the project from Cairnline, while Hecate keeps only the runtime/workspace
-compatibility state it still owns. Role, work-item, assignment, collaboration
-artifact, and handoff record mutations also stop creating native project-work
-compatibility rows in this posture; assignment execution refs, context packets,
-and launch timestamps stay in Hecate's runtime overlay because Hecate still owns
-supervised execution. The
+compatibility state it still owns. Project skill discovery/update also stops
+creating native project-skill compatibility rows in this posture. Role,
+work-item, assignment, collaboration artifact, and handoff record mutations also
+stop creating native project-work compatibility rows; assignment execution refs,
+context packets, and launch timestamps stay in Hecate's runtime overlay because
+Hecate still owns supervised execution. The
 Project Assistant apply path uses the same embedded Cairnline read model for
 confirmed-action preflight, so proposal application can validate and update
 Cairnline-only roles, work items, assignments, artifacts, and handoffs without
@@ -594,7 +595,9 @@ graph;
 `agent-profiles-live-mirror` covers global
 agent-profile create/update/delete metadata and can be switched to Cairnline
 authority with `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=agent-profiles`;
-`project-skills-live-mirror` covers project skill discovery/update metadata;
+`project-skills-live-mirror` covers project skill discovery/update metadata,
+with native skill-registry compatibility rows skipped in armed embedded
+replacement mode;
 `project-roles-live-mirror`, `project-work-items-live-mirror`,
 `project-assignments-live-mirror`,
 `project-assignment-start-result-live-mirror`,
@@ -696,8 +699,8 @@ after these gates are met:
   assignment in Cairnline and persist only task/run or chat-session refs,
   context packets, and timestamps in Hecate's runtime overlay when the native
   project-work store is absent or embedded replacement mode is armed; it does
-  not create a native project identity row, and it does not create or advance
-  role, work-item, assignment, collaboration artifact, or handoff
+  not create a native project identity row, native project-skill compatibility
+  rows, or role, work-item, assignment, collaboration artifact, or handoff
   compatibility rows with coordination/runtime state.
   Linked external-agent chat reconciliation can update embedded Cairnline and
   the runtime overlay in the same no-native-project-work posture. Committed

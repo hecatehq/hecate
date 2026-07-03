@@ -530,6 +530,9 @@ func TestProjectCoordinationBackendStatus_EmbeddedReplacementModeReportsCairnlin
 	if len(status.Warnings) == 0 || !strings.Contains(strings.Join(status.Warnings, "\n"), "Hecate still owns runtime/workspace side effects") {
 		t.Fatalf("warnings = %+v, want runtime/workspace side-effect boundary after replacement is ready", status.Warnings)
 	}
+	if point := findWriteSwitchpoint(status.WriteSwitchpoints, "skills"); point == nil || !strings.Contains(point.Detail, "skip native project-skill compatibility rows") {
+		t.Fatalf("skills switchpoint = %+v, want armed replacement-mode no-native-skill-shadow detail", point)
+	}
 	if len(status.MigrationBlockers) != 0 {
 		t.Fatalf("migration blockers = %+v, want none after embedded replacement cutover is armed", status.MigrationBlockers)
 	}

@@ -655,6 +655,65 @@ description: Build backend changes.
 	}
 }
 
+func TestProjectSkillsAPI_CairnlineReplacementModeSkipsNativeSkillShadows(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineReplacementIdentityAuthorityTestServer(t)
+	client := newAPITestClient(t, server)
+	root := t.TempDir()
+	writeProjectSkillAPITestFile(t, root, ".agents/skills/backend/SKILL.md", `---
+name: Backend
+description: Build backend changes.
+---
+`)
+	created := mustRequestJSONStatus[ProjectResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects", projectJourneyJSON(t, map[string]any{
+		"name": "Replacement skills",
+		"roots": []map[string]any{{
+			"id":     "root_replacement_skills",
+			"path":   root,
+			"kind":   "git",
+			"active": true,
+		}},
+	}))
+	projectID := created.Data.ID
+	if projectID == "" || created.Data.ReadBackend != "cairnline" {
+		t.Fatalf("created project = %+v, want Cairnline replacement identity", created.Data)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("native project exists = %t err=%v, want missing after replacement create", ok, err)
+	}
+
+	discovered := mustRequestJSONStatus[ProjectSkillsResponse](client, http.StatusOK, http.MethodPost, "/hecate/v1/projects/"+projectID+"/skills/discover", "")
+	backend := projectSkillResponseFor(discovered.Data, "backend")
+	if backend == nil || backend.ReadBackend != "cairnline" || backend.ProjectID != projectID || backend.RootID != "root_replacement_skills" {
+		t.Fatalf("discovered backend = %+v, want Cairnline-backed replacement skill", backend)
+	}
+	mirrored := getMirroredCairnlineProjectSkillForTest(t, handler, projectID, "backend")
+	if mirrored.Title != "Backend" || mirrored.ProjectID != projectID {
+		t.Fatalf("Cairnline skill = %+v, want authoritative replacement skill", mirrored)
+	}
+	assertNoNativeProjectSkillForTest(t, handler, projectID, "backend")
+
+	patched := mustRequestJSONStatus[ProjectSkillResponse](client, http.StatusOK, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/skills/backend", projectJourneyJSON(t, map[string]any{
+		"enabled":     false,
+		"title":       "Backend Owner",
+		"trust_label": "operator_curated_skill",
+	}))
+	if patched.Data.ReadBackend != "cairnline" || patched.Data.Enabled || patched.Data.Title != "Backend Owner" || patched.Data.TrustLabel != "operator_curated_skill" {
+		t.Fatalf("patched skill = %+v, want patched Cairnline replacement skill", patched.Data)
+	}
+	mirrored = getMirroredCairnlineProjectSkillForTest(t, handler, projectID, "backend")
+	if mirrored.Enabled || mirrored.Title != "Backend Owner" || mirrored.TrustLabel != "operator_curated_skill" {
+		t.Fatalf("patched Cairnline skill = %+v, want operator override", mirrored)
+	}
+	assertNoNativeProjectSkillForTest(t, handler, projectID, "backend")
+
+	listed := mustRequestJSONStatus[ProjectSkillsResponse](client, http.StatusOK, http.MethodGet, "/hecate/v1/projects/"+projectID+"/skills", "")
+	listedBackend := projectSkillResponseFor(listed.Data, "backend")
+	if listedBackend == nil || listedBackend.ReadBackend != "cairnline" || listedBackend.Enabled || listedBackend.Title != "Backend Owner" {
+		t.Fatalf("listed skills = %+v, want Cairnline read model with patched backend skill", listed.Data)
+	}
+}
+
 func TestProjectSkillsAPI_MirrorRefreshesSkillSourceRefsOnRediscovery(t *testing.T) {
 	t.Parallel()
 	handler := NewHandler(config.Config{
@@ -757,6 +816,17 @@ func projectSkillResponseFor(items []ProjectSkillResponseItem, id string) *Proje
 		}
 	}
 	return nil
+}
+
+func assertNoNativeProjectSkillForTest(t *testing.T, handler *Handler, projectID, skillID string) {
+	t.Helper()
+	items, err := handler.projectSkills.List(t.Context(), projectID)
+	if err != nil {
+		t.Fatalf("List native skills: %v", err)
+	}
+	if skill := projectSkillResponseFor(renderProjectSkills(items, "hecate"), skillID); skill != nil {
+		t.Fatalf("native project skill %q exists in replacement mode: %+v", skillID, *skill)
+	}
 }
 
 func assertProjectSkillsProjectionParity(t *testing.T, hecate, cairnline []ProjectSkillResponseItem) {
