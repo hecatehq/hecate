@@ -784,12 +784,6 @@ function projectBackendProbePlan(url: string, method: string): { label: string; 
 }
 
 function projectBackendDisplayLabel(value: string): string {
-  switch (value) {
-    case "agent-profiles":
-      return "agent presets";
-    case "agent-profiles-live-mirror":
-      return "agent presets live mirror";
-  }
   return value.replaceAll("_", " ").replaceAll("-", " ");
 }
 

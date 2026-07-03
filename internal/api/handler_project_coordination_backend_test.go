@@ -149,7 +149,7 @@ func TestProjectCoordinationBackendStatus_CairnlineConfiguredMissingSources(t *t
 	if !containsString(status.WriteAdapterGaps, "projects") || !containsString(status.WriteAdapterGaps, "migration-cutover") {
 		t.Fatalf("write gaps = %+v, want structured write-adapter gaps", status.WriteAdapterGaps)
 	}
-	if !containsString(status.WriteAdapterSeams, "projects") || !containsString(status.WriteAdapterSeams, "project-identity-live-mirror") || !containsString(status.WriteAdapterSeams, "project-roots-live-mirror") || !containsString(status.WriteAdapterSeams, "project-context-sources-live-mirror") || !containsString(status.WriteAdapterSeams, "project-defaults-live-mirror") || !containsString(status.WriteAdapterSeams, "agent-profiles-live-mirror") || !containsString(status.WriteAdapterSeams, "project-skills-live-mirror") || !containsString(status.WriteAdapterSeams, "project-roles-live-mirror") || !containsString(status.WriteAdapterSeams, "project-work-items-live-mirror") || !containsString(status.WriteAdapterSeams, "assignments") || !containsString(status.WriteAdapterSeams, "project-assignments-live-mirror") || !containsString(status.WriteAdapterSeams, "project-assignment-start-result-live-mirror") || !containsString(status.WriteAdapterSeams, "project-assignment-chat-reconcile-live-mirror") || !containsString(status.WriteAdapterSeams, "project-collaboration-live-mirror") || !containsString(status.WriteAdapterSeams, "project-handoffs-live-mirror") || !containsString(status.WriteAdapterSeams, "project-memory-live-mirror") || !containsString(status.WriteAdapterSeams, "project-memory-candidates-live-mirror") || !containsString(status.WriteAdapterSeams, "project-assistant-proposal-ledger-live-mirror") || !containsString(status.WriteAdapterSeams, "project-assistant-apply-side-effects-live-mirror") || !containsString(status.WriteAdapterSeams, "sync-rehearsal") {
+	if !containsString(status.WriteAdapterSeams, "projects") || !containsString(status.WriteAdapterSeams, "project-identity-live-mirror") || !containsString(status.WriteAdapterSeams, "project-roots-live-mirror") || !containsString(status.WriteAdapterSeams, "project-context-sources-live-mirror") || !containsString(status.WriteAdapterSeams, "project-defaults-live-mirror") || !containsString(status.WriteAdapterSeams, "project-skills-live-mirror") || !containsString(status.WriteAdapterSeams, "project-roles-live-mirror") || !containsString(status.WriteAdapterSeams, "project-work-items-live-mirror") || !containsString(status.WriteAdapterSeams, "assignments") || !containsString(status.WriteAdapterSeams, "project-assignments-live-mirror") || !containsString(status.WriteAdapterSeams, "project-assignment-start-result-live-mirror") || !containsString(status.WriteAdapterSeams, "project-assignment-chat-reconcile-live-mirror") || !containsString(status.WriteAdapterSeams, "project-collaboration-live-mirror") || !containsString(status.WriteAdapterSeams, "project-handoffs-live-mirror") || !containsString(status.WriteAdapterSeams, "project-memory-live-mirror") || !containsString(status.WriteAdapterSeams, "project-memory-candidates-live-mirror") || !containsString(status.WriteAdapterSeams, "project-assistant-proposal-ledger-live-mirror") || !containsString(status.WriteAdapterSeams, "project-assistant-apply-side-effects-live-mirror") || !containsString(status.WriteAdapterSeams, "sync-rehearsal") {
 		t.Fatalf("write seams = %+v, want structured non-authoritative write-adapter seam coverage", status.WriteAdapterSeams)
 	}
 	if gate := findReplacementGate(status.ReplacementGates, "read-routes"); gate == nil || gate.Ready || gate.Status != "blocked" {
@@ -354,10 +354,10 @@ func TestProjectCoordinationBackendStatus_CairnlineConfiguredReadRoutesReady(t *
 	if !reflect.DeepEqual(status.ReadRoutes, projectCairnlineReadRouteNames) {
 		t.Fatalf("read routes = %+v, want canonical Cairnline read routes %+v", status.ReadRoutes, projectCairnlineReadRouteNames)
 	}
-	if !containsString(status.WriteAdapterGaps, "agent-profiles") || !containsString(status.WriteAdapterGaps, "assignments") || !containsString(status.WriteAdapterGaps, "project-assistant-proposals") || !containsString(status.WriteAdapterGaps, "project-assistant-apply-side-effects") || !containsString(status.WriteAdapterGaps, "migration-cutover") {
+	if !containsString(status.WriteAdapterGaps, "assignments") || !containsString(status.WriteAdapterGaps, "project-assistant-proposals") || !containsString(status.WriteAdapterGaps, "project-assistant-apply-side-effects") || !containsString(status.WriteAdapterGaps, "migration-cutover") {
 		t.Fatalf("write gaps = %+v, want structured remaining write-adapter gaps", status.WriteAdapterGaps)
 	}
-	if !containsString(status.PortableWriteGaps, "projects") || !containsString(status.PortableWriteGaps, "roots") || !containsString(status.PortableWriteGaps, "agent-profiles") || containsString(status.PortableWriteGaps, "assignment-start") || containsString(status.PortableWriteGaps, "project-assistant-apply-side-effects") || containsString(status.PortableWriteGaps, "migration-cutover") {
+	if !containsString(status.PortableWriteGaps, "projects") || !containsString(status.PortableWriteGaps, "roots") || containsString(status.PortableWriteGaps, "agent-profiles") || containsString(status.PortableWriteGaps, "assignment-start") || containsString(status.PortableWriteGaps, "project-assistant-apply-side-effects") || containsString(status.PortableWriteGaps, "migration-cutover") {
 		t.Fatalf("portable write gaps = %+v, want portable gaps separated from side-effect and migration blockers", status.PortableWriteGaps)
 	}
 	if !reflect.DeepEqual(status.OrchestratorCapabilities, []string{"roots", "assignment-start", "project-assistant-apply-side-effects"}) {
@@ -366,7 +366,7 @@ func TestProjectCoordinationBackendStatus_CairnlineConfiguredReadRoutesReady(t *
 	if !reflect.DeepEqual(status.MigrationBlockers, []string{"migration-cutover"}) {
 		t.Fatalf("migration blockers = %+v, want migration cutover blocker", status.MigrationBlockers)
 	}
-	if !containsString(status.WriteAdapterSeams, "project-identity-live-mirror") || !containsString(status.WriteAdapterSeams, "project-roots-live-mirror") || !containsString(status.WriteAdapterSeams, "project-context-sources-live-mirror") || !containsString(status.WriteAdapterSeams, "project-defaults-live-mirror") || !containsString(status.WriteAdapterSeams, "agent-profiles-live-mirror") || !containsString(status.WriteAdapterSeams, "project-skills-live-mirror") || !containsString(status.WriteAdapterSeams, "project-roles-live-mirror") || !containsString(status.WriteAdapterSeams, "project-work-items-live-mirror") || !containsString(status.WriteAdapterSeams, "project-assignments-live-mirror") || !containsString(status.WriteAdapterSeams, "project-assignment-start-result-live-mirror") || !containsString(status.WriteAdapterSeams, "project-assignment-chat-reconcile-live-mirror") || !containsString(status.WriteAdapterSeams, "project-collaboration-live-mirror") || !containsString(status.WriteAdapterSeams, "project-handoffs-live-mirror") || !containsString(status.WriteAdapterSeams, "project-memory-live-mirror") || !containsString(status.WriteAdapterSeams, "project-memory-candidates-live-mirror") || !containsString(status.WriteAdapterSeams, "project-assistant-proposal-ledger-live-mirror") || !containsString(status.WriteAdapterSeams, "project-assistant-apply-side-effects-live-mirror") || !containsString(status.WriteAdapterSeams, "assignment-status") || !containsString(status.WriteAdapterSeams, "project-assistant-proposal-ledger-import") || !containsString(status.WriteAdapterSeams, "memory-candidates") {
+	if !containsString(status.WriteAdapterSeams, "project-identity-live-mirror") || !containsString(status.WriteAdapterSeams, "project-roots-live-mirror") || !containsString(status.WriteAdapterSeams, "project-context-sources-live-mirror") || !containsString(status.WriteAdapterSeams, "project-defaults-live-mirror") || !containsString(status.WriteAdapterSeams, "project-skills-live-mirror") || !containsString(status.WriteAdapterSeams, "project-roles-live-mirror") || !containsString(status.WriteAdapterSeams, "project-work-items-live-mirror") || !containsString(status.WriteAdapterSeams, "project-assignments-live-mirror") || !containsString(status.WriteAdapterSeams, "project-assignment-start-result-live-mirror") || !containsString(status.WriteAdapterSeams, "project-assignment-chat-reconcile-live-mirror") || !containsString(status.WriteAdapterSeams, "project-collaboration-live-mirror") || !containsString(status.WriteAdapterSeams, "project-handoffs-live-mirror") || !containsString(status.WriteAdapterSeams, "project-memory-live-mirror") || !containsString(status.WriteAdapterSeams, "project-memory-candidates-live-mirror") || !containsString(status.WriteAdapterSeams, "project-assistant-proposal-ledger-live-mirror") || !containsString(status.WriteAdapterSeams, "project-assistant-apply-side-effects-live-mirror") || !containsString(status.WriteAdapterSeams, "assignment-status") || !containsString(status.WriteAdapterSeams, "project-assistant-proposal-ledger-import") || !containsString(status.WriteAdapterSeams, "memory-candidates") {
 		t.Fatalf("write seams = %+v, want structured non-authoritative write-adapter seam coverage", status.WriteAdapterSeams)
 	}
 	if gate := findReplacementGate(status.ReplacementGates, "read-routes"); gate == nil || !gate.Ready || gate.Status != "ready" {
@@ -821,32 +821,6 @@ func TestProjectCoordinationBackendStatus_CairnlineProjectSkillsAuthorityConfigu
 	}
 }
 
-func TestProjectCoordinationBackendStatus_CairnlineAgentProfilesAuthorityConfigured(t *testing.T) {
-	handler := NewHandler(config.Config{
-		Projects: config.ProjectsConfig{
-			Backend:                 "sqlite",
-			CoordinationBackend:     "cairnline",
-			CairnlineReadSource:     "embedded",
-			CairnlineWriteAuthority: "agent-profiles",
-		},
-	}, quietLogger(), nil, nil, nil, nil)
-
-	status := handler.projectCoordinationBackendStatus()
-	if containsString(status.WriteAdapterGaps, "agent-profiles") {
-		t.Fatalf("write gaps = %+v, want agent-profiles removed for opt-in Cairnline authority", status.WriteAdapterGaps)
-	}
-	point := findWriteSwitchpoint(status.WriteSwitchpoints, "agent-profiles")
-	if point == nil || point.CurrentAuthority != "cairnline" || point.CairnlineState != "authoritative_opt_in" || !point.LiveMirror || point.BlocksAuthority || point.Gap != "" {
-		t.Fatalf("agent-profiles switchpoint = %+v, want opt-in Cairnline authority", point)
-	}
-	if status.ReplacementReady {
-		t.Fatalf("replacement_ready = true, want false until remaining write and migration gates are ready")
-	}
-	if !strings.Contains(strings.Join(status.Warnings, "\n"), "Agent Preset create/update/delete mutations are opt-in Cairnline-authoritative") {
-		t.Fatalf("warnings = %+v, want agent-preset authority warning", status.Warnings)
-	}
-}
-
 func TestProjectCoordinationBackendStatus_CairnlineProjectWorkItemsAuthorityConfigured(t *testing.T) {
 	handler := NewHandler(config.Config{
 		Projects: config.ProjectsConfig{
@@ -1013,7 +987,7 @@ func TestProjectCoordinationBackendStatus_CairnlineProjectAssistantApplyPortable
 	if status.ReplacementReady {
 		t.Fatalf("replacement_ready = true, want false until remaining write and migration gates are ready")
 	}
-	if gate := findReplacementGate(status.ReplacementGates, "write-authority-switchpoints"); gate == nil || gate.Ready || gate.Status != "partial" || strings.Contains(gate.Detail, "project-assistant-apply-side-effects") || !strings.Contains(gate.Detail, "agent-profiles") {
+	if gate := findReplacementGate(status.ReplacementGates, "write-authority-switchpoints"); gate == nil || gate.Ready || gate.Status != "partial" || strings.Contains(gate.Detail, "project-assistant-apply-side-effects") || !strings.Contains(gate.Detail, "context-sources") {
 		t.Fatalf("write-authority gate = %+v, want partial portable write authority without assistant side-effect capability", gate)
 	}
 }
@@ -1032,7 +1006,6 @@ func TestProjectCoordinationBackendStatus_CairnlineAllPortableWriteAuthorityAlia
 	for _, name := range []string{
 		"projects",
 		"context-sources",
-		"agent-profiles",
 		"skills",
 		"memory",
 		"memory-candidates",

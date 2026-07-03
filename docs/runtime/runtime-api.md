@@ -546,7 +546,7 @@ sequenceDiagram
   reads through the standalone Cairnline MCP client. Draft/propose/apply
   mutations remain Hecate-owned because write-authority switchpoints require
   `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded`.
-- `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=none|all-portable|project-memory|project-memory,memory-candidates|project-collaboration|project-skills|project-roles|project-work-items|project-assignments|agent-profiles|project-metadata-defaults|project-roots|project-context-sources|project-identity|project-assistant-proposals`
+- `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=none|all-portable|project-memory|project-memory,memory-candidates|project-collaboration|project-skills|project-roles|project-work-items|project-assignments|project-metadata-defaults|project-roots|project-context-sources|project-identity|project-assistant-proposals`
   controls alpha Cairnline write-authority switchpoints while
   `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and
   `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded`. The default is `none`.
@@ -585,11 +585,7 @@ sequenceDiagram
   preserved in Hecate's separate project assignment runtime overlay even when no
   native compatibility assignment row exists. Assignment start/dispatch remains
   Hecate-owned and writes that runtime overlay before any compatibility shadow
-  or replacement-evidence mirror. `agent-profiles`
-  makes global Agent Preset
-  create/update/delete Cairnline-first, writing Hecate-specific preset
-  compatibility metadata and runtime-posture records before shadowing Hecate's
-  combined preset row. `project-metadata-defaults` makes project metadata/default-only
+  or replacement-evidence mirror. `project-metadata-defaults` makes project metadata/default-only
   PATCHes Cairnline-first, then shadows Hecate's compatibility project row;
   project create/delete, roots, context sources, last-opened-only updates, and
   mixed metadata/root/source replacement PATCHes remain Hecate-owned.
@@ -2444,9 +2440,6 @@ When `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded` is set, those authority
 helpers prefer the embedded Cairnline project graph over any Hecate-native
 compatibility shadow so stale shadows cannot override authoritative project/root
 metadata.
-Adding `agent-profiles` makes global Agent Preset create/update/delete
-Cairnline-first, writing Hecate-specific preset compatibility metadata and
-runtime posture records before shadowing Hecate's combined preset row.
 Adding `project-metadata-defaults` makes project metadata/default-only PATCHes
 Cairnline-first, then shadows Hecate's compatibility project row; project
 create/delete, roots, context sources, last-opened-only updates, and mixed
@@ -2677,15 +2670,7 @@ context sources from the embedded Cairnline graph without creating a
 Hecate-native project row. In armed embedded replacement mode with all portable
 write authority closed, Cairnline-authoritative skill discovery/update skips
 native project-skill compatibility rows and reads come from the active Cairnline
-read model. `agent-profiles-live-mirror` mirrors
-global Agent Preset create/update/delete metadata and execution posture after
-Hecate commits unless
-`HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=agent-profiles` is enabled. With
-that opt-in switchpoint, Agent Preset create/update/delete commits
-Cairnline embedded compatibility records for Hecate preset metadata and runtime posture first, then
-best-effort shadows Hecate's combined preset row back into Hecate-native stores
-for compatibility; delete removes only the Hecate-specific preset metadata
-record because shared runtime posture records can be reused. `project-roles-live-mirror` and
+read model. `project-roles-live-mirror` and
 `project-work-items-live-mirror` mirror role/work-item coordination metadata
 after Hecate commits. Role mirroring also seeds the referenced Agent Preset as
 Hecate-specific preset compatibility metadata and runtime posture when the
@@ -2857,8 +2842,6 @@ Example response, with `write_switchpoints` shortened for readability:
       "project-defaults",
       "project-defaults-live-mirror",
       "project-identity-live-mirror",
-      "agent-profiles",
-      "agent-profiles-live-mirror",
       "skills",
       "project-skills-live-mirror",
       "roles",
@@ -2889,7 +2872,6 @@ Example response, with `write_switchpoints` shortened for readability:
       "projects",
       "roots",
       "context-sources",
-      "agent-profiles",
       "skills",
       "memory",
       "memory-candidates",
@@ -2907,7 +2889,6 @@ Example response, with `write_switchpoints` shortened for readability:
       "projects",
       "roots",
       "context-sources",
-      "agent-profiles",
       "skills",
       "memory",
       "memory-candidates",
@@ -3056,7 +3037,6 @@ Example response, with `write_switchpoints` shortened for readability:
       "Project metadata/default updates still write Hecate-native stores first, then best-effort mirror through Cairnline's project-metadata and project-defaults seams.",
       "Root create/update/delete, root list replacement, root discovery, and worktree-created root record mutations still write Hecate-native stores first, then best-effort mirror through Cairnline's root-level API; Hecate owns the Git worktree creation side effect.",
       "Direct context-source create/update/delete, context-source list replacement, and discovery mutations still write Hecate-native stores first, then best-effort mirror through Cairnline's source-level API.",
-      "Agent Preset create/update/delete mutations still write Hecate-native stores first, then best-effort mirror Hecate-owned preset compatibility metadata and runtime posture into Cairnline.",
       "Project skill discovery and metadata updates still write Hecate-native stores first, then best-effort mirror metadata-only skill records into Cairnline.",
       "Project role and work-item mutations still write Hecate-native stores first, then best-effort mirror coordination metadata into Cairnline unless project-roles or project-work-items write authority is explicitly enabled.",
       "Project assignment create/update/delete mutations still write Hecate-native stores first, then best-effort mirror coordination metadata into Cairnline; assignment start remains Hecate-owned and best-effort mirrors committed start and linked-chat reconciliation results.",

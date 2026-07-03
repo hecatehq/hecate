@@ -566,15 +566,9 @@ case skill discovery/update commits metadata-only skill records to Cairnline
 first and then shadows them back into Hecate. In skill authority mode, discovery
 can use roots and context sources from the embedded Cairnline graph without a
 Hecate-native compatibility project row. Neither path loads, injects, executes,
-or grants permissions from skill bodies. Project role and work-item
-mutations likewise mirror coordination metadata after Hecate commits unless
-`project-roles` or `project-work-items` is enabled, respectively. Hecate-owned
-Agent Preset CRUD can also best-effort mirror private preset compatibility
-metadata and runtime posture into the embedded Cairnline bridge after Hecate
-commits unless `agent-profiles` is enabled, in which case Agent Preset
-create/update/delete writes those Hecate-specific compatibility records first
-and shadows Hecate's combined preset row back into Hecate for compatibility.
-Assignment create/update/delete
+or grants permissions from skill bodies. Project role and work-item mutations
+likewise mirror coordination metadata after Hecate commits unless
+`project-roles` or `project-work-items` is enabled, respectively. Assignment create/update/delete
 mutations likewise mirror portable metadata after Hecate commits unless
 `project-assignments` is enabled, in which case assignment record mutations
 commit to Cairnline first and shadow back into Hecate. When these role,
@@ -625,8 +619,7 @@ Cairnline core.
 Other live Projects reads/writes still use Hecate-native
 stores until the remaining read routes, write adapter, and migration path are
 ready. Current bridge write experiments cover non-authoritative
-project/root/source/defaults, Hecate-specific Agent Preset compatibility
-records, skills, roles, work items,
+project/root/source/defaults, skills, roles, work items,
 assignment metadata upsert/delete, assignment-start result and linked-chat
 reconciliation sync, memory, memory-candidate, create-only collaboration
 artifact/evidence/review, and handoff shapes. Backend status reports those
@@ -634,7 +627,7 @@ proof seams separately from the live-route `write_adapter_gaps`; only
 `project-identity-live-mirror`, `project-metadata-live-mirror`,
 `project-roots-live-mirror`,
 `project-context-sources-live-mirror`, `project-defaults-live-mirror`,
-`agent-profiles-live-mirror`, `project-skills-live-mirror`,
+`project-skills-live-mirror`,
 `project-roles-live-mirror`, `project-work-items-live-mirror`,
 `project-assignments-live-mirror`,
 `project-assignment-start-result-live-mirror`,

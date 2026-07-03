@@ -666,7 +666,7 @@ func (c Config) Validate() error {
 		}
 	}
 	for _, item := range c.ProjectsCairnlineWriteAuthority() {
-		validateBackend("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY", item, "project-memory", "memory-candidates", "project-collaboration", "project-skills", "project-work-items", "project-roles", "project-assignments", "agent-profiles", "project-metadata-defaults", "project-roots", "project-context-sources", "project-identity", "project-assistant-proposals")
+		validateBackend("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY", item, "project-memory", "memory-candidates", "project-collaboration", "project-skills", "project-work-items", "project-roles", "project-assignments", "project-metadata-defaults", "project-roots", "project-context-sources", "project-identity", "project-assistant-proposals")
 	}
 	if c.ProjectsCairnlineWriteAuthorityEnabled("memory-candidates") && !c.ProjectsCairnlineWriteAuthorityEnabled("project-memory") {
 		errs = append(errs, errors.New("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=memory-candidates requires project-memory because candidate promotion creates accepted project memory"))
@@ -1312,7 +1312,6 @@ var projectsCairnlineAllPortableWriteAuthority = []string{
 	"project-work-items",
 	"project-roles",
 	"project-assignments",
-	"agent-profiles",
 	"project-metadata-defaults",
 	"project-roots",
 	"project-context-sources",

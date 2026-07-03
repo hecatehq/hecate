@@ -89,8 +89,6 @@ var projectCairnlineWriteAdapterSeamNames = []string{
 	"project-defaults",
 	"project-defaults-live-mirror",
 	"project-identity-live-mirror",
-	"agent-profiles",
-	"agent-profiles-live-mirror",
 	"skills",
 	"project-skills-live-mirror",
 	"roles",
@@ -122,7 +120,6 @@ var projectCairnlineWriteAdapterGapNames = []string{
 	"projects",
 	"roots",
 	"context-sources",
-	"agent-profiles",
 	"skills",
 	"memory",
 	"memory-candidates",
@@ -177,16 +174,6 @@ var projectCairnlineWriteSwitchpoints = []ProjectCoordinationBackendWriteSwitchp
 		Seams:            []string{"project-context-sources-live-mirror"},
 		Gap:              "context-sources",
 		Detail:           "Context-source discovery and direct source mutations still commit to Hecate first, then mirror through Cairnline source APIs.",
-	},
-	{
-		Name:             "agent-profiles",
-		CurrentAuthority: "hecate",
-		CairnlineState:   "live_mirror_non_authoritative",
-		LiveMirror:       true,
-		BlocksAuthority:  true,
-		Seams:            []string{"agent-profiles-live-mirror"},
-		Gap:              "agent-profiles",
-		Detail:           "Agent Preset CRUD still commits to Hecate first, then mirrors Hecate-specific preset compatibility metadata and runtime posture into Cairnline.",
 	},
 	{
 		Name:             "skills",
@@ -425,7 +412,6 @@ func (h *Handler) projectCoordinationBackendStatusWithContext(ctx context.Contex
 				projectCairnlineProjectMetadataDefaultsWriteWarning(writeAuthority),
 				projectCairnlineProjectRootWriteWarning(writeAuthority),
 				projectCairnlineProjectContextSourceWriteWarning(writeAuthority),
-				projectCairnlineAgentProfileWriteWarning(writeAuthority),
 				projectCairnlineProjectSkillWriteWarning(writeAuthority),
 				projectCairnlineProjectWorkItemWriteWarning(writeAuthority),
 				projectCairnlineProjectAssignmentWriteWarning(writeAuthority),
@@ -723,8 +709,6 @@ func projectCairnlineWriteAuthorityValuesForGap(gap string) []string {
 		return []string{projectCairnlineWriteAuthorityProjectRoots}
 	case "context-sources":
 		return []string{projectCairnlineWriteAuthorityProjectContextSources}
-	case "agent-profiles":
-		return []string{projectCairnlineWriteAuthorityAgentProfiles}
 	case "skills":
 		return []string{projectCairnlineWriteAuthorityProjectSkills}
 	case "memory":
@@ -989,7 +973,6 @@ func projectCairnlineWriteAdapterGapsSnapshot(writeAuthority []string) []string 
 	projectMemoryAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, "project-memory")
 	memoryCandidatesAuthoritative := projectMemoryAuthoritative && projectCairnlineWriteAuthorityEnabled(writeAuthority, "memory-candidates")
 	projectCollaborationAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectCollaboration)
-	agentProfilesAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityAgentProfiles)
 	projectSkillsAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectSkills)
 	projectRolesAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectRoles)
 	projectWorkItemsAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectWorkItems)
@@ -1007,9 +990,6 @@ func projectCairnlineWriteAdapterGapsSnapshot(writeAuthority []string) []string 
 			continue
 		}
 		if projectCollaborationAuthoritative && (item == "artifacts" || item == "handoffs") {
-			continue
-		}
-		if agentProfilesAuthoritative && item == "agent-profiles" {
 			continue
 		}
 		if projectSkillsAuthoritative && item == "skills" {
@@ -1095,7 +1075,6 @@ func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string, nativeSh
 	projectMemoryAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, "project-memory")
 	memoryCandidatesAuthoritative := projectMemoryAuthoritative && projectCairnlineWriteAuthorityEnabled(writeAuthority, "memory-candidates")
 	projectCollaborationAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectCollaboration)
-	agentProfilesAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityAgentProfiles)
 	projectIdentityAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectIdentity)
 	projectMetadataDefaultsAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectMetadataDefaults)
 	projectRootsAuthoritative := projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectRoots)
@@ -1141,14 +1120,6 @@ func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string, nativeSh
 			item.BlocksAuthority = false
 			item.Gap = ""
 			item.Detail = "Context-source create/update/delete, list replacement, and discovery-result replacement mutations commit to the embedded Cairnline database first, then best-effort shadow Hecate's compatibility row; discovery can resolve project identity, roots, and existing sources from the embedded Cairnline graph, while Hecate still performs the workspace scan for its operator UI."
-		}
-		if agentProfilesAuthoritative && item.Name == "agent-profiles" {
-			item.CurrentAuthority = "cairnline"
-			item.CairnlineState = "authoritative_opt_in"
-			item.LiveMirror = true
-			item.BlocksAuthority = false
-			item.Gap = ""
-			item.Detail = "Agent Preset create, update, and delete mutations commit Hecate-specific preset compatibility metadata plus runtime posture to the embedded Cairnline database first, then best-effort shadow Hecate's combined preset row back into Hecate-native stores for compatibility."
 		}
 		if projectSkillsAuthoritative && item.Name == "skills" {
 			item.CurrentAuthority = "cairnline"
@@ -1327,13 +1298,6 @@ func projectCairnlineProjectSkillWriteWarning(writeAuthority []string) string {
 		return "Project skill discovery and metadata updates are opt-in Cairnline-authoritative, can use embedded Cairnline roots/context sources when no Hecate-native project row exists, and are then best-effort shadowed into Hecate-native stores for compatibility."
 	}
 	return "Project skill discovery and metadata updates still write Hecate-native stores first, then best-effort mirror metadata-only skill records into Cairnline."
-}
-
-func projectCairnlineAgentProfileWriteWarning(writeAuthority []string) string {
-	if projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityAgentProfiles) {
-		return "Agent Preset create/update/delete mutations are opt-in Cairnline-authoritative and then best-effort shadowed into Hecate-native stores for compatibility; Cairnline stores Hecate-specific preset compatibility metadata and runtime posture as separate records."
-	}
-	return "Agent Preset create/update/delete mutations still write Hecate-native stores first, then best-effort mirror Hecate-specific preset compatibility metadata and runtime posture into Cairnline."
 }
 
 func projectCairnlineProjectWorkItemWriteWarning(writeAuthority []string) string {

@@ -5,12 +5,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 
 	"github.com/hecatehq/cairnline"
-	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/config"
 )
 
@@ -24,18 +22,6 @@ func newAgentProfilesCairnlineMirrorTestServer(t *testing.T) (*Handler, http.Han
 	handler := NewHandler(config.Config{
 		Server:   config.ServerConfig{DataDir: t.TempDir()},
 		Projects: config.ProjectsConfig{CoordinationBackend: "cairnline"},
-	}, quietLogger(), nil, nil, nil, nil)
-	return handler, NewServer(quietLogger(), handler)
-}
-
-func newAgentProfilesCairnlineAuthorityTestServer(t *testing.T) (*Handler, http.Handler) {
-	t.Helper()
-	handler := NewHandler(config.Config{
-		Server: config.ServerConfig{DataDir: t.TempDir()},
-		Projects: config.ProjectsConfig{
-			CoordinationBackend:     "cairnline",
-			CairnlineWriteAuthority: projectCairnlineWriteAuthorityAgentProfiles,
-		},
 	}, quietLogger(), nil, nil, nil, nil)
 	return handler, NewServer(quietLogger(), handler)
 }
@@ -184,114 +170,6 @@ func TestAgentProfilesAPI_MirrorsMutationsToCairnlineWhenConfigured(t *testing.T
 	assertCairnlineAgentProfileMissingForTest(t, handler, "prof_cairnline")
 	if !cairnlineExecutionProfileIDExistsForTest(t, handler, "profile_execution") {
 		t.Fatalf("delete should leave shared execution profile posture in place")
-	}
-}
-
-func TestAgentProfilesAPI_CairnlineWriteAuthorityCommitsProfilesFirst(t *testing.T) {
-	t.Parallel()
-	handler, server := newAgentProfilesCairnlineAuthorityTestServer(t)
-
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/agent-presets", bytes.NewReader([]byte(`{
-		"id":"prof_bad",
-		"name":"Bad",
-		"surface":"terminal"
-	}`))))
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("create bad enum status = %d body=%s, want 400", rec.Code, rec.Body.String())
-	}
-	if _, err := os.Stat(handler.cairnlineEmbeddedDatabasePath()); !os.IsNotExist(err) {
-		t.Fatalf("Cairnline database stat after invalid create error = %v, want database not created", err)
-	}
-
-	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/agent-presets", bytes.NewReader([]byte(`{
-		"id":"prof_authority",
-		"name":"Authority profile",
-		"description":"Cairnline owns this profile.",
-		"instructions":"Keep profile metadata portable.",
-		"surface":"external_agent",
-		"provider_hint":"anthropic",
-		"model_hint":"claude-sonnet-4",
-		"execution_profile":"prof_authority_exec",
-		"tools_enabled":true,
-		"writes_allowed":true,
-		"network_allowed":false,
-		"approval_policy":"require",
-		"project_memory_policy":"include",
-		"context_source_policy":"include_enabled",
-		"skill_ids":["review","review","release"],
-		"external_agent_kind":"codex",
-		"external_agent_options":{"effort":"high"}
-	}`))))
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("create status = %d body=%s, want 201", rec.Code, rec.Body.String())
-	}
-	var created AgentProfileResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
-		t.Fatalf("decode create response: %v", err)
-	}
-	if created.Data.ID != "prof_authority" || created.Data.Surface != agentprofiles.SurfaceExternalAgent || !created.Data.ToolsEnabled || !created.Data.WritesAllowed || len(created.Data.SkillIDs) != 2 {
-		t.Fatalf("created profile = %+v, want normalized Hecate-compatible response", created.Data)
-	}
-	profile := getMirroredCairnlineAgentProfileForTest(t, handler, "prof_authority")
-	if profile.Name != "Authority profile" || profile.MemoryPolicy != "include" || profile.SourcePolicy != "include_enabled" || !stringSliceContains(profile.SkillIDs, "release") {
-		t.Fatalf("Cairnline profile = %+v, want authority metadata", profile)
-	}
-	execution := getMirroredCairnlineExecutionProfileForTest(t, handler, "prof_authority_exec")
-	if execution.AgentKind != "codex" || execution.ProviderHint != "anthropic" || execution.ModelHint != "claude-sonnet-4" || execution.ToolsPolicy != "allow" || execution.WritesPolicy != "allow" || execution.NetworkPolicy != "block" || execution.AdapterOptions["effort"] != "high" {
-		t.Fatalf("Cairnline execution profile = %+v, want authority execution posture", execution)
-	}
-	if shadow, ok, err := handler.agentProfiles.Get(t.Context(), "prof_authority"); err != nil || !ok || shadow.ExternalAgentKind != "codex" || shadow.ExecutionProfile != "prof_authority_exec" {
-		t.Fatalf("Hecate shadow profile = %+v ok=%v err=%v, want compatibility row", shadow, ok, err)
-	}
-
-	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/agent-presets/prof_authority", bytes.NewReader([]byte(`{
-		"name":"Updated authority profile",
-		"model_hint":"claude-opus-4",
-		"writes_allowed":false,
-		"skill_ids":["review"]
-	}`))))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("patch status = %d body=%s, want 200", rec.Code, rec.Body.String())
-	}
-	var updated AgentProfileResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &updated); err != nil {
-		t.Fatalf("decode patch response: %v", err)
-	}
-	if updated.Data.Name != "Updated authority profile" || updated.Data.ModelHint != "claude-opus-4" || updated.Data.WritesAllowed || len(updated.Data.SkillIDs) != 1 || updated.Data.SkillIDs[0] != "review" {
-		t.Fatalf("updated profile = %+v, want patched response", updated.Data)
-	}
-	profile = getMirroredCairnlineAgentProfileForTest(t, handler, "prof_authority")
-	if profile.Name != "Updated authority profile" || !stringSliceContains(profile.SkillIDs, "review") || stringSliceContains(profile.SkillIDs, "release") {
-		t.Fatalf("updated Cairnline profile = %+v, want patched metadata", profile)
-	}
-	execution = getMirroredCairnlineExecutionProfileForTest(t, handler, "prof_authority_exec")
-	if execution.ModelHint != "claude-opus-4" || execution.WritesPolicy != "block" {
-		t.Fatalf("updated Cairnline execution profile = %+v, want patched execution posture", execution)
-	}
-	if shadow, ok, err := handler.agentProfiles.Get(t.Context(), "prof_authority"); err != nil || !ok || shadow.Name != "Updated authority profile" || shadow.WritesAllowed {
-		t.Fatalf("updated Hecate shadow profile = %+v ok=%v err=%v, want patched compatibility row", shadow, ok, err)
-	}
-
-	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/agent-presets/prof_authority", nil))
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("delete status = %d body=%s, want 204", rec.Code, rec.Body.String())
-	}
-	assertCairnlineAgentProfileMissingForTest(t, handler, "prof_authority")
-	if _, ok, err := handler.agentProfiles.Get(t.Context(), "prof_authority"); err != nil || ok {
-		t.Fatalf("Hecate shadow after delete ok=%v err=%v, want missing", ok, err)
-	}
-	if !cairnlineExecutionProfileIDExistsForTest(t, handler, "prof_authority_exec") {
-		t.Fatalf("delete should leave portable execution profile posture in place")
-	}
-
-	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/agent-presets/prof_authority", nil))
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("delete missing status = %d body=%s, want 404", rec.Code, rec.Body.String())
 	}
 }
 
