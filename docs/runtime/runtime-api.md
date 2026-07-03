@@ -2604,9 +2604,11 @@ dogfood posture expected for the rehearsal:
 operator-applied settings and do not flip Hecate into a replaced backend by
 themselves. Once strict embedded mirror parity and route smoke are verified, the
 next action becomes `implement-migration-cutover`, which is intentionally an
-operator-controlled configuration step rather than an automatic mutation. Once
-the cutover is armed and all replacement gates are ready, the next action becomes
-`monitor-cairnline-backend`.
+operator-controlled configuration step rather than an automatic mutation. That
+action includes the `HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded`
+configuration hint so clients can render the cutover arm as a copyable operator
+step. Once the cutover is armed and all replacement gates are ready, the next
+action becomes `monitor-cairnline-backend`.
 The initial embedded dogfood and sidecar-to-embedded connector actions point at
 backend-status plus embedded read-model diagnostics. If the current runtime is
 still using `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar`, those actions also
