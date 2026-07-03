@@ -102,6 +102,47 @@ describe("SettingsView", () => {
         portable_write_gaps: ["agent-profiles", "memory-candidates"],
         orchestrator_capabilities: ["assignment-start"],
         migration_blockers: ["migration-cutover"],
+        migration_rehearsal: {
+          operation: "mirror_parity",
+          import_mode: "cairnline_snapshot_import",
+          snapshot_version: 3,
+          source_authority: "hecate_authoritative_stores",
+          target: "embedded_cairnline_sqlite",
+          refreshes_target: false,
+          authoritative: false,
+          cutover_ready: false,
+          status: "verified",
+          checklist: [
+            {
+              id: "native-snapshot-import",
+              status: "complete",
+              detail: "Imported through Cairnline's versioned snapshot contract.",
+            },
+            {
+              id: "strict-embedded-read-smoke",
+              status: "complete",
+              detail: "Exercised Projects routes before cutover.",
+            },
+            {
+              id: "rollback-plan",
+              status: "documented",
+              detail: "Rollback is switching reads back to Hecate.",
+            },
+          ],
+          rollback: [
+            "Unset HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE.",
+            "Switch HECATE_PROJECTS_CAIRNLINE_READ_SOURCE back to auto.",
+          ],
+          embedded_smoke: {
+            status: "passed",
+            project_count: 2,
+            read_route_checks: 38,
+            read_model_count: 2,
+            launch_packet_count: 1,
+            launch_packet_warning_count: 0,
+            launch_packet_error_count: 0,
+          },
+        },
         write_switchpoints: [
           {
             name: "agent-profiles",
@@ -200,6 +241,16 @@ describe("SettingsView", () => {
     expect(screen.getByText("Probe checklist")).toBeTruthy();
     expect(screen.getByText("Inspect read model")).toBeTruthy();
     expect(screen.getByText("Replacement gates")).toBeTruthy();
+    expect(screen.getByText("Migration rehearsal")).toBeTruthy();
+    expect(screen.getByText("mirror parity")).toBeTruthy();
+    expect(screen.getByText("snapshot v3")).toBeTruthy();
+    expect(screen.getByText(/cairnline snapshot import/i)).toBeTruthy();
+    expect(screen.getByText("native snapshot import")).toBeTruthy();
+    expect(screen.getByText("strict embedded read smoke")).toBeTruthy();
+    expect(screen.getByText("Rollback")).toBeTruthy();
+    expect(screen.getByText(/Unset HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE/i)).toBeTruthy();
+    expect(screen.getByText("embedded smoke passed")).toBeTruthy();
+    expect(screen.getByText("38 route checks")).toBeTruthy();
     expect(screen.getByText("Write switchpoints")).toBeTruthy();
     expect(screen.getByText("agent profiles")).toBeTruthy();
     expect(screen.getByText("live mirror non authoritative")).toHaveClass("badge-amber");

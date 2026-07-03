@@ -23,6 +23,7 @@ export function ProjectCoordinationBackendSettings({
   const migrationBlockers = status?.migration_blockers ?? [];
   const replacementGates = status?.replacement_gates ?? [];
   const statusWarnings = status?.warnings ?? [];
+  const migrationRehearsal = status?.migration_rehearsal;
   const nextAction = status?.next_replacement_action;
   const writeSwitchpoints = status?.write_switchpoints ?? [];
   const statusBadge = status
@@ -110,6 +111,9 @@ export function ProjectCoordinationBackendSettings({
           </div>
           {nextAction && <ProjectBackendNextAction action={nextAction} />}
           {replacementGates.length > 0 && <ProjectBackendGateList gates={replacementGates} />}
+          {migrationRehearsal && (
+            <ProjectBackendMigrationRehearsal rehearsal={migrationRehearsal} />
+          )}
           {writeSwitchpoints.length > 0 && (
             <ProjectBackendSwitchpointList switchpoints={writeSwitchpoints} />
           )}
@@ -141,6 +145,135 @@ export function ProjectCoordinationBackendSettings({
         </article>
       )}
     </section>
+  );
+}
+
+function ProjectBackendMigrationRehearsal({
+  rehearsal,
+}: {
+  rehearsal: NonNullable<ProjectCoordinationBackendStatusRecord["migration_rehearsal"]>;
+}) {
+  const smoke = rehearsal.embedded_smoke;
+  return (
+    <div style={{ display: "grid", gap: 8, marginTop: 14 }}>
+      <div
+        style={{
+          color: "var(--t3)",
+          fontFamily: "var(--font-mono)",
+          fontSize: 10,
+          textTransform: "uppercase",
+        }}
+      >
+        Migration rehearsal
+      </div>
+      <div
+        style={{
+          border: "1px solid var(--border)",
+          borderRadius: "var(--radius-sm)",
+          display: "grid",
+          gap: 9,
+          padding: "9px 10px",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+          <span className={projectBackendEvidenceBadge(rehearsal.status)}>
+            {projectBackendDisplayLabel(rehearsal.status)}
+          </span>
+          <span style={{ color: "var(--t0)", fontSize: 12, fontWeight: 650 }}>
+            {projectBackendDisplayLabel(rehearsal.operation)}
+          </span>
+          <span className="badge badge-muted" style={{ textTransform: "none" }}>
+            snapshot v{rehearsal.snapshot_version}
+          </span>
+          <span className="badge badge-muted" style={{ textTransform: "none" }}>
+            {projectBackendDisplayLabel(rehearsal.target)}
+          </span>
+          {rehearsal.refreshes_target && (
+            <span className="badge badge-amber" style={{ textTransform: "none" }}>
+              refreshes target
+            </span>
+          )}
+        </div>
+        <div style={{ color: "var(--t3)", fontSize: 11, lineHeight: 1.45 }}>
+          {projectBackendDisplayLabel(rehearsal.import_mode)} from{" "}
+          {projectBackendDisplayLabel(rehearsal.source_authority)}
+        </div>
+        {rehearsal.checklist.length > 0 && (
+          <div style={{ display: "grid", gap: 5 }}>
+            <div
+              style={{
+                color: "var(--t3)",
+                fontFamily: "var(--font-mono)",
+                fontSize: 10,
+                textTransform: "uppercase",
+              }}
+            >
+              Checklist
+            </div>
+            {rehearsal.checklist.map((check) => (
+              <div
+                key={check.id}
+                style={{
+                  display: "grid",
+                  gap: 6,
+                  gridTemplateColumns: "auto minmax(0, 1fr)",
+                }}
+              >
+                <span className={projectBackendEvidenceBadge(check.status)}>
+                  {projectBackendDisplayLabel(check.status)}
+                </span>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ color: "var(--t0)", fontSize: 11, fontWeight: 650 }}>
+                    {projectBackendDisplayLabel(check.id)}
+                  </div>
+                  <div style={{ color: "var(--t3)", fontSize: 11, lineHeight: 1.35 }}>
+                    {check.detail}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {smoke && (
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <span className={projectBackendEvidenceBadge(smoke.status)}>
+              embedded smoke {projectBackendDisplayLabel(smoke.status)}
+            </span>
+            <span className="badge badge-muted" style={{ textTransform: "none" }}>
+              {smoke.project_count} project{smoke.project_count === 1 ? "" : "s"}
+            </span>
+            <span className="badge badge-muted" style={{ textTransform: "none" }}>
+              {smoke.read_route_checks} route check{smoke.read_route_checks === 1 ? "" : "s"}
+            </span>
+            <span className="badge badge-muted" style={{ textTransform: "none" }}>
+              {smoke.launch_packet_error_count} launch error
+              {smoke.launch_packet_error_count === 1 ? "" : "s"}
+            </span>
+          </div>
+        )}
+        {rehearsal.rollback.length > 0 && (
+          <div style={{ display: "grid", gap: 4 }}>
+            <div
+              style={{
+                color: "var(--t3)",
+                fontFamily: "var(--font-mono)",
+                fontSize: 10,
+                textTransform: "uppercase",
+              }}
+            >
+              Rollback
+            </div>
+            <ul style={{ margin: 0, paddingLeft: 18, color: "var(--t2)", fontSize: 11 }}>
+              {rehearsal.rollback.map((step) => (
+                <li key={step} style={{ lineHeight: 1.45 }}>
+                  {step}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -300,6 +433,31 @@ function ProjectBackendGateBadge({ ready, status }: { ready: boolean; status: st
       {status.replaceAll("_", " ")}
     </span>
   );
+}
+
+function projectBackendEvidenceBadge(status: string): string {
+  switch (status) {
+    case "complete":
+    case "documented":
+    case "exported":
+    case "passed":
+    case "ready":
+    case "rehearsed":
+    case "verified":
+      return "badge badge-green";
+    case "blocked":
+    case "drift_detected":
+    case "failed":
+    case "probe_error":
+      return "badge badge-red";
+    case "not_run":
+    case "operator_probe_required":
+    case "partial":
+    case "rehearsal_incomplete":
+      return "badge badge-amber";
+    default:
+      return "badge badge-muted";
+  }
 }
 
 function ProjectBackendNextAction({
