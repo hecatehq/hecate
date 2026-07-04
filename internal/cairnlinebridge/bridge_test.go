@@ -26,10 +26,6 @@ func TestSeedMirrorsProjectWorkIntoCairnline(t *testing.T) {
 	if err := Seed(ctx, service, snapshot); err != nil {
 		t.Fatalf("Seed() error = %v", err)
 	}
-	if got := SnapshotExecutionProfileCount(snapshot); got != 2 {
-		t.Fatalf("SnapshotExecutionProfileCount() = %d, want project and role execution profiles", got)
-	}
-
 	packet, err := service.AssignmentLaunchPacket(ctx, "proj_hecate", "asgn_bridge")
 	if err != nil {
 		t.Fatalf("AssignmentLaunchPacket() error = %v", err)
@@ -39,24 +35,6 @@ func TestSeedMirrorsProjectWorkIntoCairnline(t *testing.T) {
 	}
 	if packet.Project.DefaultProfileID != "bridge_implementation" || packet.Project.DefaultExecutionProfileID != projectExecutionProfileID(snapshot.Project) {
 		t.Fatalf("packet project defaults = %+v, want mapped project profile and execution defaults", packet.Project)
-	}
-	executionProfiles, err := service.ListExecutionProfiles(ctx)
-	if err != nil {
-		t.Fatalf("ListExecutionProfiles() error = %v", err)
-	}
-	if len(executionProfiles) != SnapshotExecutionProfileCount(snapshot) {
-		t.Fatalf("execution profile count = %d, want %d", len(executionProfiles), SnapshotExecutionProfileCount(snapshot))
-	}
-	projectExecutionProfile := findCairnlineExecutionProfile(executionProfiles, projectExecutionProfileID(snapshot.Project))
-	if projectExecutionProfile == nil ||
-		projectExecutionProfile.AgentKind != "hecate" ||
-		projectExecutionProfile.ProviderHint != "ollama" ||
-		projectExecutionProfile.ModelHint != "qwen3-coder" ||
-		projectExecutionProfile.ToolsPolicy != "allow" ||
-		projectExecutionProfile.AdapterOptions["workspace_mode"] != "worktree" ||
-		projectExecutionProfile.AdapterOptions["system_prompt"] != "Stay crisp." ||
-		projectExecutionProfile.AdapterOptions["compact_tool_output"] != true {
-		t.Fatalf("project execution profile = %+v, want Hecate project-level execution defaults", projectExecutionProfile)
 	}
 	if len(packet.Project.ContextSources) != 1 {
 		t.Fatalf("packet project sources = %+v, want one context source", packet.Project.ContextSources)
@@ -74,8 +52,8 @@ func TestSeedMirrorsProjectWorkIntoCairnline(t *testing.T) {
 	if packet.Role.DefaultProfileID != "bridge_implementation" || packet.Assignment.ProfileID != "bridge_implementation" {
 		t.Fatalf("packet profile hints = role:%q assignment:%q, want unresolved Hecate preset id", packet.Role.DefaultProfileID, packet.Assignment.ProfileID)
 	}
-	if packet.ExecutionProfile == nil || packet.ExecutionProfile.ID != roleExecutionProfileID(snapshot.Roles[0]) || packet.ExecutionProfile.AgentKind != "hecate" || packet.ExecutionProfile.ProviderHint != "openai" || packet.ExecutionProfile.ModelHint != "gpt-5" {
-		t.Fatalf("packet execution profile = %+v, want mapped Hecate role execution defaults", packet.ExecutionProfile)
+	if packet.Assignment.ExecutionProfileID != roleExecutionProfileID(snapshot.Roles[0]) {
+		t.Fatalf("packet assignment runtime profile = %q, want opaque role execution-profile hint", packet.Assignment.ExecutionProfileID)
 	}
 	if packet.Assignment.ExecutionMode != cairnline.ExecutionOrchestrated || packet.Assignment.RootID != "root_main" || packet.Assignment.ContextSnapshotID != "ctx_123" {
 		t.Fatalf("packet assignment = %+v, want orchestrated root-scoped assignment", packet.Assignment)
@@ -202,9 +180,6 @@ func TestCairnlineSnapshotMapsHecateSnapshotToPortableContract(t *testing.T) {
 	}
 	if len(snapshot.Projects) != 1 || snapshot.Projects[0].ID != source.Project.ID {
 		t.Fatalf("snapshot projects = %+v, want mapped Hecate project", snapshot.Projects)
-	}
-	if len(snapshot.ExecutionProfiles) != SnapshotExecutionProfileCount(source) {
-		t.Fatalf("snapshot execution profiles = %+v, want %d unique execution profiles", snapshot.ExecutionProfiles, SnapshotExecutionProfileCount(source))
 	}
 	if len(snapshot.ProjectSkills) != len(source.Skills) || snapshot.ProjectSkills[0].RequiredPermissions.Writes == nil || *snapshot.ProjectSkills[0].RequiredPermissions.Writes {
 		t.Fatalf("snapshot skills = %+v, want project skill capability metadata", snapshot.ProjectSkills)
@@ -456,14 +431,6 @@ func TestUpsertProjectMirrorsProjectRootAndContextSourceMutations(t *testing.T) 
 	if len(created.ContextSources) != 1 || created.ContextSources[0].Locator != "AGENTS.md" || created.ContextSources[0].Metadata["root_id"] != "root_main" {
 		t.Fatalf("created sources = %+v, want portable context-source metadata", created.ContextSources)
 	}
-	executionProfiles, err := service.ListExecutionProfiles(ctx)
-	if err != nil {
-		t.Fatalf("ListExecutionProfiles() error = %v", err)
-	}
-	if profile := findCairnlineExecutionProfile(executionProfiles, projectExecutionProfileID(project)); profile == nil || profile.ProviderHint != "openai" || profile.ModelHint != "gpt-5" || profile.ToolsPolicy != "allow" || profile.AdapterOptions["workspace_mode"] != "worktree" {
-		t.Fatalf("project execution profile = %+v, want Hecate project execution defaults", profile)
-	}
-
 	project.Name = "Write Adapter Updated"
 	project.DefaultProvider = ""
 	project.DefaultModel = ""
@@ -500,13 +467,6 @@ func TestUpsertProjectMirrorsProjectRootAndContextSourceMutations(t *testing.T) 
 	}
 	if len(updated.ContextSources) != 1 || updated.ContextSources[0].ID != "ctx_readme" || updated.ContextSources[0].Enabled {
 		t.Fatalf("updated sources = %+v, want replaced source set", updated.ContextSources)
-	}
-	executionProfiles, err = service.ListExecutionProfiles(ctx)
-	if err != nil {
-		t.Fatalf("ListExecutionProfiles() after update error = %v", err)
-	}
-	if profile := findCairnlineExecutionProfile(executionProfiles, projectExecutionProfileIDValue(project)); profile != nil {
-		t.Fatalf("project execution profile = %+v, want removed after project defaults cleared", profile)
 	}
 }
 
@@ -578,14 +538,6 @@ func TestUpsertProjectDefaultsPreservesRootAndSourceState(t *testing.T) {
 	if findCairnlineSource(updated.ContextSources, "ctx_cairnline_only") == nil {
 		t.Fatalf("updated sources = %+v, want Cairnline-only source preserved", updated.ContextSources)
 	}
-	executionProfiles, err := service.ListExecutionProfiles(ctx)
-	if err != nil {
-		t.Fatalf("ListExecutionProfiles() error = %v", err)
-	}
-	if profile := findCairnlineExecutionProfile(executionProfiles, projectExecutionProfileID(project)); profile == nil || profile.ProviderHint != "anthropic" || profile.ModelHint != "claude-sonnet-4-5" {
-		t.Fatalf("project execution profile = %+v, want updated defaults", profile)
-	}
-
 	project.DefaultProvider = ""
 	project.DefaultModel = ""
 	project.DefaultToolsEnabled = nil
@@ -599,13 +551,6 @@ func TestUpsertProjectDefaultsPreservesRootAndSourceState(t *testing.T) {
 	}
 	if updated.DefaultExecutionProfileID != "" {
 		t.Fatalf("cleared defaults = %+v, want no execution profile default", updated)
-	}
-	executionProfiles, err = service.ListExecutionProfiles(ctx)
-	if err != nil {
-		t.Fatalf("ListExecutionProfiles() after clear error = %v", err)
-	}
-	if profile := findCairnlineExecutionProfile(executionProfiles, projectExecutionProfileIDValue(project)); profile != nil {
-		t.Fatalf("project execution profile = %+v, want deleted after defaults clear", profile)
 	}
 }
 
@@ -1030,7 +975,7 @@ func TestUpsertRootMirrorsSingleRootMutations(t *testing.T) {
 	}
 }
 
-func TestDeleteProjectRemovesProjectAndProjectExecutionProfile(t *testing.T) {
+func TestDeleteProjectRemovesProject(t *testing.T) {
 	ctx := context.Background()
 	service := cairnline.NewMemoryService()
 	project := projects.Project{
@@ -1053,13 +998,6 @@ func TestDeleteProjectRemovesProjectAndProjectExecutionProfile(t *testing.T) {
 	}
 	if _, err := service.GetProject(ctx, project.ID); !errors.Is(err, cairnline.ErrNotFound) {
 		t.Fatalf("GetProject() error = %v, want cairnline.ErrNotFound", err)
-	}
-	executionProfiles, err := service.ListExecutionProfiles(ctx)
-	if err != nil {
-		t.Fatalf("ListExecutionProfiles() error = %v", err)
-	}
-	if profile := findCairnlineExecutionProfile(executionProfiles, projectExecutionProfileIDValue(project)); profile != nil {
-		t.Fatalf("project execution profile = %+v, want deleted with project", profile)
 	}
 }
 
@@ -1095,14 +1033,6 @@ func TestUpsertRoleMirrorsRoleAndExecutionDefaults(t *testing.T) {
 	if len(created.DefaultSkillIDs) != 1 || created.DefaultSkillIDs[0] != "backend" {
 		t.Fatalf("created role skill ids = %+v, want compacted backend skill", created.DefaultSkillIDs)
 	}
-	executionProfiles, err := service.ListExecutionProfiles(ctx)
-	if err != nil {
-		t.Fatalf("ListExecutionProfiles() error = %v", err)
-	}
-	if profile := findCairnlineExecutionProfile(executionProfiles, roleExecutionProfileID(role)); profile == nil || profile.AgentKind != "hecate" || profile.ProviderHint != "openai" || profile.ModelHint != "gpt-5" {
-		t.Fatalf("role execution profile = %+v, want role-level execution defaults", profile)
-	}
-
 	role.Name = "Developer Updated"
 	role.DefaultProvider = ""
 	role.DefaultModel = ""
@@ -1114,14 +1044,6 @@ func TestUpsertRoleMirrorsRoleAndExecutionDefaults(t *testing.T) {
 	if updated.Name != "Developer Updated" || updated.DefaultExecutionProfileID != "" || len(updated.DefaultSkillIDs) != 1 || updated.DefaultSkillIDs[0] != "frontend" {
 		t.Fatalf("updated role = %+v, want updated role and removed execution default", updated)
 	}
-	executionProfiles, err = service.ListExecutionProfiles(ctx)
-	if err != nil {
-		t.Fatalf("ListExecutionProfiles() after update error = %v", err)
-	}
-	if profile := findCairnlineExecutionProfile(executionProfiles, roleExecutionProfileIDValue(role)); profile != nil {
-		t.Fatalf("role execution profile = %+v, want removed after role defaults cleared", profile)
-	}
-
 	if err := DeleteRole(ctx, service, role); err != nil {
 		t.Fatalf("DeleteRole() error = %v", err)
 	}
@@ -1813,13 +1735,6 @@ func TestSeedSnapshotsMirrorsMultipleProjectsWithPresetHintsOnly(t *testing.T) {
 	if len(projects) != 2 {
 		t.Fatalf("projects = %+v, want two seeded projects", projects)
 	}
-	executionProfiles, err := service.ListExecutionProfiles(ctx)
-	if err != nil {
-		t.Fatalf("ListExecutionProfiles() error = %v", err)
-	}
-	if len(executionProfiles) != 1 || executionProfiles[0].ID != projectExecutionProfileID(snapshots[0].Project) {
-		t.Fatalf("execution profiles = %+v, want only project execution defaults", executionProfiles)
-	}
 	for _, item := range projects {
 		if item.DefaultProfileID != "shared_architect" {
 			t.Fatalf("project = %+v, want opaque preset hint preserved", item)
@@ -2391,15 +2306,6 @@ func findCairnlineMemoryCandidate(candidates []cairnline.MemoryCandidate, id str
 	for idx := range candidates {
 		if candidates[idx].ID == id {
 			return &candidates[idx]
-		}
-	}
-	return nil
-}
-
-func findCairnlineExecutionProfile(profiles []cairnline.ExecutionProfile, id string) *cairnline.ExecutionProfile {
-	for idx := range profiles {
-		if profiles[idx].ID == id {
-			return &profiles[idx]
 		}
 	}
 	return nil

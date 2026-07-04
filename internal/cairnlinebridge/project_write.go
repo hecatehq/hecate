@@ -21,15 +21,6 @@ func UpsertProject(ctx context.Context, service *cairnline.Service, project proj
 	if strings.TrimSpace(item.ID) == "" {
 		return cairnline.Project{}, errors.Join(cairnline.ErrInvalid, errors.New("project id is required"))
 	}
-	if executionProfile, ok := ProjectExecutionProfile(project); ok {
-		if err := upsertExecutionProfile(ctx, service, executionProfile); err != nil {
-			return cairnline.Project{}, err
-		}
-	}
-	staleExecutionProfileID := ""
-	if item.DefaultExecutionProfileID == "" {
-		staleExecutionProfileID = projectExecutionProfileIDValue(project)
-	}
 	var written cairnline.Project
 	if _, err := service.GetProject(ctx, item.ID); err != nil {
 		if !errors.Is(err, cairnline.ErrNotFound) {
@@ -47,11 +38,6 @@ func UpsertProject(ctx context.Context, service *cairnline.Service, project proj
 		}
 		written = updated
 	}
-	if staleExecutionProfileID != "" {
-		if err := service.DeleteExecutionProfile(ctx, staleExecutionProfileID); err != nil && !errors.Is(err, cairnline.ErrNotFound) {
-			return cairnline.Project{}, err
-		}
-	}
 	return written, nil
 }
 
@@ -65,15 +51,6 @@ func UpsertProjectDefaults(ctx context.Context, service *cairnline.Service, proj
 	item := Project(project)
 	if strings.TrimSpace(item.ID) == "" {
 		return cairnline.Project{}, errors.Join(cairnline.ErrInvalid, errors.New("project id is required"))
-	}
-	if executionProfile, ok := ProjectExecutionProfile(project); ok {
-		if err := upsertExecutionProfile(ctx, service, executionProfile); err != nil {
-			return cairnline.Project{}, err
-		}
-	}
-	staleExecutionProfileID := ""
-	if item.DefaultExecutionProfileID == "" {
-		staleExecutionProfileID = projectExecutionProfileIDValue(project)
 	}
 	existing, err := service.GetProject(ctx, item.ID)
 	if err != nil {
@@ -91,11 +68,6 @@ func UpsertProjectDefaults(ctx context.Context, service *cairnline.Service, proj
 			return UpsertProject(ctx, service, project)
 		}
 		return cairnline.Project{}, err
-	}
-	if staleExecutionProfileID != "" {
-		if err := service.DeleteExecutionProfile(ctx, staleExecutionProfileID); err != nil && !errors.Is(err, cairnline.ErrNotFound) {
-			return cairnline.Project{}, err
-		}
 	}
 	return updated, nil
 }
@@ -191,10 +163,8 @@ func ReplaceProjectContextSources(ctx context.Context, service *cairnline.Servic
 	return updated, nil
 }
 
-// DeleteProject removes the portable project record and the deterministic
-// project-level execution profile generated from Hecate project defaults. Other
-// project-scoped execution profiles, such as role defaults, are intentionally
-// left for the later role/work write-adapter slice that owns those records.
+// DeleteProject removes the portable project record. Execution-profile ids on
+// Cairnline records are opaque host hints, not separately mirrored resources.
 func DeleteProject(ctx context.Context, service *cairnline.Service, project projects.Project) error {
 	if service == nil {
 		return errors.Join(ErrSourceNotConfigured, errors.New("cairnline service is required"))
@@ -203,17 +173,7 @@ func DeleteProject(ctx context.Context, service *cairnline.Service, project proj
 	if projectID == "" {
 		return errors.Join(cairnline.ErrInvalid, errors.New("project id is required"))
 	}
-	if err := service.DeleteProject(ctx, projectID); err != nil {
-		return err
-	}
-	executionProfileID := projectExecutionProfileIDValue(project)
-	if executionProfileID == "" {
-		return nil
-	}
-	if err := service.DeleteExecutionProfile(ctx, executionProfileID); err != nil && !errors.Is(err, cairnline.ErrNotFound) {
-		return err
-	}
-	return nil
+	return service.DeleteProject(ctx, projectID)
 }
 
 func UpsertRoot(ctx context.Context, service *cairnline.Service, project projects.Project, root projects.Root) (cairnline.Root, error) {
@@ -322,15 +282,4 @@ func DeleteContextSource(ctx context.Context, service *cairnline.Service, projec
 	}
 	_, _, err := service.DeleteContextSource(ctx, projectID, sourceID)
 	return err
-}
-
-func upsertExecutionProfile(ctx context.Context, service *cairnline.Service, profile cairnline.ExecutionProfile) error {
-	if _, err := service.UpdateExecutionProfile(ctx, profile); err != nil {
-		if !errors.Is(err, cairnline.ErrNotFound) {
-			return err
-		}
-		_, err = service.CreateExecutionProfile(ctx, profile)
-		return err
-	}
-	return nil
 }

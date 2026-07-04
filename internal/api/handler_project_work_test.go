@@ -1304,7 +1304,7 @@ func TestProjectWorkAPI_CairnlineRoleAuthorityWritesCairnlineAndShadowsHecate(t 
 	if mirroredRole.Name != "Authority owner" || !containsString(mirroredRole.DefaultSkillIDs, "release") {
 		t.Fatalf("updated Cairnline role = %+v, want edited role authority record", mirroredRole)
 	}
-	assertMirroredExecutionProfileForTest(t, handler, mirroredRole.DefaultExecutionProfileID, "anthropic", "claude-opus-4")
+	assertMirroredExecutionProfileHintForTest(t, mirroredRole.DefaultExecutionProfileID)
 
 	work := mustRequestJSONStatus[ProjectWorkItemEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items", projectJourneyJSON(t, map[string]any{
 		"id":            "work_role_authority",
@@ -1830,7 +1830,7 @@ func TestProjectWorkAPI_MirrorsRoleAndWorkItemMutationsToCairnlineWhenConfigured
 	if len(mirroredRole.DefaultSkillIDs) != 1 || mirroredRole.DefaultSkillIDs[0] != "release" {
 		t.Fatalf("mirrored role skill ids = %+v, want release", mirroredRole.DefaultSkillIDs)
 	}
-	assertMirroredExecutionProfileForTest(t, handler, mirroredRole.DefaultExecutionProfileID, "anthropic", "claude-sonnet-4")
+	assertMirroredExecutionProfileHintForTest(t, mirroredRole.DefaultExecutionProfileID)
 
 	rec = httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+project.Data.ID+"/roles/role_release", bytes.NewReader([]byte(`{
@@ -1845,7 +1845,7 @@ func TestProjectWorkAPI_MirrorsRoleAndWorkItemMutationsToCairnlineWhenConfigured
 	if mirroredRole.Name != "Release owner" || !containsString(mirroredRole.DefaultSkillIDs, "release") || !containsString(mirroredRole.DefaultSkillIDs, "qa") {
 		t.Fatalf("mirrored updated role = %+v, want renamed role with two skills", mirroredRole)
 	}
-	assertMirroredExecutionProfileForTest(t, handler, mirroredRole.DefaultExecutionProfileID, "anthropic", "claude-opus-4")
+	assertMirroredExecutionProfileHintForTest(t, mirroredRole.DefaultExecutionProfileID)
 
 	rec = httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/work-items", bytes.NewReader([]byte(`{
@@ -2100,14 +2100,6 @@ func TestProjectWorkAPI_StrictEmbeddedReadModelReadsRolesWithoutHecateProject(t 
 	const projectID = "proj_embedded_roles"
 
 	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
-		if _, err := service.CreateExecutionProfile(t.Context(), cairnline.ExecutionProfile{
-			ID:           "exec_external",
-			Name:         "External adapter",
-			ProviderHint: "anthropic",
-			ModelHint:    "claude-sonnet-4-5",
-		}); err != nil {
-			return err
-		}
 		if _, err := service.CreateProject(t.Context(), cairnline.Project{
 			ID:   projectID,
 			Name: "Embedded Roles",
@@ -2150,8 +2142,8 @@ func TestProjectWorkAPI_StrictEmbeddedReadModelReadsRolesWithoutHecateProject(t 
 	if role.Name != "Reviewer" || role.DefaultDriverKind != projectwork.AssignmentDriverExternalAgent || role.DefaultAgentProfile != "profile_review" {
 		t.Fatalf("role defaults = %+v, want embedded Cairnline role defaults", role)
 	}
-	if role.DefaultProvider != "anthropic" || role.DefaultModel != "claude-sonnet-4-5" {
-		t.Fatalf("role provider/model = %q/%q, want execution profile hints", role.DefaultProvider, role.DefaultModel)
+	if role.DefaultProvider != "" || role.DefaultModel != "" {
+		t.Fatalf("role provider/model = %q/%q, want unset native runtime fields for Cairnline-only role", role.DefaultProvider, role.DefaultModel)
 	}
 	if !reflect.DeepEqual(role.SkillIDs, []string{"review"}) {
 		t.Fatalf("role skill ids = %+v, want review skill id", role.SkillIDs)
@@ -3646,50 +3638,9 @@ func TestProjectWorkAPI_PreflightAssignmentUsesCairnlineSidecarLaunchPacketWhenC
 		t.Fatal("sidecar read-route predicate = false, want true")
 	}
 
-	packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/assignments/asg_fixture/preflight", "")
-	if packetResp.Data.ExecutionMode != chat.ExecutionModeHecateTask || packetResp.Data.Model != "fixture-model" {
-		t.Fatalf("sidecar preflight mode/model = %q/%q, want Hecate task fixture-model", packetResp.Data.ExecutionMode, packetResp.Data.Model)
-	}
-	if packetResp.Data.ExecutionProfile != "profile_fixture" || packetResp.Data.Workspace == "" {
-		t.Fatalf("sidecar preflight profile/workspace = %q/%q, want profile_fixture and resolved workspace", packetResp.Data.ExecutionProfile, packetResp.Data.Workspace)
-	}
-	if packetResp.Data.Refs == nil || packetResp.Data.Refs.ProjectID != "proj_fixture" || packetResp.Data.Refs.WorkItemID != "work_fixture" || packetResp.Data.Refs.AssignmentID != "asg_fixture" || packetResp.Data.Refs.RoleID != "role_fixture" {
-		t.Fatalf("sidecar preflight refs = %+v, want project/work/assignment/role refs", packetResp.Data.Refs)
-	}
-	if packetResp.Data.Refs.TaskID != "" || packetResp.Data.Refs.RunID != "" || packetResp.Data.Refs.SessionID != "" {
-		t.Fatalf("sidecar preflight refs = %+v, want no task/run/session side effects", packetResp.Data.Refs)
-	}
-	item := findRenderedContextItemByOrigin(packetResp.Data, "cairnline.assignment_launch_packet")
-	if item == nil || item.Section != contextSectionRuntime || item.Included {
-		t.Fatalf("sidecar launch packet item = %+v, want inspect-only runtime evidence", item)
-	}
-	for _, want := range []string{
-		"Ready: true",
-		"Project: proj_fixture",
-		"Work item: work_fixture",
-		"Assignment: asg_fixture",
-		"Execution mode: mcp_pull",
-		"Skills: 1; artifacts: 1; evidence: 1; reviews: 1; handoffs: 1; memory: 1; memory candidates: 1",
-	} {
-		if !strings.Contains(item.Body, want) {
-			t.Fatalf("sidecar launch packet body = %q, want %q", item.Body, want)
-		}
-	}
-	for key, want := range map[string]string{
-		"read_backend":         "cairnline",
-		"ready":                "true",
-		"project_id":           "proj_fixture",
-		"work_item_id":         "work_fixture",
-		"assignment_id":        "asg_fixture",
-		"role_id":              "role_fixture",
-		"execution_mode":       "mcp_pull",
-		"profile_id":           "profile_fixture",
-		"execution_profile_id": "exec_fixture",
-		"skill_count":          "1",
-	} {
-		if item.Metadata[key] != want {
-			t.Fatalf("sidecar launch packet metadata[%q] = %q, want %q in %+v", key, item.Metadata[key], want, item.Metadata)
-		}
+	preflight := mustRequestJSONStatus[projectWorkErrorResponse](newAPITestClient(t, server), http.StatusUnprocessableEntity, http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/assignments/asg_fixture/preflight", "")
+	if preflight.Error.Type != errCodeModelNotConfigured {
+		t.Fatalf("sidecar preflight error = %+v, want model_not_configured without native runtime defaults", preflight.Error)
 	}
 	tasks, err := handler.taskStore.ListTasks(t.Context(), taskstateFilterAll())
 	if err != nil {
@@ -3714,14 +3665,6 @@ func TestProjectWorkAPI_PreflightAssignmentStrictEmbeddedReadModelReadsWithoutHe
 	workspace := t.TempDir()
 
 	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
-		if _, err := service.CreateExecutionProfile(t.Context(), cairnline.ExecutionProfile{
-			ID:           "exec_embedded_launch_preflight",
-			Name:         "Embedded launch preflight",
-			ProviderHint: "anthropic",
-			ModelHint:    "claude-sonnet-4",
-		}); err != nil {
-			return err
-		}
 		if _, err := service.CreateProject(t.Context(), cairnline.Project{
 			ID:                        projectID,
 			Name:                      "Embedded Launch Preflight",
@@ -3774,58 +3717,23 @@ func TestProjectWorkAPI_PreflightAssignmentStrictEmbeddedReadModelReadsWithoutHe
 		t.Fatalf("Hecate project store seeded ok=%v err=%v, want no project row", ok, err)
 	}
 	// Strict embedded launch-readiness and preflight are read-only Cairnline
-	// projections; they should not require native Hecate project/work stores.
+	// projections. Cairnline carries only opaque runtime hint IDs, so Hecate
+	// cannot launch or preflight a task without native provider/model defaults.
 	handler.projects = nil
 	handler.projectWork = nil
 
 	client := newAPITestClient(t, server)
 	readiness := mustRequestJSON[ProjectAssignmentLaunchReadinessEnvelope](client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_embedded_launch_preflight/assignments/asgn_embedded_launch_preflight/launch-readiness", "")
-	if readiness.Data.ReadBackend != "cairnline" || !readiness.Data.Ready || readiness.Data.Status != projectAssignmentLaunchReadinessStatusReady {
-		t.Fatalf("embedded launch readiness = %+v, want ready Cairnline read", readiness.Data)
+	if readiness.Data.ReadBackend != "cairnline" || readiness.Data.Ready || readiness.Data.Status != projectAssignmentLaunchReadinessStatusBlocked {
+		t.Fatalf("embedded launch readiness = %+v, want blocked Cairnline read without native runtime defaults", readiness.Data)
 	}
-	if readiness.Data.Workspace != workspace || readiness.Data.RootID != "root_embedded_launch_preflight" || readiness.Data.Provider != "anthropic" || readiness.Data.Model != "claude-sonnet-4" {
-		t.Fatalf("embedded launch readiness target = workspace/provider/model/root %q/%q/%q/%q, want %q/anthropic/claude-sonnet-4/root", readiness.Data.Workspace, readiness.Data.Provider, readiness.Data.Model, readiness.Data.RootID, workspace)
+	if !containsString(readiness.Data.Blockers, "project assignment start requires a default model") {
+		t.Fatalf("embedded launch blockers = %+v, want missing default model", readiness.Data.Blockers)
 	}
 
-	packetResp := mustRequestJSON[ChatContextPacketResponse](client, http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_embedded_launch_preflight/assignments/asgn_embedded_launch_preflight/preflight", "")
-	if packetResp.Data.ExecutionMode != chat.ExecutionModeHecateTask || packetResp.Data.Provider != "anthropic" || packetResp.Data.Model != "claude-sonnet-4" || packetResp.Data.Workspace != workspace {
-		t.Fatalf("embedded preflight launch shape = mode/provider/model/workspace %q/%q/%q/%q, want hecate_task/anthropic/claude-sonnet-4/%q", packetResp.Data.ExecutionMode, packetResp.Data.Provider, packetResp.Data.Model, packetResp.Data.Workspace, workspace)
-	}
-	if packetResp.Data.Refs == nil || packetResp.Data.Refs.ProjectID != projectID || packetResp.Data.Refs.WorkItemID != "work_embedded_launch_preflight" || packetResp.Data.Refs.AssignmentID != "asgn_embedded_launch_preflight" || packetResp.Data.Refs.RoleID != "role_embedded_launch_preflight" {
-		t.Fatalf("embedded preflight refs = %+v, want embedded project/work/assignment/role refs", packetResp.Data.Refs)
-	}
-	if packetResp.Data.Refs.TaskID != "" || packetResp.Data.Refs.RunID != "" || packetResp.Data.Refs.SessionID != "" {
-		t.Fatalf("embedded preflight refs = %+v, want no task/run/session side effects", packetResp.Data.Refs)
-	}
-	item := findRenderedContextItemByKind(packetResp.Data, "cairnline_launch_packet")
-	if item == nil || item.Section != contextSectionRuntime || item.Included || item.Origin != "cairnline.assignment_launch_packet" {
-		t.Fatalf("embedded launch packet evidence = %+v, want inspect-only Cairnline runtime evidence", item)
-	}
-	for _, want := range []string{
-		"Ready: true",
-		"Project: " + projectID,
-		"Work item: work_embedded_launch_preflight",
-		"Assignment: asgn_embedded_launch_preflight",
-		"Execution mode: mcp_pull",
-		"Root: root_embedded_launch_preflight",
-	} {
-		if !strings.Contains(item.Body, want) {
-			t.Fatalf("embedded launch packet body = %q, want %q", item.Body, want)
-		}
-	}
-	for key, want := range map[string]string{
-		"read_backend":   "cairnline",
-		"ready":          "true",
-		"project_id":     projectID,
-		"work_item_id":   "work_embedded_launch_preflight",
-		"assignment_id":  "asgn_embedded_launch_preflight",
-		"role_id":        "role_embedded_launch_preflight",
-		"root_id":        "root_embedded_launch_preflight",
-		"execution_mode": "mcp_pull",
-	} {
-		if item.Metadata[key] != want {
-			t.Fatalf("embedded launch packet metadata[%q] = %q, want %q in %+v", key, item.Metadata[key], want, item.Metadata)
-		}
+	preflight := mustRequestJSONStatus[projectWorkErrorResponse](client, http.StatusUnprocessableEntity, http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_embedded_launch_preflight/assignments/asgn_embedded_launch_preflight/preflight", "")
+	if preflight.Error.Type != errCodeModelNotConfigured {
+		t.Fatalf("preflight error = %+v, want model_not_configured", preflight.Error)
 	}
 	tasks, err := handler.taskStore.ListTasks(t.Context(), taskstateFilterAll())
 	if err != nil {
@@ -3926,14 +3834,6 @@ func TestProjectWorkAPI_StartAssignmentStrictEmbeddedReadModelLaunchesCairnlineO
 	workspace := t.TempDir()
 
 	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
-		if _, err := service.CreateExecutionProfile(t.Context(), cairnline.ExecutionProfile{
-			ID:           "exec_embedded_launch_start",
-			Name:         "Embedded launch start",
-			ProviderHint: "anthropic",
-			ModelHint:    "claude-sonnet-4",
-		}); err != nil {
-			return err
-		}
 		if _, err := service.CreateProject(t.Context(), cairnline.Project{
 			ID:                        projectID,
 			Name:                      "Embedded Launch Start",
@@ -4017,59 +3917,12 @@ func TestProjectWorkAPI_StartAssignmentStrictEmbeddedReadModelLaunchesCairnlineO
 	}
 	requireCairnlineOnlyProjectReadsForTest(t, handler, projectID)
 
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_embedded_launch_start/assignments/asgn_embedded_launch_start/start", bytes.NewReader([]byte(`{}`))))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("start embedded assignment status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	start := mustRequestJSONStatus[projectWorkErrorResponse](newAPITestClient(t, server), http.StatusUnprocessableEntity, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_embedded_launch_start/assignments/asgn_embedded_launch_start/start", `{}`)
+	if start.Error.Type != errCodeModelNotConfigured {
+		t.Fatalf("start error = %+v, want model_not_configured", start.Error)
 	}
-	var assignment ProjectWorkAssignmentEnvelope
-	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
-		t.Fatalf("decode assignment: %v", err)
-	}
-	ref := assignmentExecutionRefForTest(t, assignment.Data)
-	if ref.TaskID == "" || ref.RunID == "" || ref.ContextSnapshotID == "" {
-		t.Fatalf("assignment execution_ref = %+v, want task, run, and context links", ref)
-	}
-	if assignment.Data.ProjectID != projectID || assignment.Data.WorkItemID != "work_embedded_launch_start" || assignment.Data.RoleID != "role_embedded_launch_start" {
-		t.Fatalf("assignment linkage = %+v, want embedded Cairnline project/work/role linkage", assignment.Data)
-	}
-
-	task, found, err := handler.taskStore.GetTask(t.Context(), ref.TaskID)
-	if err != nil || !found {
-		t.Fatalf("GetTask(%q) found=%v err=%v, want task", ref.TaskID, found, err)
-	}
-	if task.ProjectID != projectID || task.WorkItemID != "work_embedded_launch_start" || task.AssignmentID != "asgn_embedded_launch_start" {
-		t.Fatalf("task linkage = project %q work %q assignment %q, want embedded Cairnline refs", task.ProjectID, task.WorkItemID, task.AssignmentID)
-	}
-	if task.RequestedProvider != "anthropic" || task.RequestedModel != "claude-sonnet-4" || task.WorkingDirectory != workspace {
-		t.Fatalf("task provider/model/workspace = %q/%q/%q, want anthropic/claude-sonnet-4/%q", task.RequestedProvider, task.RequestedModel, task.WorkingDirectory, workspace)
-	}
-	if !strings.Contains(task.Prompt, "Start embedded assignment") || !strings.Contains(task.SystemPrompt, "Use the embedded Cairnline graph.") {
-		t.Fatalf("task prompt/system = %q / %q, want Cairnline work and role context", task.Prompt, task.SystemPrompt)
-	}
-	packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/tasks/"+ref.TaskID+"/runs/"+ref.RunID+"/context", "")
-	if item := findRenderedContextItemByOrigin(packetResp.Data, "artifact_embedded_launch_start"); item == nil || item.Included || item.Section != contextSectionProjectWork {
-		t.Fatalf("Cairnline artifact context item = %+v, want inspect-only project_work artifact metadata", item)
-	}
-	if item := findRenderedContextItemByOrigin(packetResp.Data, "handoff_embedded_launch_start"); item == nil || item.Included || item.Section != contextSectionProjectWork {
-		t.Fatalf("Cairnline handoff context item = %+v, want inspect-only project_work handoff metadata", item)
-	}
-
-	assignmentPacket := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_embedded_launch_start/assignments/asgn_embedded_launch_start/context", "")
-	if assignmentPacket.Data.ID != ref.ContextSnapshotID {
-		t.Fatalf("assignment context id = %q, want persisted runtime context %q", assignmentPacket.Data.ID, ref.ContextSnapshotID)
-	}
-	if assignmentPacket.Data.Refs == nil || assignmentPacket.Data.Refs.TaskID != ref.TaskID || assignmentPacket.Data.Refs.RunID != ref.RunID || assignmentPacket.Data.Refs.ProjectID != projectID || assignmentPacket.Data.Refs.WorkItemID != "work_embedded_launch_start" || assignmentPacket.Data.Refs.AssignmentID != "asgn_embedded_launch_start" {
-		t.Fatalf("assignment context refs = %+v, want persisted task/run assignment refs", assignmentPacket.Data.Refs)
-	}
-	if item := findRenderedContextItemByOrigin(assignmentPacket.Data, "artifact_embedded_launch_start"); item == nil || item.Included || item.Section != contextSectionProjectWork {
-		t.Fatalf("assignment context artifact item = %+v, want persisted runtime artifact metadata", item)
-	}
-	if item := findRenderedContextItemByOrigin(assignmentPacket.Data, "handoff_embedded_launch_start"); item == nil || item.Included || item.Section != contextSectionProjectWork {
-		t.Fatalf("assignment context handoff item = %+v, want persisted runtime handoff metadata", item)
-	}
-	if item := findRenderedContextItemByOrigin(assignmentPacket.Data, "cairnline.assignments.context"); item != nil {
-		t.Fatalf("assignment context runtime item = %+v, want persisted runtime packet rather than inspect-only Cairnline preview", item)
+	if tasks, err := handler.taskStore.ListTasks(t.Context(), taskstateFilterAll()); err != nil || len(tasks) != 0 {
+		t.Fatalf("tasks = %+v err=%v, want no task created without native runtime defaults", tasks, err)
 	}
 	mismatchRec := httptest.NewRecorder()
 	server.ServeHTTP(mismatchRec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_other/assignments/asgn_embedded_launch_start/context", nil))
@@ -4077,20 +3930,16 @@ func TestProjectWorkAPI_StartAssignmentStrictEmbeddedReadModelLaunchesCairnlineO
 		t.Fatalf("route-mismatched runtime assignment context status = %d body=%s, want 404", mismatchRec.Code, mismatchRec.Body.String())
 	}
 
-	runtime, ok, err := handler.projectRuntime.Get(t.Context(), projectID, "asgn_embedded_launch_start")
-	if err != nil || !ok {
-		t.Fatalf("Hecate assignment runtime ok=%v err=%v, want runtime overlay", ok, err)
-	}
-	if runtime.ExecutionRef.RunID != ref.RunID || runtime.ExecutionRef.ContextSnapshotID != ref.ContextSnapshotID {
-		t.Fatalf("Hecate assignment runtime ref = %+v, want run/context %q/%q", runtime.ExecutionRef, ref.RunID, ref.ContextSnapshotID)
+	if _, ok, err := handler.projectRuntime.Get(t.Context(), projectID, "asgn_embedded_launch_start"); err != nil || ok {
+		t.Fatalf("Hecate assignment runtime ok=%v err=%v, want no runtime overlay without launch", ok, err)
 	}
 	mirrored := getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_embedded_launch_start")
-	if mirrored.Status != cairnlinebridge.AssignmentStatus(runtime.ExecutionRef.Status) || mirrored.ExecutionRef != ref.RunID || mirrored.ContextSnapshotID != ref.ContextSnapshotID {
-		t.Fatalf("mirrored Cairnline assignment = status %q ref %q context %q, want %q/%q/%q", mirrored.Status, mirrored.ExecutionRef, mirrored.ContextSnapshotID, cairnlinebridge.AssignmentStatus(runtime.ExecutionRef.Status), ref.RunID, ref.ContextSnapshotID)
+	if mirrored.Status != cairnline.AssignmentQueued || mirrored.ClaimedBy != "" || mirrored.ExecutionRef != "" || mirrored.ContextSnapshotID != "" {
+		t.Fatalf("mirrored Cairnline assignment = %+v, want queued and unclaimed after blocked launch", mirrored)
 	}
 }
 
-func TestProjectWorkAPI_StartAssignmentStrictEmbeddedReadModelReleasesCairnlineClaimWhenTaskCreateFails(t *testing.T) {
+func TestProjectWorkAPI_StartAssignmentStrictEmbeddedReadModelBlocksBeforeClaimWithoutNativeRuntime(t *testing.T) {
 	t.Parallel()
 	handler := NewHandler(config.Config{
 		Server: config.ServerConfig{DataDir: t.TempDir()},
@@ -4099,20 +3948,11 @@ func TestProjectWorkAPI_StartAssignmentStrictEmbeddedReadModelReleasesCairnlineC
 			CairnlineReadSource: "embedded",
 		},
 	}, quietLogger(), nil, nil, nil, nil)
-	handler.taskStore = failingCreateTaskStore{Store: handler.taskStore}
 	server := NewServer(quietLogger(), handler)
 	const projectID = "proj_embedded_launch_task_create_fail"
 	workspace := t.TempDir()
 
 	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
-		if _, err := service.CreateExecutionProfile(t.Context(), cairnline.ExecutionProfile{
-			ID:           "exec_embedded_launch_task_create_fail",
-			Name:         "Embedded launch task create fail",
-			ProviderHint: "anthropic",
-			ModelHint:    "claude-sonnet-4",
-		}); err != nil {
-			return err
-		}
 		if _, err := service.CreateProject(t.Context(), cairnline.Project{
 			ID:                        projectID,
 			Name:                      "Embedded Launch Task Create Fail",
@@ -4166,12 +4006,19 @@ func TestProjectWorkAPI_StartAssignmentStrictEmbeddedReadModelReleasesCairnlineC
 
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_embedded_launch_task_create_fail/assignments/asgn_embedded_launch_task_create_fail/start", bytes.NewReader([]byte(`{}`))))
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("task create failure status = %d body=%s, want 500", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("missing runtime status = %d body=%s, want 422", rec.Code, rec.Body.String())
+	}
+	var payload projectWorkErrorResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode missing runtime error: %v", err)
+	}
+	if payload.Error.Type != errCodeModelNotConfigured {
+		t.Fatalf("missing runtime error = %+v, want model_not_configured", payload.Error)
 	}
 	mirrored := getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_embedded_launch_task_create_fail")
 	if mirrored.Status != cairnline.AssignmentQueued || mirrored.ClaimedBy != "" || mirrored.ExecutionRef != "" || mirrored.ContextSnapshotID != "" || !mirrored.StartedAt.IsZero() || !mirrored.CompletedAt.IsZero() {
-		t.Fatalf("mirrored assignment = %+v, want released queued claim for retry", mirrored)
+		t.Fatalf("mirrored assignment = %+v, want no claim before missing runtime blocker", mirrored)
 	}
 	if _, ok, err := handler.projectRuntime.Get(t.Context(), projectID, "asgn_embedded_launch_task_create_fail"); err != nil || ok {
 		t.Fatalf("Hecate assignment runtime ok=%v err=%v, want no runtime overlay on task create failure", ok, err)

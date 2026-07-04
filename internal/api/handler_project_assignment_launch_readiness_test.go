@@ -183,17 +183,20 @@ func TestProjectWorkAPI_AssignmentLaunchReadinessUsesCairnlineSidecarWhenConfigu
 	if readiness.Data.ReadBackend != "cairnline" {
 		t.Fatalf("read_backend = %q, want cairnline", readiness.Data.ReadBackend)
 	}
-	if !readiness.Data.Ready || readiness.Data.Status != projectAssignmentLaunchReadinessStatusReady {
-		t.Fatalf("readiness = %+v, want sidecar Cairnline-backed ready launch projection", readiness.Data)
+	if readiness.Data.Ready || readiness.Data.Status != projectAssignmentLaunchReadinessStatusBlocked {
+		t.Fatalf("readiness = %+v, want sidecar Cairnline-backed blocker without native runtime defaults", readiness.Data)
 	}
 	if readiness.Data.ProjectID != "proj_fixture" || readiness.Data.WorkItemID != "work_fixture" || readiness.Data.AssignmentID != "asg_fixture" {
 		t.Fatalf("refs = %+v, want sidecar project/work/assignment refs", readiness.Data)
 	}
-	if readiness.Data.DriverKind != projectwork.AssignmentDriverHecateTask || readiness.Data.RootID != "root_fixture" || readiness.Data.Workspace == "" {
-		t.Fatalf("launch target = %+v, want sidecar root plus Hecate runtime validation", readiness.Data)
+	if readiness.Data.DriverKind != projectwork.AssignmentDriverHecateTask {
+		t.Fatalf("launch target = %+v, want Hecate task driver", readiness.Data)
 	}
-	if readiness.Data.ProfilePosture == nil || readiness.Data.ProfilePosture.ID != "profile_fixture" || !readiness.Data.ProfilePosture.Missing {
-		t.Fatalf("profile_posture = %+v, want missing sidecar profile ref to remain explicit", readiness.Data.ProfilePosture)
+	if !containsString(readiness.Data.Blockers, "project assignment start requires a default model") {
+		t.Fatalf("blockers = %+v, want missing default model", readiness.Data.Blockers)
+	}
+	if readiness.Data.ProfilePosture != nil {
+		t.Fatalf("profile_posture = %+v, want nil because launch planning stops before profile resolution", readiness.Data.ProfilePosture)
 	}
 	tasks, err := handler.taskStore.ListTasks(t.Context(), taskstateFilterAll())
 	if err != nil {

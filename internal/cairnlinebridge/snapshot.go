@@ -56,23 +56,6 @@ func CairnlineSnapshot(snapshots []Snapshot) cairnline.Snapshot {
 		Version: cairnline.SnapshotVersion,
 	}
 	rolesByID := make(map[string]projectwork.AgentRoleProfile)
-	seenExecutionProfiles := make(map[string]struct{})
-	addExecutionProfile := func(profile cairnline.ExecutionProfile) {
-		id := strings.TrimSpace(profile.ID)
-		if id == "" {
-			return
-		}
-		if _, ok := seenExecutionProfiles[id]; ok {
-			return
-		}
-		seenExecutionProfiles[id] = struct{}{}
-		out.ExecutionProfiles = append(out.ExecutionProfiles, profile)
-	}
-	for _, snapshot := range snapshots {
-		if executionProfile, ok := ProjectExecutionProfile(snapshot.Project); ok {
-			addExecutionProfile(executionProfile)
-		}
-	}
 	for _, snapshot := range snapshots {
 		out.Projects = append(out.Projects, Project(snapshot.Project))
 		for _, skill := range snapshot.Skills {
@@ -81,11 +64,6 @@ func CairnlineSnapshot(snapshots []Snapshot) cairnline.Snapshot {
 		for _, role := range snapshot.Roles {
 			rolesByID[role.ID] = role
 			out.Roles = append(out.Roles, Role(role))
-			executionProfile, ok := RoleExecutionProfile(role)
-			if !ok {
-				continue
-			}
-			addExecutionProfile(executionProfile)
 		}
 		for _, item := range snapshot.WorkItems {
 			out.WorkItems = append(out.WorkItems, WorkItem(item))

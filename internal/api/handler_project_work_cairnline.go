@@ -171,15 +171,10 @@ func (h *Handler) renderCairnlineProjectWorkRoles(ctx context.Context, projectID
 	if err != nil {
 		return nil, err
 	}
-	executionProfiles, err := view.service.ListExecutionProfiles(ctx)
-	if err != nil {
-		return nil, err
-	}
 	nativeByID := projectWorkRolesByID(view.snapshot.Roles)
-	executionProfilesByID := cairnlineExecutionProfilesByID(executionProfiles)
 	data := make([]ProjectWorkRoleResponse, 0, len(roles))
 	for _, role := range roles {
-		projected := renderProjectWorkRole(projectWorkRoleFromCairnline(role, executionProfilesByID, nativeByID[role.ID]))
+		projected := renderProjectWorkRole(projectWorkRoleFromCairnline(role, nativeByID[role.ID]))
 		projected.ReadBackend = "cairnline"
 		data = append(data, projected)
 	}
@@ -780,15 +775,10 @@ func (h *Handler) cairnlineEmbeddedProjectWorkView(ctx context.Context, projectI
 		}
 		return nil, err
 	}
-	executionProfile, err := cairnlineExecutionProfileByID(ctx, service, project.DefaultExecutionProfileID)
-	if err != nil {
-		_ = store.Close()
-		return nil, err
-	}
 	return &cairnlineProjectWorkView{
 		service: service,
 		snapshot: cairnlinebridge.Snapshot{
-			Project: projectFromCairnline(project, executionProfile, projects.Project{}),
+			Project: projectFromCairnline(project, projects.Project{}),
 		},
 		close: store.Close,
 	}, nil
@@ -890,16 +880,7 @@ func projectWorkRolesByID(items []projectwork.AgentRoleProfile) map[string]proje
 	return out
 }
 
-func cairnlineExecutionProfilesByID(items []cairnline.ExecutionProfile) map[string]cairnline.ExecutionProfile {
-	out := make(map[string]cairnline.ExecutionProfile, len(items))
-	for _, item := range items {
-		out[item.ID] = item
-	}
-	return out
-}
-
-func projectWorkRoleFromCairnline(item cairnline.Role, executionProfiles map[string]cairnline.ExecutionProfile, native projectwork.AgentRoleProfile) projectwork.AgentRoleProfile {
-	executionProfile := executionProfiles[item.DefaultExecutionProfileID]
+func projectWorkRoleFromCairnline(item cairnline.Role, native projectwork.AgentRoleProfile) projectwork.AgentRoleProfile {
 	return projectwork.AgentRoleProfile{
 		ID:                  item.ID,
 		ProjectID:           item.ProjectID,
@@ -907,8 +888,8 @@ func projectWorkRoleFromCairnline(item cairnline.Role, executionProfiles map[str
 		Description:         item.Description,
 		Instructions:        item.Instructions,
 		DefaultDriverKind:   projectWorkAssignmentDriverFromCairnline(item.DefaultExecutionMode),
-		DefaultProvider:     executionProfile.ProviderHint,
-		DefaultModel:        executionProfile.ModelHint,
+		DefaultProvider:     native.DefaultProvider,
+		DefaultModel:        native.DefaultModel,
 		DefaultAgentProfile: item.DefaultProfileID,
 		SkillIDs:            append([]string(nil), item.DefaultSkillIDs...),
 		BuiltIn:             native.BuiltIn,

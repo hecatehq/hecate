@@ -275,14 +275,6 @@ func TestProjectHealth_StrictEmbeddedReadModelReadsWithoutHecateProject(t *testi
 	const projectID = "proj_embedded_health"
 
 	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
-		if _, err := service.CreateExecutionProfile(t.Context(), cairnline.ExecutionProfile{
-			ID:           "exec_embedded_health",
-			Name:         "Embedded health runtime",
-			ProviderHint: "openai",
-			ModelHint:    "gpt-5",
-		}); err != nil {
-			return err
-		}
 		if _, err := service.CreateProject(t.Context(), cairnline.Project{
 			ID:                        projectID,
 			Name:                      "Embedded Health",
@@ -432,8 +424,8 @@ func TestProjectHealth_StrictEmbeddedReadModelReadsWithoutHecateProject(t *testi
 		t.Fatalf("health envelope = %+v, want embedded Cairnline health", response)
 	}
 	summary := response.Data.Summary
-	if summary.MissingDefaults || summary.MissingProjectRoot || summary.EnabledContextSourceCount != 1 || summary.EnabledMemoryCount != 1 || summary.PendingMemoryCandidateCount != 1 || summary.PendingHandoffCount != 1 || summary.ReviewFollowUpCount != 1 || summary.ChangesRequestedReviewCount != 1 {
-		t.Fatalf("health summary = %+v, want embedded defaults/root/context/memory/review/handoff counts", summary)
+	if !summary.MissingDefaults || summary.MissingProjectRoot || summary.EnabledContextSourceCount != 1 || summary.EnabledMemoryCount != 1 || summary.PendingMemoryCandidateCount != 1 || summary.PendingHandoffCount != 1 || summary.ReviewFollowUpCount != 1 || summary.ChangesRequestedReviewCount != 1 {
+		t.Fatalf("health summary = %+v, want embedded missing native defaults plus root/context/memory/review/handoff counts", summary)
 	}
 	assertProjectHealthItemsHaveActions(t, response.Data.Attention, projectID)
 	handoff := findProjectHealthAttentionForTest(t, response.Data.Attention, "Pending handoff: Review embedded health")

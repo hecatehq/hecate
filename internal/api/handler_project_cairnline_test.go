@@ -287,13 +287,6 @@ func TestProjectCairnlineExportAPI_WritesRefreshableSQLiteExport(t *testing.T) {
 	if packet.Project.ID != projectID || packet.Project.DefaultRootID != project.Data.DefaultRootID || packet.Assignment.RootID != project.Data.Roots[0].ID {
 		t.Fatalf("packet project/assignment = %+v/%+v, want exported default root and root-scoped assignment", packet.Project, packet.Assignment)
 	}
-	executionProfiles, err := service.ListExecutionProfiles(t.Context())
-	if err != nil {
-		t.Fatalf("ListExecutionProfiles from exported DB: %v", err)
-	}
-	if len(executionProfiles) != second.Data.ExecutionProfileCount {
-		t.Fatalf("execution profiles = %d, want exported count %d", len(executionProfiles), second.Data.ExecutionProfileCount)
-	}
 	if len(packet.Evidence) != 1 || len(packet.Reviews) != 1 || len(packet.Handoffs) != 1 || len(packet.Memory) != 1 || len(packet.MemoryCandidates) != 1 {
 		t.Fatalf("packet counts evidence=%d reviews=%d handoffs=%d memory_entries=%d memory_candidates=%d, want all one", len(packet.Evidence), len(packet.Reviews), len(packet.Handoffs), len(packet.Memory), len(packet.MemoryCandidates))
 	}
@@ -756,9 +749,9 @@ func TestProjectCairnlineMirrorParityAPI_MatchesRepresentativeLiveProjectJourney
 		t.Fatalf("mirror counts = hecate %+v cairnline %+v, want representative graph parity", response.Data.Hecate, response.Data.Cairnline)
 	}
 	if response.Data.Hecate.AgentProfiles != 0 || response.Data.Cairnline.AgentProfiles != 0 ||
-		response.Data.Hecate.ExecutionProfiles == 0 || response.Data.Cairnline.ExecutionProfiles != response.Data.Hecate.ExecutionProfiles ||
+		response.Data.Hecate.ExecutionProfiles != 0 || response.Data.Cairnline.ExecutionProfiles != 0 ||
 		response.Data.Hecate.Roles == 0 || response.Data.Cairnline.Roles != response.Data.Hecate.Roles {
-		t.Fatalf("profile/role mirror counts = hecate %+v cairnline %+v, want opaque preset hints and execution defaults mirrored without profile rows", response.Data.Hecate, response.Data.Cairnline)
+		t.Fatalf("profile/role mirror counts = hecate %+v cairnline %+v, want roles mirrored with opaque runtime hints and no profile rows", response.Data.Hecate, response.Data.Cairnline)
 	}
 
 	readModel := mustRequestJSONStatus[ProjectCairnlineReadModelResponse](client, http.StatusOK, http.MethodGet, "/hecate/v1/projects/"+projectID+"/cairnline/embedded-read-model", "")

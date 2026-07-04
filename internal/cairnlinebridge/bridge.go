@@ -31,28 +31,6 @@ type Snapshot struct {
 	AssistantProposals []projectassistant.ProposalRecord
 }
 
-func SnapshotExecutionProfileCount(snapshot Snapshot) int {
-	ids := map[string]struct{}{}
-	add := func(id string) {
-		id = strings.TrimSpace(id)
-		if id == "" {
-			return
-		}
-		ids[id] = struct{}{}
-	}
-	if executionProfile, ok := ProjectExecutionProfile(snapshot.Project); ok {
-		add(executionProfile.ID)
-	}
-	for _, role := range snapshot.Roles {
-		executionProfile, ok := RoleExecutionProfile(role)
-		if !ok {
-			continue
-		}
-		add(executionProfile.ID)
-	}
-	return len(ids)
-}
-
 func Seed(ctx context.Context, service *cairnline.Service, snapshot Snapshot) error {
 	return SeedSnapshots(ctx, service, []Snapshot{snapshot})
 }
@@ -191,50 +169,6 @@ func Source(item projects.ContextSource) cairnline.Source {
 		CreatedAt:      item.CreatedAt,
 		UpdatedAt:      item.UpdatedAt,
 	}
-}
-
-func ProjectExecutionProfile(project projects.Project) (cairnline.ExecutionProfile, bool) {
-	provider := strings.TrimSpace(project.DefaultProvider)
-	model := strings.TrimSpace(project.DefaultModel)
-	toolsPolicy := optionalBoolPolicy(project.DefaultToolsEnabled)
-	adapterOptions := projectExecutionAdapterOptions(project)
-	if provider == "" && model == "" && toolsPolicy == "" && len(adapterOptions) == 0 {
-		return cairnline.ExecutionProfile{}, false
-	}
-	id := projectExecutionProfileIDValue(project)
-	if id == "" {
-		return cairnline.ExecutionProfile{}, false
-	}
-	return cairnline.ExecutionProfile{
-		ID:             id,
-		Name:           firstNonEmpty(strings.TrimSpace(project.Name), strings.TrimSpace(project.ID), "Project") + " execution defaults",
-		Description:    "Hecate project-level execution defaults.",
-		AgentKind:      "hecate",
-		ModelHint:      model,
-		ProviderHint:   provider,
-		ToolsPolicy:    toolsPolicy,
-		AdapterOptions: adapterOptions,
-		CreatedAt:      project.CreatedAt,
-		UpdatedAt:      project.UpdatedAt,
-	}, true
-}
-
-func RoleExecutionProfile(role projectwork.AgentRoleProfile) (cairnline.ExecutionProfile, bool) {
-	provider := strings.TrimSpace(role.DefaultProvider)
-	model := strings.TrimSpace(role.DefaultModel)
-	if provider == "" && model == "" {
-		return cairnline.ExecutionProfile{}, false
-	}
-	return cairnline.ExecutionProfile{
-		ID:           roleExecutionProfileID(role),
-		Name:         firstNonEmpty(strings.TrimSpace(role.Name), strings.TrimSpace(role.ID)) + " execution defaults",
-		Description:  "Hecate role-level execution defaults.",
-		AgentKind:    DesiredAgentKind(role.DefaultDriverKind),
-		ModelHint:    model,
-		ProviderHint: provider,
-		CreatedAt:    role.CreatedAt,
-		UpdatedAt:    role.UpdatedAt,
-	}, true
 }
 
 func ProjectSkill(skill projectskills.Skill) cairnline.ProjectSkill {

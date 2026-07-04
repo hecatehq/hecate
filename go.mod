@@ -4,7 +4,7 @@ go 1.26.2
 
 require (
 	github.com/coder/acp-go-sdk v0.13.5
-	github.com/hecatehq/cairnline v0.0.0-20260703230846-dd5e284a8d0f
+	github.com/hecatehq/cairnline v0.0.0-20260703234719-d1eeeb2f9ee8
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/ncruces/zenity v0.10.14
 	github.com/spf13/cobra v1.10.2

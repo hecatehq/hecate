@@ -81,14 +81,9 @@ func (h *Handler) strictEmbeddedCairnlineProjectChatRoles(ctx context.Context, p
 	if err != nil {
 		return nil, true
 	}
-	executionProfiles, err := view.service.ListExecutionProfiles(ctx)
-	if err != nil {
-		return nil, true
-	}
-	executionProfilesByID := cairnlineExecutionProfilesByID(executionProfiles)
 	out := make([]projectwork.AgentRoleProfile, 0, len(roles))
 	for _, role := range roles {
-		out = append(out, projectWorkRoleFromCairnline(role, executionProfilesByID, projectwork.AgentRoleProfile{}))
+		out = append(out, projectWorkRoleFromCairnline(role, projectwork.AgentRoleProfile{}))
 	}
 	return out, true
 }

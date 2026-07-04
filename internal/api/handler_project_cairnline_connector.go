@@ -4099,23 +4099,23 @@ func projectCairnlineSidecarStructuredLaunchPacket(raw json.RawMessage) (Project
 		ID      string `json:"id"`
 		Kind    string `json:"kind"`
 		Project struct {
-			ID               string `json:"id"`
-			DefaultProfileID string `json:"default_profile_id"`
+			ID                        string `json:"id"`
+			DefaultProfileID          string `json:"default_profile_id"`
+			DefaultExecutionProfileID string `json:"default_execution_profile_id"`
 		} `json:"project"`
 		WorkItem struct {
 			ID string `json:"id"`
 		} `json:"work_item"`
 		Role struct {
-			ID               string `json:"id"`
-			DefaultProfileID string `json:"default_profile_id"`
+			ID                        string `json:"id"`
+			DefaultProfileID          string `json:"default_profile_id"`
+			DefaultExecutionProfileID string `json:"default_execution_profile_id"`
 		} `json:"role"`
-		ExecutionProfile struct {
-			ID string `json:"id"`
-		} `json:"execution_profile"`
 		Assignment struct {
-			ID        string `json:"id"`
-			ProjectID string `json:"project_id"`
-			ProfileID string `json:"profile_id"`
+			ID                 string `json:"id"`
+			ProjectID          string `json:"project_id"`
+			ProfileID          string `json:"profile_id"`
+			ExecutionProfileID string `json:"execution_profile_id"`
 		} `json:"assignment"`
 		Skills           []json.RawMessage `json:"skills"`
 		Artifacts        []json.RawMessage `json:"artifacts"`
@@ -4137,7 +4137,7 @@ func projectCairnlineSidecarStructuredLaunchPacket(raw json.RawMessage) (Project
 		WorkItemID:         strings.TrimSpace(packet.WorkItem.ID),
 		RoleID:             strings.TrimSpace(packet.Role.ID),
 		ProfileID:          firstNonEmpty(strings.TrimSpace(packet.Assignment.ProfileID), strings.TrimSpace(packet.Role.DefaultProfileID), strings.TrimSpace(packet.Project.DefaultProfileID)),
-		ExecutionProfileID: strings.TrimSpace(packet.ExecutionProfile.ID),
+		ExecutionProfileID: firstNonEmpty(strings.TrimSpace(packet.Assignment.ExecutionProfileID), strings.TrimSpace(packet.Role.DefaultExecutionProfileID), strings.TrimSpace(packet.Project.DefaultExecutionProfileID)),
 	}
 	counts := ProjectCairnlineSidecarLaunchPacketCounts{
 		Skills:           len(packet.Skills),

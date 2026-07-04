@@ -150,10 +150,6 @@ func (h *Handler) renderCairnlineProjectActivityFromService(ctx context.Context,
 	if err != nil {
 		return ProjectActivityDataResponse{}, err
 	}
-	executionProfiles, err := service.ListExecutionProfiles(ctx)
-	if err != nil {
-		return ProjectActivityDataResponse{}, err
-	}
 	artifacts, err := projectHealthCairnlineArtifacts(ctx, service, projectID, cairnlineWorkItems)
 	if err != nil {
 		return ProjectActivityDataResponse{}, err
@@ -178,7 +174,7 @@ func (h *Handler) renderCairnlineProjectActivityFromService(ctx context.Context,
 			projectedAssignments[assignment.ID] = assignment
 		}
 	}
-	rolesByID := projectActivityCairnlineRolesByID(cairnlineRoles, executionProfiles, snapshot.Roles)
+	rolesByID := projectActivityCairnlineRolesByID(cairnlineRoles, snapshot.Roles)
 	linkedChats := h.projectActivityLinkedChats(ctx, projectID, assignments)
 	artifactsByAssignment, artifactsByWorkItem := groupProjectActivityArtifacts(artifacts)
 	handoffsByAssignment, handoffsByWorkItem := groupProjectActivityHandoffs(handoffs)
@@ -234,12 +230,11 @@ func (h *Handler) renderCairnlineProjectActivityFromService(ctx context.Context,
 	return response, nil
 }
 
-func projectActivityCairnlineRolesByID(items []cairnline.Role, executionProfiles []cairnline.ExecutionProfile, native []projectwork.AgentRoleProfile) map[string]projectwork.AgentRoleProfile {
+func projectActivityCairnlineRolesByID(items []cairnline.Role, native []projectwork.AgentRoleProfile) map[string]projectwork.AgentRoleProfile {
 	out := make(map[string]projectwork.AgentRoleProfile, len(items))
-	executionProfilesByID := cairnlineExecutionProfilesByID(executionProfiles)
 	nativeByID := projectWorkRolesByID(native)
 	for _, item := range items {
-		out[item.ID] = projectWorkRoleFromCairnline(item, executionProfilesByID, nativeByID[item.ID])
+		out[item.ID] = projectWorkRoleFromCairnline(item, nativeByID[item.ID])
 	}
 	return out
 }
