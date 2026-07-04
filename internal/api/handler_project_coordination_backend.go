@@ -153,7 +153,7 @@ var projectCairnlineWriteSwitchpoints = []ProjectCoordinationBackendWriteSwitchp
 		BlocksAuthority:  true,
 		Seams:            []string{"project-metadata-live-mirror", "project-defaults-live-mirror"},
 		Gap:              "projects",
-		Detail:           "Project metadata and default posture mutations still commit to Hecate first, then mirror through Cairnline metadata/default seams.",
+		Detail:           "Project metadata and default-root mutations still commit to Hecate first, then mirror through Cairnline metadata/default seams; provider/model/preset posture stays in Hecate runtime overlays.",
 	},
 	{
 		Name:             "roots-and-worktrees",

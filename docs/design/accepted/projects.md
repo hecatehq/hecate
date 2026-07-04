@@ -663,7 +663,7 @@ Hecate is ready to replace its internal Projects backend with Cairnline only
 after these gates are met:
 
 - Cairnline has durable storage and MCP/API parity for Hecate's project, role,
-  host-owned preset hints, context-source provenance metadata, skill, work item, assignment,
+  context-source provenance metadata, skill, work item, assignment,
   artifact, handoff, accepted-memory, memory-candidate, and assistant-proposal
   ledger flows.
 - Hecate has feature-flagged adapters that can run all read/write Projects

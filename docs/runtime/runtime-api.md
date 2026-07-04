@@ -4299,10 +4299,10 @@ Local-only experimental bridge endpoint. It loads the selected project from
 Hecate's authoritative Projects stores, seeds an in-memory Cairnline service,
 and returns Cairnline's portable read projections for the project without
 writing an export database. The seeded project preserves roots,
-`default_root_id`, project default agent-preset/runtime references, and
-context-source provenance metadata including source format, scope, category,
-trust label, and metadata labels so replacement-readiness checks exercise
-Hecate's workspace, launch-default, and context-control inputs. It also imports
+`default_root_id`, and context-source provenance metadata including source
+format, scope, category, trust label, and metadata labels so
+replacement-readiness checks exercise Hecate's workspace and context-control
+inputs without writing Hecate runtime posture into Cairnline. It also imports
 portable Project Assistant proposal ledger records,
 including root/default-root actions, proposal warnings, latest apply results,
 and apply attempts, without replaying proposal actions. The read model attempts
@@ -4331,7 +4331,7 @@ Example response:
     "root_count": 1,
     "context_source_count": 2,
     "agent_profile_count": 0,
-    "execution_profile_count": 2,
+    "execution_profile_count": 0,
     "skill_count": 3,
     "role_count": 6,
     "work_item_count": 2,
@@ -4605,7 +4605,7 @@ Example response:
     "root_count": 1,
     "context_source_count": 2,
     "agent_profile_count": 0,
-    "execution_profile_count": 2,
+    "execution_profile_count": 0,
     "skill_count": 3,
     "role_count": 6,
     "work_item_count": 2,
@@ -4868,7 +4868,7 @@ Example response:
     "root_count": 1,
     "context_source_count": 2,
     "agent_profile_count": 0,
-    "execution_profile_count": 2,
+    "execution_profile_count": 0,
     "skill_count": 3,
     "role_count": 6,
     "work_item_count": 2,
