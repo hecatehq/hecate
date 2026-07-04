@@ -103,7 +103,7 @@ export type ProjectWorkspaceViewProps = {
   onEditMemory: (entry: ProjectMemoryRecord) => void;
   onEditSource: (source: ProjectContextSourceRecord) => void;
   onEditWorkItem: (item: ProjectWorkItemRecord) => void;
-  onManageProfiles: () => void;
+  onManagePresets: () => void;
   onManageRoles: () => void;
   onNewMemory: () => void;
   onNewSource: () => void;
@@ -200,7 +200,7 @@ export function ProjectWorkspaceView({
   onEditMemory,
   onEditSource,
   onEditWorkItem,
-  onManageProfiles,
+  onManagePresets,
   onManageRoles,
   onNewMemory,
   onNewSource,
@@ -400,7 +400,7 @@ export function ProjectWorkspaceView({
                         onEditAssignment={onEditAssignment}
                         onEditWorkItem={onEditWorkItem}
                         onDeleteAssignment={onDeleteAssignment}
-                        onManageProfiles={onManageProfiles}
+                        onManagePresets={onManagePresets}
                         onManageRoles={onManageRoles}
                         onOpenChat={onOpenChat}
                         onOpenConnections={onOpenConnections}

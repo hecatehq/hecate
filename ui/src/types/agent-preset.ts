@@ -1,11 +1,11 @@
-export type AgentProfileSurface = "any" | "hecate_chat" | "hecate_task" | "external_agent";
+export type AgentPresetSurface = "any" | "hecate_chat" | "hecate_task" | "external_agent";
 
-export type AgentProfileRecord = {
+export type AgentPresetRecord = {
   id: string;
   name: string;
   description?: string;
   instructions?: string;
-  surface: AgentProfileSurface | string;
+  surface: AgentPresetSurface | string;
   provider_hint?: string;
   model_hint?: string;
   execution_profile?: string;
@@ -23,17 +23,17 @@ export type AgentProfileRecord = {
   updated_at?: string;
 };
 
-export type AgentProfileResponse = {
+export type AgentPresetResponse = {
   object: string;
-  data: AgentProfileRecord;
+  data: AgentPresetRecord;
 };
 
-export type AgentProfilesResponse = {
+export type AgentPresetsResponse = {
   object: string;
-  data: AgentProfileRecord[];
+  data: AgentPresetRecord[];
 };
 
-export type CreateAgentProfilePayload = {
+export type CreateAgentPresetPayload = {
   id?: string;
   name: string;
   description?: string;
@@ -53,4 +53,4 @@ export type CreateAgentProfilePayload = {
   external_agent_options?: Record<string, string>;
 };
 
-export type UpdateAgentProfilePayload = Partial<CreateAgentProfilePayload>;
+export type UpdateAgentPresetPayload = Partial<CreateAgentPresetPayload>;

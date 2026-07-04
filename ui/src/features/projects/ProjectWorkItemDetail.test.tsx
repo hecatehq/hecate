@@ -258,7 +258,7 @@ function renderDetail(overrides: Partial<ProjectWorkItemDetailProps> = {}) {
     onEditAssignment: vi.fn(),
     onEditHandoff: vi.fn(),
     onEditWorkItem: vi.fn(),
-    onManageProfiles: vi.fn(),
+    onManagePresets: vi.fn(),
     onManageRoles: vi.fn(),
     onOpenChat: vi.fn(),
     onOpenConnections: vi.fn(),

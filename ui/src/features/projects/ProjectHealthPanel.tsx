@@ -28,7 +28,7 @@ export type ProjectHealthPanelProps = {
   onAttentionDefaults: () => void;
   onAttentionError?: (message: string) => void;
   onAttentionMemory: () => void;
-  onAttentionProfiles: () => void;
+  onAttentionPresets: () => void;
   onAttentionReviewCandidate: (candidate: ProjectMemoryCandidateRecord) => void;
   onAttentionRoles: () => void;
   onAttentionSkills: () => void;
@@ -48,7 +48,7 @@ export function ProjectHealthPanel({
   onAttentionDefaults,
   onAttentionError,
   onAttentionMemory,
-  onAttentionProfiles,
+  onAttentionPresets,
   onAttentionReviewCandidate,
   onAttentionRoles,
   onAttentionSkills,
@@ -105,7 +105,7 @@ export function ProjectHealthPanel({
         onAttentionSkills();
         return;
       case "open_profiles":
-        onAttentionProfiles();
+        onAttentionPresets();
         return;
       case "open_roles":
         onAttentionRoles();

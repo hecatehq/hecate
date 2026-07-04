@@ -53,8 +53,8 @@ describe("ProjectSettingsPanel", () => {
 
     render(
       <ProjectSettingsPanel
-        agentProfiles={[]}
-        agentProfilesError=""
+        agentPresets={[]}
+        agentPresetsError=""
         error=""
         models={[]}
         pending={false}
@@ -95,8 +95,8 @@ describe("ProjectSettingsPanel", () => {
 
     render(
       <ProjectSettingsPanel
-        agentProfiles={[]}
-        agentProfilesError=""
+        agentPresets={[]}
+        agentPresetsError=""
         error=""
         models={[]}
         pending={false}

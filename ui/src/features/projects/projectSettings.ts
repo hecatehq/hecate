@@ -15,7 +15,7 @@ export type CreateProjectForm = {
 export type ProjectDefaultsForm = {
   provider: string;
   model: string;
-  defaultAgentProfile: string;
+  defaultAgentPreset: string;
   workspaceMode: string;
   defaultRootID: string;
   roots: ProjectRootPayload[];
@@ -54,7 +54,7 @@ export function projectDefaultsFormFromProject(project: ProjectRecord): ProjectD
   return {
     provider: project.default_provider ?? "",
     model: project.default_model ?? "",
-    defaultAgentProfile: project.default_agent_profile ?? "",
+    defaultAgentPreset: project.default_agent_profile ?? "",
     workspaceMode: project.default_workspace_mode || "in_place",
     defaultRootID: project.default_root_id || project.roots[0]?.id || "",
     roots: project.roots.map(projectRootPayloadFromRecord),

@@ -2,9 +2,9 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import type { AgentProfileRecord } from "../../types/agent-profile";
+import type { AgentPresetRecord } from "../../types/agent-preset";
 import type { ProjectRecord, ProjectSkillRecord, ProjectWorkRoleRecord } from "../../types/project";
-import { ProfilesModal } from "./ProfilesModal";
+import { AgentPresetsModal } from "./AgentPresetsModal";
 
 function project(overrides: Partial<ProjectRecord> = {}): ProjectRecord {
   return {
@@ -17,7 +17,7 @@ function project(overrides: Partial<ProjectRecord> = {}): ProjectRecord {
   };
 }
 
-function profile(overrides: Partial<AgentProfileRecord> = {}): AgentProfileRecord {
+function preset(overrides: Partial<AgentPresetRecord> = {}): AgentPresetRecord {
   return {
     id: "implementation",
     name: "Implementation",
@@ -62,15 +62,15 @@ function role(overrides: Partial<ProjectWorkRoleRecord> = {}): ProjectWorkRoleRe
   };
 }
 
-describe("ProfilesModal", () => {
-  it("creates a profile with selected project skills", async () => {
-    const onCreate = vi.fn(async (form) => profile({ id: form.id, name: form.name }));
+describe("AgentPresetsModal", () => {
+  it("creates a preset with selected project skills", async () => {
+    const onCreate = vi.fn(async (form) => preset({ id: form.id, name: form.name }));
 
     render(
-      <ProfilesModal
+      <AgentPresetsModal
         error=""
         pending={false}
-        profiles={[]}
+        presets={[]}
         project={project()}
         projectSkills={[skill()]}
         roles={[]}
@@ -97,16 +97,16 @@ describe("ProfilesModal", () => {
     );
   });
 
-  it("updates the selected profile", async () => {
-    const onUpdate = vi.fn(async (profileID, form) =>
-      profile({ id: profileID, name: form.name, instructions: form.instructions }),
+  it("updates the selected preset", async () => {
+    const onUpdate = vi.fn(async (presetID, form) =>
+      preset({ id: presetID, name: form.name, instructions: form.instructions }),
     );
 
     render(
-      <ProfilesModal
+      <AgentPresetsModal
         error=""
         pending={false}
-        profiles={[profile()]}
+        presets={[preset()]}
         project={project()}
         projectSkills={[]}
         roles={[]}
@@ -131,13 +131,13 @@ describe("ProfilesModal", () => {
     );
   });
 
-  it("shows built-in profiles as read-only", () => {
+  it("shows built-in presets as read-only", () => {
     render(
-      <ProfilesModal
+      <AgentPresetsModal
         error=""
         pending={false}
-        profiles={[
-          profile({
+        presets={[
+          preset({
             id: "implementation",
             name: "Implementation",
             built_in: true,
@@ -166,10 +166,10 @@ describe("ProfilesModal", () => {
     const onDelete = vi.fn(async () => true);
 
     render(
-      <ProfilesModal
+      <AgentPresetsModal
         error=""
         pending={false}
-        profiles={[profile()]}
+        presets={[preset()]}
         project={project({ default_agent_profile: "implementation" })}
         projectSkills={[]}
         roles={[role({ default_agent_profile: "implementation" })]}

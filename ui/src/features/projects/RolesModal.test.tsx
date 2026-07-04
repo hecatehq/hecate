@@ -2,11 +2,11 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import type { AgentProfileRecord } from "../../types/agent-profile";
+import type { AgentPresetRecord } from "../../types/agent-preset";
 import type { ProjectSkillRecord, ProjectWorkRoleRecord } from "../../types/project";
 import { RolesModal } from "./RolesModal";
 
-function profile(overrides: Partial<AgentProfileRecord> = {}): AgentProfileRecord {
+function preset(overrides: Partial<AgentPresetRecord> = {}): AgentPresetRecord {
   return {
     id: "implementation",
     name: "Implementation",
@@ -57,7 +57,7 @@ describe("RolesModal", () => {
 
     render(
       <RolesModal
-        agentProfiles={[profile()]}
+        agentPresets={[preset()]}
         error=""
         pending={false}
         projectSkills={[skill()]}
@@ -83,7 +83,7 @@ describe("RolesModal", () => {
       expect.objectContaining({
         name: "Designer",
         defaultDriverKind: "hecate_task",
-        defaultAgentProfile: "implementation",
+        defaultAgentPreset: "implementation",
         skillIDs: "backend",
       }),
     );
@@ -96,7 +96,7 @@ describe("RolesModal", () => {
 
     render(
       <RolesModal
-        agentProfiles={[]}
+        agentPresets={[]}
         error=""
         pending={false}
         projectSkills={[]}
@@ -124,7 +124,7 @@ describe("RolesModal", () => {
   it("keeps built-in roles read-only", async () => {
     render(
       <RolesModal
-        agentProfiles={[]}
+        agentPresets={[]}
         error=""
         pending={false}
         projectSkills={[]}

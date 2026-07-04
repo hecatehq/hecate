@@ -4,13 +4,13 @@ import {
   projectSkillSelectionWarnings,
   sortProjectSkillsForPicker,
   uniqueSkillIDs,
-} from "./projectProfilesRoles";
+} from "./projectPresetsRoles";
 import {
-  profileRoleFieldLabelStyle,
-  profileRoleFieldStyle,
-  profileRoleSubtleTextStyle,
-  profileRoleTitleStyle,
-} from "./projectProfileRoleStyles";
+  presetRoleFieldLabelStyle,
+  presetRoleFieldStyle,
+  presetRoleSubtleTextStyle,
+  presetRoleTitleStyle,
+} from "./projectPresetRoleStyles";
 import { splitIDs } from "./projectUtils";
 
 type ProjectSkillPickerProps = {
@@ -40,10 +40,10 @@ export function ProjectSkillPicker({
   }
 
   return (
-    <div style={profileRoleFieldStyle}>
+    <div style={presetRoleFieldStyle}>
       {sortedSkills.length > 0 && (
         <div style={{ display: "grid", gap: 6 }}>
-          <span style={profileRoleFieldLabelStyle}>Project skills</span>
+          <span style={presetRoleFieldLabelStyle}>Project skills</span>
           <div style={{ display: "grid", gap: 6 }}>
             {sortedSkills.map((skill) => (
               <label
@@ -67,20 +67,20 @@ export function ProjectSkillPicker({
                 />
                 <span style={{ display: "grid", gap: 4, minWidth: 0 }}>
                   <span style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                    <span style={profileRoleTitleStyle}>{skill.title || skill.id}</span>
+                    <span style={presetRoleTitleStyle}>{skill.title || skill.id}</span>
                     <span className={projectSkillBadgeClass(skill)}>{skill.status}</span>
                     {!skill.enabled && <span className="badge badge-muted">disabled</span>}
                     <span className="badge badge-muted">{skill.id}</span>
                   </span>
-                  <span style={profileRoleSubtleTextStyle}>{skill.path}</span>
+                  <span style={presetRoleSubtleTextStyle}>{skill.path}</span>
                 </span>
               </label>
             ))}
           </div>
         </div>
       )}
-      <label style={{ ...profileRoleFieldStyle, marginTop: sortedSkills.length > 0 ? 8 : 0 }}>
-        <span style={profileRoleFieldLabelStyle}>Skill ids</span>
+      <label style={{ ...presetRoleFieldStyle, marginTop: sortedSkills.length > 0 ? 8 : 0 }}>
+        <span style={presetRoleFieldLabelStyle}>Skill ids</span>
         <input
           className="input"
           value={value}
@@ -92,7 +92,7 @@ export function ProjectSkillPicker({
       {warnings.length > 0 && (
         <div style={{ display: "grid", gap: 3 }}>
           {warnings.map((warning) => (
-            <div key={warning} style={{ ...profileRoleSubtleTextStyle, color: "var(--amber)" }}>
+            <div key={warning} style={{ ...presetRoleSubtleTextStyle, color: "var(--amber)" }}>
               {warning}
             </div>
           ))}

@@ -1,12 +1,12 @@
 import type {
-  AgentProfileRecord,
-  CreateAgentProfilePayload,
-  UpdateAgentProfilePayload,
-} from "../../types/agent-profile";
+  AgentPresetRecord,
+  CreateAgentPresetPayload,
+  UpdateAgentPresetPayload,
+} from "../../types/agent-preset";
 import type { ProjectRecord, ProjectSkillRecord, ProjectWorkRoleRecord } from "../../types/project";
 import { splitIDs } from "./projectUtils";
 
-export type AgentProfileForm = {
+export type AgentPresetForm = {
   id: string;
   name: string;
   description: string;
@@ -33,7 +33,7 @@ export type RoleForm = {
   defaultDriverKind: string;
   defaultProvider: string;
   defaultModel: string;
-  defaultAgentProfile: string;
+  defaultAgentPreset: string;
   skillIDs: string;
 };
 
@@ -46,12 +46,12 @@ export function emptyRoleForm(): RoleForm {
     defaultDriverKind: "",
     defaultProvider: "",
     defaultModel: "",
-    defaultAgentProfile: "",
+    defaultAgentPreset: "",
     skillIDs: "",
   };
 }
 
-export function emptyAgentProfileForm(): AgentProfileForm {
+export function emptyAgentPresetForm(): AgentPresetForm {
   return {
     id: "",
     name: "",
@@ -72,35 +72,35 @@ export function emptyAgentProfileForm(): AgentProfileForm {
   };
 }
 
-export function profileFormFromRecord(profile: AgentProfileRecord): AgentProfileForm {
+export function presetFormFromRecord(preset: AgentPresetRecord): AgentPresetForm {
   return {
-    id: profile.id,
-    name: profile.name,
-    description: profile.description ?? "",
-    instructions: profile.instructions ?? "",
-    surface: profile.surface || "any",
-    providerHint: profile.provider_hint ?? "",
-    modelHint: profile.model_hint ?? "",
-    executionProfile: profile.execution_profile ?? "",
-    toolsEnabled: profile.tools_enabled,
-    writesAllowed: profile.writes_allowed,
-    networkAllowed: profile.network_allowed,
-    approvalPolicy: profile.approval_policy || "inherit",
-    projectMemoryPolicy: profile.project_memory_policy || "inherit",
-    contextSourcePolicy: profile.context_source_policy || "inherit",
-    skillIDs: (profile.skill_ids ?? []).join(", "),
-    externalAgentKind: profile.external_agent_kind ?? "",
+    id: preset.id,
+    name: preset.name,
+    description: preset.description ?? "",
+    instructions: preset.instructions ?? "",
+    surface: preset.surface || "any",
+    providerHint: preset.provider_hint ?? "",
+    modelHint: preset.model_hint ?? "",
+    executionProfile: preset.execution_profile ?? "",
+    toolsEnabled: preset.tools_enabled,
+    writesAllowed: preset.writes_allowed,
+    networkAllowed: preset.network_allowed,
+    approvalPolicy: preset.approval_policy || "inherit",
+    projectMemoryPolicy: preset.project_memory_policy || "inherit",
+    contextSourcePolicy: preset.context_source_policy || "inherit",
+    skillIDs: (preset.skill_ids ?? []).join(", "),
+    externalAgentKind: preset.external_agent_kind ?? "",
   };
 }
 
-export function profileCreatePayloadFromForm(form: AgentProfileForm): CreateAgentProfilePayload {
-  const payload = profileUpdatePayloadFromForm(form) as CreateAgentProfilePayload;
+export function presetCreatePayloadFromForm(form: AgentPresetForm): CreateAgentPresetPayload {
+  const payload = presetUpdatePayloadFromForm(form) as CreateAgentPresetPayload;
   const id = form.id.trim();
   if (id) payload.id = id;
   return payload;
 }
 
-export function profileUpdatePayloadFromForm(form: AgentProfileForm): UpdateAgentProfilePayload {
+export function presetUpdatePayloadFromForm(form: AgentPresetForm): UpdateAgentPresetPayload {
   return {
     name: form.name.trim(),
     description: form.description.trim(),
@@ -120,17 +120,17 @@ export function profileUpdatePayloadFromForm(form: AgentProfileForm): UpdateAgen
   };
 }
 
-export function profileReferenceSummary(
-  profile: AgentProfileRecord,
+export function presetReferenceSummary(
+  preset: AgentPresetRecord,
   project: ProjectRecord,
   roles: ProjectWorkRoleRecord[],
 ) {
   const references: string[] = [];
-  if (project.default_agent_profile === profile.id) {
+  if (project.default_agent_profile === preset.id) {
     references.push("this project's default preset");
   }
   const roleNames = roles
-    .filter((role) => role.default_agent_profile === profile.id)
+    .filter((role) => role.default_agent_profile === preset.id)
     .map((role) => role.name || role.id);
   if (roleNames.length > 0) {
     references.push(`roles ${roleNames.join(", ")}`);
@@ -150,7 +150,7 @@ export function roleFormFromRecord(role: ProjectWorkRoleRecord): RoleForm {
     defaultDriverKind: role.default_driver_kind ?? "",
     defaultProvider: role.default_provider ?? "",
     defaultModel: role.default_model ?? "",
-    defaultAgentProfile: role.default_agent_profile ?? "",
+    defaultAgentPreset: role.default_agent_profile ?? "",
     skillIDs: (role.skill_ids ?? []).join(", "),
   };
 }
@@ -163,7 +163,7 @@ export function rolePayloadFromForm(form: RoleForm) {
     default_driver_kind: form.defaultDriverKind.trim(),
     default_provider: form.defaultProvider.trim(),
     default_model: form.defaultModel.trim(),
-    default_agent_profile: form.defaultAgentProfile.trim(),
+    default_agent_profile: form.defaultAgentPreset.trim(),
     skill_ids: uniqueSkillIDs(splitIDs(form.skillIDs)),
   };
 }

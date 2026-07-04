@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from
 
 import { chooseWorkspaceDirectory } from "../../lib/api";
 import { projectDefaultWorkspaceFromRoots } from "../../lib/project-workspace";
-import type { AgentProfileRecord } from "../../types/agent-profile";
+import type { AgentPresetRecord } from "../../types/agent-preset";
 import type { ModelRecord } from "../../types/model";
 import type { ProjectRecord } from "../../types/project";
 import type { ProviderPresetRecord } from "../../types/provider";
@@ -23,8 +23,8 @@ import {
 } from "./projectSettings";
 
 export function ProjectSettingsPanel({
-  agentProfiles,
-  agentProfilesError,
+  agentPresets,
+  agentPresetsError,
   error,
   models,
   pending,
@@ -36,8 +36,8 @@ export function ProjectSettingsPanel({
   onOpenCreateWorktree,
   onSave,
 }: {
-  agentProfiles: AgentProfileRecord[];
-  agentProfilesError: string;
+  agentPresets: AgentPresetRecord[];
+  agentPresetsError: string;
   error: string;
   models: ModelRecord[];
   pending: boolean;
@@ -60,9 +60,9 @@ export function ProjectSettingsPanel({
     if (!form.provider) return models;
     return models.filter((model) => model.metadata?.provider === form.provider);
   }, [form.provider, models]);
-  const selectedProfile = useMemo(
-    () => agentProfiles.find((profile) => profile.id === form.defaultAgentProfile) ?? null,
-    [agentProfiles, form.defaultAgentProfile],
+  const selectedPreset = useMemo(
+    () => agentPresets.find((preset) => preset.id === form.defaultAgentPreset) ?? null,
+    [agentPresets, form.defaultAgentPreset],
   );
 
   function handleProviderChange(provider: string) {
@@ -172,7 +172,7 @@ export function ProjectSettingsPanel({
         >
           {error && <InlineError message={error} />}
           {rootChooseError && <InlineError message={rootChooseError} />}
-          {agentProfilesError && <InlineError message={agentProfilesError} />}
+          {agentPresetsError && <InlineError message={agentPresetsError} />}
           <ProjectSettingsSection title="Assignment defaults">
             <div style={{ ...subtleTextStyle, marginBottom: 12 }}>
               Native Hecate assignments copy these defaults when creating the backing task.
@@ -205,23 +205,23 @@ export function ProjectSettingsPanel({
                 <select
                   aria-label="Default agent preset"
                   className="input"
-                  value={form.defaultAgentProfile}
+                  value={form.defaultAgentPreset}
                   onChange={(event) =>
                     setForm((current) => ({
                       ...current,
-                      defaultAgentProfile: event.target.value,
+                      defaultAgentPreset: event.target.value,
                     }))
                   }
                   style={{ fontFamily: "var(--font-mono)", fontSize: 12, minHeight: 36 }}
                 >
                   <option value="">built-in project_assignment</option>
-                  {agentProfiles.map((profile) => (
-                    <option key={profile.id} value={profile.id}>
-                      {profile.name || profile.id} ({profile.id})
+                  {agentPresets.map((preset) => (
+                    <option key={preset.id} value={preset.id}>
+                      {preset.name || preset.id} ({preset.id})
                     </option>
                   ))}
                 </select>
-                <ProfilePosturePreview profile={selectedProfile} />
+                <PresetPosturePreview preset={selectedPreset} />
               </div>
               <div style={fieldStyle}>
                 <span style={fieldLabelStyle}>Workspace mode</span>
@@ -414,8 +414,8 @@ function ProjectSettingsSection({ title, children }: { title: string; children: 
   );
 }
 
-function ProfilePosturePreview({ profile }: { profile: AgentProfileRecord | null }) {
-  if (!profile) {
+function PresetPosturePreview({ preset }: { preset: AgentPresetRecord | null }) {
+  if (!preset) {
     return (
       <div style={{ ...subtleTextStyle, marginTop: 4 }}>
         Uses the built-in project_assignment posture until a saved preset is selected.
@@ -423,17 +423,17 @@ function ProfilePosturePreview({ profile }: { profile: AgentProfileRecord | null
     );
   }
   const details = [
-    profile.surface,
-    profile.execution_profile ? `runtime ${profile.execution_profile}` : "",
-    profile.provider_hint || profile.model_hint
-      ? `hints ${[profile.provider_hint, profile.model_hint].filter(Boolean).join("/")}`
+    preset.surface,
+    preset.execution_profile ? `runtime ${preset.execution_profile}` : "",
+    preset.provider_hint || preset.model_hint
+      ? `hints ${[preset.provider_hint, preset.model_hint].filter(Boolean).join("/")}`
       : "",
-    `tools ${profile.tools_enabled ? "on" : "off"}`,
-    `writes ${profile.writes_allowed ? "on" : "off"}`,
-    `network ${profile.network_allowed ? "on" : "off"}`,
-    `approval ${profile.approval_policy}`,
-    `memory ${profile.project_memory_policy}`,
-    `sources ${profile.context_source_policy}`,
+    `tools ${preset.tools_enabled ? "on" : "off"}`,
+    `writes ${preset.writes_allowed ? "on" : "off"}`,
+    `network ${preset.network_allowed ? "on" : "off"}`,
+    `approval ${preset.approval_policy}`,
+    `memory ${preset.project_memory_policy}`,
+    `sources ${preset.context_source_policy}`,
   ].filter(Boolean);
   return <div style={{ ...subtleTextStyle, marginTop: 4 }}>{details.join(" · ")}</div>;
 }

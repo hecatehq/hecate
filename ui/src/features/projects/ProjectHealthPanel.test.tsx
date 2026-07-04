@@ -114,7 +114,7 @@ function renderPanel(overrides: Partial<Parameters<typeof ProjectHealthPanel>[0]
     onAttentionDefaults: vi.fn(),
     onAttentionError: vi.fn(),
     onAttentionMemory: vi.fn(),
-    onAttentionProfiles: vi.fn(),
+    onAttentionPresets: vi.fn(),
     onAttentionReviewCandidate: vi.fn(),
     onAttentionRoles: vi.fn(),
     onAttentionSkills: vi.fn(),

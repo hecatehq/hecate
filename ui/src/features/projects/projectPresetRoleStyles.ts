@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 
-export const profileRoleTitleStyle: CSSProperties = {
+export const presetRoleTitleStyle: CSSProperties = {
   color: "var(--t0)",
   fontSize: 13,
   fontWeight: 600,
@@ -9,25 +9,25 @@ export const profileRoleTitleStyle: CSSProperties = {
   whiteSpace: "nowrap",
 };
 
-export const profileRoleSubtleTextStyle: CSSProperties = {
+export const presetRoleSubtleTextStyle: CSSProperties = {
   color: "var(--t3)",
   fontSize: 12,
   lineHeight: 1.4,
 };
 
-export const profileRoleFieldStyle: CSSProperties = {
+export const presetRoleFieldStyle: CSSProperties = {
   display: "grid",
   gap: 6,
 };
 
-export const profileRoleFieldLabelStyle: CSSProperties = {
+export const presetRoleFieldLabelStyle: CSSProperties = {
   color: "var(--t2)",
   fontFamily: "var(--font-mono)",
   fontSize: 11,
   textTransform: "uppercase",
 };
 
-export const profileRoleCheckboxLabelStyle: CSSProperties = {
+export const presetRoleCheckboxLabelStyle: CSSProperties = {
   alignItems: "center",
   color: "var(--t1)",
   display: "inline-flex",
