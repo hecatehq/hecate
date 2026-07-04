@@ -244,6 +244,9 @@ describe("projectAssignmentViewModels", () => {
       linked_chat_id: "chat_1",
       linked_chat: {
         id: "chat_1",
+        agent_title: "Codex ACP Adapter",
+        agent_version: "0.1.0-test",
+        available_command_count: 1,
         missing: true,
         latest_error: "adapter exited",
       },
@@ -262,6 +265,11 @@ describe("projectAssignmentViewModels", () => {
         expect.objectContaining({ label: "Chat", value: "chat_1" }),
         expect.objectContaining({ label: "Message", value: "msg_1" }),
         expect.objectContaining({ label: "Context snapshot", value: "ctx_1" }),
+        expect.objectContaining({
+          label: "Agent implementation",
+          value: "Codex ACP Adapter 0.1.0-test",
+        }),
+        expect.objectContaining({ label: "Commands", value: "1" }),
         expect.objectContaining({ label: "Provider / model", value: "anthropic / claude-sonnet" }),
         expect.objectContaining({ label: "Steps", value: "3" }),
         expect.objectContaining({ label: "Artifacts", value: "2" }),

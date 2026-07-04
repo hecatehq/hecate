@@ -62,20 +62,23 @@ type ProjectActivityItemResponse struct {
 }
 
 type ProjectActivityLinkedChatResponse struct {
-	ID              string `json:"id"`
-	Title           string `json:"title,omitempty"`
-	AgentID         string `json:"agent_id,omitempty"`
-	DriverKind      string `json:"driver_kind,omitempty"`
-	NativeSessionID string `json:"native_session_id,omitempty"`
-	Status          string `json:"status,omitempty"`
-	LatestMessageID string `json:"latest_message_id,omitempty"`
-	LatestRole      string `json:"latest_role,omitempty"`
-	LatestStatus    string `json:"latest_status,omitempty"`
-	LatestError     string `json:"latest_error,omitempty"`
-	MessageCount    int    `json:"message_count,omitempty"`
-	CreatedAt       string `json:"created_at,omitempty"`
-	UpdatedAt       string `json:"updated_at,omitempty"`
-	Missing         bool   `json:"missing,omitempty"`
+	ID                    string `json:"id"`
+	Title                 string `json:"title,omitempty"`
+	AgentID               string `json:"agent_id,omitempty"`
+	AgentTitle            string `json:"agent_title,omitempty"`
+	AgentVersion          string `json:"agent_version,omitempty"`
+	AvailableCommandCount int    `json:"available_command_count,omitempty"`
+	DriverKind            string `json:"driver_kind,omitempty"`
+	NativeSessionID       string `json:"native_session_id,omitempty"`
+	Status                string `json:"status,omitempty"`
+	LatestMessageID       string `json:"latest_message_id,omitempty"`
+	LatestRole            string `json:"latest_role,omitempty"`
+	LatestStatus          string `json:"latest_status,omitempty"`
+	LatestError           string `json:"latest_error,omitempty"`
+	MessageCount          int    `json:"message_count,omitempty"`
+	CreatedAt             string `json:"created_at,omitempty"`
+	UpdatedAt             string `json:"updated_at,omitempty"`
+	Missing               bool   `json:"missing,omitempty"`
 }
 
 type ProjectActivityWorkItemResponse struct {
@@ -232,15 +235,20 @@ func missingProjectActivityLinkedChat(chatID string) *ProjectActivityLinkedChatR
 
 func renderProjectActivityLinkedChat(session chat.Session) *ProjectActivityLinkedChatResponse {
 	item := &ProjectActivityLinkedChatResponse{
-		ID:              session.ID,
-		Title:           session.Title,
-		AgentID:         renderChatAgentID(session),
-		DriverKind:      session.DriverKind,
-		NativeSessionID: session.NativeSessionID,
-		Status:          session.Status,
-		MessageCount:    len(session.Messages),
-		CreatedAt:       formatOptionalTime(session.CreatedAt),
-		UpdatedAt:       formatOptionalTime(session.UpdatedAt),
+		ID:                    session.ID,
+		Title:                 session.Title,
+		AgentID:               renderChatAgentID(session),
+		AvailableCommandCount: len(session.AvailableCommands),
+		DriverKind:            session.DriverKind,
+		NativeSessionID:       session.NativeSessionID,
+		Status:                session.Status,
+		MessageCount:          len(session.Messages),
+		CreatedAt:             formatOptionalTime(session.CreatedAt),
+		UpdatedAt:             formatOptionalTime(session.UpdatedAt),
+	}
+	if session.AgentInfo != nil {
+		item.AgentTitle = firstNonEmptyString(session.AgentInfo.Title, session.AgentInfo.Name)
+		item.AgentVersion = session.AgentInfo.Version
 	}
 	if latest := latestProjectActivityChatMessage(session.Messages); latest != nil {
 		item.LatestMessageID = latest.ID

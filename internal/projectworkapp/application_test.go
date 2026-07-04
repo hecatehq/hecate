@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/hecatehq/hecate/internal/agentadapters"
+	"github.com/hecatehq/hecate/internal/agentcontrols"
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/projectruntime"
@@ -745,7 +746,18 @@ func (r *recordingAgentRunner) PrepareSession(_ context.Context, req agentadapte
 	return agentadapters.PrepareSessionResult{
 		DriverKind:      agentadapters.DriverKindACP,
 		NativeSessionID: "native_" + req.SessionID,
-		ConfigOptions:   req.ConfigOptions,
+		AgentInfo: &agentcontrols.ImplementationInfo{
+			Name:    "codex-acp-adapter",
+			Title:   "Codex ACP Adapter",
+			Version: "0.1.0-test",
+		},
+		ConfigOptions: req.ConfigOptions,
+		AvailableCommands: []agentcontrols.Command{{
+			Name:        "review",
+			Description: "Review current changes",
+			InputHint:   "scope",
+		}},
+		AvailableCommandsKnown: true,
 	}, nil
 }
 
@@ -833,6 +845,12 @@ func TestApplication_StartExternalAgentAssignmentPreparesAndLinksSession(t *test
 	}
 	if session.NativeSessionID != "native_chat_ext" || session.DriverKind != agentadapters.DriverKindACP {
 		t.Fatalf("session = %+v, want prepared native metadata", session)
+	}
+	if session.AgentInfo == nil || session.AgentInfo.Name != "codex-acp-adapter" || session.AgentInfo.Version != "0.1.0-test" {
+		t.Fatalf("session agent info = %#v, want prepared adapter metadata", session.AgentInfo)
+	}
+	if len(session.AvailableCommands) != 1 || session.AvailableCommands[0].Name != "review" || session.AvailableCommands[0].InputHint != "scope" {
+		t.Fatalf("session available commands = %#v, want prepared commands", session.AvailableCommands)
 	}
 }
 

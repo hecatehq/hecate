@@ -115,6 +115,38 @@ dev *args: _go-cache
 	export HECATE_ALLOWED_ORIGINS; \
 	{{go_env}} go run ./cmd/hecate serve
 
+# Run the gateway from source with embedded Cairnline as the authoritative
+# Projects coordination dogfood path. This is intentionally explicit: it arms
+# replacement mode for local verification without changing normal `just dev`.
+# Optional arg: --reset.
+# Run gateway with Cairnline-backed Projects dogfood enabled.
+dev-cairnline-projects *args: _go-cache
+	needs_reset=0; \
+	for arg in {{args}}; do \
+	  case "$arg" in \
+	    --reset) needs_reset=1 ;; \
+	    *) echo "unknown argument: $arg"; echo "usage: just dev-cairnline-projects [--reset]"; exit 2 ;; \
+	  esac; \
+	done; \
+	if [ "$needs_reset" = "1" ]; then just reset-dev > /dev/null; else just stop; fi
+	set -a; \
+	[ -f ./.env ] && . ./.env; \
+	set +a; \
+	HECATE_ALLOWED_ORIGINS="${HECATE_ALLOWED_ORIGINS:-http://127.0.0.1:5173,http://localhost:5173}"; \
+	export HECATE_ALLOWED_ORIGINS; \
+	HECATE_PROJECTS_COORDINATION_BACKEND=cairnline \
+	HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded \
+	HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded \
+	HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=all-portable \
+	HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded \
+	{{go_env}} go run ./cmd/hecate serve
+
+# Run the focused API tests that prove Projects can be dogfooded through the
+# Hecate-native flow and the embedded Cairnline replacement flow.
+# Run focused Projects dogfood tests.
+test-projects-dogfood: _go-cache
+	{{go_env}} go test ./internal/api -run 'TestProjectJourneyAPI_(DiscoverStartInspectAndHandoff|CairnlineReplacementModeStartsTaskWithRuntimeDefaultsOverlay|CairnlineReplacementModeStartsExternalAgentWithoutAdvancingNativeShadow|CairnlineReplacementCloseoutReadinessUsesRuntimeOverlay)$|TestProjectCoordinationBackendStatus_(DefaultHecateAuthoritative|EnableDogfoodHintsEmbeddedReadSourceFromSidecar|CairnlineAllPortableWriteAuthorityAliasConfigured|CairnlineEmbeddedReplacementModeArmed|EmbeddedReplacementModeReportsCairnlineAuthoritativeAfterVerifiedCutover)$|TestProjectCairnlineMirrorParityAPI_MatchesRepresentativeLiveProjectJourney$'
+
 # Run the gateway from source with external-agent adapter visuals forced to a
 # known state. This is visual-only: it changes discovery/probe readiness
 # surfaces but does not create fake adapter processes or make chat sends

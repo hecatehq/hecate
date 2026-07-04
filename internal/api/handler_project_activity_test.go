@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/agentcontrols"
+	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/projectwork"
 )
 
@@ -150,6 +152,31 @@ func TestProjectActivityProjection_ItemStatusSummaryAndBucket(t *testing.T) {
 	}, role, nil, nil, missingProjectActivityLinkedChat("chat-missing"))
 	if missingChat.BlockingSignal != "stale_unknown" || missingChat.StatusSummary != "linked chat missing" || projectActivityBucket(missingChat) != "blocked" {
 		t.Fatalf("missing chat item = %+v, want stale linked-chat signal", missingChat)
+	}
+}
+
+func TestProjectActivityProjection_LinkedChatIncludesAdapterEvidence(t *testing.T) {
+	session := chat.Session{
+		ID:       "chat-agent",
+		Title:    "Agent session",
+		AgentID:  "codex",
+		Status:   "idle",
+		Messages: []chat.Message{{ID: "msg-1", Role: "assistant", Status: "completed"}},
+		AgentInfo: &agentcontrols.ImplementationInfo{
+			Name:    "codex-acp-adapter",
+			Title:   "Codex ACP Adapter",
+			Version: "0.1.0-test",
+		},
+		AvailableCommands: []agentcontrols.Command{{
+			Name:        "review",
+			Description: "Review current changes",
+			InputHint:   "scope",
+		}},
+	}
+
+	linked := renderProjectActivityLinkedChat(session)
+	if linked.AgentTitle != "Codex ACP Adapter" || linked.AgentVersion != "0.1.0-test" || linked.AvailableCommandCount != 1 {
+		t.Fatalf("linked chat = %+v, want adapter metadata and command count", linked)
 	}
 }
 
