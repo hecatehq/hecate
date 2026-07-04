@@ -68,9 +68,9 @@ only when backend status reports `replacement_ready=true` and
   assistant-proposal ledger and committed apply side effects, root, and
   closeout flows.
 - Cairnline skill discovery remains compatible with Hecate's current
-  `.agents/skills`, `.hecate/skills`, and enabled guidance-linked local skill
-  roots while keeping Cairnline-native `.cairnline/skills` available for
-  standalone projects.
+  `.agents/skills`, `.cairnline/skills`, `.claude/skills`, `.gemini/skills`,
+  `.hecate/skills`, and enabled guidance-linked local skill roots while keeping
+  discovery metadata-only for standalone projects.
 - Hecate project-level and role-level Agent Preset/provider/model posture stays
   Hecate-owned. Replacement reviews should compare Cairnline coordination
   records with Hecate launch readiness/context evidence so portable assignment

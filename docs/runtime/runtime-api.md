@@ -1836,9 +1836,10 @@ enabled). Chat message context packets include enabled sources as itemized
 `workspace_guidance` metadata for inspection, but Hecate does not inject those
 files into prompts yet. Projects also have a project-scoped skills registry
 for local `SKILL.md` metadata discovered from `.agents/skills`,
-`.hecate/skills`, and enabled guidance-linked local skill roots. The registry
-stores ids, title/description metadata, path, root, status, trust label, and
-warnings; it does not store or return skill bodies. Project work-coordination
+`.cairnline/skills`, `.claude/skills`, `.gemini/skills`, `.hecate/skills`,
+and enabled guidance-linked local skill roots. The registry stores ids,
+title/description metadata, path, root, status, trust label, and warnings; it
+does not store or return skill bodies. Project work-coordination
 endpoints can persist roles, work items, assignments, and collaboration
 artifacts under a project. Assignments may record links to existing task runs
 or chat messages, but creating an assignment does not start a task, open a
@@ -5795,9 +5796,12 @@ Refreshes the project skills registry from active absolute project roots.
 Discovery scans:
 
 - `.agents/skills/*/SKILL.md`
+- `.cairnline/skills/*/SKILL.md`
+- `.claude/skills/*/SKILL.md`
+- `.gemini/skills/*/SKILL.md`
 - `.hecate/skills/*/SKILL.md`
-- local skill roots explicitly linked from enabled `AGENTS.md` or `CLAUDE.md`
-  context sources.
+- local skill roots explicitly linked from enabled guidance context sources,
+  including `AGENTS.md`, `CLAUDE.md`, and `GEMINI.md`.
 
 Discovery ignores nested worktree containers such as `.worktrees` and
 `.claude/worktrees` when reading guidance-linked skill roots. Add a linked

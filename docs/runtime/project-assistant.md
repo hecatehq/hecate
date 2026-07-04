@@ -299,11 +299,12 @@ uses enabled `workspace_guidance` context-source metadata to propose memory
 candidates with source provenance, and uses enabled, available project skills
 from `/hecate/v1/projects/{id}/skills`. The skill registry is refreshed through
 `POST /hecate/v1/projects/{id}/skills/discover`, which reads bounded local
-metadata from `.agents/skills`, `.hecate/skills`, and enabled `AGENTS.md` /
-`CLAUDE.md` context-source references. The refresh ignores nested worktree
-containers such as `.worktrees` and `.claude/worktrees`; linked worktrees should
-be explicit project roots, not inherited onboarding input. Bootstrap itself does
-not perform a second filesystem scan. Skill capability hints such as suggested
+metadata from `.agents/skills`, `.cairnline/skills`, `.claude/skills`,
+`.gemini/skills`, `.hecate/skills`, and enabled guidance context-source
+references. The refresh ignores nested worktree containers such as `.worktrees`
+and `.claude/worktrees`; linked worktrees should be explicit project roots, not
+inherited onboarding input. Bootstrap itself does not perform a second
+filesystem scan. Skill capability hints such as suggested
 tools and required tools/writes/network posture remain advisory metadata for
 launch-readiness warnings; they do not grant capabilities. Bootstrap deduplicates
 against existing role ids and existing memory/candidate source refs. It does

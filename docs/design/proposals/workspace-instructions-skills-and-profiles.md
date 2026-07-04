@@ -25,7 +25,7 @@ Presets V1 and before implementing planner/runbook features.
 
 ## External Alignment
 
-Facts, accessed 2026-06-08:
+Facts, accessed 2026-06-08 unless noted:
 
 - Codex documents `AGENTS.md` as its project-instruction surface and includes
   feature-flagged hierarchy/precedence behavior for nested agent guidance.
@@ -33,7 +33,8 @@ Facts, accessed 2026-06-08:
 - Claude Code skills use a skill folder with `SKILL.md`, optional supporting
   resources, and progressive disclosure. Claude Code also supports an
   `allowed-tools` frontmatter field that can grant tool access while the skill
-  is active. Source: <https://docs.claude.com/en/docs/claude-code/skills>.
+  is active. Source: <https://code.claude.com/docs/en/skills> (accessed
+  2026-07-04).
 - Claude Code memory/instruction files include organization, user, and project
   `CLAUDE.md` locations, including project `./CLAUDE.md` and
   `./.claude/CLAUDE.md`. Source:
@@ -63,6 +64,10 @@ Facts, accessed 2026-06-08:
   custom slash commands from user/project `.gemini/commands/*.toml` sources.
   Source:
   <https://github.com/google-gemini/gemini-cli/blob/main/docs/reference/commands.md>.
+- Gemini CLI Agent Skills documents workspace skill discovery from
+  `.gemini/skills` and `.agents/skills`, with the `.agents/skills` alias taking
+  precedence. Source: <https://geminicli.com/docs/cli/skills/> (accessed
+  2026-07-04).
 - Windsurf/Cascade separates Memories, Rules, Workflows, and Skills; it
   recommends durable reusable knowledge be stored as Rules or `AGENTS.md`, and
   currently prefers `.devin/rules/*.md` with legacy `.windsurf/rules/*.md`
@@ -213,8 +218,11 @@ Hecate V1 supports persisted project-local skill metadata:
 
 ```text
 .agents/skills/<skill-id>/SKILL.md       # cross-agent compatibility source
+.cairnline/skills/<skill-id>/SKILL.md    # portable coordination source
+.claude/skills/<skill-id>/SKILL.md       # Claude-compatible metadata source
+.gemini/skills/<skill-id>/SKILL.md       # Gemini-compatible metadata source
 .hecate/skills/<skill-id>/SKILL.md       # Hecate-native/project-local source
-AGENTS.md / CLAUDE.md linked local roots # explicit project guidance references
+guidance-linked local roots              # explicit project guidance references
 ```
 
 Better alignment target:
@@ -222,17 +230,21 @@ Better alignment target:
 ```text
 .hecate/skills/<skill-id>/SKILL.md       # Hecate-native source of truth
 .agents/skills/<skill-id>/SKILL.md       # cross-agent compatibility candidate
+.cairnline/skills/<skill-id>/SKILL.md    # portable coordination candidate
 .claude/skills/<skill-id>/SKILL.md       # Claude-compatible import candidate
+.gemini/skills/<skill-id>/SKILL.md       # Gemini-compatible import candidate
 .opencode/skills/<skill-id>/SKILL.md     # OpenCode-compatible import candidate
 ~/.agents/skills/<skill-id>/SKILL.md     # future user-global import candidate
 ~/.claude/skills/<skill-id>/SKILL.md     # future user-global import candidate
 ```
 
-V1 scans `.agents/skills`, `.hecate/skills`, and local skill roots explicitly
-linked from enabled `AGENTS.md` / `CLAUDE.md` context sources. Compatibility
-scanning for `.claude/skills`, `.opencode/skills`, or global skill directories
-should remain explicit opt-in, because those skills can carry host-specific
-assumptions or permission fields.
+V1 scans `.agents/skills`, `.cairnline/skills`, `.claude/skills`,
+`.gemini/skills`, `.hecate/skills`, and local skill roots explicitly linked
+from enabled guidance context sources. Hecate stores metadata only: host-specific
+skill bodies are not injected, executed, installed, or treated as policy
+authority. Compatibility scanning for `.opencode/skills` or global skill
+directories should remain explicit opt-in because those skills can carry
+host-specific assumptions or permission fields.
 
 Common frontmatter:
 
@@ -423,10 +435,10 @@ Recommended sequence:
 
 3. **Skills Registry V1 Core**
    - Implemented: project-scoped memory/SQLite store parity.
-   - Implemented: project-local `.agents/skills` and `.hecate/skills`
-     discovery.
+   - Implemented: project-local `.agents/skills`, `.cairnline/skills`,
+     `.claude/skills`, `.gemini/skills`, and `.hecate/skills` discovery.
    - Implemented: local skill roots explicitly linked from enabled `AGENTS.md`
-     or `CLAUDE.md` guidance.
+     or compatible guidance.
    - Implemented: safe metadata parsing, conflict/missing/invalid statuses, and
      operator override preservation.
    - Implemented: list/discover/patch API and Project Skills UI.
@@ -483,7 +495,8 @@ or merely saw generated/runtime evidence.
 - Should Hecate support global user-local skills before project-local skills?
 - What is the minimum built-in skill set: `code-review`, `diff-aware-qa`,
   `investigate`, `handoff`, `release-check`?
-- Should compatibility import from `.claude/skills` be read-only preview first?
+- Should additional host-specific roots such as `.opencode/skills` become
+  metadata-only discovery sources, or require explicit import?
 - How should conflicting nested `AGENTS.md` files be shown when a task touches
   multiple directories?
 - Should skill bodies be included in context by default, or only skill summary
