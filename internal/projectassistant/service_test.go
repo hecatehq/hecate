@@ -645,8 +645,21 @@ func TestService_DraftBootstrapUsesRegisteredSkillDirsFromGuidanceReferences(t *
 	if err != nil {
 		t.Fatalf("Draft bootstrap: %v", err)
 	}
+	foundClaudeMemory := false
 	found := map[string]bool{}
 	for _, action := range proposal.Actions {
+		if action.Kind == ActionCreateMemoryCandidate {
+			var patch memoryCandidatePatch
+			if err := json.Unmarshal(action.Patch, &patch); err != nil {
+				t.Fatalf("decode memory patch: %v", err)
+			}
+			if patch.SuggestedSourceID == "ctx_guidance_claude" {
+				foundClaudeMemory = true
+				if !strings.Contains(patch.Body, "Agent Preset settings") || strings.Contains(patch.Body, "project profile settings") {
+					t.Fatalf("host guidance memory body = %q, want Agent Preset wording without legacy project profile wording", patch.Body)
+				}
+			}
+		}
 		if action.Kind != ActionCreateRole {
 			continue
 		}
@@ -677,6 +690,9 @@ func TestService_DraftBootstrapUsesRegisteredSkillDirsFromGuidanceReferences(t *
 		if !found[id] {
 			t.Fatalf("actions = %+v, want role %s from guidance skill reference", proposal.Actions, id)
 		}
+	}
+	if !foundClaudeMemory {
+		t.Fatalf("actions = %+v, want host guidance memory candidate for CLAUDE.md", proposal.Actions)
 	}
 }
 
