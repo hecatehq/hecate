@@ -57,15 +57,15 @@ func (h *Handler) HandleDiscoverProjectSkills(w http.ResponseWriter, r *http.Req
 	if writeProjectSkillProjectError(w, err) {
 		return
 	}
-	discovered, warnings := projectskills.Discover(r.Context(), project)
 	if usesCairnlineAuthority {
-		items, err := h.upsertDiscoveredProjectSkillsWithCairnlineAuthority(r.Context(), project, discovered, warnings)
+		items, err := h.discoverProjectSkillsWithCairnlineAuthority(r.Context(), project)
 		if writeProjectSkillAuthorityError(w, err) {
 			return
 		}
 		WriteJSON(w, http.StatusOK, ProjectSkillsResponse{Object: "project_skills", Data: renderProjectSkills(items, "cairnline")})
 		return
 	}
+	discovered, warnings := projectskills.Discover(r.Context(), project)
 	items, err := h.projectSkills.UpsertDiscovered(r.Context(), project.ID, discovered)
 	if errors.Is(err, projectskills.ErrInvalid) {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())

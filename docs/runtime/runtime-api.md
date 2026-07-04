@@ -5793,7 +5793,7 @@ requires typed `structuredContent`; text-only sidecar output is rejected.
 #### `POST /hecate/v1/projects/{id}/skills/discover`
 
 Refreshes the project skills registry from active absolute project roots.
-Discovery scans:
+In native-authoritative mode, Hecate's native scanner scans:
 
 - `.agents/skills/*/SKILL.md`
 - `.cairnline/skills/*/SKILL.md`
@@ -5802,6 +5802,12 @@ Discovery scans:
 - `.hecate/skills/*/SKILL.md`
 - local skill roots explicitly linked from enabled guidance context sources,
   including `AGENTS.md`, `CLAUDE.md`, and `GEMINI.md`.
+
+When `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-skills` is enabled with
+the embedded Cairnline connector, discovery is delegated to Cairnline's
+metadata-only scanner and then projected through the Hecate API response shape.
+That authority path can use Cairnline-supported guidance formats beyond the
+native Hecate subset while Hecate remains responsible for runtime policy.
 
 Discovery ignores nested worktree containers such as `.worktrees` and
 `.claude/worktrees` when reading guidance-linked skill roots. Add a linked

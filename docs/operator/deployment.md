@@ -569,9 +569,10 @@ Project skill discovery and
 metadata updates also best-effort mirror metadata-only skill records after the
 Hecate store commit unless
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-skills` is enabled, in which
-case skill discovery/update commits metadata-only skill records to Cairnline
-first and then shadows them back into Hecate. In skill authority mode, discovery
-can use roots and context sources from the embedded Cairnline graph without a
+case skill discovery runs through Cairnline's metadata-only scanner, skill
+discovery/update commits metadata-only skill records to Cairnline first, and
+then shadows them back into Hecate. In skill authority mode, discovery can use
+roots and context sources from the embedded Cairnline graph without a
 Hecate-native compatibility project row. Neither path loads, injects, executes,
 or grants permissions from skill bodies. Project role and work-item mutations
 likewise mirror coordination metadata after Hecate commits unless

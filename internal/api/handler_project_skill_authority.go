@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/cairnlinebridge"
@@ -38,24 +37,13 @@ func (h *Handler) projectForProjectSkillMutation(ctx context.Context, projectID 
 	return project, nil
 }
 
-func (h *Handler) upsertDiscoveredProjectSkillsWithCairnlineAuthority(ctx context.Context, project projects.Project, discovered []projectskills.Skill, warnings []string) ([]projectskills.Skill, error) {
+func (h *Handler) discoverProjectSkillsWithCairnlineAuthority(ctx context.Context, project projects.Project) ([]projectskills.Skill, error) {
 	var recorded []projectskills.Skill
 	err := h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
 		if _, err := cairnlinebridge.UpsertProjectMetadata(ctx, service, project); err != nil {
 			return err
 		}
-		existing, err := service.ListProjectSkills(ctx, project.ID)
-		if err != nil {
-			return err
-		}
-		existingSkills := projectSkillsFromCairnline(existing)
-		merged := projectskills.MergeDiscovered(existingSkills, discovered, project.ID, time.Now().UTC())
-		if len(warnings) > 0 {
-			for idx := range merged {
-				merged[idx].Warnings = appendUniqueProjectSkillWarnings(merged[idx].Warnings, warnings...)
-			}
-		}
-		items, err := cairnlinebridge.UpsertProjectSkills(ctx, service, merged)
+		items, err := service.DiscoverProjectSkills(ctx, project.ID)
 		if err != nil {
 			return err
 		}

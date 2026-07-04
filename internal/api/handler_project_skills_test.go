@@ -561,6 +561,67 @@ hecate:
 	}
 }
 
+func TestProjectSkillsAPI_CairnlineWriteAuthorityUsesCairnlineDiscovery(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend:     "cairnline",
+			CairnlineWriteAuthority: projectCairnlineWriteAuthorityProjectSkills,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	handler.SetProjectStore(projects.NewMemoryStore())
+	handler.SetProjectSkillStore(projectskills.NewMemoryStore())
+	server := NewServer(quietLogger(), handler)
+	root := t.TempDir()
+	writeProjectSkillAPITestFile(t, root, ".github/instructions/local-skills/review/SKILL.md", "# Review\n")
+	writeProjectSkillAPITestFile(t, root, ".github/instructions/project.instructions.md", "Use local-skills/review/SKILL.md.\n")
+	project, err := handler.projects.Create(t.Context(), projects.Project{
+		ID:   "proj_skills_cairnline_discovery",
+		Name: "Cairnline Discovery",
+		Roots: []projects.Root{{
+			ID:     "root_skills_cairnline_discovery",
+			Path:   root,
+			Active: true,
+		}},
+		ContextSources: []projects.ContextSource{{
+			ID:      "ctx_github",
+			Kind:    "host_instruction",
+			Title:   "GitHub instructions",
+			Path:    ".github/instructions/project.instructions.md",
+			Enabled: true,
+			Format:  "github_instruction",
+			Metadata: map[string]string{
+				"root_id": "root_skills_cairnline_discovery",
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+
+	discoverRec := httptest.NewRecorder()
+	server.ServeHTTP(discoverRec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.ID+"/skills/discover", nil))
+	if discoverRec.Code != http.StatusOK {
+		t.Fatalf("discover status = %d body=%s, want 200", discoverRec.Code, discoverRec.Body.String())
+	}
+	var discovered ProjectSkillsResponse
+	if err := json.Unmarshal(discoverRec.Body.Bytes(), &discovered); err != nil {
+		t.Fatalf("decode discover response: %v", err)
+	}
+	review := projectSkillResponseFor(discovered.Data, "review")
+	if review == nil || review.ReadBackend != "cairnline" || review.Path != ".github/instructions/local-skills/review/SKILL.md" {
+		t.Fatalf("discovered skills = %+v, want Cairnline-discovered GitHub instruction skill", discovered.Data)
+	}
+	if len(review.SourceContextSourceIDs) != 1 || review.SourceContextSourceIDs[0] != "ctx_github" {
+		t.Fatalf("review source refs = %+v, want ctx_github", review.SourceContextSourceIDs)
+	}
+	mirrored := getMirroredCairnlineProjectSkillForTest(t, handler, project.ID, "review")
+	if mirrored.Title != "Review" || len(mirrored.SourceRefs) != 1 || mirrored.SourceRefs[0] != "ctx_github" {
+		t.Fatalf("Cairnline skill = %+v, want delegated discovery result", mirrored)
+	}
+}
+
 func TestProjectSkillsAPI_CairnlineWriteAuthorityAcceptsCairnlineOnlyProject(t *testing.T) {
 	t.Parallel()
 	handler := NewHandler(config.Config{
