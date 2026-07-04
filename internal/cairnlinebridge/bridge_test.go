@@ -1015,6 +1015,19 @@ func TestUpsertRoleMirrorsRoleAndExecutionDefaults(t *testing.T) {
 	if created.ID != "developer" || created.DefaultExecutionMode != cairnline.ExecutionOrchestrated {
 		t.Fatalf("created role = %+v, want portable role defaults without Hecate runtime hints", created)
 	}
+	encoded, err := json.Marshal(created)
+	if err != nil {
+		t.Fatalf("Marshal(created role): %v", err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		t.Fatalf("Unmarshal(created role): %v", err)
+	}
+	for _, forbidden := range []string{"default_agent_profile", "default_provider", "default_model", "provider_hint", "model_hint", "agent_preset", "runtime_profile"} {
+		if _, ok := fields[forbidden]; ok {
+			t.Fatalf("created role JSON = %s, want no Hecate runtime field %q in Cairnline role", encoded, forbidden)
+		}
+	}
 	if len(created.DefaultSkillIDs) != 1 || created.DefaultSkillIDs[0] != "backend" {
 		t.Fatalf("created role skill ids = %+v, want compacted backend skill", created.DefaultSkillIDs)
 	}
