@@ -319,18 +319,20 @@ metadata/default, root, role, work-item, assignment, handoff, and
 memory-candidate actions through the same opt-in Cairnline authority
 switchpoints when those switchpoints are enabled; chat/runtime effects remain
 Hecate-owned orchestrator capabilities outside Cairnline core.
-Project list/detail reconstruct default agent-preset and runtime posture from
-Cairnline project/Hecate-specific bridge runtime records where available. Launch-readiness
-and assignment preflight read
-project/work/assignment/role coordination records from Cairnline when
-configured, then apply Hecate runtime validation. Native assignment preflight
-and start context packets can append inspect-only `cairnline_launch_packet`
-evidence so replacement reviews can compare Hecate's authoritative launch
-context with the portable launch packet Cairnline can build for the same
-assignment. Hecate stores remain authoritative, Hecate-specific runtime
-enrichment and setup/action wording remain in Hecate, and the Cairnline-backed
-operations brief uses Cairnline activity/service rows plus Hecate cockpit action
-helpers so operator-facing actions stay parity-checked with the native route.
+Project list/detail reconstruct portable project identity from Cairnline and
+enrich Hecate-owned provider/model/runtime posture only from Hecate runtime
+state. Cairnline project/role/assignment rows may carry opaque preset/runtime
+hint ids, but they no longer imply a portable runtime-profile catalog.
+Launch-readiness and assignment preflight read project/work/assignment/role
+coordination records from Cairnline when configured, then apply Hecate runtime
+validation. Native assignment preflight and start context packets can append
+inspect-only `cairnline_launch_packet` evidence so replacement reviews can
+compare Hecate's authoritative launch context with the portable launch packet
+Cairnline can build for the same assignment. Hecate stores remain authoritative,
+Hecate-specific runtime enrichment and setup/action wording remain in Hecate,
+and the Cairnline-backed operations brief uses Cairnline activity/service rows
+plus Hecate cockpit action helpers so operator-facing actions stay
+parity-checked with the native route.
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-memory` is the first
 disabled-by-default Cairnline write-authority dogfood switch. When enabled,
 accepted project memory entry create/update/delete commits to embedded
@@ -682,8 +684,11 @@ after these gates are met:
   non-authoritative Cairnline replacement evidence. Assignment preflight/start
   packets may carry non-authoritative
   Cairnline launch-packet evidence, and strict embedded reads may use a
-  Cairnline-only project graph as the source of launch inputs. Launch-readiness
-  and preflight can use those inputs without native Hecate project/work stores.
+  Cairnline-only project graph as the source of coordination inputs.
+  Launch-readiness and preflight can inspect those inputs without native Hecate
+  project/work stores, but Hecate-task launch/preflight still requires
+  Hecate-owned provider/model defaults because Cairnline runtime hint ids are
+  opaque.
   Launch/preflight context also reads inspect-only collaboration artifact and
   handoff metadata from the active Cairnline read model, preserving
   evidence/review/handoff hints for Cairnline-only graphs.

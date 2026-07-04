@@ -1859,9 +1859,11 @@ Lists projects ordered by recent activity, then update/create time.
 When `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` and the backend status
 reports `read_model_switch_ready=true`, this endpoint renders portable project
 identity, roots, default root, and context-source metadata from the Cairnline
-read model and marks each item with `read_backend: "cairnline"`. Project
-default agent preset and runtime posture are read from Cairnline's project and
-Hecate-specific bridge runtime records where available; Hecate-only timestamps such as
+read model and marks each item with `read_backend: "cairnline"`. Cairnline
+projects and roles may carry default preset ids and opaque runtime hint ids, but
+Hecate still owns provider/model interpretation, runtime profiles, adapter
+options, and launch/safety policy. Those Hecate-specific defaults are enriched
+from Hecate-native stores where available; Hecate-only timestamps such as
 `last_opened_at` remain enriched from Hecate's native project store. Create,
 update, delete, root, and context-source mutations still commit to
 Hecate-native stores first; when Cairnline is configured they also best-effort
@@ -2439,7 +2441,8 @@ there is no native compatibility assignment row to shadow.
 When `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded` is set, those authority
 helpers prefer the embedded Cairnline project graph over any Hecate-native
 compatibility shadow so stale shadows cannot override authoritative project/root
-metadata.
+metadata. Runtime hint ids from that graph remain opaque; Hecate-owned
+provider/model defaults and launch policy still come from Hecate runtime state.
 Adding `project-metadata-defaults` makes project metadata/default-only PATCHes
 Cairnline-first, then shadows Hecate's compatibility project row; project
 create/delete, roots, context sources, last-opened-only updates, and mixed
@@ -4396,7 +4399,7 @@ Example response:
         "roots": 1,
         "context_sources": 2,
         "agent_profiles": 0,
-        "execution_profiles": 2,
+        "execution_profiles": 0,
         "skills": 3,
         "roles": 6,
         "work_items": 1,
@@ -4462,7 +4465,7 @@ Example response:
         "roots": 1,
         "context_sources": 2,
         "agent_profiles": 0,
-        "execution_profiles": 2,
+        "execution_profiles": 0,
         "skills": 3,
         "roles": 6,
         "work_items": 1,
@@ -4696,7 +4699,7 @@ Example response:
       "roots": 2,
       "context_sources": 3,
       "agent_profiles": 0,
-      "execution_profiles": 2,
+      "execution_profiles": 0,
       "skills": 3,
       "roles": 8,
       "work_items": 2,
@@ -4715,7 +4718,7 @@ Example response:
       "roots": 2,
       "context_sources": 3,
       "agent_profiles": 0,
-      "execution_profiles": 2,
+      "execution_profiles": 0,
       "skills": 3,
       "roles": 8,
       "work_items": 2,
@@ -6277,7 +6280,10 @@ start/prepare mutation.
 
 In strict embedded mode, preflight reads the launch packet directly from the
 embedded Cairnline database and does not require a matching Hecate-native
-project, work item, assignment, or role row.
+project, work item, assignment, or role row to inspect coordination metadata.
+Hecate-task launch and preflight still require Hecate-owned provider/model
+defaults; Cairnline runtime hint ids are not interpreted as provider/model
+configuration.
 
 The Projects cockpit uses this endpoint before `Start assignment`, `Prepare
 chat`, and `Start from handoff` so the operator can review the effective launch

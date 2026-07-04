@@ -51,16 +51,8 @@ func (h *Handler) createProjectWithCairnlineAuthority(ctx context.Context, proje
 
 	var written cairnline.Project
 	err := h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
-		if executionProfile, ok := cairnlinebridge.ProjectExecutionProfile(project); ok {
-			if err := upsertProjectExecutionProfileForCairnlineAuthority(ctx, service, executionProfile); err != nil {
-				return err
-			}
-		}
 		created, err := service.CreateProject(ctx, cairnlinebridge.Project(project))
 		if err != nil {
-			if executionProfile, ok := cairnlinebridge.ProjectExecutionProfile(project); ok {
-				_ = service.DeleteExecutionProfile(ctx, executionProfile.ID)
-			}
 			return err
 		}
 		written = created
@@ -109,11 +101,7 @@ func (h *Handler) deleteCairnlineOnlyProjectWithAuthority(ctx context.Context, p
 		if err != nil {
 			return err
 		}
-		executionProfile, err := cairnlineExecutionProfileByID(ctx, service, item.DefaultExecutionProfileID)
-		if err != nil {
-			return err
-		}
-		project = projectFromCairnline(item, executionProfile, projects.Project{})
+		project = projectFromCairnline(item, projects.Project{})
 		rollback, err = service.ExportSnapshot(ctx)
 		if err != nil {
 			return err
@@ -148,23 +136,6 @@ func (h *Handler) restoreProjectSnapshotToCairnline(ctx context.Context, snapsho
 	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
 		return cairnlinebridge.Seed(ctx, service, snapshot)
 	})
-}
-
-func upsertProjectExecutionProfileForCairnlineAuthority(ctx context.Context, service *cairnline.Service, profile cairnline.ExecutionProfile) error {
-	if service == nil {
-		return errors.New("cairnline service is required")
-	}
-	if strings.TrimSpace(profile.ID) == "" {
-		return nil
-	}
-	if _, err := service.UpdateExecutionProfile(ctx, profile); err != nil {
-		if !errors.Is(err, cairnline.ErrNotFound) {
-			return err
-		}
-		_, err = service.CreateExecutionProfile(ctx, profile)
-		return err
-	}
-	return nil
 }
 
 func projectFromCairnlineProjectCreate(native projects.Project, written cairnline.Project) projects.Project {

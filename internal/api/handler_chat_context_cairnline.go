@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/hecatehq/cairnline"
@@ -159,12 +158,8 @@ func cairnlineAssignmentLaunchContextPacket(launch cairnline.AssignmentLaunchPac
 	if rootOK {
 		workspace = strings.TrimSpace(root.Path)
 	}
-	provider, model, executionProfile := "", "", strings.TrimSpace(launch.Assignment.ExecutionProfileID)
-	if launch.ExecutionProfile != nil {
-		provider = strings.TrimSpace(launch.ExecutionProfile.ProviderHint)
-		model = strings.TrimSpace(launch.ExecutionProfile.ModelHint)
-		executionProfile = firstNonEmptyString(strings.TrimSpace(launch.ExecutionProfile.ID), executionProfile)
-	}
+	executionProfile := strings.TrimSpace(launch.Assignment.ExecutionProfileID)
+	provider, model := "", ""
 	packet := baseChatContextPacket(firstNonEmptyString(strings.TrimSpace(launch.Assignment.ExecutionMode), cairnline.ExecutionMCPPull), provider, model, workspace)
 	packet.ID = firstNonEmptyString(strings.TrimSpace(launch.Assignment.ContextSnapshotID), "cairnline_assignment_context_"+strings.TrimSpace(launch.Assignment.ID))
 	packet.ExecutionProfile = executionProfile
@@ -184,9 +179,6 @@ func cairnlineAssignmentLaunchContextPacket(launch cairnline.AssignmentLaunchPac
 	}
 	if launch.Role != nil {
 		appendCairnlineRole(&packet, *launch.Role)
-	}
-	if launch.ExecutionProfile != nil {
-		appendCairnlineExecutionProfile(&packet, *launch.ExecutionProfile)
 	}
 	appendCairnlineProjectSkills(&packet, launch)
 	appendCairnlineMemory(&packet, launch.Memory)
@@ -221,9 +213,6 @@ func appendCairnlineAssignmentLaunchPacketEvidenceItem(packet *chat.ContextPacke
 	}
 	profileID := strings.TrimSpace(launch.Assignment.ProfileID)
 	executionProfileID := strings.TrimSpace(launch.Assignment.ExecutionProfileID)
-	if launch.ExecutionProfile != nil {
-		executionProfileID = firstNonEmptyString(strings.TrimSpace(launch.ExecutionProfile.ID), executionProfileID)
-	}
 	roleLabel := strings.TrimSpace(launch.Assignment.RoleID)
 	if launch.Role != nil && strings.TrimSpace(launch.Role.Name) != "" {
 		roleLabel = firstNonEmptyString(roleLabel, strings.TrimSpace(launch.Role.ID)) + " (" + strings.TrimSpace(launch.Role.Name) + ")"
@@ -320,9 +309,6 @@ func cairnlineAssignmentLaunchPacketEvidenceMetadata(launch cairnline.Assignment
 		"handoff_count":          fmt.Sprintf("%d", len(launch.Handoffs)),
 		"memory_count":           fmt.Sprintf("%d", len(launch.Memory)),
 		"memory_candidate_count": fmt.Sprintf("%d", len(launch.MemoryCandidates)),
-	}
-	if launch.ExecutionProfile != nil {
-		metadata["execution_profile_id"] = firstNonEmptyString(strings.TrimSpace(launch.ExecutionProfile.ID), metadata["execution_profile_id"])
 	}
 	if launchID := strings.TrimSpace(launch.ID); launchID != "" {
 		metadata["launch_packet_id"] = launchID
@@ -480,40 +466,6 @@ func appendCairnlineRole(packet *chat.ContextPacket, role cairnline.Role) {
 		TrustLevel:      contextTrustRuntimeState,
 		Origin:          strings.TrimSpace(role.ID),
 		Title:           firstNonEmptyString(strings.TrimSpace(role.Name), strings.TrimSpace(role.ID)),
-		Body:            strings.Join(body, "\n"),
-		Included:        true,
-		InclusionReason: cairnlineAssignmentContextReason,
-	})
-}
-
-func appendCairnlineExecutionProfile(packet *chat.ContextPacket, profile cairnline.ExecutionProfile) {
-	body := []string{
-		"ID: " + strings.TrimSpace(profile.ID),
-		"Name: " + firstNonEmptyString(strings.TrimSpace(profile.Name), strings.TrimSpace(profile.ID)),
-		"Agent kind: " + firstNonEmptyString(strings.TrimSpace(profile.AgentKind), cairnline.DesiredAgentAny),
-		"Provider hint: " + firstNonEmptyString(strings.TrimSpace(profile.ProviderHint), "inherit"),
-		"Model hint: " + firstNonEmptyString(strings.TrimSpace(profile.ModelHint), "inherit"),
-		"Tools policy: " + firstNonEmptyString(strings.TrimSpace(profile.ToolsPolicy), "inherit"),
-		"Writes policy: " + firstNonEmptyString(strings.TrimSpace(profile.WritesPolicy), "inherit"),
-		"Network policy: " + firstNonEmptyString(strings.TrimSpace(profile.NetworkPolicy), "inherit"),
-		"Approval policy: " + firstNonEmptyString(strings.TrimSpace(profile.ApprovalPolicy), "inherit"),
-	}
-	if description := strings.TrimSpace(profile.Description); description != "" {
-		body = append(body, "Description: "+description)
-	}
-	if keys := cairnlineAdapterOptionKeys(profile.AdapterOptions); len(keys) > 0 {
-		body = append(body, "Adapter option keys: "+strings.Join(keys, ", "))
-	}
-	appendContextPacketSourceWithSection(packet, contextSectionProfile, chat.ContextSource{
-		Kind:   "execution_profile",
-		Label:  firstNonEmptyString(strings.TrimSpace(profile.Name), strings.TrimSpace(profile.ID)),
-		Detail: strings.TrimSpace(profile.ID),
-		Trust:  contextTrustRuntimeState,
-	}, chat.ContextItem{
-		Kind:            "execution_profile",
-		TrustLevel:      contextTrustRuntimeState,
-		Origin:          strings.TrimSpace(profile.ID),
-		Title:           firstNonEmptyString(strings.TrimSpace(profile.Name), strings.TrimSpace(profile.ID)),
 		Body:            strings.Join(body, "\n"),
 		Included:        true,
 		InclusionReason: cairnlineAssignmentContextReason,
@@ -782,17 +734,6 @@ func cairnlineRequestedSkillIDs(launch cairnline.AssignmentLaunchPacket) []strin
 		ids = append(ids, skill.ID)
 	}
 	return compactContextIDs(ids)
-}
-
-func cairnlineAdapterOptionKeys(options map[string]any) []string {
-	keys := make([]string, 0, len(options))
-	for key := range options {
-		if trimmed := strings.TrimSpace(key); trimmed != "" {
-			keys = append(keys, trimmed)
-		}
-	}
-	sort.Strings(keys)
-	return keys
 }
 
 func compactContextIDs(values []string) []string {

@@ -56,7 +56,7 @@ func (h *Handler) createProjectWorkRoleWithCairnlineAuthority(ctx context.Contex
 		if err != nil {
 			return err
 		}
-		created, err = h.projectWorkRoleFromCairnlineAuthority(ctx, service, recorded, projectwork.AgentRoleProfile{})
+		created, err = h.projectWorkRoleFromCairnlineAuthority(ctx, service, recorded, role)
 		return err
 	})
 	if err != nil {
@@ -99,7 +99,7 @@ func (h *Handler) updateProjectWorkRoleWithCairnlineAuthority(ctx context.Contex
 		if err != nil {
 			return err
 		}
-		updated, err = h.projectWorkRoleFromCairnlineAuthority(ctx, service, recorded, projectwork.AgentRoleProfile{})
+		updated, err = h.projectWorkRoleFromCairnlineAuthority(ctx, service, recorded, role)
 		return err
 	})
 	if err != nil {
@@ -134,11 +134,7 @@ func (h *Handler) deleteProjectWorkRoleWithCairnlineAuthority(ctx context.Contex
 }
 
 func (h *Handler) projectWorkRoleFromCairnlineAuthority(ctx context.Context, service *cairnline.Service, role cairnline.Role, native projectwork.AgentRoleProfile) (projectwork.AgentRoleProfile, error) {
-	executionProfiles, err := service.ListExecutionProfiles(ctx)
-	if err != nil {
-		return projectwork.AgentRoleProfile{}, err
-	}
-	return projectWorkRoleFromCairnline(role, cairnlineExecutionProfilesByID(executionProfiles), native), nil
+	return projectWorkRoleFromCairnline(role, native), nil
 }
 
 func getCairnlineProjectRoleForAuthority(ctx context.Context, service *cairnline.Service, projectID, roleID string) (cairnline.Role, error) {

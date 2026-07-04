@@ -278,14 +278,6 @@ func TestProjectOperationsBrief_StrictEmbeddedReadModelReadsWithoutHecateProject
 	const projectID = "proj_embedded_operations"
 
 	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
-		if _, err := service.CreateExecutionProfile(t.Context(), cairnline.ExecutionProfile{
-			ID:           "exec_embedded_operations",
-			Name:         "Embedded operations runtime",
-			ProviderHint: "openai",
-			ModelHint:    "gpt-5",
-		}); err != nil {
-			return err
-		}
 		if _, err := service.CreateProject(t.Context(), cairnline.Project{
 			ID:                        projectID,
 			Name:                      "Embedded Operations",
@@ -374,8 +366,8 @@ func TestProjectOperationsBrief_StrictEmbeddedReadModelReadsWithoutHecateProject
 	if response.Object != "project_operations_brief" || response.Data.ProjectID != projectID || response.Data.ReadBackend != "cairnline" {
 		t.Fatalf("operations response = %+v, want embedded Cairnline operations", response)
 	}
-	if response.Data.Summary.PendingMemoryCandidateCount != 1 || response.Data.Summary.PendingHandoffCount != 1 || response.Data.Summary.HighCount != 1 || response.Data.Summary.MediumCount == 0 {
-		t.Fatalf("operations summary = %+v, want queued assignment, memory, and handoff counts", response.Data.Summary)
+	if response.Data.Summary.PendingMemoryCandidateCount != 1 || response.Data.Summary.PendingHandoffCount != 1 || response.Data.Summary.HighCount != 2 || response.Data.Summary.MediumCount == 0 {
+		t.Fatalf("operations summary = %+v, want missing runtime defaults, queued assignment, memory, and handoff counts", response.Data.Summary)
 	}
 	start := findProjectOperationsItemForTest(t, response.Data.Items, "start_queued_assignment")
 	if start.Target.WorkItemID != "work_embedded_operations" || start.Target.AssignmentID != "asgn_embedded_operations" || start.Action.Type != projectOperationsActionOpenAssignmentPreflight || start.Status != "not_started" {
@@ -389,7 +381,10 @@ func TestProjectOperationsBrief_StrictEmbeddedReadModelReadsWithoutHecateProject
 	if memoryItem.Target.Surface != "memory" || memoryItem.Action.Type != projectOperationsActionOpenMemoryReview {
 		t.Fatalf("memory item = %+v, want embedded memory review action", memoryItem)
 	}
-	requireProjectOperationsItemAbsentForTest(t, response.Data.Items, "configure_project_defaults")
+	configure := findProjectOperationsItemForTest(t, response.Data.Items, "configure_project_defaults")
+	if configure.Action.Type != projectOperationsActionOpenProjectSettings {
+		t.Fatalf("configure defaults item = %+v, want project settings action", configure)
+	}
 
 	rec = httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_missing/operations/brief", nil))

@@ -51,19 +51,14 @@ func (store projectAssistantCairnlineWorkReadStore) ListRoles(ctx context.Contex
 	if err != nil {
 		return nil, projectAssistantWorkReadError(err)
 	}
-	executionProfiles, err := view.service.ListExecutionProfiles(ctx)
-	if err != nil {
-		return nil, projectAssistantWorkReadError(err)
-	}
 	nativeRoles := append([]projectwork.AgentRoleProfile(nil), view.snapshot.Roles...)
 	nativeRoles = append(nativeRoles, projectwork.BuiltInRoleProfiles(view.snapshot.Project.ID)...)
 	nativeByID := projectWorkRolesByID(nativeRoles)
-	executionProfilesByID := cairnlineExecutionProfilesByID(executionProfiles)
 	seen := make(map[string]struct{}, len(roles))
 	out := make([]projectwork.AgentRoleProfile, 0, len(roles))
 	for _, role := range roles {
 		seen[role.ID] = struct{}{}
-		out = append(out, projectWorkRoleFromCairnline(role, executionProfilesByID, nativeByID[role.ID]))
+		out = append(out, projectWorkRoleFromCairnline(role, nativeByID[role.ID]))
 	}
 	for _, role := range projectwork.BuiltInRoleProfiles(view.snapshot.Project.ID) {
 		if _, ok := seen[role.ID]; ok {

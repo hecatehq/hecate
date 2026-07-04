@@ -185,12 +185,8 @@ func (h *Handler) cairnlineProjectAssistantContextSeedFromService(ctx context.Co
 	if err != nil {
 		return seed, err
 	}
-	executionProfile, err := cairnlineExecutionProfileByID(ctx, service, project.DefaultExecutionProfileID)
-	if err != nil {
-		return seed, err
-	}
 	seed.projects = projects.NewMemoryStore()
-	if _, err := seed.projects.Create(ctx, projectFromCairnline(project, executionProfile, snapshot.Project)); err != nil {
+	if _, err := seed.projects.Create(ctx, projectFromCairnline(project, snapshot.Project)); err != nil {
 		return seed, err
 	}
 
@@ -302,17 +298,12 @@ func seedCairnlineProjectAssistantWork(ctx context.Context, store *projectwork.M
 	if err != nil {
 		return err
 	}
-	executionProfiles, err := service.ListExecutionProfiles(ctx)
-	if err != nil {
-		return err
-	}
-	executionProfilesByID := cairnlineExecutionProfilesByID(executionProfiles)
 	nativeRolesByID := projectWorkRolesByID(snapshot.Roles)
 	for _, role := range roles {
 		if projectwork.IsBuiltInRoleID(role.ID) {
 			continue
 		}
-		if _, err := store.CreateRole(ctx, projectWorkRoleFromCairnline(role, executionProfilesByID, nativeRolesByID[role.ID])); err != nil {
+		if _, err := store.CreateRole(ctx, projectWorkRoleFromCairnline(role, nativeRolesByID[role.ID])); err != nil {
 			return err
 		}
 	}

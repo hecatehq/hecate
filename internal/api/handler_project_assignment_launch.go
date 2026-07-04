@@ -445,11 +445,7 @@ func (h *Handler) cairnlineProjectAssignmentLaunchInputs(ctx context.Context, pr
 	if strings.TrimSpace(launch.WorkItem.ID) != strings.TrimSpace(workItemID) {
 		return projectAssignmentLaunchInputs{}, newProjectAssignmentPreflightError(http.StatusNotFound, errCodeNotFound, "assignment not found")
 	}
-	projectExecutionProfile, err := cairnlineExecutionProfileByID(ctx, service, launch.Project.DefaultExecutionProfileID)
-	if err != nil {
-		return projectAssignmentLaunchInputs{}, err
-	}
-	project := projectFromCairnline(launch.Project, projectExecutionProfile, snapshot.Project)
+	project := projectFromCairnline(launch.Project, snapshot.Project)
 	workItem := projectWorkItemFromCairnline(launch.WorkItem)
 	assignment := projectWorkAssignmentFromCairnline(launch.Assignment)
 	assignment, err = h.cairnlineAssignmentWithRuntimeRef(ctx, project.ID, assignment, snapshot.Assignments)
@@ -494,7 +490,7 @@ func (h *Handler) cairnlineSidecarProjectAssignmentLaunchInputs(ctx context.Cont
 		return projectAssignmentLaunchInputs{}, newProjectAssignmentPreflightError(http.StatusNotFound, errCodeNotFound, "assignment not found")
 	}
 	nativeProject := projectFromCairnlineSidecar(projectItem)
-	project := projectFromCairnline(launch.Project, launch.ExecutionProfile, nativeProject)
+	project := projectFromCairnline(launch.Project, nativeProject)
 	if len(project.Roots) == 0 {
 		project.Roots = nativeProject.Roots
 	}
@@ -582,11 +578,7 @@ func cairnlineLaunchRole(ctx context.Context, service *cairnline.Service, snapsh
 	if launch.Role == nil {
 		return projectwork.AgentRoleProfile{ID: strings.TrimSpace(launch.Assignment.RoleID)}, false, nil
 	}
-	executionProfiles, err := service.ListExecutionProfiles(ctx)
-	if err != nil {
-		return projectwork.AgentRoleProfile{}, false, err
-	}
-	role := projectWorkRoleFromCairnline(*launch.Role, cairnlineExecutionProfilesByID(executionProfiles), projectWorkRolesByID(snapshot.Roles)[launch.Role.ID])
+	role := projectWorkRoleFromCairnline(*launch.Role, projectWorkRolesByID(snapshot.Roles)[launch.Role.ID])
 	return role, true, nil
 }
 
@@ -594,24 +586,12 @@ func cairnlineSidecarLaunchRole(launch cairnline.AssignmentLaunchPacket) (projec
 	if launch.Role == nil {
 		return projectwork.AgentRoleProfile{ID: strings.TrimSpace(launch.Assignment.RoleID)}, false
 	}
-	executionProfiles := map[string]cairnline.ExecutionProfile{}
-	if launch.ExecutionProfile != nil && strings.TrimSpace(launch.ExecutionProfile.ID) != "" {
-		executionProfiles[launch.ExecutionProfile.ID] = *launch.ExecutionProfile
-	}
-	role := projectWorkRoleFromCairnline(*launch.Role, executionProfiles, projectwork.AgentRoleProfile{})
+	role := projectWorkRoleFromCairnline(*launch.Role, projectwork.AgentRoleProfile{})
 	if strings.TrimSpace(role.ProjectID) == "" {
 		role.ProjectID = strings.TrimSpace(firstNonEmpty(launch.Role.ProjectID, launch.Assignment.ProjectID, launch.Project.ID))
 	}
 	if strings.TrimSpace(role.DefaultAgentProfile) == "" {
 		role.DefaultAgentProfile = strings.TrimSpace(launch.Assignment.ProfileID)
-	}
-	if launch.ExecutionProfile != nil {
-		if strings.TrimSpace(role.DefaultProvider) == "" {
-			role.DefaultProvider = strings.TrimSpace(launch.ExecutionProfile.ProviderHint)
-		}
-		if strings.TrimSpace(role.DefaultModel) == "" {
-			role.DefaultModel = strings.TrimSpace(launch.ExecutionProfile.ModelHint)
-		}
 	}
 	if strings.TrimSpace(role.DefaultDriverKind) == "" {
 		role.DefaultDriverKind = projectWorkAssignmentDriverFromCairnline(launch.Assignment.ExecutionMode)

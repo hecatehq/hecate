@@ -158,11 +158,7 @@ func (h *Handler) projectFromEmbeddedCairnlineWriteAuthority(ctx context.Context
 		if err != nil {
 			return err
 		}
-		executionProfile, err := cairnlineExecutionProfileByID(ctx, service, item.DefaultExecutionProfileID)
-		if err != nil {
-			return err
-		}
-		project = projectFromCairnline(item, executionProfile, projects.Project{})
+		project = projectFromCairnline(item, projects.Project{})
 		return nil
 	})
 	if err != nil {

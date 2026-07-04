@@ -822,11 +822,7 @@ func (h *Handler) renderCairnlineProject(ctx context.Context, native projects.Pr
 }
 
 func (h *Handler) renderCairnlineProjectFromService(ctx context.Context, service *cairnline.Service, project cairnline.Project, native projects.Project) (ProjectResponseItem, error) {
-	executionProfile, err := cairnlineExecutionProfileByID(ctx, service, project.DefaultExecutionProfileID)
-	if err != nil {
-		return ProjectResponseItem{}, err
-	}
-	rendered := renderProject(projectFromCairnline(project, executionProfile, native))
+	rendered := renderProject(projectFromCairnline(project, native))
 	rendered.ReadBackend = "cairnline"
 	return rendered, nil
 }
@@ -887,7 +883,7 @@ func renderProjectWithBackend(project projects.Project, readBackend string) Proj
 	}
 }
 
-func projectFromCairnline(item cairnline.Project, executionProfile *cairnline.ExecutionProfile, native projects.Project) projects.Project {
+func projectFromCairnline(item cairnline.Project, native projects.Project) projects.Project {
 	project := projects.Project{
 		ID:                       item.ID,
 		Name:                     item.Name,
@@ -906,71 +902,7 @@ func projectFromCairnline(item cairnline.Project, executionProfile *cairnline.Ex
 		UpdatedAt:                firstNonZeroTime(native.UpdatedAt, item.UpdatedAt),
 		LastOpenedAt:             native.LastOpenedAt,
 	}
-	if executionProfile != nil {
-		project.DefaultProvider = strings.TrimSpace(executionProfile.ProviderHint)
-		project.DefaultModel = strings.TrimSpace(executionProfile.ModelHint)
-		project.DefaultToolsEnabled = boolFromCairnlinePolicy(executionProfile.ToolsPolicy)
-		project.DefaultWorkspaceMode = stringFromCairnlineAdapterOption(executionProfile.AdapterOptions, "workspace_mode")
-		project.DefaultSystemPrompt = stringFromCairnlineAdapterOption(executionProfile.AdapterOptions, "system_prompt")
-		project.DefaultCompactToolOutput = boolFromCairnlineAdapterOption(executionProfile.AdapterOptions, "compact_tool_output")
-	}
 	return project
-}
-
-func cairnlineExecutionProfileByID(ctx context.Context, service *cairnline.Service, id string) (*cairnline.ExecutionProfile, error) {
-	id = strings.TrimSpace(id)
-	if id == "" {
-		return nil, nil
-	}
-	executionProfiles, err := service.ListExecutionProfiles(ctx)
-	if err != nil {
-		return nil, err
-	}
-	for _, item := range executionProfiles {
-		if item.ID != id {
-			continue
-		}
-		found := item
-		return &found, nil
-	}
-	return nil, nil
-}
-
-func boolFromCairnlinePolicy(policy string) *bool {
-	switch strings.TrimSpace(policy) {
-	case "allow":
-		value := true
-		return &value
-	case "block":
-		value := false
-		return &value
-	default:
-		return nil
-	}
-}
-
-func stringFromCairnlineAdapterOption(options map[string]any, key string) string {
-	value, ok := options[key]
-	if !ok {
-		return ""
-	}
-	text, ok := value.(string)
-	if !ok {
-		return ""
-	}
-	return strings.TrimSpace(text)
-}
-
-func boolFromCairnlineAdapterOption(options map[string]any, key string) *bool {
-	value, ok := options[key]
-	if !ok {
-		return nil
-	}
-	flag, ok := value.(bool)
-	if !ok {
-		return nil
-	}
-	return &flag
 }
 
 func projectRootsFromCairnline(items []cairnline.Root, native []projects.Root) []projects.Root {

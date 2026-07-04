@@ -273,14 +273,6 @@ func TestProjectSetupReadiness_StrictEmbeddedReadModelReadsWithoutHecateProject(
 	const projectID = "proj_embedded_setup"
 
 	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
-		if _, err := service.CreateExecutionProfile(t.Context(), cairnline.ExecutionProfile{
-			ID:           "exec_embedded_setup",
-			Name:         "Embedded setup runtime",
-			ProviderHint: "openai",
-			ModelHint:    "gpt-5",
-		}); err != nil {
-			return err
-		}
 		if _, err := service.CreateProject(t.Context(), cairnline.Project{
 			ID:                        projectID,
 			Name:                      "Embedded Setup",
@@ -376,8 +368,8 @@ func TestProjectSetupReadiness_StrictEmbeddedReadModelReadsWithoutHecateProject(
 	if summary.WorkItemCount != 0 || summary.RoleCount != 1 || summary.SkillCount != 1 || summary.EnabledContextSourceCount != 1 || summary.SavedMemoryCount != 1 || summary.PendingMemoryCandidateCount != 1 {
 		t.Fatalf("setup readiness summary = %+v, want embedded setup counts", summary)
 	}
-	if summary.MissingDefaults || !summary.HasPurpose || !summary.HasActiveRoot {
-		t.Fatalf("setup readiness summary = %+v, want embedded purpose/root/defaults", summary)
+	if !summary.MissingDefaults || !summary.HasPurpose || !summary.HasActiveRoot {
+		t.Fatalf("setup readiness summary = %+v, want embedded purpose/root plus missing native runtime defaults", summary)
 	}
 
 	rec = httptest.NewRecorder()

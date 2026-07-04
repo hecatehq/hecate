@@ -171,7 +171,7 @@ func TestProjectJourneyAPI_DiscoverStartInspectAndHandoff(t *testing.T) {
 	}
 }
 
-func TestProjectJourneyAPI_CairnlineReplacementModeCreatesWorkAndStartsWithoutNativeProjectIdentity(t *testing.T) {
+func TestProjectJourneyAPI_CairnlineReplacementModeBlocksTaskStartWithoutNativeRuntimeDefaults(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectsCairnlineReplacementIdentityAuthorityTestServer(t)
 	client := newAPITestClient(t, server)
@@ -246,38 +246,26 @@ func TestProjectJourneyAPI_CairnlineReplacementModeCreatesWorkAndStartsWithoutNa
 	}
 	assertNoNativeProjectWorkAssignmentForJourney(t, handler, projectID, "work_replacement", "asgn_replacement")
 
-	started := mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusOK, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_replacement/assignments/asgn_replacement/start", `{}`)
-	ref := assignmentExecutionRefForTest(t, started.Data)
-	if ref.TaskID == "" || ref.RunID == "" || ref.ContextSnapshotID == "" {
-		t.Fatalf("started assignment execution_ref = %+v, want task/run/context links", ref)
+	blocked := mustRequestJSONStatus[projectWorkErrorResponse](client, http.StatusUnprocessableEntity, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_replacement/assignments/asgn_replacement/start", `{}`)
+	if blocked.Error.Type != errCodeModelNotConfigured {
+		t.Fatalf("blocked start = %+v, want model_not_configured without native Hecate runtime defaults", blocked.Error)
 	}
-	task, found, err := handler.taskStore.GetTask(t.Context(), ref.TaskID)
-	if err != nil || !found {
-		t.Fatalf("GetTask(%q) found=%v err=%v, want task", ref.TaskID, found, err)
+	if tasks, err := handler.taskStore.ListTasks(t.Context(), taskstateFilterAll()); err != nil || len(tasks) != 0 {
+		t.Fatalf("tasks = %+v err=%v, want no Hecate task without runtime defaults", tasks, err)
 	}
-	if task.ProjectID != projectID || task.WorkItemID != "work_replacement" || task.AssignmentID != "asgn_replacement" {
-		t.Fatalf("task linkage = project %q work %q assignment %q, want replacement refs", task.ProjectID, task.WorkItemID, task.AssignmentID)
-	}
-	if task.RequestedProvider != "anthropic" || task.RequestedModel != "claude-sonnet-4" || task.WorkingDirectory != root {
-		t.Fatalf("task provider/model/workspace = %q/%q/%q, want anthropic/claude-sonnet-4/%q", task.RequestedProvider, task.RequestedModel, task.WorkingDirectory, root)
-	}
-	if !strings.Contains(task.Prompt, "Start replacement assignment") || !strings.Contains(task.SystemPrompt, "Use the Cairnline replacement graph.") {
-		t.Fatalf("task prompt/system = %q / %q, want replacement work and role context", task.Prompt, task.SystemPrompt)
-	}
-
 	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
-		t.Fatalf("Hecate project store ok=%v err=%v after start, want no native project identity row", ok, err)
+		t.Fatalf("Hecate project store ok=%v err=%v after blocked start, want no native project identity row", ok, err)
 	}
 	mirrored := getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_replacement")
-	if mirrored.ExecutionRef != ref.RunID || mirrored.ContextSnapshotID != ref.ContextSnapshotID {
-		t.Fatalf("mirrored Cairnline assignment = ref %q context %q, want %q/%q", mirrored.ExecutionRef, mirrored.ContextSnapshotID, ref.RunID, ref.ContextSnapshotID)
+	if mirrored.Status != projectwork.AssignmentStatusQueued || mirrored.ExecutionRef != "" || mirrored.ContextSnapshotID != "" {
+		t.Fatalf("mirrored Cairnline assignment = %+v, want queued without runtime refs after blocked start", mirrored)
 	}
 	runtime, ok, err := handler.projectRuntime.Get(t.Context(), projectID, "asgn_replacement")
 	if err != nil || !ok {
-		t.Fatalf("Hecate runtime overlay ok=%v err=%v after replacement start, want runtime refs", ok, err)
+		t.Fatalf("Hecate runtime overlay ok=%v err=%v after assignment create, want queued runtime shell", ok, err)
 	}
-	if runtime.ExecutionRef.RunID != ref.RunID || runtime.ExecutionRef.ContextSnapshotID != ref.ContextSnapshotID {
-		t.Fatalf("Hecate runtime overlay = %+v, want run/context %q/%q", runtime.ExecutionRef, ref.RunID, ref.ContextSnapshotID)
+	if runtime.ExecutionRef.TaskID != "" || runtime.ExecutionRef.RunID != "" || runtime.ExecutionRef.ContextSnapshotID != "" {
+		t.Fatalf("Hecate runtime overlay = %+v, want no task/run/context refs after blocked start", runtime.ExecutionRef)
 	}
 	assertNoNativeProjectWorkAssignmentForJourney(t, handler, projectID, "work_replacement", "asgn_replacement")
 
@@ -293,7 +281,7 @@ func TestProjectJourneyAPI_CairnlineReplacementModeCreatesWorkAndStartsWithoutNa
 		"assignment_id":        "asgn_replacement",
 		"kind":                 projectwork.ArtifactKindEvidenceLink,
 		"title":                "Replacement evidence",
-		"body":                 "Task and context links were created from a Cairnline-only project graph.",
+		"body":                 "Cairnline replacement coordination was recorded without native Hecate task launch.",
 		"author_role_id":       "role_replacement",
 		"evidence_url":         "https://example.invalid/hecate/cairnline-replacement",
 		"evidence_provider":    "operator",
@@ -332,12 +320,10 @@ func TestProjectJourneyAPI_CairnlineReplacementModeCreatesWorkAndStartsWithoutNa
 	handoff := mustRequestJSONStatus[ProjectHandoffEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_replacement/handoffs", projectJourneyJSON(t, map[string]any{
 		"id":                      "handoff_replacement_review",
 		"source_assignment_id":    "asgn_replacement",
-		"source_run_id":           ref.RunID,
 		"target_role_id":          "role_reviewer",
 		"title":                   "Replacement review handoff",
 		"summary":                 "Cairnline replacement journey evidence is ready.",
 		"recommended_next_action": "Review the recorded evidence and close the work item.",
-		"context_refs":            []string{ref.ContextSnapshotID},
 		"linked_artifact_ids":     []string{"artifact_replacement_evidence", "artifact_replacement_review"},
 		"created_by_role_id":      "role_replacement",
 		"provenance_kind":         "agent_draft",

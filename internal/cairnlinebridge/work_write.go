@@ -19,15 +19,6 @@ func UpsertRole(ctx context.Context, service *cairnline.Service, role projectwor
 	if strings.TrimSpace(item.ID) == "" {
 		return cairnline.Role{}, errors.Join(cairnline.ErrInvalid, errors.New("role id is required"))
 	}
-	if executionProfile, ok := RoleExecutionProfile(role); ok {
-		if err := upsertExecutionProfile(ctx, service, executionProfile); err != nil {
-			return cairnline.Role{}, err
-		}
-	}
-	staleExecutionProfileID := ""
-	if item.DefaultExecutionProfileID == "" {
-		staleExecutionProfileID = roleExecutionProfileIDValue(role)
-	}
 	written, err := service.UpdateRole(ctx, item)
 	if err != nil {
 		if !errors.Is(err, cairnline.ErrNotFound) {
@@ -35,11 +26,6 @@ func UpsertRole(ctx context.Context, service *cairnline.Service, role projectwor
 		}
 		written, err = service.CreateRole(ctx, item)
 		if err != nil {
-			return cairnline.Role{}, err
-		}
-	}
-	if staleExecutionProfileID != "" {
-		if err := service.DeleteExecutionProfile(ctx, staleExecutionProfileID); err != nil && !errors.Is(err, cairnline.ErrNotFound) {
 			return cairnline.Role{}, err
 		}
 	}
@@ -57,11 +43,6 @@ func DeleteRole(ctx context.Context, service *cairnline.Service, role projectwor
 	}
 	if err := service.DeleteRole(ctx, projectID, roleID); err != nil {
 		return err
-	}
-	if executionProfileID := roleExecutionProfileIDValue(role); executionProfileID != "" {
-		if err := service.DeleteExecutionProfile(ctx, executionProfileID); err != nil && !errors.Is(err, cairnline.ErrNotFound) {
-			return err
-		}
 	}
 	return nil
 }
