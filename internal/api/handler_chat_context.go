@@ -1072,12 +1072,12 @@ func appendResolvedAgentProfile(packet *chat.ContextPacket, profile projectworka
 		body = append(body, "Warnings: "+strings.Join(profile.Warnings, " "))
 	}
 	appendContextPacketSourceWithSection(packet, contextSectionProfile, chat.ContextSource{
-		Kind:   "agent_profile",
+		Kind:   "agent_preset",
 		Label:  firstNonEmptyString(profile.Name, profile.ID),
 		Detail: profile.ID,
 		Trust:  contextTrustRuntimeState,
 	}, chat.ContextItem{
-		Kind:            "agent_profile",
+		Kind:            "agent_preset",
 		TrustLevel:      contextTrustRuntimeState,
 		Origin:          profile.ID,
 		Title:           firstNonEmptyString(profile.Name, profile.ID),
@@ -1087,18 +1087,18 @@ func appendResolvedAgentProfile(packet *chat.ContextPacket, profile projectworka
 	})
 	for _, warning := range profile.Warnings {
 		appendContextPacketSourceWithSection(packet, contextSectionProfile, chat.ContextSource{
-			Kind:   "profile_warning",
-			Label:  "Profile warning",
+			Kind:   "agent_preset_warning",
+			Label:  "Agent preset warning",
 			Detail: profile.ID,
 			Trust:  contextTrustRuntimeState,
 		}, chat.ContextItem{
-			Kind:            "profile_warning",
+			Kind:            "agent_preset_warning",
 			TrustLevel:      contextTrustRuntimeState,
 			Origin:          profile.ID,
-			Title:           "Profile warning",
+			Title:           "Agent preset warning",
 			Body:            warning,
 			Included:        false,
-			InclusionReason: "Profile resolution warning",
+			InclusionReason: "Agent preset resolution warning",
 		})
 	}
 }
@@ -1185,7 +1185,7 @@ func appendProjectAssignmentPromptContext(packet *chat.ContextPacket, promptCont
 	appendContextPacketSourceWithSection(packet, contextSectionInstructions, chat.ContextSource{
 		Kind:   "prompt_context",
 		Label:  "Prompt context policy",
-		Detail: "project assignment profile policies",
+		Detail: "project assignment agent preset policies",
 		Trust:  contextTrustRuntimeState,
 	}, chat.ContextItem{
 		Kind:            "prompt_context",
@@ -1194,7 +1194,7 @@ func appendProjectAssignmentPromptContext(packet *chat.ContextPacket, promptCont
 		Title:           "Prompt context policy",
 		Body:            strings.Join(body, "\n"),
 		Included:        len(promptContext.Sections) > 0,
-		InclusionReason: "Profile memory/source policies applied to the native assignment prompt",
+		InclusionReason: "Agent Preset memory/source policies applied to the native assignment prompt",
 	})
 }
 
@@ -1254,8 +1254,8 @@ func appendExternalAgentAssignmentPromptPolicy(packet *chat.ContextPacket, profi
 		Body: strings.Join([]string{
 			"External Agent assignment start prepares a supervised chat session; it does not dispatch an adapter prompt.",
 			"Hecate records project launch metadata for inspection, but does not inject project memory bodies, project source bodies, host-specific guidance file bodies, or SKILL.md bodies into adapter prompts in V1.",
-			"Profile project_memory_policy: " + firstNonEmptyString(strings.TrimSpace(profile.ProjectMemoryPolicy), agentprofiles.MemoryInherit),
-			"Profile context_source_policy: " + firstNonEmptyString(strings.TrimSpace(profile.ContextSourcePolicy), agentprofiles.ContextInherit),
+			"Agent Preset project_memory_policy: " + firstNonEmptyString(strings.TrimSpace(profile.ProjectMemoryPolicy), agentprofiles.MemoryInherit),
+			"Agent Preset context_source_policy: " + firstNonEmptyString(strings.TrimSpace(profile.ContextSourcePolicy), agentprofiles.ContextInherit),
 		}, "\n"),
 		Included:        false,
 		InclusionReason: "Inspectable boundary note only; External Agent prompt packing is adapter-owned",

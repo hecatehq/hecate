@@ -7565,6 +7565,7 @@ snapshot does not expose the full system prompt text.
 
 Section values currently used by the runtime are:
 
+- `profile` for resolved Hecate Agent Preset metadata and preset-resolution warnings
 - `instructions` for system-prompt, prompt-context, and instruction-layer metadata
 - `skills` for resolved, skipped, or chat-visible project skill metadata; `SKILL.md` bodies are not included
 - `memory` for project memory entries
