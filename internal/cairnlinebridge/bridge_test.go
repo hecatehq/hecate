@@ -1191,6 +1191,19 @@ func TestUpsertAssignmentCreatesAndSyncsLifecycle(t *testing.T) {
 	if queued.DesiredAgent.Kind != "hecate" || len(queued.DesiredAgent.SkillIDs) != 1 || queued.DesiredAgent.SkillIDs[0] != "backend" {
 		t.Fatalf("queued desired agent = %+v, want Hecate desired agent with role skill ids", queued.DesiredAgent)
 	}
+	encodedAssignment, err := json.Marshal(queued)
+	if err != nil {
+		t.Fatalf("Marshal(queued assignment): %v", err)
+	}
+	var assignmentFields map[string]json.RawMessage
+	if err := json.Unmarshal(encodedAssignment, &assignmentFields); err != nil {
+		t.Fatalf("Unmarshal(queued assignment): %v", err)
+	}
+	for _, forbidden := range []string{"agent_profile", "agent_profile_id", "agent_preset", "agent_preset_id", "default_agent_profile", "default_provider", "default_model", "execution_profile", "execution_profile_id", "model", "model_hint", "provider", "provider_hint", "runtime_profile", "runtime_profile_id"} {
+		if _, ok := assignmentFields[forbidden]; ok {
+			t.Fatalf("queued assignment JSON = %s, want no Hecate runtime field %q in Cairnline assignment", encodedAssignment, forbidden)
+		}
+	}
 
 	followUpWork := projectwork.WorkItem{
 		ID:        "work_followup",
