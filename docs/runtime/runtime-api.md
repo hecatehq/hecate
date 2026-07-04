@@ -2720,12 +2720,12 @@ makes role and work-item create/update/delete Cairnline-first and then shadows
 Hecate-native compatibility rows. Role authority stores Hecate-owned
 provider/model/preset defaults in the project runtime overlay before any
 optional native role shadow, because Cairnline role records carry only portable
-coordination intent and opaque host hints. When the embedded Cairnline graph
-already contains the project, those authority routes do not require a matching
-Hecate-native project row; Hecate's project-work rows remain a best-effort
-compatibility shadow. In armed embedded replacement mode with all portable write
-authority closed, these routes skip native project-work compatibility rows and
-serve their mutation responses from Cairnline instead.
+coordination intent, default execution mode, and skill ids. When the embedded
+Cairnline graph already contains the project, those authority routes do not
+require a matching Hecate-native project row; Hecate's project-work rows remain
+a best-effort compatibility shadow. In armed embedded replacement mode with all
+portable write authority closed, these routes skip native project-work
+compatibility rows and serve their mutation responses from Cairnline instead.
 `project-assignments-live-mirror` mirrors assignment create/update/delete
 coordination metadata, lifecycle status, and Hecate-provided
 started/completed timestamps after Hecate commits without manufacturing missing
@@ -6121,7 +6121,8 @@ Launch-readiness and assignment preflight read typed `assignments.launch_packet`
 sidecar data before applying Hecate runtime validation. If matching
 Hecate-native project or role runtime rows exist, Hecate overlays their
 provider/model/tool/workspace settings onto the portable Cairnline coordination
-records before validation; Cairnline host-hint ids remain opaque metadata.
+records before validation; Cairnline desired-agent and skill hints remain
+portable inputs rather than Hecate runtime policy.
 Start/prepare and status mutation routes remain Hecate-owned.
 
 #### `POST /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments`
@@ -6321,8 +6322,8 @@ records from the Cairnline read model before applying Hecate-owned runtime
 validation. It also appends an inspect-only `runtime` /
 `cairnline_launch_packet` item. That item reports whether Cairnline can build a
 portable assignment launch packet and summarizes portable project/work/root,
-role, any sidecar-provided host hints, skills, evidence, reviews,
-handoffs, memory, and memory-candidate counts. It is replacement-readiness
+role, desired-agent hints, skills, evidence, reviews, handoffs, memory, and
+memory-candidate counts. It is replacement-readiness
 evidence only; Hecate still owns dispatch validation and the subsequent
 start/prepare mutation.
 
@@ -6330,8 +6331,8 @@ In strict embedded mode, preflight reads the launch packet directly from the
 embedded Cairnline database and does not require a matching Hecate-native
 project, work item, assignment, or role row to inspect coordination metadata.
 Hecate-task launch and preflight still require Hecate-owned provider/model
-defaults from the project runtime overlay; Cairnline host-hint ids are not
-interpreted as provider/model configuration.
+defaults from the project runtime overlay; Cairnline desired-agent and skill
+hints are not interpreted as provider/model configuration.
 
 The Projects cockpit uses this endpoint before `Start assignment`, `Prepare
 chat`, and `Start from handoff` so the operator can review the effective launch
