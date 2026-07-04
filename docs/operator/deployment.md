@@ -529,9 +529,10 @@ mutations remain Hecate-owned unless one of the other alpha write-authority
 switchpoints is explicitly listed.
 Project metadata/default-only PATCHes also best-effort mirror after the Hecate
 store commit unless `project-metadata-defaults` is enabled, in which case those
-scoped updates commit portable metadata and launch defaults to Cairnline first
-and then shadow Hecate's compatibility project row; armed embedded replacement
-mode skips that native project-row shadow. Project create/delete, roots,
+scoped updates commit portable metadata and launch defaults to Cairnline first,
+persist Hecate-owned provider/model and runtime-default policy in Hecate's
+project runtime overlay, and then shadow Hecate's compatibility project row;
+armed embedded replacement mode skips that native project-row shadow. Project create/delete, roots,
 context sources, last-opened-only updates, and mixed metadata/root/source
 replacement PATCHes remain Hecate-owned unless their separate switchpoints are
 enabled.
@@ -574,7 +575,10 @@ can use roots and context sources from the embedded Cairnline graph without a
 Hecate-native compatibility project row. Neither path loads, injects, executes,
 or grants permissions from skill bodies. Project role and work-item mutations
 likewise mirror coordination metadata after Hecate commits unless
-`project-roles` or `project-work-items` is enabled, respectively. Assignment create/update/delete
+`project-roles` or `project-work-items` is enabled, respectively. With role
+authority enabled, Hecate persists provider/model/preset defaults in the
+project runtime overlay before any optional native role compatibility shadow.
+Assignment create/update/delete
 mutations likewise mirror portable metadata after Hecate commits unless
 `project-assignments` is enabled, in which case assignment record mutations
 commit to Cairnline first and shadow back into Hecate. When these role,

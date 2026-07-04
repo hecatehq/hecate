@@ -171,7 +171,7 @@ func TestProjectJourneyAPI_DiscoverStartInspectAndHandoff(t *testing.T) {
 	}
 }
 
-func TestProjectJourneyAPI_CairnlineReplacementModeBlocksTaskStartWithoutNativeRuntimeDefaults(t *testing.T) {
+func TestProjectJourneyAPI_CairnlineReplacementModeStartsTaskWithRuntimeDefaultsOverlay(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectsCairnlineReplacementIdentityAuthorityTestServer(t)
 	client := newAPITestClient(t, server)
@@ -246,26 +246,23 @@ func TestProjectJourneyAPI_CairnlineReplacementModeBlocksTaskStartWithoutNativeR
 	}
 	assertNoNativeProjectWorkAssignmentForJourney(t, handler, projectID, "work_replacement", "asgn_replacement")
 
-	blocked := mustRequestJSONStatus[projectWorkErrorResponse](client, http.StatusUnprocessableEntity, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_replacement/assignments/asgn_replacement/start", `{}`)
-	if blocked.Error.Type != errCodeModelNotConfigured {
-		t.Fatalf("blocked start = %+v, want model_not_configured without native Hecate runtime defaults", blocked.Error)
-	}
-	if tasks, err := handler.taskStore.ListTasks(t.Context(), taskstateFilterAll()); err != nil || len(tasks) != 0 {
-		t.Fatalf("tasks = %+v err=%v, want no Hecate task without runtime defaults", tasks, err)
+	started := mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusOK, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_replacement/assignments/asgn_replacement/start", `{}`)
+	if started.Data.ExecutionRef.TaskID == "" || started.Data.ExecutionRef.RunID == "" {
+		t.Fatalf("started assignment = %+v, want Hecate task/run from runtime defaults overlay", started.Data)
 	}
 	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
-		t.Fatalf("Hecate project store ok=%v err=%v after blocked start, want no native project identity row", ok, err)
+		t.Fatalf("Hecate project store ok=%v err=%v after start, want no native project identity row", ok, err)
 	}
 	mirrored := getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_replacement")
-	if mirrored.Status != projectwork.AssignmentStatusQueued || mirrored.ExecutionRef != "" || mirrored.ContextSnapshotID != "" {
-		t.Fatalf("mirrored Cairnline assignment = %+v, want queued without runtime refs after blocked start", mirrored)
+	if mirrored.ExecutionRef == "" || mirrored.ContextSnapshotID == "" || mirrored.ClaimedBy != "hecate" {
+		t.Fatalf("mirrored Cairnline assignment = %+v, want claimed replacement runtime refs after start", mirrored)
 	}
 	runtime, ok, err := handler.projectRuntime.Get(t.Context(), projectID, "asgn_replacement")
 	if err != nil || !ok {
-		t.Fatalf("Hecate runtime overlay ok=%v err=%v after assignment create, want queued runtime shell", ok, err)
+		t.Fatalf("Hecate runtime overlay ok=%v err=%v after assignment start, want runtime refs", ok, err)
 	}
-	if runtime.ExecutionRef.TaskID != "" || runtime.ExecutionRef.RunID != "" || runtime.ExecutionRef.ContextSnapshotID != "" {
-		t.Fatalf("Hecate runtime overlay = %+v, want no task/run/context refs after blocked start", runtime.ExecutionRef)
+	if runtime.ExecutionRef.TaskID == "" || runtime.ExecutionRef.RunID == "" || runtime.ExecutionRef.ContextSnapshotID == "" {
+		t.Fatalf("Hecate runtime overlay = %+v, want task/run/context refs after start", runtime.ExecutionRef)
 	}
 	assertNoNativeProjectWorkAssignmentForJourney(t, handler, projectID, "work_replacement", "asgn_replacement")
 

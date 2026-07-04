@@ -585,8 +585,12 @@ sequenceDiagram
   preserved in Hecate's separate project assignment runtime overlay even when no
   native compatibility assignment row exists. Assignment start/dispatch remains
   Hecate-owned and writes that runtime overlay before any compatibility shadow
-  or replacement-evidence mirror. `project-metadata-defaults` makes project metadata/default-only
-  PATCHes Cairnline-first, then shadows Hecate's compatibility project row;
+  or replacement-evidence mirror. Project and role provider/model/preset
+  defaults are Hecate-owned runtime defaults; Cairnline-authoritative create and
+  update paths persist them in Hecate's project runtime overlay so embedded or
+  sidecar reads do not depend on stale compatibility rows. `project-metadata-defaults`
+  makes project metadata/default-only PATCHes Cairnline-first, writes those
+  Hecate runtime defaults, then shadows Hecate's compatibility project row;
   armed embedded replacement mode skips that native project-row shadow. Project
   create/delete, roots, context sources, last-opened-only updates, and mixed
   metadata/root/source replacement PATCHes remain Hecate-owned.
@@ -801,7 +805,7 @@ POST /hecate/v1/mcp/probe
 
 Tool names come back un-namespaced — the operator wants to see what the upstream itself calls them, not the gateway's runtime alias. MCP Apps metadata is preserved when present: `_meta` is the raw upstream object, `ui_resource_uri` and `ui_visibility` are derived convenience fields, and `model_visible: false` means the tool is app-only and will not be shown to the agent-loop model. Bounded by a 10-second deadline; a stuck upstream surfaces as a 400 with the diagnostic rather than wedging the request.
 
-`POST /hecate/v1/system/reset-data` resets local operator state without restarting the gateway. It deletes chat sessions, projects, project memory entries and candidates, project work-coordination rows, Hecate-owned project assignment runtime overlays, plugin registry records, Agent Preset rows, tasks, configured providers, policy rules, and saved external-agent approval grants. Chat sessions are deleted through the normal chat-delete path first, so live external-agent sessions are asked to delete their native ACP session before their rows disappear. If an adapter does not support `session/delete`, Hecate falls back to `session/close` and still tears down the owned process. When SQLite or Postgres is configured, it then clears remaining Hecate-prefixed database table rows while preserving schemas. It also removes the embedded Cairnline mirror database files under the Hecate data directory so replacement-readiness mirrors cannot resurrect stale project state after reset. Workspace files and external CLI auth files are not touched. The endpoint is local-only and blocked in remote runtime mode: non-loopback sockets and forwarded-client headers are rejected.
+`POST /hecate/v1/system/reset-data` resets local operator state without restarting the gateway. It deletes chat sessions, projects, project memory entries and candidates, project work-coordination rows, Hecate-owned project runtime overlays, plugin registry records, Agent Preset rows, tasks, configured providers, policy rules, and saved external-agent approval grants. Chat sessions are deleted through the normal chat-delete path first, so live external-agent sessions are asked to delete their native ACP session before their rows disappear. If an adapter does not support `session/delete`, Hecate falls back to `session/close` and still tears down the owned process. When SQLite or Postgres is configured, it then clears remaining Hecate-prefixed database table rows while preserving schemas. It also removes the embedded Cairnline mirror database files under the Hecate data directory so replacement-readiness mirrors cannot resurrect stale project state after reset. Workspace files and external CLI auth files are not touched. The endpoint is local-only and blocked in remote runtime mode: non-loopback sockets and forwarded-client headers are rejected.
 
 ```json
 → 200
@@ -2356,7 +2360,7 @@ POST /hecate/v1/projects/proj_.../context-sources/discover
 
 Deletes the project catalog entry, its roots, and chat sessions scoped to that
 project. It also deletes project memory entries, memory candidates, project
-work-coordination rows, and Hecate-owned assignment runtime overlay rows for
+work-coordination rows, and Hecate-owned project runtime overlay rows for
 that project. Project-scoped External Agent chats are deleted through
 the normal chat-delete path, so Hecate asks the adapter to delete the native ACP
 session where supported. This does not delete workspace files. Unprojected
@@ -2446,9 +2450,14 @@ helpers prefer the embedded Cairnline project graph over any Hecate-native
 compatibility shadow so stale shadows cannot override authoritative project/root
 metadata. Runtime hint ids from that graph remain opaque; Hecate-owned
 provider/model defaults and launch policy still come from Hecate runtime state.
+Cairnline-authoritative project and role writes persist those Hecate runtime
+defaults in the project runtime overlay before any optional compatibility row
+shadow, and Cairnline read projections prefer that overlay before falling back
+to older native compatibility rows.
 Adding `project-metadata-defaults` makes project metadata/default-only PATCHes
-Cairnline-first, then shadows Hecate's compatibility project row; armed
-embedded replacement mode skips that native project-row shadow. Project
+Cairnline-first, writes Hecate runtime defaults, then shadows Hecate's
+compatibility project row; armed embedded replacement mode skips that native
+project-row shadow. Project
 create/delete, roots, context sources, last-opened-only updates, and mixed
 root/source replacement PATCHes remain Hecate-owned.
 Adding `project-roots` makes project root create/update/delete plus root list
@@ -2686,8 +2695,11 @@ opaque host-owned hints; it does not seed Hecate preset rows or preset-derived
 runtime posture into Cairnline.
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-roles,project-work-items`
 makes role and work-item create/update/delete Cairnline-first and then shadows
-Hecate-native compatibility rows. When the embedded Cairnline graph already
-contains the project, those authority routes do not require a matching
+Hecate-native compatibility rows. Role authority stores Hecate-owned
+provider/model/preset defaults in the project runtime overlay before any
+optional native role shadow, because Cairnline role records carry only portable
+coordination intent and opaque host hints. When the embedded Cairnline graph
+already contains the project, those authority routes do not require a matching
 Hecate-native project row; Hecate's project-work rows remain a best-effort
 compatibility shadow. In armed embedded replacement mode with all portable write
 authority closed, these routes skip native project-work compatibility rows and

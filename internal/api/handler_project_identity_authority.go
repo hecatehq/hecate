@@ -62,6 +62,9 @@ func (h *Handler) createProjectWithCairnlineAuthority(ctx context.Context, proje
 		return projects.Project{}, err
 	}
 	shadow := projectFromCairnlineProjectCreate(project, written)
+	if err := h.upsertProjectRuntimeDefaults(ctx, shadow); err != nil {
+		return projects.Project{}, err
+	}
 	if h.projectCairnlineEmbeddedReplacementModeArmed() {
 		return shadow, nil
 	}

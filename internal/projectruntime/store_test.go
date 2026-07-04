@@ -125,6 +125,117 @@ func TestStoreConformance_AssignmentRuntimeLifecycle(t *testing.T) {
 	}
 }
 
+func TestStoreConformance_RuntimeDefaultsLifecycle(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		new  func(*testing.T) Store
+	}{
+		{name: "memory", new: func(t *testing.T) Store { return NewMemoryStore() }},
+		{name: "sqlite", new: func(t *testing.T) Store { return newSQLiteTestStore(t) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			store := tc.new(t)
+			toolsEnabled := false
+			compactOutput := true
+
+			projectDefaults, err := store.UpsertProjectDefaults(ctx, ProjectDefaults{
+				ProjectID:                " proj_alpha ",
+				DefaultProvider:          " openai ",
+				DefaultModel:             " gpt-5 ",
+				DefaultAgentProfile:      " implementation ",
+				DefaultToolsEnabled:      &toolsEnabled,
+				DefaultWorkspaceMode:     " worktree ",
+				DefaultSystemPrompt:      " Stay crisp. ",
+				DefaultCompactToolOutput: &compactOutput,
+			})
+			if err != nil {
+				t.Fatalf("UpsertProjectDefaults() error = %v", err)
+			}
+			if projectDefaults.ProjectID != "proj_alpha" || projectDefaults.DefaultProvider != "openai" || projectDefaults.DefaultModel != "gpt-5" || projectDefaults.DefaultWorkspaceMode != "worktree" || projectDefaults.DefaultSystemPrompt != "Stay crisp." {
+				t.Fatalf("project defaults = %+v, want normalized runtime defaults", projectDefaults)
+			}
+			if projectDefaults.DefaultToolsEnabled == nil || *projectDefaults.DefaultToolsEnabled || projectDefaults.DefaultCompactToolOutput == nil || !*projectDefaults.DefaultCompactToolOutput {
+				t.Fatalf("project bool defaults = tools %v compact %v, want false/true", projectDefaults.DefaultToolsEnabled, projectDefaults.DefaultCompactToolOutput)
+			}
+			projectDefaults.DefaultToolsEnabled = nil
+			gotProjectDefaults, ok, err := store.GetProjectDefaults(ctx, "proj_alpha")
+			if err != nil || !ok {
+				t.Fatalf("GetProjectDefaults() ok=%v error=%v, want defaults", ok, err)
+			}
+			if gotProjectDefaults.DefaultToolsEnabled == nil || *gotProjectDefaults.DefaultToolsEnabled {
+				t.Fatalf("stored project defaults mutated to %+v", gotProjectDefaults.DefaultToolsEnabled)
+			}
+
+			roleDefaults, err := store.UpsertRoleDefaults(ctx, RoleDefaults{
+				ProjectID:           " proj_alpha ",
+				RoleID:              " role_impl ",
+				DefaultProvider:     " anthropic ",
+				DefaultModel:        " claude-sonnet-4 ",
+				DefaultAgentProfile: " architecture ",
+			})
+			if err != nil {
+				t.Fatalf("UpsertRoleDefaults() error = %v", err)
+			}
+			if roleDefaults.ProjectID != "proj_alpha" || roleDefaults.RoleID != "role_impl" || roleDefaults.DefaultProvider != "anthropic" || roleDefaults.DefaultModel != "claude-sonnet-4" {
+				t.Fatalf("role defaults = %+v, want normalized role runtime defaults", roleDefaults)
+			}
+			if _, ok, err := store.GetRoleDefaults(ctx, "proj_alpha", "role_impl"); err != nil || !ok {
+				t.Fatalf("GetRoleDefaults() ok=%v error=%v, want defaults", ok, err)
+			}
+
+			if _, err := store.UpsertProjectDefaults(ctx, ProjectDefaults{}); !errors.Is(err, ErrInvalid) {
+				t.Fatalf("UpsertProjectDefaults(missing project) error = %v, want ErrInvalid", err)
+			}
+			if _, err := store.UpsertRoleDefaults(ctx, RoleDefaults{ProjectID: "proj_alpha"}); !errors.Is(err, ErrInvalid) {
+				t.Fatalf("UpsertRoleDefaults(missing role) error = %v, want ErrInvalid", err)
+			}
+
+			if err := store.DeleteRoleDefaults(ctx, "proj_alpha", "role_impl"); err != nil {
+				t.Fatalf("DeleteRoleDefaults() error = %v", err)
+			}
+			if _, ok, err := store.GetRoleDefaults(ctx, "proj_alpha", "role_impl"); err != nil || ok {
+				t.Fatalf("GetRoleDefaults(deleted) ok=%v error=%v, want not found", ok, err)
+			}
+			if err := store.DeleteRoleDefaults(ctx, "proj_alpha", "role_impl"); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("DeleteRoleDefaults(missing) error = %v, want ErrNotFound", err)
+			}
+
+			if _, err := store.UpsertRoleDefaults(ctx, RoleDefaults{ProjectID: "proj_alpha", RoleID: "role_one"}); err != nil {
+				t.Fatalf("UpsertRoleDefaults(one) error = %v", err)
+			}
+			if _, err := store.UpsertRoleDefaults(ctx, RoleDefaults{ProjectID: "proj_other", RoleID: "role_other"}); err != nil {
+				t.Fatalf("UpsertRoleDefaults(other) error = %v", err)
+			}
+			if _, err := store.Upsert(ctx, AssignmentRuntime{ProjectID: "proj_alpha", AssignmentID: "asgn_one"}); err != nil {
+				t.Fatalf("Upsert(runtime) error = %v", err)
+			}
+			deleted, err := store.DeleteProject(ctx, "proj_alpha")
+			if err != nil {
+				t.Fatalf("DeleteProject() error = %v", err)
+			}
+			if deleted != 3 {
+				t.Fatalf("DeleteProject() deleted = %d, want project defaults + role defaults + assignment runtime", deleted)
+			}
+			if _, ok, err := store.GetProjectDefaults(ctx, "proj_alpha"); err != nil || ok {
+				t.Fatalf("GetProjectDefaults(deleted project) ok=%v error=%v, want not found", ok, err)
+			}
+			if _, ok, err := store.GetRoleDefaults(ctx, "proj_other", "role_other"); err != nil || !ok {
+				t.Fatalf("GetRoleDefaults(other) ok=%v error=%v, want untouched", ok, err)
+			}
+			deleted, err = store.Clear(ctx)
+			if err != nil {
+				t.Fatalf("Clear() error = %v", err)
+			}
+			if deleted != 1 {
+				t.Fatalf("Clear() deleted = %d, want remaining role defaults", deleted)
+			}
+		})
+	}
+}
+
 func TestApply_OverlaysRuntimeOnAssignment(t *testing.T) {
 	assignment := projectwork.Assignment{
 		ID:          "asgn_1",

@@ -178,7 +178,11 @@ func (h *Handler) renderCairnlineProjectWorkRoles(ctx context.Context, projectID
 	nativeByID := projectWorkRolesByID(view.snapshot.Roles)
 	data := make([]ProjectWorkRoleResponse, 0, len(roles))
 	for _, role := range roles {
-		projected := renderProjectWorkRole(projectWorkRoleFromCairnline(role, nativeByID[role.ID]))
+		converted, err := h.projectRoleWithHecateRuntimeOverlay(ctx, projectWorkRoleFromCairnline(role, nativeByID[role.ID]))
+		if err != nil {
+			return nil, err
+		}
+		projected := renderProjectWorkRole(converted)
 		projected.ReadBackend = "cairnline"
 		data = append(data, projected)
 	}
@@ -779,10 +783,15 @@ func (h *Handler) cairnlineEmbeddedProjectWorkView(ctx context.Context, projectI
 		}
 		return nil, err
 	}
+	projected, err := h.projectWithHecateRuntimeOverlay(ctx, projectFromCairnline(project, projects.Project{}))
+	if err != nil {
+		_ = store.Close()
+		return nil, err
+	}
 	return &cairnlineProjectWorkView{
 		service: service,
 		snapshot: cairnlinebridge.Snapshot{
-			Project: projectFromCairnline(project, projects.Project{}),
+			Project: projected,
 		},
 		close: store.Close,
 	}, nil
