@@ -193,7 +193,7 @@ var projectCairnlineWriteSwitchpoints = []ProjectCoordinationBackendWriteSwitchp
 		BlocksAuthority:  true,
 		Seams:            []string{"project-roles-live-mirror"},
 		Gap:              "roles",
-		Detail:           "Role mutations still commit to Hecate first, then mirror coordination metadata and referenced Agent Preset posture into Cairnline bridge compatibility records.",
+		Detail:           "Role mutations still commit to Hecate first, then mirror portable coordination metadata into Cairnline while Agent Preset/provider/model posture stays in Hecate runtime overlays.",
 	},
 	{
 		Name:             "work-items",
@@ -1092,9 +1092,9 @@ func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string, nativeSh
 			item.LiveMirror = true
 			item.BlocksAuthority = false
 			item.Gap = ""
-			item.Detail = "Project create/delete commits portable identity, roots, context sources, launch defaults, and project identity removal to the embedded Cairnline database first, then best-effort shadows Hecate's compatibility row; delete rolls the Cairnline snapshot back if Hecate compatibility cleanup fails."
+			item.Detail = "Project create/delete commits portable identity, roots, context sources, default-root metadata, and project identity removal to the embedded Cairnline database first, then best-effort shadows Hecate's compatibility row; Hecate runtime defaults stay in the project runtime overlay and delete rolls the Cairnline snapshot back if Hecate compatibility cleanup fails."
 			if nativeShadowSkipArmed {
-				item.Detail = "Project create/delete commits portable identity, roots, context sources, launch defaults, and project identity removal to the embedded Cairnline database first and, in armed embedded replacement mode, skips native project identity compatibility rows."
+				item.Detail = "Project create/delete commits portable identity, roots, context sources, default-root metadata, and project identity removal to the embedded Cairnline database first and, in armed embedded replacement mode, skips native project identity compatibility rows; Hecate runtime defaults stay in the project runtime overlay."
 			}
 		}
 		if projectMetadataDefaultsAuthoritative && item.Name == "project-metadata-defaults" {
@@ -1103,9 +1103,9 @@ func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string, nativeSh
 			item.LiveMirror = true
 			item.BlocksAuthority = false
 			item.Gap = ""
-			item.Detail = "Project metadata/default-only update mutations commit portable project metadata and launch defaults to the embedded Cairnline database first, then best-effort shadow Hecate's compatibility row back into Hecate-native stores; project identity, roots, context sources, and mixed metadata/root/source replacement routes are controlled by separate switchpoints."
+			item.Detail = "Project metadata/default-only update mutations commit portable project metadata and default-root metadata to the embedded Cairnline database first, persist Hecate runtime defaults in the project runtime overlay, then best-effort shadow Hecate's compatibility row back into Hecate-native stores; project identity, roots, context sources, and mixed metadata/root/source replacement routes are controlled by separate switchpoints."
 			if nativeShadowSkipArmed {
-				item.Detail = "Project metadata/default-only update mutations commit portable project metadata and launch defaults to the embedded Cairnline database first and, in armed embedded replacement mode, skip native project-row compatibility shadows; project identity, roots, context sources, and mixed metadata/root/source replacement routes are controlled by separate switchpoints."
+				item.Detail = "Project metadata/default-only update mutations commit portable project metadata and default-root metadata to the embedded Cairnline database first, persist Hecate runtime defaults in the project runtime overlay, and, in armed embedded replacement mode, skip native project-row compatibility shadows; project identity, roots, context sources, and mixed metadata/root/source replacement routes are controlled by separate switchpoints."
 			}
 		}
 		if projectRootsAuthoritative && item.Name == "roots-and-worktrees" {

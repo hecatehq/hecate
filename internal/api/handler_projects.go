@@ -136,6 +136,10 @@ func (h *Handler) HandleCreateProject(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
+	if err := h.upsertProjectRuntimeDefaults(r.Context(), project); err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
 	h.mirrorProjectIdentityToCairnline(r.Context(), "project_create", project)
 	WriteJSON(w, http.StatusCreated, ProjectResponse{Object: "project", Data: renderProject(project)})
 }
@@ -313,6 +317,12 @@ func (h *Handler) HandleUpdateProject(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
+	if projectUpdateTouchesHecateRuntimeDefaults(req) {
+		if err := h.upsertProjectRuntimeDefaults(r.Context(), project); err != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+			return
+		}
+	}
 	if req.Roots != nil {
 		h.mirrorProjectRootListReplaceToCairnline(r.Context(), "project_roots_replace", project, project.Roots)
 	}
@@ -333,8 +343,11 @@ func projectUpdateTouchesPortableMetadata(req updateProjectRequest) bool {
 }
 
 func projectUpdateTouchesPortableDefaults(req updateProjectRequest) bool {
-	return req.DefaultRootID != nil ||
-		req.DefaultProvider != nil ||
+	return req.DefaultRootID != nil
+}
+
+func projectUpdateTouchesHecateRuntimeDefaults(req updateProjectRequest) bool {
+	return req.DefaultProvider != nil ||
 		req.DefaultModel != nil ||
 		req.DefaultAgentProfile != nil ||
 		req.DefaultToolsEnabled != nil ||

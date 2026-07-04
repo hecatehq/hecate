@@ -41,9 +41,9 @@ func UpsertProject(ctx context.Context, service *cairnline.Service, project proj
 	return written, nil
 }
 
-// UpsertProjectDefaults mirrors only the portable project launch defaults. It
-// preserves the existing Cairnline project identity, root, and context-source
-// records unless the project is missing and needs a full bootstrap write.
+// UpsertProjectDefaults mirrors only portable project defaults. Hecate-owned
+// runtime launch posture such as Agent Presets, provider/model hints, tools,
+// and workspace prompt policy stays in Hecate's runtime overlay.
 func UpsertProjectDefaults(ctx context.Context, service *cairnline.Service, project projects.Project) (cairnline.Project, error) {
 	if service == nil {
 		return cairnline.Project{}, errors.Join(ErrSourceNotConfigured, errors.New("cairnline service is required"))
@@ -60,8 +60,6 @@ func UpsertProjectDefaults(ctx context.Context, service *cairnline.Service, proj
 		return cairnline.Project{}, err
 	}
 	existing.DefaultRootID = item.DefaultRootID
-	existing.DefaultProfileID = item.DefaultProfileID
-	existing.DefaultExecutionProfileID = item.DefaultExecutionProfileID
 	updated, err := service.UpdateProject(ctx, existing)
 	if err != nil {
 		if errors.Is(err, cairnline.ErrNotFound) {

@@ -114,16 +114,14 @@ func seedProjectScopedSnapshot(ctx context.Context, service *cairnline.Service, 
 
 func Project(project projects.Project) cairnline.Project {
 	return cairnline.Project{
-		ID:                        strings.TrimSpace(project.ID),
-		Name:                      strings.TrimSpace(project.Name),
-		Description:               strings.TrimSpace(project.Description),
-		Roots:                     Roots(project.Roots),
-		DefaultRootID:             strings.TrimSpace(project.DefaultRootID),
-		DefaultProfileID:          strings.TrimSpace(project.DefaultAgentProfile),
-		DefaultExecutionProfileID: projectExecutionProfileID(project),
-		ContextSources:            Sources(project.ContextSources),
-		CreatedAt:                 project.CreatedAt,
-		UpdatedAt:                 project.UpdatedAt,
+		ID:             strings.TrimSpace(project.ID),
+		Name:           strings.TrimSpace(project.Name),
+		Description:    strings.TrimSpace(project.Description),
+		Roots:          Roots(project.Roots),
+		DefaultRootID:  strings.TrimSpace(project.DefaultRootID),
+		ContextSources: Sources(project.ContextSources),
+		CreatedAt:      project.CreatedAt,
+		UpdatedAt:      project.UpdatedAt,
 	}
 }
 
@@ -195,15 +193,13 @@ func ProjectSkill(skill projectskills.Skill) cairnline.ProjectSkill {
 
 func Role(role projectwork.AgentRoleProfile) cairnline.Role {
 	return cairnline.Role{
-		ID:                        strings.TrimSpace(role.ID),
-		ProjectID:                 strings.TrimSpace(role.ProjectID),
-		Name:                      strings.TrimSpace(role.Name),
-		Description:               strings.TrimSpace(role.Description),
-		Instructions:              strings.TrimSpace(role.Instructions),
-		DefaultProfileID:          strings.TrimSpace(role.DefaultAgentProfile),
-		DefaultExecutionProfileID: roleExecutionProfileID(role),
-		DefaultSkillIDs:           compactStrings(role.SkillIDs),
-		DefaultExecutionMode:      ExecutionMode(role.DefaultDriverKind),
+		ID:                   strings.TrimSpace(role.ID),
+		ProjectID:            strings.TrimSpace(role.ProjectID),
+		Name:                 strings.TrimSpace(role.Name),
+		Description:          strings.TrimSpace(role.Description),
+		Instructions:         strings.TrimSpace(role.Instructions),
+		DefaultSkillIDs:      compactStrings(role.SkillIDs),
+		DefaultExecutionMode: ExecutionMode(role.DefaultDriverKind),
 	}
 }
 
@@ -225,15 +221,13 @@ func WorkItem(item projectwork.WorkItem) cairnline.WorkItem {
 
 func Assignment(assignment projectwork.Assignment, role projectwork.AgentRoleProfile) cairnline.Assignment {
 	return cairnline.Assignment{
-		ID:                 strings.TrimSpace(assignment.ID),
-		ProjectID:          strings.TrimSpace(assignment.ProjectID),
-		WorkItemID:         strings.TrimSpace(assignment.WorkItemID),
-		RoleID:             strings.TrimSpace(assignment.RoleID),
-		RootID:             strings.TrimSpace(assignment.RootID),
-		ProfileID:          strings.TrimSpace(role.DefaultAgentProfile),
-		ExecutionProfileID: roleExecutionProfileID(role),
-		ExecutionMode:      ExecutionMode(assignment.DriverKind),
-		Status:             AssignmentStatus(assignment.Status),
+		ID:            strings.TrimSpace(assignment.ID),
+		ProjectID:     strings.TrimSpace(assignment.ProjectID),
+		WorkItemID:    strings.TrimSpace(assignment.WorkItemID),
+		RoleID:        strings.TrimSpace(assignment.RoleID),
+		RootID:        strings.TrimSpace(assignment.RootID),
+		ExecutionMode: ExecutionMode(assignment.DriverKind),
+		Status:        AssignmentStatus(assignment.Status),
 		DesiredAgent: cairnline.DesiredAgent{
 			Kind:     DesiredAgentKind(assignment.DriverKind),
 			SkillIDs: compactStrings(role.SkillIDs),
@@ -507,60 +501,6 @@ func claimedBy(assignment cairnline.Assignment) string {
 	return "external_adapter"
 }
 
-func roleExecutionProfileID(role projectwork.AgentRoleProfile) string {
-	if strings.TrimSpace(role.DefaultProvider) == "" && strings.TrimSpace(role.DefaultModel) == "" {
-		return ""
-	}
-	return roleExecutionProfileIDValue(role)
-}
-
-func roleExecutionProfileIDValue(role projectwork.AgentRoleProfile) string {
-	projectID := safeCairnlineIDPart(role.ProjectID)
-	roleID := safeCairnlineIDPart(role.ID)
-	if roleID == "" {
-		return ""
-	}
-	return "role_exec_" + firstNonEmpty(projectID, "project") + "_" + roleID
-}
-
-func projectExecutionProfileID(project projects.Project) string {
-	if strings.TrimSpace(project.DefaultProvider) == "" &&
-		strings.TrimSpace(project.DefaultModel) == "" &&
-		optionalBoolPolicy(project.DefaultToolsEnabled) == "" &&
-		len(projectExecutionAdapterOptions(project)) == 0 {
-		return ""
-	}
-	return projectExecutionProfileIDValue(project)
-}
-
-func projectExecutionProfileIDValue(project projects.Project) string {
-	projectID := safeCairnlineIDPart(project.ID)
-	if projectID == "" {
-		return ""
-	}
-	return "project_exec_" + projectID
-}
-
-func safeCairnlineIDPart(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return ""
-	}
-	var builder strings.Builder
-	for _, r := range value {
-		switch {
-		case r >= 'a' && r <= 'z',
-			r >= 'A' && r <= 'Z',
-			r >= '0' && r <= '9',
-			r == '_', r == '-':
-			builder.WriteRune(r)
-		default:
-			builder.WriteByte('_')
-		}
-	}
-	return strings.Trim(builder.String(), "_")
-}
-
 func assignmentExecutionRef(ref projectwork.AssignmentExecutionRef) string {
 	return firstNonEmpty(
 		strings.TrimSpace(ref.RunID),
@@ -568,20 +508,6 @@ func assignmentExecutionRef(ref projectwork.AssignmentExecutionRef) string {
 		strings.TrimSpace(ref.ChatSessionID),
 		strings.TrimSpace(ref.ContextSnapshotID),
 	)
-}
-
-func boolPolicy(value bool) string {
-	if value {
-		return "allow"
-	}
-	return "block"
-}
-
-func optionalBoolPolicy(value *bool) string {
-	if value == nil {
-		return ""
-	}
-	return boolPolicy(*value)
 }
 
 func RequiredPermissions(permissions projectskills.RequiredPermissions) cairnline.RequiredPermissions {
@@ -598,23 +524,6 @@ func cloneBoolPointer(value *bool) *bool {
 	}
 	out := *value
 	return &out
-}
-
-func projectExecutionAdapterOptions(project projects.Project) map[string]any {
-	out := make(map[string]any)
-	if value := strings.TrimSpace(project.DefaultWorkspaceMode); value != "" {
-		out["workspace_mode"] = value
-	}
-	if value := strings.TrimSpace(project.DefaultSystemPrompt); value != "" {
-		out["system_prompt"] = value
-	}
-	if project.DefaultCompactToolOutput != nil {
-		out["compact_tool_output"] = *project.DefaultCompactToolOutput
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
 }
 
 func compactStrings(items []string) []string {

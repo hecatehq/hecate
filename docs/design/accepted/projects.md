@@ -95,11 +95,10 @@ project/agent-preset/skills/work stores, convert that graph into Cairnline's
 versioned portable snapshot contract, then import it into a memory-backed or
 SQLite-backed Cairnline service:
 
-- project identity, roots, default root, project default Agent Preset/runtime
-  posture references, and context-source provenance metadata including format,
-  scope, source category, and trusted metadata labels;
-- Hecate-specific Agent Preset compatibility records and runtime posture
-  derived from Hecate Agent Presets and project/role defaults;
+- project identity, roots, default root, and context-source provenance metadata
+  including format, scope, source category, and trusted metadata labels;
+- Hecate-owned Agent Preset/provider/model/runtime posture stays in Hecate's
+  project runtime overlay and is not written into the portable Cairnline graph;
 - skills metadata, roles, work items, and root-scoped assignments;
 - assignment-scoped collaboration evidence links, reviews, handoffs with
   source/target refs, status-transition timestamps, and linked
@@ -349,16 +348,16 @@ Hecate-native compatibility project row before the Cairnline commit.
 current portable write-authority switchpoint for embedded dogfooding; Hecate
 runtime side effects and migration cutover remain separate gates.
 `project-metadata-defaults` is a scoped opt-in authority slice: project
-metadata/default-only PATCHes commit portable project metadata and launch
-defaults to embedded Cairnline first, persist Hecate-owned provider/model and
+metadata/default-only PATCHes commit portable project metadata and default-root
+metadata to embedded Cairnline first, persist Hecate-owned provider/model and
 runtime-default policy in Hecate's project runtime overlay, then best-effort
 shadow Hecate's compatibility project row. Armed embedded replacement mode
 skips that native project-row shadow. Project create/delete, roots, context sources,
 last-opened-only updates, and mixed metadata/root/source replacement PATCHes
 remain Hecate-owned unless their separate switchpoints are enabled.
 `project-identity` is a scoped authority slice: project create/delete commits
-portable identity, initial roots, context sources, launch defaults, and project
-identity removal to embedded Cairnline first, then best-effort shadows Hecate's
+portable identity, initial roots, context sources, default-root metadata, and
+project identity removal to embedded Cairnline first, then best-effort shadows Hecate's
 compatibility project row. Delete restores the Cairnline snapshot if Hecate
 compatibility cleanup fails. Identity delete can also target a Cairnline-only
 project graph and clean any Hecate compatibility shadow rows for that project
@@ -434,8 +433,8 @@ stricter read-side replacement-readiness probe because it verifies the live
 mirror can serve project projections directly.
 `GET /hecate/v1/projects/{id}/cairnline/parity-report` compares Hecate's
 native cockpit counts with that Cairnline read model and returns explicit
-differences for raw graph counts including execution-profile defaults,
-rendered work-item route shape including embedded assignments, collaboration
+differences for raw graph counts, rendered work-item route shape including
+embedded assignments, collaboration
 artifact/handoff route shape including artifact-kind and handoff-status counts,
 activity, rendered cockpit operations including action-kind counts, and the
 Project Assistant proposal ledger, plus portable launch-packet coverage, so
@@ -494,10 +493,10 @@ mirror to Cairnline. They can be switched to Cairnline-first authority with
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-skills`. Neither path loads,
 injects, or executes `SKILL.md` bodies.
 Project role and work-item create/update/delete routes also mirror coordination
-metadata into Cairnline after Hecate commits. When a mirrored role references
-an Agent Preset, Cairnline records that preset id as an opaque host hint rather
-than a portable profile row; Hecate remains responsible for resolving preset
-policy at launch. Role and work-item create/update/delete can be switched to
+metadata into Cairnline after Hecate commits. Hecate stores role-level
+provider/model/preset defaults in the project runtime overlay; Cairnline role
+records carry portable role metadata, default execution mode, and skill ids,
+not Hecate preset or runtime policy. Role and work-item create/update/delete can be switched to
 Cairnline-first authority with
 `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-roles,project-work-items`.
 Project skill discovery/update can be switched to Cairnline-first authority with
@@ -551,8 +550,7 @@ but they are still proofs, not the live Projects backend.
 
 The first non-authoritative write-adapter seams exist in `cairnlinebridge` for
 project identity, embedded roots, context sources, project defaults,
-project-level execution-profile cleanup, project skill metadata upserts,
-role upserts/deletes with role-level execution-profile cleanup, work-item
+project skill metadata upserts, role upserts/deletes, work-item
 upserts/deletes, assignment metadata upsert/delete plus lifecycle-status sync,
 and project memory entry/candidate upserts and deletes. Create-if-missing seams
 exist for generic collaboration artifacts, evidence links, and reviews because
@@ -691,8 +689,8 @@ after these gates are met:
   Cairnline-only project graph as the source of coordination inputs.
   Launch-readiness and preflight can inspect those inputs without native Hecate
   project/work stores, but Hecate-task launch/preflight still requires
-  Hecate-owned provider/model defaults because Cairnline runtime hint ids are
-  opaque.
+  Hecate-owned provider/model defaults from the project runtime overlay;
+  Cairnline host-hint ids, when supplied by an external sidecar, are opaque.
   Launch/preflight context also reads inspect-only collaboration artifact and
   handoff metadata from the active Cairnline read model, preserving
   evidence/review/handoff hints for Cairnline-only graphs.
@@ -878,8 +876,9 @@ Projects, roles, presets, and runtime profiles have separate jobs:
 In other words: a project can choose a default Agent Preset, a role can refine
 that preset for a responsibility, and Hecate resolves those choices into
 runtime launch behavior. Cairnline records portable coordination intent and
-legacy host hints; Hecate enforces provider/model, approval, sandbox, write,
-network, and adapter policy.
+may expose opaque host hints from external clients, but Hecate does not mirror
+its Agent Preset/runtime posture into Cairnline. Hecate enforces
+provider/model, approval, sandbox, write, network, and adapter policy.
 
 Local MCP exposure should use the same preset vocabulary rather than a separate
 taxonomy. The initial built-in MCP toolset presets are `readonly`, `operator`,

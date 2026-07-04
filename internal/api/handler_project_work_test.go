@@ -1284,7 +1284,7 @@ func TestProjectWorkAPI_CairnlineRoleAuthorityWritesCairnlineAndShadowsHecate(t 
 		t.Fatalf("created role timestamps = created:%q updated:%q, want Hecate shadow timestamps", created.Data.CreatedAt, created.Data.UpdatedAt)
 	}
 	mirroredRole := getMirroredCairnlineRoleForTest(t, handler, projectID, "role_authority")
-	if mirroredRole.Name != "Authority reviewer" || mirroredRole.DefaultProfileID != "safe_external_review" || mirroredRole.DefaultExecutionMode != cairnline.ExecutionExternalAdapter {
+	if mirroredRole.Name != "Authority reviewer" || mirroredRole.DefaultProfileID != "" || mirroredRole.DefaultExecutionProfileID != "" || mirroredRole.DefaultExecutionMode != cairnline.ExecutionExternalAdapter {
 		t.Fatalf("Cairnline role = %+v, want role authority record", mirroredRole)
 	}
 	if len(mirroredRole.DefaultSkillIDs) != 1 || mirroredRole.DefaultSkillIDs[0] != "review" {
@@ -1304,8 +1304,6 @@ func TestProjectWorkAPI_CairnlineRoleAuthorityWritesCairnlineAndShadowsHecate(t 
 	if mirroredRole.Name != "Authority owner" || !containsString(mirroredRole.DefaultSkillIDs, "release") {
 		t.Fatalf("updated Cairnline role = %+v, want edited role authority record", mirroredRole)
 	}
-	assertMirroredExecutionProfileHintForTest(t, mirroredRole.DefaultExecutionProfileID)
-
 	work := mustRequestJSONStatus[ProjectWorkItemEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items", projectJourneyJSON(t, map[string]any{
 		"id":            "work_role_authority",
 		"title":         "Keep role history",
@@ -1840,14 +1838,12 @@ func TestProjectWorkAPI_MirrorsRoleAndWorkItemMutationsToCairnlineWhenConfigured
 		t.Fatalf("create role status = %d body=%s, want 201", rec.Code, rec.Body.String())
 	}
 	mirroredRole := getMirroredCairnlineRoleForTest(t, handler, project.Data.ID, "role_release")
-	if mirroredRole.Name != "Release captain" || mirroredRole.DefaultProfileID != "safe_external_review" || mirroredRole.DefaultExecutionMode != "external_adapter" {
+	if mirroredRole.Name != "Release captain" || mirroredRole.DefaultProfileID != "" || mirroredRole.DefaultExecutionProfileID != "" || mirroredRole.DefaultExecutionMode != "external_adapter" {
 		t.Fatalf("mirrored role = %+v, want release captain defaults", mirroredRole)
 	}
 	if len(mirroredRole.DefaultSkillIDs) != 1 || mirroredRole.DefaultSkillIDs[0] != "release" {
 		t.Fatalf("mirrored role skill ids = %+v, want release", mirroredRole.DefaultSkillIDs)
 	}
-	assertMirroredExecutionProfileHintForTest(t, mirroredRole.DefaultExecutionProfileID)
-
 	rec = httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+project.Data.ID+"/roles/role_release", bytes.NewReader([]byte(`{
 		"name":"Release owner",
@@ -1861,8 +1857,6 @@ func TestProjectWorkAPI_MirrorsRoleAndWorkItemMutationsToCairnlineWhenConfigured
 	if mirroredRole.Name != "Release owner" || !containsString(mirroredRole.DefaultSkillIDs, "release") || !containsString(mirroredRole.DefaultSkillIDs, "qa") {
 		t.Fatalf("mirrored updated role = %+v, want renamed role with two skills", mirroredRole)
 	}
-	assertMirroredExecutionProfileHintForTest(t, mirroredRole.DefaultExecutionProfileID)
-
 	rec = httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/work-items", bytes.NewReader([]byte(`{
 		"id":"work_release",
@@ -1906,7 +1900,7 @@ func TestProjectWorkAPI_MirrorsRoleAndWorkItemMutationsToCairnlineWhenConfigured
 		t.Fatalf("create assignment status = %d body=%s, want 201", rec.Code, rec.Body.String())
 	}
 	mirroredAssignment := getMirroredCairnlineAssignmentForTest(t, handler, project.Data.ID, "asgn_release")
-	if mirroredAssignment.Status != cairnline.AssignmentQueued || mirroredAssignment.RoleID != "role_release" || mirroredAssignment.WorkItemID != "work_release" || mirroredAssignment.ProfileID != "safe_external_review" {
+	if mirroredAssignment.Status != cairnline.AssignmentQueued || mirroredAssignment.RoleID != "role_release" || mirroredAssignment.WorkItemID != "work_release" || mirroredAssignment.ProfileID != "" || mirroredAssignment.ExecutionProfileID != "" {
 		t.Fatalf("mirrored assignment = %+v, want queued release assignment metadata", mirroredAssignment)
 	}
 	if mirroredAssignment.ExecutionMode != cairnline.ExecutionExternalAdapter || mirroredAssignment.DesiredAgent.Kind != cairnline.DesiredAgentAny || mirroredAssignment.ContextSnapshotID != "ctx_release" {
@@ -3798,8 +3792,9 @@ func TestProjectWorkAPI_PreflightAssignmentStrictEmbeddedReadModelReadsWithoutHe
 		t.Fatalf("Hecate project store seeded ok=%v err=%v, want no project row", ok, err)
 	}
 	// Strict embedded launch-readiness and preflight are read-only Cairnline
-	// projections. Cairnline carries only opaque runtime hint IDs, so Hecate
-	// cannot launch or preflight a task without native provider/model defaults.
+	// projections. Hecate-owned runtime defaults live outside Cairnline, so
+	// Hecate cannot launch or preflight a task without local provider/model
+	// defaults.
 	handler.projects = nil
 	handler.projectWork = nil
 

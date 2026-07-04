@@ -355,7 +355,7 @@ launch agents. Those remain explicit operator or orchestrator actions.
   typed sidecar `assignments.launch_packet` data before applying Hecate runtime
   validation. When matching Hecate-native project or role runtime rows exist,
   those sidecar reads overlay the local Hecate provider/model/tool/workspace
-  posture before validation; Cairnline runtime hint ids stay opaque. Other live
+  posture before validation; Cairnline host-hint ids stay opaque. Other live
   Projects reads, writes, mirrors, and write-authority switchpoints do not route
   through the sidecar yet; write-authority switchpoints require
   `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded`.
@@ -459,7 +459,7 @@ launch agents. Those remain explicit operator or orchestrator actions.
   Hecate Agent Preset create/update/delete remains Hecate-owned.
   `project-identity` makes project
   create/delete commit portable identity, initial roots, context sources,
-  launch defaults, and project identity removal to Cairnline first before
+  default-root metadata, and project identity removal to Cairnline first before
   shadowing Hecate's compatibility project row. Delete restores the Cairnline
   snapshot if Hecate compatibility cleanup fails. Git worktree creation side effects,
   last-opened-only updates, mixed

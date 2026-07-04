@@ -23,7 +23,9 @@ func projectUpdateCanUseCairnlineMetadataDefaultsAuthority(req updateProjectRequ
 	if req.Roots != nil || req.ContextSources != nil || req.LastOpenedAt != nil {
 		return false
 	}
-	return projectUpdateTouchesPortableMetadata(req) || projectUpdateTouchesPortableDefaults(req)
+	return projectUpdateTouchesPortableMetadata(req) ||
+		projectUpdateTouchesPortableDefaults(req) ||
+		projectUpdateTouchesHecateRuntimeDefaults(req)
 }
 
 func (h *Handler) updateProjectMetadataDefaultsWithCairnlineAuthority(ctx context.Context, projectID string, req updateProjectRequest) (projects.Project, error) {
@@ -44,24 +46,26 @@ func (h *Handler) updateProjectMetadataDefaultsWithCairnlineAuthority(ctx contex
 		return projects.Project{}, err
 	}
 
-	err = h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
-		if err := h.seedProjectMetadataDefaultsDependenciesForCairnlineAuthority(ctx, service, project); err != nil {
-			return err
-		}
-		if projectUpdateTouchesPortableMetadata(req) {
-			if _, err := cairnlinebridge.UpsertProjectMetadata(ctx, service, project); err != nil {
+	if projectUpdateTouchesPortableMetadata(req) || projectUpdateTouchesPortableDefaults(req) {
+		err = h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+			if err := h.seedProjectMetadataDefaultsDependenciesForCairnlineAuthority(ctx, service, project); err != nil {
 				return err
 			}
-		}
-		if projectUpdateTouchesPortableDefaults(req) {
-			if _, err := cairnlinebridge.UpsertProjectDefaults(ctx, service, project); err != nil {
-				return err
+			if projectUpdateTouchesPortableMetadata(req) {
+				if _, err := cairnlinebridge.UpsertProjectMetadata(ctx, service, project); err != nil {
+					return err
+				}
 			}
+			if projectUpdateTouchesPortableDefaults(req) {
+				if _, err := cairnlinebridge.UpsertProjectDefaults(ctx, service, project); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return projects.Project{}, err
 		}
-		return nil
-	})
-	if err != nil {
-		return projects.Project{}, err
 	}
 	if err := h.upsertProjectRuntimeDefaults(ctx, project); err != nil {
 		return projects.Project{}, err
