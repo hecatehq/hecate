@@ -751,6 +751,13 @@ after these gates are met:
   the embedded cutover switch is armed, while non-portable runtime/workspace
   capabilities such as `assignment-start` can remain visible as Hecate-owned
   boundaries.
+- Delegation stop-line: once embedded replacement mode is armed and
+  `replacement_ready=true`, Cairnline owns portable Projects coordination state
+  for that runtime. Hecate still should not flip the default configuration for
+  every local runtime until real dogfood keeps those gates green and existing
+  Hecate-native project stores have an operator-visible migration/rollback
+  path. This is a product/defaulting decision, not a blocker for returning to
+  Hecate runtime, chat, gateway, adapter, and observability work.
 - Context packets, setup/health/operations summaries, activity projections, and
   closeout gates match current Hecate behavior or have documented intentional
   differences.
