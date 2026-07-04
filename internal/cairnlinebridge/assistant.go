@@ -174,7 +174,6 @@ func AssistantAction(action projectassistant.Action) (cairnline.AssistantAction,
 			Name:                 strings.TrimSpace(patch.Name),
 			Description:          strings.TrimSpace(patch.Description),
 			Instructions:         strings.TrimSpace(patch.Instructions),
-			DefaultProfileID:     strings.TrimSpace(patch.DefaultAgentProfile),
 			DefaultSkillIDs:      compactStrings(patch.SkillIDs),
 			DefaultExecutionMode: ExecutionMode(patch.DefaultDriverKind),
 		}
@@ -353,14 +352,13 @@ func ProjectAssistantAction(action cairnline.AssistantAction) (projectassistant.
 			return projectassistant.Action{}, false
 		}
 		patch, ok = projectAssistantRawPatch(assistantRolePatch{
-			ID:                  strings.TrimSpace(action.Role.ID),
-			ProjectID:           strings.TrimSpace(action.Role.ProjectID),
-			Name:                strings.TrimSpace(action.Role.Name),
-			Description:         strings.TrimSpace(action.Role.Description),
-			Instructions:        strings.TrimSpace(action.Role.Instructions),
-			DefaultDriverKind:   DriverKind(action.Role.DefaultExecutionMode),
-			DefaultAgentProfile: strings.TrimSpace(action.Role.DefaultProfileID),
-			SkillIDs:            compactStrings(action.Role.DefaultSkillIDs),
+			ID:                strings.TrimSpace(action.Role.ID),
+			ProjectID:         strings.TrimSpace(action.Role.ProjectID),
+			Name:              strings.TrimSpace(action.Role.Name),
+			Description:       strings.TrimSpace(action.Role.Description),
+			Instructions:      strings.TrimSpace(action.Role.Instructions),
+			DefaultDriverKind: DriverKind(action.Role.DefaultExecutionMode),
+			SkillIDs:          compactStrings(action.Role.DefaultSkillIDs),
 		})
 	case cairnline.AssistantActionCreateWorkItem:
 		if action.WorkItem == nil {

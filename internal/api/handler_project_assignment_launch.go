@@ -593,6 +593,12 @@ func cairnlineLaunchRole(ctx context.Context, service *cairnline.Service, snapsh
 		return projectwork.AgentRoleProfile{ID: strings.TrimSpace(launch.Assignment.RoleID)}, false, nil
 	}
 	role := projectWorkRoleFromCairnline(*launch.Role, projectWorkRolesByID(snapshot.Roles)[launch.Role.ID])
+	if strings.TrimSpace(role.ProjectID) == "" {
+		role.ProjectID = strings.TrimSpace(firstNonEmpty(launch.Role.ProjectID, launch.Assignment.ProjectID, launch.Project.ID))
+	}
+	if strings.TrimSpace(role.DefaultDriverKind) == "" {
+		role.DefaultDriverKind = projectWorkAssignmentDriverFromCairnline(launch.Assignment.ExecutionMode)
+	}
 	return role, true, nil
 }
 
@@ -603,9 +609,6 @@ func cairnlineSidecarLaunchRole(launch cairnline.AssignmentLaunchPacket) (projec
 	role := projectWorkRoleFromCairnline(*launch.Role, projectwork.AgentRoleProfile{})
 	if strings.TrimSpace(role.ProjectID) == "" {
 		role.ProjectID = strings.TrimSpace(firstNonEmpty(launch.Role.ProjectID, launch.Assignment.ProjectID, launch.Project.ID))
-	}
-	if strings.TrimSpace(role.DefaultAgentProfile) == "" {
-		role.DefaultAgentProfile = strings.TrimSpace(launch.Assignment.ProfileID)
 	}
 	if strings.TrimSpace(role.DefaultDriverKind) == "" {
 		role.DefaultDriverKind = projectWorkAssignmentDriverFromCairnline(launch.Assignment.ExecutionMode)

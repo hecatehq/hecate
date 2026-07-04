@@ -234,8 +234,8 @@ func TestProjectWorkAPI_AssignmentLaunchReadinessCairnlineSidecarOverlaysNativeR
 	if readiness.Data.ReadBackend != "cairnline" || !readiness.Data.Ready || readiness.Data.Status != projectAssignmentLaunchReadinessStatusReady {
 		t.Fatalf("readiness = %+v, want ready sidecar projection with Hecate runtime overlay", readiness.Data)
 	}
-	if readiness.Data.Provider != "anthropic" || readiness.Data.Model != "claude-sonnet-4" || readiness.Data.ExecutionProfile != "profile_fixture" {
-		t.Fatalf("launch hints = provider/model/profile %q/%q/%q, want role runtime overlay plus Cairnline preset hint", readiness.Data.Provider, readiness.Data.Model, readiness.Data.ExecutionProfile)
+	if readiness.Data.Provider != "anthropic" || readiness.Data.Model != "claude-sonnet-4" || readiness.Data.ExecutionProfile != "role_fixture_preset" {
+		t.Fatalf("launch hints = provider/model/profile %q/%q/%q, want Hecate role runtime overlay", readiness.Data.Provider, readiness.Data.Model, readiness.Data.ExecutionProfile)
 	}
 }
 

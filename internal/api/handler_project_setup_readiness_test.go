@@ -274,11 +274,10 @@ func TestProjectSetupReadiness_StrictEmbeddedReadModelReadsWithoutHecateProject(
 
 	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
 		if _, err := service.CreateProject(t.Context(), cairnline.Project{
-			ID:                        projectID,
-			Name:                      "Embedded Setup",
-			Description:               "Coordinate setup from embedded Cairnline.",
-			DefaultRootID:             "root_embedded_setup",
-			DefaultExecutionProfileID: "exec_embedded_setup",
+			ID:            projectID,
+			Name:          "Embedded Setup",
+			Description:   "Coordinate setup from embedded Cairnline.",
+			DefaultRootID: "root_embedded_setup",
 			Roots: []cairnline.Root{{
 				ID:     "root_embedded_setup",
 				Path:   "/workspace/embedded-setup",

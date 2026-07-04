@@ -1664,7 +1664,6 @@ func TestProjectAssistantAPI_CairnlineApplyProjectIdentityAuthorityDoesNotBlockO
 	if len(mirrored.Roots) != 1 || mirrored.Roots[0].ID != "root_main" || mirrored.Roots[0].Path != "/workspace/identity" {
 		t.Fatalf("Cairnline roots = %+v, want root_main", mirrored.Roots)
 	}
-	assertNoMirroredRuntimeHintsForTest(t, mirrored.DefaultProfileID, mirrored.DefaultExecutionProfileID)
 	if _, ok, err := baseProjects.Get(t.Context(), "proj_pa_apply_project_identity_authority"); err != nil || ok {
 		t.Fatalf("shadow project ok=%v err=%v, want missing after injected shadow failure", ok, err)
 	}
@@ -1737,7 +1736,6 @@ func TestProjectAssistantAPI_CairnlineApplyProjectMetadataAuthorityDoesNotBlockO
 	if mirrored.Name != "Assistant Project Authority Updated" || mirrored.Description != "Cairnline owns this metadata update." || mirrored.DefaultRootID != "root_main" {
 		t.Fatalf("Cairnline project = %+v, want authoritative metadata/default update", mirrored)
 	}
-	assertNoMirroredRuntimeHintsForTest(t, mirrored.DefaultProfileID, mirrored.DefaultExecutionProfileID)
 	native, ok, err := baseProjects.Get(t.Context(), project.ID)
 	if err != nil || !ok {
 		t.Fatalf("Get native project ok=%v err=%v", ok, err)
@@ -1875,8 +1873,6 @@ func TestProjectAssistantAPI_CairnlineApplyProjectIdentityAuthorityDoesNotRequir
 	if len(mirrored.Roots) != 1 || mirrored.Roots[0].ID != "root_main" || mirrored.Roots[0].Path != "/workspace/cairnline-only" {
 		t.Fatalf("Cairnline roots = %+v, want root_main", mirrored.Roots)
 	}
-	assertNoMirroredRuntimeHintsForTest(t, mirrored.DefaultProfileID, mirrored.DefaultExecutionProfileID)
-
 	project := mustRequestJSONStatus[ProjectResponse](client, http.StatusOK, http.MethodGet, "/hecate/v1/projects/proj_pa_apply_project_identity_cairnline_only", "")
 	if project.Data.ReadBackend != "cairnline" || project.Data.ID != mirrored.ID {
 		t.Fatalf("project response = %+v, want strict embedded Cairnline project", project.Data)
@@ -1954,8 +1950,6 @@ func TestProjectAssistantAPI_CairnlineApplyProjectMetadataRootAuthorityDoesNotRe
 	if findMirroredCairnlineRootForTest(mirrored.Roots, "root_attached") == nil || findMirroredCairnlineRootForTest(mirrored.Roots, "root_main") != nil {
 		t.Fatalf("Cairnline roots = %+v, want attached root only", mirrored.Roots)
 	}
-	assertNoMirroredRuntimeHintsForTest(t, mirrored.DefaultProfileID, mirrored.DefaultExecutionProfileID)
-
 	project := mustRequestJSONStatus[ProjectResponse](client, http.StatusOK, http.MethodGet, "/hecate/v1/projects/"+projectID, "")
 	if project.Data.ReadBackend != "cairnline" || project.Data.DefaultRootID != "root_attached" || len(project.Data.Roots) != 1 || project.Data.Roots[0].ID != "root_attached" {
 		t.Fatalf("project response = %+v, want strict embedded Cairnline project with attached root", project.Data)
@@ -2315,7 +2309,7 @@ func TestProjectAssistantAPI_ProjectSideEffectsMirrorThroughNarrowCairnlineSeams
 	if findMirroredCairnlineSourceForTest(mirrored.ContextSources, "ctx_cairnline_only") == nil {
 		t.Fatalf("mirrored sources = %+v, want Cairnline-only source preserved", mirrored.ContextSources)
 	}
-	if mirrored.DefaultRootID != "root_attached" || mirrored.DefaultProfileID != "" || mirrored.DefaultExecutionProfileID != "" {
+	if mirrored.DefaultRootID != "root_attached" {
 		t.Fatalf("mirrored defaults = %+v, want attached root and omitted Hecate runtime hints", mirrored)
 	}
 }

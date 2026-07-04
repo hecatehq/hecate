@@ -691,9 +691,6 @@ func TestProjectCairnlineSidecarLaunchPacketSmoke_SelectsAssignmentFromStructure
 	if got.StructuredIDs.LaunchPacketID != "launch_fixture" || got.StructuredIDs.Kind != "assignment_launch_packet" || got.StructuredIDs.ProjectID != "proj_fixture" || got.StructuredIDs.AssignmentID != "asg_fixture" || got.StructuredIDs.WorkItemID != "work_fixture" || got.StructuredIDs.RoleID != "role_fixture" {
 		t.Fatalf("structured ids = %+v, want launch/project/assignment/work/role ids", got.StructuredIDs)
 	}
-	if got.StructuredIDs.ProfileID != "profile_fixture" || got.StructuredIDs.ExecutionProfileID != "exec_fixture" {
-		t.Fatalf("structured profile ids = %+v, want profile/execution ids", got.StructuredIDs)
-	}
 	if got.StructuredCounts.Skills != 1 || got.StructuredCounts.Artifacts != 1 || got.StructuredCounts.Evidence != 1 || got.StructuredCounts.Reviews != 1 || got.StructuredCounts.Handoffs != 1 || got.StructuredCounts.Memory != 1 || got.StructuredCounts.MemoryCandidates != 1 || got.StructuredCounts.Warnings != 1 {
 		t.Fatalf("structured counts = %+v, want one item in every launch-packet bucket", got.StructuredCounts)
 	}

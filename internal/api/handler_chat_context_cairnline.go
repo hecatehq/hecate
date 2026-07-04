@@ -130,7 +130,6 @@ func cairnlineAssignmentContextPacket(context cairnline.AssignmentContext) chat.
 	}
 	packet := baseChatContextPacket(firstNonEmptyString(strings.TrimSpace(context.Assignment.ExecutionMode), cairnline.ExecutionMCPPull), "", "", workspace)
 	packet.ID = firstNonEmptyString(strings.TrimSpace(context.Assignment.ContextSnapshotID), strings.TrimSpace(context.ID), "cairnline_assignment_context_"+strings.TrimSpace(context.Assignment.ID))
-	packet.ExecutionProfile = strings.TrimSpace(context.Assignment.ExecutionProfileID)
 	packet.SystemPromptIncluded = false
 	packet.Refs = &chat.ContextRefs{
 		ProjectID:    strings.TrimSpace(context.Project.ID),
@@ -158,11 +157,9 @@ func cairnlineAssignmentLaunchContextPacket(launch cairnline.AssignmentLaunchPac
 	if rootOK {
 		workspace = strings.TrimSpace(root.Path)
 	}
-	executionProfile := strings.TrimSpace(launch.Assignment.ExecutionProfileID)
 	provider, model := "", ""
 	packet := baseChatContextPacket(firstNonEmptyString(strings.TrimSpace(launch.Assignment.ExecutionMode), cairnline.ExecutionMCPPull), provider, model, workspace)
 	packet.ID = firstNonEmptyString(strings.TrimSpace(launch.Assignment.ContextSnapshotID), "cairnline_assignment_context_"+strings.TrimSpace(launch.Assignment.ID))
-	packet.ExecutionProfile = executionProfile
 	packet.SystemPromptIncluded = false
 	packet.Refs = &chat.ContextRefs{
 		ProjectID:    strings.TrimSpace(launch.Project.ID),
@@ -211,8 +208,6 @@ func appendCairnlineAssignmentLaunchPacketEvidenceItem(packet *chat.ContextPacke
 		rootPath = strings.TrimSpace(root.Path)
 		rootDetail = firstNonEmptyString(rootID, "unresolved") + " (" + firstNonEmptyString(rootPath, "no path") + "; " + firstNonEmptyString(rootSelection, "fallback") + ")"
 	}
-	profileID := strings.TrimSpace(launch.Assignment.ProfileID)
-	executionProfileID := strings.TrimSpace(launch.Assignment.ExecutionProfileID)
 	roleLabel := strings.TrimSpace(launch.Assignment.RoleID)
 	if launch.Role != nil && strings.TrimSpace(launch.Role.Name) != "" {
 		roleLabel = firstNonEmptyString(roleLabel, strings.TrimSpace(launch.Role.ID)) + " (" + strings.TrimSpace(launch.Role.Name) + ")"
@@ -225,8 +220,6 @@ func appendCairnlineAssignmentLaunchPacketEvidenceItem(packet *chat.ContextPacke
 		"Execution mode: " + firstNonEmptyString(strings.TrimSpace(launch.Assignment.ExecutionMode), cairnline.ExecutionMCPPull),
 		"Role: " + firstNonEmptyString(roleLabel, "none"),
 		"Desired agent: " + firstNonEmptyString(strings.TrimSpace(launch.Assignment.DesiredAgent.Kind), cairnline.DesiredAgentAny),
-		"Agent preset: " + firstNonEmptyString(profileID, "inherit"),
-		"Runtime profile: " + firstNonEmptyString(executionProfileID, "inherit"),
 		"Root: " + rootDetail,
 		fmt.Sprintf("Skills: %d; artifacts: %d; evidence: %d; reviews: %d; handoffs: %d; memory: %d; memory candidates: %d",
 			len(launch.Skills),
@@ -300,8 +293,6 @@ func cairnlineAssignmentLaunchPacketEvidenceMetadata(launch cairnline.Assignment
 		"root_path":              strings.TrimSpace(rootPath),
 		"execution_mode":         firstNonEmptyString(strings.TrimSpace(launch.Assignment.ExecutionMode), cairnline.ExecutionMCPPull),
 		"desired_agent":          firstNonEmptyString(strings.TrimSpace(launch.Assignment.DesiredAgent.Kind), cairnline.DesiredAgentAny),
-		"profile_id":             strings.TrimSpace(launch.Assignment.ProfileID),
-		"execution_profile_id":   strings.TrimSpace(launch.Assignment.ExecutionProfileID),
 		"skill_count":            fmt.Sprintf("%d", len(launch.Skills)),
 		"artifact_count":         fmt.Sprintf("%d", len(launch.Artifacts)),
 		"evidence_count":         fmt.Sprintf("%d", len(launch.Evidence)),
@@ -381,8 +372,6 @@ func appendCairnlineAssignment(packet *chat.ContextPacket, item cairnline.Assign
 		"Execution mode: " + firstNonEmptyString(strings.TrimSpace(item.ExecutionMode), cairnline.ExecutionMCPPull),
 		"Role: " + firstNonEmptyString(strings.TrimSpace(item.RoleID), "none"),
 		"Desired agent: " + firstNonEmptyString(strings.TrimSpace(item.DesiredAgent.Kind), cairnline.DesiredAgentAny),
-		"Agent preset: " + firstNonEmptyString(strings.TrimSpace(item.ProfileID), "inherit"),
-		"Runtime profile: " + firstNonEmptyString(strings.TrimSpace(item.ExecutionProfileID), "inherit"),
 	}
 	if rootID := strings.TrimSpace(item.RootID); rootID != "" {
 		body = append(body, "Root override: "+rootID)
@@ -449,8 +438,6 @@ func appendCairnlineRole(packet *chat.ContextPacket, role cairnline.Role) {
 	body := []string{
 		"Description: " + firstNonEmptyString(strings.TrimSpace(role.Description), "No description recorded."),
 		"Instructions: " + firstNonEmptyString(strings.TrimSpace(role.Instructions), "No role instructions recorded."),
-		"Default preset: " + firstNonEmptyString(strings.TrimSpace(role.DefaultProfileID), "none"),
-		"Default runtime profile: " + firstNonEmptyString(strings.TrimSpace(role.DefaultExecutionProfileID), "none"),
 		"Default execution mode: " + firstNonEmptyString(strings.TrimSpace(role.DefaultExecutionMode), "inherit"),
 	}
 	if skills := compactContextIDs(role.DefaultSkillIDs); len(skills) > 0 {

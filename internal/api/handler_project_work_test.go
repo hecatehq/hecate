@@ -1284,7 +1284,7 @@ func TestProjectWorkAPI_CairnlineRoleAuthorityWritesCairnlineAndShadowsHecate(t 
 		t.Fatalf("created role timestamps = created:%q updated:%q, want Hecate shadow timestamps", created.Data.CreatedAt, created.Data.UpdatedAt)
 	}
 	mirroredRole := getMirroredCairnlineRoleForTest(t, handler, projectID, "role_authority")
-	if mirroredRole.Name != "Authority reviewer" || mirroredRole.DefaultProfileID != "" || mirroredRole.DefaultExecutionProfileID != "" || mirroredRole.DefaultExecutionMode != cairnline.ExecutionExternalAdapter {
+	if mirroredRole.Name != "Authority reviewer" || mirroredRole.DefaultExecutionMode != cairnline.ExecutionExternalAdapter {
 		t.Fatalf("Cairnline role = %+v, want role authority record", mirroredRole)
 	}
 	if len(mirroredRole.DefaultSkillIDs) != 1 || mirroredRole.DefaultSkillIDs[0] != "review" {
@@ -1838,7 +1838,7 @@ func TestProjectWorkAPI_MirrorsRoleAndWorkItemMutationsToCairnlineWhenConfigured
 		t.Fatalf("create role status = %d body=%s, want 201", rec.Code, rec.Body.String())
 	}
 	mirroredRole := getMirroredCairnlineRoleForTest(t, handler, project.Data.ID, "role_release")
-	if mirroredRole.Name != "Release captain" || mirroredRole.DefaultProfileID != "" || mirroredRole.DefaultExecutionProfileID != "" || mirroredRole.DefaultExecutionMode != "external_adapter" {
+	if mirroredRole.Name != "Release captain" || mirroredRole.DefaultExecutionMode != "external_adapter" {
 		t.Fatalf("mirrored role = %+v, want release captain defaults", mirroredRole)
 	}
 	if len(mirroredRole.DefaultSkillIDs) != 1 || mirroredRole.DefaultSkillIDs[0] != "release" {
@@ -1900,7 +1900,7 @@ func TestProjectWorkAPI_MirrorsRoleAndWorkItemMutationsToCairnlineWhenConfigured
 		t.Fatalf("create assignment status = %d body=%s, want 201", rec.Code, rec.Body.String())
 	}
 	mirroredAssignment := getMirroredCairnlineAssignmentForTest(t, handler, project.Data.ID, "asgn_release")
-	if mirroredAssignment.Status != cairnline.AssignmentQueued || mirroredAssignment.RoleID != "role_release" || mirroredAssignment.WorkItemID != "work_release" || mirroredAssignment.ProfileID != "" || mirroredAssignment.ExecutionProfileID != "" {
+	if mirroredAssignment.Status != cairnline.AssignmentQueued || mirroredAssignment.RoleID != "role_release" || mirroredAssignment.WorkItemID != "work_release" {
 		t.Fatalf("mirrored assignment = %+v, want queued release assignment metadata", mirroredAssignment)
 	}
 	if mirroredAssignment.ExecutionMode != cairnline.ExecutionExternalAdapter || mirroredAssignment.DesiredAgent.Kind != cairnline.DesiredAgentAny || mirroredAssignment.ContextSnapshotID != "ctx_release" {
@@ -2089,7 +2089,7 @@ func TestProjectWorkAPI_RolesUseCairnlineSidecarWhenConfigured(t *testing.T) {
 	if role.ProjectID != "proj_fixture" || role.ReadBackend != "cairnline" || role.BuiltIn {
 		t.Fatalf("role = %+v, want sidecar Cairnline non-built-in fixture role", role)
 	}
-	if role.Name != "Fixture Reviewer" || role.DefaultDriverKind != "mcp_pull" || role.DefaultAgentProfile != "profile_fixture" {
+	if role.Name != "Fixture Reviewer" || role.DefaultDriverKind != "mcp_pull" || role.DefaultAgentProfile != "" {
 		t.Fatalf("role defaults = %+v, want portable sidecar role defaults", role)
 	}
 	if !reflect.DeepEqual(role.SkillIDs, []string{"skill_fixture"}) {
@@ -2124,8 +2124,8 @@ func TestProjectWorkAPI_RolesCairnlineSidecarOverlayNativeRuntimeDefaults(t *tes
 	if role.ReadBackend != "cairnline" || role.DefaultProvider != "anthropic" || role.DefaultModel != "claude-sonnet-4" {
 		t.Fatalf("role = %+v, want sidecar role with native Hecate runtime overlay", role)
 	}
-	if role.DefaultAgentProfile != "profile_fixture" {
-		t.Fatalf("role preset = %q, want Cairnline preset hint to remain authoritative", role.DefaultAgentProfile)
+	if role.DefaultAgentProfile != "role_fixture_preset" {
+		t.Fatalf("role preset = %q, want Hecate runtime overlay preset", role.DefaultAgentProfile)
 	}
 }
 
@@ -2149,15 +2149,13 @@ func TestProjectWorkAPI_StrictEmbeddedReadModelReadsRolesWithoutHecateProject(t 
 			return err
 		}
 		_, err := service.CreateRole(t.Context(), cairnline.Role{
-			ID:                        "role_reviewer",
-			ProjectID:                 projectID,
-			Name:                      "Reviewer",
-			Description:               "Reviews completed assignments.",
-			Instructions:              "Inspect evidence before approving.",
-			DefaultProfileID:          "profile_review",
-			DefaultExecutionProfileID: "exec_external",
-			DefaultSkillIDs:           []string{"review"},
-			DefaultExecutionMode:      cairnline.ExecutionExternalAdapter,
+			ID:                   "role_reviewer",
+			ProjectID:            projectID,
+			Name:                 "Reviewer",
+			Description:          "Reviews completed assignments.",
+			Instructions:         "Inspect evidence before approving.",
+			DefaultSkillIDs:      []string{"review"},
+			DefaultExecutionMode: cairnline.ExecutionExternalAdapter,
 		})
 		return err
 	}); err != nil {
@@ -2181,7 +2179,7 @@ func TestProjectWorkAPI_StrictEmbeddedReadModelReadsRolesWithoutHecateProject(t 
 	if role.ProjectID != projectID || role.ReadBackend != "cairnline" || role.BuiltIn {
 		t.Fatalf("role = %+v, want embedded Cairnline non-built-in role", role)
 	}
-	if role.Name != "Reviewer" || role.DefaultDriverKind != projectwork.AssignmentDriverExternalAgent || role.DefaultAgentProfile != "profile_review" {
+	if role.Name != "Reviewer" || role.DefaultDriverKind != projectwork.AssignmentDriverExternalAgent || role.DefaultAgentProfile != "" {
 		t.Fatalf("role defaults = %+v, want embedded Cairnline role defaults", role)
 	}
 	if role.DefaultProvider != "" || role.DefaultModel != "" {
@@ -3720,8 +3718,8 @@ func TestProjectWorkAPI_PreflightAssignmentCairnlineSidecarOverlaysNativeRuntime
 	if preflight.Data.ExecutionMode != chat.ExecutionModeHecateTask || preflight.Data.Provider != "anthropic" || preflight.Data.Model != "claude-sonnet-4" {
 		t.Fatalf("sidecar preflight launch shape = %q/%q/%q, want Hecate runtime overlay", preflight.Data.ExecutionMode, preflight.Data.Provider, preflight.Data.Model)
 	}
-	if preflight.Data.ExecutionProfile != "profile_fixture" {
-		t.Fatalf("sidecar preflight execution_profile = %q, want Cairnline preset hint", preflight.Data.ExecutionProfile)
+	if preflight.Data.ExecutionProfile != "role_fixture_preset" {
+		t.Fatalf("sidecar preflight execution_profile = %q, want Hecate runtime overlay preset", preflight.Data.ExecutionProfile)
 	}
 	assertCairnlineSidecarLaunchPacketEvidenceForTest(t, preflight.Data)
 }
@@ -3741,11 +3739,10 @@ func TestProjectWorkAPI_PreflightAssignmentStrictEmbeddedReadModelReadsWithoutHe
 
 	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
 		if _, err := service.CreateProject(t.Context(), cairnline.Project{
-			ID:                        projectID,
-			Name:                      "Embedded Launch Preflight",
-			Description:               "Coordinate launch preflight from embedded Cairnline.",
-			DefaultRootID:             "root_embedded_launch_preflight",
-			DefaultExecutionProfileID: "exec_embedded_launch_preflight",
+			ID:            projectID,
+			Name:          "Embedded Launch Preflight",
+			Description:   "Coordinate launch preflight from embedded Cairnline.",
+			DefaultRootID: "root_embedded_launch_preflight",
 			Roots: []cairnline.Root{{
 				ID:     "root_embedded_launch_preflight",
 				Path:   workspace,
@@ -3756,11 +3753,10 @@ func TestProjectWorkAPI_PreflightAssignmentStrictEmbeddedReadModelReadsWithoutHe
 			return err
 		}
 		if _, err := service.CreateRole(t.Context(), cairnline.Role{
-			ID:                        "role_embedded_launch_preflight",
-			ProjectID:                 projectID,
-			Name:                      "Launch Reviewer",
-			DefaultExecutionProfileID: "exec_embedded_launch_preflight",
-			DefaultExecutionMode:      cairnline.ExecutionMCPPull,
+			ID:                   "role_embedded_launch_preflight",
+			ProjectID:            projectID,
+			Name:                 "Launch Reviewer",
+			DefaultExecutionMode: cairnline.ExecutionMCPPull,
 		}); err != nil {
 			return err
 		}
@@ -3911,11 +3907,10 @@ func TestProjectWorkAPI_StartAssignmentStrictEmbeddedReadModelLaunchesCairnlineO
 
 	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
 		if _, err := service.CreateProject(t.Context(), cairnline.Project{
-			ID:                        projectID,
-			Name:                      "Embedded Launch Start",
-			Description:               "Coordinate assignment launch from embedded Cairnline.",
-			DefaultRootID:             "root_embedded_launch_start",
-			DefaultExecutionProfileID: "exec_embedded_launch_start",
+			ID:            projectID,
+			Name:          "Embedded Launch Start",
+			Description:   "Coordinate assignment launch from embedded Cairnline.",
+			DefaultRootID: "root_embedded_launch_start",
 			Roots: []cairnline.Root{{
 				ID:     "root_embedded_launch_start",
 				Path:   workspace,
@@ -3926,12 +3921,11 @@ func TestProjectWorkAPI_StartAssignmentStrictEmbeddedReadModelLaunchesCairnlineO
 			return err
 		}
 		if _, err := service.CreateRole(t.Context(), cairnline.Role{
-			ID:                        "role_embedded_launch_start",
-			ProjectID:                 projectID,
-			Name:                      "Launch Implementer",
-			Instructions:              "Use the embedded Cairnline graph.",
-			DefaultExecutionProfileID: "exec_embedded_launch_start",
-			DefaultExecutionMode:      cairnline.ExecutionOrchestrated,
+			ID:                   "role_embedded_launch_start",
+			ProjectID:            projectID,
+			Name:                 "Launch Implementer",
+			Instructions:         "Use the embedded Cairnline graph.",
+			DefaultExecutionMode: cairnline.ExecutionOrchestrated,
 		}); err != nil {
 			return err
 		}
@@ -4030,11 +4024,10 @@ func TestProjectWorkAPI_StartAssignmentStrictEmbeddedReadModelBlocksBeforeClaimW
 
 	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
 		if _, err := service.CreateProject(t.Context(), cairnline.Project{
-			ID:                        projectID,
-			Name:                      "Embedded Launch Task Create Fail",
-			Description:               "Coordinate failed assignment launch from embedded Cairnline.",
-			DefaultRootID:             "root_embedded_launch_task_create_fail",
-			DefaultExecutionProfileID: "exec_embedded_launch_task_create_fail",
+			ID:            projectID,
+			Name:          "Embedded Launch Task Create Fail",
+			Description:   "Coordinate failed assignment launch from embedded Cairnline.",
+			DefaultRootID: "root_embedded_launch_task_create_fail",
 			Roots: []cairnline.Root{{
 				ID:     "root_embedded_launch_task_create_fail",
 				Path:   workspace,
@@ -4045,12 +4038,11 @@ func TestProjectWorkAPI_StartAssignmentStrictEmbeddedReadModelBlocksBeforeClaimW
 			return err
 		}
 		if _, err := service.CreateRole(t.Context(), cairnline.Role{
-			ID:                        "role_embedded_launch_task_create_fail",
-			ProjectID:                 projectID,
-			Name:                      "Launch Implementer",
-			Instructions:              "Use the embedded Cairnline graph.",
-			DefaultExecutionProfileID: "exec_embedded_launch_task_create_fail",
-			DefaultExecutionMode:      cairnline.ExecutionOrchestrated,
+			ID:                   "role_embedded_launch_task_create_fail",
+			ProjectID:            projectID,
+			Name:                 "Launch Implementer",
+			Instructions:         "Use the embedded Cairnline graph.",
+			DefaultExecutionMode: cairnline.ExecutionOrchestrated,
 		}); err != nil {
 			return err
 		}
@@ -4129,6 +4121,13 @@ func TestProjectWorkAPI_StartExternalAgentAssignmentStrictEmbeddedReadModelLaunc
 	}); err != nil {
 		t.Fatalf("Create external profile: %v", err)
 	}
+	if _, err := handler.projectRuntime.UpsertRoleDefaults(t.Context(), projectruntime.RoleDefaults{
+		ProjectID:           projectID,
+		RoleID:              "role_embedded_external_start",
+		DefaultAgentProfile: "prof_embedded_external",
+	}); err != nil {
+		t.Fatalf("Upsert external role runtime defaults: %v", err)
+	}
 	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
 		if _, err := service.CreateProject(t.Context(), cairnline.Project{
 			ID:            projectID,
@@ -4149,7 +4148,6 @@ func TestProjectWorkAPI_StartExternalAgentAssignmentStrictEmbeddedReadModelLaunc
 			ProjectID:            projectID,
 			Name:                 "External Implementer",
 			Instructions:         "Use the embedded Cairnline graph before preparing the adapter session.",
-			DefaultProfileID:     "prof_embedded_external",
 			DefaultExecutionMode: cairnline.ExecutionExternalAdapter,
 		}); err != nil {
 			return err
@@ -4281,6 +4279,13 @@ func TestProjectWorkAPI_StartExternalAgentAssignmentStrictEmbeddedReadModelClean
 	}); err != nil {
 		t.Fatalf("Create external profile: %v", err)
 	}
+	if _, err := handler.projectRuntime.UpsertRoleDefaults(t.Context(), projectruntime.RoleDefaults{
+		ProjectID:           projectID,
+		RoleID:              "role_embedded_external_claim_lost",
+		DefaultAgentProfile: "prof_embedded_external_claim_lost",
+	}); err != nil {
+		t.Fatalf("Upsert external role runtime defaults: %v", err)
+	}
 	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
 		if _, err := service.CreateProject(t.Context(), cairnline.Project{
 			ID:            projectID,
@@ -4301,7 +4306,6 @@ func TestProjectWorkAPI_StartExternalAgentAssignmentStrictEmbeddedReadModelClean
 			ProjectID:            projectID,
 			Name:                 "External Implementer",
 			Instructions:         "Use the embedded Cairnline graph before preparing the adapter session.",
-			DefaultProfileID:     "prof_embedded_external_claim_lost",
 			DefaultExecutionMode: cairnline.ExecutionExternalAdapter,
 		}); err != nil {
 			return err
@@ -8364,8 +8368,7 @@ func assertCairnlineSidecarLaunchPacketEvidenceForTest(t *testing.T, packet Chat
 		"Ready: true",
 		"Assignment: asg_fixture",
 		"Execution mode: mcp_pull",
-		"Agent preset: profile_fixture",
-		"Runtime profile: exec_fixture",
+		"Desired agent: any",
 	} {
 		if !strings.Contains(item.Body, want) {
 			t.Fatalf("Cairnline sidecar launch packet body = %q, want %q", item.Body, want)

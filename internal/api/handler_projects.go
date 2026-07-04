@@ -910,7 +910,7 @@ func projectFromCairnline(item cairnline.Project, native projects.Project) proje
 		DefaultRootID:            item.DefaultRootID,
 		DefaultProvider:          native.DefaultProvider,
 		DefaultModel:             native.DefaultModel,
-		DefaultAgentProfile:      firstNonEmpty(item.DefaultProfileID, native.DefaultAgentProfile),
+		DefaultAgentProfile:      native.DefaultAgentProfile,
 		DefaultToolsEnabled:      cloneBool(native.DefaultToolsEnabled),
 		DefaultWorkspaceMode:     native.DefaultWorkspaceMode,
 		DefaultSystemPrompt:      native.DefaultSystemPrompt,

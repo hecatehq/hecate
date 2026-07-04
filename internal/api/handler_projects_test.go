@@ -617,12 +617,10 @@ func TestProjectsAPI_StrictEmbeddedReadModelReadsProjectsWithoutHecateStore(t *t
 
 	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
 		_, err := service.CreateProject(t.Context(), cairnline.Project{
-			ID:                        projectID,
-			Name:                      "Embedded Project",
-			Description:               "Read directly from Cairnline.",
-			DefaultRootID:             "root_main",
-			DefaultProfileID:          "profile_architect",
-			DefaultExecutionProfileID: "exec_embedded",
+			ID:            projectID,
+			Name:          "Embedded Project",
+			Description:   "Read directly from Cairnline.",
+			DefaultRootID: "root_main",
 			Roots: []cairnline.Root{{
 				ID:        "root_main",
 				Path:      "/workspace/embedded",
@@ -690,8 +688,6 @@ func TestProjectsAPI_MirrorsIdentityMutationsToCairnlineWhenConfigured(t *testin
 	if len(mirrored.ContextSources) != 1 || mirrored.ContextSources[0].ID != "ctx_agents" || mirrored.ContextSources[0].Locator != "AGENTS.md" {
 		t.Fatalf("mirrored context sources = %+v, want AGENTS.md source", mirrored.ContextSources)
 	}
-	assertNoMirroredRuntimeHintsForTest(t, mirrored.DefaultProfileID, mirrored.DefaultExecutionProfileID)
-
 	rec = httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+created.Data.ID, bytes.NewReader([]byte(`{
 		"name":"Mirrored Rename",
@@ -704,8 +700,6 @@ func TestProjectsAPI_MirrorsIdentityMutationsToCairnlineWhenConfigured(t *testin
 	if mirrored.Name != "Mirrored Rename" {
 		t.Fatalf("mirrored name = %q, want patched name", mirrored.Name)
 	}
-	assertNoMirroredRuntimeHintsForTest(t, mirrored.DefaultProfileID, mirrored.DefaultExecutionProfileID)
-
 	rec = httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+created.Data.ID+"/roots", bytes.NewReader([]byte(`{
 		"id":"root_worktree",
@@ -836,7 +830,6 @@ func TestProjectsAPI_CairnlineIdentityAuthorityCommitsCreateFirst(t *testing.T) 
 	if mirrored.Name != "Identity Authority" || mirrored.Description != "created through Cairnline" || mirrored.DefaultRootID != "root_main" || len(mirrored.Roots) != 1 || len(mirrored.ContextSources) != 1 {
 		t.Fatalf("mirrored project = %+v, want identity create committed to Cairnline", mirrored)
 	}
-	assertNoMirroredRuntimeHintsForTest(t, mirrored.DefaultProfileID, mirrored.DefaultExecutionProfileID)
 }
 
 func TestProjectsAPI_CairnlineReplacementModeCreatesCairnlineOnlyIdentity(t *testing.T) {
@@ -871,8 +864,6 @@ func TestProjectsAPI_CairnlineReplacementModeCreatesCairnlineOnlyIdentity(t *tes
 	if mirrored.Name != "Replacement Identity" || mirrored.Description != "created only in Cairnline" || mirrored.DefaultRootID != "root_main" || len(mirrored.Roots) != 1 {
 		t.Fatalf("mirrored project = %+v, want Cairnline-only replacement identity", mirrored)
 	}
-	assertNoMirroredRuntimeHintsForTest(t, mirrored.DefaultProfileID, mirrored.DefaultExecutionProfileID)
-
 	listed := listProjectsForTest(t, server)
 	if len(listed) != 1 || listed[0].ID != created.Data.ID || listed[0].ReadBackend != "cairnline" {
 		t.Fatalf("listed projects = %+v, want strict embedded Cairnline read of replacement identity", listed)
@@ -1359,7 +1350,7 @@ func TestProjectsAPI_CairnlineMetadataDefaultsAuthorityCommitsScopedUpdatesFirst
 	}
 
 	mirrored := getMirroredCairnlineProjectForTest(t, handler, created.Data.ID)
-	if mirrored.Name != "Authority Rename" || mirrored.Description != "Cairnline owns scoped project settings." || mirrored.DefaultRootID != "root_main" || mirrored.DefaultProfileID != "" || mirrored.DefaultExecutionProfileID != "" {
+	if mirrored.Name != "Authority Rename" || mirrored.Description != "Cairnline owns scoped project settings." || mirrored.DefaultRootID != "root_main" {
 		t.Fatalf("mirrored project = %+v, want scoped metadata/default authority", mirrored)
 	}
 	if len(mirrored.Roots) != 1 || mirrored.Roots[0].ID != "root_main" {
@@ -1791,9 +1782,6 @@ func TestProjectsAPI_RuntimeDefaultPatchPreservesCairnlinePortableState(t *testi
 		t.Fatalf("defaults update status = %d body=%s, want 200", rec.Code, rec.Body.String())
 	}
 	mirrored := getMirroredCairnlineProjectForTest(t, handler, created.Data.ID)
-	if mirrored.DefaultProfileID != "" || mirrored.DefaultExecutionProfileID != "" {
-		t.Fatalf("mirrored runtime hints = profile:%q execution:%q, want Hecate-owned defaults omitted from Cairnline", mirrored.DefaultProfileID, mirrored.DefaultExecutionProfileID)
-	}
 	if findMirroredCairnlineRootForTest(mirrored.Roots, "root_cairnline_only") == nil {
 		t.Fatalf("mirrored roots = %+v, want Cairnline-only root preserved", mirrored.Roots)
 	}
@@ -1899,9 +1887,6 @@ func TestProjectsAPI_MetadataPatchMirrorsMetadataWithoutReplacingCairnlineState(
 	mirrored := getMirroredCairnlineProjectForTest(t, handler, created.Data.ID)
 	if mirrored.Name != "Metadata Mirror Renamed" || mirrored.Description != "After" {
 		t.Fatalf("mirrored metadata = %+v, want renamed project with updated description", mirrored)
-	}
-	if mirrored.DefaultProfileID != "" || mirrored.DefaultExecutionProfileID != "" {
-		t.Fatalf("mirrored runtime hints = profile:%q execution:%q, want Hecate-owned defaults omitted from Cairnline", mirrored.DefaultProfileID, mirrored.DefaultExecutionProfileID)
 	}
 	if findMirroredCairnlineRootForTest(mirrored.Roots, "root_cairnline_only") == nil {
 		t.Fatalf("mirrored roots = %+v, want Cairnline-only root preserved", mirrored.Roots)
@@ -2159,7 +2144,7 @@ func assertStrictEmbeddedProjectProjectionForTest(t *testing.T, project ProjectR
 	if project.ID != projectID || project.ReadBackend != "cairnline" || project.Name != "Embedded Project" || project.Description != "Read directly from Cairnline." {
 		t.Fatalf("project = %+v, want direct embedded Cairnline project %s", project, projectID)
 	}
-	if project.DefaultRootID != "root_main" || project.DefaultAgentProfile != "profile_architect" {
+	if project.DefaultRootID != "root_main" || project.DefaultAgentProfile != "" {
 		t.Fatalf("project defaults = %+v, want Cairnline project defaults", project)
 	}
 	if project.DefaultProvider != "" || project.DefaultModel != "" || project.DefaultWorkspaceMode != "" {
@@ -2399,13 +2384,6 @@ func findMirroredCairnlineSourceForTest(sources []cairnline.Source, id string) *
 		}
 	}
 	return nil
-}
-
-func assertNoMirroredRuntimeHintsForTest(t *testing.T, profileID, executionProfileID string) {
-	t.Helper()
-	if profileID != "" || executionProfileID != "" {
-		t.Fatalf("mirrored runtime hints = profile:%q execution:%q, want omitted from portable Cairnline graph", profileID, executionProfileID)
-	}
 }
 
 type failingProjectSkillDeleteStore struct {

@@ -276,12 +276,10 @@ func TestProjectHealth_StrictEmbeddedReadModelReadsWithoutHecateProject(t *testi
 
 	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
 		if _, err := service.CreateProject(t.Context(), cairnline.Project{
-			ID:                        projectID,
-			Name:                      "Embedded Health",
-			Description:               "Coordinate health from embedded Cairnline.",
-			DefaultRootID:             "root_embedded_health",
-			DefaultProfileID:          "profile_embedded_health",
-			DefaultExecutionProfileID: "exec_embedded_health",
+			ID:            projectID,
+			Name:          "Embedded Health",
+			Description:   "Coordinate health from embedded Cairnline.",
+			DefaultRootID: "root_embedded_health",
 			Roots: []cairnline.Root{{
 				ID:     "root_embedded_health",
 				Path:   "/workspace/embedded-health",
@@ -301,11 +299,10 @@ func TestProjectHealth_StrictEmbeddedReadModelReadsWithoutHecateProject(t *testi
 			return err
 		}
 		if _, err := service.CreateRole(t.Context(), cairnline.Role{
-			ID:               "role_embedded_health",
-			ProjectID:        projectID,
-			Name:             "Health Reviewer",
-			DefaultProfileID: "profile_embedded_health",
-			DefaultSkillIDs:  []string{"health"},
+			ID:              "role_embedded_health",
+			ProjectID:       projectID,
+			Name:            "Health Reviewer",
+			DefaultSkillIDs: []string{"health"},
 		}); err != nil {
 			return err
 		}
@@ -343,7 +340,6 @@ func TestProjectHealth_StrictEmbeddedReadModelReadsWithoutHecateProject(t *testi
 			WorkItemID:    "work_embedded_health",
 			RoleID:        "role_embedded_health",
 			RootID:        "root_embedded_health",
-			ProfileID:     "profile_embedded_health",
 			ExecutionMode: cairnline.ExecutionMCPPull,
 		}); err != nil {
 			return err
