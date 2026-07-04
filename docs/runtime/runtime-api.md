@@ -1627,7 +1627,7 @@ importers should translate or drop host-specific fields such as `cwd` or
 `timeout` before installing a Hecate manifest.
 
 `approval_policy` is recorded as requested mount metadata only. When explicit
-mounting into profiles or task/chat starts lands, Hecate's own approval policy
+mounting into Agent Presets or task/chat starts lands, Hecate's own approval policy
 remains authoritative; a plugin-declared `auto` value must not downgrade a
 Hecate-owned requirement for approval.
 
@@ -2131,7 +2131,7 @@ DELETE /hecate/v1/projects/proj_.../roots/root_...
 
 Creates one context-source metadata record and returns the updated project. The
 request is explicit metadata only: Hecate does not read file bodies, fetch URLs,
-promote memory, inject prompt context, or change profile policy.
+promote memory, inject prompt context, or change Agent Preset policy.
 
 If `id` is omitted, the server generates one. Duplicate source IDs return
 `409 conflict`; invalid source metadata returns `400 invalid_request`.
@@ -2314,7 +2314,7 @@ POST /hecate/v1/projects/proj_.../roots/worktrees
 Discovers workspace guidance metadata from active absolute project roots and
 merges it into `context_sources`. Discovery is an explicit operator action: it
 does not read discovered file bodies into prompts and does not change Hecate
-policy, approvals, sandboxing, or profile settings.
+policy, approvals, sandboxing, or Agent Preset settings.
 
 V1 enables portable `AGENTS.md` sources as `kind=workspace_instruction`,
 `format=agents_md`, and `trust_label=workspace_guidance`. Host-specific files
@@ -5432,7 +5432,7 @@ When `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar` and
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar` are both configured, this route
 instead composes typed read-only Cairnline MCP sidecar calls for project detail,
 roles, work items, assignments, collaboration artifacts, handoffs, memory,
-profiles, and skills. The sidecar path requires typed `structuredContent`;
+and skills. The sidecar path requires typed `structuredContent`;
 malformed or text-only sidecar responses fail loudly with `502 gateway_error`.
 
 The five-item cap is applied after the server's attention derivation order. The
@@ -5825,9 +5825,9 @@ When `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar` and
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar` are both configured, this
 endpoint calls `projects.get` and typed `roles.list` through the standalone
 Cairnline MCP client. Sidecar roles expose portable role metadata such as
-profile, execution-mode, and skill defaults; Hecate-specific provider/model
-defaults remain absent unless they are projected by a Hecate-owned embedded
-read path.
+execution-mode and skill defaults; Hecate-specific provider/model/preset
+defaults remain absent unless they are projected by a Hecate-owned embedded read
+path.
 
 ```json
 {
@@ -5870,7 +5870,7 @@ Creates a custom role. `name` is required. `id` is optional; Hecate generates a
 deleted as custom roles. Role defaults are execution hints: `default_driver_kind`
 can seed new assignment driver kind, and `default_provider`, `default_model`,
 and `default_agent_profile` can seed native task/chat launches before project
-defaults are used. Provider, model, and profile hints are stored as supplied
+defaults are used. Provider, model, and preset hints are stored as supplied
 and are not validated against the live provider catalog when the role is saved;
 stale or unroutable values fail later when an assignment or chat launch uses
 them. `skill_ids` are references to the project skills registry. Missing,
@@ -6158,7 +6158,7 @@ assignment launch/context preview if no persisted Hecate execution packet
 exists. That preview is deterministic, metadata-oriented, and read-only: it
 does not create a Task, Run, Chat session, external-agent execution, memory
 entry, artifact, or assignment update. It shows portable project/work/role,
-profile, skill, source, memory, evidence, review, and handoff metadata so the
+desired-agent, skill, source, memory, evidence, review, and handoff metadata so the
 operator can inspect what Cairnline would hand to a compatible orchestrator.
 
 In strict embedded mode, the endpoint first checks Hecate's assignment runtime
@@ -6182,7 +6182,7 @@ Returns a typed, read-only assignment launch readiness projection. The endpoint
 does not create a Task, Run, Chat session, memory entry, artifact, or assignment
 update. Hecate verifies the same launch shape used by preflight/start: project,
 work item, assignment, and role identity; queued/startable status; stored driver
-support; active execution; workspace/root resolution; profile and skills
+support; active execution; workspace/root resolution; Agent Preset and skill
 resolution; native provider/model readiness; and External Agent adapter/options
 resolution.
 
@@ -6245,8 +6245,8 @@ Native Hecate Task assignments may include `model_readiness`, using the same
 reason and repair vocabulary as `metadata.readiness` on `/v1/models`. External
 Agent assignments include `external_agent_id`, `external_agent`, and
 `session_title` when the adapter/options resolve. Assignments with a resolved
-profile include `profile_posture`, a read-only summary of the selected profile's
-tools, writes, network, approval, memory, and context-source posture. `ready=false`
+Agent Preset include `profile_posture`, a read-only summary of the selected
+preset's tools, writes, network, approval, memory, and context-source posture. `ready=false`
 is the UI gate for `Start assignment`, `Prepare chat`, and `Start from handoff`;
 operators must still confirm the separate start mutation after reviewing preflight.
 
@@ -6324,10 +6324,10 @@ inspection, and the created run snapshots `project_id`, `work_item_id`, and
 `assignment_id` directly on the run payload. The
 task title, prompt, and system prompt are composed from a visible launch-context
 block covering project, work item, assignment, role, execution hints, role
-defaults, project defaults, and any profile-activated prompt context. Project
+defaults, project defaults, and any preset-activated prompt context. Project
 assignment tasks set `workspace_system_prompt_policy="exclude"` so the legacy
-root `CLAUDE.md` / `AGENTS.md` compatibility layer cannot bypass profile
-context-source policy. Role default provider/model/profile override
+root `CLAUDE.md` / `AGENTS.md` compatibility layer cannot bypass preset
+context-source policy. Role default provider/model/preset override
 project defaults for the backing task when configured; project
 provider/model/workspace settings remain the fallback. Provider and model
 defaults are route hints, so catalog/routing validation happens during task
@@ -6398,8 +6398,8 @@ model request.
 
 For `driver_kind="external_agent"`, starting prepares a supervised External
 Agent chat session without sending the assignment prompt. The resolved Agent
-Profile must name an `external_agent_kind` such as `codex`, `claude_code`,
-`cursor_agent`, or `grok_build`; profile `external_agent_options` may set
+Preset must name an `external_agent_kind` such as `codex`, `claude_code`,
+`cursor_agent`, or `grok_build`; preset `external_agent_options` may set
 Hecate-owned launch controls for that adapter. Hecate validates the project
 workspace root, creates and prepares the chat session through the External Agent
 supervisor, stores a project assignment context packet on the assignment, and
@@ -7515,7 +7515,7 @@ Operator UI note: the current React console renders these packets as a compact
 "what the agent saw" inspector. Chats expose it inline on assistant transcript
 rows; Task Detail and Project assignment detail expose it behind an
 `Inspect context` modal. The UI groups rows by `section` using labels such as
-Profile, Instructions, Skills, Memory, Project sources, Work context, and
+Agent preset, Instructions, Skills, Memory, Project sources, Work context, and
 Runtime evidence; keeps trust labels on each item; falls back to legacy `sources` when
 `items` are absent; and uses operator-facing copy such as `Not captured` when a
 snapshot does not expose the full system prompt text.
