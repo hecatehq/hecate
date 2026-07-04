@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src="docs/assets/brand/hecate-lockup-horizontal-dark-2x.png" alt="Hecate - Local AI Operations Console" width="720">
+  <img src="docs/assets/brand/hecate-lockup-horizontal-dark-2x.png" alt="Hecate - Agent Operations Console" width="720">
 </h1>
 
 [![Latest release](https://img.shields.io/github/v/release/hecatehq/hecate?include_prereleases)](https://github.com/hecatehq/hecate/releases)
@@ -11,9 +11,9 @@
 [![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-enabled-f5a800?logo=opentelemetry&logoColor=white)](https://opentelemetry.io/)
 
 <p align="center">
-  <strong>Local AI operations console for supervised agent work.</strong><br>
-  Run Hecate on your machine between AI clients, model providers, coding agents,
-  and workspace tools so project work can be coordinated, routed, approved,
+  <strong>Agent operations console and local runtime control plane.</strong><br>
+  Run Hecate between operators, AI clients, agent runtimes, model providers,
+  and local workspaces so agent work can be routed, supervised, approved,
   traced, and reviewable.
 </p>
 
@@ -27,6 +27,7 @@
 ## Contents
 
 - [What Hecate Is](#what-hecate-is)
+- [Positioning](#positioning)
 - [System Shape](#system-shape)
 - [Current Capabilities](#current-capabilities)
 - [Quick Start](#quick-start)
@@ -39,16 +40,19 @@
 
 ## What Hecate Is
 
-Hecate is a local AI operations console for running, supervising, and
-coordinating AI work. It combines a model gateway, chat workspace, task runtime,
-external-agent console, project orchestration, project context and memory,
-approval gates, artifacts, usage, and OpenTelemetry traces into one operator
-surface.
+Hecate is the operator-facing runtime layer for AI work. It gives you one local
+place to talk to models, run Hecate-native agent tasks, supervise external agent
+CLIs, inspect project context, approve risky actions, collect evidence, and see
+what happened after the run.
 
 Hecate is local-first in the operational sense: the runtime and UI run on your
 machine, Hecate-owned state is stored locally, and the gateway binds to loopback
 by default. It is not local-only: you can route to cloud providers and supervise
 external coding-agent CLIs that use their own accounts.
+
+Hecate is not trying to be the only agent framework in your stack. It is the
+place where agents, agent frameworks, model calls, local tools, and project
+coordination become visible and controllable by the operator.
 
 The short version:
 
@@ -57,14 +61,14 @@ The short version:
   health, and usage visibility.
 - **Console:** a React operator UI for Chats, Connections, Tasks, Projects,
   Usage, Observability, and Settings.
-- **Runtime:** queued task runs, tool-calling `agent_loop`, approvals,
+- **Native runtime:** queued task runs, tool-calling `agent_loop`, approvals,
   per-call sandbox policy, artifacts, retries, resumes, and event streams.
 - **External Agent supervision:** long-lived local ACP sessions for coding-agent
   CLIs, with readiness checks, approvals, adapter diagnostics, and Git diff
   review.
-- **Project orchestration:** durable project identity, roles, work records,
-  assignments, handoffs, activity health, project-scoped memory, context packet
-  snapshots, project skill metadata, and explicit memory promotion.
+- **Agent orchestration:** project work, roles, assignments, handoffs, review
+  artifacts, activity health, context snapshots, memory candidates, and
+  operator-gated follow-up.
 - **Evidence:** traces, route reports, task artifacts, diffs, logs, screenshots
   where available, and final run output close to the decision that produced it.
 
@@ -72,6 +76,35 @@ The product goal is not just to make model calls. It is to give the operator a
 single place to coordinate project-scoped agent work and understand what is
 happening, what context it used, what it changed, what it cost, what needs
 approval, and where the evidence lives.
+
+## Positioning
+
+Hecate sits beside agent frameworks and agent CLIs rather than replacing all of
+them.
+
+| Question                                 | Hecate answer                                                                                                                                             |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Is Hecate an agent?**                  | It includes a native task agent loop, but Hecate itself is the operator console and runtime boundary around agent work, not a single autonomous persona.  |
+| **Is Hecate an orchestrator?**           | Yes, when it coordinates projects, assignments, native tasks, external-agent sessions, approvals, handoffs, and reviews. The operator remains in control. |
+| **Is Hecate an agent framework?**        | Not primarily. Hecate exposes APIs and runtime contracts, but it does not require teams to rewrite their agents into a Hecate SDK.                        |
+| **Is Hecate a model gateway?**           | Yes, but the gateway is one subsystem. It exists so chats, tasks, external tools, and compatible clients share routing, policy, usage, and observability. |
+| **Is Hecate a project-management tool?** | No. Projects are a coordination graph for AI work: context, assignments, evidence, memory candidates, reviews, handoffs, and runtime links.               |
+
+The practical model is:
+
+```text
+operator
+  -> Hecate console / runtime control plane
+    -> model gateway
+    -> Hecate-native task agent loop
+    -> supervised external agent CLIs
+    -> portable project coordination state
+    -> approvals, artifacts, traces, and review evidence
+```
+
+That makes Hecate useful whether the work is done by Hecate's own task runtime,
+an external coding-agent CLI, a local app using `/v1`, or a future agent system
+that claims project assignments through a portable coordination server.
 
 ## System Shape
 
@@ -86,22 +119,25 @@ flowchart LR
         Gateway["Model gateway<br/>routing · failover · usage"]
         TaskRuntime["Hecate task runtime<br/>queue · agent_loop<br/>retry/resume"]
         AgentSupervisor["External Agent supervisor<br/>ACP sessions · diagnostics"]
-        State["Local state<br/>chats · projects · memory<br/>tasks · settings"]
+        State["Local state<br/>chats · tasks · settings<br/>runtime overlays"]
+        Projects["Project coordination<br/>native today · Cairnline extraction path"]
         Evidence["Evidence + observability<br/>approvals · artifacts · events<br/>route reports · trace export"]
 
         HTTP --> Gateway
         HTTP --> TaskRuntime
         HTTP --> AgentSupervisor
         HTTP --> State
+        HTTP --> Projects
         Gateway --> Evidence
         TaskRuntime --> Evidence
         AgentSupervisor --> Evidence
+        Projects --> Evidence
         State --> Evidence
     end
 
     Providers["Cloud + local model providers"]
     Tools["Sandboxed workspace tools<br/>WorkspaceFS · ProcessRunner · GitRunner"]
-    ExternalCLIs["External Agent CLIs<br/>own accounts · own runtime"]
+    ExternalCLIs["External Agent CLIs / frameworks<br/>own accounts · own runtime"]
 
     Console --> HTTP
     APIClients --> HTTP
@@ -117,17 +153,17 @@ matters.
 
 ## Current Capabilities
 
-| Surface            | What works today                                                                                                                                                                                                                                                 |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Model gateway**  | OpenAI-compatible Chat Completions, Anthropic-shaped Messages, streaming, vision, model discovery, provider health, failover, retry, usage events, and custom OpenAI-compatible endpoints.                                                                       |
-| **Connections**    | Cloud presets plus Ollama, LM Studio, LocalAI, llama.cpp-compatible servers, local discovery, health checks, credentials, external-agent readiness, and durable approval grants.                                                                                 |
-| **Chats**          | Direct model turns, tools-on task-backed turns, queued prompts, task/run/trace links, inline approvals, inline MCP Apps views, context packet snapshots, project-aware history, and workspace changes with rich per-file diffs.                                  |
-| **Projects**       | Durable project identity, roots, context-source metadata, project activity, work items, assignments, handoffs, project memory entries, and memory candidates that require explicit operator promotion.                                                           |
-| **Tasks**          | Native `agent_loop` runs, queue/lease execution, blocking approvals, streamed activity, artifacts, retry/resume, stale-run recovery, MCP tool/App integration, MCP probe, and MCP registry discovery.                                                            |
-| **External Agent** | Supervised local ACP sessions for Codex, Claude Code, Cursor Agent, and Grok Build, including readiness/version checks, prompt-first approvals, adapter diagnostics, cancellation, and Git diff inspect/revert. External agents keep their own accounts/billing. |
-| **Observability**  | OpenTelemetry traces/metrics/logs, response trace headers, local trace view, route reports, runtime stats, timing, token usage, and provider-reported cost where available.                                                                                      |
-| **Desktop app**    | Native bundles run the Hecate runtime as a sidecar. macOS Apple Silicon is launch-tested; Linux and Windows bundles are CI-built but still experimental.                                                                                                         |
-| **Sandbox policy** | WorkspaceFS boundaries, ProcessRunner/GitRunner seams, env sanitisation, output caps, timeouts, and `bwrap` / `sandbox-exec` wrappers where available. This is not container-level isolation.                                                                    |
+| Surface            | What works today                                                                                                                                                                                                                                                  |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Model gateway**  | OpenAI-compatible Chat Completions, Anthropic-shaped Messages, streaming, vision, model discovery, provider health, failover, retry, usage events, and custom OpenAI-compatible endpoints.                                                                        |
+| **Connections**    | Cloud presets plus Ollama, LM Studio, LocalAI, llama.cpp-compatible servers, local discovery, health checks, credentials, external-agent readiness, and durable approval grants.                                                                                  |
+| **Chats**          | Direct model turns, tools-on task-backed turns, queued prompts, task/run/trace links, inline approvals, inline MCP Apps views, context packet snapshots, project-aware history, and workspace changes with rich per-file diffs.                                   |
+| **Projects**       | Durable project identity, roots, context-source metadata, project activity, work items, assignments, handoffs, project memory entries, and memory candidates that require explicit operator promotion. Portable coordination is being extracted toward Cairnline. |
+| **Tasks**          | Native `agent_loop` runs, queue/lease execution, blocking approvals, streamed activity, artifacts, retry/resume, stale-run recovery, MCP tool/App integration, MCP probe, and MCP registry discovery.                                                             |
+| **External Agent** | Supervised local ACP sessions for Codex, Claude Code, Cursor Agent, and Grok Build, including readiness/version checks, prompt-first approvals, adapter diagnostics, cancellation, and Git diff inspect/revert. External agents keep their own accounts/billing.  |
+| **Observability**  | OpenTelemetry traces/metrics/logs, response trace headers, local trace view, route reports, runtime stats, timing, token usage, and provider-reported cost where available.                                                                                       |
+| **Desktop app**    | Native bundles run the Hecate runtime as a sidecar. macOS Apple Silicon is launch-tested; Linux and Windows bundles are CI-built but still experimental.                                                                                                          |
+| **Sandbox policy** | WorkspaceFS boundaries, ProcessRunner/GitRunner seams, env sanitisation, output caps, timeouts, and `bwrap` / `sandbox-exec` wrappers where available. This is not container-level isolation.                                                                     |
 
 Design direction that is not yet a runtime contract:
 
@@ -265,6 +301,14 @@ support. A project can start without a workspace; a workspace is the concrete
 filesystem root used later by a chat, task, or external-agent session when local
 files matter.
 
+Hecate currently ships the operator cockpit and runtime integration for this
+flow. Portable project coordination is being extracted toward
+[Cairnline](docs/design/proposals/cairnline-portable-project-coordination.md),
+an agent-neutral local coordination server. The intended split is simple:
+Cairnline owns durable project/work/memory/evidence coordination; Hecate owns
+runtime launch, model routing, approvals, sandboxing, traces, External Agent
+supervision, and the richer operator UI.
+
 ![Projects workspace showing work queue, closeout checks, assignment evidence, and pending review](docs/screenshots/projects.png)
 
 ```mermaid
@@ -347,18 +391,21 @@ Operator guides:
 ## Status And Roadmap
 
 Hecate is public-alpha software. The fastest-moving areas are project-scoped
-work, memory/context visibility, External Agent ergonomics, desktop packaging,
-workflow runbook experiments, and sandbox hardening.
+work, the Cairnline project-coordination split, memory/context visibility,
+External Agent ergonomics, desktop packaging, workflow runbook experiments, and
+sandbox hardening.
 
 Near-term design direction:
 
-1. Keep projects, context packets, memory, artifacts, approvals, and traces as
+1. Finish the Cairnline delegation path for portable project coordination while
+   keeping Hecate as the operator cockpit and runtime/orchestration layer.
+2. Keep projects, context packets, memory, artifacts, approvals, and traces as
    the shared substrate for all agent work.
-2. Prototype one report-only `qa` workflow using existing task runs before
+3. Prototype one report-only `qa` workflow using existing task runs before
    adding a standalone workflow engine.
-3. Start browser support with conservative evidence capture and explicit state
+4. Start browser support with conservative evidence capture and explicit state
    isolation.
-4. Promote successful workflow lessons only as memory candidates with
+5. Promote successful workflow lessons only as memory candidates with
    provenance and operator approval.
 
 The broader alpha-to-beta gate lives in
