@@ -23,7 +23,7 @@ export type ProjectActionRoute =
       workItemID?: string;
     }
   | { kind: "open_memory_review" }
-  | { kind: "open_profiles" }
+  | { kind: "open_agent_presets" }
   | { kind: "open_project_settings" }
   | { kind: "open_roles" }
   | { kind: "open_skills" }
@@ -90,8 +90,8 @@ export function routeProjectAction(
       return { kind: "open_project_settings" };
     case "open_memory_review":
       return { kind: "open_memory_review" };
-    case "open_profiles":
-      return { kind: "open_profiles" };
+    case "open_agent_presets":
+      return { kind: "open_agent_presets" };
     case "open_roles":
       return { kind: "open_roles" };
     case "open_skills":

@@ -1308,6 +1308,17 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenSettings, on
       case "open_memory_review":
         setWorkspaceTab("memory");
         return;
+      case "open_agent_presets":
+        setPresetsError("");
+        setAgentPresetsModalOpen(true);
+        return;
+      case "open_roles":
+        setRolesError("");
+        setRolesModalOpen(true);
+        return;
+      case "open_skills":
+        setWorkspaceTab("skills");
+        return;
       case "open_assignment_preflight":
         selectProjectWorkRoute(route);
         setPreparingAssignmentID(route.assignmentID);

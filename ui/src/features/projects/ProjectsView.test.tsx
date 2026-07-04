@@ -4709,6 +4709,39 @@ describe("ProjectsView cockpit", () => {
     expect(screen.getByDisplayValue("Backend")).toBeTruthy();
   });
 
+  it("opens agent presets from preset-related needs attention rows", async () => {
+    resetProjectWorkMocks();
+    vi.mocked(getProjectHealth).mockResolvedValue({
+      object: "project_health",
+      data: projectHealthData(project.id, [
+        {
+          id: `${project.id}:presets`,
+          project_id: project.id,
+          title: "Agent Preset reference missing",
+          detail: "Missing preset: implementation.",
+          status: "awaiting_approval",
+          action: projectHealthAction(project.id, "open_agent_presets"),
+        },
+      ]),
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await screen.findByText("Work Queue");
+    const health = await openProjectAttentionMenu();
+    const presetAttentionItem = within(health).getByRole("button", {
+      name: "Open attention item Agent Preset reference missing",
+    });
+
+    await userEvent.click(presetAttentionItem);
+
+    expect(await screen.findByRole("dialog", { name: "Agent presets" })).toBeTruthy();
+  });
+
   it("surfaces stale and missing linked execution in needs attention", async () => {
     resetProjectWorkMocks();
     const staleAssignment: ProjectAssignmentRecord = {

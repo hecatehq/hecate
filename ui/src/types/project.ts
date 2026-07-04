@@ -1063,7 +1063,7 @@ export type ProjectActionType =
   | "open_activity_bucket"
   | "open_assignment_preflight"
   | "open_memory_review"
-  | "open_profiles"
+  | "open_agent_presets"
   | "open_project_settings"
   | "open_roles"
   | "open_skills"
