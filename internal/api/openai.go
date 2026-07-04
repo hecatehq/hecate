@@ -302,8 +302,6 @@ type ProjectCairnlineExportResponseItem struct {
 	DatabasePath           string                             `json:"database_path"`
 	RootCount              int                                `json:"root_count"`
 	ContextSourceCount     int                                `json:"context_source_count"`
-	AgentProfileCount      int                                `json:"agent_profile_count"`
-	ExecutionProfileCount  int                                `json:"execution_profile_count"`
 	SkillCount             int                                `json:"skill_count"`
 	RoleCount              int                                `json:"role_count"`
 	WorkItemCount          int                                `json:"work_item_count"`
@@ -378,8 +376,6 @@ type ProjectCairnlineSyncCounts struct {
 	Projects           int `json:"projects"`
 	Roots              int `json:"roots"`
 	ContextSources     int `json:"context_sources"`
-	AgentProfiles      int `json:"agent_profiles"`
-	ExecutionProfiles  int `json:"execution_profiles"`
 	Skills             int `json:"skills"`
 	Roles              int `json:"roles"`
 	WorkItems          int `json:"work_items"`
@@ -398,8 +394,6 @@ type ProjectCairnlineSyncIDSets struct {
 	Projects           []string `json:"projects,omitempty"`
 	Roots              []string `json:"roots,omitempty"`
 	ContextSources     []string `json:"context_sources,omitempty"`
-	AgentProfiles      []string `json:"agent_profiles,omitempty"`
-	ExecutionProfiles  []string `json:"execution_profiles,omitempty"`
 	Skills             []string `json:"skills,omitempty"`
 	Roles              []string `json:"roles,omitempty"`
 	WorkItems          []string `json:"work_items,omitempty"`
@@ -436,8 +430,6 @@ type ProjectCairnlineReadModelResponseItem struct {
 	DatabasePath             string                              `json:"database_path,omitempty"`
 	RootCount                int                                 `json:"root_count"`
 	ContextSourceCount       int                                 `json:"context_source_count"`
-	AgentProfileCount        int                                 `json:"agent_profile_count"`
-	ExecutionProfileCount    int                                 `json:"execution_profile_count"`
 	SkillCount               int                                 `json:"skill_count"`
 	RoleCount                int                                 `json:"role_count"`
 	WorkItemCount            int                                 `json:"work_item_count"`
@@ -485,18 +477,16 @@ type ProjectCairnlineParitySnapshot struct {
 }
 
 type ProjectCairnlineGraphParityCounts struct {
-	Roots             int `json:"roots"`
-	ContextSources    int `json:"context_sources"`
-	AgentProfiles     int `json:"agent_profiles"`
-	ExecutionProfiles int `json:"execution_profiles"`
-	Skills            int `json:"skills"`
-	Roles             int `json:"roles"`
-	WorkItems         int `json:"work_items"`
-	Assignments       int `json:"assignments"`
-	Artifacts         int `json:"artifacts"`
-	Handoffs          int `json:"handoffs"`
-	MemoryEntries     int `json:"memory_entries"`
-	MemoryCandidates  int `json:"memory_candidates"`
+	Roots            int `json:"roots"`
+	ContextSources   int `json:"context_sources"`
+	Skills           int `json:"skills"`
+	Roles            int `json:"roles"`
+	WorkItems        int `json:"work_items"`
+	Assignments      int `json:"assignments"`
+	Artifacts        int `json:"artifacts"`
+	Handoffs         int `json:"handoffs"`
+	MemoryEntries    int `json:"memory_entries"`
+	MemoryCandidates int `json:"memory_candidates"`
 }
 
 type ProjectCairnlineActivityParityCounts struct {
