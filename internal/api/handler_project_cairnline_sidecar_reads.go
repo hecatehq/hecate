@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/hecatehq/cairnline"
-	"github.com/hecatehq/hecate/internal/agentprofiles"
 	mcpclient "github.com/hecatehq/hecate/internal/mcp/client"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/orchestrator"
@@ -450,19 +449,6 @@ func projectHandoffsFromCairnlineSidecar(items []ProjectCairnlineSidecarHandoffI
 	return out
 }
 
-func projectAgentProfilesFromCairnlineSidecar(items []ProjectCairnlineSidecarAgentProfileItem) []agentprofiles.Profile {
-	out := make([]agentprofiles.Profile, 0, len(items))
-	for _, item := range items {
-		out = append(out, agentprofiles.Profile{
-			ID:          item.ID,
-			Name:        item.Name,
-			Description: item.Description,
-			SkillIDs:    append([]string(nil), item.SkillIDs...),
-		})
-	}
-	return out
-}
-
 func projectSkillsFromCairnlineSidecar(items []ProjectCairnlineSidecarSkillItem) []projectskills.Skill {
 	out := make([]projectskills.Skill, 0, len(items))
 	for _, item := range items {
@@ -570,27 +556,6 @@ func projectCairnlineSidecarTime(value string) time.Time {
 		return time.Time{}
 	}
 	return parsed.UTC()
-}
-
-func projectCairnlineSidecarStructuredAgentProfiles(raw json.RawMessage) ([]ProjectCairnlineSidecarAgentProfileItem, bool, error) {
-	if len(raw) == 0 {
-		return nil, false, nil
-	}
-	trimmed := bytes.TrimSpace(raw)
-	if len(trimmed) == 0 {
-		return nil, false, nil
-	}
-	if bytes.Equal(trimmed, []byte("null")) {
-		return []ProjectCairnlineSidecarAgentProfileItem{}, true, nil
-	}
-	var profiles []ProjectCairnlineSidecarAgentProfileItem
-	if err := json.Unmarshal(trimmed, &profiles); err != nil {
-		return nil, false, err
-	}
-	if profiles == nil {
-		profiles = []ProjectCairnlineSidecarAgentProfileItem{}
-	}
-	return profiles, true, nil
 }
 
 func projectCairnlineSidecarStructuredSkills(raw json.RawMessage) ([]ProjectCairnlineSidecarSkillItem, bool, error) {
