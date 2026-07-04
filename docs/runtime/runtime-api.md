@@ -3797,9 +3797,7 @@ Example response, shortened:
       "project_id": "proj_123",
       "assignment_id": "asg_123",
       "work_item_id": "work_123",
-      "role_id": "role_reviewer",
-      "profile_id": "profile_review",
-      "execution_profile_id": "exec_local"
+      "role_id": "role_reviewer"
     },
     "structured_counts": {
       "skills": 1,

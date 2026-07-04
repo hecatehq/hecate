@@ -33,9 +33,6 @@ func TestSeedMirrorsProjectWorkIntoCairnline(t *testing.T) {
 	if packet.Project.ID != "proj_hecate" || packet.Project.DefaultRootID != "root_main" || packet.WorkItem.RootID != "root_main" {
 		t.Fatalf("packet project/work = %+v/%+v, want Hecate project with default root and root-scoped work", packet.Project, packet.WorkItem)
 	}
-	if packet.Project.DefaultProfileID != "" || packet.Project.DefaultExecutionProfileID != "" {
-		t.Fatalf("packet project defaults = %+v, want Hecate runtime defaults omitted from Cairnline", packet.Project)
-	}
 	if len(packet.Project.ContextSources) != 1 {
 		t.Fatalf("packet project sources = %+v, want one context source", packet.Project.ContextSources)
 	}
@@ -45,12 +42,6 @@ func TestSeedMirrorsProjectWorkIntoCairnline(t *testing.T) {
 	}
 	if packet.Role == nil || packet.Role.DefaultExecutionMode != cairnline.ExecutionOrchestrated {
 		t.Fatalf("packet role = %+v, want orchestrated role from Hecate task driver", packet.Role)
-	}
-	if packet.Role.DefaultProfileID != "" || packet.Role.DefaultExecutionProfileID != "" {
-		t.Fatalf("packet role defaults = %+v, want Hecate runtime defaults omitted from Cairnline", packet.Role)
-	}
-	if packet.Assignment.ProfileID != "" || packet.Assignment.ExecutionProfileID != "" {
-		t.Fatalf("packet assignment runtime hints = profile:%q execution:%q, want omitted Hecate runtime defaults", packet.Assignment.ProfileID, packet.Assignment.ExecutionProfileID)
 	}
 	if packet.Assignment.ExecutionMode != cairnline.ExecutionOrchestrated || packet.Assignment.RootID != "root_main" || packet.Assignment.ContextSnapshotID != "ctx_123" {
 		t.Fatalf("packet assignment = %+v, want orchestrated root-scoped assignment", packet.Assignment)
@@ -419,7 +410,7 @@ func TestUpsertProjectMirrorsProjectRootAndContextSourceMutations(t *testing.T) 
 	if err != nil {
 		t.Fatalf("UpsertProject(create) error = %v", err)
 	}
-	if created.ID != project.ID || created.DefaultRootID != "root_main" || created.DefaultProfileID != "" || created.DefaultExecutionProfileID != "" {
+	if created.ID != project.ID || created.DefaultRootID != "root_main" {
 		t.Fatalf("created project = %+v, want portable project defaults without Hecate runtime hints", created)
 	}
 	if len(created.Roots) != 1 || created.Roots[0].Path != "/tmp/hecate-write" || created.Roots[0].GitBranch != "main" {
@@ -456,7 +447,7 @@ func TestUpsertProjectMirrorsProjectRootAndContextSourceMutations(t *testing.T) 
 	if err != nil {
 		t.Fatalf("UpsertProject(update) error = %v", err)
 	}
-	if updated.Name != "Write Adapter Updated" || updated.DefaultRootID != "root_docs" || updated.DefaultExecutionProfileID != "" {
+	if updated.Name != "Write Adapter Updated" || updated.DefaultRootID != "root_docs" {
 		t.Fatalf("updated project = %+v, want updated project and removed execution default", updated)
 	}
 	if len(updated.Roots) != 1 || updated.Roots[0].ID != "root_docs" {
@@ -526,7 +517,7 @@ func TestUpsertProjectDefaultsPreservesRootAndSourceState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpsertProjectDefaults(update) error = %v", err)
 	}
-	if updated.DefaultRootID != "root_main" || updated.DefaultProfileID != "" || updated.DefaultExecutionProfileID != "" {
+	if updated.DefaultRootID != "root_main" {
 		t.Fatalf("updated defaults = %+v, want only portable defaults written to Cairnline", updated)
 	}
 	if findCairnlineRoot(updated.Roots, "root_cairnline_only") == nil {
@@ -545,9 +536,6 @@ func TestUpsertProjectDefaultsPreservesRootAndSourceState(t *testing.T) {
 	updated, err = UpsertProjectDefaults(ctx, service, project)
 	if err != nil {
 		t.Fatalf("UpsertProjectDefaults(clear) error = %v", err)
-	}
-	if updated.DefaultExecutionProfileID != "" {
-		t.Fatalf("cleared defaults = %+v, want no execution profile default", updated)
 	}
 }
 
@@ -1024,7 +1012,7 @@ func TestUpsertRoleMirrorsRoleAndExecutionDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpsertRole(create) error = %v", err)
 	}
-	if created.ID != "developer" || created.DefaultProfileID != "" || created.DefaultExecutionProfileID != "" || created.DefaultExecutionMode != cairnline.ExecutionOrchestrated {
+	if created.ID != "developer" || created.DefaultExecutionMode != cairnline.ExecutionOrchestrated {
 		t.Fatalf("created role = %+v, want portable role defaults without Hecate runtime hints", created)
 	}
 	if len(created.DefaultSkillIDs) != 1 || created.DefaultSkillIDs[0] != "backend" {
@@ -1038,7 +1026,7 @@ func TestUpsertRoleMirrorsRoleAndExecutionDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpsertRole(update) error = %v", err)
 	}
-	if updated.Name != "Developer Updated" || updated.DefaultExecutionProfileID != "" || len(updated.DefaultSkillIDs) != 1 || updated.DefaultSkillIDs[0] != "frontend" {
+	if updated.Name != "Developer Updated" || len(updated.DefaultSkillIDs) != 1 || updated.DefaultSkillIDs[0] != "frontend" {
 		t.Fatalf("updated role = %+v, want updated role and removed execution default", updated)
 	}
 	if err := DeleteRole(ctx, service, role); err != nil {
@@ -1184,7 +1172,7 @@ func TestUpsertAssignmentCreatesAndSyncsLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpsertAssignment(queued) error = %v", err)
 	}
-	if queued.Status != cairnline.AssignmentQueued || queued.ProfileID != "" || queued.ExecutionProfileID != "" || queued.ExecutionMode != cairnline.ExecutionOrchestrated || queued.ContextSnapshotID != "ctx_queued" {
+	if queued.Status != cairnline.AssignmentQueued || queued.ExecutionMode != cairnline.ExecutionOrchestrated || queued.ContextSnapshotID != "ctx_queued" {
 		t.Fatalf("queued assignment = %+v, want created orchestrated assignment metadata", queued)
 	}
 	if queued.DesiredAgent.Kind != "hecate" || len(queued.DesiredAgent.SkillIDs) != 1 || queued.DesiredAgent.SkillIDs[0] != "backend" {
@@ -1731,11 +1719,6 @@ func TestSeedSnapshotsMirrorsMultipleProjectsWithPresetHintsOnly(t *testing.T) {
 	}
 	if len(projects) != 2 {
 		t.Fatalf("projects = %+v, want two seeded projects", projects)
-	}
-	for _, item := range projects {
-		if item.DefaultProfileID != "" || item.DefaultExecutionProfileID != "" {
-			t.Fatalf("project = %+v, want Hecate runtime hints omitted from Cairnline", item)
-		}
 	}
 }
 

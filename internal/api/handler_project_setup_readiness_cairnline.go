@@ -84,14 +84,13 @@ func projectSetupRolesFromCairnline(items []cairnline.Role) []projectwork.AgentR
 	out := make([]projectwork.AgentRoleProfile, 0, len(items))
 	for _, item := range items {
 		out = append(out, projectwork.AgentRoleProfile{
-			ID:                  item.ID,
-			ProjectID:           item.ProjectID,
-			Name:                item.Name,
-			Description:         item.Description,
-			Instructions:        item.Instructions,
-			DefaultAgentProfile: item.DefaultProfileID,
-			DefaultDriverKind:   item.DefaultExecutionMode,
-			SkillIDs:            append([]string(nil), item.DefaultSkillIDs...),
+			ID:                item.ID,
+			ProjectID:         item.ProjectID,
+			Name:              item.Name,
+			Description:       item.Description,
+			Instructions:      item.Instructions,
+			DefaultDriverKind: item.DefaultExecutionMode,
+			SkillIDs:          append([]string(nil), item.DefaultSkillIDs...),
 		})
 	}
 	return out

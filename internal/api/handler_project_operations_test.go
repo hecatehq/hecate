@@ -279,11 +279,10 @@ func TestProjectOperationsBrief_StrictEmbeddedReadModelReadsWithoutHecateProject
 
 	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
 		if _, err := service.CreateProject(t.Context(), cairnline.Project{
-			ID:                        projectID,
-			Name:                      "Embedded Operations",
-			Description:               "Coordinate operations from embedded Cairnline.",
-			DefaultRootID:             "root_embedded_operations",
-			DefaultExecutionProfileID: "exec_embedded_operations",
+			ID:            projectID,
+			Name:          "Embedded Operations",
+			Description:   "Coordinate operations from embedded Cairnline.",
+			DefaultRootID: "root_embedded_operations",
 			Roots: []cairnline.Root{{
 				ID:     "root_embedded_operations",
 				Path:   "/workspace/embedded-operations",

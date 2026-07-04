@@ -249,15 +249,14 @@ func (h *Handler) cairnlineSidecarAssignmentContext(ctx context.Context, project
 
 func projectFromCairnlineSidecar(project ProjectCairnlineSidecarProjectItem) projects.Project {
 	return projects.Project{
-		ID:                  project.ID,
-		Name:                project.Name,
-		Description:         project.Description,
-		Roots:               projectRootsFromCairnlineSidecar(project.Roots),
-		ContextSources:      projectContextSourcesFromCairnlineSidecar(project.ContextSources),
-		DefaultRootID:       project.DefaultRootID,
-		DefaultAgentProfile: project.DefaultProfileID,
-		CreatedAt:           projectCairnlineSidecarTime(project.CreatedAt),
-		UpdatedAt:           projectCairnlineSidecarTime(project.UpdatedAt),
+		ID:             project.ID,
+		Name:           project.Name,
+		Description:    project.Description,
+		Roots:          projectRootsFromCairnlineSidecar(project.Roots),
+		ContextSources: projectContextSourcesFromCairnlineSidecar(project.ContextSources),
+		DefaultRootID:  project.DefaultRootID,
+		CreatedAt:      projectCairnlineSidecarTime(project.CreatedAt),
+		UpdatedAt:      projectCairnlineSidecarTime(project.UpdatedAt),
 	}
 }
 
@@ -299,14 +298,13 @@ func projectRolesFromCairnlineSidecar(items []ProjectCairnlineSidecarRoleItem) [
 	out := make([]projectwork.AgentRoleProfile, 0, len(items))
 	for _, item := range items {
 		out = append(out, projectwork.AgentRoleProfile{
-			ID:                  item.ID,
-			ProjectID:           item.ProjectID,
-			Name:                item.Name,
-			Description:         item.Description,
-			Instructions:        item.Instructions,
-			DefaultDriverKind:   item.DefaultExecutionMode,
-			DefaultAgentProfile: item.DefaultProfileID,
-			SkillIDs:            append([]string(nil), item.DefaultSkillIDs...),
+			ID:                item.ID,
+			ProjectID:         item.ProjectID,
+			Name:              item.Name,
+			Description:       item.Description,
+			Instructions:      item.Instructions,
+			DefaultDriverKind: item.DefaultExecutionMode,
+			SkillIDs:          append([]string(nil), item.DefaultSkillIDs...),
 		})
 	}
 	return out
