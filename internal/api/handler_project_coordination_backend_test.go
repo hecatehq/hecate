@@ -691,8 +691,8 @@ func TestProjectCoordinationBackendStatus_CairnlineProjectMetadataDefaultsAuthor
 		t.Fatalf("replacement_ready = true, want false until remaining write and migration gates are ready")
 	}
 	warnings := strings.Join(status.Warnings, "\n")
-	if !strings.Contains(warnings, "Project metadata/default-only update mutations are opt-in Cairnline-authoritative") || !strings.Contains(warnings, "controlled by separate switchpoints") || !strings.Contains(warnings, "chat/runtime") {
-		t.Fatalf("warnings = %+v, want metadata/default authority plus separate-switchpoint caveat", status.Warnings)
+	if !strings.Contains(warnings, "Project metadata/default-root update mutations are opt-in Cairnline-authoritative") || !strings.Contains(warnings, "provider/model/preset posture stays in Hecate runtime overlays") || !strings.Contains(warnings, "controlled by separate switchpoints") || !strings.Contains(warnings, "chat/runtime") {
+		t.Fatalf("warnings = %+v, want metadata/default-root authority plus runtime-overlay and separate-switchpoint caveats", status.Warnings)
 	}
 }
 
