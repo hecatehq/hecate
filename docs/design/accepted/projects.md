@@ -1080,10 +1080,11 @@ server-owned assignment/evidence/handoff/review-follow-up decision rather than
 a separate client cascade.
 Assignment rows now render compact execution evidence from canonical
 assignment/activity refs, while the Context Inspector renders the full persisted
-launch packet with Profile, Instructions, Skills, Memory, Project sources, Work
-context, and Runtime evidence groups. Task and run records now carry direct
-project/work/assignment linkage when created from project-scoped surfaces;
-profiles and presets are not linked to `project_id` yet.
+launch packet with Agent preset, Instructions, Skills, Memory, Project sources,
+Work context, and Runtime evidence groups. Task and run records now carry direct
+project/work/assignment linkage when created from project-scoped surfaces.
+Agent Presets remain global Hecate runtime records referenced by project and
+role defaults; they are not project-owned Cairnline coordination records.
 
 Persist `project_id` on:
 
@@ -1092,7 +1093,7 @@ Persist `project_id` on:
 - Tasks and runs.
 - Context packets.
 - Memory entries.
-- Future presets/profiles.
+- Future project-owned runtime records, if Hecate introduces any.
 
 SQLite migration should be additive first:
 
