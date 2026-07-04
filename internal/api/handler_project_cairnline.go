@@ -151,8 +151,6 @@ func (h *Handler) HandleExportProjectToCairnline(w http.ResponseWriter, r *http.
 			DatabasePath:           dbPath,
 			RootCount:              graph.Roots,
 			ContextSourceCount:     graph.ContextSources,
-			AgentProfileCount:      graph.AgentProfiles,
-			ExecutionProfileCount:  graph.ExecutionProfiles,
 			SkillCount:             graph.Skills,
 			RoleCount:              graph.Roles,
 			WorkItemCount:          graph.WorkItems,
@@ -424,8 +422,6 @@ func projectCairnlineReadModelFromService(ctx context.Context, service *cairnlin
 		DatabasePath:             dbPath,
 		RootCount:                graph.Roots,
 		ContextSourceCount:       graph.ContextSources,
-		AgentProfileCount:        graph.AgentProfiles,
-		ExecutionProfileCount:    graph.ExecutionProfiles,
 		SkillCount:               graph.Skills,
 		RoleCount:                graph.Roles,
 		WorkItemCount:            graph.WorkItems,
@@ -1499,8 +1495,6 @@ func projectCairnlineSyncIDDifferences(hecate, cairnline ProjectCairnlineSyncIDS
 	differences = appendProjectCairnlineIDDifference(differences, "projects", hecate.Projects, cairnline.Projects)
 	differences = appendProjectCairnlineIDDifference(differences, "roots", hecate.Roots, cairnline.Roots)
 	differences = appendProjectCairnlineIDDifference(differences, "context_sources", hecate.ContextSources, cairnline.ContextSources)
-	differences = appendProjectCairnlineIDDifference(differences, "agent_profiles", hecate.AgentProfiles, cairnline.AgentProfiles)
-	differences = appendProjectCairnlineIDDifference(differences, "execution_profiles", hecate.ExecutionProfiles, cairnline.ExecutionProfiles)
 	differences = appendProjectCairnlineIDDifference(differences, "skills", hecate.Skills, cairnline.Skills)
 	differences = appendProjectCairnlineIDDifference(differences, "roles", hecate.Roles, cairnline.Roles)
 	differences = appendProjectCairnlineIDDifference(differences, "work_items", hecate.WorkItems, cairnline.WorkItems)
@@ -1547,8 +1541,6 @@ func sortProjectCairnlineSyncIDSets(ids *ProjectCairnlineSyncIDSets) {
 	sort.Strings(ids.Projects)
 	sort.Strings(ids.Roots)
 	sort.Strings(ids.ContextSources)
-	sort.Strings(ids.AgentProfiles)
-	sort.Strings(ids.ExecutionProfiles)
 	sort.Strings(ids.Skills)
 	sort.Strings(ids.Roles)
 	sort.Strings(ids.WorkItems)
@@ -1590,8 +1582,6 @@ func projectCairnlineSyncDifferences(hecate, cairnline ProjectCairnlineSyncCount
 	differences = appendProjectCairnlineParityDifference(differences, "projects", hecate.Projects, cairnline.Projects)
 	differences = appendProjectCairnlineParityDifference(differences, "roots", hecate.Roots, cairnline.Roots)
 	differences = appendProjectCairnlineParityDifference(differences, "context_sources", hecate.ContextSources, cairnline.ContextSources)
-	differences = appendProjectCairnlineParityDifference(differences, "agent_profiles", hecate.AgentProfiles, cairnline.AgentProfiles)
-	differences = appendProjectCairnlineParityDifference(differences, "execution_profiles", hecate.ExecutionProfiles, cairnline.ExecutionProfiles)
 	differences = appendProjectCairnlineParityDifference(differences, "skills", hecate.Skills, cairnline.Skills)
 	differences = appendProjectCairnlineParityDifference(differences, "roles", hecate.Roles, cairnline.Roles)
 	differences = appendProjectCairnlineParityDifference(differences, "work_items", hecate.WorkItems, cairnline.WorkItems)
@@ -1675,18 +1665,16 @@ func projectCairnlineParityReport(projectID string, nativeGraph ProjectCairnline
 	}
 	cairnline := ProjectCairnlineParitySnapshot{
 		Graph: ProjectCairnlineGraphParityCounts{
-			Roots:             readModel.RootCount,
-			ContextSources:    readModel.ContextSourceCount,
-			AgentProfiles:     readModel.AgentProfileCount,
-			ExecutionProfiles: readModel.ExecutionProfileCount,
-			Skills:            readModel.SkillCount,
-			Roles:             readModel.RoleCount,
-			WorkItems:         readModel.WorkItemCount,
-			Assignments:       readModel.AssignmentCount,
-			Artifacts:         readModel.ArtifactCount,
-			Handoffs:          readModel.HandoffCount,
-			MemoryEntries:     readModel.MemoryEntryCount,
-			MemoryCandidates:  readModel.MemoryCandidateCount,
+			Roots:            readModel.RootCount,
+			ContextSources:   readModel.ContextSourceCount,
+			Skills:           readModel.SkillCount,
+			Roles:            readModel.RoleCount,
+			WorkItems:        readModel.WorkItemCount,
+			Assignments:      readModel.AssignmentCount,
+			Artifacts:        readModel.ArtifactCount,
+			Handoffs:         readModel.HandoffCount,
+			MemoryEntries:    readModel.MemoryEntryCount,
+			MemoryCandidates: readModel.MemoryCandidateCount,
 		},
 		WorkItems:     projectCairnlineWorkItemParityCounts(cairnlineWorkItems),
 		Collaboration: cairnlineCollaboration,
@@ -1841,8 +1829,6 @@ func projectCairnlineParityDifferences(hecate, cairnline ProjectCairnlineParityS
 	var differences []ProjectCairnlineParityDifference
 	differences = appendProjectCairnlineParityDifference(differences, "graph.roots", hecate.Graph.Roots, cairnline.Graph.Roots)
 	differences = appendProjectCairnlineParityDifference(differences, "graph.context_sources", hecate.Graph.ContextSources, cairnline.Graph.ContextSources)
-	differences = appendProjectCairnlineParityDifference(differences, "graph.agent_profiles", hecate.Graph.AgentProfiles, cairnline.Graph.AgentProfiles)
-	differences = appendProjectCairnlineParityDifference(differences, "graph.execution_profiles", hecate.Graph.ExecutionProfiles, cairnline.Graph.ExecutionProfiles)
 	differences = appendProjectCairnlineParityDifference(differences, "graph.skills", hecate.Graph.Skills, cairnline.Graph.Skills)
 	differences = appendProjectCairnlineParityDifference(differences, "graph.roles", hecate.Graph.Roles, cairnline.Graph.Roles)
 	differences = appendProjectCairnlineParityDifference(differences, "graph.work_items", hecate.Graph.WorkItems, cairnline.Graph.WorkItems)

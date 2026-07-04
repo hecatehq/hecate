@@ -193,9 +193,6 @@ func TestProjectCairnlineExportAPI_WritesRefreshableSQLiteExport(t *testing.T) {
 	if readModel.Data.RootCount != 1 || readModel.Data.ContextSourceCount != 0 || readModel.Data.WorkItemCount != 1 || readModel.Data.AssignmentCount != 1 || readModel.Data.ArtifactCount != 2 || readModel.Data.HandoffCount != 1 || readModel.Data.MemoryEntryCount != 1 || readModel.Data.MemoryCandidateCount != 1 || readModel.Data.AssistantProposalCount != 1 || readModel.Data.LaunchPacketCount != 1 {
 		t.Fatalf("read model counts = %+v, want bridged project counts", readModel.Data)
 	}
-	if readModel.Data.AgentProfileCount != 0 || readModel.Data.ExecutionProfileCount != 0 {
-		t.Fatalf("read model profile counts = agent %d execution %d, want Hecate presets excluded from portable read model", readModel.Data.AgentProfileCount, readModel.Data.ExecutionProfileCount)
-	}
 	if readModel.Data.LaunchPacketWarningCount != 0 || len(readModel.Data.LaunchPacketErrors) != 0 {
 		t.Fatalf("launch packet summary = warnings %d errors %+v, want clean portable packet coverage", readModel.Data.LaunchPacketWarningCount, readModel.Data.LaunchPacketErrors)
 	}
@@ -221,7 +218,7 @@ func TestProjectCairnlineExportAPI_WritesRefreshableSQLiteExport(t *testing.T) {
 	if parity.Data.Hecate.Activity.Active != 0 || parity.Data.Cairnline.Activity.Active != 0 || parity.Data.Hecate.Activity.Blocked != 1 || parity.Data.Cairnline.Activity.Blocked != 1 {
 		t.Fatalf("parity activity buckets = hecate %+v cairnline %+v, want matching blocked queued assignment counts", parity.Data.Hecate.Activity, parity.Data.Cairnline.Activity)
 	}
-	if parity.Data.Hecate.Graph.Roots != 1 || parity.Data.Cairnline.Graph.Roots != 1 || parity.Data.Hecate.Graph.ExecutionProfiles != readModel.Data.ExecutionProfileCount || parity.Data.Cairnline.Graph.ExecutionProfiles != readModel.Data.ExecutionProfileCount || parity.Data.Hecate.Graph.Artifacts != 2 || parity.Data.Cairnline.Graph.Artifacts != 2 || parity.Data.Hecate.Graph.MemoryEntries != 1 || parity.Data.Cairnline.Graph.MemoryEntries != 1 {
+	if parity.Data.Hecate.Graph.Roots != 1 || parity.Data.Cairnline.Graph.Roots != 1 || parity.Data.Hecate.Graph.Artifacts != 2 || parity.Data.Cairnline.Graph.Artifacts != 2 || parity.Data.Hecate.Graph.MemoryEntries != 1 || parity.Data.Cairnline.Graph.MemoryEntries != 1 {
 		t.Fatalf("parity graph counts = hecate %+v cairnline %+v, want matching portable graph counts", parity.Data.Hecate.Graph, parity.Data.Cairnline.Graph)
 	}
 	if parity.Data.Hecate.Collaboration.Artifacts != 2 || parity.Data.Cairnline.Collaboration.Artifacts != 2 || parity.Data.Hecate.Collaboration.Handoffs != 1 || parity.Data.Cairnline.Collaboration.Handoffs != 1 {
@@ -259,7 +256,7 @@ func TestProjectCairnlineExportAPI_WritesRefreshableSQLiteExport(t *testing.T) {
 	if first.Data.DatabasePath != second.Data.DatabasePath {
 		t.Fatalf("export paths = %q/%q, want refresh to same path", first.Data.DatabasePath, second.Data.DatabasePath)
 	}
-	if second.Data.ProjectID != projectID || second.Data.RootCount != 1 || second.Data.ContextSourceCount != 0 || second.Data.AgentProfileCount != readModel.Data.AgentProfileCount || second.Data.ExecutionProfileCount != readModel.Data.ExecutionProfileCount || second.Data.WorkItemCount != 1 || second.Data.AssignmentCount != 1 || second.Data.ArtifactCount != 2 || second.Data.HandoffCount != 1 || second.Data.MemoryEntryCount != 1 || second.Data.MemoryCandidateCount != 1 || second.Data.AssistantProposalCount != 1 {
+	if second.Data.ProjectID != projectID || second.Data.RootCount != 1 || second.Data.ContextSourceCount != 0 || second.Data.WorkItemCount != 1 || second.Data.AssignmentCount != 1 || second.Data.ArtifactCount != 2 || second.Data.HandoffCount != 1 || second.Data.MemoryEntryCount != 1 || second.Data.MemoryCandidateCount != 1 || second.Data.AssistantProposalCount != 1 {
 		t.Fatalf("export response = %+v, want project counts", second.Data)
 	}
 	if second.Data.MigrationRehearsal.Operation != "project_export" || second.Data.MigrationRehearsal.ImportMode != "cairnline_snapshot_import" || second.Data.MigrationRehearsal.SnapshotVersion != cairnline.SnapshotVersion || second.Data.MigrationRehearsal.SourceAuthority != "hecate_authoritative_stores" || second.Data.MigrationRehearsal.Target != "project_cairnline_sqlite_export" || !second.Data.MigrationRehearsal.RefreshesTarget || second.Data.MigrationRehearsal.Authoritative || second.Data.MigrationRehearsal.CutoverReady || second.Data.MigrationRehearsal.Status != "exported" {
@@ -425,8 +422,8 @@ func TestProjectCairnlineSyncAPI_WritesDurableAllProjectsSQLiteDB(t *testing.T) 
 	if second.Data.Hecate.LaunchPackets != 1 || second.Data.Cairnline.LaunchPackets != 1 || second.Data.Hecate.LaunchWarnings != 0 || second.Data.Cairnline.LaunchWarnings != 0 || second.Data.Hecate.LaunchErrors != 0 || second.Data.Cairnline.LaunchErrors != 0 {
 		t.Fatalf("sync launch packet counts = hecate %+v cairnline %+v, want one clean packet", second.Data.Hecate, second.Data.Cairnline)
 	}
-	if second.Data.Hecate.AgentProfiles != 0 || second.Data.Cairnline.AgentProfiles != 0 || second.Data.Hecate.ExecutionProfiles != 0 || second.Data.Cairnline.ExecutionProfiles != 0 || second.Data.Hecate.Roles == 0 || second.Data.Cairnline.Roles != second.Data.Hecate.Roles {
-		t.Fatalf("sync portable counts = hecate %+v cairnline %+v, want roles mirrored and Hecate presets excluded", second.Data.Hecate, second.Data.Cairnline)
+	if second.Data.Hecate.Roles == 0 || second.Data.Cairnline.Roles != second.Data.Hecate.Roles {
+		t.Fatalf("sync portable counts = hecate %+v cairnline %+v, want roles mirrored", second.Data.Hecate, second.Data.Cairnline)
 	}
 	if !filepath.IsAbs(second.Data.DatabasePath) {
 		t.Fatalf("sync database path = %q, want absolute path", second.Data.DatabasePath)
@@ -590,9 +587,6 @@ func TestProjectCairnlineMirrorParityAPI_ReportsLiveMirrorMatch(t *testing.T) {
 	if len(response.Data.Differences) != 0 || len(response.Data.IDDifferences) != 0 || len(response.Data.ContentDifferences) != 0 {
 		t.Fatalf("mirror parity differences = %+v id %+v content %+v, want none", response.Data.Differences, response.Data.IDDifferences, response.Data.ContentDifferences)
 	}
-	if response.Data.Hecate.AgentProfiles != 0 || response.Data.Cairnline.AgentProfiles != 0 {
-		t.Fatalf("agent profile mirror counts = hecate %+v cairnline %+v, want Hecate presets excluded from live mirror", response.Data.Hecate, response.Data.Cairnline)
-	}
 }
 
 func TestProjectCairnlineMirrorParityAPI_MatchesRepresentativeLiveProjectJourney(t *testing.T) {
@@ -748,10 +742,8 @@ func TestProjectCairnlineMirrorParityAPI_MatchesRepresentativeLiveProjectJourney
 		response.Data.Hecate.MemoryCandidates != 1 || response.Data.Cairnline.MemoryCandidates != 1 {
 		t.Fatalf("mirror counts = hecate %+v cairnline %+v, want representative graph parity", response.Data.Hecate, response.Data.Cairnline)
 	}
-	if response.Data.Hecate.AgentProfiles != 0 || response.Data.Cairnline.AgentProfiles != 0 ||
-		response.Data.Hecate.ExecutionProfiles != 0 || response.Data.Cairnline.ExecutionProfiles != 0 ||
-		response.Data.Hecate.Roles == 0 || response.Data.Cairnline.Roles != response.Data.Hecate.Roles {
-		t.Fatalf("profile/role mirror counts = hecate %+v cairnline %+v, want roles mirrored without profile rows or runtime hints", response.Data.Hecate, response.Data.Cairnline)
+	if response.Data.Hecate.Roles == 0 || response.Data.Cairnline.Roles != response.Data.Hecate.Roles {
+		t.Fatalf("role mirror counts = hecate %+v cairnline %+v, want roles mirrored without runtime hints", response.Data.Hecate, response.Data.Cairnline)
 	}
 
 	readModel := mustRequestJSONStatus[ProjectCairnlineReadModelResponse](client, http.StatusOK, http.MethodGet, "/hecate/v1/projects/"+projectID+"/cairnline/embedded-read-model", "")
@@ -832,26 +824,21 @@ func assertStrictEmbeddedCairnlineReadBackend(t *testing.T, client apiTestClient
 
 func TestProjectCairnlineSyncDifferences(t *testing.T) {
 	differences := projectCairnlineSyncDifferences(ProjectCairnlineSyncCounts{
-		Projects:          2,
-		ExecutionProfiles: 4,
-		Assignments:       1,
-		LaunchPackets:     1,
+		Projects:      2,
+		Assignments:   1,
+		LaunchPackets: 1,
 	}, ProjectCairnlineSyncCounts{
-		Projects:          1,
-		ExecutionProfiles: 3,
-		Assignments:       1,
-		LaunchPackets:     0,
-		LaunchWarnings:    1,
-		LaunchErrors:      1,
+		Projects:       1,
+		Assignments:    1,
+		LaunchPackets:  0,
+		LaunchWarnings: 1,
+		LaunchErrors:   1,
 	})
-	if len(differences) != 5 {
-		t.Fatalf("sync differences = %+v, want project, execution profile, and launch packet mismatches only", differences)
+	if len(differences) != 4 {
+		t.Fatalf("sync differences = %+v, want project and launch packet mismatches only", differences)
 	}
 	if !hasProjectCairnlineParityDifference(differences, "projects", 2, 1) {
 		t.Fatalf("sync differences = %+v, want projects 2/1", differences)
-	}
-	if !hasProjectCairnlineParityDifference(differences, "execution_profiles", 4, 3) {
-		t.Fatalf("sync differences = %+v, want execution_profiles 4/3", differences)
 	}
 	if !hasProjectCairnlineParityDifference(differences, "launch_packets", 1, 0) {
 		t.Fatalf("sync differences = %+v, want launch_packets 1/0", differences)
@@ -956,15 +943,15 @@ func TestProjectCairnlineParityReport_IncludesAssistantProposalDifferences(t *te
 
 func TestProjectCairnlineParityReport_IncludesGraphCountDifferences(t *testing.T) {
 	report := projectCairnlineParityReport("proj_parity", ProjectCairnlineGraphParityCounts{
-		Roots:             1,
-		ContextSources:    2,
-		ExecutionProfiles: 4,
-		Artifacts:         3,
+		Roots:          1,
+		ContextSources: 2,
+		Skills:         4,
+		Artifacts:      3,
 	}, nil, ProjectCairnlineCollaborationParityCounts{}, ProjectActivityDataResponse{}, ProjectOperationsBriefResponse{}, nil, ProjectCairnlineCollaborationParityCounts{}, ProjectOperationsBriefResponse{}, 0, ProjectCairnlineReadModelResponseItem{
-		RootCount:             1,
-		ContextSourceCount:    1,
-		ExecutionProfileCount: 3,
-		ArtifactCount:         2,
+		RootCount:          1,
+		ContextSourceCount: 1,
+		SkillCount:         3,
+		ArtifactCount:      2,
 	})
 	if report.Match {
 		t.Fatalf("parity report match = true, want graph mismatch")
@@ -972,8 +959,8 @@ func TestProjectCairnlineParityReport_IncludesGraphCountDifferences(t *testing.T
 	if !hasProjectCairnlineParityDifference(report.Differences, "graph.context_sources", 2, 1) {
 		t.Fatalf("parity differences = %+v, want graph.context_sources 2/1", report.Differences)
 	}
-	if !hasProjectCairnlineParityDifference(report.Differences, "graph.execution_profiles", 4, 3) {
-		t.Fatalf("parity differences = %+v, want graph.execution_profiles 4/3", report.Differences)
+	if !hasProjectCairnlineParityDifference(report.Differences, "graph.skills", 4, 3) {
+		t.Fatalf("parity differences = %+v, want graph.skills 4/3", report.Differences)
 	}
 	if !hasProjectCairnlineParityDifference(report.Differences, "graph.artifacts", 3, 2) {
 		t.Fatalf("parity differences = %+v, want graph.artifacts 3/2", report.Differences)
