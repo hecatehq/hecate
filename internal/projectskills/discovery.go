@@ -81,11 +81,17 @@ func sortedSkillMap(items map[string]Skill) []Skill {
 func skillBaseDirs(fsys *workspacefs.FS, root projects.Root, sources []projects.ContextSource, warnings *[]string) []skillBaseDir {
 	dirs := []skillBaseDir{
 		{Path: ".agents/skills"},
+		{Path: ".cairnline/skills"},
+		{Path: ".claude/skills"},
+		{Path: ".gemini/skills"},
 		{Path: ".hecate/skills"},
 	}
 	seen := map[string]int{
-		".agents/skills": 0,
-		".hecate/skills": 1,
+		".agents/skills":    0,
+		".cairnline/skills": 1,
+		".claude/skills":    2,
+		".gemini/skills":    3,
+		".hecate/skills":    4,
 	}
 	for _, source := range sources {
 		if !guidanceSourceForRoot(source, root.ID) {
@@ -126,11 +132,11 @@ func guidanceSourceForRoot(source projects.ContextSource, rootID string) bool {
 			return false
 		}
 	}
-	if source.Kind == "workspace_instruction" || source.Format == "agents_md" || source.Format == "claude_md" {
+	if source.Kind == "workspace_instruction" || source.Format == "agents_md" || source.Format == "claude_md" || source.Format == "gemini_md" {
 		return true
 	}
 	base := strings.ToLower(path.Base(filepath.ToSlash(source.Path)))
-	return base == "agents.md" || base == "claude.md" || base == "claude.local.md"
+	return base == "agents.md" || base == "claude.md" || base == "claude.local.md" || base == "gemini.md"
 }
 
 func readGuidanceSource(fsys *workspacefs.FS, source projects.ContextSource, warnings *[]string) (string, bool) {

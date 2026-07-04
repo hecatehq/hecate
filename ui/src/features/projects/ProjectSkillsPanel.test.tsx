@@ -113,7 +113,7 @@ describe("ProjectSkillsPanel", () => {
     expect(screen.getByText("No project skills registered")).toBeTruthy();
     expect(
       screen.getByText(
-        "Discover skills from AGENTS.md / CLAUDE.md references, .agents/skills, or .hecate/skills.",
+        "Discover skills from guidance-linked roots, .agents/skills, .cairnline/skills, .claude/skills, .gemini/skills, or .hecate/skills.",
       ),
     ).toBeTruthy();
   });

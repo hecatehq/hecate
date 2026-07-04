@@ -76,7 +76,7 @@ export function ProjectSkillsPanel({
         {skills.length === 0 && !loading ? (
           <EmptyBlock
             title="No project skills registered"
-            detail="Discover skills from AGENTS.md / CLAUDE.md references, .agents/skills, or .hecate/skills."
+            detail="Discover skills from guidance-linked roots, .agents/skills, .cairnline/skills, .claude/skills, .gemini/skills, or .hecate/skills."
           />
         ) : (
           <div style={{ display: "grid", gap: 8 }}>

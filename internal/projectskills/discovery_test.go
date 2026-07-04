@@ -16,12 +16,17 @@ func TestDiscoverFindsLocalAndGuidanceLinkedSkillMetadata(t *testing.T) {
 	root := t.TempDir()
 	writeSkillFile(t, root, ".agents/skills/backend/SKILL.md", "---\nname: Backend Engineer\ndescription: Build backend slices.\n---\n# Ignored\n")
 	writeSkillFile(t, root, ".hecate/skills/qa/SKILL.md", "# QA Review\n")
+	writeSkillFile(t, root, ".cairnline/skills/planning/SKILL.md", "# Planning\n")
+	writeSkillFile(t, root, ".claude/skills/debug/SKILL.md", "# Claude Debug\n")
+	writeSkillFile(t, root, ".gemini/skills/research-gemini/SKILL.md", "# Gemini Research\n")
 	writeSkillFile(t, root, "docs-ai/skills/research/SKILL.md", "# Research\n")
 	writeSkillFile(t, root, "claude-skills/review/SKILL.md", "---\ntitle: Claude Review\ndescription: Host-specific review posture.\n---\n")
+	writeSkillFile(t, root, "gemini-skills/release/SKILL.md", "# Release Coordination\n")
 	writeSkillFile(t, root, ".worktrees/refactor/docs-ai/skills/backend/SKILL.md", "# Worktree Backend\n")
 	writeSkillFile(t, root, ".claude/worktrees/refactor/docs-ai/skills/qa/SKILL.md", "# Claude Worktree QA\n")
 	writeFileForDiscoveryTest(t, root, "AGENTS.md", "Use [`docs-ai/skills/research/SKILL.md`](docs-ai/skills/research/SKILL.md).")
 	writeFileForDiscoveryTest(t, root, "CLAUDE.md", "Use [`claude-skills/review/SKILL.md`](claude-skills/review/SKILL.md).")
+	writeFileForDiscoveryTest(t, root, "GEMINI.md", "Use [`gemini-skills/release/SKILL.md`](gemini-skills/release/SKILL.md).")
 	writeFileForDiscoveryTest(t, root, ".worktrees/refactor/AGENTS.md", "Use `.worktrees/refactor/docs-ai/skills/backend/SKILL.md`.")
 	writeFileForDiscoveryTest(t, root, ".claude/worktrees/refactor/AGENTS.md", "Use `.claude/worktrees/refactor/docs-ai/skills/qa/SKILL.md`.")
 	writeSkillFile(t, root, "unreferenced/skills/ignore/SKILL.md", "# Ignore\n")
@@ -56,6 +61,16 @@ func TestDiscoverFindsLocalAndGuidanceLinkedSkillMetadata(t *testing.T) {
 				},
 			},
 			{
+				ID:      "ctx_gemini",
+				Kind:    "host_instruction",
+				Path:    "GEMINI.md",
+				Enabled: true,
+				Format:  "gemini_md",
+				Metadata: map[string]string{
+					"root_id": "root_a",
+				},
+			},
+			{
 				ID:      "ctx_worktree",
 				Kind:    "workspace_instruction",
 				Path:    ".worktrees/refactor/AGENTS.md",
@@ -80,13 +95,17 @@ func TestDiscoverFindsLocalAndGuidanceLinkedSkillMetadata(t *testing.T) {
 	if len(warnings) != 0 {
 		t.Fatalf("warnings = %+v, want none", warnings)
 	}
-	if len(skills) != 4 {
-		t.Fatalf("skills = %+v, want four discovered skills", skills)
+	if len(skills) != 8 {
+		t.Fatalf("skills = %+v, want eight discovered skills", skills)
 	}
 	assertSkillForDiscoveryTest(t, skills, "backend", "Backend Engineer", "Build backend slices.", ".agents/skills/backend/SKILL.md", nil)
 	assertSkillForDiscoveryTest(t, skills, "qa", "QA Review", "", ".hecate/skills/qa/SKILL.md", nil)
+	assertSkillForDiscoveryTest(t, skills, "planning", "Planning", "", ".cairnline/skills/planning/SKILL.md", nil)
+	assertSkillForDiscoveryTest(t, skills, "debug", "Claude Debug", "", ".claude/skills/debug/SKILL.md", nil)
+	assertSkillForDiscoveryTest(t, skills, "research_gemini", "Gemini Research", "", ".gemini/skills/research-gemini/SKILL.md", nil)
 	assertSkillForDiscoveryTest(t, skills, "research", "Research", "", "docs-ai/skills/research/SKILL.md", []string{"ctx_agents"})
 	assertSkillForDiscoveryTest(t, skills, "review", "Claude Review", "Host-specific review posture.", "claude-skills/review/SKILL.md", []string{"ctx_claude"})
+	assertSkillForDiscoveryTest(t, skills, "release", "Release Coordination", "", "gemini-skills/release/SKILL.md", []string{"ctx_gemini"})
 	if findSkillForTest(skills, "ignore") != nil {
 		t.Fatalf("skills = %+v, want unreferenced skill root ignored", skills)
 	}
