@@ -1103,9 +1103,9 @@ func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string, nativeSh
 			item.LiveMirror = true
 			item.BlocksAuthority = false
 			item.Gap = ""
-			item.Detail = "Project metadata/default-only update mutations commit portable project metadata and default-root metadata to the embedded Cairnline database first, persist Hecate runtime defaults in the project runtime overlay, then best-effort shadow Hecate's compatibility row back into Hecate-native stores; project identity, roots, context sources, and mixed metadata/root/source replacement routes are controlled by separate switchpoints."
+			item.Detail = "Project metadata/default-root update mutations commit portable project metadata and default-root metadata to the embedded Cairnline database first, persist Hecate runtime defaults in the project runtime overlay, then best-effort shadow Hecate's compatibility row back into Hecate-native stores; project identity, roots, context sources, and mixed metadata/root/source replacement routes are controlled by separate switchpoints."
 			if nativeShadowSkipArmed {
-				item.Detail = "Project metadata/default-only update mutations commit portable project metadata and default-root metadata to the embedded Cairnline database first, persist Hecate runtime defaults in the project runtime overlay, and, in armed embedded replacement mode, skip native project-row compatibility shadows; project identity, roots, context sources, and mixed metadata/root/source replacement routes are controlled by separate switchpoints."
+				item.Detail = "Project metadata/default-root update mutations commit portable project metadata and default-root metadata to the embedded Cairnline database first, persist Hecate runtime defaults in the project runtime overlay, and, in armed embedded replacement mode, skip native project-row compatibility shadows; project identity, roots, context sources, and mixed metadata/root/source replacement routes are controlled by separate switchpoints."
 			}
 		}
 		if projectRootsAuthoritative && item.Name == "roots-and-worktrees" {
@@ -1277,11 +1277,11 @@ func projectCairnlineProjectCollaborationWriteWarning(writeAuthority []string) s
 func projectCairnlineProjectMetadataDefaultsWriteWarning(writeAuthority []string, nativeShadowSkipArmed bool) string {
 	if projectCairnlineWriteAuthorityEnabled(writeAuthority, projectCairnlineWriteAuthorityProjectMetadataDefaults) {
 		if nativeShadowSkipArmed {
-			return "Project metadata/default-only update mutations are opt-in Cairnline-authoritative and skip native project-row compatibility shadows in armed embedded replacement mode; project identity, roots, context sources, and mixed root/source replacement routes are controlled by separate switchpoints."
+			return "Project metadata/default-root update mutations are opt-in Cairnline-authoritative and skip native project-row compatibility shadows in armed embedded replacement mode; provider/model/preset posture stays in Hecate runtime overlays, and project identity, roots, context sources, and mixed root/source replacement routes are controlled by separate switchpoints."
 		}
-		return "Project metadata/default-only update mutations are opt-in Cairnline-authoritative and then best-effort shadowed into Hecate-native stores for compatibility; project identity, roots, context sources, and mixed root/source replacement routes are controlled by separate switchpoints."
+		return "Project metadata/default-root update mutations are opt-in Cairnline-authoritative and then best-effort shadowed into Hecate-native stores for compatibility; provider/model/preset posture stays in Hecate runtime overlays, and project identity, roots, context sources, and mixed root/source replacement routes are controlled by separate switchpoints."
 	}
-	return "Project metadata/default updates still write Hecate-native stores first, then best-effort mirror through Cairnline's project-metadata and project-defaults seams."
+	return "Project metadata/default-root updates still write Hecate-native stores first, then best-effort mirror through Cairnline's project-metadata and project-defaults seams; provider/model/preset posture stays in Hecate runtime overlays."
 }
 
 func projectCairnlineProjectIdentityWriteWarning(writeAuthority []string) string {
