@@ -7,25 +7,25 @@ import (
 	"github.com/hecatehq/hecate/internal/agentprofiles"
 )
 
-func (h *Handler) HandleAgentProfiles(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandleAgentPresets(w http.ResponseWriter, r *http.Request) {
 	items, err := h.agentProfiles.List(r.Context())
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	data := make([]AgentProfileResponseItem, 0, len(items))
+	data := make([]AgentPresetResponseItem, 0, len(items))
 	for _, item := range items {
-		data = append(data, renderAgentProfile(item))
+		data = append(data, renderAgentPreset(item))
 	}
-	WriteJSON(w, http.StatusOK, AgentProfilesResponse{Object: "agent_presets", Data: data})
+	WriteJSON(w, http.StatusOK, AgentPresetsResponse{Object: "agent_presets", Data: data})
 }
 
-func (h *Handler) HandleCreateAgentProfile(w http.ResponseWriter, r *http.Request) {
-	var req CreateAgentProfileRequest
+func (h *Handler) HandleCreateAgentPreset(w http.ResponseWriter, r *http.Request) {
+	var req CreateAgentPresetRequest
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	profile := agentProfileFromCreate(req)
+	profile := agentPresetFromCreate(req)
 	if profile.ID == "" {
 		profile.ID = newOpaqueTaskResourceID("prof")
 	}
@@ -42,10 +42,10 @@ func (h *Handler) HandleCreateAgentProfile(w http.ResponseWriter, r *http.Reques
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	WriteJSON(w, http.StatusCreated, AgentProfileResponse{Object: "agent_preset", Data: renderAgentProfile(profile)})
+	WriteJSON(w, http.StatusCreated, AgentPresetResponse{Object: "agent_preset", Data: renderAgentPreset(profile)})
 }
 
-func (h *Handler) HandleAgentProfile(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandleAgentPreset(w http.ResponseWriter, r *http.Request) {
 	profile, ok, err := h.agentProfiles.Get(r.Context(), r.PathValue("id"))
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
@@ -55,16 +55,16 @@ func (h *Handler) HandleAgentProfile(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent preset not found")
 		return
 	}
-	WriteJSON(w, http.StatusOK, AgentProfileResponse{Object: "agent_preset", Data: renderAgentProfile(profile)})
+	WriteJSON(w, http.StatusOK, AgentPresetResponse{Object: "agent_preset", Data: renderAgentPreset(profile)})
 }
 
-func (h *Handler) HandleUpdateAgentProfile(w http.ResponseWriter, r *http.Request) {
-	var req UpdateAgentProfileRequest
+func (h *Handler) HandleUpdateAgentPreset(w http.ResponseWriter, r *http.Request) {
+	var req UpdateAgentPresetRequest
 	if !decodeJSON(w, r, &req) {
 		return
 	}
 	profile, err := h.agentProfiles.Update(r.Context(), r.PathValue("id"), func(item *agentprofiles.Profile) {
-		applyAgentProfileUpdate(item, req)
+		applyAgentPresetUpdate(item, req)
 	})
 	if errors.Is(err, agentprofiles.ErrNotFound) {
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent preset not found")
@@ -82,10 +82,10 @@ func (h *Handler) HandleUpdateAgentProfile(w http.ResponseWriter, r *http.Reques
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	WriteJSON(w, http.StatusOK, AgentProfileResponse{Object: "agent_preset", Data: renderAgentProfile(profile)})
+	WriteJSON(w, http.StatusOK, AgentPresetResponse{Object: "agent_preset", Data: renderAgentPreset(profile)})
 }
 
-func (h *Handler) HandleDeleteAgentProfile(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandleDeleteAgentPreset(w http.ResponseWriter, r *http.Request) {
 	profileID := r.PathValue("id")
 	if err := h.agentProfiles.Delete(r.Context(), profileID); errors.Is(err, agentprofiles.ErrNotFound) {
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent preset not found")
@@ -100,7 +100,7 @@ func (h *Handler) HandleDeleteAgentProfile(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func agentProfileFromCreate(req CreateAgentProfileRequest) agentprofiles.Profile {
+func agentPresetFromCreate(req CreateAgentPresetRequest) agentprofiles.Profile {
 	return agentprofiles.Profile{
 		ID:                   req.ID,
 		Name:                 req.Name,
@@ -122,7 +122,7 @@ func agentProfileFromCreate(req CreateAgentProfileRequest) agentprofiles.Profile
 	}
 }
 
-func applyAgentProfileUpdate(profile *agentprofiles.Profile, req UpdateAgentProfileRequest) {
+func applyAgentPresetUpdate(profile *agentprofiles.Profile, req UpdateAgentPresetRequest) {
 	if req.Name != nil {
 		profile.Name = *req.Name
 	}
@@ -173,8 +173,8 @@ func applyAgentProfileUpdate(profile *agentprofiles.Profile, req UpdateAgentProf
 	}
 }
 
-func renderAgentProfile(profile agentprofiles.Profile) AgentProfileResponseItem {
-	return AgentProfileResponseItem{
+func renderAgentPreset(profile agentprofiles.Profile) AgentPresetResponseItem {
+	return AgentPresetResponseItem{
 		ID:                   profile.ID,
 		Name:                 profile.Name,
 		Description:          profile.Description,
@@ -191,14 +191,14 @@ func renderAgentProfile(profile agentprofiles.Profile) AgentProfileResponseItem 
 		ContextSourcePolicy:  profile.ContextSourcePolicy,
 		SkillIDs:             append([]string(nil), profile.SkillIDs...),
 		ExternalAgentKind:    profile.ExternalAgentKind,
-		ExternalAgentOptions: cloneAgentProfileOptions(profile.ExternalAgentOptions),
+		ExternalAgentOptions: cloneAgentPresetOptions(profile.ExternalAgentOptions),
 		BuiltIn:              profile.BuiltIn,
 		CreatedAt:            formatOptionalTime(profile.CreatedAt),
 		UpdatedAt:            formatOptionalTime(profile.UpdatedAt),
 	}
 }
 
-func cloneAgentProfileOptions(items map[string]string) map[string]string {
+func cloneAgentPresetOptions(items map[string]string) map[string]string {
 	if len(items) == 0 {
 		return nil
 	}

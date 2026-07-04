@@ -57,7 +57,7 @@ func TestProjectJourneyAPI_DiscoverStartInspectAndHandoff(t *testing.T) {
 		t.Fatalf("memory = %+v, want enabled project memory entry", memoryEntry.Data)
 	}
 
-	profile := mustRequestJSONStatus[AgentProfileResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/agent-presets", projectJourneyJSON(t, map[string]any{
+	profile := mustRequestJSONStatus[AgentPresetResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/agent-presets", projectJourneyJSON(t, map[string]any{
 		"id":                    "prof_backend",
 		"name":                  "Backend implementer",
 		"surface":               "hecate_task",
