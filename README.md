@@ -20,7 +20,7 @@
 > **Status: public alpha.** Hecate is useful today for model-provider routing,
 > Hecate Chat, External Agent sessions, project-scoped work, approvals,
 > artifacts, usage, and observability. It is not production-stable
-> infrastructure yet: workflow runbooks, richer agent profiles, browser QA, and
+> infrastructure yet: workflow runbooks, richer Agent Presets, browser QA, and
 > sandbox hardening are still design or early-alpha work. Read
 > [known limitations](docs/operator/known-limitations.md) before depending on it.
 
@@ -134,7 +134,7 @@ Design direction that is not yet a runtime contract:
 - Named workflow modes such as `review`, `investigate`, `qa`, `ship`,
   `security-audit`, and `design-review`.
 - Browser-backed QA evidence and design review.
-- Richer agent profiles and preset workflows.
+- Richer Agent Presets and preset workflows.
 - Broader context-window management and external memory provider selection.
 - A first-class workflow/runbook API if the v0 experiments prove valuable.
 

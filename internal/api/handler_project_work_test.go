@@ -292,7 +292,7 @@ func TestProjectWorkAPI_CairnlineReadSourceEmbeddedRequiresMirror(t *testing.T) 
 	}
 }
 
-func TestProjectWorkAPI_StrictEmbeddedRuntimeRequiresReplacementAuthority(t *testing.T) {
+func TestProjectWorkAPI_StrictEmbeddedRuntimeUsesReplacementAuthority(t *testing.T) {
 	t.Parallel()
 	handler := NewHandler(config.Config{
 		Server: config.ServerConfig{DataDir: t.TempDir()},
@@ -304,16 +304,16 @@ func TestProjectWorkAPI_StrictEmbeddedRuntimeRequiresReplacementAuthority(t *tes
 		},
 	}, quietLogger(), nil, nil, nil, nil)
 	handler.SetProjectWorkStore(projectwork.NewMemoryStore())
-	if handler.projectAssignmentStartUsesStrictEmbeddedCairnlineRuntime(true) {
-		t.Fatal("strict embedded runtime = true, want false until portable write authority gaps are closed")
-	}
-
-	handler.config.Projects.CairnlineWriteAuthority = "all-portable"
 	if !handler.projectAssignmentStartUsesStrictEmbeddedCairnlineRuntime(true) {
-		t.Fatal("strict embedded runtime = false, want true when replacement mode is armed and portable write gaps are closed")
+		t.Fatal("strict embedded runtime = false, want true when replacement mode is armed because it implies portable write authority")
 	}
 	if handler.projectAssignmentStartUsesStrictEmbeddedCairnlineRuntime(false) {
 		t.Fatal("strict embedded runtime = true without strict embedded reads")
+	}
+
+	handler.config.Projects.CairnlineReplacementMode = "disabled"
+	if handler.projectAssignmentStartUsesStrictEmbeddedCairnlineRuntime(true) {
+		t.Fatal("strict embedded runtime = true, want false until replacement mode or explicit portable write authority is armed")
 	}
 }
 
@@ -4433,6 +4433,7 @@ func TestProjectWorkAPI_AssignmentContextUsesCairnlineSidecarWhenConfigured(t *t
 		"Read backend: cairnline",
 		"Source tool: assignments.context",
 		"Portable execution mode: mcp_pull",
+		cairnlineAssignmentContextHecateAuthorityLine,
 	} {
 		if !strings.Contains(item.Body, want) {
 			t.Fatalf("sidecar assignment context body = %q, want %q", item.Body, want)
@@ -4452,8 +4453,9 @@ func TestProjectWorkAPI_AssignmentContextStrictEmbeddedReadModelReadsWithoutHeca
 	handler := NewHandler(config.Config{
 		Server: config.ServerConfig{DataDir: t.TempDir()},
 		Projects: config.ProjectsConfig{
-			CoordinationBackend: "cairnline",
-			CairnlineReadSource: "embedded",
+			CoordinationBackend:      "cairnline",
+			CairnlineReadSource:      "embedded",
+			CairnlineReplacementMode: "embedded",
 		},
 	}, quietLogger(), nil, nil, nil, nil)
 	server := NewServer(quietLogger(), handler)
@@ -4523,6 +4525,12 @@ func TestProjectWorkAPI_AssignmentContextStrictEmbeddedReadModelReadsWithoutHeca
 	item := findRenderedContextItemByOrigin(packetResp.Data, "cairnline.assignments.context")
 	if item == nil || item.Section != contextSectionRuntime || item.Included || item.Metadata["read_backend"] != "cairnline" || item.Metadata["source_tool"] != "assignments.context" {
 		t.Fatalf("embedded assignment context runtime item = %+v, want inspect-only assignments.context metadata", item)
+	}
+	if !strings.Contains(item.Body, cairnlineAssignmentContextReplacementAuthorityLine) {
+		t.Fatalf("embedded assignment context runtime body = %q, want replacement-mode authority line", item.Body)
+	}
+	if strings.Contains(item.Body, cairnlineAssignmentContextHecateAuthorityLine) {
+		t.Fatalf("embedded assignment context runtime body = %q, want no stale Hecate authority line", item.Body)
 	}
 	workItem := findRenderedContextItemByOrigin(packetResp.Data, "work_embedded_assignment_context")
 	if workItem == nil || workItem.Section != contextSectionProjectWork || !workItem.Included {

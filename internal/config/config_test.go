@@ -611,6 +611,9 @@ func TestLoadFromEnvProjectsCairnlineReplacementMode(t *testing.T) {
 	if got := cfg.ProjectsCairnlineReplacementMode(); got != "embedded" {
 		t.Fatalf("ProjectsCairnlineReplacementMode() = %q, want embedded", got)
 	}
+	if !cfg.ProjectsCairnlineWriteAuthorityEnabled("project-context-sources") || !cfg.ProjectsCairnlineWriteAuthorityEnabled("project-identity") {
+		t.Fatalf("ProjectsCairnlineWriteAuthority() = %+v, want embedded replacement mode to imply all portable write authority", cfg.ProjectsCairnlineWriteAuthority())
+	}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v, want nil for embedded Cairnline replacement mode opt-in", err)
 	}
@@ -714,6 +717,11 @@ func TestLoadFromEnvProjectsCairnlineWriteAuthority(t *testing.T) {
 	}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v, want nil for all-portable Cairnline write authority alias", err)
+	}
+
+	cfg.Projects.CairnlineReplacementMode = "embedded"
+	if got := cfg.ProjectsCairnlineWriteAuthority(); len(got) != 12 || got[0] != "project-memory" || got[1] != "memory-candidates" || got[11] != "project-assistant-proposals" {
+		t.Fatalf("ProjectsCairnlineWriteAuthority() = %+v, want embedded replacement mode to preserve all-portable expansion", got)
 	}
 }
 
@@ -835,6 +843,23 @@ func TestValidateRejectsEmbeddedProjectsCairnlineReplacementModeWithoutStrictEmb
 
 func TestValidateRejectsInvalidProjectsCairnlineWriteAuthority(t *testing.T) {
 	cfg := LoadFromEnv()
+	cfg.Projects.CairnlineWriteAuthority = "project-memory,assignments"
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() error = nil, want invalid projects Cairnline write authority error")
+	}
+	if !strings.Contains(err.Error(), "HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY") {
+		t.Fatalf("Validate() error = %q, want HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY", err)
+	}
+}
+
+func TestValidateRejectsInvalidProjectsCairnlineWriteAuthorityWithReplacementMode(t *testing.T) {
+	cfg := LoadFromEnv()
+	cfg.Projects.CoordinationBackend = "cairnline"
+	cfg.Projects.CairnlineConnector = "embedded"
+	cfg.Projects.CairnlineReadSource = "embedded"
+	cfg.Projects.CairnlineReplacementMode = "embedded"
 	cfg.Projects.CairnlineWriteAuthority = "project-memory,assignments"
 
 	err := cfg.Validate()

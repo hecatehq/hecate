@@ -1292,7 +1292,6 @@ func TestProjectAssistantAPI_CairnlineReplacementModeSkipsNativeProposalShadows(
 	handler, server := newProjectAssistantCairnlineMirrorTestHandler(t)
 	handler.config.Projects.CairnlineConnector = "embedded"
 	handler.config.Projects.CairnlineReadSource = "embedded"
-	handler.config.Projects.CairnlineWriteAuthority = "all-portable"
 	handler.config.Projects.CairnlineReplacementMode = "embedded"
 	client := newAPITestClient(t, server)
 	project := mustRequestJSONStatus[ProjectResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects", `{
