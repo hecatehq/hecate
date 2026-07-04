@@ -64,6 +64,14 @@ agents, or write memory. Like Project Operations, Needs Attention rows use a
 typed server-provided `action` object for follow-through; compact row fields are
 display metadata, not a second routing authority.
 
+When Cairnline dogfood or replacement mode is configured, the Projects cockpit
+also shows a compact **Project coordination** strip above the workspace. It is
+read-only status from `GET /hecate/v1/projects/backend-status`; use it to
+confirm whether portable project coordination is still Hecate-native, in
+Cairnline dogfood, or reporting Cairnline authoritative. Use **Backend
+settings** to jump to the global Settings workspace for full gates, probes, and
+copyable configuration hints.
+
 The Work Coordination tab starts with Project Operations when the server finds
 actionable project state: missing launch defaults, pending approvals, blocked
 or stale assignments, queued assignments that need preflight, pending handoffs,
