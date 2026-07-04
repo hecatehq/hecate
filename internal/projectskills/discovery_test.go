@@ -4,9 +4,12 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/projects"
 )
 
@@ -102,7 +105,7 @@ func TestDiscoverFindsLocalAndGuidanceLinkedSkillMetadata(t *testing.T) {
 	assertSkillForDiscoveryTest(t, skills, "qa", "QA Review", "", ".hecate/skills/qa/SKILL.md", nil)
 	assertSkillForDiscoveryTest(t, skills, "planning", "Planning", "", ".cairnline/skills/planning/SKILL.md", nil)
 	assertSkillForDiscoveryTest(t, skills, "debug", "Claude Debug", "", ".claude/skills/debug/SKILL.md", nil)
-	assertSkillForDiscoveryTest(t, skills, "research_gemini", "Gemini Research", "", ".gemini/skills/research-gemini/SKILL.md", nil)
+	assertSkillForDiscoveryTest(t, skills, "research-gemini", "Gemini Research", "", ".gemini/skills/research-gemini/SKILL.md", nil)
 	assertSkillForDiscoveryTest(t, skills, "research", "Research", "", "docs-ai/skills/research/SKILL.md", []string{"ctx_agents"})
 	assertSkillForDiscoveryTest(t, skills, "review", "Claude Review", "Host-specific review posture.", "claude-skills/review/SKILL.md", []string{"ctx_claude"})
 	assertSkillForDiscoveryTest(t, skills, "release", "Release Coordination", "", "gemini-skills/release/SKILL.md", []string{"ctx_gemini"})
@@ -158,6 +161,168 @@ func TestDiscoverSkipsWorktreeGuidanceAndSkillRoots(t *testing.T) {
 	}
 	if skills[0].ID != "backend" || skills[0].Path != ".agents/skills/backend/SKILL.md" || skills[0].Status != StatusAvailable {
 		t.Fatalf("skill = %+v, want canonical backend skill only", skills[0])
+	}
+}
+
+func TestDiscoverMatchesCairnlinePortableSkillDiscoverySubset(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	root := t.TempDir()
+	writeSkillFile(t, root, ".agents/skills/backend/SKILL.md", `---
+name: Backend Engineer
+description: Build backend slices.
+hecate:
+  suggested_tools:
+    - git.diff
+    - file.read
+  required_permissions:
+    tools: true
+    writes: false
+    network: true
+---
+# Ignored
+`)
+	writeSkillFile(t, root, ".cairnline/skills/planning/SKILL.md", "# Planning\n")
+	writeSkillFile(t, root, ".claude/skills/debug/SKILL.md", "# Claude Debug\n")
+	writeSkillFile(t, root, ".gemini/skills/research-gemini/SKILL.md", "# Gemini Research\n")
+	writeSkillFile(t, root, ".hecate/skills/qa/SKILL.md", "# QA Review\n")
+	writeSkillFile(t, root, "docs-ai/skills/research/SKILL.md", "# Research\n")
+	writeSkillFile(t, root, "claude-skills/review/SKILL.md", "---\ntitle: Claude Review\ndescription: Host-specific review posture.\n---\n")
+	writeSkillFile(t, root, "gemini-skills/release/SKILL.md", "# Release Coordination\n")
+	writeFileForDiscoveryTest(t, root, "AGENTS.md", "Use [`docs-ai/skills/research/SKILL.md`](docs-ai/skills/research/SKILL.md).")
+	writeFileForDiscoveryTest(t, root, "CLAUDE.md", "Use [`claude-skills/review/SKILL.md`](claude-skills/review/SKILL.md).")
+	writeFileForDiscoveryTest(t, root, "GEMINI.md", "Use [`gemini-skills/release/SKILL.md`](gemini-skills/release/SKILL.md).")
+	writeFileForDiscoveryTest(t, root, "docs/AGENTS.md", "Use `.cairnline/skills/planning/SKILL.md`.")
+
+	hecateProject := projects.Project{
+		ID: "proj_skills",
+		Roots: []projects.Root{{
+			ID:     "root_a",
+			Path:   root,
+			Kind:   "git",
+			Active: true,
+		}},
+		ContextSources: []projects.ContextSource{
+			{
+				ID:      "ctx_agents",
+				Kind:    "workspace_instruction",
+				Title:   "AGENTS.md",
+				Path:    "AGENTS.md",
+				Enabled: true,
+				Format:  "agents_md",
+				Metadata: map[string]string{
+					"root_id": "root_a",
+				},
+			},
+			{
+				ID:      "ctx_claude",
+				Kind:    "host_instruction",
+				Title:   "CLAUDE.md",
+				Path:    "CLAUDE.md",
+				Enabled: true,
+				Format:  "claude_md",
+				Metadata: map[string]string{
+					"root_id": "root_a",
+				},
+			},
+			{
+				ID:      "ctx_gemini",
+				Kind:    "host_instruction",
+				Title:   "GEMINI.md",
+				Path:    "GEMINI.md",
+				Enabled: true,
+				Format:  "gemini_md",
+				Metadata: map[string]string{
+					"root_id": "root_a",
+				},
+			},
+			{
+				ID:      "ctx_nested",
+				Kind:    "workspace_instruction",
+				Title:   "Nested AGENTS.md",
+				Path:    "docs/AGENTS.md",
+				Enabled: true,
+				Format:  "agents_md",
+				Metadata: map[string]string{
+					"root_id": "root_a",
+				},
+			},
+		},
+	}
+	hecateSkills, hecateWarnings := Discover(ctx, hecateProject)
+	if len(hecateWarnings) != 0 {
+		t.Fatalf("Hecate Discover warnings = %+v, want none", hecateWarnings)
+	}
+
+	service := cairnline.NewMemoryService()
+	cairnlineProject, err := service.CreateProject(ctx, cairnline.Project{
+		ID:   "proj_skills",
+		Name: "Skill discovery parity",
+		Roots: []cairnline.Root{{
+			ID:     "root_a",
+			Path:   root,
+			Kind:   "git",
+			Active: true,
+		}},
+		ContextSources: []cairnline.Source{
+			{
+				ID:      "ctx_agents",
+				Kind:    "workspace_instruction",
+				Title:   "AGENTS.md",
+				Locator: "AGENTS.md",
+				Enabled: true,
+				Format:  "agents_md",
+				Metadata: map[string]string{
+					"root_id": "root_a",
+				},
+			},
+			{
+				ID:      "ctx_claude",
+				Kind:    "host_instruction",
+				Title:   "CLAUDE.md",
+				Locator: "CLAUDE.md",
+				Enabled: true,
+				Format:  "claude_md",
+				Metadata: map[string]string{
+					"root_id": "root_a",
+				},
+			},
+			{
+				ID:      "ctx_gemini",
+				Kind:    "host_instruction",
+				Title:   "GEMINI.md",
+				Locator: "GEMINI.md",
+				Enabled: true,
+				Format:  "gemini_md",
+				Metadata: map[string]string{
+					"root_id": "root_a",
+				},
+			},
+			{
+				ID:      "ctx_nested",
+				Kind:    "workspace_instruction",
+				Title:   "Nested AGENTS.md",
+				Locator: "docs/AGENTS.md",
+				Enabled: true,
+				Format:  "agents_md",
+				Metadata: map[string]string{
+					"root_id": "root_a",
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Cairnline CreateProject() error = %v", err)
+	}
+	cairnlineSkills, err := service.DiscoverProjectSkills(ctx, cairnlineProject.ID)
+	if err != nil {
+		t.Fatalf("Cairnline DiscoverProjectSkills() error = %v", err)
+	}
+
+	got := portableSkillDiscoverySnapshotFromHecate(hecateSkills)
+	want := portableSkillDiscoverySnapshotFromCairnline(cairnlineSkills)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("portable skill discovery snapshot mismatch\nHecate:   %#v\nCairnline: %#v", got, want)
 	}
 }
 
@@ -300,6 +465,80 @@ func assertSkillForDiscoveryTest(t *testing.T, skills []Skill, id, title, descri
 	if strings.Join(skill.SourceContextSourceIDs, ",") != strings.Join(sourceIDs, ",") {
 		t.Fatalf("skill %s source ids = %+v, want %+v", id, skill.SourceContextSourceIDs, sourceIDs)
 	}
+}
+
+type portableSkillDiscoverySnapshot struct {
+	ID                     string
+	Title                  string
+	Description            string
+	Path                   string
+	RootID                 string
+	Format                 string
+	SuggestedTools         []string
+	RequiredPermissions    portableRequiredPermissionsSnapshot
+	Enabled                bool
+	Status                 string
+	TrustLabel             string
+	SourceContextSourceIDs []string
+	Warnings               []string
+}
+
+type portableRequiredPermissionsSnapshot struct {
+	Tools   *bool
+	Writes  *bool
+	Network *bool
+}
+
+func portableSkillDiscoverySnapshotFromHecate(skills []Skill) []portableSkillDiscoverySnapshot {
+	out := make([]portableSkillDiscoverySnapshot, 0, len(skills))
+	for _, skill := range skills {
+		out = append(out, portableSkillDiscoverySnapshot{
+			ID:                     skill.ID,
+			Title:                  skill.Title,
+			Description:            skill.Description,
+			Path:                   skill.Path,
+			RootID:                 skill.RootID,
+			Format:                 skill.Format,
+			SuggestedTools:         append([]string(nil), skill.SuggestedTools...),
+			RequiredPermissions:    portableRequiredPermissionsSnapshot{Tools: skill.RequiredPermissions.Tools, Writes: skill.RequiredPermissions.Writes, Network: skill.RequiredPermissions.Network},
+			Enabled:                skill.Enabled,
+			Status:                 skill.Status,
+			TrustLabel:             skill.TrustLabel,
+			SourceContextSourceIDs: append([]string(nil), skill.SourceContextSourceIDs...),
+			Warnings:               append([]string(nil), skill.Warnings...),
+		})
+	}
+	sortPortableSkillDiscoverySnapshots(out)
+	return out
+}
+
+func portableSkillDiscoverySnapshotFromCairnline(skills []cairnline.ProjectSkill) []portableSkillDiscoverySnapshot {
+	out := make([]portableSkillDiscoverySnapshot, 0, len(skills))
+	for _, skill := range skills {
+		out = append(out, portableSkillDiscoverySnapshot{
+			ID:                     skill.ID,
+			Title:                  skill.Title,
+			Description:            skill.Description,
+			Path:                   skill.Path,
+			RootID:                 skill.RootID,
+			Format:                 skill.Format,
+			SuggestedTools:         append([]string(nil), skill.SuggestedTools...),
+			RequiredPermissions:    portableRequiredPermissionsSnapshot{Tools: skill.RequiredPermissions.Tools, Writes: skill.RequiredPermissions.Writes, Network: skill.RequiredPermissions.Network},
+			Enabled:                skill.Enabled,
+			Status:                 skill.Status,
+			TrustLabel:             skill.TrustLabel,
+			SourceContextSourceIDs: append([]string(nil), skill.SourceRefs...),
+			Warnings:               append([]string(nil), skill.Warnings...),
+		})
+	}
+	sortPortableSkillDiscoverySnapshots(out)
+	return out
+}
+
+func sortPortableSkillDiscoverySnapshots(items []portableSkillDiscoverySnapshot) {
+	slices.SortFunc(items, func(a, b portableSkillDiscoverySnapshot) int {
+		return strings.Compare(a.ID, b.ID)
+	})
 }
 
 func writeSkillFile(t *testing.T, root, rel, body string) {

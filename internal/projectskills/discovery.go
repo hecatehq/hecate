@@ -477,7 +477,10 @@ func skillBaseDirsFromToken(sourceDir, token string) []string {
 		return nil
 	}
 	cleaned := path.Clean(token)
-	if sourceDir != "" && !strings.HasPrefix(cleaned, ".agents/") && !strings.HasPrefix(cleaned, ".hecate/") {
+	if sourceDir != "" &&
+		!strings.HasPrefix(cleaned, ".agents/") &&
+		!strings.HasPrefix(cleaned, ".cairnline/") &&
+		!strings.HasPrefix(cleaned, ".hecate/") {
 		cleaned = path.Clean(path.Join(sourceDir, cleaned))
 	}
 	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {

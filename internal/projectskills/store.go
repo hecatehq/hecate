@@ -406,26 +406,28 @@ func oneOf(value string, allowed ...string) bool {
 }
 
 func normalizeID(value string) string {
-	value = strings.ToLower(strings.TrimSpace(value))
+	value = strings.TrimSpace(strings.ToLower(value))
 	var builder strings.Builder
-	lastUnderscore := false
+	lastDash := false
 	for _, r := range value {
 		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+		case r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_':
 			builder.WriteRune(r)
-			lastUnderscore = false
-		case r == '-' || r == '_' || r == ' ' || r == '.':
-			if !lastUnderscore && builder.Len() > 0 {
-				builder.WriteByte('_')
-				lastUnderscore = true
+			lastDash = false
+		case r == '-' || r == ' ' || r == '.':
+			if !lastDash && builder.Len() > 0 {
+				builder.WriteByte('-')
+				lastDash = true
 			}
 		}
 	}
-	return strings.Trim(builder.String(), "_")
+	return strings.Trim(builder.String(), "-")
 }
 
 func titleFromID(id string) string {
-	parts := strings.Split(normalizeID(id), "_")
+	parts := strings.FieldsFunc(normalizeID(id), func(r rune) bool {
+		return r == '-' || r == '_'
+	})
 	for idx, part := range parts {
 		if part == "" {
 			continue

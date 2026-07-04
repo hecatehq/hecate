@@ -302,8 +302,10 @@ Implemented registry behavior:
 - Discovery parses bounded metadata only: frontmatter `name`/`title`,
   `description`, `hecate.suggested_tools`, and
   `hecate.required_permissions.{tools,writes,network}`, then H1/title fallback
-  and directory id. Suggested-tool lists are normalized, de-duplicated, capped,
-  and summarized in operator-facing text.
+  and directory id. Skill IDs are normalized from directory names using the
+  Cairnline-compatible lowercase, hyphen-separated form, with underscores
+  preserved. Suggested-tool lists are normalized, de-duplicated, capped, and
+  summarized in operator-facing text.
 - Assignment launch planning compares resolved project skills with the resolved
   profile and surfaces suggested-tool / required-permission mismatches as
   operator warnings. It does not grant or revoke capabilities.
