@@ -11,14 +11,14 @@ import (
 	"github.com/hecatehq/hecate/internal/config"
 )
 
-func newAgentProfilesTestServer() http.Handler {
+func newAgentPresetsTestServer() http.Handler {
 	handler := NewHandler(config.Config{}, quietLogger(), nil, nil, nil, nil)
 	return NewServer(quietLogger(), handler)
 }
 
-func TestAgentProfilesAPI_CRUD(t *testing.T) {
+func TestAgentPresetsAPI_CRUD(t *testing.T) {
 	t.Parallel()
-	server := newAgentProfilesTestServer()
+	server := newAgentPresetsTestServer()
 
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/agent-presets", bytes.NewReader([]byte(`{
@@ -43,15 +43,15 @@ func TestAgentProfilesAPI_CRUD(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create status = %d body=%s, want 201", rec.Code, rec.Body.String())
 	}
-	var created AgentProfileResponse
+	var created AgentPresetResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
 		t.Fatalf("decode create response: %v", err)
 	}
 	if created.Object != "agent_preset" || created.Data.ID != "prof_backend" || created.Data.ExecutionProfile != "implementation" {
-		t.Fatalf("created = %+v, want profile envelope", created)
+		t.Fatalf("created = %+v, want preset envelope", created)
 	}
 	if created.Data.BuiltIn {
-		t.Fatalf("created profile is marked built-in")
+		t.Fatalf("created preset is marked built-in")
 	}
 	if !created.Data.ToolsEnabled || !created.Data.WritesAllowed || created.Data.NetworkAllowed {
 		t.Fatalf("posture = tools=%v writes=%v network=%v, want true/true/false", created.Data.ToolsEnabled, created.Data.WritesAllowed, created.Data.NetworkAllowed)
@@ -66,12 +66,12 @@ func TestAgentProfilesAPI_CRUD(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("patch status = %d body=%s, want 200", rec.Code, rec.Body.String())
 	}
-	var updated AgentProfileResponse
+	var updated AgentPresetResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &updated); err != nil {
 		t.Fatalf("decode patch response: %v", err)
 	}
 	if updated.Data.Name != "Backend reviewer" || updated.Data.WritesAllowed || updated.Data.ApprovalPolicy != "block" {
-		t.Fatalf("updated = %+v, want patched profile", updated.Data)
+		t.Fatalf("updated = %+v, want patched preset", updated.Data)
 	}
 
 	rec = httptest.NewRecorder()
@@ -79,12 +79,12 @@ func TestAgentProfilesAPI_CRUD(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list status = %d body=%s, want 200", rec.Code, rec.Body.String())
 	}
-	var listed AgentProfilesResponse
+	var listed AgentPresetsResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil {
 		t.Fatalf("decode list response: %v", err)
 	}
-	if listed.Object != "agent_presets" || !agentProfileResponseIDExists(listed.Data, "implementation") || !agentProfileResponseIDExists(listed.Data, "prof_backend") {
-		t.Fatalf("listed = %+v, want built-ins plus created profile", listed)
+	if listed.Object != "agent_presets" || !agentPresetResponseIDExists(listed.Data, "implementation") || !agentPresetResponseIDExists(listed.Data, "prof_backend") {
+		t.Fatalf("listed = %+v, want built-ins plus created preset", listed)
 	}
 
 	rec = httptest.NewRecorder()
@@ -94,9 +94,9 @@ func TestAgentProfilesAPI_CRUD(t *testing.T) {
 	}
 }
 
-func TestAgentProfilesAPI_OldProfileRouteRemoved(t *testing.T) {
+func TestAgentPresetsAPI_OldProfileRouteRemoved(t *testing.T) {
 	t.Parallel()
-	server := newAgentProfilesTestServer()
+	server := newAgentPresetsTestServer()
 
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/agent-profiles", nil))
@@ -105,21 +105,21 @@ func TestAgentProfilesAPI_OldProfileRouteRemoved(t *testing.T) {
 	}
 }
 
-func TestAgentProfilesAPI_BuiltInProfilesAreReadOnly(t *testing.T) {
+func TestAgentPresetsAPI_BuiltInPresetsAreReadOnly(t *testing.T) {
 	t.Parallel()
-	server := newAgentProfilesTestServer()
+	server := newAgentPresetsTestServer()
 
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/agent-presets/implementation", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("get built-in status = %d body=%s, want 200", rec.Code, rec.Body.String())
 	}
-	var got AgentProfileResponse
+	var got AgentPresetResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode get response: %v", err)
 	}
 	if !got.Data.BuiltIn || got.Data.ExecutionProfile != "coding_agent" || !got.Data.WritesAllowed {
-		t.Fatalf("built-in profile = %+v, want implementation posture", got.Data)
+		t.Fatalf("built-in preset = %+v, want implementation posture", got.Data)
 	}
 
 	rec = httptest.NewRecorder()
@@ -139,9 +139,9 @@ func TestAgentProfilesAPI_BuiltInProfilesAreReadOnly(t *testing.T) {
 	}
 }
 
-func TestAgentProfilesAPI_RejectsInvalidEnums(t *testing.T) {
+func TestAgentPresetsAPI_RejectsInvalidEnums(t *testing.T) {
 	t.Parallel()
-	server := newAgentProfilesTestServer()
+	server := newAgentPresetsTestServer()
 
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/agent-presets", bytes.NewReader([]byte(`{
@@ -154,7 +154,7 @@ func TestAgentProfilesAPI_RejectsInvalidEnums(t *testing.T) {
 	}
 }
 
-func agentProfileResponseIDExists(items []AgentProfileResponseItem, id string) bool {
+func agentPresetResponseIDExists(items []AgentPresetResponseItem, id string) bool {
 	for _, item := range items {
 		if item.ID == id {
 			return true
@@ -163,16 +163,16 @@ func agentProfileResponseIDExists(items []AgentProfileResponseItem, id string) b
 	return false
 }
 
-func TestAgentProfilesAPI_GeneratesIDsAndReturnsNotFound(t *testing.T) {
+func TestAgentPresetsAPI_GeneratesIDsAndReturnsNotFound(t *testing.T) {
 	t.Parallel()
-	server := newAgentProfilesTestServer()
+	server := newAgentPresetsTestServer()
 
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/agent-presets", bytes.NewReader([]byte(`{"name":"Generated"}`))))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create status = %d body=%s, want 201", rec.Code, rec.Body.String())
 	}
-	var created AgentProfileResponse
+	var created AgentPresetResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
 		t.Fatalf("decode create response: %v", err)
 	}

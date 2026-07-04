@@ -639,17 +639,17 @@ type ProjectCoordinationBackendWriteSwitchpoint struct {
 	Detail           string   `json:"detail"`
 }
 
-type AgentProfileResponse struct {
-	Object string                   `json:"object"`
-	Data   AgentProfileResponseItem `json:"data"`
+type AgentPresetResponse struct {
+	Object string                  `json:"object"`
+	Data   AgentPresetResponseItem `json:"data"`
 }
 
-type AgentProfilesResponse struct {
-	Object string                     `json:"object"`
-	Data   []AgentProfileResponseItem `json:"data"`
+type AgentPresetsResponse struct {
+	Object string                    `json:"object"`
+	Data   []AgentPresetResponseItem `json:"data"`
 }
 
-type AgentProfileResponseItem struct {
+type AgentPresetResponseItem struct {
 	ID                   string            `json:"id"`
 	Name                 string            `json:"name"`
 	Description          string            `json:"description,omitempty"`
@@ -672,7 +672,7 @@ type AgentProfileResponseItem struct {
 	UpdatedAt            string            `json:"updated_at,omitempty"`
 }
 
-type CreateAgentProfileRequest struct {
+type CreateAgentPresetRequest struct {
 	ID                   string            `json:"id,omitempty"`
 	Name                 string            `json:"name"`
 	Description          string            `json:"description,omitempty"`
@@ -692,7 +692,7 @@ type CreateAgentProfileRequest struct {
 	ExternalAgentOptions map[string]string `json:"external_agent_options,omitempty"`
 }
 
-type UpdateAgentProfileRequest struct {
+type UpdateAgentPresetRequest struct {
 	Name                 *string           `json:"name,omitempty"`
 	Description          *string           `json:"description,omitempty"`
 	Instructions         *string           `json:"instructions,omitempty"`
