@@ -5810,12 +5810,14 @@ worktree as its own project root when the operator wants it represented.
 Only safe metadata is parsed from bounded `SKILL.md` files: frontmatter
 `name`/`title`, `description`, optional `hecate.suggested_tools`, optional
 `hecate.required_permissions.{tools,writes,network}`, then H1/title fallback and
-directory id. Suggested-tool lists are normalized, de-duplicated, capped before
-storage/API exposure, and summarized in operator-facing text. Duplicate ids
-become `status: "conflict"` records with warnings. Previously persisted skills
-not found in the latest discovery become `status: "missing"`. Operator edits to
-`enabled`, `title`, `description`, and `trust_label` are preserved across
-rediscovery.
+directory id. Skill IDs are derived from the skill directory name using the same
+portable form as Cairnline: lowercase, hyphen-separated separators, with
+underscores preserved. Suggested-tool lists are normalized, de-duplicated,
+capped before storage/API exposure, and summarized in operator-facing text.
+Duplicate ids become `status: "conflict"` records with warnings. Previously
+persisted skills not found in the latest discovery become `status: "missing"`.
+Operator edits to `enabled`, `title`, `description`, and `trust_label` are
+preserved across rediscovery.
 
 Skill capability metadata is advisory. Skills do not grant tools, writes,
 network access, approval bypasses, script execution, or memory writes. During
