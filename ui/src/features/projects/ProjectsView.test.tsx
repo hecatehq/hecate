@@ -757,7 +757,7 @@ function resetProjectWorkMocks() {
           kind: "agent_preset",
           trust_level: "runtime_state",
           origin: "implementation",
-          title: "Implementation profile",
+          title: "Implementation preset",
           body: "Tools enabled. Writes allowed.",
           included: true,
         },

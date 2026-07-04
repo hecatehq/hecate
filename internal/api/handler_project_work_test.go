@@ -5492,7 +5492,7 @@ func TestProjectWorkAPI_StartExternalAgentAssignmentPreparesLinkedSession(t *tes
 	if policyItem == nil || policyItem.Included {
 		t.Fatalf("external assignment prompt policy item = %+v, want inspect-only policy note", policyItem)
 	}
-	for _, want := range []string{"does not dispatch an adapter prompt", "Profile project_memory_policy: include", "Profile context_source_policy: include_enabled"} {
+	for _, want := range []string{"does not dispatch an adapter prompt", "Agent Preset project_memory_policy: include", "Agent Preset context_source_policy: include_enabled"} {
 		if !strings.Contains(policyItem.Body, want) {
 			t.Fatalf("external assignment prompt policy body = %q, want %q", policyItem.Body, want)
 		}
@@ -5954,7 +5954,7 @@ func TestProjectWorkAPI_StartAssignmentSnapshotsMissingProfileWarning(t *testing
 	if !strings.Contains(profileItem.Body, "agent preset \"prof_missing\" was not found") {
 		t.Fatalf("profile body = %q, want missing preset warning", profileItem.Body)
 	}
-	warning := findRenderedContextItemByKind(packetResp.Data, "profile_warning")
+	warning := findRenderedContextItemByKind(packetResp.Data, "agent_preset_warning")
 	if warning == nil || warning.Included || !strings.Contains(warning.Body, "agent preset \"prof_missing\" was not found") {
 		t.Fatalf("profile warning = %+v, want excluded warning item", warning)
 	}
