@@ -111,7 +111,6 @@ func newProjectsCairnlineReplacementIdentityAuthorityTestServer(t *testing.T) (*
 			CoordinationBackend:      "cairnline",
 			CairnlineConnector:       "embedded",
 			CairnlineReadSource:      "embedded",
-			CairnlineWriteAuthority:  "all-portable",
 			CairnlineReplacementMode: "embedded",
 		},
 	}, quietLogger(), nil, nil, nil, nil)
@@ -1042,7 +1041,7 @@ func TestProjectsAPI_CairnlineReplacementModeSkipsNativeProjectRowShadows(t *tes
 	}
 }
 
-func TestProjectsAPI_CairnlineReplacementModeWithoutPortableAuthorityKeepsNativeIdentityShadow(t *testing.T) {
+func TestProjectsAPI_CairnlineReplacementModeImpliesPortableAuthority(t *testing.T) {
 	t.Parallel()
 	handler := NewHandler(config.Config{
 		Server: config.ServerConfig{DataDir: t.TempDir()},
@@ -1050,7 +1049,6 @@ func TestProjectsAPI_CairnlineReplacementModeWithoutPortableAuthorityKeepsNative
 			CoordinationBackend:      "cairnline",
 			CairnlineConnector:       "embedded",
 			CairnlineReadSource:      "embedded",
-			CairnlineWriteAuthority:  projectCairnlineWriteAuthorityProjectIdentity,
 			CairnlineReplacementMode: "embedded",
 		},
 	}, quietLogger(), nil, nil, nil, nil)
@@ -1059,8 +1057,8 @@ func TestProjectsAPI_CairnlineReplacementModeWithoutPortableAuthorityKeepsNative
 
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects", bytes.NewReader([]byte(`{
-		"name":"Replacement Identity With Shadow",
-		"description":"replacement mode is armed, but portable write authority is incomplete",
+		"name":"Replacement Identity",
+		"description":"replacement mode implies portable write authority",
 		"default_provider":"openai",
 		"default_model":"gpt-5"
 	}`))))
@@ -1071,15 +1069,25 @@ func TestProjectsAPI_CairnlineReplacementModeWithoutPortableAuthorityKeepsNative
 	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
 		t.Fatalf("decode create response: %v", err)
 	}
-	if _, ok, err := handler.projects.Get(t.Context(), created.Data.ID); err != nil || !ok {
-		t.Fatalf("Hecate project store ok=%v err=%v after replacement-mode create, want compatibility identity shadow while portable authority is incomplete", ok, err)
+	if _, ok, err := handler.projects.Get(t.Context(), created.Data.ID); err != nil || ok {
+		t.Fatalf("Hecate project store ok=%v err=%v after replacement-mode create, want no native identity shadow", ok, err)
+	}
+	mirrored := getMirroredCairnlineProjectForTest(t, handler, created.Data.ID)
+	if mirrored.Name != "Replacement Identity" || mirrored.Description != "replacement mode implies portable write authority" {
+		t.Fatalf("mirrored project = %+v, want Cairnline-owned replacement identity", mirrored)
 	}
 	status := handler.projectCoordinationBackendStatusWithContext(t.Context())
-	if status.ReplacementReady {
-		t.Fatalf("replacement_ready = true, want false while only project identity authority is enabled")
+	if !status.ReplacementReady || status.AuthoritativeBackend != "cairnline" {
+		t.Fatalf("status = %+v, want replacement-mode live smoke to prove Cairnline authoritative project state", status)
 	}
-	if !containsString(status.PortableWriteGaps, "memory") || !containsString(status.PortableWriteGaps, "work-items") {
-		t.Fatalf("portable write gaps = %+v, want remaining portable blockers", status.PortableWriteGaps)
+	if len(status.PortableWriteGaps) != 0 {
+		t.Fatalf("portable write gaps = %+v, want embedded replacement mode to imply portable write authority", status.PortableWriteGaps)
+	}
+	if len(status.MigrationBlockers) != 0 {
+		t.Fatalf("migration blockers = %+v, want live embedded replacement smoke to clear migration blocker", status.MigrationBlockers)
+	}
+	if status.MigrationRehearsal == nil || status.MigrationRehearsal.Operation != "embedded_replacement_smoke" || status.MigrationRehearsal.SourceAuthority != "embedded_cairnline_authoritative" {
+		t.Fatalf("migration rehearsal = %+v, want live embedded replacement smoke evidence", status.MigrationRehearsal)
 	}
 }
 

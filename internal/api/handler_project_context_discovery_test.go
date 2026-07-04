@@ -402,7 +402,6 @@ func TestProjectContextDiscovery_CairnlineReplacementModeSkipsMissingCompatibili
 			CoordinationBackend:      "cairnline",
 			CairnlineConnector:       "embedded",
 			CairnlineReadSource:      "embedded",
-			CairnlineWriteAuthority:  "all-portable",
 			CairnlineReplacementMode: "embedded",
 		},
 	}, logger, nil, nil, nil, nil)

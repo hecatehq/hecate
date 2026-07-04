@@ -629,11 +629,12 @@ sequenceDiagram
   explicit cutover-mode arm. The default is `disabled`. `embedded` is accepted
   only with `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline`,
   `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded`, and
-  `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded`. It does not bypass read,
-  write-authority, strict embedded smoke, migration, rollback, or Hecate-owned
-  runtime side-effect gates; backend status reports the mode as an explicit
-  replacement gate so operators can distinguish "all portable writes are
-  Cairnline-first" from "the embedded replacement contract is armed."
+  `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded`. It implies all portable
+  write-authority switchpoints, but it does not bypass read, strict embedded
+  smoke, migration, rollback, or Hecate-owned runtime side-effect gates; backend
+  status reports the mode as an explicit replacement gate so operators can
+  distinguish "portable writes are Cairnline-first" from "every replacement
+  proof is complete."
 - `HECATE_PROJECTS_CAIRNLINE_SIDECAR_COMMAND`, `HECATE_PROJECTS_CAIRNLINE_SIDECAR_ARGS`,
   `HECATE_PROJECTS_CAIRNLINE_SIDECAR_DB`, and
   `HECATE_PROJECTS_CAIRNLINE_SIDECAR_PROBE_TIMEOUT` configure the standalone
@@ -2407,8 +2408,8 @@ current portable write-authority switchpoint for dogfooding the embedded
 Cairnline authority path. It is not a migration or runtime cutover switch:
 Hecate-owned root scan/worktree, assignment-start, Project Assistant chat/runtime
 side effects, and migration/rollback gates still remain separate.
-`HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-memory` enables the first
-disabled-by-default write authority switchpoint: accepted project memory entries
+`HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-memory` enables an
+opt-in write authority switchpoint: accepted project memory entries
 commit to embedded Cairnline first and are then shadowed back into Hecate-native
 memory stores. In this authority mode, memory writes can validate the project
 from the embedded Cairnline graph and do not require a Hecate-native
@@ -2527,10 +2528,13 @@ Cairnline first, then keep the standalone Cairnline sidecar as the later
 interoperability and external-server boundary. `replacement_mode` and
 `replacement_mode_armed` reflect
 `HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE`; the mode is a human/operator
-cutover arm, not permission to skip the other gates. `write_adapter_ready=true` means
-all portable project-state write-authority gaps known to this Hecate build are
-closed through explicit Cairnline switchpoints; it does not mean Hecate runtime
-side effects, migration, rollback, or final replacement are ready.
+cutover arm. When set to `embedded`, it implies all portable write-authority
+switchpoints known to this Hecate build, but it is not permission to skip read,
+migration, rollback, or Hecate-owned runtime/workspace gates.
+`write_adapter_ready=true` means all portable project-state write-authority gaps
+known to this Hecate build are closed through explicit or replacement-mode
+Cairnline authority; it does not mean Hecate runtime side effects, migration,
+rollback, or final replacement are ready.
 `write_adapter_seams`
 lists non-authoritative bridge proofs that can write Cairnline-shaped records
 during tests or local sync rehearsals;
@@ -2549,13 +2553,18 @@ guaranteed to be exclusive: for example, `roots` can appear in
 `portable_write_gaps` until root metadata writes are Cairnline-authoritative and
 can remain in `orchestrator_capabilities` while Hecate still owns discovery
 scans and Git worktree creation.
-`replacement_ready` stays `false` until read parity, strict embedded mirror
-probes, write-authority switchpoints, migration/rollback gates, and explicit
-embedded replacement mode are all ready. `next_replacement_action` is an
+`replacement_ready` stays `false` until read parity, strict embedded smoke,
+portable write authority, migration/rollback gates, and explicit embedded
+replacement mode are all ready. `next_replacement_action` is an
 advisory next operator step derived from the same status snapshot; it is not a
-command, permission, gate result, or proof that replacement is safe. It can
-include `config_hints`, which are environment setting suggestions such as a specific
-`HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY` value; clients must treat them as
+command, permission, gate result, or proof that replacement is safe. For
+portable write authority, the advisory action uses a recommendation order rather
+than the raw `portable_write_gaps` order so operators can dogfood narrower setup
+metadata surfaces such as context sources and skills before broad project
+identity cutover. It can include `config_hints`, which are environment setting
+suggestions such as a specific `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY`
+value; write-authority hint values preserve already-enabled switchpoints so
+they can be presented as whole copyable env values. Clients must treat them as
 operator guidance, not as mutations to apply automatically. `replacement_gates`
 reports those high-level gates as structured checklist items so clients do not
 need to parse warning prose. Each gate and next action may include `probes`, a
@@ -2565,42 +2574,46 @@ to run and are not proof that the gate has already passed unless the gate
 status itself is ready/verified. Clients can use the method-aware list to render
 operator-safe probe checklists, with POST routes presented as smoke/rehearsal
 actions and GET routes presented as read checks. The
-`strict-embedded-read-smoke` gate is
-evidence-backed when Hecate is configured with the embedded connector,
-`HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded`, and a data directory: backend
-status runs the read-only mirror-parity check and reports `not_run` for a
-missing mirror, `drift_detected` for parity drift, `probe_error` when the
-inspection cannot run, and `verified` only when the existing mirror matches
-Hecate stores and strict embedded route smoke passes. The
-same backend-status response includes `migration_rehearsal` when that
-mirror-parity probe can run. That object is the same structured rehearsal
+`strict-embedded-read-smoke` gate is evidence-backed when Hecate is configured
+with the embedded connector, `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded`,
+and a data directory. Before replacement mode is armed, backend status runs the
+read-only mirror-parity check and reports `not_run` for a missing mirror,
+`drift_detected` for parity drift, `probe_error` when the inspection cannot
+run, and `verified` only when the existing mirror matches Hecate stores and
+strict embedded route smoke passes. In that pre-cutover posture, the
+backend-status response includes the same mirror-parity `migration_rehearsal`
 evidence returned by `/hecate/v1/projects/cairnline/mirror-parity`: snapshot
 import mode, snapshot version, checklist, rollback notes, and strict embedded
-smoke details. The `migration-and-rollback` gate uses this object directly
-rather than only relying on prose. It treats missing evidence, non-verified
-mirror parity, incomplete import/parity/smoke checks, missing rollback steps, or
-non-passing embedded smoke as `rehearsal_incomplete`.
+smoke details. Once `replacement_mode=embedded` is armed, backend status stops
+judging cutover by Hecate-store mirror parity and instead smokes live embedded
+Cairnline project state. That response uses
+`migration_rehearsal.operation=embedded_replacement_smoke` and
+`source_authority=embedded_cairnline_authoritative`; the gate's probe points at
+backend status because the status read performs the live smoke. The
+`migration-and-rollback` gate uses the attached mirror-parity or live-smoke
+evidence directly rather than only relying on prose. It treats missing evidence,
+non-verified mirror parity or replacement smoke, incomplete smoke/checklist
+items, missing rollback steps, or non-passing embedded smoke as
+`rehearsal_incomplete`.
 `write-authority-switchpoints` gate can be `blocked`, `partial`, or `ready`;
 it is driven by `portable_write_gaps` and ignores Hecate-owned orchestrator
 capabilities and the separate `migration-cutover` gap because those are reported
 by their own status fields/gates. The `migration-and-rollback` gate reports
-`waiting_for_read_smoke` until strict embedded read-smoke evidence is verified;
-after that, with complete migration rehearsal evidence attached, it reports
-`cutover_switch_missing` until Hecate has an explicit authoritative Cairnline
-storage cutover and rollback switch. When strict
-embedded reads are verified, all portable write-authority gaps are closed, and
-`replacement_mode=embedded`, backend status treats replacement mode as that
-explicit embedded cutover switch: `migration_blockers` is empty, the
+`waiting_for_read_smoke` until strict embedded read-smoke evidence is verified.
+In pre-cutover rehearsal it then reports `cutover_switch_missing` until Hecate
+has an explicit authoritative Cairnline storage cutover and rollback switch. In
+armed replacement mode, successful live embedded smoke plus rollback evidence
+makes the gate `ready`: `migration_blockers` is empty, the
 `migration-and-rollback` gate is `ready`, and `authoritative_backend` reports
 `cairnline` for portable Projects coordination state. In armed embedded
-replacement mode with all portable write-authority gaps closed,
+replacement mode,
 Cairnline-authoritative project identity create returns the Cairnline record
 with `read_backend: "cairnline"` and without creating a native Hecate project
 identity row; strict embedded read routes serve the new project from Cairnline.
 That identity-shadow behavior is a write-path switch, not the full readiness
 verdict: clients should use `replacement_ready` and `replacement_gates` to tell
-whether mirror parity, strict read smoke, migration, and rollback are actually
-clean.
+whether the relevant strict read smoke, migration, and rollback evidence is
+actually clean.
 When every replacement gate is ready, `status` becomes
 `cairnline_authoritative`, `detail` describes Cairnline as authoritative for
 portable Projects coordination state, and warnings are limited to the remaining
@@ -2609,21 +2622,23 @@ Hecate-store authority warnings. At that point `migration-cutover` is also
 removed from `write_adapter_gaps`; Hecate-owned runtime/workspace capabilities
 such as `assignment-start` can still remain in `write_adapter_gaps` and
 `orchestrator_capabilities` because they are not portable Cairnline core.
-When all portable write-authority gaps are closed but strict embedded mirror
-evidence is not yet verified, the next action is
-`run-strict-embedded-read-smoke`; `config_hints` identify the strict embedded
-dogfood posture expected for the rehearsal:
+When all portable write-authority gaps are closed before replacement mode is
+armed but strict embedded mirror evidence is not yet verified, the next action
+is `run-strict-embedded-read-smoke`; `config_hints` identify the strict
+embedded dogfood posture expected for the rehearsal:
 `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded`,
-`HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded`, and
-`HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=all-portable`. These are still
+`HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded`. These are still
 operator-applied settings and do not flip Hecate into a replaced backend by
-themselves. Once strict embedded mirror parity and route smoke are verified, the
-next action becomes `implement-migration-cutover`, which is intentionally an
-operator-controlled configuration step rather than an automatic mutation. That
-action includes the `HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded`
+themselves. Once strict embedded mirror parity and route smoke are verified,
+the next action becomes `implement-migration-cutover`, which is intentionally
+an operator-controlled configuration step rather than an automatic mutation.
+That action includes the `HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded`
 configuration hint so clients can render the cutover arm as a copyable operator
-step. Once the cutover is armed and all replacement gates are ready, the next
-action becomes `monitor-cairnline-backend`.
+step. Once replacement mode is armed, `run-strict-embedded-read-smoke` points
+at backend status itself because the proof is live embedded Cairnline state,
+not a Hecate-store mirror-parity rehearsal. Once the cutover is armed and all
+replacement gates are ready, the next action becomes
+`monitor-cairnline-backend`.
 The initial embedded dogfood and sidecar-to-embedded connector actions point at
 backend-status plus embedded read-model diagnostics. If the current runtime is
 still using `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar`, those actions also
@@ -2633,9 +2648,9 @@ configuration matches the embedded probe set.
 the Cairnline state (`live_mirror_non_authoritative`, `result_mirror_only`,
 `snapshot_import_rehearsal_available`, `authoritative_opt_in` for enabled
 alpha write-authority switchpoints, or `partial_authoritative_opt_in` when only
-some routes in a family have moved). When strict embedded mirror parity and
-read smoke are verified, all portable write-authority gaps are closed, and
-`replacement_mode=embedded`, the `migration-cutover` switchpoint reports
+some routes in a family have moved). When strict embedded smoke and replacement
+evidence are verified and `replacement_mode=embedded`, the
+`migration-cutover` switchpoint reports
 `embedded_cutover_armed` and no longer blocks authority. Each switchpoint also
 reports the related mirror seams and whether that family still blocks portable
 write authority or remains Hecate-owned runtime behavior.
@@ -2713,7 +2728,7 @@ record create/update/delete mutations Cairnline-first and then shadows portable
 assignment state back into Hecate-native project-work stores. Assignment
 authority uses Cairnline-owned work item, role, and root records when present,
 so direct create/update/delete can operate on a Cairnline-only project graph.
-In armed embedded replacement mode with all portable write authority closed,
+In armed embedded replacement mode,
 assignment record mutations skip the native project-work compatibility row;
 Hecate still writes assignment execution refs, context packets, and timestamps
 to its runtime overlay. Mirror failures are logged outside that replacement
@@ -3049,7 +3064,7 @@ Example response, with `write_switchpoints` shortened for readability:
       }
     ],
     "status": "cairnline_read_routes_ready",
-    "detail": "Cairnline is configured as the future Projects coordination backend, and the project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, project-assistant-context, project-assistant-proposal, project-chat-prelude, project-chat-context, activity, closeout-readiness, and operations brief read routes are served from the Cairnline read model. Configured read routes prefer the embedded mirror database when it already contains the requested project or proposal record; otherwise they fall back to the snapshot-seeded in-memory bridge projection. Hecate stores remain authoritative until the remaining live read routes, writes, and migration are ready.",
+    "detail": "Cairnline is configured as the future Projects coordination backend, and the project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, project-assistant-context, project-assistant-proposal, project-chat-prelude, project-chat-context, activity, closeout-readiness, and operations brief read routes are served from the Cairnline read model. Configured read routes prefer the embedded mirror database when it already contains the requested project or proposal record; otherwise they fall back to the snapshot-seeded in-memory bridge projection. Hecate stores remain authoritative until the remaining portable writes and migration are ready.",
     "warnings": [
       "Only the project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, project-assistant-context, project-assistant-proposal, project-chat-prelude, project-chat-context, activity, closeout-readiness, and operations brief live read routes use Cairnline.",
       "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=auto makes configured Cairnline read-model service reads prefer the embedded mirror database when it already contains the requested project or proposal record, and otherwise use a snapshot-seeded in-memory Cairnline bridge projection.",

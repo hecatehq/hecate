@@ -16,6 +16,8 @@ import (
 
 const cairnlineAssignmentContextReason = "Inspectable Cairnline read-model launch packet; Hecate has not created a task/chat execution snapshot for this assignment"
 const cairnlineAssignmentLaunchEvidenceReason = "Portable Cairnline launch packet evidence for replacement-readiness review"
+const cairnlineAssignmentContextHecateAuthorityLine = "Preview only: Hecate stores remain authoritative and no task, chat session, or external-agent run is created by this context read."
+const cairnlineAssignmentContextReplacementAuthorityLine = "Preview only: portable project-state is Cairnline-authoritative in embedded replacement mode; no task, chat session, or external-agent run is created by this context read."
 
 func (h *Handler) contextPacketForCairnlineProjectAssignment(ctx context.Context, assignment projectwork.Assignment) (chat.ContextPacket, bool, error) {
 	if h == nil || !h.projectReadRoutesUseCairnlineReadModel() {
@@ -28,7 +30,7 @@ func (h *Handler) contextPacketForCairnlineProjectAssignment(ctx context.Context
 	if err != nil {
 		return chat.ContextPacket{}, false, err
 	}
-	return cairnlineAssignmentLaunchContextPacket(launch), true, nil
+	return cairnlineAssignmentLaunchContextPacket(launch, h.cairnlineAssignmentContextAuthorityLine()), true, nil
 }
 
 func (h *Handler) cairnlineAssignmentLaunchPacket(ctx context.Context, assignment projectwork.Assignment) (cairnline.AssignmentLaunchPacket, error) {
@@ -62,7 +64,7 @@ func (h *Handler) contextPacketForStrictEmbeddedCairnlineProjectAssignment(ctx c
 	if cairnlineSidecarAssignmentContextRouteMismatch(context, projectID, workItemID, assignmentID) {
 		return chat.ContextPacket{}, false, nil
 	}
-	return cairnlineAssignmentContextPacket(context), true, nil
+	return cairnlineAssignmentContextPacket(context, h.cairnlineAssignmentContextAuthorityLine()), true, nil
 }
 
 func (h *Handler) contextPacketForCairnlineSidecarProjectAssignment(ctx context.Context, projectID, workItemID, assignmentID string) (chat.ContextPacket, bool, error) {
@@ -86,7 +88,7 @@ func (h *Handler) contextPacketForCairnlineSidecarProjectAssignment(ctx context.
 	if cairnlineSidecarAssignmentContextRouteMismatch(context, projectID, workItemID, assignmentID) {
 		return chat.ContextPacket{}, false, nil
 	}
-	return cairnlineAssignmentContextPacket(context), true, nil
+	return cairnlineAssignmentContextPacket(context, cairnlineAssignmentContextHecateAuthorityLine), true, nil
 }
 
 func cairnlineSidecarAssignmentContextRouteMismatch(context cairnline.AssignmentContext, projectID, workItemID, assignmentID string) bool {
@@ -122,7 +124,14 @@ func cairnlineSidecarAssignmentContextRouteMismatch(context cairnline.Assignment
 	return false
 }
 
-func cairnlineAssignmentContextPacket(context cairnline.AssignmentContext) chat.ContextPacket {
+func (h *Handler) cairnlineAssignmentContextAuthorityLine() string {
+	if h != nil && h.projectCairnlineEmbeddedReplacementModeArmed() {
+		return cairnlineAssignmentContextReplacementAuthorityLine
+	}
+	return cairnlineAssignmentContextHecateAuthorityLine
+}
+
+func cairnlineAssignmentContextPacket(context cairnline.AssignmentContext, authorityLine string) chat.ContextPacket {
 	root, rootOK, rootSelection := selectedCairnlineRoot(context.Project, context.WorkItem, context.Assignment)
 	workspace := ""
 	if rootOK {
@@ -147,11 +156,11 @@ func cairnlineAssignmentContextPacket(context cairnline.AssignmentContext) chat.
 	if context.Role != nil {
 		appendCairnlineRole(&packet, *context.Role)
 	}
-	appendCairnlineAssignmentContextRuntime(&packet, context)
+	appendCairnlineAssignmentContextRuntime(&packet, context, authorityLine)
 	return packet
 }
 
-func cairnlineAssignmentLaunchContextPacket(launch cairnline.AssignmentLaunchPacket) chat.ContextPacket {
+func cairnlineAssignmentLaunchContextPacket(launch cairnline.AssignmentLaunchPacket, authorityLine string) chat.ContextPacket {
 	root, rootOK, rootSelection := selectedCairnlineRoot(launch.Project, launch.WorkItem, launch.Assignment)
 	workspace := ""
 	if rootOK {
@@ -183,7 +192,7 @@ func cairnlineAssignmentLaunchContextPacket(launch cairnline.AssignmentLaunchPac
 	appendCairnlineProjectSources(&packet, launch.Project.ContextSources)
 	appendCairnlineAssignmentArtifacts(&packet, launch)
 	appendCairnlineAssignmentHandoffs(&packet, launch)
-	appendCairnlineLaunchRuntime(&packet, launch)
+	appendCairnlineLaunchRuntime(&packet, launch, authorityLine)
 	return packet
 }
 
@@ -599,12 +608,13 @@ func appendCairnlineAssignmentHandoffs(packet *chat.ContextPacket, launch cairnl
 	appendProjectAssignmentHandoffs(packet, filterAssignmentHandoffs(items, launch.Assignment.ID, launch.Assignment.RoleID), false, "Handoff metadata is inspectable Cairnline project evidence; not injected into a model prompt")
 }
 
-func appendCairnlineLaunchRuntime(packet *chat.ContextPacket, launch cairnline.AssignmentLaunchPacket) {
+func appendCairnlineLaunchRuntime(packet *chat.ContextPacket, launch cairnline.AssignmentLaunchPacket, authorityLine string) {
+	authorityLine = firstNonEmptyString(strings.TrimSpace(authorityLine), cairnlineAssignmentContextHecateAuthorityLine)
 	body := []string{
 		"Read backend: cairnline",
 		"Launch packet kind: " + firstNonEmptyString(strings.TrimSpace(launch.Kind), "assignment"),
 		"Portable execution mode: " + firstNonEmptyString(strings.TrimSpace(launch.Assignment.ExecutionMode), cairnline.ExecutionMCPPull),
-		"Preview only: Hecate stores remain authoritative and no task, chat session, or external-agent run is created by this context read.",
+		authorityLine,
 	}
 	if launchID := strings.TrimSpace(launch.ID); launchID != "" {
 		body = append(body, "Cairnline launch packet: "+launchID)
@@ -632,12 +642,13 @@ func appendCairnlineLaunchRuntime(packet *chat.ContextPacket, launch cairnline.A
 	})
 }
 
-func appendCairnlineAssignmentContextRuntime(packet *chat.ContextPacket, context cairnline.AssignmentContext) {
+func appendCairnlineAssignmentContextRuntime(packet *chat.ContextPacket, context cairnline.AssignmentContext, authorityLine string) {
+	authorityLine = firstNonEmptyString(strings.TrimSpace(authorityLine), cairnlineAssignmentContextHecateAuthorityLine)
 	body := []string{
 		"Read backend: cairnline",
 		"Source tool: assignments.context",
 		"Portable execution mode: " + firstNonEmptyString(strings.TrimSpace(context.Assignment.ExecutionMode), cairnline.ExecutionMCPPull),
-		"Preview only: Hecate stores remain authoritative and no task, chat session, or external-agent run is created by this context read.",
+		authorityLine,
 	}
 	if contextID := strings.TrimSpace(context.ID); contextID != "" {
 		body = append(body, "Cairnline assignment context: "+contextID)

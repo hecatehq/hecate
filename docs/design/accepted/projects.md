@@ -129,22 +129,25 @@ is actually authoritative. It also reports `replacement_ready`,
 ready read routes from strict embedded probe work, non-authoritative live
 mirrors, still-Hecate-owned dispatch, and missing migration/rollback authority.
 When configured for the embedded connector, strict embedded read source, and a
-runtime data directory, the strict embedded read-smoke gate is backed by the
-read-only mirror-parity probe: missing mirrors, drift, probe errors, and verified
-route smoke are reflected directly in backend status instead of relying only on
-manual checklist prose. Backend status also carries the mirror-parity
-`migration_rehearsal` object when available, so the replacement gate can inspect
-snapshot-import/parity/smoke checks and rollback notes as structured evidence.
-The migration/rollback gate depends on that read-smoke and rehearsal evidence:
-it waits for verified strict embedded reads first, reports incomplete rehearsal
-evidence separately, then reports the remaining missing authoritative
-cutover/rollback switch. Once strict
-embedded reads are verified, all portable write-authority gaps are closed, and
+runtime data directory before cutover, the strict embedded read-smoke gate is
+backed by the read-only mirror-parity probe: missing mirrors, drift, probe
+errors, and verified route smoke are reflected directly in backend status
+instead of relying only on manual checklist prose. Backend status also carries
+the mirror-parity `migration_rehearsal` object when available, so the
+replacement gate can inspect snapshot-import/parity/smoke checks and rollback
+notes as structured evidence. Once
 `HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded` is armed, backend status
-treats that replacement mode as the explicit embedded cutover switch, clears the
-migration blocker, and reports embedded Cairnline as authoritative for portable
-Projects coordination state. In that armed mode with all portable
-write-authority gaps closed, Cairnline-authoritative project identity create no
+stops judging cutover by Hecate-store mirror parity and instead runs a live
+embedded Cairnline read smoke over the current Cairnline database. That status
+uses `migration_rehearsal.operation=embedded_replacement_smoke` and
+`source_authority=embedded_cairnline_authoritative` as the rollback evidence.
+The migration/rollback gate depends on the relevant read-smoke and rehearsal
+evidence: it waits for verified strict embedded reads first, reports incomplete
+rehearsal or live-smoke evidence separately, then becomes ready when replacement
+mode is armed and the live embedded Cairnline smoke plus rollback evidence are
+clean. In that posture backend status clears the migration blocker and reports
+embedded Cairnline as authoritative for portable Projects coordination state. In
+that armed mode, Cairnline-authoritative project identity create no
 longer creates a native Hecate project identity row; strict embedded reads serve
 the project from Cairnline, while Hecate keeps only the runtime/workspace
 compatibility state it still owns. Project skill discovery/update also stops
@@ -173,8 +176,9 @@ standalone sidecar as the external MCP/server boundary. That keeps Hecate's
 operator UI and compatibility shadow stable while the portable contract is
 proven locally. `HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded` is the
 explicit operator arm for that embedded contract; it is valid only with the
-embedded connector and strict embedded read source, and it does not bypass read,
-write-authority, migration, rollback, or Hecate-owned runtime side-effect gates.
+embedded connector and strict embedded read source and implies all portable
+write-authority switchpoints, but it does not bypass read, migration, rollback,
+or Hecate-owned runtime side-effect gates.
 `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded` is the current live-route
 dogfood connector. `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar` exposes
 local-only standalone Cairnline MCP contract probe/connect surfaces at
@@ -332,8 +336,8 @@ Hecate-specific runtime enrichment and setup/action wording remain in Hecate,
 and the Cairnline-backed operations brief uses Cairnline activity/service rows
 plus Hecate cockpit action helpers so operator-facing actions stay
 parity-checked with the native route.
-`HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-memory` is the first
-disabled-by-default Cairnline write-authority dogfood switch. When enabled,
+`HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-memory` is an opt-in
+Cairnline write-authority dogfood switch. When enabled,
 accepted project memory entry create/update/delete commits to embedded
 Cairnline first, then best-effort shadows the entry into Hecate-native memory
 stores for compatibility. Adding `memory-candidates` to that setting makes
@@ -380,24 +384,24 @@ Cairnline first, then best-effort shadow the portable records into Hecate-native
 project-work stores for compatibility. While that alpha switch is enabled,
 review artifacts must carry a supported verdict because Cairnline does not have
 a verdict-less review state and Hecate must not silently rewrite that shape.
-`project-skills` is a third opt-in authority slice: project skill discovery and
+`project-skills` is an opt-in authority slice: project skill discovery and
 metadata updates commit metadata-only skill records to embedded Cairnline first,
 then best-effort shadow the records into Hecate-native project-skill stores for
 compatibility. Skill discovery/update can validate project identity, roots, and
 context sources from the embedded Cairnline graph without a matching
 Hecate-native project row. Skill bodies are still not loaded, injected,
 executed, or treated as permissions.
-`project-roles` is a fourth opt-in authority slice: role create/update/delete
+`project-roles` is an opt-in authority slice: role create/update/delete
 commits to embedded Cairnline first, preserves Hecate's built-in-role
 protection, persists Hecate-owned provider/model/preset defaults in Hecate's
 project runtime overlay, then best-effort shadows portable role defaults into
 Hecate-native project-work stores for compatibility. Deleting a custom role
 preserves historical assignments that still carry the deleted `role_id`.
-`project-work-items` is a fifth opt-in authority slice: work-item
+`project-work-items` is an opt-in authority slice: work-item
 create/update/delete commits to embedded Cairnline first, preserves Hecate's
 `backlog` default and closeout-readiness gate, then best-effort shadows the
 portable work item into Hecate-native project-work stores for compatibility.
-`project-assignments` is a sixth opt-in authority slice: assignment
+`project-assignments` is an opt-in authority slice: assignment
 create/update/delete record mutations commit to embedded Cairnline first, then
 best-effort shadow portable assignment state into Hecate-native project-work
 stores for compatibility. When this authority slice is enabled, assignment
@@ -406,7 +410,7 @@ that claim when Hecate-owned launch setup fails before a runtime record is
 committed. Assignment runtime dispatch remains Hecate-owned; committed start
 results, cleanup/conflict states, and linked-chat reconciliation updates are
 mirrored as replacement evidence.
-`project-assistant-proposals` is a seventh opt-in authority slice: Project
+`project-assistant-proposals` is an opt-in authority slice: Project
 Assistant draft/propose/apply-attempt ledger records commit to embedded
 Cairnline first, then best-effort shadow Hecate's proposal store for
 compatibility; armed embedded replacement mode skips those native proposal
@@ -711,7 +715,12 @@ after these gates are met:
   coverage; `write_adapter_gaps` remains a broad diagnostic list, while
   `portable_write_gaps` is the machine-readable blocker list for mutation
   families that still need live switch points before portable write authority
-  can move.
+  can move. `next_replacement_action` intentionally applies a narrower
+  dogfood recommendation order over that blocker list, so metadata-only
+  context-source and skill authority can be proven before project identity
+  cutover. Write-authority config hints preserve existing enabled
+  switchpoints in the suggested env value so the operator can add the next slice
+  without disabling prior dogfood authority.
 - Import/export or migration covers existing Hecate local stores and can be
   rolled back during alpha; the embedded Cairnline sync database proves a
   durable all-project seed through Cairnline's native snapshot import with
@@ -725,13 +734,15 @@ after these gates are met:
   interoperability evidence, but they are not the first Hecate replacement
   target.
 - The embedded cutover contract is explicitly armed with
-  `HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded` after the read,
-  write-authority, migration, and rollback gates are ready; enabling all
-  portable write-authority switchpoints alone does not replace the backend.
-  Replacement mode plus all portable write authority can make new project
-  identity creates Cairnline-only, but `replacement_ready` remains false until
-  strict embedded read smoke and migration/rollback gates are clean. Once those
-  gates are clean, the `migration-cutover` switchpoint reports
+  `HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded` after the pre-cutover
+  read, migration, and rollback rehearsal gates are ready. That mode implies
+  all portable write-authority switchpoints; enabling all portable
+  write-authority switchpoints alone does not replace the backend. Replacement
+  mode can make new project identity creates Cairnline-only, and backend status
+  then verifies live embedded Cairnline state instead of Hecate-store mirror
+  parity. `replacement_ready` remains false until strict embedded read smoke and
+  migration/rollback gates are clean.
+  Once those gates are clean, the `migration-cutover` switchpoint reports
   `embedded_cutover_armed` instead of a blocking Hecate-owned cutover gap.
   At that point backend status reports `status=cairnline_authoritative`; any
   warnings should describe the remaining Hecate-owned runtime/workspace

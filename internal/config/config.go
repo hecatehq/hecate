@@ -289,7 +289,26 @@ func (c Config) ProjectsCairnlineReplacementMode() string {
 }
 
 func (c Config) ProjectsCairnlineWriteAuthority() []string {
-	return normalizeProjectsCairnlineWriteAuthority(c.Projects.CairnlineWriteAuthority)
+	out := normalizeProjectsCairnlineWriteAuthority(c.Projects.CairnlineWriteAuthority)
+	if c.ProjectsCairnlineReplacementMode() != "embedded" {
+		return out
+	}
+	seen := make(map[string]struct{}, len(out))
+	merged := make([]string, 0, len(out))
+	appendValue := func(value string) {
+		if _, ok := seen[value]; ok {
+			return
+		}
+		seen[value] = struct{}{}
+		merged = append(merged, value)
+	}
+	for _, value := range out {
+		appendValue(value)
+	}
+	for _, value := range projectsCairnlineAllPortableWriteAuthority {
+		appendValue(value)
+	}
+	return merged
 }
 
 func (c Config) ProjectsCairnlineWriteAuthorityEnabled(name string) bool {
