@@ -7,6 +7,7 @@ import type {
   ProjectAssignmentRecord,
   ProjectCollaborationArtifactRecord,
   ProjectContextSourceRecord,
+  ProjectCoordinationBackendStatusRecord,
   ProjectHandoffRecord,
   ProjectMemoryCandidateRecord,
   ProjectMemoryRecord,
@@ -110,6 +111,7 @@ export type ProjectWorkspaceViewProps = {
   onOpenChat?: (request: ProjectAssignmentChatLaunchRequest) => void;
   onOpenConnections?: () => void;
   onOpenSettings: () => void;
+  onOpenSystemSettings?: () => void;
   onOperationAction: (item: ProjectOperationsBriefItem) => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
   onPromoteCandidate: (candidate: ProjectMemoryCandidateRecord) => void;
@@ -127,6 +129,7 @@ export type ProjectWorkspaceViewProps = {
   project: ProjectRecord | null;
   projectEmptyDetail: string;
   projectEmptyTitle: string;
+  projectBackendStatus: ProjectCoordinationBackendStatusRecord | null;
   projectNeedsOnboarding: boolean;
   projectSetupReadiness: ProjectSetupReadiness | null;
   operationsBrief: ProjectOperationsBrief | null;
@@ -207,6 +210,7 @@ export function ProjectWorkspaceView({
   onOpenChat,
   onOpenConnections,
   onOpenSettings,
+  onOpenSystemSettings,
   onOperationAction,
   onOpenTask,
   onPromoteCandidate,
@@ -224,6 +228,7 @@ export function ProjectWorkspaceView({
   project,
   projectEmptyDetail,
   projectEmptyTitle,
+  projectBackendStatus,
   projectNeedsOnboarding,
   projectSetupReadiness,
   operationsBrief,
@@ -261,6 +266,10 @@ export function ProjectWorkspaceView({
       <div className="project-cockpit-workspace" style={cockpitWorkspaceStyle}>
         {project ? (
           <section style={domainSectionStyle} aria-label="Project workspace">
+            <ProjectCoordinationStatusStrip
+              onOpenSystemSettings={onOpenSystemSettings}
+              status={projectBackendStatus}
+            />
             {projectNeedsOnboarding ? (
               projectSetupReadiness && (
                 <ProjectOnboardingPanel
@@ -496,6 +505,79 @@ export function ProjectWorkspaceView({
       </div>
     </section>
   );
+}
+
+function ProjectCoordinationStatusStrip({
+  onOpenSystemSettings,
+  status,
+}: {
+  onOpenSystemSettings?: () => void;
+  status: ProjectCoordinationBackendStatusRecord | null;
+}) {
+  if (!status || (status.configured_backend !== "cairnline" && !status.cairnline_authoritative)) {
+    return null;
+  }
+  const portableGapCount = status.portable_write_gaps?.length ?? 0;
+  const migrationBlockerCount = status.migration_blockers?.length ?? 0;
+  const orchestratorCount =
+    status.orchestrator_capabilities?.length ?? status.side_effect_blockers?.length ?? 0;
+  const badgeStatus = status.replacement_ready
+    ? "ready"
+    : status.write_adapter_ready
+      ? "review"
+      : "watch";
+  const title = status.replacement_ready
+    ? "Cairnline authoritative"
+    : status.write_adapter_ready
+      ? "Cairnline portable writes ready"
+      : "Cairnline dogfood active";
+  const detail = status.next_replacement_action?.detail || status.detail;
+
+  return (
+    <section aria-label="Project coordination backend" style={projectCoordinationStripStyle}>
+      <div style={projectCoordinationStripMainStyle}>
+        <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+          <span className={projectCoordinationBadgeClass(badgeStatus)}>
+            {status.status.replaceAll("_", " ")}
+          </span>
+          <div style={titleStyle}>{title}</div>
+        </div>
+        <div style={subtleTextStyle}>{detail}</div>
+      </div>
+      <div style={projectCoordinationStripMetaStyle}>
+        <span className="badge badge-muted">reads {status.cairnline_read_source ?? "auto"}</span>
+        <span className="badge badge-muted">
+          {portableGapCount} portable gap{portableGapCount === 1 ? "" : "s"}
+        </span>
+        <span className="badge badge-muted">
+          {migrationBlockerCount} migration blocker{migrationBlockerCount === 1 ? "" : "s"}
+        </span>
+        <span className="badge badge-muted">
+          {orchestratorCount} runtime boundar{orchestratorCount === 1 ? "y" : "ies"}
+        </span>
+        <button
+          className="btn btn-ghost btn-sm"
+          type="button"
+          onClick={onOpenSystemSettings}
+          disabled={!onOpenSystemSettings}
+        >
+          <Icon d={Icons.settings} size={13} />
+          Backend settings
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function projectCoordinationBadgeClass(status: "ready" | "review" | "watch") {
+  switch (status) {
+    case "ready":
+      return "badge badge-green";
+    case "review":
+      return "badge badge-amber";
+    default:
+      return "badge badge-muted";
+  }
 }
 
 function WorkItemRow({
@@ -1259,6 +1341,32 @@ const projectWorkspaceTabsStyle: CSSProperties = {
   overflowY: "hidden",
   padding: 2,
   width: "100%",
+};
+
+const projectCoordinationStripStyle: CSSProperties = {
+  ...panelStyle,
+  alignItems: "center",
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 10,
+  justifyContent: "space-between",
+};
+
+const projectCoordinationStripMainStyle: CSSProperties = {
+  display: "grid",
+  flex: "1 1 320px",
+  gap: 5,
+  minWidth: 0,
+};
+
+const projectCoordinationStripMetaStyle: CSSProperties = {
+  alignItems: "center",
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 6,
+  flex: "0 1 auto",
+  justifyContent: "flex-end",
+  minWidth: 0,
 };
 
 const projectWorkspaceTabButtonStyle: CSSProperties = {
