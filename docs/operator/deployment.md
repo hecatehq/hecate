@@ -743,6 +743,15 @@ artifact/handoff route-shape counts; and
 `POST /hecate/v1/projects/cairnline/sync` remains the explicit all-project
 rebuild/rehearsal action.
 
+Delegation stop-line: an armed runtime with `replacement_ready=true` can treat
+embedded Cairnline as authoritative for portable Projects coordination state.
+That does not automatically make Cairnline the default Projects backend for
+every local runtime. Keep the default flip as an explicit product decision until
+real dogfood keeps backend-status gates green and existing Hecate-native project
+stores have an operator-visible migration/rollback path. Hecate feature work on
+the model gateway, chat, tasks, External Agent supervision, approvals, traces,
+and workspace/runtime side effects can continue independently of that cleanup.
+
 Deployment-specific notes:
 
 - The docker image **defaults to `sqlite`** for every durable subsystem,

@@ -2622,6 +2622,12 @@ Hecate-store authority warnings. At that point `migration-cutover` is also
 removed from `write_adapter_gaps`; Hecate-owned runtime/workspace capabilities
 such as `assignment-start` can still remain in `write_adapter_gaps` and
 `orchestrator_capabilities` because they are not portable Cairnline core.
+This is the delegation stop-line for the current runtime, not an automatic
+global default flip: clients and operators should treat `replacement_ready=true`
+as proof that the configured runtime has delegated portable Projects
+coordination state to embedded Cairnline, while defaulting all local runtimes to
+Cairnline still needs real dogfood confidence and an operator-visible
+migration/rollback path for existing Hecate-native project stores.
 When all portable write-authority gaps are closed before replacement mode is
 armed but strict embedded mirror evidence is not yet verified, the next action
 is `run-strict-embedded-read-smoke`; `config_hints` identify the strict
