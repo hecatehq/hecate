@@ -7,7 +7,7 @@ const (
 	projectActionOpenActivityBucket      = "open_activity_bucket"
 	projectActionOpenAssignmentPreflight = "open_assignment_preflight"
 	projectActionOpenMemoryReview        = "open_memory_review"
-	projectActionOpenProfiles            = "open_profiles"
+	projectActionOpenAgentPresets        = "open_agent_presets"
 	projectActionOpenProjectSettings     = "open_project_settings"
 	projectActionOpenRoles               = "open_roles"
 	projectActionOpenSkills              = "open_skills"
@@ -55,8 +55,8 @@ func newProjectActionOpenMemoryReview(projectID string) ProjectActionResponse {
 	return ProjectActionResponse{Type: projectActionOpenMemoryReview, ProjectID: strings.TrimSpace(projectID)}
 }
 
-func newProjectActionOpenProfiles(projectID string) ProjectActionResponse {
-	return ProjectActionResponse{Type: projectActionOpenProfiles, ProjectID: strings.TrimSpace(projectID)}
+func newProjectActionOpenAgentPresets(projectID string) ProjectActionResponse {
+	return ProjectActionResponse{Type: projectActionOpenAgentPresets, ProjectID: strings.TrimSpace(projectID)}
 }
 
 func newProjectActionOpenProjectSettings(projectID string) ProjectActionResponse {

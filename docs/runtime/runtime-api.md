@@ -5526,7 +5526,7 @@ show when lower-priority attention rows are hidden.
 
 Attention rows route to existing surfaces through a typed `action` object.
 Supported action types are shared with Project Operations where they overlap:
-`open_project_settings`, `open_memory_review`, `open_profiles`, `open_roles`,
+`open_project_settings`, `open_memory_review`, `open_agent_presets`, `open_roles`,
 `open_skills`, `open_work_item`, `open_task`, `open_activity_bucket`, and
 `review_memory_candidate`. The top-level `work_item_id`, `task_id`, `run_id`,
 `chat_id`, `candidate_id`, and `bucket` fields remain row metadata for compact
@@ -5644,6 +5644,12 @@ Known action types are:
 - `open_work_item`
 - `open_assignment_preflight`
 - `open_memory_review`
+- `open_agent_presets`
+- `open_roles`
+- `open_skills`
+- `open_task`
+- `open_activity_bucket`
+- `review_memory_candidate`
 - `draft_project_proposal`
 
 Actions do not directly mutate project state. `open_assignment_preflight` opens

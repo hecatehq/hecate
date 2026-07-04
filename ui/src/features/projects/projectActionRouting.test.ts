@@ -174,6 +174,13 @@ describe("projectActionRouting", () => {
     });
     expect(
       routeProjectHealthAttention(
+        attention({ action: { type: "open_agent_presets", project_id: "proj_1" } }),
+      ),
+    ).toEqual({
+      kind: "open_agent_presets",
+    });
+    expect(
+      routeProjectHealthAttention(
         attention({
           action: {
             type: "review_memory_candidate",

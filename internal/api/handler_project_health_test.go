@@ -609,7 +609,7 @@ func TestProjectHealth_ProfileAndSkillReferences(t *testing.T) {
 	}
 	assertProjectHealthItemsHaveActions(t, response.Data.Attention, "proj_refs")
 	profiles := findProjectHealthAttentionForTest(t, response.Data.Attention, "Agent Preset reference missing")
-	assertProjectHealthActionForTest(t, profiles, projectActionOpenProfiles, "proj_refs")
+	assertProjectHealthActionForTest(t, profiles, projectActionOpenAgentPresets, "proj_refs")
 	if !strings.Contains(profiles.Detail, "missing_profile") {
 		t.Fatalf("profile attention = %+v, want missing profile detail", profiles)
 	}

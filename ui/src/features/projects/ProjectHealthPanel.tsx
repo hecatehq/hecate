@@ -104,7 +104,7 @@ export function ProjectHealthPanel({
       case "open_skills":
         onAttentionSkills();
         return;
-      case "open_profiles":
+      case "open_agent_presets":
         onAttentionPresets();
         return;
       case "open_roles":
