@@ -324,8 +324,10 @@ switchpoints when those switchpoints are enabled; chat/runtime effects remain
 Hecate-owned orchestrator capabilities outside Cairnline core.
 Project list/detail reconstruct portable project identity from Cairnline and
 enrich Hecate-owned provider/model/runtime posture only from Hecate runtime
-state. Cairnline project/role/assignment rows may carry opaque preset/runtime
-hint ids, but they no longer imply a portable runtime-profile catalog.
+state. Cairnline project/role/assignment rows carry portable coordination
+fields such as execution mode, desired-agent kind, skill ids, and root/work
+refs; they do not carry Hecate Agent Preset, provider/model, or runtime-policy
+state.
 Launch-readiness and assignment preflight read project/work/assignment/role
 coordination records from Cairnline when configured, then apply Hecate runtime
 validation. Native assignment preflight and start context packets can append
@@ -694,7 +696,8 @@ after these gates are met:
   Launch-readiness and preflight can inspect those inputs without native Hecate
   project/work stores, but Hecate-task launch/preflight still requires
   Hecate-owned provider/model defaults from the project runtime overlay;
-  Cairnline host-hint ids, when supplied by an external sidecar, are opaque.
+  Cairnline desired-agent and skill hints stay portable inputs, not Hecate
+  runtime-policy authority.
   Launch/preflight context also reads inspect-only collaboration artifact and
   handoff metadata from the active Cairnline read model, preserving
   evidence/review/handoff hints for Cairnline-only graphs.
@@ -894,8 +897,8 @@ Projects, roles, presets, and runtime profiles have separate jobs:
 In other words: a project can choose a default Agent Preset, a role can refine
 that preset for a responsibility, and Hecate resolves those choices into
 runtime launch behavior. Cairnline records portable coordination intent and
-may expose opaque host hints from external clients, but Hecate does not mirror
-its Agent Preset/runtime posture into Cairnline. Hecate enforces
+may expose desired-agent/skill hints from external clients, but Hecate does not
+mirror its Agent Preset/runtime posture into Cairnline. Hecate enforces
 provider/model, approval, sandbox, write, network, and adapter policy.
 
 Local MCP exposure should use the same preset vocabulary rather than a separate
