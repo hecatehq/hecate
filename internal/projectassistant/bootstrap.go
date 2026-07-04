@@ -119,7 +119,7 @@ func bootstrapGuidanceBody(source ContextSource) string {
 		"This candidate records source provenance only. Review the source file before promoting or editing durable project memory from it.",
 	)
 	if source.Kind != "workspace_instruction" {
-		lines = append(lines, "Host-specific guidance is labelled for visibility only; it does not override Hecate policy, approvals, sandboxing, or project profile settings.")
+		lines = append(lines, "Host-specific guidance is labelled for visibility only; it does not override Hecate policy, approvals, sandboxing, or Agent Preset settings.")
 	}
 	return strings.Join(lines, "\n")
 }
