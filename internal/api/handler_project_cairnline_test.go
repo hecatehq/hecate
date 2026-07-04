@@ -751,7 +751,7 @@ func TestProjectCairnlineMirrorParityAPI_MatchesRepresentativeLiveProjectJourney
 	if response.Data.Hecate.AgentProfiles != 0 || response.Data.Cairnline.AgentProfiles != 0 ||
 		response.Data.Hecate.ExecutionProfiles != 0 || response.Data.Cairnline.ExecutionProfiles != 0 ||
 		response.Data.Hecate.Roles == 0 || response.Data.Cairnline.Roles != response.Data.Hecate.Roles {
-		t.Fatalf("profile/role mirror counts = hecate %+v cairnline %+v, want roles mirrored with opaque runtime hints and no profile rows", response.Data.Hecate, response.Data.Cairnline)
+		t.Fatalf("profile/role mirror counts = hecate %+v cairnline %+v, want roles mirrored without profile rows or runtime hints", response.Data.Hecate, response.Data.Cairnline)
 	}
 
 	readModel := mustRequestJSONStatus[ProjectCairnlineReadModelResponse](client, http.StatusOK, http.MethodGet, "/hecate/v1/projects/"+projectID+"/cairnline/embedded-read-model", "")

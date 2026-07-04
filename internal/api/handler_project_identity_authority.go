@@ -149,7 +149,6 @@ func projectFromCairnlineProjectCreate(native projects.Project, written cairnlin
 	project.Roots = projectRootsFromCairnline(written.Roots, nil)
 	project.ContextSources = projectContextSourcesFromCairnline(written.ContextSources)
 	project.DefaultRootID = written.DefaultRootID
-	project.DefaultAgentProfile = strings.TrimSpace(written.DefaultProfileID)
 	project.CreatedAt = written.CreatedAt
 	project.UpdatedAt = written.UpdatedAt
 	return project

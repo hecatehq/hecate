@@ -529,7 +529,7 @@ mutations remain Hecate-owned unless one of the other alpha write-authority
 switchpoints is explicitly listed.
 Project metadata/default-only PATCHes also best-effort mirror after the Hecate
 store commit unless `project-metadata-defaults` is enabled, in which case those
-scoped updates commit portable metadata and launch defaults to Cairnline first,
+scoped updates commit portable metadata and default-root metadata to Cairnline first,
 persist Hecate-owned provider/model and runtime-default policy in Hecate's
 project runtime overlay, and then shadow Hecate's compatibility project row;
 armed embedded replacement mode skips that native project-row shadow. Project create/delete, roots,
@@ -537,7 +537,7 @@ context sources, last-opened-only updates, and mixed metadata/root/source
 replacement PATCHes remain Hecate-owned unless their separate switchpoints are
 enabled.
 Project create also best-effort mirrors portable identity, initial roots,
-context sources, and launch defaults after the Hecate store commit unless
+context sources, and default-root metadata after the Hecate store commit unless
 `project-identity` is enabled, in which case create/delete commits to Cairnline
 first and then shadows Hecate's compatibility project row. Delete restores the
 Cairnline snapshot if Hecate compatibility cleanup fails. Identity delete can

@@ -143,6 +143,53 @@ func newSeededProjectsTestServer(t *testing.T, cfg config.Config, project projec
 	return NewServer(quietLogger(), handler)
 }
 
+func TestProjectsAPI_ProjectUpdateSeparatesPortableAndRuntimeDefaults(t *testing.T) {
+	t.Parallel()
+
+	rootID := "root_main"
+	provider := "openai"
+	model := "gpt-5"
+	preset := "implementation"
+	toolsEnabled := false
+	workspaceMode := "worktree"
+	systemPrompt := "Use project context."
+	compactOutput := true
+
+	runtimeOnly := updateProjectRequest{
+		DefaultProvider:          &provider,
+		DefaultModel:             &model,
+		DefaultAgentProfile:      &preset,
+		DefaultToolsEnabled:      &toolsEnabled,
+		DefaultWorkspaceMode:     &workspaceMode,
+		DefaultSystemPrompt:      &systemPrompt,
+		DefaultCompactToolOutput: &compactOutput,
+	}
+	if projectUpdateTouchesPortableDefaults(runtimeOnly) {
+		t.Fatalf("runtime-only update was classified as portable defaults")
+	}
+	if !projectUpdateTouchesHecateRuntimeDefaults(runtimeOnly) {
+		t.Fatalf("runtime-only update was not classified as Hecate runtime defaults")
+	}
+	if !projectUpdateCanUseCairnlineMetadataDefaultsAuthority(runtimeOnly) {
+		t.Fatalf("runtime-only update cannot use Cairnline-authority path for Cairnline-owned projects")
+	}
+
+	portableOnly := updateProjectRequest{DefaultRootID: &rootID}
+	if !projectUpdateTouchesPortableDefaults(portableOnly) {
+		t.Fatalf("default-root update was not classified as portable defaults")
+	}
+	if projectUpdateTouchesHecateRuntimeDefaults(portableOnly) {
+		t.Fatalf("default-root update was classified as Hecate runtime defaults")
+	}
+
+	roots := []projectRootRequest{{ID: "root_next", Path: "/workspace/next"}}
+	mixedListReplacement := runtimeOnly
+	mixedListReplacement.Roots = &roots
+	if projectUpdateCanUseCairnlineMetadataDefaultsAuthority(mixedListReplacement) {
+		t.Fatalf("root list replacement with runtime defaults should use the list-replace path")
+	}
+}
+
 func TestProjectsAPI_CRUD(t *testing.T) {
 	t.Parallel()
 	server := newProjectsTestServer()
@@ -240,6 +287,66 @@ func TestProjectsAPI_CRUD(t *testing.T) {
 		deleted.Data.ProjectID != created.Data.ID ||
 		deleted.Data.ProjectName != "Renamed" {
 		t.Fatalf("delete response = %+v, want project id/name", deleted)
+	}
+}
+
+func TestProjectsAPI_HecateFirstCreateAndUpdatePersistRuntimeDefaults(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{}, quietLogger(), nil, nil, nil, nil)
+	handler.SetProjectStore(projects.NewMemoryStore())
+	server := NewServer(quietLogger(), handler)
+	client := newAPITestClient(t, server)
+
+	created := mustRequestJSONStatus[ProjectResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects", `{
+		"name":"Runtime Defaults",
+		"default_provider":"openai",
+		"default_model":"gpt-5",
+		"default_agent_profile":"implementation",
+		"default_tools_enabled":true,
+		"default_workspace_mode":"worktree",
+		"default_system_prompt":"Use project context.",
+		"default_compact_tool_output":true
+	}`)
+	defaults, ok, err := handler.projectRuntime.GetProjectDefaults(t.Context(), created.Data.ID)
+	if err != nil || !ok {
+		t.Fatalf("project runtime defaults after create ok=%v err=%v, want stored defaults", ok, err)
+	}
+	if defaults.DefaultProvider != "openai" || defaults.DefaultModel != "gpt-5" || defaults.DefaultAgentProfile != "implementation" || defaults.DefaultWorkspaceMode != "worktree" || defaults.DefaultSystemPrompt != "Use project context." {
+		t.Fatalf("project runtime defaults after create = %+v, want created runtime defaults", defaults)
+	}
+	if defaults.DefaultToolsEnabled == nil || !*defaults.DefaultToolsEnabled || defaults.DefaultCompactToolOutput == nil || !*defaults.DefaultCompactToolOutput {
+		t.Fatalf("project runtime bool defaults after create = tools %v compact %v, want true/true", defaults.DefaultToolsEnabled, defaults.DefaultCompactToolOutput)
+	}
+
+	renamed := mustRequestJSONStatus[ProjectResponse](client, http.StatusOK, http.MethodPatch, "/hecate/v1/projects/"+created.Data.ID, `{
+		"name":"Runtime Defaults Renamed"
+	}`)
+	if renamed.Data.DefaultProvider != "openai" || renamed.Data.DefaultModel != "gpt-5" {
+		t.Fatalf("metadata-only update response defaults = %+v, want runtime defaults preserved", renamed.Data)
+	}
+	defaults, ok, err = handler.projectRuntime.GetProjectDefaults(t.Context(), created.Data.ID)
+	if err != nil || !ok {
+		t.Fatalf("project runtime defaults after rename ok=%v err=%v, want stored defaults", ok, err)
+	}
+	if defaults.DefaultProvider != "openai" || defaults.DefaultModel != "gpt-5" || defaults.DefaultAgentProfile != "implementation" {
+		t.Fatalf("project runtime defaults after rename = %+v, want preserved defaults", defaults)
+	}
+
+	updated := mustRequestJSONStatus[ProjectResponse](client, http.StatusOK, http.MethodPatch, "/hecate/v1/projects/"+created.Data.ID, `{
+		"default_provider":"anthropic",
+		"default_model":"claude-sonnet-4-5",
+		"default_agent_profile":"architecture",
+		"default_tools_enabled":false
+	}`)
+	if updated.Data.DefaultProvider != "anthropic" || updated.Data.DefaultModel != "claude-sonnet-4-5" || updated.Data.DefaultAgentProfile != "architecture" {
+		t.Fatalf("runtime update response defaults = %+v, want updated runtime defaults", updated.Data)
+	}
+	defaults, ok, err = handler.projectRuntime.GetProjectDefaults(t.Context(), created.Data.ID)
+	if err != nil || !ok {
+		t.Fatalf("project runtime defaults after update ok=%v err=%v, want stored defaults", ok, err)
+	}
+	if defaults.DefaultProvider != "anthropic" || defaults.DefaultModel != "claude-sonnet-4-5" || defaults.DefaultAgentProfile != "architecture" || defaults.DefaultToolsEnabled == nil || *defaults.DefaultToolsEnabled {
+		t.Fatalf("project runtime defaults after update = %+v, want updated runtime defaults", defaults)
 	}
 }
 
@@ -583,7 +690,7 @@ func TestProjectsAPI_MirrorsIdentityMutationsToCairnlineWhenConfigured(t *testin
 	if len(mirrored.ContextSources) != 1 || mirrored.ContextSources[0].ID != "ctx_agents" || mirrored.ContextSources[0].Locator != "AGENTS.md" {
 		t.Fatalf("mirrored context sources = %+v, want AGENTS.md source", mirrored.ContextSources)
 	}
-	assertMirroredExecutionProfileHintForTest(t, mirrored.DefaultExecutionProfileID)
+	assertNoMirroredRuntimeHintsForTest(t, mirrored.DefaultProfileID, mirrored.DefaultExecutionProfileID)
 
 	rec = httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+created.Data.ID, bytes.NewReader([]byte(`{
@@ -597,7 +704,7 @@ func TestProjectsAPI_MirrorsIdentityMutationsToCairnlineWhenConfigured(t *testin
 	if mirrored.Name != "Mirrored Rename" {
 		t.Fatalf("mirrored name = %q, want patched name", mirrored.Name)
 	}
-	assertMirroredExecutionProfileHintForTest(t, mirrored.DefaultExecutionProfileID)
+	assertNoMirroredRuntimeHintsForTest(t, mirrored.DefaultProfileID, mirrored.DefaultExecutionProfileID)
 
 	rec = httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+created.Data.ID+"/roots", bytes.NewReader([]byte(`{
@@ -729,7 +836,7 @@ func TestProjectsAPI_CairnlineIdentityAuthorityCommitsCreateFirst(t *testing.T) 
 	if mirrored.Name != "Identity Authority" || mirrored.Description != "created through Cairnline" || mirrored.DefaultRootID != "root_main" || len(mirrored.Roots) != 1 || len(mirrored.ContextSources) != 1 {
 		t.Fatalf("mirrored project = %+v, want identity create committed to Cairnline", mirrored)
 	}
-	assertMirroredExecutionProfileHintForTest(t, mirrored.DefaultExecutionProfileID)
+	assertNoMirroredRuntimeHintsForTest(t, mirrored.DefaultProfileID, mirrored.DefaultExecutionProfileID)
 }
 
 func TestProjectsAPI_CairnlineReplacementModeCreatesCairnlineOnlyIdentity(t *testing.T) {
@@ -764,7 +871,7 @@ func TestProjectsAPI_CairnlineReplacementModeCreatesCairnlineOnlyIdentity(t *tes
 	if mirrored.Name != "Replacement Identity" || mirrored.Description != "created only in Cairnline" || mirrored.DefaultRootID != "root_main" || len(mirrored.Roots) != 1 {
 		t.Fatalf("mirrored project = %+v, want Cairnline-only replacement identity", mirrored)
 	}
-	assertMirroredExecutionProfileHintForTest(t, mirrored.DefaultExecutionProfileID)
+	assertNoMirroredRuntimeHintsForTest(t, mirrored.DefaultProfileID, mirrored.DefaultExecutionProfileID)
 
 	listed := listProjectsForTest(t, server)
 	if len(listed) != 1 || listed[0].ID != created.Data.ID || listed[0].ReadBackend != "cairnline" {
@@ -1252,14 +1359,12 @@ func TestProjectsAPI_CairnlineMetadataDefaultsAuthorityCommitsScopedUpdatesFirst
 	}
 
 	mirrored := getMirroredCairnlineProjectForTest(t, handler, created.Data.ID)
-	if mirrored.Name != "Authority Rename" || mirrored.Description != "Cairnline owns scoped project settings." || mirrored.DefaultRootID != "root_main" || mirrored.DefaultProfileID != "architecture" {
+	if mirrored.Name != "Authority Rename" || mirrored.Description != "Cairnline owns scoped project settings." || mirrored.DefaultRootID != "root_main" || mirrored.DefaultProfileID != "" || mirrored.DefaultExecutionProfileID != "" {
 		t.Fatalf("mirrored project = %+v, want scoped metadata/default authority", mirrored)
 	}
 	if len(mirrored.Roots) != 1 || mirrored.Roots[0].ID != "root_main" {
 		t.Fatalf("mirrored roots = %+v, want existing root preserved", mirrored.Roots)
 	}
-	assertMirroredExecutionProfileHintForTest(t, mirrored.DefaultExecutionProfileID)
-
 	rec = httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+created.Data.ID, bytes.NewReader([]byte(`{
 		"name":"Mixed Root Replacement",
@@ -1652,7 +1757,7 @@ func TestProjectsAPI_CairnlineContextSourceAuthorityCommitsListReplacementFirst(
 	}
 }
 
-func TestProjectsAPI_DefaultOnlyPatchMirrorsDefaultsWithoutReplacingCairnlineState(t *testing.T) {
+func TestProjectsAPI_RuntimeDefaultPatchPreservesCairnlinePortableState(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectsCairnlineMirrorTestServer(t)
 
@@ -1686,8 +1791,8 @@ func TestProjectsAPI_DefaultOnlyPatchMirrorsDefaultsWithoutReplacingCairnlineSta
 		t.Fatalf("defaults update status = %d body=%s, want 200", rec.Code, rec.Body.String())
 	}
 	mirrored := getMirroredCairnlineProjectForTest(t, handler, created.Data.ID)
-	if mirrored.DefaultProfileID != "architecture" {
-		t.Fatalf("mirrored default profile = %q, want architecture", mirrored.DefaultProfileID)
+	if mirrored.DefaultProfileID != "" || mirrored.DefaultExecutionProfileID != "" {
+		t.Fatalf("mirrored runtime hints = profile:%q execution:%q, want Hecate-owned defaults omitted from Cairnline", mirrored.DefaultProfileID, mirrored.DefaultExecutionProfileID)
 	}
 	if findMirroredCairnlineRootForTest(mirrored.Roots, "root_cairnline_only") == nil {
 		t.Fatalf("mirrored roots = %+v, want Cairnline-only root preserved", mirrored.Roots)
@@ -1695,7 +1800,6 @@ func TestProjectsAPI_DefaultOnlyPatchMirrorsDefaultsWithoutReplacingCairnlineSta
 	if findMirroredCairnlineSourceForTest(mirrored.ContextSources, "ctx_cairnline_only") == nil {
 		t.Fatalf("mirrored context sources = %+v, want Cairnline-only source preserved", mirrored.ContextSources)
 	}
-	assertMirroredExecutionProfileHintForTest(t, mirrored.DefaultExecutionProfileID)
 }
 
 func TestProjectsAPI_DefaultRootPatchCairnlineAuthorityUsesCairnlineOnlyRoots(t *testing.T) {
@@ -1796,8 +1900,8 @@ func TestProjectsAPI_MetadataPatchMirrorsMetadataWithoutReplacingCairnlineState(
 	if mirrored.Name != "Metadata Mirror Renamed" || mirrored.Description != "After" {
 		t.Fatalf("mirrored metadata = %+v, want renamed project with updated description", mirrored)
 	}
-	if mirrored.DefaultProfileID != "architecture" {
-		t.Fatalf("mirrored default profile = %q, want architecture", mirrored.DefaultProfileID)
+	if mirrored.DefaultProfileID != "" || mirrored.DefaultExecutionProfileID != "" {
+		t.Fatalf("mirrored runtime hints = profile:%q execution:%q, want Hecate-owned defaults omitted from Cairnline", mirrored.DefaultProfileID, mirrored.DefaultExecutionProfileID)
 	}
 	if findMirroredCairnlineRootForTest(mirrored.Roots, "root_cairnline_only") == nil {
 		t.Fatalf("mirrored roots = %+v, want Cairnline-only root preserved", mirrored.Roots)
@@ -1805,7 +1909,6 @@ func TestProjectsAPI_MetadataPatchMirrorsMetadataWithoutReplacingCairnlineState(
 	if findMirroredCairnlineSourceForTest(mirrored.ContextSources, "ctx_cairnline_only") == nil {
 		t.Fatalf("mirrored context sources = %+v, want Cairnline-only source preserved", mirrored.ContextSources)
 	}
-	assertMirroredExecutionProfileHintForTest(t, mirrored.DefaultExecutionProfileID)
 }
 
 func TestProjectsAPI_RootListPatchMirrorsRootReplacementWithoutReplacingSources(t *testing.T) {
@@ -2298,13 +2401,10 @@ func findMirroredCairnlineSourceForTest(sources []cairnline.Source, id string) *
 	return nil
 }
 
-func assertMirroredExecutionProfileHintForTest(t *testing.T, profileID string) {
+func assertNoMirroredRuntimeHintsForTest(t *testing.T, profileID, executionProfileID string) {
 	t.Helper()
-	if profileID == "" {
-		t.Fatalf("mirrored project missing default runtime hint id")
-	}
-	if !strings.HasPrefix(profileID, "project_exec_") && !strings.HasPrefix(profileID, "role_exec_") {
-		t.Fatalf("runtime hint id = %q, want Hecate-scoped project_exec_/role_exec_ id", profileID)
+	if profileID != "" || executionProfileID != "" {
+		t.Fatalf("mirrored runtime hints = profile:%q execution:%q, want omitted from portable Cairnline graph", profileID, executionProfileID)
 	}
 }
 

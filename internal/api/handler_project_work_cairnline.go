@@ -903,7 +903,7 @@ func projectWorkRoleFromCairnline(item cairnline.Role, native projectwork.AgentR
 		DefaultDriverKind:   projectWorkAssignmentDriverFromCairnline(item.DefaultExecutionMode),
 		DefaultProvider:     native.DefaultProvider,
 		DefaultModel:        native.DefaultModel,
-		DefaultAgentProfile: item.DefaultProfileID,
+		DefaultAgentProfile: firstNonEmptyString(item.DefaultProfileID, native.DefaultAgentProfile),
 		SkillIDs:            append([]string(nil), item.DefaultSkillIDs...),
 		BuiltIn:             native.BuiltIn,
 		CreatedAt:           native.CreatedAt,
