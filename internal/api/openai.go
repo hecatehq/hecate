@@ -2025,14 +2025,12 @@ type ProjectCairnlineSidecarLaunchPacketResponse struct {
 }
 
 type ProjectCairnlineSidecarLaunchPacketIDs struct {
-	LaunchPacketID     string `json:"launch_packet_id,omitempty"`
-	Kind               string `json:"kind,omitempty"`
-	ProjectID          string `json:"project_id,omitempty"`
-	AssignmentID       string `json:"assignment_id,omitempty"`
-	WorkItemID         string `json:"work_item_id,omitempty"`
-	RoleID             string `json:"role_id,omitempty"`
-	ProfileID          string `json:"profile_id,omitempty"`
-	ExecutionProfileID string `json:"execution_profile_id,omitempty"`
+	LaunchPacketID string `json:"launch_packet_id,omitempty"`
+	Kind           string `json:"kind,omitempty"`
+	ProjectID      string `json:"project_id,omitempty"`
+	AssignmentID   string `json:"assignment_id,omitempty"`
+	WorkItemID     string `json:"work_item_id,omitempty"`
+	RoleID         string `json:"role_id,omitempty"`
 }
 
 type ProjectCairnlineSidecarLaunchPacketCounts struct {
@@ -2323,48 +2321,47 @@ type ProjectCairnlineSidecarWriteStep struct {
 }
 
 type ProjectCairnlineSidecarProjectItem struct {
-	ID                        string                              `json:"id"`
-	Name                      string                              `json:"name"`
-	Description               string                              `json:"description,omitempty"`
-	DefaultRootID             string                              `json:"default_root_id,omitempty"`
-	DefaultProfileID          string                              `json:"default_profile_id,omitempty"`
-	DefaultExecutionProfileID string                              `json:"default_execution_profile_id,omitempty"`
-	Roots                     []ProjectCairnlineSidecarRootItem   `json:"roots,omitempty"`
-	ContextSources            []ProjectCairnlineSidecarSourceItem `json:"context_sources,omitempty"`
-	CreatedAt                 string                              `json:"created_at,omitempty"`
-	UpdatedAt                 string                              `json:"updated_at,omitempty"`
+	ID             string                              `json:"id"`
+	Name           string                              `json:"name"`
+	Description    string                              `json:"description,omitempty"`
+	DefaultRootID  string                              `json:"default_root_id,omitempty"`
+	Roots          []ProjectCairnlineSidecarRootItem   `json:"roots,omitempty"`
+	ContextSources []ProjectCairnlineSidecarSourceItem `json:"context_sources,omitempty"`
+	CreatedAt      string                              `json:"created_at,omitempty"`
+	UpdatedAt      string                              `json:"updated_at,omitempty"`
 }
 
 type ProjectCairnlineSidecarAssignmentItem struct {
-	ID                 string   `json:"id"`
-	ProjectID          string   `json:"project_id,omitempty"`
-	WorkItemID         string   `json:"work_item_id,omitempty"`
-	RoleID             string   `json:"role_id,omitempty"`
-	RootID             string   `json:"root_id,omitempty"`
-	ProfileID          string   `json:"profile_id,omitempty"`
-	ExecutionProfileID string   `json:"execution_profile_id,omitempty"`
-	ExecutionMode      string   `json:"execution_mode,omitempty"`
-	Status             string   `json:"status,omitempty"`
-	ClaimedBy          string   `json:"claimed_by,omitempty"`
-	ExecutionRef       string   `json:"execution_ref,omitempty"`
-	ContextSnapshotID  string   `json:"context_snapshot_id,omitempty"`
-	SkillIDs           []string `json:"skill_ids,omitempty"`
-	CreatedAt          string   `json:"created_at,omitempty"`
-	UpdatedAt          string   `json:"updated_at,omitempty"`
-	StartedAt          string   `json:"started_at,omitempty"`
-	CompletedAt        string   `json:"completed_at,omitempty"`
+	ID                string                                  `json:"id"`
+	ProjectID         string                                  `json:"project_id,omitempty"`
+	WorkItemID        string                                  `json:"work_item_id,omitempty"`
+	RoleID            string                                  `json:"role_id,omitempty"`
+	RootID            string                                  `json:"root_id,omitempty"`
+	ExecutionMode     string                                  `json:"execution_mode,omitempty"`
+	Status            string                                  `json:"status,omitempty"`
+	DesiredAgent      ProjectCairnlineSidecarDesiredAgentItem `json:"desired_agent,omitempty"`
+	ClaimedBy         string                                  `json:"claimed_by,omitempty"`
+	ExecutionRef      string                                  `json:"execution_ref,omitempty"`
+	ContextSnapshotID string                                  `json:"context_snapshot_id,omitempty"`
+	CreatedAt         string                                  `json:"created_at,omitempty"`
+	UpdatedAt         string                                  `json:"updated_at,omitempty"`
+	StartedAt         string                                  `json:"started_at,omitempty"`
+	CompletedAt       string                                  `json:"completed_at,omitempty"`
+}
+
+type ProjectCairnlineSidecarDesiredAgentItem struct {
+	Kind     string   `json:"kind,omitempty"`
+	SkillIDs []string `json:"skill_ids,omitempty"`
 }
 
 type ProjectCairnlineSidecarRoleItem struct {
-	ID                        string   `json:"id"`
-	ProjectID                 string   `json:"project_id,omitempty"`
-	Name                      string   `json:"name"`
-	Description               string   `json:"description,omitempty"`
-	Instructions              string   `json:"instructions,omitempty"`
-	DefaultProfileID          string   `json:"default_profile_id,omitempty"`
-	DefaultExecutionProfileID string   `json:"default_execution_profile_id,omitempty"`
-	DefaultExecutionMode      string   `json:"default_execution_mode,omitempty"`
-	DefaultSkillIDs           []string `json:"default_skill_ids,omitempty"`
+	ID                   string   `json:"id"`
+	ProjectID            string   `json:"project_id,omitempty"`
+	Name                 string   `json:"name"`
+	Description          string   `json:"description,omitempty"`
+	Instructions         string   `json:"instructions,omitempty"`
+	DefaultExecutionMode string   `json:"default_execution_mode,omitempty"`
+	DefaultSkillIDs      []string `json:"default_skill_ids,omitempty"`
 }
 
 type ProjectCairnlineSidecarWorkItem struct {
@@ -2501,13 +2498,6 @@ type ProjectCairnlineSidecarMemoryCandidateItem struct {
 	PromotedMemoryID    string                                            `json:"promoted_memory_id,omitempty"`
 	CreatedAt           string                                            `json:"created_at,omitempty"`
 	UpdatedAt           string                                            `json:"updated_at,omitempty"`
-}
-
-type ProjectCairnlineSidecarAgentProfileItem struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name,omitempty"`
-	Description string   `json:"description,omitempty"`
-	SkillIDs    []string `json:"skill_ids,omitempty"`
 }
 
 type ProjectCairnlineSidecarMemoryCandidateSourceRef struct {
