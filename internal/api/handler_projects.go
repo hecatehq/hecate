@@ -822,7 +822,11 @@ func (h *Handler) renderCairnlineProject(ctx context.Context, native projects.Pr
 }
 
 func (h *Handler) renderCairnlineProjectFromService(ctx context.Context, service *cairnline.Service, project cairnline.Project, native projects.Project) (ProjectResponseItem, error) {
-	rendered := renderProject(projectFromCairnline(project, native))
+	projected, err := h.projectWithHecateRuntimeOverlay(ctx, projectFromCairnline(project, native))
+	if err != nil {
+		return ProjectResponseItem{}, err
+	}
+	rendered := renderProject(projected)
 	rendered.ReadBackend = "cairnline"
 	return rendered, nil
 }

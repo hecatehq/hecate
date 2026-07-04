@@ -350,9 +350,10 @@ current portable write-authority switchpoint for embedded dogfooding; Hecate
 runtime side effects and migration cutover remain separate gates.
 `project-metadata-defaults` is a scoped opt-in authority slice: project
 metadata/default-only PATCHes commit portable project metadata and launch
-defaults to embedded Cairnline first, then best-effort shadow Hecate's
-compatibility project row. Armed embedded replacement mode skips that native
-project-row shadow. Project create/delete, roots, context sources,
+defaults to embedded Cairnline first, persist Hecate-owned provider/model and
+runtime-default policy in Hecate's project runtime overlay, then best-effort
+shadow Hecate's compatibility project row. Armed embedded replacement mode
+skips that native project-row shadow. Project create/delete, roots, context sources,
 last-opened-only updates, and mixed metadata/root/source replacement PATCHes
 remain Hecate-owned unless their separate switchpoints are enabled.
 `project-identity` is a scoped authority slice: project create/delete commits
@@ -389,9 +390,10 @@ Hecate-native project row. Skill bodies are still not loaded, injected,
 executed, or treated as permissions.
 `project-roles` is a fourth opt-in authority slice: role create/update/delete
 commits to embedded Cairnline first, preserves Hecate's built-in-role
-protection, then best-effort shadows portable role defaults into Hecate-native
-project-work stores for compatibility. Deleting a custom role preserves
-historical assignments that still carry the deleted `role_id`.
+protection, persists Hecate-owned provider/model/preset defaults in Hecate's
+project runtime overlay, then best-effort shadows portable role defaults into
+Hecate-native project-work stores for compatibility. Deleting a custom role
+preserves historical assignments that still carry the deleted `role_id`.
 `project-work-items` is a fifth opt-in authority slice: work-item
 create/update/delete commits to embedded Cairnline first, preserves Hecate's
 `backlog` default and closeout-readiness gate, then best-effort shadows the

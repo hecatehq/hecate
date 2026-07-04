@@ -62,6 +62,9 @@ func (h *Handler) createProjectWorkRoleWithCairnlineAuthority(ctx context.Contex
 	if err != nil {
 		return projectwork.AgentRoleProfile{}, err
 	}
+	if err := h.upsertProjectRoleRuntimeDefaults(ctx, created); err != nil {
+		return projectwork.AgentRoleProfile{}, err
+	}
 	if shadowed, ok := h.shadowProjectRoleToHecate(ctx, "project_role_cairnline_authority_create", created); ok {
 		created = shadowed
 	}
@@ -86,7 +89,8 @@ func (h *Handler) updateProjectWorkRoleWithCairnlineAuthority(ctx context.Contex
 		if err != nil {
 			return err
 		}
-		role, err := h.projectWorkRoleFromCairnlineAuthority(ctx, service, existing, projectwork.AgentRoleProfile{})
+		role := projectWorkRoleFromCairnline(existing, projectwork.AgentRoleProfile{})
+		role, err = h.projectRoleWithHecateRuntimeOverlay(ctx, role)
 		if err != nil {
 			return err
 		}
@@ -103,6 +107,9 @@ func (h *Handler) updateProjectWorkRoleWithCairnlineAuthority(ctx context.Contex
 		return err
 	})
 	if err != nil {
+		return projectwork.AgentRoleProfile{}, err
+	}
+	if err := h.upsertProjectRoleRuntimeDefaults(ctx, updated); err != nil {
 		return projectwork.AgentRoleProfile{}, err
 	}
 	if shadowed, ok := h.shadowProjectRoleToHecate(ctx, "project_role_cairnline_authority_update", updated); ok {
@@ -127,6 +134,9 @@ func (h *Handler) deleteProjectWorkRoleWithCairnlineAuthority(ctx context.Contex
 		}
 		return cairnlinebridge.DeleteRole(ctx, service, deleted)
 	}); err != nil {
+		return err
+	}
+	if err := h.deleteProjectRoleRuntimeDefaults(ctx, projectID, roleID); err != nil {
 		return err
 	}
 	h.shadowProjectRoleDeleteToHecate(ctx, "project_role_cairnline_authority_delete", projectID, roleID)

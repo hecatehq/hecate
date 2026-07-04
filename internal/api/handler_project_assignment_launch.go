@@ -456,6 +456,12 @@ func (h *Handler) cairnlineProjectAssignmentLaunchInputs(ctx context.Context, pr
 	if err != nil {
 		return projectAssignmentLaunchInputs{}, err
 	}
+	if roleOK {
+		role, err = h.projectRoleWithHecateRuntimeOverlay(ctx, role)
+		if err != nil {
+			return projectAssignmentLaunchInputs{}, err
+		}
+	}
 	return projectAssignmentLaunchInputs{
 		Project:    project,
 		WorkItem:   workItem,

@@ -875,6 +875,27 @@ func TestProjectsAPI_CairnlineReplacementModeSkipsNativeProjectRowShadows(t *tes
 	if native.Name != "Stale native row" || native.DefaultProvider != "native" || native.DefaultRootID != "root_native" {
 		t.Fatalf("native compatibility row after metadata update = %+v, want stale row unchanged", native)
 	}
+	runtimeDefaults, ok, err := handler.projectRuntime.GetProjectDefaults(t.Context(), projectID)
+	if err != nil || !ok {
+		t.Fatalf("project runtime defaults ok=%v err=%v, want Hecate runtime defaults", ok, err)
+	}
+	if runtimeDefaults.DefaultProvider != "anthropic" || runtimeDefaults.DefaultModel != "claude-sonnet-4-5" {
+		t.Fatalf("project runtime defaults = %+v, want provider/model runtime overlay", runtimeDefaults)
+	}
+
+	renamed := mustRequestJSONStatus[ProjectResponse](client, http.StatusOK, http.MethodPatch, "/hecate/v1/projects/"+projectID, `{
+		"description":"Rename without changing runtime defaults."
+	}`)
+	if renamed.Data.DefaultProvider != "anthropic" || renamed.Data.DefaultModel != "claude-sonnet-4-5" {
+		t.Fatalf("metadata-only update defaults = provider/model %q/%q, want preserved runtime overlay", renamed.Data.DefaultProvider, renamed.Data.DefaultModel)
+	}
+	runtimeDefaults, ok, err = handler.projectRuntime.GetProjectDefaults(t.Context(), projectID)
+	if err != nil || !ok {
+		t.Fatalf("project runtime defaults after metadata-only update ok=%v err=%v, want preserved defaults", ok, err)
+	}
+	if runtimeDefaults.DefaultProvider != "anthropic" || runtimeDefaults.DefaultModel != "claude-sonnet-4-5" {
+		t.Fatalf("project runtime defaults after metadata-only update = %+v, want preserved provider/model", runtimeDefaults)
+	}
 
 	withRoot := mustRequestJSONStatus[ProjectResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/roots", `{
 		"id":"root_feature",

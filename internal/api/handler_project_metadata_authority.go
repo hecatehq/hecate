@@ -31,6 +31,11 @@ func (h *Handler) updateProjectMetadataDefaultsWithCairnlineAuthority(ctx contex
 	if err != nil {
 		return projects.Project{}, err
 	}
+	if overlaid, err := h.projectWithHecateRuntimeOverlay(ctx, project); err != nil {
+		return projects.Project{}, err
+	} else {
+		project = overlaid
+	}
 	applyProjectMetadataDefaultsUpdate(&project, req)
 	if err := validateProjectDefaultRoot(project.DefaultRootID, project.Roots); err != nil {
 		return projects.Project{}, errors.Join(projects.ErrInvalid, err)
@@ -56,6 +61,9 @@ func (h *Handler) updateProjectMetadataDefaultsWithCairnlineAuthority(ctx contex
 		return nil
 	})
 	if err != nil {
+		return projects.Project{}, err
+	}
+	if err := h.upsertProjectRuntimeDefaults(ctx, project); err != nil {
 		return projects.Project{}, err
 	}
 	if shadowed, ok := h.shadowProjectMetadataDefaultsToHecate(ctx, "project_metadata_defaults_cairnline_authority_update", project); ok {

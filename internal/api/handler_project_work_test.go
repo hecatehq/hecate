@@ -1495,13 +1495,23 @@ func TestProjectWorkAPI_CairnlineRoleAuthorityWritesCairnlineOnlyProject(t *test
 	handler.projectWork = nil
 
 	created := mustRequestJSONStatus[ProjectWorkRoleEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/roles", projectJourneyJSON(t, map[string]any{
-		"id":                  "role_cairnline_only",
-		"name":                "Cairnline-only reviewer",
-		"default_driver_kind": projectwork.AssignmentDriverExternalAgent,
-		"skill_ids":           []string{"review"},
+		"id":                    "role_cairnline_only",
+		"name":                  "Cairnline-only reviewer",
+		"default_driver_kind":   projectwork.AssignmentDriverExternalAgent,
+		"default_provider":      "anthropic",
+		"default_model":         "claude-sonnet-4",
+		"default_agent_profile": "review",
+		"skill_ids":             []string{"review"},
 	}))
-	if created.Data.ID != "role_cairnline_only" || created.Data.ProjectID != projectID || created.Data.DefaultDriverKind != projectwork.AssignmentDriverExternalAgent {
+	if created.Data.ID != "role_cairnline_only" || created.Data.ProjectID != projectID || created.Data.DefaultDriverKind != projectwork.AssignmentDriverExternalAgent || created.Data.DefaultProvider != "anthropic" || created.Data.DefaultModel != "claude-sonnet-4" {
 		t.Fatalf("created role response = %+v, want Cairnline-only project role", created.Data)
+	}
+	roleDefaults, ok, err := handler.projectRuntime.GetRoleDefaults(t.Context(), projectID, "role_cairnline_only")
+	if err != nil || !ok {
+		t.Fatalf("role runtime defaults ok=%v err=%v, want Hecate role defaults", ok, err)
+	}
+	if roleDefaults.DefaultProvider != "anthropic" || roleDefaults.DefaultModel != "claude-sonnet-4" || roleDefaults.DefaultAgentProfile != "review" {
+		t.Fatalf("role runtime defaults = %+v, want provider/model/profile overlay", roleDefaults)
 	}
 	mirroredRole := getMirroredCairnlineRoleForTest(t, handler, projectID, "role_cairnline_only")
 	if mirroredRole.Name != "Cairnline-only reviewer" || mirroredRole.DefaultExecutionMode != cairnline.ExecutionExternalAdapter {
@@ -1518,9 +1528,15 @@ func TestProjectWorkAPI_CairnlineRoleAuthorityWritesCairnlineOnlyProject(t *test
 	if updated.Data.Name != "Updated Cairnline-only reviewer" || !containsString(updated.Data.SkillIDs, "qa") {
 		t.Fatalf("updated role response = %+v, want edited Cairnline-only role", updated.Data)
 	}
+	if updated.Data.DefaultProvider != "anthropic" || updated.Data.DefaultModel != "claude-sonnet-4" || updated.Data.DefaultAgentProfile != "review" {
+		t.Fatalf("updated role defaults = provider/model/profile %q/%q/%q, want preserved Hecate runtime defaults", updated.Data.DefaultProvider, updated.Data.DefaultModel, updated.Data.DefaultAgentProfile)
+	}
 	client.mustRequestStatus(http.StatusNoContent, http.MethodDelete, "/hecate/v1/projects/"+projectID+"/roles/role_cairnline_only", "")
 	if role := mirroredCairnlineRoleForTest(t, handler, projectID, "role_cairnline_only"); role != nil {
 		t.Fatalf("deleted Cairnline-only role = %+v, want missing", role)
+	}
+	if _, ok, err := handler.projectRuntime.GetRoleDefaults(t.Context(), projectID, "role_cairnline_only"); err != nil || ok {
+		t.Fatalf("role runtime defaults after delete ok=%v err=%v, want removed", ok, err)
 	}
 }
 
