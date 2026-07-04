@@ -283,7 +283,7 @@ function renderWorkspace(overrides: Partial<ProjectWorkspaceViewProps> = {}) {
     onEditMemory: vi.fn(),
     onEditSource: vi.fn(),
     onEditWorkItem: vi.fn(),
-    onManageProfiles: vi.fn(),
+    onManagePresets: vi.fn(),
     onManageRoles: vi.fn(),
     onNewMemory: vi.fn(),
     onNewSource: vi.fn(),

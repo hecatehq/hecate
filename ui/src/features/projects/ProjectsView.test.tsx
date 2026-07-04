@@ -10,7 +10,7 @@ import {
   ApiError,
   applyProjectAssistant,
   chooseWorkspaceDirectory,
-  createAgentProfile,
+  createAgentPreset,
   createProjectCollaborationArtifact,
   createProjectAssignment,
   createProjectHandoff,
@@ -21,7 +21,7 @@ import {
   createProjectWorkRole,
   createProjectWorkItem,
   deleteProjectAssignment,
-  deleteAgentProfile,
+  deleteAgentPreset,
   deleteProjectHandoff,
   deleteProjectContextSource,
   deleteProjectMemory,
@@ -34,7 +34,7 @@ import {
   getProjectActivity,
   getProjectHealth,
   getProjectOperationsBrief,
-  getAgentProfiles,
+  getAgentPresets,
   getProjectAssignmentContext,
   getProjectAssignmentLaunchReadiness,
   getProjectAssignmentPreflight,
@@ -55,7 +55,7 @@ import {
   rejectProjectMemoryCandidate,
   startProjectAssignment,
   updateProject,
-  updateAgentProfile,
+  updateAgentPreset,
   updateProjectContextSource,
   updateProjectRoot,
   updateProjectAssignment,
@@ -362,10 +362,10 @@ vi.mock("../../lib/api", async (importOriginal) => {
       data: [],
     })),
     getProjectSkills: vi.fn(async () => ({ object: "project_skills", data: [] })),
-    getAgentProfiles: vi.fn(async () => ({ object: "agent_presets", data: [] })),
-    createAgentProfile: vi.fn(async () => ({ object: "agent_preset", data: null })),
-    updateAgentProfile: vi.fn(async () => ({ object: "agent_preset", data: null })),
-    deleteAgentProfile: vi.fn(async () => undefined),
+    getAgentPresets: vi.fn(async () => ({ object: "agent_presets", data: [] })),
+    createAgentPreset: vi.fn(async () => ({ object: "agent_preset", data: null })),
+    updateAgentPreset: vi.fn(async () => ({ object: "agent_preset", data: null })),
+    deleteAgentPreset: vi.fn(async () => undefined),
     draftProjectAssistant: vi.fn(async () => ({
       object: "project_assistant.proposal",
       data: {
@@ -953,7 +953,7 @@ function resetProjectWorkMocks() {
     object: "project_memory_candidates",
     data: [],
   });
-  vi.mocked(getAgentProfiles).mockResolvedValue({
+  vi.mocked(getAgentPresets).mockResolvedValue({
     object: "agent_presets",
     data: [
       {
@@ -979,7 +979,7 @@ function resetProjectWorkMocks() {
       },
     ],
   });
-  vi.mocked(createAgentProfile).mockImplementation(async (payload) => ({
+  vi.mocked(createAgentPreset).mockImplementation(async (payload) => ({
     object: "agent_preset",
     data: {
       id: payload.id || "profile_new",
@@ -1003,7 +1003,7 @@ function resetProjectWorkMocks() {
       updated_at: "2026-06-04T12:00:00Z",
     },
   }));
-  vi.mocked(updateAgentProfile).mockImplementation(async (id, payload) => ({
+  vi.mocked(updateAgentPreset).mockImplementation(async (id, payload) => ({
     object: "agent_preset",
     data: {
       id,
@@ -1027,7 +1027,7 @@ function resetProjectWorkMocks() {
       updated_at: "2026-06-04T12:00:00Z",
     },
   }));
-  vi.mocked(deleteAgentProfile).mockResolvedValue(undefined);
+  vi.mocked(deleteAgentPreset).mockResolvedValue(undefined);
   vi.mocked(draftProjectAssistant).mockResolvedValue({
     object: "project_assistant.proposal",
     data: {
@@ -1267,10 +1267,10 @@ afterEach(() => {
   vi.mocked(getProjectMemory).mockReset();
   vi.mocked(getProjectMemoryCandidates).mockReset();
   vi.mocked(getProjectSkills).mockReset();
-  vi.mocked(getAgentProfiles).mockReset();
-  vi.mocked(createAgentProfile).mockReset();
-  vi.mocked(updateAgentProfile).mockReset();
-  vi.mocked(deleteAgentProfile).mockReset();
+  vi.mocked(getAgentPresets).mockReset();
+  vi.mocked(createAgentPreset).mockReset();
+  vi.mocked(updateAgentPreset).mockReset();
+  vi.mocked(deleteAgentPreset).mockReset();
   vi.mocked(draftProjectAssistant).mockReset();
   vi.mocked(applyProjectAssistant).mockReset();
   vi.mocked(chooseWorkspaceDirectory).mockReset();
@@ -6083,7 +6083,7 @@ describe("ProjectsView cockpit", () => {
     await userEvent.click(await within(dialog).findByLabelText("Use skill Backend"));
     await userEvent.click(within(dialog).getByRole("button", { name: "Create preset" }));
 
-    expect(createAgentProfile).toHaveBeenCalledWith({
+    expect(createAgentPreset).toHaveBeenCalledWith({
       id: "reviewer",
       name: "Reviewer",
       description: "Reviews implementation assignments.",
@@ -6119,7 +6119,7 @@ describe("ProjectsView cockpit", () => {
     });
     await userEvent.click(within(dialog).getByRole("button", { name: "Save preset" }));
 
-    expect(updateAgentProfile).toHaveBeenCalledWith(
+    expect(updateAgentPreset).toHaveBeenCalledWith(
       "implementation",
       expect.objectContaining({
         name: "Implementation reviewer",
@@ -6130,10 +6130,10 @@ describe("ProjectsView cockpit", () => {
     );
 
     await userEvent.click(await within(dialog).findByRole("button", { name: "Delete preset" }));
-    expect(deleteAgentProfile).not.toHaveBeenCalled();
+    expect(deleteAgentPreset).not.toHaveBeenCalled();
     expect(screen.getByText(/Other projects may also reference this global preset/i)).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "Delete agent preset" }));
-    expect(deleteAgentProfile).toHaveBeenCalledWith("implementation");
+    expect(deleteAgentPreset).toHaveBeenCalledWith("implementation");
   });
 
   it("edits and deletes assignments from the selected work item", async () => {

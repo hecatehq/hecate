@@ -6,7 +6,7 @@ import { useSettings } from "../../app/state/settings";
 import {
   ApiError,
   chooseWorkspaceDirectory,
-  createAgentProfile,
+  createAgentPreset,
   createProjectAssignment,
   createProjectCollaborationArtifact,
   createProjectHandoff,
@@ -27,7 +27,7 @@ import {
   deleteProjectWorkRole,
   deleteProjectWorkItem,
   getProjectActivity,
-  getAgentProfiles,
+  getAgentPresets,
   getProjectAssignments,
   getProjectCollaborationArtifacts,
   getProjectHandoffs,
@@ -42,11 +42,11 @@ import {
   getProjectWorkItems,
   getProjectWorkRoles,
   startProjectAssignment,
-  deleteAgentProfile,
+  deleteAgentPreset,
   promoteProjectMemoryCandidate,
   rejectProjectMemoryCandidate,
   updateProject,
-  updateAgentProfile,
+  updateAgentPreset,
   updateProjectContextSource,
   updateProjectRoot,
   updateProjectAssignment,
@@ -85,7 +85,7 @@ import {
   type ProjectWorkspaceTab,
   type WorkItemSummary,
 } from "./ProjectWorkspaceView";
-import { ProfilesModal } from "./ProfilesModal";
+import { AgentPresetsModal } from "./AgentPresetsModal";
 import { EditWorkItemModal, NewWorkItemModal } from "./ProjectWorkItemModals";
 import { RolesModal } from "./RolesModal";
 import { useProjectAssistantController } from "./useProjectAssistantController";
@@ -112,7 +112,7 @@ import type {
   UpdateProjectPayload,
   UpdateProjectSkillPayload,
 } from "../../types/project";
-import type { AgentProfileRecord } from "../../types/agent-profile";
+import type { AgentPresetRecord } from "../../types/agent-preset";
 import { ConfirmModal, Icon, Icons, InlineError, type ProviderOption } from "../shared/ui";
 import { ProjectSettingsPanel } from "./ProjectSettingsPanel";
 import { ProjectEvidenceLinkModal } from "./ProjectEvidenceLinkModal";
@@ -125,13 +125,13 @@ import {
   type ProjectDefaultsForm,
 } from "./projectSettings";
 import {
-  profileCreatePayloadFromForm,
-  profileUpdatePayloadFromForm,
+  presetCreatePayloadFromForm,
+  presetUpdatePayloadFromForm,
   projectSkillStatusRank,
   rolePayloadFromForm,
-  type AgentProfileForm,
+  type AgentPresetForm,
   type RoleForm,
-} from "./projectProfilesRoles";
+} from "./projectPresetsRoles";
 import { projectSourcePayloadFromForm, type ProjectSourceForm } from "./projectSources";
 import {
   assignmentCreatePayloadFromForm,
@@ -294,11 +294,11 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
   const [skillsError, setSkillsError] = useState("");
   const [discoveringSkills, setDiscoveringSkills] = useState(false);
   const [updatingSkillID, setUpdatingSkillID] = useState("");
-  const [agentProfiles, setAgentProfiles] = useState<AgentProfileRecord[]>([]);
-  const [agentProfilesError, setAgentProfilesError] = useState("");
-  const [profilesModalOpen, setProfilesModalOpen] = useState(false);
-  const [profilesPending, setProfilesPending] = useState(false);
-  const [profilesError, setProfilesError] = useState("");
+  const [agentPresets, setAgentPresets] = useState<AgentPresetRecord[]>([]);
+  const [agentPresetsError, setAgentPresetsError] = useState("");
+  const [presetsModalOpen, setAgentPresetsModalOpen] = useState(false);
+  const [presetsPending, setPresetsPending] = useState(false);
+  const [presetsError, setPresetsError] = useState("");
   const [discoveringContext, setDiscoveringContext] = useState(false);
   const [memoryLoadState, setMemoryLoadState] = useState<LoadState>("idle");
   const [memoryError, setMemoryError] = useState("");
@@ -360,25 +360,25 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     [loadProjectHealth, loadProjectSetupReadiness],
   );
 
-  const loadAgentProfiles = useCallback(async (cancelled?: () => boolean) => {
+  const loadAgentPresets = useCallback(async (cancelled?: () => boolean) => {
     try {
-      const payload = await getAgentProfiles();
+      const payload = await getAgentPresets();
       if (cancelled?.()) return;
-      setAgentProfiles(payload.data ?? []);
-      setAgentProfilesError("");
+      setAgentPresets(payload.data ?? []);
+      setAgentPresetsError("");
     } catch (error) {
       if (cancelled?.()) return;
-      setAgentProfilesError(errorMessage(error, "Failed to load agent presets."));
+      setAgentPresetsError(errorMessage(error, "Failed to load agent presets."));
     }
   }, []);
 
   useEffect(() => {
     let cancelled = false;
-    void loadAgentProfiles(() => cancelled);
+    void loadAgentPresets(() => cancelled);
     return () => {
       cancelled = true;
     };
-  }, [loadAgentProfiles]);
+  }, [loadAgentPresets]);
   const pendingDeleteProject =
     projects.state.projects.find((project) => project.id === deleteProjectID) ?? null;
   const roleByID = useMemo(() => new Map(roles.map((role) => [role.id, role])), [roles]);
@@ -709,7 +709,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     const patch: UpdateProjectPayload = {
       default_provider: form.provider.trim(),
       default_model: form.model.trim(),
-      default_agent_profile: form.defaultAgentProfile.trim(),
+      default_agent_profile: form.defaultAgentPreset.trim(),
       default_workspace_mode: form.workspaceMode.trim(),
       default_root_id: form.defaultRootID.trim(),
     };
@@ -864,55 +864,55 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
     }
   }
 
-  async function handleCreateAgentProfile(form: AgentProfileForm) {
+  async function handleCreateAgentPreset(form: AgentPresetForm) {
     const name = form.name.trim();
     if (!name) return undefined;
-    setProfilesPending(true);
-    setProfilesError("");
+    setPresetsPending(true);
+    setPresetsError("");
     try {
-      const payload = await createAgentProfile(profileCreatePayloadFromForm(form));
-      setAgentProfiles((current) => upsertAgentProfile(current, payload.data));
+      const payload = await createAgentPreset(presetCreatePayloadFromForm(form));
+      setAgentPresets((current) => upsertAgentPreset(current, payload.data));
       refreshProjectHealth(selectedProjectID);
       return payload.data;
     } catch (error) {
-      setProfilesError(errorMessage(error, "Failed to create agent preset."));
+      setPresetsError(errorMessage(error, "Failed to create agent preset."));
       return undefined;
     } finally {
-      setProfilesPending(false);
+      setPresetsPending(false);
     }
   }
 
-  async function handleUpdateAgentProfile(profileID: string, form: AgentProfileForm) {
+  async function handleUpdateAgentPreset(presetID: string, form: AgentPresetForm) {
     const name = form.name.trim();
     if (!name) return undefined;
-    setProfilesPending(true);
-    setProfilesError("");
+    setPresetsPending(true);
+    setPresetsError("");
     try {
-      const payload = await updateAgentProfile(profileID, profileUpdatePayloadFromForm(form));
-      setAgentProfiles((current) => upsertAgentProfile(current, payload.data));
+      const payload = await updateAgentPreset(presetID, presetUpdatePayloadFromForm(form));
+      setAgentPresets((current) => upsertAgentPreset(current, payload.data));
       refreshProjectHealth(selectedProjectID);
       return payload.data;
     } catch (error) {
-      setProfilesError(errorMessage(error, "Failed to update agent preset."));
+      setPresetsError(errorMessage(error, "Failed to update agent preset."));
       return undefined;
     } finally {
-      setProfilesPending(false);
+      setPresetsPending(false);
     }
   }
 
-  async function handleDeleteAgentProfile(profile: AgentProfileRecord) {
-    setProfilesPending(true);
-    setProfilesError("");
+  async function handleDeleteAgentPreset(preset: AgentPresetRecord) {
+    setPresetsPending(true);
+    setPresetsError("");
     try {
-      await deleteAgentProfile(profile.id);
-      setAgentProfiles((current) => current.filter((item) => item.id !== profile.id));
+      await deleteAgentPreset(preset.id);
+      setAgentPresets((current) => current.filter((item) => item.id !== preset.id));
       refreshProjectHealth(selectedProjectID);
       return true;
     } catch (error) {
-      setProfilesError(errorMessage(error, "Failed to delete agent preset."));
+      setPresetsError(errorMessage(error, "Failed to delete agent preset."));
       return false;
     } finally {
-      setProfilesPending(false);
+      setPresetsPending(false);
     }
   }
 
@@ -1668,9 +1668,9 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
           }}
           onAttentionError={setWorkError}
           onAttentionMemory={() => setWorkspaceTab("memory")}
-          onAttentionProfiles={() => {
-            setProfilesError("");
-            setProfilesModalOpen(true);
+          onAttentionPresets={() => {
+            setPresetsError("");
+            setAgentPresetsModalOpen(true);
           }}
           onAttentionReviewCandidate={setPromotingCandidate}
           onAttentionRoles={() => {
@@ -1689,9 +1689,9 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
             setDefaultsError("");
             setSettingsPanelOpen((open) => !open);
           }}
-          onManageProfiles={() => {
-            setProfilesError("");
-            setProfilesModalOpen(true);
+          onManagePresets={() => {
+            setPresetsError("");
+            setAgentPresetsModalOpen(true);
           }}
           onManageRoles={() => {
             setRolesError("");
@@ -1821,9 +1821,9 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
             }}
             onOpenChat={onOpenChat}
             onOpenConnections={onOpenConnections}
-            onManageProfiles={() => {
-              setProfilesError("");
-              setProfilesModalOpen(true);
+            onManagePresets={() => {
+              setPresetsError("");
+              setAgentPresetsModalOpen(true);
             }}
             onManageRoles={() => {
               setRolesError("");
@@ -1881,8 +1881,8 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
               onWidthChange={setRightPanelWidth}
             >
               <ProjectSettingsPanel
-                agentProfiles={agentProfiles}
-                agentProfilesError={agentProfilesError}
+                agentPresets={agentPresets}
+                agentPresetsError={agentPresetsError}
                 error={defaultsError}
                 models={providersAndModels.state.models}
                 pending={defaultsPending}
@@ -1903,7 +1903,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
 
         {selectedProject && rolesModalOpen && (
           <RolesModal
-            agentProfiles={agentProfiles}
+            agentPresets={agentPresets}
             error={rolesError}
             pending={rolesPending}
             projectSkills={projectSkills}
@@ -1915,18 +1915,18 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
           />
         )}
 
-        {selectedProject && profilesModalOpen && (
-          <ProfilesModal
-            error={profilesError}
-            pending={profilesPending}
-            profiles={agentProfiles}
+        {selectedProject && presetsModalOpen && (
+          <AgentPresetsModal
+            error={presetsError}
+            pending={presetsPending}
+            presets={agentPresets}
             project={selectedProject}
             projectSkills={projectSkills}
             roles={roles}
-            onClose={() => setProfilesModalOpen(false)}
-            onCreate={handleCreateAgentProfile}
-            onDelete={handleDeleteAgentProfile}
-            onUpdate={handleUpdateAgentProfile}
+            onClose={() => setAgentPresetsModalOpen(false)}
+            onCreate={handleCreateAgentPreset}
+            onDelete={handleDeleteAgentPreset}
+            onUpdate={handleUpdateAgentPreset}
           />
         )}
 
@@ -2326,14 +2326,14 @@ function ProjectHeader({
   onAttentionDefaults,
   onAttentionError,
   onAttentionMemory,
-  onAttentionProfiles,
+  onAttentionPresets,
   onAttentionReviewCandidate,
   onAttentionRoles,
   onAttentionSkills,
   onAttentionTask,
   onAttentionWorkItem,
   onEditDefaults,
-  onManageProfiles,
+  onManagePresets,
   onManageRoles,
   onRefresh,
 }: {
@@ -2347,14 +2347,14 @@ function ProjectHeader({
   onAttentionDefaults: () => void;
   onAttentionError?: (message: string) => void;
   onAttentionMemory: () => void;
-  onAttentionProfiles: () => void;
+  onAttentionPresets: () => void;
   onAttentionReviewCandidate: (candidate: ProjectMemoryCandidateRecord) => void;
   onAttentionRoles: () => void;
   onAttentionSkills: () => void;
   onAttentionTask?: (taskID: string, runID?: string) => void;
   onAttentionWorkItem: (workItemID: string) => void;
   onEditDefaults: () => void;
-  onManageProfiles: () => void;
+  onManagePresets: () => void;
   onManageRoles: () => void;
   onRefresh: () => void;
 }) {
@@ -2388,7 +2388,7 @@ function ProjectHeader({
             onAttentionDefaults={onAttentionDefaults}
             onAttentionError={onAttentionError}
             onAttentionMemory={onAttentionMemory}
-            onAttentionProfiles={onAttentionProfiles}
+            onAttentionPresets={onAttentionPresets}
             onAttentionReviewCandidate={onAttentionReviewCandidate}
             onAttentionRoles={onAttentionRoles}
             onAttentionSkills={onAttentionSkills}
@@ -2412,7 +2412,7 @@ function ProjectHeader({
             type="button"
             aria-label="Agent presets"
             title="Agent presets"
-            onClick={onManageProfiles}
+            onClick={onManagePresets}
             disabled={!project}
             style={projectHeaderActionButtonStyle}
           >
@@ -2463,7 +2463,7 @@ function upsertRole(items: ProjectWorkRoleRecord[], item: ProjectWorkRoleRecord)
   });
 }
 
-function upsertAgentProfile(items: AgentProfileRecord[], item: AgentProfileRecord) {
+function upsertAgentPreset(items: AgentPresetRecord[], item: AgentPresetRecord) {
   const index = items.findIndex((current) => current.id === item.id);
   const next = index === -1 ? [item, ...items] : items.slice();
   if (index !== -1) {

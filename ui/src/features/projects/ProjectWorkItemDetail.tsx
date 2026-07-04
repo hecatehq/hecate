@@ -75,7 +75,7 @@ type AssignmentLaunchReadinessNoticeRecord = {
 };
 
 type AssignmentLaunchRepairActions = {
-  onManageProfiles?: () => void;
+  onManagePresets?: () => void;
   onManageRoles?: () => void;
   onOpenConnections?: () => void;
   onOpenProjectSettings?: () => void;
@@ -119,7 +119,7 @@ export type ProjectWorkItemDetailProps = {
   onEditAssignment: (assignment: ProjectAssignmentRecord) => void;
   onEditHandoff: (handoff: ProjectHandoffRecord) => void;
   onEditWorkItem: (item: ProjectWorkItemRecord) => void;
-  onManageProfiles: () => void;
+  onManagePresets: () => void;
   onManageRoles: () => void;
   onOpenChat?: (request: ProjectAssignmentChatLaunchRequest) => void;
   onOpenConnections?: () => void;
@@ -168,7 +168,7 @@ export function ProjectWorkItemDetail({
   onEditAssignment,
   onEditHandoff,
   onEditWorkItem,
-  onManageProfiles,
+  onManagePresets,
   onManageRoles,
   onOpenChat,
   onOpenConnections,
@@ -377,7 +377,7 @@ export function ProjectWorkItemDetail({
                       }
                       project={project}
                       repairActions={{
-                        onManageProfiles,
+                        onManagePresets,
                         onManageRoles,
                         onOpenConnections,
                         onOpenProjectSettings: onOpenSettings,
@@ -533,7 +533,7 @@ export function ProjectWorkItemDetail({
                       onSetStatus={(status) => onSetHandoffStatus(handoff, status)}
                       onStart={() => onStartHandoff(handoff)}
                       repairActions={{
-                        onManageProfiles,
+                        onManagePresets,
                         onManageRoles,
                         onOpenConnections,
                         onOpenProjectSettings: onOpenSettings,
@@ -1437,7 +1437,7 @@ function AssignmentLaunchReadinessNotice({
       onClick: repairActions?.onOpenProjectSettings,
     },
     { key: "roles", label: "Manage roles", onClick: repairActions?.onManageRoles },
-    { key: "profiles", label: "Agent presets", onClick: repairActions?.onManageProfiles },
+    { key: "profiles", label: "Agent presets", onClick: repairActions?.onManagePresets },
     { key: "connections", label: "Open Connections", onClick: repairActions?.onOpenConnections },
   ].filter((action) => action.onClick);
   return (
@@ -1858,7 +1858,7 @@ function projectAssignmentLaunchDraft({
     role?.default_driver_kind,
     "hecate_task",
   );
-  const resolvedProfile = firstNonEmpty(role?.default_agent_profile, project.default_agent_profile);
+  const resolvedPreset = firstNonEmpty(role?.default_agent_profile, project.default_agent_profile);
   const lines = [
     "Launch context",
     "",
@@ -1890,7 +1890,7 @@ function projectAssignmentLaunchDraft({
     `- Driver: ${resolvedDriver}`,
     `- Provider: ${firstNonEmpty(provider, "auto")}`,
     `- Model: ${firstNonEmpty(model, "project/runtime default")}`,
-    `- Agent preset: ${firstNonEmpty(resolvedProfile, "none")}`,
+    `- Agent preset: ${firstNonEmpty(resolvedPreset, "none")}`,
     `- Role defaults: ${formatHintList([
       ["driver", role?.default_driver_kind],
       ["provider", role?.default_provider],
@@ -1957,9 +1957,9 @@ function assignmentLaunchPostureRows(
       value: `${firstNonEmpty(readiness.provider, "auto")} / ${firstNonEmpty(readiness.model, "auto")}`,
     });
   }
-  const profile = assignmentLaunchProfilePosture(readiness);
-  if (profile) {
-    rows.push({ label: "Preset", value: profile });
+  const preset = assignmentLaunchPresetPosture(readiness);
+  if (preset) {
+    rows.push({ label: "Preset", value: preset });
   }
   const capabilities = assignmentLaunchCapabilityPosture(readiness);
   if (capabilities) {
@@ -1995,14 +1995,14 @@ function assignmentLaunchDriverLabel(kind: string): string {
   }
 }
 
-function assignmentLaunchProfilePosture(readiness: ProjectAssignmentLaunchReadinessRecord): string {
+function assignmentLaunchPresetPosture(readiness: ProjectAssignmentLaunchReadinessRecord): string {
   const posture = readiness.profile_posture;
-  const profile = firstNonEmpty(
+  const preset = firstNonEmpty(
     readiness.execution_profile,
     labelWithID(posture?.name, posture?.id ?? ""),
   );
-  if (!profile) return "";
-  return posture?.missing ? `${profile} (preset missing)` : profile;
+  if (!preset) return "";
+  return posture?.missing ? `${preset} (preset missing)` : preset;
 }
 
 function assignmentLaunchCapabilityPosture(

@@ -1,49 +1,49 @@
 import { useState } from "react";
 
-import type { AgentProfileRecord } from "../../types/agent-profile";
+import type { AgentPresetRecord } from "../../types/agent-preset";
 import type { ProjectRecord, ProjectSkillRecord, ProjectWorkRoleRecord } from "../../types/project";
 import { ConfirmModal, Icon, Icons, InlineError, Modal } from "../shared/ui";
 import { ProjectSkillPicker } from "./ProjectSkillPicker";
 import {
-  emptyAgentProfileForm,
-  profileFormFromRecord,
-  profileReferenceSummary,
-  type AgentProfileForm,
-} from "./projectProfilesRoles";
+  emptyAgentPresetForm,
+  presetFormFromRecord,
+  presetReferenceSummary,
+  type AgentPresetForm,
+} from "./projectPresetsRoles";
 import {
-  profileRoleCheckboxLabelStyle,
-  profileRoleFieldLabelStyle,
-  profileRoleFieldStyle,
-  profileRoleSubtleTextStyle,
-} from "./projectProfileRoleStyles";
+  presetRoleCheckboxLabelStyle,
+  presetRoleFieldLabelStyle,
+  presetRoleFieldStyle,
+  presetRoleSubtleTextStyle,
+} from "./projectPresetRoleStyles";
 
-const AGENT_PROFILE_SURFACES = ["any", "hecate_chat", "hecate_task", "external_agent"];
-const AGENT_PROFILE_APPROVAL_POLICIES = ["inherit", "require", "block", "allow"];
-const AGENT_PROFILE_MEMORY_POLICIES = ["inherit", "include", "visible_only", "exclude"];
-const AGENT_PROFILE_CONTEXT_POLICIES = ["inherit", "include_enabled", "visible_only", "exclude"];
+const AGENT_PRESET_SURFACES = ["any", "hecate_chat", "hecate_task", "external_agent"];
+const AGENT_PRESET_APPROVAL_POLICIES = ["inherit", "require", "block", "allow"];
+const AGENT_PRESET_MEMORY_POLICIES = ["inherit", "include", "visible_only", "exclude"];
+const AGENT_PRESET_CONTEXT_POLICIES = ["inherit", "include_enabled", "visible_only", "exclude"];
 
-type ProfilesModalProps = {
+type AgentPresetsModalProps = {
   error: string;
   pending: boolean;
-  profiles: AgentProfileRecord[];
+  presets: AgentPresetRecord[];
   project: ProjectRecord;
   projectSkills: ProjectSkillRecord[];
   roles: ProjectWorkRoleRecord[];
   onClose: () => void;
   onCreate: (
-    form: AgentProfileForm,
-  ) => AgentProfileRecord | undefined | Promise<AgentProfileRecord | undefined>;
-  onDelete: (profile: AgentProfileRecord) => boolean | Promise<boolean>;
+    form: AgentPresetForm,
+  ) => AgentPresetRecord | undefined | Promise<AgentPresetRecord | undefined>;
+  onDelete: (preset: AgentPresetRecord) => boolean | Promise<boolean>;
   onUpdate: (
-    profileID: string,
-    form: AgentProfileForm,
-  ) => AgentProfileRecord | undefined | Promise<AgentProfileRecord | undefined>;
+    presetID: string,
+    form: AgentPresetForm,
+  ) => AgentPresetRecord | undefined | Promise<AgentPresetRecord | undefined>;
 };
 
-export function ProfilesModal({
+export function AgentPresetsModal({
   error,
   pending,
-  profiles,
+  presets,
   project,
   projectSkills,
   roles,
@@ -51,50 +51,50 @@ export function ProfilesModal({
   onCreate,
   onDelete,
   onUpdate,
-}: ProfilesModalProps) {
-  const [selectedProfileID, setSelectedProfileID] = useState(profiles[0]?.id ?? "new");
-  const selectedProfile = profiles.find((profile) => profile.id === selectedProfileID) ?? null;
-  const editingNew = selectedProfileID === "new";
-  const editingBuiltIn = Boolean(selectedProfile?.built_in);
-  const [deleteProfile, setDeleteProfile] = useState<AgentProfileRecord | null>(null);
-  const [form, setForm] = useState<AgentProfileForm>(() =>
-    selectedProfile ? profileFormFromRecord(selectedProfile) : emptyAgentProfileForm(),
+}: AgentPresetsModalProps) {
+  const [selectedPresetID, setSelectedPresetID] = useState(presets[0]?.id ?? "new");
+  const selectedPreset = presets.find((preset) => preset.id === selectedPresetID) ?? null;
+  const editingNew = selectedPresetID === "new";
+  const editingBuiltIn = Boolean(selectedPreset?.built_in);
+  const [deletePreset, setDeletePreset] = useState<AgentPresetRecord | null>(null);
+  const [form, setForm] = useState<AgentPresetForm>(() =>
+    selectedPreset ? presetFormFromRecord(selectedPreset) : emptyAgentPresetForm(),
   );
 
-  function selectProfile(profileID: string) {
-    setSelectedProfileID(profileID);
-    const profile = profiles.find((item) => item.id === profileID) ?? null;
-    setForm(profile ? profileFormFromRecord(profile) : emptyAgentProfileForm());
+  function selectPreset(presetID: string) {
+    setSelectedPresetID(presetID);
+    const preset = presets.find((item) => item.id === presetID) ?? null;
+    setForm(preset ? presetFormFromRecord(preset) : emptyAgentPresetForm());
   }
 
-  function selectProfileRecord(profile: AgentProfileRecord) {
-    setSelectedProfileID(profile.id);
-    setForm(profileFormFromRecord(profile));
+  function selectPresetRecord(preset: AgentPresetRecord) {
+    setSelectedPresetID(preset.id);
+    setForm(presetFormFromRecord(preset));
   }
 
   const canSave = !editingBuiltIn && form.name.trim().length > 0;
   const submit = async () => {
     if (!canSave) return;
     if (editingNew) {
-      const profile = await onCreate(form);
-      if (profile) selectProfileRecord(profile);
+      const preset = await onCreate(form);
+      if (preset) selectPresetRecord(preset);
       return;
     }
-    const profile = await onUpdate(selectedProfileID, form);
-    if (profile) selectProfileRecord(profile);
+    const preset = await onUpdate(selectedPresetID, form);
+    if (preset) selectPresetRecord(preset);
   };
 
-  async function deleteSelectedProfile(profile: AgentProfileRecord) {
-    const deleted = await onDelete(profile);
+  async function deleteSelectedPreset(preset: AgentPresetRecord) {
+    const deleted = await onDelete(preset);
     if (!deleted) return;
-    setDeleteProfile(null);
-    const nextProfile = profiles.find((item) => item.id !== profile.id) ?? null;
-    if (nextProfile) {
-      selectProfileRecord(nextProfile);
+    setDeletePreset(null);
+    const nextPreset = presets.find((item) => item.id !== preset.id) ?? null;
+    if (nextPreset) {
+      selectPresetRecord(nextPreset);
       return;
     }
-    setSelectedProfileID("new");
-    setForm(emptyAgentProfileForm());
+    setSelectedPresetID("new");
+    setForm(emptyAgentPresetForm());
   }
 
   return (
@@ -110,12 +110,12 @@ export function ProfilesModal({
                 Built-in preset
               </span>
             )}
-            {selectedProfile && !editingNew && !editingBuiltIn && (
+            {selectedPreset && !editingNew && !editingBuiltIn && (
               <button
                 className="btn btn-ghost"
                 type="button"
                 disabled={pending}
-                onClick={() => setDeleteProfile(selectedProfile)}
+                onClick={() => setDeletePreset(selectedPreset)}
                 style={{ color: "var(--red)" }}
               >
                 Delete preset
@@ -147,31 +147,29 @@ export function ProfilesModal({
           >
             <button
               className={
-                selectedProfileID === "new" ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"
+                selectedPresetID === "new" ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"
               }
               type="button"
-              onClick={() => selectProfile("new")}
+              onClick={() => selectPreset("new")}
               style={{ justifyContent: "flex-start" }}
             >
               <Icon d={Icons.plus} size={12} />
               New preset
             </button>
-            {profiles.map((profile) => (
+            {presets.map((preset) => (
               <button
-                key={profile.id}
+                key={preset.id}
                 className={
-                  selectedProfileID === profile.id
-                    ? "btn btn-primary btn-sm"
-                    : "btn btn-ghost btn-sm"
+                  selectedPresetID === preset.id ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"
                 }
                 type="button"
-                onClick={() => selectProfile(profile.id)}
+                onClick={() => selectPreset(preset.id)}
                 style={{ justifyContent: "flex-start", minWidth: 0 }}
               >
                 <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {profile.name || profile.id}
+                  {preset.name || preset.id}
                 </span>
-                {profile.built_in && <span className="badge badge-muted">built-in</span>}
+                {preset.built_in && <span className="badge badge-muted">built-in</span>}
               </button>
             ))}
           </div>
@@ -184,8 +182,8 @@ export function ProfilesModal({
           >
             {error && <InlineError message={error} />}
             <div style={{ display: "grid", gridTemplateColumns: "160px 1fr", gap: 10 }}>
-              <label style={profileRoleFieldStyle}>
-                <span style={profileRoleFieldLabelStyle}>Preset id</span>
+              <label style={presetRoleFieldStyle}>
+                <span style={presetRoleFieldLabelStyle}>Preset id</span>
                 <input
                   className="input"
                   value={form.id}
@@ -196,8 +194,8 @@ export function ProfilesModal({
                   }
                 />
               </label>
-              <label style={profileRoleFieldStyle}>
-                <span style={profileRoleFieldLabelStyle}>Name</span>
+              <label style={presetRoleFieldStyle}>
+                <span style={presetRoleFieldLabelStyle}>Name</span>
                 <input
                   className="input"
                   value={form.name}
@@ -209,8 +207,8 @@ export function ProfilesModal({
                 />
               </label>
             </div>
-            <label style={profileRoleFieldStyle}>
-              <span style={profileRoleFieldLabelStyle}>Description</span>
+            <label style={presetRoleFieldStyle}>
+              <span style={presetRoleFieldLabelStyle}>Description</span>
               <textarea
                 className="input"
                 value={form.description}
@@ -221,8 +219,8 @@ export function ProfilesModal({
                 }
               />
             </label>
-            <label style={profileRoleFieldStyle}>
-              <span style={profileRoleFieldLabelStyle}>Instructions</span>
+            <label style={presetRoleFieldStyle}>
+              <span style={presetRoleFieldLabelStyle}>Instructions</span>
               <textarea
                 className="input"
                 value={form.instructions}
@@ -234,8 +232,8 @@ export function ProfilesModal({
               />
             </label>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              <label style={profileRoleFieldStyle}>
-                <span style={profileRoleFieldLabelStyle}>Surface</span>
+              <label style={presetRoleFieldStyle}>
+                <span style={presetRoleFieldLabelStyle}>Surface</span>
                 <select
                   className="input"
                   value={form.surface}
@@ -244,15 +242,15 @@ export function ProfilesModal({
                     setForm((current) => ({ ...current, surface: event.target.value }))
                   }
                 >
-                  {AGENT_PROFILE_SURFACES.map((surface) => (
+                  {AGENT_PRESET_SURFACES.map((surface) => (
                     <option key={surface} value={surface}>
                       {surface}
                     </option>
                   ))}
                 </select>
               </label>
-              <label style={profileRoleFieldStyle}>
-                <span style={profileRoleFieldLabelStyle}>Runtime profile</span>
+              <label style={presetRoleFieldStyle}>
+                <span style={presetRoleFieldLabelStyle}>Runtime profile</span>
                 <input
                   className="input"
                   value={form.executionProfile}
@@ -263,8 +261,8 @@ export function ProfilesModal({
                   }
                 />
               </label>
-              <label style={profileRoleFieldStyle}>
-                <span style={profileRoleFieldLabelStyle}>Provider hint</span>
+              <label style={presetRoleFieldStyle}>
+                <span style={presetRoleFieldLabelStyle}>Provider hint</span>
                 <input
                   className="input"
                   value={form.providerHint}
@@ -275,8 +273,8 @@ export function ProfilesModal({
                   }
                 />
               </label>
-              <label style={profileRoleFieldStyle}>
-                <span style={profileRoleFieldLabelStyle}>Model hint</span>
+              <label style={presetRoleFieldStyle}>
+                <span style={presetRoleFieldLabelStyle}>Model hint</span>
                 <input
                   className="input"
                   value={form.modelHint}
@@ -289,7 +287,7 @@ export function ProfilesModal({
               </label>
             </div>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-              <label style={profileRoleCheckboxLabelStyle}>
+              <label style={presetRoleCheckboxLabelStyle}>
                 <input
                   type="checkbox"
                   checked={form.toolsEnabled}
@@ -300,7 +298,7 @@ export function ProfilesModal({
                 />
                 Tools enabled
               </label>
-              <label style={profileRoleCheckboxLabelStyle}>
+              <label style={presetRoleCheckboxLabelStyle}>
                 <input
                   type="checkbox"
                   checked={form.writesAllowed}
@@ -311,7 +309,7 @@ export function ProfilesModal({
                 />
                 Writes allowed
               </label>
-              <label style={profileRoleCheckboxLabelStyle}>
+              <label style={presetRoleCheckboxLabelStyle}>
                 <input
                   type="checkbox"
                   checked={form.networkAllowed}
@@ -324,8 +322,8 @@ export function ProfilesModal({
               </label>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              <label style={profileRoleFieldStyle}>
-                <span style={profileRoleFieldLabelStyle}>Approval policy</span>
+              <label style={presetRoleFieldStyle}>
+                <span style={presetRoleFieldLabelStyle}>Approval policy</span>
                 <select
                   className="input"
                   value={form.approvalPolicy}
@@ -334,15 +332,15 @@ export function ProfilesModal({
                     setForm((current) => ({ ...current, approvalPolicy: event.target.value }))
                   }
                 >
-                  {AGENT_PROFILE_APPROVAL_POLICIES.map((policy) => (
+                  {AGENT_PRESET_APPROVAL_POLICIES.map((policy) => (
                     <option key={policy} value={policy}>
                       {policy}
                     </option>
                   ))}
                 </select>
               </label>
-              <label style={profileRoleFieldStyle}>
-                <span style={profileRoleFieldLabelStyle}>Memory policy</span>
+              <label style={presetRoleFieldStyle}>
+                <span style={presetRoleFieldLabelStyle}>Memory policy</span>
                 <select
                   className="input"
                   value={form.projectMemoryPolicy}
@@ -351,15 +349,15 @@ export function ProfilesModal({
                     setForm((current) => ({ ...current, projectMemoryPolicy: event.target.value }))
                   }
                 >
-                  {AGENT_PROFILE_MEMORY_POLICIES.map((policy) => (
+                  {AGENT_PRESET_MEMORY_POLICIES.map((policy) => (
                     <option key={policy} value={policy}>
                       {policy}
                     </option>
                   ))}
                 </select>
               </label>
-              <label style={profileRoleFieldStyle}>
-                <span style={profileRoleFieldLabelStyle}>Context source policy</span>
+              <label style={presetRoleFieldStyle}>
+                <span style={presetRoleFieldLabelStyle}>Context source policy</span>
                 <select
                   className="input"
                   value={form.contextSourcePolicy}
@@ -368,15 +366,15 @@ export function ProfilesModal({
                     setForm((current) => ({ ...current, contextSourcePolicy: event.target.value }))
                   }
                 >
-                  {AGENT_PROFILE_CONTEXT_POLICIES.map((policy) => (
+                  {AGENT_PRESET_CONTEXT_POLICIES.map((policy) => (
                     <option key={policy} value={policy}>
                       {policy}
                     </option>
                   ))}
                 </select>
               </label>
-              <label style={profileRoleFieldStyle}>
-                <span style={profileRoleFieldLabelStyle}>External agent kind</span>
+              <label style={presetRoleFieldStyle}>
+                <span style={presetRoleFieldLabelStyle}>External agent kind</span>
                 <input
                   className="input"
                   value={form.externalAgentKind}
@@ -394,25 +392,25 @@ export function ProfilesModal({
               skills={projectSkills}
               value={form.skillIDs}
             />
-            <div style={profileRoleSubtleTextStyle}>
+            <div style={presetRoleSubtleTextStyle}>
               Presets set runtime posture and skill references. Skills do not grant tools, writes,
               network, or approvals.
             </div>
           </form>
         </div>
       </Modal>
-      {deleteProfile && (
+      {deletePreset && (
         <ConfirmModal
           title="Delete agent preset"
           danger
           pending={pending}
           confirmLabel="Delete agent preset"
-          onClose={() => setDeleteProfile(null)}
-          onConfirm={() => void deleteSelectedProfile(deleteProfile)}
+          onClose={() => setDeletePreset(null)}
+          onConfirm={() => void deleteSelectedPreset(deletePreset)}
           message={
             <>
-              Delete <strong>{deleteProfile.name || deleteProfile.id}</strong>.{" "}
-              {profileReferenceSummary(deleteProfile, project, roles)} Other projects may also
+              Delete <strong>{deletePreset.name || deletePreset.id}</strong>.{" "}
+              {presetReferenceSummary(deletePreset, project, roles)} Other projects may also
               reference this global preset.
             </>
           }

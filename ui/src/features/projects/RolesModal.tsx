@@ -1,18 +1,18 @@
 import { useState } from "react";
 
-import type { AgentProfileRecord } from "../../types/agent-profile";
+import type { AgentPresetRecord } from "../../types/agent-preset";
 import type { ProjectSkillRecord, ProjectWorkRoleRecord } from "../../types/project";
 import { Icon, Icons, InlineError, Modal } from "../shared/ui";
 import { ProjectSkillPicker } from "./ProjectSkillPicker";
-import { emptyRoleForm, roleFormFromRecord, type RoleForm } from "./projectProfilesRoles";
+import { emptyRoleForm, roleFormFromRecord, type RoleForm } from "./projectPresetsRoles";
 import {
-  profileRoleFieldLabelStyle,
-  profileRoleFieldStyle,
-  profileRoleSubtleTextStyle,
-} from "./projectProfileRoleStyles";
+  presetRoleFieldLabelStyle,
+  presetRoleFieldStyle,
+  presetRoleSubtleTextStyle,
+} from "./projectPresetRoleStyles";
 
 type RolesModalProps = {
-  agentProfiles: AgentProfileRecord[];
+  agentPresets: AgentPresetRecord[];
   error: string;
   pending: boolean;
   projectSkills: ProjectSkillRecord[];
@@ -29,7 +29,7 @@ type RolesModalProps = {
 };
 
 export function RolesModal({
-  agentProfiles,
+  agentPresets,
   error,
   pending,
   projectSkills,
@@ -161,13 +161,13 @@ export function RolesModal({
         >
           {error && <InlineError message={error} />}
           {editingBuiltIn && (
-            <div style={profileRoleSubtleTextStyle}>
+            <div style={presetRoleSubtleTextStyle}>
               Built-in roles are read-only. Create a custom role to override instructions or
               execution defaults for this project.
             </div>
           )}
-          <label style={profileRoleFieldStyle}>
-            <span style={profileRoleFieldLabelStyle}>Name</span>
+          <label style={presetRoleFieldStyle}>
+            <span style={presetRoleFieldLabelStyle}>Name</span>
             <input
               className="input"
               value={form.name}
@@ -176,8 +176,8 @@ export function RolesModal({
               autoFocus={editingNew}
             />
           </label>
-          <label style={profileRoleFieldStyle}>
-            <span style={profileRoleFieldLabelStyle}>Description</span>
+          <label style={presetRoleFieldStyle}>
+            <span style={presetRoleFieldLabelStyle}>Description</span>
             <textarea
               className="input"
               value={form.description}
@@ -188,8 +188,8 @@ export function RolesModal({
               }
             />
           </label>
-          <label style={profileRoleFieldStyle}>
-            <span style={profileRoleFieldLabelStyle}>Instructions</span>
+          <label style={presetRoleFieldStyle}>
+            <span style={presetRoleFieldLabelStyle}>Instructions</span>
             <textarea
               className="input"
               value={form.instructions}
@@ -201,8 +201,8 @@ export function RolesModal({
             />
           </label>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <label style={profileRoleFieldStyle}>
-              <span style={profileRoleFieldLabelStyle}>Default driver</span>
+            <label style={presetRoleFieldStyle}>
+              <span style={presetRoleFieldLabelStyle}>Default driver</span>
               <select
                 className="input"
                 value={form.defaultDriverKind}
@@ -216,29 +216,29 @@ export function RolesModal({
                 <option value="external_agent">external_agent</option>
               </select>
             </label>
-            <label style={profileRoleFieldStyle}>
-              <span style={profileRoleFieldLabelStyle}>Default preset</span>
+            <label style={presetRoleFieldStyle}>
+              <span style={presetRoleFieldLabelStyle}>Default preset</span>
               <select
                 className="input"
-                value={form.defaultAgentProfile}
+                value={form.defaultAgentPreset}
                 disabled={editingBuiltIn}
                 onChange={(event) =>
                   setForm((current) => ({
                     ...current,
-                    defaultAgentProfile: event.target.value,
+                    defaultAgentPreset: event.target.value,
                   }))
                 }
               >
                 <option value="">inherit project default</option>
-                {agentProfiles.map((profile) => (
-                  <option key={profile.id} value={profile.id}>
-                    {profile.name || profile.id} ({profile.id})
+                {agentPresets.map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.name || preset.id} ({preset.id})
                   </option>
                 ))}
               </select>
             </label>
-            <label style={profileRoleFieldStyle}>
-              <span style={profileRoleFieldLabelStyle}>Default provider</span>
+            <label style={presetRoleFieldStyle}>
+              <span style={presetRoleFieldLabelStyle}>Default provider</span>
               <input
                 className="input"
                 value={form.defaultProvider}
@@ -249,8 +249,8 @@ export function RolesModal({
                 }
               />
             </label>
-            <label style={profileRoleFieldStyle}>
-              <span style={profileRoleFieldLabelStyle}>Default model</span>
+            <label style={presetRoleFieldStyle}>
+              <span style={presetRoleFieldLabelStyle}>Default model</span>
               <input
                 className="input"
                 value={form.defaultModel}
@@ -268,7 +268,7 @@ export function RolesModal({
             skills={projectSkills}
             value={form.skillIDs}
           />
-          <div style={profileRoleSubtleTextStyle}>
+          <div style={presetRoleSubtleTextStyle}>
             Role defaults are execution hints. Assignments can still override the driver, and
             project defaults remain the fallback.
           </div>

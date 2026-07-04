@@ -21,11 +21,11 @@ import type {
   AgentAdapterResponse,
 } from "../types/agent-adapter";
 import type {
-  AgentProfileResponse,
-  AgentProfilesResponse,
-  CreateAgentProfilePayload,
-  UpdateAgentProfilePayload,
-} from "../types/agent-profile";
+  AgentPresetResponse,
+  AgentPresetsResponse,
+  CreateAgentPresetPayload,
+  UpdateAgentPresetPayload,
+} from "../types/agent-preset";
 import type {
   ChatApprovalRequestedEvent,
   ChatApprovalResolvedEvent,
@@ -900,30 +900,30 @@ export async function discoverProjectContextSources(projectID: string): Promise<
   );
 }
 
-export async function getAgentProfiles(): Promise<AgentProfilesResponse> {
-  return fetchJSON<AgentProfilesResponse>(`${HECATE_API}/agent-presets`);
+export async function getAgentPresets(): Promise<AgentPresetsResponse> {
+  return fetchJSON<AgentPresetsResponse>(`${HECATE_API}/agent-presets`);
 }
 
-export async function createAgentProfile(
-  payload: CreateAgentProfilePayload,
-): Promise<AgentProfileResponse> {
-  return fetchJSON<AgentProfileResponse>(`${HECATE_API}/agent-presets`, {
+export async function createAgentPreset(
+  payload: CreateAgentPresetPayload,
+): Promise<AgentPresetResponse> {
+  return fetchJSON<AgentPresetResponse>(`${HECATE_API}/agent-presets`, {
     method: "POST",
     body: payload,
   });
 }
 
-export async function updateAgentProfile(
+export async function updateAgentPreset(
   id: string,
-  payload: UpdateAgentProfilePayload,
-): Promise<AgentProfileResponse> {
-  return fetchJSON<AgentProfileResponse>(`${HECATE_API}/agent-presets/${encodeURIComponent(id)}`, {
+  payload: UpdateAgentPresetPayload,
+): Promise<AgentPresetResponse> {
+  return fetchJSON<AgentPresetResponse>(`${HECATE_API}/agent-presets/${encodeURIComponent(id)}`, {
     method: "PATCH",
     body: payload,
   });
 }
 
-export async function deleteAgentProfile(id: string): Promise<void> {
+export async function deleteAgentPreset(id: string): Promise<void> {
   return fetchJSON<void>(`${HECATE_API}/agent-presets/${encodeURIComponent(id)}`, {
     method: "DELETE",
   });
