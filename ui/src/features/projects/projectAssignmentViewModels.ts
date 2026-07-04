@@ -131,6 +131,24 @@ export function toProjectAssignmentEvidenceViewModel(
   pushEvidenceItem(items, "message", "Message", execution.messageID);
   pushEvidenceItem(items, "context", "Context snapshot", execution.contextSnapshotID);
   pushEvidenceItem(items, "trace", "Trace", execution.traceID);
+  if (activityItem?.linked_chat) {
+    pushEvidenceItem(
+      items,
+      "agent_implementation",
+      "Agent implementation",
+      [activityItem.linked_chat.agent_title, activityItem.linked_chat.agent_version]
+        .filter(Boolean)
+        .join(" "),
+    );
+    pushEvidenceItem(
+      items,
+      "available_commands",
+      "Commands",
+      typeof activityItem.linked_chat.available_command_count === "number"
+        ? String(activityItem.linked_chat.available_command_count)
+        : "",
+    );
+  }
   pushEvidenceItem(
     items,
     "provider_model",

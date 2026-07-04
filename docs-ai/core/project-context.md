@@ -78,6 +78,10 @@ When embedded replacement mode is armed, prefer that Cairnline runtime path even
 if a compatibility project-work store is configured, and keep task/run or
 chat-session refs in the runtime overlay instead of advancing the native
 assignment shadow.
+Use `just dev-cairnline-projects --reset` for a clean local runtime with the
+embedded Cairnline dogfood posture already applied, and `just
+test-projects-dogfood` for the focused API confidence check before returning to
+non-Projects work.
 Assignment launch/preflight context must read inspect-only collaboration
 artifact and handoff metadata from the active Cairnline read model before
 falling back to Hecate-native project-work rows.

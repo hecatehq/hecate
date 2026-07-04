@@ -1337,7 +1337,11 @@ func (h *Handler) startStrictEmbeddedCairnlineExternalAgentAssignment(ctx contex
 	session, err = h.agentChat.UpdateSession(ctx, session.ID, func(item *chat.Session) {
 		item.DriverKind = prepared.DriverKind
 		item.NativeSessionID = prepared.NativeSessionID
+		item.AgentInfo = prepared.AgentInfo
 		item.ConfigOptions = prepared.ConfigOptions
+		if prepared.AvailableCommandsKnown {
+			item.AvailableCommands = prepared.AvailableCommands
+		}
 	})
 	if err != nil {
 		h.cleanupStrictEmbeddedExternalAgentSession(session.ID)

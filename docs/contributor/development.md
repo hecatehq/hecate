@@ -94,6 +94,36 @@ The gateway and the operator UI are both served from `http://127.0.0.1:8765`. `j
 
 For iterative changes that don't touch the embed boundary, skip the binary build and run from source: `just run` is `go run` with quick defaults; `just dev` is the same but sources `.env` when present so provider keys are available.
 
+## Cairnline Projects dogfood
+
+Projects should not block runtime, chat, gateway, adapter, or observability
+work. When you need to verify the current Cairnline-backed Projects path, use
+the focused dogfood recipe instead of assembling the environment by hand:
+
+```bash
+just dev-cairnline-projects --reset
+```
+
+This starts the source runtime with embedded Cairnline as the explicit
+Projects coordination backend, embedded read source, all portable write
+authority enabled, and embedded replacement mode armed. Use `--reset` for a
+clean local dogfood store; omit it only when intentionally checking an existing
+`.data/` directory. Then open `http://127.0.0.1:8765`, create or inspect a
+project, and confirm **Settings → Project coordination** reports Cairnline as
+authoritative before trusting the run.
+
+For automated confidence before or after manual dogfood, run:
+
+```bash
+just test-projects-dogfood
+```
+
+That target exercises the native Projects journey, the embedded Cairnline
+replacement task journey, the External Agent assignment-preparation path,
+runtime-overlay closeout readiness, backend-status gates, and representative
+mirror parity. It is intentionally narrower than `just test-race`; run the
+race suite as usual for backend/runtime changes.
+
 ## UI hot reload
 
 For live UI iteration, run `just dev` (gateway on `:8765`) and the Vite dev server side by side:

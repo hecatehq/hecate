@@ -551,13 +551,14 @@ between direct model turns and new task-backed segments in one transcript.
 Project assignments can also prepare External Agent sessions. Starting a
 `driver_kind="external_agent"` assignment from Projects creates and prepares the
 linked External Agent chat session, records assignment/profile/workspace context,
-and stores the session link on the assignment. It does not append a visible chat
-message, create a `message_id`, or send the assignment prompt automatically; the
-operator stays in control of the first turn from the linked chat. Project
-assignment and activity rows project the linked chat's latest assistant-message
-status, session status, adapter identity, and missing-session diagnostics so the
-Projects cockpit can show follow-through state without embedding the full chat
-transcript. When the External Agent turn settles, Hecate also best-effort
+stores the ACP adapter metadata, advertised command list, and session link on
+the assignment-linked chat. It does not append a visible chat message, create a
+`message_id`, or send the assignment prompt automatically; the operator stays in
+control of the first turn from the linked chat. Project assignment and activity
+rows project the linked chat's latest assistant-message status, session status,
+adapter identity, and missing-session diagnostics so the Projects cockpit can
+show follow-through state without embedding the full chat transcript. When the
+External Agent turn settles, Hecate also best-effort
 reconciles the linked assignment row to the chat outcome, including the
 assistant `message_id` and terminal status. Handoffs created from these
 assignments can carry the source assignment, chat session, message, run, and

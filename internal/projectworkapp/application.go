@@ -786,7 +786,11 @@ func (app *Application) StartExternalAgentAssignment(ctx context.Context, cmd St
 	session, err = app.chatStore.UpdateSession(ctx, session.ID, func(item *chat.Session) {
 		item.DriverKind = prepared.DriverKind
 		item.NativeSessionID = prepared.NativeSessionID
+		item.AgentInfo = prepared.AgentInfo
 		item.ConfigOptions = prepared.ConfigOptions
+		if prepared.AvailableCommandsKnown {
+			item.AvailableCommands = prepared.AvailableCommands
+		}
 	})
 	if err != nil {
 		app.cleanupExternalSession(session.ID)

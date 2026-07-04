@@ -4102,7 +4102,20 @@ func TestProjectWorkAPI_StartExternalAgentAssignmentStrictEmbeddedReadModelLaunc
 			CairnlineReadSource: "embedded",
 		},
 	}, quietLogger(), nil, nil, nil, nil)
-	runner := &fakeAgentChatRunner{nativeSessionID: "native_embedded_external"}
+	runner := &fakeAgentChatRunner{
+		nativeSessionID: "native_embedded_external",
+		agentInfo: &agentcontrols.ImplementationInfo{
+			Name:    "codex-acp-adapter",
+			Title:   "Codex ACP Adapter",
+			Version: "0.1.0-test",
+		},
+		availableCommands: []agentcontrols.Command{{
+			Name:        "review",
+			Description: "Review current changes",
+			InputHint:   "scope",
+		}},
+		availableCommandsKnown: true,
+	}
 	handler.SetAgentChatRunner(runner)
 	// External Agent starts prepare chat sessions, so they should not require
 	// the native Hecate task runtime to be configured.
@@ -4213,6 +4226,12 @@ func TestProjectWorkAPI_StartExternalAgentAssignmentStrictEmbeddedReadModelLaunc
 	}
 	if session.ProjectID != projectID || session.AgentID != "codex" || session.NativeSessionID != "native_embedded_external" {
 		t.Fatalf("session = %+v, want prepared external agent session for Cairnline project", session)
+	}
+	if session.AgentInfo == nil || session.AgentInfo.Name != "codex-acp-adapter" || session.AgentInfo.Version != "0.1.0-test" {
+		t.Fatalf("session agent info = %#v, want prepared adapter metadata", session.AgentInfo)
+	}
+	if len(session.AvailableCommands) != 1 || session.AvailableCommands[0].Name != "review" || session.AvailableCommands[0].InputHint != "scope" {
+		t.Fatalf("session available commands = %#v, want prepared commands", session.AvailableCommands)
 	}
 	runtime, ok, err := handler.projectRuntime.Get(t.Context(), projectID, "asgn_embedded_external_start")
 	if err != nil || !ok {

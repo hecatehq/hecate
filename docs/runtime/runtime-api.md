@@ -5330,6 +5330,9 @@ enrich the Hecate cockpit projection. Text-only sidecar output is rejected.
             "id": "chat_...",
             "title": "Backend substrate - External implementer",
             "agent_id": "codex",
+            "agent_title": "Codex ACP Adapter",
+            "agent_version": "0.1.0-alpha.33",
+            "available_command_count": 3,
             "driver_kind": "acp",
             "native_session_id": "native_...",
             "status": "running",
@@ -5417,8 +5420,9 @@ summarized artifact is assignment-scoped; work-item-level artifacts omit it.
 `linked_chat` is present when an assignment points at a Chat or External Agent
 session. It is a compact activity projection, not a full chat transcript:
 clients use it for session status, last-message status/error,
-adapter/session identity, and missing linked-session diagnostics, then open the
-chat endpoint for full transcript state. When a handoff is created from an
+adapter/session identity, ACP implementation summary, advertised command count,
+and missing linked-session diagnostics, then open the chat endpoint for full
+transcript state. When a handoff is created from an
 assignment, clients may copy the assignment, run, chat, message, and context
 refs into the handoff source fields so later follow-up assignments preserve
 provenance without auto-dispatching work.

@@ -991,6 +991,9 @@ export type ProjectActivityLinkedChatRecord = {
   id: string;
   title?: string;
   agent_id?: string;
+  agent_title?: string;
+  agent_version?: string;
+  available_command_count?: number;
   driver_kind?: string;
   native_session_id?: string;
   status?: string;
