@@ -2087,6 +2087,38 @@ func TestProjectWorkAPI_RolesUseCairnlineSidecarWhenConfigured(t *testing.T) {
 	}
 }
 
+func TestProjectWorkAPI_RolesCairnlineSidecarOverlayNativeRuntimeDefaults(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "full")
+	if _, err := handler.projectWork.CreateRole(t.Context(), projectwork.AgentRoleProfile{
+		ID:                  "role_fixture",
+		ProjectID:           "proj_fixture",
+		Name:                "Fixture Reviewer",
+		DefaultProvider:     "anthropic",
+		DefaultModel:        "claude-sonnet-4",
+		DefaultAgentProfile: "role_fixture_preset",
+	}); err != nil {
+		t.Fatalf("Create native role runtime overlay: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/roles", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("roles status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response ProjectWorkRolesResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode roles response: %v", err)
+	}
+	role := findProjectWorkRoleForTest(t, response.Data, "role_fixture")
+	if role.ReadBackend != "cairnline" || role.DefaultProvider != "anthropic" || role.DefaultModel != "claude-sonnet-4" {
+		t.Fatalf("role = %+v, want sidecar role with native Hecate runtime overlay", role)
+	}
+	if role.DefaultAgentProfile != "profile_fixture" {
+		t.Fatalf("role preset = %q, want Cairnline preset hint to remain authoritative", role.DefaultAgentProfile)
+	}
+}
+
 func TestProjectWorkAPI_StrictEmbeddedReadModelReadsRolesWithoutHecateProject(t *testing.T) {
 	t.Parallel()
 	handler := NewHandler(config.Config{
@@ -3649,6 +3681,39 @@ func TestProjectWorkAPI_PreflightAssignmentUsesCairnlineSidecarLaunchPacketWhenC
 	if len(tasks) != 0 {
 		t.Fatalf("tasks = %+v, want no task created by sidecar preflight", tasks)
 	}
+}
+
+func TestProjectWorkAPI_PreflightAssignmentCairnlineSidecarOverlaysNativeRuntimeDefaults(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "full+temp-root")
+	if _, err := handler.projects.Create(t.Context(), projects.Project{
+		ID:                  "proj_fixture",
+		Name:                "Fixture Project",
+		DefaultProvider:     "openai",
+		DefaultModel:        "gpt-5",
+		DefaultAgentProfile: "project_fixture",
+	}); err != nil {
+		t.Fatalf("Create native project runtime overlay: %v", err)
+	}
+	if _, err := handler.projectWork.CreateRole(t.Context(), projectwork.AgentRoleProfile{
+		ID:                  "role_fixture",
+		ProjectID:           "proj_fixture",
+		Name:                "Fixture Reviewer",
+		DefaultProvider:     "anthropic",
+		DefaultModel:        "claude-sonnet-4",
+		DefaultAgentProfile: "role_fixture_preset",
+	}); err != nil {
+		t.Fatalf("Create native role runtime overlay: %v", err)
+	}
+
+	preflight := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/assignments/asg_fixture/preflight", "")
+	if preflight.Data.ExecutionMode != chat.ExecutionModeHecateTask || preflight.Data.Provider != "anthropic" || preflight.Data.Model != "claude-sonnet-4" {
+		t.Fatalf("sidecar preflight launch shape = %q/%q/%q, want Hecate runtime overlay", preflight.Data.ExecutionMode, preflight.Data.Provider, preflight.Data.Model)
+	}
+	if preflight.Data.ExecutionProfile != "profile_fixture" {
+		t.Fatalf("sidecar preflight execution_profile = %q, want Cairnline preset hint", preflight.Data.ExecutionProfile)
+	}
+	assertCairnlineSidecarLaunchPacketEvidenceForTest(t, preflight.Data)
 }
 
 func TestProjectWorkAPI_PreflightAssignmentStrictEmbeddedReadModelReadsWithoutHecateProject(t *testing.T) {
@@ -8274,6 +8339,38 @@ func assertCairnlineLaunchPacketEvidenceForTest(t *testing.T, packet ChatContext
 	} {
 		if item.Metadata[key] != want {
 			t.Fatalf("Cairnline launch packet metadata[%q] = %q, want %q in %+v", key, item.Metadata[key], want, item.Metadata)
+		}
+	}
+}
+
+func assertCairnlineSidecarLaunchPacketEvidenceForTest(t *testing.T, packet ChatContextPacketItem) {
+	t.Helper()
+	item := findRenderedContextItemByKind(packet, "cairnline_launch_packet")
+	if item == nil || item.Section != contextSectionRuntime || item.Included {
+		t.Fatalf("Cairnline sidecar launch packet item = %+v, want inspect-only runtime evidence", item)
+	}
+	for _, want := range []string{
+		"Ready: true",
+		"Assignment: asg_fixture",
+		"Execution mode: mcp_pull",
+		"Agent preset: profile_fixture",
+		"Runtime profile: exec_fixture",
+	} {
+		if !strings.Contains(item.Body, want) {
+			t.Fatalf("Cairnline sidecar launch packet body = %q, want %q", item.Body, want)
+		}
+	}
+	for key, want := range map[string]string{
+		"read_backend":   "cairnline",
+		"ready":          "true",
+		"project_id":     "proj_fixture",
+		"work_item_id":   "work_fixture",
+		"assignment_id":  "asg_fixture",
+		"role_id":        "role_fixture",
+		"execution_mode": "mcp_pull",
+	} {
+		if item.Metadata[key] != want {
+			t.Fatalf("Cairnline sidecar launch packet metadata[%q] = %q, want %q in %+v", key, item.Metadata[key], want, item.Metadata)
 		}
 	}
 }

@@ -353,9 +353,12 @@ launch agents. Those remain explicit operator or orchestrator actions.
   MCP client. Assignment-context reads consume typed sidecar
   `assignments.context` data. Launch-readiness and assignment preflight consume
   typed sidecar `assignments.launch_packet` data before applying Hecate runtime
-  validation. Other live Projects reads, writes, mirrors, and write-authority
-  switchpoints do not route through the sidecar yet; write-authority
-  switchpoints require `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded`.
+  validation. When matching Hecate-native project or role runtime rows exist,
+  those sidecar reads overlay the local Hecate provider/model/tool/workspace
+  posture before validation; Cairnline runtime hint ids stay opaque. Other live
+  Projects reads, writes, mirrors, and write-authority switchpoints do not route
+  through the sidecar yet; write-authority switchpoints require
+  `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded`.
 - Current Hecate embed experiments can serve project list/detail, setup
   readiness, health, skills, memory, memory candidates, roles, work items,
   assignment lists, assignment context, launch-readiness, assignment preflight,

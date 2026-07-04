@@ -465,7 +465,10 @@ remain Hecate-owned because write-authority switchpoints require
 Assignment-context reads use typed sidecar `assignments.context` data.
 Launch-readiness and assignment preflight use the typed sidecar
 `assignments.launch_packet` response as their coordination input, then apply
-Hecate runtime validation; assignment start/prepare remains Hecate-owned.
+Hecate runtime validation. If matching Hecate-native project or role runtime
+rows exist, Hecate overlays their local provider/model/tool/workspace posture
+before validating or rendering readiness; assignment start/prepare remains
+Hecate-owned.
 Work-item list/detail, assignment-list,
 artifact-list, handoff-list, activity, closeout-readiness, and operations brief
 reads render the work graph from Cairnline service records and overlay

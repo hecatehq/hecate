@@ -66,7 +66,12 @@ func (h *Handler) renderCairnlineSidecarProjects(ctx context.Context) ([]Project
 	}
 	data := make([]ProjectResponseItem, 0, len(projects))
 	for _, project := range projects {
-		data = append(data, renderProjectFromCairnlineSidecar(project))
+		converted := projectFromCairnlineSidecar(project)
+		converted, err = h.projectWithHecateRuntimeOverlay(ctx, converted)
+		if err != nil {
+			return nil, err
+		}
+		data = append(data, renderProjectWithBackend(converted, "cairnline"))
 	}
 	return data, nil
 }
@@ -79,7 +84,12 @@ func (h *Handler) renderCairnlineSidecarProject(ctx context.Context, projectID s
 	if !ok {
 		return nil, nil
 	}
-	rendered := renderProjectFromCairnlineSidecar(project)
+	converted := projectFromCairnlineSidecar(project)
+	converted, err = h.projectWithHecateRuntimeOverlay(ctx, converted)
+	if err != nil {
+		return nil, err
+	}
+	rendered := renderProjectWithBackend(converted, "cairnline")
 	return &rendered, nil
 }
 
@@ -235,11 +245,6 @@ func (h *Handler) cairnlineSidecarAssignmentContext(ctx context.Context, project
 		return cairnline.AssignmentContext{}, false, projectCairnlineSidecarReadFailure("assignments.context did not return typed structuredContent")
 	}
 	return packet, true, nil
-}
-
-func renderProjectFromCairnlineSidecar(project ProjectCairnlineSidecarProjectItem) ProjectResponseItem {
-	converted := projectFromCairnlineSidecar(project)
-	return renderProjectWithBackend(converted, "cairnline")
 }
 
 func projectFromCairnlineSidecar(project ProjectCairnlineSidecarProjectItem) projects.Project {

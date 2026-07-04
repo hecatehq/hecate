@@ -77,7 +77,11 @@ func (h *Handler) renderCairnlineSidecarProjectActivity(ctx context.Context, pro
 			projectedAssignments[assignment.ID] = assignment
 		}
 	}
-	rolesByID := projectWorkRolesByID(projectRolesFromCairnlineSidecar(roleItems))
+	roles, err := h.projectRolesWithHecateRuntimeOverlay(ctx, projectRolesFromCairnlineSidecar(roleItems))
+	if err != nil {
+		return ProjectActivityDataResponse{}, err
+	}
+	rolesByID := projectWorkRolesByID(roles)
 	linkedChats := h.projectActivityLinkedChats(ctx, project.ID, assignments)
 	artifactsByAssignment, artifactsByWorkItem := groupProjectActivityArtifacts(projectArtifactsFromCairnlineSidecar(artifactItems, evidenceItems, reviewItems))
 	handoffsByAssignment, handoffsByWorkItem := groupProjectActivityHandoffs(projectHandoffsFromCairnlineSidecar(handoffItems))

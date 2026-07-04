@@ -152,8 +152,12 @@ func (h *Handler) renderCairnlineSidecarProjectWorkRoles(ctx context.Context, pr
 	if err != nil {
 		return nil, err
 	}
+	convertedRoles, err := h.projectRolesWithHecateRuntimeOverlay(ctx, projectRolesFromCairnlineSidecar(roles))
+	if err != nil {
+		return nil, err
+	}
 	data := make([]ProjectWorkRoleResponse, 0, len(roles))
-	for _, role := range projectRolesFromCairnlineSidecar(roles) {
+	for _, role := range convertedRoles {
 		projected := renderProjectWorkRole(role)
 		projected.ReadBackend = "cairnline"
 		data = append(data, projected)

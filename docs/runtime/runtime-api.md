@@ -6073,8 +6073,11 @@ endpoint validates the work item through typed `work_items.list` and reads
 assignments through typed `assignments.list` on the standalone Cairnline MCP
 client. Assignment context reads typed `assignments.context` sidecar data.
 Launch-readiness and assignment preflight read typed `assignments.launch_packet`
-sidecar data before applying Hecate runtime validation. Start/prepare and
-status mutation routes remain Hecate-owned.
+sidecar data before applying Hecate runtime validation. If matching
+Hecate-native project or role runtime rows exist, Hecate overlays their
+provider/model/tool/workspace settings onto the portable Cairnline coordination
+records before validation; Cairnline runtime hint ids remain opaque metadata.
+Start/prepare and status mutation routes remain Hecate-owned.
 
 #### `POST /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments`
 

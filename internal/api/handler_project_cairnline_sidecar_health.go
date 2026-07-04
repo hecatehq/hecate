@@ -17,6 +17,10 @@ func (h *Handler) renderCairnlineSidecarProjectHealth(ctx context.Context, proje
 		return ProjectHealthResponse{}, projects.ErrNotFound
 	}
 	project := projectFromCairnlineSidecar(projectItem)
+	project, err = h.projectWithHecateRuntimeOverlay(ctx, project)
+	if err != nil {
+		return ProjectHealthResponse{}, err
+	}
 	activity, err := h.renderCairnlineSidecarProjectActivity(ctx, project.ID)
 	if err != nil {
 		return ProjectHealthResponse{}, err
@@ -71,11 +75,15 @@ func (h *Handler) renderCairnlineSidecarProjectHealth(ctx context.Context, proje
 	convertedMemoryCandidates := projectMemoryCandidatesFromCairnlineSidecar(memoryCandidates)
 	staleAssignments := projectHealthStaleAssignments(project, activity, convertedWorkItems, convertedAssignments, now)
 	summary := projectHealthSummary(project, convertedMemoryEntries, convertedMemoryCandidates, convertedHandoffs, convertedArtifacts, staleAssignments)
+	convertedRoles, err := h.projectRolesWithHecateRuntimeOverlay(ctx, projectRolesFromCairnlineSidecar(roles))
+	if err != nil {
+		return ProjectHealthResponse{}, err
+	}
 	attention := projectHealthAttentionItems(
 		project,
 		activity,
 		convertedWorkItems,
-		projectRolesFromCairnlineSidecar(roles),
+		convertedRoles,
 		convertedHandoffs,
 		convertedArtifacts,
 		convertedMemoryEntries,

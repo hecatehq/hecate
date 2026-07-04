@@ -17,6 +17,10 @@ func (h *Handler) renderCairnlineSidecarProjectSetupReadiness(ctx context.Contex
 		return ProjectSetupReadinessResponse{}, projects.ErrNotFound
 	}
 	project := projectFromCairnlineSidecar(projectItem)
+	project, err = h.projectWithHecateRuntimeOverlay(ctx, project)
+	if err != nil {
+		return ProjectSetupReadinessResponse{}, err
+	}
 	roles, err := h.cairnlineSidecarProjectRoles(ctx, project.ID)
 	if err != nil {
 		return ProjectSetupReadinessResponse{}, err
@@ -38,10 +42,14 @@ func (h *Handler) renderCairnlineSidecarProjectSetupReadiness(ctx context.Contex
 		return ProjectSetupReadinessResponse{}, err
 	}
 
+	convertedRoles, err := h.projectRolesWithHecateRuntimeOverlay(ctx, projectRolesFromCairnlineSidecar(roles))
+	if err != nil {
+		return ProjectSetupReadinessResponse{}, err
+	}
 	summary := projectSetupReadinessSummary(
 		project,
 		projectWorkItemsFromCairnlineSidecar(workItems),
-		projectRolesFromCairnlineSidecar(roles),
+		convertedRoles,
 		projectSkillsFromCairnlineSidecar(skills),
 		projectMemoryEntriesFromCairnlineSidecar(entries),
 		projectMemoryCandidatesFromCairnlineSidecar(candidates),

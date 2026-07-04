@@ -40,6 +40,10 @@ func (h *Handler) sidecarCairnlineProjectSummary(ctx context.Context, projectID 
 		return nil, true
 	}
 	project := projectFromCairnlineSidecar(item)
+	project, err = h.projectWithHecateRuntimeOverlay(ctx, project)
+	if err != nil {
+		return nil, true
+	}
 	return &project, true
 }
 
@@ -65,7 +69,11 @@ func (h *Handler) sidecarCairnlineProjectChatRoles(ctx context.Context, projectI
 	if err != nil {
 		return nil, true
 	}
-	return projectRolesFromCairnlineSidecar(roles), true
+	out, err := h.projectRolesWithHecateRuntimeOverlay(ctx, projectRolesFromCairnlineSidecar(roles))
+	if err != nil {
+		return nil, true
+	}
+	return out, true
 }
 
 func (h *Handler) strictEmbeddedCairnlineProjectChatRoles(ctx context.Context, projectID string) ([]projectwork.AgentRoleProfile, bool) {
@@ -82,8 +90,9 @@ func (h *Handler) strictEmbeddedCairnlineProjectChatRoles(ctx context.Context, p
 		return nil, true
 	}
 	out := make([]projectwork.AgentRoleProfile, 0, len(roles))
+	nativeByID := projectWorkRolesByID(view.snapshot.Roles)
 	for _, role := range roles {
-		out = append(out, projectWorkRoleFromCairnline(role, projectwork.AgentRoleProfile{}))
+		out = append(out, projectWorkRoleFromCairnline(role, nativeByID[role.ID]))
 	}
 	return out, true
 }
