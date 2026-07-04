@@ -161,8 +161,8 @@ func ReplaceProjectContextSources(ctx context.Context, service *cairnline.Servic
 	return updated, nil
 }
 
-// DeleteProject removes the portable project record. Execution-profile ids on
-// Cairnline records are opaque host hints, not separately mirrored resources.
+// DeleteProject removes the portable project record. Hecate runtime presets and
+// execution-profile ids are Hecate-owned and are not Cairnline resources.
 func DeleteProject(ctx context.Context, service *cairnline.Service, project projects.Project) error {
 	if service == nil {
 		return errors.Join(ErrSourceNotConfigured, errors.New("cairnline service is required"))
