@@ -145,6 +145,10 @@ func (h *Handler) cairnlineSidecarProjectAssistantContextSeed(ctx context.Contex
 		return seed, projectassistant.ErrNotFound
 	}
 	project := projectFromCairnlineSidecar(projectItem)
+	project, err = h.projectWithHecateRuntimeOverlay(ctx, project)
+	if err != nil {
+		return seed, err
+	}
 	if project.ID != requestedProjectID {
 		return seed, projectassistant.ErrNotFound
 	}
@@ -212,7 +216,11 @@ func (h *Handler) seedCairnlineSidecarProjectAssistantWork(ctx context.Context, 
 	if err != nil {
 		return err
 	}
-	for _, role := range projectRolesFromCairnlineSidecar(roleItems) {
+	roles, err := h.projectRolesWithHecateRuntimeOverlay(ctx, projectRolesFromCairnlineSidecar(roleItems))
+	if err != nil {
+		return err
+	}
+	for _, role := range roles {
 		if projectwork.IsBuiltInRoleID(role.ID) {
 			continue
 		}

@@ -490,6 +490,10 @@ func (h *Handler) cairnlineSidecarProjectAssignmentLaunchInputs(ctx context.Cont
 		return projectAssignmentLaunchInputs{}, newProjectAssignmentPreflightError(http.StatusNotFound, errCodeNotFound, "assignment not found")
 	}
 	nativeProject := projectFromCairnlineSidecar(projectItem)
+	nativeProject, err = h.projectWithHecateRuntimeOverlay(ctx, nativeProject)
+	if err != nil {
+		return projectAssignmentLaunchInputs{}, err
+	}
 	project := projectFromCairnline(launch.Project, nativeProject)
 	if len(project.Roots) == 0 {
 		project.Roots = nativeProject.Roots
@@ -500,6 +504,10 @@ func (h *Handler) cairnlineSidecarProjectAssignmentLaunchInputs(ctx context.Cont
 	workItem := projectWorkItemFromCairnline(launch.WorkItem)
 	assignment := projectWorkAssignmentFromCairnline(launch.Assignment)
 	role, roleOK := cairnlineSidecarLaunchRole(launch)
+	role, err = h.projectRoleWithHecateRuntimeOverlay(ctx, role)
+	if err != nil {
+		return projectAssignmentLaunchInputs{}, err
+	}
 	return projectAssignmentLaunchInputs{
 		Project:               project,
 		WorkItem:              workItem,

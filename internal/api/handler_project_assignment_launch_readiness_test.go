@@ -207,6 +207,38 @@ func TestProjectWorkAPI_AssignmentLaunchReadinessUsesCairnlineSidecarWhenConfigu
 	}
 }
 
+func TestProjectWorkAPI_AssignmentLaunchReadinessCairnlineSidecarOverlaysNativeRuntimeDefaults(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "full+temp-root")
+	if _, err := handler.projects.Create(t.Context(), projects.Project{
+		ID:                  "proj_fixture",
+		Name:                "Fixture Project",
+		DefaultProvider:     "openai",
+		DefaultModel:        "gpt-5",
+		DefaultAgentProfile: "project_fixture",
+	}); err != nil {
+		t.Fatalf("Create native project runtime overlay: %v", err)
+	}
+	if _, err := handler.projectWork.CreateRole(t.Context(), projectwork.AgentRoleProfile{
+		ID:                  "role_fixture",
+		ProjectID:           "proj_fixture",
+		Name:                "Fixture Reviewer",
+		DefaultProvider:     "anthropic",
+		DefaultModel:        "claude-sonnet-4",
+		DefaultAgentProfile: "role_fixture_preset",
+	}); err != nil {
+		t.Fatalf("Create native role runtime overlay: %v", err)
+	}
+
+	readiness := mustRequestJSON[ProjectAssignmentLaunchReadinessEnvelope](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/assignments/asg_fixture/launch-readiness", "")
+	if readiness.Data.ReadBackend != "cairnline" || !readiness.Data.Ready || readiness.Data.Status != projectAssignmentLaunchReadinessStatusReady {
+		t.Fatalf("readiness = %+v, want ready sidecar projection with Hecate runtime overlay", readiness.Data)
+	}
+	if readiness.Data.Provider != "anthropic" || readiness.Data.Model != "claude-sonnet-4" || readiness.Data.ExecutionProfile != "profile_fixture" {
+		t.Fatalf("launch hints = provider/model/profile %q/%q/%q, want role runtime overlay plus Cairnline preset hint", readiness.Data.Provider, readiness.Data.Model, readiness.Data.ExecutionProfile)
+	}
+}
+
 func TestProjectWorkAPI_AssignmentLaunchReadinessCairnlineSidecarRequiresStructuredLaunchPacket(t *testing.T) {
 	t.Parallel()
 	_, server := newProjectsCairnlineSidecarReadTestServer(t, "assignments.launch_packet-text-only")
