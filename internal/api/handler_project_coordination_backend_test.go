@@ -1194,6 +1194,37 @@ func TestProjectCoordinationBackendStatus_CairnlineEmbeddedReplacementModeArmed(
 	}
 }
 
+func TestProjectCoordinationBackendStatus_EmbeddedReplacementModeWithoutStateUsesLiveStatusProbe(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			Backend:                  "sqlite",
+			CoordinationBackend:      "cairnline",
+			CairnlineConnector:       "embedded",
+			CairnlineReadSource:      "embedded",
+			CairnlineReplacementMode: "embedded",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+
+	status := handler.projectCoordinationBackendStatusWithContext(t.Context())
+	gate := findReplacementGate(status.ReplacementGates, "strict-embedded-read-smoke")
+	if gate == nil || gate.Ready || gate.Status != "not_run" {
+		t.Fatalf("strict embedded gate = %+v, want missing live replacement state", gate)
+	}
+	if !containsString(gate.ProbeURLs, projectCoordinationBackendStatusURL) || containsString(gate.ProbeURLs, projectCoordinationBackendSyncReadinessURL) || containsString(gate.ProbeURLs, projectCoordinationBackendMirrorParityURL) {
+		t.Fatalf("strict embedded gate probes = %+v, want live backend-status probe without Hecate mirror sync/parity", gate.ProbeURLs)
+	}
+	if status.MigrationRehearsal == nil || status.MigrationRehearsal.Operation != "embedded_replacement_smoke" || status.MigrationRehearsal.Authoritative {
+		t.Fatalf("migration rehearsal = %+v, want embedded replacement smoke evidence for missing live state", status.MigrationRehearsal)
+	}
+	if status.NextReplacementAction == nil || status.NextReplacementAction.ID != "run-strict-embedded-read-smoke" || !containsString(status.NextReplacementAction.ProbeURLs, projectCoordinationBackendStatusURL) {
+		t.Fatalf("next action = %+v, want live backend-status smoke action", status.NextReplacementAction)
+	}
+	if containsString(status.NextReplacementAction.ProbeURLs, projectCoordinationBackendMirrorParityURL) {
+		t.Fatalf("next action probes = %+v, want no Hecate mirror-parity probe after replacement mode is armed", status.NextReplacementAction.ProbeURLs)
+	}
+}
+
 func TestProjectCoordinationBackendStatus_WriteAuthorityGateUsesPortableGaps(t *testing.T) {
 	gate := projectCairnlineWriteAuthorityReplacementGate(nil)
 	if !gate.Ready || gate.Status != "ready" || !strings.Contains(gate.Detail, "orchestrator capabilities") {

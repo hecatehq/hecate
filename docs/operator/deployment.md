@@ -747,7 +747,10 @@ backend status includes that env var as a copyable next-action config hint.
 Once replacement mode is
 armed, `run-strict-embedded-read-smoke` points at backend status itself because
 the proof is live embedded Cairnline state, not a Hecate-store mirror-parity
-rehearsal. That status cutover does not
+rehearsal. On a newly reset replacement-mode runtime, that proof remains
+`not_run` until the embedded Cairnline database has live portable project state
+to inspect; create or import a project, then refresh backend status. That status
+cutover does not
 move Hecate-owned runtime/workspace capabilities such as assignment dispatch or
 Project Assistant apply side effects into Cairnline core. `GET
 /hecate/v1/projects/cairnline/mirror-parity` compares the existing embedded
