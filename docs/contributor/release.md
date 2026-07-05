@@ -268,6 +268,20 @@ For Tauri-side failures, the `.dmg` / `.deb` / `.AppImage` / `.msi` may be
 partially uploaded. `tauri-action` uploads with `--clobber`, so a retag
 re-uploads cleanly without manual cleanup.
 
+If the macOS leg fails during Apple notarization with HTTP 403 and wording like
+"a required agreement is missing or has expired", the repository state is not
+the root cause. An Apple Developer account holder must accept the current
+agreements in Apple Developer/App Store Connect, then the same version can be
+retagged. When GitHub has already created a pre-release entry, clean it up with:
+
+```bash
+gh release delete vX.Y.Z --cleanup-tag --yes
+git tag -d vX.Y.Z 2>/dev/null || true
+```
+
+Leave the version stamp commit on `master` when retrying the same version; the
+release script will detect the files are already stamped.
+
 ## Image build
 
 The published image is built by goreleaser in CI using `Dockerfile.release`.
