@@ -147,6 +147,13 @@ dev-cairnline-projects *args: _go-cache
 test-projects-dogfood: _go-cache
 	{{go_env}} go test ./internal/api -run 'TestProjectJourneyAPI_(DiscoverStartInspectAndHandoff|CairnlineReplacementModeStartsTaskWithRuntimeDefaultsOverlay|CairnlineReplacementModeStartsExternalAgentWithoutAdvancingNativeShadow|CairnlineReplacementCloseoutReadinessUsesRuntimeOverlay)$|TestProjectCoordinationBackendStatus_(DefaultHecateAuthoritative|EnableDogfoodHintsEmbeddedReadSourceFromSidecar|CairnlineAllPortableWriteAuthorityAliasConfigured|CairnlineEmbeddedReplacementModeArmed|EmbeddedReplacementModeReportsCairnlineAuthoritativeAfterVerifiedCutover)$|TestProjectCairnlineMirrorParityAPI_MatchesRepresentativeLiveProjectJourney$'
 
+# Run the focused API tests that exercise standalone Cairnline sidecar reads,
+# launch-packet projection, MCP resource access, and opt-in sidecar smoke
+# contracts without making sidecar mode Hecate's authoritative Projects backend.
+# Run focused Cairnline sidecar interoperability tests.
+test-projects-sidecar: _go-cache
+	{{go_env}} go test ./internal/api -run 'Sidecar'
+
 # Run the gateway from source with external-agent adapter visuals forced to a
 # known state. This is visual-only: it changes discovery/probe readiness
 # surfaces but does not create fake adapter processes or make chat sends

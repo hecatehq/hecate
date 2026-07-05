@@ -28,6 +28,10 @@
 # from CI; the meaningful badge targets remain checked separately.
 ^https://img\.shields\.io/
 
+# Go Report Card intermittently refuses CI runner connections for both the
+# badge and report pages; the README badge is informational.
+^https://goreportcard\.com/
+
 # Documentation example placeholders, not real endpoints.
 ^https://api\.example\.com
 ^https://example\.com
