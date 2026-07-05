@@ -4,7 +4,7 @@ import type {
 } from "../../types/project";
 import {
   projectCoordinationConfigAssignment,
-  projectCoordinationConfigBlock,
+  projectCoordinationNextActionConfigBlock,
 } from "../../lib/project-coordination-backend";
 import { Badge, CopyBtn, Icon, Icons, InlineError } from "../shared/ui";
 import { SettingsSectionHeader as SectionHeader } from "./SettingsSectionHeader";
@@ -471,6 +471,7 @@ function ProjectBackendNextAction({
 }) {
   const probes = projectBackendProbes(action.probes, action.probe_urls);
   const configHints = action.config_hints ?? [];
+  const configBlock = projectCoordinationNextActionConfigBlock(action);
   return (
     <div
       style={{
@@ -508,19 +509,22 @@ function ProjectBackendNextAction({
       <div style={{ color: "var(--t0)", fontSize: 13, fontWeight: 650 }}>{action.label}</div>
       <div style={{ color: "var(--t2)", fontSize: 12, lineHeight: 1.45 }}>{action.detail}</div>
       {probes.length > 0 && <ProjectBackendProbeList probes={probes} checklist />}
-      {configHints.length > 0 && <ProjectBackendConfigHints hints={configHints} />}
+      {configHints.length > 0 && (
+        <ProjectBackendConfigHints configBlock={configBlock} hints={configHints} />
+      )}
     </div>
   );
 }
 
 function ProjectBackendConfigHints({
+  configBlock,
   hints,
 }: {
+  configBlock: string;
   hints: NonNullable<
     NonNullable<ProjectCoordinationBackendStatusRecord["next_replacement_action"]>["config_hints"]
   >;
 }) {
-  const configBlock = projectCoordinationConfigBlock(hints);
   return (
     <div style={{ display: "grid", gap: 4 }}>
       <div

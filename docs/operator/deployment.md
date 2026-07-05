@@ -677,7 +677,9 @@ parsing warning prose. The next action keeps the blocker list separate from the
 recommended dogfood order, so metadata-only context-source and skill authority
 can be suggested before broader project identity cutover. Write-authority
 `config_hints` preserve already-enabled switchpoints in the suggested env value,
-so operators can copy the whole value without dropping prior dogfood authority.
+and `config_block` joins the hints into a newline-delimited env block so
+operators can copy all required settings without dropping prior dogfood
+authority.
 Gates and next actions include method-aware `probes` alongside compatibility
 `probe_urls`, so Settings can turn the next action into an ordered, copyable
 probe checklist and distinguish POST smoke/rehearsal routes from GET read

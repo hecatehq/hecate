@@ -605,6 +605,7 @@ type ProjectCoordinationBackendNextAction struct {
 	Detail      string                                       `json:"detail"`
 	Target      string                                       `json:"target,omitempty"`
 	ConfigHints []ProjectCoordinationBackendActionConfigHint `json:"config_hints,omitempty"`
+	ConfigBlock string                                       `json:"config_block,omitempty"`
 	Probes      []ProjectCoordinationBackendProbe            `json:"probes,omitempty"`
 	ProbeURLs   []string                                     `json:"probe_urls,omitempty"`
 }

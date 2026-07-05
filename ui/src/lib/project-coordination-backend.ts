@@ -11,3 +11,9 @@ export function projectCoordinationConfigBlock(
 ): string {
   return (hints ?? []).map(projectCoordinationConfigAssignment).filter(Boolean).join("\n");
 }
+
+export function projectCoordinationNextActionConfigBlock(
+  action: ProjectCoordinationBackendNextActionRecord,
+): string {
+  return action.config_block?.trim() || projectCoordinationConfigBlock(action.config_hints);
+}
