@@ -158,11 +158,17 @@ dev-cairnline-sidecar-projects *args: _go-cache
 	set -a; \
 	[ -f ./.env ] && . ./.env; \
 	set +a; \
-	sidecar_cmd="${HECATE_PROJECTS_CAIRNLINE_SIDECAR_COMMAND:-cairnline}"; \
+	configured_sidecar_cmd="${HECATE_PROJECTS_CAIRNLINE_SIDECAR_COMMAND:-}"; \
+	sidecar_cmd="${configured_sidecar_cmd:-cairnline}"; \
 	if ! command -v "$sidecar_cmd" >/dev/null 2>&1; then \
-	  echo "cairnline sidecar command not found: $sidecar_cmd"; \
-	  echo "Install Cairnline from https://github.com/hecatehq/cairnline/releases or set HECATE_PROJECTS_CAIRNLINE_SIDECAR_COMMAND."; \
-	  exit 1; \
+	  if [ -z "$configured_sidecar_cmd" ] && [ -d ../cairnline/cmd/cairnline ]; then \
+	    just build-cairnline-sidecar; \
+	    sidecar_cmd="$PWD/.data/cairnline/bin/cairnline-dev"; \
+	  else \
+	    echo "cairnline sidecar command not found: $sidecar_cmd"; \
+	    echo "Install Cairnline from https://github.com/hecatehq/cairnline/releases or set HECATE_PROJECTS_CAIRNLINE_SIDECAR_COMMAND."; \
+	    exit 1; \
+	  fi; \
 	fi; \
 	if ! "$sidecar_cmd" -version; then \
 	  echo "could not read Cairnline sidecar version from: $sidecar_cmd"; \
@@ -179,6 +185,27 @@ dev-cairnline-sidecar-projects *args: _go-cache
 	HECATE_PROJECTS_CAIRNLINE_SIDECAR_COMMAND="$sidecar_cmd" \
 	HECATE_PROJECTS_CAIRNLINE_SIDECAR_DB="$sidecar_db" \
 	{{go_env}} go run ./cmd/hecate serve
+
+# Build the sibling Cairnline repository into Hecate's local .data tree for
+# sidecar dogfood. This is a contributor convenience for the multi-repo
+# workspace; release binaries or HECATE_PROJECTS_CAIRNLINE_SIDECAR_COMMAND still
+# remain the explicit operator path.
+# Build local Cairnline sidecar binary from ../cairnline.
+build-cairnline-sidecar: _go-cache
+	if [ ! -d ../cairnline/cmd/cairnline ]; then \
+	  echo "sibling Cairnline repo not found at ../cairnline"; \
+	  echo "Install Cairnline from https://github.com/hecatehq/cairnline/releases or set HECATE_PROJECTS_CAIRNLINE_SIDECAR_COMMAND."; \
+	  exit 1; \
+	fi; \
+	out="$PWD/.data/cairnline/bin/cairnline-dev"; \
+	cache="$PWD/.gocache"; \
+	mkdir -p "$(dirname "$out")"; \
+	echo "building sibling Cairnline sidecar: $out"; \
+	if ! (cd ../cairnline && GOCACHE="$cache" go build -o "$out" ./cmd/cairnline); then \
+	  echo "failed to build sibling Cairnline sidecar from ../cairnline"; \
+	  exit 1; \
+	fi; \
+	"$out" -version
 
 # Run the focused API tests that prove Projects can be dogfooded through the
 # Hecate-native flow and the embedded Cairnline replacement flow.
