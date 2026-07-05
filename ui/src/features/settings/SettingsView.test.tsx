@@ -327,6 +327,47 @@ describe("SettingsView", () => {
     expect(screen.getByText("/hecate/v1/projects/backend-status")).toBeTruthy();
   });
 
+  it("labels sidecar probe as a contract check", async () => {
+    vi.mocked(getProjectCoordinationBackendStatus).mockResolvedValue({
+      object: "project_coordination_backend_status",
+      data: {
+        configured_backend: "hecate",
+        authoritative_backend: "hecate",
+        storage_backend: "sqlite",
+        cairnline_connector: "sidecar",
+        cairnline_connector_ready: false,
+        cairnline_bridge_ready: true,
+        cairnline_authoritative: false,
+        read_model_switch_ready: false,
+        write_adapter_ready: false,
+        replacement_ready: false,
+        replacement_mode: "disabled",
+        replacement_mode_armed: false,
+        status: "hecate_authoritative",
+        detail: "Hecate-native project stores are authoritative.",
+        next_replacement_action: {
+          id: "probe-sidecar",
+          label: "Probe standalone sidecar",
+          detail: "Check the standalone Cairnline MCP contract.",
+          target: "sidecar",
+          probes: [
+            {
+              method: "POST",
+              url: "/hecate/v1/projects/cairnline/sidecar-probe",
+            },
+          ],
+        },
+      },
+    });
+    const { state, actions } = setup();
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
+
+    expect(await screen.findByText("Probe standalone sidecar")).toBeTruthy();
+    expect(screen.getByText("Probe sidecar contract")).toBeTruthy();
+    expect(screen.getByText(/expected tools and resource templates/i)).toBeTruthy();
+    expect(screen.getByText("/hecate/v1/projects/cairnline/sidecar-probe")).toBeTruthy();
+  });
+
   it("shows strict embedded smoke probe routes in the next project backend action", async () => {
     vi.mocked(getProjectCoordinationBackendStatus).mockResolvedValue({
       object: "project_coordination_backend_status",

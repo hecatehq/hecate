@@ -755,8 +755,9 @@ function projectBackendProbePlan(url: string, method: string): { label: string; 
   }
   if (url.includes("/sidecar-probe")) {
     return {
-      label: "Probe sidecar tools",
-      detail: "Confirm the standalone Cairnline MCP server exposes the expected tools.",
+      label: "Probe sidecar contract",
+      detail:
+        "Confirm the standalone Cairnline MCP server exposes the expected tools and resource templates.",
     };
   }
   if (url.includes("/sidecar-")) {
