@@ -145,10 +145,12 @@ just dev-cairnline-sidecar-projects --reset
 This starts Hecate with `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar` and
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar`, using
 `.data/cairnline/sidecar/projects.db` unless `.env` overrides
-`HECATE_PROJECTS_CAIRNLINE_SIDECAR_DB`. It is an MCP interoperability/dev
-surface: Hecate still keeps authoritative Projects writes on the native or
-embedded replacement path, and sidecar mode should not be treated as the final
-Cairnline cutover.
+`HECATE_PROJECTS_CAIRNLINE_SIDECAR_DB`. The recipe prints the detected
+Cairnline version before launch, so binaries that do not support the version
+probe fail before Hecate starts. It is an MCP interoperability/dev surface:
+Hecate still keeps authoritative Projects writes on the native or embedded
+replacement path, and sidecar mode should not be treated as the final Cairnline
+cutover.
 
 ## UI hot reload
 
