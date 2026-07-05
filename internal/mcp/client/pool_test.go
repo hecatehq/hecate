@@ -32,6 +32,10 @@ func newPoolHarness(t *testing.T, serverTools map[string][]mcp.Tool, callHandler
 }
 
 func newPoolHarnessWithResources(t *testing.T, serverTools map[string][]mcp.Tool, callHandlers map[string]map[string]func(json.RawMessage) (mcp.CallToolResult, *mcp.RPCError), resources map[string]map[string]mcp.ResourceContents) *poolHarness {
+	return newPoolHarnessWithResourceTemplates(t, serverTools, callHandlers, resources, nil)
+}
+
+func newPoolHarnessWithResourceTemplates(t *testing.T, serverTools map[string][]mcp.Tool, callHandlers map[string]map[string]func(json.RawMessage) (mcp.CallToolResult, *mcp.RPCError), resources map[string]map[string]mcp.ResourceContents, resourceTemplates map[string][]mcp.ResourceTemplate) *poolHarness {
 	t.Helper()
 	h := &poolHarness{t: t}
 	pool := &Pool{
@@ -82,6 +86,10 @@ func newPoolHarnessWithResources(t *testing.T, serverTools map[string][]mcp.Tool
 				return nil, mcp.NewError(mcp.ErrCodeInvalidParams, "unknown resource: "+params.URI)
 			}
 			return mcp.ReadResourceResult{Contents: []mcp.ResourceContents{content}}, nil
+		})
+		templatesForServer := append([]mcp.ResourceTemplate(nil), resourceTemplates[name]...)
+		server.handle("resources/templates/list", func(req mcp.Request) (any, *mcp.RPCError) {
+			return mcp.ListResourceTemplatesResult{ResourceTemplates: templatesForServer}, nil
 		})
 		server.start()
 		h.stops = append(h.stops, server.stop)
@@ -229,6 +237,46 @@ func TestPool_TwoServersDistinctTools(t *testing.T) {
 	}
 	if !strings.Contains(text, "issue #1") {
 		t.Errorf("create_issue text = %q, want contains 'issue #1'", text)
+	}
+}
+
+func TestPool_ListResourceTemplates(t *testing.T) {
+	t.Parallel()
+	h := newPoolHarnessWithResourceTemplates(t,
+		map[string][]mcp.Tool{
+			"cairnline": {{Name: "projects.list", InputSchema: json.RawMessage(`{"type":"object"}`)}},
+		},
+		map[string]map[string]func(json.RawMessage) (mcp.CallToolResult, *mcp.RPCError){
+			"cairnline": {
+				"projects.list": func(args json.RawMessage) (mcp.CallToolResult, *mcp.RPCError) {
+					return mcp.CallToolResult{Content: mcp.TextContent("[]")}, nil
+				},
+			},
+		},
+		nil,
+		map[string][]mcp.ResourceTemplate{
+			"cairnline": {
+				{URITemplate: "cairnline://projects/{project_id}/work-items/{work_item_id}", Name: "work_item"},
+				{URITemplate: "cairnline://projects/{project_id}", Name: "project"},
+			},
+		},
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	templates, err := h.pool.ListResourceTemplates(ctx, "cairnline")
+	if err != nil {
+		t.Fatalf("ListResourceTemplates: %v", err)
+	}
+	if len(templates) != 2 {
+		t.Fatalf("templates = %+v, want 2", templates)
+	}
+	if templates[0].URITemplate != "cairnline://projects/{project_id}" || templates[1].URITemplate != "cairnline://projects/{project_id}/work-items/{work_item_id}" {
+		t.Fatalf("templates = %+v, want sorted Cairnline templates", templates)
+	}
+	if _, err := h.pool.ListResourceTemplates(ctx, "missing"); err == nil {
+		t.Fatal("ListResourceTemplates(missing) error = nil, want error")
 	}
 }
 

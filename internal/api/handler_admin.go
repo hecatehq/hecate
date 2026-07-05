@@ -12,6 +12,7 @@ import (
 
 	"github.com/hecatehq/hecate/internal/gateway"
 	"github.com/hecatehq/hecate/internal/governor"
+	"github.com/hecatehq/hecate/internal/mcp"
 	mcpclient "github.com/hecatehq/hecate/internal/mcp/client"
 	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/retention"
@@ -341,6 +342,20 @@ func renderMCPProbeTools(tools []mcpclient.NamespacedTool) []MCPProbeToolDescrip
 			UIResourceURI: t.UIResourceURI,
 			UIVisibility:  append([]string(nil), t.UIVisibility...),
 			ModelVisible:  t.ModelVisible,
+		})
+	}
+	return out
+}
+
+func renderMCPProbeResourceTemplates(templates []mcp.ResourceTemplate) []MCPProbeResourceTemplateDescriptor {
+	out := make([]MCPProbeResourceTemplateDescriptor, 0, len(templates))
+	for _, t := range templates {
+		out = append(out, MCPProbeResourceTemplateDescriptor{
+			URITemplate: t.URITemplate,
+			Name:        t.Name,
+			Title:       t.Title,
+			Description: t.Description,
+			MIMEType:    t.MIMEType,
 		})
 	}
 	return out

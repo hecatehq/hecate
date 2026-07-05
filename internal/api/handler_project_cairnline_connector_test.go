@@ -107,14 +107,23 @@ func TestProjectCairnlineSidecarProbe_Ready(t *testing.T) {
 	if got.ToolCount != len(projectCairnlineSidecarRequiredTools) {
 		t.Fatalf("tool count = %d, want %d", got.ToolCount, len(projectCairnlineSidecarRequiredTools))
 	}
+	if got.ResourceTemplateCount != len(projectCairnlineSidecarRequiredResourceTemplates) {
+		t.Fatalf("resource template count = %d, want %d", got.ResourceTemplateCount, len(projectCairnlineSidecarRequiredResourceTemplates))
+	}
 	if len(got.MissingTools) != 0 {
 		t.Fatalf("missing tools = %+v, want none", got.MissingTools)
+	}
+	if len(got.MissingResourceTemplates) != 0 || got.ResourceTemplateError != "" {
+		t.Fatalf("missing resource templates = %+v error=%q, want none", got.MissingResourceTemplates, got.ResourceTemplateError)
 	}
 	assertSidecarLiveReadDetail(t, got.Detail)
 	for _, name := range []string{"projects.update", "roots.create", "context_sources.update", "skills.update", "assignments.create", "memory_entries.create", "assistant.apply", "memory_candidates.delete"} {
 		if !containsString(got.RequiredTools, name) {
 			t.Fatalf("required tools = %+v, want %q", got.RequiredTools, name)
 		}
+	}
+	if !containsString(got.RequiredResourceTemplates, "cairnline://projects/{project_id}/assignments/{assignment_id}/launch-packet") {
+		t.Fatalf("required resource templates = %+v, want launch packet template", got.RequiredResourceTemplates)
 	}
 	if got.Command != os.Args[0] || len(got.Args) != 1 {
 		t.Fatalf("probe config = command %q args %+v, want fixture command", got.Command, got.Args)
@@ -143,6 +152,48 @@ func TestProjectCairnlineSidecarProbe_MissingRequiredTools(t *testing.T) {
 	}
 }
 
+func TestProjectCairnlineSidecarProbe_MissingRequiredResourceTemplates(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "missing-resource-template"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+
+	got := handler.projectCairnlineSidecarProbe(t.Context())
+	if got.Ready || got.Status != "sidecar_contract_incomplete" {
+		t.Fatalf("probe = %+v, want incomplete contract", got)
+	}
+	if !containsString(got.MissingResourceTemplates, "cairnline://projects/{project_id}/assignments/{assignment_id}/launch-packet") ||
+		!containsString(got.MissingResourceTemplates, "cairnline://projects/{project_id}/memory-candidates/{memory_candidate_id}") {
+		t.Fatalf("missing resource templates = %+v, want representative missing templates", got.MissingResourceTemplates)
+	}
+	if got.ResourceTemplateError != "" {
+		t.Fatalf("resource template error = %q, want empty", got.ResourceTemplateError)
+	}
+}
+
+func TestProjectCairnlineSidecarProbe_ResourceTemplateListError(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "resource-template-error"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+
+	got := handler.projectCairnlineSidecarProbe(t.Context())
+	if got.Ready || got.Status != "sidecar_contract_incomplete" {
+		t.Fatalf("probe = %+v, want incomplete contract", got)
+	}
+	if got.ResourceTemplateError == "" {
+		t.Fatalf("resource template error = empty, want resources/templates/list error")
+	}
+}
+
 func TestProjectCairnlineSidecarConnect_ReadyUsesPersistentClientCache(t *testing.T) {
 	handler := NewHandler(config.Config{
 		Projects: config.ProjectsConfig{
@@ -166,6 +217,9 @@ func TestProjectCairnlineSidecarConnect_ReadyUsesPersistentClientCache(t *testin
 	}
 	if got.ToolCount != len(projectCairnlineSidecarRequiredTools) || len(got.MissingTools) != 0 {
 		t.Fatalf("tool count=%d missing=%+v, want full contract", got.ToolCount, got.MissingTools)
+	}
+	if got.ResourceTemplateCount != len(projectCairnlineSidecarRequiredResourceTemplates) || len(got.MissingResourceTemplates) != 0 {
+		t.Fatalf("resource template count=%d missing=%+v, want full contract", got.ResourceTemplateCount, got.MissingResourceTemplates)
 	}
 	assertSidecarLiveReadDetail(t, got.Detail)
 	for _, name := range []string{"projects.activity", "skills.discover", "work_items.closeout_readiness", "artifacts.create", "handoffs.update_status", "memory_candidates.promote"} {

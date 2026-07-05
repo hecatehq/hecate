@@ -1701,6 +1701,14 @@ type MCPProbeToolDescriptor struct {
 	ModelVisible  bool            `json:"model_visible"`
 }
 
+type MCPProbeResourceTemplateDescriptor struct {
+	URITemplate string `json:"uri_template"`
+	Name        string `json:"name"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	MIMEType    string `json:"mime_type,omitempty"`
+}
+
 type ProjectCairnlineSidecarProbeEnvelope struct {
 	Object string                               `json:"object"`
 	Data   ProjectCairnlineSidecarProbeResponse `json:"data"`
@@ -1832,23 +1840,28 @@ type ProjectCairnlineSidecarAssistantRequest struct {
 }
 
 type ProjectCairnlineSidecarProbeResponse struct {
-	Ready                 bool                     `json:"ready"`
-	Status                string                   `json:"status"`
-	Detail                string                   `json:"detail"`
-	Command               string                   `json:"command"`
-	Args                  []string                 `json:"args,omitempty"`
-	DatabasePath          string                   `json:"database_path,omitempty"`
-	ProbeTimeoutMS        int64                    `json:"probe_timeout_ms"`
-	PersistentClient      bool                     `json:"persistent_client,omitempty"`
-	ClientCacheConfigured bool                     `json:"client_cache_configured,omitempty"`
-	ClientCacheEntries    int                      `json:"client_cache_entries,omitempty"`
-	ClientCacheInUse      int                      `json:"client_cache_in_use,omitempty"`
-	ClientCacheIdle       int                      `json:"client_cache_idle,omitempty"`
-	ToolCount             int                      `json:"tool_count"`
-	RequiredTools         []string                 `json:"required_tools"`
-	MissingTools          []string                 `json:"missing_tools,omitempty"`
-	Tools                 []MCPProbeToolDescriptor `json:"tools,omitempty"`
-	Warnings              []string                 `json:"warnings,omitempty"`
+	Ready                     bool                                 `json:"ready"`
+	Status                    string                               `json:"status"`
+	Detail                    string                               `json:"detail"`
+	Command                   string                               `json:"command"`
+	Args                      []string                             `json:"args,omitempty"`
+	DatabasePath              string                               `json:"database_path,omitempty"`
+	ProbeTimeoutMS            int64                                `json:"probe_timeout_ms"`
+	PersistentClient          bool                                 `json:"persistent_client,omitempty"`
+	ClientCacheConfigured     bool                                 `json:"client_cache_configured,omitempty"`
+	ClientCacheEntries        int                                  `json:"client_cache_entries,omitempty"`
+	ClientCacheInUse          int                                  `json:"client_cache_in_use,omitempty"`
+	ClientCacheIdle           int                                  `json:"client_cache_idle,omitempty"`
+	ToolCount                 int                                  `json:"tool_count"`
+	RequiredTools             []string                             `json:"required_tools"`
+	MissingTools              []string                             `json:"missing_tools,omitempty"`
+	Tools                     []MCPProbeToolDescriptor             `json:"tools,omitempty"`
+	ResourceTemplateCount     int                                  `json:"resource_template_count"`
+	RequiredResourceTemplates []string                             `json:"required_resource_templates"`
+	MissingResourceTemplates  []string                             `json:"missing_resource_templates,omitempty"`
+	ResourceTemplateError     string                               `json:"resource_template_error,omitempty"`
+	ResourceTemplates         []MCPProbeResourceTemplateDescriptor `json:"resource_templates,omitempty"`
+	Warnings                  []string                             `json:"warnings,omitempty"`
 }
 
 type ProjectCairnlineSidecarReadResponse struct {

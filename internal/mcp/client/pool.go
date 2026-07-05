@@ -461,6 +461,31 @@ func (p *Pool) AllTools() []NamespacedTool {
 	return out
 }
 
+// ListResourceTemplates asks one connected upstream for its URI templates.
+// Pool startup intentionally snapshots only tools; resource templates are
+// operator diagnostics, so callers fetch them on demand from the live client.
+func (p *Pool) ListResourceTemplates(ctx context.Context, serverName string) ([]mcp.ResourceTemplate, error) {
+	serverName = strings.TrimSpace(serverName)
+	p.mu.Lock()
+	pc := p.clients[serverName]
+	cache := p.cache
+	p.mu.Unlock()
+	if pc == nil {
+		return nil, fmt.Errorf("mcp pool: server %q is not connected", serverName)
+	}
+	templates, err := pc.client.ListResourceTemplates(ctx)
+	if err != nil {
+		if cache != nil && IsTransportClosedErr(err) {
+			cache.Evict(pc.cfg)
+		}
+		return nil, err
+	}
+	out := make([]mcp.ResourceTemplate, len(templates))
+	copy(out, templates)
+	sort.Slice(out, func(i, j int) bool { return out[i].URITemplate < out[j].URITemplate })
+	return out, nil
+}
+
 // Call dispatches a namespaced tool call. Returns:
 //   - text: the concatenated text content from the upstream
 //     CallToolResult (one block per line). MCP allows non-text

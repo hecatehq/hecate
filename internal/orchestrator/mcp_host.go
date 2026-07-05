@@ -267,9 +267,11 @@ func NewAgentMCPClientCache(opts AgentMCPClientCacheOptions) *mcpclient.SharedCl
 // catalog with un-namespaced names (the operator-chosen alias does
 // the namespacing at task-spawn time).
 type MCPProbeResult struct {
-	ServerName    string
-	ServerVersion string
-	Tools         []mcpclient.NamespacedTool
+	ServerName            string
+	ServerVersion         string
+	Tools                 []mcpclient.NamespacedTool
+	ResourceTemplates     []mcp.ResourceTemplate
+	ResourceTemplateError string
 }
 
 // ProbeMCPServer brings up a single MCP server with cfg, calls
@@ -287,6 +289,17 @@ type MCPProbeResult struct {
 // admin endpoint passes a 10s context so a stuck upstream surfaces as
 // a clean error rather than wedging the request.
 func ProbeMCPServer(ctx context.Context, cfg types.MCPServerConfig, cipher secrets.Cipher) (*MCPProbeResult, error) {
+	return probeMCPServer(ctx, cfg, cipher, false)
+}
+
+// ProbeMCPServerWithResourceTemplates is the one-shot probe plus an
+// operator-diagnostic resources/templates/list call. Keep it explicit so the
+// general MCP dry-run probe remains a tools-only check.
+func ProbeMCPServerWithResourceTemplates(ctx context.Context, cfg types.MCPServerConfig, cipher secrets.Cipher) (*MCPProbeResult, error) {
+	return probeMCPServer(ctx, cfg, cipher, true)
+}
+
+func probeMCPServer(ctx context.Context, cfg types.MCPServerConfig, cipher secrets.Cipher, includeResourceTemplates bool) (*MCPProbeResult, error) {
 	resolved, err := resolveEnvConfigs([]types.MCPServerConfig{cfg}, cipher)
 	if err != nil {
 		return nil, err
@@ -298,7 +311,15 @@ func ProbeMCPServer(ctx context.Context, cfg types.MCPServerConfig, cipher secre
 	}
 	defer func() { _ = pool.Close() }()
 
-	return mcpProbeResultFromPoolTools(cfg.Name, pool.AllTools()), nil
+	result := mcpProbeResultFromPoolTools(cfg.Name, pool.AllTools())
+	if includeResourceTemplates {
+		if templates, err := pool.ListResourceTemplates(ctx, cfg.Name); err != nil {
+			result.ResourceTemplateError = err.Error()
+		} else {
+			result.ResourceTemplates = templates
+		}
+	}
+	return result, nil
 }
 
 // ProbeCachedMCPServer is the cached-client counterpart to
@@ -308,6 +329,16 @@ func ProbeMCPServer(ctx context.Context, cfg types.MCPServerConfig, cipher secre
 // for operator-controlled infrastructure clients where "connect and
 // inspect" should leave a warm subprocess for future calls.
 func ProbeCachedMCPServer(ctx context.Context, cfg types.MCPServerConfig, cipher secrets.Cipher, cache *mcpclient.SharedClientCache) (*MCPProbeResult, error) {
+	return probeCachedMCPServer(ctx, cfg, cipher, cache, false)
+}
+
+// ProbeCachedMCPServerWithResourceTemplates is the cached-client counterpart to
+// ProbeMCPServerWithResourceTemplates.
+func ProbeCachedMCPServerWithResourceTemplates(ctx context.Context, cfg types.MCPServerConfig, cipher secrets.Cipher, cache *mcpclient.SharedClientCache) (*MCPProbeResult, error) {
+	return probeCachedMCPServer(ctx, cfg, cipher, cache, true)
+}
+
+func probeCachedMCPServer(ctx context.Context, cfg types.MCPServerConfig, cipher secrets.Cipher, cache *mcpclient.SharedClientCache, includeResourceTemplates bool) (*MCPProbeResult, error) {
 	if cache == nil {
 		return nil, errors.New("mcp cached probe: cache is required")
 	}
@@ -322,7 +353,15 @@ func ProbeCachedMCPServer(ctx context.Context, cfg types.MCPServerConfig, cipher
 	}
 	defer func() { _ = pool.Close() }()
 
-	return mcpProbeResultFromPoolTools(cfg.Name, pool.AllTools()), nil
+	result := mcpProbeResultFromPoolTools(cfg.Name, pool.AllTools())
+	if includeResourceTemplates {
+		if templates, err := pool.ListResourceTemplates(ctx, cfg.Name); err != nil {
+			result.ResourceTemplateError = err.Error()
+		} else {
+			result.ResourceTemplates = templates
+		}
+	}
+	return result, nil
 }
 
 // CachedMCPToolCallResult is the diagnostic shape returned by
