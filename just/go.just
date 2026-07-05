@@ -141,6 +141,40 @@ dev-cairnline-projects *args: _go-cache
 	HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded \
 	{{go_env}} go run ./cmd/hecate serve
 
+# Run the gateway from source with standalone Cairnline sidecar reads enabled.
+# This is an interoperability/dev surface, not Hecate's embedded replacement
+# path. Requires `cairnline` on PATH unless overridden in .env. Optional arg:
+# --reset.
+# Run gateway with Cairnline sidecar Projects reads enabled.
+dev-cairnline-sidecar-projects *args: _go-cache
+	needs_reset=0; \
+	for arg in {{args}}; do \
+	  case "$arg" in \
+	    --reset) needs_reset=1 ;; \
+	    *) echo "unknown argument: $arg"; echo "usage: just dev-cairnline-sidecar-projects [--reset]"; exit 2 ;; \
+	  esac; \
+	done; \
+	if [ "$needs_reset" = "1" ]; then just reset-dev > /dev/null; else just stop; fi
+	set -a; \
+	[ -f ./.env ] && . ./.env; \
+	set +a; \
+	sidecar_cmd="${HECATE_PROJECTS_CAIRNLINE_SIDECAR_COMMAND:-cairnline}"; \
+	if ! command -v "$sidecar_cmd" >/dev/null 2>&1; then \
+	  echo "cairnline sidecar command not found: $sidecar_cmd"; \
+	  echo "Install Cairnline from https://github.com/hecatehq/cairnline/releases or set HECATE_PROJECTS_CAIRNLINE_SIDECAR_COMMAND."; \
+	  exit 1; \
+	fi; \
+	sidecar_db="${HECATE_PROJECTS_CAIRNLINE_SIDECAR_DB:-.data/cairnline/sidecar/projects.db}"; \
+	if [ -n "$sidecar_db" ]; then mkdir -p "$(dirname "$sidecar_db")"; fi; \
+	HECATE_ALLOWED_ORIGINS="${HECATE_ALLOWED_ORIGINS:-http://127.0.0.1:5173,http://localhost:5173}"; \
+	export HECATE_ALLOWED_ORIGINS; \
+	HECATE_PROJECTS_COORDINATION_BACKEND=cairnline \
+	HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar \
+	HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar \
+	HECATE_PROJECTS_CAIRNLINE_SIDECAR_COMMAND="$sidecar_cmd" \
+	HECATE_PROJECTS_CAIRNLINE_SIDECAR_DB="$sidecar_db" \
+	{{go_env}} go run ./cmd/hecate serve
+
 # Run the focused API tests that prove Projects can be dogfooded through the
 # Hecate-native flow and the embedded Cairnline replacement flow.
 # Run focused Projects dogfood tests.
