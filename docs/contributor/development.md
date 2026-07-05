@@ -152,10 +152,13 @@ This starts Hecate with `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar` and
 `.data/cairnline/sidecar/projects.db` unless `.env` overrides
 `HECATE_PROJECTS_CAIRNLINE_SIDECAR_DB`. The recipe prints the detected
 Cairnline version before launch, so binaries that do not support the version
-probe fail before Hecate starts. It is an MCP interoperability/dev surface:
-Hecate still keeps authoritative Projects writes on the native or embedded
-replacement path, and sidecar mode should not be treated as the final Cairnline
-cutover.
+probe fail before Hecate starts. In the multi-repo workspace, if `cairnline` is
+not installed and `../cairnline` exists, the recipe builds a local dev binary at
+`.data/cairnline/bin/cairnline-dev`; set
+`HECATE_PROJECTS_CAIRNLINE_SIDECAR_COMMAND` to force a release binary or any
+other command path. It is an MCP interoperability/dev surface: Hecate still
+keeps authoritative Projects writes on the native or embedded replacement path,
+and sidecar mode should not be treated as the final Cairnline cutover.
 
 ## UI hot reload
 
