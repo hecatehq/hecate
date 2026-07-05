@@ -106,6 +106,7 @@ export type ProjectCoordinationBackendNextActionRecord = {
     value: string;
     detail?: string;
   }>;
+  config_block?: string;
   probes?: ProjectCoordinationBackendProbeRecord[];
   probe_urls?: string[];
 };

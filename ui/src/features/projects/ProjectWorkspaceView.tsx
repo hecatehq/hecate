@@ -25,7 +25,7 @@ import type {
 } from "../../types/project";
 import {
   projectCoordinationConfigAssignment,
-  projectCoordinationConfigBlock,
+  projectCoordinationNextActionConfigBlock,
 } from "../../lib/project-coordination-backend";
 import { Badge, CopyBtn, Icon, Icons, InlineError } from "../shared/ui";
 import { ProjectAssistantPanel } from "./ProjectAssistantPanel";
@@ -538,7 +538,7 @@ function ProjectCoordinationStatusStrip({
   const nextAction = status.next_replacement_action;
   const detail = nextAction?.detail || status.detail;
   const configHints = nextAction?.config_hints ?? [];
-  const configBlock = projectCoordinationConfigBlock(configHints);
+  const configBlock = nextAction ? projectCoordinationNextActionConfigBlock(nextAction) : "";
   const probeCount = nextAction
     ? (nextAction.probes?.length ?? nextAction.probe_urls?.length ?? 0)
     : 0;

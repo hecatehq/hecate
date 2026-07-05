@@ -2568,9 +2568,11 @@ than the raw `portable_write_gaps` order so operators can dogfood narrower setup
 metadata surfaces such as context sources and skills before broad project
 identity cutover. It can include `config_hints`, which are environment setting
 suggestions such as a specific `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY`
-value; write-authority hint values preserve already-enabled switchpoints so
-they can be presented as whole copyable env values. Clients must treat them as
-operator guidance, not as mutations to apply automatically. `replacement_gates`
+value, and `config_block`, a newline-delimited `ENV=value` block built from the
+same hints for copy-to-shell or `.env` use. Write-authority hint values preserve
+already-enabled switchpoints so they can be presented as whole copyable env
+values. Clients must treat them as operator guidance, not as mutations to apply
+automatically. `replacement_gates`
 reports those high-level gates as structured checklist items so clients do not
 need to parse warning prose. Each gate and next action may include `probes`, a
 method-aware list of route templates that produce supporting evidence, plus the
@@ -2965,7 +2967,8 @@ Example response, with `write_switchpoints` shortened for readability:
           "value": "project-identity,project-metadata-defaults",
           "detail": "Add these comma-separated values to HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY; this gap requires the switchpoints together."
         }
-      ]
+      ],
+      "config_block": "HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-identity,project-metadata-defaults"
     },
     "replacement_gates": [
       {

@@ -491,6 +491,24 @@ func projectCairnlineHydrateProbeMetadata(response *ProjectCoordinationBackendSt
 	if response.NextReplacementAction != nil && len(response.NextReplacementAction.Probes) == 0 {
 		response.NextReplacementAction.Probes = projectCairnlineProbesForURLs(response.NextReplacementAction.ProbeURLs)
 	}
+	if response.NextReplacementAction != nil && strings.TrimSpace(response.NextReplacementAction.ConfigBlock) == "" {
+		response.NextReplacementAction.ConfigBlock = projectCairnlineConfigBlock(response.NextReplacementAction.ConfigHints)
+	}
+}
+
+func projectCairnlineConfigBlock(hints []ProjectCoordinationBackendActionConfigHint) string {
+	if len(hints) == 0 {
+		return ""
+	}
+	lines := make([]string, 0, len(hints))
+	for _, hint := range hints {
+		env := strings.TrimSpace(hint.Env)
+		if env == "" {
+			continue
+		}
+		lines = append(lines, env+"="+hint.Value)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func projectCairnlineProbesForURLs(urls []string) []ProjectCoordinationBackendProbe {

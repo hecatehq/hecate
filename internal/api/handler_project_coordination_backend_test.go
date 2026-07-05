@@ -1379,6 +1379,19 @@ func TestProjectCoordinationBackendStatus_NextActionReplacementModeHints(t *test
 	}
 }
 
+func TestProjectCoordinationBackendStatus_ConfigBlock(t *testing.T) {
+	block := projectCairnlineConfigBlock([]ProjectCoordinationBackendActionConfigHint{
+		{Env: " HECATE_PROJECTS_COORDINATION_BACKEND ", Value: "cairnline"},
+		{Env: "", Value: "ignored"},
+		{Env: "HECATE_PROJECTS_CAIRNLINE_CONNECTOR", Value: "embedded"},
+	})
+
+	want := "HECATE_PROJECTS_COORDINATION_BACKEND=cairnline\nHECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded"
+	if block != want {
+		t.Fatalf("config block = %q, want %q", block, want)
+	}
+}
+
 func TestProjectCoordinationBackendStatusRoute(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	cfg := config.Config{
@@ -1426,6 +1439,9 @@ func TestProjectCoordinationBackendStatusRoute(t *testing.T) {
 	}
 	if findConfigHint(response.Data.NextReplacementAction.ConfigHints, "HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY") == nil {
 		t.Fatalf("response next action config hints = %+v, want write authority hint", response.Data.NextReplacementAction.ConfigHints)
+	}
+	if !strings.Contains(response.Data.NextReplacementAction.ConfigBlock, "HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=") {
+		t.Fatalf("response next action config block = %q, want write-authority env assignment", response.Data.NextReplacementAction.ConfigBlock)
 	}
 	migrationSwitchpoint := findWriteSwitchpoint(response.Data.WriteSwitchpoints, "migration-cutover")
 	if migrationSwitchpoint == nil || migrationSwitchpoint.CairnlineState != "snapshot_import_rehearsal_available" || !containsString(migrationSwitchpoint.Seams, "sync-rehearsal") {
