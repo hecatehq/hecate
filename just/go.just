@@ -164,6 +164,11 @@ dev-cairnline-sidecar-projects *args: _go-cache
 	  echo "Install Cairnline from https://github.com/hecatehq/cairnline/releases or set HECATE_PROJECTS_CAIRNLINE_SIDECAR_COMMAND."; \
 	  exit 1; \
 	fi; \
+	if ! "$sidecar_cmd" -version; then \
+	  echo "could not read Cairnline sidecar version from: $sidecar_cmd"; \
+	  echo "Install Cairnline v0.1.0-alpha.4 or newer from https://github.com/hecatehq/cairnline/releases."; \
+	  exit 1; \
+	fi; \
 	sidecar_db="${HECATE_PROJECTS_CAIRNLINE_SIDECAR_DB:-.data/cairnline/sidecar/projects.db}"; \
 	if [ -n "$sidecar_db" ]; then mkdir -p "$(dirname "$sidecar_db")"; fi; \
 	HECATE_ALLOWED_ORIGINS="${HECATE_ALLOWED_ORIGINS:-http://127.0.0.1:5173,http://localhost:5173}"; \
