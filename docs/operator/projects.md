@@ -13,8 +13,8 @@ register local skills, or launch work against files.
 
 1. Create a project with a clear name and optional purpose.
 2. Attach a local folder only if the project starts from files.
-3. Set provider, model, profile, memory, and source defaults when the project
-   should launch Hecate Chat, Hecate Tasks, or External Agents.
+3. Set provider, model, Agent Preset, memory, and source defaults when the
+   project should launch Hecate Chat, Hecate Tasks, or External Agents.
 4. Run **Set up project** to discover portable workspace guidance and local
    skill metadata, then review the proposed memory candidates and role changes
    before applying them.
@@ -54,15 +54,15 @@ require the Hecate task runtime to be configured.
 
 The project header's **Needs Attention** menu is server-derived from
 `GET /hecate/v1/projects/{id}/health`. It surfaces compact setup and operations
-signals such as missing defaults, missing roots, profile or skill reference
-issues, pending handoffs, review follow-up, stale assignment links, empty
-memory/context posture, and pending memory candidates. The menu also shows the
-server summary counts for setup, memory, context, and work follow-up so the
-operator can see why the project needs attention before opening a specific
-item. The menu opens existing surfaces only; it does not create records, launch
-agents, or write memory. Like Project Operations, Needs Attention rows use a
-typed server-provided `action` object for follow-through; compact row fields are
-display metadata, not a second routing authority.
+signals such as missing defaults, missing roots, Agent Preset or skill
+reference issues, pending handoffs, review follow-up, stale assignment links,
+empty memory/context posture, and pending memory candidates. The menu also
+shows the server summary counts for setup, memory, context, and work follow-up
+so the operator can see why the project needs attention before opening a
+specific item. The menu opens existing surfaces only; it does not create
+records, launch agents, or write memory. Like Project Operations, Needs
+Attention rows use a typed server-provided `action` object for follow-through;
+compact row fields are display metadata, not a second routing authority.
 
 When Cairnline dogfood or replacement mode is configured, the Projects cockpit
 also shows a compact **Project coordination** strip above the workspace. It is
@@ -100,8 +100,8 @@ when lower-priority work is hidden by the cap.
 Memory/Context source edits use typed server mutations per source. Adding,
 editing, or deleting a source changes project source metadata only; it does not
 read local files, fetch remote content, write memory, or change launch context
-policy until the operator separately chooses a launch/profile posture that
-includes enabled sources.
+policy until the operator separately chooses a launch or Agent Preset posture
+that includes enabled sources.
 
 Use the top Project Operations action for the single most useful operator step,
 then jump to
