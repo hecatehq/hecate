@@ -363,6 +363,10 @@ describe("SettingsView", () => {
               method: "POST",
               url: "/hecate/v1/projects/cairnline/sidecar-probe",
             },
+            {
+              method: "POST",
+              url: "/hecate/v1/projects/cairnline/sidecar-connect",
+            },
           ],
         },
       },
@@ -372,8 +376,12 @@ describe("SettingsView", () => {
 
     expect(await screen.findByText("Probe standalone sidecar")).toBeTruthy();
     expect(screen.getByText("Probe sidecar contract")).toBeTruthy();
-    expect(screen.getByText(/expected tools and resource templates/i)).toBeTruthy();
+    expect(screen.getByText(/required tools, resource templates/i)).toBeTruthy();
+    expect(screen.getByText(/coordination capabilities tool/i)).toBeTruthy();
+    expect(screen.getByText("Connect sidecar client")).toBeTruthy();
+    expect(screen.getByText(/typed coordination capability self-description/i)).toBeTruthy();
     expect(screen.getByText("/hecate/v1/projects/cairnline/sidecar-probe")).toBeTruthy();
+    expect(screen.getByText("/hecate/v1/projects/cairnline/sidecar-connect")).toBeTruthy();
   });
 
   it("shows strict embedded smoke probe routes in the next project backend action", async () => {
