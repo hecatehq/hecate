@@ -735,10 +735,10 @@ write gaps are closed before replacement mode is armed, the next action becomes
 route-smoke evidence are verified; that action reports strict embedded
 rehearsal hints for `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded` and
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded`. After strict embedded read
-smoke is verified, the next action becomes implementing the missing migration
-cutover switch by arming
-`HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded`; backend status includes
-that env var as a copyable next-action config hint. Once replacement mode is
+smoke is verified, the next action becomes arming the explicit embedded
+replacement switch with `HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded`;
+backend status includes that env var as a copyable next-action config hint.
+Once replacement mode is
 armed, `run-strict-embedded-read-smoke` points at backend status itself because
 the proof is live embedded Cairnline state, not a Hecate-store mirror-parity
 rehearsal. That status cutover does not
