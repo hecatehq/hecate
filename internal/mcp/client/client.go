@@ -167,6 +167,20 @@ func (c *Client) ListResources(ctx context.Context) ([]mcp.Resource, error) {
 	return res.Resources, nil
 }
 
+// ListResourceTemplates fetches resources/templates/list. Templates are
+// metadata-only URI patterns; callers still decide which resources to read.
+func (c *Client) ListResourceTemplates(ctx context.Context) ([]mcp.ResourceTemplate, error) {
+	resp, err := c.call(ctx, "resources/templates/list", nil)
+	if err != nil {
+		return nil, fmt.Errorf("resources/templates/list: %w", err)
+	}
+	var res mcp.ListResourceTemplatesResult
+	if err := json.Unmarshal(resp.Result, &res); err != nil {
+		return nil, fmt.Errorf("decode resources/templates/list result: %w", err)
+	}
+	return res.ResourceTemplates, nil
+}
+
 // ReadResource fetches a resource by URI. MCP Apps uses this for the
 // raw HTML ui:// resource referenced from tool _meta.ui.resourceUri.
 func (c *Client) ReadResource(ctx context.Context, uri string) (mcp.ReadResourceResult, error) {

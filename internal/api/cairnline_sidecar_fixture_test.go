@@ -69,11 +69,20 @@ func cairnlineSidecarFixtureMain(mode string) {
 		case "initialize":
 			result = mcp.InitializeResult{
 				ProtocolVersion: mcp.DeclaredProtocolVersion,
-				Capabilities:    mcp.ServerCapabilities{Tools: &mcp.ToolsCapability{}},
-				ServerInfo:      mcp.ServerInfo{Name: "cairnline-fixture", Version: "test"},
+				Capabilities: mcp.ServerCapabilities{
+					Tools:     &mcp.ToolsCapability{},
+					Resources: &mcp.ResourcesCapability{},
+				},
+				ServerInfo: mcp.ServerInfo{Name: "cairnline-fixture", Version: "test"},
 			}
 		case "tools/list":
 			result = mcp.ListToolsResult{Tools: cairnlineSidecarFixtureTools(mode)}
+		case "resources/templates/list":
+			if cairnlineSidecarFixtureModeHas(mode, "resource-template-error") {
+				rpcErr = mcp.NewError(mcp.ErrCodeInternalError, "resource template fixture failure")
+				break
+			}
+			result = mcp.ListResourceTemplatesResult{ResourceTemplates: cairnlineSidecarFixtureResourceTemplates(mode)}
 		case "tools/call":
 			var params mcp.CallToolParams
 			if err := json.Unmarshal(req.Params, &params); err != nil {
@@ -147,6 +156,25 @@ func cairnlineSidecarFixtureTools(mode string) []mcp.Tool {
 		})
 	}
 	return tools
+}
+
+func cairnlineSidecarFixtureResourceTemplates(mode string) []mcp.ResourceTemplate {
+	if cairnlineSidecarFixtureModeHas(mode, "missing-resource-template") {
+		return []mcp.ResourceTemplate{{
+			URITemplate: "cairnline://projects/{project_id}",
+			Name:        "project",
+			MIMEType:    "application/json",
+		}}
+	}
+	templates := make([]mcp.ResourceTemplate, 0, len(projectCairnlineSidecarRequiredResourceTemplates))
+	for _, uri := range projectCairnlineSidecarRequiredResourceTemplates {
+		templates = append(templates, mcp.ResourceTemplate{
+			URITemplate: uri,
+			Name:        strings.NewReplacer("cairnline://", "", "/", "_", "{", "", "}", "", "-", "_").Replace(uri),
+			MIMEType:    "application/json",
+		})
+	}
+	return templates
 }
 
 func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixtureState, params mcp.CallToolParams) (mcp.CallToolResult, *mcp.RPCError) {

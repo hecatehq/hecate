@@ -21,6 +21,15 @@ import (
 
 const projectCairnlineSidecarMCPServerName = "cairnline"
 
+var projectCairnlineSidecarRequiredResourceTemplates = []string{
+	"cairnline://projects/{project_id}",
+	"cairnline://projects/{project_id}/work-items/{work_item_id}",
+	"cairnline://projects/{project_id}/work-items/{work_item_id}/closeout-readiness",
+	"cairnline://projects/{project_id}/assignments/{assignment_id}",
+	"cairnline://projects/{project_id}/assignments/{assignment_id}/launch-packet",
+	"cairnline://projects/{project_id}/memory-candidates/{memory_candidate_id}",
+}
+
 var projectCairnlineSidecarRequiredTools = []string{
 	"projects.list",
 	"projects.get",
@@ -345,6 +354,10 @@ func (h *Handler) projectCairnlineSidecarProbe(ctx context.Context) ProjectCairn
 		DatabasePath:   dbPath,
 		ProbeTimeoutMS: timeout.Milliseconds(),
 		RequiredTools:  append([]string(nil), projectCairnlineSidecarRequiredTools...),
+		RequiredResourceTemplates: append(
+			[]string(nil),
+			projectCairnlineSidecarRequiredResourceTemplates...,
+		),
 	}
 	if h == nil {
 		response.Status = "sidecar_probe_failed"
@@ -360,7 +373,7 @@ func (h *Handler) projectCairnlineSidecarProbe(ctx context.Context) ProjectCairn
 
 	probeCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	result, err := orchestrator.ProbeMCPServer(probeCtx, cfg, h.secretCipher)
+	result, err := orchestrator.ProbeMCPServerWithResourceTemplates(probeCtx, cfg, h.secretCipher)
 	if err != nil {
 		response.Status = "sidecar_probe_failed"
 		response.Detail = err.Error()
@@ -368,15 +381,29 @@ func (h *Handler) projectCairnlineSidecarProbe(ctx context.Context) ProjectCairn
 	}
 	response.Tools = renderMCPProbeTools(result.Tools)
 	response.ToolCount = len(response.Tools)
+	response.ResourceTemplates = renderMCPProbeResourceTemplates(result.ResourceTemplates)
+	response.ResourceTemplateCount = len(response.ResourceTemplates)
+	response.ResourceTemplateError = result.ResourceTemplateError
 	response.MissingTools = projectCairnlineSidecarMissingTools(projectCairnlineSidecarToolNames(response.Tools))
+	response.MissingResourceTemplates = projectCairnlineSidecarMissingResourceTemplates(projectCairnlineSidecarResourceTemplateURIs(response.ResourceTemplates))
 	if len(response.MissingTools) > 0 {
 		response.Status = "sidecar_contract_incomplete"
 		response.Detail = "Cairnline sidecar MCP server started, but it does not expose every tool Hecate needs for a future Projects backend connector."
 		return response
 	}
+	if response.ResourceTemplateError != "" {
+		response.Status = "sidecar_contract_incomplete"
+		response.Detail = "Cairnline sidecar MCP server started, but resources/templates/list failed; install Cairnline v0.1.0-alpha.2 or newer for the full portable Projects resource contract."
+		return response
+	}
+	if len(response.MissingResourceTemplates) > 0 {
+		response.Status = "sidecar_contract_incomplete"
+		response.Detail = "Cairnline sidecar MCP server started, but it does not expose every resource template Hecate expects for portable Projects diagnostics."
+		return response
+	}
 	response.Ready = true
 	response.Status = "sidecar_probe_ready"
-	response.Detail = "Cairnline sidecar MCP server started and exposes the required portable Projects tool contract. " + projectCairnlineSidecarLiveReadDetail()
+	response.Detail = "Cairnline sidecar MCP server started and exposes the required portable Projects tool and resource-template contract. " + projectCairnlineSidecarLiveReadDetail()
 	return response
 }
 
@@ -386,14 +413,18 @@ func (h *Handler) projectCairnlineSidecarConnect(ctx context.Context) ProjectCai
 	}
 	cfg, dbPath, timeout := h.projectCairnlineSidecarMCPConfig()
 	response := ProjectCairnlineSidecarProbeResponse{
-		Ready:                 false,
-		Status:                "sidecar_client_not_connected",
-		Detail:                "Cairnline sidecar client has not connected.",
-		Command:               cfg.Command,
-		Args:                  append([]string(nil), cfg.Args...),
-		DatabasePath:          dbPath,
-		ProbeTimeoutMS:        timeout.Milliseconds(),
-		RequiredTools:         append([]string(nil), projectCairnlineSidecarRequiredTools...),
+		Ready:          false,
+		Status:         "sidecar_client_not_connected",
+		Detail:         "Cairnline sidecar client has not connected.",
+		Command:        cfg.Command,
+		Args:           append([]string(nil), cfg.Args...),
+		DatabasePath:   dbPath,
+		ProbeTimeoutMS: timeout.Milliseconds(),
+		RequiredTools:  append([]string(nil), projectCairnlineSidecarRequiredTools...),
+		RequiredResourceTemplates: append(
+			[]string(nil),
+			projectCairnlineSidecarRequiredResourceTemplates...,
+		),
 		PersistentClient:      true,
 		ClientCacheConfigured: h != nil,
 	}
@@ -412,7 +443,7 @@ func (h *Handler) projectCairnlineSidecarConnect(ctx context.Context) ProjectCai
 	cache := h.projectCairnlineSidecarMCPClientCache()
 	connectCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	result, err := orchestrator.ProbeCachedMCPServer(connectCtx, cfg, h.secretCipher, cache)
+	result, err := orchestrator.ProbeCachedMCPServerWithResourceTemplates(connectCtx, cfg, h.secretCipher, cache)
 	if err != nil {
 		response.Status = "sidecar_client_failed"
 		response.Detail = err.Error()
@@ -421,16 +452,30 @@ func (h *Handler) projectCairnlineSidecarConnect(ctx context.Context) ProjectCai
 	}
 	response.Tools = renderMCPProbeTools(result.Tools)
 	response.ToolCount = len(response.Tools)
+	response.ResourceTemplates = renderMCPProbeResourceTemplates(result.ResourceTemplates)
+	response.ResourceTemplateCount = len(response.ResourceTemplates)
+	response.ResourceTemplateError = result.ResourceTemplateError
 	response.MissingTools = projectCairnlineSidecarMissingTools(projectCairnlineSidecarToolNames(response.Tools))
+	response.MissingResourceTemplates = projectCairnlineSidecarMissingResourceTemplates(projectCairnlineSidecarResourceTemplateURIs(response.ResourceTemplates))
 	response.setSidecarCacheStats(cache.Stats())
 	if len(response.MissingTools) > 0 {
 		response.Status = "sidecar_contract_incomplete"
 		response.Detail = "Cairnline sidecar MCP client connected, but it does not expose every tool Hecate needs for a future Projects backend connector."
 		return response
 	}
+	if response.ResourceTemplateError != "" {
+		response.Status = "sidecar_contract_incomplete"
+		response.Detail = "Cairnline sidecar MCP client connected, but resources/templates/list failed; install Cairnline v0.1.0-alpha.2 or newer for the full portable Projects resource contract."
+		return response
+	}
+	if len(response.MissingResourceTemplates) > 0 {
+		response.Status = "sidecar_contract_incomplete"
+		response.Detail = "Cairnline sidecar MCP client connected, but it does not expose every resource template Hecate expects for portable Projects diagnostics."
+		return response
+	}
 	response.Ready = true
 	response.Status = "sidecar_client_ready"
-	response.Detail = "Cairnline sidecar MCP client connected and exposes the required portable Projects tool contract. " + projectCairnlineSidecarLiveReadDetail()
+	response.Detail = "Cairnline sidecar MCP client connected and exposes the required portable Projects tool and resource-template contract. " + projectCairnlineSidecarLiveReadDetail()
 	return response
 }
 
@@ -4392,6 +4437,38 @@ func projectCairnlineSidecarMissingTools(toolNames []string) []string {
 	for _, name := range projectCairnlineSidecarRequiredTools {
 		if _, ok := seen[name]; !ok {
 			missing = append(missing, name)
+		}
+	}
+	return missing
+}
+
+func projectCairnlineSidecarResourceTemplateURIs(templates []MCPProbeResourceTemplateDescriptor) []string {
+	out := make([]string, 0, len(templates))
+	seen := make(map[string]struct{}, len(templates))
+	for _, template := range templates {
+		uri := strings.TrimSpace(template.URITemplate)
+		if uri == "" {
+			continue
+		}
+		if _, ok := seen[uri]; ok {
+			continue
+		}
+		seen[uri] = struct{}{}
+		out = append(out, uri)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func projectCairnlineSidecarMissingResourceTemplates(templateURIs []string) []string {
+	seen := make(map[string]struct{}, len(templateURIs))
+	for _, uri := range templateURIs {
+		seen[uri] = struct{}{}
+	}
+	var missing []string
+	for _, uri := range projectCairnlineSidecarRequiredResourceTemplates {
+		if _, ok := seen[uri]; !ok {
+			missing = append(missing, uri)
 		}
 	}
 	return missing

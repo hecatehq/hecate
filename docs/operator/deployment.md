@@ -498,7 +498,8 @@ The sidecar probe/connect surfaces are configured with
 `HECATE_PROJECTS_CAIRNLINE_SIDECAR_ARGS`,
 `HECATE_PROJECTS_CAIRNLINE_SIDECAR_DB`, and
 `HECATE_PROJECTS_CAIRNLINE_SIDECAR_PROBE_TIMEOUT`. `sidecar-probe` verifies MCP
-tool presence only. `sidecar-connect` keeps the process warm in Hecate's
+tool presence plus the portable Projects `resources/templates/list` contract.
+`sidecar-connect` keeps the process warm in Hecate's
 Cairnline-specific MCP client cache. `sidecar-read-smoke`,
 `sidecar-detail-smoke`, `sidecar-coordination-smoke`,
 `sidecar-assignment-context-smoke`, and `sidecar-launch-packet-smoke` use that

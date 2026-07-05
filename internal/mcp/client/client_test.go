@@ -475,6 +475,42 @@ func TestClient_ListAndReadResources(t *testing.T) {
 	}
 }
 
+func TestClient_ListResourceTemplates(t *testing.T) {
+	t.Parallel()
+	transport := newMemTransport()
+	server := newFakeServer(t, transport)
+	server.handle("initialize", func(_ mcp.Request) (any, *mcp.RPCError) {
+		return mcp.InitializeResult{
+			ProtocolVersion: declaredClientProtocolVersion,
+			Capabilities:    mcp.ServerCapabilities{Resources: &mcp.ResourcesCapability{}},
+		}, nil
+	})
+	server.handle("resources/templates/list", func(_ mcp.Request) (any, *mcp.RPCError) {
+		return mcp.ListResourceTemplatesResult{ResourceTemplates: []mcp.ResourceTemplate{{
+			URITemplate: "cairnline://projects/{project_id}",
+			Name:        "project",
+			Title:       "Project",
+			MIMEType:    "application/json",
+		}}}, nil
+	})
+	server.start()
+
+	c := New(transport, mcp.ClientInfo{Name: "h"})
+	t.Cleanup(func() { _ = c.Close(); server.stop() })
+
+	ctx := context.Background()
+	if _, err := c.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+	templates, err := c.ListResourceTemplates(ctx)
+	if err != nil {
+		t.Fatalf("ListResourceTemplates: %v", err)
+	}
+	if len(templates) != 1 || templates[0].URITemplate != "cairnline://projects/{project_id}" || templates[0].MIMEType != "application/json" {
+		t.Fatalf("templates = %+v, want project template", templates)
+	}
+}
+
 // TestClient_CallToolSurfacesIsError — tool-level failures arrive
 // as CallToolResult.IsError=true (NOT as a JSON-RPC error). The
 // model uses this to decide whether to retry or give up.

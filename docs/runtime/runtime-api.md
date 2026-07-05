@@ -3115,10 +3115,10 @@ Example response, with `write_switchpoints` shortened for readability:
 ### `POST /hecate/v1/projects/cairnline/sidecar-probe`
 
 Local-only standalone Cairnline MCP contract probe. It starts the configured
-stdio command once, lists MCP tools, and returns whether the process exposes the
-current portable Projects backend tool surface Hecate would need for a future
-sidecar backend. It does not keep a persistent client, proxy Projects reads or
-writes, or make Cairnline authoritative.
+stdio command once, lists MCP tools and resource templates, and returns whether
+the process exposes the current portable Projects backend contract Hecate would
+need for a future sidecar backend. It does not keep a persistent client, proxy
+Projects reads or writes, or make Cairnline authoritative.
 
 The probe is controlled by:
 
@@ -3206,6 +3206,17 @@ memory_candidates.reject
 memory_candidates.delete
 ```
 
+Required resource templates:
+
+```text
+cairnline://projects/{project_id}
+cairnline://projects/{project_id}/work-items/{work_item_id}
+cairnline://projects/{project_id}/work-items/{work_item_id}/closeout-readiness
+cairnline://projects/{project_id}/assignments/{assignment_id}
+cairnline://projects/{project_id}/assignments/{assignment_id}/launch-packet
+cairnline://projects/{project_id}/memory-candidates/{memory_candidate_id}
+```
+
 Example response, shortened:
 
 ```json
@@ -3214,7 +3225,7 @@ Example response, shortened:
   "data": {
     "ready": true,
     "status": "sidecar_probe_ready",
-    "detail": "Cairnline sidecar MCP server started and exposes the required portable Projects tool contract. Project writes stay on Hecate-native stores in sidecar mode; HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar routes only project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, project-assistant-context, project-assistant-proposal, project-chat-prelude, project-chat-context, activity, closeout-readiness, operations-brief through the standalone Cairnline MCP client.",
+    "detail": "Cairnline sidecar MCP server started and exposes the required portable Projects tool and resource-template contract. Project writes stay on Hecate-native stores in sidecar mode; HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar routes only project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, project-assistant-context, project-assistant-proposal, project-chat-prelude, project-chat-context, activity, closeout-readiness, operations-brief through the standalone Cairnline MCP client.",
     "command": "cairnline",
     "args": ["-db", "/Users/alice/.local/share/hecate/cairnline/projects.db"],
     "database_path": "/Users/alice/.local/share/hecate/cairnline/projects.db",
@@ -3222,6 +3233,12 @@ Example response, shortened:
     "tool_count": 81,
     "required_tools": ["projects.list", "projects.get", "projects.create"],
     "missing_tools": [],
+    "resource_template_count": 6,
+    "required_resource_templates": ["cairnline://projects/{project_id}"],
+    "missing_resource_templates": [],
+    "resource_templates": [
+      { "uri_template": "cairnline://projects/{project_id}", "name": "project" }
+    ],
     "tools": [{ "name": "projects.list" }],
     "warnings": []
   }
@@ -3406,9 +3423,10 @@ Example response, shortened:
 Local-only standalone Cairnline MCP client connect/status surface. It uses the
 same command, database, timeout, and required-tool contract as
 `sidecar-probe`, but acquires the sidecar through Hecate's Cairnline-specific
-MCP client cache. A successful call leaves the sidecar process idle in that
-cache until the cache evicts it or Hecate shuts down. This connection alone
-does not change live Projects routing. Add
+MCP client cache. It also verifies the same required resource templates. A
+successful call leaves the sidecar process idle in that cache until the cache
+evicts it or Hecate shuts down. This connection alone does not change live
+Projects routing. Add
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar` to route the explicit sidecar
 read families through the standalone MCP client; write-authority switchpoints
 still require the embedded Cairnline connector.
@@ -3429,7 +3447,7 @@ Example response, shortened:
   "data": {
     "ready": true,
     "status": "sidecar_client_ready",
-    "detail": "Cairnline sidecar MCP client connected and exposes the required portable Projects tool contract. Project writes stay on Hecate-native stores in sidecar mode; HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar routes only project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, project-assistant-context, project-assistant-proposal, project-chat-prelude, project-chat-context, activity, closeout-readiness, operations-brief through the standalone Cairnline MCP client.",
+    "detail": "Cairnline sidecar MCP client connected and exposes the required portable Projects tool and resource-template contract. Project writes stay on Hecate-native stores in sidecar mode; HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar routes only project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, project-assistant-context, project-assistant-proposal, project-chat-prelude, project-chat-context, activity, closeout-readiness, operations-brief through the standalone Cairnline MCP client.",
     "command": "cairnline",
     "args": ["-db", "/Users/alice/.local/share/hecate/cairnline/projects.db"],
     "database_path": "/Users/alice/.local/share/hecate/cairnline/projects.db",
