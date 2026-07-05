@@ -406,6 +406,61 @@ func TestProjectCairnlineSidecarDetailSmoke_UsesRequestedProjectID(t *testing.T)
 	}
 }
 
+func TestProjectCairnlineSidecarResourceSmoke_ReadsSelectedProjectResource(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "full"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarResourceSmoke(t.Context(), ProjectCairnlineSidecarResourceRequest{})
+	if !got.Ready || got.Status != "sidecar_resource_ready" {
+		t.Fatalf("resource smoke = %+v, want ready", got)
+	}
+	if !got.ReadOnly || got.SelectedProjectID != "proj_fixture" || got.SelectedProjectSource != "projects.list" {
+		t.Fatalf("selection = read_only:%t project:%q source:%q, want projects.list-selected read-only resource", got.ReadOnly, got.SelectedProjectID, got.SelectedProjectSource)
+	}
+	if got.ResourceURI != "cairnline://projects/proj_fixture" {
+		t.Fatalf("resource uri = %q, want project resource", got.ResourceURI)
+	}
+	if got.ContentCount != 1 || len(got.Contents) != 1 {
+		t.Fatalf("content count = %d contents=%+v, want one resource content", got.ContentCount, got.Contents)
+	}
+	if got.Contents[0].MIMEType != "application/json" || !strings.Contains(got.Contents[0].Text, "Fixture Project") {
+		t.Fatalf("content = %+v, want JSON fixture project", got.Contents[0])
+	}
+	if !got.StructuredReady || got.StructuredProjectID != "proj_fixture" {
+		t.Fatalf("structured = ready:%t project:%q parse:%q, want fixture project id", got.StructuredReady, got.StructuredProjectID, got.StructuredParseError)
+	}
+	if got.ClientCacheEntries != 1 || got.ClientCacheInUse != 0 || got.ClientCacheIdle != 1 {
+		t.Fatalf("cache stats = entries:%d in_use:%d idle:%d, want 1/0/1", got.ClientCacheEntries, got.ClientCacheInUse, got.ClientCacheIdle)
+	}
+}
+
+func TestProjectCairnlineSidecarResourceSmoke_RejectsNonCairnlineURI(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "full"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarResourceSmoke(t.Context(), ProjectCairnlineSidecarResourceRequest{ResourceURI: "https://example.com/not-a-resource"})
+	if got.Ready || got.Status != "sidecar_resource_invalid_uri" {
+		t.Fatalf("resource smoke = %+v, want invalid uri status", got)
+	}
+	if got.ContentCount != 0 || len(got.Contents) != 0 {
+		t.Fatalf("contents = count:%d %+v, want no sidecar read", got.ContentCount, got.Contents)
+	}
+}
+
 func TestProjectCairnlineSidecarDetailSmoke_TextOnlyListCannotSelectProject(t *testing.T) {
 	handler := NewHandler(config.Config{
 		Projects: config.ProjectsConfig{

@@ -280,6 +280,48 @@ func TestPool_ListResourceTemplates(t *testing.T) {
 	}
 }
 
+func TestPool_ReadResource(t *testing.T) {
+	t.Parallel()
+	h := newPoolHarnessWithResources(t,
+		map[string][]mcp.Tool{
+			"cairnline": {{Name: "projects.list", InputSchema: json.RawMessage(`{"type":"object"}`)}},
+		},
+		map[string]map[string]func(json.RawMessage) (mcp.CallToolResult, *mcp.RPCError){
+			"cairnline": {
+				"projects.list": func(args json.RawMessage) (mcp.CallToolResult, *mcp.RPCError) {
+					return mcp.CallToolResult{Content: mcp.TextContent("[]")}, nil
+				},
+			},
+		},
+		map[string]map[string]mcp.ResourceContents{
+			"cairnline": {
+				"cairnline://projects/proj_1": {
+					URI:      "cairnline://projects/proj_1",
+					MIMEType: "application/json",
+					Text:     `{"project":{"id":"proj_1","name":"Fixture"}}`,
+				},
+			},
+		},
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	read, err := h.pool.ReadResource(ctx, "cairnline", "cairnline://projects/proj_1")
+	if err != nil {
+		t.Fatalf("ReadResource: %v", err)
+	}
+	if len(read.Contents) != 1 || read.Contents[0].URI != "cairnline://projects/proj_1" || !strings.Contains(read.Contents[0].Text, `"proj_1"`) {
+		t.Fatalf("contents = %+v, want project resource", read.Contents)
+	}
+	if _, err := h.pool.ReadResource(ctx, "missing", "cairnline://projects/proj_1"); err == nil {
+		t.Fatal("ReadResource(missing server) error = nil, want error")
+	}
+	if _, err := h.pool.ReadResource(ctx, "cairnline", ""); err == nil {
+		t.Fatal("ReadResource(empty uri) error = nil, want error")
+	}
+}
+
 func TestPool_MCPAppsVisibilityHidesAppOnlyToolsFromModel(t *testing.T) {
 	t.Parallel()
 	h := newPoolHarness(t,

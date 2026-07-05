@@ -365,6 +365,9 @@ cached standalone Cairnline MCP client. Operators can then run
 read-only `projects.list` MCP tool, or
 `POST /hecate/v1/projects/cairnline/sidecar-detail-smoke` to call read-only
 `projects.get`, through that persistent client. Operators can also run
+`POST /hecate/v1/projects/cairnline/sidecar-resource-smoke` to read a concrete
+`cairnline://projects/...` MCP resource through that persistent client.
+Operators can also run
 `POST /hecate/v1/projects/cairnline/sidecar-coordination-smoke` to call the
 read-only portable coordination list tools (`projects.list`, `skills.list`,
 `roles.list`, `work_items.list`, and `assignments.list`) and confirm Hecate can parse their typed
@@ -501,10 +504,11 @@ The sidecar probe/connect surfaces are configured with
 tool presence plus the portable Projects `resources/templates/list` contract.
 `sidecar-connect` keeps the process warm in Hecate's
 Cairnline-specific MCP client cache. `sidecar-read-smoke`,
-`sidecar-detail-smoke`, `sidecar-coordination-smoke`,
-`sidecar-assignment-context-smoke`, and `sidecar-launch-packet-smoke` use that
-cached client to call read-only Cairnline MCP tools and return diagnostic
-evidence. `sidecar-lifecycle-smoke` is opt-in mutation evidence for the
+`sidecar-detail-smoke`, `sidecar-resource-smoke`,
+`sidecar-coordination-smoke`, `sidecar-assignment-context-smoke`, and
+`sidecar-launch-packet-smoke` use that cached client to call read-only
+Cairnline MCP tools/resources and return diagnostic evidence.
+`sidecar-lifecycle-smoke` is opt-in mutation evidence for the
 standalone sidecar assignment lifecycle. `sidecar-write-smoke`,
 `sidecar-setup-smoke`, `sidecar-work-smoke`,
 `sidecar-collaboration-smoke`, `sidecar-memory-smoke`, and

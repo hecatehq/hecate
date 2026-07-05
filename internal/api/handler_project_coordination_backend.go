@@ -17,6 +17,7 @@ const projectCoordinationBackendSidecarProbeURL = "/hecate/v1/projects/cairnline
 const projectCoordinationBackendSidecarConnectURL = "/hecate/v1/projects/cairnline/sidecar-connect"
 const projectCoordinationBackendSidecarReadURL = "/hecate/v1/projects/cairnline/sidecar-read-smoke"
 const projectCoordinationBackendSidecarDetailURL = "/hecate/v1/projects/cairnline/sidecar-detail-smoke"
+const projectCoordinationBackendSidecarResourceURL = "/hecate/v1/projects/cairnline/sidecar-resource-smoke"
 const projectCoordinationBackendSidecarCoordinationURL = "/hecate/v1/projects/cairnline/sidecar-coordination-smoke"
 const projectCoordinationBackendSidecarAssignmentContextURL = "/hecate/v1/projects/cairnline/sidecar-assignment-context-smoke"
 const projectCoordinationBackendSidecarLaunchPacketURL = "/hecate/v1/projects/cairnline/sidecar-launch-packet-smoke"
@@ -360,6 +361,7 @@ func (h *Handler) projectCoordinationBackendStatusWithContext(ctx context.Contex
 		CairnlineSidecarConnectURL:           projectCoordinationBackendSidecarConnectURL,
 		CairnlineSidecarReadURL:              projectCoordinationBackendSidecarReadURL,
 		CairnlineSidecarDetailURL:            projectCoordinationBackendSidecarDetailURL,
+		CairnlineSidecarResourceURL:          projectCoordinationBackendSidecarResourceURL,
 		CairnlineSidecarCoordinationURL:      projectCoordinationBackendSidecarCoordinationURL,
 		CairnlineSidecarAssignmentContextURL: projectCoordinationBackendSidecarAssignmentContextURL,
 		CairnlineSidecarLaunchPacketURL:      projectCoordinationBackendSidecarLaunchPacketURL,
@@ -517,6 +519,7 @@ func projectCairnlineProbeMethod(url string) string {
 		projectCoordinationBackendSidecarConnectURL,
 		projectCoordinationBackendSidecarReadURL,
 		projectCoordinationBackendSidecarDetailURL,
+		projectCoordinationBackendSidecarResourceURL,
 		projectCoordinationBackendSidecarCoordinationURL,
 		projectCoordinationBackendSidecarAssignmentContextURL,
 		projectCoordinationBackendSidecarLaunchPacketURL,

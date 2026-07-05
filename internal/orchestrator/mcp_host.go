@@ -375,6 +375,14 @@ type CachedMCPToolCallResult struct {
 	Result   mcp.CallToolResult
 }
 
+// CachedMCPResourceReadResult is the diagnostic shape returned by
+// ReadCachedMCPServerResource. It proves a persistent MCP client can read
+// concrete resources without wiring model-origin dispatch to that sidecar.
+type CachedMCPResourceReadResult struct {
+	URI    string
+	Result mcp.ReadResourceResult
+}
+
 // CallCachedMCPServerTool invokes a single tool on one MCP server through a
 // SharedClientCache. It is intentionally a narrow operator-diagnostic seam: the
 // agent loop still uses AgentMCPHostFactory, while sidecar/readiness probes can
@@ -407,6 +415,38 @@ func CallCachedMCPServerTool(ctx context.Context, cfg types.MCPServerConfig, cip
 		Text:     result.Text,
 		IsError:  result.IsError,
 		Result:   result.Result,
+	}, nil
+}
+
+// ReadCachedMCPServerResource reads a concrete resource from one MCP server
+// through a SharedClientCache. It intentionally stays separate from the
+// agent-loop host seam; resources are operator/client diagnostics, not LLM tool
+// calls.
+func ReadCachedMCPServerResource(ctx context.Context, cfg types.MCPServerConfig, cipher secrets.Cipher, cache *mcpclient.SharedClientCache, uri string) (*CachedMCPResourceReadResult, error) {
+	if cache == nil {
+		return nil, errors.New("cached mcp resource read requires a client cache")
+	}
+	uri = strings.TrimSpace(uri)
+	if uri == "" {
+		return nil, errors.New("cached mcp resource read requires a resource uri")
+	}
+	resolved, err := resolveEnvConfigs([]types.MCPServerConfig{cfg}, cipher)
+	if err != nil {
+		return nil, err
+	}
+	clientCfgs := toClientServerConfigs(resolved)
+	pool, err := mcpclient.NewPoolWithCache(ctx, clientCfgs, cache)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = pool.Close() }()
+	result, err := pool.ReadResource(ctx, strings.TrimSpace(cfg.Name), uri)
+	if err != nil {
+		return nil, err
+	}
+	return &CachedMCPResourceReadResult{
+		URI:    uri,
+		Result: result,
 	}, nil
 }
 
