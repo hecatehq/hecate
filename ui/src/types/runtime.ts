@@ -112,7 +112,7 @@ export type SystemResetDataResponse = {
     project_work_rows_deleted?: number;
     project_assistant_proposals_deleted?: number;
     plugins_deleted?: number;
-    agent_profiles_deleted?: number;
+    agent_presets_deleted?: number;
     chat_sessions_deleted: number;
     tasks_deleted: number;
     providers_deleted: number;

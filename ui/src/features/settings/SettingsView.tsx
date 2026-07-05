@@ -177,7 +177,7 @@ function resetSummary(data: {
   project_work_rows_deleted?: number;
   project_assistant_proposals_deleted?: number;
   plugins_deleted?: number;
-  agent_profiles_deleted?: number;
+  agent_presets_deleted?: number;
   chat_sessions_deleted: number;
   tasks_deleted: number;
   providers_deleted: number;
@@ -192,7 +192,7 @@ function resetSummary(data: {
     (data.project_work_rows_deleted ?? 0) +
     (data.project_assistant_proposals_deleted ?? 0) +
     (data.plugins_deleted ?? 0) +
-    (data.agent_profiles_deleted ?? 0) +
+    (data.agent_presets_deleted ?? 0) +
     data.chat_sessions_deleted +
     data.tasks_deleted +
     data.providers_deleted +

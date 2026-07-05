@@ -821,7 +821,7 @@ Tool names come back un-namespaced — the operator wants to see what the upstre
     "project_work_rows_deleted": 3,
     "project_runtime_rows_deleted": 1,
     "plugins_deleted": 1,
-    "agent_profiles_deleted": 1,
+    "agent_presets_deleted": 1,
     "chat_sessions_deleted": 2,
     "tasks_deleted": 1,
     "providers_deleted": 1,
