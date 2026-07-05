@@ -124,6 +124,17 @@ runtime-overlay closeout readiness, backend-status gates, and representative
 mirror parity. It is intentionally narrower than `just test-race`; run the
 race suite as usual for backend/runtime changes.
 
+For standalone Cairnline sidecar interoperability changes, run:
+
+```bash
+just test-projects-sidecar
+```
+
+That target keeps sidecar confidence separate from embedded replacement mode:
+it exercises sidecar read projections, launch-packet/readiness handling,
+resource access, and smoke contracts while keeping Hecate's authoritative
+Projects backend out of scope.
+
 ## UI hot reload
 
 For live UI iteration, run `just dev` (gateway on `:8765`) and the Vite dev server side by side:
