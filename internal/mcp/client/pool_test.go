@@ -39,8 +39,9 @@ func newPoolHarnessWithResourceTemplates(t *testing.T, serverTools map[string][]
 	t.Helper()
 	h := &poolHarness{t: t}
 	pool := &Pool{
-		clients: make(map[string]*pooledClient, len(serverTools)),
-		bind:    make(map[string]namespacedToolBinding),
+		clients:    make(map[string]*pooledClient, len(serverTools)),
+		serverInfo: make(map[string]mcp.ServerInfo, len(serverTools)),
+		bind:       make(map[string]namespacedToolBinding),
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	t.Cleanup(cancel)
@@ -95,7 +96,8 @@ func newPoolHarnessWithResourceTemplates(t *testing.T, serverTools map[string][]
 		h.stops = append(h.stops, server.stop)
 
 		client := New(transport, mcp.ClientInfo{Name: "hecate-test", Version: "0.0.0"})
-		if _, err := client.Initialize(ctx); err != nil {
+		initRes, err := client.Initialize(ctx)
+		if err != nil {
 			t.Fatalf("server %q initialize: %v", name, err)
 		}
 		serverTools, err := client.ListTools(ctx)
@@ -103,6 +105,7 @@ func newPoolHarnessWithResourceTemplates(t *testing.T, serverTools map[string][]
 			t.Fatalf("server %q list tools: %v", name, err)
 		}
 		pool.clients[name] = &pooledClient{client: client}
+		pool.serverInfo[name] = initRes.ServerInfo
 		for _, tt := range serverTools {
 			nt := namespacedToolFromMCP(name, tt)
 			pool.allTools = append(pool.allTools, nt)
@@ -134,6 +137,26 @@ func sortNamespacedTools(t []NamespacedTool) {
 		for j := i; j > 0 && t[j-1].Name > t[j].Name; j-- {
 			t[j-1], t[j] = t[j], t[j-1]
 		}
+	}
+}
+
+func TestPool_ServerInfoReportsInitializeIdentity(t *testing.T) {
+	h := newPoolHarness(t,
+		map[string][]mcp.Tool{
+			"projects": {{Name: "list", InputSchema: json.RawMessage(`{}`)}},
+		},
+		map[string]map[string]func(json.RawMessage) (mcp.CallToolResult, *mcp.RPCError){},
+	)
+
+	info, ok := h.pool.ServerInfo("projects")
+	if !ok {
+		t.Fatal("ServerInfo ok = false, want true")
+	}
+	if info.Name != "projects" || info.Version != "0.0.0" {
+		t.Fatalf("ServerInfo = %+v, want projects/0.0.0", info)
+	}
+	if _, ok := h.pool.ServerInfo("missing"); ok {
+		t.Fatal("ServerInfo(missing) ok = true, want false")
 	}
 }
 

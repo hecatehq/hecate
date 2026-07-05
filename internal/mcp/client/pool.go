@@ -93,12 +93,13 @@ type ToolCallAppResource struct {
 //     as a non-nil error.
 //   - Close shuts every client down. Idempotent.
 type Pool struct {
-	mu       sync.Mutex
-	cache    *SharedClientCache               // optional; nil = per-run lifetime
-	clients  map[string]*pooledClient         // server name → client + cache release
-	tools    []NamespacedTool                 // sorted, stable
-	allTools []NamespacedTool                 // includes app-only MCP Apps tools
-	bind     map[string]namespacedToolBinding // namespaced name → routing info
+	mu         sync.Mutex
+	cache      *SharedClientCache               // optional; nil = per-run lifetime
+	clients    map[string]*pooledClient         // server name → client + cache release
+	serverInfo map[string]mcp.ServerInfo        // server name → initialize serverInfo
+	tools      []NamespacedTool                 // sorted, stable
+	allTools   []NamespacedTool                 // includes app-only MCP Apps tools
+	bind       map[string]namespacedToolBinding // namespaced name → routing info
 }
 
 // pooledClient pairs a Client with the bookkeeping the Pool needs to
@@ -177,8 +178,9 @@ type clientFactory func(ctx context.Context, cfg ServerConfig) (*Client, []mcp.T
 // dispatch.
 func buildPool(ctx context.Context, configs []ServerConfig, factory clientFactory) (*Pool, error) {
 	p := &Pool{
-		clients: make(map[string]*pooledClient, len(configs)),
-		bind:    make(map[string]namespacedToolBinding),
+		clients:    make(map[string]*pooledClient, len(configs)),
+		serverInfo: make(map[string]mcp.ServerInfo, len(configs)),
+		bind:       make(map[string]namespacedToolBinding),
 	}
 	seenToolNames := make(map[string]struct{})
 	// Cleanup on partial-failure aborts: tear down whatever's already
@@ -207,8 +209,14 @@ func buildPool(ctx context.Context, configs []ServerConfig, factory clientFactor
 			cleanup()
 			return nil, fmt.Errorf("mcp pool: server %q: %w", name, err)
 		}
+		initRes, err := client.Initialize(ctx)
+		if err != nil {
+			cleanup()
+			return nil, fmt.Errorf("mcp pool: server %q initialize result: %w", name, err)
+		}
 
 		p.clients[name] = &pooledClient{client: client, cfg: cfg, release: release}
+		p.serverInfo[name] = initRes.ServerInfo
 		for _, t := range serverTools {
 			nt := namespacedToolFromMCP(name, t)
 			if _, dup := seenToolNames[nt.Name]; dup {
@@ -230,6 +238,19 @@ func buildPool(ctx context.Context, configs []ServerConfig, factory clientFactor
 	sort.Slice(p.tools, func(i, j int) bool { return p.tools[i].Name < p.tools[j].Name })
 	sort.Slice(p.allTools, func(i, j int) bool { return p.allTools[i].Name < p.allTools[j].Name })
 	return p, nil
+}
+
+// ServerInfo returns the upstream server identity captured during initialize.
+// The key is the operator-configured server name, not the upstream's reported
+// name.
+func (p *Pool) ServerInfo(serverName string) (mcp.ServerInfo, bool) {
+	if p == nil {
+		return mcp.ServerInfo{}, false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	info, ok := p.serverInfo[strings.TrimSpace(serverName)]
+	return info, ok
 }
 
 func namespacedToolFromMCP(serverName string, t mcp.Tool) NamespacedTool {

@@ -760,7 +760,7 @@ GET /hecate/v1/mcp/registry/servers?search=weather&limit=10
 
 Registry discovery does not install packages, spawn servers, or call `tools/list`; it only returns catalog metadata and Hecate-specific connection hints. Use `POST /hecate/v1/mcp/probe` on a selected config to inspect the live tool catalog before committing it to a task.
 
-`POST /hecate/v1/mcp/probe` is the dry-run discovery surface for an MCP server config. It accepts a single MCP server entry (same shape as one item in the task-create `mcp_servers` array — `name` defaults to `probe` when omitted), brings the server up the way an `agent_loop` run would (same secret resolution, same uncached spawn path), calls `tools/list`, and tears it down. Returns the upstream's tool catalog so operators can confirm the config before committing it to a task. The endpoint is local-only: non-loopback sockets and forwarded-client headers are rejected before command handling.
+`POST /hecate/v1/mcp/probe` is the dry-run discovery surface for an MCP server config. It accepts a single MCP server entry (same shape as one item in the task-create `mcp_servers` array — `name` defaults to `probe` when omitted), brings the server up the way an `agent_loop` run would (same secret resolution, same uncached spawn path), calls `tools/list`, and tears it down. Returns the upstream's initialize `serverInfo` plus tool catalog so operators can confirm the config before committing it to a task. The endpoint is local-only: non-loopback sockets and forwarded-client headers are rejected before command handling.
 
 ```json
 POST /hecate/v1/mcp/probe
@@ -773,6 +773,8 @@ POST /hecate/v1/mcp/probe
 {
   "object": "mcp_probe",
   "data": {
+    "server_name": "filesystem",
+    "server_version": "0.6.2",
     "tools": [
       {
         "name": "get_weather",
@@ -3236,6 +3238,8 @@ Example response, shortened:
     "args": ["-db", "/Users/alice/.local/share/hecate/cairnline/projects.db"],
     "database_path": "/Users/alice/.local/share/hecate/cairnline/projects.db",
     "probe_timeout_ms": 10000,
+    "server_name": "cairnline",
+    "server_version": "v0.1.0-alpha.4",
     "tool_count": 81,
     "required_tools": ["projects.list", "projects.get", "projects.create"],
     "missing_tools": [],
@@ -3458,6 +3462,8 @@ Example response, shortened:
     "args": ["-db", "/Users/alice/.local/share/hecate/cairnline/projects.db"],
     "database_path": "/Users/alice/.local/share/hecate/cairnline/projects.db",
     "probe_timeout_ms": 10000,
+    "server_name": "cairnline",
+    "server_version": "v0.1.0-alpha.4",
     "persistent_client": true,
     "client_cache_configured": true,
     "client_cache_entries": 1,

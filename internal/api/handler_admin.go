@@ -280,12 +280,9 @@ func (h *Handler) HandleMCPProbe(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, http.StatusOK, MCPProbeResponse{
 		Object: "mcp_probe",
 		Data: MCPProbeResponseItem{
-			// ServerName / ServerVersion not surfaced from Pool.Tools
-			// today (the namespacing is alias-based); leaving them
-			// empty until the client package exposes the upstream
-			// initialize result. Tools alone is the headline value
-			// operators want.
-			Tools: renderMCPProbeTools(result.Tools),
+			ServerName:    result.ServerName,
+			ServerVersion: result.ServerVersion,
+			Tools:         renderMCPProbeTools(result.Tools),
 		},
 	})
 }

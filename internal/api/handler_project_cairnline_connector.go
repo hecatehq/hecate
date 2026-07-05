@@ -393,6 +393,8 @@ func (h *Handler) projectCairnlineSidecarProbe(ctx context.Context) ProjectCairn
 		response.Detail = err.Error()
 		return response
 	}
+	response.ServerName = result.ServerName
+	response.ServerVersion = result.ServerVersion
 	response.Tools = renderMCPProbeTools(result.Tools)
 	response.ToolCount = len(response.Tools)
 	response.ResourceTemplates = renderMCPProbeResourceTemplates(result.ResourceTemplates)
@@ -464,6 +466,8 @@ func (h *Handler) projectCairnlineSidecarConnect(ctx context.Context) ProjectCai
 		response.setSidecarCacheStats(cache.Stats())
 		return response
 	}
+	response.ServerName = result.ServerName
+	response.ServerVersion = result.ServerVersion
 	response.Tools = renderMCPProbeTools(result.Tools)
 	response.ToolCount = len(response.Tools)
 	response.ResourceTemplates = renderMCPProbeResourceTemplates(result.ResourceTemplates)
