@@ -474,6 +474,14 @@ describe("ProjectWorkspaceView", () => {
           label: "Move next authority",
           detail: "Move the next portable write authority.",
           target: "skills",
+          config_hints: [
+            {
+              env: "HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY",
+              value: "project-skills",
+              detail: "Enable skill metadata writes.",
+            },
+          ],
+          probes: [{ method: "GET", url: "/hecate/v1/projects/{id}/cairnline/read-model" }],
         },
       }),
     });
@@ -484,6 +492,14 @@ describe("ProjectWorkspaceView", () => {
     expect(within(strip).getByText("1 portable gap")).toBeTruthy();
     expect(within(strip).getByText("1 migration blocker")).toBeTruthy();
     expect(within(strip).getByText("1 runtime boundary")).toBeTruthy();
+    expect(within(strip).getByText("Next")).toBeTruthy();
+    expect(within(strip).getByText("Move next authority")).toBeTruthy();
+    expect(within(strip).getByText("skills")).toBeTruthy();
+    expect(within(strip).getByText("1 probe")).toBeTruthy();
+    expect(
+      within(strip).getByText("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-skills"),
+    ).toBeTruthy();
+    expect(within(strip).getByRole("button", { name: "copy" })).toBeTruthy();
 
     await userEvent.click(within(strip).getByRole("button", { name: "Backend settings" }));
     expect(handlers.onOpenSystemSettings).toHaveBeenCalledTimes(1);

@@ -68,9 +68,11 @@ When Cairnline dogfood or replacement mode is configured, the Projects cockpit
 also shows a compact **Project coordination** strip above the workspace. It is
 read-only status from `GET /hecate/v1/projects/backend-status`; use it to
 confirm whether portable project coordination is still Hecate-native, in
-Cairnline dogfood, or reporting Cairnline authoritative. Use **Backend
-settings** to jump to the global Settings workspace for full gates, probes, and
-copyable configuration hints.
+Cairnline dogfood, or reporting Cairnline authoritative. The strip previews the
+server-recommended next replacement action, target, probe count, and copyable
+environment hints when backend status provides them. Use **Backend settings** to
+jump to the global Settings workspace for full gates, ordered probe checklists,
+and migration evidence.
 
 The Work Coordination tab starts with Project Operations when the server finds
 actionable project state: missing launch defaults, pending approvals, blocked
