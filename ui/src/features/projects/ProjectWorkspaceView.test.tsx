@@ -480,6 +480,11 @@ describe("ProjectWorkspaceView", () => {
               value: "project-skills",
               detail: "Enable skill metadata writes.",
             },
+            {
+              env: "HECATE_PROJECTS_CAIRNLINE_CONNECTOR",
+              value: "embedded",
+              detail: "Use embedded Cairnline for write-authority dogfood.",
+            },
           ],
           probes: [{ method: "GET", url: "/hecate/v1/projects/{id}/cairnline/read-model" }],
         },
@@ -499,7 +504,10 @@ describe("ProjectWorkspaceView", () => {
     expect(
       within(strip).getByText("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-skills"),
     ).toBeTruthy();
-    expect(within(strip).getByRole("button", { name: "copy" })).toBeTruthy();
+    expect(within(strip).getByText("HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded")).toBeTruthy();
+    expect(within(strip).getByText("env bundle")).toBeTruthy();
+    expect(within(strip).getByRole("button", { name: "copy all" })).toBeTruthy();
+    expect(within(strip).getAllByRole("button", { name: "copy" }).length).toBe(2);
 
     await userEvent.click(within(strip).getByRole("button", { name: "Backend settings" }));
     expect(handlers.onOpenSystemSettings).toHaveBeenCalledTimes(1);

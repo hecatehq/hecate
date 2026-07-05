@@ -179,6 +179,11 @@ describe("SettingsView", () => {
               value: "project-skills",
               detail: "Enable the skill switchpoint before moving skill metadata writes.",
             },
+            {
+              env: "HECATE_PROJECTS_CAIRNLINE_CONNECTOR",
+              value: "embedded",
+              detail: "Use the embedded connector for write-authority dogfood.",
+            },
           ],
           probe_urls: ["/hecate/v1/projects/{id}/cairnline/read-model"],
         },
@@ -269,6 +274,9 @@ describe("SettingsView", () => {
     expect(
       screen.getByText("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-skills"),
     ).toBeTruthy();
+    expect(screen.getByText("HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded")).toBeTruthy();
+    expect(screen.getByText("Full env block")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "copy all" })).toBeTruthy();
     expect(screen.getByText("Configuration hints")).toBeTruthy();
     expect(
       screen.getByText("Enable the skill switchpoint before moving skill metadata writes."),

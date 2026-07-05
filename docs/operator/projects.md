@@ -69,10 +69,10 @@ also shows a compact **Project coordination** strip above the workspace. It is
 read-only status from `GET /hecate/v1/projects/backend-status`; use it to
 confirm whether portable project coordination is still Hecate-native, in
 Cairnline dogfood, or reporting Cairnline authoritative. The strip previews the
-server-recommended next replacement action, target, probe count, and copyable
-environment hints when backend status provides them. Use **Backend settings** to
-jump to the global Settings workspace for full gates, ordered probe checklists,
-and migration evidence.
+server-recommended next replacement action, target, probe count, copyable
+environment hints, and a full env block when more than one setting is required.
+Use **Backend settings** to jump to the global Settings workspace for full
+gates, ordered probe checklists, and migration evidence.
 
 The Work Coordination tab starts with Project Operations when the server finds
 actionable project state: missing launch defaults, pending approvals, blocked
