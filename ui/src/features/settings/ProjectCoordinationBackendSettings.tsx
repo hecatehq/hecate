@@ -791,14 +791,15 @@ function projectBackendProbePlan(url: string, method: string): { label: string; 
   if (url.includes("/sidecar-connect")) {
     return {
       label: "Connect sidecar client",
-      detail: "Start or reuse the local Cairnline MCP sidecar client before sidecar read checks.",
+      detail:
+        "Start or reuse the local Cairnline MCP sidecar client and capture its typed coordination capability self-description when available.",
     };
   }
   if (url.includes("/sidecar-probe")) {
     return {
       label: "Probe sidecar contract",
       detail:
-        "Confirm the standalone Cairnline MCP server exposes the expected tools and resource templates.",
+        "Confirm the standalone Cairnline MCP server exposes the required tools, resource templates, and coordination capabilities tool.",
     };
   }
   if (url.includes("/sidecar-")) {
