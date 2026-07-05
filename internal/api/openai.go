@@ -2700,7 +2700,7 @@ type SystemResetDataResponseItem struct {
 	ProjectRuntimeRowsDeleted        int `json:"project_runtime_rows_deleted"`
 	ProjectAssistantProposalsDeleted int `json:"project_assistant_proposals_deleted"`
 	PluginsDeleted                   int `json:"plugins_deleted"`
-	AgentProfilesDeleted             int `json:"agent_profiles_deleted"`
+	AgentPresetsDeleted              int `json:"agent_presets_deleted"`
 	ChatSessionsDeleted              int `json:"chat_sessions_deleted"`
 	TasksDeleted                     int `json:"tasks_deleted"`
 	ProvidersDeleted                 int `json:"providers_deleted"`

@@ -83,7 +83,7 @@ func (h *Handler) resetSystemData(ctx context.Context) (SystemResetDataResponseI
 	if err != nil {
 		return stats, err
 	}
-	stats.AgentProfilesDeleted = agentProfilesDeleted
+	stats.AgentPresetsDeleted = agentProfilesDeleted
 
 	tasksDeleted, err := h.resetTasks(ctx)
 	if err != nil {

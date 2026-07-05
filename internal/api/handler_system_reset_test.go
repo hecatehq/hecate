@@ -104,7 +104,7 @@ func TestSystemResetDataMemoryBackendDeletesStateAndClosesAgentSessions(t *testi
 		t.Fatalf("create task: %v", err)
 	}
 	if _, err := handler.agentProfiles.Create(ctx, agentprofiles.Profile{ID: "prof_reset", Name: "Reset profile"}); err != nil {
-		t.Fatalf("create agent profile: %v", err)
+		t.Fatalf("create agent preset: %v", err)
 	}
 	if _, err := handler.pluginRegistry.Upsert(ctx, pluginregistry.Plugin{
 		ID:                    "github",
@@ -146,8 +146,8 @@ func TestSystemResetDataMemoryBackendDeletesStateAndClosesAgentSessions(t *testi
 	if err := json.Unmarshal(rec.Body.Bytes(), &reset); err != nil {
 		t.Fatalf("decode reset response: %v", err)
 	}
-	if reset.Data.ProjectsDeleted != 1 || reset.Data.ProjectWorkRowsDeleted != 2 || reset.Data.ProjectRuntimeRowsDeleted != 1 || reset.Data.PluginsDeleted != 1 || reset.Data.AgentProfilesDeleted != 1 || reset.Data.ChatSessionsDeleted != 2 || reset.Data.TasksDeleted != 1 || reset.Data.ProvidersDeleted != 1 || reset.Data.PolicyRulesDeleted != 1 {
-		t.Fatalf("reset stats = %+v, want one project, one runtime row, one plugin, one profile, two project-work rows, one task, provider, rule and two chats", reset.Data)
+	if reset.Data.ProjectsDeleted != 1 || reset.Data.ProjectWorkRowsDeleted != 2 || reset.Data.ProjectRuntimeRowsDeleted != 1 || reset.Data.PluginsDeleted != 1 || reset.Data.AgentPresetsDeleted != 1 || reset.Data.ChatSessionsDeleted != 2 || reset.Data.TasksDeleted != 1 || reset.Data.ProvidersDeleted != 1 || reset.Data.PolicyRulesDeleted != 1 {
+		t.Fatalf("reset stats = %+v, want one project, one runtime row, one plugin, one preset, two project-work rows, one task, provider, rule and two chats", reset.Data)
 	}
 	if len(runner.deletedSessions) != 2 {
 		t.Fatalf("deleted sessions = %#v, want two external chats deleted", runner.deletedSessions)
@@ -172,10 +172,10 @@ func TestSystemResetDataMemoryBackendDeletesStateAndClosesAgentSessions(t *testi
 	}
 	profiles, err := handler.agentProfiles.List(ctx)
 	if err != nil {
-		t.Fatalf("list agent profiles: %v", err)
+		t.Fatalf("list agent presets: %v", err)
 	}
 	if !agentProfileListIsBuiltInOnly(profiles) {
-		t.Fatalf("agent profiles after reset = %#v, want only built-ins", profiles)
+		t.Fatalf("agent presets after reset = %#v, want only built-ins", profiles)
 	}
 	workItems, err := handler.projectWork.ListWorkItems(ctx, project.Data.ID)
 	if err != nil {
@@ -367,7 +367,7 @@ func TestSystemResetDataSQLiteBackendClearsRemainingRows(t *testing.T) {
 		t.Fatalf("create task: %v", err)
 	}
 	if _, err := agentProfileStore.Create(ctx, agentprofiles.Profile{ID: "prof_sqlite_reset", Name: "SQLite profile"}); err != nil {
-		t.Fatalf("create agent profile: %v", err)
+		t.Fatalf("create agent preset: %v", err)
 	}
 	if _, err := pluginStore.Upsert(ctx, pluginregistry.Plugin{
 		ID:                    "linear",
@@ -407,8 +407,8 @@ func TestSystemResetDataSQLiteBackendClearsRemainingRows(t *testing.T) {
 	if reset.Data.ProjectWorkRowsDeleted != 1 {
 		t.Fatalf("project work rows deleted = %d, want 1", reset.Data.ProjectWorkRowsDeleted)
 	}
-	if reset.Data.AgentProfilesDeleted != 1 {
-		t.Fatalf("agent profiles deleted = %d, want 1", reset.Data.AgentProfilesDeleted)
+	if reset.Data.AgentPresetsDeleted != 1 {
+		t.Fatalf("agent presets deleted = %d, want 1", reset.Data.AgentPresetsDeleted)
 	}
 	if reset.Data.PluginsDeleted != 1 {
 		t.Fatalf("plugins deleted = %d, want 1", reset.Data.PluginsDeleted)
