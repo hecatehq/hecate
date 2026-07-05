@@ -31,6 +31,7 @@ var projectCairnlineSidecarRequiredResourceTemplates = []string{
 }
 
 var projectCairnlineSidecarRequiredTools = []string{
+	"coordination.capabilities",
 	"projects.list",
 	"projects.get",
 	"projects.create",

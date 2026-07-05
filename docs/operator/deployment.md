@@ -490,8 +490,8 @@ their identity/metadata/root/source/default seams unless their explicit
 write-authority switchpoints are enabled; this is replacement-readiness
 evidence, not write authority.
 For sidecar experiments, install the standalone `cairnline` binary from the
-[Cairnline `v0.1.0-alpha.4` prerelease](https://github.com/hecatehq/cairnline/releases/tag/v0.1.0-alpha.4)
-or build it with `go install github.com/hecatehq/cairnline/cmd/cairnline@v0.1.0-alpha.4`.
+[Cairnline `v0.1.0-alpha.5` prerelease](https://github.com/hecatehq/cairnline/releases/tag/v0.1.0-alpha.5)
+or build it with `go install github.com/hecatehq/cairnline/cmd/cairnline@v0.1.0-alpha.5`.
 The release includes macOS, Linux, and Windows archives. Run
 `cairnline -version` and point `HECATE_PROJECTS_CAIRNLINE_SIDECAR_COMMAND` at
 that binary if it is not already on `PATH`. The sidecar path is for MCP
@@ -502,9 +502,10 @@ The sidecar probe/connect surfaces are configured with
 `HECATE_PROJECTS_CAIRNLINE_SIDECAR_ARGS`,
 `HECATE_PROJECTS_CAIRNLINE_SIDECAR_DB`, and
 `HECATE_PROJECTS_CAIRNLINE_SIDECAR_PROBE_TIMEOUT`. `sidecar-probe` verifies MCP
-tool presence plus the portable Projects `resources/templates/list` contract
-and reports the sidecar's MCP initialize `serverInfo` as `server_name` /
-`server_version`.
+tool presence, including Cairnline's `coordination.capabilities`
+self-description tool, plus the portable Projects `resources/templates/list`
+contract and reports the sidecar's MCP initialize `serverInfo` as
+`server_name` / `server_version`.
 `sidecar-connect` keeps the process warm in Hecate's
 Cairnline-specific MCP client cache. `sidecar-read-smoke`,
 `sidecar-detail-smoke`, `sidecar-resource-smoke`,

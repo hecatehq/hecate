@@ -141,7 +141,7 @@ resource access, and smoke contracts while keeping Hecate's authoritative
 Projects backend out of scope.
 
 For a manual source-runtime sidecar check, install the standalone Cairnline
-`v0.1.0-alpha.4` binary or newer, confirm `cairnline -version`, and run:
+`v0.1.0-alpha.5` binary or newer, confirm `cairnline -version`, and run:
 
 ```bash
 just dev-cairnline-sidecar-projects --reset
