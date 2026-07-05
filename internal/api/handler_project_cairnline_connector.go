@@ -139,7 +139,7 @@ func projectCairnlineConnectorReady(mode string) bool {
 func projectCairnlineConnectorDetail(mode string) string {
 	switch mode {
 	case "sidecar":
-		return "Cairnline sidecar connector is configured and can be exercised through local-only probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle/write/setup/work/collaboration/memory/assistant diagnostics. HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar routes only " + projectCairnlineReadRouteList(projectCairnlineSidecarReadRouteNames) + " through the standalone Cairnline MCP client; writes and migration remain on Hecate-native stores or embedded dogfood paths."
+		return "Cairnline sidecar connector is configured and can be exercised through local-only probe/connect/read/detail/resource/coordination/assignment-context/launch-packet/lifecycle/write/setup/work/collaboration/memory/assistant diagnostics. HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar routes only " + projectCairnlineReadRouteList(projectCairnlineSidecarReadRouteNames) + " through the standalone Cairnline MCP client; writes and migration remain on Hecate-native stores or embedded dogfood paths."
 	default:
 		return "Hecate is using the embedded Cairnline Go package bridge for replacement-readiness dogfood."
 	}
@@ -149,7 +149,7 @@ func projectCairnlineConnectorWarning(mode string) string {
 	if mode != "sidecar" {
 		return ""
 	}
-	return "HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar enables standalone Cairnline MCP probe/connect/read/detail/coordination/assignment-context/launch-packet/lifecycle/write/setup/work/collaboration/memory/assistant diagnostics; add HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar to route only " + projectCairnlineReadRouteList(projectCairnlineSidecarReadRouteNames) + " through the sidecar."
+	return "HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar enables standalone Cairnline MCP probe/connect/read/detail/resource/coordination/assignment-context/launch-packet/lifecycle/write/setup/work/collaboration/memory/assistant diagnostics; add HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar to route only " + projectCairnlineReadRouteList(projectCairnlineSidecarReadRouteNames) + " through the sidecar."
 }
 
 func projectCairnlineSidecarLiveReadDetail() string {
@@ -197,6 +197,20 @@ func (h *Handler) HandleProjectCairnlineSidecarDetailSmoke(w http.ResponseWriter
 	WriteJSON(w, http.StatusOK, ProjectCairnlineSidecarDetailEnvelope{
 		Object: "project_cairnline_sidecar_detail",
 		Data:   h.projectCairnlineSidecarDetailSmoke(r.Context(), req),
+	})
+}
+
+func (h *Handler) HandleProjectCairnlineSidecarResourceSmoke(w http.ResponseWriter, r *http.Request) {
+	if !requireLoopbackClient(w, r, "Cairnline sidecar resource smoke") {
+		return
+	}
+	var req ProjectCairnlineSidecarResourceRequest
+	if !decodeOptionalJSON(w, r, &req) {
+		return
+	}
+	WriteJSON(w, http.StatusOK, ProjectCairnlineSidecarResourceEnvelope{
+		Object: "project_cairnline_sidecar_resource",
+		Data:   h.projectCairnlineSidecarResourceSmoke(r.Context(), req),
 	})
 }
 
@@ -666,6 +680,135 @@ func (h *Handler) projectCairnlineSidecarDetailSmoke(ctx context.Context, req Pr
 	response.Ready = true
 	response.Status = "sidecar_detail_ready"
 	response.Detail = "Hecate called the read-only Cairnline sidecar projects.get tool through the persistent sidecar client. " + projectCairnlineSidecarLiveReadDetail()
+	return response
+}
+
+func (h *Handler) projectCairnlineSidecarResourceSmoke(ctx context.Context, req ProjectCairnlineSidecarResourceRequest) ProjectCairnlineSidecarResourceResponse {
+	const listToolName = "projects.list"
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	cfg, dbPath, timeout := h.projectCairnlineSidecarMCPConfig()
+	requestedProjectID := strings.TrimSpace(req.ProjectID)
+	requestedResourceURI := strings.TrimSpace(req.ResourceURI)
+	response := ProjectCairnlineSidecarResourceResponse{
+		Ready:                 false,
+		Status:                "sidecar_resource_not_run",
+		Detail:                "Cairnline sidecar resource smoke has not run.",
+		Command:               cfg.Command,
+		Args:                  append([]string(nil), cfg.Args...),
+		DatabasePath:          dbPath,
+		ProbeTimeoutMS:        timeout.Milliseconds(),
+		PersistentClient:      true,
+		ClientCacheConfigured: h != nil,
+		ReadOnly:              true,
+		RequestedProjectID:    requestedProjectID,
+		RequestedResourceURI:  requestedResourceURI,
+	}
+	if h == nil {
+		response.Status = "sidecar_resource_failed"
+		response.Detail = "Cairnline sidecar resource smoke requires an API handler."
+		return response
+	}
+	if h.projectCairnlineConnectorMode() != "sidecar" {
+		response.Warnings = append(response.Warnings, "HECATE_PROJECTS_CAIRNLINE_CONNECTOR is not sidecar; this resource smoke does not affect live Projects routing.")
+	}
+	if dbPath != "" && len(h.config.ProjectsCairnlineSidecarArgs()) > 0 {
+		response.Warnings = append(response.Warnings, "HECATE_PROJECTS_CAIRNLINE_SIDECAR_ARGS is set, so HECATE_PROJECTS_CAIRNLINE_SIDECAR_DB is reported but not appended automatically.")
+	}
+
+	cache := h.projectCairnlineSidecarMCPClientCache()
+	resourceCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	resourceURI := requestedResourceURI
+	projectID := requestedProjectID
+	if resourceURI != "" {
+		if !strings.HasPrefix(resourceURI, "cairnline://projects/") {
+			response.Status = "sidecar_resource_invalid_uri"
+			response.Detail = "Cairnline sidecar resource smoke only reads cairnline://projects/... resource URIs."
+			response.setSidecarCacheStats(cache.Stats())
+			return response
+		}
+		if projectID == "" {
+			projectID = projectCairnlineSidecarProjectIDFromResourceURI(resourceURI)
+			if projectID != "" {
+				response.SelectedProjectSource = "resource_uri"
+			}
+		}
+	} else {
+		if projectID == "" {
+			listResult, err := orchestrator.CallCachedMCPServerTool(resourceCtx, cfg, h.secretCipher, cache, listToolName, json.RawMessage(`{}`))
+			if err != nil {
+				response.Status = "sidecar_resource_failed"
+				response.Detail = err.Error()
+				response.setSidecarCacheStats(cache.Stats())
+				return response
+			}
+			response.ListToolText = listResult.Text
+			response.ListToolIsError = listResult.IsError
+			response.ListStructuredContent = listResult.Result.StructuredContent
+			response.ListMeta = listResult.Result.Meta
+			if listResult.IsError {
+				response.Status = "sidecar_resource_list_tool_failed"
+				response.Detail = "Cairnline sidecar projects.list returned a tool-level error before Hecate could select a project resource. " + projectCairnlineSidecarLiveReadDetail()
+				response.setSidecarCacheStats(cache.Stats())
+				return response
+			}
+			projects, structuredReady, structuredErr := projectCairnlineSidecarStructuredProjects(listResult.Result.StructuredContent)
+			response.ListStructuredReady = structuredReady
+			response.ListProjectCount = len(projects)
+			if structuredErr != nil {
+				response.ListStructuredParseError = structuredErr.Error()
+				response.Warnings = append(response.Warnings, "Cairnline sidecar projects.list returned structuredContent that Hecate could not parse as a project list.")
+			} else if !structuredReady {
+				response.Warnings = append(response.Warnings, "Cairnline sidecar projects.list did not return structuredContent, so Hecate could not select a project resource.")
+			} else if len(projects) > 0 {
+				projectID = strings.TrimSpace(projects[0].ID)
+				response.SelectedProjectSource = "projects.list"
+			}
+			if projectID == "" {
+				response.Status = "sidecar_resource_no_project"
+				response.Detail = "Hecate called Cairnline sidecar projects.list through the persistent sidecar client, but no typed project id was available for resources/read."
+				response.setSidecarCacheStats(cache.Stats())
+				return response
+			}
+		} else {
+			response.SelectedProjectSource = "request"
+		}
+		resourceURI = "cairnline://projects/" + projectID
+	}
+	response.SelectedProjectID = projectID
+	response.ResourceURI = resourceURI
+
+	result, err := orchestrator.ReadCachedMCPServerResource(resourceCtx, cfg, h.secretCipher, cache, resourceURI)
+	if err != nil {
+		response.Status = "sidecar_resource_failed"
+		response.Detail = err.Error()
+		response.setSidecarCacheStats(cache.Stats())
+		return response
+	}
+	response.Contents = renderMCPResourceContents(result.Result.Contents)
+	response.ContentCount = len(response.Contents)
+	response.setSidecarCacheStats(cache.Stats())
+	if response.ContentCount == 0 {
+		response.Status = "sidecar_resource_empty"
+		response.Detail = "Cairnline sidecar resources/read returned no content for the selected resource."
+		return response
+	}
+	if projectIDFromBody, ok, err := projectCairnlineSidecarProjectResourceID(response.Contents); err != nil {
+		response.StructuredParseError = err.Error()
+		response.Warnings = append(response.Warnings, "Cairnline sidecar project resource returned JSON that Hecate could not parse.")
+	} else if ok {
+		response.StructuredReady = true
+		response.StructuredProjectID = projectIDFromBody
+		if projectID != "" && projectIDFromBody != projectID {
+			response.Warnings = append(response.Warnings, "Cairnline sidecar project resource returned a project id different from the selected id.")
+		}
+	}
+	response.Ready = true
+	response.Status = "sidecar_resource_ready"
+	response.Detail = "Hecate read a Cairnline MCP resource through the persistent sidecar client. " + projectCairnlineSidecarLiveReadDetail()
 	return response
 }
 
@@ -4280,6 +4423,15 @@ func (r *ProjectCairnlineSidecarDetailResponse) setSidecarCacheStats(stats mcpcl
 	r.ClientCacheIdle = stats.Idle
 }
 
+func (r *ProjectCairnlineSidecarResourceResponse) setSidecarCacheStats(stats mcpclient.CacheStats) {
+	if r == nil {
+		return
+	}
+	r.ClientCacheEntries = stats.Entries
+	r.ClientCacheInUse = stats.InUse
+	r.ClientCacheIdle = stats.Idle
+}
+
 func (r *ProjectCairnlineSidecarCoordinationResponse) setSidecarCacheStats(stats mcpclient.CacheStats) {
 	if r == nil {
 		return
@@ -4408,6 +4560,49 @@ func (h *Handler) cairnlineSidecarDatabasePath() string {
 		path = abs
 	}
 	return path
+}
+
+func renderMCPResourceContents(contents []mcp.ResourceContents) []ProjectCairnlineSidecarResourceContent {
+	out := make([]ProjectCairnlineSidecarResourceContent, 0, len(contents))
+	for _, content := range contents {
+		out = append(out, ProjectCairnlineSidecarResourceContent{
+			URI:      content.URI,
+			MIMEType: content.MIMEType,
+			Text:     content.Text,
+			Blob:     content.Blob,
+			Meta:     append(json.RawMessage(nil), content.Meta...),
+		})
+	}
+	return out
+}
+
+func projectCairnlineSidecarProjectIDFromResourceURI(uri string) string {
+	const prefix = "cairnline://projects/"
+	rest := strings.TrimPrefix(strings.TrimSpace(uri), prefix)
+	if rest == "" || rest == uri || strings.Contains(rest, "/") {
+		return ""
+	}
+	return rest
+}
+
+func projectCairnlineSidecarProjectResourceID(contents []ProjectCairnlineSidecarResourceContent) (string, bool, error) {
+	for _, content := range contents {
+		text := strings.TrimSpace(content.Text)
+		if text == "" {
+			continue
+		}
+		var payload struct {
+			Project struct {
+				ID string `json:"id"`
+			} `json:"project"`
+		}
+		if err := json.Unmarshal([]byte(text), &payload); err != nil {
+			return "", false, err
+		}
+		id := strings.TrimSpace(payload.Project.ID)
+		return id, id != "", nil
+	}
+	return "", false, nil
 }
 
 func projectCairnlineSidecarToolNames(tools []MCPProbeToolDescriptor) []string {

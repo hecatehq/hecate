@@ -83,6 +83,13 @@ func cairnlineSidecarFixtureMain(mode string) {
 				break
 			}
 			result = mcp.ListResourceTemplatesResult{ResourceTemplates: cairnlineSidecarFixtureResourceTemplates(mode)}
+		case "resources/read":
+			var params mcp.ReadResourceParams
+			if err := json.Unmarshal(req.Params, &params); err != nil {
+				rpcErr = mcp.NewError(mcp.ErrCodeInvalidParams, "invalid resources/read params")
+				break
+			}
+			result, rpcErr = cairnlineSidecarFixtureReadResource(mode, state, params.URI)
 		case "tools/call":
 			var params mcp.CallToolParams
 			if err := json.Unmarshal(req.Params, &params); err != nil {
@@ -175,6 +182,43 @@ func cairnlineSidecarFixtureResourceTemplates(mode string) []mcp.ResourceTemplat
 		})
 	}
 	return templates
+}
+
+func cairnlineSidecarFixtureReadResource(mode string, state *cairnlineSidecarFixtureState, uri string) (mcp.ReadResourceResult, *mcp.RPCError) {
+	if cairnlineSidecarFixtureModeHas(mode, "resource-read-error") {
+		return mcp.ReadResourceResult{}, mcp.NewError(mcp.ErrCodeInternalError, "resource read fixture failure")
+	}
+	const prefix = "cairnline://projects/"
+	projectID := strings.TrimPrefix(strings.TrimSpace(uri), prefix)
+	if projectID == uri || projectID == "" || strings.Contains(projectID, "/") {
+		return mcp.ReadResourceResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "unsupported fixture resource uri")
+	}
+	project := ProjectCairnlineSidecarProjectItem{
+		ID:   "proj_fixture",
+		Name: "Fixture Project",
+	}
+	if items := cairnlineSidecarFixtureProjects(mode, state); len(items) > 0 {
+		for _, item := range items {
+			if item.ID == projectID {
+				project = item
+				break
+			}
+		}
+	}
+	if project.ID != projectID {
+		return mcp.ReadResourceResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "fixture project not found")
+	}
+	raw, err := json.MarshalIndent(map[string]any{
+		"project": project,
+	}, "", "  ")
+	if err != nil {
+		return mcp.ReadResourceResult{}, mcp.NewError(mcp.ErrCodeInternalError, err.Error())
+	}
+	return mcp.ReadResourceResult{Contents: []mcp.ResourceContents{{
+		URI:      uri,
+		MIMEType: "application/json",
+		Text:     string(raw),
+	}}}, nil
 }
 
 func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixtureState, params mcp.CallToolParams) (mcp.CallToolResult, *mcp.RPCError) {

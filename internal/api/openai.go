@@ -582,6 +582,7 @@ type ProjectCoordinationBackendStatusResponse struct {
 	CairnlineSidecarConnectURL           string                                       `json:"cairnline_sidecar_connect_url,omitempty"`
 	CairnlineSidecarReadURL              string                                       `json:"cairnline_sidecar_read_url,omitempty"`
 	CairnlineSidecarDetailURL            string                                       `json:"cairnline_sidecar_detail_url,omitempty"`
+	CairnlineSidecarResourceURL          string                                       `json:"cairnline_sidecar_resource_url,omitempty"`
 	CairnlineSidecarCoordinationURL      string                                       `json:"cairnline_sidecar_coordination_url,omitempty"`
 	CairnlineSidecarAssignmentContextURL string                                       `json:"cairnline_sidecar_assignment_context_url,omitempty"`
 	CairnlineSidecarLaunchPacketURL      string                                       `json:"cairnline_sidecar_launch_packet_url,omitempty"`
@@ -1729,6 +1730,11 @@ type ProjectCairnlineSidecarDetailEnvelope struct {
 	Data   ProjectCairnlineSidecarDetailResponse `json:"data"`
 }
 
+type ProjectCairnlineSidecarResourceEnvelope struct {
+	Object string                                  `json:"object"`
+	Data   ProjectCairnlineSidecarResourceResponse `json:"data"`
+}
+
 type ProjectCairnlineSidecarCoordinationEnvelope struct {
 	Object string                                      `json:"object"`
 	Data   ProjectCairnlineSidecarCoordinationResponse `json:"data"`
@@ -1781,6 +1787,11 @@ type ProjectCairnlineSidecarAssistantEnvelope struct {
 
 type ProjectCairnlineSidecarDetailRequest struct {
 	ProjectID string `json:"project_id,omitempty"`
+}
+
+type ProjectCairnlineSidecarResourceRequest struct {
+	ProjectID   string `json:"project_id,omitempty"`
+	ResourceURI string `json:"resource_uri,omitempty"`
 }
 
 type ProjectCairnlineSidecarCoordinationRequest struct {
@@ -1923,6 +1934,48 @@ type ProjectCairnlineSidecarDetailResponse struct {
 	StructuredProject        ProjectCairnlineSidecarProjectItem `json:"structured_project,omitempty"`
 	StructuredParseError     string                             `json:"structured_parse_error,omitempty"`
 	Warnings                 []string                           `json:"warnings,omitempty"`
+}
+
+type ProjectCairnlineSidecarResourceResponse struct {
+	Ready                    bool                                     `json:"ready"`
+	Status                   string                                   `json:"status"`
+	Detail                   string                                   `json:"detail"`
+	Command                  string                                   `json:"command"`
+	Args                     []string                                 `json:"args,omitempty"`
+	DatabasePath             string                                   `json:"database_path,omitempty"`
+	ProbeTimeoutMS           int64                                    `json:"probe_timeout_ms"`
+	PersistentClient         bool                                     `json:"persistent_client,omitempty"`
+	ClientCacheConfigured    bool                                     `json:"client_cache_configured,omitempty"`
+	ClientCacheEntries       int                                      `json:"client_cache_entries,omitempty"`
+	ClientCacheInUse         int                                      `json:"client_cache_in_use,omitempty"`
+	ClientCacheIdle          int                                      `json:"client_cache_idle,omitempty"`
+	ReadOnly                 bool                                     `json:"read_only"`
+	RequestedProjectID       string                                   `json:"requested_project_id,omitempty"`
+	RequestedResourceURI     string                                   `json:"requested_resource_uri,omitempty"`
+	SelectedProjectID        string                                   `json:"selected_project_id,omitempty"`
+	SelectedProjectSource    string                                   `json:"selected_project_source,omitempty"`
+	ResourceURI              string                                   `json:"resource_uri,omitempty"`
+	ListToolText             string                                   `json:"list_tool_text,omitempty"`
+	ListToolIsError          bool                                     `json:"list_tool_is_error,omitempty"`
+	ListStructuredContent    json.RawMessage                          `json:"list_structured_content,omitempty"`
+	ListMeta                 json.RawMessage                          `json:"list_meta,omitempty"`
+	ListStructuredReady      bool                                     `json:"list_structured_ready"`
+	ListProjectCount         int                                      `json:"list_project_count"`
+	ListStructuredParseError string                                   `json:"list_structured_parse_error,omitempty"`
+	ContentCount             int                                      `json:"content_count"`
+	Contents                 []ProjectCairnlineSidecarResourceContent `json:"contents,omitempty"`
+	StructuredReady          bool                                     `json:"structured_ready"`
+	StructuredProjectID      string                                   `json:"structured_project_id,omitempty"`
+	StructuredParseError     string                                   `json:"structured_parse_error,omitempty"`
+	Warnings                 []string                                 `json:"warnings,omitempty"`
+}
+
+type ProjectCairnlineSidecarResourceContent struct {
+	URI      string          `json:"uri"`
+	MIMEType string          `json:"mime_type,omitempty"`
+	Text     string          `json:"text,omitempty"`
+	Blob     string          `json:"blob,omitempty"`
+	Meta     json.RawMessage `json:"meta,omitempty"`
 }
 
 type ProjectCairnlineSidecarCoordinationResponse struct {

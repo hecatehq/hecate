@@ -48,7 +48,7 @@ context, exposed from `GET /hecate/v1/whoami` as `data.remote_identity`, added t
 the top-level HTTP span attributes, and accepted in place of the local
 runtime/inference shared tokens. Remote mode rejects local-only endpoints for
 workspace picker/open, reset-data, shutdown, MCP probe, Cairnline sidecar
-probe/connect/read/detail/coordination/assignment-context/launch-packet,
+probe/connect/read/detail/resource/coordination/assignment-context/launch-packet,
 Cairnline sidecar lifecycle/write/setup/work/collaboration/memory/assistant
 smokes, plugin-registry management, agent-adapter authenticate, and local
 provider and MCP registry discovery. Hecate-native `/hecate/v1/*` routes are
@@ -471,11 +471,13 @@ sequenceDiagram
   embedded Cairnline Go package bridge and optional embedded mirror database.
   `sidecar` can start a standalone Cairnline MCP process through the
   local-only `sidecar-probe` endpoint, connect a cached client through
-  `POST /hecate/v1/projects/cairnline/sidecar-connect`, or call read-only
+  `POST /hecate/v1/projects/cairnline/sidecar-connect`, call read-only
   `projects.list` / `projects.get` through the `sidecar-read-smoke` and
-  `sidecar-detail-smoke` endpoints. `sidecar-coordination-smoke` also calls
-  the read-only portable coordination list tools and checks their typed
-  `structuredContent` arrays. `sidecar-assignment-context-smoke` calls
+  `sidecar-detail-smoke` endpoints, or call `resources/read` through
+  `sidecar-resource-smoke` for the selected Cairnline project resource.
+  `sidecar-coordination-smoke` also calls the read-only portable coordination
+  list tools and checks their typed `structuredContent` arrays.
+  `sidecar-assignment-context-smoke` calls
   read-only `assignments.context`, and `sidecar-launch-packet-smoke` calls
   read-only `assignments.launch_packet`; both check typed MCP-pull assignment
   metadata. `sidecar-lifecycle-smoke` is the assignment mutation smoke: after
@@ -2819,13 +2821,16 @@ the local-only read smoke that calls Cairnline's read-only `projects.list` tool
 through that cached client. `cairnline_sidecar_detail_url` points at the
 local-only detail smoke that calls Cairnline's read-only `projects.get` tool,
 using either an explicit `project_id` or the first typed project from
-`projects.list`. The remaining sidecar smoke URLs cover coordination list
-tools, assignment context, launch packets, the explicitly confirmed standalone
-assignment lifecycle, the explicitly confirmed temporary-project write smoke,
-the explicitly confirmed temporary root/context-source setup smoke, and the
-explicitly confirmed temporary role/work/assignment/context/launch-packet work
-smoke, plus confirmed collaboration, memory, and Project Assistant
-proposal/apply smokes. None of these changes live route authority.
+`projects.list`. `cairnline_sidecar_resource_url` points at a local-only
+resource smoke that reads a concrete `cairnline://projects/...` resource
+through MCP `resources/read`. The remaining sidecar smoke URLs cover
+coordination list tools, assignment context, launch packets, the explicitly
+confirmed standalone assignment lifecycle, the explicitly confirmed
+temporary-project write smoke, the explicitly confirmed temporary
+root/context-source setup smoke, and the explicitly confirmed temporary
+role/work/assignment/context/launch-packet work smoke, plus confirmed
+collaboration, memory, and Project Assistant proposal/apply smokes. None of
+these changes live route authority.
 
 Example response, with `write_switchpoints` shortened for readability:
 
@@ -3098,6 +3103,7 @@ Example response, with `write_switchpoints` shortened for readability:
     "cairnline_sidecar_connect_url": "/hecate/v1/projects/cairnline/sidecar-connect",
     "cairnline_sidecar_read_url": "/hecate/v1/projects/cairnline/sidecar-read-smoke",
     "cairnline_sidecar_detail_url": "/hecate/v1/projects/cairnline/sidecar-detail-smoke",
+    "cairnline_sidecar_resource_url": "/hecate/v1/projects/cairnline/sidecar-resource-smoke",
     "cairnline_sidecar_coordination_url": "/hecate/v1/projects/cairnline/sidecar-coordination-smoke",
     "cairnline_sidecar_assignment_context_url": "/hecate/v1/projects/cairnline/sidecar-assignment-context-smoke",
     "cairnline_sidecar_launch_packet_url": "/hecate/v1/projects/cairnline/sidecar-launch-packet-smoke",
@@ -3623,6 +3629,58 @@ Example response, shortened:
       ]
     },
     "warnings": []
+  }
+}
+```
+
+### `POST /hecate/v1/projects/cairnline/sidecar-resource-smoke`
+
+Local-only standalone Cairnline MCP resource-read smoke. It uses the same
+sidecar command, database, timeout, and Cairnline-specific MCP client cache as
+`sidecar-connect`. With an empty body, Hecate first calls read-only
+`projects.list`, selects the first typed project id, and reads
+`cairnline://projects/{project_id}` through MCP `resources/read`. A request can
+also provide `{"project_id":"proj_123"}` or a concrete
+`{"resource_uri":"cairnline://projects/proj_123"}`.
+
+This endpoint is diagnostic only. It proves the standalone Cairnline sidecar
+can serve concrete MCP resources after advertising resource templates. It does
+not switch live Projects routing, mirroring, dispatch, approvals, or write
+authority.
+
+The response reports:
+
+- `requested_project_id` and `requested_resource_uri` when supplied.
+- `selected_project_id`, `selected_project_source`, and `resource_uri`.
+- `list_*` fields when Hecate had to call `projects.list` to select a project.
+- `contents` and `content_count` from MCP `resources/read`.
+- `structured_ready` and `structured_project_id` when Hecate can parse a
+  project resource body.
+- The same persistent-client cache counters as `sidecar-connect`.
+
+Example response, shortened:
+
+```json
+{
+  "object": "project_cairnline_sidecar_resource",
+  "data": {
+    "ready": true,
+    "status": "sidecar_resource_ready",
+    "command": "cairnline",
+    "read_only": true,
+    "selected_project_id": "proj_123",
+    "selected_project_source": "projects.list",
+    "resource_uri": "cairnline://projects/proj_123",
+    "content_count": 1,
+    "contents": [
+      {
+        "uri": "cairnline://projects/proj_123",
+        "mime_type": "application/json",
+        "text": "{\n  \"project\": {\"id\": \"proj_123\"}\n}"
+      }
+    ],
+    "structured_ready": true,
+    "structured_project_id": "proj_123"
   }
 }
 ```

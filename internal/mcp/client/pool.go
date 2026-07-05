@@ -486,6 +486,37 @@ func (p *Pool) ListResourceTemplates(ctx context.Context, serverName string) ([]
 	return out, nil
 }
 
+// ReadResource asks one connected upstream for a concrete resource URI.
+// Resource reads are operator diagnostics / MCP Apps plumbing, not part of
+// model-origin tool dispatch.
+func (p *Pool) ReadResource(ctx context.Context, serverName, uri string) (mcp.ReadResourceResult, error) {
+	serverName = strings.TrimSpace(serverName)
+	uri = strings.TrimSpace(uri)
+	if uri == "" {
+		return mcp.ReadResourceResult{}, errors.New("mcp pool: resource uri is required")
+	}
+	p.mu.Lock()
+	pc := p.clients[serverName]
+	cache := p.cache
+	p.mu.Unlock()
+	if pc == nil {
+		return mcp.ReadResourceResult{}, fmt.Errorf("mcp pool: server %q is not connected", serverName)
+	}
+	read, err := pc.client.ReadResource(ctx, uri)
+	if err != nil {
+		if cache != nil && IsTransportClosedErr(err) {
+			cache.Evict(pc.cfg)
+		}
+		return mcp.ReadResourceResult{}, err
+	}
+	out := mcp.ReadResourceResult{Contents: make([]mcp.ResourceContents, len(read.Contents))}
+	for i, content := range read.Contents {
+		out.Contents[i] = content
+		out.Contents[i].Meta = cloneRawMessage(content.Meta)
+	}
+	return out, nil
+}
+
 // Call dispatches a namespaced tool call. Returns:
 //   - text: the concatenated text content from the upstream
 //     CallToolResult (one block per line). MCP allows non-text

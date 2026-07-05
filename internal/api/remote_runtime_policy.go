@@ -34,6 +34,7 @@ var remoteRuntimeLocalOnlyRoutes = []remoteRuntimeRoutePattern{
 	{method: http.MethodPost, path: "/hecate/v1/projects/cairnline/sidecar-memory-smoke"},
 	{method: http.MethodPost, path: "/hecate/v1/projects/cairnline/sidecar-probe"},
 	{method: http.MethodPost, path: "/hecate/v1/projects/cairnline/sidecar-read-smoke"},
+	{method: http.MethodPost, path: "/hecate/v1/projects/cairnline/sidecar-resource-smoke"},
 	{method: http.MethodPost, path: "/hecate/v1/projects/cairnline/sidecar-setup-smoke"},
 	{method: http.MethodPost, path: "/hecate/v1/projects/cairnline/sidecar-write-smoke"},
 	{method: http.MethodPost, path: "/hecate/v1/projects/cairnline/sidecar-work-smoke"},
