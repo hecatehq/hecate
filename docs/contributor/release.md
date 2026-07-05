@@ -282,6 +282,38 @@ git tag -d vX.Y.Z 2>/dev/null || true
 Leave the version stamp commit on `master` when retrying the same version; the
 release script will detect the files are already stamped.
 
+If Goreleaser already pushed container images before a later release job failed,
+the failed version tag may remain in GHCR and the `latest` tag may temporarily
+point at the failed release. `gh release delete --cleanup-tag` does **not**
+delete container package versions. Verify and repair GHCR explicitly:
+
+```bash
+failed=vX.Y.Z
+failed_image=${failed#v}
+last_good=0.2.0-alpha.4
+
+docker manifest inspect ghcr.io/hecatehq/hecate:${failed_image}
+docker manifest inspect ghcr.io/hecatehq/hecate:latest
+
+# If your token has delete:packages, remove the failed tagged package version:
+version_id=$(gh api /orgs/hecatehq/packages/container/hecate/versions \
+  | jq -r --arg tag "$failed_image" \
+      '.[] | select(.metadata.container.tags | index($tag)) | .id')
+test -n "$version_id"
+gh api -X DELETE /orgs/hecatehq/packages/container/hecate/versions/"$version_id"
+
+# If delete is not available, at least restore latest to the last successful
+# release. This requires write:packages.
+gh auth token | docker login ghcr.io -u "$(gh api user --jq .login)" --password-stdin
+docker buildx imagetools create \
+  -t ghcr.io/hecatehq/hecate:latest \
+  ghcr.io/hecatehq/hecate:${last_good}
+```
+
+Afterward, confirm `latest` and the last good tag resolve to the same manifest
+digests. If the failed image tag could not be deleted, note it in the failed
+release incident and delete it later with a token that has `delete:packages`.
+
 ## Image build
 
 The published image is built by goreleaser in CI using `Dockerfile.release`.
