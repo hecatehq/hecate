@@ -120,7 +120,7 @@ func TestProjectCairnlineSidecarProbe_Ready(t *testing.T) {
 		t.Fatalf("missing resource templates = %+v error=%q, want none", got.MissingResourceTemplates, got.ResourceTemplateError)
 	}
 	assertSidecarLiveReadDetail(t, got.Detail)
-	for _, name := range []string{"projects.update", "roots.create", "context_sources.update", "skills.update", "assignments.create", "memory_entries.create", "assistant.apply", "memory_candidates.delete"} {
+	for _, name := range []string{"coordination.capabilities", "projects.update", "roots.create", "context_sources.update", "skills.update", "assignments.create", "memory_entries.create", "assistant.apply", "memory_candidates.delete"} {
 		if !containsString(got.RequiredTools, name) {
 			t.Fatalf("required tools = %+v, want %q", got.RequiredTools, name)
 		}
@@ -147,7 +147,7 @@ func TestProjectCairnlineSidecarProbe_MissingRequiredTools(t *testing.T) {
 	if got.Ready || got.Status != "sidecar_contract_incomplete" {
 		t.Fatalf("probe = %+v, want incomplete contract", got)
 	}
-	if !containsString(got.MissingTools, "projects.get") || !containsString(got.MissingTools, "assignments.context") || !containsString(got.MissingTools, "assignments.launch_packet") || !containsString(got.MissingTools, "assistant.propose") || !containsString(got.MissingTools, "assistant.apply") || !containsString(got.MissingTools, "memory_candidates.delete") {
+	if !containsString(got.MissingTools, "coordination.capabilities") || !containsString(got.MissingTools, "projects.get") || !containsString(got.MissingTools, "assignments.context") || !containsString(got.MissingTools, "assignments.launch_packet") || !containsString(got.MissingTools, "assistant.propose") || !containsString(got.MissingTools, "assistant.apply") || !containsString(got.MissingTools, "memory_candidates.delete") {
 		t.Fatalf("missing tools = %+v, want representative missing contract tools", got.MissingTools)
 	}
 	if got.ToolCount != 1 {
@@ -228,7 +228,7 @@ func TestProjectCairnlineSidecarConnect_ReadyUsesPersistentClientCache(t *testin
 		t.Fatalf("resource template count=%d missing=%+v, want full contract", got.ResourceTemplateCount, got.MissingResourceTemplates)
 	}
 	assertSidecarLiveReadDetail(t, got.Detail)
-	for _, name := range []string{"projects.activity", "skills.discover", "work_items.closeout_readiness", "artifacts.create", "handoffs.update_status", "memory_candidates.promote"} {
+	for _, name := range []string{"coordination.capabilities", "projects.activity", "skills.discover", "work_items.closeout_readiness", "artifacts.create", "handoffs.update_status", "memory_candidates.promote"} {
 		if !containsString(got.RequiredTools, name) {
 			t.Fatalf("required tools = %+v, want %q", got.RequiredTools, name)
 		}
@@ -256,7 +256,7 @@ func TestProjectCairnlineSidecarConnect_MissingRequiredTools(t *testing.T) {
 	if got.ClientCacheEntries != 1 || got.ClientCacheInUse != 0 || got.ClientCacheIdle != 1 {
 		t.Fatalf("cache stats = entries:%d in_use:%d idle:%d, want 1/0/1", got.ClientCacheEntries, got.ClientCacheInUse, got.ClientCacheIdle)
 	}
-	if !containsString(got.MissingTools, "projects.get") || !containsString(got.MissingTools, "assignments.context") || !containsString(got.MissingTools, "assignments.launch_packet") || !containsString(got.MissingTools, "assistant.propose") || !containsString(got.MissingTools, "assistant.apply") || !containsString(got.MissingTools, "memory_candidates.delete") {
+	if !containsString(got.MissingTools, "coordination.capabilities") || !containsString(got.MissingTools, "projects.get") || !containsString(got.MissingTools, "assignments.context") || !containsString(got.MissingTools, "assignments.launch_packet") || !containsString(got.MissingTools, "assistant.propose") || !containsString(got.MissingTools, "assistant.apply") || !containsString(got.MissingTools, "memory_candidates.delete") {
 		t.Fatalf("missing tools = %+v, want representative missing contract tools", got.MissingTools)
 	}
 }

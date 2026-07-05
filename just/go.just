@@ -172,7 +172,7 @@ dev-cairnline-sidecar-projects *args: _go-cache
 	fi; \
 	if ! "$sidecar_cmd" -version; then \
 	  echo "could not read Cairnline sidecar version from: $sidecar_cmd"; \
-	  echo "Install Cairnline v0.1.0-alpha.4 or newer from https://github.com/hecatehq/cairnline/releases."; \
+	  echo "Install Cairnline v0.1.0-alpha.5 or newer from https://github.com/hecatehq/cairnline/releases."; \
 	  exit 1; \
 	fi; \
 	sidecar_db="${HECATE_PROJECTS_CAIRNLINE_SIDECAR_DB:-.data/cairnline/sidecar/projects.db}"; \
