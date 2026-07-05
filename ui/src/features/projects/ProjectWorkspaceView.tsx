@@ -23,6 +23,10 @@ import type {
   ProjectWorkRoleRecord,
   UpdateProjectSkillPayload,
 } from "../../types/project";
+import {
+  projectCoordinationConfigAssignment,
+  projectCoordinationConfigBlock,
+} from "../../lib/project-coordination-backend";
 import { Badge, CopyBtn, Icon, Icons, InlineError } from "../shared/ui";
 import { ProjectAssistantPanel } from "./ProjectAssistantPanel";
 import { ProjectMemoryPanel } from "./ProjectMemoryPanel";
@@ -534,6 +538,7 @@ function ProjectCoordinationStatusStrip({
   const nextAction = status.next_replacement_action;
   const detail = nextAction?.detail || status.detail;
   const configHints = nextAction?.config_hints ?? [];
+  const configBlock = projectCoordinationConfigBlock(configHints);
   const probeCount = nextAction
     ? (nextAction.probes?.length ?? nextAction.probe_urls?.length ?? 0)
     : 0;
@@ -560,8 +565,14 @@ function ProjectCoordinationStatusStrip({
                 {probeCount} probe{probeCount === 1 ? "" : "s"}
               </span>
             )}
+            {configBlock && configHints.length > 1 && (
+              <span style={projectCoordinationHintStyle}>
+                <code style={projectCoordinationHintCodeStyle}>env bundle</code>
+                <CopyBtn label="copy all" text={configBlock} />
+              </span>
+            )}
             {configHints.map((hint) => {
-              const assignment = `${hint.env}=${hint.value}`;
+              const assignment = projectCoordinationConfigAssignment(hint);
               return (
                 <span key={assignment} style={projectCoordinationHintStyle}>
                   <code style={projectCoordinationHintCodeStyle}>{assignment}</code>

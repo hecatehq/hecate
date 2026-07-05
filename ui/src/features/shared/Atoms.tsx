@@ -102,7 +102,7 @@ export function Toggle({
 
 // ─── CopyBtn ─────────────────────────────────────────────────────────────────
 
-export function CopyBtn({ text }: { text: string }) {
+export function CopyBtn({ label = "copy", text }: { label?: string; text: string }) {
   const [copied, setCopied] = useState(false);
   const resetTimerRef = useRef<number | null>(null);
 
@@ -124,7 +124,7 @@ export function CopyBtn({ text }: { text: string }) {
   return (
     <button className="btn btn-ghost btn-sm" onClick={copy} style={{ gap: 4, padding: "3px 6px" }}>
       <Icon d={copied ? Icons.check : Icons.copy} size={12} />
-      {copied ? "copied" : "copy"}
+      {copied ? "copied" : label}
     </button>
   );
 }

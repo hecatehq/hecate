@@ -2,6 +2,10 @@ import type {
   ProjectCoordinationBackendProbeRecord,
   ProjectCoordinationBackendStatusRecord,
 } from "../../types/project";
+import {
+  projectCoordinationConfigAssignment,
+  projectCoordinationConfigBlock,
+} from "../../lib/project-coordination-backend";
 import { Badge, CopyBtn, Icon, Icons, InlineError } from "../shared/ui";
 import { SettingsSectionHeader as SectionHeader } from "./SettingsSectionHeader";
 
@@ -516,6 +520,7 @@ function ProjectBackendConfigHints({
     NonNullable<ProjectCoordinationBackendStatusRecord["next_replacement_action"]>["config_hints"]
   >;
 }) {
+  const configBlock = projectCoordinationConfigBlock(hints);
   return (
     <div style={{ display: "grid", gap: 4 }}>
       <div
@@ -528,9 +533,41 @@ function ProjectBackendConfigHints({
       >
         Configuration hints
       </div>
+      {configBlock && hints.length > 1 && (
+        <div
+          style={{
+            alignItems: "center",
+            background: "var(--bg3)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius-sm)",
+            display: "grid",
+            gap: 7,
+            gridTemplateColumns: "minmax(0, 1fr) auto",
+            padding: "7px 9px",
+          }}
+        >
+          <div style={{ display: "grid", gap: 3, minWidth: 0 }}>
+            <span style={{ color: "var(--t1)", fontSize: 12, fontWeight: 650 }}>
+              Full env block
+            </span>
+            <code
+              style={{
+                color: "var(--t2)",
+                fontFamily: "var(--font-mono)",
+                fontSize: 11,
+                overflowWrap: "anywhere",
+                whiteSpace: "pre-wrap",
+              }}
+            >
+              {configBlock}
+            </code>
+          </div>
+          <CopyBtn label="copy all" text={configBlock} />
+        </div>
+      )}
       <div style={{ display: "grid", gap: 4 }}>
         {hints.map((hint) => {
-          const assignment = `${hint.env}=${hint.value}`;
+          const assignment = projectCoordinationConfigAssignment(hint);
           return (
             <div
               key={assignment}
