@@ -492,10 +492,41 @@ func (h *Handler) projectCairnlineSidecarConnect(ctx context.Context) ProjectCai
 		response.Detail = "Cairnline sidecar MCP client connected, but it does not expose every resource template Hecate expects for portable Projects diagnostics."
 		return response
 	}
+	h.appendProjectCairnlineSidecarCoordinationCapabilities(connectCtx, cfg, cache, &response)
+	response.setSidecarCacheStats(cache.Stats())
 	response.Ready = true
 	response.Status = "sidecar_client_ready"
 	response.Detail = "Cairnline sidecar MCP client connected and exposes the required portable Projects tool and resource-template contract. " + projectCairnlineSidecarLiveReadDetail()
 	return response
+}
+
+func (h *Handler) appendProjectCairnlineSidecarCoordinationCapabilities(ctx context.Context, cfg types.MCPServerConfig, cache *mcpclient.SharedClientCache, response *ProjectCairnlineSidecarProbeResponse) {
+	if h == nil || response == nil {
+		return
+	}
+	result, err := orchestrator.CallCachedMCPServerTool(ctx, cfg, h.secretCipher, cache, "coordination.capabilities", json.RawMessage(`{}`))
+	if err != nil {
+		response.Warnings = append(response.Warnings, "Cairnline sidecar coordination.capabilities call failed: "+err.Error())
+		return
+	}
+	if result.IsError {
+		detail := strings.TrimSpace(result.Text)
+		if detail == "" {
+			detail = "tool-level error"
+		}
+		response.Warnings = append(response.Warnings, "Cairnline sidecar coordination.capabilities returned a tool-level error: "+detail)
+		return
+	}
+	capabilities, structuredReady, structuredErr := projectCairnlineSidecarStructuredCoordinationCapabilities(result.Result.StructuredContent)
+	if structuredErr != nil {
+		response.Warnings = append(response.Warnings, "Cairnline sidecar coordination.capabilities returned structuredContent that Hecate could not parse.")
+		return
+	}
+	if !structuredReady {
+		response.Warnings = append(response.Warnings, "Cairnline sidecar coordination.capabilities did not return structuredContent; Hecate verified the tool exists but not its typed self-description.")
+		return
+	}
+	response.CoordinationCapabilities = &capabilities
 }
 
 func (h *Handler) projectCairnlineSidecarReadSmoke(ctx context.Context) ProjectCairnlineSidecarReadResponse {
@@ -3612,6 +3643,21 @@ func projectCairnlineSidecarStructuredProjects(raw json.RawMessage) ([]ProjectCa
 		projects = []ProjectCairnlineSidecarProjectItem{}
 	}
 	return projects, true, nil
+}
+
+func projectCairnlineSidecarStructuredCoordinationCapabilities(raw json.RawMessage) (ProjectCairnlineCoordinationCapabilities, bool, error) {
+	if len(raw) == 0 {
+		return ProjectCairnlineCoordinationCapabilities{}, false, nil
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return ProjectCairnlineCoordinationCapabilities{}, false, nil
+	}
+	var capabilities ProjectCairnlineCoordinationCapabilities
+	if err := json.Unmarshal(trimmed, &capabilities); err != nil {
+		return ProjectCairnlineCoordinationCapabilities{}, false, err
+	}
+	return capabilities, true, nil
 }
 
 func projectCairnlineSidecarProjectByName(projects []ProjectCairnlineSidecarProjectItem, name string) (ProjectCairnlineSidecarProjectItem, bool) {

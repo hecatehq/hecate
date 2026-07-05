@@ -227,11 +227,43 @@ func TestProjectCairnlineSidecarConnect_ReadyUsesPersistentClientCache(t *testin
 	if got.ResourceTemplateCount != len(projectCairnlineSidecarRequiredResourceTemplates) || len(got.MissingResourceTemplates) != 0 {
 		t.Fatalf("resource template count=%d missing=%+v, want full contract", got.ResourceTemplateCount, got.MissingResourceTemplates)
 	}
+	if got.CoordinationCapabilities == nil {
+		t.Fatalf("coordination capabilities = nil, want Cairnline self-description")
+	}
+	if got.CoordinationCapabilities.CoreRule != "Assignment is coordination. Execution is capability-dependent." ||
+		!containsString(got.CoordinationCapabilities.ExecutionModes, "mcp_pull") ||
+		!containsString(got.CoordinationCapabilities.AgentHostOwns, "agent launch and supervision") ||
+		!containsString(got.CoordinationCapabilities.RecommendedMCPPullFlow, "assignments.claim") {
+		t.Fatalf("coordination capabilities = %+v, want portable boundary metadata", got.CoordinationCapabilities)
+	}
 	assertSidecarLiveReadDetail(t, got.Detail)
 	for _, name := range []string{"coordination.capabilities", "projects.activity", "skills.discover", "work_items.closeout_readiness", "artifacts.create", "handoffs.update_status", "memory_candidates.promote"} {
 		if !containsString(got.RequiredTools, name) {
 			t.Fatalf("required tools = %+v, want %q", got.RequiredTools, name)
 		}
+	}
+}
+
+func TestProjectCairnlineSidecarConnect_CoordinationCapabilitiesAreBestEffort(t *testing.T) {
+	handler := NewHandler(config.Config{
+		Projects: config.ProjectsConfig{
+			CairnlineConnector:           "sidecar",
+			CairnlineSidecarCommand:      os.Args[0],
+			CairnlineSidecarArgs:         []string{cairnlineSidecarFixtureArgPrefix + "coordination.capabilities-text-only"},
+			CairnlineSidecarProbeTimeout: 5 * time.Second,
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+
+	got := handler.projectCairnlineSidecarConnect(t.Context())
+	if !got.Ready || got.Status != "sidecar_client_ready" {
+		t.Fatalf("connect = %+v, want ready despite missing typed capabilities", got)
+	}
+	if got.CoordinationCapabilities != nil {
+		t.Fatalf("coordination capabilities = %+v, want nil when structuredContent is missing", got.CoordinationCapabilities)
+	}
+	if !containsString(got.Warnings, "Cairnline sidecar coordination.capabilities did not return structuredContent; Hecate verified the tool exists but not its typed self-description.") {
+		t.Fatalf("warnings = %+v, want typed self-description warning", got.Warnings)
 	}
 }
 

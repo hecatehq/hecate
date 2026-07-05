@@ -1852,30 +1852,44 @@ type ProjectCairnlineSidecarAssistantRequest struct {
 }
 
 type ProjectCairnlineSidecarProbeResponse struct {
-	Ready                     bool                                 `json:"ready"`
-	Status                    string                               `json:"status"`
-	Detail                    string                               `json:"detail"`
-	Command                   string                               `json:"command"`
-	Args                      []string                             `json:"args,omitempty"`
-	DatabasePath              string                               `json:"database_path,omitempty"`
-	ProbeTimeoutMS            int64                                `json:"probe_timeout_ms"`
-	ServerName                string                               `json:"server_name,omitempty"`
-	ServerVersion             string                               `json:"server_version,omitempty"`
-	PersistentClient          bool                                 `json:"persistent_client,omitempty"`
-	ClientCacheConfigured     bool                                 `json:"client_cache_configured,omitempty"`
-	ClientCacheEntries        int                                  `json:"client_cache_entries,omitempty"`
-	ClientCacheInUse          int                                  `json:"client_cache_in_use,omitempty"`
-	ClientCacheIdle           int                                  `json:"client_cache_idle,omitempty"`
-	ToolCount                 int                                  `json:"tool_count"`
-	RequiredTools             []string                             `json:"required_tools"`
-	MissingTools              []string                             `json:"missing_tools,omitempty"`
-	Tools                     []MCPProbeToolDescriptor             `json:"tools,omitempty"`
-	ResourceTemplateCount     int                                  `json:"resource_template_count"`
-	RequiredResourceTemplates []string                             `json:"required_resource_templates"`
-	MissingResourceTemplates  []string                             `json:"missing_resource_templates,omitempty"`
-	ResourceTemplateError     string                               `json:"resource_template_error,omitempty"`
-	ResourceTemplates         []MCPProbeResourceTemplateDescriptor `json:"resource_templates,omitempty"`
-	Warnings                  []string                             `json:"warnings,omitempty"`
+	Ready                     bool                                      `json:"ready"`
+	Status                    string                                    `json:"status"`
+	Detail                    string                                    `json:"detail"`
+	Command                   string                                    `json:"command"`
+	Args                      []string                                  `json:"args,omitempty"`
+	DatabasePath              string                                    `json:"database_path,omitempty"`
+	ProbeTimeoutMS            int64                                     `json:"probe_timeout_ms"`
+	ServerName                string                                    `json:"server_name,omitempty"`
+	ServerVersion             string                                    `json:"server_version,omitempty"`
+	PersistentClient          bool                                      `json:"persistent_client,omitempty"`
+	ClientCacheConfigured     bool                                      `json:"client_cache_configured,omitempty"`
+	ClientCacheEntries        int                                       `json:"client_cache_entries,omitempty"`
+	ClientCacheInUse          int                                       `json:"client_cache_in_use,omitempty"`
+	ClientCacheIdle           int                                       `json:"client_cache_idle,omitempty"`
+	ToolCount                 int                                       `json:"tool_count"`
+	RequiredTools             []string                                  `json:"required_tools"`
+	MissingTools              []string                                  `json:"missing_tools,omitempty"`
+	Tools                     []MCPProbeToolDescriptor                  `json:"tools,omitempty"`
+	ResourceTemplateCount     int                                       `json:"resource_template_count"`
+	RequiredResourceTemplates []string                                  `json:"required_resource_templates"`
+	MissingResourceTemplates  []string                                  `json:"missing_resource_templates,omitempty"`
+	ResourceTemplateError     string                                    `json:"resource_template_error,omitempty"`
+	ResourceTemplates         []MCPProbeResourceTemplateDescriptor      `json:"resource_templates,omitempty"`
+	CoordinationCapabilities  *ProjectCairnlineCoordinationCapabilities `json:"coordination_capabilities,omitempty"`
+	Warnings                  []string                                  `json:"warnings,omitempty"`
+}
+
+type ProjectCairnlineCoordinationCapabilities struct {
+	ServerName             string   `json:"server_name,omitempty"`
+	ServerVersion          string   `json:"server_version,omitempty"`
+	Product                string   `json:"product,omitempty"`
+	CoreRule               string   `json:"core_rule,omitempty"`
+	ExecutionModes         []string `json:"execution_modes,omitempty"`
+	AssignmentStatuses     []string `json:"assignment_statuses,omitempty"`
+	DesiredAgentKindHints  []string `json:"desired_agent_kind_hints,omitempty"`
+	SkillMetadataPaths     []string `json:"skill_metadata_paths,omitempty"`
+	AgentHostOwns          []string `json:"agent_host_owns,omitempty"`
+	RecommendedMCPPullFlow []string `json:"recommended_mcp_pull_flow,omitempty"`
 }
 
 type ProjectCairnlineSidecarReadResponse struct {

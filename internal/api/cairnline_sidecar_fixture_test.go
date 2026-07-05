@@ -223,6 +223,66 @@ func cairnlineSidecarFixtureReadResource(mode string, state *cairnlineSidecarFix
 
 func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixtureState, params mcp.CallToolParams) (mcp.CallToolResult, *mcp.RPCError) {
 	switch params.Name {
+	case "coordination.capabilities":
+		if cairnlineSidecarFixtureModeHas(mode, "coordination-capabilities-tool-error") {
+			return mcp.CallToolResult{
+				Content: mcp.TextContent("fixture coordination.capabilities failed"),
+				IsError: true,
+			}, nil
+		}
+		result := mcp.CallToolResult{Content: mcp.TextContent("Cairnline coordinates project work; it does not launch or authorize agents.")}
+		if !cairnlineSidecarFixtureTextOnly(mode, "coordination.capabilities") {
+			result.StructuredContent = mustRawJSON(ProjectCairnlineCoordinationCapabilities{
+				ServerName:    "cairnline",
+				ServerVersion: "fixture",
+				Product:       "local-first project coordination server for operators and AI agents",
+				CoreRule:      "Assignment is coordination. Execution is capability-dependent.",
+				ExecutionModes: []string{
+					"manual",
+					"mcp_pull",
+					"external_adapter",
+					"orchestrated",
+				},
+				AssignmentStatuses: []string{
+					"queued",
+					"claimed",
+					"running",
+					"awaiting_review",
+					"completed",
+					"failed",
+					"cancelled",
+				},
+				DesiredAgentKindHints: []string{
+					"any",
+					"human",
+					"claude",
+					"cursor",
+					"hecate",
+				},
+				SkillMetadataPaths: []string{
+					".agents/skills",
+					".cairnline/skills",
+					".claude/skills",
+					".gemini/skills",
+					".hecate/skills",
+				},
+				AgentHostOwns: []string{
+					"agent launch and supervision",
+					"provider and model selection",
+					"tool, write, network, and sandbox permissions",
+					"mapping desired_agent hints to host-specific agents or presets",
+				},
+				RecommendedMCPPullFlow: []string{
+					"assignments.next",
+					"assignments.claim",
+					"assignments.context",
+					"assignments.launch_packet",
+					"evidence.record",
+					"assignments.complete",
+				},
+			})
+		}
+		return result, nil
 	case "projects.list":
 		if cairnlineSidecarFixtureModeHas(mode, "tool-error") {
 			return mcp.CallToolResult{

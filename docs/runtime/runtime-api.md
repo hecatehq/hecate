@@ -3448,6 +3448,14 @@ Projects routing. Add
 read families through the standalone MCP client; write-authority switchpoints
 still require the embedded Cairnline connector.
 
+When the sidecar exposes `coordination.capabilities`, `sidecar-connect`
+best-effort calls it and returns `coordination_capabilities` with Cairnline's
+portable coordination contract, execution modes, skill metadata paths,
+recommended MCP-pull flow, and host-owned runtime responsibilities. A missing
+or text-only structured payload is reported as a warning; it does not make the
+sidecar connection fail after the required tool/resource-template contract has
+already passed.
+
 The response uses the same fields as `sidecar-probe` plus cache metadata:
 
 - `persistent_client=true` means the operation used the cached sidecar client.
@@ -3455,6 +3463,9 @@ The response uses the same fields as `sidecar-probe` plus cache metadata:
   cache.
 - `client_cache_entries`, `client_cache_in_use`, and `client_cache_idle`
   report the cache occupancy after the connect attempt.
+- `coordination_capabilities`, when present, is Cairnline's typed
+  self-description of what it coordinates and what the consuming agent host
+  still owns.
 
 Example response, shortened:
 
@@ -3479,6 +3490,23 @@ Example response, shortened:
     "tool_count": 82,
     "required_tools": ["coordination.capabilities", "projects.list", "projects.get"],
     "missing_tools": [],
+    "coordination_capabilities": {
+      "server_name": "cairnline",
+      "server_version": "v0.1.0-alpha.5",
+      "product": "local-first project coordination server for operators and AI agents",
+      "core_rule": "Assignment is coordination. Execution is capability-dependent.",
+      "execution_modes": ["manual", "mcp_pull", "external_adapter", "orchestrated"],
+      "skill_metadata_paths": [".agents/skills", ".cairnline/skills", ".claude/skills"],
+      "agent_host_owns": ["agent launch and supervision", "provider and model selection"],
+      "recommended_mcp_pull_flow": [
+        "assignments.next",
+        "assignments.claim",
+        "assignments.context",
+        "assignments.launch_packet",
+        "evidence.record",
+        "assignments.complete"
+      ]
+    },
     "tools": [{ "name": "projects.list" }],
     "warnings": []
   }

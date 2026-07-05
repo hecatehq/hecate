@@ -507,7 +507,9 @@ self-description tool, plus the portable Projects `resources/templates/list`
 contract and reports the sidecar's MCP initialize `serverInfo` as
 `server_name` / `server_version`.
 `sidecar-connect` keeps the process warm in Hecate's
-Cairnline-specific MCP client cache. `sidecar-read-smoke`,
+Cairnline-specific MCP client cache and best-effort calls
+`coordination.capabilities` to expose Cairnline's own host/runtime boundary
+metadata in `coordination_capabilities`. `sidecar-read-smoke`,
 `sidecar-detail-smoke`, `sidecar-resource-smoke`,
 `sidecar-coordination-smoke`, `sidecar-assignment-context-smoke`, and
 `sidecar-launch-packet-smoke` use that cached client to call read-only
