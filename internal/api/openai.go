@@ -1858,6 +1858,8 @@ type ProjectCairnlineSidecarProbeResponse struct {
 	Args                      []string                             `json:"args,omitempty"`
 	DatabasePath              string                               `json:"database_path,omitempty"`
 	ProbeTimeoutMS            int64                                `json:"probe_timeout_ms"`
+	ServerName                string                               `json:"server_name,omitempty"`
+	ServerVersion             string                               `json:"server_version,omitempty"`
 	PersistentClient          bool                                 `json:"persistent_client,omitempty"`
 	ClientCacheConfigured     bool                                 `json:"client_cache_configured,omitempty"`
 	ClientCacheEntries        int                                  `json:"client_cache_entries,omitempty"`

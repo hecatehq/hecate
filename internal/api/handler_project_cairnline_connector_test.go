@@ -107,6 +107,9 @@ func TestProjectCairnlineSidecarProbe_Ready(t *testing.T) {
 	if got.ToolCount != len(projectCairnlineSidecarRequiredTools) {
 		t.Fatalf("tool count = %d, want %d", got.ToolCount, len(projectCairnlineSidecarRequiredTools))
 	}
+	if got.ServerName != "cairnline-fixture" || got.ServerVersion != "test" {
+		t.Fatalf("server identity = %q/%q, want cairnline-fixture/test", got.ServerName, got.ServerVersion)
+	}
 	if got.ResourceTemplateCount != len(projectCairnlineSidecarRequiredResourceTemplates) {
 		t.Fatalf("resource template count = %d, want %d", got.ResourceTemplateCount, len(projectCairnlineSidecarRequiredResourceTemplates))
 	}
@@ -217,6 +220,9 @@ func TestProjectCairnlineSidecarConnect_ReadyUsesPersistentClientCache(t *testin
 	}
 	if got.ToolCount != len(projectCairnlineSidecarRequiredTools) || len(got.MissingTools) != 0 {
 		t.Fatalf("tool count=%d missing=%+v, want full contract", got.ToolCount, got.MissingTools)
+	}
+	if got.ServerName != "cairnline-fixture" || got.ServerVersion != "test" {
+		t.Fatalf("server identity = %q/%q, want cairnline-fixture/test", got.ServerName, got.ServerVersion)
 	}
 	if got.ResourceTemplateCount != len(projectCairnlineSidecarRequiredResourceTemplates) || len(got.MissingResourceTemplates) != 0 {
 		t.Fatalf("resource template count=%d missing=%+v, want full contract", got.ResourceTemplateCount, got.MissingResourceTemplates)

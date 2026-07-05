@@ -311,7 +311,7 @@ func probeMCPServer(ctx context.Context, cfg types.MCPServerConfig, cipher secre
 	}
 	defer func() { _ = pool.Close() }()
 
-	result := mcpProbeResultFromPoolTools(cfg.Name, pool.AllTools())
+	result := mcpProbeResultFromPool(cfg.Name, pool)
 	if includeResourceTemplates {
 		if templates, err := pool.ListResourceTemplates(ctx, cfg.Name); err != nil {
 			result.ResourceTemplateError = err.Error()
@@ -353,7 +353,7 @@ func probeCachedMCPServer(ctx context.Context, cfg types.MCPServerConfig, cipher
 	}
 	defer func() { _ = pool.Close() }()
 
-	result := mcpProbeResultFromPoolTools(cfg.Name, pool.AllTools())
+	result := mcpProbeResultFromPool(cfg.Name, pool)
 	if includeResourceTemplates {
 		if templates, err := pool.ListResourceTemplates(ctx, cfg.Name); err != nil {
 			result.ResourceTemplateError = err.Error()
@@ -448,6 +448,18 @@ func ReadCachedMCPServerResource(ctx context.Context, cfg types.MCPServerConfig,
 		URI:    uri,
 		Result: result,
 	}, nil
+}
+
+func mcpProbeResultFromPool(serverName string, pool *mcpclient.Pool) *MCPProbeResult {
+	if pool == nil {
+		return &MCPProbeResult{}
+	}
+	out := mcpProbeResultFromPoolTools(serverName, pool.AllTools())
+	if info, ok := pool.ServerInfo(serverName); ok {
+		out.ServerName = strings.TrimSpace(info.Name)
+		out.ServerVersion = strings.TrimSpace(info.Version)
+	}
+	return out
 }
 
 func mcpProbeResultFromPoolTools(serverName string, tools []mcpclient.NamespacedTool) *MCPProbeResult {
