@@ -23,7 +23,7 @@ import type {
   ProjectWorkRoleRecord,
   UpdateProjectSkillPayload,
 } from "../../types/project";
-import { Badge, Icon, Icons, InlineError } from "../shared/ui";
+import { Badge, CopyBtn, Icon, Icons, InlineError } from "../shared/ui";
 import { ProjectAssistantPanel } from "./ProjectAssistantPanel";
 import { ProjectMemoryPanel } from "./ProjectMemoryPanel";
 import { ProjectSkillsPanel } from "./ProjectSkillsPanel";
@@ -531,7 +531,12 @@ function ProjectCoordinationStatusStrip({
     : status.write_adapter_ready
       ? "Cairnline portable writes ready"
       : "Cairnline dogfood active";
-  const detail = status.next_replacement_action?.detail || status.detail;
+  const nextAction = status.next_replacement_action;
+  const detail = nextAction?.detail || status.detail;
+  const configHints = nextAction?.config_hints ?? [];
+  const probeCount = nextAction
+    ? (nextAction.probes?.length ?? nextAction.probe_urls?.length ?? 0)
+    : 0;
 
   return (
     <section aria-label="Project coordination backend" style={projectCoordinationStripStyle}>
@@ -543,6 +548,29 @@ function ProjectCoordinationStatusStrip({
           <div style={titleStyle}>{title}</div>
         </div>
         <div style={subtleTextStyle}>{detail}</div>
+        {nextAction && (
+          <div style={projectCoordinationNextActionStyle}>
+            <span style={sectionLabelStyle}>Next</span>
+            <span style={projectCoordinationNextTitleStyle}>{nextAction.label}</span>
+            {nextAction.target && (
+              <span className="badge badge-muted">{nextAction.target.replaceAll("-", " ")}</span>
+            )}
+            {probeCount > 0 && (
+              <span className="badge badge-muted">
+                {probeCount} probe{probeCount === 1 ? "" : "s"}
+              </span>
+            )}
+            {configHints.map((hint) => {
+              const assignment = `${hint.env}=${hint.value}`;
+              return (
+                <span key={assignment} style={projectCoordinationHintStyle}>
+                  <code style={projectCoordinationHintCodeStyle}>{assignment}</code>
+                  <CopyBtn text={assignment} />
+                </span>
+              );
+            })}
+          </div>
+        )}
       </div>
       <div style={projectCoordinationStripMetaStyle}>
         <span className="badge badge-muted">reads {status.cairnline_read_source ?? "auto"}</span>
@@ -1357,6 +1385,41 @@ const projectCoordinationStripMainStyle: CSSProperties = {
   flex: "1 1 320px",
   gap: 5,
   minWidth: 0,
+};
+
+const projectCoordinationNextActionStyle: CSSProperties = {
+  alignItems: "center",
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 6,
+  minWidth: 0,
+  paddingTop: 2,
+};
+
+const projectCoordinationNextTitleStyle: CSSProperties = {
+  color: "var(--t1)",
+  fontSize: 12,
+  fontWeight: 650,
+};
+
+const projectCoordinationHintStyle: CSSProperties = {
+  alignItems: "center",
+  background: "var(--bg3)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-sm)",
+  display: "inline-flex",
+  gap: 5,
+  maxWidth: "100%",
+  minWidth: 0,
+  padding: "3px 4px 3px 7px",
+};
+
+const projectCoordinationHintCodeStyle: CSSProperties = {
+  color: "var(--t1)",
+  fontFamily: "var(--font-mono)",
+  fontSize: 11,
+  overflowWrap: "anywhere",
+  whiteSpace: "normal",
 };
 
 const projectCoordinationStripMetaStyle: CSSProperties = {
