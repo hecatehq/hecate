@@ -110,7 +110,12 @@ authority enabled, and embedded replacement mode armed. Use `--reset` for a
 clean local dogfood store; omit it only when intentionally checking an existing
 `.data/` directory. Then open `http://127.0.0.1:8765`, create or inspect a
 project, and confirm **Settings → Project coordination** reports Cairnline as
-authoritative before trusting the run.
+authoritative before trusting the run. On a freshly reset store, the status may
+first ask for live portable project state; create or import a project, then
+refresh Settings so backend status can smoke the embedded Cairnline database
+instead of an empty store. Adding a small work item and assignment gives the
+smoke more route coverage, but the first requirement is simply non-empty
+Cairnline project state.
 
 For automated confidence before or after manual dogfood, run:
 

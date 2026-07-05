@@ -2617,6 +2617,10 @@ replacement mode,
 Cairnline-authoritative project identity create returns the Cairnline record
 with `read_backend: "cairnline"` and without creating a native Hecate project
 identity row; strict embedded read routes serve the new project from Cairnline.
+If replacement mode is armed before any embedded Cairnline project exists,
+`strict-embedded-read-smoke` reports `not_run` and points at backend status
+itself; create or import portable project state before expecting
+`replacement_ready=true`.
 That identity-shadow behavior is a write-path switch, not the full readiness
 verdict: clients should use `replacement_ready` and `replacement_gates` to tell
 whether the relevant strict read smoke, migration, and rollback evidence is
