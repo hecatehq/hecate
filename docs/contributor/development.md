@@ -135,6 +135,21 @@ it exercises sidecar read projections, launch-packet/readiness handling,
 resource access, and smoke contracts while keeping Hecate's authoritative
 Projects backend out of scope.
 
+For a manual source-runtime sidecar check, install the standalone Cairnline
+binary and run:
+
+```bash
+just dev-cairnline-sidecar-projects --reset
+```
+
+This starts Hecate with `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar` and
+`HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar`, using
+`.data/cairnline/sidecar/projects.db` unless `.env` overrides
+`HECATE_PROJECTS_CAIRNLINE_SIDECAR_DB`. It is an MCP interoperability/dev
+surface: Hecate still keeps authoritative Projects writes on the native or
+embedded replacement path, and sidecar mode should not be treated as the final
+Cairnline cutover.
+
 ## UI hot reload
 
 For live UI iteration, run `just dev` (gateway on `:8765`) and the Vite dev server side by side:
