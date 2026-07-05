@@ -490,12 +490,12 @@ their identity/metadata/root/source/default seams unless their explicit
 write-authority switchpoints are enabled; this is replacement-readiness
 evidence, not write authority.
 For sidecar experiments, install the standalone `cairnline` binary from the
-[Cairnline `v0.1.0-alpha.2` prerelease](https://github.com/hecatehq/cairnline/releases/tag/v0.1.0-alpha.2)
-or build it with `go install github.com/hecatehq/cairnline/cmd/cairnline@v0.1.0-alpha.2`,
-then point `HECATE_PROJECTS_CAIRNLINE_SIDECAR_COMMAND` at that binary if it is
-not already on `PATH`. The sidecar path is for MCP interoperability evidence;
-embedded Cairnline remains the replacement target for Hecate's own Projects
-backend.
+[Cairnline `v0.1.0-alpha.3` prerelease](https://github.com/hecatehq/cairnline/releases/tag/v0.1.0-alpha.3)
+or build it with `go install github.com/hecatehq/cairnline/cmd/cairnline@v0.1.0-alpha.3`,
+then run `cairnline -version` and point
+`HECATE_PROJECTS_CAIRNLINE_SIDECAR_COMMAND` at that binary if it is not already
+on `PATH`. The sidecar path is for MCP interoperability evidence; embedded
+Cairnline remains the replacement target for Hecate's own Projects backend.
 The sidecar probe/connect surfaces are configured with
 `HECATE_PROJECTS_CAIRNLINE_SIDECAR_COMMAND`,
 `HECATE_PROJECTS_CAIRNLINE_SIDECAR_ARGS`,
