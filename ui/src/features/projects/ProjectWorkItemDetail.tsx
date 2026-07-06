@@ -185,6 +185,9 @@ export function ProjectWorkItemDetail({
   startingAssignmentID,
   workItem,
 }: ProjectWorkItemDetailProps) {
+  const safeAssignments = Array.isArray(assignments) ? assignments : [];
+  const safeArtifacts = Array.isArray(artifacts) ? artifacts : [];
+  const safeHandoffs = Array.isArray(handoffs) ? handoffs : [];
   if (!workItem) {
     return (
       <EmptyBlock
@@ -195,9 +198,9 @@ export function ProjectWorkItemDetail({
   }
   const closeout = closeoutReadiness ?? unavailableCloseoutReadiness(workItem, loading);
   const emptyWorkItem =
-    assignments.length === 0 &&
-    artifacts.length === 0 &&
-    handoffs.length === 0 &&
+    safeAssignments.length === 0 &&
+    safeArtifacts.length === 0 &&
+    safeHandoffs.length === 0 &&
     workItem.status !== "done";
   const reviewFollowUps = closeout.review_follow_ups ?? [];
   const suggestedAssignmentRole = assignmentRoleForWorkItem(workItem, roleByID);
@@ -306,17 +309,17 @@ export function ProjectWorkItemDetail({
             }
           />
         )}
-        {(!emptyWorkItem || assignments.length > 0) && (
+        {(!emptyWorkItem || safeAssignments.length > 0) && (
           <section style={workItemCardSectionStyle}>
             <div style={workItemSectionHeaderStyle}>
               <div style={sectionLabelStyle}>Assignments</div>
-              <span className="badge badge-muted">{assignments.length}</span>
+              <span className="badge badge-muted">{safeAssignments.length}</span>
             </div>
-            {assignments.length === 0 ? (
+            {safeAssignments.length === 0 ? (
               <div style={subtleTextStyle}>No assignments recorded yet.</div>
             ) : (
               <div style={{ display: "grid", gap: 10 }}>
-                {assignments.map((assignment) => {
+                {safeAssignments.map((assignment) => {
                   const activityItem = activityByAssignmentID.get(assignment.id);
                   const reviewRole = reviewerRoleForAssignment(workItem, assignment, roleByID);
                   const reviewAuthorRole = reviewAuthorRoleForAssignment(
@@ -431,17 +434,17 @@ export function ProjectWorkItemDetail({
             )}
           </section>
         )}
-        {(!emptyWorkItem || artifacts.length > 0) && (
+        {(!emptyWorkItem || safeArtifacts.length > 0) && (
           <section style={workItemCardSectionStyle}>
             <div style={workItemSectionHeaderStyle}>
               <div style={sectionLabelStyle}>Collaboration Artifacts</div>
-              <span className="badge badge-muted">{artifacts.length}</span>
+              <span className="badge badge-muted">{safeArtifacts.length}</span>
             </div>
-            {artifacts.length === 0 ? (
+            {safeArtifacts.length === 0 ? (
               <div style={subtleTextStyle}>No collaboration artifacts recorded yet.</div>
             ) : (
               <div style={{ display: "grid", gap: 8 }}>
-                {artifacts.map((artifact) => {
+                {safeArtifacts.map((artifact) => {
                   const artifactActionPending = artifactActionID === artifact.id;
                   return (
                     <div key={artifact.id} style={artifactStyle}>
@@ -510,19 +513,19 @@ export function ProjectWorkItemDetail({
             )}
           </section>
         )}
-        {(!emptyWorkItem || handoffs.length > 0) && (
+        {(!emptyWorkItem || safeHandoffs.length > 0) && (
           <section style={workItemCardSectionStyle}>
             <div style={workItemSectionHeaderStyle}>
               <div style={sectionLabelStyle}>Handoffs</div>
-              <span className="badge badge-muted">{handoffs.length}</span>
+              <span className="badge badge-muted">{safeHandoffs.length}</span>
             </div>
             {handoffError && <InlineError message={handoffError} />}
-            {handoffs.length === 0 ? (
+            {safeHandoffs.length === 0 ? (
               <div style={subtleTextStyle}>No structured handoffs recorded yet.</div>
             ) : (
               <div style={{ display: "grid", gap: 8 }}>
-                {handoffs.map((handoff) => {
-                  const targetAssignment = assignments.find(
+                {safeHandoffs.map((handoff) => {
+                  const targetAssignment = safeAssignments.find(
                     (item) => item.id === handoff.target_assignment_id,
                   );
                   return (
@@ -764,6 +767,8 @@ function WorkItemCloseoutPanel({
 }) {
   const status =
     closeout.status === "ready" || closeout.status === "done" ? "completed" : "blocked";
+  const blockers = Array.isArray(closeout.blockers) ? closeout.blockers : [];
+  const warnings = Array.isArray(closeout.warnings) ? closeout.warnings : [];
   return (
     <section style={workItemCardSectionStyle} aria-label="Work closeout">
       <div style={workItemSectionHeaderStyle}>
@@ -787,16 +792,16 @@ function WorkItemCloseoutPanel({
       </div>
       <div style={titleStyle}>{closeout.title}</div>
       <div style={{ ...subtleTextStyle, marginTop: 4 }}>{closeout.detail}</div>
-      {closeout.blockers.length > 0 && (
+      {blockers.length > 0 && (
         <ul style={closeoutListStyle}>
-          {closeout.blockers.map((blocker) => (
+          {blockers.map((blocker) => (
             <li key={blocker}>{blocker}</li>
           ))}
         </ul>
       )}
-      {closeout.warnings.length > 0 && (
+      {warnings.length > 0 && (
         <div style={{ ...subtleTextStyle, marginTop: 8 }}>
-          {closeout.warnings.map((warning) => (
+          {warnings.map((warning) => (
             <div key={warning}>{warning}</div>
           ))}
         </div>
