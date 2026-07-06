@@ -77,7 +77,10 @@ import {
 } from "./projectActionRouting";
 import { ProjectMemoryModal, ProjectSourceModal, type MemoryForm } from "./ProjectMemoryPanel";
 import { ProjectReviewArtifactModal } from "./ProjectReviewArtifactModal";
-import { type ProjectAssignmentChatLaunchRequest } from "./ProjectWorkItemDetail";
+import {
+  buildProjectAssignmentChatLaunchRequest,
+  type ProjectAssignmentChatLaunchRequest,
+} from "./ProjectWorkItemDetail";
 import {
   ProjectEmptyBlock,
   ProjectWorkspaceView,
@@ -1588,6 +1591,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenSettings, on
         assignment.driver_kind || "hecate_task",
       );
       setAssignments((current) => upsertAssignment(current, res.data));
+      openPreparedExternalAgentChat(res.data, workItemID);
       await loadWorkForProject(selectedProjectID, workItemID);
       await loadWorkItemDetail(selectedProjectID, workItemID);
     } catch (error) {
@@ -1603,6 +1607,37 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenSettings, on
       startingAssignmentIDsRef.current.delete(assignment.id);
       setStartingAssignmentID("");
     }
+  }
+
+  function openPreparedExternalAgentChat(assignment: ProjectAssignmentRecord, workItemID: string) {
+    if (!onOpenChat || assignment.driver_kind !== "external_agent") return;
+    const project =
+      selectedProject?.id === selectedProjectID
+        ? selectedProject
+        : projects.state.projects.find((item) => item.id === selectedProjectID);
+    if (!project) return;
+    const chatSessionID = assignment.execution_ref?.chat_session_id?.trim();
+    if (!chatSessionID) return;
+    const workItem = (selectedWorkItem?.id === workItemID ? selectedWorkItem : null) ??
+      workItems.find((item) => item.id === workItemID) ?? {
+        id: workItemID,
+        project_id: project.id,
+        title: workItemID,
+        status: "",
+        priority: "",
+        created_at: "",
+        updated_at: "",
+      };
+    const request = buildProjectAssignmentChatLaunchRequest({
+      project,
+      workItem,
+      assignment,
+      role: roleByID.get(assignment.role_id) ?? null,
+    });
+    onOpenChat({
+      ...request,
+      chatSessionID,
+    });
   }
 
   const hasWorkItemDetail =

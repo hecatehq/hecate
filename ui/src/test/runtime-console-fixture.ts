@@ -233,7 +233,7 @@ export type RuntimeConsoleFixtureActions = {
   submitChat: (event: unknown) => Promise<void>;
   submitToolResults: () => Promise<void>;
   runRetention: () => Promise<void>;
-  selectChatSession: (id: string) => Promise<void>;
+  selectChatSession: (id: string) => Promise<boolean>;
   startNewChat: () => void;
   upsertPolicyRule: (payload: unknown) => Promise<void>;
   updateToolResult: (index: number, result: string) => void;
@@ -312,7 +312,7 @@ export function createRuntimeConsoleActions(): RuntimeConsoleFixtureActions {
     submitChat: async () => undefined,
     submitToolResults: async () => undefined,
     runRetention: async () => undefined,
-    selectChatSession: async () => undefined,
+    selectChatSession: async () => true,
     startNewChat: () => undefined,
     upsertPolicyRule: async () => undefined,
     updateToolResult: () => undefined,

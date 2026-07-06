@@ -312,7 +312,7 @@ describe("ChatView input", () => {
 
   it("creates a Grok Build chat before the launch model is selected", async () => {
     const createChatSession = vi.fn(async () => undefined);
-    const selectChatSession = vi.fn(async () => undefined);
+    const selectChatSession = vi.fn(async () => true);
     const { state, actions } = setup(
       {
         chatTarget: "external_agent",
@@ -4133,7 +4133,7 @@ describe("ChatView chats sidebar", () => {
   });
 
   it("calls selectChatSession when clicking a chat row", async () => {
-    const selectChatSession = vi.fn(async () => undefined);
+    const selectChatSession = vi.fn(async () => true);
     const { state, actions } = setup(
       {
         chatTarget: "agent",
@@ -4151,7 +4151,7 @@ describe("ChatView chats sidebar", () => {
   });
 
   it("calls selectChatSession when pressing Enter or Space on a focused chat row", async () => {
-    const selectChatSession = vi.fn(async () => undefined);
+    const selectChatSession = vi.fn(async () => true);
     const { state, actions } = setup(
       {
         chatTarget: "agent",
@@ -6615,7 +6615,7 @@ describe("ChatView session focus", () => {
     // effect deliberately does NOT focus, because data-load (chats
     // arriving from the API) also drives that transition and stealing
     // focus on load would hijack normal page navigation.
-    const selectChatSession = vi.fn(async () => undefined);
+    const selectChatSession = vi.fn(async () => true);
     const { state, actions } = setup(
       {
         chatTarget: "agent",
