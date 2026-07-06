@@ -309,6 +309,36 @@ describe("ProjectWorkItemDetail", () => {
     });
   });
 
+  it("treats null detail lists as empty", () => {
+    renderDetail({
+      assignments: null as unknown as ProjectAssignmentRecord[],
+      artifacts: null as unknown as ProjectCollaborationArtifactRecord[],
+      handoffs: null as unknown as ProjectHandoffRecord[],
+    });
+
+    expect(screen.getByRole("article", { name: "Decompose project UI work item" })).toBeTruthy();
+    expect(screen.getByText("Let Hecate prepare the first step")).toBeTruthy();
+    expect(screen.queryByText("No assignments recorded yet.")).toBeNull();
+  });
+
+  it("treats null closeout lists as empty", () => {
+    renderDetail({
+      closeoutReadiness: {
+        ...closeoutReadiness({
+          ready: false,
+          status: "blocked",
+          title: "Closeout is blocked",
+          blockers: ["1 assignment is still active"],
+        }),
+        review_follow_ups: null as unknown as ProjectWorkItemReadinessRecord["review_follow_ups"],
+        warnings: null as unknown as string[],
+      },
+    });
+
+    expect(screen.getByRole("region", { name: "Work closeout" })).toBeTruthy();
+    expect(screen.getByText("1 assignment is still active")).toBeTruthy();
+  });
+
   it("renders assignment runtime links and delegates row actions", async () => {
     const { handlers, assignment: assign } = renderDetail();
 
