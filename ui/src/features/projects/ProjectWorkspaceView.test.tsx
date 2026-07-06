@@ -8,6 +8,7 @@ import type {
   ProjectAssignmentRecord,
   ProjectCoordinationBackendStatusRecord,
   ProjectMemoryCandidateRecord,
+  ProjectOperationsBriefItem,
   ProjectRecord,
   ProjectSetupReadiness,
   ProjectWorkItemRecord,
@@ -761,6 +762,27 @@ describe("ProjectWorkspaceView", () => {
     });
 
     expect(screen.queryByRole("region", { name: "Project next action" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Project operations" })).toBeNull();
+    expect(screen.getByRole("region", { name: "Project resume" })).toBeTruthy();
+  });
+
+  it("treats a null operations brief item list as empty", () => {
+    renderWorkspace({
+      operationsBrief: {
+        project_id: "proj_1",
+        generated_at: "2026-06-13T00:00:00Z",
+        summary: {
+          item_count: 0,
+          high_count: 0,
+          medium_count: 0,
+          low_count: 0,
+          pending_memory_candidate_count: 0,
+          pending_handoff_count: 0,
+        },
+        items: null as unknown as ProjectOperationsBriefItem[],
+      },
+    });
+
     expect(screen.queryByRole("region", { name: "Project operations" })).toBeNull();
     expect(screen.getByRole("region", { name: "Project resume" })).toBeTruthy();
   });

@@ -793,11 +793,11 @@ function ProjectOperationsBriefPanel({
   loading: boolean;
   onAction: (item: ProjectOperationsBriefItem) => void;
 }) {
-  if ((!brief || brief.items.length === 0) && !loading) {
+  const items = Array.isArray(brief?.items) ? brief.items : [];
+  if ((!brief || items.length === 0) && !loading) {
     return error ? <InlineError message={error} /> : null;
   }
 
-  const items = brief?.items ?? [];
   const primary = items[0] ?? null;
   const secondary = items.slice(1, 4);
   const shownItemCount = (primary ? 1 : 0) + secondary.length;
@@ -864,7 +864,8 @@ function projectOperationsLimitDetail(
   shownItemCount: number,
 ) {
   if (!brief || shownItemCount === 0) return "";
-  const returnedItemCount = Math.max(brief.summary.item_count ?? 0, brief.items.length);
+  const items = Array.isArray(brief.items) ? brief.items : [];
+  const returnedItemCount = Math.max(brief.summary.item_count ?? 0, items.length);
   const availableItemCount = Math.max(
     brief.summary.available_item_count ?? returnedItemCount,
     returnedItemCount,
