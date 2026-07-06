@@ -846,13 +846,14 @@ describe("ConsoleShell navigation", () => {
     expect(onSelectWorkspace).toHaveBeenCalledWith("chats");
   });
 
-  it("selects linked External Agent chats when opening a started project assignment", async () => {
+  async function openLinkedExternalAgentChat(selected: boolean) {
     const createChatSession = vi.fn<RuntimeConsoleFixtureActions["createChatSession"]>(
       async () => undefined,
     );
     const selectChatSession = vi.fn<RuntimeConsoleFixtureActions["selectChatSession"]>(
-      async () => undefined,
+      async () => selected,
     );
+    const setMessage = vi.fn<RuntimeConsoleFixtureActions["setMessage"]>(() => undefined);
     const onSelectWorkspace = vi.fn();
     const project = {
       id: "proj_1",
@@ -920,7 +921,12 @@ describe("ConsoleShell navigation", () => {
         <ConsoleShell activeWorkspace="projects" onSelectWorkspace={onSelectWorkspace} />,
         {
           state,
-          actions: { ...createRuntimeConsoleActions(), createChatSession, selectChatSession },
+          actions: {
+            ...createRuntimeConsoleActions(),
+            createChatSession,
+            selectChatSession,
+            setMessage,
+          },
         },
       ),
     );
@@ -930,11 +936,28 @@ describe("ConsoleShell navigation", () => {
     expect(selectChatSession).toHaveBeenCalledWith("chat_external_1");
     expect(createChatSession).not.toHaveBeenCalled();
     expect(onSelectWorkspace).toHaveBeenCalledWith("chats");
+    return { selectChatSession, setMessage };
+  }
+
+  it("selects linked External Agent chats and seeds the draft after a successful selection", async () => {
+    const { setMessage } = await openLinkedExternalAgentChat(true);
+
+    await waitFor(() =>
+      expect(setMessage).toHaveBeenCalledWith(expect.stringContaining("Launch context")),
+    );
+    expect(setMessage.mock.calls[0]?.[0]).toContain("- Driver: external_agent");
+  });
+
+  it("selects linked External Agent chats without seeding a draft when selection fails", async () => {
+    const { selectChatSession, setMessage } = await openLinkedExternalAgentChat(false);
+
+    await waitFor(() => expect(selectChatSession).toHaveBeenCalledTimes(1));
+    expect(setMessage).not.toHaveBeenCalled();
   });
 
   it("moves the active chat when selecting a different project", () => {
     const selectProject = vi.fn(async () => undefined);
-    const selectChatSession = vi.fn(async () => undefined);
+    const selectChatSession = vi.fn(async () => true);
     const state = createRuntimeConsoleFixture({
       projects: [
         {

@@ -2889,7 +2889,7 @@ describe("useRuntimeConsole", () => {
       });
 
       expect(result.current.state.queuedChatMessages).toHaveLength(1);
-      let selectPromise!: Promise<void>;
+      let selectPromise!: Promise<boolean>;
       act(() => {
         selectPromise = result.current.actions.selectChatSession("a2");
       });
@@ -3001,7 +3001,7 @@ describe("useRuntimeConsole", () => {
       });
       await waitFor(() => expect(result.current.state.activeChatSession?.id).toBe("a1"));
 
-      let selectA2Promise!: Promise<void>;
+      let selectA2Promise!: Promise<boolean>;
       act(() => {
         selectA2Promise = result.current.actions.selectChatSession("a2");
       });

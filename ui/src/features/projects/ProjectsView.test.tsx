@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -3165,11 +3165,17 @@ describe("ProjectsView cockpit", () => {
       }),
     );
     window.localStorage.setItem("hecate.project", project.id);
+    const onOpenChat = vi.fn();
     const state = createRuntimeConsoleFixture({
       projects: [project],
       activeProjectID: project.id,
     });
-    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+    render(
+      withRuntimeConsole(<ProjectsView onOpenChat={onOpenChat} />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
+    );
 
     await userEvent.click(
       await screen.findByRole("button", { name: "Open work item Build cockpit UI" }),
@@ -3197,22 +3203,31 @@ describe("ProjectsView cockpit", () => {
       "external_agent",
     );
     expect(startProjectAssignment).toHaveBeenCalledTimes(1);
-    resolveStartAssignment({
-      object: "project_assignment",
-      data: {
-        ...externalAssignment,
-        status: "running",
-        execution_ref: {
-          kind: "chat_session",
-          chat_session_id: "chat_external_1",
-          context_snapshot_id: "ctx_external_1",
+    await act(async () => {
+      resolveStartAssignment({
+        object: "project_assignment",
+        data: {
+          ...externalAssignment,
           status: "running",
+          execution_ref: {
+            kind: "chat_session",
+            chat_session_id: "chat_external_1",
+            context_snapshot_id: "ctx_external_1",
+            status: "running",
+          },
         },
-      },
+      });
     });
-    await waitFor(() => {
-      expect(prepareButton).not.toBeDisabled();
-    });
+    await waitFor(() =>
+      expect(onOpenChat).toHaveBeenCalledWith(
+        expect.objectContaining({
+          projectID: project.id,
+          chatSessionID: "chat_external_1",
+          draft: expect.stringContaining("Launch context"),
+        }),
+      ),
+    );
+    expect(onOpenChat.mock.calls[0]?.[0].draft).toContain("- Driver: external_agent");
   });
 
   it("opens linked external-agent assignment chat sessions directly", async () => {
@@ -3256,10 +3271,14 @@ describe("ProjectsView cockpit", () => {
     const detail = await screen.findByRole("region", { name: "Selected work item" });
     await userEvent.click(within(detail).getByRole("button", { name: "Open chat" }));
 
-    expect(onOpenChat).toHaveBeenCalledWith({
-      projectID: project.id,
-      chatSessionID: "chat_external_1",
-    });
+    expect(onOpenChat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectID: project.id,
+        chatSessionID: "chat_external_1",
+        draft: expect.stringContaining("Launch context"),
+      }),
+    );
+    expect(onOpenChat.mock.calls[0]?.[0].draft).toContain("- Driver: external_agent");
   });
 
   it("prefills handoffs from linked external-agent assignment context", async () => {

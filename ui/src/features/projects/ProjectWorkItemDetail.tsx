@@ -343,18 +343,22 @@ export function ProjectWorkItemDetail({
                           ? () => {
                               const executionRef =
                                 toProjectAssignmentExecutionViewModel(assignment);
+                              const chatRequest = buildProjectAssignmentChatLaunchRequest({
+                                project,
+                                workItem,
+                                assignment,
+                                role: roleByID.get(assignment.role_id) ?? null,
+                              });
+                              const linkedChatRequest = {
+                                projectID: project.id,
+                                chatSessionID: executionRef.chatSessionID,
+                                ...(assignment.driver_kind === "external_agent" &&
+                                !executionRef.messageID
+                                  ? chatRequest
+                                  : {}),
+                              };
                               onOpenChat?.(
-                                executionRef.chatSessionID
-                                  ? {
-                                      projectID: project.id,
-                                      chatSessionID: executionRef.chatSessionID,
-                                    }
-                                  : buildProjectAssignmentChatLaunchRequest({
-                                      project,
-                                      workItem,
-                                      assignment,
-                                      role: roleByID.get(assignment.role_id) ?? null,
-                                    }),
+                                executionRef.chatSessionID ? linkedChatRequest : chatRequest,
                               );
                             }
                           : undefined

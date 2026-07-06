@@ -292,7 +292,7 @@ type ChatActionsReturn = {
   updateToolResult: (index: number, result: string) => void;
   submitToolResults: () => Promise<void>;
   createChatSession: (options?: CreateChatSessionOptions) => Promise<void>;
-  selectChatSession: (id: string) => Promise<void>;
+  selectChatSession: (id: string) => Promise<boolean>;
   startNewChat: () => void;
   deleteChatSession: (id: string) => Promise<void>;
   renameChatSession: (id: string, title: string) => Promise<void>;
@@ -1100,11 +1100,11 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     }
   }
 
-  async function selectChatSession(id: string) {
+  async function selectChatSession(id: string): Promise<boolean> {
     setActiveChatSessionID(id);
     if (!id) {
       setActiveChatSession(null);
-      return;
+      return true;
     }
     try {
       const payload = await getChatSession(id);
@@ -1121,6 +1121,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       }
       setAgentWorkspace(payload.data.workspace ?? "");
       setAgentWorkspaceBranch(payload.data.workspace_branch ?? "");
+      return true;
     } catch (error) {
       const msg = error instanceof Error ? error.message : "failed to load agent chat";
       setActiveChatSessionID("");
@@ -1128,6 +1129,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       setAgentWorkspaceBranch("");
       setChatErrorState(error, "failed to load agent chat");
       params.setNoticeMessage("error", msg);
+      return false;
     }
   }
 
