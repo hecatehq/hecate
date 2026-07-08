@@ -8,6 +8,7 @@ package cairnlinebridge
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/hecatehq/cairnline"
@@ -232,7 +233,7 @@ func Assignment(assignment projectwork.Assignment, role projectwork.AgentRolePro
 			Kind:     DesiredAgentKind(assignment.DriverKind),
 			SkillIDs: compactStrings(role.SkillIDs),
 		},
-		ExecutionRef:      assignmentExecutionRef(assignment.ExecutionRef),
+		ExecutionRef:      ExecutionRef(assignment.ExecutionRef),
 		ContextSnapshotID: strings.TrimSpace(assignment.ExecutionRef.ContextSnapshotID),
 		CreatedAt:         assignment.CreatedAt,
 		UpdatedAt:         assignment.UpdatedAt,
@@ -400,8 +401,10 @@ func ExecutionMode(driverKind string) string {
 
 func AssignmentStatus(status string) string {
 	switch strings.TrimSpace(status) {
-	case projectwork.AssignmentStatusRunning, projectwork.AssignmentStatusAwaitingApproval:
+	case projectwork.AssignmentStatusRunning:
 		return cairnline.AssignmentRunning
+	case projectwork.AssignmentStatusAwaitingApproval:
+		return cairnline.AssignmentAwaitingApproval
 	case projectwork.AssignmentStatusCompleted:
 		return cairnline.AssignmentCompleted
 	case projectwork.AssignmentStatusFailed:
@@ -411,6 +414,50 @@ func AssignmentStatus(status string) string {
 	default:
 		return cairnline.AssignmentQueued
 	}
+}
+
+// AssignmentStatusFromCairnline maps a portable Cairnline assignment status
+// back into Hecate's assignment vocabulary. Hecate has no separate
+// awaiting_review assignment state, so Cairnline's review status also lands on
+// awaiting_approval: both are operator-gated pauses and collapsing them keeps
+// the Hecate side conservative (blocked) rather than optimistic (running).
+func AssignmentStatusFromCairnline(status string) string {
+	switch strings.TrimSpace(status) {
+	case cairnline.AssignmentRunning, cairnline.AssignmentClaimed:
+		return projectwork.AssignmentStatusRunning
+	case cairnline.AssignmentAwaitingApproval, cairnline.AssignmentReview:
+		return projectwork.AssignmentStatusAwaitingApproval
+	case cairnline.AssignmentCompleted:
+		return projectwork.AssignmentStatusCompleted
+	case cairnline.AssignmentFailed:
+		return projectwork.AssignmentStatusFailed
+	case cairnline.AssignmentCancelled:
+		return projectwork.AssignmentStatusCancelled
+	default:
+		return projectwork.AssignmentStatusQueued
+	}
+}
+
+// AssignmentStatusVocabularyGap reports the first Hecate assignment status that
+// does not survive a portable round trip through the Cairnline status
+// vocabulary. The replacement-readiness smoke calls this so a mapping clamp
+// (the old awaiting_approval -> running collapse) blocks replacement_ready
+// instead of silently mislabelling operator-gated assignments as running.
+func AssignmentStatusVocabularyGap() error {
+	statuses := []string{
+		projectwork.AssignmentStatusQueued,
+		projectwork.AssignmentStatusRunning,
+		projectwork.AssignmentStatusAwaitingApproval,
+		projectwork.AssignmentStatusCompleted,
+		projectwork.AssignmentStatusFailed,
+		projectwork.AssignmentStatusCancelled,
+	}
+	for _, status := range statuses {
+		if got := AssignmentStatusFromCairnline(AssignmentStatus(status)); got != status {
+			return fmt.Errorf("hecate assignment status %q maps to portable %q which reads back as %q", status, AssignmentStatus(status), got)
+		}
+	}
+	return nil
 }
 
 func ReviewVerdict(verdict string) string {
@@ -482,7 +529,7 @@ func syncAssignmentStatus(ctx context.Context, service *cairnline.Service, exist
 			return err
 		}
 		return nil
-	case cairnline.AssignmentRunning, cairnline.AssignmentReview:
+	case cairnline.AssignmentRunning, cairnline.AssignmentAwaitingApproval, cairnline.AssignmentReview:
 		assignment.ClaimedBy = claimedBy(assignment)
 		_, err := service.UpdateAssignment(ctx, assignment)
 		return err
@@ -501,13 +548,79 @@ func claimedBy(assignment cairnline.Assignment) string {
 	return "external_adapter"
 }
 
-func assignmentExecutionRef(ref projectwork.AssignmentExecutionRef) string {
-	return firstNonEmpty(
-		strings.TrimSpace(ref.RunID),
-		strings.TrimSpace(ref.TaskID),
-		strings.TrimSpace(ref.ChatSessionID),
-		strings.TrimSpace(ref.ContextSnapshotID),
-	)
+// ExecutionRef maps Hecate's assignment execution ref onto Cairnline's
+// host-neutral structured ref. MessageID, Status, and Missing are deliberately
+// not carried: message linkage is a Hecate chat-runtime detail, and
+// status/missing are runtime projections recomputed on every read, so
+// persisting them portable-side would freeze stale values into the
+// coordination row. ContextSnapshotID stays on the assignment-level Cairnline
+// field, never inside the ref.
+func ExecutionRef(ref projectwork.AssignmentExecutionRef) cairnline.ExecutionRef {
+	normalized := projectwork.NormalizeAssignmentExecutionRef(ref)
+	out := cairnline.ExecutionRef{
+		TaskID:           normalized.TaskID,
+		RunID:            normalized.RunID,
+		SessionID:        normalized.ChatSessionID,
+		TraceID:          normalized.TraceID,
+		PendingApprovals: normalized.PendingApprovalCount,
+	}
+	// A ref that would carry only a kind (for example a context-snapshot-only
+	// ref, whose kind is derived from an id that maps outside the ref) stays
+	// empty so it cannot clobber a stored portable ref: Cairnline only
+	// overwrites the stored ref when the incoming one is non-empty.
+	if out.Empty() {
+		return out
+	}
+	out.Kind = normalized.Kind
+	return out
+}
+
+// AssignmentExecutionRefFromCairnline maps the portable ref back into Hecate's
+// richer shape. ContextSnapshotID lives on the Cairnline assignment record, so
+// callers pass it alongside; MessageID, Status, and Missing stay zero because
+// they are Hecate runtime projections recomputed on read.
+func AssignmentExecutionRefFromCairnline(ref cairnline.ExecutionRef, contextSnapshotID string) projectwork.AssignmentExecutionRef {
+	return projectwork.NormalizeAssignmentExecutionRef(projectwork.AssignmentExecutionRef{
+		Kind:                 ref.Kind,
+		TaskID:               ref.TaskID,
+		RunID:                ref.RunID,
+		ChatSessionID:        ref.SessionID,
+		ContextSnapshotID:    contextSnapshotID,
+		TraceID:              ref.TraceID,
+		PendingApprovalCount: ref.PendingApprovals,
+	})
+}
+
+// ExecutionRefFidelityGap describes the first Hecate execution-ref field that
+// the stored portable ref fails to carry, or "" when the portable row is
+// faithful. Kind is only enforced when the portable ref records one: rows
+// mirrored before the structured ref decode with an empty kind, and failing
+// replacement gates on otherwise-faithful historical rows would force a
+// re-mirror for a field Hecate can re-derive from the ids.
+func ExecutionRefFidelityGap(ref projectwork.AssignmentExecutionRef, portable cairnline.ExecutionRef) string {
+	want := ExecutionRef(ref)
+	if want.Empty() {
+		return ""
+	}
+	if portable.TaskID != want.TaskID {
+		return fmt.Sprintf("portable execution_ref task_id %q does not match hecate task_id %q", portable.TaskID, want.TaskID)
+	}
+	if portable.RunID != want.RunID {
+		return fmt.Sprintf("portable execution_ref run_id %q does not match hecate run_id %q", portable.RunID, want.RunID)
+	}
+	if portable.SessionID != want.SessionID {
+		return fmt.Sprintf("portable execution_ref session_id %q does not match hecate chat_session_id %q", portable.SessionID, want.SessionID)
+	}
+	if portable.TraceID != want.TraceID {
+		return fmt.Sprintf("portable execution_ref trace_id %q does not match hecate trace_id %q", portable.TraceID, want.TraceID)
+	}
+	if portable.PendingApprovals != want.PendingApprovals {
+		return fmt.Sprintf("portable execution_ref pending_approvals %d does not match hecate pending_approval_count %d", portable.PendingApprovals, want.PendingApprovals)
+	}
+	if portable.Kind != "" && portable.Kind != want.Kind {
+		return fmt.Sprintf("portable execution_ref kind %q does not match hecate kind %q", portable.Kind, want.Kind)
+	}
+	return ""
 }
 
 func RequiredPermissions(permissions projectskills.RequiredPermissions) cairnline.RequiredPermissions {

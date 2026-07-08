@@ -355,7 +355,7 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 			},
 			Status:       state.assignmentStatus,
 			ClaimedBy:    state.claimedBy,
-			ExecutionRef: state.executionRef,
+			ExecutionRef: cairnlineSidecarFixtureExecutionRef(state.executionRef),
 		}})
 	case "projects.activity":
 		projectID := cairnlineSidecarFixtureProjectID(params.Arguments)
@@ -475,7 +475,7 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 			RoleID:        "role_fixture",
 			Status:        state.assignmentStatus,
 			ClaimedBy:     state.claimedBy,
-			ExecutionRef:  state.executionRef,
+			ExecutionRef:  cairnlineSidecarFixtureExecutionRef(state.executionRef),
 			ExecutionMode: "mcp_pull",
 		}
 		if stored, ok := state.assignments[input.ProjectID][input.AssignmentID]; ok {
@@ -559,7 +559,7 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 			},
 			Status:       state.assignmentStatus,
 			ClaimedBy:    state.claimedBy,
-			ExecutionRef: state.executionRef,
+			ExecutionRef: cairnlineSidecarFixtureExecutionRef(state.executionRef),
 		}
 		if stored, ok := state.assignments[input.ProjectID][input.AssignmentID]; ok {
 			assignment = stored
@@ -2197,7 +2197,7 @@ func cairnlineSidecarFixtureProjectActivity(state *cairnlineSidecarFixtureState,
 			},
 			Status:       state.assignmentStatus,
 			ClaimedBy:    state.claimedBy,
-			ExecutionRef: state.executionRef,
+			ExecutionRef: cairnlineSidecarFixtureExecutionRef(state.executionRef),
 		}}
 	}
 	items := make([]map[string]any, 0, len(assignments))
@@ -2415,4 +2415,15 @@ func mustRawJSON(value any) json.RawMessage {
 		panic(err)
 	}
 	return raw
+}
+
+// cairnlineSidecarFixtureExecutionRef models the sidecar's legacy tolerance:
+// a bare string execution ref (what the lifecycle smoke sends over MCP)
+// decodes as the run id in the structured portable ref.
+func cairnlineSidecarFixtureExecutionRef(value string) ProjectCairnlineSidecarExecutionRef {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ProjectCairnlineSidecarExecutionRef{}
+	}
+	return ProjectCairnlineSidecarExecutionRef{RunID: value}
 }

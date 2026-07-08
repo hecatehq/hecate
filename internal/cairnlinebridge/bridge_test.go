@@ -153,7 +153,7 @@ func TestSeedMirrorsProjectWorkIntoCairnline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AssignmentLaunchPacket() external error = %v", err)
 	}
-	if externalPacket.Assignment.Status != cairnline.AssignmentCompleted || externalPacket.Assignment.ExecutionMode != cairnline.ExecutionExternalAdapter || externalPacket.Assignment.ExecutionRef != "chat_123" {
+	if externalPacket.Assignment.Status != cairnline.AssignmentCompleted || externalPacket.Assignment.ExecutionMode != cairnline.ExecutionExternalAdapter || externalPacket.Assignment.ExecutionRef != (cairnline.ExecutionRef{Kind: projectwork.AssignmentExecutionKindChatSession, SessionID: "chat_123"}) {
 		t.Fatalf("external assignment = %+v, want completed external-adapter assignment", externalPacket.Assignment)
 	}
 }
@@ -1258,7 +1258,7 @@ func TestUpsertAssignmentCreatesAndSyncsLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpsertAssignment(release queued) error = %v", err)
 	}
-	if releasedQueued.Status != cairnline.AssignmentQueued || releasedQueued.ClaimedBy != "" || releasedQueued.ExecutionRef != "" || releasedQueued.ContextSnapshotID != "" || !releasedQueued.StartedAt.IsZero() || !releasedQueued.CompletedAt.IsZero() {
+	if releasedQueued.Status != cairnline.AssignmentQueued || releasedQueued.ClaimedBy != "" || !releasedQueued.ExecutionRef.Empty() || releasedQueued.ContextSnapshotID != "" || !releasedQueued.StartedAt.IsZero() || !releasedQueued.CompletedAt.IsZero() {
 		t.Fatalf("released queued assignment = %+v, want claimed assignment released for retry", releasedQueued)
 	}
 
@@ -1269,7 +1269,7 @@ func TestUpsertAssignmentCreatesAndSyncsLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpsertAssignment(running) error = %v", err)
 	}
-	if running.Status != cairnline.AssignmentRunning || running.ClaimedBy != "external_adapter" || running.ExecutionRef != "run_1" || running.WorkItemID != followUpWork.ID || running.RoleID != externalRole.ID || !running.StartedAt.Equal(assignment.StartedAt) {
+	if running.Status != cairnline.AssignmentRunning || running.ClaimedBy != "external_adapter" || running.ExecutionRef != (cairnline.ExecutionRef{Kind: projectwork.AssignmentExecutionKindTaskRun, TaskID: "task_1", RunID: "run_1"}) || running.WorkItemID != followUpWork.ID || running.RoleID != externalRole.ID || !running.StartedAt.Equal(assignment.StartedAt) {
 		t.Fatalf("running assignment = %+v, want claimed running assignment", running)
 	}
 	if _, err := UpsertAssignment(ctx, service, assignment, externalRole); err != nil {
@@ -1282,7 +1282,7 @@ func TestUpsertAssignmentCreatesAndSyncsLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpsertAssignment(completed) error = %v", err)
 	}
-	if completed.Status != cairnline.AssignmentCompleted || completed.ExecutionRef != "run_1" || !completed.StartedAt.Equal(assignment.StartedAt) || !completed.CompletedAt.Equal(assignment.CompletedAt) {
+	if completed.Status != cairnline.AssignmentCompleted || completed.ExecutionRef != (cairnline.ExecutionRef{Kind: projectwork.AssignmentExecutionKindTaskRun, TaskID: "task_1", RunID: "run_1"}) || !completed.StartedAt.Equal(assignment.StartedAt) || !completed.CompletedAt.Equal(assignment.CompletedAt) {
 		t.Fatalf("completed assignment = %+v, want completed assignment with execution ref", completed)
 	}
 	if _, err := UpsertAssignment(ctx, service, assignment, externalRole); err != nil {
@@ -2367,4 +2367,132 @@ func hasCairnlineActivity(items []cairnline.ProjectActivityItem, bucket, workIte
 		}
 	}
 	return false
+}
+
+func TestCairnlinebridge_ExecutionRefRoundTrip(t *testing.T) {
+	ref := projectwork.AssignmentExecutionRef{
+		TaskID:               "task_rt",
+		RunID:                "run_rt",
+		ChatSessionID:        "chat_rt",
+		ContextSnapshotID:    "ctx_rt",
+		TraceID:              "trace_rt",
+		PendingApprovalCount: 2,
+		// Host-runtime-only fields must not leak into the portable ref.
+		MessageID: "msg_rt",
+		Status:    projectwork.AssignmentStatusRunning,
+		Missing:   true,
+	}
+
+	portable := ExecutionRef(ref)
+	want := cairnline.ExecutionRef{
+		Kind:             projectwork.AssignmentExecutionKindTaskRun,
+		TaskID:           "task_rt",
+		RunID:            "run_rt",
+		SessionID:        "chat_rt",
+		TraceID:          "trace_rt",
+		PendingApprovals: 2,
+	}
+	if portable != want {
+		t.Fatalf("ExecutionRef() = %+v, want %+v", portable, want)
+	}
+
+	back := AssignmentExecutionRefFromCairnline(portable, "ctx_rt")
+	wantBack := projectwork.AssignmentExecutionRef{
+		Kind:                 projectwork.AssignmentExecutionKindTaskRun,
+		TaskID:               "task_rt",
+		RunID:                "run_rt",
+		ChatSessionID:        "chat_rt",
+		ContextSnapshotID:    "ctx_rt",
+		TraceID:              "trace_rt",
+		PendingApprovalCount: 2,
+	}
+	if back != wantBack {
+		t.Fatalf("AssignmentExecutionRefFromCairnline() = %+v, want %+v", back, wantBack)
+	}
+	if gap := ExecutionRefFidelityGap(back, portable); gap != "" {
+		t.Fatalf("ExecutionRefFidelityGap(round trip) = %q, want no gap", gap)
+	}
+}
+
+func TestCairnlinebridge_ExecutionRefContextSnapshotOnlyStaysEmpty(t *testing.T) {
+	ref := projectwork.AssignmentExecutionRef{ContextSnapshotID: "ctx_only"}
+	if portable := ExecutionRef(ref); !portable.Empty() {
+		t.Fatalf("ExecutionRef(context snapshot only) = %+v, want empty portable ref so it cannot clobber a stored one", portable)
+	}
+	if gap := ExecutionRefFidelityGap(ref, cairnline.ExecutionRef{}); gap != "" {
+		t.Fatalf("ExecutionRefFidelityGap(context snapshot only) = %q, want no gap", gap)
+	}
+}
+
+func TestCairnlinebridge_ExecutionRefFidelityGap(t *testing.T) {
+	ref := projectwork.AssignmentExecutionRef{TaskID: "task_gap", RunID: "run_gap", TraceID: "trace_gap", PendingApprovalCount: 1}
+	// The pre-structured collapse stored only the run id; that loss must be
+	// reported so replacement gates can block on it.
+	if gap := ExecutionRefFidelityGap(ref, cairnline.ExecutionRef{RunID: "run_gap"}); gap == "" {
+		t.Fatal("ExecutionRefFidelityGap(collapsed legacy ref) = no gap, want task_id loss reported")
+	}
+	// Legacy rows without a kind stay acceptable when every id field matches.
+	legacy := cairnline.ExecutionRef{TaskID: "task_gap", RunID: "run_gap", TraceID: "trace_gap", PendingApprovals: 1}
+	if gap := ExecutionRefFidelityGap(ref, legacy); gap != "" {
+		t.Fatalf("ExecutionRefFidelityGap(kindless legacy row) = %q, want no gap", gap)
+	}
+	wrongKind := legacy
+	wrongKind.Kind = "external_adapter"
+	if gap := ExecutionRefFidelityGap(ref, wrongKind); gap == "" {
+		t.Fatal("ExecutionRefFidelityGap(wrong kind) = no gap, want kind mismatch reported")
+	}
+}
+
+func TestCairnlinebridge_AssignmentStatusAwaitingApprovalRoundTrips(t *testing.T) {
+	if got := AssignmentStatus(projectwork.AssignmentStatusAwaitingApproval); got != cairnline.AssignmentAwaitingApproval {
+		t.Fatalf("AssignmentStatus(awaiting_approval) = %q, want %q (not clamped to running)", got, cairnline.AssignmentAwaitingApproval)
+	}
+	if got := AssignmentStatusFromCairnline(cairnline.AssignmentAwaitingApproval); got != projectwork.AssignmentStatusAwaitingApproval {
+		t.Fatalf("AssignmentStatusFromCairnline(awaiting_approval) = %q, want %q", got, projectwork.AssignmentStatusAwaitingApproval)
+	}
+	if err := AssignmentStatusVocabularyGap(); err != nil {
+		t.Fatalf("AssignmentStatusVocabularyGap() = %v, want every hecate status to survive the portable round trip", err)
+	}
+}
+
+func TestCairnlinebridge_UpsertAssignmentAwaitingApprovalPersistsPortableStatus(t *testing.T) {
+	ctx := context.Background()
+	service := cairnline.NewMemoryService()
+	now := time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)
+	snapshot := bridgeSnapshotFixture(now)
+	if err := Seed(ctx, service, snapshot); err != nil {
+		t.Fatalf("Seed() error = %v", err)
+	}
+
+	assignment := snapshot.Assignments[0]
+	assignment.Status = projectwork.AssignmentStatusAwaitingApproval
+	assignment.ExecutionRef = projectwork.AssignmentExecutionRef{
+		TaskID:               "task_appr",
+		RunID:                "run_appr",
+		TraceID:              "trace_appr",
+		PendingApprovalCount: 1,
+	}
+	role := snapshot.Roles[0]
+	written, err := UpsertAssignment(ctx, service, assignment, role)
+	if err != nil {
+		t.Fatalf("UpsertAssignment(awaiting approval) error = %v", err)
+	}
+	if written.Status != cairnline.AssignmentAwaitingApproval {
+		t.Fatalf("portable status = %q, want %q (probe 3 regression: clamp to running)", written.Status, cairnline.AssignmentAwaitingApproval)
+	}
+	if written.ExecutionRef.TaskID != "task_appr" || written.ExecutionRef.RunID != "run_appr" || written.ExecutionRef.PendingApprovals != 1 {
+		t.Fatalf("portable execution ref = %+v, want full task/run/approval fidelity", written.ExecutionRef)
+	}
+	if got := AssignmentStatusFromCairnline(written.Status); got != projectwork.AssignmentStatusAwaitingApproval {
+		t.Fatalf("read-back status = %q, want awaiting_approval", got)
+	}
+
+	assignment.Status = projectwork.AssignmentStatusRunning
+	resumed, err := UpsertAssignment(ctx, service, assignment, role)
+	if err != nil {
+		t.Fatalf("UpsertAssignment(resume running) error = %v", err)
+	}
+	if resumed.Status != cairnline.AssignmentRunning {
+		t.Fatalf("resumed portable status = %q, want running", resumed.Status)
+	}
 }

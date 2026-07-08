@@ -913,20 +913,18 @@ func projectWorkRoleFromCairnline(item cairnline.Role, native projectwork.AgentR
 
 func projectWorkAssignmentFromCairnline(item cairnline.Assignment) projectwork.Assignment {
 	return projectwork.Assignment{
-		ID:         item.ID,
-		ProjectID:  item.ProjectID,
-		WorkItemID: item.WorkItemID,
-		RoleID:     item.RoleID,
-		RootID:     item.RootID,
-		DriverKind: projectWorkAssignmentDriverFromCairnline(item.ExecutionMode),
-		Status:     projectWorkAssignmentStatusFromCairnline(item.Status),
-		ExecutionRef: projectwork.NormalizeAssignmentExecutionRef(projectwork.AssignmentExecutionRef{
-			ContextSnapshotID: item.ContextSnapshotID,
-		}),
-		CreatedAt:   item.CreatedAt,
-		UpdatedAt:   item.UpdatedAt,
-		StartedAt:   item.StartedAt,
-		CompletedAt: item.CompletedAt,
+		ID:           item.ID,
+		ProjectID:    item.ProjectID,
+		WorkItemID:   item.WorkItemID,
+		RoleID:       item.RoleID,
+		RootID:       item.RootID,
+		DriverKind:   projectWorkAssignmentDriverFromCairnline(item.ExecutionMode),
+		Status:       projectWorkAssignmentStatusFromCairnline(item.Status),
+		ExecutionRef: cairnlinebridge.AssignmentExecutionRefFromCairnline(item.ExecutionRef, item.ContextSnapshotID),
+		CreatedAt:    item.CreatedAt,
+		UpdatedAt:    item.UpdatedAt,
+		StartedAt:    item.StartedAt,
+		CompletedAt:  item.CompletedAt,
 	}
 }
 
@@ -940,20 +938,7 @@ func projectWorkAssignmentDriverFromCairnline(mode string) string {
 }
 
 func projectWorkAssignmentStatusFromCairnline(status string) string {
-	switch strings.TrimSpace(status) {
-	case cairnline.AssignmentRunning, cairnline.AssignmentClaimed:
-		return projectwork.AssignmentStatusRunning
-	case cairnline.AssignmentReview:
-		return projectwork.AssignmentStatusAwaitingApproval
-	case cairnline.AssignmentCompleted:
-		return projectwork.AssignmentStatusCompleted
-	case cairnline.AssignmentFailed:
-		return projectwork.AssignmentStatusFailed
-	case cairnline.AssignmentCancelled:
-		return projectwork.AssignmentStatusCancelled
-	default:
-		return projectwork.AssignmentStatusQueued
-	}
+	return cairnlinebridge.AssignmentStatusFromCairnline(status)
 }
 
 func renderCairnlineProjectWorkItemReadiness(readiness cairnline.WorkItemCloseoutReadiness) ProjectWorkItemReadinessResponse {

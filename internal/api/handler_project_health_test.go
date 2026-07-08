@@ -347,7 +347,7 @@ func TestProjectHealth_StrictEmbeddedReadModelReadsWithoutHecateProject(t *testi
 		if _, err := service.ClaimAssignment(t.Context(), projectID, "asgn_embedded_health", "agent-health"); err != nil {
 			return err
 		}
-		if _, err := service.UpdateAssignmentStatus(t.Context(), projectID, "asgn_embedded_health", cairnline.AssignmentRunning, "run_embedded_health"); err != nil {
+		if _, err := service.UpdateAssignmentStatus(t.Context(), projectID, "asgn_embedded_health", cairnline.AssignmentRunning, cairnline.ExecutionRef{RunID: "run_embedded_health"}); err != nil {
 			return err
 		}
 		if _, err := service.CreateReview(t.Context(), cairnline.Review{

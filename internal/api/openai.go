@@ -2424,12 +2424,44 @@ type ProjectCairnlineSidecarAssignmentItem struct {
 	Status            string                                  `json:"status,omitempty"`
 	DesiredAgent      ProjectCairnlineSidecarDesiredAgentItem `json:"desired_agent,omitempty"`
 	ClaimedBy         string                                  `json:"claimed_by,omitempty"`
-	ExecutionRef      string                                  `json:"execution_ref,omitempty"`
+	ExecutionRef      ProjectCairnlineSidecarExecutionRef     `json:"execution_ref,omitempty"`
 	ContextSnapshotID string                                  `json:"context_snapshot_id,omitempty"`
 	CreatedAt         string                                  `json:"created_at,omitempty"`
 	UpdatedAt         string                                  `json:"updated_at,omitempty"`
 	StartedAt         string                                  `json:"started_at,omitempty"`
 	CompletedAt       string                                  `json:"completed_at,omitempty"`
+}
+
+// ProjectCairnlineSidecarExecutionRef mirrors Cairnline's structured
+// execution ref on the sidecar wire. Pre-structured sidecars emit a bare
+// string; UnmarshalJSON keeps those decodable by reading the string as the
+// run id, matching Cairnline's own legacy tolerance.
+type ProjectCairnlineSidecarExecutionRef struct {
+	Kind             string `json:"kind,omitempty"`
+	TaskID           string `json:"task_id,omitempty"`
+	RunID            string `json:"run_id,omitempty"`
+	SessionID        string `json:"session_id,omitempty"`
+	TraceID          string `json:"trace_id,omitempty"`
+	PendingApprovals int    `json:"pending_approvals,omitempty"`
+}
+
+func (ref *ProjectCairnlineSidecarExecutionRef) UnmarshalJSON(data []byte) error {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) > 0 && trimmed[0] == '"' {
+		var legacy string
+		if err := json.Unmarshal(trimmed, &legacy); err != nil {
+			return err
+		}
+		*ref = ProjectCairnlineSidecarExecutionRef{RunID: strings.TrimSpace(legacy)}
+		return nil
+	}
+	type wire ProjectCairnlineSidecarExecutionRef
+	var decoded wire
+	if err := json.Unmarshal(trimmed, &decoded); err != nil {
+		return err
+	}
+	*ref = ProjectCairnlineSidecarExecutionRef(decoded)
+	return nil
 }
 
 type ProjectCairnlineSidecarDesiredAgentItem struct {

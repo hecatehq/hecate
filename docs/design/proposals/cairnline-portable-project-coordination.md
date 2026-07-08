@@ -231,13 +231,20 @@ Assignment {
   role_id
   root_id?
   execution_mode: "manual" | "mcp_pull" | "external_adapter" | "orchestrated"
-  status: "queued" | "claimed" | "running" | "awaiting_review" | "completed" | "failed" | "cancelled"
+  status: "queued" | "claimed" | "running" | "awaiting_approval" | "awaiting_review" | "completed" | "failed" | "cancelled"
   desired_agent?: {
     kind: "codex" | "claude" | "cursor" | "hecate" | "human" | "any"
     skill_ids?: string[]
   }
   claimed_by?
-  execution_ref?
+  execution_ref?: {
+    kind?
+    task_id?
+    run_id?
+    session_id?
+    trace_id?
+    pending_approvals?
+  }
   context_snapshot_id?
 }
 ```
