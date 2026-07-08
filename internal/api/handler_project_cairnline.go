@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/cairnlinebridge"
 	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projectassistant"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectwork"
@@ -591,6 +593,11 @@ type projectCairnlineStrictEmbeddedSmokeTarget struct {
 	workItemID          string
 	assignmentID        string
 	assistantProposalID string
+	// assignments carries the raw portable rows so the smoke can compare
+	// them against Hecate's runtime overlay at field level; the rendered
+	// read routes reassemble refs from the overlay and would hide portable
+	// loss. Populated by the live smoke only.
+	assignments []cairnline.Assignment
 }
 
 func (h *Handler) projectCairnlineStrictEmbeddedSmoke(ctx context.Context, snapshots []cairnlinebridge.Snapshot) *ProjectCairnlineMigrationEmbeddedSmoke {
@@ -645,6 +652,7 @@ func (h *Handler) projectCairnlineStrictEmbeddedLiveSmoke(ctx context.Context) (
 			_ = store.Close()
 			return dbPath, nil, err
 		}
+		target.assignments = assignments
 		for _, item := range assignments {
 			if target.workItemID != "" && strings.TrimSpace(item.WorkItemID) != target.workItemID {
 				continue
@@ -690,6 +698,12 @@ func (h *Handler) projectCairnlineStrictEmbeddedSmokeTargets(ctx context.Context
 		_, err := strict.renderStrictEmbeddedCairnlineProjects(ctx)
 		return err
 	})
+	// Fidelity gates: replacement_ready previously reported true while the
+	// bridge clamped awaiting_approval to running, so the smoke inspects the
+	// status vocabulary round trip explicitly instead of trusting read routes.
+	checkProjectCairnlineEmbeddedSmoke(smoke, "", "assignment-status-vocabulary", func() error {
+		return cairnlinebridge.AssignmentStatusVocabularyGap()
+	})
 	for _, target := range targets {
 		projectID := strings.TrimSpace(target.project.ID)
 		if projectID == "" {
@@ -729,6 +743,14 @@ func (h *Handler) projectCairnlineStrictEmbeddedSmokeTargets(ctx context.Context
 			_, err := strict.renderCairnlineProjectWorkItems(ctx, projectID)
 			return err
 		})
+		if len(target.assignments) > 0 {
+			checkProjectCairnlineEmbeddedSmoke(smoke, projectID, "assignment-execution-ref-parity", func() error {
+				return strict.projectCairnlineAssignmentExecutionRefParity(ctx, target.assignments)
+			})
+			checkProjectCairnlineEmbeddedSmoke(smoke, projectID, "assignment-approval-status-parity", func() error {
+				return strict.projectCairnlineAssignmentApprovalStatusParity(ctx, target.assignments)
+			})
+		}
 		if workItemID := strings.TrimSpace(target.workItemID); workItemID != "" {
 			checkProjectCairnlineEmbeddedSmoke(smoke, projectID, "assignment-list", func() error {
 				_, err := strict.renderCairnlineProjectWorkAssignments(ctx, projectID, workItemID)
@@ -752,6 +774,16 @@ func (h *Handler) projectCairnlineStrictEmbeddedSmokeTargets(ctx context.Context
 						return errors.New("embedded Cairnline assignment context packet not found")
 					}
 					return nil
+				})
+				checkProjectCairnlineEmbeddedSmoke(smoke, projectID, "assignment-context-memory-parity", func() error {
+					packet, ok, err := strict.contextPacketForStrictEmbeddedCairnlineProjectAssignment(ctx, projectID, workItemID, assignmentID)
+					if err != nil {
+						return err
+					}
+					if !ok {
+						return errors.New("embedded Cairnline assignment context packet not found")
+					}
+					return projectCairnlineAssignmentContextMemoryParity(packet, strict.enabledProjectMemoryEntries(ctx, projectID))
 				})
 				checkProjectCairnlineEmbeddedSmoke(smoke, projectID, "launch-readiness", func() error {
 					_, err := strict.renderCairnlineProjectAssignmentLaunchReadiness(ctx, projectID, workItemID, assignmentID)
@@ -934,6 +966,74 @@ func checkProjectCairnlineEmbeddedSmoke(smoke *ProjectCairnlineMigrationEmbedded
 			Error:     err.Error(),
 		})
 	}
+}
+
+// projectCairnlineAssignmentExecutionRefParity fails when Hecate's runtime
+// overlay carries execution-ref fields the portable Cairnline row does not.
+// The 2026-07-08 replacement dogfood reached replacement_ready while task_id
+// and kind survived only in the Hecate overlay; this check turns that loss
+// into a blocking gate signal.
+func (h *Handler) projectCairnlineAssignmentExecutionRefParity(ctx context.Context, rows []cairnline.Assignment) error {
+	app := h.projectWorkApplication()
+	for _, row := range rows {
+		overlaid, err := app.ApplyAssignmentRuntime(ctx, projectWorkAssignmentFromCairnline(row))
+		if err != nil {
+			return err
+		}
+		ref := projectwork.NormalizeAssignmentExecutionRef(overlaid.ExecutionRef)
+		if gap := cairnlinebridge.ExecutionRefFidelityGap(ref, row.ExecutionRef); gap != "" {
+			return fmt.Errorf("assignment %s: %s", strings.TrimSpace(row.ID), gap)
+		}
+		if snapshotID := ref.ContextSnapshotID; snapshotID != "" && strings.TrimSpace(row.ContextSnapshotID) != snapshotID {
+			return fmt.Errorf("assignment %s: portable context_snapshot_id %q does not match hecate context snapshot %q", strings.TrimSpace(row.ID), strings.TrimSpace(row.ContextSnapshotID), snapshotID)
+		}
+	}
+	return nil
+}
+
+// projectCairnlineAssignmentApprovalStatusParity fails when an assignment
+// Hecate's runtime overlay reports as blocked on an approval is stored under a
+// different portable status. Only overlay status is inspected: pending
+// approval counts can precede the status transition, and terminal rows keep
+// their final status.
+func (h *Handler) projectCairnlineAssignmentApprovalStatusParity(ctx context.Context, rows []cairnline.Assignment) error {
+	app := h.projectWorkApplication()
+	for _, row := range rows {
+		overlaid, err := app.ApplyAssignmentRuntime(ctx, projectWorkAssignmentFromCairnline(row))
+		if err != nil {
+			return err
+		}
+		ref := projectwork.NormalizeAssignmentExecutionRef(overlaid.ExecutionRef)
+		if ref.Status != projectwork.AssignmentStatusAwaitingApproval {
+			continue
+		}
+		if strings.TrimSpace(row.Status) != cairnline.AssignmentAwaitingApproval {
+			return fmt.Errorf("assignment %s awaits a hecate approval but the portable status is %q, want %q", strings.TrimSpace(row.ID), strings.TrimSpace(row.Status), cairnline.AssignmentAwaitingApproval)
+		}
+	}
+	return nil
+}
+
+// projectCairnlineAssignmentContextMemoryParity fails when the portable
+// context packet omits an enabled project memory entry that Hecate's native
+// launch composer would surface (dogfood probe 2: memory silently dropped from
+// the Cairnline context read).
+func projectCairnlineAssignmentContextMemoryParity(packet chat.ContextPacket, entries []memory.Entry) error {
+	present := make(map[string]bool, len(packet.Items))
+	for _, item := range packet.Items {
+		if item.Kind == "memory" {
+			present[strings.TrimSpace(item.Origin)] = true
+		}
+	}
+	for _, entry := range entries {
+		if !entry.Enabled {
+			continue
+		}
+		if !present[strings.TrimSpace(entry.ID)] {
+			return fmt.Errorf("portable assignment context packet is missing enabled project memory entry %s", strings.TrimSpace(entry.ID))
+		}
+	}
+	return nil
 }
 
 func appendUniqueProjectCairnlineSmokeRoute(items []string, route string) []string {

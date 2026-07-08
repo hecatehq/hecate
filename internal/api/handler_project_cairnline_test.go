@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projectassistant"
+	"github.com/hecatehq/hecate/internal/projectruntime"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
@@ -405,7 +407,7 @@ func TestProjectCairnlineSyncAPI_WritesDurableAllProjectsSQLiteDB(t *testing.T) 
 	if !hasProjectCairnlineMigrationCheck(second.Data.MigrationRehearsal.Checklist, "load-hecate-stores", "complete") || !hasProjectCairnlineMigrationCheck(second.Data.MigrationRehearsal.Checklist, "native-snapshot-import", "complete") || !hasProjectCairnlineMigrationCheck(second.Data.MigrationRehearsal.Checklist, "parity-check", "complete") || !hasProjectCairnlineMigrationCheck(second.Data.MigrationRehearsal.Checklist, "strict-embedded-read-smoke", "complete") || len(second.Data.MigrationRehearsal.Rollback) == 0 {
 		t.Fatalf("sync migration checklist = %+v rollback %+v, want explicit rehearsal checklist and rollback steps", second.Data.MigrationRehearsal.Checklist, second.Data.MigrationRehearsal.Rollback)
 	}
-	if second.Data.MigrationRehearsal.EmbeddedSmoke == nil || second.Data.MigrationRehearsal.EmbeddedSmoke.Status != "passed" || second.Data.MigrationRehearsal.EmbeddedSmoke.ProjectCount != 2 || second.Data.MigrationRehearsal.EmbeddedSmoke.ReadRouteChecks != 38 || second.Data.MigrationRehearsal.EmbeddedSmoke.ReadModelCount != 2 || second.Data.MigrationRehearsal.EmbeddedSmoke.LaunchPacketCount != 1 || second.Data.MigrationRehearsal.EmbeddedSmoke.LaunchPacketErrorCount != 0 || len(second.Data.MigrationRehearsal.EmbeddedSmoke.Errors) != 0 {
+	if second.Data.MigrationRehearsal.EmbeddedSmoke == nil || second.Data.MigrationRehearsal.EmbeddedSmoke.Status != "passed" || second.Data.MigrationRehearsal.EmbeddedSmoke.ProjectCount != 2 || second.Data.MigrationRehearsal.EmbeddedSmoke.ReadRouteChecks != 40 || second.Data.MigrationRehearsal.EmbeddedSmoke.ReadModelCount != 2 || second.Data.MigrationRehearsal.EmbeddedSmoke.LaunchPacketCount != 1 || second.Data.MigrationRehearsal.EmbeddedSmoke.LaunchPacketErrorCount != 0 || len(second.Data.MigrationRehearsal.EmbeddedSmoke.Errors) != 0 {
 		t.Fatalf("sync embedded smoke = %+v, want strict embedded route smoke across both synced projects", second.Data.MigrationRehearsal.EmbeddedSmoke)
 	}
 	for _, route := range projectCairnlineReadRouteNames {
@@ -576,7 +578,7 @@ func TestProjectCairnlineMirrorParityAPI_ReportsLiveMirrorMatch(t *testing.T) {
 	if !hasProjectCairnlineMigrationCheck(response.Data.MigrationRehearsal.Checklist, "native-snapshot-import", "complete") || !hasProjectCairnlineMigrationCheck(response.Data.MigrationRehearsal.Checklist, "parity-check", "complete") {
 		t.Fatalf("mirror checklist = %+v, want completed import and parity checks", response.Data.MigrationRehearsal.Checklist)
 	}
-	if !hasProjectCairnlineMigrationCheck(response.Data.MigrationRehearsal.Checklist, "strict-embedded-read-smoke", "complete") || response.Data.MigrationRehearsal.EmbeddedSmoke == nil || response.Data.MigrationRehearsal.EmbeddedSmoke.Status != "passed" || response.Data.MigrationRehearsal.EmbeddedSmoke.ProjectCount != 1 || response.Data.MigrationRehearsal.EmbeddedSmoke.ReadRouteChecks != 16 || len(response.Data.MigrationRehearsal.EmbeddedSmoke.Errors) != 0 {
+	if !hasProjectCairnlineMigrationCheck(response.Data.MigrationRehearsal.Checklist, "strict-embedded-read-smoke", "complete") || response.Data.MigrationRehearsal.EmbeddedSmoke == nil || response.Data.MigrationRehearsal.EmbeddedSmoke.Status != "passed" || response.Data.MigrationRehearsal.EmbeddedSmoke.ProjectCount != 1 || response.Data.MigrationRehearsal.EmbeddedSmoke.ReadRouteChecks != 17 || len(response.Data.MigrationRehearsal.EmbeddedSmoke.Errors) != 0 {
 		t.Fatalf("mirror embedded smoke = %+v checklist %+v, want read-only strict embedded route smoke", response.Data.MigrationRehearsal.EmbeddedSmoke, response.Data.MigrationRehearsal.Checklist)
 	}
 	for _, route := range []string{"project-list", "roles", "handoff-list", "project-chat-prelude", "embedded-read-model"} {
@@ -1179,5 +1181,86 @@ func TestProjectCairnlineExportAPI_MissingProjectDoesNotCreateExportDir(t *testi
 	client.mustRequestStatus(http.StatusNotFound, http.MethodPost, "/hecate/v1/projects/proj_missing/cairnline/export", "")
 	if _, err := os.Stat(filepath.Join(dataDir, "cairnline")); !os.IsNotExist(err) {
 		t.Fatalf("export dir stat error = %v, want not exist", err)
+	}
+}
+
+func TestProjectCairnlineAssignmentExecutionRefParity(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+	handler.SetProjectRuntimeStore(projectruntime.NewMemoryStore())
+	if _, err := handler.projectRuntime.Upsert(t.Context(), projectruntime.AssignmentRuntime{
+		ProjectID:    "proj_parity",
+		AssignmentID: "asgn_parity",
+		ExecutionRef: projectwork.AssignmentExecutionRef{
+			TaskID:            "task_parity",
+			RunID:             "run_parity",
+			ContextSnapshotID: "ctx_parity",
+		},
+	}); err != nil {
+		t.Fatalf("Upsert runtime overlay: %v", err)
+	}
+
+	faithful := cairnline.Assignment{
+		ID:        "asgn_parity",
+		ProjectID: "proj_parity",
+		ExecutionRef: cairnline.ExecutionRef{
+			Kind:   projectwork.AssignmentExecutionKindTaskRun,
+			TaskID: "task_parity",
+			RunID:  "run_parity",
+		},
+		ContextSnapshotID: "ctx_parity",
+	}
+	if err := handler.projectCairnlineAssignmentExecutionRefParity(t.Context(), []cairnline.Assignment{faithful}); err != nil {
+		t.Fatalf("execution-ref parity (faithful row) = %v, want pass", err)
+	}
+
+	// The pre-structured collapse kept only the run id; the gate must catch it.
+	collapsed := faithful
+	collapsed.ExecutionRef = cairnline.ExecutionRef{RunID: "run_parity"}
+	if err := handler.projectCairnlineAssignmentExecutionRefParity(t.Context(), []cairnline.Assignment{collapsed}); err == nil {
+		t.Fatal("execution-ref parity (collapsed row) = nil, want task_id loss reported")
+	}
+
+	dropped := faithful
+	dropped.ContextSnapshotID = ""
+	if err := handler.projectCairnlineAssignmentExecutionRefParity(t.Context(), []cairnline.Assignment{dropped}); err == nil {
+		t.Fatal("execution-ref parity (missing context snapshot) = nil, want context snapshot loss reported")
+	}
+}
+
+func TestProjectCairnlineAssignmentApprovalStatusParity(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{}, quietLogger(), nil, nil, nil, nil)
+	t.Cleanup(func() { _ = handler.Shutdown(context.Background()) })
+	handler.SetProjectRuntimeStore(projectruntime.NewMemoryStore())
+	if _, err := handler.projectRuntime.Upsert(t.Context(), projectruntime.AssignmentRuntime{
+		ProjectID:    "proj_appr",
+		AssignmentID: "asgn_appr",
+		ExecutionRef: projectwork.AssignmentExecutionRef{
+			TaskID:               "task_appr",
+			RunID:                "run_appr",
+			Status:               projectwork.AssignmentStatusAwaitingApproval,
+			PendingApprovalCount: 1,
+		},
+	}); err != nil {
+		t.Fatalf("Upsert runtime overlay: %v", err)
+	}
+
+	blocked := cairnline.Assignment{
+		ID:        "asgn_appr",
+		ProjectID: "proj_appr",
+		Status:    cairnline.AssignmentAwaitingApproval,
+	}
+	if err := handler.projectCairnlineAssignmentApprovalStatusParity(t.Context(), []cairnline.Assignment{blocked}); err != nil {
+		t.Fatalf("approval-status parity (awaiting_approval row) = %v, want pass", err)
+	}
+
+	// The pre-fix bridge clamped awaiting_approval to running; the gate must
+	// catch a portable row that hides an operator-gated pause as running.
+	clamped := blocked
+	clamped.Status = cairnline.AssignmentRunning
+	if err := handler.projectCairnlineAssignmentApprovalStatusParity(t.Context(), []cairnline.Assignment{clamped}); err == nil {
+		t.Fatal("approval-status parity (clamped running row) = nil, want representability error")
 	}
 }

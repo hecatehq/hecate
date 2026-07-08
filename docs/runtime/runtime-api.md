@@ -2507,7 +2507,10 @@ artifact-list, handoff-list, closeout-readiness, operations brief, project
 memory list, and memory-candidate list reads plus Project Assistant
 context/proposal reads now load directly from the embedded Cairnline project,
 skill, role, work-item, assignment, launch-packet, artifact, evidence, review,
-handoff, memory, and assistant proposal records. Their
+handoff, memory, and assistant proposal records. Strict embedded and sidecar
+assignment-context packets carry the project's enabled durable memory entries
+(the same selection Hecate's native launch composer uses) and render the
+structured portable `execution_ref` fields on the assignment item. Their
 Cairnline service read source is controlled by
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE`: `auto` prefers the embedded mirror and
 falls back to the snapshot-seeded bridge, `snapshot` always uses the
@@ -2596,7 +2599,21 @@ judging cutover by Hecate-store mirror parity and instead smokes live embedded
 Cairnline project state. That response uses
 `migration_rehearsal.operation=embedded_replacement_smoke` and
 `source_authority=embedded_cairnline_authoritative`; the gate's probe points at
-backend status because the status read performs the live smoke. The
+backend status because the status read performs the live smoke. The strict
+embedded smoke also inspects portable fidelity directly instead of trusting
+rendered read routes: `assignment-status-vocabulary` verifies every Hecate
+assignment status (including `awaiting_approval`) survives the portable status
+round trip, `assignment-execution-ref-parity` compares each stored portable
+`execution_ref` field by field (`task_id`, `run_id`, `session_id`, `trace_id`,
+`pending_approvals`, plus the assignment-level `context_snapshot_id`) against
+Hecate's assignment runtime overlay, `assignment-approval-status-parity` fails
+when an assignment blocked on a Hecate approval is stored under any portable
+status other than `awaiting_approval`, and `assignment-context-memory-parity`
+fails when the portable assignment context packet omits an enabled project
+memory entry that Hecate's native launch composer would surface. These checks
+close the dogfood finding that `replacement_ready` could report true while
+portable rows silently dropped `task_id`/`kind`, clamped `awaiting_approval`
+to `running`, or served context packets without project memory. The
 `migration-and-rollback` gate uses the attached mirror-parity or live-smoke
 evidence directly rather than only relying on prose. It treats missing evidence,
 non-verified mirror parity or replacement smoke, incomplete smoke/checklist
@@ -4004,7 +4021,11 @@ With an empty confirmed body, Hecate:
 
 Supplying `project_id` and `assignment_id` skips list/next selection and uses
 the requested assignment. Optional fields are `claimed_by`, `execution_ref`,
-`completion_status`, `agent_kind`, `skill_ids`, and `execution_modes`.
+`completion_status`, `agent_kind`, `skill_ids`, and `execution_modes`. The
+request `execution_ref` is a plain string; Cairnline's structured execution-ref
+contract decodes a legacy string as `run_id`, so assignment records read back
+from the sidecar report `execution_ref` as an object
+(`kind`/`task_id`/`run_id`/`session_id`/`trace_id`/`pending_approvals`).
 
 Example request:
 
@@ -4067,7 +4088,7 @@ Example response, shortened:
       "project_id": "proj_123",
       "status": "completed",
       "claimed_by": "agent-smoke",
-      "execution_ref": "run-smoke"
+      "execution_ref": { "run_id": "run-smoke" }
     },
     "launch_packet_ready": true,
     "warnings": []

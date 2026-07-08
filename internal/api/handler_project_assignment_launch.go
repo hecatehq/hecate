@@ -1118,12 +1118,7 @@ func (h *Handler) writeStrictEmbeddedCairnlineAssignmentRuntime(ctx context.Cont
 		return assignment, err
 	}
 	existing.Status = cairnlinebridge.AssignmentStatus(assignment.Status)
-	existing.ExecutionRef = firstNonEmptyString(
-		strings.TrimSpace(assignment.ExecutionRef.RunID),
-		strings.TrimSpace(assignment.ExecutionRef.TaskID),
-		strings.TrimSpace(assignment.ExecutionRef.ChatSessionID),
-		strings.TrimSpace(assignment.ExecutionRef.ContextSnapshotID),
-	)
+	existing.ExecutionRef = cairnlinebridge.ExecutionRef(assignment.ExecutionRef)
 	existing.ContextSnapshotID = strings.TrimSpace(assignment.ExecutionRef.ContextSnapshotID)
 	existing.StartedAt = assignment.StartedAt
 	existing.CompletedAt = assignment.CompletedAt

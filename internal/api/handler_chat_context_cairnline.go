@@ -156,8 +156,40 @@ func cairnlineAssignmentContextPacket(context cairnline.AssignmentContext, autho
 	if context.Role != nil {
 		appendCairnlineRole(&packet, *context.Role)
 	}
+	// The portable context read now carries the same enabled memory entries
+	// Hecate's native launch composer selects; before this the Cairnline read
+	// path silently dropped project memory from the packet.
+	appendCairnlineMemory(&packet, context.Memory)
 	appendCairnlineAssignmentContextRuntime(&packet, context, authorityLine)
 	return packet
+}
+
+// cairnlineExecutionRefSummary renders the structured portable ref as a single
+// context-packet line, omitting empty fields.
+func cairnlineExecutionRefSummary(ref cairnline.ExecutionRef) string {
+	if ref.Empty() {
+		return ""
+	}
+	parts := make([]string, 0, 6)
+	if kind := strings.TrimSpace(ref.Kind); kind != "" {
+		parts = append(parts, "kind="+kind)
+	}
+	if taskID := strings.TrimSpace(ref.TaskID); taskID != "" {
+		parts = append(parts, "task="+taskID)
+	}
+	if runID := strings.TrimSpace(ref.RunID); runID != "" {
+		parts = append(parts, "run="+runID)
+	}
+	if sessionID := strings.TrimSpace(ref.SessionID); sessionID != "" {
+		parts = append(parts, "session="+sessionID)
+	}
+	if traceID := strings.TrimSpace(ref.TraceID); traceID != "" {
+		parts = append(parts, "trace="+traceID)
+	}
+	if ref.PendingApprovals > 0 {
+		parts = append(parts, fmt.Sprintf("pending_approvals=%d", ref.PendingApprovals))
+	}
+	return strings.Join(parts, " ")
 }
 
 func cairnlineAssignmentLaunchContextPacket(launch cairnline.AssignmentLaunchPacket, authorityLine string) chat.ContextPacket {
@@ -391,7 +423,7 @@ func appendCairnlineAssignment(packet *chat.ContextPacket, item cairnline.Assign
 	if claimedBy := strings.TrimSpace(item.ClaimedBy); claimedBy != "" {
 		body = append(body, "Claimed by: "+claimedBy)
 	}
-	if executionRef := strings.TrimSpace(item.ExecutionRef); executionRef != "" {
+	if executionRef := cairnlineExecutionRefSummary(item.ExecutionRef); executionRef != "" {
 		body = append(body, "Execution ref: "+executionRef)
 	}
 	if contextSnapshotID := strings.TrimSpace(item.ContextSnapshotID); contextSnapshotID != "" {

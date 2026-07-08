@@ -254,7 +254,7 @@ func TestProjectJourneyAPI_CairnlineReplacementModeStartsTaskWithRuntimeDefaults
 		t.Fatalf("Hecate project store ok=%v err=%v after start, want no native project identity row", ok, err)
 	}
 	mirrored := getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_replacement")
-	if mirrored.ExecutionRef == "" || mirrored.ContextSnapshotID == "" || mirrored.ClaimedBy != "hecate" {
+	if mirrored.ExecutionRef.TaskID == "" || mirrored.ExecutionRef.RunID == "" || mirrored.ContextSnapshotID == "" || mirrored.ClaimedBy != "hecate" {
 		t.Fatalf("mirrored Cairnline assignment = %+v, want claimed replacement runtime refs after start", mirrored)
 	}
 	runtime, ok, err := handler.projectRuntime.Get(t.Context(), projectID, "asgn_replacement")
@@ -447,8 +447,8 @@ func TestProjectJourneyAPI_CairnlineReplacementModeStartsExternalAgentWithoutAdv
 	}
 
 	mirrored := getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_replacement_external")
-	if mirrored.ExecutionRef != ref.ChatSessionID || mirrored.ContextSnapshotID != ref.ContextSnapshotID {
-		t.Fatalf("mirrored Cairnline assignment = ref %q context %q, want %q/%q", mirrored.ExecutionRef, mirrored.ContextSnapshotID, ref.ChatSessionID, ref.ContextSnapshotID)
+	if mirrored.ExecutionRef.SessionID != ref.ChatSessionID || mirrored.ContextSnapshotID != ref.ContextSnapshotID {
+		t.Fatalf("mirrored Cairnline assignment = ref %+v context %q, want %q/%q", mirrored.ExecutionRef, mirrored.ContextSnapshotID, ref.ChatSessionID, ref.ContextSnapshotID)
 	}
 	runtime, ok, err := handler.projectRuntime.Get(t.Context(), projectID, "asgn_replacement_external")
 	if err != nil || !ok {

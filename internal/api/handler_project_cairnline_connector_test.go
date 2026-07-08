@@ -992,7 +992,7 @@ func TestProjectCairnlineSidecarLifecycleSmoke_SelectsNextAssignmentAndCompletes
 	if !got.LaunchPacketReady || got.LaunchPacketIDs.AssignmentID != "asg_fixture" || got.LaunchPacketCounts.MemoryCandidates != 1 {
 		t.Fatalf("launch packet summary = ready:%t ids:%+v counts:%+v, want typed launch packet", got.LaunchPacketReady, got.LaunchPacketIDs, got.LaunchPacketCounts)
 	}
-	if got.FinalAssignment.ID != "asg_fixture" || got.FinalAssignment.Status != "completed" || got.FinalAssignment.ExecutionRef != "hecate-sidecar-smoke" {
+	if got.FinalAssignment.ID != "asg_fixture" || got.FinalAssignment.Status != "completed" || got.FinalAssignment.ExecutionRef.RunID != "hecate-sidecar-smoke" {
 		t.Fatalf("final assignment = %+v, want completed assignment with smoke execution ref", got.FinalAssignment)
 	}
 }
@@ -1025,7 +1025,7 @@ func TestProjectCairnlineSidecarLifecycleSmoke_UsesRequestedIDs(t *testing.T) {
 	if got.ProjectList != nil || got.NextAssignmentList != nil {
 		t.Fatalf("selection lists = projects %+v next %+v, want skipped lists for explicit ids", got.ProjectList, got.NextAssignmentList)
 	}
-	if got.FinalAssignment.Status != "awaiting_review" || got.FinalAssignment.ClaimedBy != "agent-requested" || got.FinalAssignment.ExecutionRef != "run-requested" {
+	if got.FinalAssignment.Status != "awaiting_review" || got.FinalAssignment.ClaimedBy != "agent-requested" || got.FinalAssignment.ExecutionRef.RunID != "run-requested" {
 		t.Fatalf("final assignment = %+v, want requested lifecycle metadata", got.FinalAssignment)
 	}
 }

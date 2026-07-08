@@ -1449,7 +1449,7 @@ func TestProjectWorkAPI_CairnlineAssignmentAuthorityWritesCairnlineAndShadowsHec
 		t.Fatalf("updated execution_ref = %+v, want native execution ref preserved", updated.Data.ExecutionRef)
 	}
 	mirrored = getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_authority")
-	if mirrored.ExecutionMode != cairnline.ExecutionExternalAdapter || mirrored.Status != cairnline.AssignmentCompleted || !strings.Contains(mirrored.ExecutionRef, "chat_authority") {
+	if mirrored.ExecutionMode != cairnline.ExecutionExternalAdapter || mirrored.Status != cairnline.AssignmentCompleted || mirrored.ExecutionRef.SessionID != "chat_authority" {
 		t.Fatalf("updated mirrored assignment = %+v, want Cairnline-authoritative external completion", mirrored)
 	}
 	shadow = getStoredProjectWorkAssignmentForTest(t, handler, projectID, "work_authority", "asgn_authority")
@@ -2019,7 +2019,7 @@ func TestProjectWorkAPI_MirrorsRoleAndWorkItemMutationsToCairnlineWhenConfigured
 		t.Fatalf("update assignment status = %d body=%s, want 200", rec.Code, rec.Body.String())
 	}
 	mirroredAssignment = getMirroredCairnlineAssignmentForTest(t, handler, project.Data.ID, "asgn_release")
-	if mirroredAssignment.Status != cairnline.AssignmentCompleted || mirroredAssignment.ExecutionRef != "chat_release" {
+	if mirroredAssignment.Status != cairnline.AssignmentCompleted || mirroredAssignment.ExecutionRef.SessionID != "chat_release" {
 		t.Fatalf("mirrored completed assignment = %+v, want completed chat execution ref", mirroredAssignment)
 	}
 
@@ -2955,7 +2955,7 @@ func TestProjectWorkAPI_StrictEmbeddedReadModelReadsCloseoutReadinessWithoutHeca
 		}); err != nil {
 			return err
 		}
-		if _, err := service.CompleteAssignment(t.Context(), projectID, "asgn_embedded", cairnline.AssignmentCompleted, "run_embedded"); err != nil {
+		if _, err := service.CompleteAssignment(t.Context(), projectID, "asgn_embedded", cairnline.AssignmentCompleted, cairnline.ExecutionRef{RunID: "run_embedded"}); err != nil {
 			return err
 		}
 		_, err := service.CreateHandoff(t.Context(), cairnline.Handoff{
@@ -3486,8 +3486,8 @@ func TestProjectWorkAPI_StartAssignmentMirrorsResultToCairnline(t *testing.T) {
 	if mirrored.Status != cairnlinebridge.AssignmentStatus(stored.Status) || mirrored.ExecutionMode != cairnline.ExecutionOrchestrated {
 		t.Fatalf("mirrored assignment status/mode = %q/%q, want %q/orchestrated", mirrored.Status, mirrored.ExecutionMode, cairnlinebridge.AssignmentStatus(stored.Status))
 	}
-	if mirrored.ExecutionRef != stored.ExecutionRef.RunID || mirrored.ContextSnapshotID != stored.ExecutionRef.ContextSnapshotID {
-		t.Fatalf("mirrored assignment execution = ref %q context %q, want %q/%q", mirrored.ExecutionRef, mirrored.ContextSnapshotID, stored.ExecutionRef.RunID, stored.ExecutionRef.ContextSnapshotID)
+	if mirrored.ExecutionRef.RunID != stored.ExecutionRef.RunID || mirrored.ExecutionRef.TaskID != stored.ExecutionRef.TaskID || mirrored.ContextSnapshotID != stored.ExecutionRef.ContextSnapshotID {
+		t.Fatalf("mirrored assignment execution = ref %+v context %q, want %q/%q/%q", mirrored.ExecutionRef, mirrored.ContextSnapshotID, stored.ExecutionRef.TaskID, stored.ExecutionRef.RunID, stored.ExecutionRef.ContextSnapshotID)
 	}
 }
 
@@ -4004,7 +4004,7 @@ func TestProjectWorkAPI_StartAssignmentStrictEmbeddedReadModelLaunchesCairnlineO
 		t.Fatalf("Hecate assignment runtime ok=%v err=%v, want no runtime overlay without launch", ok, err)
 	}
 	mirrored := getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_embedded_launch_start")
-	if mirrored.Status != cairnline.AssignmentQueued || mirrored.ClaimedBy != "" || mirrored.ExecutionRef != "" || mirrored.ContextSnapshotID != "" {
+	if mirrored.Status != cairnline.AssignmentQueued || mirrored.ClaimedBy != "" || !mirrored.ExecutionRef.Empty() || mirrored.ContextSnapshotID != "" {
 		t.Fatalf("mirrored Cairnline assignment = %+v, want queued and unclaimed after blocked launch", mirrored)
 	}
 }
@@ -4085,7 +4085,7 @@ func TestProjectWorkAPI_StartAssignmentStrictEmbeddedReadModelBlocksBeforeClaimW
 		t.Fatalf("missing runtime error = %+v, want model_not_configured", payload.Error)
 	}
 	mirrored := getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_embedded_launch_task_create_fail")
-	if mirrored.Status != cairnline.AssignmentQueued || mirrored.ClaimedBy != "" || mirrored.ExecutionRef != "" || mirrored.ContextSnapshotID != "" || !mirrored.StartedAt.IsZero() || !mirrored.CompletedAt.IsZero() {
+	if mirrored.Status != cairnline.AssignmentQueued || mirrored.ClaimedBy != "" || !mirrored.ExecutionRef.Empty() || mirrored.ContextSnapshotID != "" || !mirrored.StartedAt.IsZero() || !mirrored.CompletedAt.IsZero() {
 		t.Fatalf("mirrored assignment = %+v, want no claim before missing runtime blocker", mirrored)
 	}
 	if _, ok, err := handler.projectRuntime.Get(t.Context(), projectID, "asgn_embedded_launch_task_create_fail"); err != nil || ok {
@@ -4241,8 +4241,8 @@ func TestProjectWorkAPI_StartExternalAgentAssignmentStrictEmbeddedReadModelLaunc
 		t.Fatalf("Hecate assignment runtime ref = %+v, want chat/context %q/%q", runtime.ExecutionRef, ref.ChatSessionID, ref.ContextSnapshotID)
 	}
 	mirrored := getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_embedded_external_start")
-	if mirrored.Status != cairnlinebridge.AssignmentStatus(runtime.ExecutionRef.Status) || mirrored.ExecutionRef != ref.ChatSessionID || mirrored.ContextSnapshotID != ref.ContextSnapshotID {
-		t.Fatalf("mirrored Cairnline assignment = status %q ref %q context %q, want %q/%q/%q", mirrored.Status, mirrored.ExecutionRef, mirrored.ContextSnapshotID, cairnlinebridge.AssignmentStatus(runtime.ExecutionRef.Status), ref.ChatSessionID, ref.ContextSnapshotID)
+	if mirrored.Status != cairnlinebridge.AssignmentStatus(runtime.ExecutionRef.Status) || mirrored.ExecutionRef.SessionID != ref.ChatSessionID || mirrored.ContextSnapshotID != ref.ContextSnapshotID {
+		t.Fatalf("mirrored Cairnline assignment = status %q ref %q context %q, want %q/%q/%q", mirrored.Status, mirrored.ExecutionRef.SessionID, mirrored.ContextSnapshotID, cairnlinebridge.AssignmentStatus(runtime.ExecutionRef.Status), ref.ChatSessionID, ref.ContextSnapshotID)
 	}
 
 	completedAt := time.Now().UTC().Add(time.Second)
@@ -4267,7 +4267,7 @@ func TestProjectWorkAPI_StartExternalAgentAssignmentStrictEmbeddedReadModelLaunc
 		t.Fatalf("Hecate assignment runtime after reconcile = %+v completed_at=%v, want completed chat projection", runtime.ExecutionRef, runtime.CompletedAt)
 	}
 	mirrored = getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_embedded_external_start")
-	if mirrored.Status != cairnline.AssignmentCompleted || mirrored.ExecutionRef != ref.ChatSessionID || mirrored.ContextSnapshotID != ref.ContextSnapshotID || mirrored.CompletedAt.IsZero() {
+	if mirrored.Status != cairnline.AssignmentCompleted || mirrored.ExecutionRef.SessionID != ref.ChatSessionID || mirrored.ContextSnapshotID != ref.ContextSnapshotID || mirrored.CompletedAt.IsZero() {
 		t.Fatalf("mirrored Cairnline assignment after reconcile = %+v, want completed chat assignment", mirrored)
 	}
 }
@@ -4374,7 +4374,7 @@ func TestProjectWorkAPI_StartExternalAgentAssignmentStrictEmbeddedReadModelClean
 		t.Fatalf("Get chat session found=%v err=%v, want cleaned up prepared session", ok, err)
 	}
 	mirrored := getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_embedded_external_claim_lost")
-	if mirrored.Status != cairnline.AssignmentClaimed || mirrored.ClaimedBy != "other-agent" || mirrored.ExecutionRef != "" || mirrored.ContextSnapshotID != "" {
+	if mirrored.Status != cairnline.AssignmentClaimed || mirrored.ClaimedBy != "other-agent" || !mirrored.ExecutionRef.Empty() || mirrored.ContextSnapshotID != "" {
 		t.Fatalf("mirrored assignment = %+v, want existing external claim preserved", mirrored)
 	}
 	if _, ok, err := handler.projectRuntime.Get(t.Context(), projectID, "asgn_embedded_external_claim_lost"); err != nil || ok {
@@ -5546,8 +5546,8 @@ func TestProjectWorkAPI_StartExternalAgentAssignmentMirrorsResultToCairnline(t *
 	if mirrored.Status != cairnlinebridge.AssignmentStatus(stored.Status) || mirrored.ExecutionMode != cairnline.ExecutionExternalAdapter {
 		t.Fatalf("mirrored assignment status/mode = %q/%q, want %q/external_adapter", mirrored.Status, mirrored.ExecutionMode, cairnlinebridge.AssignmentStatus(stored.Status))
 	}
-	if mirrored.ExecutionRef != stored.ExecutionRef.ChatSessionID || mirrored.ContextSnapshotID != stored.ExecutionRef.ContextSnapshotID {
-		t.Fatalf("mirrored assignment execution = ref %q context %q, want %q/%q", mirrored.ExecutionRef, mirrored.ContextSnapshotID, stored.ExecutionRef.ChatSessionID, stored.ExecutionRef.ContextSnapshotID)
+	if mirrored.ExecutionRef.SessionID != stored.ExecutionRef.ChatSessionID || mirrored.ContextSnapshotID != stored.ExecutionRef.ContextSnapshotID {
+		t.Fatalf("mirrored assignment execution = ref %+v context %q, want %q/%q", mirrored.ExecutionRef, mirrored.ContextSnapshotID, stored.ExecutionRef.ChatSessionID, stored.ExecutionRef.ContextSnapshotID)
 	}
 }
 
@@ -5598,7 +5598,7 @@ func TestProjectWorkAPI_StartExternalAgentAssignmentWithCairnlineAuthorityReleas
 		t.Fatalf("stored assignment = %+v, want queued retry state after prepare failure", stored)
 	}
 	mirrored := getMirroredCairnlineAssignmentForTest(t, handler, "proj_start", "asgn_start")
-	if mirrored.Status != cairnline.AssignmentQueued || mirrored.ClaimedBy != "" || mirrored.ExecutionRef != "" || mirrored.ContextSnapshotID != "" || !mirrored.StartedAt.IsZero() || !mirrored.CompletedAt.IsZero() {
+	if mirrored.Status != cairnline.AssignmentQueued || mirrored.ClaimedBy != "" || !mirrored.ExecutionRef.Empty() || mirrored.ContextSnapshotID != "" || !mirrored.StartedAt.IsZero() || !mirrored.CompletedAt.IsZero() {
 		t.Fatalf("mirrored assignment = %+v, want released queued claim for retry", mirrored)
 	}
 }
@@ -5670,7 +5670,7 @@ func TestProjectWorkAPI_ExternalAgentChatTurnReconcilesAssignmentStatus(t *testi
 		t.Fatalf("stored assignment = %+v, want reconciled completed chat assignment", assignments[0])
 	}
 	mirrored := getMirroredCairnlineAssignmentForTest(t, handler, "proj_chat_reconcile", "asgn_chat_reconcile")
-	if mirrored.Status != cairnline.AssignmentCompleted || mirrored.ExecutionRef != "chat_project_reconcile" {
+	if mirrored.Status != cairnline.AssignmentCompleted || mirrored.ExecutionRef.SessionID != "chat_project_reconcile" {
 		t.Fatalf("mirrored assignment = %+v, want completed chat-session execution ref", mirrored)
 	}
 }
@@ -6563,8 +6563,8 @@ func TestProjectWorkAPI_StartAssignmentFailureMirrorsResultToCairnline(t *testin
 	if mirrored.Status != cairnline.AssignmentFailed || mirrored.ExecutionMode != cairnline.ExecutionOrchestrated {
 		t.Fatalf("mirrored assignment status/mode = %q/%q, want failed/orchestrated", mirrored.Status, mirrored.ExecutionMode)
 	}
-	if mirrored.ExecutionRef != stored.ExecutionRef.TaskID || mirrored.ContextSnapshotID != "" {
-		t.Fatalf("mirrored assignment execution = ref %q context %q, want failed task ref %q and no context snapshot", mirrored.ExecutionRef, mirrored.ContextSnapshotID, stored.ExecutionRef.TaskID)
+	if mirrored.ExecutionRef.TaskID != stored.ExecutionRef.TaskID || mirrored.ContextSnapshotID != "" {
+		t.Fatalf("mirrored assignment execution = ref %+v context %q, want failed task ref %q and no context snapshot", mirrored.ExecutionRef, mirrored.ContextSnapshotID, stored.ExecutionRef.TaskID)
 	}
 }
 
@@ -6634,7 +6634,7 @@ func TestProjectWorkAPI_StartAssignmentReleasesMirroredCairnlineClaimWhenTaskCre
 		t.Fatalf("task create failure status = %d body=%s, want 500", rec.Code, rec.Body.String())
 	}
 	mirrored := getMirroredCairnlineAssignmentForTest(t, handler, "proj_start", "asgn_start")
-	if mirrored.Status != cairnline.AssignmentQueued || mirrored.ClaimedBy != "" || mirrored.ExecutionRef != "" || mirrored.ContextSnapshotID != "" || !mirrored.StartedAt.IsZero() || !mirrored.CompletedAt.IsZero() {
+	if mirrored.Status != cairnline.AssignmentQueued || mirrored.ClaimedBy != "" || !mirrored.ExecutionRef.Empty() || mirrored.ContextSnapshotID != "" || !mirrored.StartedAt.IsZero() || !mirrored.CompletedAt.IsZero() {
 		t.Fatalf("mirrored assignment = %+v, want released queued claim for retry", mirrored)
 	}
 }
@@ -6678,7 +6678,7 @@ func TestProjectWorkAPI_StartAssignmentWithCairnlineAuthorityRejectsClaimedAssig
 		t.Fatalf("tasks = %+v, want no Hecate task when Cairnline claim blocks start", tasks)
 	}
 	mirrored := getMirroredCairnlineAssignmentForTest(t, handler, "proj_start", "asgn_start")
-	if mirrored.Status != cairnline.AssignmentClaimed || mirrored.ClaimedBy != "other-agent" || mirrored.ExecutionRef != "" {
+	if mirrored.Status != cairnline.AssignmentClaimed || mirrored.ClaimedBy != "other-agent" || !mirrored.ExecutionRef.Empty() {
 		t.Fatalf("mirrored assignment = %+v, want preserved other-agent claim", mirrored)
 	}
 }
@@ -6715,7 +6715,7 @@ func TestProjectWorkAPI_StartAssignmentWithCairnlineAuthorityClaimsAndReleasesWh
 		t.Fatalf("stored assignment = %+v, want queued retry state after task create failure", stored)
 	}
 	mirrored := getMirroredCairnlineAssignmentForTest(t, handler, "proj_start", "asgn_start")
-	if mirrored.Status != cairnline.AssignmentQueued || mirrored.ClaimedBy != "" || mirrored.ExecutionRef != "" || mirrored.ContextSnapshotID != "" || !mirrored.StartedAt.IsZero() || !mirrored.CompletedAt.IsZero() {
+	if mirrored.Status != cairnline.AssignmentQueued || mirrored.ClaimedBy != "" || !mirrored.ExecutionRef.Empty() || mirrored.ContextSnapshotID != "" || !mirrored.StartedAt.IsZero() || !mirrored.CompletedAt.IsZero() {
 		t.Fatalf("mirrored assignment = %+v, want released queued claim for retry", mirrored)
 	}
 }
@@ -7028,7 +7028,7 @@ func TestProjectWorkAPI_ProjectActivityStrictEmbeddedReadModelReadsWithoutHecate
 		if _, err := service.ClaimAssignment(t.Context(), projectID, "asgn_embedded_activity", "agent-activity"); err != nil {
 			return err
 		}
-		if _, err := service.UpdateAssignmentStatus(t.Context(), projectID, "asgn_embedded_activity", cairnline.AssignmentRunning, "run_embedded_activity"); err != nil {
+		if _, err := service.UpdateAssignmentStatus(t.Context(), projectID, "asgn_embedded_activity", cairnline.AssignmentRunning, cairnline.ExecutionRef{RunID: "run_embedded_activity"}); err != nil {
 			return err
 		}
 		if _, err := service.CreateEvidence(t.Context(), cairnline.Evidence{
@@ -7074,12 +7074,17 @@ func TestProjectWorkAPI_ProjectActivityStrictEmbeddedReadModelReadsWithoutHecate
 	if response.Object != "project_activity" || response.Data.ProjectID != projectID || response.Data.ReadBackend != "cairnline" {
 		t.Fatalf("activity response = %+v, want embedded Cairnline activity", response)
 	}
-	if response.Data.Summary.WorkItemCount != 1 || response.Data.Summary.AssignmentCount != 1 || response.Data.Summary.ActiveCount != 1 || response.Data.Summary.RecentCount != 1 {
-		t.Fatalf("activity summary = %+v, want one active embedded assignment", response.Data.Summary)
+	if response.Data.Summary.WorkItemCount != 1 || response.Data.Summary.AssignmentCount != 1 || response.Data.Summary.BlockedCount != 1 || response.Data.Summary.RecentCount != 1 {
+		t.Fatalf("activity summary = %+v, want one stale embedded assignment", response.Data.Summary)
 	}
-	item := findProjectActivityItemForTest(t, response.Data.Buckets.Active, "asgn_embedded_activity")
-	if item.BlockingSignal != "running" || item.WorkItem.ID != "work_embedded_activity" || item.Role.ID != "role_embedded_activity" {
-		t.Fatalf("activity item = %+v, want running embedded assignment with work and role enrichment", item)
+	// The portable row's run id now survives the Cairnline read path, so the
+	// runtime projection sees a run Hecate's task store does not know and
+	// classifies it stale — the same treatment a native row with this ref
+	// gets. Before the structured ref decode the run id was silently dropped
+	// and the assignment looked cleanly running.
+	item := findProjectActivityItemForTest(t, response.Data.Buckets.Blocked, "asgn_embedded_activity")
+	if item.BlockingSignal != "stale_unknown" || item.WorkItem.ID != "work_embedded_activity" || item.Role.ID != "role_embedded_activity" {
+		t.Fatalf("activity item = %+v, want stale embedded assignment with work and role enrichment", item)
 	}
 	if item.ArtifactSummary.Count != 1 || item.HandoffSummary.Count != 1 {
 		t.Fatalf("activity item = %+v, want embedded artifact and handoff enrichment", item)
