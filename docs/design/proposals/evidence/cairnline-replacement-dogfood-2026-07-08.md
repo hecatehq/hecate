@@ -46,21 +46,21 @@ representability.
 
 ## Setup
 
-| Setting | Full-mode run | Observability run |
-| --- | --- | --- |
-| `HECATE_ADDRESS` | `127.0.0.1:8899` | `127.0.0.1:8899` |
-| `HECATE_BACKEND` | `sqlite` | `sqlite` |
-| `HECATE_PROJECTS_COORDINATION_BACKEND` | `cairnline` | `cairnline` |
-| `HECATE_PROJECTS_CAIRNLINE_CONNECTOR` | `embedded` | `embedded` |
-| `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE` | `embedded` | `auto` |
-| `HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE` | `embedded` (armed) | `disabled` |
-| `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY` | `all-portable` | `project-roles,project-memory,project-collaboration` (partial) |
-| Model provider | stub OpenAI-compatible server (`mock-model`) for start flows | none |
+| Setting                                      | Full-mode run                                                | Observability run                                              |
+| -------------------------------------------- | ------------------------------------------------------------ | -------------------------------------------------------------- |
+| `HECATE_ADDRESS`                             | `127.0.0.1:8899`                                             | `127.0.0.1:8899`                                               |
+| `HECATE_BACKEND`                             | `sqlite`                                                     | `sqlite`                                                       |
+| `HECATE_PROJECTS_COORDINATION_BACKEND`       | `cairnline`                                                  | `cairnline`                                                    |
+| `HECATE_PROJECTS_CAIRNLINE_CONNECTOR`        | `embedded`                                                   | `embedded`                                                     |
+| `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE`      | `embedded`                                                   | `auto`                                                         |
+| `HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE` | `embedded` (armed)                                           | `disabled`                                                     |
+| `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY`  | `all-portable`                                               | `project-roles,project-memory,project-collaboration` (partial) |
+| Model provider                               | stub OpenAI-compatible server (`mock-model`) for start flows | none                                                           |
 
 Env-gate source of truth: `internal/config/config.go:576-585` and validation at
-`:669-691`. Armed embedded replacement mode requires the four gates in lockstep:
-`COORDINATION_BACKEND=cairnline` + `CONNECTOR=embedded` + `READ_SOURCE=embedded`
-+ `REPLACEMENT_MODE=embedded`, which implies all portable write-authority
+`:669-691`. Armed embedded replacement mode requires the four gates in lockstep
+(`COORDINATION_BACKEND=cairnline`, `CONNECTOR=embedded`, `READ_SOURCE=embedded`,
+`REPLACEMENT_MODE=embedded`), which implies all portable write-authority
 switchpoints (`config.go:293-312`).
 
 The observability run uses **partial** write authority on purpose: see
@@ -74,17 +74,17 @@ mode. "Mirrored OK" = the record is present and correct in the embedded
 Cairnline SQLite DB. "Read parity" = the record reads back correctly through the
 strict embedded read routes.
 
-| Family | Create | Update | Delete | Mirrored OK | Read parity | Notes |
-| --- | --- | --- | --- | --- | --- | --- |
-| projects | ✅ 201 | ✅ 200 (desc + rename) | ✅ 200 (victim) | ✅ | ✅ | `read_backend: cairnline` |
-| roots | ✅ 201 | — | — | ✅ | ✅ | Hecate still owns Git/workspace scan |
-| roles | ✅ 201 (×3) | ✅ 200 | ✅ 204 (temp) | ✅ | ✅ | built-in roles listable/immutable |
-| work-items | ✅ 201 | ✅ 200 (status transitions) | ✅ 204 (stale) | ✅ | ✅ | statuses backlog/ready/running/review/blocked exercised |
-| assignments | ✅ 201 | ✅ 200 (status) | ✅ 204 | ✅ (partial) | ✅ | execution-ref lossy — see Probe 1 |
-| artifacts | ✅ 201 (decision_note, evidence_link, review) | n/a (immutable) | n/a | ✅ | ✅ | update/delete absent by design |
-| handoffs | ✅ 201 | ✅ 200 (status→accepted) | — | ✅ | ✅ | |
-| memory | ✅ 201 | ✅ 200 | ✅ 204 | ✅ | ✅ | |
-| memory-candidates | ✅ 201 | promote ✅ / reject ✅ | — | ✅ | ✅ | promotion creates durable memory |
+| Family            | Create                                        | Update                      | Delete          | Mirrored OK  | Read parity | Notes                                                   |
+| ----------------- | --------------------------------------------- | --------------------------- | --------------- | ------------ | ----------- | ------------------------------------------------------- |
+| projects          | ✅ 201                                        | ✅ 200 (desc + rename)      | ✅ 200 (victim) | ✅           | ✅          | `read_backend: cairnline`                               |
+| roots             | ✅ 201                                        | —                           | —               | ✅           | ✅          | Hecate still owns Git/workspace scan                    |
+| roles             | ✅ 201 (×3)                                   | ✅ 200                      | ✅ 204 (temp)   | ✅           | ✅          | built-in roles listable/immutable                       |
+| work-items        | ✅ 201                                        | ✅ 200 (status transitions) | ✅ 204 (stale)  | ✅           | ✅          | statuses backlog/ready/running/review/blocked exercised |
+| assignments       | ✅ 201                                        | ✅ 200 (status)             | ✅ 204          | ✅ (partial) | ✅          | execution-ref lossy — see Probe 1                       |
+| artifacts         | ✅ 201 (decision_note, evidence_link, review) | n/a (immutable)             | n/a             | ✅           | ✅          | update/delete absent by design                          |
+| handoffs          | ✅ 201                                        | ✅ 200 (status→accepted)    | —               | ✅           | ✅          |                                                         |
+| memory            | ✅ 201                                        | ✅ 200                      | ✅ 204          | ✅           | ✅          |                                                         |
+| memory-candidates | ✅ 201                                        | promote ✅ / reject ✅      | —               | ✅           | ✅          | promotion creates durable memory                        |
 
 Assignment-start flows: `hecate_task` native start succeeded through the task
 runtime (produced `task_id`/`run_id`/`trace_id`, model `mock-model`).
@@ -198,7 +198,7 @@ subsequently-diverged Cairnline target would only reconcile on a full re-sync.
 ## Observability evidence
 
 **Why full all-portable authority cannot exercise `mirror_write_health`.** With
-a family's write authority enabled, the mutation is an *authoritative* Cairnline
+a family's write authority enabled, the mutation is an _authoritative_ Cairnline
 write: if it fails, the request fails (`500 gateway_error`) and never reaches the
 best-effort shadow-mirror hook that the health tracker instruments. Confirmed by
 making the embedded DB immutable (`chattr +i`) under full mode:
@@ -223,16 +223,20 @@ it:
 ```json
 // GET /hecate/v1/projects/backend-status  → data.mirror_write_health
 {
- "total_failure_count": 2,
- "drifting_families": ["work-items"],
- "families": [
-  {"family":"projects","failure_count":0,"drifting":false,"last_success_at":"…"},
-  {"family":"work-items","failure_count":2,
-   "last_error":"migrate sqlite: attempt to write a readonly database (8)",
-   "last_failed_operation":"project_work_item_create",
-   "last_failure_at":"2026-07-08T12:10:50Z","last_success_at":"2026-07-08T12:10:35Z",
-   "drifting":true}
- ]
+  "total_failure_count": 2,
+  "drifting_families": ["work-items"],
+  "families": [
+    { "family": "projects", "failure_count": 0, "drifting": false, "last_success_at": "…" },
+    {
+      "family": "work-items",
+      "failure_count": 2,
+      "last_error": "migrate sqlite: attempt to write a readonly database (8)",
+      "last_failed_operation": "project_work_item_create",
+      "last_failure_at": "2026-07-08T12:10:50Z",
+      "last_success_at": "2026-07-08T12:10:35Z",
+      "drifting": true
+    }
+  ]
 }
 ```
 
@@ -271,14 +275,14 @@ model on the project:
   "replacement_ready": true,
   "mirror_write_health": { "total_failure_count": 0 },
   "replacement_gates": [
-    {"id":"read-routes","ready":true,"status":"ready"},
-    {"id":"strict-embedded-read-smoke","ready":true,"status":"verified"},
-    {"id":"write-authority-switchpoints","ready":true,"status":"ready"},
-    {"id":"mirror-write-health","ready":true,"status":"healthy"},
-    {"id":"migration-and-rollback","ready":true,"status":"ready"},
-    {"id":"embedded-replacement-mode","ready":true,"status":"armed"}
+    { "id": "read-routes", "ready": true, "status": "ready" },
+    { "id": "strict-embedded-read-smoke", "ready": true, "status": "verified" },
+    { "id": "write-authority-switchpoints", "ready": true, "status": "ready" },
+    { "id": "mirror-write-health", "ready": true, "status": "healthy" },
+    { "id": "migration-and-rollback", "ready": true, "status": "ready" },
+    { "id": "embedded-replacement-mode", "ready": true, "status": "armed" }
   ],
-  "migration_rehearsal": { "status":"verified", "cutover_ready": true, "authoritative": true }
+  "migration_rehearsal": { "status": "verified", "cutover_ready": true, "authoritative": true }
 }
 ```
 
