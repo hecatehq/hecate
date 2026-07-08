@@ -18,33 +18,23 @@ import (
 )
 
 func (h *Handler) mirrorProjectIdentityToCairnline(ctx context.Context, operation string, project projects.Project) {
-	if err := h.writeProjectIdentityToCairnline(ctx, project); err != nil {
-		h.logCairnlineMirrorError(ctx, operation, project.ID, err)
-	}
+	h.recordCairnlineMirrorResult(ctx, cairnlineMirrorFamilyProjects, operation, project.ID, h.writeProjectIdentityToCairnline(ctx, project))
 }
 
 func (h *Handler) mirrorProjectDefaultsToCairnline(ctx context.Context, operation string, project projects.Project) {
-	if err := h.writeProjectDefaultsToCairnline(ctx, project); err != nil {
-		h.logCairnlineMirrorError(ctx, operation, project.ID, err)
-	}
+	h.recordCairnlineMirrorResult(ctx, cairnlineMirrorFamilyProjects, operation, project.ID, h.writeProjectDefaultsToCairnline(ctx, project))
 }
 
 func (h *Handler) mirrorProjectMetadataToCairnline(ctx context.Context, operation string, project projects.Project) {
-	if err := h.writeProjectMetadataToCairnline(ctx, project); err != nil {
-		h.logCairnlineMirrorError(ctx, operation, project.ID, err)
-	}
+	h.recordCairnlineMirrorResult(ctx, cairnlineMirrorFamilyProjects, operation, project.ID, h.writeProjectMetadataToCairnline(ctx, project))
 }
 
 func (h *Handler) mirrorProjectDeleteToCairnline(ctx context.Context, operation string, project projects.Project) {
-	if err := h.deleteProjectIdentityFromCairnline(ctx, project); err != nil {
-		h.logCairnlineMirrorError(ctx, operation, project.ID, err)
-	}
+	h.recordCairnlineMirrorResult(ctx, cairnlineMirrorFamilyProjects, operation, project.ID, h.deleteProjectIdentityFromCairnline(ctx, project))
 }
 
 func (h *Handler) mirrorProjectRootToCairnline(ctx context.Context, operation string, project projects.Project, root projects.Root) {
-	if err := h.writeProjectRootToCairnline(ctx, project, root); err != nil {
-		h.logCairnlineMirrorError(ctx, operation, project.ID, err)
-	}
+	h.recordCairnlineMirrorResult(ctx, cairnlineMirrorFamilyRoots, operation, project.ID, h.writeProjectRootToCairnline(ctx, project, root))
 }
 
 func (h *Handler) mirrorProjectRootsToCairnline(ctx context.Context, operation string, project projects.Project, roots []projects.Root) {
@@ -54,21 +44,15 @@ func (h *Handler) mirrorProjectRootsToCairnline(ctx context.Context, operation s
 }
 
 func (h *Handler) mirrorProjectRootListReplaceToCairnline(ctx context.Context, operation string, project projects.Project, roots []projects.Root) {
-	if err := h.replaceProjectRootsInCairnline(ctx, project, roots); err != nil {
-		h.logCairnlineMirrorError(ctx, operation, project.ID, err)
-	}
+	h.recordCairnlineMirrorResult(ctx, cairnlineMirrorFamilyRoots, operation, project.ID, h.replaceProjectRootsInCairnline(ctx, project, roots))
 }
 
 func (h *Handler) mirrorProjectRootDeleteToCairnline(ctx context.Context, operation, projectID, rootID string) {
-	if err := h.deleteProjectRootFromCairnline(ctx, projectID, rootID); err != nil {
-		h.logCairnlineMirrorError(ctx, operation, projectID, err)
-	}
+	h.recordCairnlineMirrorResult(ctx, cairnlineMirrorFamilyRoots, operation, projectID, h.deleteProjectRootFromCairnline(ctx, projectID, rootID))
 }
 
 func (h *Handler) mirrorProjectContextSourceToCairnline(ctx context.Context, operation string, project projects.Project, source projects.ContextSource) {
-	if err := h.writeProjectContextSourceToCairnline(ctx, project, source); err != nil {
-		h.logCairnlineMirrorError(ctx, operation, project.ID, err)
-	}
+	h.recordCairnlineMirrorResult(ctx, cairnlineMirrorFamilyContextSources, operation, project.ID, h.writeProjectContextSourceToCairnline(ctx, project, source))
 }
 
 func (h *Handler) mirrorProjectContextSourcesToCairnline(ctx context.Context, operation string, project projects.Project, sources []projects.ContextSource) {
@@ -78,27 +62,19 @@ func (h *Handler) mirrorProjectContextSourcesToCairnline(ctx context.Context, op
 }
 
 func (h *Handler) mirrorProjectContextSourceListReplaceToCairnline(ctx context.Context, operation string, project projects.Project, sources []projects.ContextSource) {
-	if err := h.replaceProjectContextSourcesInCairnline(ctx, project, sources); err != nil {
-		h.logCairnlineMirrorError(ctx, operation, project.ID, err)
-	}
+	h.recordCairnlineMirrorResult(ctx, cairnlineMirrorFamilyContextSources, operation, project.ID, h.replaceProjectContextSourcesInCairnline(ctx, project, sources))
 }
 
 func (h *Handler) mirrorProjectContextSourceDeleteToCairnline(ctx context.Context, operation, projectID, sourceID string) {
-	if err := h.deleteProjectContextSourceFromCairnline(ctx, projectID, sourceID); err != nil {
-		h.logCairnlineMirrorError(ctx, operation, projectID, err)
-	}
+	h.recordCairnlineMirrorResult(ctx, cairnlineMirrorFamilyContextSources, operation, projectID, h.deleteProjectContextSourceFromCairnline(ctx, projectID, sourceID))
 }
 
 func (h *Handler) mirrorProjectSkillsToCairnline(ctx context.Context, operation string, project projects.Project, skills []projectskills.Skill) {
-	if err := h.writeProjectSkillsToCairnline(ctx, project, skills); err != nil {
-		h.logCairnlineMirrorError(ctx, operation, project.ID, err)
-	}
+	h.recordCairnlineMirrorResult(ctx, cairnlineMirrorFamilySkills, operation, project.ID, h.writeProjectSkillsToCairnline(ctx, project, skills))
 }
 
 func (h *Handler) mirrorProjectRoleToCairnline(ctx context.Context, operation string, project projects.Project, role projectwork.AgentRoleProfile) {
-	if err := h.writeProjectRoleToCairnline(ctx, project, role); err != nil {
-		h.logCairnlineMirrorError(ctx, operation, project.ID, err)
-	}
+	h.recordCairnlineMirrorResult(ctx, cairnlineMirrorFamilyRoles, operation, project.ID, h.writeProjectRoleToCairnline(ctx, project, role))
 }
 
 func (h *Handler) mirrorProjectRoleByIDToCairnline(ctx context.Context, operation, projectID string, role projectwork.AgentRoleProfile) {
@@ -110,15 +86,11 @@ func (h *Handler) mirrorProjectRoleByIDToCairnline(ctx context.Context, operatio
 }
 
 func (h *Handler) mirrorProjectRoleDeleteToCairnline(ctx context.Context, operation string, role projectwork.AgentRoleProfile) {
-	if err := h.deleteProjectRoleFromCairnline(ctx, role); err != nil {
-		h.logCairnlineMirrorError(ctx, operation, role.ProjectID, err)
-	}
+	h.recordCairnlineMirrorResult(ctx, cairnlineMirrorFamilyRoles, operation, role.ProjectID, h.deleteProjectRoleFromCairnline(ctx, role))
 }
 
 func (h *Handler) mirrorProjectWorkItemToCairnline(ctx context.Context, operation string, project projects.Project, item projectwork.WorkItem) {
-	if err := h.writeProjectWorkItemToCairnline(ctx, project, item); err != nil {
-		h.logCairnlineMirrorError(ctx, operation, project.ID, err)
-	}
+	h.recordCairnlineMirrorResult(ctx, cairnlineMirrorFamilyWorkItems, operation, project.ID, h.writeProjectWorkItemToCairnline(ctx, project, item))
 }
 
 func (h *Handler) mirrorProjectWorkItemByIDToCairnline(ctx context.Context, operation, projectID string, item projectwork.WorkItem) {
@@ -130,63 +102,45 @@ func (h *Handler) mirrorProjectWorkItemByIDToCairnline(ctx context.Context, oper
 }
 
 func (h *Handler) mirrorProjectWorkItemDeleteToCairnline(ctx context.Context, operation, projectID, workItemID string) {
-	if err := h.deleteProjectWorkItemFromCairnline(ctx, projectID, workItemID); err != nil {
-		h.logCairnlineMirrorError(ctx, operation, projectID, err)
-	}
+	h.recordCairnlineMirrorResult(ctx, cairnlineMirrorFamilyWorkItems, operation, projectID, h.deleteProjectWorkItemFromCairnline(ctx, projectID, workItemID))
 }
 
 func (h *Handler) mirrorProjectAssignmentToCairnline(ctx context.Context, operation string, assignment projectwork.Assignment) {
-	if err := h.writeProjectAssignmentToCairnline(ctx, assignment); err != nil {
-		h.logCairnlineMirrorError(ctx, operation, assignment.ProjectID, err)
-	}
+	h.recordCairnlineMirrorResult(ctx, cairnlineMirrorFamilyAssignments, operation, assignment.ProjectID, h.writeProjectAssignmentToCairnline(ctx, assignment))
 }
 
 func (h *Handler) mirrorProjectAssignmentDeleteToCairnline(ctx context.Context, operation, projectID, assignmentID string) {
-	if err := h.deleteProjectAssignmentFromCairnline(ctx, projectID, assignmentID); err != nil {
-		h.logCairnlineMirrorError(ctx, operation, projectID, err)
-	}
+	h.recordCairnlineMirrorResult(ctx, cairnlineMirrorFamilyAssignments, operation, projectID, h.deleteProjectAssignmentFromCairnline(ctx, projectID, assignmentID))
 }
 
 func (h *Handler) mirrorProjectArtifactToCairnline(ctx context.Context, operation string, artifact projectwork.CollaborationArtifact) {
-	if err := h.writeProjectArtifactToCairnline(ctx, artifact); err != nil {
-		h.logCairnlineMirrorError(ctx, operation, artifact.ProjectID, err)
-	}
+	h.recordCairnlineMirrorResult(ctx, cairnlineMirrorFamilyArtifacts, operation, artifact.ProjectID, h.writeProjectArtifactToCairnline(ctx, artifact))
 }
 
 func (h *Handler) mirrorProjectHandoffToCairnline(ctx context.Context, operation string, handoff projectwork.Handoff) {
-	if err := h.writeProjectHandoffToCairnline(ctx, handoff); err != nil {
-		h.logCairnlineMirrorError(ctx, operation, handoff.ProjectID, err)
-	}
+	h.recordCairnlineMirrorResult(ctx, cairnlineMirrorFamilyHandoffs, operation, handoff.ProjectID, h.writeProjectHandoffToCairnline(ctx, handoff))
 }
 
 func (h *Handler) mirrorProjectHandoffDeleteToCairnline(ctx context.Context, operation, projectID, workItemID, handoffID string) {
-	if err := h.deleteProjectHandoffFromCairnline(ctx, projectID, workItemID, handoffID); err != nil {
-		h.logCairnlineMirrorError(ctx, operation, projectID, err)
-	}
+	h.recordCairnlineMirrorResult(ctx, cairnlineMirrorFamilyHandoffs, operation, projectID, h.deleteProjectHandoffFromCairnline(ctx, projectID, workItemID, handoffID))
 }
 
 func (h *Handler) mirrorProjectMemoryEntryToCairnline(ctx context.Context, operation string, entry memory.Entry) {
-	if err := h.writeProjectMemoryEntryToCairnline(ctx, entry); err != nil {
-		h.logCairnlineMirrorError(ctx, operation, entry.ProjectID, err)
-	}
+	h.recordCairnlineMirrorResult(ctx, cairnlineMirrorFamilyMemory, operation, entry.ProjectID, h.writeProjectMemoryEntryToCairnline(ctx, entry))
 }
 
 func (h *Handler) mirrorProjectMemoryEntryDeleteToCairnline(ctx context.Context, operation, projectID, memoryID string) {
-	if err := h.deleteProjectMemoryEntryFromCairnline(ctx, projectID, memoryID); err != nil {
-		h.logCairnlineMirrorError(ctx, operation, projectID, err)
-	}
+	h.recordCairnlineMirrorResult(ctx, cairnlineMirrorFamilyMemory, operation, projectID, h.deleteProjectMemoryEntryFromCairnline(ctx, projectID, memoryID))
 }
 
 func (h *Handler) mirrorProjectMemoryCandidateToCairnline(ctx context.Context, operation string, candidate memory.Candidate) {
-	if err := h.writeProjectMemoryCandidateToCairnline(ctx, candidate); err != nil {
-		h.logCairnlineMirrorError(ctx, operation, candidate.ProjectID, err)
-	}
+	h.recordCairnlineMirrorResult(ctx, cairnlineMirrorFamilyMemoryCandidates, operation, candidate.ProjectID, h.writeProjectMemoryCandidateToCairnline(ctx, candidate))
 }
 
 func (h *Handler) mirrorProjectAssistantProposalByIDToCairnline(ctx context.Context, operation, proposalID string) {
 	record, ok, err := h.loadProjectAssistantProposalForCairnlineMirror(ctx, proposalID)
 	if err != nil {
-		h.logCairnlineMirrorError(ctx, operation, "", err)
+		h.recordCairnlineMirrorFailure(ctx, cairnlineMirrorFamilyAssistantProposals, operation, "", err)
 		return
 	}
 	if !ok {
@@ -196,9 +150,7 @@ func (h *Handler) mirrorProjectAssistantProposalByIDToCairnline(ctx context.Cont
 }
 
 func (h *Handler) mirrorProjectAssistantProposalRecordToCairnline(ctx context.Context, operation string, record projectassistant.ProposalRecord) {
-	if err := h.writeProjectAssistantProposalRecordToCairnline(ctx, record); err != nil {
-		h.logCairnlineMirrorError(ctx, operation, record.ProjectID, err)
-	}
+	h.recordCairnlineMirrorResult(ctx, cairnlineMirrorFamilyAssistantProposals, operation, record.ProjectID, h.writeProjectAssistantProposalRecordToCairnline(ctx, record))
 }
 
 func (h *Handler) mirrorProjectAssistantApplyResultToCairnline(ctx context.Context, operation string, result projectassistant.ApplyResult) {
@@ -206,9 +158,7 @@ func (h *Handler) mirrorProjectAssistantApplyResultToCairnline(ctx context.Conte
 		return
 	}
 	for _, action := range result.Actions {
-		if err := h.writeProjectAssistantActionResultToCairnline(ctx, action); err != nil {
-			h.logCairnlineMirrorError(ctx, operation, projectAssistantActionResultProjectID(action), err)
-		}
+		h.recordCairnlineMirrorResult(ctx, cairnlineMirrorFamilyAssistantProposals, operation, projectAssistantActionResultProjectID(action), h.writeProjectAssistantActionResultToCairnline(ctx, action))
 	}
 }
 

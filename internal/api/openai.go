@@ -330,6 +330,26 @@ type ProjectCairnlineSyncResponseItem struct {
 	Cairnline          ProjectCairnlineSyncCounts          `json:"cairnline"`
 	Authoritative      bool                                `json:"authoritative"`
 	MigrationRehearsal ProjectCairnlineMigrationRehearsal  `json:"migration_rehearsal"`
+	// MirrorWriteHealth carries live shadow-mirror failure evidence next to
+	// the structural parity verdict; only the mirror-parity probe attaches
+	// it because sync/export rehearsals rebuild their target database.
+	MirrorWriteHealth *ProjectCairnlineMirrorWriteHealth `json:"mirror_write_health,omitempty"`
+}
+
+type ProjectCairnlineMirrorWriteHealth struct {
+	TotalFailureCount int64                                     `json:"total_failure_count"`
+	DriftingFamilies  []string                                  `json:"drifting_families,omitempty"`
+	Families          []ProjectCairnlineMirrorWriteFamilyHealth `json:"families,omitempty"`
+}
+
+type ProjectCairnlineMirrorWriteFamilyHealth struct {
+	Family              string `json:"family"`
+	FailureCount        int64  `json:"failure_count"`
+	LastError           string `json:"last_error,omitempty"`
+	LastFailedOperation string `json:"last_failed_operation,omitempty"`
+	LastFailureAt       string `json:"last_failure_at,omitempty"`
+	LastSuccessAt       string `json:"last_success_at,omitempty"`
+	Drifting            bool   `json:"drifting"`
 }
 
 type ProjectCairnlineMigrationRehearsal struct {
@@ -597,6 +617,7 @@ type ProjectCoordinationBackendStatusResponse struct {
 	EmbeddedParityReportURL              string                                       `json:"embedded_parity_report_url,omitempty"`
 	SyncReadinessURL                     string                                       `json:"sync_readiness_url,omitempty"`
 	MirrorParityURL                      string                                       `json:"mirror_parity_url,omitempty"`
+	MirrorWriteHealth                    ProjectCairnlineMirrorWriteHealth            `json:"mirror_write_health"`
 }
 
 type ProjectCoordinationBackendNextAction struct {

@@ -424,6 +424,13 @@ launch agents. Those remain explicit operator or orchestrator actions.
   tracked without parsing warning prose. These fields are diagnostic only:
   `replacement_ready=false` until read parity, strict embedded mirror probes,
   authoritative write switchpoints, and migration/rollback gates are ready.
+- Backend status and mirror-parity output include `mirror_write_health`:
+  process-local per-write-family shadow-mirror failure counters (failure count,
+  last error, last failure/success timestamps) plus a derived
+  `drifting_families` list of families whose most recent mirror write failed.
+  The `mirror-write-health` replacement gate keeps `replacement_ready=false`
+  while any family is drifting, so swallowed best-effort mirror errors cannot
+  silently coexist with a replacement-ready verdict.
 - `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-memory` enables Hecate's
   accepted-memory Cairnline write-authority switchpoint: accepted project
   memory entry create/update/delete commits to embedded Cairnline first and then

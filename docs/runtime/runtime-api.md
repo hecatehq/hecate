@@ -2605,7 +2605,23 @@ items, missing rollback steps, or non-passing embedded smoke as
 `write-authority-switchpoints` gate can be `blocked`, `partial`, or `ready`;
 it is driven by `portable_write_gaps` and ignores Hecate-owned orchestrator
 capabilities and the separate `migration-cutover` gap because those are reported
-by their own status fields/gates. The `migration-and-rollback` gate reports
+by their own status fields/gates.
+`mirror_write_health` surfaces live shadow-mirror write outcomes so mirror
+failures are operator-visible instead of log-only warnings. It reports
+`total_failure_count` (failures recorded since the runtime started),
+`drifting_families` (write families whose most recent mirror write failed), and
+per-family `families` entries carrying `family`, `failure_count`, `last_error`,
+`last_failed_operation`, `last_failure_at`, `last_success_at`, and `drifting`.
+Family names reuse the portable write-gap vocabulary (`projects`, `roots`,
+`context-sources`, `skills`, `roles`, `work-items`, `assignments`, `artifacts`,
+`handoffs`, `memory`, `memory-candidates`, `project-assistant-proposals`). The
+counters are process-local runtime observability, not persisted state: they
+reset on restart together with the mirror hooks they observe. The matching
+`mirror-write-health` replacement gate is `healthy` when no failures have been
+recorded, `recovered` (still ready) when every affected family has mirrored
+successfully since its last failure, and `drifting` (not ready) while any
+family has outstanding failures — so `replacement_ready` cannot report `true`
+while shadow-mirror failure evidence is outstanding. The `migration-and-rollback` gate reports
 `waiting_for_read_smoke` until strict embedded read-smoke evidence is verified.
 In pre-cutover rehearsal it then reports `cutover_switch_missing` until Hecate
 has an explicit authoritative Cairnline storage cutover and rollback switch. In
@@ -4779,7 +4795,12 @@ The response shape matches the sync response, except `object` is
 `project_cairnline_mirror_parity`, `database_exists` may be `false`, and
 `migration_rehearsal.status` is `verified` for an exact existing mirror,
 `drift_detected` for a mismatched existing mirror, or `not_run` when no mirror
-database exists.
+database exists. Mirror-parity output additionally attaches
+`mirror_write_health`, the same live shadow-mirror failure evidence reported by
+backend status (`total_failure_count`, `drifting_families`, and per-family
+failure/success detail), so a structurally matching database can still be
+flagged when recent mirror writes have failed. Sync and export rehearsals do
+not attach it because they rebuild their target database.
 
 ### `POST /hecate/v1/projects/cairnline/sync`
 
