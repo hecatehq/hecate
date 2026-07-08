@@ -2510,7 +2510,19 @@ skill, role, work-item, assignment, launch-packet, artifact, evidence, review,
 handoff, memory, and assistant proposal records. Strict embedded and sidecar
 assignment-context packets carry the project's enabled durable memory entries
 (the same selection Hecate's native launch composer uses) and render the
-structured portable `execution_ref` fields on the assignment item. Their
+structured portable `execution_ref` fields on the assignment item. Breaking:
+Cairnline rejects pre-structured bare-string execution refs everywhere (JSON,
+snapshots, MCP arguments, and stored SQLite rows), so an embedded Cairnline
+database written before the structured contract fails assignment reads with
+`decode sqlite execution_ref: pre-structured execution refs are unsupported,
+rebuild or re-seed this store from the host's authoritative data`. The remedy
+is the existing full-refresh path: run
+`POST /hecate/v1/projects/cairnline/sync`, which deletes the embedded SQLite
+files first and rebuilds the store through `cairnlinebridge.SeedSnapshots`
+from Hecate's authoritative stores, or delete and recreate the embedded
+database file by hand. The rebuild is lossless in the pre-cutover posture
+those legacy stores were written in, because Hecate remains authoritative for
+the full execution ref there. Their
 Cairnline service read source is controlled by
 `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE`: `auto` prefers the embedded mirror and
 falls back to the snapshot-seeded bridge, `snapshot` always uses the
@@ -4006,9 +4018,10 @@ With an empty confirmed body, Hecate:
 Supplying `project_id` and `assignment_id` skips list/next selection and uses
 the requested assignment. Optional fields are `claimed_by`, `execution_ref`,
 `completion_status`, `agent_kind`, `skill_ids`, and `execution_modes`. The
-request `execution_ref` is a plain string; Cairnline's structured execution-ref
-contract decodes a legacy string as `run_id`, so assignment records read back
-from the sidecar report `execution_ref` as an object
+request `execution_ref` stays a plain string for operator convenience; Hecate
+sends it to the sidecar as a structured `{"run_id": ...}` object because
+Cairnline's execution-ref contract rejects bare-string refs. Assignment records
+read back from the sidecar report `execution_ref` as an object
 (`kind`/`task_id`/`run_id`/`session_id`/`trace_id`/`pending_approvals`).
 
 Example request:

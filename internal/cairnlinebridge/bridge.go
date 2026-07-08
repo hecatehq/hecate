@@ -593,10 +593,9 @@ func AssignmentExecutionRefFromCairnline(ref cairnline.ExecutionRef, contextSnap
 
 // ExecutionRefFidelityGap describes the first Hecate execution-ref field that
 // the stored portable ref fails to carry, or "" when the portable row is
-// faithful. Kind is only enforced when the portable ref records one: rows
-// mirrored before the structured ref decode with an empty kind, and failing
-// replacement gates on otherwise-faithful historical rows would force a
-// re-mirror for a field Hecate can re-derive from the ids.
+// faithful. Parity is strict, including Kind: Cairnline rejects pre-structured
+// bare-string refs outright, so rows written before the structured contract
+// are rebuilt via the full-refresh sync path rather than tolerated here.
 func ExecutionRefFidelityGap(ref projectwork.AssignmentExecutionRef, portable cairnline.ExecutionRef) string {
 	want := ExecutionRef(ref)
 	if want.Empty() {
@@ -617,7 +616,7 @@ func ExecutionRefFidelityGap(ref projectwork.AssignmentExecutionRef, portable ca
 	if portable.PendingApprovals != want.PendingApprovals {
 		return fmt.Sprintf("portable execution_ref pending_approvals %d does not match hecate pending_approval_count %d", portable.PendingApprovals, want.PendingApprovals)
 	}
-	if portable.Kind != "" && portable.Kind != want.Kind {
+	if portable.Kind != want.Kind {
 		return fmt.Sprintf("portable execution_ref kind %q does not match hecate kind %q", portable.Kind, want.Kind)
 	}
 	return ""
