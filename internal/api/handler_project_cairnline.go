@@ -82,7 +82,7 @@ func (h *Handler) projectCairnlineMirrorParity(ctx context.Context) (ProjectCair
 		if !os.IsNotExist(err) {
 			return ProjectCairnlineSyncResponseItem{}, err
 		}
-		return projectCairnlineMissingMirrorParity(dbPath, snapshots), nil
+		return h.withProjectCairnlineMirrorWriteHealth(projectCairnlineMissingMirrorParity(dbPath, snapshots)), nil
 	}
 	service, store, err := cairnline.NewSQLiteService(ctx, dbPath)
 	if err != nil {
@@ -94,7 +94,20 @@ func (h *Handler) projectCairnlineMirrorParity(ctx context.Context) (ProjectCair
 	if err != nil {
 		return ProjectCairnlineSyncResponseItem{}, err
 	}
-	return item, nil
+	return h.withProjectCairnlineMirrorWriteHealth(item), nil
+}
+
+// withProjectCairnlineMirrorWriteHealth attaches live shadow-mirror failure
+// evidence to parity output so drift caused by failed mirror writes is
+// visible next to the structural parity verdict, even when the current
+// database contents happen to hash equal.
+func (h *Handler) withProjectCairnlineMirrorWriteHealth(item ProjectCairnlineSyncResponseItem) ProjectCairnlineSyncResponseItem {
+	if h == nil {
+		return item
+	}
+	health := h.cairnlineMirrorHealth.snapshot()
+	item.MirrorWriteHealth = &health
+	return item
 }
 
 func (h *Handler) HandleExportProjectToCairnline(w http.ResponseWriter, r *http.Request) {

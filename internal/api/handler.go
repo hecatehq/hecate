@@ -88,6 +88,12 @@ type Handler struct {
 	// servers.
 	projectCairnlineSidecarMu    sync.Mutex
 	projectCairnlineSidecarCache *mcpclient.SharedClientCache
+	// cairnlineMirrorHealth tracks shadow-mirror write outcomes per portable
+	// write family so backend-status and mirror-parity surface failures
+	// instead of leaving them as log-only warnings. In-memory on purpose:
+	// this is runtime observability for the current process, not persisted
+	// coordination state.
+	cairnlineMirrorHealth cairnlineMirrorHealth
 	// orchestratorMetrics is shared between the runner and the MCP
 	// client cache observer. Built once in NewHandler so a second
 	// NewOrchestratorMetrics() can't register duplicate instruments;

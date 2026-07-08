@@ -332,12 +332,14 @@ func (h *Handler) projectCoordinationBackendStatusWithContext(ctx context.Contex
 	readSource := "auto"
 	connector := "embedded"
 	replacementMode := "disabled"
+	var mirrorWriteHealth ProjectCairnlineMirrorWriteHealth
 	if h != nil {
 		configured = h.config.ProjectsCoordinationBackend()
 		storageBackend = h.config.Projects.Backend
 		readSource = h.config.ProjectsCairnlineReadSource()
 		connector = h.config.ProjectsCairnlineConnector()
 		replacementMode = h.config.ProjectsCairnlineReplacementMode()
+		mirrorWriteHealth = h.cairnlineMirrorHealth.snapshot()
 	}
 	connectorReady := projectCairnlineConnectorReady(connector)
 	response := ProjectCoordinationBackendStatusResponse{
@@ -376,6 +378,7 @@ func (h *Handler) projectCoordinationBackendStatusWithContext(ctx context.Contex
 		EmbeddedParityReportURL:              projectCoordinationBackendEmbeddedParityReportURL,
 		SyncReadinessURL:                     projectCoordinationBackendSyncReadinessURL,
 		MirrorParityURL:                      projectCoordinationBackendMirrorParityURL,
+		MirrorWriteHealth:                    mirrorWriteHealth,
 	}
 	switch configured {
 	case "cairnline":
@@ -397,13 +400,13 @@ func (h *Handler) projectCoordinationBackendStatusWithContext(ctx context.Contex
 		nativeShadowSkipArmed := replacementMode == "embedded" && len(response.PortableWriteGaps) == 0
 		response.WriteSwitchpoints = projectCairnlineWriteSwitchpointsSnapshot(effectiveWriteAuthority, nativeShadowSkipArmed, migrationCutoverArmed)
 		response.MigrationBlockers = projectCairnlineMigrationBlockersSnapshot(response.WriteAdapterGaps, migrationCutoverArmed)
-		response.ReplacementGates = projectCairnlineReplacementGates(readReady, response.PortableWriteGaps, replacementMode, strictEmbeddedReadGate, migrationRehearsal, migrationCutoverArmed)
+		response.ReplacementGates = projectCairnlineReplacementGates(readReady, response.PortableWriteGaps, replacementMode, strictEmbeddedReadGate, migrationRehearsal, migrationCutoverArmed, mirrorWriteHealth)
 		if !connectorReady {
 			if h.projectCairnlineSidecarReadRoutesEnabled() {
 				response.Status = "cairnline_sidecar_read_routes_ready"
 				response.Detail = "Cairnline sidecar is configured as the project read source, so " + projectCairnlineReadRouteList(projectCairnlineSidecarReadRouteNames) + " routes read through the persistent standalone Cairnline MCP client. Project writes and migration remain on Hecate-native stores or existing embedded dogfood paths."
 				response.ReadRoutes = append([]string(nil), projectCairnlineSidecarReadRouteNames...)
-				response.ReplacementGates = projectCairnlineReplacementGates(false, response.PortableWriteGaps, replacementMode, strictEmbeddedReadGate, migrationRehearsal, migrationCutoverArmed)
+				response.ReplacementGates = projectCairnlineReplacementGates(false, response.PortableWriteGaps, replacementMode, strictEmbeddedReadGate, migrationRehearsal, migrationCutoverArmed, mirrorWriteHealth)
 				response.Warnings = []string{
 					"Only " + projectCairnlineReadRouteList(projectCairnlineSidecarReadRouteNames) + " use the Cairnline sidecar MCP client in this mode.",
 					projectCairnlineSidecarWriteAuthorityWarning(writeAuthority),
@@ -413,7 +416,7 @@ func (h *Handler) projectCoordinationBackendStatusWithContext(ctx context.Contex
 			}
 			response.Status = "cairnline_connector_not_ready"
 			response.Detail = projectCairnlineConnectorDetail(connector) + " Hecate keeps Projects reads and writes on Hecate-native stores in this mode; use HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded for the current replacement-readiness dogfood path."
-			response.ReplacementGates = projectCairnlineReplacementGates(false, response.PortableWriteGaps, replacementMode, strictEmbeddedReadGate, migrationRehearsal, migrationCutoverArmed)
+			response.ReplacementGates = projectCairnlineReplacementGates(false, response.PortableWriteGaps, replacementMode, strictEmbeddedReadGate, migrationRehearsal, migrationCutoverArmed, mirrorWriteHealth)
 			response.Warnings = []string{
 				projectCairnlineConnectorWarning(connector),
 				projectCairnlineSidecarWriteAuthorityWarning(writeAuthority),
@@ -838,7 +841,7 @@ func projectCairnlineWriteAuthorityValuesForGap(gap string) []string {
 	}
 }
 
-func projectCairnlineReplacementGates(readRoutesReady bool, portableWriteGaps []string, replacementMode string, strictEmbeddedReadGate ProjectCoordinationBackendReplacementGate, migrationRehearsal *ProjectCairnlineMigrationRehearsal, migrationCutoverArmed bool) []ProjectCoordinationBackendReplacementGate {
+func projectCairnlineReplacementGates(readRoutesReady bool, portableWriteGaps []string, replacementMode string, strictEmbeddedReadGate ProjectCoordinationBackendReplacementGate, migrationRehearsal *ProjectCairnlineMigrationRehearsal, migrationCutoverArmed bool, mirrorWriteHealth ProjectCairnlineMirrorWriteHealth) []ProjectCoordinationBackendReplacementGate {
 	if strings.TrimSpace(strictEmbeddedReadGate.ID) == "" {
 		strictEmbeddedReadGate = projectCairnlineStrictEmbeddedReadSmokeDefaultGate()
 	}
@@ -853,9 +856,36 @@ func projectCairnlineReplacementGates(readRoutesReady bool, portableWriteGaps []
 		},
 		strictEmbeddedReadGate,
 		writeGate,
+		projectCairnlineMirrorWriteHealthGate(mirrorWriteHealth),
 		projectCairnlineMigrationRollbackReplacementGate(strictEmbeddedReadGate, migrationRehearsal, migrationCutoverArmed),
 		projectCairnlineReplacementModeGate(replacementMode),
 	}
+}
+
+// projectCairnlineMirrorWriteHealthGate turns live shadow-mirror failure
+// evidence into a replacement gate. A backend whose portable write families
+// have failed to mirror since their last success is demonstrably behind
+// Hecate's stores, so replacement readiness must not be reported while that
+// evidence is outstanding.
+func projectCairnlineMirrorWriteHealthGate(health ProjectCairnlineMirrorWriteHealth) ProjectCoordinationBackendReplacementGate {
+	gate := ProjectCoordinationBackendReplacementGate{
+		ID:        "mirror-write-health",
+		Ready:     true,
+		Status:    "healthy",
+		Detail:    "No Cairnline shadow-mirror write failures have been recorded in this runtime.",
+		ProbeURLs: []string{projectCoordinationBackendStatusURL, projectCoordinationBackendMirrorParityURL},
+	}
+	if len(health.DriftingFamilies) > 0 {
+		gate.Ready = false
+		gate.Status = "drifting"
+		gate.Detail = fmt.Sprintf("Cairnline shadow-mirror writes recorded %d failure(s) in this runtime, and these write families have not mirrored successfully since their last failure: %s. Resolve the mirror errors or resync before treating the mirror as replacement evidence.", health.TotalFailureCount, strings.Join(health.DriftingFamilies, ", "))
+		return gate
+	}
+	if health.TotalFailureCount > 0 {
+		gate.Status = "recovered"
+		gate.Detail = fmt.Sprintf("Cairnline shadow-mirror writes recorded %d failure(s) in this runtime, but every affected write family has mirrored successfully since its last failure.", health.TotalFailureCount)
+	}
+	return gate
 }
 
 func projectCairnlineStrictEmbeddedReadSmokeDefaultGate() ProjectCoordinationBackendReplacementGate {

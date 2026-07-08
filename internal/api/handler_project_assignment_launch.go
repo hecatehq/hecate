@@ -1441,9 +1441,7 @@ func (h *Handler) mirrorProjectAssignmentStartResultToCairnline(ctx context.Cont
 	if strings.TrimSpace(assignment.ID) == "" {
 		return
 	}
-	if err := h.writeProjectAssignmentToCairnline(ctx, assignment); err != nil {
-		h.logCairnlineMirrorError(ctx, "project_assignment_start_result", assignment.ProjectID, err)
-	}
+	h.recordCairnlineMirrorResult(ctx, cairnlineMirrorFamilyAssignments, "project_assignment_start_result", assignment.ProjectID, h.writeProjectAssignmentToCairnline(ctx, assignment))
 }
 
 func decodeOptionalProjectWorkAssignmentStartRequest(w http.ResponseWriter, r *http.Request) (startProjectWorkAssignmentRequest, bool) {
