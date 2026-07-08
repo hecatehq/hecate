@@ -1227,6 +1227,15 @@ func TestProjectCairnlineAssignmentExecutionRefParity(t *testing.T) {
 	if err := handler.projectCairnlineAssignmentExecutionRefParity(t.Context(), []cairnline.Assignment{dropped}); err == nil {
 		t.Fatal("execution-ref parity (missing context snapshot) = nil, want context snapshot loss reported")
 	}
+
+	// Kind parity is strict now that Cairnline rejects pre-structured refs:
+	// a row that matches on every id but lost its kind must fail the gate and
+	// be rebuilt through the sync full-refresh path.
+	kindless := faithful
+	kindless.ExecutionRef.Kind = ""
+	if err := handler.projectCairnlineAssignmentExecutionRefParity(t.Context(), []cairnline.Assignment{kindless}); err == nil {
+		t.Fatal("execution-ref parity (kindless row) = nil, want strict kind mismatch reported")
+	}
 }
 
 func TestProjectCairnlineAssignmentApprovalStatusParity(t *testing.T) {

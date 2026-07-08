@@ -2431,15 +2431,21 @@ func TestCairnlinebridge_ExecutionRefFidelityGap(t *testing.T) {
 	if gap := ExecutionRefFidelityGap(ref, cairnline.ExecutionRef{RunID: "run_gap"}); gap == "" {
 		t.Fatal("ExecutionRefFidelityGap(collapsed legacy ref) = no gap, want task_id loss reported")
 	}
-	// Legacy rows without a kind stay acceptable when every id field matches.
-	legacy := cairnline.ExecutionRef{TaskID: "task_gap", RunID: "run_gap", TraceID: "trace_gap", PendingApprovals: 1}
-	if gap := ExecutionRefFidelityGap(ref, legacy); gap != "" {
-		t.Fatalf("ExecutionRefFidelityGap(kindless legacy row) = %q, want no gap", gap)
+	// Kind parity is strict: pre-structured rows decode with no kind and must
+	// fail the gate so the operator rebuilds the store instead of trusting it.
+	kindless := cairnline.ExecutionRef{TaskID: "task_gap", RunID: "run_gap", TraceID: "trace_gap", PendingApprovals: 1}
+	if gap := ExecutionRefFidelityGap(ref, kindless); gap == "" {
+		t.Fatal("ExecutionRefFidelityGap(kindless row) = no gap, want kind mismatch reported")
 	}
-	wrongKind := legacy
+	wrongKind := kindless
 	wrongKind.Kind = "external_adapter"
 	if gap := ExecutionRefFidelityGap(ref, wrongKind); gap == "" {
 		t.Fatal("ExecutionRefFidelityGap(wrong kind) = no gap, want kind mismatch reported")
+	}
+	faithful := kindless
+	faithful.Kind = projectwork.AssignmentExecutionKindTaskRun
+	if gap := ExecutionRefFidelityGap(ref, faithful); gap != "" {
+		t.Fatalf("ExecutionRefFidelityGap(faithful row) = %q, want no gap", gap)
 	}
 }
 

@@ -2454,9 +2454,10 @@ type ProjectCairnlineSidecarAssignmentItem struct {
 }
 
 // ProjectCairnlineSidecarExecutionRef mirrors Cairnline's structured
-// execution ref on the sidecar wire. Pre-structured sidecars emit a bare
-// string; UnmarshalJSON keeps those decodable by reading the string as the
-// run id, matching Cairnline's own legacy tolerance.
+// execution ref on the sidecar wire. Plain JSON semantics only: Cairnline
+// rejects pre-structured bare-string refs as a clean alpha break, so a string
+// here fails decode by design and the store is rebuilt from Hecate's
+// authoritative data instead of silently reinterpreted.
 type ProjectCairnlineSidecarExecutionRef struct {
 	Kind             string `json:"kind,omitempty"`
 	TaskID           string `json:"task_id,omitempty"`
@@ -2464,25 +2465,6 @@ type ProjectCairnlineSidecarExecutionRef struct {
 	SessionID        string `json:"session_id,omitempty"`
 	TraceID          string `json:"trace_id,omitempty"`
 	PendingApprovals int    `json:"pending_approvals,omitempty"`
-}
-
-func (ref *ProjectCairnlineSidecarExecutionRef) UnmarshalJSON(data []byte) error {
-	trimmed := bytes.TrimSpace(data)
-	if len(trimmed) > 0 && trimmed[0] == '"' {
-		var legacy string
-		if err := json.Unmarshal(trimmed, &legacy); err != nil {
-			return err
-		}
-		*ref = ProjectCairnlineSidecarExecutionRef{RunID: strings.TrimSpace(legacy)}
-		return nil
-	}
-	type wire ProjectCairnlineSidecarExecutionRef
-	var decoded wire
-	if err := json.Unmarshal(trimmed, &decoded); err != nil {
-		return err
-	}
-	*ref = ProjectCairnlineSidecarExecutionRef(decoded)
-	return nil
 }
 
 type ProjectCairnlineSidecarDesiredAgentItem struct {

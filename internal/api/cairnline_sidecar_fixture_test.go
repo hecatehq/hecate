@@ -437,10 +437,10 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 			}, nil
 		}
 		var input struct {
-			ProjectID    string `json:"project_id"`
-			AssignmentID string `json:"assignment_id"`
-			Status       string `json:"status"`
-			ExecutionRef string `json:"execution_ref"`
+			ProjectID    string                              `json:"project_id"`
+			AssignmentID string                              `json:"assignment_id"`
+			Status       string                              `json:"status"`
+			ExecutionRef ProjectCairnlineSidecarExecutionRef `json:"execution_ref"`
 		}
 		if err := json.Unmarshal(params.Arguments, &input); err != nil {
 			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid assignments.update_status arguments")
@@ -449,7 +449,7 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "missing update_status arguments")
 		}
 		state.assignmentStatus = input.Status
-		state.executionRef = input.ExecutionRef
+		state.executionRef = input.ExecutionRef.RunID
 		return mcp.CallToolResult{Content: mcp.TextContent("Updated assignment " + input.AssignmentID + ": " + input.Status)}, nil
 	case "assignments.context":
 		if mode == "context-tool-error" {
@@ -623,10 +623,10 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 			}, nil
 		}
 		var input struct {
-			ProjectID    string `json:"project_id"`
-			AssignmentID string `json:"assignment_id"`
-			Status       string `json:"status"`
-			ExecutionRef string `json:"execution_ref"`
+			ProjectID    string                              `json:"project_id"`
+			AssignmentID string                              `json:"assignment_id"`
+			Status       string                              `json:"status"`
+			ExecutionRef ProjectCairnlineSidecarExecutionRef `json:"execution_ref"`
 		}
 		if err := json.Unmarshal(params.Arguments, &input); err != nil {
 			return mcp.CallToolResult{}, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid assignments.complete arguments")
@@ -638,7 +638,7 @@ func cairnlineSidecarFixtureCallTool(mode string, state *cairnlineSidecarFixture
 			input.Status = "completed"
 		}
 		state.assignmentStatus = input.Status
-		state.executionRef = input.ExecutionRef
+		state.executionRef = input.ExecutionRef.RunID
 		return mcp.CallToolResult{Content: mcp.TextContent("Updated assignment " + input.AssignmentID + ": " + input.Status)}, nil
 	case "projects.get":
 		if cairnlineSidecarFixtureModeHas(mode, "get-tool-error") {
@@ -2417,9 +2417,9 @@ func mustRawJSON(value any) json.RawMessage {
 	return raw
 }
 
-// cairnlineSidecarFixtureExecutionRef models the sidecar's legacy tolerance:
-// a bare string execution ref (what the lifecycle smoke sends over MCP)
-// decodes as the run id in the structured portable ref.
+// cairnlineSidecarFixtureExecutionRef mirrors how the fixture sidecar stores
+// the lifecycle smoke's structured execution ref: the smoke sends a run-id-only
+// object, so the stored row carries exactly that field.
 func cairnlineSidecarFixtureExecutionRef(value string) ProjectCairnlineSidecarExecutionRef {
 	value = strings.TrimSpace(value)
 	if value == "" {

@@ -1265,11 +1265,13 @@ func (h *Handler) projectCairnlineSidecarLifecycleSmoke(ctx context.Context, req
 		return response
 	}
 
-	runningStep := h.callProjectCairnlineSidecarLifecycleTool(smokeCtx, cfg, cache, "mark_running", "assignments.update_status", false, map[string]string{
+	// Cairnline's structured execution-ref contract rejects bare-string refs,
+	// so the smoke's operator-supplied ref rides as a run id object.
+	runningStep := h.callProjectCairnlineSidecarLifecycleTool(smokeCtx, cfg, cache, "mark_running", "assignments.update_status", false, map[string]any{
 		"project_id":    projectID,
 		"assignment_id": assignmentID,
 		"status":        "running",
-		"execution_ref": executionRef,
+		"execution_ref": map[string]string{"run_id": executionRef},
 	})
 	if !appendStep(runningStep) {
 		return response
@@ -1294,11 +1296,11 @@ func (h *Handler) projectCairnlineSidecarLifecycleSmoke(ctx context.Context, req
 		return response
 	}
 
-	completeStep := h.callProjectCairnlineSidecarLifecycleTool(smokeCtx, cfg, cache, "complete", "assignments.complete", false, map[string]string{
+	completeStep := h.callProjectCairnlineSidecarLifecycleTool(smokeCtx, cfg, cache, "complete", "assignments.complete", false, map[string]any{
 		"project_id":    projectID,
 		"assignment_id": assignmentID,
 		"status":        completionStatus,
-		"execution_ref": executionRef,
+		"execution_ref": map[string]string{"run_id": executionRef},
 	})
 	if !appendStep(completeStep) {
 		return response
