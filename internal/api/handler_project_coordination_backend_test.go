@@ -388,8 +388,8 @@ func TestProjectCoordinationBackendStatus_CairnlineConfiguredReadRoutesReady(t *
 	if point := findWriteSwitchpoint(status.WriteSwitchpoints, "memory-candidates"); point == nil || !strings.Contains(point.Detail, "create/promote/reject still commits") || strings.Contains(point.Detail, "delete") {
 		t.Fatalf("memory-candidates switchpoint = %+v, want live Hecate API surface limited to create/promote/reject", point)
 	}
-	if point := findWriteSwitchpoint(status.WriteSwitchpoints, "migration-cutover"); point == nil || point.CurrentAuthority != "hecate" || point.CairnlineState != "snapshot_import_rehearsal_available" || point.LiveMirror || !point.BlocksAuthority || point.Gap != "migration-cutover" || !containsString(point.Seams, "sync-rehearsal") {
-		t.Fatalf("migration switchpoint = %+v, want snapshot-import rehearsal blocker", point)
+	if point := findWriteSwitchpoint(status.WriteSwitchpoints, "migration-cutover"); point == nil || point.CurrentAuthority != "hecate" || point.CairnlineState != "authoritative_migration_available" || point.LiveMirror || !point.BlocksAuthority || point.Gap != "migration-cutover" || !containsString(point.Seams, "sync-rehearsal") {
+		t.Fatalf("migration switchpoint = %+v, want authoritative migration available blocker", point)
 	}
 	if status.SyncReadinessURL != projectCoordinationBackendSyncReadinessURL {
 		t.Fatalf("sync readiness URL = %q, want %q", status.SyncReadinessURL, projectCoordinationBackendSyncReadinessURL)
@@ -1238,13 +1238,13 @@ func TestProjectCoordinationBackendStatus_WriteAuthorityGateUsesPortableGaps(t *
 
 func TestProjectCoordinationBackendStatus_MigrationRollbackGateRequiresRehearsalEvidence(t *testing.T) {
 	strictGate := ProjectCoordinationBackendReplacementGate{ID: "strict-embedded-read-smoke", Ready: true, Status: "verified"}
-	gate := projectCairnlineMigrationRollbackReplacementGate(strictGate, nil, false)
+	gate := projectCairnlineMigrationRollbackReplacementGate(strictGate, nil, false, nil)
 	if gate.Ready || gate.Status != "rehearsal_incomplete" || !strings.Contains(gate.Detail, "does not include migration or replacement smoke") {
 		t.Fatalf("migration gate = %+v, want missing rehearsal evidence blocker", gate)
 	}
 
 	rehearsal := projectCairnlineMigrationRehearsal("mirror_parity", true, true, nil)
-	gate = projectCairnlineMigrationRollbackReplacementGate(strictGate, &rehearsal, true)
+	gate = projectCairnlineMigrationRollbackReplacementGate(strictGate, &rehearsal, true, nil)
 	if gate.Ready || gate.Status != "rehearsal_incomplete" || !strings.Contains(gate.Detail, "strict-embedded-read-smoke") {
 		t.Fatalf("migration gate = %+v, want incomplete smoke evidence to block even when replacement mode is armed", gate)
 	}
@@ -1475,8 +1475,8 @@ func TestProjectCoordinationBackendStatusRoute(t *testing.T) {
 		t.Fatalf("response next action config block = %q, want write-authority env assignment", response.Data.NextReplacementAction.ConfigBlock)
 	}
 	migrationSwitchpoint := findWriteSwitchpoint(response.Data.WriteSwitchpoints, "migration-cutover")
-	if migrationSwitchpoint == nil || migrationSwitchpoint.CairnlineState != "snapshot_import_rehearsal_available" || !containsString(migrationSwitchpoint.Seams, "sync-rehearsal") {
-		t.Fatalf("response migration switchpoint = %+v, want snapshot-import rehearsal blocker", migrationSwitchpoint)
+	if migrationSwitchpoint == nil || migrationSwitchpoint.CairnlineState != "authoritative_migration_available" || !containsString(migrationSwitchpoint.Seams, "sync-rehearsal") {
+		t.Fatalf("response migration switchpoint = %+v, want authoritative migration available blocker", migrationSwitchpoint)
 	}
 	if findReplacementGate(response.Data.ReplacementGates, "write-authority-switchpoints") == nil || findWriteSwitchpoint(response.Data.WriteSwitchpoints, "project-assistant-proposal-ledger") == nil || findWriteSwitchpoint(response.Data.WriteSwitchpoints, "project-assistant-apply-side-effects") == nil {
 		t.Fatalf("response gates/switchpoints = %+v / %+v, want structured replacement blockers", response.Data.ReplacementGates, response.Data.WriteSwitchpoints)
