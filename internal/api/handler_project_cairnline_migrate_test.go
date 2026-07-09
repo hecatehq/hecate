@@ -1,9 +1,12 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/agentprofiles"
@@ -204,11 +207,12 @@ func TestHandler_MigrateProjectsToCairnline_IdempotentAndBacksUpPriorLiveStore(t
 	if !second.Data.Verified || !second.Data.ParityMatch {
 		t.Fatalf("second migrate = %+v, want still verified parity match", second.Data)
 	}
-	// The second run had a prior live database, so it must back it up.
+	// The second run had a prior live database, so it must back it up to a
+	// timestamped generation recorded in the report.
 	dbPath := handler.cairnlineEmbeddedDatabasePath()
-	backupPath := cairnlineMigrationBackupPath(dbPath)
-	if second.Data.RollbackBackupPath != backupPath {
-		t.Fatalf("second rollback backup = %q, want %q", second.Data.RollbackBackupPath, backupPath)
+	backupPath := second.Data.RollbackBackupPath
+	if backupPath == "" || !strings.Contains(backupPath, ".pre-migration-") || !strings.HasPrefix(backupPath, dbPath+".pre-migration-") {
+		t.Fatalf("second rollback backup = %q, want timestamped pre-migration backup for %q", backupPath, dbPath)
 	}
 	if _, err := os.Stat(backupPath); err != nil {
 		t.Fatalf("stat backup after idempotent rerun: %v", err)
@@ -277,10 +281,13 @@ func TestHandler_RollbackProjectsCairnlineMigration_RestoresBackupAndClearsRecor
 
 	// Two migrations so a pre-migration backup exists to roll back to.
 	mustRequestJSON[ProjectCairnlineMigrationResponse](client, http.MethodPost, "/hecate/v1/projects/cairnline/migrate", "")
-	mustRequestJSON[ProjectCairnlineMigrationResponse](client, http.MethodPost, "/hecate/v1/projects/cairnline/migrate", "")
+	second := mustRequestJSON[ProjectCairnlineMigrationResponse](client, http.MethodPost, "/hecate/v1/projects/cairnline/migrate", "")
 
 	dbPath := handler.cairnlineEmbeddedDatabasePath()
-	backupPath := cairnlineMigrationBackupPath(dbPath)
+	backupPath := second.Data.RollbackBackupPath
+	if backupPath == "" {
+		t.Fatalf("second migrate = %+v, want recorded rollback backup path", second.Data)
+	}
 	if _, err := os.Stat(backupPath); err != nil {
 		t.Fatalf("expected backup before rollback: %v", err)
 	}
@@ -346,4 +353,155 @@ func TestHandler_MigrateProjectsToCairnline_BackendStatusReportsMigratedVerified
 	if point := findWriteSwitchpoint(status.WriteSwitchpoints, "migration-cutover"); point == nil || point.CairnlineState != "migrated_verified" || !point.LiveMirror {
 		t.Fatalf("migration switchpoint = %+v, want migrated_verified live-mirror state", point)
 	}
+}
+
+// buildCairnlineStoreWithProject writes a real Cairnline SQLite store at dbPath
+// containing a single named project so swap assertions are content-meaningful.
+func buildCairnlineStoreWithProject(t *testing.T, dbPath, projectID, projectName string) {
+	t.Helper()
+	service, store, err := cairnline.NewSQLiteService(t.Context(), dbPath)
+	if err != nil {
+		t.Fatalf("NewSQLiteService(%q): %v", dbPath, err)
+	}
+	if _, err := service.CreateProject(t.Context(), cairnline.Project{ID: projectID, Name: projectName}); err != nil {
+		_ = store.Close()
+		t.Fatalf("CreateProject: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close store: %v", err)
+	}
+}
+
+// cairnlineStoreHasProject opens a Cairnline store read-only-ish and reports
+// whether the given project id is present, so swap tests can prove which bytes
+// survived a crash.
+func cairnlineStoreHasProject(t *testing.T, dbPath, projectID string) bool {
+	t.Helper()
+	service, store, err := cairnline.NewSQLiteService(t.Context(), dbPath)
+	if err != nil {
+		t.Fatalf("open store %q: %v", dbPath, err)
+	}
+	defer func() { _ = store.Close() }()
+	if _, err := service.GetProject(t.Context(), projectID); err != nil {
+		return false
+	}
+	return true
+}
+
+// TestCairnlineSwapMigrationStore_CrashBeforeRenameKeepsOriginal proves the
+// crash-safe swap: a crash injected AFTER the backup copy but BEFORE the atomic
+// rename must leave the live database intact with its original content, and the
+// backup must hold that same original. A successful swap then replaces the live
+// content while the backup preserves the original.
+func TestCairnlineSwapMigrationStore_CrashBeforeRenameKeepsOriginal(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := dir + "/projects.db"
+	stagingPath := cairnlineMigrationStagingPath(dbPath)
+	migratedAt := timeParseUTC(t, "2026-07-09T13:18:18.123456789Z")
+	backupPath := cairnlineMigrationBackupPath(dbPath, migratedAt)
+
+	buildCairnlineStoreWithProject(t, dbPath, "proj_original", "Original")
+	buildCairnlineStoreWithProject(t, stagingPath, "proj_staging", "Staging")
+
+	injected := errors.New("simulated crash before rename")
+	if err := swapCairnlineMigrationStore(dbPath, stagingPath, backupPath, func() error { return injected }); !errors.Is(err, injected) {
+		t.Fatalf("swap with crash hook err = %v, want injected error", err)
+	}
+	// dbPath must still exist and still hold the ORIGINAL content: the swap must
+	// never leave the live path absent or empty.
+	if _, err := os.Stat(dbPath); err != nil {
+		t.Fatalf("live db missing after injected crash: %v", err)
+	}
+	if !cairnlineStoreHasProject(t, dbPath, "proj_original") {
+		t.Fatal("live db lost original content after injected crash")
+	}
+	if cairnlineStoreHasProject(t, dbPath, "proj_staging") {
+		t.Fatal("live db unexpectedly holds staging content after injected crash")
+	}
+	if !cairnlineStoreHasProject(t, backupPath, "proj_original") {
+		t.Fatal("backup missing original content after injected crash")
+	}
+
+	// A clean swap (no crash hook) now completes: live holds staging content,
+	// backup still holds the original.
+	if err := swapCairnlineMigrationStore(dbPath, stagingPath, backupPath, nil); err != nil {
+		t.Fatalf("clean swap: %v", err)
+	}
+	if !cairnlineStoreHasProject(t, dbPath, "proj_staging") {
+		t.Fatal("live db missing staging content after clean swap")
+	}
+	if !cairnlineStoreHasProject(t, backupPath, "proj_original") {
+		t.Fatal("backup lost original content after clean swap")
+	}
+	if _, err := os.Stat(stagingPath); !os.IsNotExist(err) {
+		t.Fatalf("staging stat err = %v, want removed after clean swap", err)
+	}
+}
+
+// TestHandler_MigrateProjectsToCairnline_TimestampedBackupsAndRollbackLatest
+// proves repeated migrations produce distinct timestamped backup generations and
+// that rollback restores the generation recorded in the current migration.json.
+func TestHandler_MigrateProjectsToCairnline_TimestampedBackupsAndRollbackLatest(t *testing.T) {
+	handler, client := newCairnlineMigrationHandler(t, config.Config{Server: config.ServerConfig{DataDir: t.TempDir()}})
+	seed := seedCairnlineMigrationProject(t, handler, client)
+
+	// First migration: no prior live DB, so no backup generation is created.
+	first := mustRequestJSON[ProjectCairnlineMigrationResponse](client, http.MethodPost, "/hecate/v1/projects/cairnline/migrate", "")
+	if !first.Data.Verified || first.Data.RollbackBackupPath != "" {
+		t.Fatalf("first migrate = %+v, want verified with no backup", first.Data)
+	}
+	// Second migration: backs up the first live DB to a timestamped generation.
+	second := mustRequestJSON[ProjectCairnlineMigrationResponse](client, http.MethodPost, "/hecate/v1/projects/cairnline/migrate", "")
+	if second.Data.RollbackBackupPath == "" {
+		t.Fatalf("second migrate = %+v, want a recorded backup generation", second.Data)
+	}
+	// Third migration: a distinct generation, leaving the second's intact.
+	third := mustRequestJSON[ProjectCairnlineMigrationResponse](client, http.MethodPost, "/hecate/v1/projects/cairnline/migrate", "")
+	if third.Data.RollbackBackupPath == "" {
+		t.Fatalf("third migrate = %+v, want a recorded backup generation", third.Data)
+	}
+	if second.Data.RollbackBackupPath == third.Data.RollbackBackupPath {
+		t.Fatalf("backup generations not distinct: %q", third.Data.RollbackBackupPath)
+	}
+	for _, p := range []string{second.Data.RollbackBackupPath, third.Data.RollbackBackupPath} {
+		if !strings.Contains(p, ".pre-migration-") {
+			t.Fatalf("backup path %q, want timestamped .pre-migration- generation", p)
+		}
+		if _, err := os.Stat(p); err != nil {
+			t.Fatalf("stat backup generation %q: %v", p, err)
+		}
+	}
+
+	dbPath := handler.cairnlineEmbeddedDatabasePath()
+	rec, ok, err := readCairnlineMigrationRecord(dbPath)
+	if err != nil || !ok || rec == nil {
+		t.Fatalf("migration record ok=%v err=%v, want durable record", ok, err)
+	}
+	if rec.RollbackBackupPath != third.Data.RollbackBackupPath {
+		t.Fatalf("record backup = %q, want latest generation %q", rec.RollbackBackupPath, third.Data.RollbackBackupPath)
+	}
+
+	// Rollback restores the latest recorded generation and leaves it on disk.
+	rollback := mustRequestJSON[ProjectCairnlineMigrationRollbackResponse](client, http.MethodPost, "/hecate/v1/projects/cairnline/migrate/rollback", "")
+	if !rollback.Data.Restored || rollback.Data.RestoredFrom != third.Data.RollbackBackupPath {
+		t.Fatalf("rollback = %+v, want restored from latest generation %q", rollback.Data, third.Data.RollbackBackupPath)
+	}
+	// The older generation is intentionally left on disk for manual recovery.
+	if _, err := os.Stat(second.Data.RollbackBackupPath); err != nil {
+		t.Fatalf("older backup generation removed: %v", err)
+	}
+	// The restored live database still resolves the seeded project content.
+	service := openMigratedCairnlineService(t, dbPath)
+	if _, err := service.GetProject(t.Context(), seed.projectID); err != nil {
+		t.Fatalf("GetProject from restored DB: %v", err)
+	}
+}
+
+func timeParseUTC(t *testing.T, value string) time.Time {
+	t.Helper()
+	parsed, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		t.Fatalf("parse time %q: %v", value, err)
+	}
+	return parsed.UTC()
 }

@@ -3,11 +3,14 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/cairnlinebridge"
@@ -37,40 +40,155 @@ func cairnlineMigrationStagingPath(dbPath string) string {
 	return dbPath + ".migrating"
 }
 
-func cairnlineMigrationBackupPath(dbPath string) string {
-	return dbPath + ".pre-migration.bak"
+// cairnlineMigrationBackupPath builds a timestamped, colon-free backup filename
+// so repeated migrations keep distinct backup generations instead of clobbering
+// the true pre-migration original. Colons are avoided so the name is safe on
+// Windows and macOS filesystems. migratedAt is the same timestamp recorded in
+// migration.json, so the backup name and the durable record always agree.
+func cairnlineMigrationBackupPath(dbPath string, migratedAt time.Time) string {
+	ts := migratedAt.UTC().Format("20060102T150405.000000000Z")
+	return dbPath + ".pre-migration-" + ts + ".bak"
 }
 
 func cairnlineMigrationRecordPath(dbPath string) string {
 	return filepath.Join(filepath.Dir(dbPath), "migration.json")
 }
 
-// renameCairnlineSQLiteFiles atomically moves an SQLite database triplet
-// (main + optional -wal/-shm sidecars) from src to dst within the same
-// directory. The main file rename is required when src exists so the swap
-// cannot silently drop the database; the -wal/-shm sidecars may legitimately
-// be absent after a clean close, so their missing rename is not an error.
-func renameCairnlineSQLiteFiles(src, dst string) error {
-	// Clear any stale destination triplet first so rename cannot collide with
-	// leftover files from a previous swap.
-	if err := removeCairnlineSQLiteFiles(dst); err != nil {
+// copyFileSync copies src to dst and fsyncs the written file so the copy is
+// durable before a caller relies on it (e.g. as a pre-migration backup a crash
+// must not lose).
+func copyFileSync(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
 		return err
 	}
-	if _, err := os.Stat(src); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
 		return err
 	}
-	if err := os.Rename(src, dst); err != nil {
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return err
+	}
+	if err := out.Sync(); err != nil {
+		_ = out.Close()
+		return err
+	}
+	return out.Close()
+}
+
+// copyCairnlineSQLiteFiles copies an SQLite database (main file plus any present
+// -wal/-shm sidecars) from src to dst, fsyncing each written file. The main file
+// must exist; sidecars are legitimately absent after a clean close, so a missing
+// sidecar is not an error but any stale destination sidecar is cleared so the
+// destination triplet matches the source.
+func copyCairnlineSQLiteFiles(src, dst string) error {
+	if err := copyFileSync(src, dst); err != nil {
 		return err
 	}
 	for _, suffix := range []string{"-wal", "-shm"} {
-		if err := os.Rename(src+suffix, dst+suffix); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := copyFileSync(src+suffix, dst+suffix); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				// Source has no such sidecar; drop any stale destination one so the
+				// backup/restore triplet is exactly what the source holds.
+				if rmErr := os.Remove(dst + suffix); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
+					return rmErr
+				}
+				continue
+			}
 			return err
 		}
 	}
 	return nil
+}
+
+// fsyncDir flushes a directory's metadata so a freshly created or renamed entry
+// survives a crash. On Linux a rename/create is not durable until the containing
+// directory is fsynced; on platforms where this is a no-op the call is harmless.
+func fsyncDir(dir string) error {
+	f, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+// swapCairnlineMigrationStore replaces the live embedded database at dbPath with
+// the freshly rebuilt staging database at stagingPath without ever leaving
+// dbPath absent. The previous swap did two renames (live->backup, then
+// staging->dbPath); a crash between them removed dbPath entirely, so the
+// embedded reader silently recreated a fresh empty store and the real data
+// survived only in the .bak. This copy-then-single-rename sequence closes that
+// window: dbPath always resolves to either the original bytes or the migrated
+// bytes, never nothing.
+//
+// backupPath is "" when there is no live database to back up. beforeRename is an
+// optional crash-injection hook (nil in production) that a test uses to simulate
+// a crash AFTER the backup copy but BEFORE the atomic rename.
+func swapCairnlineMigrationStore(dbPath, stagingPath, backupPath string, beforeRename func() error) error {
+	liveExists := false
+	if _, err := os.Stat(dbPath); err == nil {
+		liveExists = true
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+
+	// 1. COPY (not move) the live database and any sidecars to the backup so
+	// dbPath stays in place; on any failure below dbPath is still the original.
+	if liveExists && backupPath != "" {
+		if err := copyCairnlineSQLiteFiles(dbPath, backupPath); err != nil {
+			return err
+		}
+		// 2. Durability: the copy helper fsyncs each written file; fsync the
+		// directory so the new backup dir entries survive a crash too.
+		if err := fsyncDir(filepath.Dir(backupPath)); err != nil {
+			return err
+		}
+	}
+
+	// 3. Test crash-injection point: return before the rename so dbPath is left
+	// as the intact original with no swap performed.
+	if beforeRename != nil {
+		if err := beforeRename(); err != nil {
+			return err
+		}
+	}
+
+	// 4. Single atomic replace of the destination. The staging store was cleanly
+	// closed as a single file, so one os.Rename swaps the whole database in place
+	// with no instant where dbPath is absent.
+	if err := os.Rename(stagingPath, dbPath); err != nil {
+		return err
+	}
+	for _, suffix := range []string{"-wal", "-shm"} {
+		stagingSidecar := stagingPath + suffix
+		liveSidecar := dbPath + suffix
+		if _, err := os.Stat(stagingSidecar); err == nil {
+			// Unusual after a clean Close, but if staging still has a sidecar move
+			// it over the old one so the swapped database is complete.
+			if err := os.Rename(stagingSidecar, liveSidecar); err != nil {
+				return err
+			}
+			continue
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		// Staging had no sidecar (the expected clean-close case). Remove any stale
+		// -wal/-shm left from the OLD database: those sidecars describe different
+		// bytes and would corrupt the freshly swapped main file if SQLite replayed
+		// them.
+		if err := os.Remove(liveSidecar); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+
+	// 5. fsync the directory again so the rename is durable.
+	return fsyncDir(filepath.Dir(dbPath))
 }
 
 func writeCairnlineMigrationRecord(dbPath string, rec cairnlineMigrationRecord) error {
@@ -144,8 +262,18 @@ func cairnlineMigrationRollbackPlan() []string {
 	}
 }
 
+func cairnlineMigrationVerificationNotes() []string {
+	// Documents what the parity oracle does and does not compare so operators do
+	// not read the timestamp-stripped content digest as a weaker check than it is.
+	return []string{
+		"Parity verified across all 12 portable write families by count, record-ID set, and content digest.",
+		"Content-digest comparison excludes timestamp fields (created_at, updated_at, discovered_at, applied_at) and compares the record-ID intersection; additions and deletions are covered by the record-ID-set layer.",
+	}
+}
+
 func (h *Handler) HandleMigrateProjectsToCairnline(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+	ctx, span := httpServerTracer.Start(r.Context(), "hecate.projects.cairnline.migrate")
+	defer span.End()
 	dbPath := h.cairnlineEmbeddedDatabasePath()
 	stagingPath := cairnlineMigrationStagingPath(dbPath)
 
@@ -203,6 +331,11 @@ func (h *Handler) HandleMigrateProjectsToCairnline(w http.ResponseWriter, r *htt
 		return
 	}
 	verified := item.Match && smoke != nil && smoke.Status == "passed"
+	span.SetAttributes(
+		attribute.Bool("hecate.cairnline.migration.verified", verified),
+		attribute.Bool("hecate.cairnline.migration.parity_match", item.Match),
+		attribute.Int("hecate.cairnline.migration.project_count", len(snapshots)),
+	)
 
 	sourceAuthority := h.cairnlineMigrationSourceAuthority()
 	migratedAt := time.Now().UTC()
@@ -215,6 +348,10 @@ func (h *Handler) HandleMigrateProjectsToCairnline(w http.ResponseWriter, r *htt
 			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 			return
 		}
+		// The parity item was computed against the staging file, which is deleted
+		// below; re-point it at the intended live target so the returned report
+		// never references a path that no longer exists.
+		item.DatabasePath = dbPath
 		if err := removeCairnlineSQLiteFiles(stagingPath); err != nil {
 			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 			return
@@ -245,8 +382,6 @@ func (h *Handler) HandleMigrateProjectsToCairnline(w http.ResponseWriter, r *htt
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	backupPath := cairnlineMigrationBackupPath(dbPath)
-	rollbackBackupPath := ""
 	liveExists := false
 	if _, statErr := os.Stat(dbPath); statErr == nil {
 		liveExists = true
@@ -254,19 +389,17 @@ func (h *Handler) HandleMigrateProjectsToCairnline(w http.ResponseWriter, r *htt
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, statErr.Error())
 		return
 	}
+	// Timestamped backup generation named from the same migratedAt recorded below
+	// so the backup file and migration.json agree; empty when no live DB exists.
+	rollbackBackupPath := ""
 	if liveExists {
-		if err := renameCairnlineSQLiteFiles(dbPath, backupPath); err != nil {
-			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-			return
-		}
-		rollbackBackupPath = backupPath
+		rollbackBackupPath = cairnlineMigrationBackupPath(dbPath, migratedAt)
 	}
-	if err := renameCairnlineSQLiteFiles(stagingPath, dbPath); err != nil {
-		// Best-effort restore of the backup so the live database is not lost when
-		// the swap fails after the backup rename.
-		if rollbackBackupPath != "" {
-			_ = renameCairnlineSQLiteFiles(backupPath, dbPath)
-		}
+	// Crash-safe swap: copy the live DB to the backup (leaving dbPath in place)
+	// then a single atomic rename replaces dbPath. On failure dbPath is still the
+	// original because the copy did not move it, so no restore dance is needed.
+	if err := swapCairnlineMigrationStore(dbPath, stagingPath, rollbackBackupPath, nil); err != nil {
+		_ = removeCairnlineSQLiteFiles(stagingPath)
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
@@ -300,6 +433,7 @@ func (h *Handler) HandleMigrateProjectsToCairnline(w http.ResponseWriter, r *htt
 		ProjectCount:       len(snapshots),
 		Checklist:          cairnlineMigrationChecklist(item.Match, true, liveExists, true),
 		Rollback:           cairnlineMigrationRollbackPlan(),
+		VerificationNotes:  cairnlineMigrationVerificationNotes(),
 		Parity:             item,
 	}
 	WriteJSON(w, http.StatusOK, ProjectCairnlineMigrationResponse{
@@ -309,14 +443,12 @@ func (h *Handler) HandleMigrateProjectsToCairnline(w http.ResponseWriter, r *htt
 }
 
 func (h *Handler) HandleRollbackProjectsCairnlineMigration(w http.ResponseWriter, r *http.Request) {
+	_, span := httpServerTracer.Start(r.Context(), "hecate.projects.cairnline.migrate.rollback")
+	defer span.End()
 	dbPath := h.cairnlineEmbeddedDatabasePath()
-	backupPath := cairnlineMigrationBackupPath(dbPath)
 
-	if _, err := os.Stat(backupPath); err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-			return
-		}
+	noBackup := func() {
+		span.SetAttributes(attribute.Bool("hecate.cairnline.migration.restored", false))
 		WriteJSON(w, http.StatusOK, ProjectCairnlineMigrationRollbackResponse{
 			Object: "project_cairnline_migration_rollback",
 			Data: ProjectCairnlineMigrationRollbackResult{
@@ -325,20 +457,51 @@ func (h *Handler) HandleRollbackProjectsCairnlineMigration(w http.ResponseWriter
 				Target:   dbPath,
 			},
 		})
+	}
+
+	// Roll back to the backup generation recorded in the CURRENT migration.json
+	// rather than a fixed path, so timestamped generations restore the latest one.
+	rec, ok, err := readCairnlineMigrationRecord(dbPath)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	backupPath := ""
+	if ok && rec != nil {
+		backupPath = strings.TrimSpace(rec.RollbackBackupPath)
+	}
+	if backupPath == "" {
+		noBackup()
+		return
+	}
+	if _, err := os.Stat(backupPath); err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+			return
+		}
+		noBackup()
 		return
 	}
 
-	if err := renameCairnlineSQLiteFiles(backupPath, dbPath); err != nil {
+	// Restore by COPY (not rename) so the backup generation is preserved after
+	// rollback for manual recovery. Older backup generations are intentionally
+	// left on disk for the same reason.
+	if err := copyCairnlineSQLiteFiles(backupPath, dbPath); err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	if err := fsyncDir(filepath.Dir(dbPath)); err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
 	// The authoritative migration was rolled back, so the operator is back to the
 	// pre-migration embedded state; delete the migration record rather than
-	// leaving stale evidence pointing at a database that no longer exists.
+	// leaving stale evidence pointing at the superseded migrated database.
 	if err := os.Remove(cairnlineMigrationRecordPath(dbPath)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
+	span.SetAttributes(attribute.Bool("hecate.cairnline.migration.restored", true))
 	WriteJSON(w, http.StatusOK, ProjectCairnlineMigrationRollbackResponse{
 		Object: "project_cairnline_migration_rollback",
 		Data: ProjectCairnlineMigrationRollbackResult{
@@ -369,12 +532,12 @@ func cairnlineMigrationChecklist(parityMatch, verified, backedUp, swapped bool) 
 		{
 			ID:     "backup-live-store",
 			Status: cairnlineMigrationStepStatus(verified, backedUp),
-			Detail: "Renamed the existing live embedded database to a pre-migration backup before the swap; skipped when no prior live database existed.",
+			Detail: "Copied the existing live embedded database to a timestamped pre-migration backup generation, leaving the live file in place; skipped when no prior live database existed.",
 		},
 		{
 			ID:     "atomic-swap",
 			Status: cairnlineMigrationStepStatus(verified, swapped),
-			Detail: "Atomically renamed the verified staged database into the live embedded path.",
+			Detail: "Replaced the live embedded path with the verified staged database via a single atomic rename over the copied backup, so the live path is never absent.",
 		},
 		{
 			ID:     "migration-record-written",
