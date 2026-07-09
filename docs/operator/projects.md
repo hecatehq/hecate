@@ -232,18 +232,33 @@ place.
   **rebuild -> verify -> backup -> atomic swap**. It rebuilds the migration
   target in a `projects.db.migrating` staging file, verifies it against the
   current native snapshot (full parity over every family plus a strict embedded
-  read smoke), backs up any existing live `projects.db` to
-  `projects.db.pre-migration.bak`, then atomically swaps the verified staging
-  database into place and writes a durable `migration.json` record next to the
-  embedded database. The endpoint always returns 200: on verification failure the
+  read smoke), **copies** any existing live `projects.db` to a timestamped backup
+  generation `projects.db.pre-migration-<utc-timestamp>.bak` (leaving the live
+  file in place), then replaces the live database with the verified staging file
+  via a **single atomic rename** and writes a durable `migration.json` record
+  next to the embedded database. The swap copies the backup rather than moving
+  the live file so the live path is never absent at any instant: a crash can only
+  leave the live path holding either the original bytes or the migrated bytes,
+  never nothing. The endpoint always returns 200: on verification failure the
   live database is left untouched, the staging files are removed, and the parity
   diffs are returned in the report so you can diagnose the mismatch.
+- Parity is verified across all twelve portable write families by count,
+  record-ID set, and content digest. The content-digest comparison deliberately
+  excludes timestamp fields and compares only the record-ID intersection;
+  additions and deletions are covered by the record-ID-set layer, so stripping
+  timestamps does not weaken the check.
+- Each migration writes a distinct timestamped backup generation, so re-running
+  never clobbers an earlier original. Older generations are left on disk for
+  manual recovery; `rollback` restores the latest generation recorded in
+  `migration.json`.
 - The migration is **deletion-faithful by reconstruction**. The target is rebuilt
   purely from the current native snapshot, so any row that was deleted natively
   (and is therefore absent from the snapshot) is never written into the rebuilt
   database. Deletions propagate for all twelve portable write families, including
-  the immutable ones (skills, artifacts, evidence, reviews, assistant proposals)
-  that have no delete API. Hecate keeps no tombstones — absence in the source is
+  the immutable record types: five of the fourteen Cairnline record types
+  (skills, artifacts, evidence, reviews, assistant proposals) have no delete API,
+  so reconstruction — not per-record deletes — is what makes them
+  deletion-faithful. Hecate keeps no tombstones — absence in the source is
   absence in the target — and the migration is idempotent, so re-running
   converges to the same verified state.
 - `GET /hecate/v1/projects/backend-status` reports the result under
@@ -261,10 +276,13 @@ of truth until you flip authority away from them:
 - Unset `HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE` (and/or
   `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY`) to return reads and writes to the
   native stores with no data loss, and/or
-- `POST /hecate/v1/projects/cairnline/migrate/rollback` to restore the
-  `projects.db.pre-migration.bak` backup over the live embedded database and
-  delete the migration record. It is a no-op (`restored: false`,
-  `reason: "no_backup"`) when no backup exists.
+- `POST /hecate/v1/projects/cairnline/migrate/rollback` to restore the latest
+  `projects.db.pre-migration-<utc-timestamp>.bak` generation recorded in
+  `migration.json` over the live embedded database and delete the migration
+  record. The backup generation is copied (not moved) so it is preserved for
+  further manual recovery. It is a no-op (`restored: false`, `reason:
+"no_backup"`) when the record has no backup path or the recorded backup is
+  missing.
 
 ## What Projects V1 Does Not Do
 

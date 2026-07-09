@@ -5051,14 +5051,27 @@ database until a staged rebuild passes full verification.
 It rebuilds the migration target from scratch in a `projects.db.migrating`
 staging file, verifies it against the current native snapshot (a parity report
 over every family plus a strict embedded read smoke run against the staged
-database), backs up any existing live `projects.db` to
-`projects.db.pre-migration.bak`, then atomically swaps the verified staging
-database into the live path and writes a durable `migration.json` record next to
-the embedded database. The rebuild-from-snapshot design is deletion-faithful:
-any row deleted natively is absent from the snapshot and is therefore never
-written, so deletions propagate for every family including the immutable ones
-(skills, artifacts, evidence, reviews, assistant proposals) that expose no
-delete API. The migration is idempotent.
+database), **copies** any existing live `projects.db` to a timestamped backup
+generation `projects.db.pre-migration-<utc-timestamp>.bak` (leaving the live file
+in place), then replaces the live path with the verified staging database via a
+**single atomic rename** and writes a durable `migration.json` record next to the
+embedded database. The swap copies the backup rather than moving the live file so
+the live path is never absent: a crash between steps can only leave the live path
+holding the original bytes or the migrated bytes, never nothing. The
+rebuild-from-snapshot design is deletion-faithful: any row deleted natively is
+absent from the snapshot and is therefore never written, so deletions propagate
+for every family including the immutable ones (skills, artifacts, evidence,
+reviews, assistant proposals) that expose no delete API. The migration is
+idempotent, and each run writes a distinct timestamped backup generation so
+re-running never clobbers an earlier original.
+
+Parity is verified across all twelve portable write families by count, record-ID
+set, and content digest. The content-digest comparison excludes timestamp fields
+and compares only the record-ID intersection; additions and deletions are covered
+by the record-ID-set layer, and the `verification_notes` array in the report
+records this. The digest layer covers fourteen Cairnline record types (project
+collaboration splits into artifacts, evidence, and reviews) plus a derived
+`launch_packets` view.
 
 The endpoint always returns 200 so the parity diff payload reaches the operator.
 `verified` is `true` only when the parity report matches and the strict read
@@ -5078,7 +5091,7 @@ Example response:
     "parity_match": true,
     "target": "/Users/alice/.hecate/cairnline/embedded/projects.db",
     "source_authority": ["sqlite"],
-    "rollback_backup_path": "/Users/alice/.hecate/cairnline/embedded/projects.db.pre-migration.bak",
+    "rollback_backup_path": "/Users/alice/.hecate/cairnline/embedded/projects.db.pre-migration-20260709T131818.123456789Z.bak",
     "project_count": 2,
     "checklist": [
       { "id": "load-hecate-stores", "status": "complete", "detail": "..." },
@@ -5093,6 +5106,10 @@ Example response:
       "To discard the migrated embedded store, POST /hecate/v1/projects/cairnline/migrate/rollback (restores the pre-migration backup).",
       "To return authority to Hecate, unset HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE (and/or HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY); reads and writes fall back to the native stores with no data loss."
     ],
+    "verification_notes": [
+      "Parity verified across all 12 portable write families by count, record-ID set, and content digest.",
+      "Content-digest comparison excludes timestamp fields (created_at, updated_at, discovered_at, applied_at) and compares the record-ID intersection; additions and deletions are covered by the record-ID-set layer."
+    ],
     "parity": { "...": "same shape as the sync response item" }
   }
 }
@@ -5106,10 +5123,13 @@ mismatch.
 
 ### `POST /hecate/v1/projects/cairnline/migrate/rollback`
 
-Local-only endpoint. It restores the `projects.db.pre-migration.bak` backup over
-the live embedded database and deletes the `migration.json` record, returning the
-operator to the pre-migration embedded state. It is a no-op when no backup
-exists.
+Local-only endpoint. It restores the latest timestamped
+`projects.db.pre-migration-<utc-timestamp>.bak` generation recorded in
+`migration.json` over the live embedded database and deletes the record,
+returning the operator to the pre-migration embedded state. The backup is copied
+(not moved) so the generation survives for further manual recovery, and older
+generations are left on disk. It is a no-op when the record has no backup path or
+the recorded backup is missing.
 
 Example response:
 
@@ -5119,7 +5139,7 @@ Example response:
   "data": {
     "restored": true,
     "reason": "",
-    "restored_from": "/Users/alice/.hecate/cairnline/embedded/projects.db.pre-migration.bak",
+    "restored_from": "/Users/alice/.hecate/cairnline/embedded/projects.db.pre-migration-20260709T131818.123456789Z.bak",
     "target": "/Users/alice/.hecate/cairnline/embedded/projects.db"
   }
 }
