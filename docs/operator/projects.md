@@ -209,18 +209,62 @@ Five environment gates control the path, from off to fully armed:
   "portable writes are Cairnline-first" apart from "every replacement proof is
   complete."
 
-Two declared boundaries remain even with replacement mode armed: **assignment
-start dispatch** stays Hecate-owned (Hecate can claim and progress a Cairnline
+One declared boundary remains even with replacement mode armed: **assignment
+start dispatch** stays Hecate-owned. Hecate can claim and progress a Cairnline
 assignment record and mirror runtime refs, but it does not launch tasks or
-External Agents from Cairnline), and there is **no one-way migration cutover**.
-`POST /hecate/v1/projects/cairnline/sync` runs a full-refresh
-delete-and-reseed rehearsal into the embedded mirror, and snapshot import is
-additive-only, so the mirror can drift after that full-refresh rehearsal; that
-staleness risk applies to the sync rehearsal path, not to the live authoritative
-write switchpoints, which delete through Cairnline directly. For local dogfood,
+External Agents from Cairnline. `POST /hecate/v1/projects/cairnline/sync`
+remains a full-refresh delete-and-reseed *rehearsal* into the embedded mirror; it
+never becomes authoritative, so treat its output as replacement evidence rather
+than a source of truth. For local dogfood,
 `just dev-cairnline-projects --reset` starts a clean runtime with the embedded
 dogfood posture applied and `just test-projects-dogfood` runs the focused API
 check.
+
+### Migration cutover
+
+The authoritative one-way migration from Hecate-native project stores into the
+embedded Cairnline database has shipped. It is distinct from the `sync`
+rehearsal above: `sync` refreshes the live mirror in place, while migrate stages
+a rebuild, verifies it, backs up the live database, and only then swaps it into
+place.
+
+- `POST /hecate/v1/projects/cairnline/migrate` executes the cutover as a staged
+  **rebuild -> verify -> backup -> atomic swap**. It rebuilds the migration
+  target in a `projects.db.migrating` staging file, verifies it against the
+  current native snapshot (full parity over every family plus a strict embedded
+  read smoke), backs up any existing live `projects.db` to
+  `projects.db.pre-migration.bak`, then atomically swaps the verified staging
+  database into place and writes a durable `migration.json` record next to the
+  embedded database. The endpoint always returns 200: on verification failure the
+  live database is left untouched, the staging files are removed, and the parity
+  diffs are returned in the report so you can diagnose the mismatch.
+- The migration is **deletion-faithful by reconstruction**. The target is rebuilt
+  purely from the current native snapshot, so any row that was deleted natively
+  (and is therefore absent from the snapshot) is never written into the rebuilt
+  database. Deletions propagate for all twelve portable write families, including
+  the immutable ones (skills, artifacts, evidence, reviews, assistant proposals)
+  that have no delete API. Hecate keeps no tombstones — absence in the source is
+  absence in the target — and the migration is idempotent, so re-running
+  converges to the same verified state.
+- `GET /hecate/v1/projects/backend-status` reports the result under
+  `migration_cutover` (`status` is `not_migrated`, `migrated_verified`, or
+  `migrated_unverified`, alongside the migrate/rollback endpoints, the
+  `migrated`/`verified`/`parity_match` flags, `migrated_at`,
+  `rollback_backup_path`, and `source_authority`). Once a verified migration is
+  executed, the `migration-cutover` write-adapter gap clears and the
+  `migration-and-rollback` replacement gate surfaces the executed, verified
+  migration and its rollback backup path.
+
+To roll back or disarm the cutover, the native stores stay the untouched source
+of truth until you flip authority away from them:
+
+- Unset `HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE` (and/or
+  `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY`) to return reads and writes to the
+  native stores with no data loss, and/or
+- `POST /hecate/v1/projects/cairnline/migrate/rollback` to restore the
+  `projects.db.pre-migration.bak` backup over the live embedded database and
+  delete the migration record. It is a no-op (`restored: false`,
+  `reason: "no_backup"`) when no backup exists.
 
 ## What Projects V1 Does Not Do
 
