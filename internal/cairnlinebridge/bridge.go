@@ -1,9 +1,16 @@
 // Package cairnlinebridge maps Hecate Projects records into Cairnline's
 // portable coordination model.
 //
-// This package is an integration proof, not a runtime backend switch. Hecate
-// remains the execution/orchestration authority; Cairnline receives durable
-// coordination records that can later back MCP pull or migration experiments.
+// The mapping now backs live behavior, not just an integration proof: the
+// configured Cairnline read routes serve project reads, opt-in write-authority
+// switchpoints commit portable coordination state to Cairnline first, live
+// mirrors shadow the remaining families into the embedded Cairnline database,
+// and an armed embedded replacement mode can report Cairnline as authoritative
+// for portable coordination state. Hecate stays the execution/orchestration
+// authority: task/chat/External Agent dispatch, approvals, traces, root
+// discovery, Git worktree creation, and assignment-start remain Hecate-owned
+// runtime/workspace side effects, and migration cutover is still a rehearsal
+// rather than a one-way storage switch.
 package cairnlinebridge
 
 import (

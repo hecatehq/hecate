@@ -201,8 +201,15 @@ The adapter preserves Hecate-owned projection details such as native snapshot
 timestamps and Hecate-only metadata while using Cairnline as the portable graph
 source, so ordering-sensitive context such as recent activity stays compatible
 with the Hecate-native path during replacement-readiness testing.
-Proposal ledger writes and proposal apply remain Hecate-owned until the
-Cairnline write adapter is authoritative.
+Proposal ledger writes are Hecate-owned by default and best-effort mirrored into
+Cairnline, but the opt-in `project-assistant-proposals` write-authority
+switchpoint makes draft/propose/apply-attempt ledger records Cairnline-first.
+Confirmed apply routes its project create, project metadata/default, root, role,
+work-item, assignment, handoff, and memory-candidate side effects through the
+matching opt-in Cairnline authority switchpoints when they are enabled; the
+remaining chat and runtime side effects stay Hecate-owned orchestrator
+capabilities and are mirrored into Cairnline only as replacement-readiness
+evidence.
 
 The v0 context packet is item-limited and body-budgeted. It includes project
 defaults, roots, context-source metadata, the selected work item when present,
