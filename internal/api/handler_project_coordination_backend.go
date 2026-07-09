@@ -1055,9 +1055,11 @@ func projectCairnlineMigrationRollbackReplacementGate(strictEmbeddedReadGate Pro
 			backup := strings.TrimSpace(migrationCutover.RollbackBackupPath)
 			note := " An authoritative one-way migration has been executed and verified with parity matched"
 			if backup != "" {
-				note += " and a rollback backup at " + backup
+				note += " and a rollback backup at " + backup + "."
+			} else {
+				// First migration with no prior embedded database: nothing was backed up.
+				note += "; no prior embedded store existed, so no rollback backup was created."
 			}
-			note += "."
 			gate.Detail = strings.TrimRight(gate.Detail, " ") + note
 		}()
 	}
@@ -1530,7 +1532,12 @@ func projectCairnlineWriteSwitchpointsSnapshot(writeAuthority []string, nativeSh
 			item.Detail = "One-way migration endpoint POST /hecate/v1/projects/cairnline/migrate rebuilds and verifies the embedded Cairnline store from native sources; run it to arm cutover."
 			if migrationExecuted {
 				item.LiveMirror = true
-				item.Detail += " A verified authoritative migration has been executed with a rollback backup."
+				if strings.TrimSpace(migrationCutover.RollbackBackupPath) != "" {
+					item.Detail += " A verified authoritative migration has been executed with a rollback backup."
+				} else {
+					// First migration with no prior embedded database: nothing was backed up.
+					item.Detail += " A verified authoritative migration has been executed; no prior embedded store existed, so no rollback backup was created."
+				}
 			}
 			if migrationExecutedVerified {
 				item.CairnlineState = "migrated_verified"

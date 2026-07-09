@@ -680,6 +680,7 @@ type ProjectCairnlineMigrationReport struct {
 	ProjectCount       int                                       `json:"project_count"`
 	Checklist          []ProjectCairnlineMigrationRehearsalCheck `json:"checklist"`
 	Rollback           []string                                  `json:"rollback"`
+	VerificationNotes  []string                                  `json:"verification_notes,omitempty"`
 	Parity             ProjectCairnlineSyncResponseItem          `json:"parity"`
 }
 
