@@ -400,7 +400,7 @@ Tests use `withRuntimeConsole(ui, fixture)` from `src/test/runtime-console-rende
 
 | Command                                         | What it does                                        | When to use                                      |
 | ----------------------------------------------- | --------------------------------------------------- | ------------------------------------------------ |
-| `bun run typecheck`                             | `tsgo -b` — fast type check, no test execution      | First sanity check after edits                   |
+| `bun run typecheck`                             | `tsc -b` — fast type check, no test execution       | First sanity check after edits                   |
 | `bun run lint`                                  | Type-aware Oxc lint checks                          | Before committing                                |
 | `bun run format:check`                          | Oxfmt formatting check                              | Before committing                                |
 | `just format-check`                             | Go + UI + website + docs formatting check           | Mixed-surface PRs or CI format failures          |

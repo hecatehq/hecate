@@ -68,7 +68,7 @@ E2E build tags: `//go:build e2e` is always required, plus optional `ollama` and 
 
 | Step              | Command                         | When                                                                  |
 | ----------------- | ------------------------------- | --------------------------------------------------------------------- |
-| Type check        | `cd ui && bun run typecheck`    | First sanity check after any `.ts`/`.tsx` edit (`tsgo -b`, fast)      |
+| Type check        | `cd ui && bun run typecheck`    | First sanity check after any `.ts`/`.tsx` edit (`tsc -b`, fast)       |
 | Lint              | `cd ui && bun run lint`         | Before claiming done; also covered by `just ui-lint` and CI           |
 | Format check      | `cd ui && bun run format:check` | Before claiming done; also covered by `just ui-format-check` and CI   |
 | Repo format check | `just format-check`             | Mixed Go / UI / website / docs changes; mirrors CI format gates       |
