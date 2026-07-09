@@ -98,7 +98,8 @@ only when backend status reports `replacement_ready=true` and
   behavior.
 
 The first end-to-end embedded replacement dogfood (evidence recorded in
-[hecatehq/hecate#831](https://github.com/hecatehq/hecate/pull/831)) showed that
+[`evidence/cairnline-replacement-dogfood-2026-07-08.md`](evidence/cairnline-replacement-dogfood-2026-07-08.md))
+showed that
 backend status could report `replacement_ready=true` while three fidelity gaps
 still lost portable detail: the assignment execution ref collapsed Hecate's
 structured task/run/chat/context refs into a single string, Cairnline-projected
