@@ -577,28 +577,40 @@ launch agents. Those remain explicit operator or orchestrator actions.
   path is a staged **rebuild -> verify -> backup -> atomic swap**: it rebuilds
   the migration target in a `projects.db.migrating` staging file, verifies it
   (a parity report over every family plus a strict embedded read smoke that
-  reads from the staged database), backs up any existing live `projects.db` to
-  `projects.db.pre-migration.bak`, then atomically swaps the verified staging
-  database into the live path. The live embedded database is never mutated until
-  the staged rebuild passes full verification; on verification failure the
-  endpoint still returns 200 with the parity diffs so the operator can diagnose
-  the mismatch. The migration is **deletion-faithful by reconstruction**: the
-  target is rebuilt purely from the current native snapshot, so any natively
-  deleted (absent) row is never written. Reconstruction rather than incremental
-  per-record delete is the chosen strategy precisely because five write families
-  (skills, generic artifacts, evidence, reviews, and assistant proposals) are
-  recorded as immutable and expose no delete API, so there is no per-record
-  delete path to drive; rebuilding from the snapshot makes absence in the source
-  become absence in the target for every family. The cutover is idempotent —
-  re-running backs up the current live database and swaps a freshly rebuilt
-  staging database, converging to the same verified state. A durable
-  `migration.json` record next to the embedded database is written as evidence
-  that a verified authoritative migration was executed; backend status reads it
-  into the `migration_cutover` field, the `migration-cutover` write-adapter gap
-  clears once a verified migration is executed, and the `migration-and-rollback`
-  replacement gate surfaces the executed, verified migration together with its
-  rollback backup path. Rollback restores the pre-migration backup over the live
-  database and deletes the record.
+  reads from the staged database), **copies** any existing live `projects.db` to
+  a timestamped backup generation `projects.db.pre-migration-<utc-timestamp>.bak`
+  (leaving the live file in place), then replaces the live path with the verified
+  staging database via a **single atomic rename**. The swap copies the backup
+  rather than moving the live file so the live path is never absent at any
+  instant: a crash between steps can only leave the live path holding the
+  original bytes or the migrated bytes, never nothing. The live embedded database
+  is never mutated until the staged rebuild passes full verification; on
+  verification failure the endpoint still returns 200 with the parity diffs so
+  the operator can diagnose the mismatch. Parity is verified across all twelve
+  portable write families by count, record-ID set, and content digest; the
+  content-digest comparison excludes timestamp fields and compares only the
+  record-ID intersection, with additions and deletions covered by the
+  record-ID-set layer (the report's `verification_notes` array records this). The
+  migration is **deletion-faithful by reconstruction**: the target is rebuilt
+  purely from the current native snapshot, so any natively deleted (absent) row
+  is never written. Reconstruction rather than incremental per-record delete is
+  the chosen strategy precisely because five of the fourteen Cairnline record
+  types (skills, generic artifacts, evidence, reviews, and assistant proposals —
+  the fourteen come from project collaboration splitting into artifacts,
+  evidence, and reviews) are recorded as immutable and expose no delete API, so
+  there is no per-record delete path to drive; rebuilding from the snapshot makes
+  absence in the source become absence in the target for every family. The
+  cutover is idempotent — re-running copies the current live database to a new
+  timestamped backup generation and swaps a freshly rebuilt staging database,
+  converging to the same verified state without clobbering earlier backup
+  generations. A durable `migration.json` record next to the embedded database is
+  written as evidence that a verified authoritative migration was executed;
+  backend status reads it into the `migration_cutover` field, the
+  `migration-cutover` write-adapter gap clears once a verified migration is
+  executed, and the `migration-and-rollback` replacement gate surfaces the
+  executed, verified migration together with its rollback backup path. Rollback
+  restores the latest recorded backup generation over the live database (copying
+  it so older generations survive for manual recovery) and deletes the record.
 - Hecate should keep the embedded portable core as its first Projects backend
   replacement target. Talking to the MCP server as a separate local coordination
   process remains the later standalone/interoperability boundary.
