@@ -105,15 +105,20 @@ still lost portable detail: the assignment execution ref collapsed Hecate's
 structured task/run/chat/context refs into a single string, Cairnline-projected
 context packets omitted project memory, and `awaiting_approval` assignments were
 reported as `running`. The portable-model fixes for these landed in
-[hecatehq/cairnline#76](https://github.com/hecatehq/cairnline/pull/76) (merged);
-the Hecate-side wiring that consumes them — a structured execution ref, a
-first-class `awaiting_approval` assignment status, project memory in context
-packets, and additional replacement gates so the fidelity checks block
-`replacement_ready` — is in flight in
-[hecatehq/hecate#832](https://github.com/hecatehq/hecate/pull/832). Until that
-wiring merges, treat `replacement_ready` as necessary but not sufficient and
-review the fidelity of execution refs, context memory, and approval status by
-hand.
+[hecatehq/cairnline#76](https://github.com/hecatehq/cairnline/pull/76) (merged),
+and the Hecate-side wiring that consumes them has now merged in
+[hecatehq/hecate#832](https://github.com/hecatehq/hecate/pull/832): the bridge
+maps the assignment execution ref onto Cairnline's structured `execution_ref`
+field by field in both directions instead of collapsing to a single string,
+`awaiting_approval` is carried as a first-class assignment status rather than
+clamped to `running`, and enabled durable project memory is projected into the
+Cairnline assignment context packet. The strict embedded replacement smoke now
+also runs assignment-status-vocabulary, assignment-execution-ref-parity,
+assignment-approval-status-parity, and assignment-context-memory-parity fidelity
+checks, so `replacement_ready` blocks on exactly the losses the dogfood exposed
+rather than leaving them to hand review. These remain alpha contracts and are
+not stable: keep verifying replacement fidelity against real project state, and
+back up data, before treating any backend as authoritative.
 
 The intended order is therefore:
 
