@@ -1,6 +1,11 @@
 # Cairnline: Portable Project Coordination
 
-> **Status:** proposed.
+> **Status:** proposed (extraction design). The embedded integration has
+> shipped as an opt-in, non-default path: Hecate pins the Cairnline Go package,
+> serves configured project read routes from it, exposes opt-in write-authority
+> switchpoints, and has an armed embedded replacement mode. This document keeps
+> the long-term extraction boundaries and product shape; the accepted Projects
+> design and Runtime API docs remain the source of truth for current behavior.
 > **Current source of truth:** [Projects](../accepted/projects.md),
 > [Runtime API](../../runtime/runtime-api.md),
 > [MCP](../../runtime/mcp.md), [External Agents](../../runtime/external-agents.md),
@@ -91,6 +96,23 @@ only when backend status reports `replacement_ready=true` and
 - Hecate's Projects UI can consume Cairnline state without losing current
   onboarding, attention, context-inspection, review, handoff, or closeout
   behavior.
+
+The first end-to-end embedded replacement dogfood (evidence recorded in
+[hecatehq/hecate#831](https://github.com/hecatehq/hecate/pull/831)) showed that
+backend status could report `replacement_ready=true` while three fidelity gaps
+still lost portable detail: the assignment execution ref collapsed Hecate's
+structured task/run/chat/context refs into a single string, Cairnline-projected
+context packets omitted project memory, and `awaiting_approval` assignments were
+reported as `running`. The portable-model fixes for these landed in
+[hecatehq/cairnline#76](https://github.com/hecatehq/cairnline/pull/76) (merged);
+the Hecate-side wiring that consumes them — a structured execution ref, a
+first-class `awaiting_approval` assignment status, project memory in context
+packets, and additional replacement gates so the fidelity checks block
+`replacement_ready` — is in flight in
+[hecatehq/hecate#832](https://github.com/hecatehq/hecate/pull/832). Until that
+wiring merges, treat `replacement_ready` as necessary but not sufficient and
+review the fidelity of execution refs, context memory, and approval status by
+hand.
 
 The intended order is therefore:
 

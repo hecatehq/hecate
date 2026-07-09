@@ -44,8 +44,13 @@ Read these in order:
 The invariant: projects provide identity, context assembly decides what enters
 a model or adapter call, memory is operator-approved durable context, and window
 management fits an already-labelled context packet into a model limit.
-Cairnline is a future extraction path for the project coordination substrate,
-not current Hecate runtime behavior.
+Cairnline is the portable extraction path for the project coordination
+substrate. Hecate now embeds the Cairnline Go package and, when the coordination
+backend is configured, uses it for live project read routes, opt-in
+write-authority switchpoints, and an armed embedded replacement mode. It stays
+opt-in and non-default: Hecate-native stores remain authoritative until an
+operator configures the Cairnline backend, and Hecate keeps execution,
+approvals, supervision, traces, and migration cutover on its own runtime.
 
 ### Workflow Runbooks
 

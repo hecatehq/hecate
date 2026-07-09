@@ -461,10 +461,13 @@ sequenceDiagram
   events, and settings.
 - `HECATE_PROJECTS_COORDINATION_BACKEND=hecate|cairnline` records the intended
   Projects coordination authority. The default is `hecate`. `cairnline` is an
-  opt-in replacement-readiness setting only: Hecate-native stores remain
-  authoritative until the feature-flagged Cairnline read/write adapter and
-  migration path land. Use
-  `GET /hecate/v1/projects/backend-status` to inspect the effective state.
+  opt-in setting: it turns on the live Cairnline read routes and opt-in
+  write-authority switchpoints, but Hecate-native stores stay authoritative for
+  any mutation family whose switchpoint is not enabled, and full delegation
+  additionally requires the armed embedded replacement mode plus the outstanding
+  migration/rollback cutover. Use
+  `GET /hecate/v1/projects/backend-status` to inspect the effective state,
+  replacement gates, and remaining write switchpoints.
 - `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded|sidecar` chooses the Cairnline
   connector mode while `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline`.
   `embedded` is the current replacement-readiness path: Hecate uses the
@@ -2396,8 +2399,11 @@ The response reports the scoped records Hecate cleaned up:
 
 Local-only endpoint that reports the configured Projects coordination backend
 and the backend that is actually authoritative for live project reads/writes.
-It exists to make the Cairnline replacement switch explicit while the adapter is
-being built.
+It exists to make the Cairnline replacement switch explicit: read routes and
+opt-in write-authority switchpoints are live, and the endpoint reports which
+replacement gates remain (strict embedded read smoke, outstanding portable write
+switchpoints, and the migration/rollback cutover) before it will report
+Cairnline as authoritative.
 
 `configured_backend` reflects `HECATE_PROJECTS_COORDINATION_BACKEND`.
 `cairnline_connector` reflects `HECATE_PROJECTS_CAIRNLINE_CONNECTOR`.
