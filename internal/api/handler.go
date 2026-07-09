@@ -94,6 +94,11 @@ type Handler struct {
 	// this is runtime observability for the current process, not persisted
 	// coordination state.
 	cairnlineMirrorHealth cairnlineMirrorHealth
+	// cairnlineEmbeddedPathOverride redirects embedded Cairnline reads to a
+	// specific database file. Empty in production; the migration cutover sets it
+	// on a probe-handler clone so the strict read smoke can verify a staged
+	// database before it is swapped into the live embedded path.
+	cairnlineEmbeddedPathOverride string
 	// orchestratorMetrics is shared between the runner and the MCP
 	// client cache observer. Built once in NewHandler so a second
 	// NewOrchestratorMetrics() can't register duplicate instruments;

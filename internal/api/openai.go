@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/agentcontrols"
@@ -618,6 +619,7 @@ type ProjectCoordinationBackendStatusResponse struct {
 	SyncReadinessURL                     string                                       `json:"sync_readiness_url,omitempty"`
 	MirrorParityURL                      string                                       `json:"mirror_parity_url,omitempty"`
 	MirrorWriteHealth                    ProjectCairnlineMirrorWriteHealth            `json:"mirror_write_health"`
+	MigrationCutover                     *ProjectCairnlineMigrationCutoverStatus      `json:"migration_cutover,omitempty"`
 }
 
 type ProjectCoordinationBackendNextAction struct {
@@ -660,6 +662,49 @@ type ProjectCoordinationBackendWriteSwitchpoint struct {
 	Seams            []string `json:"seams,omitempty"`
 	Gap              string   `json:"gap,omitempty"`
 	Detail           string   `json:"detail"`
+}
+
+type ProjectCairnlineMigrationResponse struct {
+	Object string                          `json:"object"`
+	Data   ProjectCairnlineMigrationReport `json:"data"`
+}
+
+type ProjectCairnlineMigrationReport struct {
+	Object             string                                    `json:"object"`
+	MigratedAt         time.Time                                 `json:"migrated_at"`
+	Verified           bool                                      `json:"verified"`
+	ParityMatch        bool                                      `json:"parity_match"`
+	Target             string                                    `json:"target"`
+	SourceAuthority    []string                                  `json:"source_authority"`
+	RollbackBackupPath string                                    `json:"rollback_backup_path,omitempty"`
+	ProjectCount       int                                       `json:"project_count"`
+	Checklist          []ProjectCairnlineMigrationRehearsalCheck `json:"checklist"`
+	Rollback           []string                                  `json:"rollback"`
+	Parity             ProjectCairnlineSyncResponseItem          `json:"parity"`
+}
+
+type ProjectCairnlineMigrationRollbackResponse struct {
+	Object string                                  `json:"object"`
+	Data   ProjectCairnlineMigrationRollbackResult `json:"data"`
+}
+
+type ProjectCairnlineMigrationRollbackResult struct {
+	Restored     bool   `json:"restored"`
+	Reason       string `json:"reason,omitempty"`
+	RestoredFrom string `json:"restored_from,omitempty"`
+	Target       string `json:"target"`
+}
+
+type ProjectCairnlineMigrationCutoverStatus struct {
+	Status             string     `json:"status"`
+	Endpoint           string     `json:"endpoint"`
+	RollbackEndpoint   string     `json:"rollback_endpoint"`
+	Migrated           bool       `json:"migrated"`
+	Verified           bool       `json:"verified"`
+	ParityMatch        bool       `json:"parity_match"`
+	MigratedAt         *time.Time `json:"migrated_at,omitempty"`
+	RollbackBackupPath string     `json:"rollback_backup_path,omitempty"`
+	SourceAuthority    []string   `json:"source_authority,omitempty"`
 }
 
 type AgentPresetResponse struct {

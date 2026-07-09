@@ -920,39 +920,40 @@ func (h *Handler) projectCairnlineStrictEmbeddedProbeHandler() *Handler {
 		return nil
 	}
 	return &Handler{
-		config:                    h.config,
-		logger:                    h.logger,
-		service:                   h.service,
-		controlPlane:              h.controlPlane,
-		providerRuntime:           h.providerRuntime,
-		taskStore:                 h.taskStore,
-		taskRunner:                h.taskRunner,
-		tracer:                    h.tracer,
-		agentChat:                 h.agentChat,
-		projects:                  h.projects,
-		memory:                    h.memory,
-		memoryCandidates:          h.memoryCandidates,
-		projectWork:               h.projectWork,
-		projectSkills:             h.projectSkills,
-		projectAssistantProposals: h.projectAssistantProposals,
-		pluginRegistry:            h.pluginRegistry,
-		projectAssistant:          h.projectAssistant,
-		agentProfiles:             h.agentProfiles,
-		agentChatRunner:           h.agentChatRunner,
-		agentChatLive:             h.agentChatLive,
-		agentChatIdleSweepCancel:  h.agentChatIdleSweepCancel,
-		operatorTerminals:         h.operatorTerminals,
-		rateLimiter:               h.rateLimiter,
-		secretCipher:              h.secretCipher,
-		mcpClientCache:            h.mcpClientCache,
-		orchestratorMetrics:       h.orchestratorMetrics,
-		agentChatMetrics:          h.agentChatMetrics,
-		approvalConfig:            h.approvalConfig,
-		agentAdapterProbe:         h.agentAdapterProbe,
-		agentAdapterLogout:        h.agentAdapterLogout,
-		agentAdapterAuthenticate:  h.agentAdapterAuthenticate,
-		stateCleaner:              h.stateCleaner,
-		quitFunc:                  h.quitFunc,
+		config:                        h.config,
+		cairnlineEmbeddedPathOverride: h.cairnlineEmbeddedPathOverride,
+		logger:                        h.logger,
+		service:                       h.service,
+		controlPlane:                  h.controlPlane,
+		providerRuntime:               h.providerRuntime,
+		taskStore:                     h.taskStore,
+		taskRunner:                    h.taskRunner,
+		tracer:                        h.tracer,
+		agentChat:                     h.agentChat,
+		projects:                      h.projects,
+		memory:                        h.memory,
+		memoryCandidates:              h.memoryCandidates,
+		projectWork:                   h.projectWork,
+		projectSkills:                 h.projectSkills,
+		projectAssistantProposals:     h.projectAssistantProposals,
+		pluginRegistry:                h.pluginRegistry,
+		projectAssistant:              h.projectAssistant,
+		agentProfiles:                 h.agentProfiles,
+		agentChatRunner:               h.agentChatRunner,
+		agentChatLive:                 h.agentChatLive,
+		agentChatIdleSweepCancel:      h.agentChatIdleSweepCancel,
+		operatorTerminals:             h.operatorTerminals,
+		rateLimiter:                   h.rateLimiter,
+		secretCipher:                  h.secretCipher,
+		mcpClientCache:                h.mcpClientCache,
+		orchestratorMetrics:           h.orchestratorMetrics,
+		agentChatMetrics:              h.agentChatMetrics,
+		approvalConfig:                h.approvalConfig,
+		agentAdapterProbe:             h.agentAdapterProbe,
+		agentAdapterLogout:            h.agentAdapterLogout,
+		agentAdapterAuthenticate:      h.agentAdapterAuthenticate,
+		stateCleaner:                  h.stateCleaner,
+		quitFunc:                      h.quitFunc,
 	}
 }
 
@@ -2136,6 +2137,9 @@ func (h *Handler) cairnlineExportPath(projectID string) (string, error) {
 }
 
 func (h *Handler) cairnlineEmbeddedDatabasePath() string {
+	if override := strings.TrimSpace(h.cairnlineEmbeddedPathOverride); override != "" {
+		return override
+	}
 	dataDir := strings.TrimSpace(h.config.Server.DataDir)
 	if dataDir == "" {
 		dataDir = ".data"
