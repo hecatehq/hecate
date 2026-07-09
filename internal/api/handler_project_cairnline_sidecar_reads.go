@@ -102,7 +102,7 @@ func (h *Handler) cairnlineSidecarProject(ctx context.Context, projectID string)
 		return ProjectCairnlineSidecarProjectItem{}, false, err
 	}
 	if result.IsError {
-		if projectCairnlineSidecarToolErrorIsNotFound(result.Text) {
+		if projectCairnlineSidecarToolErrorIsNotFound(result) {
 			return ProjectCairnlineSidecarProjectItem{}, false, nil
 		}
 		return ProjectCairnlineSidecarProjectItem{}, false, projectCairnlineSidecarReadFailure("projects.get returned a tool-level error: " + strings.TrimSpace(result.Text))
@@ -202,7 +202,7 @@ func (h *Handler) cairnlineSidecarAssignmentLaunchPacket(ctx context.Context, pr
 		return cairnline.AssignmentLaunchPacket{}, false, err
 	}
 	if result.IsError {
-		if projectCairnlineSidecarToolErrorIsNotFound(result.Text) {
+		if projectCairnlineSidecarToolErrorIsNotFound(result) {
 			return cairnline.AssignmentLaunchPacket{}, false, nil
 		}
 		return cairnline.AssignmentLaunchPacket{}, false, projectCairnlineSidecarReadFailure("assignments.launch_packet returned a tool-level error: " + strings.TrimSpace(result.Text))
@@ -231,7 +231,7 @@ func (h *Handler) cairnlineSidecarAssignmentContext(ctx context.Context, project
 		return cairnline.AssignmentContext{}, false, err
 	}
 	if result.IsError {
-		if projectCairnlineSidecarToolErrorIsNotFound(result.Text) {
+		if projectCairnlineSidecarToolErrorIsNotFound(result) {
 			return cairnline.AssignmentContext{}, false, nil
 		}
 		return cairnline.AssignmentContext{}, false, projectCairnlineSidecarReadFailure("assignments.context returned a tool-level error: " + strings.TrimSpace(result.Text))
@@ -579,7 +579,58 @@ func projectCairnlineSidecarStructuredSkills(raw json.RawMessage) ([]ProjectCair
 	return skills, true, nil
 }
 
-func projectCairnlineSidecarToolErrorIsNotFound(text string) bool {
+// cairnlineToolErrorCodeNotFound mirrors the machine-readable error code
+// Cairnline emits in structuredContent on a failed tool call. Kept as a local
+// wire constant so this classification change stays decoupled from the cairnline
+// module pin; once the error-code contract is tagged and the ExecutionRef bump
+// lands, this can be swapped for the exported cairnline.ErrorCodeNotFound.
+const cairnlineToolErrorCodeNotFound = "not_found"
+
+// projectCairnlineSidecarToolErrorCode returns the machine-readable error code
+// Cairnline emits in structuredContent on a failed tool call, or "" when the
+// sidecar did not provide one (pre-contract builds). The code is one of the
+// Cairnline wire error-code values (not_found, invalid, already_exists,
+// conflict, internal).
+func projectCairnlineSidecarToolErrorCode(result *orchestrator.CachedMCPToolCallResult) string {
+	if result == nil {
+		return ""
+	}
+	raw := bytes.TrimSpace(result.Result.StructuredContent)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return ""
+	}
+	var payload struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(payload.Error.Code)
+}
+
+// projectCairnlineSidecarToolErrorIsNotFound reports whether a failed sidecar
+// tool call represents a not-found condition. It prefers the machine-readable
+// structured error code Cairnline now emits; when the sidecar predates that
+// contract and returns no code, it falls back to the legacy prose match so a
+// not-found still maps to 404 during rollout.
+func projectCairnlineSidecarToolErrorIsNotFound(result *orchestrator.CachedMCPToolCallResult) bool {
+	if code := projectCairnlineSidecarToolErrorCode(result); code != "" {
+		return code == cairnlineToolErrorCodeNotFound
+	}
+	if result == nil {
+		return false
+	}
+	return projectCairnlineSidecarToolErrorTextIsNotFound(result.Text)
+}
+
+// projectCairnlineSidecarToolErrorTextIsNotFound is the transitional prose
+// fallback: it matches Cairnline's not-found message by substring. It is used
+// only when the sidecar returned no structured error code, and should be
+// removed once every sidecar build emits structuredContent error codes.
+func projectCairnlineSidecarToolErrorTextIsNotFound(text string) bool {
 	return strings.Contains(strings.ToLower(strings.TrimSpace(text)), "not found")
 }
 

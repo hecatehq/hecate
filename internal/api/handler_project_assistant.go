@@ -298,7 +298,7 @@ func (h *Handler) cairnlineSidecarProjectAssistantProposal(ctx context.Context, 
 		return projectassistant.ProposalRecord{}, false, err
 	}
 	if result.IsError {
-		if projectCairnlineSidecarToolErrorIsNotFound(result.Text) {
+		if projectCairnlineSidecarToolErrorIsNotFound(result) {
 			return projectassistant.ProposalRecord{}, false, nil
 		}
 		return projectassistant.ProposalRecord{}, false, projectCairnlineSidecarReadFailure("assistant.proposals.get returned a tool-level error: " + strings.TrimSpace(result.Text))
