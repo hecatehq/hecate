@@ -103,7 +103,7 @@ func TestDockerfilesPinSameCursorInstallerChecksum(t *testing.T) {
 
 	dev := readDockerfile(t, "Dockerfile")
 	release := readDockerfile(t, "Dockerfile.release")
-	const want = "534114a5c0e1474b06be022719d90f9cde1c6697bde54bfd442b67ef7edda14a"
+	const want = "66dfe0dfd4dd8e39d5ab2c4028080b94545772a6bb436b6bdb844d5918256dcb"
 
 	devChecksum := dockerfileArgValue(dev, "CURSOR_INSTALL_SHA256")
 	releaseChecksum := dockerfileArgValue(release, "CURSOR_INSTALL_SHA256")
