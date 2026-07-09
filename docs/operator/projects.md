@@ -213,7 +213,7 @@ One declared boundary remains even with replacement mode armed: **assignment
 start dispatch** stays Hecate-owned. Hecate can claim and progress a Cairnline
 assignment record and mirror runtime refs, but it does not launch tasks or
 External Agents from Cairnline. `POST /hecate/v1/projects/cairnline/sync`
-remains a full-refresh delete-and-reseed *rehearsal* into the embedded mirror; it
+remains a full-refresh delete-and-reseed _rehearsal_ into the embedded mirror; it
 never becomes authoritative, so treat its output as replacement evidence rather
 than a source of truth. For local dogfood,
 `just dev-cairnline-projects --reset` starts a clean runtime with the embedded
