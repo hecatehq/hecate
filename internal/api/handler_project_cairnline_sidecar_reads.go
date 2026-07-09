@@ -585,13 +585,6 @@ func projectCairnlineSidecarStructuredSkills(raw json.RawMessage) ([]ProjectCair
 	return skills, true, nil
 }
 
-// cairnlineToolErrorCodeNotFound mirrors the machine-readable error code
-// Cairnline emits in structuredContent on a failed tool call. Kept as a local
-// wire constant so this classification change stays decoupled from the cairnline
-// module pin; once the error-code contract is tagged and the ExecutionRef bump
-// lands, this can be swapped for the exported cairnline.ErrorCodeNotFound.
-const cairnlineToolErrorCodeNotFound = "not_found"
-
 // projectCairnlineSidecarToolErrorCode returns the machine-readable error code
 // Cairnline emits in structuredContent on a failed tool call, or "" when the
 // sidecar did not provide one (pre-contract builds). The code is one of the
@@ -624,7 +617,7 @@ func projectCairnlineSidecarToolErrorCode(result *orchestrator.CachedMCPToolCall
 // not-found still maps to 404 during rollout.
 func projectCairnlineSidecarToolErrorIsNotFound(result *orchestrator.CachedMCPToolCallResult) bool {
 	if code := projectCairnlineSidecarToolErrorCode(result); code != "" {
-		return code == cairnlineToolErrorCodeNotFound
+		return code == cairnline.ErrorCodeNotFound
 	}
 	if result == nil {
 		return false
