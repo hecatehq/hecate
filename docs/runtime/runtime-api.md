@@ -2574,7 +2574,14 @@ runtime/workspace behavior such as root discovery or worktree creation,
 assignment dispatch, and Project Assistant chat/runtime effects. Those
 capabilities are intentionally outside Cairnline core and do not block
 Cairnline owning portable project coordination state. `migration_blockers`
-lists remaining cutover/rollback work. The groups are explanatory and not
+lists remaining cutover/rollback work. `migration_cutover` reports the
+authoritative one-way migration state read from the durable `migration.json`
+record next to the embedded database: `status` (`not_migrated`,
+`migrated_verified`, or `migrated_unverified`), the `endpoint` and
+`rollback_endpoint` (the migrate and rollback routes), the
+`migrated`/`verified`/`parity_match` flags, and, once a migration has run,
+`migrated_at`, `rollback_backup_path`, and `source_authority`. Once a verified
+migration is executed the `migration-cutover` write-adapter gap clears. The groups are explanatory and not
 guaranteed to be exclusive: for example, `roots` can appear in
 `portable_write_gaps` until root metadata writes are Cairnline-authoritative and
 can remain in `orchestrator_capabilities` while Hecate still owns discovery
@@ -2658,8 +2665,12 @@ successfully since its last failure, and `drifting` (not ready) while any
 family has outstanding failures — so `replacement_ready` cannot report `true`
 while shadow-mirror failure evidence is outstanding. The `migration-and-rollback` gate reports
 `waiting_for_read_smoke` until strict embedded read-smoke evidence is verified.
-In pre-cutover rehearsal it then reports `cutover_switch_missing` until Hecate
-has an explicit authoritative Cairnline storage cutover and rollback switch. In
+The authoritative Cairnline storage cutover and rollback switch now exists as
+`POST /hecate/v1/projects/cairnline/migrate` and
+`POST /hecate/v1/projects/cairnline/migrate/rollback`; when a verified migration
+has been executed the gate detail is enriched with that executed-migration
+evidence and its rollback backup path, and the separate `migration_cutover`
+status field reports `migrated_verified`. In
 armed replacement mode, successful live embedded smoke plus rollback evidence
 makes the gate `ready`: `migration_blockers` is empty, the
 `migration-and-rollback` gate is `ready`, and `authoritative_backend` reports
@@ -2714,9 +2725,12 @@ include `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded` so the suggested
 configuration matches the embedded probe set.
 `write_switchpoints` maps each live mutation family to the current authority,
 the Cairnline state (`live_mirror_non_authoritative`, `result_mirror_only`,
-`snapshot_import_rehearsal_available`, `authoritative_opt_in` for enabled
+`authoritative_migration_available`, `authoritative_opt_in` for enabled
 alpha write-authority switchpoints, or `partial_authoritative_opt_in` when only
-some routes in a family have moved). When strict embedded smoke and replacement
+some routes in a family have moved). The `migration-cutover` switchpoint
+baseline is `authoritative_migration_available` because an authoritative
+migration endpoint exists; it advances to `migrated_verified` once a verified
+migration has been executed. When strict embedded smoke and replacement
 evidence are verified and `replacement_mode=embedded`, the
 `migration-cutover` switchpoint reports
 `embedded_cutover_armed` and no longer blocks authority. Each switchpoint also
@@ -3127,14 +3141,22 @@ Example response, with `write_switchpoints` shortened for readability:
       {
         "name": "migration-cutover",
         "current_authority": "hecate",
-        "cairnline_state": "snapshot_import_rehearsal_available",
+        "cairnline_state": "authoritative_migration_available",
         "live_mirror": false,
         "blocks_authority": true,
         "seams": ["sync-rehearsal"],
         "gap": "migration-cutover",
-        "detail": "Snapshot import/export rehearsal and rollback notes exist, but no authoritative Cairnline storage cutover switch exists yet."
+        "detail": "An authoritative one-way migration cutover is available at POST /hecate/v1/projects/cairnline/migrate (with rollback at POST /hecate/v1/projects/cairnline/migrate/rollback); no verified migration has been executed yet."
       }
     ],
+    "migration_cutover": {
+      "status": "not_migrated",
+      "endpoint": "/hecate/v1/projects/cairnline/migrate",
+      "rollback_endpoint": "/hecate/v1/projects/cairnline/migrate/rollback",
+      "migrated": false,
+      "verified": false,
+      "parity_match": false
+    },
     "status": "cairnline_read_routes_ready",
     "detail": "Cairnline is configured as the future Projects coordination backend, and the project-list, project-detail, setup-readiness, health, skills, memory, memory-candidate, roles, work-item, assignment-list, assignment-context, launch-readiness, assignment-preflight, artifact-list, handoff-list, project-assistant-context, project-assistant-proposal, project-chat-prelude, project-chat-context, activity, closeout-readiness, and operations brief read routes are served from the Cairnline read model. Configured read routes prefer the embedded mirror database when it already contains the requested project or proposal record; otherwise they fall back to the snapshot-seeded in-memory bridge projection. Hecate stores remain authoritative until the remaining portable writes and migration are ready.",
     "warnings": [
@@ -5017,6 +5039,94 @@ Example response:
   }
 }
 ```
+
+### `POST /hecate/v1/projects/cairnline/migrate`
+
+Local-only endpoint. This is the authoritative one-way migration cutover from
+Hecate's native Projects stores into the embedded Cairnline database. Unlike
+`sync`, which refreshes the live mirror in place, migrate is a staged **rebuild
+-> verify -> backup -> atomic swap** that never mutates the live embedded
+database until a staged rebuild passes full verification.
+
+It rebuilds the migration target from scratch in a `projects.db.migrating`
+staging file, verifies it against the current native snapshot (a parity report
+over every family plus a strict embedded read smoke run against the staged
+database), backs up any existing live `projects.db` to
+`projects.db.pre-migration.bak`, then atomically swaps the verified staging
+database into the live path and writes a durable `migration.json` record next to
+the embedded database. The rebuild-from-snapshot design is deletion-faithful:
+any row deleted natively is absent from the snapshot and is therefore never
+written, so deletions propagate for every family including the immutable ones
+(skills, artifacts, evidence, reviews, assistant proposals) that expose no
+delete API. The migration is idempotent.
+
+The endpoint always returns 200 so the parity diff payload reaches the operator.
+`verified` is `true` only when the parity report matches and the strict read
+smoke passes; on `verified: false` the live database is left untouched, the
+staging files are removed, and `parity` carries the diffs (the backup, swap, and
+record checklist steps are `skipped`).
+
+Example response:
+
+```json
+{
+  "object": "project_cairnline_migration",
+  "data": {
+    "object": "project_cairnline_migration_report",
+    "migrated_at": "2026-07-09T13:18:18Z",
+    "verified": true,
+    "parity_match": true,
+    "target": "/Users/alice/.hecate/cairnline/embedded/projects.db",
+    "source_authority": ["sqlite"],
+    "rollback_backup_path": "/Users/alice/.hecate/cairnline/embedded/projects.db.pre-migration.bak",
+    "project_count": 2,
+    "checklist": [
+      { "id": "load-hecate-stores", "status": "complete", "detail": "..." },
+      { "id": "staged-rebuild", "status": "complete", "detail": "..." },
+      { "id": "parity-verify", "status": "complete", "detail": "..." },
+      { "id": "backup-live-store", "status": "complete", "detail": "..." },
+      { "id": "atomic-swap", "status": "complete", "detail": "..." },
+      { "id": "migration-record-written", "status": "complete", "detail": "..." }
+    ],
+    "rollback": [
+      "Native Hecate stores remain the untouched source of truth; migration only writes the embedded Cairnline database.",
+      "To discard the migrated embedded store, POST /hecate/v1/projects/cairnline/migrate/rollback (restores the pre-migration backup).",
+      "To return authority to Hecate, unset HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE (and/or HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY); reads and writes fall back to the native stores with no data loss."
+    ],
+    "parity": { "...": "same shape as the sync response item" }
+  }
+}
+```
+
+`source_authority` reports the native storage tier backing the sources
+(`memory`, `sqlite`, or `postgres`). `rollback_backup_path` is `""` when no
+prior live database existed. When `verified` is `false`, `parity` carries the
+`differences`, `id_differences`, and `content_differences` that explain the
+mismatch.
+
+### `POST /hecate/v1/projects/cairnline/migrate/rollback`
+
+Local-only endpoint. It restores the `projects.db.pre-migration.bak` backup over
+the live embedded database and deletes the `migration.json` record, returning the
+operator to the pre-migration embedded state. It is a no-op when no backup
+exists.
+
+Example response:
+
+```json
+{
+  "object": "project_cairnline_migration_rollback",
+  "data": {
+    "restored": true,
+    "reason": "",
+    "restored_from": "/Users/alice/.hecate/cairnline/embedded/projects.db.pre-migration.bak",
+    "target": "/Users/alice/.hecate/cairnline/embedded/projects.db"
+  }
+}
+```
+
+When no backup is present the endpoint still returns 200 with `restored: false`,
+`reason: "no_backup"`, and the live database untouched.
 
 ### `POST /hecate/v1/projects/{id}/cairnline/export`
 
