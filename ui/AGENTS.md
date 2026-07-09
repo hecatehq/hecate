@@ -33,7 +33,7 @@ ui/src/
 
 | Command              | Use for                                                                           |
 | -------------------- | --------------------------------------------------------------------------------- |
-| `bun run typecheck`  | Fast type check after any edit (`tsgo -b` under the hood)                         |
+| `bun run typecheck`  | Fast type check after any edit (`tsc -b` under the hood)                          |
 | `bun run test`       | Vitest run before committing — never `bun test` (skips testing-library DOM setup) |
 | `bun run test:watch` | Iteration                                                                         |
 | `bun run dev`        | Vite dev server on `:5173` proxying API to `:8765`                                |

@@ -11,7 +11,7 @@
   "scripts": {
     "dev": "ASTRO_TELEMETRY_DISABLED=1 astro dev",
     "build": "bun run check && ASTRO_TELEMETRY_DISABLED=1 astro build",
-    "check": "ASTRO_TELEMETRY_DISABLED=1 astro check && tsgo --noEmit",
+    "check": "ASTRO_TELEMETRY_DISABLED=1 astro check && tsc --noEmit",
     "lint": "oxlint -c ../.oxlintrc.json --type-aware src astro.config.mjs --ignore-pattern src/env.d.ts",
     "format": "oxfmt --write src astro.config.mjs package.json",
     "format:check": "oxfmt --check src astro.config.mjs package.json",
@@ -23,10 +23,10 @@
   "devDependencies": {
     "@astrojs/check": "^0.9.9",
     "@types/node": "^26.0.0",
-    "@typescript/native-preview": "beta",
     "oxfmt": "^0.57.0",
     "oxlint": "^1.65.0",
-    "oxlint-tsgolint": "0.24.0"
+    "oxlint-tsgolint": "0.24.0",
+    "typescript": "^6.0.3"
   },
   "packageManager": "bun@1.3.13"
 }

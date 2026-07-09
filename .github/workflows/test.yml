@@ -410,9 +410,9 @@ jobs:
         run: bun run format:check
 
       # Build first so typecheck failures fail-fast (the build script is
-      # `tsgo -b && vite build` — no point running tests on a TS-broken
+      # `tsc -b && vite build` — no point running tests on a TS-broken
       # tree). We don't need a separate `bun run typecheck` step: the
-      # build invokes the same tsgo, so the standalone call would be
+      # build invokes the same tsc, so the standalone call would be
       # duplicate work.
       - name: Build
         run: bun run build
