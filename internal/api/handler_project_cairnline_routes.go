@@ -1,36 +1,5 @@
 package api
 
-import "strings"
-
-var projectCairnlineReadRouteNames = []string{
-	"project-list",
-	"project-detail",
-	"setup-readiness",
-	"health",
-	"skills",
-	"memory",
-	"memory-candidate",
-	"roles",
-	"work-item",
-	"assignment-list",
-	"assignment-context",
-	"launch-readiness",
-	"assignment-preflight",
-	"artifact-list",
-	"handoff-list",
-	"project-assistant-context",
-	"project-assistant-proposal",
-	"project-chat-prelude",
-	"project-chat-context",
-	"activity",
-	"closeout-readiness",
-	"operations-brief",
-}
-
-func projectCairnlineReadRouteList(routes []string) string {
-	return strings.Join(routes, ", ")
-}
-
 func (h *Handler) projectCairnlineEmbeddedConnectorEnabled() bool {
 	return h != nil &&
 		h.config.ProjectsCoordinationBackend() == "cairnline" &&
