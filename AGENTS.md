@@ -84,20 +84,22 @@ internal/
                           Chat settings, message admission/dispatch planning
   chatcontext/          pure context-packet lookup/decode/normalize helpers and
                           canonical ref builders shared by API context endpoints
-  projects/             durable project identity store (memory / sqlite / postgres)
+  projects/             Hecate project view/domain types; portable persistence
+                          belongs to embedded Cairnline
   projectapp/           project lifecycle application layer used by API handlers:
                           project delete cascade boundaries and cleanup authority
-  projectskills/        project-scoped SKILL.md metadata registry
-                          (memory / sqlite / postgres; no body injection or execution)
+  projectskills/        Hecate project-skill view/discovery helpers; Cairnline
+                          owns persisted metadata (no body injection or execution)
   projectwork/          project roles, work items, assignments, handoffs, and
-                          collaboration artifact storage (memory / sqlite / postgres)
+                          collaboration artifact view/domain types
   projectworkapp/       project work application layer used by API handlers:
                           command shaping, id defaults, driver defaults,
                           store error boundaries, execution refs, activity
                           projection/status signals
-  cairnlinebridge/      Hecate Projects → Cairnline mapping and live
-                          read/write adapter seams for the portable
-                          coordination replacement path
+  cairnlinebridge/      live mapping between Cairnline's portable coordination
+                          model and Hecate project/runtime views
+  projectruntime/       Hecate-owned task/chat refs, context snapshots, and
+                          runtime overlays for Cairnline assignments
   projectassistant/     Project Assistant proposal domain: context building,
                           deterministic/model/bootstrap drafting, validation,
                           confirmed apply semantics
@@ -130,11 +132,14 @@ pkg/types/  ←  internal/api/  ←  internal/providers/
 
 The api↔providers parallel-struct duplication (`OpenAIChatMessage` ↔ `openAIChatMessage`) is intentional — it keeps `internal/providers/` free of `internal/api/` imports. Full rationale: [`docs-ai/skills/providers/SKILL.md`](docs-ai/skills/providers/SKILL.md).
 
-**Storage tier rule**: every backend-bound concern mirrors the configured
-storage tiers — `memory` (fast/default), `sqlite` (`modernc.org/sqlite`, no
-CGO, local durable), and `postgres` (`pgx`, hosted/cloud durable). When adding
-a new persisted thing, mirror memory plus both SQL backends unless the operator
-explicitly scopes the work differently.
+**Storage tier rule**: every Hecate-owned backend-bound concern mirrors the
+configured storage tiers — `memory` (fast/default), `sqlite`
+(`modernc.org/sqlite`, no CGO, local durable), and `postgres` (`pgx`,
+hosted/cloud durable). When adding a new Hecate-owned persisted thing, mirror
+memory plus both SQL backends unless the operator explicitly scopes the work
+differently. Portable Projects coordination is the exception: Cairnline owns
+that SQLite-backed graph. Do not add Hecate-native copies, mirrors, backend
+selectors, or migration routes for Cairnline-owned records.
 
 ## Runtime invariants
 

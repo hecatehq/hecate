@@ -436,7 +436,8 @@ Recommended sequence:
      injected" when Hecate does not own the adapter prompt.
 
 3. **Skills Registry V1 Core**
-   - Implemented: project-scoped memory/SQLite store parity.
+   - Implemented: project-scoped Cairnline SQLite authority behind Hecate's API
+     and UI facade.
    - Implemented: project-local `.agents/skills`, `.cairnline/skills`,
      `.claude/skills`, `.gemini/skills`, and `.hecate/skills` discovery.
    - Implemented: local skill roots explicitly linked from enabled `AGENTS.md`

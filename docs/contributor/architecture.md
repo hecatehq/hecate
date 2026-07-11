@@ -194,6 +194,13 @@ configures the shared SQLite client for local durable state, while
 `HECATE_POSTGRES_URL` / `DATABASE_URL` configures the shared Postgres client for
 hosted/cloud-runtime durable state.
 
+This selector covers Hecate-owned state. Portable Projects coordination is
+owned by embedded Cairnline and stored in
+`<HECATE_DATA_DIR>/cairnline/embedded/projects.db`; Hecate stores only runtime
+overlays such as task/chat references and context snapshots in its configured
+backend. Do not introduce a second Hecate Projects authority or dual-write
+mirror.
+
 The full storage reference lives in [`docs/operator/deployment.md`](../operator/deployment.md#storage-backend). Implementation notes worth pinning here:
 
 - SQLite uses the pure-Go `modernc.org/sqlite` driver — no CGO, no native extensions.

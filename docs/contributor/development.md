@@ -94,71 +94,27 @@ The gateway and the operator UI are both served from `http://127.0.0.1:8765`. `j
 
 For iterative changes that don't touch the embed boundary, skip the binary build and run from source: `just run` is `go run` with quick defaults; `just dev` is the same but sources `.env` when present so provider keys are available.
 
-## Cairnline Projects dogfood
+## Cairnline-backed Projects
 
-Projects should not block runtime, chat, gateway, adapter, or observability
-work. When you need to verify the current Cairnline-backed Projects path, use
-the focused dogfood recipe instead of assembling the environment by hand:
+Normal `just dev` runs Hecate with embedded Cairnline as the Projects
+coordination authority; no feature flags or alternate recipe are required. Use
+`just reset-dev` when you intentionally want a clean Hecate and Cairnline
+local state directory.
 
-```bash
-just dev-cairnline-projects --reset
-```
-
-This starts the source runtime with embedded Cairnline as the explicit
-Projects coordination backend, embedded read source, all portable write
-authority enabled, and embedded replacement mode armed. Use `--reset` for a
-clean local dogfood store; omit it only when intentionally checking an existing
-`.data/` directory. Then open `http://127.0.0.1:8765`, create or inspect a
-project, and confirm **Settings → Project coordination** reports Cairnline as
-authoritative before trusting the run. On a freshly reset store, the status may
-first ask for live portable project state; create or import a project, then
-refresh Settings so backend status can smoke the embedded Cairnline database
-instead of an empty store. Adding a small work item and assignment gives the
-smoke more route coverage, but the first requirement is simply non-empty
-Cairnline project state.
-
-For automated confidence before or after manual dogfood, run:
+For focused API confidence, run:
 
 ```bash
-just test-projects-dogfood
+just test-projects-cairnline
 ```
 
-That target exercises the native Projects journey, the embedded Cairnline
-replacement task journey, the External Agent assignment-preparation path,
-runtime-overlay closeout readiness, backend-status gates, and representative
-mirror parity. It is intentionally narrower than `just test-race`; run the
-race suite as usual for backend/runtime changes.
+That journey creates project coordination through the normal Hecate facade,
+launches a Hecate task, and verifies runtime references and context evidence
+without configuring Hecate-native portable stores. Backend/runtime changes must
+still run the normal race suite.
 
-For standalone Cairnline sidecar interoperability changes, run:
-
-```bash
-just test-projects-sidecar
-```
-
-That target keeps sidecar confidence separate from embedded replacement mode:
-it exercises sidecar read projections, launch-packet/readiness handling,
-resource access, and smoke contracts while keeping Hecate's authoritative
-Projects backend out of scope.
-
-For a manual source-runtime sidecar check, install the standalone Cairnline
-`v0.1.0-alpha.5` binary or newer, confirm `cairnline -version`, and run:
-
-```bash
-just dev-cairnline-sidecar-projects --reset
-```
-
-This starts Hecate with `HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar` and
-`HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar`, using
-`.data/cairnline/sidecar/projects.db` unless `.env` overrides
-`HECATE_PROJECTS_CAIRNLINE_SIDECAR_DB`. The recipe prints the detected
-Cairnline version before launch, so binaries that do not support the version
-probe fail before Hecate starts. In the multi-repo workspace, if `cairnline` is
-not installed and `../cairnline` exists, the recipe builds a local dev binary at
-`.data/cairnline/bin/cairnline-dev`; set
-`HECATE_PROJECTS_CAIRNLINE_SIDECAR_COMMAND` to force a release binary or any
-other command path. It is an MCP interoperability/dev surface: Hecate still
-keeps authoritative Projects writes on the native or embedded replacement path,
-and sidecar mode should not be treated as the final Cairnline cutover.
+The standalone Cairnline repository owns MCP-server interoperability tests.
+Hecate currently embeds the Go service; it does not expose a selectable
+standalone sidecar connector.
 
 ## UI hot reload
 
