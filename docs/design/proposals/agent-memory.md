@@ -1,12 +1,13 @@
 # Agent Memory
 
-> **Status:** proposed; partially implemented.
+> **Status:** proposed; project-scoped operator memory implemented through
+> Cairnline, broader agent memory remains future work.
 > **Current source of truth:** [Chat sessions](../../runtime/chat-sessions.md),
 > [Agent runtime](../../runtime/agent-runtime.md), and
 > [Context assembly and injection boundaries](context-assembly-and-injection-boundaries.md)
 > for today's prompt and context behavior.
 > **Next action:** extend activation/profile selection beyond the current
-> project-scoped operator-driven memory store, then add broader context
+> Cairnline-backed project memory scope, then add broader context
 > assembly and prompt-rendering integration.
 
 Operators often repeat the same durable context: coding preferences,
@@ -201,17 +202,22 @@ The UI should make this distinction visible: "available to Hecate Chat" versus
 
 ## Storage
 
-Memory now has an `internal/memory/` package with memory and SQLite backends,
-following the storage-tier rule. The first implementation is deliberately
-project-scoped: entries live under `/hecate/v1/projects/{project_id}/memory`,
-are written only by explicit operator action, and are shown in the Projects UI.
+Accepted project memory and memory candidates now live in Cairnline's embedded
+SQLite graph with the rest of portable Projects coordination state. Hecate
+keeps the `/hecate/v1/projects/{project_id}/memory*` API facade and Projects UI,
+but it does not persist a second Hecate memory/SQLite/Postgres copy.
+`internal/memory/` remains as the in-memory adapter vocabulary used by context
+assembly, Project Assistant, and tests.
+
+The implementation is deliberately project-scoped: entries are written only
+by explicit operator action and are shown in the Projects UI.
 Enabled entries are added to chat context packets as itemized `memory` context
 items using the entry's trust/provenance labels. Global, chat, profile,
 surface, composite, external-provider, and `/active` selection surfaces remain
 future work.
 
-Project memory candidates are also project-scoped and mirrored across memory
-and SQLite backends. They live under
+Project memory candidates are also project-scoped and authoritative in
+Cairnline. They live under
 `/hecate/v1/projects/{project_id}/memory/candidates`, carry suggested
 trust/provenance fields plus source references, and move through `pending`,
 `promoted`, or `rejected`. Candidate creation is not a memory write: only the
@@ -220,7 +226,8 @@ operator edits before saving.
 
 It is logically related to chats but not owned by chat sessions.
 
-SQLite sketch:
+Historical pre-extraction Hecate-native SQLite sketch (not the current
+Cairnline schema):
 
 ```sql
 CREATE TABLE IF NOT EXISTS memory_entries (
@@ -242,13 +249,12 @@ CREATE INDEX IF NOT EXISTS idx_memory_entries_scope
     ON memory_entries (scope, project_id, chat_session_id, agent_profile, surface, enabled);
 ```
 
-When `HECATE_CONTROL_PLANE_SECRET_KEY` is set, `body` should be encrypted with
-the same secret-management primitives used for stored provider credentials.
-When the key is unset, store plain UTF-8, matching the current local-dev
-posture. The `body` text may use Markdown-style formatting because it renders
-well for operators and agents, but the durable object is still a structured
-memory entry in the memory store. Filesystem-backed Markdown notes can be an
-import/export or context-source integration later, not the v1 default.
+A future encrypted-memory design could use the same secret-management
+primitives as stored provider credentials. That is not current Cairnline
+behavior. The `body` text may use Markdown-style formatting because it renders
+well for operators and agents, but the durable object remains a structured
+memory entry. Filesystem-backed Markdown notes can be an import/export or
+context-source integration later, not the v1 default.
 
 ## API Surface
 
@@ -349,22 +355,22 @@ visibility at the point of use.
 
 ## Implementation Plan
 
-| PR  | Scope                                                                                                           |
-| --- | --------------------------------------------------------------------------------------------------------------- |
-| 1   | Landed: project-scoped `internal/memory/` store with memory + SQLite backends, CRUD API, UI management surface. |
-| 2   | Landed for chat packets: enabled project memory emits labelled `memory` context items.                          |
-| 3   | Landed for project handoffs: handoff records can reference memory IDs without writing or promoting memory.      |
-| 4   | Add `/active` introspection once preset/surface selection exist beyond project scope.                           |
-| 5   | Agent Preset memory-source selection for Hecate Chat and external agents.                                       |
-| 6   | Extend active-memory indicators into Chat/Task Detail and standalone task-run context packets.                  |
-| 7   | Docs, screenshots, and e2e coverage for scoped memory visibility.                                               |
+| PR  | Scope                                                                                                              |
+| --- | ------------------------------------------------------------------------------------------------------------------ |
+| 1   | Landed, then extracted: project-scoped memory CRUD and UI now use Cairnline authority through Hecate's API facade. |
+| 2   | Landed for chat packets: enabled project memory emits labelled `memory` context items.                             |
+| 3   | Landed for project handoffs: handoff records can reference memory IDs without writing or promoting memory.         |
+| 4   | Add `/active` introspection once preset/surface selection exist beyond project scope.                              |
+| 5   | Agent Preset memory-source selection for Hecate Chat and external agents.                                          |
+| 6   | Extend active-memory indicators into Chat/Task Detail and standalone task-run context packets.                     |
+| 7   | Docs, screenshots, and e2e coverage for scoped memory visibility.                                                  |
 
 This should land after the first context-packet implementation. Otherwise
 memory will have no durable "what saw this entry?" audit trail.
 
 ## Test Plan
 
-- Store parity tests for memory and SQLite.
+- Cairnline store and Hecate facade tests for accepted memory and candidates.
 - Scope matching unit tests for global, project, chat, Agent Preset, surface, and composite
   entries.
 - API tests for CRUD, disabled entries, and `/active`.

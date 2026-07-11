@@ -59,47 +59,29 @@ project-assignment starts record project metadata for inspection, but Hecate
 does not inject project memory bodies, source bodies, or skill bodies into
 adapter prompts; the adapter owns private prompt packing inside its native
 session.
-Cairnline is the portable coordination replacement path for Projects. Hecate
-still owns UI, task execution, approvals, external-agent supervision, traces,
-and context-packet rendering, but configured Cairnline read routes and opt-in
-write-authority switchpoints are live dogfood seams. The portable work
-authority routes for root discovery/worktree-created root records,
-context-source discovery, project skills, roles, work items, assignments,
-collaboration artifacts, handoffs, accepted memory, and memory candidates can
-operate from embedded Cairnline project graphs without a matching Hecate-native
-compatibility project row; keep any Hecate shadow writes best-effort and do not
-add native `requireProject*` guards ahead of those authority paths. Assignment
-runtime refs/context/timestamps belong in Hecate's separate runtime overlay, so
-do not make runtime preservation depend on a native compatibility assignment row.
-In strict embedded mode, Hecate-task and external-agent assignment start may
-claim/progress the assignment directly in Cairnline and persist only the runtime
-overlay; do not reintroduce native project-work guards for those start paths.
-When embedded replacement mode is armed, prefer that Cairnline runtime path even
-if a compatibility project-work store is configured, and keep task/run or
-chat-session refs in the runtime overlay instead of advancing the native
-assignment shadow.
-Use `just dev-cairnline-projects --reset` for a clean local runtime with the
-embedded Cairnline dogfood posture already applied, and `just
-test-projects-dogfood` for the focused API confidence check before returning to
-non-Projects work.
-Assignment launch/preflight context must read inspect-only collaboration
-artifact and handoff metadata from the active Cairnline read model before
-falling back to Hecate-native project-work rows.
-Strict embedded assignment context reads must prefer a matching Hecate runtime
-overlay context packet after Hecate has launched the assignment, and use
-Cairnline's inspect-only assignment context only when no persisted runtime
-snapshot exists yet.
-Linked external-agent chat reconciliation must follow the same boundary: when
-native project-work stores are absent, reconcile status/ref changes back to the
-embedded Cairnline assignment plus Hecate's runtime overlay rather than
-requiring a compatibility assignment row.
-Do not describe
-`internal/cairnlinebridge` as only a future proof; it maps Hecate Projects to
-Cairnline snapshots and backs the current embedded/sidecar replacement probes.
-Project-linked Hecate Chat prelude/context helpers also use the configured
-Cairnline read source for project identity, roles, skills, work, and accepted
-memory, so sidecar-only or strict-embedded project identities must not fall back
-to native Hecate stores for those chat metadata paths.
+Cairnline is the sole production authority for portable Projects coordination.
+The embedded Cairnline service stores project identity, roots, context-source
+and skill metadata, roles, work items, assignments, collaboration artifacts,
+handoffs, accepted project memory, memory candidates, and Project Assistant
+proposal records. Hecate keeps the `/hecate/v1/projects*` API and operator UI as
+its facade over that state; do not add a second Hecate-native portable store,
+backend selector, mirror, migration route, or fallback authority.
+
+Hecate still owns execution concerns: Agent Presets, provider/model defaults,
+task and External Agent dispatch, approvals, sandbox and workspace operations,
+runtime references, context snapshots, traces, and the operator shell.
+Assignment launch and preflight therefore combine Cairnline coordination state
+with Hecate runtime policy. Persist task/run or chat-session references in the
+Hecate project-runtime overlay, while assignment lifecycle state remains in
+Cairnline. Linked External Agent reconciliation follows the same split.
+
+`internal/cairnlinebridge` is the live mapping boundary between Cairnline's
+agent-neutral coordination model and Hecate's API/runtime views. Keep the bridge
+free of Hecate execution authority: Cairnline assignment metadata is intent,
+not permission to bypass Hecate approvals, sandboxing, model policy, or adapter
+policy. A separately installed Cairnline connector may be added later, but the
+current runtime embeds Cairnline and does not expose transition or sidecar
+diagnostic routes.
 Model-backed assistant turns should carry a small context-inspector packet:
 execution mode, route/workspace metadata, source provenance, and visible
 transcript counts. Do not store full prompt bodies, raw transcript text, file
@@ -143,7 +125,7 @@ internal/agentadapters/    ACP/process adapters for Codex, Claude Code, Cursor,
                              Grok Build
 internal/chat/        chat transcript persistence and runtime linkage
 internal/modelcaps/        model tool-capability merge logic and defaults
-internal/cairnlinebridge/  Hecate Projects to Cairnline mapping and replacement-readiness adapter seams
+internal/cairnlinebridge/  live Cairnline-to-Hecate mapping and coordination adapter
 
 ui/                        React/Vite operator UI (embedded via //go:embed ui/dist)
 e2e/                       binary-startup tests, build tag e2e (sub-tags: ollama, docker)
@@ -167,8 +149,8 @@ The api↔providers parallel-struct duplication (`OpenAIChatMessage` ↔ `openAI
 
 ## Storage tier rule
 
-Every backend-bound concern (taskstate, chat, approvals, governor, retention
-history) ships with mirrored tiers:
+Every Hecate-owned backend-bound concern (taskstate, chat, approvals, governor,
+retention history) ships with mirrored tiers:
 
 - `memory` — in-process, default, perfect for `go test` and `just dev`.
 - `sqlite` — single-file local persistence via `modernc.org/sqlite` (no CGO).
@@ -178,6 +160,11 @@ When adding a new persisted thing, mirror memory and both SQL backends unless
 the operator explicitly scopes the change differently. Add a `<thing>_test.go`
 that runs against memory and SQLite, and add or extend the opt-in Postgres
 smoke when real Postgres behavior matters.
+
+Portable Projects coordination is the explicit exception: Cairnline owns its
+SQLite-backed graph. Do not add Hecate memory/SQLite/Postgres copies of
+Cairnline-owned project records. Hecate project-runtime overlays still follow
+Hecate's normal storage-tier rule.
 
 When adding or moving a backend selector, also update the two selector guards:
 `internal/config/config_test.go` for validation/DSN fan-out and

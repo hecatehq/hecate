@@ -188,28 +188,14 @@ Builds the same project-scoped context packet and role/driver selection that
 use this endpoint to show what `Auto` resolved to before asking the server to
 draft a proposal.
 
-When `HECATE_PROJECTS_COORDINATION_BACKEND=cairnline` is enabled and the
-backend-status route reports `read_model_switch_ready=true`, Hecate builds this
-packet from the Cairnline read model and marks it with
-`read_backend: "cairnline"`. The configured Cairnline read model still uses
-Hecate snapshots as bridge scaffolding, but its Cairnline service reads prefer
-the embedded mirror database when it contains the requested project, then fall
-back to the snapshot-seeded in-memory bridge projection when the mirror is
-missing. The same projected context is used for Project Assistant draft
-generation so preview and proposal assembly stay aligned.
-The adapter preserves Hecate-owned projection details such as native snapshot
-timestamps and Hecate-only metadata while using Cairnline as the portable graph
-source, so ordering-sensitive context such as recent activity stays compatible
-with the Hecate-native path during replacement-readiness testing.
-Proposal ledger writes are Hecate-owned by default and best-effort mirrored into
-Cairnline, but the opt-in `project-assistant-proposals` write-authority
-switchpoint makes draft/propose/apply-attempt ledger records Cairnline-first.
-Confirmed apply routes its project create, project metadata/default, root, role,
-work-item, assignment, handoff, and memory-candidate side effects through the
-matching opt-in Cairnline authority switchpoints when they are enabled; the
-remaining chat and runtime side effects stay Hecate-owned orchestrator
-capabilities and are mirrored into Cairnline only as replacement-readiness
-evidence.
+Hecate builds this packet from embedded Cairnline and marks it with
+`read_backend: "cairnline"`. The same coordination projection is used for
+Project Assistant draft generation so preview and proposal assembly stay
+aligned. Proposal records and confirmed portable side effects are persisted in
+Cairnline. Hecate remains responsible for Agent Preset resolution, chat/task
+creation, approvals, sandboxing, and other runtime actions; those runtime
+effects are linked through Hecate's project-runtime overlay rather than copied
+into another coordination store.
 
 The v0 context packet is item-limited and body-budgeted. It includes project
 defaults, roots, context-source metadata, the selected work item when present,

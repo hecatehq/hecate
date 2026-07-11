@@ -32,8 +32,7 @@ and role/memory suggestions.
 When setup context exists and the project has no work items yet, first-work
 creation opens with a draft title, brief, and owner role for operator review.
 
-Project names and concrete root paths are unique in Hecate's operator cockpit,
-including Cairnline replacement-mode project identity.
+Project names and concrete root paths are unique in the Projects coordination store.
 
 ## Work Flow
 
@@ -63,16 +62,6 @@ specific item. The menu opens existing surfaces only; it does not create
 records, launch agents, or write memory. Like Project Operations, Needs
 Attention rows use a typed server-provided `action` object for follow-through;
 compact row fields are display metadata, not a second routing authority.
-
-When Cairnline dogfood or replacement mode is configured, the Projects cockpit
-also shows a compact **Project coordination** strip above the workspace. It is
-read-only status from `GET /hecate/v1/projects/backend-status`; use it to
-confirm whether portable project coordination is still Hecate-native, in
-Cairnline dogfood, or reporting Cairnline authoritative. The strip previews the
-server-recommended next replacement action, target, probe count, copyable
-environment hints, and a full env block when more than one setting is required.
-Use **Backend settings** to jump to the global Settings workspace for full
-gates, ordered probe checklists, and migration evidence.
 
 The Work Coordination tab starts with Project Operations when the server finds
 actionable project state: missing launch defaults, pending approvals, blocked
@@ -155,134 +144,15 @@ Worktree creation is an explicit operator action. In V1, Hecate creates
 worktrees under the selected root's `.worktrees/` directory and does not create
 sibling workspaces outside the registered project root.
 
-## Cairnline Coordination Backend
+## Cairnline Coordination Boundary
 
-Hecate embeds the [Cairnline](https://github.com/hecatehq/cairnline) portable
-coordination package and can serve project coordination state from it. This is
-opt-in and non-default: with no configuration, Hecate-native stores stay
-authoritative and none of the switches below have any effect. All of these gates
-are alpha and their contracts are not yet stable; back up your data before
-enabling them and use `GET /hecate/v1/projects/backend-status` to inspect the
-effective state, replacement gates, and remaining write switchpoints.
+Hecate's Projects API and cockpit use the embedded [Cairnline](https://github.com/hecatehq/cairnline) coordination store. Cairnline owns the portable project graph: project identity, roots, context-source and skill metadata, roles, work items, assignments, evidence, reviews, handoffs, accepted project memory, memory candidates, and Project Assistant proposal records.
 
-Five environment gates control the path, from off to fully armed:
+Hecate owns the host-specific layer around that graph: Agent Presets, provider and model selection, task and External Agent launch, workspace and Git side effects, approvals, sandboxing, chats, execution references, context snapshots, traces, and the operator UI. Starting an assignment resolves Cairnline coordination intent into Hecate runtime behavior; Cairnline records never bypass Hecate policy.
 
-- `HECATE_PROJECTS_COORDINATION_BACKEND` — `hecate` (default) or `cairnline`.
-  `cairnline` turns on the live Cairnline read routes (22 project read families)
-  and enables the opt-in write-authority switchpoints below. Hecate-native
-  stores remain authoritative for every mutation family whose switchpoint is not
-  enabled.
-- `HECATE_PROJECTS_CAIRNLINE_CONNECTOR` — `embedded` (default) or `sidecar`.
-  `embedded` uses the in-process Cairnline Go package and is the only connector
-  that can make live write routes and write-authority switchpoints use Cairnline.
-  `sidecar` runs a standalone Cairnline MCP process for contract/read smokes only;
-  write-authority switchpoints are ignored in sidecar connector mode. The sidecar
-  process is configured through `HECATE_PROJECTS_CAIRNLINE_SIDECAR_COMMAND`
-  (default `cairnline`), `_SIDECAR_ARGS`, `_SIDECAR_DB`, and
-  `_SIDECAR_PROBE_TIMEOUT` (default `10s`).
-- `HECATE_PROJECTS_CAIRNLINE_READ_SOURCE` — `auto` (default), `snapshot`,
-  `embedded`, or `sidecar`. `auto` prefers the embedded mirror database when it
-  already contains the requested project and otherwise uses the snapshot-seeded
-  bridge; `snapshot` forces the bridge; `embedded` requires a populated embedded
-  mirror and fails loudly when it is missing or stale, which is what strict
-  cutover rehearsal wants; `sidecar` routes the read families through the
-  standalone MCP client and requires `_CONNECTOR=sidecar`.
-- `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY` — `none` (default) or a
-  comma-separated list of portable write-authority switchpoints (or the
-  `all-portable` shorthand). Each enabled switchpoint makes that family commit to
-  Cairnline first and then best-effort shadow the record back into Hecate-native
-  stores. The twelve portable families are `project-identity`,
-  `project-metadata-defaults`, `project-roots`, `project-context-sources`,
-  `project-skills`, `project-roles`, `project-work-items`, `project-assignments`,
-  `project-collaboration`, `project-memory`, `memory-candidates` (requires
-  `project-memory`), and `project-assistant-proposals`. Enabling write authority
-  does not move Hecate-owned runtime side effects (root scans, Git worktree
-  creation, assignment-start dispatch, task/External Agent supervision,
-  approvals, traces) or migration cutover.
-- `HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE` — `disabled` (default) or
-  `embedded`. `embedded` is the explicit cutover arm and is accepted only with
-  `_COORDINATION_BACKEND=cairnline`, `_CONNECTOR=embedded`, and
-  `_READ_SOURCE=embedded`. It implies all portable write authority and lets
-  strict embedded reads serve project state directly from Cairnline. Backend
-  status still reports the remaining strict-embedded-read-smoke,
-  migration-and-rollback, and replacement-mode gates, so operators can tell
-  "portable writes are Cairnline-first" apart from "every replacement proof is
-  complete."
+The Hecate facade remains at `/hecate/v1/projects*`, so the Projects UI does not depend on Cairnline's transport. Hecate stores embedded Cairnline state under its local data directory. There is no Hecate-native coordination backend, backend selector, mirror, migration endpoint, or rollback gate. Alpha dogfood records created by the removed native store are intentionally not migrated.
 
-One declared boundary remains even with replacement mode armed: **assignment
-start dispatch** stays Hecate-owned. Hecate can claim and progress a Cairnline
-assignment record and mirror runtime refs, but it does not launch tasks or
-External Agents from Cairnline. `POST /hecate/v1/projects/cairnline/sync`
-remains a full-refresh delete-and-reseed _rehearsal_ into the embedded mirror; it
-never becomes authoritative, so treat its output as replacement evidence rather
-than a source of truth. For local dogfood,
-`just dev-cairnline-projects --reset` starts a clean runtime with the embedded
-dogfood posture applied and `just test-projects-dogfood` runs the focused API
-check.
-
-### Migration cutover
-
-The authoritative one-way migration from Hecate-native project stores into the
-embedded Cairnline database has shipped. It is distinct from the `sync`
-rehearsal above: `sync` refreshes the live mirror in place, while migrate stages
-a rebuild, verifies it, backs up the live database, and only then swaps it into
-place.
-
-- `POST /hecate/v1/projects/cairnline/migrate` executes the cutover as a staged
-  **rebuild -> verify -> backup -> atomic swap**. It rebuilds the migration
-  target in a `projects.db.migrating` staging file, verifies it against the
-  current native snapshot (full parity over every family plus a strict embedded
-  read smoke), **copies** any existing live `projects.db` to a timestamped backup
-  generation `projects.db.pre-migration-<utc-timestamp>.bak` (leaving the live
-  file in place), then replaces the live database with the verified staging file
-  via a **single atomic rename** and writes a durable `migration.json` record
-  next to the embedded database. The swap copies the backup rather than moving
-  the live file so the live path is never absent at any instant: a crash can only
-  leave the live path holding either the original bytes or the migrated bytes,
-  never nothing. The endpoint always returns 200: on verification failure the
-  live database is left untouched, the staging files are removed, and the parity
-  diffs are returned in the report so you can diagnose the mismatch.
-- Parity is verified across all twelve portable write families by count,
-  record-ID set, and content digest. The content-digest comparison deliberately
-  excludes timestamp fields and compares only the record-ID intersection;
-  additions and deletions are covered by the record-ID-set layer, so stripping
-  timestamps does not weaken the check.
-- Each migration writes a distinct timestamped backup generation, so re-running
-  never clobbers an earlier original. Older generations are left on disk for
-  manual recovery; `rollback` restores the latest generation recorded in
-  `migration.json`.
-- The migration is **deletion-faithful by reconstruction**. The target is rebuilt
-  purely from the current native snapshot, so any row that was deleted natively
-  (and is therefore absent from the snapshot) is never written into the rebuilt
-  database. Deletions propagate for all twelve portable write families, including
-  the immutable record types: five of the fourteen Cairnline record types
-  (skills, artifacts, evidence, reviews, assistant proposals) have no delete API,
-  so reconstruction — not per-record deletes — is what makes them
-  deletion-faithful. Hecate keeps no tombstones — absence in the source is
-  absence in the target — and the migration is idempotent, so re-running
-  converges to the same verified state.
-- `GET /hecate/v1/projects/backend-status` reports the result under
-  `migration_cutover` (`status` is `not_migrated`, `migrated_verified`, or
-  `migrated_unverified`, alongside the migrate/rollback endpoints, the
-  `migrated`/`verified`/`parity_match` flags, `migrated_at`,
-  `rollback_backup_path`, and `source_authority`). Once a verified migration is
-  executed, the `migration-cutover` write-adapter gap clears and the
-  `migration-and-rollback` replacement gate surfaces the executed, verified
-  migration and its rollback backup path.
-
-To roll back or disarm the cutover, the native stores stay the untouched source
-of truth until you flip authority away from them:
-
-- Unset `HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE` (and/or
-  `HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY`) to return reads and writes to the
-  native stores with no data loss, and/or
-- `POST /hecate/v1/projects/cairnline/migrate/rollback` to restore the latest
-  `projects.db.pre-migration-<utc-timestamp>.bak` generation recorded in
-  `migration.json` over the live embedded database and delete the migration
-  record. The backup generation is copied (not moved) so it is preserved for
-  further manual recovery. It is a no-op (`restored: false`, `reason:
-"no_backup"`) when the record has no backup path or the recorded backup is
-  missing.
+Cairnline itself remains agent-neutral and can also be used directly over MCP by other agent hosts. A separately installed Cairnline connector is future work; Hecate currently uses the embedded Go package.
 
 ## What Projects V1 Does Not Do
 
