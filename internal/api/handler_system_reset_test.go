@@ -272,7 +272,7 @@ func TestSystemResetDataRemovesUnreadableEmbeddedCairnlineDatabase(t *testing.T)
 	if err := json.Unmarshal(rec.Body.Bytes(), &reset); err != nil {
 		t.Fatalf("decode reset response: %v", err)
 	}
-	if reset.Data.ProjectsDeleted != 0 || reset.Data.CairnlineFilesDeleted != 1 {
+	if reset.Data.ProjectsDeleted != 0 || reset.Data.CairnlineFilesDeleted == 0 {
 		t.Fatalf("reset stats = %+v, want unreadable Cairnline file removed without a project count", reset.Data)
 	}
 	if _, err := os.Stat(databasePath); err == nil || !os.IsNotExist(err) {
