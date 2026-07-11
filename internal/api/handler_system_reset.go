@@ -187,15 +187,16 @@ func (h *Handler) resetCairnlineDatabase(ctx context.Context) (int, int, error) 
 	if err == nil {
 		projects, listErr := service.ListProjects(ctx)
 		closeErr := store.Close()
-		if listErr != nil {
-			return 0, 0, listErr
+		if listErr == nil {
+			projectsDeleted = len(projects)
+		} else if h.logger != nil {
+			h.logger.WarnContext(ctx, "cairnline project count failed during reset", "error", listErr)
 		}
-		if closeErr != nil {
-			return 0, 0, closeErr
+		if closeErr != nil && h.logger != nil {
+			h.logger.WarnContext(ctx, "cairnline database close failed during reset", "error", closeErr)
 		}
-		projectsDeleted = len(projects)
-	} else if !errors.Is(err, cairnline.ErrNotFound) {
-		return 0, 0, err
+	} else if !errors.Is(err, cairnline.ErrNotFound) && h.logger != nil {
+		h.logger.WarnContext(ctx, "cairnline database inspection failed during reset", "error", err)
 	}
 	dbPath := h.cairnlineEmbeddedDatabasePath()
 	filesDeleted := 0

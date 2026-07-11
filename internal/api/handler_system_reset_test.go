@@ -242,6 +242,44 @@ func TestSystemResetDataRemovesEmbeddedCairnlineDatabase(t *testing.T) {
 	}
 }
 
+func TestSystemResetDataRemovesUnreadableEmbeddedCairnlineDatabase(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend:      "cairnline",
+			CairnlineConnector:       "embedded",
+			CairnlineReadSource:      "embedded",
+			CairnlineReplacementMode: "embedded",
+		},
+	}, quietLogger(), nil, controlplane.NewMemoryStore(), taskstate.NewMemoryStore(), nil)
+	databasePath := handler.cairnlineEmbeddedDatabasePath()
+	if err := os.MkdirAll(filepath.Dir(databasePath), 0o755); err != nil {
+		t.Fatalf("create Cairnline database directory: %v", err)
+	}
+	if err := os.WriteFile(databasePath, []byte("not a sqlite database"), 0o600); err != nil {
+		t.Fatalf("write unreadable Cairnline database: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/hecate/v1/system/reset-data", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
+	NewServer(quietLogger(), handler).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("reset status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var reset SystemResetDataResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &reset); err != nil {
+		t.Fatalf("decode reset response: %v", err)
+	}
+	if reset.Data.ProjectsDeleted != 0 || reset.Data.CairnlineFilesDeleted != 1 {
+		t.Fatalf("reset stats = %+v, want unreadable Cairnline file removed without a project count", reset.Data)
+	}
+	if _, err := os.Stat(databasePath); err == nil || !os.IsNotExist(err) {
+		t.Fatalf("stat unreadable Cairnline database after reset error = %v, want not exist", err)
+	}
+}
+
 func TestSystemResetDataSQLiteBackendClearsRemainingRows(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
