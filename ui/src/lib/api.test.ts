@@ -59,6 +59,7 @@ import {
   listChatGrants,
   listChatMessageFiles,
   logoutAgentAdapter,
+  migrateProjectsToCairnline,
   openWorkspaceTargetViaAPI,
   probeAgentAdapter,
   promoteProjectMemoryCandidate,
@@ -66,6 +67,7 @@ import {
   revertChatMessageFiles,
   revertChatWorkspaceFiles,
   resolveChatApproval,
+  rollbackProjectsCairnlineMigration,
   setChatSettings,
   setProviderAPIKey,
   setProviderBaseURL,
@@ -129,6 +131,34 @@ describe("api client", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "/hecate/v1/usage/events?limit=7",
       expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("runs project migration and rollback through local operator routes", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          object: "project_cairnline_migration",
+          data: { verified: true, parity_match: true },
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          object: "project_cairnline_migration_rollback",
+          data: { restored: true },
+        }),
+      );
+
+    await migrateProjectsToCairnline();
+    await rollbackProjectsCairnlineMigration();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/hecate/v1/projects/cairnline/migrate",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/hecate/v1/projects/cairnline/migrate/rollback",
+      expect.objectContaining({ method: "POST" }),
     );
   });
 

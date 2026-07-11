@@ -145,6 +145,52 @@ export type ProjectCairnlineMigrationRehearsalRecord = {
   };
 };
 
+export type ProjectCairnlineMigrationCutoverRecord = {
+  status: string;
+  endpoint: string;
+  rollback_endpoint: string;
+  migrated: boolean;
+  verified: boolean;
+  parity_match: boolean;
+  migrated_at?: string;
+  rollback_backup_path?: string;
+  source_authority?: string[];
+};
+
+export type ProjectCairnlineMigrationReport = {
+  object: string;
+  migrated_at: string;
+  verified: boolean;
+  parity_match: boolean;
+  target: string;
+  source_authority: string[];
+  rollback_backup_path?: string;
+  project_count: number;
+  checklist: Array<{
+    id: string;
+    status: string;
+    detail: string;
+  }>;
+  rollback: string[];
+  verification_notes?: string[];
+  parity: Record<string, unknown>;
+};
+
+export type ProjectCairnlineMigrationResponse = {
+  object: string;
+  data: ProjectCairnlineMigrationReport;
+};
+
+export type ProjectCairnlineMigrationRollbackResponse = {
+  object: string;
+  data: {
+    restored: boolean;
+    reason?: string;
+    restored_from?: string;
+    target: string;
+  };
+};
+
 export type ProjectCoordinationBackendStatusRecord = {
   configured_backend: string;
   authoritative_backend: string;
@@ -172,6 +218,7 @@ export type ProjectCoordinationBackendStatusRecord = {
   side_effect_blockers?: string[];
   migration_blockers?: string[];
   migration_rehearsal?: ProjectCairnlineMigrationRehearsalRecord;
+  migration_cutover?: ProjectCairnlineMigrationCutoverRecord;
   next_replacement_action?: ProjectCoordinationBackendNextActionRecord;
   replacement_gates?: ProjectCoordinationBackendReplacementGateRecord[];
   write_switchpoints?: ProjectCoordinationBackendWriteSwitchpointRecord[];

@@ -2,7 +2,13 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getPlugins, getProjectCoordinationBackendStatus, resetSystemData } from "../../lib/api";
+import {
+  getPlugins,
+  getProjectCoordinationBackendStatus,
+  migrateProjectsToCairnline,
+  resetSystemData,
+  rollbackProjectsCairnlineMigration,
+} from "../../lib/api";
 import { ConnectionsPanel } from "../connections/ConnectionsPanel";
 import { SettingsView } from "./SettingsView";
 import {
@@ -15,7 +21,9 @@ vi.mock("../../lib/api", async (importOriginal) => ({
   ...((await importOriginal()) as Record<string, unknown>),
   getPlugins: vi.fn(),
   getProjectCoordinationBackendStatus: vi.fn(),
+  migrateProjectsToCairnline: vi.fn(),
   resetSystemData: vi.fn(),
+  rollbackProjectsCairnlineMigration: vi.fn(),
 }));
 
 function setup(stateOverrides = {}, actionOverrides = {}) {
@@ -31,6 +39,44 @@ function capability(id: string, name: string, status = "supported") {
     name,
     status,
     description: `${name} support`,
+  };
+}
+
+function migrationBackendStatus(migrationCutover: {
+  status: string;
+  endpoint: string;
+  rollback_endpoint: string;
+  migrated: boolean;
+  verified: boolean;
+  parity_match: boolean;
+  migrated_at?: string;
+  rollback_backup_path?: string;
+  source_authority?: string[];
+}) {
+  return {
+    object: "project_coordination_backend_status",
+    data: {
+      configured_backend: "cairnline",
+      authoritative_backend: "hecate",
+      storage_backend: "sqlite",
+      cairnline_connector: "embedded",
+      cairnline_connector_ready: true,
+      cairnline_read_source: "embedded",
+      cairnline_bridge_ready: true,
+      cairnline_authoritative: false,
+      read_model_switch_ready: true,
+      write_adapter_ready: true,
+      replacement_ready: false,
+      replacement_mode: "disabled",
+      replacement_mode_armed: false,
+      read_routes: ["project-list"],
+      portable_write_gaps: [],
+      orchestrator_capabilities: ["assignment-start"],
+      migration_blockers: ["migration-cutover"],
+      migration_cutover: migrationCutover,
+      status: "cairnline_read_routes_ready",
+      detail: "Cairnline migration is ready for operator review.",
+    },
   };
 }
 
@@ -65,6 +111,8 @@ beforeEach(() => {
       },
     },
   });
+  vi.mocked(migrateProjectsToCairnline).mockReset();
+  vi.mocked(rollbackProjectsCairnlineMigration).mockReset();
   vi.mocked(resetSystemData).mockReset();
   sessionStorage.removeItem("hecate.settingsFocus");
   sessionStorage.removeItem("hecate.connectionsFocus");
@@ -537,6 +585,121 @@ describe("SettingsView", () => {
     expect(screen.getByText(/Hecate still owns runtime\/workspace side effects/i)).toBeTruthy();
     expect(screen.getByText(/Remaining Hecate-owned orchestrator capabilities/i)).toBeTruthy();
     expect(screen.getByText("Monitor Cairnline backend")).toBeTruthy();
+  });
+
+  it("migrates and restores the embedded Cairnline database with typed confirmation", async () => {
+    const notMigrated = migrationBackendStatus({
+      status: "not_migrated",
+      endpoint: "/hecate/v1/projects/cairnline/migrate",
+      rollback_endpoint: "/hecate/v1/projects/cairnline/migrate/rollback",
+      migrated: false,
+      verified: false,
+      parity_match: false,
+    });
+    const migrated = migrationBackendStatus({
+      status: "migrated_verified",
+      endpoint: "/hecate/v1/projects/cairnline/migrate",
+      rollback_endpoint: "/hecate/v1/projects/cairnline/migrate/rollback",
+      migrated: true,
+      verified: true,
+      parity_match: true,
+      migrated_at: "2026-07-09T12:00:00Z",
+      rollback_backup_path: "/tmp/projects.db.pre-migration.bak",
+      source_authority: ["hecate_native_stores"],
+    });
+    vi.mocked(getProjectCoordinationBackendStatus).mockReset();
+    vi.mocked(getProjectCoordinationBackendStatus)
+      .mockResolvedValueOnce(notMigrated)
+      .mockResolvedValueOnce(migrated)
+      .mockResolvedValueOnce(notMigrated);
+    vi.mocked(migrateProjectsToCairnline).mockResolvedValue({
+      object: "project_cairnline_migration",
+      data: {
+        object: "project_cairnline_migration_report",
+        migrated_at: "2026-07-09T12:00:00Z",
+        verified: true,
+        parity_match: true,
+        target: "/tmp/projects.db",
+        source_authority: ["hecate_native_stores"],
+        rollback_backup_path: "/tmp/projects.db.pre-migration.bak",
+        project_count: 2,
+        checklist: [],
+        rollback: [],
+        parity: {},
+      },
+    });
+    vi.mocked(rollbackProjectsCairnlineMigration).mockResolvedValue({
+      object: "project_cairnline_migration_rollback",
+      data: {
+        restored: true,
+        restored_from: "/tmp/projects.db.pre-migration.bak",
+        target: "/tmp/projects.db",
+      },
+    });
+    const { state, actions, user } = setup();
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
+
+    await user.click(await screen.findByRole("button", { name: "Migrate to Cairnline" }));
+    const migrateConfirm = screen.getByRole("button", { name: "Migrate and verify" });
+    expect(migrateConfirm).toBeDisabled();
+    await user.type(screen.getByLabelText("Type MIGRATE to continue"), "MIGRATE");
+    await user.click(migrateConfirm);
+
+    await waitFor(() => expect(migrateProjectsToCairnline).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("Migration recorded")).toBeTruthy();
+    expect(getProjectCoordinationBackendStatus).toHaveBeenCalledTimes(2);
+
+    await user.click(screen.getByRole("button", { name: "Restore backup" }));
+    const rollbackConfirm = within(screen.getByRole("dialog")).getByRole("button", {
+      name: "Restore backup",
+    });
+    expect(rollbackConfirm).toBeDisabled();
+    await user.type(screen.getByLabelText("Type ROLLBACK to continue"), "ROLLBACK");
+    await user.click(rollbackConfirm);
+
+    await waitFor(() => expect(rollbackProjectsCairnlineMigration).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("Native Projects ready to migrate")).toBeTruthy();
+    expect(getProjectCoordinationBackendStatus).toHaveBeenCalledTimes(3);
+  });
+
+  it("reports a migration verification failure without claiming success", async () => {
+    const status = migrationBackendStatus({
+      status: "not_migrated",
+      endpoint: "/hecate/v1/projects/cairnline/migrate",
+      rollback_endpoint: "/hecate/v1/projects/cairnline/migrate/rollback",
+      migrated: false,
+      verified: false,
+      parity_match: false,
+    });
+    vi.mocked(getProjectCoordinationBackendStatus).mockReset();
+    vi.mocked(getProjectCoordinationBackendStatus).mockResolvedValue(status);
+    vi.mocked(migrateProjectsToCairnline).mockResolvedValue({
+      object: "project_cairnline_migration",
+      data: {
+        object: "project_cairnline_migration_report",
+        migrated_at: "2026-07-09T12:00:00Z",
+        verified: false,
+        parity_match: false,
+        target: "/tmp/projects.db",
+        source_authority: ["hecate_native_stores"],
+        project_count: 2,
+        checklist: [],
+        rollback: [],
+        parity: {},
+      },
+    });
+    const { state, actions, user } = setup();
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
+
+    await user.click(await screen.findByRole("button", { name: "Migrate to Cairnline" }));
+    await user.type(screen.getByLabelText("Type MIGRATE to continue"), "MIGRATE");
+    await user.click(screen.getByRole("button", { name: "Migrate and verify" }));
+
+    await waitFor(() => expect(migrateProjectsToCairnline).toHaveBeenCalledTimes(1));
+    expect(
+      (await screen.findAllByText(/live Cairnline database was left unchanged/i)).length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByText("Migration recorded")).toBeNull();
   });
 
   it("shows project backend load failures without hiding maintenance", async () => {

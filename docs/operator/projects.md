@@ -228,6 +228,16 @@ rehearsal above: `sync` refreshes the live mirror in place, while migrate stages
 a rebuild, verifies it, backs up the live database, and only then swaps it into
 place.
 
+Use **Settings -> Project coordination -> Migration cutover** for the operator
+flow. The panel appears when the Cairnline backend advertises the migration
+contract, shows whether a verified migration is recorded, and requires typing
+`MIGRATE` before it calls the migration endpoint. After a migration with a
+recorded pre-migration database, the same panel exposes **Restore backup** and
+requires typing `ROLLBACK`. Both actions refresh backend status. A migration
+whose verification report fails is shown as failed and leaves the live
+Cairnline database unchanged. Migration and rollback do not edit environment
+configuration or arm/disarm replacement mode.
+
 - `POST /hecate/v1/projects/cairnline/migrate` executes the cutover as a staged
   **rebuild -> verify -> backup -> atomic swap**. It rebuilds the migration
   target in a `projects.db.migrating` staging file, verifies it against the

@@ -93,6 +93,8 @@ import type {
   ProjectCollaborationArtifactResponse,
   ProjectCollaborationArtifactsResponse,
   ProjectCoordinationBackendStatusResponse,
+  ProjectCairnlineMigrationResponse,
+  ProjectCairnlineMigrationRollbackResponse,
   ProjectContextSourcePayload,
   ProjectDeleteResponse,
   ProjectHandoffResponse,
@@ -530,6 +532,19 @@ export async function deleteProject(id: string): Promise<ProjectDeleteResponse> 
 export async function getProjectCoordinationBackendStatus(): Promise<ProjectCoordinationBackendStatusResponse> {
   return fetchJSON<ProjectCoordinationBackendStatusResponse>(
     `${HECATE_API}/projects/backend-status`,
+  );
+}
+
+export async function migrateProjectsToCairnline(): Promise<ProjectCairnlineMigrationResponse> {
+  return fetchJSON<ProjectCairnlineMigrationResponse>(`${HECATE_API}/projects/cairnline/migrate`, {
+    method: "POST",
+  });
+}
+
+export async function rollbackProjectsCairnlineMigration(): Promise<ProjectCairnlineMigrationRollbackResponse> {
+  return fetchJSON<ProjectCairnlineMigrationRollbackResponse>(
+    `${HECATE_API}/projects/cairnline/migrate/rollback`,
+    { method: "POST" },
   );
 }
 

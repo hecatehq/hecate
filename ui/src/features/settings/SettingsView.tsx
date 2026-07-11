@@ -3,7 +3,13 @@ import { useRetention, type RetentionState } from "../../app/state/retention";
 import { useRetentionActions } from "../../app/state/coordinators/retention";
 import { useWiredDashboardActions } from "../../app/state/coordinators/wired";
 import { useSettings } from "../../app/state/settings";
-import { getPlugins, getProjectCoordinationBackendStatus, resetSystemData } from "../../lib/api";
+import {
+  getPlugins,
+  getProjectCoordinationBackendStatus,
+  migrateProjectsToCairnline,
+  resetSystemData,
+  rollbackProjectsCairnlineMigration,
+} from "../../lib/api";
 import type { PluginRecord } from "../../types/plugin";
 import type { ProjectCoordinationBackendStatusRecord } from "../../types/project";
 import { Badge, ConfirmModal, Icon, Icons, InlineError } from "../shared/ui";
@@ -31,6 +37,14 @@ export function SettingsView() {
     useState<ProjectCoordinationBackendStatusRecord | null>(null);
   const [projectBackendLoading, setProjectBackendLoading] = useState(false);
   const [projectBackendError, setProjectBackendError] = useState("");
+  const [projectMigrationAction, setProjectMigrationAction] = useState<
+    "migrate" | "rollback" | null
+  >(null);
+  const [projectMigrationConfirmation, setProjectMigrationConfirmation] = useState("");
+  const [projectMigrationPending, setProjectMigrationPending] = useState<
+    "migrate" | "rollback" | null
+  >(null);
+  const [projectMigrationError, setProjectMigrationError] = useState("");
   // Retention runs aren't in the boot-time dashboard snapshot —
   // fetch on first SettingsView mount so the user doesn't see a
   // permanently empty list. `loadRuns` is a stable useCallback, so
@@ -76,6 +90,65 @@ export function SettingsView() {
     }
   }
 
+  function openProjectMigrationAction(action: "migrate" | "rollback") {
+    setProjectMigrationAction(action);
+    setProjectMigrationConfirmation("");
+    setProjectMigrationError("");
+  }
+
+  async function handleProjectMigrationAction() {
+    const action = projectMigrationAction;
+    if (!action) return;
+    const confirmation = action === "migrate" ? "MIGRATE" : "ROLLBACK";
+    if (projectMigrationConfirmation !== confirmation) return;
+
+    setProjectMigrationPending(action);
+    setProjectMigrationError("");
+    settings.actions.setNotice(null);
+    try {
+      if (action === "migrate") {
+        const response = await migrateProjectsToCairnline();
+        if (!response.data.verified || !response.data.parity_match) {
+          const message =
+            "Cairnline migration verification did not pass. The live Cairnline database was left unchanged.";
+          setProjectMigrationError(message);
+          settings.actions.setNotice({ kind: "error", message });
+        } else {
+          settings.actions.setNotice({
+            kind: "success",
+            message: `Migrated ${response.data.project_count} project${response.data.project_count === 1 ? "" : "s"} to the verified Cairnline database.`,
+          });
+        }
+      } else {
+        const response = await rollbackProjectsCairnlineMigration();
+        if (!response.data.restored) {
+          const message =
+            response.data.reason === "no_backup"
+              ? "No recorded pre-migration Cairnline backup is available to restore."
+              : "The pre-migration Cairnline backup was not restored.";
+          setProjectMigrationError(message);
+          settings.actions.setNotice({ kind: "error", message });
+        } else {
+          settings.actions.setNotice({
+            kind: "success",
+            message:
+              "Restored the pre-migration Cairnline database. Runtime configuration was not changed.",
+          });
+        }
+      }
+      setProjectMigrationAction(null);
+      setProjectMigrationConfirmation("");
+      await loadProjectBackendStatus();
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : `Failed to ${action} the Cairnline project database.`;
+      setProjectMigrationError(message);
+      settings.actions.setNotice({ kind: "error", message });
+    } finally {
+      setProjectMigrationPending(null);
+    }
+  }
+
   async function handleResetData() {
     if (resetConfirmation !== "RESET") return;
     setResetPending(true);
@@ -105,8 +178,12 @@ export function SettingsView() {
         <ProjectCoordinationBackendSettings
           error={projectBackendError}
           loading={projectBackendLoading}
+          migrationError={projectMigrationError}
+          migrationPending={projectMigrationPending}
           status={projectBackendStatus}
+          onMigrate={() => openProjectMigrationAction("migrate")}
           onRefresh={() => void loadProjectBackendStatus()}
+          onRollback={() => openProjectMigrationAction("rollback")}
         />
         <PluginRegistrySettings
           error={pluginsError}
@@ -163,6 +240,56 @@ export function SettingsView() {
                 />
               </label>
               {resetError && <InlineError message={resetError} />}
+            </div>
+          }
+        />
+      )}
+      {projectMigrationAction && (
+        <ConfirmModal
+          title={
+            projectMigrationAction === "migrate"
+              ? "Migrate Projects to Cairnline"
+              : "Restore Cairnline backup"
+          }
+          danger={projectMigrationAction === "rollback"}
+          pending={projectMigrationPending === projectMigrationAction}
+          confirmDisabled={
+            projectMigrationConfirmation !==
+            (projectMigrationAction === "migrate" ? "MIGRATE" : "ROLLBACK")
+          }
+          confirmLabel={
+            projectMigrationAction === "migrate" ? "Migrate and verify" : "Restore backup"
+          }
+          onClose={() => {
+            if (!projectMigrationPending) {
+              setProjectMigrationAction(null);
+              setProjectMigrationConfirmation("");
+            }
+          }}
+          onConfirm={handleProjectMigrationAction}
+          message={
+            <div style={{ display: "grid", gap: 12 }}>
+              <div>
+                {projectMigrationAction === "migrate"
+                  ? "Hecate will rebuild a staged Cairnline database from native project stores, verify parity, preserve the current Cairnline database when present, and replace it only after every check passes. This does not change runtime configuration."
+                  : "Hecate will replace the live Cairnline database with the backup recorded by the latest migration and remove that migration record. This does not switch runtime configuration back to Hecate."}
+              </div>
+              <label
+                htmlFor="project-migration-confirmation"
+                style={{ display: "grid", gap: 6, color: "var(--t2)" }}
+              >
+                Type {projectMigrationAction === "migrate" ? "MIGRATE" : "ROLLBACK"} to continue
+                <input
+                  id="project-migration-confirmation"
+                  className="input"
+                  autoComplete="off"
+                  autoFocus
+                  disabled={projectMigrationPending !== null}
+                  value={projectMigrationConfirmation}
+                  onChange={(event) => setProjectMigrationConfirmation(event.target.value)}
+                />
+              </label>
+              {projectMigrationError && <InlineError message={projectMigrationError} />}
             </div>
           }
         />

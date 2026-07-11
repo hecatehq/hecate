@@ -12,12 +12,20 @@ import { SettingsSectionHeader as SectionHeader } from "./SettingsSectionHeader"
 export function ProjectCoordinationBackendSettings({
   error,
   loading,
+  migrationError,
+  migrationPending,
+  onMigrate,
   onRefresh,
+  onRollback,
   status,
 }: {
   error: string;
   loading: boolean;
+  migrationError: string;
+  migrationPending: "migrate" | "rollback" | null;
+  onMigrate: () => void;
   onRefresh: () => void;
+  onRollback: () => void;
   status: ProjectCoordinationBackendStatusRecord | null;
 }) {
   const readRoutes = status?.read_routes ?? [];
@@ -114,6 +122,13 @@ export function ProjectCoordinationBackendSettings({
             </div>
           </div>
           {nextAction && <ProjectBackendNextAction action={nextAction} />}
+          <ProjectBackendMigrationCutover
+            error={migrationError}
+            pending={migrationPending}
+            status={status}
+            onMigrate={onMigrate}
+            onRollback={onRollback}
+          />
           {replacementGates.length > 0 && <ProjectBackendGateList gates={replacementGates} />}
           {migrationRehearsal && (
             <ProjectBackendMigrationRehearsal rehearsal={migrationRehearsal} />
@@ -149,6 +164,118 @@ export function ProjectCoordinationBackendSettings({
         </article>
       )}
     </section>
+  );
+}
+
+function ProjectBackendMigrationCutover({
+  error,
+  onMigrate,
+  onRollback,
+  pending,
+  status,
+}: {
+  error: string;
+  onMigrate: () => void;
+  onRollback: () => void;
+  pending: "migrate" | "rollback" | null;
+  status: ProjectCoordinationBackendStatusRecord;
+}) {
+  const cutover = status.migration_cutover;
+  if (!cutover) return null;
+
+  const canMigrate = !status.cairnline_authoritative;
+  const canRollback = cutover.migrated && Boolean(cutover.rollback_backup_path);
+  return (
+    <div style={{ display: "grid", gap: 8, marginTop: 14 }}>
+      <div
+        style={{
+          color: "var(--t3)",
+          fontFamily: "var(--font-mono)",
+          fontSize: 10,
+          textTransform: "uppercase",
+        }}
+      >
+        Migration cutover
+      </div>
+      <div
+        style={{
+          border: "1px solid var(--border)",
+          borderRadius: "var(--radius-sm)",
+          display: "grid",
+          gap: 9,
+          padding: "10px 12px",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+          <span
+            className={
+              cutover.migrated && cutover.verified && cutover.parity_match
+                ? "badge badge-green"
+                : "badge badge-muted"
+            }
+            style={{ textTransform: "none" }}
+          >
+            {projectBackendDisplayLabel(cutover.status)}
+          </span>
+          <span style={{ color: "var(--t0)", fontSize: 12, fontWeight: 650 }}>
+            {cutover.migrated ? "Migration recorded" : "Native Projects ready to migrate"}
+          </span>
+          {cutover.migrated_at && (
+            <span className="badge badge-muted" style={{ textTransform: "none" }}>
+              {new Date(cutover.migrated_at).toLocaleString()}
+            </span>
+          )}
+        </div>
+        <div style={{ color: "var(--t2)", fontSize: 11, lineHeight: 1.45 }}>
+          {cutover.migrated
+            ? "The embedded Cairnline database was rebuilt from Hecate's native project stores and passed migration verification."
+            : "Build and verify a staged Cairnline database, preserve the current live database when present, then atomically replace it only after every parity check passes."}
+        </div>
+        {(cutover.source_authority?.length ?? 0) > 0 && (
+          <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+            {cutover.source_authority?.map((source) => (
+              <span key={source} className="badge badge-muted" style={{ textTransform: "none" }}>
+                {projectBackendDisplayLabel(source)}
+              </span>
+            ))}
+          </div>
+        )}
+        {cutover.migrated && !cutover.rollback_backup_path && (
+          <div style={{ color: "var(--t3)", fontSize: 11, lineHeight: 1.45 }}>
+            No pre-migration Cairnline database existed, so there is no database backup to restore.
+            Hecate's native project stores remain the recovery source until replacement mode is
+            armed.
+          </div>
+        )}
+        {error && <InlineError message={error} />}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {canMigrate && (
+            <button
+              className="btn btn-primary btn-sm"
+              disabled={pending !== null}
+              onClick={onMigrate}
+            >
+              <Icon d={Icons.refresh} size={13} />
+              {pending === "migrate"
+                ? "Migrating…"
+                : cutover.migrated
+                  ? "Re-run migration"
+                  : "Migrate to Cairnline"}
+            </button>
+          )}
+          {canRollback && (
+            <button
+              className="btn btn-danger btn-sm"
+              disabled={pending !== null}
+              onClick={onRollback}
+            >
+              <Icon d={Icons.revert} size={13} />
+              {pending === "rollback" ? "Restoring…" : "Restore backup"}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
