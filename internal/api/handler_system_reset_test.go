@@ -153,6 +153,11 @@ func TestSystemResetDataMemoryBackendDeletesStateAndClosesAgentSessions(t *testi
 	if len(projectsAfterReset.Data) != 0 {
 		t.Fatalf("projects after reset = %#v, want none", projectsAfterReset.Data)
 	}
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+project.Data.ID, nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("get stale project after reset status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
 	profiles, err := handler.agentProfiles.List(ctx)
 	if err != nil {
 		t.Fatalf("list agent presets: %v", err)

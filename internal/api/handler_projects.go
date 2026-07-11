@@ -792,6 +792,9 @@ func (h *Handler) renderProject(ctx context.Context, projectID string) (*Project
 
 func (h *Handler) renderStrictEmbeddedCairnlineProject(ctx context.Context, projectID string) (*ProjectResponseItem, error) {
 	_, service, store, err := h.openCairnlineEmbeddedService(ctx)
+	if errors.Is(err, cairnline.ErrNotFound) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
