@@ -39,7 +39,7 @@ func (h *Handler) reconcileProjectAssignmentsForChat(ctx context.Context, sessio
 func (h *Handler) reconcileStrictEmbeddedCairnlineProjectAssignmentsForChat(ctx context.Context, session chat.Session) {
 	projectID := strings.TrimSpace(session.ProjectID)
 	sessionID := strings.TrimSpace(session.ID)
-	err := h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err := h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		items, err := service.ListAssignments(ctx, projectID)
 		if errors.Is(err, cairnline.ErrNotFound) {
 			return nil

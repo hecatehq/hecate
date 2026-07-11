@@ -4,10 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"testing"
-
-	"github.com/hecatehq/hecate/internal/storage"
 )
 
 func TestStoreConformance_ProjectSkillsLifecycle(t *testing.T) {
@@ -17,7 +14,6 @@ func TestStoreConformance_ProjectSkillsLifecycle(t *testing.T) {
 		new  func(*testing.T) Store
 	}{
 		{name: "memory", new: func(t *testing.T) Store { return NewMemoryStore() }},
-		{name: "sqlite", new: func(t *testing.T) Store { return newSQLiteSkillTestStore(t) }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -125,70 +121,6 @@ func TestStoreConformance_ProjectSkillsLifecycle(t *testing.T) {
 	}
 }
 
-func TestSQLiteStore_AddsCapabilityColumnsToExistingTable(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	client, err := storage.NewSQLiteClient(ctx, storage.SQLiteConfig{
-		Path:        filepath.Join(t.TempDir(), "hecate.db"),
-		TablePrefix: "test",
-	})
-	if err != nil {
-		t.Fatalf("new sqlite client: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := client.Close(); err != nil {
-			t.Fatalf("close sqlite client: %v", err)
-		}
-	})
-	table := client.QualifiedTable("project_skills")
-	timestampColumn := storage.TimestampColumnDefaultZero(client)
-	if _, err := client.DB().ExecContext(ctx, `
-CREATE TABLE IF NOT EXISTS `+table+` (
-	id TEXT NOT NULL,
-	project_id TEXT NOT NULL,
-	title TEXT NOT NULL DEFAULT '',
-	description TEXT NOT NULL DEFAULT '',
-	path TEXT NOT NULL DEFAULT '',
-	root_id TEXT NOT NULL DEFAULT '',
-	format TEXT NOT NULL DEFAULT 'skill_md',
-	enabled INTEGER NOT NULL DEFAULT 1,
-	status TEXT NOT NULL DEFAULT 'available',
-	trust_label TEXT NOT NULL DEFAULT 'workspace_skill',
-	source_context_source_ids TEXT NOT NULL DEFAULT '[]',
-	warnings TEXT NOT NULL DEFAULT '[]',
-	discovered_at `+timestampColumn+`,
-	created_at `+timestampColumn+`,
-	updated_at `+timestampColumn+`,
-	PRIMARY KEY(project_id, id)
-)`); err != nil {
-		t.Fatalf("create old project_skills table: %v", err)
-	}
-	store, err := NewSQLiteStore(ctx, client)
-	if err != nil {
-		t.Fatalf("new sqlite project skill store: %v", err)
-	}
-	items, err := store.UpsertDiscovered(ctx, "proj_old", []Skill{{
-		ID:         "review",
-		Title:      "Review",
-		Path:       ".hecate/skills/review/SKILL.md",
-		Format:     FormatSkillMD,
-		Enabled:    true,
-		Status:     StatusAvailable,
-		TrustLabel: TrustWorkspaceSkill,
-		SuggestedTools: []string{
-			"git.diff",
-		},
-		RequiredPermissions: RequiredPermissions{Writes: boolForSkillTest(false)},
-	}})
-	if err != nil {
-		t.Fatalf("UpsertDiscovered: %v", err)
-	}
-	review := findSkillForTest(items, "review")
-	if review == nil || len(review.SuggestedTools) != 1 || review.RequiredPermissions.Writes == nil || *review.RequiredPermissions.Writes {
-		t.Fatalf("review skill = %+v, want migrated capability metadata", review)
-	}
-}
-
 func TestStore_CapsSuggestedToolsAndSummarizesOverflow(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -223,28 +155,6 @@ func TestStore_CapsSuggestedToolsAndSummarizesOverflow(t *testing.T) {
 	if got, want := SuggestedToolsSummary(review.SuggestedTools), "tool.00, tool.01, tool.02, tool.03, tool.04, tool.05, tool.06, tool.07, +8 more"; got != want {
 		t.Fatalf("SuggestedToolsSummary() = %q, want %q", got, want)
 	}
-}
-
-func newSQLiteSkillTestStore(t *testing.T) Store {
-	t.Helper()
-	ctx := context.Background()
-	client, err := storage.NewSQLiteClient(ctx, storage.SQLiteConfig{
-		Path:        filepath.Join(t.TempDir(), "hecate.db"),
-		TablePrefix: "test",
-	})
-	if err != nil {
-		t.Fatalf("new sqlite client: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := client.Close(); err != nil {
-			t.Fatalf("close sqlite client: %v", err)
-		}
-	})
-	store, err := NewSQLiteStore(ctx, client)
-	if err != nil {
-		t.Fatalf("new sqlite project skill store: %v", err)
-	}
-	return store
 }
 
 func findSkillForTest(items []Skill, id string) *Skill {

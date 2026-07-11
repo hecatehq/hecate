@@ -12,7 +12,7 @@ import (
 )
 
 func (h *Handler) projectReadRoutesUseCairnlineReadModel() bool {
-	if !h.projectCairnlineEmbeddedConnectorEnabled() {
+	if h == nil || !h.projectCairnlineEmbeddedConnectorEnabled() {
 		return false
 	}
 	if h.requiresEmbeddedCairnlineProjectReads() {
@@ -29,102 +29,6 @@ func (h *Handler) renderCairnlineProjectOperationsBrief(ctx context.Context, pro
 	}
 	defer view.Close()
 	return h.renderCairnlineProjectOperationsBriefFromService(ctx, view.snapshot.Project, view.service, view.snapshot)
-}
-
-func (h *Handler) renderCairnlineSidecarProjectOperationsBrief(ctx context.Context, projectID string) (ProjectOperationsBriefResponse, error) {
-	projectItem, ok, err := h.cairnlineSidecarProject(ctx, projectID)
-	if err != nil {
-		return ProjectOperationsBriefResponse{}, err
-	}
-	if !ok {
-		return ProjectOperationsBriefResponse{}, projects.ErrNotFound
-	}
-	project := projectFromCairnlineSidecar(projectItem)
-	brief, err := h.cairnlineSidecarProjectOperationsBrief(ctx, project.ID)
-	if err != nil {
-		return ProjectOperationsBriefResponse{}, err
-	}
-	workItemItems, err := h.cairnlineSidecarProjectWorkItems(ctx, project.ID)
-	if err != nil {
-		return ProjectOperationsBriefResponse{}, err
-	}
-	assignmentItems, err := h.cairnlineSidecarProjectAssignments(ctx, project.ID)
-	if err != nil {
-		return ProjectOperationsBriefResponse{}, err
-	}
-	artifactItems, err := h.cairnlineSidecarProjectArtifacts(ctx, project.ID)
-	if err != nil {
-		return ProjectOperationsBriefResponse{}, err
-	}
-	evidenceItems, err := h.cairnlineSidecarProjectEvidence(ctx, project.ID)
-	if err != nil {
-		return ProjectOperationsBriefResponse{}, err
-	}
-	reviewItems, err := h.cairnlineSidecarProjectReviews(ctx, project.ID)
-	if err != nil {
-		return ProjectOperationsBriefResponse{}, err
-	}
-	handoffItems, err := h.cairnlineSidecarProjectHandoffs(ctx, project.ID)
-	if err != nil {
-		return ProjectOperationsBriefResponse{}, err
-	}
-
-	workItems := projectWorkItemsFromCairnlineSidecar(workItemItems)
-	assignments := projectAssignmentsFromCairnlineSidecar(assignmentItems)
-	artifacts := projectArtifactsFromCairnlineSidecar(artifactItems, evidenceItems, reviewItems)
-	handoffs := projectHandoffsFromCairnlineSidecar(handoffItems)
-	workItemsByID := projectOperationsSnapshotWorkItemsByID(workItems)
-	assignmentsByID := projectOperationsSnapshotAssignmentsByID(assignments)
-	assignmentsByWorkItem := groupProjectWorkAssignmentsByWorkItem(assignments)
-	artifactsByID := projectOperationsSnapshotArtifactsByID(artifacts)
-	handoffsByID := projectOperationsSnapshotHandoffsByID(handoffs)
-
-	items := make([]ProjectOperationsBriefItemResponse, 0, len(brief.Items)+1)
-	for _, item := range brief.Items {
-		rendered, ok := projectOperationItemFromCairnline(project.ID, item, workItemsByID, assignmentsByID, assignmentsByWorkItem, artifactsByID, handoffsByID)
-		if ok {
-			items = append(items, rendered)
-		}
-	}
-	if brief.Counts.PendingMemoryCandidates > 0 {
-		items = append(items, memoryCandidateOperationItem(project.ID, brief.Counts.PendingMemoryCandidates))
-	}
-	if len(items) == 0 {
-		if item := latestWorkOperationItem(project.ID, workItems); item != nil {
-			items = append(items, *item)
-		}
-	}
-
-	sortProjectOperationsItems(items)
-	availableItemCount := len(items)
-	items = boundedProjectOperationsItems(items, projectOperationsBriefItemLimit)
-	generatedAt := brief.CreatedAt
-	if generatedAt.IsZero() {
-		generatedAt = time.Now().UTC()
-	}
-	response := ProjectOperationsBriefResponse{
-		ProjectID:   project.ID,
-		GeneratedAt: formatOptionalTime(generatedAt),
-		ReadBackend: "cairnline",
-		Items:       items,
-	}
-	response.Summary.ItemCount = len(items)
-	response.Summary.AvailableItemCount = availableItemCount
-	response.Summary.OmittedItemCount = availableItemCount - len(items)
-	response.Summary.ItemLimit = projectOperationsBriefItemLimit
-	response.Summary.PendingMemoryCandidateCount = brief.Counts.PendingMemoryCandidates
-	response.Summary.PendingHandoffCount = brief.Counts.OpenHandoffs
-	for _, item := range items {
-		switch item.Priority {
-		case projectOperationsPriorityHigh:
-			response.Summary.HighCount++
-		case projectOperationsPriorityMedium:
-			response.Summary.MediumCount++
-		case projectOperationsPriorityLow:
-			response.Summary.LowCount++
-		}
-	}
-	return response, nil
 }
 
 func (h *Handler) renderCairnlineProjectOperationsBriefFromService(ctx context.Context, project projects.Project, service *cairnline.Service, snapshot cairnlinebridge.Snapshot) (ProjectOperationsBriefResponse, error) {

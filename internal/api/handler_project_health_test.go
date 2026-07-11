@@ -274,7 +274,7 @@ func TestProjectHealth_StrictEmbeddedReadModelReadsWithoutHecateProject(t *testi
 	server := NewServer(quietLogger(), handler)
 	const projectID = "proj_embedded_health"
 
-	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
 		if _, err := service.CreateProject(t.Context(), cairnline.Project{
 			ID:            projectID,
 			Name:          "Embedded Health",
@@ -437,87 +437,6 @@ func TestProjectHealth_StrictEmbeddedReadModelReadsWithoutHecateProject(t *testi
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_missing/health", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("missing project health status = %d body=%s, want 404", rec.Code, rec.Body.String())
-	}
-}
-
-func TestProjectHealth_ReadsUseCairnlineSidecarWhenConfigured(t *testing.T) {
-	t.Parallel()
-	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "full")
-	if handler.projectReadRoutesUseCairnlineReadModel() {
-		t.Fatal("sidecar health enabled embedded Cairnline read-model routes")
-	}
-	if !handler.projectCairnlineSidecarReadRoutesEnabled() {
-		t.Fatal("sidecar read-route predicate = false, want true")
-	}
-
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/health", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("health status = %d body=%s, want 200", rec.Code, rec.Body.String())
-	}
-	var response ProjectHealthEnvelope
-	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
-		t.Fatalf("decode health: %v", err)
-	}
-	if response.Object != "project_health" || response.Data.ProjectID != "proj_fixture" || response.Data.ReadBackend != "cairnline" {
-		t.Fatalf("health envelope = %+v, want sidecar Cairnline project health", response)
-	}
-	summary := response.Data.Summary
-	if !summary.MissingDefaults || summary.MissingProjectRoot || summary.EnabledContextSourceCount != 1 || summary.SavedMemoryCount != 0 || summary.PendingMemoryCandidateCount != 0 {
-		t.Fatalf("health summary = %+v, want sidecar root/source/defaults projection", summary)
-	}
-	assertProjectHealthItemsHaveActions(t, response.Data.Attention, "proj_fixture")
-	defaults := findProjectHealthAttentionForTest(t, response.Data.Attention, "Provider/model defaults missing")
-	assertProjectHealthActionForTest(t, defaults, projectActionOpenProjectSettings, "proj_fixture")
-	if _, ok := findProjectHealthAttention(response.Data.Attention, "No project root configured"); ok {
-		t.Fatalf("attention = %+v, want no missing root item for sidecar active root", response.Data.Attention)
-	}
-	if _, ok := findProjectHealthAttention(response.Data.Attention, "Project skills need review"); ok {
-		t.Fatalf("attention = %+v, want sidecar role/profile/skill references to resolve", response.Data.Attention)
-	}
-}
-
-func TestProjectHealth_CairnlineSidecarRequiresStructuredContent(t *testing.T) {
-	t.Parallel()
-	_, server := newProjectsCairnlineSidecarReadTestServer(t, "text-only")
-
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/health", nil))
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf("health status = %d body=%s, want 502 for text-only sidecar", rec.Code, rec.Body.String())
-	}
-	var response struct {
-		Error struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
-		t.Fatalf("decode error: %v", err)
-	}
-	if !strings.Contains(response.Error.Message, "projects.get did not return typed structuredContent") {
-		t.Fatalf("error = %+v, want structuredContent failure", response.Error)
-	}
-}
-
-func TestProjectHealth_CairnlineSidecarRequiresTypedActivity(t *testing.T) {
-	t.Parallel()
-	_, server := newProjectsCairnlineSidecarReadTestServer(t, "projects.activity-text-only")
-
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/health", nil))
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf("health status = %d body=%s, want 502 for text-only sidecar activity", rec.Code, rec.Body.String())
-	}
-	var response struct {
-		Error struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
-		t.Fatalf("decode error: %v", err)
-	}
-	if !strings.Contains(response.Error.Message, "projects.activity did not return typed structuredContent") {
-		t.Fatalf("error = %+v, want activity structuredContent failure", response.Error)
 	}
 }
 

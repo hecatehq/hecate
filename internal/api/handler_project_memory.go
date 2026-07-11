@@ -61,10 +61,10 @@ type updateProjectMemoryRequest struct {
 
 func (h *Handler) HandleProjectMemoryEntries(w http.ResponseWriter, r *http.Request) {
 	projectID := strings.TrimSpace(r.PathValue("id"))
-	if !h.projectCairnlineSidecarReadRoutesEnabled() && !h.requiresEmbeddedCairnlineProjectReads() && !h.requireProjectExists(w, r, projectID) {
+	if !h.requiresEmbeddedCairnlineProjectReads() && !h.requireProjectExists(w, r, projectID) {
 		return
 	}
-	if !h.projectCairnlineSidecarReadRoutesEnabled() && !h.requiresEmbeddedCairnlineProjectReads() && !h.requireProjectMemoryStore(w) {
+	if !h.requiresEmbeddedCairnlineProjectReads() && !h.requireProjectMemoryStore(w) {
 		return
 	}
 	includeDisabled := requestBool(r, "include_disabled")
@@ -137,10 +137,10 @@ func (h *Handler) HandleCreateProjectMemoryEntry(w http.ResponseWriter, r *http.
 
 func (h *Handler) HandleProjectMemoryCandidates(w http.ResponseWriter, r *http.Request) {
 	projectID := strings.TrimSpace(r.PathValue("id"))
-	if !h.projectCairnlineSidecarReadRoutesEnabled() && !h.requiresEmbeddedCairnlineProjectReads() && !h.requireProjectExists(w, r, projectID) {
+	if !h.requiresEmbeddedCairnlineProjectReads() && !h.requireProjectExists(w, r, projectID) {
 		return
 	}
-	if !h.projectCairnlineSidecarReadRoutesEnabled() && !h.requiresEmbeddedCairnlineProjectReads() {
+	if !h.requiresEmbeddedCairnlineProjectReads() {
 		if _, ok := h.requireProjectMemoryCandidateStore(w); !ok {
 			return
 		}
@@ -491,9 +491,6 @@ func (h *Handler) requireProjectMemoryCandidateStore(w http.ResponseWriter) (mem
 }
 
 func (h *Handler) renderProjectMemoryEntries(ctx context.Context, projectID string, includeDisabled bool) ([]ProjectMemoryResponseItem, error) {
-	if h.projectCairnlineSidecarReadRoutesEnabled() {
-		return h.renderCairnlineSidecarProjectMemoryEntries(ctx, projectID, includeDisabled)
-	}
 	if h.projectReadRoutesUseCairnlineReadModel() {
 		return h.renderCairnlineProjectMemoryEntries(ctx, projectID, includeDisabled)
 	}
@@ -524,26 +521,7 @@ func (h *Handler) renderCairnlineProjectMemoryEntries(ctx context.Context, proje
 	return out, nil
 }
 
-func (h *Handler) renderCairnlineSidecarProjectMemoryEntries(ctx context.Context, projectID string, includeDisabled bool) ([]ProjectMemoryResponseItem, error) {
-	projectItem, ok, err := h.cairnlineSidecarProject(ctx, projectID)
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		return nil, projects.ErrNotFound
-	}
-	project := projectFromCairnlineSidecar(projectItem)
-	items, err := h.cairnlineSidecarProjectMemoryEntryList(ctx, project.ID, includeDisabled)
-	if err != nil {
-		return nil, err
-	}
-	return renderProjectMemoryEntries(projectMemoryEntriesFromCairnlineSidecar(items), "cairnline"), nil
-}
-
 func (h *Handler) renderProjectMemoryCandidates(ctx context.Context, projectID, status string, includeResolved bool) ([]ProjectMemoryCandidateResponseItem, error) {
-	if h.projectCairnlineSidecarReadRoutesEnabled() {
-		return h.renderCairnlineSidecarProjectMemoryCandidates(ctx, projectID, status, includeResolved)
-	}
 	if h.projectReadRoutesUseCairnlineReadModel() {
 		return h.renderCairnlineProjectMemoryCandidates(ctx, projectID, status, includeResolved)
 	}
@@ -579,22 +557,6 @@ func (h *Handler) renderCairnlineProjectMemoryCandidates(ctx context.Context, pr
 		out = append(out, renderProjectMemoryCandidate(projectMemoryCandidateFromCairnline(item), "cairnline"))
 	}
 	return out, nil
-}
-
-func (h *Handler) renderCairnlineSidecarProjectMemoryCandidates(ctx context.Context, projectID, status string, includeResolved bool) ([]ProjectMemoryCandidateResponseItem, error) {
-	projectItem, ok, err := h.cairnlineSidecarProject(ctx, projectID)
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		return nil, projects.ErrNotFound
-	}
-	project := projectFromCairnlineSidecar(projectItem)
-	items, err := h.cairnlineSidecarProjectMemoryCandidateList(ctx, project.ID, status, includeResolved)
-	if err != nil {
-		return nil, err
-	}
-	return renderProjectMemoryCandidates(projectMemoryCandidatesFromCairnlineSidecar(items), "cairnline"), nil
 }
 
 func renderProjectMemoryEntries(items []memory.Entry, readBackend string) []ProjectMemoryResponseItem {

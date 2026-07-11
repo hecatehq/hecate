@@ -114,27 +114,6 @@ func (h *Handler) HandleProjectWorkAssignmentContext(w http.ResponseWriter, r *h
 	projectID := strings.TrimSpace(r.PathValue("id"))
 	workItemID := strings.TrimSpace(r.PathValue("work_item_id"))
 	assignmentID := strings.TrimSpace(r.PathValue("assignment_id"))
-	if h.projectCairnlineSidecarReadRoutesEnabled() {
-		packet, ok, err := h.contextPacketForCairnlineSidecarProjectAssignment(ctx, projectID, workItemID, assignmentID)
-		if err != nil {
-			if errors.Is(err, errProjectCairnlineSidecarReadFailed) {
-				WriteError(w, http.StatusBadGateway, errCodeGatewayError, err.Error())
-				return
-			}
-			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-			return
-		}
-		if !ok {
-			WriteError(w, http.StatusNotFound, errCodeNotFound, "project assignment context packet not found")
-			return
-		}
-		roleID := ""
-		if packet.Refs != nil {
-			roleID = packet.Refs.RoleID
-		}
-		writeChatContextPacket(w, chatcontext.Normalize(packet, chatcontext.ProjectAssignmentRefs(projectID, workItemID, assignmentID, roleID)))
-		return
-	}
 	if h.projectReadRoutesUseCairnlineReadModel() && h.requiresEmbeddedCairnlineProjectReads() {
 		packet, ok, err := h.contextPacketForStrictEmbeddedCairnlineRuntimeAssignment(ctx, projectID, workItemID, assignmentID)
 		if err != nil {
@@ -698,9 +677,6 @@ func (h *Handler) projectContextSources(ctx context.Context, session chat.Sessio
 }
 
 func (h *Handler) projectSummary(ctx context.Context, projectID string) *projects.Project {
-	if project, ok := h.sidecarCairnlineProjectSummary(ctx, projectID); ok {
-		return project
-	}
 	if project, ok := h.strictEmbeddedCairnlineProjectSummary(ctx, projectID); ok {
 		return project
 	}
@@ -743,9 +719,6 @@ func (h *Handler) projectMemoryEntries(ctx context.Context, session chat.Session
 }
 
 func (h *Handler) enabledProjectMemoryEntries(ctx context.Context, projectID string) []memory.Entry {
-	if items, ok := h.sidecarCairnlineEnabledProjectMemoryEntries(ctx, projectID); ok {
-		return items
-	}
 	if items, ok := h.strictEmbeddedCairnlineEnabledProjectMemoryEntries(ctx, projectID); ok {
 		return items
 	}
@@ -809,27 +782,6 @@ func (h *Handler) cairnlineAssignmentRelevantArtifacts(ctx context.Context, assi
 	if h == nil || strings.TrimSpace(assignment.ProjectID) == "" || strings.TrimSpace(assignment.WorkItemID) == "" {
 		return nil, false
 	}
-	if h.projectCairnlineSidecarReadRoutesEnabled() {
-		project, ok, err := h.cairnlineSidecarProject(ctx, assignment.ProjectID)
-		if err != nil || !ok {
-			return nil, true
-		}
-		artifacts, err := h.cairnlineSidecarProjectArtifactList(ctx, project.ID, assignment.WorkItemID)
-		if err != nil {
-			return nil, true
-		}
-		evidence, err := h.cairnlineSidecarProjectEvidenceList(ctx, project.ID, assignment.WorkItemID)
-		if err != nil {
-			return nil, true
-		}
-		reviews, err := h.cairnlineSidecarProjectReviewList(ctx, project.ID, assignment.WorkItemID)
-		if err != nil {
-			return nil, true
-		}
-		items := filterAssignmentArtifacts(projectArtifactsFromCairnlineSidecar(artifacts, evidence, reviews), assignment.ID)
-		sortProjectWorkArtifactsForProjection(items)
-		return items, true
-	}
 	if !h.projectReadRoutesUseCairnlineReadModel() {
 		return nil, false
 	}
@@ -848,19 +800,6 @@ func (h *Handler) cairnlineAssignmentRelevantArtifacts(ctx context.Context, assi
 func (h *Handler) cairnlineAssignmentRelevantHandoffs(ctx context.Context, assignment projectwork.Assignment, roleID string) ([]projectwork.Handoff, bool) {
 	if h == nil || strings.TrimSpace(assignment.ProjectID) == "" || strings.TrimSpace(assignment.WorkItemID) == "" {
 		return nil, false
-	}
-	if h.projectCairnlineSidecarReadRoutesEnabled() {
-		project, ok, err := h.cairnlineSidecarProject(ctx, assignment.ProjectID)
-		if err != nil || !ok {
-			return nil, true
-		}
-		handoffs, err := h.cairnlineSidecarProjectHandoffList(ctx, project.ID, assignment.WorkItemID)
-		if err != nil {
-			return nil, true
-		}
-		items := filterAssignmentHandoffs(projectHandoffsFromCairnlineSidecar(handoffs), assignment.ID, roleID)
-		sortProjectHandoffsForProjection(items)
-		return items, true
 	}
 	if !h.projectReadRoutesUseCairnlineReadModel() {
 		return nil, false

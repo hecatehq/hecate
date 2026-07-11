@@ -13,11 +13,8 @@ import (
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/controlplane"
-	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/pluginregistry"
 	"github.com/hecatehq/hecate/internal/projectruntime"
-	"github.com/hecatehq/hecate/internal/projects"
-	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/internal/storage"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/pkg/types"
@@ -28,8 +25,15 @@ func TestSystemResetDataMemoryBackendDeletesStateAndClosesAgentSessions(t *testi
 	logger := quietLogger()
 	cpStore := controlplane.NewMemoryStore()
 	runtime := &fakeProviderRuntime{store: cpStore}
-	handler := NewHandler(config.Config{}, logger, nil, cpStore, taskstate.NewMemoryStore(), nil, runtime)
-	handler.SetProjectStore(projects.NewMemoryStore())
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend:      "cairnline",
+			CairnlineConnector:       "embedded",
+			CairnlineReadSource:      "embedded",
+			CairnlineReplacementMode: "embedded",
+		},
+	}, logger, nil, cpStore, taskstate.NewMemoryStore(), nil, runtime)
 	handler.SetPluginRegistryStore(pluginregistry.NewMemoryStore())
 	handler.SetAgentProfileStore(agentprofiles.NewMemoryStore())
 	chatStore := chat.NewMemoryStore()
@@ -68,37 +72,11 @@ func TestSystemResetDataMemoryBackendDeletesStateAndClosesAgentSessions(t *testi
 	}); err != nil {
 		t.Fatalf("create project-free chat: %v", err)
 	}
-	if _, err := handler.projectWork.CreateWorkItem(ctx, projectwork.WorkItem{
-		ID:        "work_reset",
-		ProjectID: project.Data.ID,
-		Title:     "Reset work",
-	}); err != nil {
-		t.Fatalf("create project work item: %v", err)
-	}
-	if _, err := handler.projectWork.CreateAssignment(ctx, projectwork.Assignment{
-		ID:         "asgn_reset",
-		ProjectID:  project.Data.ID,
-		WorkItemID: "work_reset",
-		RoleID:     "software_developer",
-	}); err != nil {
-		t.Fatalf("create project assignment: %v", err)
-	}
 	if _, err := handler.projectRuntime.Upsert(ctx, projectruntime.AssignmentRuntime{
 		ProjectID:    project.Data.ID,
 		AssignmentID: "asgn_reset",
 	}); err != nil {
 		t.Fatalf("create project runtime: %v", err)
-	}
-	if _, err := handler.memory.Create(ctx, memory.Entry{
-		ID:         "mem_reset",
-		ProjectID:  project.Data.ID,
-		Title:      "Reset memory",
-		Body:       "Delete this with the project.",
-		TrustLabel: memory.TrustLabelOperatorMemory,
-		SourceKind: memory.SourceKindOperator,
-		Enabled:    true,
-	}); err != nil {
-		t.Fatalf("create project memory: %v", err)
 	}
 	if _, err := handler.taskStore.CreateTask(ctx, types.Task{ID: "task_reset", Title: "Reset me", Status: "queued"}); err != nil {
 		t.Fatalf("create task: %v", err)
@@ -146,8 +124,8 @@ func TestSystemResetDataMemoryBackendDeletesStateAndClosesAgentSessions(t *testi
 	if err := json.Unmarshal(rec.Body.Bytes(), &reset); err != nil {
 		t.Fatalf("decode reset response: %v", err)
 	}
-	if reset.Data.ProjectsDeleted != 1 || reset.Data.ProjectWorkRowsDeleted != 2 || reset.Data.ProjectRuntimeRowsDeleted != 1 || reset.Data.PluginsDeleted != 1 || reset.Data.AgentPresetsDeleted != 1 || reset.Data.ChatSessionsDeleted != 2 || reset.Data.TasksDeleted != 1 || reset.Data.ProvidersDeleted != 1 || reset.Data.PolicyRulesDeleted != 1 {
-		t.Fatalf("reset stats = %+v, want one project, one runtime row, one plugin, one preset, two project-work rows, one task, provider, rule and two chats", reset.Data)
+	if reset.Data.ProjectsDeleted != 1 || reset.Data.ProjectRuntimeRowsDeleted != 1 || reset.Data.PluginsDeleted != 1 || reset.Data.AgentPresetsDeleted != 1 || reset.Data.ChatSessionsDeleted != 2 || reset.Data.TasksDeleted != 1 || reset.Data.ProvidersDeleted != 1 || reset.Data.PolicyRulesDeleted != 1 || reset.Data.CairnlineFilesDeleted == 0 {
+		t.Fatalf("reset stats = %+v, want one Cairnline project, one runtime row, one plugin, one preset, one task, provider, rule and two chats", reset.Data)
 	}
 	if len(runner.deletedSessions) != 2 {
 		t.Fatalf("deleted sessions = %#v, want two external chats deleted", runner.deletedSessions)
@@ -163,12 +141,17 @@ func TestSystemResetDataMemoryBackendDeletesStateAndClosesAgentSessions(t *testi
 	if len(chats) != 0 {
 		t.Fatalf("chats after reset = %#v, want none", chats)
 	}
-	projectList, err := handler.projects.List(ctx)
-	if err != nil {
-		t.Fatalf("list projects: %v", err)
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list projects after reset status = %d body=%s, want 200", rec.Code, rec.Body.String())
 	}
-	if len(projectList) != 0 {
-		t.Fatalf("projects after reset = %#v, want none", projectList)
+	var projectsAfterReset ProjectsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &projectsAfterReset); err != nil {
+		t.Fatalf("decode projects after reset: %v", err)
+	}
+	if len(projectsAfterReset.Data) != 0 {
+		t.Fatalf("projects after reset = %#v, want none", projectsAfterReset.Data)
 	}
 	profiles, err := handler.agentProfiles.List(ctx)
 	if err != nil {
@@ -176,20 +159,6 @@ func TestSystemResetDataMemoryBackendDeletesStateAndClosesAgentSessions(t *testi
 	}
 	if !agentProfileListIsBuiltInOnly(profiles) {
 		t.Fatalf("agent presets after reset = %#v, want only built-ins", profiles)
-	}
-	workItems, err := handler.projectWork.ListWorkItems(ctx, project.Data.ID)
-	if err != nil {
-		t.Fatalf("list project work: %v", err)
-	}
-	if len(workItems) != 0 {
-		t.Fatalf("project work after reset = %#v, want none", workItems)
-	}
-	memoryEntries, err := handler.memory.List(ctx, memory.Filter{ProjectID: project.Data.ID, IncludeDisabled: true})
-	if err != nil {
-		t.Fatalf("list project memory: %v", err)
-	}
-	if len(memoryEntries) != 0 {
-		t.Fatalf("project memory after reset = %#v, want none", memoryEntries)
 	}
 	tasks, err := handler.taskStore.ListTasks(ctx, taskstate.TaskFilter{})
 	if err != nil {
@@ -226,23 +195,27 @@ func TestSystemResetDataRejectsNonLoopbackClients(t *testing.T) {
 	}
 }
 
-func TestSystemResetDataRemovesEmbeddedCairnlineMirrorDatabase(t *testing.T) {
+func TestSystemResetDataRemovesEmbeddedCairnlineDatabase(t *testing.T) {
 	t.Parallel()
 	logger := quietLogger()
 	handler := NewHandler(config.Config{
-		Server:   config.ServerConfig{DataDir: t.TempDir()},
-		Projects: config.ProjectsConfig{CoordinationBackend: "cairnline"},
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend:      "cairnline",
+			CairnlineConnector:       "embedded",
+			CairnlineReadSource:      "embedded",
+			CairnlineReplacementMode: "embedded",
+		},
 	}, logger, nil, controlplane.NewMemoryStore(), taskstate.NewMemoryStore(), nil)
-	handler.SetProjectStore(projects.NewMemoryStore())
 	server := NewServer(logger, handler)
 
 	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects", bytes.NewReader([]byte(`{"name":"Mirror reset"}`))))
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects", bytes.NewReader([]byte(`{"name":"Cairnline reset"}`))))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create project status = %d body=%s, want 201", rec.Code, rec.Body.String())
 	}
 	if _, err := os.Stat(handler.cairnlineEmbeddedDatabasePath()); err != nil {
-		t.Fatalf("stat Cairnline mirror before reset: %v", err)
+		t.Fatalf("stat Cairnline database before reset: %v", err)
 	}
 
 	rec = httptest.NewRecorder()
@@ -256,8 +229,11 @@ func TestSystemResetDataRemovesEmbeddedCairnlineMirrorDatabase(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &reset); err != nil {
 		t.Fatalf("decode reset response: %v", err)
 	}
-	if reset.Data.CairnlineMirrorFilesDeleted == 0 {
-		t.Fatalf("cairnline mirror databases deleted = 0, want embedded mirror files removed; stats=%+v", reset.Data)
+	if reset.Data.CairnlineFilesDeleted == 0 {
+		t.Fatalf("cairnline database files deleted = 0, want embedded files removed; stats=%+v", reset.Data)
+	}
+	if reset.Data.ProjectsDeleted != 1 {
+		t.Fatalf("projects deleted = %d, want one authoritative Cairnline project", reset.Data.ProjectsDeleted)
 	}
 	for _, path := range []string{handler.cairnlineEmbeddedDatabasePath(), handler.cairnlineEmbeddedDatabasePath() + "-wal", handler.cairnlineEmbeddedDatabasePath() + "-shm"} {
 		if _, err := os.Stat(path); err == nil || !os.IsNotExist(err) {
@@ -286,18 +262,6 @@ func TestSystemResetDataSQLiteBackendClearsRemainingRows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSQLiteStore(chat): %v", err)
 	}
-	projectStore, err := projects.NewSQLiteStore(ctx, client)
-	if err != nil {
-		t.Fatalf("NewSQLiteStore(projects): %v", err)
-	}
-	memoryStore, err := memory.NewSQLiteStore(ctx, client)
-	if err != nil {
-		t.Fatalf("NewSQLiteStore(memory): %v", err)
-	}
-	projectWorkStore, err := projectwork.NewSQLiteStore(ctx, client)
-	if err != nil {
-		t.Fatalf("NewSQLiteStore(projectwork): %v", err)
-	}
 	agentProfileStore, err := agentprofiles.NewSQLiteStore(ctx, client)
 	if err != nil {
 		t.Fatalf("NewSQLiteStore(agentprofiles): %v", err)
@@ -319,11 +283,16 @@ func TestSystemResetDataSQLiteBackendClearsRemainingRows(t *testing.T) {
 
 	logger := quietLogger()
 	runtime := &fakeProviderRuntime{store: cpStore}
-	handler := NewHandler(config.Config{}, logger, nil, cpStore, taskStore, nil, runtime)
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend:      "cairnline",
+			CairnlineConnector:       "embedded",
+			CairnlineReadSource:      "embedded",
+			CairnlineReplacementMode: "embedded",
+		},
+	}, logger, nil, cpStore, taskStore, nil, runtime)
 	handler.SetAgentChatStore(chatStore)
-	handler.SetProjectStore(projectStore)
-	handler.SetMemoryStore(memoryStore)
-	handler.SetProjectWorkStore(projectWorkStore)
 	handler.SetPluginRegistryStore(pluginStore)
 	handler.SetAgentProfileStore(agentProfileStore)
 	handler.SetStateCleaner(client)
@@ -331,37 +300,24 @@ func TestSystemResetDataSQLiteBackendClearsRemainingRows(t *testing.T) {
 	handler.SetAgentChatRunner(runner)
 	server := NewServer(logger, handler)
 
-	project, err := projectStore.Create(ctx, projects.Project{ID: "proj_sqlite_reset", Name: "SQLite reset"})
-	if err != nil {
-		t.Fatalf("create project: %v", err)
+	createProject := httptest.NewRecorder()
+	server.ServeHTTP(createProject, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects", bytes.NewReader([]byte(`{"name":"SQLite reset"}`))))
+	if createProject.Code != http.StatusCreated {
+		t.Fatalf("create project status = %d body=%s, want 201", createProject.Code, createProject.Body.String())
+	}
+	var project ProjectResponse
+	if err := json.Unmarshal(createProject.Body.Bytes(), &project); err != nil {
+		t.Fatalf("decode created project: %v", err)
 	}
 	if _, err := chatStore.Create(ctx, chat.Session{
 		ID:              "chat_sqlite_external",
 		Title:           "SQLite external chat",
-		ProjectID:       project.ID,
+		ProjectID:       project.Data.ID,
 		AgentID:         "codex",
 		DriverKind:      "acp",
 		NativeSessionID: "native_sqlite_external",
 	}); err != nil {
 		t.Fatalf("create chat: %v", err)
-	}
-	if _, err := projectWorkStore.CreateWorkItem(ctx, projectwork.WorkItem{
-		ID:        "work_sqlite_reset",
-		ProjectID: project.ID,
-		Title:     "SQLite work",
-	}); err != nil {
-		t.Fatalf("create project work: %v", err)
-	}
-	if _, err := memoryStore.Create(ctx, memory.Entry{
-		ID:         "mem_sqlite_reset",
-		ProjectID:  project.ID,
-		Title:      "SQLite memory",
-		Body:       "Delete this memory entry on reset.",
-		TrustLabel: memory.TrustLabelOperatorMemory,
-		SourceKind: memory.SourceKindOperator,
-		Enabled:    true,
-	}); err != nil {
-		t.Fatalf("create project memory: %v", err)
 	}
 	if _, err := taskStore.CreateTask(ctx, types.Task{ID: "task_sqlite_reset", Title: "SQLite task", Status: "queued"}); err != nil {
 		t.Fatalf("create task: %v", err)
@@ -404,8 +360,11 @@ func TestSystemResetDataSQLiteBackendClearsRemainingRows(t *testing.T) {
 	if reset.Data.DatabaseRowsDeleted == 0 {
 		t.Fatalf("database rows deleted = 0, want remaining sqlite rows cleared; stats=%+v", reset.Data)
 	}
-	if reset.Data.ProjectWorkRowsDeleted != 1 {
-		t.Fatalf("project work rows deleted = %d, want 1", reset.Data.ProjectWorkRowsDeleted)
+	if reset.Data.CairnlineFilesDeleted == 0 {
+		t.Fatalf("cairnline files deleted = 0, want authoritative Projects database removed; stats=%+v", reset.Data)
+	}
+	if reset.Data.ProjectsDeleted != 1 {
+		t.Fatalf("projects deleted = %d, want one authoritative Cairnline project", reset.Data.ProjectsDeleted)
 	}
 	if reset.Data.AgentPresetsDeleted != 1 {
 		t.Fatalf("agent presets deleted = %d, want 1", reset.Data.AgentPresetsDeleted)
@@ -419,7 +378,6 @@ func TestSystemResetDataSQLiteBackendClearsRemainingRows(t *testing.T) {
 	if len(runner.closedSessions) != 0 {
 		t.Fatalf("closed sessions = %#v, want reset delete path not close", runner.closedSessions)
 	}
-	assertSQLiteTableCount(t, client, client.QualifiedTable("memory_entries"), 0)
 	assertSQLiteTableCount(t, client, client.QualifiedTable("agent_profiles"), 0)
 	assertSQLiteTableCount(t, client, client.QualifiedTable("plugins"), 0)
 	assertSQLiteTableCount(t, client, client.QualifiedTable("reset_scratch"), 0)

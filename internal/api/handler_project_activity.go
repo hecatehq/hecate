@@ -109,9 +109,6 @@ type ProjectActivityHandoffSummaryResponse struct {
 }
 
 func (h *Handler) renderProjectActivity(ctx context.Context, projectID string) (ProjectActivityDataResponse, error) {
-	if h.projectCairnlineSidecarReadRoutesEnabled() {
-		return h.renderCairnlineSidecarProjectActivity(ctx, projectID)
-	}
 	if h.projectReadRoutesUseCairnlineReadModel() {
 		return h.renderCairnlineProjectActivity(ctx, projectID)
 	}

@@ -60,10 +60,14 @@ type Runner interface {
 	ResolveTaskApproval(context.Context, orchestrator.ResolveApprovalRequest) (*orchestrator.ResolveApprovalResult, error)
 }
 
+type ProjectStore interface {
+	Get(context.Context, string) (projects.Project, bool, error)
+}
+
 type Application struct {
 	store         taskstate.Store
 	runner        Runner
-	projects      projects.Store
+	projects      ProjectStore
 	secretCipher  secrets.Cipher
 	maxMCPServers int
 	idgen         func(string) string
@@ -73,7 +77,7 @@ type Application struct {
 type Options struct {
 	Store         taskstate.Store
 	Runner        Runner
-	Projects      projects.Store
+	Projects      ProjectStore
 	SecretCipher  secrets.Cipher
 	MaxMCPServers int
 	IDGenerator   func(string) string

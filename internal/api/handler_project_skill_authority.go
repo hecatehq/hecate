@@ -39,7 +39,7 @@ func (h *Handler) projectForProjectSkillMutation(ctx context.Context, projectID 
 
 func (h *Handler) discoverProjectSkillsWithCairnlineAuthority(ctx context.Context, project projects.Project) ([]projectskills.Skill, error) {
 	var recorded []projectskills.Skill
-	err := h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err := h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if _, err := cairnlinebridge.UpsertProjectMetadata(ctx, service, project); err != nil {
 			return err
 		}
@@ -59,7 +59,7 @@ func (h *Handler) discoverProjectSkillsWithCairnlineAuthority(ctx context.Contex
 
 func (h *Handler) updateProjectSkillWithCairnlineAuthority(ctx context.Context, project projects.Project, skillID string, req updateProjectSkillRequest) (projectskills.Skill, error) {
 	var recorded projectskills.Skill
-	err := h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err := h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if _, err := cairnlinebridge.UpsertProjectMetadata(ctx, service, project); err != nil {
 			return err
 		}

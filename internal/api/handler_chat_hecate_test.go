@@ -461,7 +461,7 @@ func TestProjectChatWorkflowSystemPromptUsesStrictEmbeddedCairnlineProject(t *te
 	const projectID = "proj_chat_embedded"
 	rootPath := t.TempDir()
 
-	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
 		if _, err := service.CreateProject(t.Context(), cairnline.Project{
 			ID:            projectID,
 			Name:          "Embedded Chat",
@@ -922,7 +922,7 @@ func TestChatSessionsProjectIDUsesStrictEmbeddedCairnlineProject(t *testing.T) {
 	client := newAPITestClient(t, handler)
 	const projectID = "proj_chat_cairnline_only"
 
-	if err := apiHandler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+	if err := apiHandler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
 		_, err := service.CreateProject(t.Context(), cairnline.Project{
 			ID:          projectID,
 			Name:        "Cairnline-only chat project",
@@ -954,64 +954,6 @@ func TestChatSessionsProjectIDUsesStrictEmbeddedCairnlineProject(t *testing.T) {
 		`{"agent_id":"hecate","project_id":"proj_missing","provider":"openai","model":"gpt-4o-mini"}`)
 	if !strings.Contains(recorder.Body.String(), "project not found") {
 		t.Fatalf("missing project response = %s, want project not found", recorder.Body.String())
-	}
-}
-
-func TestChatSessionsProjectIDMapsSidecarReadFailure(t *testing.T) {
-	_, server := newProjectsCairnlineSidecarReadTestServer(t, "projects.get-text-only")
-	client := newAPITestClient(t, server)
-
-	recorder := client.mustRequestStatus(http.StatusBadGateway, http.MethodPost, "/hecate/v1/chat/sessions",
-		`{"agent_id":"hecate","project_id":"proj_fixture","provider":"openai","model":"gpt-4o-mini"}`)
-	body := recorder.Body.String()
-	if !strings.Contains(body, errCodeGatewayError) || !strings.Contains(body, "cairnline sidecar project read failed") {
-		t.Fatalf("sidecar read failure response = %s, want gateway error with Cairnline sidecar detail", body)
-	}
-}
-
-func TestProjectChatWorkflowSystemPromptUsesSidecarCairnlineProject(t *testing.T) {
-	handler, _ := newProjectsCairnlineSidecarReadTestServer(t, "memory-fixture")
-	const projectID = "proj_fixture"
-	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
-		t.Fatalf("native project exists = %t err=%v, want missing native project", ok, err)
-	}
-	entries := handler.enabledProjectMemoryEntries(t.Context(), projectID)
-	if len(entries) != 1 || entries[0].ID != "mem_fixture" || !entries[0].Enabled {
-		t.Fatalf("sidecar memory entries = %+v, want only enabled fixture memory", entries)
-	}
-
-	prompt := handler.projectChatWorkflowSystemPrompt(t.Context(), chat.Session{ProjectID: projectID})
-	for _, want := range []string{
-		"Project: Fixture Project (proj_fixture)",
-		"Project roots (metadata only; files are not read):",
-		"- Root /workspace/fixture (root_fixture): active=true, default=true, kind=local",
-		"Role hints:",
-		"Fixture Reviewer (role_fixture)",
-		"Project skills (metadata only; skill bodies are not loaded):",
-		"Fixture Skill (skill_fixture): Path: .agents/skills/fixture/SKILL.md",
-		"Active project work snapshot:",
-		"- Assignment asg_fixture: work_item=work_fixture, role=role_fixture, status=queued, driver=hecate_task",
-	} {
-		if !strings.Contains(prompt, want) {
-			t.Fatalf("sidecar project prompt missing %q:\n%s", want, prompt)
-		}
-	}
-	for _, notWant := range []string{
-		"Disabled fixture memory",
-		"This memory entry is disabled.",
-	} {
-		if strings.Contains(prompt, notWant) {
-			t.Fatalf("sidecar project prompt included disabled memory %q:\n%s", notWant, prompt)
-		}
-	}
-
-	packet := renderChatContextPacket(handler.directModelContextPacket(t.Context(), chat.Session{ProjectID: projectID}, "openai", "gpt-4o-mini", ""))
-	if packet == nil ||
-		!chatContextPacketHasKind(*packet, "project") ||
-		!chatContextPacketHasKind(*packet, "project_skills") ||
-		!chatContextPacketHasKind(*packet, "project_work") ||
-		!chatContextPacketHasKind(*packet, "memory") {
-		t.Fatalf("sidecar context packet missing project metadata: %+v", packet)
 	}
 }
 

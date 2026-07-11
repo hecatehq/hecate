@@ -108,9 +108,7 @@ export type SystemResetDataResponse = {
   object: string;
   data: {
     projects_deleted: number;
-    project_skills_deleted?: number;
-    project_work_rows_deleted?: number;
-    project_assistant_proposals_deleted?: number;
+    project_runtime_rows_deleted?: number;
     plugins_deleted?: number;
     agent_presets_deleted?: number;
     chat_sessions_deleted: number;
@@ -119,6 +117,6 @@ export type SystemResetDataResponse = {
     policy_rules_deleted: number;
     agent_approval_grants_deleted: number;
     database_rows_deleted: number;
-    cairnline_mirror_files_deleted?: number;
+    cairnline_files_deleted?: number;
   };
 };

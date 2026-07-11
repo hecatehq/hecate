@@ -63,7 +63,7 @@ func (s cairnlineProjectAssistantProposalAuthorityStore) ListProposals(ctx conte
 	}
 	projectID = strings.TrimSpace(projectID)
 	var records []projectassistant.ProposalRecord
-	err := s.handler.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err := s.handler.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		items, err := service.ListAssistantProposals(ctx, projectID)
 		if err != nil {
 			return err
@@ -182,7 +182,7 @@ func (s cairnlineProjectAssistantProposalAuthorityStore) getRecord(ctx context.C
 		return projectassistant.ProposalRecord{}, false, nil
 	}
 	var record projectassistant.ProposalRecord
-	err := s.handler.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err := s.handler.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		item, err := service.GetAssistantProposal(ctx, id)
 		if errors.Is(err, cairnline.ErrNotFound) {
 			return projectassistant.ErrNotFound
@@ -211,7 +211,7 @@ func (s cairnlineProjectAssistantProposalAuthorityStore) writeRecord(ctx context
 		return projectassistant.ProposalRecord{}, projectassistant.ErrStoreNotConfigured
 	}
 	var written projectassistant.ProposalRecord
-	err := s.handler.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err := s.handler.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if err := s.handler.seedProjectMetadataForAssistantProposalRecord(ctx, service, record.ProjectID); err != nil {
 			return err
 		}

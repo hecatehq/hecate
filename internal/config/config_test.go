@@ -46,7 +46,6 @@ func TestLoadFromEnvBackendFansOutToDurableStores(t *testing.T) {
 		cfg.Server.TaskQueueBackend,
 		cfg.Provider.HistoryBackend,
 		cfg.Chat.SessionsBackend,
-		cfg.Projects.Backend,
 		cfg.Governor.UsageBackend,
 		cfg.Retention.HistoryBackend,
 	}
@@ -72,7 +71,6 @@ func TestValidateRequiresPostgresURLForEveryBackendSelector(t *testing.T) {
 		{"tasks", func(c *Config) { c.Server.TasksBackend = "postgres" }},
 		{"task queue", func(c *Config) { c.Server.TaskQueueBackend = "postgres" }},
 		{"chat sessions", func(c *Config) { c.Chat.SessionsBackend = "postgres" }},
-		{"projects bundle", func(c *Config) { c.Projects.Backend = "postgres" }},
 		{"usage", func(c *Config) { c.Governor.UsageBackend = "postgres" }},
 		{"retention history", func(c *Config) { c.Retention.HistoryBackend = "postgres" }},
 		{"provider history", func(c *Config) { c.Provider.HistoryBackend = "postgres" }},
@@ -528,7 +526,6 @@ func TestValidateRejectsInvalidTraceBodyMode(t *testing.T) {
 func TestValidateRejectsInvalidBackendNames(t *testing.T) {
 	cfg := LoadFromEnv()
 	cfg.Server.ControlPlaneBackend = "redis"
-	cfg.Projects.Backend = "sqlite"
 
 	err := cfg.Validate()
 	if err == nil {
@@ -539,351 +536,25 @@ func TestValidateRejectsInvalidBackendNames(t *testing.T) {
 	}
 }
 
-func TestLoadFromEnvProjectsCoordinationBackend(t *testing.T) {
+func TestLoadFromEnvUsesEmbeddedCairnlineProjects(t *testing.T) {
 	cfg := LoadFromEnv()
-	if got := cfg.ProjectsCoordinationBackend(); got != "hecate" {
-		t.Fatalf("ProjectsCoordinationBackend() = %q, want hecate", got)
-	}
-
-	t.Setenv("HECATE_PROJECTS_COORDINATION_BACKEND", " Cairnline ")
-	cfg = LoadFromEnv()
 	if got := cfg.ProjectsCoordinationBackend(); got != "cairnline" {
 		t.Fatalf("ProjectsCoordinationBackend() = %q, want cairnline", got)
 	}
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("Validate() error = %v, want nil for cairnline coordination backend opt-in", err)
-	}
-}
-
-func TestLoadFromEnvProjectsCairnlineReadSource(t *testing.T) {
-	cfg := LoadFromEnv()
-	if got := cfg.ProjectsCairnlineReadSource(); got != "auto" {
-		t.Fatalf("ProjectsCairnlineReadSource() = %q, want auto", got)
-	}
-
-	t.Setenv("HECATE_PROJECTS_CAIRNLINE_READ_SOURCE", " Embedded ")
-	cfg = LoadFromEnv()
-	if got := cfg.ProjectsCairnlineReadSource(); got != "embedded" {
-		t.Fatalf("ProjectsCairnlineReadSource() = %q, want embedded", got)
-	}
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("Validate() error = %v, want nil for embedded Cairnline read source", err)
-	}
-
-	t.Setenv("HECATE_PROJECTS_CAIRNLINE_CONNECTOR", "sidecar")
-	t.Setenv("HECATE_PROJECTS_CAIRNLINE_READ_SOURCE", " Sidecar ")
-	cfg = LoadFromEnv()
-	if got := cfg.ProjectsCairnlineReadSource(); got != "sidecar" {
-		t.Fatalf("ProjectsCairnlineReadSource() = %q, want sidecar", got)
-	}
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("Validate() error = %v, want nil for sidecar Cairnline read source with sidecar connector", err)
-	}
-}
-
-func TestLoadFromEnvProjectsCairnlineConnector(t *testing.T) {
-	cfg := LoadFromEnv()
 	if got := cfg.ProjectsCairnlineConnector(); got != "embedded" {
 		t.Fatalf("ProjectsCairnlineConnector() = %q, want embedded", got)
 	}
-
-	t.Setenv("HECATE_PROJECTS_CAIRNLINE_CONNECTOR", " Sidecar ")
-	cfg = LoadFromEnv()
-	if got := cfg.ProjectsCairnlineConnector(); got != "sidecar" {
-		t.Fatalf("ProjectsCairnlineConnector() = %q, want sidecar", got)
+	if got := cfg.ProjectsCairnlineReadSource(); got != "embedded" {
+		t.Fatalf("ProjectsCairnlineReadSource() = %q, want embedded", got)
 	}
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("Validate() error = %v, want nil for sidecar Cairnline connector", err)
+	if !cfg.ProjectsUseCairnlineOnly() {
+		t.Fatal("ProjectsUseCairnlineOnly() = false, want embedded Cairnline authority")
 	}
-}
-
-func TestLoadFromEnvProjectsCairnlineReplacementMode(t *testing.T) {
-	cfg := LoadFromEnv()
-	if got := cfg.ProjectsCairnlineReplacementMode(); got != "disabled" {
-		t.Fatalf("ProjectsCairnlineReplacementMode() = %q, want disabled", got)
-	}
-
-	t.Setenv("HECATE_PROJECTS_COORDINATION_BACKEND", "cairnline")
-	t.Setenv("HECATE_PROJECTS_CAIRNLINE_CONNECTOR", "embedded")
-	t.Setenv("HECATE_PROJECTS_CAIRNLINE_READ_SOURCE", "embedded")
-	t.Setenv("HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE", " Embedded ")
-	cfg = LoadFromEnv()
-	if got := cfg.ProjectsCairnlineReplacementMode(); got != "embedded" {
-		t.Fatalf("ProjectsCairnlineReplacementMode() = %q, want embedded", got)
-	}
-	if !cfg.ProjectsCairnlineWriteAuthorityEnabled("project-context-sources") || !cfg.ProjectsCairnlineWriteAuthorityEnabled("project-identity") {
-		t.Fatalf("ProjectsCairnlineWriteAuthority() = %+v, want embedded replacement mode to imply all portable write authority", cfg.ProjectsCairnlineWriteAuthority())
-	}
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("Validate() error = %v, want nil for embedded Cairnline replacement mode opt-in", err)
+	if !cfg.ProjectsCairnlineWriteAuthorityEnabled("project-identity") ||
+		!cfg.ProjectsCairnlineWriteAuthorityEnabled("project-assignments") {
+		t.Fatalf("ProjectsCairnlineWriteAuthority() = %+v, want all portable writes", cfg.ProjectsCairnlineWriteAuthority())
 	}
 }
-
-func TestLoadFromEnvProjectsCairnlineSidecarConfig(t *testing.T) {
-	cfg := LoadFromEnv()
-	if got := cfg.ProjectsCairnlineSidecarCommand(); got != "cairnline" {
-		t.Fatalf("ProjectsCairnlineSidecarCommand() = %q, want cairnline", got)
-	}
-	if got := cfg.ProjectsCairnlineSidecarArgs(); len(got) != 0 {
-		t.Fatalf("ProjectsCairnlineSidecarArgs() = %+v, want empty default", got)
-	}
-	if got := cfg.ProjectsCairnlineSidecarDatabasePath(); got != "" {
-		t.Fatalf("ProjectsCairnlineSidecarDatabasePath() = %q, want empty default", got)
-	}
-	if got := cfg.ProjectsCairnlineSidecarProbeTimeout(); got != 10*time.Second {
-		t.Fatalf("ProjectsCairnlineSidecarProbeTimeout() = %v, want 10s", got)
-	}
-
-	t.Setenv("HECATE_PROJECTS_CAIRNLINE_SIDECAR_COMMAND", " /usr/local/bin/cairnline ")
-	t.Setenv("HECATE_PROJECTS_CAIRNLINE_SIDECAR_ARGS", "serve,--stdio")
-	t.Setenv("HECATE_PROJECTS_CAIRNLINE_SIDECAR_DB", " cairnline/projects.db ")
-	t.Setenv("HECATE_PROJECTS_CAIRNLINE_SIDECAR_PROBE_TIMEOUT", "3s")
-	cfg = LoadFromEnv()
-	if got := cfg.ProjectsCairnlineSidecarCommand(); got != "/usr/local/bin/cairnline" {
-		t.Fatalf("ProjectsCairnlineSidecarCommand() = %q, want configured command", got)
-	}
-	if got := cfg.ProjectsCairnlineSidecarArgs(); len(got) != 2 || got[0] != "serve" || got[1] != "--stdio" {
-		t.Fatalf("ProjectsCairnlineSidecarArgs() = %+v, want [serve --stdio]", got)
-	}
-	if got := cfg.ProjectsCairnlineSidecarDatabasePath(); got != "cairnline/projects.db" {
-		t.Fatalf("ProjectsCairnlineSidecarDatabasePath() = %q, want trimmed path", got)
-	}
-	if got := cfg.ProjectsCairnlineSidecarProbeTimeout(); got != 3*time.Second {
-		t.Fatalf("ProjectsCairnlineSidecarProbeTimeout() = %v, want 3s", got)
-	}
-}
-
-func TestLoadFromEnvProjectsCairnlineWriteAuthority(t *testing.T) {
-	cfg := LoadFromEnv()
-	if got := cfg.ProjectsCairnlineWriteAuthority(); len(got) != 0 {
-		t.Fatalf("ProjectsCairnlineWriteAuthority() = %+v, want empty default", got)
-	}
-	if cfg.ProjectsCairnlineWriteAuthorityEnabled("project-memory") {
-		t.Fatalf("ProjectsCairnlineWriteAuthorityEnabled(project-memory) = true, want false by default")
-	}
-
-	t.Setenv("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY", " Project-Memory, none, memory-candidates, project-collaboration, project-skills, project-work-items, project-roles, project-assignments, project-metadata-defaults, project-roots, project-context-sources, project-identity, project-assistant-proposals, project-memory ")
-	cfg = LoadFromEnv()
-	if got := cfg.ProjectsCairnlineWriteAuthority(); len(got) != 12 || got[0] != "project-memory" || got[1] != "memory-candidates" || got[2] != "project-collaboration" || got[3] != "project-skills" || got[4] != "project-work-items" || got[5] != "project-roles" || got[6] != "project-assignments" || got[7] != "project-metadata-defaults" || got[8] != "project-roots" || got[9] != "project-context-sources" || got[10] != "project-identity" || got[11] != "project-assistant-proposals" {
-		t.Fatalf("ProjectsCairnlineWriteAuthority() = %+v, want [project-memory memory-candidates project-collaboration project-skills project-work-items project-roles project-assignments project-metadata-defaults project-roots project-context-sources project-identity project-assistant-proposals]", got)
-	}
-	if !cfg.ProjectsCairnlineWriteAuthorityEnabled("project-memory") {
-		t.Fatalf("ProjectsCairnlineWriteAuthorityEnabled(project-memory) = false, want true")
-	}
-	if !cfg.ProjectsCairnlineWriteAuthorityEnabled("memory-candidates") {
-		t.Fatalf("ProjectsCairnlineWriteAuthorityEnabled(memory-candidates) = false, want true")
-	}
-	if !cfg.ProjectsCairnlineWriteAuthorityEnabled("project-collaboration") {
-		t.Fatalf("ProjectsCairnlineWriteAuthorityEnabled(project-collaboration) = false, want true")
-	}
-	if !cfg.ProjectsCairnlineWriteAuthorityEnabled("project-skills") {
-		t.Fatalf("ProjectsCairnlineWriteAuthorityEnabled(project-skills) = false, want true")
-	}
-	if !cfg.ProjectsCairnlineWriteAuthorityEnabled("project-work-items") {
-		t.Fatalf("ProjectsCairnlineWriteAuthorityEnabled(project-work-items) = false, want true")
-	}
-	if !cfg.ProjectsCairnlineWriteAuthorityEnabled("project-roles") {
-		t.Fatalf("ProjectsCairnlineWriteAuthorityEnabled(project-roles) = false, want true")
-	}
-	if !cfg.ProjectsCairnlineWriteAuthorityEnabled("project-assignments") {
-		t.Fatalf("ProjectsCairnlineWriteAuthorityEnabled(project-assignments) = false, want true")
-	}
-	if !cfg.ProjectsCairnlineWriteAuthorityEnabled("project-metadata-defaults") {
-		t.Fatalf("ProjectsCairnlineWriteAuthorityEnabled(project-metadata-defaults) = false, want true")
-	}
-	if !cfg.ProjectsCairnlineWriteAuthorityEnabled("project-roots") {
-		t.Fatalf("ProjectsCairnlineWriteAuthorityEnabled(project-roots) = false, want true")
-	}
-	if !cfg.ProjectsCairnlineWriteAuthorityEnabled("project-context-sources") {
-		t.Fatalf("ProjectsCairnlineWriteAuthorityEnabled(project-context-sources) = false, want true")
-	}
-	if !cfg.ProjectsCairnlineWriteAuthorityEnabled("project-identity") {
-		t.Fatalf("ProjectsCairnlineWriteAuthorityEnabled(project-identity) = false, want true")
-	}
-	if !cfg.ProjectsCairnlineWriteAuthorityEnabled("project-assistant-proposals") {
-		t.Fatalf("ProjectsCairnlineWriteAuthorityEnabled(project-assistant-proposals) = false, want true")
-	}
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("Validate() error = %v, want nil for project memory, candidate, collaboration, skills, role, work-item, assignment, project metadata/default, root, context-source, identity, and assistant proposal Cairnline write authority opt-ins", err)
-	}
-
-	t.Setenv("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY", " all-portable, project-memory ")
-	cfg = LoadFromEnv()
-	if got := cfg.ProjectsCairnlineWriteAuthority(); len(got) != 12 || got[0] != "project-memory" || got[1] != "memory-candidates" || got[11] != "project-assistant-proposals" {
-		t.Fatalf("ProjectsCairnlineWriteAuthority() = %+v, want all-portable expansion with duplicate project-memory removed", got)
-	}
-	if !cfg.ProjectsCairnlineWriteAuthorityEnabled("project-context-sources") || !cfg.ProjectsCairnlineWriteAuthorityEnabled("project-identity") {
-		t.Fatalf("ProjectsCairnlineWriteAuthorityEnabled() did not include all-portable expansion: %+v", cfg.ProjectsCairnlineWriteAuthority())
-	}
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("Validate() error = %v, want nil for all-portable Cairnline write authority alias", err)
-	}
-
-	cfg.Projects.CairnlineReplacementMode = "embedded"
-	if got := cfg.ProjectsCairnlineWriteAuthority(); len(got) != 12 || got[0] != "project-memory" || got[1] != "memory-candidates" || got[11] != "project-assistant-proposals" {
-		t.Fatalf("ProjectsCairnlineWriteAuthority() = %+v, want embedded replacement mode to preserve all-portable expansion", got)
-	}
-}
-
-func TestValidateRejectsInvalidProjectsCoordinationBackend(t *testing.T) {
-	cfg := LoadFromEnv()
-	cfg.Projects.CoordinationBackend = "cairnline_shadow"
-
-	err := cfg.Validate()
-	if err == nil {
-		t.Fatal("Validate() error = nil, want invalid projects coordination backend error")
-	}
-	if !strings.Contains(err.Error(), "HECATE_PROJECTS_COORDINATION_BACKEND") {
-		t.Fatalf("Validate() error = %q, want HECATE_PROJECTS_COORDINATION_BACKEND", err)
-	}
-}
-
-func TestValidateRejectsInvalidProjectsCairnlineReadSource(t *testing.T) {
-	cfg := LoadFromEnv()
-	cfg.Projects.CairnlineReadSource = "live"
-
-	err := cfg.Validate()
-	if err == nil {
-		t.Fatal("Validate() error = nil, want invalid projects Cairnline read source error")
-	}
-	if !strings.Contains(err.Error(), "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE") {
-		t.Fatalf("Validate() error = %q, want HECATE_PROJECTS_CAIRNLINE_READ_SOURCE", err)
-	}
-}
-
-func TestValidateRejectsSidecarReadSourceWithoutSidecarConnector(t *testing.T) {
-	cfg := LoadFromEnv()
-	cfg.Projects.CairnlineReadSource = "sidecar"
-
-	err := cfg.Validate()
-	if err == nil {
-		t.Fatal("Validate() error = nil, want sidecar read source connector error")
-	}
-	if !strings.Contains(err.Error(), "HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar") {
-		t.Fatalf("Validate() error = %q, want sidecar connector requirement", err)
-	}
-}
-
-func TestValidateRejectsInvalidProjectsCairnlineConnector(t *testing.T) {
-	cfg := LoadFromEnv()
-	cfg.Projects.CairnlineConnector = "mcp"
-
-	err := cfg.Validate()
-	if err == nil {
-		t.Fatal("Validate() error = nil, want invalid projects Cairnline connector error")
-	}
-	if !strings.Contains(err.Error(), "HECATE_PROJECTS_CAIRNLINE_CONNECTOR") {
-		t.Fatalf("Validate() error = %q, want HECATE_PROJECTS_CAIRNLINE_CONNECTOR", err)
-	}
-}
-
-func TestValidateRejectsInvalidProjectsCairnlineReplacementMode(t *testing.T) {
-	cfg := LoadFromEnv()
-	cfg.Projects.CairnlineReplacementMode = "sidecar"
-
-	err := cfg.Validate()
-	if err == nil {
-		t.Fatal("Validate() error = nil, want invalid projects Cairnline replacement mode error")
-	}
-	if !strings.Contains(err.Error(), "HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE") {
-		t.Fatalf("Validate() error = %q, want HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE", err)
-	}
-}
-
-func TestValidateRejectsEmbeddedProjectsCairnlineReplacementModeWithoutStrictEmbeddedPrerequisites(t *testing.T) {
-	tests := []struct {
-		name string
-		cfg  func(Config) Config
-		want string
-	}{
-		{
-			name: "hecate backend",
-			cfg: func(cfg Config) Config {
-				cfg.Projects.CairnlineReplacementMode = "embedded"
-				cfg.Projects.CairnlineReadSource = "embedded"
-				return cfg
-			},
-			want: "HECATE_PROJECTS_COORDINATION_BACKEND=cairnline",
-		},
-		{
-			name: "sidecar connector",
-			cfg: func(cfg Config) Config {
-				cfg.Projects.CoordinationBackend = "cairnline"
-				cfg.Projects.CairnlineConnector = "sidecar"
-				cfg.Projects.CairnlineReadSource = "embedded"
-				cfg.Projects.CairnlineReplacementMode = "embedded"
-				return cfg
-			},
-			want: "HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded",
-		},
-		{
-			name: "non-strict read source",
-			cfg: func(cfg Config) Config {
-				cfg.Projects.CoordinationBackend = "cairnline"
-				cfg.Projects.CairnlineReadSource = "auto"
-				cfg.Projects.CairnlineReplacementMode = "embedded"
-				return cfg
-			},
-			want: "HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := tt.cfg(LoadFromEnv())
-			err := cfg.Validate()
-			if err == nil {
-				t.Fatal("Validate() error = nil, want embedded replacement mode prerequisite error")
-			}
-			if !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("Validate() error = %q, want %q", err, tt.want)
-			}
-		})
-	}
-}
-
-func TestValidateRejectsInvalidProjectsCairnlineWriteAuthority(t *testing.T) {
-	cfg := LoadFromEnv()
-	cfg.Projects.CairnlineWriteAuthority = "project-memory,assignments"
-
-	err := cfg.Validate()
-	if err == nil {
-		t.Fatal("Validate() error = nil, want invalid projects Cairnline write authority error")
-	}
-	if !strings.Contains(err.Error(), "HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY") {
-		t.Fatalf("Validate() error = %q, want HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY", err)
-	}
-}
-
-func TestValidateRejectsInvalidProjectsCairnlineWriteAuthorityWithReplacementMode(t *testing.T) {
-	cfg := LoadFromEnv()
-	cfg.Projects.CoordinationBackend = "cairnline"
-	cfg.Projects.CairnlineConnector = "embedded"
-	cfg.Projects.CairnlineReadSource = "embedded"
-	cfg.Projects.CairnlineReplacementMode = "embedded"
-	cfg.Projects.CairnlineWriteAuthority = "project-memory,assignments"
-
-	err := cfg.Validate()
-	if err == nil {
-		t.Fatal("Validate() error = nil, want invalid projects Cairnline write authority error")
-	}
-	if !strings.Contains(err.Error(), "HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY") {
-		t.Fatalf("Validate() error = %q, want HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY", err)
-	}
-}
-
-func TestValidateRejectsProjectsCairnlineMemoryCandidateAuthorityWithoutAcceptedMemory(t *testing.T) {
-	cfg := LoadFromEnv()
-	cfg.Projects.CairnlineWriteAuthority = "memory-candidates"
-
-	err := cfg.Validate()
-	if err == nil {
-		t.Fatal("Validate() error = nil, want memory-candidates dependency error")
-	}
-	if !strings.Contains(err.Error(), "memory-candidates requires project-memory") {
-		t.Fatalf("Validate() error = %q, want memory-candidates project-memory dependency", err)
-	}
-}
-
 func TestValidateRejectsPostgresBackendWithoutDatabaseURL(t *testing.T) {
 	cfg := LoadFromEnv()
 	cfg.Server.ControlPlaneBackend = "postgres"

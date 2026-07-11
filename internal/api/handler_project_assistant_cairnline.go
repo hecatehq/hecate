@@ -42,25 +42,6 @@ func (h *Handler) cairnlineProjectAssistantContext(ctx context.Context, input pr
 	return draftContext, nil
 }
 
-func (h *Handler) cairnlineSidecarProjectAssistantContext(ctx context.Context, input projectassistant.ContextInput) (projectassistant.DraftContext, error) {
-	seed, err := h.cairnlineSidecarProjectAssistantContextSeed(ctx, input.ProjectID)
-	if err != nil {
-		return projectassistant.DraftContext{}, err
-	}
-	draftContext, err := projectassistant.NewService(projectassistant.Stores{
-		Projects:         seed.projects,
-		Work:             seed.work,
-		ProjectSkills:    seed.skills,
-		Memory:           seed.memory,
-		MemoryCandidates: seed.memory,
-	}, nil).Context(ctx, input)
-	if err != nil {
-		return projectassistant.DraftContext{}, err
-	}
-	draftContext.ReadBackend = "cairnline"
-	return draftContext, nil
-}
-
 func (h *Handler) cairnlineProjectAssistantDraft(ctx context.Context, command projectassistantapp.DraftCommand) (projectassistant.Proposal, error) {
 	view, err := h.cairnlineProjectWorkView(ctx, command.ProjectID)
 	if errors.Is(err, projects.ErrNotFound) {
@@ -98,81 +79,11 @@ func (h *Handler) cairnlineProjectAssistantDraft(ctx context.Context, command pr
 	})
 }
 
-func (h *Handler) cairnlineSidecarProjectAssistantDraft(ctx context.Context, command projectassistantapp.DraftCommand) (projectassistant.Proposal, error) {
-	seed, err := h.cairnlineSidecarProjectAssistantContextSeed(ctx, command.ProjectID)
-	if err != nil {
-		return projectassistant.Proposal{}, err
-	}
-	return projectassistant.NewService(projectassistant.Stores{
-		Projects:         seed.projects,
-		Chats:            h.agentChat,
-		Work:             seed.work,
-		ProjectSkills:    seed.skills,
-		Memory:           seed.memory,
-		MemoryCandidates: seed.memory,
-		Proposals:        h.projectAssistantProposalStoreForApplication(),
-		LLM:              gatewayAgentLLMClient{service: h.service},
-	}, newOpaqueTaskResourceID).Draft(ctx, projectassistant.DraftInput{
-		ProjectID:        command.ProjectID,
-		WorkItemID:       command.WorkItemID,
-		Request:          command.Request,
-		RoleID:           command.RoleID,
-		DriverKind:       command.DriverKind,
-		DraftMode:        command.DraftMode,
-		ReviewArtifactID: command.ReviewArtifactID,
-		Provider:         command.Provider,
-		Model:            command.Model,
-		RequestID:        command.RequestID,
-		TraceID:          command.TraceID,
-	})
-}
-
 type cairnlineProjectAssistantContextSeed struct {
 	projects *projects.MemoryStore
 	work     *projectwork.MemoryStore
 	skills   *projectskills.MemoryStore
 	memory   *memory.MemoryStore
-}
-
-func (h *Handler) cairnlineSidecarProjectAssistantContextSeed(ctx context.Context, projectID string) (cairnlineProjectAssistantContextSeed, error) {
-	var seed cairnlineProjectAssistantContextSeed
-	requestedProjectID := strings.TrimSpace(projectID)
-	projectItem, ok, err := h.cairnlineSidecarProject(ctx, requestedProjectID)
-	if err != nil {
-		return seed, err
-	}
-	if !ok {
-		return seed, projectassistant.ErrNotFound
-	}
-	project := projectFromCairnlineSidecar(projectItem)
-	project, err = h.projectWithHecateRuntimeOverlay(ctx, project)
-	if err != nil {
-		return seed, err
-	}
-	if project.ID != requestedProjectID {
-		return seed, projectassistant.ErrNotFound
-	}
-
-	seed.projects = projects.NewMemoryStore()
-	if _, err := seed.projects.Create(ctx, project); err != nil {
-		return seed, err
-	}
-
-	seed.work = projectwork.NewMemoryStore()
-	if err := h.seedCairnlineSidecarProjectAssistantWork(ctx, seed.work, project.ID); err != nil {
-		return seed, err
-	}
-
-	seed.skills = projectskills.NewMemoryStore()
-	if err := h.seedCairnlineSidecarProjectAssistantSkills(ctx, seed.skills, project.ID); err != nil {
-		return seed, err
-	}
-
-	seed.memory = memory.NewMemoryStore()
-	if err := h.seedCairnlineSidecarProjectAssistantMemory(ctx, seed.memory, project.ID); err != nil {
-		return seed, err
-	}
-	return seed, nil
 }
 
 func (h *Handler) cairnlineProjectAssistantContextSeed(ctx context.Context, service *cairnline.Service, snapshot cairnlinebridge.Snapshot) (cairnlineProjectAssistantContextSeed, error) {
@@ -209,76 +120,6 @@ func (h *Handler) cairnlineProjectAssistantContextSeedFromService(ctx context.Co
 		return seed, err
 	}
 	return seed, nil
-}
-
-func (h *Handler) seedCairnlineSidecarProjectAssistantWork(ctx context.Context, store *projectwork.MemoryStore, projectID string) error {
-	roleItems, err := h.cairnlineSidecarProjectRoles(ctx, projectID)
-	if err != nil {
-		return err
-	}
-	roles, err := h.projectRolesWithHecateRuntimeOverlay(ctx, projectRolesFromCairnlineSidecar(roleItems))
-	if err != nil {
-		return err
-	}
-	for _, role := range roles {
-		if projectwork.IsBuiltInRoleID(role.ID) {
-			continue
-		}
-		role.DefaultDriverKind = projectWorkAssignmentDriverFromCairnline(role.DefaultDriverKind)
-		if _, err := store.CreateRole(ctx, role); err != nil {
-			return err
-		}
-	}
-
-	workItemItems, err := h.cairnlineSidecarProjectWorkItems(ctx, projectID)
-	if err != nil {
-		return err
-	}
-	for _, item := range projectWorkItemsFromCairnlineSidecar(workItemItems) {
-		item.Status = projectAssistantWorkItemStatusFromCairnline(item.Status)
-		if _, err := store.CreateWorkItem(ctx, item); err != nil {
-			return err
-		}
-	}
-
-	assignmentItems, err := h.cairnlineSidecarProjectAssignments(ctx, projectID)
-	if err != nil {
-		return err
-	}
-	for _, assignment := range projectAssignmentsFromCairnlineSidecar(assignmentItems) {
-		if _, err := store.CreateAssignment(ctx, assignment); err != nil {
-			return err
-		}
-	}
-
-	artifactItems, err := h.cairnlineSidecarProjectArtifacts(ctx, projectID)
-	if err != nil {
-		return err
-	}
-	evidenceItems, err := h.cairnlineSidecarProjectEvidence(ctx, projectID)
-	if err != nil {
-		return err
-	}
-	reviewItems, err := h.cairnlineSidecarProjectReviews(ctx, projectID)
-	if err != nil {
-		return err
-	}
-	for _, artifact := range projectArtifactsFromCairnlineSidecar(artifactItems, evidenceItems, reviewItems) {
-		if _, err := store.CreateArtifact(ctx, artifact); err != nil {
-			return err
-		}
-	}
-
-	handoffItems, err := h.cairnlineSidecarProjectHandoffs(ctx, projectID)
-	if err != nil {
-		return err
-	}
-	for _, handoff := range projectHandoffsFromCairnlineSidecar(handoffItems) {
-		if _, err := store.CreateHandoff(ctx, handoff); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func projectAssistantWorkItemStatusFromCairnline(status string) string {
@@ -368,17 +209,6 @@ func seedCairnlineProjectAssistantWork(ctx context.Context, store *projectwork.M
 	return nil
 }
 
-func (h *Handler) seedCairnlineSidecarProjectAssistantSkills(ctx context.Context, store *projectskills.MemoryStore, projectID string) error {
-	items, err := h.cairnlineSidecarProjectSkills(ctx, projectID)
-	if err != nil {
-		return err
-	}
-	if _, err := store.UpsertDiscovered(ctx, projectID, projectSkillsFromCairnlineSidecar(items)); err != nil {
-		return err
-	}
-	return nil
-}
-
 func seedCairnlineProjectAssistantSkills(ctx context.Context, store *projectskills.MemoryStore, service *cairnline.Service, projectID string, snapshot cairnlinebridge.Snapshot) error {
 	projectID = strings.TrimSpace(firstNonEmpty(snapshot.Project.ID, projectID))
 	items, err := service.ListProjectSkills(ctx, projectID)
@@ -392,28 +222,6 @@ func seedCairnlineProjectAssistantSkills(ctx context.Context, store *projectskil
 	}
 	if _, err := store.UpsertDiscovered(ctx, projectID, skills); err != nil {
 		return err
-	}
-	return nil
-}
-
-func (h *Handler) seedCairnlineSidecarProjectAssistantMemory(ctx context.Context, store *memory.MemoryStore, projectID string) error {
-	entries, err := h.cairnlineSidecarProjectMemoryEntries(ctx, projectID)
-	if err != nil {
-		return err
-	}
-	for _, item := range projectMemoryEntriesFromCairnlineSidecar(entries) {
-		if _, err := store.Create(ctx, item); err != nil {
-			return err
-		}
-	}
-	candidates, err := h.cairnlineSidecarProjectMemoryCandidates(ctx, projectID)
-	if err != nil {
-		return err
-	}
-	for _, item := range projectMemoryCandidatesFromCairnlineSidecar(candidates) {
-		if _, err := store.CreateCandidate(ctx, item); err != nil {
-			return err
-		}
 	}
 	return nil
 }

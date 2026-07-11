@@ -17,7 +17,6 @@ import (
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
-	"github.com/hecatehq/hecate/internal/storage"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -2454,7 +2453,6 @@ func TestService_ApplyChangedProposalAfterPreflightFailureConflictsAcrossStores(
 func assistantFixtureBuilders() []assistantFixtureBuilder {
 	return []assistantFixtureBuilder{
 		{name: "memory", build: newMemoryAssistantFixture},
-		{name: "sqlite", build: newSQLiteAssistantFixture},
 	}
 }
 
@@ -2466,57 +2464,6 @@ func newMemoryAssistantFixture(t *testing.T) assistantFixture {
 	projectSkillStore := projectskills.NewMemoryStore()
 	memoryStore := memory.NewMemoryStore()
 	proposalStore := NewMemoryProposalStore()
-	return assistantFixture{
-		service:          projectassistantService(projectStore, chatStore, workStore, projectSkillStore, memoryStore, proposalStore),
-		projects:         projectStore,
-		chats:            chatStore,
-		work:             workStore,
-		projectSkills:    projectSkillStore,
-		memoryEntries:    memoryStore,
-		memoryCandidates: memoryStore,
-		proposals:        proposalStore,
-	}
-}
-
-func newSQLiteAssistantFixture(t *testing.T) assistantFixture {
-	t.Helper()
-	ctx := context.Background()
-	client, err := storage.NewSQLiteClient(ctx, storage.SQLiteConfig{
-		Path:        filepath.Join(t.TempDir(), "hecate.db"),
-		TablePrefix: "test",
-	})
-	if err != nil {
-		t.Fatalf("new sqlite client: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := client.Close(); err != nil {
-			t.Fatalf("close sqlite client: %v", err)
-		}
-	})
-	projectStore, err := projects.NewSQLiteStore(ctx, client)
-	if err != nil {
-		t.Fatalf("new project sqlite store: %v", err)
-	}
-	chatStore, err := chat.NewSQLiteStore(ctx, client)
-	if err != nil {
-		t.Fatalf("new chat sqlite store: %v", err)
-	}
-	workStore, err := projectwork.NewSQLiteStore(ctx, client)
-	if err != nil {
-		t.Fatalf("new project work sqlite store: %v", err)
-	}
-	projectSkillStore, err := projectskills.NewSQLiteStore(ctx, client)
-	if err != nil {
-		t.Fatalf("new project skills sqlite store: %v", err)
-	}
-	memoryStore, err := memory.NewSQLiteStore(ctx, client)
-	if err != nil {
-		t.Fatalf("new memory sqlite store: %v", err)
-	}
-	proposalStore, err := NewSQLiteProposalStore(ctx, client)
-	if err != nil {
-		t.Fatalf("new project assistant proposal sqlite store: %v", err)
-	}
 	return assistantFixture{
 		service:          projectassistantService(projectStore, chatStore, workStore, projectSkillStore, memoryStore, proposalStore),
 		projects:         projectStore,

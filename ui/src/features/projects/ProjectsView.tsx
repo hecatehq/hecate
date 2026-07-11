@@ -27,7 +27,6 @@ import {
   deleteProjectWorkRole,
   deleteProjectWorkItem,
   getProjectActivity,
-  getProjectCoordinationBackendStatus,
   getAgentPresets,
   getProjectAssignments,
   getProjectCollaborationArtifacts,
@@ -97,7 +96,6 @@ import type {
   ProjectActivityBucketKey,
   ProjectAssignmentRecord,
   ProjectActivityData,
-  ProjectCoordinationBackendStatusRecord,
   ProjectMemoryCandidateRecord,
   ProjectCollaborationArtifactRecord,
   CreateProjectWorktreeRootPayload,
@@ -172,7 +170,6 @@ import { PROJECT_ASSISTANT_AUTO } from "./ProjectAssistantPanel";
 type Props = {
   onOpenChat?: (request: ProjectAssignmentChatLaunchRequest) => void;
   onOpenConnections?: () => void;
-  onOpenSettings?: () => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
 };
 
@@ -212,7 +209,7 @@ const projectMainBodyStyle: CSSProperties = {
   overflow: "hidden",
 };
 
-export function ProjectsView({ onOpenChat, onOpenConnections, onOpenSettings, onOpenTask }: Props) {
+export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Props) {
   const projects = useProjects();
   const providersAndModels = useProvidersAndModels();
   const settings = useSettings();
@@ -260,8 +257,6 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenSettings, on
   const [projectSetupReadiness, setProjectSetupReadiness] = useState<ProjectSetupReadiness | null>(
     null,
   );
-  const [projectBackendStatus, setProjectBackendStatus] =
-    useState<ProjectCoordinationBackendStatusRecord | null>(null);
   const [operationsBrief, setOperationsBrief] = useState<ProjectOperationsBrief | null>(null);
   const [operationsBriefError, setOperationsBriefError] = useState("");
   const [operationsBriefLoadState, setOperationsBriefLoadState] = useState<LoadState>("idle");
@@ -350,19 +345,6 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenSettings, on
     const payload = await getProjectSetupReadiness(projectID);
     setProjectSetupReadiness(payload.data ?? null);
   }, []);
-
-  const loadProjectBackendStatus = useCallback(async () => {
-    try {
-      const payload = await getProjectCoordinationBackendStatus();
-      setProjectBackendStatus(payload.data ?? null);
-    } catch {
-      setProjectBackendStatus(null);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadProjectBackendStatus();
-  }, [loadProjectBackendStatus]);
 
   const refreshProjectHealth = useCallback(
     (projectID: string) => {
@@ -1567,7 +1549,6 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenSettings, on
 
   async function refreshSelectedWorkItem() {
     if (!selectedProjectID) return;
-    void loadProjectBackendStatus();
     const refreshedWorkItemID = await loadWorkForProject(selectedProjectID, selectedWorkItemID);
     if (refreshedWorkItemID) {
       await loadWorkItemDetail(selectedProjectID, refreshedWorkItemID);
@@ -1898,7 +1879,6 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenSettings, on
               setDefaultsError("");
               setSettingsPanelOpen(true);
             }}
-            onOpenSystemSettings={onOpenSettings}
             onOperationAction={handleOperationsBriefAction}
             onOpenTask={onOpenTask}
             onPromoteCandidate={setPromotingCandidate}
@@ -1917,7 +1897,6 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenSettings, on
             projectEmptyDetail={projectEmptyDetail}
             projectEmptyTitle={projectEmptyTitle}
             projectNeedsOnboarding={projectNeedsOnboarding}
-            projectBackendStatus={projectBackendStatus}
             projectSetupReadiness={projectSetupReadiness}
             operationsBrief={operationsBrief}
             operationsBriefError={operationsBriefError}

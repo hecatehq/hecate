@@ -718,9 +718,6 @@ func parseProjectTime(value string) (time.Time, error) {
 }
 
 func (h *Handler) renderProjects(ctx context.Context) ([]ProjectResponseItem, error) {
-	if h.projectCairnlineSidecarReadRoutesEnabled() {
-		return h.renderCairnlineSidecarProjects(ctx)
-	}
 	if h.requiresEmbeddedCairnlineProjectReads() {
 		return h.renderStrictEmbeddedCairnlineProjects(ctx)
 	}
@@ -740,6 +737,9 @@ func (h *Handler) renderProjects(ctx context.Context) ([]ProjectResponseItem, er
 
 func (h *Handler) renderStrictEmbeddedCairnlineProjects(ctx context.Context) ([]ProjectResponseItem, error) {
 	_, service, store, err := h.openCairnlineEmbeddedService(ctx)
+	if errors.Is(err, cairnline.ErrNotFound) {
+		return []ProjectResponseItem{}, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -772,9 +772,6 @@ func (h *Handler) renderCairnlineProjects(ctx context.Context, nativeProjects []
 }
 
 func (h *Handler) renderProject(ctx context.Context, projectID string) (*ProjectResponseItem, error) {
-	if h.projectCairnlineSidecarReadRoutesEnabled() {
-		return h.renderCairnlineSidecarProject(ctx, projectID)
-	}
 	if h.requiresEmbeddedCairnlineProjectReads() {
 		return h.renderStrictEmbeddedCairnlineProject(ctx, projectID)
 	}
@@ -814,10 +811,6 @@ func (h *Handler) renderStrictEmbeddedCairnlineProject(ctx context.Context, proj
 }
 
 func writeProjectReadRenderError(w http.ResponseWriter, err error) {
-	if errors.Is(err, errProjectCairnlineSidecarReadFailed) {
-		WriteError(w, http.StatusBadGateway, errCodeGatewayError, err.Error())
-		return
-	}
 	WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 }
 

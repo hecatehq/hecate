@@ -6,7 +6,6 @@ import type {
   ProjectActivityData,
   ProjectActivityItemRecord,
   ProjectAssignmentRecord,
-  ProjectCoordinationBackendStatusRecord,
   ProjectMemoryCandidateRecord,
   ProjectOperationsBriefItem,
   ProjectRecord,
@@ -168,28 +167,6 @@ function memoryCandidate(
   };
 }
 
-function backendStatus(
-  overrides: Partial<ProjectCoordinationBackendStatusRecord> = {},
-): ProjectCoordinationBackendStatusRecord {
-  return {
-    configured_backend: "hecate",
-    authoritative_backend: "hecate",
-    storage_backend: "sqlite",
-    cairnline_connector: "embedded",
-    cairnline_connector_ready: true,
-    cairnline_bridge_ready: true,
-    cairnline_authoritative: false,
-    read_model_switch_ready: false,
-    write_adapter_ready: false,
-    replacement_ready: false,
-    replacement_mode: "disabled",
-    replacement_mode_armed: false,
-    status: "hecate_authoritative",
-    detail: "Hecate-native project stores are authoritative.",
-    ...overrides,
-  };
-}
-
 function assistant() {
   return {
     apply: vi.fn(),
@@ -314,7 +291,6 @@ function renderWorkspace(overrides: Partial<ProjectWorkspaceViewProps> = {}) {
     onOpenChat: vi.fn(),
     onOpenConnections: vi.fn(),
     onOpenSettings: vi.fn(),
-    onOpenSystemSettings: vi.fn(),
     onOperationAction: vi.fn(),
     onOpenTask: vi.fn(),
     onPromoteCandidate: vi.fn(),
@@ -353,7 +329,6 @@ function renderWorkspace(overrides: Partial<ProjectWorkspaceViewProps> = {}) {
     memoryError: "",
     memoryLoadState: "idle",
     project: project(),
-    projectBackendStatus: null,
     projectEmptyDetail: "Choose a project.",
     projectEmptyTitle: "No project selected",
     projectNeedsOnboarding: false,
@@ -457,69 +432,6 @@ describe("ProjectWorkspaceView", () => {
     expect(handlers.onWorkspaceTabChange).toHaveBeenNthCalledWith(1, "timeline");
     expect(handlers.onWorkspaceTabChange).toHaveBeenNthCalledWith(2, "memory");
     expect(handlers.onWorkspaceTabChange).toHaveBeenNthCalledWith(3, "skills");
-  });
-
-  it("renders Cairnline coordination status with settings action", async () => {
-    const { handlers } = renderWorkspace({
-      projectBackendStatus: backendStatus({
-        configured_backend: "cairnline",
-        authoritative_backend: "hecate",
-        cairnline_read_source: "embedded",
-        status: "cairnline_read_routes_ready",
-        detail: "Cairnline read routes are active.",
-        portable_write_gaps: ["skills"],
-        migration_blockers: ["migration-cutover"],
-        orchestrator_capabilities: ["assignment-start"],
-        next_replacement_action: {
-          id: "move-portable-write-authority",
-          label: "Move next authority",
-          detail: "Move the next portable write authority.",
-          target: "skills",
-          config_hints: [
-            {
-              env: "HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY",
-              value: "project-skills",
-              detail: "Enable skill metadata writes.",
-            },
-            {
-              env: "HECATE_PROJECTS_CAIRNLINE_CONNECTOR",
-              value: "embedded",
-              detail: "Use embedded Cairnline for write-authority dogfood.",
-            },
-          ],
-          probes: [{ method: "GET", url: "/hecate/v1/projects/{id}/cairnline/read-model" }],
-        },
-      }),
-    });
-
-    const strip = screen.getByRole("region", { name: "Project coordination backend" });
-    expect(within(strip).getByText("Cairnline dogfood active")).toBeTruthy();
-    expect(within(strip).getByText("cairnline read routes ready")).toBeTruthy();
-    expect(within(strip).getByText("1 portable gap")).toBeTruthy();
-    expect(within(strip).getByText("1 migration blocker")).toBeTruthy();
-    expect(within(strip).getByText("1 runtime boundary")).toBeTruthy();
-    expect(within(strip).getByText("Next")).toBeTruthy();
-    expect(within(strip).getByText("Move next authority")).toBeTruthy();
-    expect(within(strip).getByText("skills")).toBeTruthy();
-    expect(within(strip).getByText("1 probe")).toBeTruthy();
-    expect(
-      within(strip).getByText("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=project-skills"),
-    ).toBeTruthy();
-    expect(within(strip).getByText("HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded")).toBeTruthy();
-    expect(within(strip).getByText("env bundle")).toBeTruthy();
-    expect(within(strip).getByRole("button", { name: "copy all" })).toBeTruthy();
-    expect(within(strip).getAllByRole("button", { name: "copy" }).length).toBe(2);
-
-    await userEvent.click(within(strip).getByRole("button", { name: "Backend settings" }));
-    expect(handlers.onOpenSystemSettings).toHaveBeenCalledTimes(1);
-  });
-
-  it("hides default Hecate coordination status", () => {
-    renderWorkspace({
-      projectBackendStatus: backendStatus(),
-    });
-
-    expect(screen.queryByRole("region", { name: "Project coordination backend" })).toBeNull();
   });
 
   it("renders project operations brief items", async () => {
