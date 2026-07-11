@@ -5,8 +5,6 @@ import (
 	"testing"
 
 	"github.com/hecatehq/cairnline"
-	"github.com/hecatehq/hecate/internal/chat"
-	"github.com/hecatehq/hecate/internal/memory"
 )
 
 func cairnlineAssignmentContextForMemoryTest() cairnline.AssignmentContext {
@@ -80,28 +78,5 @@ func TestCairnlineExecutionRefSummary(t *testing.T) {
 	got := cairnlineExecutionRefSummary(cairnline.ExecutionRef{Kind: "chat_session", SessionID: "chat_1"})
 	if got != "kind=chat_session session=chat_1" {
 		t.Fatalf("cairnlineExecutionRefSummary(chat) = %q, want kind and session only", got)
-	}
-}
-
-func TestProjectCairnlineAssignmentContextMemoryParity(t *testing.T) {
-	t.Parallel()
-	packet := cairnlineAssignmentContextPacket(cairnlineAssignmentContextForMemoryTest(), "")
-	entries := []memory.Entry{
-		{ID: "mem_timeout", ProjectID: "proj_ctx", Title: "Timeout invariant", Enabled: true},
-		{ID: "mem_retry", ProjectID: "proj_ctx", Title: "Retry ceiling", Enabled: true},
-		// Disabled entries stay out of launch reads and must not fail parity.
-		{ID: "mem_disabled", ProjectID: "proj_ctx", Title: "Old rule", Enabled: false},
-	}
-	if err := projectCairnlineAssignmentContextMemoryParity(packet, entries); err != nil {
-		t.Fatalf("memory parity = %v, want packet to satisfy the native composer selection", err)
-	}
-
-	missing := append(entries, memory.Entry{ID: "mem_missing", ProjectID: "proj_ctx", Title: "Uncarried", Enabled: true})
-	if err := projectCairnlineAssignmentContextMemoryParity(packet, missing); err == nil {
-		t.Fatal("memory parity with uncarried enabled entry = nil, want gate-blocking error")
-	}
-
-	if err := projectCairnlineAssignmentContextMemoryParity(chat.ContextPacket{}, entries); err == nil {
-		t.Fatal("memory parity against empty packet = nil, want error for dropped memory")
 	}
 }

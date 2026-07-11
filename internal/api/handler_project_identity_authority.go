@@ -21,21 +21,7 @@ func (h *Handler) projectIdentityWritesUseCairnlineAuthority() bool {
 }
 
 func (h *Handler) projectCairnlineEmbeddedReplacementModeArmed() bool {
-	if h == nil {
-		return false
-	}
-	// This is the write-path shadow switch for newly-created project identity.
-	// Backend status still owns the broader replacement-readiness verdict,
-	// including strict embedded mirror parity and read-smoke evidence.
-	if h.config.ProjectsCoordinationBackend() != "cairnline" ||
-		!h.projectCairnlineEmbeddedConnectorEnabled() ||
-		h.config.ProjectsCairnlineReadSource() != "embedded" ||
-		h.config.ProjectsCairnlineReplacementMode() != "embedded" {
-		return false
-	}
-	writeAuthority := h.config.ProjectsCairnlineWriteAuthority()
-	writeGaps := projectCairnlineWriteAdapterGapsSnapshot(writeAuthority)
-	return len(projectCairnlinePortableWriteGapsSnapshot(writeAuthority, writeGaps)) == 0
+	return h != nil && h.config.ProjectsUseCairnlineOnly()
 }
 
 func (h *Handler) createProjectWithCairnlineAuthority(ctx context.Context, project projects.Project) (projects.Project, error) {
@@ -50,7 +36,7 @@ func (h *Handler) createProjectWithCairnlineAuthority(ctx context.Context, proje
 	}
 
 	var written cairnline.Project
-	err := h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err := h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		created, err := service.CreateProject(ctx, cairnlinebridge.Project(project))
 		if err != nil {
 			return err
@@ -99,7 +85,7 @@ func (h *Handler) deleteProjectWithCairnlineAuthority(ctx context.Context, proje
 func (h *Handler) deleteCairnlineOnlyProjectWithAuthority(ctx context.Context, projectID string) (projectapp.DeleteProjectResult, error) {
 	var project projects.Project
 	var rollback cairnline.Snapshot
-	err := h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err := h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		item, err := service.GetProject(ctx, strings.TrimSpace(projectID))
 		if err != nil {
 			return err
@@ -129,14 +115,14 @@ func (h *Handler) deleteCairnlineOnlyProjectWithAuthority(ctx context.Context, p
 }
 
 func (h *Handler) restoreCairnlineSnapshot(ctx context.Context, snapshot cairnline.Snapshot) error {
-	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	return h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		_, err := service.ImportSnapshot(ctx, snapshot)
 		return err
 	})
 }
 
 func (h *Handler) restoreProjectSnapshotToCairnline(ctx context.Context, snapshot cairnlinebridge.Snapshot) error {
-	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	return h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		return cairnlinebridge.Seed(ctx, service, snapshot)
 	})
 }

@@ -92,7 +92,6 @@ import type {
   ProjectActivityResponse,
   ProjectCollaborationArtifactResponse,
   ProjectCollaborationArtifactsResponse,
-  ProjectCoordinationBackendStatusResponse,
   ProjectContextSourcePayload,
   ProjectDeleteResponse,
   ProjectHandoffResponse,
@@ -525,12 +524,6 @@ export async function deleteProject(id: string): Promise<ProjectDeleteResponse> 
   return fetchJSON<ProjectDeleteResponse>(`${HECATE_API}/projects/${encodeURIComponent(id)}`, {
     method: "DELETE",
   });
-}
-
-export async function getProjectCoordinationBackendStatus(): Promise<ProjectCoordinationBackendStatusResponse> {
-  return fetchJSON<ProjectCoordinationBackendStatusResponse>(
-    `${HECATE_API}/projects/backend-status`,
-  );
 }
 
 export async function proposeProjectAssistant(

@@ -43,7 +43,7 @@ func (h *Handler) createProjectWorkRoleWithCairnlineAuthority(ctx context.Contex
 	}
 
 	var created projectwork.AgentRoleProfile
-	err = h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err = h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if _, err := cairnlinebridge.UpsertProjectMetadata(ctx, service, project); err != nil {
 			return err
 		}
@@ -81,7 +81,7 @@ func (h *Handler) updateProjectWorkRoleWithCairnlineAuthority(ctx context.Contex
 	}
 
 	var updated projectwork.AgentRoleProfile
-	err = h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err = h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if _, err := cairnlinebridge.UpsertProjectMetadata(ctx, service, project); err != nil {
 			return err
 		}
@@ -123,7 +123,7 @@ func (h *Handler) deleteProjectWorkRoleWithCairnlineAuthority(ctx context.Contex
 		return projectwork.ErrBuiltInRole
 	}
 	var deleted projectwork.AgentRoleProfile
-	if err := h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	if err := h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		existing, err := getCairnlineProjectRoleForAuthority(ctx, service, projectID, roleID)
 		if err != nil {
 			return err
@@ -260,6 +260,9 @@ func (h *Handler) shadowProjectRoleToHecate(ctx context.Context, operation strin
 
 func (h *Handler) shadowProjectRoleDeleteToHecate(ctx context.Context, operation, projectID, roleID string) {
 	if h == nil || h.projectWork == nil {
+		return
+	}
+	if h.projectCairnlineEmbeddedReplacementModeArmed() {
 		return
 	}
 	if err := h.projectWork.DeleteRole(ctx, projectID, roleID); err != nil && !errors.Is(err, projectwork.ErrNotFound) {

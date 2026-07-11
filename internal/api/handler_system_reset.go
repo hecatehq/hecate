@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/agentadapters"
-	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/taskapp"
 	"github.com/hecatehq/hecate/internal/taskstate"
 )
@@ -43,35 +43,11 @@ func (h *Handler) resetSystemData(ctx context.Context) (SystemResetDataResponseI
 	}
 	stats.ChatSessionsDeleted = chatDeleted
 
-	projectsDeleted, err := h.resetProjects(ctx)
-	if err != nil {
-		return stats, err
-	}
-	stats.ProjectsDeleted = projectsDeleted
-
-	projectWorkRowsDeleted, err := h.resetProjectWork(ctx)
-	if err != nil {
-		return stats, err
-	}
-	stats.ProjectWorkRowsDeleted = projectWorkRowsDeleted
-
 	projectRuntimeRowsDeleted, err := h.resetProjectRuntime(ctx)
 	if err != nil {
 		return stats, err
 	}
 	stats.ProjectRuntimeRowsDeleted = projectRuntimeRowsDeleted
-
-	projectSkillsDeleted, err := h.resetProjectSkills(ctx)
-	if err != nil {
-		return stats, err
-	}
-	stats.ProjectSkillsDeleted = projectSkillsDeleted
-
-	projectAssistantProposalsDeleted, err := h.resetProjectAssistantProposals(ctx)
-	if err != nil {
-		return stats, err
-	}
-	stats.ProjectAssistantProposalsDeleted = projectAssistantProposalsDeleted
 
 	pluginsDeleted, err := h.resetPlugins(ctx)
 	if err != nil {
@@ -110,11 +86,12 @@ func (h *Handler) resetSystemData(ctx context.Context) (SystemResetDataResponseI
 	}
 	stats.DatabaseRowsDeleted = rowsDeleted
 
-	cairnlineMirrorDeleted, err := h.resetCairnlineMirrorDatabase()
+	projectsDeleted, cairnlineFilesDeleted, err := h.resetCairnlineDatabase(ctx)
 	if err != nil {
 		return stats, err
 	}
-	stats.CairnlineMirrorFilesDeleted = cairnlineMirrorDeleted
+	stats.ProjectsDeleted = projectsDeleted
+	stats.CairnlineFilesDeleted = cairnlineFilesDeleted
 
 	return stats, nil
 }
@@ -141,63 +118,11 @@ func (h *Handler) resetChatSessions(ctx context.Context) (int, error) {
 	return deleted, nil
 }
 
-func (h *Handler) resetProjects(ctx context.Context) (int, error) {
-	if h.projects == nil {
-		return 0, nil
-	}
-	items, err := h.projects.List(ctx)
-	if err != nil {
-		return 0, err
-	}
-	deleted := 0
-	for _, item := range items {
-		if h.memory != nil {
-			if _, err := h.memory.DeleteByProjectID(ctx, item.ID); err != nil {
-				return deleted, err
-			}
-		}
-		if h.memoryCandidates != nil {
-			if _, err := h.memoryCandidates.DeleteCandidatesByProjectID(ctx, item.ID); err != nil {
-				return deleted, err
-			}
-		}
-		if err := h.projects.Delete(ctx, item.ID); err != nil {
-			if errors.Is(err, projects.ErrNotFound) {
-				continue
-			}
-			return deleted, err
-		}
-		deleted++
-	}
-	return deleted, nil
-}
-
-func (h *Handler) resetProjectWork(ctx context.Context) (int, error) {
-	if h.projectWork == nil {
-		return 0, nil
-	}
-	return h.projectWork.Clear(ctx)
-}
-
 func (h *Handler) resetProjectRuntime(ctx context.Context) (int, error) {
 	if h.projectRuntime == nil {
 		return 0, nil
 	}
 	return h.projectRuntime.Clear(ctx)
-}
-
-func (h *Handler) resetProjectSkills(ctx context.Context) (int, error) {
-	if h.projectSkills == nil {
-		return 0, nil
-	}
-	return h.projectSkills.Clear(ctx)
-}
-
-func (h *Handler) resetProjectAssistantProposals(ctx context.Context) (int, error) {
-	if h.projectAssistantProposals == nil {
-		return 0, nil
-	}
-	return h.projectAssistantProposals.Clear(ctx)
 }
 
 func (h *Handler) resetPlugins(ctx context.Context) (int, error) {
@@ -253,22 +178,37 @@ func (h *Handler) resetTasks(ctx context.Context) (int, error) {
 	return deleted, nil
 }
 
-func (h *Handler) resetCairnlineMirrorDatabase() (int, error) {
+func (h *Handler) resetCairnlineDatabase(ctx context.Context) (int, int, error) {
 	if h == nil {
-		return 0, nil
+		return 0, 0, nil
+	}
+	projectsDeleted := 0
+	_, service, store, err := h.openCairnlineEmbeddedService(ctx)
+	if err == nil {
+		projects, listErr := service.ListProjects(ctx)
+		closeErr := store.Close()
+		if listErr != nil {
+			return 0, 0, listErr
+		}
+		if closeErr != nil {
+			return 0, 0, closeErr
+		}
+		projectsDeleted = len(projects)
+	} else if !errors.Is(err, cairnline.ErrNotFound) {
+		return 0, 0, err
 	}
 	dbPath := h.cairnlineEmbeddedDatabasePath()
-	deleted := 0
+	filesDeleted := 0
 	for _, path := range []string{dbPath, dbPath + "-wal", dbPath + "-shm"} {
 		if err := os.Remove(path); err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				continue
 			}
-			return deleted, err
+			return projectsDeleted, filesDeleted, err
 		}
-		deleted++
+		filesDeleted++
 	}
-	return deleted, nil
+	return projectsDeleted, filesDeleted, nil
 }
 
 func (h *Handler) resetAgentApprovalGrants(ctx context.Context) (int, error) {

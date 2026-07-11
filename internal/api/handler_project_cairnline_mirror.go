@@ -425,7 +425,7 @@ func projectAssistantActionResultValue(result projectassistant.ActionResult, key
 }
 
 func (h *Handler) writeProjectIdentityToCairnline(ctx context.Context, project projects.Project) error {
-	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	return h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if _, err := cairnlinebridge.UpsertProject(ctx, service, project); err != nil {
 			return err
 		}
@@ -434,21 +434,21 @@ func (h *Handler) writeProjectIdentityToCairnline(ctx context.Context, project p
 }
 
 func (h *Handler) writeProjectDefaultsToCairnline(ctx context.Context, project projects.Project) error {
-	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	return h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		_, err := cairnlinebridge.UpsertProjectDefaults(ctx, service, project)
 		return err
 	})
 }
 
 func (h *Handler) writeProjectMetadataToCairnline(ctx context.Context, project projects.Project) error {
-	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	return h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		_, err := cairnlinebridge.UpsertProjectMetadata(ctx, service, project)
 		return err
 	})
 }
 
 func (h *Handler) deleteProjectIdentityFromCairnline(ctx context.Context, project projects.Project) error {
-	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	return h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if err := cairnlinebridge.DeleteProject(ctx, service, project); err != nil && !errors.Is(err, cairnline.ErrNotFound) {
 			return err
 		}
@@ -457,21 +457,21 @@ func (h *Handler) deleteProjectIdentityFromCairnline(ctx context.Context, projec
 }
 
 func (h *Handler) writeProjectRootToCairnline(ctx context.Context, project projects.Project, root projects.Root) error {
-	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	return h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		_, err := cairnlinebridge.UpsertRoot(ctx, service, project, root)
 		return err
 	})
 }
 
 func (h *Handler) replaceProjectRootsInCairnline(ctx context.Context, project projects.Project, roots []projects.Root) error {
-	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	return h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		_, err := cairnlinebridge.ReplaceProjectRoots(ctx, service, project, roots)
 		return err
 	})
 }
 
 func (h *Handler) deleteProjectRootFromCairnline(ctx context.Context, projectID, rootID string) error {
-	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	return h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if err := cairnlinebridge.DeleteRoot(ctx, service, projectID, rootID); err != nil && !errors.Is(err, cairnline.ErrNotFound) {
 			return err
 		}
@@ -480,21 +480,21 @@ func (h *Handler) deleteProjectRootFromCairnline(ctx context.Context, projectID,
 }
 
 func (h *Handler) writeProjectContextSourceToCairnline(ctx context.Context, project projects.Project, source projects.ContextSource) error {
-	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	return h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		_, err := cairnlinebridge.UpsertContextSource(ctx, service, project, source)
 		return err
 	})
 }
 
 func (h *Handler) replaceProjectContextSourcesInCairnline(ctx context.Context, project projects.Project, sources []projects.ContextSource) error {
-	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	return h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		_, err := cairnlinebridge.ReplaceProjectContextSources(ctx, service, project, sources)
 		return err
 	})
 }
 
 func (h *Handler) deleteProjectContextSourceFromCairnline(ctx context.Context, projectID, sourceID string) error {
-	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	return h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if err := cairnlinebridge.DeleteContextSource(ctx, service, projectID, sourceID); err != nil && !errors.Is(err, cairnline.ErrNotFound) {
 			return err
 		}
@@ -503,7 +503,7 @@ func (h *Handler) deleteProjectContextSourceFromCairnline(ctx context.Context, p
 }
 
 func (h *Handler) writeProjectRoleToCairnline(ctx context.Context, project projects.Project, role projectwork.AgentRoleProfile) error {
-	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	return h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if _, err := cairnlinebridge.UpsertProjectMetadata(ctx, service, project); err != nil {
 			return err
 		}
@@ -517,7 +517,7 @@ func (h *Handler) writeProjectRoleRecordToCairnline(ctx context.Context, service
 }
 
 func (h *Handler) deleteProjectRoleFromCairnline(ctx context.Context, role projectwork.AgentRoleProfile) error {
-	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	return h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if err := cairnlinebridge.DeleteRole(ctx, service, role); err != nil && !errors.Is(err, cairnline.ErrNotFound) {
 			return err
 		}
@@ -526,7 +526,7 @@ func (h *Handler) deleteProjectRoleFromCairnline(ctx context.Context, role proje
 }
 
 func (h *Handler) writeProjectWorkItemToCairnline(ctx context.Context, project projects.Project, item projectwork.WorkItem) error {
-	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	return h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if _, err := cairnlinebridge.UpsertProjectMetadata(ctx, service, project); err != nil {
 			return err
 		}
@@ -536,7 +536,7 @@ func (h *Handler) writeProjectWorkItemToCairnline(ctx context.Context, project p
 }
 
 func (h *Handler) deleteProjectWorkItemFromCairnline(ctx context.Context, projectID, workItemID string) error {
-	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	return h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if err := cairnlinebridge.DeleteWorkItem(ctx, service, projectID, workItemID); err != nil && !errors.Is(err, cairnline.ErrNotFound) {
 			return err
 		}
@@ -545,7 +545,7 @@ func (h *Handler) deleteProjectWorkItemFromCairnline(ctx context.Context, projec
 }
 
 func (h *Handler) writeProjectAssignmentToCairnline(ctx context.Context, assignment projectwork.Assignment) error {
-	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	return h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		return h.writeProjectAssignmentRecordToCairnline(ctx, service, assignment)
 	})
 }
@@ -623,7 +623,7 @@ func (h *Handler) writeProjectAssignmentDependencyToCairnline(ctx context.Contex
 }
 
 func (h *Handler) deleteProjectAssignmentFromCairnline(ctx context.Context, projectID, assignmentID string) error {
-	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	return h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if err := cairnlinebridge.DeleteAssignment(ctx, service, projectID, assignmentID); err != nil && !errors.Is(err, cairnline.ErrNotFound) {
 			return err
 		}
@@ -632,7 +632,7 @@ func (h *Handler) deleteProjectAssignmentFromCairnline(ctx context.Context, proj
 }
 
 func (h *Handler) writeProjectArtifactToCairnline(ctx context.Context, artifact projectwork.CollaborationArtifact) error {
-	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	return h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if err := h.writeProjectWorkItemDependencyToCairnline(ctx, service, "project_artifact_mutation", artifact.ProjectID, artifact.WorkItemID); err != nil {
 			return err
 		}
@@ -660,7 +660,7 @@ func (h *Handler) writeProjectArtifactToCairnline(ctx context.Context, artifact 
 }
 
 func (h *Handler) writeProjectHandoffToCairnline(ctx context.Context, handoff projectwork.Handoff) error {
-	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	return h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if err := h.writeProjectWorkItemDependencyToCairnline(ctx, service, "project_handoff_mutation", handoff.ProjectID, handoff.WorkItemID); err != nil {
 			return err
 		}
@@ -685,7 +685,7 @@ func (h *Handler) writeProjectHandoffToCairnline(ctx context.Context, handoff pr
 }
 
 func (h *Handler) deleteProjectHandoffFromCairnline(ctx context.Context, projectID, workItemID, handoffID string) error {
-	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	return h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if err := cairnlinebridge.DeleteHandoff(ctx, service, projectID, workItemID, handoffID); err != nil && !errors.Is(err, cairnline.ErrNotFound) {
 			return err
 		}
@@ -694,7 +694,7 @@ func (h *Handler) deleteProjectHandoffFromCairnline(ctx context.Context, project
 }
 
 func (h *Handler) writeProjectMemoryEntryToCairnline(ctx context.Context, entry memory.Entry) error {
-	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	return h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		project, ok := h.projectForCairnlineMirror(ctx, "project_memory_mutation", entry.ProjectID)
 		if !ok {
 			return nil
@@ -708,7 +708,7 @@ func (h *Handler) writeProjectMemoryEntryToCairnline(ctx context.Context, entry 
 }
 
 func (h *Handler) deleteProjectMemoryEntryFromCairnline(ctx context.Context, projectID, memoryID string) error {
-	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	return h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if err := cairnlinebridge.DeleteMemoryEntry(ctx, service, projectID, memoryID); err != nil && !errors.Is(err, cairnline.ErrNotFound) {
 			return err
 		}
@@ -717,7 +717,7 @@ func (h *Handler) deleteProjectMemoryEntryFromCairnline(ctx context.Context, pro
 }
 
 func (h *Handler) writeProjectMemoryCandidateToCairnline(ctx context.Context, candidate memory.Candidate) error {
-	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	return h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		project, ok := h.projectForCairnlineMirror(ctx, "project_memory_candidate_mutation", candidate.ProjectID)
 		if !ok {
 			return nil
@@ -731,7 +731,7 @@ func (h *Handler) writeProjectMemoryCandidateToCairnline(ctx context.Context, ca
 }
 
 func (h *Handler) writeProjectAssistantProposalRecordToCairnline(ctx context.Context, record projectassistant.ProposalRecord) error {
-	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	return h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if err := h.seedProjectMetadataForAssistantProposalRecord(ctx, service, record.ProjectID); err != nil {
 			return err
 		}
@@ -763,7 +763,7 @@ func (h *Handler) seedProjectMetadataForAssistantProposalRecord(ctx context.Cont
 }
 
 func (h *Handler) writeProjectSkillsToCairnline(ctx context.Context, project projects.Project, skills []projectskills.Skill) error {
-	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	return h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if _, err := cairnlinebridge.UpsertProjectMetadata(ctx, service, project); err != nil {
 			return err
 		}
@@ -772,7 +772,7 @@ func (h *Handler) writeProjectSkillsToCairnline(ctx context.Context, project pro
 	})
 }
 
-func (h *Handler) withCairnlineEmbeddedMirrorService(ctx context.Context, fn func(*cairnline.Service) error) error {
+func (h *Handler) withCairnlineEmbeddedService(ctx context.Context, fn func(*cairnline.Service) error) error {
 	if !h.projectCairnlineEmbeddedConnectorEnabled() {
 		return nil
 	}

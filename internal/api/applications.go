@@ -22,7 +22,7 @@ func (h *Handler) taskApplication() *taskapp.Application {
 	return taskapp.New(taskapp.Options{
 		Store:         h.taskStore,
 		Runner:        runner,
-		Projects:      h.projects,
+		Projects:      h.taskProjectStore(),
 		SecretCipher:  h.secretCipher,
 		MaxMCPServers: h.config.Server.TaskMaxMCPServersPerTask,
 		IDGenerator:   newOpaqueTaskResourceID,

@@ -13,11 +13,8 @@ import (
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/controlplane"
 	"github.com/hecatehq/hecate/internal/governor"
-	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/projectruntime"
-	"github.com/hecatehq/hecate/internal/projects"
-	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/internal/providers"
 	"github.com/hecatehq/hecate/internal/retention"
@@ -72,25 +69,9 @@ func TestPostgresStoresMigrateWhenDatabaseURLProvided(t *testing.T) {
 	if err != nil {
 		t.Fatalf("governor.NewPostgresUsageStore: %v", err)
 	}
-	projectStore, err := projects.NewPostgresStore(ctx, client)
-	if err != nil {
-		t.Fatalf("projects.NewPostgresStore: %v", err)
-	}
-	memoryStore, err := memory.NewPostgresStore(ctx, client)
-	if err != nil {
-		t.Fatalf("memory.NewPostgresStore: %v", err)
-	}
-	projectWorkStore, err := projectwork.NewPostgresStore(ctx, client)
-	if err != nil {
-		t.Fatalf("projectwork.NewPostgresStore: %v", err)
-	}
 	projectRuntimeStore, err := projectruntime.NewPostgresStore(ctx, client)
 	if err != nil {
 		t.Fatalf("projectruntime.NewPostgresStore: %v", err)
-	}
-	projectSkillStore, err := projectskills.NewPostgresStore(ctx, client)
-	if err != nil {
-		t.Fatalf("projectskills.NewPostgresStore: %v", err)
 	}
 	agentProfileStore, err := agentprofiles.NewPostgresStore(ctx, client)
 	if err != nil {
@@ -244,53 +225,6 @@ func TestPostgresStoresMigrateWhenDatabaseURLProvided(t *testing.T) {
 		t.Fatalf("usage events length = %d, want 1", len(events))
 	}
 
-	if _, err := projectStore.Create(ctx, projects.Project{
-		ID:   projectID,
-		Name: "Postgres smoke",
-		Roots: []projects.Root{{
-			ID:     "root-" + suffix,
-			Path:   "/tmp/hecate-postgres-smoke-" + suffix,
-			Kind:   "local",
-			Active: true,
-		}},
-		ContextSources: []projects.ContextSource{{
-			ID:      "source-" + suffix,
-			Kind:    "doc",
-			Title:   "Smoke",
-			Path:    "AGENTS.md",
-			Enabled: true,
-			Format:  "markdown",
-		}},
-	}); err != nil {
-		t.Fatalf("project create: %v", err)
-	}
-	if _, ok, err := projectStore.Get(ctx, projectID); err != nil {
-		t.Fatalf("project get: %v", err)
-	} else if !ok {
-		t.Fatalf("project %q not found", projectID)
-	}
-
-	if _, err := memoryStore.Create(ctx, memory.Entry{
-		ID:         "memory-" + suffix,
-		Scope:      memory.ScopeProject,
-		ProjectID:  projectID,
-		Title:      "Smoke memory",
-		Body:       "Remember that Postgres writes work.",
-		TrustLabel: memory.TrustLabelOperatorMemory,
-		SourceKind: memory.SourceKindOperator,
-		Enabled:    true,
-	}); err != nil {
-		t.Fatalf("memory create: %v", err)
-	}
-
-	if _, err := projectWorkStore.CreateWorkItem(ctx, projectwork.WorkItem{
-		ID:        "work-" + suffix,
-		ProjectID: projectID,
-		Title:     "Smoke work item",
-	}); err != nil {
-		t.Fatalf("project work item create: %v", err)
-	}
-
 	assignmentID := "assignment-" + suffix
 	if _, err := projectRuntimeStore.Upsert(ctx, projectruntime.AssignmentRuntime{
 		ProjectID:    projectID,
@@ -310,16 +244,6 @@ func TestPostgresStoresMigrateWhenDatabaseURLProvided(t *testing.T) {
 		t.Fatalf("project runtime get: %v", err)
 	} else if !ok || runtime.ExecutionRef.RunID != runID || string(runtime.ContextPacket) != `{"source":"postgres-smoke"}` {
 		t.Fatalf("project runtime = %+v ok=%v, want task/run overlay", runtime, ok)
-	}
-
-	if _, err := projectSkillStore.UpsertDiscovered(ctx, projectID, []projectskills.Skill{{
-		ID:        "skill-" + suffix,
-		ProjectID: projectID,
-		Path:      "SKILL.md",
-		Format:    projectskills.FormatSkillMD,
-		Status:    projectskills.StatusAvailable,
-	}}); err != nil {
-		t.Fatalf("project skill upsert: %v", err)
 	}
 
 	if _, err := agentProfileStore.Create(ctx, agentprofiles.Profile{

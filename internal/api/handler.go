@@ -80,25 +80,6 @@ type Handler struct {
 	// own subprocesses. Owned by the handler — Shutdown closes it
 	// after the runner has drained.
 	mcpClientCache *mcpclient.SharedClientCache
-	// projectCairnlineSidecarCache is separate from the task MCP
-	// cache because a future Cairnline connector is Hecate operator
-	// infrastructure, not task-scoped model/tool context. Keeping the
-	// caches distinct prevents a project-coordination sidecar from
-	// sharing lifecycle or metrics assumptions with arbitrary task MCP
-	// servers.
-	projectCairnlineSidecarMu    sync.Mutex
-	projectCairnlineSidecarCache *mcpclient.SharedClientCache
-	// cairnlineMirrorHealth tracks shadow-mirror write outcomes per portable
-	// write family so backend-status and mirror-parity surface failures
-	// instead of leaving them as log-only warnings. In-memory on purpose:
-	// this is runtime observability for the current process, not persisted
-	// coordination state.
-	cairnlineMirrorHealth cairnlineMirrorHealth
-	// cairnlineEmbeddedPathOverride redirects embedded Cairnline reads to a
-	// specific database file. Empty in production; the migration cutover sets it
-	// on a probe-handler clone so the strict read smoke can verify a staged
-	// database before it is swapped into the live embedded path.
-	cairnlineEmbeddedPathOverride string
 	// orchestratorMetrics is shared between the runner and the MCP
 	// client cache observer. Built once in NewHandler so a second
 	// NewOrchestratorMetrics() can't register duplicate instruments;
@@ -336,7 +317,21 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 	})
 	agentChatRunner.SetApprovalCoordinator(approvalCoordinator)
 
-	memoryStore := memory.NewMemoryStore()
+	var memoryStore memory.Store
+	var memoryCandidateStore memory.CandidateStore
+	var projectStore projects.Store
+	var projectWorkStore projectwork.Store
+	var projectSkillStore projectskills.Store
+	var projectAssistantProposalStore projectassistant.ProposalStore
+	if !cfg.ProjectsUseCairnlineOnly() {
+		nativeMemoryStore := memory.NewMemoryStore()
+		memoryStore = nativeMemoryStore
+		memoryCandidateStore = nativeMemoryStore
+		projectStore = projects.NewMemoryStore()
+		projectWorkStore = projectwork.NewMemoryStore()
+		projectSkillStore = projectskills.NewMemoryStore()
+		projectAssistantProposalStore = projectassistant.NewMemoryProposalStore()
+	}
 	h := &Handler{
 		config:                    cfg,
 		logger:                    logger,
@@ -348,13 +343,13 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		tracer:                    tracer,
 		rateLimiter:               rl,
 		agentChat:                 chat.NewMemoryStore(),
-		projects:                  projects.NewMemoryStore(),
+		projects:                  projectStore,
 		memory:                    memoryStore,
-		memoryCandidates:          memoryStore,
-		projectWork:               projectwork.NewMemoryStore(),
+		memoryCandidates:          memoryCandidateStore,
+		projectWork:               projectWorkStore,
 		projectRuntime:            projectruntime.NewMemoryStore(),
-		projectSkills:             projectskills.NewMemoryStore(),
-		projectAssistantProposals: projectassistant.NewMemoryProposalStore(),
+		projectSkills:             projectSkillStore,
+		projectAssistantProposals: projectAssistantProposalStore,
 		pluginRegistry:            pluginregistry.NewMemoryStore(),
 		agentProfiles:             agentprofiles.NewMemoryStore(),
 		agentChatRunner:           agentChatRunner,
@@ -641,13 +636,6 @@ func (h *Handler) Shutdown(ctx context.Context) error {
 	if h.mcpClientCache != nil {
 		cacheErr = h.mcpClientCache.Close()
 	}
-	var cairnlineSidecarCacheErr error
-	h.projectCairnlineSidecarMu.Lock()
-	cairnlineSidecarCache := h.projectCairnlineSidecarCache
-	h.projectCairnlineSidecarMu.Unlock()
-	if cairnlineSidecarCache != nil {
-		cairnlineSidecarCacheErr = cairnlineSidecarCache.Close()
-	}
 	var agentChatErr error
 	if h.agentChatRunner != nil {
 		agentChatErr = h.agentChatRunner.Shutdown(ctx)
@@ -662,9 +650,6 @@ func (h *Handler) Shutdown(ctx context.Context) error {
 	}
 	if cacheErr != nil {
 		shutdownErrs = append(shutdownErrs, fmt.Errorf("mcp cache close: %w", cacheErr))
-	}
-	if cairnlineSidecarCacheErr != nil {
-		shutdownErrs = append(shutdownErrs, fmt.Errorf("cairnline sidecar cache close: %w", cairnlineSidecarCacheErr))
 	}
 	if agentChatErr != nil {
 		shutdownErrs = append(shutdownErrs, fmt.Errorf("agent chat shutdown: %w", agentChatErr))

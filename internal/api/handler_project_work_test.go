@@ -34,7 +34,6 @@ import (
 	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/internal/projectworkapp"
 	"github.com/hecatehq/hecate/internal/providers"
-	"github.com/hecatehq/hecate/internal/storage"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -141,7 +140,7 @@ func newProjectWorkCairnlineAssignmentAuthorityTestServer(t *testing.T) (*Handle
 
 func seedCairnlineOnlyProjectWorkGraphForTest(t *testing.T, handler *Handler, project cairnline.Project, roles []cairnline.Role, workItems []cairnline.WorkItem, assignments []cairnline.Assignment) {
 	t.Helper()
-	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
 		if _, err := service.CreateProject(t.Context(), project); err != nil {
 			return err
 		}
@@ -1075,7 +1074,7 @@ func TestProjectWorkAPI_CairnlineCollaborationAuthorityUsesEmbeddedWorkItemWitho
 	server := NewServer(quietLogger(), handler)
 	client := newAPITestClient(t, server)
 
-	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
 		if _, err := service.CreateProject(t.Context(), cairnline.Project{
 			ID:   "proj_cairnline_collab_only",
 			Name: "Cairnline collaboration only",
@@ -1219,7 +1218,7 @@ func TestProjectWorkAPI_CairnlineWorkItemAuthorityUsesEmbeddedProjectWithoutHeca
 	server := NewServer(quietLogger(), handler)
 	client := newAPITestClient(t, server)
 
-	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
 		if _, err := service.CreateProject(t.Context(), cairnline.Project{
 			ID:          "proj_cairnline_authority_only",
 			Name:        "Cairnline authority only",
@@ -1608,7 +1607,7 @@ func TestProjectWorkAPI_CairnlineWorkItemAuthorityStrictEmbeddedUsesCairnlinePro
 	}); err != nil {
 		t.Fatalf("create stale native project: %v", err)
 	}
-	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
 		_, err := service.CreateProject(t.Context(), cairnline.Project{
 			ID:            projectID,
 			Name:          "Authoritative Cairnline project",
@@ -2063,72 +2062,6 @@ func TestProjectWorkAPI_MirrorsRoleAndWorkItemMutationsToCairnlineWhenConfigured
 	}
 }
 
-func TestProjectWorkAPI_RolesUseCairnlineSidecarWhenConfigured(t *testing.T) {
-	t.Parallel()
-	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "full")
-	if handler.projectReadRoutesUseCairnlineReadModel() {
-		t.Fatal("sidecar role list enabled embedded Cairnline read-model routes")
-	}
-	if !handler.projectCairnlineSidecarReadRoutesEnabled() {
-		t.Fatal("sidecar read-route predicate = false, want true")
-	}
-
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/roles", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("roles status = %d body=%s, want 200", rec.Code, rec.Body.String())
-	}
-	var response ProjectWorkRolesResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
-		t.Fatalf("decode roles response: %v", err)
-	}
-	if response.Object != "project_roles" {
-		t.Fatalf("roles object = %q, want project_roles", response.Object)
-	}
-	role := findProjectWorkRoleForTest(t, response.Data, "role_fixture")
-	if role.ProjectID != "proj_fixture" || role.ReadBackend != "cairnline" || role.BuiltIn {
-		t.Fatalf("role = %+v, want sidecar Cairnline non-built-in fixture role", role)
-	}
-	if role.Name != "Fixture Reviewer" || role.DefaultDriverKind != "mcp_pull" || role.DefaultAgentProfile != "" {
-		t.Fatalf("role defaults = %+v, want portable sidecar role defaults", role)
-	}
-	if !reflect.DeepEqual(role.SkillIDs, []string{"skill_fixture"}) {
-		t.Fatalf("role skill ids = %+v, want fixture skill id", role.SkillIDs)
-	}
-}
-
-func TestProjectWorkAPI_RolesCairnlineSidecarOverlayNativeRuntimeDefaults(t *testing.T) {
-	t.Parallel()
-	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "full")
-	if _, err := handler.projectWork.CreateRole(t.Context(), projectwork.AgentRoleProfile{
-		ID:                  "role_fixture",
-		ProjectID:           "proj_fixture",
-		Name:                "Fixture Reviewer",
-		DefaultProvider:     "anthropic",
-		DefaultModel:        "claude-sonnet-4",
-		DefaultAgentProfile: "role_fixture_preset",
-	}); err != nil {
-		t.Fatalf("Create native role runtime overlay: %v", err)
-	}
-
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/roles", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("roles status = %d body=%s, want 200", rec.Code, rec.Body.String())
-	}
-	var response ProjectWorkRolesResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
-		t.Fatalf("decode roles response: %v", err)
-	}
-	role := findProjectWorkRoleForTest(t, response.Data, "role_fixture")
-	if role.ReadBackend != "cairnline" || role.DefaultProvider != "anthropic" || role.DefaultModel != "claude-sonnet-4" {
-		t.Fatalf("role = %+v, want sidecar role with native Hecate runtime overlay", role)
-	}
-	if role.DefaultAgentProfile != "role_fixture_preset" {
-		t.Fatalf("role preset = %q, want Hecate runtime overlay preset", role.DefaultAgentProfile)
-	}
-}
-
 func TestProjectWorkAPI_StrictEmbeddedReadModelReadsRolesWithoutHecateProject(t *testing.T) {
 	t.Parallel()
 	handler := NewHandler(config.Config{
@@ -2141,7 +2074,7 @@ func TestProjectWorkAPI_StrictEmbeddedReadModelReadsRolesWithoutHecateProject(t 
 	server := NewServer(quietLogger(), handler)
 	const projectID = "proj_embedded_roles"
 
-	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
 		if _, err := service.CreateProject(t.Context(), cairnline.Project{
 			ID:   projectID,
 			Name: "Embedded Roles",
@@ -2161,8 +2094,10 @@ func TestProjectWorkAPI_StrictEmbeddedReadModelReadsRolesWithoutHecateProject(t 
 	}); err != nil {
 		t.Fatalf("seed embedded Cairnline roles: %v", err)
 	}
-	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
-		t.Fatalf("Hecate project store seeded ok=%v err=%v, want no project row", ok, err)
+	if handler.projects != nil {
+		if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+			t.Fatalf("Hecate project store seeded ok=%v err=%v, want no project row", ok, err)
+		}
 	}
 	requireCairnlineOnlyProjectReadsForTest(t, handler, projectID)
 
@@ -2196,73 +2131,6 @@ func TestProjectWorkAPI_StrictEmbeddedReadModelReadsRolesWithoutHecateProject(t 
 	}
 }
 
-func TestProjectWorkAPI_RolesCairnlineSidecarReadRequiresStructuredContent(t *testing.T) {
-	t.Parallel()
-	_, server := newProjectsCairnlineSidecarReadTestServer(t, "text-only")
-
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/roles", nil))
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf("roles status = %d body=%s, want 502", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "structuredContent") {
-		t.Fatalf("error body = %s, want structuredContent diagnostic", rec.Body.String())
-	}
-}
-
-func TestProjectWorkAPI_WorkItemsUseCairnlineSidecarWhenConfigured(t *testing.T) {
-	t.Parallel()
-	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "full")
-	if handler.projectReadRoutesUseCairnlineReadModel() {
-		t.Fatal("sidecar work-item list enabled embedded Cairnline read-model routes")
-	}
-	if !handler.projectCairnlineSidecarReadRoutesEnabled() {
-		t.Fatal("sidecar read-route predicate = false, want true")
-	}
-
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("work-items status = %d body=%s, want 200", rec.Code, rec.Body.String())
-	}
-	var response ProjectWorkItemsResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
-		t.Fatalf("decode work-items response: %v", err)
-	}
-	if response.Object != "project_work_items" {
-		t.Fatalf("work-items object = %q, want project_work_items", response.Object)
-	}
-	item := findProjectWorkItemForTest(t, response.Data, "work_fixture")
-	if item.ProjectID != "proj_fixture" || item.ReadBackend != "cairnline" || item.Title != "Fixture Work" {
-		t.Fatalf("work item = %+v, want sidecar Cairnline fixture work item", item)
-	}
-	if item.Status != "open" || item.Priority != "normal" {
-		t.Fatalf("work item status/priority = %q/%q, want portable sidecar values", item.Status, item.Priority)
-	}
-	if len(item.Assignments) != 1 || item.Assignments[0].ID != "asg_fixture" || item.Assignments[0].ReadBackend != "cairnline" || item.Assignments[0].RoleID != "role_fixture" {
-		t.Fatalf("work item assignments = %+v, want sidecar assignment summary", item.Assignments)
-	}
-
-	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("work-item detail status = %d body=%s, want 200", rec.Code, rec.Body.String())
-	}
-	var detail ProjectWorkItemEnvelope
-	if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil {
-		t.Fatalf("decode work-item detail response: %v", err)
-	}
-	if detail.Object != "project_work_item" || detail.Data.ID != "work_fixture" || detail.Data.ReadBackend != "cairnline" || len(detail.Data.Assignments) != 1 {
-		t.Fatalf("work-item detail = %+v, want sidecar Cairnline detail", detail)
-	}
-
-	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/missing", nil))
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("missing work-item status = %d body=%s, want 404", rec.Code, rec.Body.String())
-	}
-}
-
 func TestProjectWorkAPI_StrictEmbeddedReadModelReadsWorkItemsWithoutHecateProject(t *testing.T) {
 	t.Parallel()
 	handler := NewHandler(config.Config{
@@ -2275,7 +2143,7 @@ func TestProjectWorkAPI_StrictEmbeddedReadModelReadsWorkItemsWithoutHecateProjec
 	server := NewServer(quietLogger(), handler)
 	const projectID = "proj_embedded_work"
 
-	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
 		if _, err := service.CreateProject(t.Context(), cairnline.Project{
 			ID:   projectID,
 			Name: "Embedded Work",
@@ -2362,57 +2230,6 @@ func TestProjectWorkAPI_StrictEmbeddedReadModelReadsWorkItemsWithoutHecateProjec
 	}
 }
 
-func TestProjectWorkAPI_WorkItemsCairnlineSidecarReadRequiresStructuredContent(t *testing.T) {
-	t.Parallel()
-	_, server := newProjectsCairnlineSidecarReadTestServer(t, "text-only")
-
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items", nil))
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf("work-items status = %d body=%s, want 502", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "structuredContent") {
-		t.Fatalf("error body = %s, want structuredContent diagnostic", rec.Body.String())
-	}
-}
-
-func TestProjectWorkAPI_AssignmentsUseCairnlineSidecarWhenConfigured(t *testing.T) {
-	t.Parallel()
-	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "full")
-	if handler.projectReadRoutesUseCairnlineReadModel() {
-		t.Fatal("sidecar assignment list enabled embedded Cairnline read-model routes")
-	}
-	if !handler.projectCairnlineSidecarReadRoutesEnabled() {
-		t.Fatal("sidecar read-route predicate = false, want true")
-	}
-
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/assignments", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("assignments status = %d body=%s, want 200", rec.Code, rec.Body.String())
-	}
-	var response ProjectWorkAssignmentsResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
-		t.Fatalf("decode assignments response: %v", err)
-	}
-	if response.Object != "project_assignments" || len(response.Data) != 1 {
-		t.Fatalf("assignments response = %+v, want one sidecar assignment", response)
-	}
-	assignment := response.Data[0]
-	if assignment.ID != "asg_fixture" || assignment.ProjectID != "proj_fixture" || assignment.WorkItemID != "work_fixture" || assignment.ReadBackend != "cairnline" {
-		t.Fatalf("assignment = %+v, want sidecar Cairnline fixture assignment", assignment)
-	}
-	if assignment.RoleID != "role_fixture" || assignment.DriverKind != projectwork.AssignmentDriverHecateTask || assignment.Status != projectwork.AssignmentStatusQueued {
-		t.Fatalf("assignment defaults = %+v, want portable sidecar assignment metadata", assignment)
-	}
-
-	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/missing/assignments", nil))
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("missing work-item assignments status = %d body=%s, want 404", rec.Code, rec.Body.String())
-	}
-}
-
 func TestProjectWorkAPI_StrictEmbeddedReadModelReadsAssignmentsWithoutHecateProject(t *testing.T) {
 	t.Parallel()
 	handler := NewHandler(config.Config{
@@ -2425,7 +2242,7 @@ func TestProjectWorkAPI_StrictEmbeddedReadModelReadsAssignmentsWithoutHecateProj
 	server := NewServer(quietLogger(), handler)
 	const projectID = "proj_embedded_assignments"
 
-	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
 		if _, err := service.CreateProject(t.Context(), cairnline.Project{
 			ID:   projectID,
 			Name: "Embedded Assignments",
@@ -2516,59 +2333,6 @@ func TestProjectWorkAPI_StrictEmbeddedReadModelReadsAssignmentsWithoutHecateProj
 	}
 }
 
-func TestProjectWorkAPI_AssignmentsCairnlineSidecarReadRequiresStructuredContent(t *testing.T) {
-	t.Parallel()
-	_, server := newProjectsCairnlineSidecarReadTestServer(t, "text-only")
-
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/assignments", nil))
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf("assignments status = %d body=%s, want 502", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "structuredContent") {
-		t.Fatalf("error body = %s, want structuredContent diagnostic", rec.Body.String())
-	}
-}
-
-func TestProjectWorkAPI_ArtifactsUseCairnlineSidecarWhenConfigured(t *testing.T) {
-	t.Parallel()
-	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "collaboration-fixture")
-	if handler.projectReadRoutesUseCairnlineReadModel() {
-		t.Fatal("sidecar artifact list enabled embedded Cairnline read-model routes")
-	}
-	if !handler.projectCairnlineSidecarReadRoutesEnabled() {
-		t.Fatal("sidecar read-route predicate = false, want true")
-	}
-
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/artifacts", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("artifacts status = %d body=%s, want 200", rec.Code, rec.Body.String())
-	}
-	var response ProjectWorkArtifactsResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
-		t.Fatalf("decode artifacts response: %v", err)
-	}
-	if response.Object != "project_collaboration_artifacts" || len(response.Data) != 3 {
-		t.Fatalf("artifacts response = %+v, want generic artifact, evidence, and review", response)
-	}
-	if response.Data[0].ID != "artifact_fixture" || response.Data[0].Kind != projectwork.ArtifactKindDecisionNote || response.Data[0].ReadBackend != "cairnline" {
-		t.Fatalf("generic artifact = %+v, want Cairnline-backed decision note", response.Data[0])
-	}
-	if response.Data[1].ID != "evidence_fixture" || response.Data[1].Kind != projectwork.ArtifactKindEvidenceLink || response.Data[1].EvidenceURL == "" || response.Data[1].ReadBackend != "cairnline" {
-		t.Fatalf("evidence artifact = %+v, want Cairnline-backed evidence link", response.Data[1])
-	}
-	if response.Data[2].ID != "review_fixture" || response.Data[2].Kind != projectwork.ArtifactKindReview || response.Data[2].ReviewVerdict != projectwork.ReviewVerdictChangesRequested || !response.Data[2].ReviewFollowUpRequired || response.Data[2].ReadBackend != "cairnline" {
-		t.Fatalf("review artifact = %+v, want Cairnline-backed review", response.Data[2])
-	}
-
-	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/missing/artifacts", nil))
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("missing work-item artifacts status = %d body=%s, want 404", rec.Code, rec.Body.String())
-	}
-}
-
 func TestProjectWorkAPI_StrictEmbeddedReadModelReadsArtifactsWithoutHecateProject(t *testing.T) {
 	t.Parallel()
 	handler := NewHandler(config.Config{
@@ -2581,7 +2345,7 @@ func TestProjectWorkAPI_StrictEmbeddedReadModelReadsArtifactsWithoutHecateProjec
 	server := NewServer(quietLogger(), handler)
 	const projectID = "proj_embedded_artifacts"
 
-	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
 		if _, err := service.CreateProject(t.Context(), cairnline.Project{
 			ID:   projectID,
 			Name: "Embedded Artifacts",
@@ -2698,66 +2462,6 @@ func TestProjectWorkAPI_StrictEmbeddedReadModelReadsArtifactsWithoutHecateProjec
 	}
 }
 
-func TestProjectWorkAPI_ArtifactsCairnlineSidecarReadRequiresStructuredContent(t *testing.T) {
-	t.Parallel()
-	_, server := newProjectsCairnlineSidecarReadTestServer(t, "text-only")
-
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/artifacts", nil))
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf("artifacts status = %d body=%s, want 502", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "structuredContent") {
-		t.Fatalf("error body = %s, want structuredContent diagnostic", rec.Body.String())
-	}
-}
-
-func TestProjectWorkAPI_HandoffsUseCairnlineSidecarWhenConfigured(t *testing.T) {
-	t.Parallel()
-	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "collaboration-fixture")
-	if handler.projectReadRoutesUseCairnlineReadModel() {
-		t.Fatal("sidecar handoff list enabled embedded Cairnline read-model routes")
-	}
-	if !handler.projectCairnlineSidecarReadRoutesEnabled() {
-		t.Fatal("sidecar read-route predicate = false, want true")
-	}
-
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/handoffs?work_item_id=work_fixture&status=pending", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("project handoffs status = %d body=%s, want 200", rec.Code, rec.Body.String())
-	}
-	var response ProjectHandoffsResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
-		t.Fatalf("decode project handoffs response: %v", err)
-	}
-	if response.Object != "project_handoffs" || len(response.Data) != 1 {
-		t.Fatalf("project handoffs response = %+v, want one filtered handoff", response)
-	}
-	handoff := response.Data[0]
-	if handoff.ID != "handoff_fixture" || handoff.ProjectID != "proj_fixture" || handoff.WorkItemID != "work_fixture" || handoff.Status != projectwork.HandoffStatusPending || handoff.ReadBackend != "cairnline" {
-		t.Fatalf("project handoff = %+v, want sidecar Cairnline fixture handoff", handoff)
-	}
-
-	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/handoffs", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("work-item handoffs status = %d body=%s, want 200", rec.Code, rec.Body.String())
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
-		t.Fatalf("decode work-item handoffs response: %v", err)
-	}
-	if len(response.Data) != 1 || response.Data[0].ID != "handoff_fixture" || response.Data[0].ReadBackend != "cairnline" {
-		t.Fatalf("work-item handoffs response = %+v, want sidecar handoff", response)
-	}
-
-	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/missing/handoffs", nil))
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("missing work-item handoffs status = %d body=%s, want 404", rec.Code, rec.Body.String())
-	}
-}
-
 func TestProjectWorkAPI_StrictEmbeddedReadModelReadsHandoffsWithoutHecateProject(t *testing.T) {
 	t.Parallel()
 	handler := NewHandler(config.Config{
@@ -2770,7 +2474,7 @@ func TestProjectWorkAPI_StrictEmbeddedReadModelReadsHandoffsWithoutHecateProject
 	server := NewServer(quietLogger(), handler)
 	const projectID = "proj_embedded_handoffs"
 
-	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
 		if _, err := service.CreateProject(t.Context(), cairnline.Project{
 			ID:   projectID,
 			Name: "Embedded Handoffs",
@@ -2897,20 +2601,6 @@ func TestProjectWorkAPI_StrictEmbeddedReadModelReadsHandoffsWithoutHecateProject
 	}
 }
 
-func TestProjectWorkAPI_HandoffsCairnlineSidecarReadRequiresStructuredContent(t *testing.T) {
-	t.Parallel()
-	_, server := newProjectsCairnlineSidecarReadTestServer(t, "text-only")
-
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/handoffs", nil))
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf("handoffs status = %d body=%s, want 502", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "structuredContent") {
-		t.Fatalf("error body = %s, want structuredContent diagnostic", rec.Body.String())
-	}
-}
-
 func TestProjectWorkAPI_StrictEmbeddedReadModelReadsCloseoutReadinessWithoutHecateProject(t *testing.T) {
 	t.Parallel()
 	handler := NewHandler(config.Config{
@@ -2923,7 +2613,7 @@ func TestProjectWorkAPI_StrictEmbeddedReadModelReadsCloseoutReadinessWithoutHeca
 	server := NewServer(quietLogger(), handler)
 	const projectID = "proj_embedded_readiness"
 
-	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
 		if _, err := service.CreateProject(t.Context(), cairnline.Project{
 			ID:   projectID,
 			Name: "Embedded Readiness",
@@ -3006,59 +2696,6 @@ func TestProjectWorkAPI_StrictEmbeddedReadModelReadsCloseoutReadinessWithoutHeca
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_missing/work-items/work_embedded/readiness", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("missing project readiness status = %d body=%s, want 404", rec.Code, rec.Body.String())
-	}
-}
-
-func TestProjectWorkAPI_CloseoutReadinessUsesCairnlineSidecarWhenConfigured(t *testing.T) {
-	t.Parallel()
-	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "collaboration-fixture")
-	if handler.projectReadRoutesUseCairnlineReadModel() {
-		t.Fatal("sidecar closeout readiness enabled embedded Cairnline read-model routes")
-	}
-	if !handler.projectCairnlineSidecarReadRoutesEnabled() {
-		t.Fatal("sidecar read-route predicate = false, want true")
-	}
-
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/readiness", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("readiness status = %d body=%s, want 200", rec.Code, rec.Body.String())
-	}
-	var response ProjectWorkItemReadinessEnvelope
-	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
-		t.Fatalf("decode readiness response: %v", err)
-	}
-	if response.Object != "project_work_item_readiness" || response.Data.ProjectID != "proj_fixture" || response.Data.WorkItemID != "work_fixture" || response.Data.ReadBackend != "cairnline" {
-		t.Fatalf("readiness response = %+v, want sidecar Cairnline readiness", response)
-	}
-	if response.Data.Ready || response.Data.Status != "blocked" || response.Data.AssignmentCount != 1 || response.Data.CompletedAssignments != 0 {
-		t.Fatalf("readiness = %+v, want blocked sidecar closeout state", response.Data)
-	}
-	if !containsString(response.Data.Blockers, "1 assignment is still active") || !containsString(response.Data.Blockers, "1 handoff is pending") || response.Data.ReviewFollowUpCount != 1 {
-		t.Fatalf("readiness blockers = %+v follow-ups=%d, want active assignment, pending handoff, and review follow-up", response.Data.Blockers, response.Data.ReviewFollowUpCount)
-	}
-	if len(response.Data.ReviewFollowUps) != 1 || response.Data.ReviewFollowUps[0].ArtifactID != "review_fixture" || response.Data.ReviewFollowUps[0].ReviewVerdict != projectwork.ReviewVerdictChangesRequested {
-		t.Fatalf("review follow-ups = %+v, want sidecar review follow-up", response.Data.ReviewFollowUps)
-	}
-
-	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/missing/readiness", nil))
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("missing work-item readiness status = %d body=%s, want 404", rec.Code, rec.Body.String())
-	}
-}
-
-func TestProjectWorkAPI_CloseoutReadinessCairnlineSidecarReadRequiresStructuredContent(t *testing.T) {
-	t.Parallel()
-	_, server := newProjectsCairnlineSidecarReadTestServer(t, "text-only")
-
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/readiness", nil))
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf("readiness status = %d body=%s, want 502", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "structuredContent") {
-		t.Fatalf("error body = %s, want structuredContent diagnostic", rec.Body.String())
 	}
 }
 
@@ -3668,62 +3305,6 @@ func TestProjectWorkAPI_PreflightAndStartIncludeCairnlineLaunchPacketEvidenceWhe
 	assertCairnlineLaunchPacketEvidenceForTest(t, started.Data)
 }
 
-func TestProjectWorkAPI_PreflightAssignmentUsesCairnlineSidecarLaunchPacketWhenConfigured(t *testing.T) {
-	t.Parallel()
-	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "full+temp-root")
-	if handler.projectReadRoutesUseCairnlineReadModel() {
-		t.Fatal("sidecar preflight enabled embedded Cairnline read-model routes")
-	}
-	if !handler.projectCairnlineSidecarReadRoutesEnabled() {
-		t.Fatal("sidecar read-route predicate = false, want true")
-	}
-
-	preflight := mustRequestJSONStatus[projectWorkErrorResponse](newAPITestClient(t, server), http.StatusUnprocessableEntity, http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/assignments/asg_fixture/preflight", "")
-	if preflight.Error.Type != errCodeModelNotConfigured {
-		t.Fatalf("sidecar preflight error = %+v, want model_not_configured without native runtime defaults", preflight.Error)
-	}
-	tasks, err := handler.taskStore.ListTasks(t.Context(), taskstateFilterAll())
-	if err != nil {
-		t.Fatalf("ListTasks: %v", err)
-	}
-	if len(tasks) != 0 {
-		t.Fatalf("tasks = %+v, want no task created by sidecar preflight", tasks)
-	}
-}
-
-func TestProjectWorkAPI_PreflightAssignmentCairnlineSidecarOverlaysNativeRuntimeDefaults(t *testing.T) {
-	t.Parallel()
-	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "full+temp-root")
-	if _, err := handler.projects.Create(t.Context(), projects.Project{
-		ID:                  "proj_fixture",
-		Name:                "Fixture Project",
-		DefaultProvider:     "openai",
-		DefaultModel:        "gpt-5",
-		DefaultAgentProfile: "project_fixture",
-	}); err != nil {
-		t.Fatalf("Create native project runtime overlay: %v", err)
-	}
-	if _, err := handler.projectWork.CreateRole(t.Context(), projectwork.AgentRoleProfile{
-		ID:                  "role_fixture",
-		ProjectID:           "proj_fixture",
-		Name:                "Fixture Reviewer",
-		DefaultProvider:     "anthropic",
-		DefaultModel:        "claude-sonnet-4",
-		DefaultAgentProfile: "role_fixture_preset",
-	}); err != nil {
-		t.Fatalf("Create native role runtime overlay: %v", err)
-	}
-
-	preflight := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/assignments/asg_fixture/preflight", "")
-	if preflight.Data.ExecutionMode != chat.ExecutionModeHecateTask || preflight.Data.Provider != "anthropic" || preflight.Data.Model != "claude-sonnet-4" {
-		t.Fatalf("sidecar preflight launch shape = %q/%q/%q, want Hecate runtime overlay", preflight.Data.ExecutionMode, preflight.Data.Provider, preflight.Data.Model)
-	}
-	if preflight.Data.ExecutionProfile != "role_fixture_preset" {
-		t.Fatalf("sidecar preflight execution_profile = %q, want Hecate runtime overlay preset", preflight.Data.ExecutionProfile)
-	}
-	assertCairnlineSidecarLaunchPacketEvidenceForTest(t, preflight.Data)
-}
-
 func TestProjectWorkAPI_PreflightAssignmentStrictEmbeddedReadModelReadsWithoutHecateProject(t *testing.T) {
 	t.Parallel()
 	handler := NewHandler(config.Config{
@@ -3737,7 +3318,7 @@ func TestProjectWorkAPI_PreflightAssignmentStrictEmbeddedReadModelReadsWithoutHe
 	const projectID = "proj_embedded_launch_preflight"
 	workspace := t.TempDir()
 
-	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
 		if _, err := service.CreateProject(t.Context(), cairnline.Project{
 			ID:            projectID,
 			Name:          "Embedded Launch Preflight",
@@ -3905,7 +3486,7 @@ func TestProjectWorkAPI_StartAssignmentStrictEmbeddedReadModelLaunchesCairnlineO
 	const projectID = "proj_embedded_launch_start"
 	workspace := t.TempDir()
 
-	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
 		if _, err := service.CreateProject(t.Context(), cairnline.Project{
 			ID:            projectID,
 			Name:          "Embedded Launch Start",
@@ -4022,7 +3603,7 @@ func TestProjectWorkAPI_StartAssignmentStrictEmbeddedReadModelBlocksBeforeClaimW
 	const projectID = "proj_embedded_launch_task_create_fail"
 	workspace := t.TempDir()
 
-	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
 		if _, err := service.CreateProject(t.Context(), cairnline.Project{
 			ID:            projectID,
 			Name:          "Embedded Launch Task Create Fail",
@@ -4141,7 +3722,7 @@ func TestProjectWorkAPI_StartExternalAgentAssignmentStrictEmbeddedReadModelLaunc
 	}); err != nil {
 		t.Fatalf("Upsert external role runtime defaults: %v", err)
 	}
-	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
 		if _, err := service.CreateProject(t.Context(), cairnline.Project{
 			ID:            projectID,
 			Name:          "Embedded External Launch",
@@ -4305,7 +3886,7 @@ func TestProjectWorkAPI_StartExternalAgentAssignmentStrictEmbeddedReadModelClean
 	}); err != nil {
 		t.Fatalf("Upsert external role runtime defaults: %v", err)
 	}
-	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
 		if _, err := service.CreateProject(t.Context(), cairnline.Project{
 			ID:            projectID,
 			Name:          "Embedded External Claim Lost",
@@ -4382,91 +3963,6 @@ func TestProjectWorkAPI_StartExternalAgentAssignmentStrictEmbeddedReadModelClean
 	}
 }
 
-func TestProjectWorkAPI_PreflightAssignmentCairnlineSidecarRequiresStructuredLaunchPacket(t *testing.T) {
-	t.Parallel()
-	_, server := newProjectsCairnlineSidecarReadTestServer(t, "assignments.launch_packet-text-only")
-
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/assignments/asg_fixture/preflight", nil))
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf("preflight status = %d body=%s, want 502", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "structuredContent") {
-		t.Fatalf("error body = %s, want structuredContent diagnostic", rec.Body.String())
-	}
-}
-
-func TestProjectWorkAPI_PreflightAssignmentCairnlineSidecarRejectsRouteMismatch(t *testing.T) {
-	t.Parallel()
-	_, server := newProjectsCairnlineSidecarReadTestServer(t, "full+temp-root+launch-packet-route-mismatch")
-
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/assignments/asg_fixture/preflight", nil))
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("preflight status = %d body=%s, want 404", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "assignment not found") {
-		t.Fatalf("error body = %s, want scoped assignment not found", rec.Body.String())
-	}
-}
-
-func TestProjectWorkAPI_PreflightAssignmentCairnlineSidecarRejectsProjectMismatch(t *testing.T) {
-	t.Parallel()
-	_, server := newProjectsCairnlineSidecarReadTestServer(t, "full+temp-root+project-route-mismatch")
-
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/assignments/asg_fixture/preflight", nil))
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("preflight status = %d body=%s, want 404", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "project not found") {
-		t.Fatalf("error body = %s, want scoped project not found", rec.Body.String())
-	}
-}
-
-func TestProjectWorkAPI_AssignmentContextUsesCairnlineSidecarWhenConfigured(t *testing.T) {
-	t.Parallel()
-	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "full")
-	if handler.projectReadRoutesUseCairnlineReadModel() {
-		t.Fatal("sidecar assignment context enabled embedded Cairnline read-model routes")
-	}
-	if !handler.projectCairnlineSidecarReadRoutesEnabled() {
-		t.Fatal("sidecar read-route predicate = false, want true")
-	}
-
-	packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/assignments/asg_fixture/context", "")
-	if packetResp.Data.ID != "ctx_fixture" || packetResp.Data.ExecutionMode != "mcp_pull" {
-		t.Fatalf("sidecar assignment context id/mode = %q/%q, want ctx_fixture/mcp_pull", packetResp.Data.ID, packetResp.Data.ExecutionMode)
-	}
-	if packetResp.Data.Refs == nil || packetResp.Data.Refs.ProjectID != "proj_fixture" || packetResp.Data.Refs.WorkItemID != "work_fixture" || packetResp.Data.Refs.AssignmentID != "asg_fixture" || packetResp.Data.Refs.RoleID != "role_fixture" {
-		t.Fatalf("sidecar assignment context refs = %+v, want project/work/assignment/role refs", packetResp.Data.Refs)
-	}
-	if packetResp.Data.Refs.TaskID != "" || packetResp.Data.Refs.RunID != "" || packetResp.Data.Refs.SessionID != "" {
-		t.Fatalf("sidecar assignment context refs = %+v, want no task/run/session side effects", packetResp.Data.Refs)
-	}
-	item := findRenderedContextItemByOrigin(packetResp.Data, "cairnline.assignments.context")
-	if item == nil || item.Section != contextSectionRuntime || item.Included || item.Metadata["source_tool"] != "assignments.context" {
-		t.Fatalf("sidecar assignment context runtime item = %+v, want inspect-only assignments.context metadata", item)
-	}
-	for _, want := range []string{
-		"Read backend: cairnline",
-		"Source tool: assignments.context",
-		"Portable execution mode: mcp_pull",
-		cairnlineAssignmentContextHecateAuthorityLine,
-	} {
-		if !strings.Contains(item.Body, want) {
-			t.Fatalf("sidecar assignment context body = %q, want %q", item.Body, want)
-		}
-	}
-	tasks, err := handler.taskStore.ListTasks(t.Context(), taskstateFilterAll())
-	if err != nil {
-		t.Fatalf("ListTasks: %v", err)
-	}
-	if len(tasks) != 0 {
-		t.Fatalf("tasks = %+v, want no task created by sidecar assignment context", tasks)
-	}
-}
-
 func TestProjectWorkAPI_AssignmentContextStrictEmbeddedReadModelReadsWithoutHecateProject(t *testing.T) {
 	t.Parallel()
 	handler := NewHandler(config.Config{
@@ -4480,7 +3976,7 @@ func TestProjectWorkAPI_AssignmentContextStrictEmbeddedReadModelReadsWithoutHeca
 	server := NewServer(quietLogger(), handler)
 	const projectID = "proj_embedded_assignment_context"
 
-	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
 		if _, err := service.CreateProject(t.Context(), cairnline.Project{
 			ID:            projectID,
 			Name:          "Embedded Assignment Context",
@@ -4526,8 +4022,10 @@ func TestProjectWorkAPI_AssignmentContextStrictEmbeddedReadModelReadsWithoutHeca
 	}); err != nil {
 		t.Fatalf("seed embedded Cairnline assignment context: %v", err)
 	}
-	if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
-		t.Fatalf("Hecate project store seeded ok=%v err=%v, want no project row", ok, err)
+	if handler.projects != nil {
+		if _, ok, err := handler.projects.Get(t.Context(), projectID); err != nil || ok {
+			t.Fatalf("Hecate project store seeded ok=%v err=%v, want no project row", ok, err)
+		}
 	}
 	requireCairnlineOnlyProjectReadsForTest(t, handler, projectID)
 
@@ -4545,11 +4043,8 @@ func TestProjectWorkAPI_AssignmentContextStrictEmbeddedReadModelReadsWithoutHeca
 	if item == nil || item.Section != contextSectionRuntime || item.Included || item.Metadata["read_backend"] != "cairnline" || item.Metadata["source_tool"] != "assignments.context" {
 		t.Fatalf("embedded assignment context runtime item = %+v, want inspect-only assignments.context metadata", item)
 	}
-	if !strings.Contains(item.Body, cairnlineAssignmentContextReplacementAuthorityLine) {
-		t.Fatalf("embedded assignment context runtime body = %q, want replacement-mode authority line", item.Body)
-	}
-	if strings.Contains(item.Body, cairnlineAssignmentContextHecateAuthorityLine) {
-		t.Fatalf("embedded assignment context runtime body = %q, want no stale Hecate authority line", item.Body)
+	if !strings.Contains(item.Body, cairnlineAssignmentContextAuthorityText) {
+		t.Fatalf("embedded assignment context runtime body = %q, want current Cairnline authority line", item.Body)
 	}
 	workItem := findRenderedContextItemByOrigin(packetResp.Data, "work_embedded_assignment_context")
 	if workItem == nil || workItem.Section != contextSectionProjectWork || !workItem.Included {
@@ -4566,62 +4061,6 @@ func TestProjectWorkAPI_AssignmentContextStrictEmbeddedReadModelReadsWithoutHeca
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_missing/work-items/work_embedded_assignment_context/assignments/asgn_embedded_assignment_context/context", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("missing project assignment context status = %d body=%s, want 404", rec.Code, rec.Body.String())
-	}
-}
-
-func TestProjectWorkAPI_AssignmentContextCairnlineSidecarRequiresStructuredContent(t *testing.T) {
-	t.Parallel()
-	_, server := newProjectsCairnlineSidecarReadTestServer(t, "assignments.context-text-only")
-
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/assignments/asg_fixture/context", nil))
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf("assignment context status = %d body=%s, want 502", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "structuredContent") {
-		t.Fatalf("error body = %s, want structuredContent diagnostic", rec.Body.String())
-	}
-}
-
-func TestProjectWorkAPI_AssignmentContextCairnlineSidecarRejectsRouteMismatch(t *testing.T) {
-	t.Parallel()
-	_, server := newProjectsCairnlineSidecarReadTestServer(t, "full+context-route-mismatch")
-
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/assignments/asg_fixture/context", nil))
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("assignment context status = %d body=%s, want 404", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "project assignment context packet not found") {
-		t.Fatalf("error body = %s, want scoped context not found", rec.Body.String())
-	}
-}
-
-func TestProjectWorkAPI_AssignmentContextCairnlineSidecarRejectsProjectMismatch(t *testing.T) {
-	t.Parallel()
-	_, server := newProjectsCairnlineSidecarReadTestServer(t, "full+project-route-mismatch")
-
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/assignments/asg_fixture/context", nil))
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("assignment context status = %d body=%s, want 404", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "project assignment context packet not found") {
-		t.Fatalf("error body = %s, want scoped context not found", rec.Body.String())
-	}
-}
-
-func TestProjectWorkAPI_AssignmentContextCairnlineSidecarRejectsContextProjectMismatch(t *testing.T) {
-	t.Parallel()
-	_, server := newProjectsCairnlineSidecarReadTestServer(t, "full+context-project-mismatch")
-
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/work-items/work_fixture/assignments/asg_fixture/context", nil))
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("assignment context status = %d body=%s, want 404", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "project assignment context packet not found") {
-		t.Fatalf("error body = %s, want scoped context not found", rec.Body.String())
 	}
 }
 
@@ -6722,7 +6161,7 @@ func TestProjectWorkAPI_StartAssignmentWithCairnlineAuthorityClaimsAndReleasesWh
 
 func TestProjectWorkAPI_AssignmentExecutionProjection(t *testing.T) {
 	t.Parallel()
-	for _, backend := range []string{"memory", "sqlite"} {
+	for _, backend := range []string{"memory"} {
 		backend := backend
 		t.Run(backend, func(t *testing.T) {
 			t.Parallel()
@@ -6812,7 +6251,7 @@ func TestProjectWorkAPI_AssignmentExecutionProjection(t *testing.T) {
 
 func TestProjectWorkAPI_ProjectActivity(t *testing.T) {
 	t.Parallel()
-	for _, backend := range []string{"memory", "sqlite"} {
+	for _, backend := range []string{"memory"} {
 		backend := backend
 		t.Run(backend, func(t *testing.T) {
 			t.Parallel()
@@ -6982,7 +6421,7 @@ func TestProjectWorkAPI_ProjectActivityStrictEmbeddedReadModelReadsWithoutHecate
 	server := NewServer(quietLogger(), handler)
 	const projectID = "proj_embedded_activity"
 
-	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
 		if _, err := service.CreateProject(t.Context(), cairnline.Project{
 			ID:            projectID,
 			Name:          "Embedded Activity",
@@ -7094,60 +6533,6 @@ func TestProjectWorkAPI_ProjectActivityStrictEmbeddedReadModelReadsWithoutHecate
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_missing/activity", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("missing project activity status = %d body=%s, want 404", rec.Code, rec.Body.String())
-	}
-}
-
-func TestProjectWorkAPI_ProjectActivityUsesCairnlineSidecarWhenConfigured(t *testing.T) {
-	t.Parallel()
-	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "collaboration-fixture+strict-projects")
-	if handler.projectReadRoutesUseCairnlineReadModel() {
-		t.Fatal("sidecar activity enabled embedded Cairnline read-model routes")
-	}
-	if !handler.projectCairnlineSidecarReadRoutesEnabled() {
-		t.Fatal("sidecar read-route predicate = false, want true")
-	}
-
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/activity", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("activity status = %d body=%s, want 200", rec.Code, rec.Body.String())
-	}
-	var response ProjectActivityEnvelope
-	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
-		t.Fatalf("decode activity: %v", err)
-	}
-	if response.Object != "project_activity" || response.Data.ProjectID != "proj_fixture" || response.Data.ReadBackend != "cairnline" {
-		t.Fatalf("activity response = %+v, want sidecar Cairnline activity", response)
-	}
-	if response.Data.Summary.WorkItemCount != 1 || response.Data.Summary.AssignmentCount != 1 || response.Data.Summary.BlockedCount != 1 {
-		t.Fatalf("activity summary = %+v, want one blocked sidecar assignment", response.Data.Summary)
-	}
-	item := findProjectActivityItemForTest(t, response.Data.Buckets.Blocked, "asg_fixture")
-	if item.BlockingSignal != "not_started" || item.WorkItem.ID != "work_fixture" || item.Role.ID != "role_fixture" {
-		t.Fatalf("activity item = %+v, want queued sidecar assignment with work and role enrichment", item)
-	}
-	if item.ArtifactSummary.Count == 0 || item.HandoffSummary.Count == 0 {
-		t.Fatalf("activity item = %+v, want sidecar artifact and handoff enrichment", item)
-	}
-
-	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/missing/activity", nil))
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("missing project activity status = %d body=%s, want 404", rec.Code, rec.Body.String())
-	}
-}
-
-func TestProjectWorkAPI_ProjectActivityCairnlineSidecarReadRequiresStructuredContent(t *testing.T) {
-	t.Parallel()
-	_, server := newProjectsCairnlineSidecarReadTestServer(t, "projects.activity-text-only")
-
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/activity", nil))
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf("activity status = %d body=%s, want 502", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "structuredContent") {
-		t.Fatalf("error body = %s, want structuredContent diagnostic", rec.Body.String())
 	}
 }
 
@@ -7882,35 +7267,10 @@ func taskstateFilterAll() taskstate.TaskFilter {
 
 func newProjectWorkProjectionTestServer(t *testing.T, backend string) (*Handler, http.Handler) {
 	t.Helper()
-	if backend == "memory" {
-		return newProjectWorkTestServer()
+	if backend != "memory" {
+		t.Fatalf("unsupported projection fixture backend %q", backend)
 	}
-	ctx := t.Context()
-	client, err := storage.NewSQLiteClient(ctx, storage.SQLiteConfig{
-		Path:        filepath.Join(t.TempDir(), "projection.db"),
-		TablePrefix: "test",
-	})
-	if err != nil {
-		t.Fatalf("NewSQLiteClient: %v", err)
-	}
-	t.Cleanup(func() { _ = client.Close() })
-	projectStore, err := projects.NewSQLiteStore(ctx, client)
-	if err != nil {
-		t.Fatalf("NewSQLiteStore(projects): %v", err)
-	}
-	projectWorkStore, err := projectwork.NewSQLiteStore(ctx, client)
-	if err != nil {
-		t.Fatalf("NewSQLiteStore(projectwork): %v", err)
-	}
-	taskStore, err := taskstate.NewSQLiteStore(ctx, client)
-	if err != nil {
-		t.Fatalf("NewSQLiteStore(taskstate): %v", err)
-	}
-	handler := NewHandler(config.Config{}, quietLogger(), nil, nil, taskStore, nil)
-	t.Cleanup(func() { _ = handler.taskRunner.Shutdown(t.Context()) })
-	handler.SetProjectStore(projectStore)
-	handler.SetProjectWorkStore(projectWorkStore)
-	return handler, NewServer(quietLogger(), handler)
+	return newProjectWorkTestServer()
 }
 
 func seedProjectWorkProjectionTest(t *testing.T, handler *Handler) {
@@ -8361,7 +7721,7 @@ func assertCairnlineLaunchPacketEvidenceForTest(t *testing.T, packet ChatContext
 		t.Fatalf("Cairnline launch packet item = %+v, want inspect-only runtime evidence", item)
 	}
 	if item.Origin != "cairnline.assignment_launch_packet" || item.InclusionReason != cairnlineAssignmentLaunchEvidenceReason {
-		t.Fatalf("Cairnline launch packet origin/reason = %q/%q, want replacement-readiness evidence", item.Origin, item.InclusionReason)
+		t.Fatalf("Cairnline launch packet origin/reason = %q/%q, want runtime launch evidence", item.Origin, item.InclusionReason)
 	}
 	for _, want := range []string{
 		"Ready: true",
@@ -8386,37 +7746,6 @@ func assertCairnlineLaunchPacketEvidenceForTest(t *testing.T, packet ChatContext
 	} {
 		if item.Metadata[key] != want {
 			t.Fatalf("Cairnline launch packet metadata[%q] = %q, want %q in %+v", key, item.Metadata[key], want, item.Metadata)
-		}
-	}
-}
-
-func assertCairnlineSidecarLaunchPacketEvidenceForTest(t *testing.T, packet ChatContextPacketItem) {
-	t.Helper()
-	item := findRenderedContextItemByKind(packet, "cairnline_launch_packet")
-	if item == nil || item.Section != contextSectionRuntime || item.Included {
-		t.Fatalf("Cairnline sidecar launch packet item = %+v, want inspect-only runtime evidence", item)
-	}
-	for _, want := range []string{
-		"Ready: true",
-		"Assignment: asg_fixture",
-		"Execution mode: mcp_pull",
-		"Desired agent: any",
-	} {
-		if !strings.Contains(item.Body, want) {
-			t.Fatalf("Cairnline sidecar launch packet body = %q, want %q", item.Body, want)
-		}
-	}
-	for key, want := range map[string]string{
-		"read_backend":   "cairnline",
-		"ready":          "true",
-		"project_id":     "proj_fixture",
-		"work_item_id":   "work_fixture",
-		"assignment_id":  "asg_fixture",
-		"role_id":        "role_fixture",
-		"execution_mode": "mcp_pull",
-	} {
-		if item.Metadata[key] != want {
-			t.Fatalf("Cairnline sidecar launch packet metadata[%q] = %q, want %q in %+v", key, item.Metadata[key], want, item.Metadata)
 		}
 	}
 }

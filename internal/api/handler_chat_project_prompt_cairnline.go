@@ -14,10 +14,6 @@ func (h *Handler) projectChatStrictEmbeddedCairnlineReads() bool {
 	return h != nil && h.projectReadRoutesUseCairnlineReadModel() && h.requiresEmbeddedCairnlineProjectReads()
 }
 
-func (h *Handler) projectChatSidecarCairnlineReads() bool {
-	return h != nil && h.projectCairnlineSidecarReadRoutesEnabled()
-}
-
 func (h *Handler) strictEmbeddedCairnlineProjectChatView(ctx context.Context, projectID string) (*cairnlineProjectWorkView, bool) {
 	projectID = strings.TrimSpace(projectID)
 	if !h.projectChatStrictEmbeddedCairnlineReads() || projectID == "" {
@@ -28,23 +24,6 @@ func (h *Handler) strictEmbeddedCairnlineProjectChatView(ctx context.Context, pr
 		return nil, true
 	}
 	return view, true
-}
-
-func (h *Handler) sidecarCairnlineProjectSummary(ctx context.Context, projectID string) (*projects.Project, bool) {
-	projectID = strings.TrimSpace(projectID)
-	if !h.projectChatSidecarCairnlineReads() || projectID == "" {
-		return nil, false
-	}
-	item, ok, err := h.cairnlineSidecarProject(ctx, projectID)
-	if err != nil || !ok {
-		return nil, true
-	}
-	project := projectFromCairnlineSidecar(item)
-	project, err = h.projectWithHecateRuntimeOverlay(ctx, project)
-	if err != nil {
-		return nil, true
-	}
-	return &project, true
 }
 
 func (h *Handler) strictEmbeddedCairnlineProjectSummary(ctx context.Context, projectID string) (*projects.Project, bool) {
@@ -58,22 +37,6 @@ func (h *Handler) strictEmbeddedCairnlineProjectSummary(ctx context.Context, pro
 	defer view.Close()
 	item := view.snapshot.Project
 	return &item, true
-}
-
-func (h *Handler) sidecarCairnlineProjectChatRoles(ctx context.Context, projectID string) ([]projectwork.AgentRoleProfile, bool) {
-	projectID = strings.TrimSpace(projectID)
-	if !h.projectChatSidecarCairnlineReads() || projectID == "" {
-		return nil, false
-	}
-	roles, err := h.cairnlineSidecarProjectRoles(ctx, projectID)
-	if err != nil {
-		return nil, true
-	}
-	out, err := h.projectRolesWithHecateRuntimeOverlay(ctx, projectRolesFromCairnlineSidecar(roles))
-	if err != nil {
-		return nil, true
-	}
-	return out, true
 }
 
 func (h *Handler) strictEmbeddedCairnlineProjectChatRoles(ctx context.Context, projectID string) ([]projectwork.AgentRoleProfile, bool) {
@@ -94,30 +57,6 @@ func (h *Handler) strictEmbeddedCairnlineProjectChatRoles(ctx context.Context, p
 	for _, role := range roles {
 		out = append(out, projectWorkRoleFromCairnline(role, nativeByID[role.ID]))
 	}
-	return out, true
-}
-
-func (h *Handler) sidecarCairnlineProjectChatSkills(ctx context.Context, projectID string) ([]projectskills.Skill, bool) {
-	projectID = strings.TrimSpace(projectID)
-	if !h.projectChatSidecarCairnlineReads() || projectID == "" {
-		return nil, false
-	}
-	items, err := h.cairnlineSidecarProjectSkills(ctx, projectID)
-	if err != nil {
-		return nil, true
-	}
-	out := make([]projectskills.Skill, 0, len(items))
-	for _, skill := range projectSkillsFromCairnlineSidecar(items) {
-		if !skill.Enabled {
-			continue
-		}
-		status := strings.TrimSpace(skill.Status)
-		if status != "" && status != projectskills.StatusAvailable {
-			continue
-		}
-		out = append(out, skill)
-	}
-	sortProjectChatSkills(out)
 	return out, true
 }
 
@@ -148,48 +87,6 @@ func (h *Handler) strictEmbeddedCairnlineProjectChatSkills(ctx context.Context, 
 	}
 	sortProjectChatSkills(out)
 	return out, true
-}
-
-func (h *Handler) sidecarCairnlineProjectChatWorkSnapshot(ctx context.Context, projectID string) (projectChatWorkSnapshot, bool) {
-	projectID = strings.TrimSpace(projectID)
-	if !h.projectChatSidecarCairnlineReads() || projectID == "" {
-		return projectChatWorkSnapshot{}, false
-	}
-	workItems, err := h.cairnlineSidecarProjectWorkItems(ctx, projectID)
-	if err != nil {
-		return projectChatWorkSnapshot{}, true
-	}
-	filteredWorkItems := make([]projectwork.WorkItem, 0, len(workItems))
-	for _, item := range projectWorkItemsFromCairnlineSidecar(workItems) {
-		if projectChatStatusAllowed(item.Status, projectChatPromptWorkItemStatuses) {
-			filteredWorkItems = append(filteredWorkItems, item)
-		}
-	}
-	workItemsTruncated := len(filteredWorkItems) > projectChatPromptWorkMaxItems
-	if workItemsTruncated {
-		filteredWorkItems = filteredWorkItems[:projectChatPromptWorkMaxItems]
-	}
-
-	assignments, err := h.cairnlineSidecarProjectAssignments(ctx, projectID)
-	if err != nil {
-		assignments = nil
-	}
-	filteredAssignments := make([]projectwork.Assignment, 0, len(assignments))
-	for _, assignment := range projectAssignmentsFromCairnlineSidecar(assignments) {
-		if projectChatStatusAllowed(assignment.Status, projectChatPromptAssignmentStatuses) {
-			filteredAssignments = append(filteredAssignments, assignment)
-		}
-	}
-	assignmentsTruncated := len(filteredAssignments) > projectChatPromptAssignmentMaxItems
-	if assignmentsTruncated {
-		filteredAssignments = filteredAssignments[:projectChatPromptAssignmentMaxItems]
-	}
-	return projectChatWorkSnapshot{
-		WorkItems:            filteredWorkItems,
-		Assignments:          filteredAssignments,
-		WorkItemsTruncated:   workItemsTruncated,
-		AssignmentsTruncated: assignmentsTruncated,
-	}, true
 }
 
 func (h *Handler) strictEmbeddedCairnlineProjectChatWorkSnapshot(ctx context.Context, projectID string) (projectChatWorkSnapshot, bool) {
@@ -239,18 +136,6 @@ func (h *Handler) strictEmbeddedCairnlineProjectChatWorkSnapshot(ctx context.Con
 		WorkItemsTruncated:   workItemsTruncated,
 		AssignmentsTruncated: assignmentsTruncated,
 	}, true
-}
-
-func (h *Handler) sidecarCairnlineEnabledProjectMemoryEntries(ctx context.Context, projectID string) ([]memory.Entry, bool) {
-	projectID = strings.TrimSpace(projectID)
-	if !h.projectChatSidecarCairnlineReads() || projectID == "" {
-		return nil, false
-	}
-	items, err := h.cairnlineSidecarProjectMemoryEntryList(ctx, projectID, false)
-	if err != nil {
-		return nil, true
-	}
-	return projectMemoryEntriesFromCairnlineSidecar(items), true
 }
 
 func (h *Handler) strictEmbeddedCairnlineEnabledProjectMemoryEntries(ctx context.Context, projectID string) ([]memory.Entry, bool) {

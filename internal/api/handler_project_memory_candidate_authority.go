@@ -19,7 +19,7 @@ func (h *Handler) projectMemoryCandidatesWriteUseCairnlineAuthority() bool {
 
 func (h *Handler) createProjectMemoryCandidateWithCairnlineAuthority(ctx context.Context, projectID string, candidate memory.Candidate) (memory.Candidate, error) {
 	var created cairnline.MemoryCandidate
-	err := h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err := h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if err := h.seedProjectMetadataForCairnlineMemoryAuthority(ctx, service, projectID); err != nil {
 			return err
 		}
@@ -39,7 +39,7 @@ func (h *Handler) createProjectMemoryCandidateWithCairnlineAuthority(ctx context
 func (h *Handler) promoteProjectMemoryCandidateWithCairnlineAuthority(ctx context.Context, projectID, candidateID string, req promoteProjectMemoryCandidateRequest) (memory.Candidate, memory.Entry, error) {
 	var updated cairnline.MemoryCandidate
 	var promoted cairnline.MemoryEntry
-	err := h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err := h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if err := h.seedProjectMetadataForCairnlineMemoryAuthority(ctx, service, projectID); err != nil {
 			return err
 		}
@@ -68,7 +68,7 @@ func (h *Handler) promoteProjectMemoryCandidateWithCairnlineAuthority(ctx contex
 
 func (h *Handler) rejectProjectMemoryCandidateWithCairnlineAuthority(ctx context.Context, projectID, candidateID, reason string) (memory.Candidate, error) {
 	var updated cairnline.MemoryCandidate
-	err := h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err := h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if err := h.seedProjectMetadataForCairnlineMemoryAuthority(ctx, service, projectID); err != nil {
 			return err
 		}
@@ -111,6 +111,9 @@ func normalizeProjectMemoryCandidateForCairnlineAuthority(candidate memory.Candi
 
 func (h *Handler) shadowProjectMemoryCandidateToHecate(ctx context.Context, operation string, candidate memory.Candidate) {
 	if h == nil || h.memoryCandidates == nil {
+		return
+	}
+	if h.projectCairnlineEmbeddedReplacementModeArmed() {
 		return
 	}
 	if _, ok, err := h.memoryCandidates.GetCandidate(ctx, candidate.ProjectID, candidate.ID); err != nil {

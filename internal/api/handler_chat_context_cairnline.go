@@ -14,10 +14,9 @@ import (
 	"github.com/hecatehq/hecate/internal/projectwork"
 )
 
-const cairnlineAssignmentContextReason = "Inspectable Cairnline read-model launch packet; Hecate has not created a task/chat execution snapshot for this assignment"
-const cairnlineAssignmentLaunchEvidenceReason = "Portable Cairnline launch packet evidence for replacement-readiness review"
-const cairnlineAssignmentContextHecateAuthorityLine = "Preview only: Hecate stores remain authoritative and no task, chat session, or external-agent run is created by this context read."
-const cairnlineAssignmentContextReplacementAuthorityLine = "Preview only: portable project-state is Cairnline-authoritative in embedded replacement mode; no task, chat session, or external-agent run is created by this context read."
+const cairnlineAssignmentContextReason = "Inspectable Cairnline launch packet; Hecate has not created a task/chat execution snapshot for this assignment"
+const cairnlineAssignmentLaunchEvidenceReason = "Portable Cairnline launch packet evidence for Hecate runtime launch review"
+const cairnlineAssignmentContextAuthorityText = "Preview only: Cairnline owns portable coordination; Hecate has not created a task, chat session, or external-agent run from this context read."
 
 func (h *Handler) contextPacketForCairnlineProjectAssignment(ctx context.Context, assignment projectwork.Assignment) (chat.ContextPacket, bool, error) {
 	if h == nil || !h.projectReadRoutesUseCairnlineReadModel() {
@@ -61,37 +60,13 @@ func (h *Handler) contextPacketForStrictEmbeddedCairnlineProjectAssignment(ctx c
 	if err != nil {
 		return chat.ContextPacket{}, false, err
 	}
-	if cairnlineSidecarAssignmentContextRouteMismatch(context, projectID, workItemID, assignmentID) {
+	if cairnlineAssignmentContextRouteMismatch(context, projectID, workItemID, assignmentID) {
 		return chat.ContextPacket{}, false, nil
 	}
 	return cairnlineAssignmentContextPacket(context, h.cairnlineAssignmentContextAuthorityLine()), true, nil
 }
 
-func (h *Handler) contextPacketForCairnlineSidecarProjectAssignment(ctx context.Context, projectID, workItemID, assignmentID string) (chat.ContextPacket, bool, error) {
-	projectID = strings.TrimSpace(projectID)
-	workItemID = strings.TrimSpace(workItemID)
-	assignmentID = strings.TrimSpace(assignmentID)
-	projectItem, ok, err := h.cairnlineSidecarProject(ctx, projectID)
-	if err != nil {
-		return chat.ContextPacket{}, false, err
-	}
-	if !ok || strings.TrimSpace(projectItem.ID) != projectID {
-		return chat.ContextPacket{}, false, nil
-	}
-	context, ok, err := h.cairnlineSidecarAssignmentContext(ctx, projectID, assignmentID)
-	if err != nil {
-		return chat.ContextPacket{}, false, err
-	}
-	if !ok {
-		return chat.ContextPacket{}, false, nil
-	}
-	if cairnlineSidecarAssignmentContextRouteMismatch(context, projectID, workItemID, assignmentID) {
-		return chat.ContextPacket{}, false, nil
-	}
-	return cairnlineAssignmentContextPacket(context, cairnlineAssignmentContextHecateAuthorityLine), true, nil
-}
-
-func cairnlineSidecarAssignmentContextRouteMismatch(context cairnline.AssignmentContext, projectID, workItemID, assignmentID string) bool {
+func cairnlineAssignmentContextRouteMismatch(context cairnline.AssignmentContext, projectID, workItemID, assignmentID string) bool {
 	projectID = strings.TrimSpace(projectID)
 	workItemID = strings.TrimSpace(workItemID)
 	assignmentID = strings.TrimSpace(assignmentID)
@@ -125,10 +100,7 @@ func cairnlineSidecarAssignmentContextRouteMismatch(context cairnline.Assignment
 }
 
 func (h *Handler) cairnlineAssignmentContextAuthorityLine() string {
-	if h != nil && h.projectCairnlineEmbeddedReplacementModeArmed() {
-		return cairnlineAssignmentContextReplacementAuthorityLine
-	}
-	return cairnlineAssignmentContextHecateAuthorityLine
+	return cairnlineAssignmentContextAuthorityText
 }
 
 func cairnlineAssignmentContextPacket(context cairnline.AssignmentContext, authorityLine string) chat.ContextPacket {
@@ -641,7 +613,7 @@ func appendCairnlineAssignmentHandoffs(packet *chat.ContextPacket, launch cairnl
 }
 
 func appendCairnlineLaunchRuntime(packet *chat.ContextPacket, launch cairnline.AssignmentLaunchPacket, authorityLine string) {
-	authorityLine = firstNonEmptyString(strings.TrimSpace(authorityLine), cairnlineAssignmentContextHecateAuthorityLine)
+	authorityLine = firstNonEmptyString(strings.TrimSpace(authorityLine), cairnlineAssignmentContextAuthorityText)
 	body := []string{
 		"Read backend: cairnline",
 		"Launch packet kind: " + firstNonEmptyString(strings.TrimSpace(launch.Kind), "assignment"),
@@ -675,7 +647,7 @@ func appendCairnlineLaunchRuntime(packet *chat.ContextPacket, launch cairnline.A
 }
 
 func appendCairnlineAssignmentContextRuntime(packet *chat.ContextPacket, context cairnline.AssignmentContext, authorityLine string) {
-	authorityLine = firstNonEmptyString(strings.TrimSpace(authorityLine), cairnlineAssignmentContextHecateAuthorityLine)
+	authorityLine = firstNonEmptyString(strings.TrimSpace(authorityLine), cairnlineAssignmentContextAuthorityText)
 	body := []string{
 		"Read backend: cairnline",
 		"Source tool: assignments.context",

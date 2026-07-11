@@ -28,11 +28,11 @@ func formatProjectSkillTime(value time.Time) string {
 
 func (h *Handler) HandleProjectSkills(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
-	if h.projectSkills == nil && !h.projectCairnlineSidecarReadRoutesEnabled() && !h.requiresEmbeddedCairnlineProjectReads() {
+	if h.projectSkills == nil && !h.requiresEmbeddedCairnlineProjectReads() {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project skills store is not configured")
 		return
 	}
-	if !h.projectCairnlineSidecarReadRoutesEnabled() && !h.requiresEmbeddedCairnlineProjectReads() && !h.requireProjectExists(w, r, projectID) {
+	if !h.requiresEmbeddedCairnlineProjectReads() && !h.requireProjectExists(w, r, projectID) {
 		return
 	}
 	items, err := h.renderProjectSkills(r.Context(), projectID)
@@ -137,9 +137,6 @@ func (h *Handler) HandleUpdateProjectSkill(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *Handler) renderProjectSkills(ctx context.Context, projectID string) ([]ProjectSkillResponseItem, error) {
-	if h.projectCairnlineSidecarReadRoutesEnabled() {
-		return h.renderCairnlineSidecarProjectSkills(ctx, projectID)
-	}
 	if h.projectReadRoutesUseCairnlineReadModel() {
 		return h.renderCairnlineProjectSkills(ctx, projectID)
 	}
@@ -166,22 +163,6 @@ func (h *Handler) renderCairnlineProjectSkills(ctx context.Context, projectID st
 		out = append(out, renderProjectSkill(projectSkillFromCairnline(item, nativeByID[item.ID]), "cairnline"))
 	}
 	return out, nil
-}
-
-func (h *Handler) renderCairnlineSidecarProjectSkills(ctx context.Context, projectID string) ([]ProjectSkillResponseItem, error) {
-	projectItem, ok, err := h.cairnlineSidecarProject(ctx, projectID)
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		return nil, projects.ErrNotFound
-	}
-	project := projectFromCairnlineSidecar(projectItem)
-	items, err := h.cairnlineSidecarProjectSkills(ctx, project.ID)
-	if err != nil {
-		return nil, err
-	}
-	return renderProjectSkills(projectSkillsFromCairnlineSidecar(items), "cairnline"), nil
 }
 
 func renderProjectSkills(items []projectskills.Skill, readBackend string) []ProjectSkillResponseItem {

@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/hecatehq/cairnline"
@@ -238,7 +237,7 @@ func TestProjectSkillsAPI_StrictEmbeddedReadModelReadsSkillsWithoutHecateStores(
 	tools := true
 	network := false
 
-	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
 		if _, err := service.CreateProject(t.Context(), cairnline.Project{
 			ID:   projectID,
 			Name: "Embedded Skills",
@@ -322,54 +321,6 @@ func TestProjectSkillsAPI_StrictEmbeddedReadModelReadsSkillsWithoutHecateStores(
 	server.ServeHTTP(missingRec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_missing/skills", nil))
 	if missingRec.Code != http.StatusNotFound {
 		t.Fatalf("missing status = %d body=%s, want 404", missingRec.Code, missingRec.Body.String())
-	}
-}
-
-func TestProjectSkillsAPI_ListUsesCairnlineSidecarWhenConfigured(t *testing.T) {
-	t.Parallel()
-	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "full")
-	if handler.projectReadRoutesUseCairnlineReadModel() {
-		t.Fatal("sidecar skills list enabled embedded Cairnline read-model routes")
-	}
-	if !handler.projectCairnlineSidecarReadRoutesEnabled() {
-		t.Fatal("sidecar read-route predicate = false, want true")
-	}
-
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/skills", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("skills status = %d body=%s, want 200", rec.Code, rec.Body.String())
-	}
-	var response ProjectSkillsResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
-		t.Fatalf("decode skills response: %v", err)
-	}
-	if response.Object != "project_skills" {
-		t.Fatalf("skills object = %q, want project_skills", response.Object)
-	}
-	skill := projectSkillResponseFor(response.Data, "skill_fixture")
-	if skill == nil {
-		t.Fatalf("skills = %+v, want fixture skill", response.Data)
-	}
-	if skill.ReadBackend != "cairnline" || skill.ProjectID != "proj_fixture" || skill.Title != "Fixture Skill" {
-		t.Fatalf("skill = %+v, want sidecar Cairnline fixture skill", *skill)
-	}
-	if skill.Path != ".agents/skills/fixture/SKILL.md" || !skill.Enabled || skill.Status != projectskills.StatusAvailable || skill.TrustLabel != projectskills.TrustWorkspaceSkill {
-		t.Fatalf("skill metadata = %+v, want portable sidecar skill metadata", *skill)
-	}
-}
-
-func TestProjectSkillsAPI_CairnlineSidecarReadRequiresStructuredContent(t *testing.T) {
-	t.Parallel()
-	_, server := newProjectsCairnlineSidecarReadTestServer(t, "text-only")
-
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/skills", nil))
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf("skills status = %d body=%s, want 502", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "structuredContent") {
-		t.Fatalf("error body = %s, want structuredContent diagnostic", rec.Body.String())
 	}
 }
 
@@ -890,6 +841,9 @@ func projectSkillResponseFor(items []ProjectSkillResponseItem, id string) *Proje
 
 func assertNoNativeProjectSkillForTest(t *testing.T, handler *Handler, projectID, skillID string) {
 	t.Helper()
+	if handler.projectSkills == nil {
+		return
+	}
 	items, err := handler.projectSkills.List(t.Context(), projectID)
 	if err != nil {
 		t.Fatalf("List native skills: %v", err)

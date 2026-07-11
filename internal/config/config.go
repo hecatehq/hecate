@@ -237,16 +237,11 @@ type ChatConfig struct {
 }
 
 type ProjectsConfig struct {
-	Backend                      string
-	CoordinationBackend          string
-	CairnlineConnector           string
-	CairnlineSidecarCommand      string
-	CairnlineSidecarArgs         []string
-	CairnlineSidecarDatabasePath string
-	CairnlineSidecarProbeTimeout time.Duration
-	CairnlineReadSource          string
-	CairnlineWriteAuthority      string
-	CairnlineReplacementMode     string
+	CoordinationBackend      string
+	CairnlineConnector       string
+	CairnlineReadSource      string
+	CairnlineWriteAuthority  string
+	CairnlineReplacementMode string
 }
 
 func (c Config) ProjectsCoordinationBackend() string {
@@ -257,35 +252,19 @@ func (c Config) ProjectsCairnlineConnector() string {
 	return normalizeProjectsCairnlineConnector(c.Projects.CairnlineConnector)
 }
 
-func (c Config) ProjectsCairnlineSidecarCommand() string {
-	command := strings.TrimSpace(c.Projects.CairnlineSidecarCommand)
-	if command == "" {
-		return "cairnline"
-	}
-	return command
-}
-
-func (c Config) ProjectsCairnlineSidecarArgs() []string {
-	return append([]string(nil), c.Projects.CairnlineSidecarArgs...)
-}
-
-func (c Config) ProjectsCairnlineSidecarDatabasePath() string {
-	return strings.TrimSpace(c.Projects.CairnlineSidecarDatabasePath)
-}
-
-func (c Config) ProjectsCairnlineSidecarProbeTimeout() time.Duration {
-	if c.Projects.CairnlineSidecarProbeTimeout <= 0 {
-		return 10 * time.Second
-	}
-	return c.Projects.CairnlineSidecarProbeTimeout
-}
-
 func (c Config) ProjectsCairnlineReadSource() string {
 	return normalizeProjectsCairnlineReadSource(c.Projects.CairnlineReadSource)
 }
 
 func (c Config) ProjectsCairnlineReplacementMode() string {
 	return normalizeProjectsCairnlineReplacementMode(c.Projects.CairnlineReplacementMode)
+}
+
+func (c Config) ProjectsUseCairnlineOnly() bool {
+	return c.ProjectsCoordinationBackend() == "cairnline" &&
+		c.ProjectsCairnlineConnector() == "embedded" &&
+		c.ProjectsCairnlineReadSource() == "embedded" &&
+		c.ProjectsCairnlineReplacementMode() == "embedded"
 }
 
 func (c Config) ProjectsCairnlineWriteAuthority() []string {
@@ -573,16 +552,11 @@ func LoadFromEnv() Config {
 			SessionsBackend: storageBackend,
 		},
 		Projects: ProjectsConfig{
-			Backend:                      storageBackend,
-			CoordinationBackend:          strings.ToLower(strings.TrimSpace(getEnv("HECATE_PROJECTS_COORDINATION_BACKEND", "hecate"))),
-			CairnlineConnector:           strings.ToLower(strings.TrimSpace(getEnv("HECATE_PROJECTS_CAIRNLINE_CONNECTOR", "embedded"))),
-			CairnlineSidecarCommand:      strings.TrimSpace(getEnv("HECATE_PROJECTS_CAIRNLINE_SIDECAR_COMMAND", "cairnline")),
-			CairnlineSidecarArgs:         splitCSV(getEnv("HECATE_PROJECTS_CAIRNLINE_SIDECAR_ARGS", "")),
-			CairnlineSidecarDatabasePath: strings.TrimSpace(getEnv("HECATE_PROJECTS_CAIRNLINE_SIDECAR_DB", "")),
-			CairnlineSidecarProbeTimeout: getEnvDuration("HECATE_PROJECTS_CAIRNLINE_SIDECAR_PROBE_TIMEOUT", 10*time.Second),
-			CairnlineReadSource:          strings.ToLower(strings.TrimSpace(getEnv("HECATE_PROJECTS_CAIRNLINE_READ_SOURCE", "auto"))),
-			CairnlineWriteAuthority:      getEnv("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY", "none"),
-			CairnlineReplacementMode:     strings.ToLower(strings.TrimSpace(getEnv("HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE", "disabled"))),
+			CoordinationBackend:      "cairnline",
+			CairnlineConnector:       "embedded",
+			CairnlineReadSource:      "embedded",
+			CairnlineWriteAuthority:  "none",
+			CairnlineReplacementMode: "embedded",
 		},
 		OTel: loadOTelFromEnv(),
 		Governor: GovernorConfig{
@@ -639,7 +613,6 @@ func (c Config) storageBackends() []string {
 		c.Server.TasksBackend,
 		c.Server.TaskQueueBackend,
 		c.Chat.SessionsBackend,
-		c.Projects.Backend,
 		c.Governor.UsageBackend,
 		c.Retention.HistoryBackend,
 		c.Provider.HistoryBackend,
@@ -665,30 +638,6 @@ func (c Config) Validate() error {
 
 	for _, backend := range c.storageBackends() {
 		validateBackend("HECATE_BACKEND", backend, "memory", "sqlite", "postgres")
-	}
-	validateBackend("HECATE_PROJECTS_COORDINATION_BACKEND", c.ProjectsCoordinationBackend(), "hecate", "cairnline")
-	validateBackend("HECATE_PROJECTS_CAIRNLINE_CONNECTOR", c.ProjectsCairnlineConnector(), "embedded", "sidecar")
-	validateBackend("HECATE_PROJECTS_CAIRNLINE_READ_SOURCE", c.ProjectsCairnlineReadSource(), "auto", "snapshot", "embedded", "sidecar")
-	validateBackend("HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE", c.ProjectsCairnlineReplacementMode(), "disabled", "embedded")
-	if c.ProjectsCairnlineReadSource() == "sidecar" && c.ProjectsCairnlineConnector() != "sidecar" {
-		errs = append(errs, errors.New("HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=sidecar requires HECATE_PROJECTS_CAIRNLINE_CONNECTOR=sidecar"))
-	}
-	if c.ProjectsCairnlineReplacementMode() == "embedded" {
-		if c.ProjectsCoordinationBackend() != "cairnline" {
-			errs = append(errs, errors.New("HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded requires HECATE_PROJECTS_COORDINATION_BACKEND=cairnline"))
-		}
-		if c.ProjectsCairnlineConnector() != "embedded" {
-			errs = append(errs, errors.New("HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded requires HECATE_PROJECTS_CAIRNLINE_CONNECTOR=embedded"))
-		}
-		if c.ProjectsCairnlineReadSource() != "embedded" {
-			errs = append(errs, errors.New("HECATE_PROJECTS_CAIRNLINE_REPLACEMENT_MODE=embedded requires HECATE_PROJECTS_CAIRNLINE_READ_SOURCE=embedded"))
-		}
-	}
-	for _, item := range c.ProjectsCairnlineWriteAuthority() {
-		validateBackend("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY", item, "project-memory", "memory-candidates", "project-collaboration", "project-skills", "project-work-items", "project-roles", "project-assignments", "project-metadata-defaults", "project-roots", "project-context-sources", "project-identity", "project-assistant-proposals")
-	}
-	if c.ProjectsCairnlineWriteAuthorityEnabled("memory-candidates") && !c.ProjectsCairnlineWriteAuthorityEnabled("project-memory") {
-		errs = append(errs, errors.New("HECATE_PROJECTS_CAIRNLINE_WRITE_AUTHORITY=memory-candidates requires project-memory because candidate promotion creates accepted project memory"))
 	}
 	if postgresRequired(c) && strings.TrimSpace(c.Postgres.DatabaseURL) == "" {
 		errs = append(errs, errors.New("HECATE_POSTGRES_URL or DATABASE_URL is required when HECATE_BACKEND=postgres"))

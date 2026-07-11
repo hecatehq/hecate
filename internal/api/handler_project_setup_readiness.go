@@ -70,7 +70,7 @@ type ProjectSetupReadinessActionResponse struct {
 func (h *Handler) HandleProjectSetupReadiness(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
 	strictEmbeddedRead := h.projectReadRoutesUseCairnlineReadModel() && h.requiresEmbeddedCairnlineProjectReads()
-	if !h.projectCairnlineSidecarReadRoutesEnabled() && !strictEmbeddedRead && !h.requireProject(w, r, projectID) {
+	if !strictEmbeddedRead && !h.requireProject(w, r, projectID) {
 		return
 	}
 	readiness, err := h.renderProjectSetupReadiness(r.Context(), projectID)
@@ -86,9 +86,6 @@ func (h *Handler) HandleProjectSetupReadiness(w http.ResponseWriter, r *http.Req
 }
 
 func (h *Handler) renderProjectSetupReadiness(ctx context.Context, projectID string) (ProjectSetupReadinessResponse, error) {
-	if h.projectCairnlineSidecarReadRoutesEnabled() {
-		return h.renderCairnlineSidecarProjectSetupReadiness(ctx, projectID)
-	}
 	if h.projectReadRoutesUseCairnlineReadModel() {
 		return h.renderCairnlineProjectSetupReadiness(ctx, projectID)
 	}

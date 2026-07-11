@@ -106,7 +106,7 @@ func (h *Handler) updateProjectRootSourceListsWithCairnlineAuthority(ctx context
 	}
 
 	var written cairnline.Project
-	err = h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err = h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if _, err := cairnlinebridge.UpsertProjectMetadata(ctx, service, project); err != nil {
 			return err
 		}
@@ -147,7 +147,7 @@ func (h *Handler) replaceProjectContextSourcesWithCairnlineAuthority(ctx context
 		return projects.Project{}, err
 	}
 	var written cairnline.Project
-	err = h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err = h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if _, err := cairnlinebridge.UpsertProjectMetadata(ctx, service, project); err != nil {
 			return err
 		}
@@ -178,7 +178,7 @@ func (h *Handler) replaceProjectRootsWithCairnlineAuthority(ctx context.Context,
 		return projects.Project{}, err
 	}
 	var written cairnline.Project
-	err = h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err = h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if _, err := cairnlinebridge.UpsertProjectMetadata(ctx, service, project); err != nil {
 			return err
 		}
@@ -218,7 +218,7 @@ func (h *Handler) createProjectRootWithCairnlineAuthority(ctx context.Context, p
 
 	var written cairnline.Project
 	var created cairnline.Root
-	err = h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err = h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if _, err := cairnlinebridge.UpsertProjectMetadata(ctx, service, project); err != nil {
 			return err
 		}
@@ -258,7 +258,7 @@ func (h *Handler) updateProjectRootWithCairnlineAuthority(ctx context.Context, p
 
 	var written cairnline.Project
 	var updated cairnline.Root
-	err = h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err = h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if _, err := cairnlinebridge.UpsertProjectMetadata(ctx, service, project); err != nil {
 			return err
 		}
@@ -291,7 +291,7 @@ func (h *Handler) deleteProjectRootWithCairnlineAuthority(ctx context.Context, p
 		return projects.Project{}, projects.Root{}, projectapp.ErrProjectRootNotFound
 	}
 	var written cairnline.Project
-	err = h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err = h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if _, err := cairnlinebridge.UpsertProjectMetadata(ctx, service, project); err != nil {
 			return err
 		}
@@ -329,7 +329,7 @@ func (h *Handler) createProjectContextSourceWithCairnlineAuthority(ctx context.C
 
 	var written cairnline.Project
 	var created cairnline.Source
-	err = h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err = h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if _, err := cairnlinebridge.UpsertProjectMetadata(ctx, service, project); err != nil {
 			return err
 		}
@@ -369,7 +369,7 @@ func (h *Handler) updateProjectContextSourceWithCairnlineAuthority(ctx context.C
 
 	var written cairnline.Project
 	var updated cairnline.Source
-	err = h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err = h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if _, err := cairnlinebridge.UpsertProjectMetadata(ctx, service, project); err != nil {
 			return err
 		}
@@ -402,7 +402,7 @@ func (h *Handler) deleteProjectContextSourceWithCairnlineAuthority(ctx context.C
 		return projects.Project{}, projects.ContextSource{}, projectapp.ErrProjectContextSourceNotFound
 	}
 	var written cairnline.Project
-	err = h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err = h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if _, err := cairnlinebridge.UpsertProjectMetadata(ctx, service, project); err != nil {
 			return err
 		}
@@ -476,7 +476,7 @@ func (h *Handler) validateProjectRootPathsCairnlineAuthorityCompatibility(ctx co
 	}
 	projectID := strings.TrimSpace(project.ID)
 	var conflictPath, conflictProjectID string
-	err := h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err := h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		items, err := service.ListProjects(ctx)
 		if err != nil {
 			return err

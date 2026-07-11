@@ -43,7 +43,7 @@ func (h *Handler) createProjectWorkItemWithCairnlineAuthority(ctx context.Contex
 	}
 
 	var created projectwork.WorkItem
-	err = h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err = h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if err := h.seedProjectWorkItemDependenciesForCairnlineAuthority(ctx, service, project, item); err != nil {
 			return err
 		}
@@ -77,7 +77,7 @@ func (h *Handler) updateProjectWorkItemWithCairnlineAuthority(ctx context.Contex
 	}
 
 	var updated projectwork.WorkItem
-	err = h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err = h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		existing, err := service.GetWorkItem(ctx, projectID, workItemID)
 		if err != nil {
 			return err
@@ -122,7 +122,7 @@ func (h *Handler) projectWorkItemCloseoutReadinessForCairnlineAuthority(ctx cont
 }
 
 func (h *Handler) deleteProjectWorkItemWithCairnlineAuthority(ctx context.Context, projectID, workItemID string) error {
-	if err := h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	if err := h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		return service.DeleteWorkItem(ctx, projectID, workItemID)
 	}); err != nil {
 		return err
@@ -153,7 +153,7 @@ func (h *Handler) projectForCairnlineWriteAuthority(ctx context.Context, project
 
 func (h *Handler) projectFromEmbeddedCairnlineWriteAuthority(ctx context.Context, projectID string) (projects.Project, error) {
 	var project projects.Project
-	err := h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err := h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		item, err := service.GetProject(ctx, projectID)
 		if err != nil {
 			return err
@@ -310,6 +310,9 @@ func (h *Handler) shadowProjectWorkItemToHecate(ctx context.Context, operation s
 
 func (h *Handler) shadowProjectWorkItemDeleteToHecate(ctx context.Context, operation, projectID, workItemID string) {
 	if h == nil || h.projectWork == nil {
+		return
+	}
+	if h.projectCairnlineEmbeddedReplacementModeArmed() {
 		return
 	}
 	if err := h.projectWork.DeleteWorkItem(ctx, projectID, workItemID); err != nil && !errors.Is(err, projectwork.ErrNotFound) {

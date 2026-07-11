@@ -75,7 +75,7 @@ type ProjectHealthAttentionItem struct {
 func (h *Handler) HandleProjectHealth(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
 	strictEmbeddedRead := h.projectReadRoutesUseCairnlineReadModel() && h.requiresEmbeddedCairnlineProjectReads()
-	if !h.projectCairnlineSidecarReadRoutesEnabled() && !strictEmbeddedRead && !h.requireProject(w, r, projectID) {
+	if !strictEmbeddedRead && !h.requireProject(w, r, projectID) {
 		return
 	}
 	health, err := h.renderProjectHealth(r.Context(), projectID)
@@ -91,9 +91,6 @@ func (h *Handler) HandleProjectHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) renderProjectHealth(ctx context.Context, projectID string) (ProjectHealthResponse, error) {
-	if h.projectCairnlineSidecarReadRoutesEnabled() {
-		return h.renderCairnlineSidecarProjectHealth(ctx, projectID)
-	}
 	if h.projectReadRoutesUseCairnlineReadModel() {
 		return h.renderCairnlineProjectHealth(ctx, projectID)
 	}

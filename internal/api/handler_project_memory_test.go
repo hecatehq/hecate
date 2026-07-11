@@ -7,16 +7,13 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projects"
-	"github.com/hecatehq/hecate/internal/storage"
 )
 
 func newProjectMemoryTestServer() http.Handler {
@@ -885,7 +882,7 @@ func TestProjectMemoryAPI_StrictEmbeddedReadModelReadsMemoryWithoutHecateStores(
 	client := newAPITestClient(t, server)
 	const projectID = "proj_embedded_memory"
 
-	if err := handler.withCairnlineEmbeddedMirrorService(t.Context(), func(service *cairnline.Service) error {
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
 		if _, err := service.CreateProject(t.Context(), cairnline.Project{
 			ID:   projectID,
 			Name: "Embedded Memory",
@@ -940,106 +937,6 @@ func TestProjectMemoryAPI_StrictEmbeddedReadModelReadsMemoryWithoutHecateStores(
 	}
 
 	client.mustRequestStatus(http.StatusNotFound, http.MethodGet, "/hecate/v1/projects/proj_missing/memory", "")
-}
-
-func TestProjectMemoryAPI_ListUsesCairnlineSidecarWhenConfigured(t *testing.T) {
-	t.Parallel()
-	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "memory-fixture")
-	if handler.projectReadRoutesUseCairnlineReadModel() {
-		t.Fatal("sidecar memory list enabled embedded Cairnline read-model routes")
-	}
-	if !handler.projectCairnlineSidecarReadRoutesEnabled() {
-		t.Fatal("sidecar read-route predicate = false, want true")
-	}
-
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/memory", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("memory status = %d body=%s, want 200", rec.Code, rec.Body.String())
-	}
-	var response ProjectMemoryListResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
-		t.Fatalf("decode memory response: %v", err)
-	}
-	if response.Object != "project_memory" || len(response.Data) != 1 {
-		t.Fatalf("memory response = %+v, want one enabled fixture entry", response)
-	}
-	entry := projectMemoryResponseForTest(response.Data, "mem_fixture")
-	if entry == nil || entry.ReadBackend != "cairnline" || entry.ProjectID != "proj_fixture" || !entry.Enabled || entry.Title != "Fixture memory" {
-		t.Fatalf("memory entry = %+v, want sidecar Cairnline fixture memory", entry)
-	}
-
-	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/memory?include_disabled=true", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("memory include-disabled status = %d body=%s, want 200", rec.Code, rec.Body.String())
-	}
-	response = ProjectMemoryListResponse{}
-	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
-		t.Fatalf("decode include-disabled memory response: %v", err)
-	}
-	disabled := projectMemoryResponseForTest(response.Data, "mem_disabled_fixture")
-	if len(response.Data) != 2 || disabled == nil || disabled.ReadBackend != "cairnline" || disabled.Enabled {
-		t.Fatalf("memory entries = %+v, want disabled sidecar fixture included", response.Data)
-	}
-}
-
-func TestProjectMemoryAPI_CandidatesUseCairnlineSidecarWhenConfigured(t *testing.T) {
-	t.Parallel()
-	handler, server := newProjectsCairnlineSidecarReadTestServer(t, "memory-fixture")
-	if handler.projectReadRoutesUseCairnlineReadModel() {
-		t.Fatal("sidecar memory candidates enabled embedded Cairnline read-model routes")
-	}
-	if !handler.projectCairnlineSidecarReadRoutesEnabled() {
-		t.Fatal("sidecar read-route predicate = false, want true")
-	}
-
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/memory/candidates", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("memory candidates status = %d body=%s, want 200", rec.Code, rec.Body.String())
-	}
-	var response ProjectMemoryCandidateListResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
-		t.Fatalf("decode memory candidates response: %v", err)
-	}
-	pending := projectMemoryCandidateResponseForTest(response.Data, "memcand_fixture")
-	if len(response.Data) != 1 || pending == nil || pending.ReadBackend != "cairnline" || pending.ProjectID != "proj_fixture" || pending.Status != memory.CandidateStatusPending || len(pending.SourceRefs) != 1 {
-		t.Fatalf("memory candidates = %+v, want one pending sidecar fixture candidate", response.Data)
-	}
-
-	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_fixture/memory/candidates?include_resolved=true", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("memory candidates include-resolved status = %d body=%s, want 200", rec.Code, rec.Body.String())
-	}
-	response = ProjectMemoryCandidateListResponse{}
-	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
-		t.Fatalf("decode include-resolved memory candidates response: %v", err)
-	}
-	rejected := projectMemoryCandidateResponseForTest(response.Data, "memcand_rejected_fixture")
-	if len(response.Data) != 2 || rejected == nil || rejected.ReadBackend != "cairnline" || rejected.Status != memory.CandidateStatusRejected || rejected.StatusReason != "Not durable." {
-		t.Fatalf("memory candidates = %+v, want rejected sidecar fixture candidate included", response.Data)
-	}
-}
-
-func TestProjectMemoryAPI_CairnlineSidecarReadRequiresStructuredContent(t *testing.T) {
-	t.Parallel()
-	_, server := newProjectsCairnlineSidecarReadTestServer(t, "text-only")
-
-	for _, endpoint := range []string{
-		"/hecate/v1/projects/proj_fixture/memory",
-		"/hecate/v1/projects/proj_fixture/memory/candidates",
-	} {
-		rec := httptest.NewRecorder()
-		server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, endpoint, nil))
-		if rec.Code != http.StatusBadGateway {
-			t.Fatalf("%s status = %d body=%s, want 502", endpoint, rec.Code, rec.Body.String())
-		}
-		if !strings.Contains(rec.Body.String(), "structuredContent") {
-			t.Fatalf("%s error body = %s, want structuredContent diagnostic", endpoint, rec.Body.String())
-		}
-	}
 }
 
 func TestProjectMemoryAPI_ValidationAndScoping(t *testing.T) {
@@ -1177,112 +1074,6 @@ func getMirroredCairnlineMemoryCandidateForTest(t *testing.T, handler *Handler, 
 		t.Fatalf("GetMemoryCandidate(%q, %q): %v", projectID, candidateID, err)
 	}
 	return candidate
-}
-
-func TestProjectMemoryAPI_SQLiteBackendParity(t *testing.T) {
-	t.Parallel()
-	ctx := t.Context()
-	client, err := storage.NewSQLiteClient(ctx, storage.SQLiteConfig{
-		Path:        filepath.Join(t.TempDir(), "hecate.db"),
-		TablePrefix: "test",
-	})
-	if err != nil {
-		t.Fatalf("NewSQLiteClient: %v", err)
-	}
-	t.Cleanup(func() { _ = client.Close() })
-	projectStore, err := projects.NewSQLiteStore(ctx, client)
-	if err != nil {
-		t.Fatalf("NewSQLiteStore(projects): %v", err)
-	}
-	memoryStore, err := memory.NewSQLiteStore(ctx, client)
-	if err != nil {
-		t.Fatalf("NewSQLiteStore(memory): %v", err)
-	}
-	handler := NewHandler(config.Config{}, quietLogger(), nil, nil, nil, nil)
-	handler.SetProjectStore(projectStore)
-	handler.SetMemoryStore(memoryStore)
-	server := NewServer(quietLogger(), handler)
-	project := createMemoryTestProject(t, server, "SQLite memory")
-
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/memory", bytes.NewReader([]byte(`{
-		"title":"SQLite note",
-		"body":"Persist this project-scoped note.",
-		"trust_label":"generated_summary",
-		"source_kind":"handoff",
-		"source_id":"artifact_1"
-	}`))))
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("sqlite create memory status = %d body=%s, want 201", rec.Code, rec.Body.String())
-	}
-	var created ProjectMemoryResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
-		t.Fatalf("decode sqlite create response: %v", err)
-	}
-	if created.Data.ProjectID != project.Data.ID || created.Data.TrustLabel != "generated_summary" || created.Data.SourceID != "artifact_1" {
-		t.Fatalf("sqlite created memory = %+v, want scoped generated handoff", created.Data)
-	}
-
-	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+project.Data.ID+"/memory/"+created.Data.ID, bytes.NewReader([]byte(`{"enabled":false}`))))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("sqlite patch memory status = %d body=%s, want 200", rec.Code, rec.Body.String())
-	}
-
-	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+project.Data.ID+"/memory", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("sqlite active list status = %d body=%s, want 200", rec.Code, rec.Body.String())
-	}
-	var listed ProjectMemoryListResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil {
-		t.Fatalf("decode sqlite active list response: %v", err)
-	}
-	if len(listed.Data) != 0 {
-		t.Fatalf("sqlite active list = %+v, want disabled entry filtered", listed.Data)
-	}
-
-	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+project.Data.ID+"/memory?include_disabled=true", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("sqlite all list status = %d body=%s, want 200", rec.Code, rec.Body.String())
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil {
-		t.Fatalf("decode sqlite all list response: %v", err)
-	}
-	if len(listed.Data) != 1 || listed.Data[0].ID != created.Data.ID || listed.Data[0].Enabled {
-		t.Fatalf("sqlite all list = %+v, want disabled created entry", listed.Data)
-	}
-
-	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/projects/"+project.Data.ID+"/memory/"+created.Data.ID, nil))
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("sqlite delete memory status = %d body=%s, want 204", rec.Code, rec.Body.String())
-	}
-
-	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/memory/candidates", bytes.NewReader([]byte(`{
-		"title":"SQLite candidate",
-		"body":"Review before persisting.",
-		"suggested_source_kind":"chat_message",
-		"suggested_source_id":"msg_1",
-		"source_refs":[{"kind":"chat_message","id":"msg_1"}]
-	}`))))
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("sqlite create candidate status = %d body=%s, want 201", rec.Code, rec.Body.String())
-	}
-	var candidate ProjectMemoryCandidateResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &candidate); err != nil {
-		t.Fatalf("decode sqlite candidate response: %v", err)
-	}
-	if candidate.Data.SuggestedSourceKind != "chat_message" || len(candidate.Data.SourceRefs) != 1 {
-		t.Fatalf("sqlite candidate = %+v, want chat source ref", candidate.Data)
-	}
-	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/memory/candidates/"+candidate.Data.ID+"/reject", bytes.NewReader([]byte(`{}`))))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("sqlite reject candidate status = %d body=%s, want 200", rec.Code, rec.Body.String())
-	}
 }
 
 func TestProjectMemoryAPI_ProjectDeleteRemovesMemory(t *testing.T) {

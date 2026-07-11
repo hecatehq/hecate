@@ -45,7 +45,7 @@ func (h *Handler) createProjectWorkArtifactWithCairnlineAuthority(ctx context.Co
 	}
 
 	var created projectwork.CollaborationArtifact
-	err := h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err := h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if err := h.seedProjectArtifactDependenciesForCairnlineAuthority(ctx, service, artifact); err != nil {
 			return err
 		}
@@ -120,7 +120,7 @@ func (h *Handler) createProjectHandoffWithCairnlineAuthority(ctx context.Context
 		return projectwork.Handoff{}, err
 	}
 	var created projectwork.Handoff
-	err := h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err := h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if err := h.seedProjectHandoffDependenciesForCairnlineAuthority(ctx, service, handoff); err != nil {
 			return err
 		}
@@ -141,7 +141,7 @@ func (h *Handler) createProjectHandoffWithCairnlineAuthority(ctx context.Context
 
 func (h *Handler) updateProjectHandoffWithCairnlineAuthority(ctx context.Context, projectID, workItemID, handoffID string, cmd projectworkapp.UpdateHandoffCommand) (projectwork.Handoff, error) {
 	var updated projectwork.Handoff
-	err := h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err := h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		existing, err := service.GetHandoff(ctx, projectID, workItemID, handoffID)
 		if err != nil {
 			return err
@@ -169,7 +169,7 @@ func (h *Handler) updateProjectHandoffWithCairnlineAuthority(ctx context.Context
 }
 
 func (h *Handler) deleteProjectHandoffWithCairnlineAuthority(ctx context.Context, projectID, workItemID, handoffID string) error {
-	if err := h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	if err := h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		return service.DeleteHandoff(ctx, projectID, workItemID, handoffID)
 	}); err != nil {
 		return err
@@ -439,6 +439,9 @@ func (h *Handler) shadowProjectHandoffToHecate(ctx context.Context, operation st
 
 func (h *Handler) shadowProjectHandoffDeleteToHecate(ctx context.Context, operation, projectID, workItemID, handoffID string) {
 	if h == nil || h.projectWork == nil {
+		return
+	}
+	if h.projectCairnlineEmbeddedReplacementModeArmed() {
 		return
 	}
 	if err := h.projectWork.DeleteHandoff(ctx, projectID, workItemID, handoffID); err != nil && !errors.Is(err, projectwork.ErrNotFound) {

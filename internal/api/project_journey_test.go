@@ -10,11 +10,84 @@ import (
 
 	"github.com/hecatehq/hecate/internal/agentadapters"
 	"github.com/hecatehq/hecate/internal/agentprofiles"
+	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projectruntime"
 	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/pkg/types"
 )
+
+func TestProjectJourneyAPI_CairnlineOnlyHandlerLaunchesWithoutNativePortableStores(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend:      "cairnline",
+			CairnlineConnector:       "embedded",
+			CairnlineReadSource:      "embedded",
+			CairnlineReplacementMode: "embedded",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	if handler.projects != nil || handler.memory != nil || handler.memoryCandidates != nil || handler.projectWork != nil || handler.projectSkills != nil || handler.projectAssistantProposals != nil {
+		t.Fatalf("native portable stores = projects:%t memory:%t candidates:%t work:%t skills:%t proposals:%t, want all absent",
+			handler.projects != nil,
+			handler.memory != nil,
+			handler.memoryCandidates != nil,
+			handler.projectWork != nil,
+			handler.projectSkills != nil,
+			handler.projectAssistantProposals != nil,
+		)
+	}
+	client := newAPITestClient(t, NewServer(quietLogger(), handler))
+	root := t.TempDir()
+
+	project := mustRequestJSONStatus[ProjectResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects", projectJourneyJSON(t, map[string]any{
+		"name": "Cairnline-only launch",
+		"roots": []map[string]any{{
+			"id":     "root_cairnline_only",
+			"path":   root,
+			"kind":   "git",
+			"active": true,
+		}},
+		"default_provider": "ollama",
+		"default_model":    "qwen2.5-coder",
+	}))
+	projectID := project.Data.ID
+	if projectID == "" || project.Data.ReadBackend != "cairnline" {
+		t.Fatalf("project = %+v, want Cairnline-backed project", project.Data)
+	}
+	defaults, ok, err := handler.projectRuntime.GetProjectDefaults(t.Context(), projectID)
+	if err != nil || !ok || defaults.DefaultProvider != "ollama" || defaults.DefaultModel != "qwen2.5-coder" {
+		t.Fatalf("runtime defaults = %+v ok=%v err=%v, want Hecate provider/model overlay", defaults, ok, err)
+	}
+
+	mustRequestJSONStatus[ProjectWorkRoleEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/roles", projectJourneyJSON(t, map[string]any{
+		"id":                  "role_cairnline_only",
+		"name":                "Cairnline-only implementer",
+		"default_driver_kind": projectwork.AssignmentDriverHecateTask,
+	}))
+	mustRequestJSONStatus[ProjectWorkItemEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items", projectJourneyJSON(t, map[string]any{
+		"id":            "work_cairnline_only",
+		"title":         "Launch without native stores",
+		"status":        projectwork.WorkItemStatusReady,
+		"owner_role_id": "role_cairnline_only",
+		"root_id":       "root_cairnline_only",
+	}))
+	mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_cairnline_only/assignments", projectJourneyJSON(t, map[string]any{
+		"id":          "asgn_cairnline_only",
+		"role_id":     "role_cairnline_only",
+		"root_id":     "root_cairnline_only",
+		"driver_kind": projectwork.AssignmentDriverHecateTask,
+	}))
+	started := mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusOK, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_cairnline_only/assignments/asgn_cairnline_only/start", `{}`)
+	ref := assignmentExecutionRefForTest(t, started.Data)
+	if ref.TaskID == "" || ref.RunID == "" || ref.ContextSnapshotID == "" || started.Data.ReadBackend != "cairnline" {
+		t.Fatalf("started assignment = %+v, want Cairnline coordination with Hecate task/run/context refs", started.Data)
+	}
+	if _, ok, err := handler.projectRuntime.Get(t.Context(), projectID, "asgn_cairnline_only"); err != nil || !ok {
+		t.Fatalf("assignment runtime overlay ok=%v err=%v, want persisted Hecate execution refs", ok, err)
+	}
+}
 
 func TestProjectJourneyAPI_DiscoverStartInspectAndHandoff(t *testing.T) {
 	t.Parallel()
@@ -565,6 +638,9 @@ func projectJourneyHasContextSource(items []ProjectContextSourceResponseItem, pa
 
 func assertNoNativeProjectWorkRoleForJourney(t *testing.T, handler *Handler, projectID, roleID string) {
 	t.Helper()
+	if handler.projectWork == nil {
+		return
+	}
 	roles, err := handler.projectWork.ListRoles(t.Context(), projectID)
 	if err != nil {
 		t.Fatalf("ListRoles(%q): %v", projectID, err)
@@ -578,6 +654,9 @@ func assertNoNativeProjectWorkRoleForJourney(t *testing.T, handler *Handler, pro
 
 func assertNoNativeProjectWorkItemForJourney(t *testing.T, handler *Handler, projectID, workItemID string) {
 	t.Helper()
+	if handler.projectWork == nil {
+		return
+	}
 	item, ok, err := handler.projectWork.GetWorkItem(t.Context(), projectID, workItemID)
 	if err != nil {
 		t.Fatalf("GetWorkItem(%q, %q): %v", projectID, workItemID, err)
@@ -589,6 +668,9 @@ func assertNoNativeProjectWorkItemForJourney(t *testing.T, handler *Handler, pro
 
 func assertNoNativeProjectWorkAssignmentForJourney(t *testing.T, handler *Handler, projectID, workItemID, assignmentID string) {
 	t.Helper()
+	if handler.projectWork == nil {
+		return
+	}
 	assignments, err := handler.projectWork.ListAssignments(t.Context(), projectwork.AssignmentFilter{
 		ProjectID:  projectID,
 		WorkItemID: workItemID,
@@ -605,6 +687,9 @@ func assertNoNativeProjectWorkAssignmentForJourney(t *testing.T, handler *Handle
 
 func assertNoNativeProjectWorkArtifactForJourney(t *testing.T, handler *Handler, projectID, workItemID, artifactID string) {
 	t.Helper()
+	if handler.projectWork == nil {
+		return
+	}
 	artifacts, err := handler.projectWork.ListArtifacts(t.Context(), projectwork.ArtifactFilter{
 		ProjectID:  projectID,
 		WorkItemID: workItemID,
@@ -621,6 +706,9 @@ func assertNoNativeProjectWorkArtifactForJourney(t *testing.T, handler *Handler,
 
 func assertNoNativeProjectHandoffForJourney(t *testing.T, handler *Handler, projectID, workItemID, handoffID string) {
 	t.Helper()
+	if handler.projectWork == nil {
+		return
+	}
 	handoffs, err := handler.projectWork.ListHandoffs(t.Context(), projectwork.HandoffFilter{
 		ProjectID:  projectID,
 		WorkItemID: workItemID,

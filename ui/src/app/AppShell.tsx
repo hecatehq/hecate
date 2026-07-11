@@ -451,7 +451,6 @@ function AuthenticatedShell({
                 <ProjectsView
                   onOpenChat={openChatFromProject}
                   onOpenConnections={() => onSelectWorkspace("connections")}
-                  onOpenSettings={() => onSelectWorkspace("settings")}
                   onOpenTask={openTaskFromProject}
                 />
               )}

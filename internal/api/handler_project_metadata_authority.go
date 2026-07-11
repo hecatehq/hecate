@@ -47,7 +47,7 @@ func (h *Handler) updateProjectMetadataDefaultsWithCairnlineAuthority(ctx contex
 	}
 
 	if projectUpdateTouchesPortableMetadata(req) || projectUpdateTouchesPortableDefaults(req) {
-		err = h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+		err = h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 			if err := h.seedProjectMetadataDefaultsDependenciesForCairnlineAuthority(ctx, service, project); err != nil {
 				return err
 			}
@@ -146,7 +146,7 @@ func (h *Handler) validateProjectNameCairnlineAuthorityCompatibility(ctx context
 	projectID := strings.TrimSpace(project.ID)
 	nameKey := strings.ToLower(name)
 	var conflict string
-	err := h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err := h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		items, err := service.ListProjects(ctx)
 		if err != nil {
 			return err

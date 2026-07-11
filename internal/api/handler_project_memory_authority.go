@@ -41,7 +41,7 @@ func (h *Handler) projectMemoryWritesUseCairnlineAuthority() bool {
 
 func (h *Handler) createProjectMemoryEntryWithCairnlineAuthority(ctx context.Context, projectID string, entry memory.Entry) (memory.Entry, error) {
 	var created cairnline.MemoryEntry
-	err := h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err := h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if err := h.seedProjectMetadataForCairnlineMemoryAuthority(ctx, service, projectID); err != nil {
 			return err
 		}
@@ -67,7 +67,7 @@ func (h *Handler) createProjectMemoryEntryWithCairnlineAuthority(ctx context.Con
 
 func (h *Handler) updateProjectMemoryEntryWithCairnlineAuthority(ctx context.Context, projectID, memoryID string, update func(*memory.Entry)) (memory.Entry, error) {
 	var updated cairnline.MemoryEntry
-	err := h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err := h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		existing, err := service.GetMemoryEntry(ctx, projectID, memoryID)
 		if err != nil {
 			return err
@@ -92,7 +92,7 @@ func (h *Handler) updateProjectMemoryEntryWithCairnlineAuthority(ctx context.Con
 }
 
 func (h *Handler) deleteProjectMemoryEntryWithCairnlineAuthority(ctx context.Context, projectID, memoryID string) error {
-	return h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	return h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		return service.DeleteMemoryEntry(ctx, projectID, memoryID)
 	})
 }
@@ -134,6 +134,9 @@ func (h *Handler) shadowProjectMemoryEntryToHecate(ctx context.Context, operatio
 	if h == nil || h.memory == nil {
 		return
 	}
+	if h.projectCairnlineEmbeddedReplacementModeArmed() {
+		return
+	}
 	if _, ok, err := h.memory.Get(ctx, entry.ProjectID, entry.ID); err != nil {
 		h.logProjectMemoryShadowError(ctx, operation, entry.ProjectID, entry.ID, err)
 		return
@@ -158,6 +161,9 @@ func (h *Handler) shadowProjectMemoryEntryToHecate(ctx context.Context, operatio
 
 func (h *Handler) shadowProjectMemoryEntryDeleteToHecate(ctx context.Context, operation, projectID, memoryID string) {
 	if h == nil || h.memory == nil {
+		return
+	}
+	if h.projectCairnlineEmbeddedReplacementModeArmed() {
 		return
 	}
 	if err := h.memory.Delete(ctx, projectID, memoryID); err != nil && !errors.Is(err, memory.ErrNotFound) {

@@ -30,7 +30,7 @@ func (h *Handler) claimProjectAssignmentStartInCairnlineAuthority(ctx context.Co
 		claimedBy = projectAssignmentStartClaimedBy(assignment)
 	}
 	var recorded projectwork.Assignment
-	err := h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err := h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		existing, err := service.GetAssignment(ctx, assignment.ProjectID, assignment.ID)
 		if err != nil {
 			if !errors.Is(err, cairnline.ErrNotFound) {
@@ -86,7 +86,7 @@ func (h *Handler) releaseProjectAssignmentStartInCairnlineAuthority(ctx context.
 		claimedBy = projectAssignmentStartClaimedBy(assignment)
 	}
 	var released projectwork.Assignment
-	err := h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err := h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		item, err := service.ReleaseAssignment(ctx, assignment.ProjectID, assignment.ID, claimedBy)
 		if err != nil {
 			if errors.Is(err, cairnline.ErrConflict) || errors.Is(err, cairnline.ErrNotFound) {

@@ -43,7 +43,7 @@ func (h *Handler) createProjectWorkAssignmentWithCairnlineAuthority(ctx context.
 		return projectwork.Assignment{}, err
 	}
 	var recorded projectwork.Assignment
-	err = h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err = h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		role, err := h.seedProjectAssignmentDependenciesForCairnlineAuthority(ctx, service, project, assignment)
 		if err != nil {
 			return err
@@ -69,7 +69,7 @@ func (h *Handler) updateProjectWorkAssignmentWithCairnlineAuthority(ctx context.
 		return projectwork.Assignment{}, err
 	}
 	var recorded projectwork.Assignment
-	err = h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err = h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		existing, err := service.GetAssignment(ctx, projectID, assignmentID)
 		if err != nil {
 			return err
@@ -114,7 +114,7 @@ func (h *Handler) updateProjectWorkAssignmentWithCairnlineAuthority(ctx context.
 
 func (h *Handler) deleteProjectWorkAssignmentWithCairnlineAuthority(ctx context.Context, projectID, workItemID, assignmentID string) error {
 	var deleted projectwork.Assignment
-	err := h.withCairnlineEmbeddedMirrorService(ctx, func(service *cairnline.Service) error {
+	err := h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		existing, err := service.GetAssignment(ctx, projectID, assignmentID)
 		if err != nil {
 			return err
@@ -325,6 +325,9 @@ func (h *Handler) shadowProjectAssignmentDeleteToHecate(ctx context.Context, ope
 		if err != nil && !errors.Is(err, projectruntime.ErrNotFound) {
 			h.logCairnlineMirrorError(ctx, operation, projectID, err)
 		}
+	}
+	if h.projectCairnlineEmbeddedReplacementModeArmed() {
+		return
 	}
 	if h.projectWork == nil {
 		return

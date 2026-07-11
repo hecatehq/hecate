@@ -3,11 +3,9 @@ import { useRetention, type RetentionState } from "../../app/state/retention";
 import { useRetentionActions } from "../../app/state/coordinators/retention";
 import { useWiredDashboardActions } from "../../app/state/coordinators/wired";
 import { useSettings } from "../../app/state/settings";
-import { getPlugins, getProjectCoordinationBackendStatus, resetSystemData } from "../../lib/api";
+import { getPlugins, resetSystemData } from "../../lib/api";
 import type { PluginRecord } from "../../types/plugin";
-import type { ProjectCoordinationBackendStatusRecord } from "../../types/project";
 import { Badge, ConfirmModal, Icon, Icons, InlineError } from "../shared/ui";
-import { ProjectCoordinationBackendSettings } from "./ProjectCoordinationBackendSettings";
 import { SettingsSectionHeader as SectionHeader } from "./SettingsSectionHeader";
 
 export function SettingsView() {
@@ -27,10 +25,6 @@ export function SettingsView() {
   const [plugins, setPlugins] = useState<PluginRecord[]>([]);
   const [pluginsLoading, setPluginsLoading] = useState(false);
   const [pluginsError, setPluginsError] = useState("");
-  const [projectBackendStatus, setProjectBackendStatus] =
-    useState<ProjectCoordinationBackendStatusRecord | null>(null);
-  const [projectBackendLoading, setProjectBackendLoading] = useState(false);
-  const [projectBackendError, setProjectBackendError] = useState("");
   // Retention runs aren't in the boot-time dashboard snapshot —
   // fetch on first SettingsView mount so the user doesn't see a
   // permanently empty list. `loadRuns` is a stable useCallback, so
@@ -45,22 +39,7 @@ export function SettingsView() {
 
   useEffect(() => {
     void loadPlugins();
-    void loadProjectBackendStatus();
   }, []);
-
-  async function loadProjectBackendStatus() {
-    setProjectBackendLoading(true);
-    setProjectBackendError("");
-    try {
-      const response = await getProjectCoordinationBackendStatus();
-      setProjectBackendStatus(response.data);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to load project backend status.";
-      setProjectBackendError(message);
-    } finally {
-      setProjectBackendLoading(false);
-    }
-  }
 
   async function loadPlugins() {
     setPluginsLoading(true);
@@ -102,12 +81,6 @@ export function SettingsView() {
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
-        <ProjectCoordinationBackendSettings
-          error={projectBackendError}
-          loading={projectBackendLoading}
-          status={projectBackendStatus}
-          onRefresh={() => void loadProjectBackendStatus()}
-        />
         <PluginRegistrySettings
           error={pluginsError}
           loading={pluginsLoading}
@@ -173,9 +146,7 @@ export function SettingsView() {
 
 function resetSummary(data: {
   projects_deleted: number;
-  project_skills_deleted?: number;
-  project_work_rows_deleted?: number;
-  project_assistant_proposals_deleted?: number;
+  project_runtime_rows_deleted?: number;
   plugins_deleted?: number;
   agent_presets_deleted?: number;
   chat_sessions_deleted: number;
@@ -184,13 +155,11 @@ function resetSummary(data: {
   policy_rules_deleted: number;
   agent_approval_grants_deleted: number;
   database_rows_deleted: number;
-  cairnline_mirror_files_deleted?: number;
+  cairnline_files_deleted?: number;
 }): string {
   const total =
     data.projects_deleted +
-    (data.project_skills_deleted ?? 0) +
-    (data.project_work_rows_deleted ?? 0) +
-    (data.project_assistant_proposals_deleted ?? 0) +
+    (data.project_runtime_rows_deleted ?? 0) +
     (data.plugins_deleted ?? 0) +
     (data.agent_presets_deleted ?? 0) +
     data.chat_sessions_deleted +
@@ -199,7 +168,7 @@ function resetSummary(data: {
     data.policy_rules_deleted +
     data.agent_approval_grants_deleted +
     data.database_rows_deleted +
-    (data.cairnline_mirror_files_deleted ?? 0);
+    (data.cairnline_files_deleted ?? 0);
   if (total === 0) return "Local data was already clean.";
   return `Reset local data. Removed ${total} item${total === 1 ? "" : "s"}.`;
 }

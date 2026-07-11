@@ -45,23 +45,6 @@ type ProjectWorkItemReviewFollowUpResponse struct {
 
 func (h *Handler) HandleProjectWorkItemReadiness(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
-	if h.projectCairnlineSidecarReadRoutesEnabled() {
-		readiness, err := h.renderCairnlineSidecarProjectWorkItemReadiness(r.Context(), projectID, r.PathValue("work_item_id"))
-		if err != nil {
-			if errors.Is(err, projects.ErrNotFound) {
-				WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
-				return
-			}
-			if errors.Is(err, projectwork.ErrNotFound) {
-				WriteError(w, http.StatusNotFound, errCodeNotFound, "work item not found")
-				return
-			}
-			writeProjectReadRenderError(w, err)
-			return
-		}
-		WriteJSON(w, http.StatusOK, ProjectWorkItemReadinessEnvelope{Object: "project_work_item_readiness", Data: readiness})
-		return
-	}
 	strictEmbeddedRead := h.projectReadRoutesUseCairnlineReadModel() && h.requiresEmbeddedCairnlineProjectReads()
 	if !strictEmbeddedRead && !h.requireProject(w, r, projectID) {
 		return

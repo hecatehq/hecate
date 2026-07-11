@@ -330,7 +330,7 @@ type ProjectHandoffResponse struct {
 func (h *Handler) HandleProjectActivity(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
 	strictEmbeddedRead := h.projectReadRoutesUseCairnlineReadModel() && h.requiresEmbeddedCairnlineProjectReads()
-	if !h.projectCairnlineSidecarReadRoutesEnabled() && !strictEmbeddedRead && !h.requireProject(w, r, projectID) {
+	if !strictEmbeddedRead && !h.requireProject(w, r, projectID) {
 		return
 	}
 	activity, err := h.renderProjectActivity(r.Context(), projectID)
@@ -347,7 +347,7 @@ func (h *Handler) HandleProjectActivity(w http.ResponseWriter, r *http.Request) 
 
 func (h *Handler) HandleProjectWorkRoles(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
-	if !h.projectCairnlineSidecarReadRoutesEnabled() && !h.requiresEmbeddedCairnlineProjectReads() && !h.requireProject(w, r, projectID) {
+	if !h.requiresEmbeddedCairnlineProjectReads() && !h.requireProject(w, r, projectID) {
 		return
 	}
 	data, err := h.renderProjectWorkRoles(r.Context(), projectID)
@@ -467,7 +467,7 @@ func (h *Handler) HandleDeleteProjectWorkRole(w http.ResponseWriter, r *http.Req
 
 func (h *Handler) HandleProjectWorkItems(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
-	if !h.projectCairnlineSidecarReadRoutesEnabled() && !h.requiresEmbeddedCairnlineProjectReads() && !h.requireProject(w, r, projectID) {
+	if !h.requiresEmbeddedCairnlineProjectReads() && !h.requireProject(w, r, projectID) {
 		return
 	}
 	data, err := h.renderProjectWorkItems(r.Context(), projectID)
@@ -532,24 +532,7 @@ func (h *Handler) HandleCreateProjectWorkItem(w http.ResponseWriter, r *http.Req
 
 func (h *Handler) HandleProjectWorkItem(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
-	if !h.projectCairnlineSidecarReadRoutesEnabled() && !h.requiresEmbeddedCairnlineProjectReads() && !h.requireProject(w, r, projectID) {
-		return
-	}
-	if h.projectCairnlineSidecarReadRoutesEnabled() {
-		projected, err := h.renderCairnlineSidecarProjectWorkItem(r.Context(), projectID, r.PathValue("work_item_id"))
-		if err != nil {
-			if errors.Is(err, projects.ErrNotFound) {
-				WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
-				return
-			}
-			if errors.Is(err, projectwork.ErrNotFound) {
-				WriteError(w, http.StatusNotFound, errCodeNotFound, "work item not found")
-				return
-			}
-			writeProjectReadRenderError(w, err)
-			return
-		}
-		WriteJSON(w, http.StatusOK, ProjectWorkItemEnvelope{Object: "project_work_item", Data: projected})
+	if !h.requiresEmbeddedCairnlineProjectReads() && !h.requireProject(w, r, projectID) {
 		return
 	}
 	if h.projectReadRoutesUseCairnlineReadModel() {
@@ -659,23 +642,6 @@ func (h *Handler) HandleDeleteProjectWorkItem(w http.ResponseWriter, r *http.Req
 func (h *Handler) HandleProjectWorkAssignments(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
 	workItemID := r.PathValue("work_item_id")
-	if h.projectCairnlineSidecarReadRoutesEnabled() {
-		data, err := h.renderCairnlineSidecarProjectWorkAssignments(r.Context(), projectID, workItemID)
-		if err != nil {
-			if errors.Is(err, projects.ErrNotFound) {
-				WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
-				return
-			}
-			if errors.Is(err, projectwork.ErrNotFound) {
-				WriteError(w, http.StatusNotFound, errCodeNotFound, "work item not found")
-				return
-			}
-			writeProjectReadRenderError(w, err)
-			return
-		}
-		WriteJSON(w, http.StatusOK, ProjectWorkAssignmentsResponse{Object: "project_assignments", Data: data})
-		return
-	}
 	if h.projectReadRoutesUseCairnlineReadModel() {
 		data, err := h.renderCairnlineProjectWorkAssignments(r.Context(), projectID, workItemID)
 		if err != nil {
@@ -943,23 +909,6 @@ func projectWorkAssignmentStatusFromRun(status string) string {
 func (h *Handler) HandleProjectWorkArtifacts(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
 	workItemID := r.PathValue("work_item_id")
-	if h.projectCairnlineSidecarReadRoutesEnabled() {
-		data, err := h.renderCairnlineSidecarProjectWorkArtifacts(r.Context(), projectID, workItemID)
-		if err != nil {
-			if errors.Is(err, projects.ErrNotFound) {
-				WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
-				return
-			}
-			if errors.Is(err, projectwork.ErrNotFound) {
-				WriteError(w, http.StatusNotFound, errCodeNotFound, "work item not found")
-				return
-			}
-			writeProjectReadRenderError(w, err)
-			return
-		}
-		WriteJSON(w, http.StatusOK, ProjectWorkArtifactsResponse{Object: "project_collaboration_artifacts", Data: data})
-		return
-	}
 	strictEmbeddedRead := h.projectReadRoutesUseCairnlineReadModel() && h.requiresEmbeddedCairnlineProjectReads()
 	if !strictEmbeddedRead && !h.requireProjectWorkItem(w, r, projectID, workItemID) {
 		return
@@ -1031,19 +980,6 @@ func (h *Handler) HandleProjectHandoffs(w http.ResponseWriter, r *http.Request) 
 		WorkItemID: strings.TrimSpace(r.URL.Query().Get("work_item_id")),
 		Status:     strings.TrimSpace(r.URL.Query().Get("status")),
 	}
-	if h.projectCairnlineSidecarReadRoutesEnabled() {
-		data, err := h.renderCairnlineSidecarProjectHandoffs(r.Context(), filter)
-		if err != nil {
-			if errors.Is(err, projects.ErrNotFound) {
-				WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
-				return
-			}
-			writeProjectReadRenderError(w, err)
-			return
-		}
-		WriteJSON(w, http.StatusOK, ProjectHandoffsResponse{Object: "project_handoffs", Data: data})
-		return
-	}
 	strictEmbeddedRead := h.projectReadRoutesUseCairnlineReadModel() && h.requiresEmbeddedCairnlineProjectReads()
 	if !strictEmbeddedRead && !h.requireProject(w, r, projectID) {
 		return
@@ -1063,27 +999,6 @@ func (h *Handler) HandleProjectHandoffs(w http.ResponseWriter, r *http.Request) 
 func (h *Handler) HandleProjectWorkItemHandoffs(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
 	workItemID := r.PathValue("work_item_id")
-	if h.projectCairnlineSidecarReadRoutesEnabled() {
-		data, err := h.renderCairnlineSidecarProjectWorkItemHandoffs(r.Context(), projectwork.HandoffFilter{
-			ProjectID:  projectID,
-			WorkItemID: workItemID,
-			Status:     strings.TrimSpace(r.URL.Query().Get("status")),
-		})
-		if err != nil {
-			if errors.Is(err, projects.ErrNotFound) {
-				WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
-				return
-			}
-			if errors.Is(err, projectwork.ErrNotFound) {
-				WriteError(w, http.StatusNotFound, errCodeNotFound, "work item not found")
-				return
-			}
-			writeProjectReadRenderError(w, err)
-			return
-		}
-		WriteJSON(w, http.StatusOK, ProjectHandoffsResponse{Object: "project_handoffs", Data: data})
-		return
-	}
 	strictEmbeddedRead := h.projectReadRoutesUseCairnlineReadModel() && h.requiresEmbeddedCairnlineProjectReads()
 	if !strictEmbeddedRead && !h.requireProjectWorkItem(w, r, projectID, workItemID) {
 		return
