@@ -41,7 +41,11 @@ To skip the snapshot dry-run (e.g. already ran it manually):
 just release v0.2.0 --skip-snapshot
 ```
 
-The annotated tag message becomes the canonical release notes — it's what `git show vX.Y.Z` and the GitHub Releases page surface. Write it before tagging; the script prompts for confirmation but doesn't prompt for the message (pass it as the annotation when the script creates the tag, or edit via `git tag -a -f` before pushing if needed).
+The release helper creates an annotated tag whose message is only the version,
+so ordinary releases use GoReleaser's generated changelog. For a substantive
+release, create an annotated tag manually from a reviewed Markdown file. The
+release workflow detects that non-version annotation and passes it to
+GoReleaser as the public GitHub Release body.
 
 ## Tauri desktop app
 
@@ -60,7 +64,11 @@ End state of a successful tag: the GitHub Release page has goreleaser tarballs +
 
 `just release` / `bun scripts/release.ts` handles the stamp automatically: after confirmation it calls `scripts/stamp-version.ts` with `TAURI_VERSION=<semver>`, commits the changed files (`Cargo.toml`, `package.json`, `tauri.conf.json`), then creates the annotated tag on that commit. CI re-runs the stamp from the tag name as a belt-and-suspenders measure (`stamp-version.ts` is idempotent).
 
-**The stamp commit lives only on the tag, not on master.** The script pushes the tag, not the branch, then resets the local release branch back to the pre-stamp commit. Meanwhile the release CI's `publish updater manifest` + `docs: update release references` jobs push their own commits to `master` on top of that same pre-tag commit. Once CI completes, run `git pull --ff-only origin master` to pick up those post-release commits. Branches cut after that should not inherit a phantom Tauri version bump.
+The stamp commit remains on the release branch. The script pushes both that
+branch and the annotated tag, keeping visible Tauri version metadata aligned
+with the latest release. Release CI may then add updater-manifest and release
+reference commits to `master`; after CI completes, run
+`git pull --ff-only origin master` to pick up those post-release commits.
 
 The Tauri matrix doesn't need any local action — pushing the tag fires the workflow.
 
@@ -98,7 +106,7 @@ Outputs land in `tauri/src-tauri/target/release/bundle/`. Use this for iterating
 
 - **Don't build manually then expect CI artifacts to match.** The CI matrix produces bundles signed differently (or unsigned) from a local build. Local artifacts are for debugging, not distribution.
 - **`0.1.0-alpha.N` is valid semver for Tauri**, but macOS `CFBundleShortVersionString` strips the pre-release suffix in the About dialog. That's expected — Tauri handles it internally.
-- **macOS bundles are signed + notarized only on release-workflow runs; PR-validation builds are unsigned by design.** "Release-workflow run" = any invocation of `release.yml` (tag push OR `workflow_dispatch`), both of which pass a non-empty `tagName` to the reusable workflow. Two protections in series:
+- **macOS bundles are signed + notarized only on release-workflow runs; PR-validation builds are unsigned by design.** "Release-workflow run" = a tag push or a `workflow_dispatch` whose selected ref is an existing `v*` tag. Branch-based manual dispatches fail before build work, so every accepted invocation passes a release tag to the reusable workflow. Two protections in series:
   - **Caller-side (load-bearing):** PR validation in `test.yml` and manual `tauri-build.yml` runs do NOT use `secrets: inherit` when calling the reusable workflow. The called workflow's `secrets.APPLE_*` references therefore resolve to empty unconditionally during PR/manual validation — the secret values are not in the calling job's context, so even a same-repo PR that rewrites the called workflow can't read them. `release.yml` does inherit (it needs the credentials to actually sign).
   - **Called-side (defense in depth):** the env block in `_tauri-shared.yml` gates each Apple secret on `matrix.os == 'macos-latest' && inputs.tagName != ''`. Belt-and-suspenders against future misconfiguration where some new caller might inherit secrets unintentionally.
   - The shared workflow uses `${{ github.token }}` instead of `${{ secrets.GITHUB_TOKEN }}` so it works in both modes — `github.token` is the per-job-run token, available in every workflow run without needing secrets-inherit.
@@ -125,7 +133,11 @@ Total wall-clock: ~20–35 min (the website publish + verification adds 2–5 mi
 Acceptance:
 
 - Both workflow jobs are green.
-- GitHub Releases page has the entry, marked **Pre-release** for `-alpha.N` tags.
+- GitHub Releases page has the entry, is marked **Pre-release** for `-alpha.N`
+  tags, and has non-empty notes from either a substantive tag annotation or
+  GoReleaser's generated changelog. The Tauri matrix must attach bundles through
+  `releaseId`; passing only `tagName` to tauri-action v1 rewrites the existing
+  release body.
 - Goreleaser-side artifacts attached: tarballs for each `goos/goarch`, source tarball, checksums. Each binary tarball contains `hecate`.
 - Tauri-side artifacts attached: one `.dmg`, one `.deb`, one `.AppImage`, one `.msi`. If any is missing, the matrix leg silently skipped upload — open the run, find the leg, see what failed.
 - `latest.json` is attached as a release asset (the auto-updater manifest, GitHub Release copy). Missing means the `publish-updater-manifest` job failed — most likely on its `missing updater signature(s)` check. Look there first; common causes are `bundle.createUpdaterArtifacts` being unset in `tauri.conf.json` (bundler produced no sigs) or the `TAURI_UPDATER_*` secrets having been removed from repo settings.
