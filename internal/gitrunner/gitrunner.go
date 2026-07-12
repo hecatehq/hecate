@@ -255,8 +255,7 @@ func (r *LocalRunner) env() []string {
 }
 
 func cleanWorkspace(workspace string) (string, error) {
-	workspace = strings.TrimSpace(workspace)
-	if workspace == "" {
+	if strings.TrimSpace(workspace) == "" {
 		return "", errors.New("workspace is required")
 	}
 	workspace = filepath.Clean(workspace)

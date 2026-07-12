@@ -34,7 +34,7 @@ func (r *LocalRunner) NewReadOnlyView(ctx context.Context, workspace string) (*R
 	if err != nil {
 		return nil, err
 	}
-	workTree, err := r.probeValue(ctx, workspace, "rev-parse", "--show-toplevel")
+	workTree, err := r.probePathValue(ctx, workspace, false, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return nil, err
 	}
@@ -62,23 +62,23 @@ func (r *LocalRunner) NewReadOnlyView(ctx context.Context, workspace string) (*R
 	if err != nil || !os.SameFile(workspaceInfo, prefixInfo) {
 		return nil, fmt.Errorf("workspace %q is outside Git worktree %q", workspace, workTree)
 	}
-	gitDir, err := r.probeValue(ctx, workspace, "rev-parse", "--absolute-git-dir")
+	gitDir, err := r.probePathValue(ctx, workspace, false, "rev-parse", "--absolute-git-dir")
 	if err != nil {
 		return nil, err
 	}
-	commonDir, err := r.probeValue(ctx, workspace, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	commonDir, err := r.probePathValue(ctx, workspace, false, "rev-parse", "--path-format=absolute", "--git-common-dir")
 	if err != nil {
 		return nil, err
 	}
-	indexPath, err := r.probeValue(ctx, workspace, "rev-parse", "--path-format=absolute", "--git-path", "index")
+	indexPath, err := r.probePathValue(ctx, workspace, false, "rev-parse", "--path-format=absolute", "--git-path", "index")
 	if err != nil {
 		return nil, err
 	}
-	infoAttributesPath, err := r.probeValue(ctx, workspace, "rev-parse", "--path-format=absolute", "--git-path", "info/attributes")
+	infoAttributesPath, err := r.probePathValue(ctx, workspace, false, "rev-parse", "--path-format=absolute", "--git-path", "info/attributes")
 	if err != nil {
 		return nil, err
 	}
-	infoExcludePath, err := r.probeValue(ctx, workspace, "rev-parse", "--path-format=absolute", "--git-path", "info/exclude")
+	infoExcludePath, err := r.probePathValue(ctx, workspace, false, "rev-parse", "--path-format=absolute", "--git-path", "info/exclude")
 	if err != nil {
 		return nil, err
 	}
@@ -413,8 +413,7 @@ func validateReadOnlyViewHead(branchRef, headOID, objectFormat string) error {
 }
 
 func readBoundedOptionalFile(path string, maxBytes int64) ([]byte, error) {
-	path = strings.TrimSpace(path)
-	if path == "" {
+	if strings.TrimSpace(path) == "" {
 		return nil, nil
 	}
 	file, err := openReadOnlyMetadata(path)
@@ -446,7 +445,6 @@ func readBoundedOptionalFile(path string, maxBytes int64) ([]byte, error) {
 }
 
 func normalizeProbedGitPath(workspace, path string) string {
-	path = strings.TrimSpace(path)
 	if filepath.IsAbs(path) {
 		return filepath.Clean(path)
 	}
@@ -479,8 +477,11 @@ func appendUniquePaths(paths []string, values ...string) []string {
 	seen := make(map[string]struct{}, len(paths)+len(values))
 	out := make([]string, 0, len(paths)+len(values))
 	for _, path := range append(append([]string(nil), paths...), values...) {
-		path = filepath.Clean(strings.TrimSpace(path))
-		if path == "." || path == "" {
+		if strings.TrimSpace(path) == "" {
+			continue
+		}
+		path = filepath.Clean(path)
+		if path == "." {
 			continue
 		}
 		if _, ok := seen[path]; ok {

@@ -264,8 +264,7 @@ func bwrapArgvWithWorkspaceMode(argv []string, workspace string, network, readOn
 		args = append(args, bindMode, workspace, workspace)
 	}
 	for _, path := range extraReadOnlyPaths {
-		path = strings.TrimSpace(path)
-		if path == "" || path == workspace {
+		if strings.TrimSpace(path) == "" || path == workspace {
 			continue
 		}
 		args = append(args, "--ro-bind", path, path)
