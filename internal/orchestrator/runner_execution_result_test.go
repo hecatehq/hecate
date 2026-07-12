@@ -166,6 +166,39 @@ func TestExecutionResultPersister_PersistsPendingApprovalAndRequestedEvent(t *te
 	assertEventData(t, event.Data, "requested_by", "agent")
 }
 
+func TestExecutionResultPersister_PolicyDeniedStepIsNotExecutionFailureTelemetry(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	runner, _, trace, task, run := newExecutionResultPersisterFixture(t, ctx, "policy-denied")
+	newExecutionResultPersister(runner, trace, task, run, run.RequestID).recordStep(ctx, types.TaskStep{
+		ID:       "step-policy-denied",
+		TaskID:   task.ID,
+		RunID:    run.ID,
+		Index:    1,
+		Kind:     "tool",
+		Title:    "http_request (blocked)",
+		Status:   "completed",
+		Phase:    "policy",
+		Result:   telemetry.ResultDenied,
+		ToolName: "http_request",
+	})
+
+	var completed *types.TraceEvent
+	for _, event := range trace.Events() {
+		if event.Name == telemetry.EventOrchestratorStepFailed {
+			t.Fatalf("policy denial emitted execution failure telemetry: %+v", event)
+		}
+		if event.Name == telemetry.EventOrchestratorStepCompleted {
+			eventCopy := event
+			completed = &eventCopy
+		}
+	}
+	if completed == nil || completed.Attributes[telemetry.AttrHecateResult] != telemetry.ResultDenied {
+		t.Fatalf("completed policy telemetry = %+v, want result=%q", completed, telemetry.ResultDenied)
+	}
+}
+
 func newExecutionResultPersisterFixture(t *testing.T, ctx context.Context, suffix string) (*Runner, taskstate.Store, *profiler.Trace, types.Task, types.TaskRun) {
 	t.Helper()
 	store := taskstate.NewMemoryStore()

@@ -413,6 +413,33 @@ Terminal shell lifecycle marker.
 | `hecate.tool.cancelled`        | `bool`   | True when execution was cancelled by context                 |
 | `hecate.tool.output_truncated` | `bool`   | True when the sandbox output cap stopped the command         |
 
+## Policy tool blocks
+
+### `policy.tool_blocked`
+
+Emitted when Hecate deliberately refuses a tool call without contacting its
+execution target. Current producers are:
+
+- a native `http_request` or `web_search` call returned by an upstream even
+  though its Agent Preset snapshot disables network;
+- a broad native process, direct-write, or terminal call returned for a
+  read-only task; and
+- an MCP tool whose server config has `approval_policy=block`.
+
+The event is an audit signal rather than a runtime failure. Its task step uses
+`status=completed`, `phase=policy`, and `result=denied`, while the agent still
+receives a tool-error result and may choose a permitted path on its next turn.
+Common payload fields are:
+
+| Extra key      | Type     | Notes                                                   |
+| -------------- | -------- | ------------------------------------------------------- |
+| `tool_call_id` | `string` | Assistant tool-call correlation id                      |
+| `tool_name`    | `string` | Native or namespaced MCP tool name                      |
+| `kind`         | `string` | `builtin` for native policy, `mcp` for external MCP     |
+| `result`       | `string` | Always `blocked`                                        |
+| `policy`       | `string` | Policy key on the corresponding task step               |
+| `reason`       | `string` | The task sandbox or MCP-server policy that refused call |
+
 ## MCP
 
 Generic `tool.*` and `policy.*` events form the audit trail for external MCP tool calls in `agent_loop` runs. Together they cover every dispatch outcome the loop's MCP dispatcher produces — successful calls (including upstream-side tool errors), protocol failures, and policy-blocked calls. See [mcp.md](mcp.md#hecate-as-mcp-client) for the underlying configuration and policy model.
@@ -441,7 +468,12 @@ Protocol-level failure before a result was in hand: transport closed, RPC error,
 
 ### `policy.tool_blocked` for MCP
 
-The task's `approval_policy=block` short-circuited the call. The upstream was never contacted; the LLM saw a tool error suggesting it pick a different path. Distinct from `tool.failed` so operators can alert on failed execution without their pages firing on the legitimate block path. Distinct from `approval.requested` because block doesn't pause the run — it's a hard refusal, not a gate.
+The matching task `mcp_servers[]` entry's `approval_policy=block`
+short-circuited the call. The upstream was never contacted; the LLM saw a tool
+error suggesting it pick a different path. Distinct from `tool.failed` so
+operators can alert on failed execution without their pages firing on the
+legitimate block path. Distinct from `approval.requested` because block does
+not pause the run; it is a hard refusal, not a gate.
 
 ## Typed file tool events
 

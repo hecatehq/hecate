@@ -52,6 +52,7 @@ func (d *agentLoopToolDispatcher) recordMCPCallTelemetry(
 		"duration_ms":  durationMS,
 	}
 	if eventType == telemetry.EventMCPToolBlocked {
+		data["policy"] = "mcp_approval_policy"
 		data["reason"] = errMsg
 	}
 	if errMsg != "" {

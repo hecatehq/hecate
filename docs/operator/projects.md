@@ -106,6 +106,23 @@ and uses its typed `ready`/`blockers` fields as the launch gate. The separate
 preflight context packet remains inspectable evidence for the operator; it is
 not parsed by the client as the readiness authority.
 
+Preset surface is part of readiness: a native Hecate Task assignment accepts
+presets for `hecate_task` or `any`, while an External Agent assignment accepts
+`external_agent` or `any`. A mismatch blocks launch instead of treating the
+preset as a loose hint. For native assignments, Hecate also turns the selected
+preset's write/network posture into the created task's sandbox policy. After
+launch, Task Detail shows the snapshotted preset id, effective file access, and
+network state in **Run overview**. Editing the preset later does not change an
+existing task's retries or resumes. Read-only assignment tasks keep structured
+inspection and proposal-only patch tools, but Hecate omits and rejects broad
+shell, Git, direct-write, and interactive-terminal tools. A network-disabled
+preset snapshot similarly omits and rejects native HTTP/search without changing
+legacy or manually created task behavior.
+
+External Agent CLIs remain trusted local subprocesses. Their preset
+write/network fields are visible launch posture, not a Hecate sandbox around
+the vendor CLI; use the adapter's own controls and review the workspace diff.
+
 For a new work item with no assignments or artifacts yet, the detail view starts
 with a guided prepare action. Hecate can draft the first assignment from the
 work item role and context, but the operator still reviews and applies the

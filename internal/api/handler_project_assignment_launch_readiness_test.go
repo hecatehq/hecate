@@ -4,6 +4,10 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/hecatehq/cairnline"
+	"github.com/hecatehq/hecate/internal/agentprofiles"
+	"github.com/hecatehq/hecate/internal/config"
+	"github.com/hecatehq/hecate/internal/projectruntime"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
@@ -161,6 +165,189 @@ func TestProjectWorkAPI_AssignmentLaunchReadinessUsesCairnlineReadModelWhenConfi
 	}
 	if len(tasks) != 0 {
 		t.Fatalf("tasks = %+v, want no task created by Cairnline launch readiness", tasks)
+	}
+}
+
+func TestProjectWorkAPI_AssignmentSurfaceMismatchBlocksHecateBackedLaunch(t *testing.T) {
+	t.Parallel()
+
+	handler, server := newProjectWorkTestServer()
+	const profileID = "prof_external_only"
+	if _, err := handler.agentProfiles.Create(t.Context(), agentprofiles.Profile{
+		ID:                profileID,
+		Name:              "External only",
+		Surface:           agentprofiles.SurfaceExternalAgent,
+		ExternalAgentKind: "codex",
+	}); err != nil {
+		t.Fatalf("Create external-only preset: %v", err)
+	}
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace:        t.TempDir(),
+		Driver:           projectwork.AssignmentDriverHecateTask,
+		Status:           projectwork.AssignmentStatusQueued,
+		RoleAgentProfile: profileID,
+	})
+
+	path := "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start"
+	wantMessage := `agent preset "prof_external_only" targets surface "external_agent"; this assignment requires "hecate_task" or "any"`
+	client := newAPITestClient(t, server)
+	readiness := mustRequestJSON[ProjectAssignmentLaunchReadinessEnvelope](client, http.MethodGet, path+"/launch-readiness", "")
+	if readiness.Data.ReadBackend != "hecate" || readiness.Data.Ready || readiness.Data.Status != projectAssignmentLaunchReadinessStatusBlocked {
+		t.Fatalf("readiness = %+v, want blocked Hecate-backed launch", readiness.Data)
+	}
+	if !containsString(readiness.Data.Blockers, wantMessage) {
+		t.Fatalf("readiness blockers = %+v, want %q", readiness.Data.Blockers, wantMessage)
+	}
+
+	preflight := mustRequestJSONStatus[projectWorkErrorResponse](client, http.StatusUnprocessableEntity, http.MethodGet, path+"/preflight", "")
+	if preflight.Error.Type != errCodeInvalidRequest || preflight.Error.Message != wantMessage {
+		t.Fatalf("preflight error = %+v, want typed surface mismatch", preflight.Error)
+	}
+	start := mustRequestJSONStatus[projectWorkErrorResponse](client, http.StatusUnprocessableEntity, http.MethodPost, path+"/start", `{}`)
+	if start.Error.Type != errCodeInvalidRequest || start.Error.Message != wantMessage {
+		t.Fatalf("start error = %+v, want typed surface mismatch", start.Error)
+	}
+
+	tasks, err := handler.taskStore.ListTasks(t.Context(), taskstateFilterAll())
+	if err != nil {
+		t.Fatalf("ListTasks: %v", err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("tasks = %+v, want no task created for incompatible preset", tasks)
+	}
+	sessions, err := handler.agentChat.List(t.Context())
+	if err != nil {
+		t.Fatalf("List chats: %v", err)
+	}
+	if len(sessions) != 0 {
+		t.Fatalf("chat sessions = %+v, want no chat created for incompatible preset", sessions)
+	}
+	assignments, err := handler.projectWork.ListAssignments(t.Context(), projectwork.AssignmentFilter{ProjectID: "proj_start", WorkItemID: "work_start"})
+	if err != nil {
+		t.Fatalf("ListAssignments: %v", err)
+	}
+	if len(assignments) != 1 || assignments[0].Status != projectwork.AssignmentStatusQueued {
+		t.Fatalf("assignments = %+v, want one queued assignment after blocked launch", assignments)
+	}
+	ref := assignments[0].ExecutionRef
+	if ref.TaskID != "" || ref.RunID != "" || ref.ChatSessionID != "" || ref.ContextSnapshotID != "" {
+		t.Fatalf("assignment execution ref = %+v, want empty after blocked launch", ref)
+	}
+}
+
+func TestProjectWorkAPI_AssignmentSurfaceMismatchBlocksStrictEmbeddedCairnlineLaunch(t *testing.T) {
+	t.Parallel()
+
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend: "cairnline",
+			CairnlineReadSource: "embedded",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	runner := &fakeAgentChatRunner{}
+	handler.SetAgentChatRunner(runner)
+	server := NewServer(quietLogger(), handler)
+
+	const (
+		projectID    = "proj_surface_mismatch_embedded"
+		profileID    = "prof_native_only"
+		roleID       = "role_surface_mismatch_embedded"
+		workItemID   = "work_surface_mismatch_embedded"
+		assignmentID = "asgn_surface_mismatch_embedded"
+	)
+	workspace := t.TempDir()
+	if _, err := handler.agentProfiles.Create(t.Context(), agentprofiles.Profile{
+		ID:                profileID,
+		Name:              "Native only",
+		Surface:           agentprofiles.SurfaceHecateTask,
+		ExternalAgentKind: "codex",
+	}); err != nil {
+		t.Fatalf("Create native-only preset: %v", err)
+	}
+	if _, err := handler.projectRuntime.UpsertRoleDefaults(t.Context(), projectruntime.RoleDefaults{
+		ProjectID:           projectID,
+		RoleID:              roleID,
+		DefaultAgentProfile: profileID,
+	}); err != nil {
+		t.Fatalf("Upsert role runtime defaults: %v", err)
+	}
+	seedCairnlineOnlyProjectWorkGraphForTest(t, handler, cairnline.Project{
+		ID:            projectID,
+		Name:          "Surface mismatch embedded",
+		DefaultRootID: "root_surface_mismatch_embedded",
+		Roots: []cairnline.Root{{
+			ID:     "root_surface_mismatch_embedded",
+			Path:   workspace,
+			Kind:   "git",
+			Active: true,
+		}},
+	}, []cairnline.Role{{
+		ID:                   roleID,
+		ProjectID:            projectID,
+		Name:                 "External reviewer",
+		DefaultExecutionMode: cairnline.ExecutionExternalAdapter,
+	}}, []cairnline.WorkItem{{
+		ID:          workItemID,
+		ProjectID:   projectID,
+		Title:       "Block incompatible external launch",
+		Status:      cairnline.WorkStatusReady,
+		Priority:    cairnline.PriorityNormal,
+		OwnerRoleID: roleID,
+		RootID:      "root_surface_mismatch_embedded",
+	}}, []cairnline.Assignment{{
+		ID:            assignmentID,
+		ProjectID:     projectID,
+		WorkItemID:    workItemID,
+		RoleID:        roleID,
+		RootID:        "root_surface_mismatch_embedded",
+		ExecutionMode: cairnline.ExecutionExternalAdapter,
+	}})
+	requireCairnlineOnlyProjectReadsForTest(t, handler, projectID)
+
+	path := "/hecate/v1/projects/" + projectID + "/work-items/" + workItemID + "/assignments/" + assignmentID
+	wantMessage := `agent preset "prof_native_only" targets surface "hecate_task"; this assignment requires "external_agent" or "any"`
+	client := newAPITestClient(t, server)
+	readiness := mustRequestJSON[ProjectAssignmentLaunchReadinessEnvelope](client, http.MethodGet, path+"/launch-readiness", "")
+	if readiness.Data.ReadBackend != "cairnline" || readiness.Data.Ready || readiness.Data.Status != projectAssignmentLaunchReadinessStatusBlocked {
+		t.Fatalf("readiness = %+v, want blocked strict embedded Cairnline launch", readiness.Data)
+	}
+	if !containsString(readiness.Data.Blockers, wantMessage) {
+		t.Fatalf("readiness blockers = %+v, want %q", readiness.Data.Blockers, wantMessage)
+	}
+
+	preflight := mustRequestJSONStatus[projectWorkErrorResponse](client, http.StatusUnprocessableEntity, http.MethodGet, path+"/preflight", "")
+	if preflight.Error.Type != errCodeInvalidRequest || preflight.Error.Message != wantMessage {
+		t.Fatalf("preflight error = %+v, want typed surface mismatch", preflight.Error)
+	}
+	start := mustRequestJSONStatus[projectWorkErrorResponse](client, http.StatusUnprocessableEntity, http.MethodPost, path+"/start", `{"driver_kind":"external_agent"}`)
+	if start.Error.Type != errCodeInvalidRequest || start.Error.Message != wantMessage {
+		t.Fatalf("start error = %+v, want typed surface mismatch", start.Error)
+	}
+
+	tasks, err := handler.taskStore.ListTasks(t.Context(), taskstateFilterAll())
+	if err != nil {
+		t.Fatalf("ListTasks: %v", err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("tasks = %+v, want no task created for incompatible preset", tasks)
+	}
+	sessions, err := handler.agentChat.List(t.Context())
+	if err != nil {
+		t.Fatalf("List chats: %v", err)
+	}
+	if len(sessions) != 0 {
+		t.Fatalf("chat sessions = %+v, want no chat created for incompatible preset", sessions)
+	}
+	if len(runner.prepareRequests) != 0 || len(runner.runRequests) != 0 {
+		t.Fatalf("external-agent requests = prepare %+v run %+v, want none", runner.prepareRequests, runner.runRequests)
+	}
+	if _, ok, err := handler.projectRuntime.Get(t.Context(), projectID, assignmentID); err != nil || ok {
+		t.Fatalf("assignment runtime overlay ok=%v err=%v, want none after blocked launch", ok, err)
+	}
+	assignment := getMirroredCairnlineAssignmentForTest(t, handler, projectID, assignmentID)
+	if assignment.Status != cairnline.AssignmentQueued || assignment.ClaimedBy != "" || !assignment.ExecutionRef.Empty() || assignment.ContextSnapshotID != "" {
+		t.Fatalf("Cairnline assignment = %+v, want queued and unclaimed after blocked launch", assignment)
 	}
 }
 

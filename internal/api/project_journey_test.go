@@ -135,6 +135,8 @@ func TestProjectJourneyAPI_DiscoverStartInspectAndHandoff(t *testing.T) {
 		"name":                  "Backend implementer",
 		"surface":               "hecate_task",
 		"execution_profile":     "implementation",
+		"writes_allowed":        false,
+		"network_allowed":       false,
 		"project_memory_policy": "include",
 		"context_source_policy": "include_enabled",
 		"skill_ids":             []string{"backend"},
@@ -186,6 +188,9 @@ func TestProjectJourneyAPI_DiscoverStartInspectAndHandoff(t *testing.T) {
 	}
 	if task.ProjectID != projectID || task.WorkspaceSystemPromptPolicy != types.WorkspaceSystemPromptExclude {
 		t.Fatalf("task project/prompt policy = %q/%q, want project id and excluded workspace prompt layer", task.ProjectID, task.WorkspaceSystemPromptPolicy)
+	}
+	if task.AgentPresetID != "prof_backend" || !task.SandboxReadOnly || task.SandboxNetwork {
+		t.Fatalf("task runtime policy = preset %q read_only=%v network=%v, want prof_backend/true/false", task.AgentPresetID, task.SandboxReadOnly, task.SandboxNetwork)
 	}
 	for _, want := range []string{"Project memory: Runtime preference", "Prefer focused backend tests before handoff.", "Workspace instruction: AGENTS.md", "Use small changes."} {
 		if !strings.Contains(task.SystemPrompt, want) {

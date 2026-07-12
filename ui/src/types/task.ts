@@ -13,6 +13,7 @@ export type TaskRecord = {
   workspace_mode?: string;
   execution_kind?: string;
   execution_profile?: string;
+  agent_preset_id?: string;
   origin_kind?: string;
   origin_id?: string;
   shell_command?: string;

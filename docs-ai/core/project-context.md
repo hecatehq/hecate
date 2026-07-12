@@ -71,9 +71,18 @@ Hecate still owns execution concerns: Agent Presets, provider/model defaults,
 task and External Agent dispatch, approvals, sandbox and workspace operations,
 runtime references, context snapshots, traces, and the operator shell.
 Assignment launch and preflight therefore combine Cairnline coordination state
-with Hecate runtime policy. Persist task/run or chat-session references in the
-Hecate project-runtime overlay, while assignment lifecycle state remains in
-Cairnline. Linked External Agent reconciliation follows the same split.
+with Hecate runtime policy. The shared launch-plan seam validates preset surface
+compatibility; native assignment tasks snapshot the preset id and enforce its
+write/network posture through task sandbox fields. Preset-backed native
+HTTP/search tools fail closed when that snapshot disables network access;
+read-only tasks omit and reject broad shell, Git, file-write, and interactive
+terminal surfaces while retaining structured inspection and proposal-only
+edits. Legacy/manual tasks without a preset snapshot keep their prior native
+network-tool behavior, so do not infer preset policy from a zero-valued sandbox
+flag. Persist
+task/run or chat-session references in the Hecate project-runtime overlay,
+while assignment lifecycle state remains in Cairnline. Linked External Agent
+reconciliation follows the same split.
 
 `internal/cairnlinebridge` is the live mapping boundary between Cairnline's
 agent-neutral coordination model and Hecate's API/runtime views. Keep the bridge

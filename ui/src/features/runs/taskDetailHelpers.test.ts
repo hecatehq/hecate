@@ -94,6 +94,10 @@ describe("stepColor", () => {
     expect(stepColor("queued")).toBe("var(--t3)");
     expect(stepColor("")).toBe("var(--t3)");
   });
+
+  it("renders a denied result as policy amber even with completed status", () => {
+    expect(stepColor("completed", "denied")).toBe("var(--amber)");
+  });
 });
 
 describe("splitNamespacedToolName", () => {

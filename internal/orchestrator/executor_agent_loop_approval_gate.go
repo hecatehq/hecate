@@ -45,7 +45,7 @@ func (g agentLoopApprovalGate) gatedToolsInTurn(calls []types.ToolCall, task typ
 	seen := make(map[string]struct{}, len(calls))
 	out := make([]string, 0, len(calls))
 	for _, c := range calls {
-		if !g.isGated(c.Function.Name, task) {
+		if !g.isGated(c, task) {
 			continue
 		}
 		if _, dup := seen[c.Function.Name]; dup {
@@ -57,7 +57,14 @@ func (g agentLoopApprovalGate) gatedToolsInTurn(calls []types.ToolCall, task typ
 	return out
 }
 
-func (g agentLoopApprovalGate) isGated(toolName string, task types.Task) bool {
+func (g agentLoopApprovalGate) isGated(call types.ToolCall, task types.Task) bool {
+	toolName := call.Function.Name
+	// Hard policy refusals run before approval semantics. Asking an operator
+	// to approve a call that the dispatcher must still refuse is misleading,
+	// and would turn a fail-closed decision into an unnecessary pause.
+	if agentPresetBlocksNativeNetwork(task, toolName) || agentReadOnlyBlocksCall(task, call) || mcpServerPolicy(toolName, task) == types.MCPApprovalBlock {
+		return false
+	}
 	if _, ok := g.gatedTools[toolName]; ok {
 		return true
 	}

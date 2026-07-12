@@ -16,6 +16,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/runtimeevents"
+	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/internal/websearch"
 	"github.com/hecatehq/hecate/internal/workspace"
 	"github.com/hecatehq/hecate/internal/workspacefs"
@@ -169,6 +171,13 @@ func newAgentLoopSpec(t *testing.T) ExecutionSpec {
 		UpsertStep:     func(types.TaskStep) error { return nil },
 		UpsertArtifact: func(types.TaskArtifact) error { return nil },
 	}
+}
+
+func newNetworkAgentLoopSpec(t *testing.T) ExecutionSpec {
+	t.Helper()
+	spec := newAgentLoopSpec(t)
+	spec.Task.SandboxNetwork = true
+	return spec
 }
 
 func TestAgentLoop_FinalAnswerOnFirstTurn(t *testing.T) {
@@ -2093,6 +2102,71 @@ func TestAgentLoop_ApplyPatchToolRejectsReadOnlyWrites(t *testing.T) {
 	}
 }
 
+func TestAgentLoop_ReadOnlyProposalToolsAuditApplyAttemptsAndAllowProposals(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "old.txt")
+	if err := os.WriteFile(path, []byte("alpha\nbeta\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	patchText := "*** Begin Patch\n" +
+		"*** Update File: old.txt\n" +
+		"@@\n" +
+		" alpha\n" +
+		"-beta\n" +
+		"+gamma\n" +
+		"*** End Patch\n"
+	spec := newAgentLoopSpec(t)
+	spec.Task.WorkingDirectory = dir
+	spec.Task.SandboxAllowedRoot = dir
+	spec.Task.SandboxReadOnly = true
+	spec.Run.WorkspacePath = dir
+	var blockedEvents int
+	spec.EmitRunEvent = func(eventType string, data map[string]any) {
+		if eventType == runtimeevents.EventPolicyToolBlocked.String() && data["policy"] == "sandbox_read_only" {
+			blockedEvents++
+		}
+	}
+	dispatcher := &agentLoopToolDispatcher{file: NewFileExecutor(workspace.NewLocalWorkspace())}
+
+	applyCalls := []types.ToolCall{
+		agentLoopToolCall("edit-apply", "file_edit", `{"path":"old.txt","old_text":"beta","new_text":"gamma"}`),
+		agentLoopToolCall("patch-apply", "apply_patch", mustJSON(t, map[string]any{"patch_text": patchText})),
+	}
+	for index, call := range applyCalls {
+		result, err := dispatcher.Dispatch(context.Background(), spec, call, index+1, nil, nil)
+		if err != nil {
+			t.Fatalf("Dispatch(%s): %v", call.Function.Name, err)
+		}
+		if result.Step == nil || result.Step.Status != "completed" || result.Step.Phase != "policy" || result.Step.Result != telemetry.ResultDenied || !result.ToolError {
+			t.Fatalf("Dispatch(%s) = %+v, want audited denied policy step", call.Function.Name, result)
+		}
+	}
+	if blockedEvents != len(applyCalls) {
+		t.Fatalf("policy.tool_blocked events = %d, want %d", blockedEvents, len(applyCalls))
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "alpha\nbeta\n" {
+		t.Fatalf("read-only apply attempts changed file: %q", content)
+	}
+
+	proposalCalls := []types.ToolCall{
+		agentLoopToolCall("edit-propose", "file_edit", `{"path":"old.txt","old_text":"beta","new_text":"gamma","propose":true}`),
+		agentLoopToolCall("patch-propose", "apply_patch", mustJSON(t, map[string]any{"patch_text": patchText, "propose": true})),
+	}
+	for index, call := range proposalCalls {
+		result, err := dispatcher.Dispatch(context.Background(), spec, call, index+3, nil, nil)
+		if err != nil {
+			t.Fatalf("Dispatch(%s proposal): %v", call.Function.Name, err)
+		}
+		if result.Step == nil || result.Step.Status != "completed" || result.Step.Result != telemetry.ResultSuccess || result.ToolError || len(result.Artifacts) == 0 || result.Artifacts[0].Status != "proposed" {
+			t.Fatalf("Dispatch(%s proposal) = %+v, want successful proposed artifact", call.Function.Name, result)
+		}
+	}
+}
+
 func TestAgentLoop_ValidatePatchOperationPathRejectsEmptyPath(t *testing.T) {
 	for _, kind := range []string{"add", "delete", "update"} {
 		t.Run(kind, func(t *testing.T) {
@@ -2939,7 +3013,7 @@ func TestAgentLoop_HTTPRequest_HappyPath(t *testing.T) {
 	// httptest binds 127.0.0.1 — loopback, blocked by default.
 	// Allow private IPs for the test scope so the request fires.
 	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{AllowPrivateIPs: true})
-	if _, err := loop.Execute(context.Background(), newAgentLoopSpec(t)); err != nil {
+	if _, err := loop.Execute(context.Background(), newNetworkAgentLoopSpec(t)); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
 	hasUpstream := false
@@ -2972,7 +3046,7 @@ func TestAgentLoop_HTTPRequest_BlocksPrivateIPByDefault(t *testing.T) {
 		},
 	}
 	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
-	if _, err := loop.Execute(context.Background(), newAgentLoopSpec(t)); err != nil {
+	if _, err := loop.Execute(context.Background(), newNetworkAgentLoopSpec(t)); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
 	blocked := false
@@ -3000,7 +3074,7 @@ func TestAgentLoop_HTTPRequest_BlocksUnsafeScheme(t *testing.T) {
 		},
 	}
 	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{AllowPrivateIPs: true})
-	if _, err := loop.Execute(context.Background(), newAgentLoopSpec(t)); err != nil {
+	if _, err := loop.Execute(context.Background(), newNetworkAgentLoopSpec(t)); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
 	rejected := false
@@ -3036,7 +3110,7 @@ func TestAgentLoop_HTTPRequest_HostAllowlistEnforced(t *testing.T) {
 		AllowPrivateIPs: true,
 		AllowedHosts:    []string{"example.com"},
 	})
-	if _, err := loop.Execute(context.Background(), newAgentLoopSpec(t)); err != nil {
+	if _, err := loop.Execute(context.Background(), newNetworkAgentLoopSpec(t)); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
 	hasAllowlist := false
@@ -3073,7 +3147,7 @@ func TestAgentLoop_HTTPRequest_TruncatesOversizeBody(t *testing.T) {
 		AllowPrivateIPs:  true,
 		MaxResponseBytes: 500,
 	})
-	if _, err := loop.Execute(context.Background(), newAgentLoopSpec(t)); err != nil {
+	if _, err := loop.Execute(context.Background(), newNetworkAgentLoopSpec(t)); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
 	truncated := false
@@ -3107,7 +3181,7 @@ func TestAgentLoop_HTTPRequest_GatedPausesRun(t *testing.T) {
 	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 8,
 		[]string{"http_request"},
 		HTTPRequestPolicy{AllowPrivateIPs: true})
-	res, err := loop.Execute(context.Background(), newAgentLoopSpec(t))
+	res, err := loop.Execute(context.Background(), newNetworkAgentLoopSpec(t))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -3119,6 +3193,74 @@ func TestAgentLoop_HTTPRequest_GatedPausesRun(t *testing.T) {
 	}
 }
 
+func TestAgentLoop_PresetNetworkDisabledHidesAndBlocksNativeNetworkTools(t *testing.T) {
+	llm := &scriptedLLM{
+		responses: []*types.ChatResponse{
+			makeChatResp(makeAssistantMsg("", types.ToolCall{
+				ID: "c1", Type: "function",
+				Function: types.ToolCallFunction{
+					Name:      AgentToolHTTPRequest,
+					Arguments: `{"url":"https://example.invalid"}`,
+				},
+			})),
+			makeChatResp(makeAssistantMsg("continued without network")),
+		},
+	}
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
+	spec := newAgentLoopSpec(t)
+	spec.Task.AgentPresetID = "review_qa"
+	var eventTypes []string
+	var blockedEventData map[string]any
+	spec.EmitRunEvent = func(eventType string, data map[string]any) {
+		eventTypes = append(eventTypes, eventType)
+		if eventType == runtimeevents.EventPolicyToolBlocked.String() {
+			blockedEventData = data
+		}
+	}
+	res, err := loop.Execute(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Status != "completed" {
+		t.Fatalf("Status = %q, want completed after the model chooses a non-network path", res.Status)
+	}
+	if hasToolDefinition(llm.lastReqs[0].Tools, AgentToolHTTPRequest) || hasToolDefinition(llm.lastReqs[0].Tools, AgentToolWebSearch) {
+		t.Fatalf("network-disabled tool catalog = %+v, want no native network tools", llm.lastReqs[0].Tools)
+	}
+	blocked := false
+	for _, message := range llm.lastReqs[1].Messages {
+		if message.Role == "tool" && strings.Contains(message.Content, "network access is disabled by the resolved agent preset") && message.ToolError {
+			blocked = true
+		}
+	}
+	if !blocked {
+		t.Fatalf("tool messages = %+v, want a blocked network-policy result", llm.lastReqs[1].Messages)
+	}
+	blockedEvent := false
+	for _, eventType := range eventTypes {
+		if eventType == runtimeevents.EventPolicyToolBlocked.String() {
+			blockedEvent = true
+			break
+		}
+	}
+	if !blockedEvent {
+		t.Fatalf("event types = %+v, want %q", eventTypes, runtimeevents.EventPolicyToolBlocked)
+	}
+	if blockedEventData["policy"] != "sandbox_network" || blockedEventData["result"] != telemetry.MCPCallResultBlocked {
+		t.Fatalf("blocked event data = %+v, want sandbox_network/blocked", blockedEventData)
+	}
+	var blockedStep *types.TaskStep
+	for index := range res.Steps {
+		if res.Steps[index].ToolName == AgentToolHTTPRequest {
+			blockedStep = &res.Steps[index]
+			break
+		}
+	}
+	if blockedStep == nil || blockedStep.Status != "completed" || blockedStep.Phase != "policy" || blockedStep.Result != telemetry.ResultDenied || blockedStep.ErrorKind != "sandbox_policy_denied" || blockedStep.OutputSummary["policy"] != "sandbox_network" {
+		t.Fatalf("blocked step = %+v, want persisted sandbox policy denial", blockedStep)
+	}
+}
+
 func TestAgentLoop_WebSearch_ToolOnlyAdvertisedWhenConfigured(t *testing.T) {
 	withoutSearch := agentToolDefinitionsWithOptions(agentToolDefinitionOptions{})
 	if hasToolDefinition(withoutSearch, AgentToolWebSearch) {
@@ -3127,6 +3269,39 @@ func TestAgentLoop_WebSearch_ToolOnlyAdvertisedWhenConfigured(t *testing.T) {
 	withSearch := agentToolDefinitionsWithOptions(agentToolDefinitionOptions{IncludeWebSearch: true})
 	if !hasToolDefinition(withSearch, AgentToolWebSearch) {
 		t.Fatal("web_search not advertised when configured")
+	}
+}
+
+func TestAgentLoop_NetworkToolDefinitionsFollowPresetSnapshotCompatibility(t *testing.T) {
+	t.Parallel()
+
+	legacy := agentToolDefinitionsForTask(types.Task{}, agentToolDefinitionOptions{IncludeWebSearch: true})
+	if !hasToolDefinition(legacy, AgentToolHTTPRequest) || !hasToolDefinition(legacy, AgentToolWebSearch) {
+		t.Fatalf("legacy tool catalog = %+v, want native network tools preserved without a preset snapshot", legacy)
+	}
+	disabled := agentToolDefinitionsForTask(types.Task{AgentPresetID: "review_qa"}, agentToolDefinitionOptions{IncludeWebSearch: true})
+	if hasToolDefinition(disabled, AgentToolHTTPRequest) || hasToolDefinition(disabled, AgentToolWebSearch) {
+		t.Fatalf("disabled tool catalog = %+v, want native network tools omitted", disabled)
+	}
+	enabled := agentToolDefinitionsForTask(types.Task{AgentPresetID: "implementation", SandboxNetwork: true}, agentToolDefinitionOptions{IncludeWebSearch: true})
+	if !hasToolDefinition(enabled, AgentToolHTTPRequest) || !hasToolDefinition(enabled, AgentToolWebSearch) {
+		t.Fatalf("enabled tool catalog = %+v, want HTTP and web search tools", enabled)
+	}
+}
+
+func TestAgentLoop_ReadOnlyToolDefinitionsKeepStructuredInspectionAndProposalTools(t *testing.T) {
+	t.Parallel()
+
+	tools := agentToolDefinitionsForTask(types.Task{SandboxReadOnly: true}, agentToolDefinitionOptions{})
+	for _, blocked := range []string{"shell_exec", "git_exec", "file_write", AgentToolTerminalOpen, AgentToolTerminalWrite, AgentToolTerminalRead, AgentToolTerminalWait, AgentToolTerminalKill} {
+		if hasToolDefinition(tools, blocked) {
+			t.Errorf("read-only tool catalog contains %q", blocked)
+		}
+	}
+	for _, allowed := range []string{"read_file", "grep", "glob", "list_dir", "git_status", "git_diff", "file_edit", "apply_patch"} {
+		if !hasToolDefinition(tools, allowed) {
+			t.Errorf("read-only tool catalog omits structured tool %q", allowed)
+		}
 	}
 }
 
@@ -3156,7 +3331,7 @@ func TestAgentLoop_WebSearch_HappyPath(t *testing.T) {
 		},
 	}
 	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{}, WithWebSearchClient(search))
-	res, err := loop.Execute(context.Background(), newAgentLoopSpec(t))
+	res, err := loop.Execute(context.Background(), newNetworkAgentLoopSpec(t))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -3207,7 +3382,7 @@ func TestAgentLoop_WebSearch_GatedPausesRun(t *testing.T) {
 		[]string{AgentToolWebSearch},
 		HTTPRequestPolicy{},
 		WithWebSearchClient(search))
-	res, err := loop.Execute(context.Background(), newAgentLoopSpec(t))
+	res, err := loop.Execute(context.Background(), newNetworkAgentLoopSpec(t))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}

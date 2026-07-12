@@ -154,6 +154,9 @@ func (app *Application) ResolveTaskAssignmentLaunchPlan(ctx context.Context, pro
 	if err != nil {
 		return TaskAssignmentLaunchPlan{}, err
 	}
+	if err := validateAssignmentProfileSurface(profile, agentprofiles.SurfaceHecateTask); err != nil {
+		return TaskAssignmentLaunchPlan{}, err
+	}
 	executionProfile := strings.TrimSpace(firstNonEmpty(profile.ExecutionProfile, role.DefaultAgentProfile, project.DefaultAgentProfile, "project_assignment"))
 	if profile.ProviderHint != "" && requestedProvider == "" {
 		requestedProvider = profile.ProviderHint
@@ -185,6 +188,9 @@ func (app *Application) ResolveExternalAgentAssignmentLaunchPlan(ctx context.Con
 	}
 	profile, err := app.ResolveAssignmentProfile(ctx, role, project)
 	if err != nil {
+		return ExternalAgentAssignmentLaunchPlan{}, err
+	}
+	if err := validateAssignmentProfileSurface(profile, agentprofiles.SurfaceExternalAgent); err != nil {
 		return ExternalAgentAssignmentLaunchPlan{}, err
 	}
 	adapterID := strings.TrimSpace(profile.ExternalAgentKind)
@@ -329,6 +335,17 @@ func resolvedProfileFromStore(profile agentprofiles.Profile, source string) Reso
 	}
 }
 
+func validateAssignmentProfileSurface(profile ResolvedAgentProfile, required string) error {
+	surface := strings.TrimSpace(profile.Surface)
+	if surface == "" || surface == agentprofiles.SurfaceAny || surface == required {
+		return nil
+	}
+	return launchPlanError(
+		LaunchPlanUnprocessable,
+		fmt.Sprintf("agent preset %q targets surface %q; this assignment requires %q or %q", firstNonEmpty(profile.ID, profile.Name, "unknown"), surface, required, agentprofiles.SurfaceAny),
+	)
+}
+
 func (app *Application) ResolveAssignmentSkills(ctx context.Context, projectID string, role projectwork.AgentRoleProfile, profile ResolvedAgentProfile) ResolvedProjectSkills {
 	requested := normalizeStringList(append(append([]string(nil), role.SkillIDs...), profile.SkillIDs...))
 	result := ResolvedProjectSkills{Requested: requested}
@@ -431,6 +448,7 @@ func NewAssignmentTask(taskID string, project projects.Project, workItem project
 		ProjectID:                   project.ID,
 		WorkItemID:                  workItem.ID,
 		AssignmentID:                assignment.ID,
+		AgentPresetID:               plan.Profile.ID,
 		SystemPrompt:                AssignmentSystemPrompt(project, role, plan.Profile, plan.PromptContext),
 		WorkspaceSystemPromptPolicy: types.WorkspaceSystemPromptExclude,
 		ExecutionKind:               "agent_loop",
@@ -440,6 +458,8 @@ func NewAssignmentTask(taskID string, project projects.Project, workItem project
 		WorkspaceMode:               plan.WorkspaceMode,
 		WorkingDirectory:            plan.WorkingDirectory,
 		SandboxAllowedRoot:          plan.WorkingDirectory,
+		SandboxReadOnly:             !plan.Profile.WritesAllowed,
+		SandboxNetwork:              plan.Profile.NetworkAllowed,
 		Status:                      "queued",
 		Priority:                    firstNonEmpty(workItem.Priority, "normal"),
 		RequestedProvider:           plan.RequestedProvider,

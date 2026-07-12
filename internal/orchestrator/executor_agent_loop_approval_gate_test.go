@@ -106,6 +106,47 @@ func TestAgentLoopApprovalGate_NoGatedToolsDoesNotPause(t *testing.T) {
 	}
 }
 
+func TestAgentLoopApprovalGate_HardNativePolicyBlocksDoNotPauseForApproval(t *testing.T) {
+	spec := newAgentLoopSpec(t)
+	spec.Task.AgentPresetID = "review_qa"
+	spec.Task.SandboxReadOnly = true
+	gate := newAgentLoopApprovalGate([]string{
+		AgentToolHTTPRequest,
+		"shell_exec",
+		"git_exec",
+		"file_write",
+		"file_edit",
+		"apply_patch",
+		AgentToolTerminalOpen,
+	})
+
+	if _, ok := gate.Evaluate(spec, 1, 2, time.Now().UTC(), []types.ToolCall{
+		agentLoopToolCall("call-http", AgentToolHTTPRequest, `{}`),
+		agentLoopToolCall("call-shell", "shell_exec", `{}`),
+		agentLoopToolCall("call-git", "git_exec", `{}`),
+		agentLoopToolCall("call-file", "file_write", `{}`),
+		agentLoopToolCall("call-edit", "file_edit", `{"propose":false}`),
+		agentLoopToolCall("call-patch", "apply_patch", `{"propose":false}`),
+		agentLoopToolCall("call-terminal", AgentToolTerminalOpen, `{}`),
+	}); ok {
+		t.Fatal("Evaluate() ok = true, want hard policy blocks dispatched as denied without approval pause")
+	}
+}
+
+func TestAgentLoopApprovalGate_ReadOnlyProposalCallsStillHonorGlobalApproval(t *testing.T) {
+	spec := newAgentLoopSpec(t)
+	spec.Task.SandboxReadOnly = true
+	gate := newAgentLoopApprovalGate([]string{"file_edit", "apply_patch"})
+
+	pause, ok := gate.Evaluate(spec, 1, 2, time.Now().UTC(), []types.ToolCall{
+		agentLoopToolCall("call-edit", "file_edit", `{"propose":true}`),
+		agentLoopToolCall("call-patch", "apply_patch", `{"propose":true}`),
+	})
+	if !ok || !strings.Contains(pause.Approval.Reason, "file_edit") || !strings.Contains(pause.Approval.Reason, "apply_patch") {
+		t.Fatalf("proposal approval = %+v ok=%v, want both proposal-capable tools gated", pause.Approval, ok)
+	}
+}
+
 func agentLoopToolCall(id, name, args string) types.ToolCall {
 	return types.ToolCall{
 		ID:   id,

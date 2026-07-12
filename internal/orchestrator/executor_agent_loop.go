@@ -196,7 +196,7 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 
 	runState := newAgentLoopRunState(spec, e.maxTurns)
 	conversation := newAgentLoopConversation(spec)
-	tools := agentToolDefinitionsWithOptions(agentToolDefinitionOptions{
+	tools := agentToolDefinitionsForTask(spec.Task, agentToolDefinitionOptions{
 		IncludeProjectAssistantDraft: projectAssistantDraftToolAvailable(spec.Task, e.toolDispatcher.projectAssistantDraftTool),
 		IncludeWebSearch:             e.toolDispatcher != nil && e.toolDispatcher.webSearch != nil,
 	})
@@ -325,6 +325,9 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 			//   - dispatchErr != nil: internal failure surfaced by
 			//     the dispatcher (rare; most errors are encoded in
 			//     toolResultText).
+			//   - dispatch.ToolError: a deliberate policy refusal
+			//     recorded as result=denied rather than an execution
+			//     failure.
 			//   - toolStep == nil: dispatcher couldn't run the
 			//     tool at all — bad args, unknown tool, missing
 			//     sub-executor. The result text describes the
@@ -332,7 +335,8 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 			//   - toolStep.Status == "failed": tool ran but exited
 			//     non-zero / errored at runtime (sandbox rejected,
 			//     non-zero exit, file system error, HTTP non-2xx).
-			isToolError := dispatchErr != nil ||
+			isToolError := dispatch.ToolError ||
+				dispatchErr != nil ||
 				dispatch.Step == nil ||
 				(dispatch.Step != nil && dispatch.Step.Status == "failed")
 			conversation.AppendToolResult(toolCall.ID, dispatch.Text, isToolError)
@@ -727,7 +731,7 @@ func agentToolDefinitionsWithOptions(opts agentToolDefinitionOptions) []types.To
 		{
 			Type: "function",
 			Function: types.ToolFunction{
-				Name:        "http_request",
+				Name:        AgentToolHTTPRequest,
 				Description: "Make an outbound HTTP(S) request. Use for fetching URLs, calling external APIs, or posting to webhooks. Response body is capped to keep prompts cheap; private IPs and unsafe schemes are blocked unless the operator opts in.",
 				Parameters: json.RawMessage(`{
 					"type": "object",
@@ -786,12 +790,25 @@ func agentToolDefinitionsWithOptions(opts agentToolDefinitionOptions) []types.To
 	return tools
 }
 
+func agentToolDefinitionsForTask(task types.Task, opts agentToolDefinitionOptions) []types.Tool {
+	tools := agentToolDefinitionsWithOptions(opts)
+	filtered := make([]types.Tool, 0, len(tools))
+	for _, tool := range tools {
+		if agentPresetBlocksNativeNetwork(task, tool.Function.Name) || agentReadOnlyBlocksTool(task, tool.Function.Name) {
+			continue
+		}
+		filtered = append(filtered, tool)
+	}
+	return filtered
+}
+
 type shellExecArgs struct {
 	Command          string `json:"command"`
 	WorkingDirectory string `json:"working_directory,omitempty"`
 }
 
 const (
+	AgentToolHTTPRequest   = "http_request"
 	AgentToolWebSearch     = "web_search"
 	AgentToolTerminalOpen  = "terminal_open"
 	AgentToolTerminalWrite = "terminal_write"
@@ -799,6 +816,44 @@ const (
 	AgentToolTerminalWait  = "terminal_wait"
 	AgentToolTerminalKill  = "terminal_kill"
 )
+
+func agentToolRequiresNetwork(name string) bool {
+	return name == AgentToolHTTPRequest || name == AgentToolWebSearch
+}
+
+func agentPresetBlocksNativeNetwork(task types.Task, name string) bool {
+	return strings.TrimSpace(task.AgentPresetID) != "" && !task.SandboxNetwork && agentToolRequiresNetwork(name)
+}
+
+func agentReadOnlyBlocksTool(task types.Task, name string) bool {
+	if !task.SandboxReadOnly {
+		return false
+	}
+	switch name {
+	case "shell_exec", "git_exec", "file_write",
+		AgentToolTerminalOpen, AgentToolTerminalWrite, AgentToolTerminalRead,
+		AgentToolTerminalWait, AgentToolTerminalKill:
+		return true
+	default:
+		return false
+	}
+}
+
+func agentReadOnlyBlocksCall(task types.Task, call types.ToolCall) bool {
+	if agentReadOnlyBlocksTool(task, call.Function.Name) {
+		return true
+	}
+	if !task.SandboxReadOnly || (call.Function.Name != "file_edit" && call.Function.Name != "apply_patch") {
+		return false
+	}
+	var args struct {
+		Propose bool `json:"propose"`
+	}
+	if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
+		return false
+	}
+	return !args.Propose
+}
 
 func agentLoopTerminalToolNames() []string {
 	return []string{

@@ -2,11 +2,14 @@ package orchestrator
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/internal/workspace"
 )
 
@@ -127,7 +130,7 @@ func TestAgentLoopTerminalTools_WriteReadKill(t *testing.T) {
 	}
 }
 
-func TestAgentLoopTerminalTools_PolicyDeniedReturnsFailedStep(t *testing.T) {
+func TestAgentLoopTerminalTools_ReadOnlyPolicyBlocksInteractiveShellAndStdin(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("unix shell semantics")
 	}
@@ -141,16 +144,37 @@ func TestAgentLoopTerminalTools_PolicyDeniedReturnsFailedStep(t *testing.T) {
 	result, err := dispatcher.Dispatch(context.Background(), spec, agentLoopToolCall(
 		"call-terminal-open",
 		AgentToolTerminalOpen,
-		`{"command":"touch","args":["blocked.txt"]}`,
+		`{}`,
 	), 1, nil, terminals)
 	if err != nil {
 		t.Fatalf("terminal_open Dispatch() error = %v", err)
 	}
-	if result.Step == nil || result.Step.Status != "failed" || result.Step.ToolName != AgentToolTerminalOpen {
-		t.Fatalf("terminal_open denied step = %+v, want failed", result.Step)
+	if result.Step == nil || result.Step.Status != "completed" || result.Step.Result != telemetry.ResultDenied || result.Step.ToolName != AgentToolTerminalOpen || !result.ToolError {
+		t.Fatalf("terminal_open denied step = %+v tool_error=%v, want completed policy decision with denied result", result.Step, result.ToolError)
 	}
-	if !strings.Contains(result.Text, "write access is disabled") {
+	if !strings.Contains(result.Text, "workspace writes are disabled") {
 		t.Fatalf("terminal_open denied text = %q, want sandbox policy denial", result.Text)
+	}
+
+	written, err := dispatcher.Dispatch(context.Background(), spec, agentLoopToolCall(
+		"call-terminal-write",
+		AgentToolTerminalWrite,
+		`{"terminal_id":"forged","input":"echo bypass > blocked.txt\n"}`,
+	), 2, nil, terminals)
+	if err != nil {
+		t.Fatalf("terminal_write Dispatch() error = %v", err)
+	}
+	if written.Step == nil || written.Step.Result != telemetry.ResultDenied || !written.ToolError {
+		t.Fatalf("terminal_write denied result = %+v tool_error=%v, want policy denial", written.Step, written.ToolError)
+	}
+	terminals.mu.Lock()
+	openSessions := len(terminals.sessions)
+	terminals.mu.Unlock()
+	if openSessions != 0 {
+		t.Fatalf("read-only terminal sessions = %d, want none", openSessions)
+	}
+	if _, err := os.Stat(filepath.Join(spec.Task.WorkingDirectory, "blocked.txt")); !os.IsNotExist(err) {
+		t.Fatalf("blocked terminal sequence created file: %v", err)
 	}
 }
 

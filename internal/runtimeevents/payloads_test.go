@@ -62,6 +62,7 @@ func TestEventTypes(t *testing.T) {
 		runtimeevents.EventToolTimedOut:              "tool.timed_out",
 		runtimeevents.EventToolCancelled:             "tool.cancelled",
 		runtimeevents.EventToolFailed:                "tool.failed",
+		runtimeevents.EventPolicyToolBlocked:         "policy.tool_blocked",
 		runtimeevents.EventFilePatch:                 "tool.file.patch",
 		runtimeevents.EventPatchApplied:              "tool.file.applied",
 		runtimeevents.EventPatchReverted:             "tool.file.reverted",
