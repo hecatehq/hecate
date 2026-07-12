@@ -1645,10 +1645,12 @@ call before spawning a process. Structured read/search/Git inspection remains
 available. Structured Git inspection is fixed and passive: optional index
 locks, lazy fetch, repository fsmonitor helpers, external diff/text conversion,
 global/system Git configuration and attributes, and submodule recursion are
-disabled, with read-only/offline OS isolation where available. If effective
-repository config defines a `filter.*.clean` or `filter.*.process` content
-conversion helper, inspection fails closed before Git compares worktree
-content. `file_edit` and `apply_patch` remain visible because they can create
+disabled, with read-only/offline OS isolation where available. The actual Git
+process reads an immutable temporary gitdir containing only allowlisted core
+settings and snapshotted HEAD/ref/info metadata, never mutable source config.
+If relevant repository or info attributes declare a content-conversion filter,
+inspection fails closed rather than execute a helper or report unnormalized
+state. `file_edit` and `apply_patch` remain visible because they can create
 proposal artifacts without writing; their apply paths still enforce the
 read-only policy.
 External Agent CLIs remain trusted subprocesses, so their write/network posture

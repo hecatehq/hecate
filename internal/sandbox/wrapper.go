@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 )
@@ -214,10 +215,10 @@ func wrappedArgv(argv []string, workspace string, network bool) []string {
 // scratch tmpfs; network=false also removes network access where the platform
 // wrapper supports it. Fixed-command process surfaces use this to preserve
 // argument boundaries while sharing the shell sandbox's isolation layer.
-func WrapReadOnlyArgv(argv []string, workspace string, network bool) []string {
+func WrapReadOnlyArgv(argv []string, workspace string, network bool, extraReadOnlyPaths ...string) []string {
 	switch DetectWrapper(context.Background()) {
 	case WrapperBwrap:
-		return bwrapArgvWithWorkspaceMode(argv, workspace, network, true)
+		return bwrapArgvWithWorkspaceMode(argv, workspace, network, true, extraReadOnlyPaths...)
 	case WrapperSandboxExec:
 		return sandboxExecArgv(argv, network)
 	default:
@@ -238,7 +239,7 @@ func bwrapArgv(argv []string, workspace string, network bool) []string {
 	return bwrapArgvWithWorkspaceMode(argv, workspace, network, false)
 }
 
-func bwrapArgvWithWorkspaceMode(argv []string, workspace string, network, readOnly bool) []string {
+func bwrapArgvWithWorkspaceMode(argv []string, workspace string, network, readOnly bool, extraReadOnlyPaths ...string) []string {
 	args := []string{
 		"--ro-bind", "/", "/",
 		// Procfs and devfs need explicit mounts; bwrap does NOT bind
@@ -261,6 +262,13 @@ func bwrapArgvWithWorkspaceMode(argv []string, workspace string, network, readOn
 		// /tmp tmpfs provides scratch space, then this bind restores the
 		// workspace path with the requested access mode.
 		args = append(args, bindMode, workspace, workspace)
+	}
+	for _, path := range extraReadOnlyPaths {
+		path = strings.TrimSpace(path)
+		if path == "" || path == workspace {
+			continue
+		}
+		args = append(args, "--ro-bind", path, path)
 	}
 	if !network {
 		args = append(args, "--unshare-net")

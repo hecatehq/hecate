@@ -36,8 +36,9 @@ type Worktree struct {
 }
 
 type LocalRunner struct {
-	Process processrunner.Runner
-	Env     []string
+	Process       processrunner.Runner
+	Env           []string
+	ReadOnlyPaths []string
 }
 
 func NewLocalRunner() *LocalRunner {
@@ -215,7 +216,7 @@ func (r *LocalRunner) RunLimitedReadOnly(ctx context.Context, workspace string, 
 	if err != nil {
 		return Result{ExitCode: -1}, err
 	}
-	argv := sandbox.WrapReadOnlyArgv(append([]string{command}, args...), workspace, false)
+	argv := sandbox.WrapReadOnlyArgv(append([]string{command}, args...), workspace, false, r.ReadOnlyPaths...)
 	return r.run(ctx, processrunner.Request{
 		Command:        argv[0],
 		Args:           argv[1:],

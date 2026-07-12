@@ -171,8 +171,8 @@ proposal-only tool.
 | `glob`                   | Find workspace paths by glob pattern                                  | Ungated by default; gate with `read_file` or `all_tools` policy. Path must resolve through WorkspaceFS within the workspace root                                                                                                                                 |
 | `artifact_read`          | Read an inline artifact from the current task by artifact ID          | Ungated by default; gate with `read_file` or `all_tools` policy. Only artifacts belonging to the current task are visible                                                                                                                                        |
 | `list_dir`               | List entries under a workspace path                                   | Ungated unless `all_tools` is set. Path must resolve through WorkspaceFS within the workspace root                                                                                                                                                               |
-| `git_status`             | Return structured branch and changed-file status                      | Gated by `git_exec` or `all_tools` policy (default on); passive GitRunner read with optional index locks, lazy fetch, fsmonitor, global/system config/attributes, and submodule recursion disabled; repository clean/process filters fail closed                 |
-| `git_diff`               | Return a bounded workspace or staged diff                             | Gated by `git_exec` or `all_tools` policy (default on); passive GitRunner read with external diff/text conversion, optional locks, lazy fetch, fsmonitor, global/system config/attributes, and recursion disabled; repository clean/process filters fail closed  |
+| `git_status`             | Return structured branch and changed-file status                      | Gated by `git_exec` or `all_tools` policy (default on); immutable GitRunner metadata view with optional locks, lazy fetch, fsmonitor, global/system config/attributes, and recursion disabled; conversion attributes fail closed                                 |
+| `git_diff`               | Return a bounded workspace or staged diff                             | Gated by `git_exec` or `all_tools` policy (default on); immutable GitRunner metadata view with external diff/text conversion, optional locks, lazy fetch, fsmonitor, global/system config/attributes, and recursion disabled; conversion attributes fail closed  |
 | `http_request`           | Make an outbound HTTP request                                         | For preset-backed tasks, advertised only when the preset snapshot has `sandbox_network=true`; unexpected calls fail closed. Then gated by `network_egress` or `all_tools`, with private-IP, scheme, and optional host allowlist checks                           |
 | `web_search`             | Search the web through the configured search provider                 | For preset-backed tasks, advertised only when configured and the snapshot has `sandbox_network=true`; unexpected calls fail closed. Then gated by `network_egress` or `all_tools`; endpoint and API key stay operator-owned                                      |
 | `draft_project_proposal` | Draft a Project Assistant proposal artifact for the linked project    | Available only to task-backed Hecate Chat runs with `origin_kind=chat`, `execution_profile=chat_agent`, and a `project_id`; gated only by `all_tools`. Creates a `project_assistant_proposal` artifact for operator review and does not apply or start anything. |
@@ -199,11 +199,13 @@ tools remain available. Structured Git reads run as fixed, bounded, passive
 commands: they do not refresh the index, invoke repository fsmonitor helpers,
 load global/system Git configuration or attributes, recurse into submodules, or
 lazily fetch objects, and use the offline/read-only OS wrapper where available.
-Because Git may execute repository-configured clean/process conversion helpers
-while comparing worktree content, structured inspection fails closed when the
-effective repository config defines either helper. `file_edit` and `apply_patch`
-remain available for proposal artifacts, while their apply paths enforce
-read-only policy.
+The actual status/diff process reads an immutable temporary gitdir containing a
+safe core-config allowlist plus snapshotted HEAD/ref/info metadata, so a source
+config change cannot introduce an executable helper between validation and
+use. Because omitting a declared clean/process driver could instead produce
+misleading Git state, relevant worktree or info attributes that declare a
+conversion filter fail closed. `file_edit` and `apply_patch` remain available
+for proposal artifacts, while their apply paths enforce read-only policy.
 
 ### Network egress for shell_exec / git_exec
 
