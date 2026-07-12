@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/hecatehq/hecate/internal/gitrunner"
 	"github.com/hecatehq/hecate/internal/runtimeevents"
@@ -1614,32 +1616,73 @@ func gitStatusTool(ctx context.Context, spec ExecutionSpec, _ gitStatusArgs, ste
 	if err != nil {
 		return fmt.Sprintf("git_status: %v", err), nil, nil, nil
 	}
-	branch, entries, err := parseGitStatusPorcelainZ(out, workspacePrefix)
+	branch, entries, err := parseGitStatusPorcelainZ(out, workspacePrefix, truncated)
 	if err != nil {
 		return fmt.Sprintf("git_status: %v", err), nil, nil, nil
 	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "branch=%s entries=%d truncated=%v\n", branch, len(entries), truncated)
-	for _, entry := range entries {
-		fmt.Fprintf(&b, "%s\n", entry)
-	}
+	branch = displayGitStatusPath(branch)
+	output, emittedEntries, truncated := renderGitStatusResult(branch, entries, truncated, gitDiffDefaultMaxBytes)
 	step := buildGenericReadToolStep(spec, stepIndex, startedAt, toolName, map[string]any{
 		"branch":    branch,
-		"entries":   len(entries),
+		"entries":   emittedEntries,
 		"truncated": truncated,
 	})
-	return b.String(), &step, nil, nil
+	return output, &step, nil, nil
 }
 
-func parseGitStatusPorcelainZ(output, workspacePrefix string) (string, []string, error) {
+func renderGitStatusResult(branch string, entries []string, truncated bool, maxBytes int) (string, int, bool) {
+	if maxBytes < 0 {
+		maxBytes = 0
+	}
+	reserveHeader := fmt.Sprintf("branch=%s entries=%d truncated=false\n", branch, len(entries))
+	lines := make([]string, 0, len(entries))
+	bodyBytes := 0
+	for _, entry := range entries {
+		line := entry + "\n"
+		if len(reserveHeader)+bodyBytes+len(line) > maxBytes {
+			truncated = true
+			break
+		}
+		lines = append(lines, line)
+		bodyBytes += len(line)
+	}
+	header := fmt.Sprintf("branch=%s entries=%d truncated=%v\n", branch, len(lines), truncated)
+	for len(lines) > 0 && len(header)+bodyBytes > maxBytes {
+		last := lines[len(lines)-1]
+		lines = lines[:len(lines)-1]
+		bodyBytes -= len(last)
+		truncated = true
+		header = fmt.Sprintf("branch=%s entries=%d truncated=true\n", branch, len(lines))
+	}
+	if len(header) > maxBytes {
+		return header[:maxBytes], 0, true
+	}
+	var b strings.Builder
+	b.Grow(len(header) + bodyBytes)
+	b.WriteString(header)
+	for _, line := range lines {
+		b.WriteString(line)
+	}
+	return b.String(), len(lines), truncated
+}
+
+func parseGitStatusPorcelainZ(output, workspacePrefix string, truncated bool) (string, []string, error) {
 	records := strings.Split(output, "\x00")
-	if len(records) == 0 || records[len(records)-1] != "" {
+	if len(records) == 0 {
 		return "", nil, fmt.Errorf("malformed Git status output")
+	}
+	if records[len(records)-1] != "" {
+		if !truncated {
+			return "", nil, fmt.Errorf("malformed Git status output")
+		}
+		records = records[:len(records)-1]
+	} else {
+		records = records[:len(records)-1]
 	}
 	prefix := filepath.ToSlash(filepath.Clean(workspacePrefix))
 	branch := ""
-	entries := make([]string, 0, len(records)-1)
-	for i := 0; i < len(records)-1; i++ {
+	entries := make([]string, 0, len(records))
+	for i := 0; i < len(records); i++ {
 		record := records[i]
 		if record == "" {
 			return "", nil, fmt.Errorf("malformed Git status output")
@@ -1661,7 +1704,13 @@ func parseGitStatusPorcelainZ(output, workspacePrefix string) (string, []string,
 		}
 		if status[0] == 'R' || status[0] == 'C' || status[1] == 'R' || status[1] == 'C' {
 			i++
-			if i >= len(records)-1 || records[i] == "" {
+			if i >= len(records) {
+				if truncated {
+					break
+				}
+				return "", nil, fmt.Errorf("malformed Git rename status entry")
+			}
+			if records[i] == "" {
 				return "", nil, fmt.Errorf("malformed Git rename status entry")
 			}
 			source, err := workspaceRelativeGitPath(records[i], prefix)
@@ -1685,14 +1734,19 @@ func workspaceRelativeGitPath(path, prefix string) (string, error) {
 	}
 	prefix += "/"
 	if !strings.HasPrefix(path, prefix) || len(path) == len(prefix) {
-		return "", fmt.Errorf("Git status path %q is outside the workspace", path)
+		return "", fmt.Errorf("Git status contained a path outside the workspace")
 	}
 	return strings.TrimPrefix(path, prefix), nil
 }
 
 func displayGitStatusPath(path string) string {
-	if strings.ContainsAny(path, "\x00\r\n\t") {
-		return strconv.Quote(path)
+	if !utf8.ValidString(path) || strings.ContainsAny(path, "\"\\") {
+		return strconv.QuoteToASCII(path)
+	}
+	for _, r := range path {
+		if !unicode.IsGraphic(r) {
+			return strconv.QuoteToASCII(path)
+		}
 	}
 	return path
 }
@@ -1812,7 +1866,8 @@ func rejectGitReadConversionAttributes(ctx context.Context, view *gitrunner.Read
 	}
 	const attributeOutputLimit = trackedPathOutputLimit * 3
 	attributes, err := view.RunLimitedInput(ctx, attributeOutputLimit, result.Stdout,
-		"--no-pager", "check-attr", "-z", "--stdin", "filter",
+		"--no-pager", "-c", "core.attributesFile="+os.DevNull,
+		"check-attr", "-z", "--stdin", "--all",
 	)
 	if err != nil {
 		return fmt.Errorf("resolve passive Git attributes: %w", err)
@@ -1832,12 +1887,12 @@ func rejectEffectiveGitConversionFilters(ctx context.Context, output string) err
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("resolve passive Git attributes: %w", err)
 		}
-		path, attribute, value := records[i], records[i+1], records[i+2]
-		if path == "" || attribute != "filter" {
+		path, attribute := records[i], records[i+1]
+		if path == "" || attribute == "" {
 			return fmt.Errorf("passive Git inspection refused malformed effective attribute metadata")
 		}
-		if value != "unspecified" && value != "unset" {
-			return fmt.Errorf("passive Git inspection refused: %q has effective content-conversion filter %q", path, value)
+		if attribute == "filter" {
+			return fmt.Errorf("passive Git inspection refused: a scoped path has an effective or ambiguous content-conversion filter")
 		}
 	}
 	return nil

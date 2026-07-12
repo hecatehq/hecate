@@ -1650,9 +1650,9 @@ process reads an immutable temporary gitdir containing only allowlisted core
 settings and snapshotted HEAD/ref/info metadata, never mutable source config.
 Nested task workspaces use the repository top-level metadata while status
 paths and diffs remain workspace-scoped. Bounded NUL-safe attribute resolution
-fails closed when a scoped tracked path has an effective content-conversion
-filter rather than execute a helper or report unnormalized state. `file_edit`
-and `apply_patch` remain visible because they can create
+fails closed when a scoped tracked path has an effective or ambiguous
+content-conversion filter rather than execute a helper or report unnormalized
+state. `file_edit` and `apply_patch` remain visible because they can create
 proposal artifacts without writing; their apply paths still enforce the
 read-only policy.
 External Agent CLIs remain trusted subprocesses, so their write/network posture

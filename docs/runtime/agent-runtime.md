@@ -205,9 +205,10 @@ config change cannot introduce an executable helper between validation and
 use. Nested workspaces use the checkout's true top-level metadata but scope
 status paths and diffs to the workspace. Because omitting an effective
 clean/process driver could instead produce misleading Git state, bounded
-NUL-safe attribute resolution fails closed when a scoped tracked path has a
-conversion filter. `file_edit` and `apply_patch` remain available for proposal
-artifacts, while their apply paths enforce read-only policy.
+NUL-safe attribute resolution fails closed when a scoped tracked path has an
+effective or ambiguous conversion filter. `file_edit` and `apply_patch` remain
+available for proposal artifacts, while their apply paths enforce read-only
+policy.
 
 ### Network egress for shell_exec / git_exec
 
