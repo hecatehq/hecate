@@ -443,15 +443,35 @@ describe("TaskDetail runtime activity and patches", () => {
     expect(screen.getByText("main.go · proposed")).toBeTruthy();
   });
 
-  it("renders a policy-denied tool as blocked with its reason", () => {
+  it("keeps an API-terminal policy denial visible after later activity and run completion", () => {
     const { render } = setup({
       activity: [
         makeActivity({
+          id: "activity-denied",
           status: "denied",
           title: "shell_exec (blocked)",
           tool_name: "shell_exec",
           path: undefined,
           summary: { reason: "writes are disabled by the resolved agent preset" },
+          terminal: true,
+        }),
+        makeActivity({
+          id: "activity-thinking",
+          type: "thinking",
+          status: "completed",
+          title: "Agent turn 2",
+          tool_name: undefined,
+          path: undefined,
+          terminal: true,
+        }),
+        makeActivity({
+          id: "activity-run-result",
+          type: "run_result",
+          status: "completed",
+          title: "Run completed",
+          tool_name: undefined,
+          path: undefined,
+          terminal: true,
         }),
       ],
     });

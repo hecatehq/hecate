@@ -300,7 +300,11 @@ export function taskActivityToTranscriptActivity(item: TaskActivityRecord): Chat
     artifact_preview: taskActivityArtifactPreview(item),
     approval_id: item.approval_id,
     needs_action: item.needs_action,
-    terminal: item.terminal,
+    // TaskActivityItem.terminal means the individual item is settled for
+    // steps and artifacts, while ChatActivityRecord.terminal identifies a
+    // terminal run summary. Do not let completed timeline rows participate in
+    // terminal-run deduplication.
+    terminal: item.type === "run_result" ? item.terminal : undefined,
   };
 }
 

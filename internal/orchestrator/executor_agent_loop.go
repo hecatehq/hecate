@@ -1684,24 +1684,24 @@ func gitDiffTool(ctx context.Context, spec ExecutionSpec, args gitDiffArgs, step
 func runGitReadCommand(ctx context.Context, root string, maxBytes int, args ...string) (string, bool, error) {
 	cmdCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
+	runner := gitReadRunner()
+	if err := rejectGitReadConversionFilters(cmdCtx, runner, root); err != nil {
+		return "", false, err
+	}
 	// Structured Git inspection stays available to read-only presets, so it
 	// must be passive even when the repository config is not. In particular,
 	// `git status` may otherwise refresh the index, invoke a core.fsmonitor
-	// helper, or lazily fetch missing objects from a promisor remote. Keep the
-	// fixed invocation independent from repository hooks and network access.
+	// helper, execute a content-conversion process, or lazily fetch missing
+	// objects from a promisor remote. Keep the fixed invocation independent
+	// from repository hooks and network access.
 	gitArgs := append([]string{
 		"--no-pager",
 		"-c", "core.fsmonitor=false",
 		"-c", "core.untrackedCache=false",
+		"-c", "core.attributesFile=" + os.DevNull,
 		"-c", "submodule.recurse=false",
 		"-c", "fetch.recurseSubmodules=false",
 	}, args...)
-	runner := gitrunner.NewLocalRunner()
-	runner.Env = append(gitrunner.SanitizedEnv(os.Environ()),
-		"GIT_OPTIONAL_LOCKS=0",
-		"GIT_NO_LAZY_FETCH=1",
-		"GIT_TERMINAL_PROMPT=0",
-	)
 	result, err := runner.RunLimitedReadOnly(cmdCtx, root, int64(maxBytes), gitArgs...)
 	if cmdCtx.Err() == context.DeadlineExceeded {
 		return "", false, fmt.Errorf("git command timed out")
@@ -1715,6 +1715,47 @@ func runGitReadCommand(ctx context.Context, root string, maxBytes int, args ...s
 		return "", false, err
 	}
 	return out, result.StdoutTruncated || result.StderrTruncated, nil
+}
+
+func gitReadRunner() *gitrunner.LocalRunner {
+	runner := gitrunner.NewLocalRunner()
+	runner.Env = append(gitrunner.SanitizedEnv(os.Environ()),
+		"GIT_OPTIONAL_LOCKS=0",
+		"GIT_NO_LAZY_FETCH=1",
+		"GIT_TERMINAL_PROMPT=0",
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_GLOBAL="+os.DevNull,
+		"GIT_CONFIG_SYSTEM="+os.DevNull,
+		"GIT_ATTR_NOSYSTEM=1",
+	)
+	return runner
+}
+
+func rejectGitReadConversionFilters(ctx context.Context, runner *gitrunner.LocalRunner, root string) error {
+	const configOutputLimit = 64 * 1024
+	result, err := runner.RunLimitedReadOnly(ctx, root, configOutputLimit,
+		"--no-pager",
+		"config",
+		"--includes",
+		"--name-only",
+		"--get-regexp",
+		`^filter\..*\.(clean|process)$`,
+	)
+	if err != nil {
+		// `git config --get-regexp` uses exit 1 for a clean no-match.
+		if result.ExitCode == 1 && strings.TrimSpace(result.Stdout) == "" && strings.TrimSpace(result.Stderr) == "" {
+			return nil
+		}
+		return fmt.Errorf("inspect repository Git filters: %w", err)
+	}
+	if result.StdoutTruncated || result.StderrTruncated {
+		return fmt.Errorf("passive Git inspection refused: repository content-conversion filter configuration exceeded %d bytes", configOutputLimit)
+	}
+	keys := strings.Fields(result.Stdout)
+	if len(keys) > 0 {
+		return fmt.Errorf("passive Git inspection refused: repository content-conversion filters are configured (%s)", strings.Join(keys, ", "))
+	}
+	return nil
 }
 
 func combineGitReadOutput(stdout, stderr string) string {

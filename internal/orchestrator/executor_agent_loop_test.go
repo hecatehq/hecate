@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/hecatehq/hecate/internal/runtimeevents"
+	"github.com/hecatehq/hecate/internal/sandbox"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/internal/websearch"
 	"github.com/hecatehq/hecate/internal/workspace"
@@ -1111,7 +1112,7 @@ func TestRunGitReadCommandUsesSanitizedEnvironment(t *testing.T) {
 		t.Fatal(err)
 	}
 	fakeGit := filepath.Join(fakeBin, "git")
-	if err := os.WriteFile(fakeGit, []byte("#!/bin/sh\nprintf 'args=%s\\n' \"$*\"\nenv\n"), 0o755); err != nil {
+	if err := os.WriteFile(fakeGit, []byte("#!/bin/sh\ncase \" $* \" in *\" config \"*) exit 1;; esac\nprintf 'args=%s\\n' \"$*\"\nenv\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -1131,12 +1132,69 @@ func TestRunGitReadCommandUsesSanitizedEnvironment(t *testing.T) {
 		"GIT_OPTIONAL_LOCKS=0",
 		"GIT_NO_LAZY_FETCH=1",
 		"GIT_TERMINAL_PROMPT=0",
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_GLOBAL=" + os.DevNull,
+		"GIT_CONFIG_SYSTEM=" + os.DevNull,
+		"GIT_ATTR_NOSYSTEM=1",
 		"-c core.fsmonitor=false",
+		"-c core.attributesFile=" + os.DevNull,
 		"-c submodule.recurse=false",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("hardened Git read omitted %q, fake output:\n%s", want, out)
 		}
+	}
+}
+
+func TestRunGitReadCommandRefusesRepositoryConversionFiltersWithoutWrapper(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses POSIX content-conversion helpers")
+	}
+	reset := sandbox.SetWrapperForTesting(sandbox.WrapperNone)
+	defer reset()
+
+	for _, tc := range []struct {
+		name       string
+		configKey  string
+		commandArg []string
+	}{
+		{name: "clean filter during diff", configKey: "filter.evil.clean", commandArg: []string{"diff", "--no-ext-diff", "--no-textconv"}},
+		{name: "process filter during status", configKey: "filter.evil.process", commandArg: []string{"status", "--porcelain=v1", "-b"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			runGit(t, dir, "init")
+			runGit(t, dir, "config", "user.email", "test@example.com")
+			runGit(t, dir, "config", "user.name", "Test User")
+			if err := os.WriteFile(filepath.Join(dir, ".gitattributes"), []byte("*.txt filter=evil\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			tracked := filepath.Join(dir, "tracked.txt")
+			if err := os.WriteFile(tracked, []byte("before\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			runGit(t, dir, "add", ".gitattributes", "tracked.txt")
+			runGit(t, dir, "commit", "-m", "initial")
+
+			marker := filepath.Join(t.TempDir(), "filter-called")
+			helper := filepath.Join(t.TempDir(), "filter")
+			script := fmt.Sprintf("#!/bin/sh\nprintf called > %q\ncat\n", marker)
+			if err := os.WriteFile(helper, []byte(script), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			runGit(t, dir, "config", tc.configKey, helper)
+			if err := os.WriteFile(tracked, []byte("after\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			_, _, err := runGitReadCommand(context.Background(), dir, 4096, tc.commandArg...)
+			if err == nil || !strings.Contains(err.Error(), "content-conversion filters are configured") {
+				t.Fatalf("runGitReadCommand error = %v, want configured-filter refusal", err)
+			}
+			if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("repository conversion helper ran during passive Git read; stat error = %v", err)
+			}
+		})
 	}
 }
 
