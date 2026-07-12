@@ -140,6 +140,26 @@ jobs:
       - name: Stamp Tauri version
         run: bun scripts/stamp-version.ts
 
+      # GoReleaser owns the GitHub Release entry and its release notes.
+      # tauri-action v1 updates an existing release's name and body whenever it
+      # resolves that release from tagName; with no releaseBody input, that
+      # clears GoReleaser's notes. Resolve the already-created release once per
+      # matrix leg and pass its immutable id so this job only uploads assets.
+      - name: Resolve existing GitHub release
+        id: release
+        if: inputs.tagName != ''
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tagName }}
+        run: |
+          set -euo pipefail
+          release_id=$(gh api "repos/${{ github.repository }}/releases/tags/${TAG}" --jq '.id')
+          if [[ ! "$release_id" =~ ^[0-9]+$ ]]; then
+            echo "invalid release id for ${TAG}: ${release_id:-missing}" >&2
+            exit 1
+          fi
+          echo "id=$release_id" >> "$GITHUB_OUTPUT"
+
       # Keep PR builds and release builds as separate steps. Setting signing
       # variables to an empty string is not the same as omitting them: Tauri's
       # bundler still treats some present-but-empty vars as "signing requested"
@@ -163,8 +183,9 @@ jobs:
             --bundles ${{ matrix.os == 'macos-latest' && inputs.unsignedMacosBundles || matrix.bundles }}
             --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
-      # Tagged release build. Uploads bundles to the existing GitHub Release and
-      # signs/notarizes when the corresponding secrets are configured.
+      # Tagged release build. Uploads bundles to the existing GitHub Release by
+      # id, preserving GoReleaser's name and notes, and signs/notarizes when
+      # the corresponding secrets are configured.
       - name: Build Tauri bundles (signed release)
         if: inputs.tagName != ''
         uses: tauri-apps/tauri-action@v1
@@ -210,7 +231,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_UPDATER_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: tauri
-          tagName: ${{ inputs.tagName }}
+          releaseId: ${{ steps.release.outputs.id }}
           args: --bundles ${{ matrix.bundles }}
 
       # Upload updater payloads (.tar.gz / .zip + .sig) to the GitHub

@@ -92,6 +92,10 @@ Acceptance after the run:
 
 - All release jobs green.
 - Release entry marked **Pre-release** for `-alpha.N` tags.
+- Release entry has non-empty notes: the annotated tag's Markdown for a
+  substantive release, otherwise GoReleaser's generated changelog. The desktop
+  matrix uploads by release id so it cannot replace those notes while attaching
+  bundles.
 - Goreleaser-side artifacts attached: tarballs for each goos/goarch + checksums.
   Each tarball contains `hecate`.
 - Tauri-side bundles attached: 1 `.dmg`, 1 `.deb`, 1 `.AppImage`, 1 `.msi`.
@@ -170,19 +174,23 @@ and verification gate have passed:
 bun scripts/release.ts vX.Y.Z --skip-snapshot --yes
 ```
 
-The script's annotated tag message is just the version string. For
-substantive release notes, tag manually instead so the message becomes
-the canonical release notes (what `git show vX.Y.Z` and the GitHub
-Releases page surface):
+The script's annotated tag message is just the version string, so GoReleaser
+publishes its generated changelog for ordinary releases. For a substantive
+release, tag manually with reviewed Markdown. The release workflow detects a
+non-version annotation and passes it to GoReleaser as the GitHub Release body:
 
 ```bash
 TAURI_VERSION=X.Y.Z bun scripts/stamp-version.ts
 git add tauri/src-tauri/Cargo.toml tauri/src-tauri/Cargo.lock \
         tauri/src-tauri/tauri.conf.json tauri/package.json
 git commit -m "chore(tauri): stamp version X.Y.Z"
-git tag -a vX.Y.Z -F /tmp/release-notes.txt    # message from a file
+git tag -a vX.Y.Z -F /tmp/release-notes.md
 git push origin HEAD:master vX.Y.Z
 ```
+
+The annotation remains visible through `git show vX.Y.Z`; the same content is
+published on GitHub. A version-only annotation continues to use the generated
+commit changelog.
 
 The version stamp commit stays on `master`. This keeps the visible Tauri
 metadata (`tauri/package.json`, `Cargo.toml`, `tauri.conf.json`) aligned with

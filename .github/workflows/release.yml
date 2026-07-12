@@ -1,7 +1,8 @@
 name: release
 
-# Fires on tag pushes that look like a semver release. Manual dispatch
-# stays available for re-runs without re-tagging.
+# Fires on tag pushes that look like a semver release. Manual dispatch stays
+# available for re-runs when the workflow ref selector is set to an existing
+# v* release tag; branch dispatches fail before checkout or build work.
 on:
   push:
     tags:
@@ -22,7 +23,20 @@ permissions:
 jobs:
   goreleaser:
     runs-on: ubuntu-latest
+    outputs:
+      release_body_sha256: ${{ steps.release-body.outputs.sha256 }}
     steps:
+      - name: Validate release ref
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          set -euo pipefail
+          if [[ "$REF_TYPE" != "tag" || "$REF_NAME" != v* ]]; then
+            echo "Release workflow requires a v* tag ref; got ${REF_TYPE} ${REF_NAME}." >&2
+            exit 1
+          fi
+
       - name: Checkout
         uses: actions/checkout@v7
         with:
@@ -59,13 +73,61 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # The release helper's ordinary tags contain only the version and should
+      # keep GoReleaser's generated changelog. A maintainer may instead create
+      # an annotated tag with substantive Markdown notes; preserve that public
+      # release contract by passing the annotation to GoReleaser explicitly.
+      - name: Prepare release notes
+        id: release-notes
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          tag_ref="refs/tags/${TAG}"
+          tag_type=$(git cat-file -t "$tag_ref")
+          if [[ "$tag_type" == "commit" ]]; then
+            echo "args=release --clean" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "$tag_type" != "tag" ]]; then
+            echo "Release ref ${TAG} points to unsupported object type ${tag_type}." >&2
+            exit 1
+          fi
+          tag_notes=$(git for-each-ref --format='%(contents)' "$tag_ref")
+          if [[ "$tag_notes" == "$TAG" ]]; then
+            echo "args=release --clean" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ -z "${tag_notes//[[:space:]]/}" ]]; then
+            echo "Release tag ${TAG} has an empty annotation." >&2
+            exit 1
+          fi
+          notes_path="$RUNNER_TEMP/release-notes.md"
+          printf '%s\n' "$tag_notes" > "$notes_path"
+          echo "args=release --clean --release-notes=$notes_path" >> "$GITHUB_OUTPUT"
+
       - name: Run goreleaser
         uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
-          args: release --clean
+          args: ${{ steps.release-notes.outputs.args }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Record published release body
+        id: release-body
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          body_path="$RUNNER_TEMP/published-release-body.md"
+          gh release view "$TAG" --repo "${{ github.repository }}" --json body --jq '.body' > "$body_path"
+          if ! grep -q '[^[:space:]]' "$body_path"; then
+            echo "GitHub Release ${TAG} has no release notes after GoReleaser." >&2
+            exit 1
+          fi
+          echo "sha256=$(sha256sum "$body_path" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
   # Native desktop bundles. All matrix steps live in _tauri-shared.yml.
   tauri:
@@ -84,10 +146,9 @@ jobs:
 
   update-release-docs:
     name: Update release docs
-    needs: tauri
+    needs: [goreleaser, tauri]
     runs-on: ubuntu-latest
-    # Only tag-triggered releases publish assets. Manual workflow_dispatch runs
-    # may point at a branch, where github.ref_name is not a release tag.
+    # The goreleaser job rejects non-tag refs before release work begins.
     if: startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Checkout master
@@ -100,6 +161,31 @@ jobs:
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.13
+
+      - name: Verify release body was preserved
+        env:
+          EXPECTED_SHA256: ${{ needs.goreleaser.outputs.release_body_sha256 }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          body_path="$RUNNER_TEMP/final-release-body.md"
+          gh release view "$TAG" --repo "${{ github.repository }}" --json body --jq '.body' > "$body_path"
+          if ! grep -q '[^[:space:]]' "$body_path"; then
+            echo "GitHub Release ${TAG} has no release notes after desktop packaging." >&2
+            exit 1
+          fi
+          if [[ ! "$EXPECTED_SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "GoReleaser did not report a valid release-body digest." >&2
+            exit 1
+          fi
+          actual_sha256=$(sha256sum "$body_path" | awk '{print $1}')
+          if [[ "$actual_sha256" != "$EXPECTED_SHA256" ]]; then
+            echo "GitHub Release ${TAG} body changed during desktop packaging." >&2
+            echo "expected sha256: $EXPECTED_SHA256" >&2
+            echo "actual sha256:   $actual_sha256" >&2
+            exit 1
+          fi
 
       - name: Regenerate release docs
         run: bun scripts/update-release-links.ts "${{ github.ref_name }}"
