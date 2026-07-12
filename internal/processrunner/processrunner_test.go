@@ -63,6 +63,23 @@ func TestLocalRunner_RunTruncatesOutput(t *testing.T) {
 	}
 }
 
+func TestLocalRunner_RunProvidesStandardInput(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture uses sh")
+	}
+	result, err := NewLocalRunner().Run(context.Background(), Request{
+		Command: "sh",
+		Args:    []string{"-c", "cat"},
+		Stdin:   "first\x00second",
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if result.Stdout != "first\x00second" {
+		t.Fatalf("Stdout = %q, want binary-safe stdin echo", result.Stdout)
+	}
+}
+
 func TestLocalRunner_RunRejectsBlankCommand(t *testing.T) {
 	runner := NewLocalRunner()
 

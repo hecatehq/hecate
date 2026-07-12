@@ -16,6 +16,7 @@ type Request struct {
 	Args           []string
 	Dir            string
 	Env            []string
+	Stdin          string
 	Timeout        time.Duration
 	MaxStdoutBytes int64
 	MaxStderrBytes int64
@@ -72,6 +73,9 @@ func (r *LocalRunner) RunStreaming(ctx context.Context, req Request, onChunk fun
 	}
 	if req.Env != nil {
 		cmd.Env = req.Env
+	}
+	if req.Stdin != "" {
+		cmd.Stdin = strings.NewReader(req.Stdin)
 	}
 
 	var stdout limitedBuffer

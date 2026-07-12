@@ -212,6 +212,17 @@ func (r *LocalRunner) RunLimited(ctx context.Context, workspace string, maxBytes
 // disable Git features such as fsmonitor and optional index locks because the
 // wrapper is best-effort on platforms where no kernel sandbox is available.
 func (r *LocalRunner) RunLimitedReadOnly(ctx context.Context, workspace string, maxBytes int64, args ...string) (Result, error) {
+	return r.runLimitedReadOnly(ctx, workspace, maxBytes, "", args...)
+}
+
+// RunLimitedReadOnlyInput is RunLimitedReadOnly with caller-provided standard
+// input. Callers must cap that input; this avoids platform command-line limits
+// for fixed Git commands such as check-attr.
+func (r *LocalRunner) RunLimitedReadOnlyInput(ctx context.Context, workspace string, maxBytes int64, stdin string, args ...string) (Result, error) {
+	return r.runLimitedReadOnly(ctx, workspace, maxBytes, stdin, args...)
+}
+
+func (r *LocalRunner) runLimitedReadOnly(ctx context.Context, workspace string, maxBytes int64, stdin string, args ...string) (Result, error) {
 	workspace, err := cleanWorkspace(workspace)
 	if err != nil {
 		return Result{ExitCode: -1}, err
@@ -222,6 +233,7 @@ func (r *LocalRunner) RunLimitedReadOnly(ctx context.Context, workspace string, 
 		Args:           argv[1:],
 		Dir:            workspace,
 		Env:            r.env(),
+		Stdin:          stdin,
 		MaxStdoutBytes: maxBytes,
 		MaxStderrBytes: maxBytes,
 	})
