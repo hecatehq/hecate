@@ -221,7 +221,10 @@ func TestLocalRunner_RunLimitedReadOnlyUsesReadOnlyOfflineWrapper(t *testing.T) 
 
 	dir := t.TempDir()
 	process := &recordingProcessRunner{}
-	extra := t.TempDir()
+	extra := filepath.Join(t.TempDir(), "metadata ")
+	if err := os.Mkdir(extra, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	runner := &LocalRunner{Process: process, Env: []string{"PATH=/bin"}, ReadOnlyPaths: []string{extra}}
 
 	if _, err := runner.RunLimitedReadOnly(context.Background(), dir, 1024, "status", "--porcelain=v1"); err != nil {
@@ -429,6 +432,51 @@ func TestReadOnlyViewPreservesNewlineInGitPrefix(t *testing.T) {
 	if got := filepath.ToSlash(view.WorkspacePrefix()); got != "line\nbreak" {
 		t.Fatalf("WorkspacePrefix() = %q, want newline-preserving prefix", got)
 	}
+}
+
+func TestReadOnlyViewPreservesWhitespaceInRepositoryRoot(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("trailing whitespace directory fixture is not portable to Windows")
+	}
+	reset := sandbox.SetWrapperForTesting(sandbox.WrapperNone)
+	defer reset()
+	repo := filepath.Join(t.TempDir(), "repo \n")
+	if err := os.Mkdir(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := exec.Command("git", "-C", repo, "init", "-b", "main").Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "tracked.txt"), []byte("tracked\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner := NewLocalRunner()
+	if result, err := runner.Run(context.Background(), repo, "add", "tracked.txt"); err != nil {
+		t.Fatalf("git add: %v: %s", err, result.Stderr)
+	}
+	if result, err := runner.Run(context.Background(), repo, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "initial"); err != nil {
+		t.Fatalf("git commit: %v: %s", err, result.Stderr)
+	}
+	view, err := runner.NewReadOnlyView(context.Background(), repo)
+	if err != nil {
+		t.Fatalf("NewReadOnlyView: %v", err)
+	}
+	defer view.Close()
+	if !os.SameFile(mustStat(t, view.workTree), mustStat(t, repo)) {
+		t.Fatalf("workTree = %q, want whitespace-preserving %q", view.workTree, repo)
+	}
+	if _, err := view.RunLimited(context.Background(), 4096, "status", "--porcelain=v1", "-b", "--", "."); err != nil {
+		t.Fatalf("passive git status: %v", err)
+	}
+}
+
+func mustStat(t *testing.T, path string) os.FileInfo {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return info
 }
 
 func TestReadBoundedOptionalFileRejectsNonRegularAndOversizedFiles(t *testing.T) {
