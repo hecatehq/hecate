@@ -208,6 +208,23 @@ func wrappedArgv(argv []string, workspace string, network bool) []string {
 	}
 }
 
+// WrapReadOnlyArgv applies the detected OS-level sandbox wrapper to an argv
+// without routing it through a shell. Under bwrap the workspace is rebound
+// read-only so paths below /tmp remain visible after the wrapper mounts its
+// scratch tmpfs; network=false also removes network access where the platform
+// wrapper supports it. Fixed-command process surfaces use this to preserve
+// argument boundaries while sharing the shell sandbox's isolation layer.
+func WrapReadOnlyArgv(argv []string, workspace string, network bool) []string {
+	switch DetectWrapper(context.Background()) {
+	case WrapperBwrap:
+		return bwrapArgvWithWorkspaceMode(argv, workspace, network, true)
+	case WrapperSandboxExec:
+		return sandboxExecArgv(argv, network)
+	default:
+		return argv
+	}
+}
+
 func applyBwrap(cmd *exec.Cmd, workspace string, network bool) {
 	argv := bwrapArgv(cmd.Args, workspace, network)
 	if len(argv) == 0 {
@@ -218,6 +235,10 @@ func applyBwrap(cmd *exec.Cmd, workspace string, network bool) {
 }
 
 func bwrapArgv(argv []string, workspace string, network bool) []string {
+	return bwrapArgvWithWorkspaceMode(argv, workspace, network, false)
+}
+
+func bwrapArgvWithWorkspaceMode(argv []string, workspace string, network, readOnly bool) []string {
 	args := []string{
 		"--ro-bind", "/", "/",
 		// Procfs and devfs need explicit mounts; bwrap does NOT bind
@@ -232,10 +253,14 @@ func bwrapArgv(argv []string, workspace string, network bool) []string {
 		"--unshare-pid",
 	}
 	if workspace != "" {
-		// Bind the workspace read-write. The order matters: --ro-bind
-		// above makes / read-only, then --bind here punches a hole at
-		// the workspace path.
-		args = append(args, "--bind", workspace, workspace)
+		bindMode := "--bind"
+		if readOnly {
+			bindMode = "--ro-bind"
+		}
+		// The order matters: --ro-bind above makes / read-only and the
+		// /tmp tmpfs provides scratch space, then this bind restores the
+		// workspace path with the requested access mode.
+		args = append(args, bindMode, workspace, workspace)
 	}
 	if !network {
 		args = append(args, "--unshare-net")

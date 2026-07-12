@@ -1609,7 +1609,7 @@ func gitStatusTool(ctx context.Context, spec ExecutionSpec, _ gitStatusArgs, ste
 	if errMsg != "" {
 		return "git_status: " + errMsg, nil, nil, nil
 	}
-	out, truncated, err := runGitReadCommand(ctx, root, gitDiffDefaultMaxBytes, "status", "--porcelain=v1", "-b")
+	out, truncated, err := runGitReadCommand(ctx, root, gitDiffDefaultMaxBytes, "status", "--porcelain=v1", "-b", "--ignore-submodules=all")
 	if err != nil {
 		return fmt.Sprintf("git_status: %v", err), nil, nil, nil
 	}
@@ -1684,8 +1684,25 @@ func gitDiffTool(ctx context.Context, spec ExecutionSpec, args gitDiffArgs, step
 func runGitReadCommand(ctx context.Context, root string, maxBytes int, args ...string) (string, bool, error) {
 	cmdCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	gitArgs := append([]string{"--no-pager"}, args...)
-	result, err := gitrunner.NewLocalRunner().RunLimited(cmdCtx, root, int64(maxBytes), gitArgs...)
+	// Structured Git inspection stays available to read-only presets, so it
+	// must be passive even when the repository config is not. In particular,
+	// `git status` may otherwise refresh the index, invoke a core.fsmonitor
+	// helper, or lazily fetch missing objects from a promisor remote. Keep the
+	// fixed invocation independent from repository hooks and network access.
+	gitArgs := append([]string{
+		"--no-pager",
+		"-c", "core.fsmonitor=false",
+		"-c", "core.untrackedCache=false",
+		"-c", "submodule.recurse=false",
+		"-c", "fetch.recurseSubmodules=false",
+	}, args...)
+	runner := gitrunner.NewLocalRunner()
+	runner.Env = append(gitrunner.SanitizedEnv(os.Environ()),
+		"GIT_OPTIONAL_LOCKS=0",
+		"GIT_NO_LAZY_FETCH=1",
+		"GIT_TERMINAL_PROMPT=0",
+	)
+	result, err := runner.RunLimitedReadOnly(cmdCtx, root, int64(maxBytes), gitArgs...)
 	if cmdCtx.Err() == context.DeadlineExceeded {
 		return "", false, fmt.Errorf("git command timed out")
 	}

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/hecatehq/hecate/internal/processrunner"
+	"github.com/hecatehq/hecate/internal/sandbox"
 )
 
 func requireGit(t *testing.T) {
@@ -208,6 +209,39 @@ func TestSanitizedEnvDropsProviderSecrets(t *testing.T) {
 	}
 	if !strings.Contains(got, "PATH=/bin") || !strings.Contains(got, "HOME=/tmp/home") {
 		t.Fatalf("sanitized env = %q, want PATH and HOME", got)
+	}
+}
+
+func TestLocalRunner_RunLimitedReadOnlyUsesReadOnlyOfflineWrapper(t *testing.T) {
+	reset := sandbox.SetWrapperForTesting(sandbox.WrapperBwrap)
+	defer reset()
+
+	dir := t.TempDir()
+	process := &recordingProcessRunner{}
+	runner := &LocalRunner{Process: process, Env: []string{"PATH=/bin"}}
+
+	if _, err := runner.RunLimitedReadOnly(context.Background(), dir, 1024, "status", "--porcelain=v1"); err != nil {
+		t.Fatalf("RunLimitedReadOnly: %v", err)
+	}
+	argv := append([]string{process.request.Command}, process.request.Args...)
+	joined := strings.Join(argv, " ")
+	if !strings.Contains(joined, "--ro-bind / /") {
+		t.Fatalf("wrapped argv = %q, want read-only host root", joined)
+	}
+	if !strings.Contains(joined, "--unshare-net") {
+		t.Fatalf("wrapped argv = %q, want network namespace disabled", joined)
+	}
+	if !strings.Contains(joined, "--ro-bind "+dir+" "+dir) {
+		t.Fatalf("wrapped argv = %q, want workspace rebound read-only", joined)
+	}
+	if strings.Contains(joined, "--bind "+dir+" "+dir) {
+		t.Fatalf("wrapped argv = %q, workspace must not be rebound writable", joined)
+	}
+	if got := strings.Join(argv[len(argv)-3:], " "); got != "git status --porcelain=v1" {
+		t.Fatalf("wrapped argv tail = %q, want fixed Git argv", got)
+	}
+	if process.request.MaxStdoutBytes != 1024 || process.request.MaxStderrBytes != 1024 {
+		t.Fatalf("output limits = (%d, %d), want (1024, 1024)", process.request.MaxStdoutBytes, process.request.MaxStderrBytes)
 	}
 }
 

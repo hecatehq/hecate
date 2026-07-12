@@ -765,6 +765,7 @@ export function activityStatusColor(status?: string) {
     case "awaiting_approval":
     case "pending":
     case "proposed":
+    case "denied":
       return "var(--amber)";
     case "running":
     case "in_progress":

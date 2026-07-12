@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"reflect"
 	"testing"
 
 	"github.com/hecatehq/cairnline"
@@ -348,6 +349,123 @@ func TestProjectWorkAPI_AssignmentSurfaceMismatchBlocksStrictEmbeddedCairnlineLa
 	assignment := getMirroredCairnlineAssignmentForTest(t, handler, projectID, assignmentID)
 	if assignment.Status != cairnline.AssignmentQueued || assignment.ClaimedBy != "" || !assignment.ExecutionRef.Empty() || assignment.ContextSnapshotID != "" {
 		t.Fatalf("Cairnline assignment = %+v, want queued and unclaimed after blocked launch", assignment)
+	}
+}
+
+func TestProjectWorkAPI_AssignmentSurfaceMismatchDoesNotWriteCompatibilityShadows(t *testing.T) {
+	t.Parallel()
+
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend: "cairnline",
+			CairnlineReadSource: "embedded",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	runner := &fakeAgentChatRunner{}
+	handler.SetAgentChatRunner(runner)
+	server := NewServer(quietLogger(), handler)
+
+	const (
+		projectID    = "proj_surface_mismatch_compatibility"
+		profileID    = "prof_native_only_compatibility"
+		roleID       = "role_surface_mismatch_compatibility"
+		workItemID   = "work_surface_mismatch_compatibility"
+		assignmentID = "asgn_surface_mismatch_compatibility"
+	)
+	workspace := t.TempDir()
+	if _, err := handler.agentProfiles.Create(t.Context(), agentprofiles.Profile{
+		ID:                profileID,
+		Name:              "Native only compatibility",
+		Surface:           agentprofiles.SurfaceHecateTask,
+		ExternalAgentKind: "codex",
+	}); err != nil {
+		t.Fatalf("Create native-only preset: %v", err)
+	}
+	if _, err := handler.projectRuntime.UpsertRoleDefaults(t.Context(), projectruntime.RoleDefaults{
+		ProjectID:           projectID,
+		RoleID:              roleID,
+		DefaultAgentProfile: profileID,
+	}); err != nil {
+		t.Fatalf("Upsert role runtime defaults: %v", err)
+	}
+	seedCairnlineOnlyProjectWorkGraphForTest(t, handler, cairnline.Project{
+		ID:            projectID,
+		Name:          "Surface mismatch compatibility",
+		DefaultRootID: "root_surface_mismatch_compatibility",
+		Roots: []cairnline.Root{{
+			ID:     "root_surface_mismatch_compatibility",
+			Path:   workspace,
+			Kind:   "git",
+			Active: true,
+		}},
+	}, []cairnline.Role{{
+		ID:                   roleID,
+		ProjectID:            projectID,
+		Name:                 "External compatibility reviewer",
+		DefaultExecutionMode: cairnline.ExecutionExternalAdapter,
+	}}, []cairnline.WorkItem{{
+		ID:          workItemID,
+		ProjectID:   projectID,
+		Title:       "Block incompatible compatibility launch",
+		Status:      cairnline.WorkStatusReady,
+		Priority:    cairnline.PriorityNormal,
+		OwnerRoleID: roleID,
+		RootID:      "root_surface_mismatch_compatibility",
+	}}, []cairnline.Assignment{{
+		ID:            assignmentID,
+		ProjectID:     projectID,
+		WorkItemID:    workItemID,
+		RoleID:        roleID,
+		RootID:        "root_surface_mismatch_compatibility",
+		ExecutionMode: cairnline.ExecutionExternalAdapter,
+	}})
+	if !handler.projectReadRoutesUseCairnlineReadModel() || !handler.requiresEmbeddedCairnlineProjectReads() {
+		t.Fatal("handler is not using embedded Cairnline reads")
+	}
+	if handler.projectAssignmentStartUsesStrictEmbeddedCairnlineRuntime(true) {
+		t.Fatal("strict embedded runtime = true, want compatibility runtime with native project-work store")
+	}
+	rolesBefore, err := handler.projectWork.ListRoles(t.Context(), projectID)
+	if err != nil {
+		t.Fatalf("List native roles before launch: %v", err)
+	}
+	itemsBefore, err := handler.projectWork.ListWorkItems(t.Context(), projectID)
+	if err != nil {
+		t.Fatalf("List native work items before launch: %v", err)
+	}
+	assignmentsBefore, err := handler.projectWork.ListAssignments(t.Context(), projectwork.AssignmentFilter{ProjectID: projectID})
+	if err != nil {
+		t.Fatalf("List native assignments before launch: %v", err)
+	}
+
+	path := "/hecate/v1/projects/" + projectID + "/work-items/" + workItemID + "/assignments/" + assignmentID + "/start"
+	wantMessage := `agent preset "prof_native_only_compatibility" targets surface "hecate_task"; this assignment requires "external_agent" or "any"`
+	start := mustRequestJSONStatus[projectWorkErrorResponse](newAPITestClient(t, server), http.StatusUnprocessableEntity, http.MethodPost, path, `{"driver_kind":"external_agent"}`)
+	if start.Error.Type != errCodeInvalidRequest || start.Error.Message != wantMessage {
+		t.Fatalf("start error = %+v, want typed surface mismatch", start.Error)
+	}
+
+	roles, err := handler.projectWork.ListRoles(t.Context(), projectID)
+	if err != nil {
+		t.Fatalf("List native roles: %v", err)
+	}
+	items, err := handler.projectWork.ListWorkItems(t.Context(), projectID)
+	if err != nil {
+		t.Fatalf("List native work items: %v", err)
+	}
+	assignments, err := handler.projectWork.ListAssignments(t.Context(), projectwork.AssignmentFilter{ProjectID: projectID})
+	if err != nil {
+		t.Fatalf("List native assignments: %v", err)
+	}
+	if !reflect.DeepEqual(roles, rolesBefore) || !reflect.DeepEqual(items, itemsBefore) || !reflect.DeepEqual(assignments, assignmentsBefore) {
+		t.Fatalf("native compatibility stores changed after rejected launch: roles before=%+v after=%+v work_items before=%+v after=%+v assignments before=%+v after=%+v", rolesBefore, roles, itemsBefore, items, assignmentsBefore, assignments)
+	}
+	if len(runner.prepareRequests) != 0 || len(runner.runRequests) != 0 {
+		t.Fatalf("external-agent requests = prepare %+v run %+v, want none", runner.prepareRequests, runner.runRequests)
+	}
+	if _, ok, err := handler.projectRuntime.Get(t.Context(), projectID, assignmentID); err != nil || ok {
+		t.Fatalf("assignment runtime overlay ok=%v err=%v, want none after rejected launch", ok, err)
 	}
 }
 

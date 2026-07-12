@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/hecatehq/hecate/internal/processrunner"
+	"github.com/hecatehq/hecate/internal/sandbox"
 )
 
 const command = "git"
@@ -198,6 +199,26 @@ func (r *LocalRunner) RunLimited(ctx context.Context, workspace string, maxBytes
 	return r.run(ctx, processrunner.Request{
 		Command:        command,
 		Args:           args,
+		Dir:            workspace,
+		Env:            r.env(),
+		MaxStdoutBytes: maxBytes,
+		MaxStderrBytes: maxBytes,
+	})
+}
+
+// RunLimitedReadOnly executes a fixed Git invocation with OS-level network
+// isolation and, under bwrap, a read-only host filesystem. Callers must still
+// disable Git features such as fsmonitor and optional index locks because the
+// wrapper is best-effort on platforms where no kernel sandbox is available.
+func (r *LocalRunner) RunLimitedReadOnly(ctx context.Context, workspace string, maxBytes int64, args ...string) (Result, error) {
+	workspace, err := cleanWorkspace(workspace)
+	if err != nil {
+		return Result{ExitCode: -1}, err
+	}
+	argv := sandbox.WrapReadOnlyArgv(append([]string{command}, args...), workspace, false)
+	return r.run(ctx, processrunner.Request{
+		Command:        argv[0],
+		Args:           argv[1:],
 		Dir:            workspace,
 		Env:            r.env(),
 		MaxStdoutBytes: maxBytes,
