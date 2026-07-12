@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -1103,7 +1104,7 @@ func TestRunGitReadCommandCapsOutputWhileReading(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, truncated, err := runGitReadCommand(context.Background(), dir, 64, "diff", "--no-ext-diff", "--no-textconv", "--", "big.txt")
+	out, truncated, _, err := runGitReadCommand(context.Background(), dir, 64, "diff", "--no-ext-diff", "--no-textconv", "--", "big.txt")
 	if err != nil {
 		t.Fatalf("runGitReadCommand: %v", err)
 	}
@@ -1131,7 +1132,7 @@ func TestRunGitReadCommandSupportsStagedDiffThroughReadOnlyView(t *testing.T) {
 	}
 	runGit(t, dir, "add", "staged.txt")
 
-	out, _, err := runGitReadCommand(context.Background(), dir, 4096, "diff", "--no-ext-diff", "--no-textconv", "--cached")
+	out, _, _, err := runGitReadCommand(context.Background(), dir, 4096, "diff", "--no-ext-diff", "--no-textconv", "--cached")
 	if err != nil {
 		t.Fatalf("runGitReadCommand: %v", err)
 	}
@@ -1155,6 +1156,16 @@ func TestStructuredGitReadsScopeNestedWorkspace(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(nested, "nested.txt"), []byte("before nested\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	assets := filepath.Join(dir, "assets")
+	if err := os.Mkdir(assets, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(assets, "asset.bin"), []byte("asset\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".gitattributes"), []byte("assets/** filter=sibling-driver\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	runGit(t, dir, "add", ".")
 	runGit(t, dir, "commit", "-m", "initial")
 	if err := os.WriteFile(filepath.Join(dir, "root.txt"), []byte("after root\n"), 0o644); err != nil {
@@ -1170,15 +1181,33 @@ func TestStructuredGitReadsScopeNestedWorkspace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("gitStatusTool: %v", err)
 	}
-	if !strings.Contains(status, "nested/nested.txt") || strings.Contains(status, "root.txt") {
+	if !strings.Contains(status, "nested.txt") || strings.Contains(status, "nested/nested.txt") || strings.Contains(status, "root.txt") {
 		t.Fatalf("nested git status = %q, want only nested workspace change", status)
 	}
-	diff, _, _, err := gitDiffTool(context.Background(), spec, gitDiffArgs{}, 0, time.Now(), "git_diff")
+	diff, _, _, err := gitDiffTool(context.Background(), spec, gitDiffArgs{Path: "nested.txt"}, 0, time.Now(), "git_diff")
 	if err != nil {
 		t.Fatalf("gitDiffTool: %v", err)
 	}
 	if !strings.Contains(diff, "+after nested") || strings.Contains(diff, "+after root") {
 		t.Fatalf("nested git diff = %q, want only nested workspace change", diff)
+	}
+}
+
+func TestParseGitStatusPorcelainZNormalizesNestedPaths(t *testing.T) {
+	output := "## main\x00 M nested/file.txt\x00?? nested/line\nname.txt\x00R  nested/new.txt\x00nested/old.txt\x00"
+	branch, entries, err := parseGitStatusPorcelainZ(output, "nested")
+	if err != nil {
+		t.Fatalf("parseGitStatusPorcelainZ: %v", err)
+	}
+	if branch != "main" {
+		t.Fatalf("branch = %q, want main", branch)
+	}
+	want := []string{` M file.txt`, `?? "line\nname.txt"`, `R  old.txt -> new.txt`}
+	if strings.Join(entries, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("entries = %#v, want %#v", entries, want)
+	}
+	if _, _, err := parseGitStatusPorcelainZ("## main\x00 M sibling.txt\x00", "nested"); err == nil || !strings.Contains(err.Error(), "outside the workspace") {
+		t.Fatalf("outside-path parse error = %v, want refusal", err)
 	}
 }
 
@@ -1244,7 +1273,7 @@ func TestRunGitReadCommandRefusesRepositoryConversionFiltersWithoutWrapper(t *te
 				t.Fatal(err)
 			}
 
-			_, _, err := runGitReadCommand(context.Background(), dir, 4096, tc.commandArg...)
+			_, _, _, err := runGitReadCommand(context.Background(), dir, 4096, tc.commandArg...)
 			if err == nil || !strings.Contains(err.Error(), "content-conversion filter") {
 				t.Fatalf("runGitReadCommand error = %v, want conversion-filter refusal", err)
 			}
@@ -1292,8 +1321,8 @@ func TestRunGitReadCommandRefusesRepositoryAttributesBackedByGlobalFilter(t *tes
 		t.Fatal(err)
 	}
 
-	_, _, err := runGitReadCommand(context.Background(), dir, 4096, "diff", "--no-ext-diff", "--no-textconv")
-	if err == nil || !strings.Contains(err.Error(), `.gitattributes`) || !strings.Contains(err.Error(), "content-conversion filter") {
+	_, _, _, err := runGitReadCommand(context.Background(), dir, 4096, "diff", "--no-ext-diff", "--no-textconv")
+	if err == nil || !strings.Contains(err.Error(), "tracked.bin") || !strings.Contains(err.Error(), "global-driver") {
 		t.Fatalf("runGitReadCommand error = %v, want repository attribute refusal", err)
 	}
 	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
@@ -1322,8 +1351,8 @@ func TestRunGitReadCommandRefusesIndexedAttributesMissingFromWorktree(t *testing
 		t.Fatal(err)
 	}
 
-	_, _, err := runGitReadCommand(context.Background(), dir, 4096, "diff", "--no-ext-diff", "--no-textconv", "--", ".")
-	if err == nil || !strings.Contains(err.Error(), ".gitattributes") || !strings.Contains(err.Error(), "content-conversion filter") {
+	_, _, _, err := runGitReadCommand(context.Background(), dir, 4096, "diff", "--no-ext-diff", "--no-textconv", "--", ".")
+	if err == nil || !strings.Contains(err.Error(), "tracked.txt") || !strings.Contains(err.Error(), "indexed-driver") {
 		t.Fatalf("runGitReadCommand error = %v, want indexed attribute refusal", err)
 	}
 }
@@ -1350,18 +1379,18 @@ func TestRunGitReadCommandPreservesWhitespaceInTrackedPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, _, err := runGitReadCommand(context.Background(), dir, 4096, "diff", "--no-ext-diff", "--no-textconv", "--", ".")
+	_, _, _, err := runGitReadCommand(context.Background(), dir, 4096, "diff", "--no-ext-diff", "--no-textconv", "--", ".")
 	if err == nil || !strings.Contains(err.Error(), " nested ") || !strings.Contains(err.Error(), "content-conversion filter") {
 		t.Fatalf("runGitReadCommand error = %v, want whitespace-path attribute refusal", err)
 	}
 }
 
-func TestGitAttributePathsStopsWhenContextCancelsDuringScan(t *testing.T) {
+func TestEffectiveGitAttributeParsingStopsWhenContextCancels(t *testing.T) {
 	ctx := &cancelAfterChecksContext{Context: context.Background(), remaining: 4}
-	tracked := strings.Repeat("nested/file.txt\x00", 100)
-	_, err := gitAttributePaths(ctx, tracked, ".")
+	output := strings.Repeat("nested/file.txt\x00filter\x00unspecified\x00", 100)
+	err := rejectEffectiveGitConversionFilters(ctx, output)
 	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("gitAttributePaths error = %v, want context cancellation", err)
+		t.Fatalf("rejectEffectiveGitConversionFilters error = %v, want context cancellation", err)
 	}
 }
 
@@ -1379,28 +1408,63 @@ func TestRunGitReadCommandRefusesGitInfoConversionAttributes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, _, err := runGitReadCommand(context.Background(), dir, 4096, "status", "--porcelain=v1", "-b")
-	if err == nil || !strings.Contains(err.Error(), "Git info attributes") || !strings.Contains(err.Error(), "content-conversion filter") {
+	_, _, _, err := runGitReadCommand(context.Background(), dir, 4096, "status", "--porcelain=v1", "-b")
+	if err == nil || !strings.Contains(err.Error(), "tracked.bin") || !strings.Contains(err.Error(), "local-info") {
 		t.Fatalf("runGitReadCommand error = %v, want Git info attribute refusal", err)
 	}
 }
 
-func TestGitAttributesDeclareConversionFilter(t *testing.T) {
+func TestGitAttributeResolutionCancelsWhenWorktreeAttributesAreFIFO(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("mkfifo is not available on Windows")
+	}
+	reset := sandbox.SetWrapperForTesting(sandbox.WrapperNone)
+	defer reset()
+	dir := t.TempDir()
+	runGit(t, dir, "init")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	runGit(t, dir, "config", "user.name", "Test User")
+	if err := os.WriteFile(filepath.Join(dir, "tracked.txt"), []byte("tracked\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, dir, "add", "tracked.txt")
+	runGit(t, dir, "commit", "-m", "initial")
+	if err := exec.Command("mkfifo", filepath.Join(dir, ".gitattributes")).Run(); err != nil {
+		t.Skipf("mkfifo unavailable: %v", err)
+	}
+	view, err := gitReadRunner().NewReadOnlyView(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("NewReadOnlyView: %v", err)
+	}
+	defer view.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	err = rejectGitReadConversionAttributes(ctx, view)
+	if err == nil {
+		t.Fatal("rejectGitReadConversionAttributes succeeded, want cancellation")
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("FIFO attribute cancellation took %v", elapsed)
+	}
+}
+
+func TestRejectEffectiveGitConversionFilters(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		text string
-		want bool
+		name    string
+		value   string
+		wantErr bool
 	}{
-		{name: "driver", text: "*.bin filter=lfs -text\n", want: true},
-		{name: "macro", text: "[attr]lfs filter=lfs diff=lfs\n", want: true},
-		{name: "set", text: "*.bin filter\n", want: true},
-		{name: "disabled", text: "*.bin -filter\n", want: false},
-		{name: "unset", text: "*.bin !filter\n", want: false},
-		{name: "comment", text: "# *.bin filter=lfs\n*.txt text\n", want: false},
+		{name: "driver", value: "lfs", wantErr: true},
+		{name: "set", value: "set", wantErr: true},
+		{name: "disabled", value: "unset", wantErr: false},
+		{name: "unspecified", value: "unspecified", wantErr: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := gitAttributesDeclareConversionFilter([]byte(tc.text)); got != tc.want {
-				t.Fatalf("gitAttributesDeclareConversionFilter(%q) = %v, want %v", tc.text, got, tc.want)
+			output := "tracked.bin\x00filter\x00" + tc.value + "\x00"
+			err := rejectEffectiveGitConversionFilters(context.Background(), output)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("rejectEffectiveGitConversionFilters(%q) error = %v, wantErr %v", tc.value, err, tc.wantErr)
 			}
 		})
 	}
@@ -1429,7 +1493,7 @@ func TestRunGitReadCommandDisablesRepositoryFSMonitor(t *testing.T) {
 	runGit(t, dir, "config", "core.fsmonitor", helper)
 	runGit(t, dir, "config", "core.fsmonitorHookVersion", "2")
 
-	if _, _, err := runGitReadCommand(context.Background(), dir, 4096, "status", "--porcelain=v1", "-b"); err != nil {
+	if _, _, _, err := runGitReadCommand(context.Background(), dir, 4096, "status", "--porcelain=v1", "-b"); err != nil {
 		t.Fatalf("runGitReadCommand: %v", err)
 	}
 	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
@@ -1460,7 +1524,7 @@ func TestRunGitReadCommandDoesNotRefreshIndex(t *testing.T) {
 	if err := os.Chtimes(tracked, future, future); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := runGitReadCommand(context.Background(), dir, 4096, "status", "--porcelain=v1", "-b"); err != nil {
+	if _, _, _, err := runGitReadCommand(context.Background(), dir, 4096, "status", "--porcelain=v1", "-b"); err != nil {
 		t.Fatalf("runGitReadCommand: %v", err)
 	}
 	after, err := os.ReadFile(indexPath)

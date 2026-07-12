@@ -24,7 +24,6 @@ type ReadOnlyView struct {
 	workTree        string
 	workspacePrefix string
 	tempDir         string
-	infoAttributes  []byte
 }
 
 // NewReadOnlyView snapshots the non-executable repository metadata needed by
@@ -160,7 +159,6 @@ func (r *LocalRunner) NewReadOnlyView(ctx context.Context, workspace string) (*R
 		workTree:        workTree,
 		workspacePrefix: workspacePrefix,
 		tempDir:         tempDir,
-		infoAttributes:  append([]byte(nil), infoAttributes...),
 	}, nil
 }
 
@@ -180,20 +178,12 @@ func (v *ReadOnlyView) RunLimited(ctx context.Context, maxBytes int64, args ...s
 	return v.runner.RunLimitedReadOnly(ctx, v.workspace, maxBytes, args...)
 }
 
-func (v *ReadOnlyView) InfoAttributes() []byte {
-	if v == nil {
-		return nil
+// RunLimitedInput runs a fixed passive Git command with caller-provided input.
+func (v *ReadOnlyView) RunLimitedInput(ctx context.Context, maxBytes int64, stdin string, args ...string) (Result, error) {
+	if v == nil || v.runner == nil {
+		return Result{ExitCode: -1}, errors.New("passive Git metadata view is not configured")
 	}
-	return append([]byte(nil), v.infoAttributes...)
-}
-
-// WorkTree returns the source repository's top-level worktree. It may be an
-// ancestor of Workspace when a task is rooted in a repository subdirectory.
-func (v *ReadOnlyView) WorkTree() string {
-	if v == nil {
-		return ""
-	}
-	return v.workTree
+	return v.runner.RunLimitedReadOnlyInput(ctx, v.workspace, maxBytes, stdin, args...)
 }
 
 // WorkspacePrefix returns Workspace relative to WorkTree. Git paths emitted
@@ -397,7 +387,7 @@ func readBoundedOptionalFile(path string, maxBytes int64) ([]byte, error) {
 	if path == "" {
 		return nil, nil
 	}
-	file, err := os.Open(path)
+	file, err := openReadOnlyMetadata(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}

@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hecatehq/hecate/internal/processrunner"
 	"github.com/hecatehq/hecate/internal/sandbox"
@@ -251,6 +252,21 @@ func TestLocalRunner_RunLimitedReadOnlyUsesReadOnlyOfflineWrapper(t *testing.T) 
 	}
 }
 
+func TestLocalRunner_RunLimitedReadOnlyInputPreservesBinaryPaths(t *testing.T) {
+	reset := sandbox.SetWrapperForTesting(sandbox.WrapperNone)
+	defer reset()
+	dir := t.TempDir()
+	process := &recordingProcessRunner{}
+	runner := &LocalRunner{Process: process, Env: []string{"PATH=/bin"}}
+	input := " first path \x00second\x00"
+	if _, err := runner.RunLimitedReadOnlyInput(context.Background(), dir, 1024, input, "check-attr", "-z", "--stdin", "filter"); err != nil {
+		t.Fatalf("RunLimitedReadOnlyInput: %v", err)
+	}
+	if process.request.Stdin != input {
+		t.Fatalf("stdin = %q, want %q", process.request.Stdin, input)
+	}
+}
+
 func TestReadOnlyViewDoesNotReloadRepositoryConfig(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("test uses a POSIX content-conversion helper")
@@ -365,8 +381,8 @@ func TestReadOnlyViewUsesRepositoryTopLevelForNestedWorkspace(t *testing.T) {
 		t.Fatalf("NewReadOnlyView: %v", err)
 	}
 	defer view.Close()
-	if got := canonicalTestPath(t, view.WorkTree()); got != canonicalTestPath(t, dir) {
-		t.Fatalf("WorkTree() = %q, want %q", got, canonicalTestPath(t, dir))
+	if got := canonicalTestPath(t, view.workTree); got != canonicalTestPath(t, dir) {
+		t.Fatalf("workTree = %q, want %q", got, canonicalTestPath(t, dir))
 	}
 	if got := filepath.ToSlash(view.WorkspacePrefix()); got != "nested" {
 		t.Fatalf("WorkspacePrefix() = %q, want nested", got)
@@ -376,7 +392,7 @@ func TestReadOnlyViewUsesRepositoryTopLevelForNestedWorkspace(t *testing.T) {
 	}
 }
 
-func TestReadBoundedOptionalFileRejectsNonRegularAndGrowingFiles(t *testing.T) {
+func TestReadBoundedOptionalFileRejectsNonRegularAndOversizedFiles(t *testing.T) {
 	dir := t.TempDir()
 	if _, err := readBoundedOptionalFile(dir, 32); err == nil || !strings.Contains(err.Error(), "regular file") {
 		t.Fatalf("directory read error = %v, want regular-file refusal", err)
@@ -387,6 +403,19 @@ func TestReadBoundedOptionalFileRejectsNonRegularAndGrowingFiles(t *testing.T) {
 	}
 	if _, err := readBoundedOptionalFile(path, 32); err == nil || !strings.Contains(err.Error(), "exceeds 32 bytes") {
 		t.Fatalf("oversized read error = %v, want bounded refusal", err)
+	}
+	if runtime.GOOS != "windows" {
+		fifo := filepath.Join(dir, "attributes.fifo")
+		if err := exec.Command("mkfifo", fifo).Run(); err != nil {
+			t.Skipf("mkfifo unavailable: %v", err)
+		}
+		started := time.Now()
+		if _, err := readBoundedOptionalFile(fifo, 32); err == nil || !strings.Contains(err.Error(), "regular file") {
+			t.Fatalf("FIFO read error = %v, want regular-file refusal", err)
+		}
+		if elapsed := time.Since(started); elapsed > time.Second {
+			t.Fatalf("FIFO metadata refusal took %v, want nonblocking open", elapsed)
+		}
 	}
 }
 
