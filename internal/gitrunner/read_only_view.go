@@ -39,18 +39,29 @@ func (r *LocalRunner) NewReadOnlyView(ctx context.Context, workspace string) (*R
 		return nil, err
 	}
 	workTree = normalizeProbedGitPath(workspace, workTree)
-	canonicalWorkspace := workspace
-	if resolved, resolveErr := filepath.EvalSymlinks(workspace); resolveErr == nil {
-		canonicalWorkspace = resolved
-	}
 	if resolved, resolveErr := filepath.EvalSymlinks(workTree); resolveErr == nil {
 		workTree = resolved
 	}
-	workspacePrefix, err := filepath.Rel(workTree, canonicalWorkspace)
-	if err != nil || !filepath.IsLocal(workspacePrefix) {
+	gitPrefix, err := r.probePathValue(ctx, workspace, true, "rev-parse", "--show-prefix")
+	if err != nil {
+		return nil, err
+	}
+	gitPrefix = strings.TrimSuffix(gitPrefix, "/")
+	workspacePrefix := filepath.Clean(filepath.FromSlash(gitPrefix))
+	if gitPrefix == "" {
+		workspacePrefix = "."
+	}
+	if !filepath.IsLocal(workspacePrefix) {
+		return nil, fmt.Errorf("unsafe Git workspace prefix %q", gitPrefix)
+	}
+	workspaceInfo, err := os.Stat(workspace)
+	if err != nil {
+		return nil, fmt.Errorf("inspect workspace %q: %w", workspace, err)
+	}
+	prefixInfo, err := os.Stat(filepath.Join(workTree, workspacePrefix))
+	if err != nil || !os.SameFile(workspaceInfo, prefixInfo) {
 		return nil, fmt.Errorf("workspace %q is outside Git worktree %q", workspace, workTree)
 	}
-	workspacePrefix = filepath.Clean(workspacePrefix)
 	gitDir, err := r.probeValue(ctx, workspace, "rev-parse", "--absolute-git-dir")
 	if err != nil {
 		return nil, err
@@ -219,6 +230,25 @@ func (r *LocalRunner) probeOptionalValue(ctx context.Context, workspace string, 
 		return "", gitProbeError(args, result, err)
 	}
 	return strings.TrimSpace(result.Stdout), nil
+}
+
+func (r *LocalRunner) probePathValue(ctx context.Context, workspace string, allowEmpty bool, args ...string) (string, error) {
+	result, err := r.RunLimitedReadOnly(ctx, workspace, readOnlyViewMetadataLimit, append([]string{"--no-pager"}, args...)...)
+	if err != nil {
+		return "", gitProbeError(args, result, err)
+	}
+	if result.StdoutTruncated || result.StderrTruncated {
+		return "", fmt.Errorf("Git metadata probe output exceeded %d bytes", readOnlyViewMetadataLimit)
+	}
+	value := strings.TrimSuffix(result.Stdout, "\n")
+	value = strings.TrimSuffix(value, "\r")
+	if strings.ContainsRune(value, '\x00') {
+		return "", fmt.Errorf("Git metadata probe %q returned a malformed path", strings.Join(args, " "))
+	}
+	if value == "" && !allowEmpty {
+		return "", fmt.Errorf("Git metadata probe %q returned no value", strings.Join(args, " "))
+	}
+	return value, nil
 }
 
 func gitProbeError(args []string, result Result, err error) error {

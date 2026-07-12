@@ -392,6 +392,45 @@ func TestReadOnlyViewUsesRepositoryTopLevelForNestedWorkspace(t *testing.T) {
 	}
 }
 
+func TestReadOnlyViewUsesGitCanonicalPrefixOnCaseInsensitiveFilesystem(t *testing.T) {
+	dir := initRepo(t)
+	canonical := filepath.Join(dir, "Sub")
+	if err := os.Mkdir(canonical, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	alternate := filepath.Join(dir, "sub")
+	if _, err := os.Stat(alternate); err != nil {
+		t.Skip("filesystem is case-sensitive")
+	}
+	view, err := NewLocalRunner().NewReadOnlyView(context.Background(), alternate)
+	if err != nil {
+		t.Fatalf("NewReadOnlyView: %v", err)
+	}
+	defer view.Close()
+	if got := filepath.ToSlash(view.WorkspacePrefix()); got != "Sub" {
+		t.Fatalf("WorkspacePrefix() = %q, want Git-canonical Sub", got)
+	}
+}
+
+func TestReadOnlyViewPreservesNewlineInGitPrefix(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("newline directory fixture is not portable to Windows")
+	}
+	dir := initRepo(t)
+	nested := filepath.Join(dir, "line\nbreak")
+	if err := os.Mkdir(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	view, err := NewLocalRunner().NewReadOnlyView(context.Background(), nested)
+	if err != nil {
+		t.Fatalf("NewReadOnlyView: %v", err)
+	}
+	defer view.Close()
+	if got := filepath.ToSlash(view.WorkspacePrefix()); got != "line\nbreak" {
+		t.Fatalf("WorkspacePrefix() = %q, want newline-preserving prefix", got)
+	}
+}
+
 func TestReadBoundedOptionalFileRejectsNonRegularAndOversizedFiles(t *testing.T) {
 	dir := t.TempDir()
 	if _, err := readBoundedOptionalFile(dir, 32); err == nil || !strings.Contains(err.Error(), "regular file") {

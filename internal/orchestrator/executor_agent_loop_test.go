@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/hecatehq/hecate/internal/runtimeevents"
 	"github.com/hecatehq/hecate/internal/sandbox"
@@ -1195,7 +1196,7 @@ func TestStructuredGitReadsScopeNestedWorkspace(t *testing.T) {
 
 func TestParseGitStatusPorcelainZNormalizesNestedPaths(t *testing.T) {
 	output := "## main\x00 M nested/file.txt\x00?? nested/line\nname.txt\x00R  nested/new.txt\x00nested/old.txt\x00"
-	branch, entries, err := parseGitStatusPorcelainZ(output, "nested")
+	branch, entries, err := parseGitStatusPorcelainZ(output, "nested", false)
 	if err != nil {
 		t.Fatalf("parseGitStatusPorcelainZ: %v", err)
 	}
@@ -1206,8 +1207,52 @@ func TestParseGitStatusPorcelainZNormalizesNestedPaths(t *testing.T) {
 	if strings.Join(entries, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("entries = %#v, want %#v", entries, want)
 	}
-	if _, _, err := parseGitStatusPorcelainZ("## main\x00 M sibling.txt\x00", "nested"); err == nil || !strings.Contains(err.Error(), "outside the workspace") {
+	if _, _, err := parseGitStatusPorcelainZ("## main\x00 M sibling.txt\x00", "nested", false); err == nil || !strings.Contains(err.Error(), "outside the workspace") {
 		t.Fatalf("outside-path parse error = %v, want refusal", err)
+	}
+	truncatedOutput := "## main\x00 M nested/complete.txt\x00?? nested/incomplete"
+	_, truncatedEntries, err := parseGitStatusPorcelainZ(truncatedOutput, "nested", true)
+	if err != nil || len(truncatedEntries) != 1 || !strings.Contains(truncatedEntries[0], "complete.txt") {
+		t.Fatalf("truncated entries = %#v error=%v, want one complete entry", truncatedEntries, err)
+	}
+	if _, _, err := parseGitStatusPorcelainZ(truncatedOutput, "nested", false); err == nil {
+		t.Fatal("strict parser accepted incomplete status output")
+	}
+	for _, path := range []string{"escape\x1b[31m.txt", string([]byte{'b', 'a', 'd', 0xff})} {
+		display := displayGitStatusPath(path)
+		if !strings.HasPrefix(display, `"`) || strings.ContainsRune(display, '\x1b') || !utf8.ValidString(display) {
+			t.Fatalf("displayGitStatusPath(%q) = %q, want safe ASCII quoting", path, display)
+		}
+	}
+}
+
+func TestGitStatusToolReturnsCompleteEntriesWhenOutputIsTruncated(t *testing.T) {
+	dir := t.TempDir()
+	runGit(t, dir, "init")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	runGit(t, dir, "config", "user.name", "Test User")
+	if err := os.WriteFile(filepath.Join(dir, "tracked.txt"), []byte("tracked\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, dir, "add", "tracked.txt")
+	runGit(t, dir, "commit", "-m", "initial")
+	for i := range 1800 {
+		name := fmt.Sprintf("untracked-%04d-%s.txt", i, strings.Repeat("x", 40))
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	spec := newAgentLoopSpec(t)
+	spec.Task.WorkingDirectory = dir
+	status, _, _, err := gitStatusTool(context.Background(), spec, gitStatusArgs{}, 0, time.Now(), "git_status")
+	if err != nil {
+		t.Fatalf("gitStatusTool: %v", err)
+	}
+	if !strings.Contains(status, "truncated=true") || strings.Contains(status, "malformed Git status") {
+		t.Fatalf("truncated git status = %q, want bounded complete entries", status)
+	}
+	if len(status) > gitDiffDefaultMaxBytes {
+		t.Fatalf("len(truncated git status) = %d, want <= %d", len(status), gitDiffDefaultMaxBytes)
 	}
 }
 
@@ -1322,11 +1367,42 @@ func TestRunGitReadCommandRefusesRepositoryAttributesBackedByGlobalFilter(t *tes
 	}
 
 	_, _, _, err := runGitReadCommand(context.Background(), dir, 4096, "diff", "--no-ext-diff", "--no-textconv")
-	if err == nil || !strings.Contains(err.Error(), "tracked.bin") || !strings.Contains(err.Error(), "global-driver") {
+	if err == nil || !strings.Contains(err.Error(), "content-conversion filter") {
 		t.Fatalf("runGitReadCommand error = %v, want repository attribute refusal", err)
 	}
 	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("global conversion helper ran during passive Git read; stat error = %v", err)
+	}
+}
+
+func TestRunGitReadCommandIgnoresUserGlobalAttributes(t *testing.T) {
+	configHome := t.TempDir()
+	if err := os.Mkdir(filepath.Join(configHome, "git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configHome, "git", "attributes"), []byte("* filter=user-global\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	dir := t.TempDir()
+	runGit(t, dir, "init")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	runGit(t, dir, "config", "user.name", "Test User")
+	tracked := filepath.Join(dir, "tracked.txt")
+	if err := os.WriteFile(tracked, []byte("before\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, dir, "add", "tracked.txt")
+	runGit(t, dir, "commit", "-m", "initial")
+	if err := os.WriteFile(tracked, []byte("after\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, _, _, err := runGitReadCommand(context.Background(), dir, 4096, "diff", "--no-ext-diff", "--no-textconv", "--", ".")
+	if err != nil {
+		t.Fatalf("runGitReadCommand: %v", err)
+	}
+	if !strings.Contains(out, "+after") {
+		t.Fatalf("passive diff = %q, want worktree change", out)
 	}
 }
 
@@ -1352,8 +1428,31 @@ func TestRunGitReadCommandRefusesIndexedAttributesMissingFromWorktree(t *testing
 	}
 
 	_, _, _, err := runGitReadCommand(context.Background(), dir, 4096, "diff", "--no-ext-diff", "--no-textconv", "--", ".")
-	if err == nil || !strings.Contains(err.Error(), "tracked.txt") || !strings.Contains(err.Error(), "indexed-driver") {
+	if err == nil || !strings.Contains(err.Error(), "content-conversion filter") {
 		t.Fatalf("runGitReadCommand error = %v, want indexed attribute refusal", err)
+	}
+}
+
+func TestRunGitReadCommandRefusesReservedFilterDriverNames(t *testing.T) {
+	for _, driver := range []string{"unset", "unspecified"} {
+		t.Run(driver, func(t *testing.T) {
+			dir := t.TempDir()
+			runGit(t, dir, "init")
+			runGit(t, dir, "config", "user.email", "test@example.com")
+			runGit(t, dir, "config", "user.name", "Test User")
+			if err := os.WriteFile(filepath.Join(dir, ".gitattributes"), []byte("*.txt filter="+driver+"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "tracked.txt"), []byte("tracked\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			runGit(t, dir, "add", ".")
+			runGit(t, dir, "commit", "-m", "initial")
+			_, _, _, err := runGitReadCommand(context.Background(), dir, 4096, "status", "--porcelain=v1", "-b")
+			if err == nil || !strings.Contains(err.Error(), "content-conversion filter") {
+				t.Fatalf("runGitReadCommand error = %v, want reserved-driver refusal", err)
+			}
+		})
 	}
 }
 
@@ -1380,14 +1479,14 @@ func TestRunGitReadCommandPreservesWhitespaceInTrackedPaths(t *testing.T) {
 	}
 
 	_, _, _, err := runGitReadCommand(context.Background(), dir, 4096, "diff", "--no-ext-diff", "--no-textconv", "--", ".")
-	if err == nil || !strings.Contains(err.Error(), " nested ") || !strings.Contains(err.Error(), "content-conversion filter") {
+	if err == nil || !strings.Contains(err.Error(), "content-conversion filter") {
 		t.Fatalf("runGitReadCommand error = %v, want whitespace-path attribute refusal", err)
 	}
 }
 
 func TestEffectiveGitAttributeParsingStopsWhenContextCancels(t *testing.T) {
 	ctx := &cancelAfterChecksContext{Context: context.Background(), remaining: 4}
-	output := strings.Repeat("nested/file.txt\x00filter\x00unspecified\x00", 100)
+	output := strings.Repeat("nested/file.txt\x00text\x00set\x00", 100)
 	err := rejectEffectiveGitConversionFilters(ctx, output)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("rejectEffectiveGitConversionFilters error = %v, want context cancellation", err)
@@ -1409,7 +1508,7 @@ func TestRunGitReadCommandRefusesGitInfoConversionAttributes(t *testing.T) {
 	}
 
 	_, _, _, err := runGitReadCommand(context.Background(), dir, 4096, "status", "--porcelain=v1", "-b")
-	if err == nil || !strings.Contains(err.Error(), "tracked.bin") || !strings.Contains(err.Error(), "local-info") {
+	if err == nil || !strings.Contains(err.Error(), "content-conversion filter") {
 		t.Fatalf("runGitReadCommand error = %v, want Git info attribute refusal", err)
 	}
 }
@@ -1457,11 +1556,16 @@ func TestRejectEffectiveGitConversionFilters(t *testing.T) {
 	}{
 		{name: "driver", value: "lfs", wantErr: true},
 		{name: "set", value: "set", wantErr: true},
-		{name: "disabled", value: "unset", wantErr: false},
-		{name: "unspecified", value: "unspecified", wantErr: false},
+		{name: "ambiguous unset", value: "unset", wantErr: true},
+		{name: "literal unspecified", value: "unspecified", wantErr: true},
+		{name: "unrelated attribute", value: "true", wantErr: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			output := "tracked.bin\x00filter\x00" + tc.value + "\x00"
+			attribute := "filter"
+			if tc.name == "unrelated attribute" {
+				attribute = "text"
+			}
+			output := "tracked.bin\x00" + attribute + "\x00" + tc.value + "\x00"
 			err := rejectEffectiveGitConversionFilters(context.Background(), output)
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("rejectEffectiveGitConversionFilters(%q) error = %v, wantErr %v", tc.value, err, tc.wantErr)
