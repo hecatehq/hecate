@@ -202,10 +202,12 @@ lazily fetch objects, and use the offline/read-only OS wrapper where available.
 The actual status/diff process reads an immutable temporary gitdir containing a
 safe core-config allowlist plus snapshotted HEAD/ref/info metadata, so a source
 config change cannot introduce an executable helper between validation and
-use. Because omitting a declared clean/process driver could instead produce
-misleading Git state, relevant worktree or info attributes that declare a
-conversion filter fail closed. `file_edit` and `apply_patch` remain available
-for proposal artifacts, while their apply paths enforce read-only policy.
+use. Nested workspaces use the checkout's true top-level metadata but scope
+status and default diffs to the workspace. Because omitting a declared
+clean/process driver could instead produce misleading Git state, relevant
+bounded worktree, index-fallback, or info attributes that declare a conversion
+filter fail closed. `file_edit` and `apply_patch` remain available for proposal
+artifacts, while their apply paths enforce read-only policy.
 
 ### Network egress for shell_exec / git_exec
 

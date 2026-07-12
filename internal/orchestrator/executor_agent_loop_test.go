@@ -46,6 +46,19 @@ type scriptedLLM struct {
 	lastReqs  []types.ChatRequest
 }
 
+type cancelAfterChecksContext struct {
+	context.Context
+	remaining int
+}
+
+func (c *cancelAfterChecksContext) Err() error {
+	c.remaining--
+	if c.remaining <= 0 {
+		return context.Canceled
+	}
+	return nil
+}
+
 func (s *scriptedLLM) Chat(ctx context.Context, req types.ChatRequest) (*types.ChatResponse, error) {
 	idx := int(s.calls.Load())
 	s.calls.Add(1)
@@ -1127,6 +1140,48 @@ func TestRunGitReadCommandSupportsStagedDiffThroughReadOnlyView(t *testing.T) {
 	}
 }
 
+func TestStructuredGitReadsScopeNestedWorkspace(t *testing.T) {
+	dir := t.TempDir()
+	runGit(t, dir, "init")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	runGit(t, dir, "config", "user.name", "Test User")
+	nested := filepath.Join(dir, "nested")
+	if err := os.Mkdir(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "root.txt"), []byte("before root\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nested, "nested.txt"), []byte("before nested\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-m", "initial")
+	if err := os.WriteFile(filepath.Join(dir, "root.txt"), []byte("after root\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nested, "nested.txt"), []byte("after nested\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	spec := newAgentLoopSpec(t)
+	spec.Task.WorkingDirectory = nested
+	status, _, _, err := gitStatusTool(context.Background(), spec, gitStatusArgs{}, 0, time.Now(), "git_status")
+	if err != nil {
+		t.Fatalf("gitStatusTool: %v", err)
+	}
+	if !strings.Contains(status, "nested/nested.txt") || strings.Contains(status, "root.txt") {
+		t.Fatalf("nested git status = %q, want only nested workspace change", status)
+	}
+	diff, _, _, err := gitDiffTool(context.Background(), spec, gitDiffArgs{}, 0, time.Now(), "git_diff")
+	if err != nil {
+		t.Fatalf("gitDiffTool: %v", err)
+	}
+	if !strings.Contains(diff, "+after nested") || strings.Contains(diff, "+after root") {
+		t.Fatalf("nested git diff = %q, want only nested workspace change", diff)
+	}
+}
+
 func TestGitReadRunnerUsesSanitizedEnvironment(t *testing.T) {
 	t.Setenv("HECATE_TEST_SECRET", "must-not-leak")
 
@@ -1243,6 +1298,70 @@ func TestRunGitReadCommandRefusesRepositoryAttributesBackedByGlobalFilter(t *tes
 	}
 	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("global conversion helper ran during passive Git read; stat error = %v", err)
+	}
+}
+
+func TestRunGitReadCommandRefusesIndexedAttributesMissingFromWorktree(t *testing.T) {
+	dir := t.TempDir()
+	runGit(t, dir, "init")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	runGit(t, dir, "config", "user.name", "Test User")
+	if err := os.WriteFile(filepath.Join(dir, ".gitattributes"), []byte("*.txt filter=indexed-driver\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tracked := filepath.Join(dir, "tracked.txt")
+	if err := os.WriteFile(tracked, []byte("before\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, dir, "add", ".gitattributes", "tracked.txt")
+	runGit(t, dir, "commit", "-m", "initial")
+	if err := os.Remove(filepath.Join(dir, ".gitattributes")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tracked, []byte("after\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := runGitReadCommand(context.Background(), dir, 4096, "diff", "--no-ext-diff", "--no-textconv", "--", ".")
+	if err == nil || !strings.Contains(err.Error(), ".gitattributes") || !strings.Contains(err.Error(), "content-conversion filter") {
+		t.Fatalf("runGitReadCommand error = %v, want indexed attribute refusal", err)
+	}
+}
+
+func TestRunGitReadCommandPreservesWhitespaceInTrackedPaths(t *testing.T) {
+	dir := t.TempDir()
+	runGit(t, dir, "init")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	runGit(t, dir, "config", "user.name", "Test User")
+	whitespaceDir := filepath.Join(dir, " nested ")
+	if err := os.Mkdir(whitespaceDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(whitespaceDir, ".gitattributes"), []byte("*.txt filter=space-driver\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tracked := filepath.Join(whitespaceDir, "tracked.txt")
+	if err := os.WriteFile(tracked, []byte("before\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-m", "initial")
+	if err := os.WriteFile(tracked, []byte("after\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := runGitReadCommand(context.Background(), dir, 4096, "diff", "--no-ext-diff", "--no-textconv", "--", ".")
+	if err == nil || !strings.Contains(err.Error(), " nested ") || !strings.Contains(err.Error(), "content-conversion filter") {
+		t.Fatalf("runGitReadCommand error = %v, want whitespace-path attribute refusal", err)
+	}
+}
+
+func TestGitAttributePathsStopsWhenContextCancelsDuringScan(t *testing.T) {
+	ctx := &cancelAfterChecksContext{Context: context.Background(), remaining: 4}
+	tracked := strings.Repeat("nested/file.txt\x00", 100)
+	_, err := gitAttributePaths(ctx, tracked, ".")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("gitAttributePaths error = %v, want context cancellation", err)
 	}
 }
 

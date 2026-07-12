@@ -1610,7 +1610,7 @@ func gitStatusTool(ctx context.Context, spec ExecutionSpec, _ gitStatusArgs, ste
 	if errMsg != "" {
 		return "git_status: " + errMsg, nil, nil, nil
 	}
-	out, truncated, err := runGitReadCommand(ctx, root, gitDiffDefaultMaxBytes, "status", "--porcelain=v1", "-b", "--ignore-submodules=all")
+	out, truncated, err := runGitReadCommand(ctx, root, gitDiffDefaultMaxBytes, "status", "--porcelain=v1", "-b", "--ignore-submodules=all", "--", ".")
 	if err != nil {
 		return fmt.Sprintf("git_status: %v", err), nil, nil, nil
 	}
@@ -1661,19 +1661,21 @@ func gitDiffTool(ctx context.Context, spec ExecutionSpec, args gitDiffArgs, step
 		if _, errMsg := resolveWorkspacePath(spec, relPath); errMsg != "" {
 			return "git_diff: " + errMsg, nil, nil, nil
 		}
-		gitArgs = append(gitArgs, "--", relPath)
+	} else {
+		relPath = "."
 	}
+	gitArgs = append(gitArgs, "--", relPath)
 	out, truncated, err := runGitReadCommand(ctx, root, maxBytes, gitArgs...)
 	if err != nil {
 		return fmt.Sprintf("git_diff: %v", err), nil, nil, nil
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "path=%s staged=%v bytes=%d truncated=%v\n", firstNonEmpty(relPath, "."), args.Staged, len(out), truncated)
+	fmt.Fprintf(&b, "path=%s staged=%v bytes=%d truncated=%v\n", relPath, args.Staged, len(out), truncated)
 	if out != "" {
 		b.WriteString(out)
 	}
 	step := buildGenericReadToolStep(spec, stepIndex, startedAt, toolName, map[string]any{
-		"path":      firstNonEmpty(relPath, "."),
+		"path":      relPath,
 		"staged":    args.Staged,
 		"bytes":     len(out),
 		"max_bytes": maxBytes,
@@ -1688,10 +1690,16 @@ func runGitReadCommand(ctx context.Context, root string, maxBytes int, args ...s
 	runner := gitReadRunner()
 	view, err := runner.NewReadOnlyView(cmdCtx, root)
 	if err != nil {
+		if cmdCtx.Err() == context.DeadlineExceeded {
+			return "", false, fmt.Errorf("git command timed out")
+		}
 		return "", false, err
 	}
 	defer view.Close()
-	if err := rejectGitReadConversionAttributes(cmdCtx, view, root); err != nil {
+	if err := rejectGitReadConversionAttributes(cmdCtx, view); err != nil {
+		if cmdCtx.Err() == context.DeadlineExceeded {
+			return "", false, fmt.Errorf("git command timed out")
+		}
 		return "", false, err
 	}
 	// Structured Git inspection stays available to read-only presets, so it
@@ -1733,34 +1741,26 @@ func gitReadRunner() *gitrunner.LocalRunner {
 	return runner
 }
 
-func rejectGitReadConversionAttributes(ctx context.Context, view *gitrunner.ReadOnlyView, root string) error {
+func rejectGitReadConversionAttributes(ctx context.Context, view *gitrunner.ReadOnlyView) error {
 	const trackedPathOutputLimit = 8 * 1024 * 1024
-	result, err := view.RunLimited(ctx, trackedPathOutputLimit, "--no-pager", "ls-files", "-z")
+	result, err := view.RunLimited(ctx, trackedPathOutputLimit, "--no-pager", "ls-files", "-z", "--full-name")
 	if err != nil {
 		return fmt.Errorf("inspect tracked paths for passive Git attributes: %w", err)
 	}
 	if result.StdoutTruncated || result.StderrTruncated {
 		return fmt.Errorf("passive Git inspection refused: tracked path metadata exceeded %d bytes", trackedPathOutputLimit)
 	}
-	fSys, err := workspacefs.New(root)
+	attributePaths, err := gitAttributePaths(ctx, result.Stdout, view.WorkspacePrefix())
 	if err != nil {
 		return err
 	}
-	attributePaths := map[string]struct{}{`.gitattributes`: {}}
-	for _, path := range strings.Split(result.Stdout, "\x00") {
-		path = filepath.Clean(filepath.FromSlash(strings.TrimSpace(path)))
-		if path == "." || path == "" {
-			continue
-		}
-		if !filepath.IsLocal(path) {
-			return fmt.Errorf("passive Git inspection refused unsafe tracked path %q", path)
-		}
-		for dir := filepath.Dir(path); ; dir = filepath.Dir(dir) {
-			attributePaths[filepath.Join(dir, ".gitattributes")] = struct{}{}
-			if dir == "." {
-				break
-			}
-		}
+	indexedAttributePaths, err := indexedGitAttributePaths(ctx, view, trackedPathOutputLimit)
+	if err != nil {
+		return err
+	}
+	fSys, err := workspacefs.New(view.WorkTree())
+	if err != nil {
+		return err
 	}
 	paths := make([]string, 0, len(attributePaths))
 	for path := range attributePaths {
@@ -1768,19 +1768,21 @@ func rejectGitReadConversionAttributes(ctx context.Context, view *gitrunner.Read
 	}
 	sort.Strings(paths)
 	for _, path := range paths {
-		info, _, err := fSys.Stat(path)
-		if errors.Is(err, os.ErrNotExist) {
-			continue
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("inspect Git attributes: %w", err)
 		}
+		data, exists, err := readBoundedWorkspaceFile(fSys, path, readFileHardCapBytes)
 		if err != nil {
 			return fmt.Errorf("inspect Git attributes %q: %w", filepath.ToSlash(path), err)
 		}
-		if info.Size() > readFileHardCapBytes {
-			return fmt.Errorf("passive Git inspection refused: Git attributes %q exceed %d bytes", filepath.ToSlash(path), readFileHardCapBytes)
-		}
-		data, _, err := fSys.ReadFile(path)
-		if err != nil {
-			return fmt.Errorf("inspect Git attributes %q: %w", filepath.ToSlash(path), err)
+		if !exists {
+			if _, tracked := indexedAttributePaths[path]; !tracked {
+				continue
+			}
+			data, err = readIndexedGitAttribute(ctx, view, path, readFileHardCapBytes)
+			if err != nil {
+				return err
+			}
 		}
 		if gitAttributesDeclareConversionFilter(data) {
 			return fmt.Errorf("passive Git inspection refused: Git attributes %q declare a content-conversion filter", filepath.ToSlash(path))
@@ -1790,6 +1792,102 @@ func rejectGitReadConversionAttributes(ctx context.Context, view *gitrunner.Read
 		return fmt.Errorf("passive Git inspection refused: Git info attributes declare a content-conversion filter")
 	}
 	return nil
+}
+
+func gitAttributePaths(ctx context.Context, trackedPaths, workspacePrefix string) (map[string]struct{}, error) {
+	paths := make(map[string]struct{})
+	addDirectoryAncestors := func(dir string) {
+		for ; ; dir = filepath.Dir(dir) {
+			paths[filepath.Join(dir, ".gitattributes")] = struct{}{}
+			if dir == "." {
+				break
+			}
+		}
+	}
+	workspacePrefix = filepath.Clean(workspacePrefix)
+	addDirectoryAncestors(workspacePrefix)
+	for _, gitPath := range strings.Split(trackedPaths, "\x00") {
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("inspect tracked paths for passive Git attributes: %w", err)
+		}
+		if gitPath == "" {
+			continue
+		}
+		path := filepath.Clean(filepath.FromSlash(gitPath))
+		if path == "." || !filepath.IsLocal(path) {
+			return nil, fmt.Errorf("passive Git inspection refused unsafe tracked path %q", gitPath)
+		}
+		addDirectoryAncestors(filepath.Dir(path))
+	}
+	return paths, nil
+}
+
+func indexedGitAttributePaths(ctx context.Context, view *gitrunner.ReadOnlyView, maxBytes int64) (map[string]struct{}, error) {
+	result, err := view.RunLimited(ctx, maxBytes,
+		"--no-pager", "ls-files", "-z", "--full-name", "--",
+		":(top).gitattributes", ":(top,glob)**/.gitattributes",
+	)
+	if err != nil {
+		return nil, fmt.Errorf("inspect indexed Git attributes: %w", err)
+	}
+	if result.StdoutTruncated || result.StderrTruncated {
+		return nil, fmt.Errorf("passive Git inspection refused: indexed attribute metadata exceeded %d bytes", maxBytes)
+	}
+	paths := make(map[string]struct{})
+	for _, gitPath := range strings.Split(result.Stdout, "\x00") {
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("inspect indexed Git attributes: %w", err)
+		}
+		if gitPath == "" {
+			continue
+		}
+		path := filepath.Clean(filepath.FromSlash(gitPath))
+		if path == "." || !filepath.IsLocal(path) {
+			return nil, fmt.Errorf("passive Git inspection refused unsafe indexed attribute path %q", gitPath)
+		}
+		paths[path] = struct{}{}
+	}
+	return paths, nil
+}
+
+func readBoundedWorkspaceFile(fSys *workspacefs.FS, path string, maxBytes int64) ([]byte, bool, error) {
+	file, _, err := fSys.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, false, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, false, fmt.Errorf("not a regular file")
+	}
+	if info.Size() > maxBytes {
+		return nil, false, fmt.Errorf("exceeds %d bytes", maxBytes)
+	}
+	data, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
+	if err != nil {
+		return nil, false, err
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, false, fmt.Errorf("exceeds %d bytes", maxBytes)
+	}
+	return data, true, nil
+}
+
+func readIndexedGitAttribute(ctx context.Context, view *gitrunner.ReadOnlyView, path string, maxBytes int64) ([]byte, error) {
+	result, err := view.RunLimited(ctx, maxBytes+1, "--no-pager", "show", ":"+filepath.ToSlash(path))
+	if err != nil {
+		return nil, fmt.Errorf("inspect indexed Git attributes %q: %w", filepath.ToSlash(path), err)
+	}
+	if result.StdoutTruncated || result.StderrTruncated || int64(len(result.Stdout)) > maxBytes {
+		return nil, fmt.Errorf("passive Git inspection refused: indexed Git attributes %q exceed %d bytes", filepath.ToSlash(path), maxBytes)
+	}
+	return []byte(result.Stdout), nil
 }
 
 func gitAttributesDeclareConversionFilter(data []byte) bool {

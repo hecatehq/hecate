@@ -325,6 +325,9 @@ func TestReadOnlyViewSnapshotsSafeCoreConfig(t *testing.T) {
 	if result, err := runner.Run(context.Background(), dir, "config", "core.ignorecase", "yes"); err != nil {
 		t.Fatalf("git config ignorecase: %v: %s", err, result.Stderr)
 	}
+	if result, err := runner.Run(context.Background(), dir, "config", "core.longpaths", "true"); err != nil {
+		t.Fatalf("git config longpaths: %v: %s", err, result.Stderr)
+	}
 	view, err := runner.NewReadOnlyView(context.Background(), dir)
 	if err != nil {
 		t.Fatalf("NewReadOnlyView: %v", err)
@@ -335,8 +338,55 @@ func TestReadOnlyViewSnapshotsSafeCoreConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(config)
-	if !strings.Contains(text, `autocrlf = "input"`) || !strings.Contains(text, `ignorecase = "true"`) {
+	if !strings.Contains(text, `autocrlf = "input"`) || !strings.Contains(text, `ignorecase = "true"`) || !strings.Contains(text, `longpaths = "true"`) {
 		t.Fatalf("passive config = %q, want normalized safe core settings", text)
+	}
+}
+
+func TestReadOnlyViewUsesRepositoryTopLevelForNestedWorkspace(t *testing.T) {
+	dir := initRepo(t)
+	nested := filepath.Join(dir, "nested")
+	if err := os.Mkdir(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nested, "file.txt"), []byte("before\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner := NewLocalRunner()
+	if result, err := runner.Run(context.Background(), dir, "add", "nested/file.txt"); err != nil {
+		t.Fatalf("git add: %v: %s", err, result.Stderr)
+	}
+	if result, err := runner.Run(context.Background(), dir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "nested"); err != nil {
+		t.Fatalf("git commit: %v: %s", err, result.Stderr)
+	}
+
+	view, err := runner.NewReadOnlyView(context.Background(), nested)
+	if err != nil {
+		t.Fatalf("NewReadOnlyView: %v", err)
+	}
+	defer view.Close()
+	if got := canonicalTestPath(t, view.WorkTree()); got != canonicalTestPath(t, dir) {
+		t.Fatalf("WorkTree() = %q, want %q", got, canonicalTestPath(t, dir))
+	}
+	if got := filepath.ToSlash(view.WorkspacePrefix()); got != "nested" {
+		t.Fatalf("WorkspacePrefix() = %q, want nested", got)
+	}
+	if env := strings.Join(view.runner.Env, "\n"); !strings.Contains(env, "GIT_WORK_TREE="+canonicalTestPath(t, dir)) {
+		t.Fatalf("passive view environment omitted repository top-level:\n%s", env)
+	}
+}
+
+func TestReadBoundedOptionalFileRejectsNonRegularAndGrowingFiles(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := readBoundedOptionalFile(dir, 32); err == nil || !strings.Contains(err.Error(), "regular file") {
+		t.Fatalf("directory read error = %v, want regular-file refusal", err)
+	}
+	path := filepath.Join(dir, "metadata")
+	if err := os.WriteFile(path, []byte(strings.Repeat("x", 33)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readBoundedOptionalFile(path, 32); err == nil || !strings.Contains(err.Error(), "exceeds 32 bytes") {
+		t.Fatalf("oversized read error = %v, want bounded refusal", err)
 	}
 }
 

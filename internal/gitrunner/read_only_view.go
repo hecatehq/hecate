@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -18,10 +19,12 @@ const readOnlyViewMetadataLimit = 1024 * 1024
 // info attributes from a private temporary gitdir. Repository config changes
 // therefore cannot introduce executable helpers between validation and use.
 type ReadOnlyView struct {
-	runner         *LocalRunner
-	workspace      string
-	tempDir        string
-	infoAttributes []byte
+	runner          *LocalRunner
+	workspace       string
+	workTree        string
+	workspacePrefix string
+	tempDir         string
+	infoAttributes  []byte
 }
 
 // NewReadOnlyView snapshots the non-executable repository metadata needed by
@@ -32,6 +35,23 @@ func (r *LocalRunner) NewReadOnlyView(ctx context.Context, workspace string) (*R
 	if err != nil {
 		return nil, err
 	}
+	workTree, err := r.probeValue(ctx, workspace, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return nil, err
+	}
+	workTree = normalizeProbedGitPath(workspace, workTree)
+	canonicalWorkspace := workspace
+	if resolved, resolveErr := filepath.EvalSymlinks(workspace); resolveErr == nil {
+		canonicalWorkspace = resolved
+	}
+	if resolved, resolveErr := filepath.EvalSymlinks(workTree); resolveErr == nil {
+		workTree = resolved
+	}
+	workspacePrefix, err := filepath.Rel(workTree, canonicalWorkspace)
+	if err != nil || !filepath.IsLocal(workspacePrefix) {
+		return nil, fmt.Errorf("workspace %q is outside Git worktree %q", workspace, workTree)
+	}
+	workspacePrefix = filepath.Clean(workspacePrefix)
 	gitDir, err := r.probeValue(ctx, workspace, "rev-parse", "--absolute-git-dir")
 	if err != nil {
 		return nil, err
@@ -120,7 +140,7 @@ func (r *LocalRunner) NewReadOnlyView(ctx context.Context, workspace string) (*R
 	viewRunner.Env = replaceEnvironment(r.env(), map[string]string{
 		"GIT_DIR":              tempDir,
 		"GIT_COMMON_DIR":       tempDir,
-		"GIT_WORK_TREE":        workspace,
+		"GIT_WORK_TREE":        workTree,
 		"GIT_INDEX_FILE":       normalizeProbedGitPath(workspace, indexPath),
 		"GIT_OBJECT_DIRECTORY": filepath.Join(normalizeProbedGitPath(workspace, commonDir), "objects"),
 		"GIT_CONFIG_NOSYSTEM":  "1",
@@ -130,14 +150,17 @@ func (r *LocalRunner) NewReadOnlyView(ctx context.Context, workspace string) (*R
 	})
 	viewRunner.ReadOnlyPaths = appendUniquePaths(viewRunner.ReadOnlyPaths,
 		tempDir,
+		workTree,
 		normalizeProbedGitPath(workspace, gitDir),
 		normalizeProbedGitPath(workspace, commonDir),
 	)
 	return &ReadOnlyView{
-		runner:         &viewRunner,
-		workspace:      workspace,
-		tempDir:        tempDir,
-		infoAttributes: append([]byte(nil), infoAttributes...),
+		runner:          &viewRunner,
+		workspace:       workspace,
+		workTree:        workTree,
+		workspacePrefix: workspacePrefix,
+		tempDir:         tempDir,
+		infoAttributes:  append([]byte(nil), infoAttributes...),
 	}, nil
 }
 
@@ -162,6 +185,24 @@ func (v *ReadOnlyView) InfoAttributes() []byte {
 		return nil
 	}
 	return append([]byte(nil), v.infoAttributes...)
+}
+
+// WorkTree returns the source repository's top-level worktree. It may be an
+// ancestor of Workspace when a task is rooted in a repository subdirectory.
+func (v *ReadOnlyView) WorkTree() string {
+	if v == nil {
+		return ""
+	}
+	return v.workTree
+}
+
+// WorkspacePrefix returns Workspace relative to WorkTree. Git paths emitted
+// with --full-name are relative to this same root.
+func (v *ReadOnlyView) WorkspacePrefix() string {
+	if v == nil {
+		return ""
+	}
+	return v.workspacePrefix
 }
 
 func (r *LocalRunner) probeValue(ctx context.Context, workspace string, args ...string) (string, error) {
@@ -202,7 +243,7 @@ func gitProbeError(args []string, result Result, err error) error {
 }
 
 func (r *LocalRunner) safeCoreConfig(ctx context.Context, workspace string) (map[string]string, error) {
-	const pattern = `^core\.(filemode|ignorecase|ignorestat|symlinks|autocrlf|eol|safecrlf|checkstat|trustctime|quotepath|precomposeunicode)$`
+	const pattern = `^core\.(filemode|ignorecase|ignorestat|symlinks|autocrlf|eol|safecrlf|checkstat|trustctime|quotepath|precomposeunicode|longpaths)$`
 	result, err := r.RunLimitedReadOnly(ctx, workspace, readOnlyViewMetadataLimit,
 		"--no-pager", "config", "-z", "--includes", "--get-regexp", pattern,
 	)
@@ -236,7 +277,7 @@ func (r *LocalRunner) safeCoreConfig(ctx context.Context, workspace string) (map
 func normalizeSafeCoreConfig(key, value string) (string, bool) {
 	lower := strings.ToLower(value)
 	switch key {
-	case "core.filemode", "core.ignorecase", "core.ignorestat", "core.symlinks", "core.trustctime", "core.quotepath", "core.precomposeunicode":
+	case "core.filemode", "core.ignorecase", "core.ignorestat", "core.symlinks", "core.trustctime", "core.quotepath", "core.precomposeunicode", "core.longpaths":
 		return normalizeGitBool(lower)
 	case "core.autocrlf":
 		if lower == "input" {
@@ -356,17 +397,32 @@ func readBoundedOptionalFile(path string, maxBytes int64) ([]byte, error) {
 	if path == "" {
 		return nil, nil
 	}
-	info, err := os.Stat(path)
+	file, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is not a regular file", path)
+	}
 	if info.Size() > maxBytes {
 		return nil, fmt.Errorf("%s exceeds %d bytes", path, maxBytes)
 	}
-	return os.ReadFile(path)
+	data, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("%s exceeds %d bytes", path, maxBytes)
+	}
+	return data, nil
 }
 
 func normalizeProbedGitPath(workspace, path string) string {
