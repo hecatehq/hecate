@@ -440,33 +440,43 @@ func TestReadOnlyViewPreservesWhitespaceInRepositoryRoot(t *testing.T) {
 	}
 	reset := sandbox.SetWrapperForTesting(sandbox.WrapperNone)
 	defer reset()
-	repo := filepath.Join(t.TempDir(), "repo \n")
-	if err := os.Mkdir(repo, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := exec.Command("git", "-C", repo, "init", "-b", "main").Run(); err != nil {
-		t.Fatalf("git init: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(repo, "tracked.txt"), []byte("tracked\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	runner := NewLocalRunner()
-	if result, err := runner.Run(context.Background(), repo, "add", "tracked.txt"); err != nil {
-		t.Fatalf("git add: %v: %s", err, result.Stderr)
-	}
-	if result, err := runner.Run(context.Background(), repo, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "initial"); err != nil {
-		t.Fatalf("git commit: %v: %s", err, result.Stderr)
-	}
-	view, err := runner.NewReadOnlyView(context.Background(), repo)
-	if err != nil {
-		t.Fatalf("NewReadOnlyView: %v", err)
-	}
-	defer view.Close()
-	if !os.SameFile(mustStat(t, view.workTree), mustStat(t, repo)) {
-		t.Fatalf("workTree = %q, want whitespace-preserving %q", view.workTree, repo)
-	}
-	if _, err := view.RunLimited(context.Background(), 4096, "status", "--porcelain=v1", "-b", "--", "."); err != nil {
-		t.Fatalf("passive git status: %v", err)
+	for _, tc := range []struct {
+		name string
+		root string
+	}{
+		{name: "space and newline", root: "repo \n"},
+		{name: "carriage return", root: "repo\r"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := filepath.Join(t.TempDir(), tc.root)
+			if err := os.Mkdir(repo, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := exec.Command("git", "-C", repo, "init", "-b", "main").Run(); err != nil {
+				t.Fatalf("git init: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(repo, "tracked.txt"), []byte("tracked\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			runner := NewLocalRunner()
+			if result, err := runner.Run(context.Background(), repo, "add", "tracked.txt"); err != nil {
+				t.Fatalf("git add: %v: %s", err, result.Stderr)
+			}
+			if result, err := runner.Run(context.Background(), repo, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "initial"); err != nil {
+				t.Fatalf("git commit: %v: %s", err, result.Stderr)
+			}
+			view, err := runner.NewReadOnlyView(context.Background(), repo)
+			if err != nil {
+				t.Fatalf("NewReadOnlyView: %v", err)
+			}
+			defer view.Close()
+			if !os.SameFile(mustStat(t, view.workTree), mustStat(t, repo)) {
+				t.Fatalf("workTree = %q, want byte-preserving %q", view.workTree, repo)
+			}
+			if _, err := view.RunLimited(context.Background(), 4096, "status", "--porcelain=v1", "-b", "--", "."); err != nil {
+				t.Fatalf("passive git status: %v", err)
+			}
+		})
 	}
 }
 

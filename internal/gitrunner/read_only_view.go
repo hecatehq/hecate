@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 )
@@ -240,8 +241,13 @@ func (r *LocalRunner) probePathValue(ctx context.Context, workspace string, allo
 	if result.StdoutTruncated || result.StderrTruncated {
 		return "", fmt.Errorf("Git metadata probe output exceeded %d bytes", readOnlyViewMetadataLimit)
 	}
+	if !strings.HasSuffix(result.Stdout, "\n") {
+		return "", fmt.Errorf("Git metadata probe %q returned a malformed path", strings.Join(args, " "))
+	}
 	value := strings.TrimSuffix(result.Stdout, "\n")
-	value = strings.TrimSuffix(value, "\r")
+	if runtime.GOOS == "windows" {
+		value = strings.TrimSuffix(value, "\r")
+	}
 	if strings.ContainsRune(value, '\x00') {
 		return "", fmt.Errorf("Git metadata probe %q returned a malformed path", strings.Join(args, " "))
 	}
