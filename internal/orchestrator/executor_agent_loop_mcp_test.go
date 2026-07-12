@@ -11,6 +11,7 @@ import (
 
 	"github.com/hecatehq/hecate/internal/mcp"
 	mcpclient "github.com/hecatehq/hecate/internal/mcp/client"
+	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -471,7 +472,7 @@ func TestAgentLoop_MCPRequireApproval_PausesBeforeHostCall(t *testing.T) {
 
 // TestAgentLoop_MCPBlock_ReturnsToolErrorWithoutCallingHost pins that
 // ApprovalPolicy=block short-circuits at the dispatcher: the host is
-// never called, a failed step is recorded, and a tool-error message
+// never called, a denied policy step is recorded, and a tool-error message
 // goes back to the LLM so it can pick a different path on the next
 // turn. The run does NOT pause for approval — block is a hard refusal,
 // not a gate.
@@ -539,16 +540,17 @@ func TestAgentLoop_MCPBlock_ReturnsToolErrorWithoutCallingHost(t *testing.T) {
 		t.Errorf("second turn did not see blocked tool error; messages=%v", llm.lastReqs[1].Messages)
 	}
 
-	// A failed step for the blocked call should be in the timeline.
+	// A denied policy step for the blocked call should be in the timeline
+	// without looking like an executor failure.
 	var sawBlockedStep bool
 	for _, s := range res.Steps {
-		if s.ToolName == "mcp__github__delete_repo" && s.Status == "failed" {
+		if s.ToolName == "mcp__github__delete_repo" && s.Status == "completed" && s.Phase == "policy" && s.Result == telemetry.ResultDenied {
 			sawBlockedStep = true
 			break
 		}
 	}
 	if !sawBlockedStep {
-		t.Errorf("expected a failed step for the blocked tool; steps=%+v", res.Steps)
+		t.Errorf("expected a denied policy step for the blocked tool; steps=%+v", res.Steps)
 	}
 }
 

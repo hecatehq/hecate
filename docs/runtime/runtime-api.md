@@ -168,7 +168,7 @@ The `task` resource accepts these fields on `POST /hecate/v1/tasks`:
 - `working_directory` — absolute path; required when `workspace_mode=in_place`
 - `workspace_mode` — `""` / `"persistent"` / `"ephemeral"` (clone behavior, default) or `"in_place"` (run directly in `working_directory`); see [`agent-runtime.md`](agent-runtime.md#workspace-modes)
 - `repo` / `base_branch` — alternate source for the workspace clone
-- `sandbox_allowed_root` / `sandbox_read_only` / `sandbox_network` — sandbox policy for shell / git / file kinds; see [`sandbox.md`](sandbox.md) for the full policy and isolation model
+- `sandbox_allowed_root` / `sandbox_read_only` / `sandbox_network` — sandbox policy for shell / git / file execution and native `agent_loop` workspace tools. Read-only agent loops omit broad process and direct-write tools. For preset-backed project assignments, the network snapshot also gates native HTTP/search; see [`sandbox.md`](sandbox.md) for the full policy and isolation model
 - `requested_provider` / `requested_model` — pin the LLM (`agent_loop`); empty falls back to gateway default
 - `budget_micros_usd` — per-task cost ceiling in micro-USD; `0` disables
 - `mcp_servers` — `agent_loop`-only array of external MCP server configs whose tools join the LLM's tool catalog under `mcp__<name>__<tool>` aliases. Each entry picks one transport (stdio: `command` + optional `args` / `env`; HTTP: `url` + optional `headers`), and may set `approval_policy` (`auto` / `require_approval` / `block`). Capped per-task by `HECATE_TASK_MAX_MCP_SERVERS_PER_TASK`. Full schema, secret handling, and lifecycle in [`mcp.md#hecate-as-mcp-client`](mcp.md#hecate-as-mcp-client).
@@ -180,9 +180,14 @@ eligible. `exclude` means the runner skips that compatibility layer for the
 task; native project assignments set this so Agent Preset context-source policy
 controls any workspace-instruction body inclusion.
 
-Task responses also include `work_item_id` and `assignment_id` when a
-project-work assignment created the task. These fields are inspection links only
-and do not replace the task's generic `origin_kind` / `origin_id` fields.
+Task responses also include `work_item_id`, `assignment_id`, and
+`agent_preset_id` when a project-work assignment created the task. These fields
+are inspection links and a launch-time preset reference; they do not replace
+the task's generic `origin_kind` / `origin_id` fields. The effective preset
+posture is snapshotted onto ordinary task fields (`sandbox_read_only`,
+`sandbox_network`, provider/model hints, execution profile, and system prompt),
+so retries and resumes do not change when the preset is later edited or
+deleted.
 
 `execution_profile` applies task-create defaults:
 
@@ -1616,7 +1621,37 @@ Project assignment starts resolve presets in this order: role default,
 project default, built-in `project_assignment` fallback. The start path
 snapshots the resolved preset, provider/model hints, runtime profile,
 memory policy, context-source policy, skill ids, and warnings into the task/run
-context packet. For native project assignments, `project_memory_policy=include`
+context packet. Launch readiness and start both reject a resolved preset whose
+surface does not match the assignment driver: native task assignments accept
+`hecate_task` or `any`, while External Agent assignments accept
+`external_agent` or `any`.
+
+For native project assignments, `writes_allowed=false` sets the backing task's
+`sandbox_read_only=true`; `writes_allowed=true` leaves workspace writes
+available within the normal sandbox boundary. `network_allowed` becomes the
+task's `sandbox_network` value. When that preset snapshot disables network,
+Hecate omits native `http_request` and `web_search` definitions from the model
+request and rejects either call if an upstream still returns one. The preset id
+marks this native-network policy as present, preserving the prior behavior of
+legacy and manually created tasks whose zero-valued sandbox flag did not govern
+native HTTP/search.
+
+When `writes_allowed=false`, Hecate also omits `shell_exec`, `git_exec`,
+`file_write`, and all interactive terminal tools, and rejects an unexpected
+call before spawning a process. Structured read/search/Git inspection remains
+available. `file_edit` and `apply_patch` remain visible because they can create
+proposal artifacts without writing; their apply paths still enforce the
+read-only policy.
+External Agent CLIs remain trusted subprocesses, so their write/network posture
+is visible launch metadata rather than a Hecate sandbox guarantee.
+
+`tools_enabled` and preset `approval_policy` remain resolved posture metadata
+in this alpha contract. Built-in task-tool approvals continue to be governed
+by `HECATE_TASK_APPROVAL_POLICIES`, and per-MCP-server policy remains governed
+by each task's `mcp_servers[].approval_policy`; a preset never weakens either
+operator policy.
+
+For native project assignments, `project_memory_policy=include`
 marks enabled project memory active and includes bounded memory bodies in the
 assignment task system prompt. `visible_only` and `inherit` keep enabled memory
 as inspect-only context, and `exclude` omits memory records from the packet. For
@@ -3318,8 +3353,11 @@ reason and repair vocabulary as `metadata.readiness` on `/v1/models`. External
 Agent assignments include `external_agent_id`, `external_agent`, and
 `session_title` when the adapter/options resolve. Assignments with a resolved
 Agent Preset include `profile_posture`, a read-only summary of the selected
-preset's tools, writes, network, approval, memory, and context-source posture. `ready=false`
-is the UI gate for `Start assignment`, `Prepare chat`, and `Start from handoff`;
+preset's tools, writes, network, approval, memory, and context-source posture.
+An incompatible preset surface is a launch blocker. For native Hecate tasks,
+the displayed write/network values are also the values that will be
+snapshotted into the created task's sandbox policy. `ready=false` is the UI
+gate for `Start assignment`, `Prepare chat`, and `Start from handoff`;
 operators must still confirm the separate start mutation after reviewing preflight.
 
 #### `GET /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments/{assignment_id}/preflight`
@@ -3380,9 +3418,11 @@ For `driver_kind="hecate_task"`, starting verifies that the project, work item,
 assignment, and role exist, then
 creates a normal Task with `execution_kind="agent_loop"`,
 `origin_kind="project_work_item"`, and `origin_id` set to the work item ID. The
-task response also exposes `work_item_id` and `assignment_id` for direct
-inspection, and the created run snapshots `project_id`, `work_item_id`, and
-`assignment_id` directly on the run payload. The
+task response also exposes `work_item_id`, `assignment_id`, and
+`agent_preset_id` for direct inspection. It snapshots the preset's effective
+write/network posture into `sandbox_read_only` and `sandbox_network`, and the
+created run snapshots `project_id`, `work_item_id`, and `assignment_id`
+directly on the run payload. The
 task title, prompt, and system prompt are composed from a visible launch-context
 block covering project, work item, assignment, role, execution hints, role
 defaults, project defaults, and any preset-activated prompt context. Project

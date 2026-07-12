@@ -35,6 +35,7 @@ const (
 	EventFilePatch            EventType = "tool.file.patch"
 	EventPatchApplied         EventType = "tool.file.applied"
 	EventPatchReverted        EventType = "tool.file.reverted"
+	EventPolicyToolBlocked    EventType = "policy.tool_blocked"
 
 	EventApprovalRequested EventType = "approval.requested"
 	EventApprovalResolved  EventType = "approval.resolved"

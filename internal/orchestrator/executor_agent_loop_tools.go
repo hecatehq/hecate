@@ -8,6 +8,7 @@ import (
 	"time"
 
 	mcpclient "github.com/hecatehq/hecate/internal/mcp/client"
+	"github.com/hecatehq/hecate/internal/runtimeevents"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/internal/websearch"
 	"github.com/hecatehq/hecate/pkg/types"
@@ -28,6 +29,7 @@ type agentLoopToolDispatchResult struct {
 	Text      string
 	Step      *types.TaskStep
 	Artifacts []types.TaskArtifact
+	ToolError bool
 }
 
 const mcpAppHTMLMaxBytes = 1 << 20
@@ -38,6 +40,20 @@ func (d *agentLoopToolDispatcher) SetMetrics(m *telemetry.OrchestratorMetrics) {
 
 func (d *agentLoopToolDispatcher) Dispatch(ctx context.Context, spec ExecutionSpec, call types.ToolCall, stepIndex int, mcpHost AgentMCPHost, terminals *agentLoopTerminals) (agentLoopToolDispatchResult, error) {
 	startedAt := time.Now().UTC()
+	if agentPresetBlocksNativeNetwork(spec.Task, call.Function.Name) {
+		return blockedNativeToolCall(
+			spec,
+			call,
+			stepIndex,
+			startedAt,
+			"sandbox_network",
+			"network access is disabled by the resolved agent preset",
+			"choose a non-network path or ask the operator to use a network-enabled preset",
+		), nil
+	}
+	if agentReadOnlyBlocksTool(spec.Task, call.Function.Name) {
+		return blockedNativeReadOnlyToolCall(spec, call, stepIndex, startedAt), nil
+	}
 
 	// External MCP tools surface under names of the form
 	// `mcp__<server>__<tool>`. Route them to the host before the
@@ -134,6 +150,9 @@ func (d *agentLoopToolDispatcher) Dispatch(ctx context.Context, spec ExecutionSp
 		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
 			return agentLoopToolDispatchResult{Text: fmt.Sprintf("invalid arguments for file_edit: %v", err)}, nil
 		}
+		if spec.Task.SandboxReadOnly && !args.Propose {
+			return blockedNativeReadOnlyApplyCall(spec, call, stepIndex, startedAt), nil
+		}
 		taskCopy, before, after, absPath, errMsg := prepareFileEditTask(spec, args)
 		if errMsg != "" {
 			return agentLoopToolDispatchResult{Text: errMsg}, nil
@@ -197,9 +216,12 @@ func (d *agentLoopToolDispatcher) Dispatch(ctx context.Context, spec ExecutionSp
 		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
 			return agentLoopToolDispatchResult{Text: fmt.Sprintf("invalid arguments for apply_patch: %v", err)}, nil
 		}
+		if spec.Task.SandboxReadOnly && !args.Propose {
+			return blockedNativeReadOnlyApplyCall(spec, call, stepIndex, startedAt), nil
+		}
 		return dispatchResult(applyPatchTool(spec, args, stepIndex, startedAt, call.ID, call.Function.Name))
 
-	case "http_request":
+	case AgentToolHTTPRequest:
 		var args httpRequestArgs
 		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
 			return agentLoopToolDispatchResult{Text: fmt.Sprintf("invalid arguments for http_request: %v", err)}, nil
@@ -223,6 +245,69 @@ func (d *agentLoopToolDispatcher) Dispatch(ctx context.Context, spec ExecutionSp
 	default:
 		return agentLoopToolDispatchResult{Text: fmt.Sprintf("unknown tool: %s", call.Function.Name)}, nil
 	}
+}
+
+func blockedNativeToolCall(spec ExecutionSpec, call types.ToolCall, stepIndex int, startedAt time.Time, policy, reason, recovery string) agentLoopToolDispatchResult {
+	finishedAt := time.Now().UTC()
+	text := fmt.Sprintf("%s: %s; %s", call.Function.Name, reason, recovery)
+	step := types.TaskStep{
+		ID:         spec.NewID("step"),
+		TaskID:     spec.Task.ID,
+		RunID:      spec.Run.ID,
+		Index:      stepIndex,
+		Kind:       "tool",
+		Title:      fmt.Sprintf("%s (blocked)", call.Function.Name),
+		Status:     "completed",
+		Phase:      "policy",
+		Result:     telemetry.ResultDenied,
+		ToolName:   call.Function.Name,
+		Input:      map[string]any{"tool": call.Function.Name},
+		ErrorKind:  "sandbox_policy_denied",
+		StartedAt:  startedAt,
+		FinishedAt: finishedAt,
+		RequestID:  spec.RequestID,
+		TraceID:    spec.TraceID,
+		OutputSummary: map[string]any{
+			"blocked": true,
+			"policy":  policy,
+			"reason":  reason,
+		},
+	}
+	if spec.EmitRunEvent != nil {
+		spec.EmitRunEvent(runtimeevents.EventPolicyToolBlocked.String(), map[string]any{
+			"tool_call_id": call.ID,
+			"tool_name":    call.Function.Name,
+			"kind":         "builtin",
+			"result":       telemetry.MCPCallResultBlocked,
+			"policy":       policy,
+			"reason":       reason,
+		})
+	}
+	return agentLoopToolDispatchResult{Text: text, Step: &step, ToolError: true}
+}
+
+func blockedNativeReadOnlyToolCall(spec ExecutionSpec, call types.ToolCall, stepIndex int, startedAt time.Time) agentLoopToolDispatchResult {
+	return blockedNativeToolCall(
+		spec,
+		call,
+		stepIndex,
+		startedAt,
+		"sandbox_read_only",
+		"this tool is unavailable because task workspace writes are disabled",
+		"use structured read-only tools or ask the operator to use a write-enabled preset",
+	)
+}
+
+func blockedNativeReadOnlyApplyCall(spec ExecutionSpec, call types.ToolCall, stepIndex int, startedAt time.Time) agentLoopToolDispatchResult {
+	return blockedNativeToolCall(
+		spec,
+		call,
+		stepIndex,
+		startedAt,
+		"sandbox_read_only",
+		"this tool cannot apply changes because task workspace writes are disabled",
+		"request a proposal-only edit or ask the operator to use a write-enabled preset",
+	)
 }
 
 func dispatchResult(text string, step *types.TaskStep, artifacts []types.TaskArtifact, err error) (agentLoopToolDispatchResult, error) {
@@ -257,7 +342,7 @@ func (d *agentLoopToolDispatcher) dispatchMCPToolCall(ctx context.Context, spec 
 	// the run.
 	server, toolLeaf, _ := mcpclient.SplitNamespacedToolName(call.Function.Name)
 
-	// Block policy: never call upstream. Emit a failed step and feed
+	// Block policy: never call upstream. Emit a denied policy step and feed
 	// a tool-error message back to the LLM so the model can pick a
 	// different path on the next turn. Operators use this to disable
 	// risky tool surfaces (e.g. write-side GitHub tools) without
@@ -266,6 +351,7 @@ func (d *agentLoopToolDispatcher) dispatchMCPToolCall(ctx context.Context, spec 
 		finishedAt := time.Now().UTC()
 		durationMS := finishedAt.Sub(startedAt).Milliseconds()
 		text := fmt.Sprintf("mcp tool %q is blocked by the configured approval policy on this task; pick a different tool", call.Function.Name)
+		reason := "blocked by mcp approval policy"
 		step := types.TaskStep{
 			ID:         spec.NewID("step"),
 			TaskID:     spec.Task.ID,
@@ -273,12 +359,11 @@ func (d *agentLoopToolDispatcher) dispatchMCPToolCall(ctx context.Context, spec 
 			Index:      stepIndex,
 			Kind:       "tool",
 			Title:      fmt.Sprintf("%s (blocked)", call.Function.Name),
-			Status:     "failed",
-			Phase:      "execution",
-			Result:     resultFromStatus("failed"),
+			Status:     "completed",
+			Phase:      "policy",
+			Result:     telemetry.ResultDenied,
 			ToolName:   call.Function.Name,
 			Input:      mcpToolInputForLog(call.Function.Name, args),
-			Error:      "blocked by mcp approval policy",
 			StartedAt:  startedAt,
 			FinishedAt: finishedAt,
 			RequestID:  spec.RequestID,
@@ -287,10 +372,12 @@ func (d *agentLoopToolDispatcher) dispatchMCPToolCall(ctx context.Context, spec 
 		step.OutputSummary = map[string]any{
 			"is_error":  true,
 			"blocked":   true,
+			"policy":    "mcp_approval_policy",
+			"reason":    reason,
 			"text_size": len(text),
 		}
-		d.recordMCPCallTelemetry(ctx, spec, call.ID, call.Function.Name, server, toolLeaf, telemetry.MCPCallResultBlocked, durationMS, step.Error)
-		return agentLoopToolDispatchResult{Text: text, Step: &step}, nil
+		d.recordMCPCallTelemetry(ctx, spec, call.ID, call.Function.Name, server, toolLeaf, telemetry.MCPCallResultBlocked, durationMS, reason)
+		return agentLoopToolDispatchResult{Text: text, Step: &step, ToolError: true}, nil
 	}
 
 	var detailed *mcpclient.ToolCallResult

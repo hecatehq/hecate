@@ -18,6 +18,11 @@ type Task struct {
 	// project assignment.
 	WorkItemID   string
 	AssignmentID string
+	// AgentPresetID identifies the Hecate-owned preset resolved when a
+	// project assignment created this task. The effective launch posture is
+	// snapshotted onto the task's execution and sandbox fields so later
+	// preset edits cannot change retries or resumes.
+	AgentPresetID string
 	// SystemPrompt is the per-task agent system prompt. When set, it
 	// becomes the narrowest layer in the composition: global default →
 	// workspace CLAUDE.md/AGENTS.md → this. Concatenated, broadest

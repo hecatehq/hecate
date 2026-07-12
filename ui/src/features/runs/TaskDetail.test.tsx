@@ -310,12 +310,74 @@ describe("TaskDetail run picker", () => {
   });
 });
 
+describe("TaskDetail effective sandbox posture", () => {
+  it("shows the preset and restricted policy applied to a task", () => {
+    const { render } = setup({
+      task: makeTask({
+        agent_preset_id: "review_qa",
+        sandbox_read_only: true,
+        sandbox_network: false,
+      }),
+    });
+    render();
+
+    const overview = screen.getByText("Run overview").parentElement!;
+    expect(within(overview).getByText("Agent preset")).toBeTruthy();
+    expect(within(overview).getByText("review_qa")).toBeTruthy();
+    expect(within(overview).getByText("Read-only")).toBeTruthy();
+    expect(within(overview).getByText("Network blocked")).toBeTruthy();
+  });
+
+  it("shows writable and network-enabled effective policy", () => {
+    const { render } = setup({
+      task: makeTask({
+        agent_preset_id: "implementation",
+        sandbox_read_only: false,
+        sandbox_network: true,
+      }),
+    });
+    render();
+
+    const overview = screen.getByText("Run overview").parentElement!;
+    expect(within(overview).getByText("implementation")).toBeTruthy();
+    expect(within(overview).getByText("Writes allowed")).toBeTruthy();
+    expect(within(overview).getByText("Network enabled")).toBeTruthy();
+  });
+
+  it("does not infer preset policy from legacy task boolean defaults", () => {
+    const { render } = setup({
+      task: makeTask({ sandbox_read_only: false, sandbox_network: false }),
+    });
+    render();
+
+    const overview = screen.getByText("Run overview").parentElement!;
+    expect(within(overview).queryByText("Agent preset")).toBeNull();
+    expect(within(overview).queryByText("File access")).toBeNull();
+    expect(within(overview).queryByText("Network")).toBeNull();
+  });
+});
+
 describe("TaskDetail step drill-down", () => {
   it("renders a step row with the title", () => {
     const step = makeStep({ title: "echo hello" });
     const { render } = setup({ steps: [step] });
     render();
     expect(screen.getByText("echo hello")).toBeTruthy();
+  });
+
+  it("renders a policy denial distinctly from an execution failure", () => {
+    const step = makeStep({
+      title: "shell_exec (blocked)",
+      status: "completed",
+      phase: "policy",
+      result: "denied",
+      output_summary: { blocked: true, policy: "sandbox_read_only" },
+    });
+    const { render } = setup({ steps: [step] });
+    render();
+
+    expect(screen.getByText("shell_exec (blocked)")).toBeTruthy();
+    expect(screen.getByText("denied")).toBeTruthy();
   });
 
   it("clicking a step with detail toggles the expanded panel", async () => {

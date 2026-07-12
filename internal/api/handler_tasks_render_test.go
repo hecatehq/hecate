@@ -72,3 +72,18 @@ func TestRenderTaskRunUsesContextPacketProjectLinkageFallback(t *testing.T) {
 		t.Fatalf("run linkage = project %q work %q assignment %q, want context fallback linkage", item.ProjectID, item.WorkItemID, item.AssignmentID)
 	}
 }
+
+func TestRenderTaskItem_ExposesAgentPresetRuntimePolicySnapshot(t *testing.T) {
+	t.Parallel()
+
+	item := renderTaskItem(types.Task{
+		ID:              "task_1",
+		AgentPresetID:   "review_qa",
+		SandboxReadOnly: true,
+		SandboxNetwork:  false,
+		Status:          "queued",
+	})
+	if item.AgentPresetID != "review_qa" || !item.SandboxReadOnly || item.SandboxNetwork {
+		t.Fatalf("rendered policy snapshot = preset %q read_only=%v network=%v, want review_qa/true/false", item.AgentPresetID, item.SandboxReadOnly, item.SandboxNetwork)
+	}
+}

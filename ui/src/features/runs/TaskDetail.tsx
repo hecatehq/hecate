@@ -746,6 +746,13 @@ export function TaskDetail({
                 [
                   ["Model", run.model || "—"],
                   ["Duration", formatDurationRange(run.started_at, run.finished_at) || "—"],
+                  ...(task.agent_preset_id
+                    ? [
+                        ["Agent preset", task.agent_preset_id],
+                        ["File access", task.sandbox_read_only ? "Read-only" : "Writes allowed"],
+                        ["Network", task.sandbox_network ? "Network enabled" : "Network blocked"],
+                      ]
+                    : []),
                   [
                     "Run ID",
                     run.id ? <CopyableID key={`run-${run.id}`} text={run.id} compact /> : "—",
@@ -964,12 +971,12 @@ export function TaskDetail({
                           width: 13,
                           height: 13,
                           borderRadius: "50%",
-                          background: stepColor(step.status),
+                          background: stepColor(step.status, step.result),
                           flexShrink: 0,
                           zIndex: 1,
                           boxShadow:
                             step.status === "running"
-                              ? `0 0 8px ${stepColor(step.status)}`
+                              ? `0 0 8px ${stepColor(step.status, step.result)}`
                               : "none",
                         }}
                       />
@@ -1009,6 +1016,11 @@ export function TaskDetail({
                       {step.status === "awaiting_approval" && (
                         <span className="badge badge-amber" style={{ fontSize: 10 }}>
                           awaiting
+                        </span>
+                      )}
+                      {step.result === "denied" && (
+                        <span className="badge badge-amber" style={{ fontSize: 10 }}>
+                          denied
                         </span>
                       )}
                       {step.status === "failed" && step.error && (

@@ -370,9 +370,11 @@ Coding-runtime operations emit their own spans, grouped by lifecycle stage:
 | `orchestrator.queue`    | `queue.enqueued`, `queue.claimed`, `queue.acked`, `queue.nacked`, `queue.lease_extended`, `queue.lease_extend_failed` |
 
 Generic runtime tool events (`tool.completed`, `tool.failed`) are grouped under
-`orchestrator.step`. Policy tool blocks (`policy.tool_blocked`) are grouped
-under `orchestrator.approval` because they represent a gate decision before
-execution.
+`orchestrator.step`. The `policy.tool_blocked` run event is an audit decision,
+not an execution failure. Its persisted policy step records
+`orchestrator.step.completed` with `hecate.result=denied`, so expected refusal
+does not increment failed-step telemetry. When emitted directly into an OTel
+trace, the policy event itself maps to `orchestrator.approval`.
 
 Steps carry `hecate.step.duration_ms`. Shell/file tool steps also promote a
 closed allowlist of sandbox/tool attributes such as wrapper kind, timeout,

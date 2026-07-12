@@ -14,7 +14,8 @@ export const STEP_STATUS_COLOR: Record<string, string> = {
   cancelled: "var(--red)",
 };
 
-export function stepColor(status: string) {
+export function stepColor(status: string, result?: string) {
+  if (result === "denied") return "var(--amber)";
   return STEP_STATUS_COLOR[status] || "var(--t3)";
 }
 

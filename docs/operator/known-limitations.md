@@ -83,6 +83,16 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
   and configured `web_search`, and `all_tools`). Unknown policy names are
   rejected at startup. The per-MCP-server `approval_policy` axis
   (`auto` / `require_approval` / `block`) is separate.
+- Native project-assignment launches enforce Agent Preset surface, write, and
+  network posture. The task snapshots the preset id and effective sandbox flags;
+  network-disabled preset tasks neither advertise nor dispatch Hecate's native
+  HTTP or web-search tools. Read-only tasks omit broad shell, Git, file-write,
+  and interactive-terminal tools; structured inspection and proposal-only
+  patch creation remain available. Legacy/manual tasks without a preset snapshot
+  retain their prior native-network behavior. Preset `tools_enabled` and
+  preset-wide `approval_policy` are
+  still inspection metadata in this alpha; global task approval policy and
+  per-MCP-server policy remain authoritative and cannot be weakened by a preset.
 - Hecate has a registry-only plugin metadata slice for native manifests. It can
   validate and show plugin-declared MCP server mount candidates, but it does not
   execute plugin code, start plugin-declared MCP servers, mount plugin tools,

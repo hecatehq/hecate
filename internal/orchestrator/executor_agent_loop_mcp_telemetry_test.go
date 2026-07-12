@@ -201,6 +201,9 @@ func TestAgentLoop_MCPBlock_EmitsBlockedEvent(t *testing.T) {
 	if got := blocked[0].Data["result"]; got != telemetry.MCPCallResultBlocked {
 		t.Errorf("result attr = %v, want %q", got, telemetry.MCPCallResultBlocked)
 	}
+	if got := blocked[0].Data["policy"]; got != "mcp_approval_policy" {
+		t.Errorf("policy attr = %v, want mcp_approval_policy", got)
+	}
 	// Block path must NOT emit the dispatched event — that would
 	// mislead operators who alert on dispatched calls.
 	if completed := cap.byType(telemetry.EventMCPToolCompleted); len(completed) != 0 {

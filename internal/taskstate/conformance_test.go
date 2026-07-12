@@ -174,12 +174,15 @@ func runStoreTaskRunStepRoundTrip(t *testing.T, store Store) {
 	ctx := context.Background()
 
 	task := types.Task{
-		ID:           "task-1",
-		Title:        "demo",
-		ProjectID:    "proj-1",
-		WorkItemID:   "work-1",
-		AssignmentID: "asgn-1",
-		Status:       "queued",
+		ID:              "task-1",
+		Title:           "demo",
+		ProjectID:       "proj-1",
+		WorkItemID:      "work-1",
+		AssignmentID:    "asgn-1",
+		AgentPresetID:   "review_qa",
+		SandboxReadOnly: true,
+		SandboxNetwork:  false,
+		Status:          "queued",
 	}
 	saved, err := store.CreateTask(ctx, task)
 	if err != nil {
@@ -195,6 +198,9 @@ func runStoreTaskRunStepRoundTrip(t *testing.T, store Store) {
 	}
 	if got.Title != "demo" {
 		t.Fatalf("GetTask round-trip mismatch: %+v", got)
+	}
+	if got.AgentPresetID != "review_qa" || !got.SandboxReadOnly || got.SandboxNetwork {
+		t.Fatalf("GetTask runtime policy snapshot = preset %q read_only=%v network=%v, want review_qa/true/false", got.AgentPresetID, got.SandboxReadOnly, got.SandboxNetwork)
 	}
 
 	run := types.TaskRun{

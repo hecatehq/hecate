@@ -133,6 +133,118 @@ func TestApplication_ResolveTaskAssignmentLaunchPlanRejectsMissingModel(t *testi
 	}
 }
 
+func TestNewAssignmentTask_SnapshotsAgentPresetSandboxPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		profile      ResolvedAgentProfile
+		wantReadOnly bool
+		wantNetwork  bool
+		wantPresetID string
+	}{
+		{
+			name:         "review preset is read only and offline",
+			profile:      ResolvedAgentProfile{ID: "review_qa", WritesAllowed: false, NetworkAllowed: false},
+			wantReadOnly: true,
+			wantPresetID: "review_qa",
+		},
+		{
+			name:         "implementation preset permits writes and network",
+			profile:      ResolvedAgentProfile{ID: "implementation", WritesAllowed: true, NetworkAllowed: true},
+			wantNetwork:  true,
+			wantPresetID: "implementation",
+		},
+		{
+			name:         "missing preset posture fails closed",
+			profile:      ResolvedAgentProfile{ID: "missing", Missing: true},
+			wantReadOnly: true,
+			wantPresetID: "missing",
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			workspace := t.TempDir()
+			task := NewAssignmentTask(
+				"task_1",
+				launchPlanTestProject(workspace),
+				launchPlanTestWorkItem(),
+				launchPlanTestAssignment(),
+				projectwork.AgentRoleProfile{Name: "Reviewer"},
+				TaskAssignmentLaunchPlan{
+					WorkingDirectory: workspace,
+					WorkspaceMode:    "in_place",
+					ExecutionProfile: "repo_local",
+					Profile:          test.profile,
+				},
+				time.Date(2026, 7, 12, 9, 0, 0, 0, time.UTC),
+			)
+			if task.AgentPresetID != test.wantPresetID || task.SandboxReadOnly != test.wantReadOnly || task.SandboxNetwork != test.wantNetwork {
+				t.Fatalf("task policy snapshot = preset %q read_only=%v network=%v, want %q/%v/%v", task.AgentPresetID, task.SandboxReadOnly, task.SandboxNetwork, test.wantPresetID, test.wantReadOnly, test.wantNetwork)
+			}
+		})
+	}
+}
+
+func TestApplication_AssignmentLaunchPlansRejectIncompatiblePresetSurface(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		profile agentprofiles.Profile
+		resolve func(*Application, context.Context, projects.Project, projectwork.AgentRoleProfile) error
+	}{
+		{
+			name: "native task rejects external agent preset",
+			profile: agentprofiles.Profile{
+				ID:                "prof_external",
+				Name:              "External",
+				Surface:           agentprofiles.SurfaceExternalAgent,
+				ExternalAgentKind: "codex",
+			},
+			resolve: func(app *Application, ctx context.Context, project projects.Project, role projectwork.AgentRoleProfile) error {
+				_, err := app.ResolveTaskAssignmentLaunchPlan(ctx, project, launchPlanTestWorkItem(), launchPlanTestAssignment(), role)
+				return err
+			},
+		},
+		{
+			name: "external agent rejects native task preset",
+			profile: agentprofiles.Profile{
+				ID:                "prof_native",
+				Name:              "Native",
+				Surface:           agentprofiles.SurfaceHecateTask,
+				ExternalAgentKind: "codex",
+			},
+			resolve: func(app *Application, ctx context.Context, project projects.Project, role projectwork.AgentRoleProfile) error {
+				_, err := app.ResolveExternalAgentAssignmentLaunchPlan(ctx, project, launchPlanTestWorkItem(), launchPlanTestAssignment(), role)
+				return err
+			},
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			profiles := agentprofiles.NewMemoryStore()
+			if _, err := profiles.Create(ctx, test.profile); err != nil {
+				t.Fatalf("Create(profile) error = %v", err)
+			}
+			app := New(Options{ProfileStore: profiles, RuntimeDefaultModel: "test-model"})
+			err := test.resolve(app, ctx, launchPlanTestProject(t.TempDir()), projectwork.AgentRoleProfile{
+				Name:                "Worker",
+				DefaultAgentProfile: test.profile.ID,
+			})
+			var launchErr LaunchPlanError
+			if !errors.As(err, &launchErr) || launchErr.Kind != LaunchPlanUnprocessable || !strings.Contains(launchErr.Message, "requires") {
+				t.Fatalf("launch error = %#v, want typed incompatible-surface blocker", err)
+			}
+		})
+	}
+}
+
 func TestApplication_ResolveAssignmentSkillsWarnsForProfileCapabilityMismatch(t *testing.T) {
 	t.Parallel()
 
