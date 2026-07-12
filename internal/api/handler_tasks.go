@@ -423,12 +423,20 @@ func buildTaskActivityItems(steps []TaskStepItem, artifacts []TaskArtifactItem, 
 			itemType = "tool_call"
 		}
 		status := step.Status
+		if step.Result == telemetry.ResultDenied {
+			status = telemetry.ResultDenied
+		}
 		needsAction := step.ApprovalID != "" && step.Status == "awaiting_approval"
 		if approvalStatus := approvalStatusByID[step.ApprovalID]; approvalStatus != "" {
 			status = approvalStatus
 			needsAction = approvalStatus == "pending"
 		}
 		summary := cloneActivitySummary(step.OutputSummary)
+		if step.Result == telemetry.ResultDenied {
+			if reason, _ := summary["reason"].(string); strings.TrimSpace(reason) == "" && strings.TrimSpace(step.Error) != "" {
+				summary["reason"] = strings.TrimSpace(step.Error)
+			}
+		}
 		addShellDebugSummary(summary, step.Input)
 		items = append(items, TaskActivityItem{
 			ID:          "step:" + step.ID,

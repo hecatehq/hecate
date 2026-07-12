@@ -1621,6 +1621,36 @@ func TestTaskActivityItemsUseResolvedApprovalStatusForStep(t *testing.T) {
 	}
 }
 
+func TestTaskActivityItemsProjectPolicyDenial(t *testing.T) {
+	items := buildTaskActivityItems([]TaskStepItem{{
+		ID:       "step_blocked",
+		Kind:     "tool",
+		Status:   "completed",
+		Phase:    "policy",
+		Result:   telemetry.ResultDenied,
+		Title:    "shell_exec (blocked)",
+		ToolName: "shell_exec",
+		OutputSummary: map[string]any{
+			"policy": "sandbox_read_only",
+			"reason": "writes are disabled by the resolved agent preset",
+		},
+		StartedAt:  "2026-05-03T10:00:00Z",
+		FinishedAt: "2026-05-03T10:00:01Z",
+	}}, nil, nil, types.TaskRun{Status: "running"})
+
+	item := taskActivityByID(items, "step:step_blocked")
+	if item.Type != "tool_call" || item.Status != telemetry.ResultDenied || !item.Terminal {
+		t.Fatalf("policy activity = type %q status %q terminal %v, want tool_call/denied/true", item.Type, item.Status, item.Terminal)
+	}
+	if reason, _ := item.Summary["reason"].(string); reason != "writes are disabled by the resolved agent preset" {
+		t.Fatalf("policy activity reason = %q, want preset denial reason", reason)
+	}
+	activity := agentChatActivityFromTaskActivity(item)
+	if activity.Status != telemetry.ResultDenied || !strings.Contains(activity.Detail, "writes are disabled") {
+		t.Fatalf("chat policy activity = status %q detail %q, want denied status and reason", activity.Status, activity.Detail)
+	}
+}
+
 func TestTaskActivityItemsExposeRTKDebugSummary(t *testing.T) {
 	items := buildTaskActivityItems([]TaskStepItem{{
 		ID:        "step_shell",

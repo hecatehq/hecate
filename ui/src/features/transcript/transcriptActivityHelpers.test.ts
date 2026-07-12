@@ -604,11 +604,12 @@ describe("activityStatusColor", () => {
     expect(activityStatusColor("failed")).toBe("var(--red)");
   });
 
-  it("maps cancelled / awaiting_approval / pending / proposed to amber", () => {
+  it("maps cancelled / awaiting_approval / pending / proposed / denied to amber", () => {
     expect(activityStatusColor("cancelled")).toBe("var(--amber)");
     expect(activityStatusColor("awaiting_approval")).toBe("var(--amber)");
     expect(activityStatusColor("pending")).toBe("var(--amber)");
     expect(activityStatusColor("proposed")).toBe("var(--amber)");
+    expect(activityStatusColor("denied")).toBe("var(--amber)");
   });
 
   it("maps running / in_progress to teal", () => {

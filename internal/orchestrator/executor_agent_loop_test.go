@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1105,9 +1106,12 @@ func TestRunGitReadCommandUsesSanitizedEnvironment(t *testing.T) {
 		t.Skip("test uses a POSIX shell script as a fake git binary")
 	}
 	dir := t.TempDir()
-	fakeBin := t.TempDir()
+	fakeBin := filepath.Join(dir, "bin")
+	if err := os.Mkdir(fakeBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	fakeGit := filepath.Join(fakeBin, "git")
-	if err := os.WriteFile(fakeGit, []byte("#!/bin/sh\nenv\n"), 0o755); err != nil {
+	if err := os.WriteFile(fakeGit, []byte("#!/bin/sh\nprintf 'args=%s\\n' \"$*\"\nenv\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -1122,6 +1126,83 @@ func TestRunGitReadCommandUsesSanitizedEnvironment(t *testing.T) {
 	}
 	if !strings.Contains(out, "PATH=") {
 		t.Fatalf("sanitized env omitted PATH, fake output:\n%s", out)
+	}
+	for _, want := range []string{
+		"GIT_OPTIONAL_LOCKS=0",
+		"GIT_NO_LAZY_FETCH=1",
+		"GIT_TERMINAL_PROMPT=0",
+		"-c core.fsmonitor=false",
+		"-c submodule.recurse=false",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("hardened Git read omitted %q, fake output:\n%s", want, out)
+		}
+	}
+}
+
+func TestRunGitReadCommandDisablesRepositoryFSMonitor(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses a POSIX fsmonitor hook")
+	}
+	dir := t.TempDir()
+	runGit(t, dir, "init")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	runGit(t, dir, "config", "user.name", "Test User")
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, dir, "add", "main.go")
+	runGit(t, dir, "commit", "-m", "initial")
+
+	marker := filepath.Join(t.TempDir(), "fsmonitor-called")
+	helper := filepath.Join(t.TempDir(), "fsmonitor")
+	script := fmt.Sprintf("#!/bin/sh\nprintf called > %q\n", marker)
+	if err := os.WriteFile(helper, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, dir, "config", "core.fsmonitor", helper)
+	runGit(t, dir, "config", "core.fsmonitorHookVersion", "2")
+
+	if _, _, err := runGitReadCommand(context.Background(), dir, 4096, "status", "--porcelain=v1", "-b"); err != nil {
+		t.Fatalf("runGitReadCommand: %v", err)
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("repository fsmonitor helper ran during hardened Git read; stat error = %v", err)
+	}
+}
+
+func TestRunGitReadCommandDoesNotRefreshIndex(t *testing.T) {
+	dir := t.TempDir()
+	runGit(t, dir, "init")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	runGit(t, dir, "config", "user.name", "Test User")
+	tracked := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(tracked, []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, dir, "add", "main.go")
+	runGit(t, dir, "commit", "-m", "initial")
+
+	indexPath := filepath.Join(dir, ".git", "index")
+	before, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Force Git to inspect the worktree entry. A normal `git status` writes the
+	// refreshed stat data back to the index; the structured read must not.
+	future := time.Now().Add(2 * time.Hour)
+	if err := os.Chtimes(tracked, future, future); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := runGitReadCommand(context.Background(), dir, 4096, "status", "--porcelain=v1", "-b"); err != nil {
+		t.Fatalf("runGitReadCommand: %v", err)
+	}
+	after, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(after, before) {
+		t.Fatal("hardened Git read refreshed the repository index")
 	}
 }
 

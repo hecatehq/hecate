@@ -230,6 +230,10 @@ describe("describeRunEvent", () => {
     expect(describeRunEvent("run.started")).toEqual({ label: "Started", tone: "running" });
     expect(describeRunEvent("run.failed")).toEqual({ label: "Failed", tone: "failed" });
     expect(describeRunEvent("tool.completed")).toEqual({ label: "Tool done", tone: "done" });
+    expect(describeRunEvent("policy.tool_blocked")).toEqual({
+      label: "Tool blocked",
+      tone: "warn",
+    });
     expect(describeRunEvent("approval.requested")).toEqual({
       label: "Approval asked",
       tone: "awaiting",
@@ -532,6 +536,20 @@ describe("taskActivityToTranscriptActivity", () => {
     );
     expect(out.status).toBe("awaiting_approval");
   });
+
+  it("preserves a policy denial and exposes its reason", () => {
+    const out = taskActivityToTranscriptActivity(
+      activity({
+        type: "tool_call",
+        status: "denied",
+        tool_name: "shell_exec",
+        summary: { reason: "writes are disabled by the resolved agent preset" },
+      }),
+    );
+    expect(out.status).toBe("denied");
+    expect(out.title).toBe("Blocked shell_exec");
+    expect(out.detail).toBe("writes are disabled by the resolved agent preset");
+  });
 });
 
 describe("taskActivityArtifactSize", () => {
@@ -679,6 +697,22 @@ describe("taskActivitySubtitle", () => {
         }),
       ),
     ).toBe("/tmp/foo · ls");
+  });
+
+  it("renders the reason before policy-denied tool details", () => {
+    expect(
+      taskActivitySubtitle(
+        activity({
+          type: "tool_call",
+          status: "denied",
+          path: "/tmp/foo",
+          summary: {
+            command: "rm /tmp/foo",
+            reason: "writes are disabled by the resolved agent preset",
+          },
+        }),
+      ),
+    ).toBe("writes are disabled by the resolved agent preset · /tmp/foo · rm /tmp/foo");
   });
 
   it("hides the 'ready' status on artifact-shaped rows", () => {

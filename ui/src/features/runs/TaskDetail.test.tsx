@@ -443,6 +443,24 @@ describe("TaskDetail runtime activity and patches", () => {
     expect(screen.getByText("main.go · proposed")).toBeTruthy();
   });
 
+  it("renders a policy-denied tool as blocked with its reason", () => {
+    const { render } = setup({
+      activity: [
+        makeActivity({
+          status: "denied",
+          title: "shell_exec (blocked)",
+          tool_name: "shell_exec",
+          path: undefined,
+          summary: { reason: "writes are disabled by the resolved agent preset" },
+        }),
+      ],
+    });
+    render();
+
+    expect(screen.getByText("Blocked shell_exec")).toBeTruthy();
+    expect(screen.getByText("writes are disabled by the resolved agent preset")).toBeTruthy();
+  });
+
   it("uses the shared transcript activity labels and Details grouping", async () => {
     const { render, user } = setup({
       activity: [

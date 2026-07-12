@@ -109,11 +109,14 @@ export function approvalCommandPreview(task: TaskRecord): string {
 
 export function describeRunEvent(eventType: string): {
   label: string;
-  tone: "queued" | "running" | "awaiting" | "done" | "failed";
+  tone: "queued" | "running" | "awaiting" | "done" | "failed" | "warn";
 } {
   const labels: Record<
     string,
-    { label: string; tone: "queued" | "running" | "awaiting" | "done" | "failed" }
+    {
+      label: string;
+      tone: "queued" | "running" | "awaiting" | "done" | "failed" | "warn";
+    }
   > = {
     "run.created": { label: "Run created", tone: "queued" },
     "run.queued": { label: "Queued", tone: "queued" },
@@ -132,6 +135,7 @@ export function describeRunEvent(eventType: string): {
     "tool.shell_command": { label: "Shell command", tone: "running" },
     "tool.failed": { label: "Tool failed", tone: "failed" },
     "tool.completed": { label: "Tool done", tone: "done" },
+    "policy.tool_blocked": { label: "Tool blocked", tone: "warn" },
     "approval.requested": { label: "Approval asked", tone: "awaiting" },
     "approval.resolved": { label: "Approval done", tone: "done" },
   };
@@ -140,7 +144,7 @@ export function describeRunEvent(eventType: string): {
 
 export function describeRunEventRecord(event: TaskRunEventRecord): {
   label: string;
-  tone: "queued" | "running" | "awaiting" | "done" | "failed";
+  tone: "queued" | "running" | "awaiting" | "done" | "failed" | "warn";
 } {
   const decision = runEventString(event, "decision").toLowerCase();
   if (event.type === "approval.resolved") {
@@ -333,8 +337,10 @@ export function taskActivityTitle(item: TaskActivityRecord): string {
       return "Final answer";
     case "patch":
       return "Patch";
-    case "tool_call":
-      return item.tool_name || item.title || item.path || "tool";
+    case "tool_call": {
+      const tool = item.tool_name || item.title || item.path || "tool";
+      return item.status === "denied" ? `Blocked ${tool}` : tool;
+    }
     default:
       return item.title || item.tool_name || item.path || item.type.replaceAll("_", " ");
   }
@@ -350,7 +356,7 @@ export function taskActivitySubtitle(item: TaskActivityRecord): string | undefin
       case "approval":
         return [reason, nonInternalKind(item.kind)];
       case "tool_call":
-        return [item.path, command];
+        return [status === "denied" ? reason : "", item.path, command];
       case "artifact":
       case "changed_files":
       case "final_answer":

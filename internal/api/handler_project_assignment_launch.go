@@ -680,16 +680,7 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		return
 	}
 	if assignment.DriverKind == projectwork.AssignmentDriverExternalAgent {
-		if strictEmbeddedRead && !strictEmbeddedRuntime && h.projectWork != nil {
-			inputs.Assignment = assignment
-			shadowedAssignment, err := h.shadowCairnlineAssignmentStartInputsToHecate(ctx, inputs)
-			if err != nil {
-				WriteError(w, projectAssignmentPreflightHTTPStatus(err), projectAssignmentPreflightErrorCode(err), err.Error())
-				return
-			}
-			assignment = shadowedAssignment
-		}
-		h.startProjectExternalAgentAssignment(w, r, project, workItem, assignment, role)
+		h.startProjectExternalAgentAssignment(w, r, inputs, strictEmbeddedRead, strictEmbeddedRuntime)
 		return
 	}
 	if assignment.DriverKind != projectwork.AssignmentDriverHecateTask {
@@ -1071,8 +1062,9 @@ func (h *Handler) projectExternalAgentAssignmentContextPacket(ctx context.Contex
 	return packet
 }
 
-func (h *Handler) startProjectExternalAgentAssignment(w http.ResponseWriter, r *http.Request, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile) {
+func (h *Handler) startProjectExternalAgentAssignment(w http.ResponseWriter, r *http.Request, inputs projectAssignmentLaunchInputs, strictEmbeddedRead, strictEmbeddedRuntime bool) {
 	ctx := r.Context()
+	project, workItem, assignment, role := inputs.Project, inputs.WorkItem, inputs.Assignment, inputs.Role
 	if h.agentChat == nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, "agent chat store is not configured")
 		return
@@ -1100,6 +1092,15 @@ func (h *Handler) startProjectExternalAgentAssignment(w http.ResponseWriter, r *
 		WriteError(w, projectAssignmentPreflightHTTPStatus(err), projectAssignmentPreflightErrorCode(err), err.Error())
 		return
 	}
+	if strictEmbeddedRead && !strictEmbeddedRuntime && h.projectWork != nil {
+		inputs.Assignment = assignment
+		shadowedAssignment, err := h.shadowCairnlineAssignmentStartInputsToHecate(ctx, inputs)
+		if err != nil {
+			WriteError(w, projectAssignmentPreflightHTTPStatus(err), projectAssignmentPreflightErrorCode(err), err.Error())
+			return
+		}
+		assignment = shadowedAssignment
+	}
 	sessionID := newChatID("chat")
 	contextPacket := h.projectExternalAgentAssignmentContextPacket(ctx, project, workItem, assignment, role, plan, sessionID)
 	contextPacket.ID = firstNonEmptyString(contextPacket.ID, newChatID("ctx"))
@@ -1121,8 +1122,7 @@ func (h *Handler) startProjectExternalAgentAssignment(w http.ResponseWriter, r *
 		chatcontext.ProjectAssignmentRefs(project.ID, workItem.ID, assignment.ID, role.ID),
 	))
 	packetBytes := chatcontext.Marshal(contextPacket)
-	strictEmbeddedRead := h.projectReadRoutesUseCairnlineReadModel() && h.requiresEmbeddedCairnlineProjectReads()
-	if h.projectAssignmentStartUsesStrictEmbeddedCairnlineRuntime(strictEmbeddedRead) {
+	if strictEmbeddedRuntime {
 		result, err := h.startStrictEmbeddedCairnlineExternalAgentAssignment(ctx, assignment, session, contextPacket.ID, packetBytes)
 		h.writeProjectExternalAgentAssignmentStartResult(w, ctx, assignment, plan.Adapter.Name, result, err, false)
 		return

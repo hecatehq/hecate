@@ -357,7 +357,10 @@ artifacts. Activity item types include `thinking`, `tool_call`, `patch`,
 `changed_files`, `final_answer`, `project_assistant_proposal`, `approval`, and
 `run_result`. Approval
 activities carry `approval_id` and `needs_action` when a user decision is
-pending. The operator UI uses this same array in both Task Detail and Hecate
+pending. Policy-denied tool steps are normalized to activity `status=denied`
+and carry the operator-facing denial `reason` in their summary, even though the
+raw audit step remains `status=completed`, `phase=policy`, `result=denied`. The
+operator UI uses this same array in both Task Detail and Hecate
 Chat transcript projections; clients should treat it as the compact timeline
 surface and use raw steps/artifacts/events only for deeper inspection. Task
 Detail may expose the raw `TaskActivityItem` fields behind an advanced
@@ -1639,6 +1642,9 @@ native HTTP/search.
 When `writes_allowed=false`, Hecate also omits `shell_exec`, `git_exec`,
 `file_write`, and all interactive terminal tools, and rejects an unexpected
 call before spawning a process. Structured read/search/Git inspection remains
+available. Structured Git inspection is fixed and passive: optional index
+locks, lazy fetch, repository fsmonitor helpers, external diff/text conversion,
+and submodule recursion are disabled, with read-only/offline OS isolation where
 available. `file_edit` and `apply_patch` remain visible because they can create
 proposal artifacts without writing; their apply paths still enforce the
 read-only policy.
