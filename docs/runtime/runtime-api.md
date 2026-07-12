@@ -1648,7 +1648,9 @@ global/system Git configuration and attributes, and submodule recursion are
 disabled, with read-only/offline OS isolation where available. The actual Git
 process reads an immutable temporary gitdir containing only allowlisted core
 settings and snapshotted HEAD/ref/info metadata, never mutable source config.
-If relevant repository or info attributes declare a content-conversion filter,
+Nested task workspaces use the repository top-level metadata while status and
+default diffs remain workspace-scoped. If relevant bounded worktree,
+index-fallback, or info attributes declare a content-conversion filter,
 inspection fails closed rather than execute a helper or report unnormalized
 state. `file_edit` and `apply_patch` remain visible because they can create
 proposal artifacts without writing; their apply paths still enforce the
