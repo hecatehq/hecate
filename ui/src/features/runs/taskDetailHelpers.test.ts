@@ -542,6 +542,7 @@ describe("taskActivityToTranscriptActivity", () => {
       activity({
         type: "tool_call",
         status: "denied",
+        terminal: true,
         tool_name: "shell_exec",
         summary: { reason: "writes are disabled by the resolved agent preset" },
       }),
@@ -549,6 +550,20 @@ describe("taskActivityToTranscriptActivity", () => {
     expect(out.status).toBe("denied");
     expect(out.title).toBe("Blocked shell_exec");
     expect(out.detail).toBe("writes are disabled by the resolved agent preset");
+    expect(out.terminal).toBeUndefined();
+  });
+
+  it("reserves transcript terminal semantics for run results", () => {
+    expect(
+      taskActivityToTranscriptActivity(
+        activity({ type: "thinking", status: "completed", terminal: true }),
+      ).terminal,
+    ).toBeUndefined();
+    expect(
+      taskActivityToTranscriptActivity(
+        activity({ type: "run_result", status: "completed", terminal: true }),
+      ).terminal,
+    ).toBe(true);
   });
 });
 

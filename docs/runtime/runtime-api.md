@@ -1644,8 +1644,11 @@ When `writes_allowed=false`, Hecate also omits `shell_exec`, `git_exec`,
 call before spawning a process. Structured read/search/Git inspection remains
 available. Structured Git inspection is fixed and passive: optional index
 locks, lazy fetch, repository fsmonitor helpers, external diff/text conversion,
-and submodule recursion are disabled, with read-only/offline OS isolation where
-available. `file_edit` and `apply_patch` remain visible because they can create
+global/system Git configuration and attributes, and submodule recursion are
+disabled, with read-only/offline OS isolation where available. If effective
+repository config defines a `filter.*.clean` or `filter.*.process` content
+conversion helper, inspection fails closed before Git compares worktree
+content. `file_edit` and `apply_patch` remain visible because they can create
 proposal artifacts without writing; their apply paths still enforce the
 read-only policy.
 External Agent CLIs remain trusted subprocesses, so their write/network posture
