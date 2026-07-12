@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -1685,7 +1686,12 @@ func runGitReadCommand(ctx context.Context, root string, maxBytes int, args ...s
 	cmdCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	runner := gitReadRunner()
-	if err := rejectGitReadConversionFilters(cmdCtx, runner, root); err != nil {
+	view, err := runner.NewReadOnlyView(cmdCtx, root)
+	if err != nil {
+		return "", false, err
+	}
+	defer view.Close()
+	if err := rejectGitReadConversionAttributes(cmdCtx, view, root); err != nil {
 		return "", false, err
 	}
 	// Structured Git inspection stays available to read-only presets, so it
@@ -1702,7 +1708,7 @@ func runGitReadCommand(ctx context.Context, root string, maxBytes int, args ...s
 		"-c", "submodule.recurse=false",
 		"-c", "fetch.recurseSubmodules=false",
 	}, args...)
-	result, err := runner.RunLimitedReadOnly(cmdCtx, root, int64(maxBytes), gitArgs...)
+	result, err := view.RunLimited(cmdCtx, int64(maxBytes), gitArgs...)
 	if cmdCtx.Err() == context.DeadlineExceeded {
 		return "", false, fmt.Errorf("git command timed out")
 	}
@@ -1723,39 +1729,83 @@ func gitReadRunner() *gitrunner.LocalRunner {
 		"GIT_OPTIONAL_LOCKS=0",
 		"GIT_NO_LAZY_FETCH=1",
 		"GIT_TERMINAL_PROMPT=0",
-		"GIT_CONFIG_NOSYSTEM=1",
-		"GIT_CONFIG_GLOBAL="+os.DevNull,
-		"GIT_CONFIG_SYSTEM="+os.DevNull,
-		"GIT_ATTR_NOSYSTEM=1",
 	)
 	return runner
 }
 
-func rejectGitReadConversionFilters(ctx context.Context, runner *gitrunner.LocalRunner, root string) error {
-	const configOutputLimit = 64 * 1024
-	result, err := runner.RunLimitedReadOnly(ctx, root, configOutputLimit,
-		"--no-pager",
-		"config",
-		"--includes",
-		"--name-only",
-		"--get-regexp",
-		`^filter\..*\.(clean|process)$`,
-	)
+func rejectGitReadConversionAttributes(ctx context.Context, view *gitrunner.ReadOnlyView, root string) error {
+	const trackedPathOutputLimit = 8 * 1024 * 1024
+	result, err := view.RunLimited(ctx, trackedPathOutputLimit, "--no-pager", "ls-files", "-z")
 	if err != nil {
-		// `git config --get-regexp` uses exit 1 for a clean no-match.
-		if result.ExitCode == 1 && strings.TrimSpace(result.Stdout) == "" && strings.TrimSpace(result.Stderr) == "" {
-			return nil
-		}
-		return fmt.Errorf("inspect repository Git filters: %w", err)
+		return fmt.Errorf("inspect tracked paths for passive Git attributes: %w", err)
 	}
 	if result.StdoutTruncated || result.StderrTruncated {
-		return fmt.Errorf("passive Git inspection refused: repository content-conversion filter configuration exceeded %d bytes", configOutputLimit)
+		return fmt.Errorf("passive Git inspection refused: tracked path metadata exceeded %d bytes", trackedPathOutputLimit)
 	}
-	keys := strings.Fields(result.Stdout)
-	if len(keys) > 0 {
-		return fmt.Errorf("passive Git inspection refused: repository content-conversion filters are configured (%s)", strings.Join(keys, ", "))
+	fSys, err := workspacefs.New(root)
+	if err != nil {
+		return err
+	}
+	attributePaths := map[string]struct{}{`.gitattributes`: {}}
+	for _, path := range strings.Split(result.Stdout, "\x00") {
+		path = filepath.Clean(filepath.FromSlash(strings.TrimSpace(path)))
+		if path == "." || path == "" {
+			continue
+		}
+		if !filepath.IsLocal(path) {
+			return fmt.Errorf("passive Git inspection refused unsafe tracked path %q", path)
+		}
+		for dir := filepath.Dir(path); ; dir = filepath.Dir(dir) {
+			attributePaths[filepath.Join(dir, ".gitattributes")] = struct{}{}
+			if dir == "." {
+				break
+			}
+		}
+	}
+	paths := make([]string, 0, len(attributePaths))
+	for path := range attributePaths {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	for _, path := range paths {
+		info, _, err := fSys.Stat(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("inspect Git attributes %q: %w", filepath.ToSlash(path), err)
+		}
+		if info.Size() > readFileHardCapBytes {
+			return fmt.Errorf("passive Git inspection refused: Git attributes %q exceed %d bytes", filepath.ToSlash(path), readFileHardCapBytes)
+		}
+		data, _, err := fSys.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("inspect Git attributes %q: %w", filepath.ToSlash(path), err)
+		}
+		if gitAttributesDeclareConversionFilter(data) {
+			return fmt.Errorf("passive Git inspection refused: Git attributes %q declare a content-conversion filter", filepath.ToSlash(path))
+		}
+	}
+	if gitAttributesDeclareConversionFilter(view.InfoAttributes()) {
+		return fmt.Errorf("passive Git inspection refused: Git info attributes declare a content-conversion filter")
 	}
 	return nil
+}
+
+func gitAttributesDeclareConversionFilter(data []byte) bool {
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.Fields(line)
+		for _, attribute := range fields[1:] {
+			if attribute == "filter" || strings.HasPrefix(attribute, "filter=") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func combineGitReadOutput(stdout, stderr string) string {

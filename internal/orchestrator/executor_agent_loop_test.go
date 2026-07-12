@@ -1102,46 +1102,48 @@ func TestRunGitReadCommandCapsOutputWhileReading(t *testing.T) {
 	}
 }
 
-func TestRunGitReadCommandUsesSanitizedEnvironment(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("test uses a POSIX shell script as a fake git binary")
-	}
+func TestRunGitReadCommandSupportsStagedDiffThroughReadOnlyView(t *testing.T) {
 	dir := t.TempDir()
-	fakeBin := filepath.Join(dir, "bin")
-	if err := os.Mkdir(fakeBin, 0o755); err != nil {
+	runGit(t, dir, "init")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	runGit(t, dir, "config", "user.name", "Test User")
+	path := filepath.Join(dir, "staged.txt")
+	if err := os.WriteFile(path, []byte("before\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	fakeGit := filepath.Join(fakeBin, "git")
-	if err := os.WriteFile(fakeGit, []byte("#!/bin/sh\ncase \" $* \" in *\" config \"*) exit 1;; esac\nprintf 'args=%s\\n' \"$*\"\nenv\n"), 0o755); err != nil {
+	runGit(t, dir, "add", "staged.txt")
+	runGit(t, dir, "commit", "-m", "initial")
+	if err := os.WriteFile(path, []byte("after\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("HECATE_TEST_SECRET", "must-not-leak")
+	runGit(t, dir, "add", "staged.txt")
 
-	out, _, err := runGitReadCommand(context.Background(), dir, 4096, "status")
+	out, _, err := runGitReadCommand(context.Background(), dir, 4096, "diff", "--no-ext-diff", "--no-textconv", "--cached")
 	if err != nil {
 		t.Fatalf("runGitReadCommand: %v", err)
 	}
+	if !strings.Contains(out, "-before") || !strings.Contains(out, "+after") {
+		t.Fatalf("staged passive diff = %q, want staged change", out)
+	}
+}
+
+func TestGitReadRunnerUsesSanitizedEnvironment(t *testing.T) {
+	t.Setenv("HECATE_TEST_SECRET", "must-not-leak")
+
+	out := strings.Join(gitReadRunner().Env, "\n")
 	if strings.Contains(out, "HECATE_TEST_SECRET=must-not-leak") {
-		t.Fatalf("git helper inherited non-allowlisted env:\n%s", out)
+		t.Fatalf("Git reader inherited non-allowlisted env:\n%s", out)
 	}
 	if !strings.Contains(out, "PATH=") {
-		t.Fatalf("sanitized env omitted PATH, fake output:\n%s", out)
+		t.Fatalf("sanitized env omitted PATH:\n%s", out)
 	}
 	for _, want := range []string{
 		"GIT_OPTIONAL_LOCKS=0",
 		"GIT_NO_LAZY_FETCH=1",
 		"GIT_TERMINAL_PROMPT=0",
-		"GIT_CONFIG_NOSYSTEM=1",
-		"GIT_CONFIG_GLOBAL=" + os.DevNull,
-		"GIT_CONFIG_SYSTEM=" + os.DevNull,
-		"GIT_ATTR_NOSYSTEM=1",
-		"-c core.fsmonitor=false",
-		"-c core.attributesFile=" + os.DevNull,
-		"-c submodule.recurse=false",
 	} {
 		if !strings.Contains(out, want) {
-			t.Errorf("hardened Git read omitted %q, fake output:\n%s", want, out)
+			t.Errorf("hardened Git reader omitted %q:\n%s", want, out)
 		}
 	}
 }
@@ -1188,11 +1190,98 @@ func TestRunGitReadCommandRefusesRepositoryConversionFiltersWithoutWrapper(t *te
 			}
 
 			_, _, err := runGitReadCommand(context.Background(), dir, 4096, tc.commandArg...)
-			if err == nil || !strings.Contains(err.Error(), "content-conversion filters are configured") {
-				t.Fatalf("runGitReadCommand error = %v, want configured-filter refusal", err)
+			if err == nil || !strings.Contains(err.Error(), "content-conversion filter") {
+				t.Fatalf("runGitReadCommand error = %v, want conversion-filter refusal", err)
 			}
 			if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
 				t.Fatalf("repository conversion helper ran during passive Git read; stat error = %v", err)
+			}
+		})
+	}
+}
+
+func TestRunGitReadCommandRefusesRepositoryAttributesBackedByGlobalFilter(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses a POSIX content-conversion helper and home config")
+	}
+	reset := sandbox.SetWrapperForTesting(sandbox.WrapperNone)
+	defer reset()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	dir := t.TempDir()
+	runGit(t, dir, "init")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	runGit(t, dir, "config", "user.name", "Test User")
+	if err := os.WriteFile(filepath.Join(dir, ".gitattributes"), []byte("*.bin filter=global-driver\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tracked := filepath.Join(dir, "tracked.bin")
+	if err := os.WriteFile(tracked, []byte("before\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, dir, "add", ".gitattributes", "tracked.bin")
+	runGit(t, dir, "commit", "-m", "initial")
+
+	marker := filepath.Join(t.TempDir(), "global-filter-called")
+	helper := filepath.Join(t.TempDir(), "global-filter")
+	script := fmt.Sprintf("#!/bin/sh\nprintf called > %q\ncat\n", marker)
+	if err := os.WriteFile(helper, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	globalConfig := fmt.Sprintf("[filter \"global-driver\"]\n\tclean = %q\n", helper)
+	if err := os.WriteFile(filepath.Join(home, ".gitconfig"), []byte(globalConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tracked, []byte("after\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := runGitReadCommand(context.Background(), dir, 4096, "diff", "--no-ext-diff", "--no-textconv")
+	if err == nil || !strings.Contains(err.Error(), `.gitattributes`) || !strings.Contains(err.Error(), "content-conversion filter") {
+		t.Fatalf("runGitReadCommand error = %v, want repository attribute refusal", err)
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("global conversion helper ran during passive Git read; stat error = %v", err)
+	}
+}
+
+func TestRunGitReadCommandRefusesGitInfoConversionAttributes(t *testing.T) {
+	dir := t.TempDir()
+	runGit(t, dir, "init")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	runGit(t, dir, "config", "user.name", "Test User")
+	if err := os.WriteFile(filepath.Join(dir, "tracked.bin"), []byte("before\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, dir, "add", "tracked.bin")
+	runGit(t, dir, "commit", "-m", "initial")
+	if err := os.WriteFile(filepath.Join(dir, ".git", "info", "attributes"), []byte("*.bin filter=local-info\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := runGitReadCommand(context.Background(), dir, 4096, "status", "--porcelain=v1", "-b")
+	if err == nil || !strings.Contains(err.Error(), "Git info attributes") || !strings.Contains(err.Error(), "content-conversion filter") {
+		t.Fatalf("runGitReadCommand error = %v, want Git info attribute refusal", err)
+	}
+}
+
+func TestGitAttributesDeclareConversionFilter(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		text string
+		want bool
+	}{
+		{name: "driver", text: "*.bin filter=lfs -text\n", want: true},
+		{name: "macro", text: "[attr]lfs filter=lfs diff=lfs\n", want: true},
+		{name: "set", text: "*.bin filter\n", want: true},
+		{name: "disabled", text: "*.bin -filter\n", want: false},
+		{name: "unset", text: "*.bin !filter\n", want: false},
+		{name: "comment", text: "# *.bin filter=lfs\n*.txt text\n", want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := gitAttributesDeclareConversionFilter([]byte(tc.text)); got != tc.want {
+				t.Fatalf("gitAttributesDeclareConversionFilter(%q) = %v, want %v", tc.text, got, tc.want)
 			}
 		})
 	}
