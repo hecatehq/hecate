@@ -69,10 +69,22 @@ describe("RolesModal", () => {
       />,
     );
 
+    expect(screen.getByRole("button", { name: "New custom role" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Create role" })).not.toHaveAttribute("aria-pressed");
     await userEvent.type(screen.getByLabelText("Name"), "Designer");
-    fireEvent.change(screen.getByLabelText("Default driver"), {
-      target: { value: "hecate_task" },
+    const destination = screen.getByLabelText("Default destination");
+    expect(screen.getByRole("option", { name: "Human" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "Hecate Task" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "External Agent" })).toBeTruthy();
+    fireEvent.change(destination, {
+      target: { value: "manual" },
     });
+    expect(destination).toHaveAccessibleDescription(
+      "Track work completed by a person outside Hecate.",
+    );
     fireEvent.change(screen.getByLabelText("Default preset"), {
       target: { value: "implementation" },
     });
@@ -82,7 +94,7 @@ describe("RolesModal", () => {
     expect(onCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         name: "Designer",
-        defaultDriverKind: "hecate_task",
+        defaultDriverKind: "manual",
         defaultAgentPreset: "implementation",
         skillIDs: "backend",
       }),
@@ -108,6 +120,11 @@ describe("RolesModal", () => {
       />,
     );
 
+    expect(screen.getByRole("button", { name: "Developer" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Save role" })).not.toHaveAttribute("aria-pressed");
     await userEvent.clear(screen.getByLabelText("Description"));
     await userEvent.type(screen.getByLabelText("Description"), "Owns scoped implementation work.");
     await userEvent.click(screen.getByRole("button", { name: "Save role" }));

@@ -214,6 +214,212 @@ test("Projects rootless journey: plan work without setup or workspace", async ({
   expect(state.artifacts).toHaveLength(1);
 });
 
+test("Projects Human assignment journey: rootless work without launch preflight", async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(new Date(NOW));
+  const state = await mockProjectJourneyAPIs(page);
+  state.projects = [
+    {
+      id: "proj_human",
+      name: "Research synthesis",
+      description: "Coordinate interview synthesis without a code workspace.",
+      roots: [],
+      context_sources: [],
+      created_at: NOW,
+      updated_at: NOW,
+    },
+  ];
+  state.roles = [
+    {
+      id: "researcher",
+      project_id: "proj_human",
+      name: "Researcher",
+      description: "Synthesize interview findings for review.",
+      default_driver_kind: "manual",
+      skill_ids: [],
+      built_in: false,
+      created_at: NOW,
+      updated_at: NOW,
+    },
+  ];
+  state.workItems = [
+    {
+      id: "work_human",
+      project_id: "proj_human",
+      title: "Synthesize interview themes",
+      brief: "Turn the interview notes into a reviewable theme summary.",
+      status: "ready",
+      priority: "high",
+      owner_role_id: "researcher",
+      created_at: NOW,
+      updated_at: NOW,
+    },
+  ];
+
+  const launchCheckRequests: string[] = [];
+  page.on("request", (request) => {
+    const path = new URL(request.url()).pathname;
+    if (path.endsWith("/launch-readiness") || path.endsWith("/preflight")) {
+      launchCheckRequests.push(path);
+    }
+  });
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.workspace", "projects");
+    window.localStorage.setItem("hecate.project", "proj_human");
+  });
+
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+  await page.getByRole("tab", { name: /Work/ }).click();
+
+  const detail = page.getByRole("region", { name: "Selected work item" });
+  await expect(detail.getByRole("heading", { name: "Synthesize interview themes" })).toBeVisible();
+  await detail.getByText("Add manually").click();
+  await detail
+    .getByRole("group", { name: "Manual work item actions" })
+    .getByRole("button", { name: "Assignment" })
+    .click();
+
+  const assignmentDialog = page.getByRole("dialog", { name: "Add assignment" });
+  await expect(assignmentDialog.getByLabel("Work done by")).toHaveValue("manual");
+  await expect(
+    assignmentDialog.getByText("Track work completed by a person outside Hecate."),
+  ).toBeVisible();
+  await expect(assignmentDialog.getByLabel("Workspace (optional)")).toHaveCount(0);
+
+  const createRequestPromise = page.waitForRequest((request) => {
+    return (
+      request.method() === "POST" &&
+      new URL(request.url()).pathname ===
+        "/hecate/v1/projects/proj_human/work-items/work_human/assignments"
+    );
+  });
+  await assignmentDialog.getByRole("button", { name: "Add assignment" }).click();
+  const createRequest = await createRequestPromise;
+  expect(createRequest.postDataJSON()).toEqual({
+    role_id: "researcher",
+    driver_kind: "manual",
+  });
+
+  const executionStory = page.getByRole("article", {
+    name: "Researcher assignment execution assign_human",
+  });
+  await expect(executionStory).toBeVisible();
+  await expect(executionStory.getByText("Human", { exact: true })).toBeVisible();
+  await expect(executionStory.getByText("Ready", { exact: true })).toBeVisible();
+  await expect(executionStory.getByText("Ready for a person to begin.").first()).toBeVisible();
+  await expect(executionStory.getByRole("button", { name: "Start work" })).toBeVisible();
+  await expect(executionStory.getByText("Launch readiness", { exact: true })).toHaveCount(0);
+  await expect(executionStory.getByText(/linked task or chat/i)).toHaveCount(0);
+
+  await page.getByRole("tab", { name: "Overview" }).click();
+  const operations = page.getByRole("region", { name: "Project operations" });
+  await expect(
+    operations.getByText("Human work ready: Synthesize interview themes", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    operations.getByText("This assignment is ready for a person to begin.", { exact: true }),
+  ).toBeVisible();
+  await operations.getByRole("button", { name: /Open work/ }).click();
+  await expect(page.getByRole("tab", { name: /Work/ })).toHaveAttribute("aria-selected", "true");
+  await expect(detail).toBeVisible();
+  await expect(page.getByRole("dialog", { name: /launch preflight/i })).toHaveCount(0);
+
+  await executionStory.scrollIntoViewIfNeeded();
+  if (process.env.HECATE_CAPTURE_PROJECTS_HUMAN === "1") {
+    await page.screenshot({
+      path: "../docs/screenshots/projects-human-assignment.jpg",
+      type: "jpeg",
+      quality: 90,
+    });
+  }
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await executionStory.scrollIntoViewIfNeeded();
+  await expect(executionStory.getByRole("button", { name: "Start work" })).toBeVisible();
+  expect(
+    await executionStory.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+  ).toBe(true);
+  if (process.env.HECATE_CAPTURE_PROJECTS_HUMAN === "1") {
+    await page.screenshot({
+      path: "../docs/screenshots/projects-human-assignment-narrow.jpg",
+      type: "jpeg",
+      quality: 90,
+    });
+  }
+
+  const startRequestPromise = page.waitForRequest((request) => {
+    return (
+      request.method() === "POST" &&
+      new URL(request.url()).pathname ===
+        "/hecate/v1/projects/proj_human/work-items/work_human/assignments/assign_human/start"
+    );
+  });
+  await executionStory.getByRole("button", { name: "Start work" }).click();
+  const startRequest = await startRequestPromise;
+  expect(startRequest.postDataJSON()).toEqual({ driver_kind: "manual" });
+  await expect(executionStory.getByText("Human work is in progress.").first()).toBeVisible();
+  await expect(executionStory.getByRole("button", { name: "Mark complete" })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: /launch preflight/i })).toHaveCount(0);
+  expect(state.assignments[0]?.execution_ref).toBeUndefined();
+
+  await executionStory.getByText("Assignment details").click();
+  await executionStory.getByRole("button", { name: "Edit assignment assign_human" }).click();
+  const editDialog = page.getByRole("dialog", { name: "Edit assignment" });
+  await expect(editDialog.getByLabel("Responsibility")).toBeDisabled();
+  await expect(editDialog.getByLabel("Work done by")).toBeDisabled();
+  const reviewRequestPromise = page.waitForRequest((request) => {
+    return (
+      request.method() === "PATCH" &&
+      new URL(request.url()).pathname ===
+        "/hecate/v1/projects/proj_human/work-items/work_human/assignments/assign_human"
+    );
+  });
+  await editDialog.getByLabel("Status").selectOption("awaiting_approval");
+  await editDialog.getByRole("button", { name: "Save assignment" }).click();
+  const reviewRequest = await reviewRequestPromise;
+  expect(reviewRequest.postDataJSON()).toEqual({ status: "awaiting_approval" });
+  await expect(executionStory.getByText("This work is waiting for review.")).toBeVisible();
+  await expect(executionStory.getByRole("button", { name: "Resume work" })).toBeVisible();
+  expect(
+    await executionStory.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+  ).toBe(true);
+
+  const resumeRequestPromise = page.waitForRequest((request) => {
+    return (
+      request.method() === "PATCH" &&
+      new URL(request.url()).pathname ===
+        "/hecate/v1/projects/proj_human/work-items/work_human/assignments/assign_human"
+    );
+  });
+  await executionStory.getByRole("button", { name: "Resume work" }).click();
+  const resumeRequest = await resumeRequestPromise;
+  expect(resumeRequest.postDataJSON()).toEqual({ status: "running" });
+  await expect(executionStory.getByRole("button", { name: "Mark complete" })).toBeVisible();
+  expect(state.assignments[0]?.execution_ref).toBeUndefined();
+
+  const completeRequestPromise = page.waitForRequest((request) => {
+    return (
+      request.method() === "PATCH" &&
+      new URL(request.url()).pathname ===
+        "/hecate/v1/projects/proj_human/work-items/work_human/assignments/assign_human"
+    );
+  });
+  await executionStory.getByRole("button", { name: "Mark complete" }).click();
+  const completeRequest = await completeRequestPromise;
+  expect(completeRequest.postDataJSON()).toEqual({ status: "completed" });
+  await expect(
+    executionStory.getByText("Human work is complete. Add evidence or choose the follow-through."),
+  ).toBeVisible();
+
+  expect(launchCheckRequests).toEqual([]);
+  expect(state.projects[0]?.roots).toHaveLength(0);
+  expect(state.assignments[0]?.driver_kind).toBe("manual");
+  expect(state.assignments[0]?.status).toBe("completed");
+  expect(state.assignments[0]?.execution_ref).toBeUndefined();
+});
+
 test("Projects overview is the default ready-project home at desktop and narrow widths", async ({
   page,
 }) => {
@@ -890,10 +1096,49 @@ async function handleWorkItemRoute(
   if (subresource === "assignments") {
     const assignmentID = parts[4] || "";
     if (!assignmentID) {
+      if (method === "POST") {
+        const body = JSON.parse(request.postData() || "{}") as {
+          role_id?: string;
+          root_id?: string;
+          driver_kind?: ProjectAssignmentRecord["driver_kind"];
+        };
+        const assignment: ProjectAssignmentRecord = {
+          id: "assign_human",
+          project_id: projectID,
+          work_item_id: workItemID,
+          role_id: body.role_id || state.roles[0]?.id || "",
+          driver_kind: body.driver_kind || "hecate_task",
+          status: "queued",
+          created_at: NOW,
+          updated_at: NOW,
+          ...(body.root_id ? { root_id: body.root_id } : {}),
+        };
+        state.assignments = [...state.assignments, assignment];
+        await route.fulfill(ok({ object: "project_assignment", data: assignment }, 201));
+        return;
+      }
       await route.fulfill(ok({ object: "project_assignments", data: state.assignments }));
       return;
     }
     const assignment = state.assignments.find((candidate) => candidate.id === assignmentID);
+    if (!parts[5] && method === "PATCH" && assignment) {
+      const patch = JSON.parse(request.postData() || "{}") as Partial<ProjectAssignmentRecord>;
+      Object.assign(assignment, patch, {
+        updated_at: NOW,
+        ...(patch.status === "completed" ? { completed_at: NOW } : {}),
+        ...(patch.status && assignment.driver_kind !== "manual"
+          ? {
+              execution_ref: {
+                ...(assignment.execution_ref || { kind: "none" }),
+                status: patch.status,
+              },
+            }
+          : {}),
+      });
+      if (assignment.driver_kind === "manual") delete assignment.execution_ref;
+      await route.fulfill(ok({ object: "project_assignment", data: assignment }));
+      return;
+    }
     if (parts[5] === "launch-readiness" && method === "GET") {
       await route.fulfill(
         ok({
@@ -913,6 +1158,17 @@ async function handleWorkItemRoute(
       return;
     }
     if (parts[5] === "start" && method === "POST" && assignment) {
+      if (assignment.driver_kind === "manual") {
+        delete assignment.execution_ref;
+        Object.assign(assignment, {
+          status: "running",
+          started_at: NOW,
+          updated_at: NOW,
+          execution: undefined,
+        });
+        await route.fulfill(ok({ object: "project_assignment", data: assignment }));
+        return;
+      }
       Object.assign(assignment, {
         status: "awaiting_approval",
         started_at: NOW,
@@ -1504,15 +1760,20 @@ function projectOperationsBrief(state: ProjectJourneyState, projectID: string) {
   } else if (workItem?.status === "done") {
     // Cairnline only adds latest work when no higher-value operation exists.
   } else if (workItem && assignment && assignmentStatus === "queued") {
+    const humanAssignment = assignment.driver_kind === "manual";
     items = [
       {
         id: `start_queued_assignment:${projectID}:${assignment.id}`,
         kind: "start_queued_assignment",
         priority: "high",
         status: "not_started",
-        title: `Review queued assignment: ${workItem.title}`,
-        detail: "Open launch preflight before starting this assignment.",
-        action_label: "Review start",
+        title: humanAssignment
+          ? `Human work ready: ${workItem.title}`
+          : `Review queued assignment: ${workItem.title}`,
+        detail: humanAssignment
+          ? "This assignment is ready for a person to begin."
+          : "Open launch preflight before starting this assignment.",
+        action_label: humanAssignment ? "Open work" : "Review start",
         target: {
           surface: "work",
           project_id: projectID,
@@ -1520,13 +1781,21 @@ function projectOperationsBrief(state: ProjectJourneyState, projectID: string) {
           assignment_id: assignment.id,
           activity_bucket: "blocked",
         },
-        action: {
-          type: "open_assignment_preflight",
-          project_id: projectID,
-          work_item_id: workItem.id,
-          assignment_id: assignment.id,
-          activity_bucket: "blocked",
-        },
+        action: humanAssignment
+          ? {
+              type: "open_work_item",
+              project_id: projectID,
+              work_item_id: workItem.id,
+              assignment_id: assignment.id,
+              activity_bucket: "blocked",
+            }
+          : {
+              type: "open_assignment_preflight",
+              project_id: projectID,
+              work_item_id: workItem.id,
+              assignment_id: assignment.id,
+              activity_bucket: "blocked",
+            },
       },
     ];
   } else if (

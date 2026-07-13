@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/cairnlinebridge"
@@ -20,6 +21,24 @@ func (h *Handler) projectAssignmentWritesUseCairnlineAuthority() bool {
 	return h != nil &&
 		h.projectCairnlineEmbeddedConnectorEnabled() &&
 		h.config.ProjectsCairnlineWriteAuthorityEnabled(projectCairnlineWriteAuthorityProjectAssignments)
+}
+
+func (h *Handler) validateProjectHumanAssignmentAuthority(ctx context.Context, projectID, roleID, driverKind string) error {
+	if h.projectAssignmentWritesUseCairnlineAuthority() {
+		return nil
+	}
+	resolvedDriver := strings.TrimSpace(driverKind)
+	if resolvedDriver == "" && h != nil && h.projectWork != nil {
+		if role, ok, err := h.loadProjectWorkRole(ctx, projectID, roleID); err != nil {
+			return err
+		} else if ok {
+			resolvedDriver = strings.TrimSpace(role.DefaultDriverKind)
+		}
+	}
+	if resolvedDriver == projectwork.AssignmentDriverManual {
+		return errors.Join(cairnline.ErrConflict, errors.New("Human assignments require Cairnline assignment authority"))
+	}
+	return nil
 }
 
 func (h *Handler) createProjectWorkAssignmentWithCairnlineAuthority(ctx context.Context, projectID, workItemID string, cmd projectworkapp.CreateAssignmentCommand) (projectwork.Assignment, error) {
@@ -44,15 +63,32 @@ func (h *Handler) createProjectWorkAssignmentWithCairnlineAuthority(ctx context.
 	}
 	var recorded projectwork.Assignment
 	err = h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
+		if _, getErr := service.GetAssignment(ctx, projectID, assignment.ID); getErr == nil {
+			return cairnline.ErrDuplicate
+		} else if !errors.Is(getErr, cairnline.ErrNotFound) {
+			return getErr
+		}
 		role, err := h.seedProjectAssignmentDependenciesForCairnlineAuthority(ctx, service, project, assignment)
 		if err != nil {
 			return err
 		}
 		assignment.DriverKind = resolvedProjectAssignmentDriverKind(assignment.DriverKind, role.DefaultDriverKind)
-		written, err := cairnlinebridge.UpsertAssignment(ctx, service, assignment, role)
+		if assignment.DriverKind == projectwork.AssignmentDriverManual {
+			if status := strings.TrimSpace(assignment.Status); status != "" && status != projectwork.AssignmentStatusQueued {
+				return errors.Join(projectwork.ErrInvalid, errors.New("Human assignments must be created ready to start"))
+			}
+			if !projectAssignmentExecutionRefEmpty(projectwork.NormalizeAssignmentExecutionRef(assignment.ExecutionRef)) ||
+				!assignment.StartedAt.IsZero() || !assignment.CompletedAt.IsZero() {
+				return errors.Join(projectwork.ErrInvalid, errors.New("Human assignments cannot be created with execution or lifecycle details"))
+			}
+			assignment.Status = projectwork.AssignmentStatusQueued
+		}
+		written, err := cairnlinebridge.CreateAssignment(ctx, service, assignment, role)
 		if err != nil {
 			return err
 		}
+		assignment.StartedAt = time.Time{}
+		assignment.CompletedAt = time.Time{}
 		recorded = projectWorkAssignmentFromCairnlineAuthority(written, assignment)
 		return nil
 	})
@@ -77,32 +113,100 @@ func (h *Handler) updateProjectWorkAssignmentWithCairnlineAuthority(ctx context.
 		if strings.TrimSpace(existing.WorkItemID) != strings.TrimSpace(workItemID) {
 			return cairnline.ErrNotFound
 		}
-		assignment := projectWorkAssignmentFromCairnline(existing)
-		if h != nil && h.projectWork != nil {
-			if shadow, ok, err := h.loadProjectWorkAssignment(ctx, projectID, workItemID, assignmentID); err != nil {
-				return err
-			} else if ok {
-				overlayProjectAssignmentRuntimeShadow(&assignment, shadow)
+		portableAssignment := projectWorkAssignmentFromCairnline(existing)
+		runtimeShadow := portableAssignment
+		if h.projectRuntime != nil {
+			runtime, ok, runtimeErr := h.projectRuntime.Get(ctx, projectID, assignmentID)
+			if runtimeErr != nil {
+				return runtimeErr
+			}
+			if ok {
+				runtimeShadow = projectruntime.Apply(runtimeShadow, runtime)
 			}
 		}
-		if overlaid, err := h.projectWorkApplication().ApplyAssignmentRuntime(ctx, assignment); err != nil {
-			return err
-		} else {
-			assignment = overlaid
+		requestedStatus := ""
+		if cmd.Status != nil {
+			requestedStatus = strings.TrimSpace(*cmd.Status)
 		}
-		applyProjectAssignmentUpdate(&assignment, cmd)
-		if err := validateProjectAssignmentForCairnlineAuthority(assignment); err != nil {
-			return err
+		if requestedStatus != "" && !validProjectAssignmentStatusForCairnlineAuthority(requestedStatus) {
+			return fmt.Errorf("%w: unsupported assignment status %q", projectwork.ErrInvalid, requestedStatus)
 		}
-		role, err := h.seedProjectAssignmentDependenciesForCairnlineAuthority(ctx, service, project, assignment)
-		if err != nil {
-			return err
+		existingStatus := cairnlinebridge.AssignmentStatusFromCairnline(existing.Status)
+		desiredCoordination := portableAssignment
+		applyProjectAssignmentUpdate(&desiredCoordination, projectworkapp.UpdateAssignmentCommand{
+			RoleID:     cmd.RoleID,
+			RootID:     cmd.RootID,
+			DriverKind: cmd.DriverKind,
+		})
+		coordinationRequested := projectAssignmentUpdateIncludesCoordination(cmd)
+		if coordinationRequested && existing.Status != cairnline.AssignmentQueued {
+			if existing.Status == cairnline.AssignmentClaimed && existing.ExecutionMode == cairnline.ExecutionManual {
+				return errors.Join(cairnline.ErrConflict, errors.New("Human assignment is already being started; refresh before updating it"))
+			}
+			if existing.ExecutionMode == cairnline.ExecutionManual {
+				return errors.Join(cairnline.ErrConflict, errors.New("Human assignment details cannot change after work starts"))
+			}
+			return errors.Join(cairnline.ErrConflict, errors.New("assignment destination cannot change after work starts"))
 		}
-		written, err := cairnlinebridge.UpsertAssignment(ctx, service, assignment, role)
-		if err != nil {
-			return err
+		coordinationUpdate := coordinationRequested &&
+			projectAssignmentCoordinationChanged(portableAssignment, desiredCoordination)
+		lifecycleUpdate := projectAssignmentUpdateIncludesLifecycle(cmd)
+		if coordinationUpdate && (lifecycleUpdate || (requestedStatus != "" && requestedStatus != existingStatus)) {
+			return errors.Join(cairnline.ErrConflict, errors.New("change the assignment destination separately from its progress"))
 		}
-		recorded = projectWorkAssignmentFromCairnlineAuthority(written, assignment)
+		if lifecycleUpdate && requestedStatus == "" {
+			return errors.Join(cairnline.ErrConflict, errors.New("assignment execution details require an execution-managed status update"))
+		}
+		if coordinationUpdate {
+			desired := desiredCoordination
+			if err := validateProjectAssignmentForCairnlineAuthority(desired); err != nil {
+				return err
+			}
+			role, err := h.seedProjectAssignmentDependenciesForCairnlineAuthority(ctx, service, project, desired)
+			if err != nil {
+				return err
+			}
+			desired.DriverKind = resolvedProjectAssignmentDriverKind(desired.DriverKind, role.DefaultDriverKind)
+			replacement := cairnlinebridge.Assignment(desired, role).Coordination()
+			if !assignmentCoordinationMatches(existing.Coordination(), replacement) {
+				existing, err = service.UpdateQueuedAssignment(ctx, projectID, assignmentID, cairnline.QueuedAssignmentUpdate{
+					Expected:          existing.Coordination(),
+					ExpectedUpdatedAt: existing.UpdatedAt,
+					Replacement:       replacement,
+				})
+				if err != nil {
+					return errors.Join(err, errors.New("assignment destination cannot change after work starts or another edit wins; refresh and try again"))
+				}
+				portableAssignment = projectWorkAssignmentFromCairnline(existing)
+				existingStatus = cairnlinebridge.AssignmentStatusFromCairnline(existing.Status)
+			}
+		}
+		if requestedStatus == "" || (!lifecycleUpdate && existing.Status != cairnline.AssignmentClaimed && requestedStatus == existingStatus) {
+			recorded = projectWorkAssignmentFromCairnlineAuthority(existing, runtimeShadow)
+			return nil
+		}
+		if existing.ExecutionMode == cairnline.ExecutionManual {
+			if existing.Status == cairnline.AssignmentClaimed {
+				return errors.Join(cairnline.ErrConflict, errors.New("Human assignment is already being started; refresh before updating it"))
+			}
+			written, statusErr := updateManualProjectAssignmentStatusWithCairnlineAuthority(ctx, service, existing, requestedStatus)
+			if statusErr != nil {
+				return statusErr
+			}
+			recorded = projectWorkAssignmentFromCairnlineAuthority(written, runtimeShadow)
+			return nil
+		}
+		desired := runtimeShadow
+		applyProjectAssignmentUpdate(&desired, cmd)
+		written, statusErr := updateAgentProjectAssignmentStatusWithCairnlineAuthority(ctx, service, existing, desired)
+		if statusErr != nil {
+			return statusErr
+		}
+		// Cairnline owns lifecycle timestamps. The Hecate runtime shadow keeps
+		// host-only links such as message ids, but cannot replace those stamps.
+		desired.StartedAt = time.Time{}
+		desired.CompletedAt = time.Time{}
+		recorded = projectWorkAssignmentFromCairnlineAuthority(written, desired)
 		return nil
 	})
 	if err != nil {
@@ -110,6 +214,149 @@ func (h *Handler) updateProjectWorkAssignmentWithCairnlineAuthority(ctx context.
 	}
 	h.shadowProjectAssignmentToHecate(ctx, "project_assignment_cairnline_authority_update", recorded)
 	return recorded, nil
+}
+
+func updateAgentProjectAssignmentStatusWithCairnlineAuthority(
+	ctx context.Context,
+	service *cairnline.Service,
+	existing cairnline.Assignment,
+	desired projectwork.Assignment,
+) (cairnline.Assignment, error) {
+	status := cairnlinebridge.AssignmentStatus(desired.Status)
+	if status == cairnline.AssignmentQueued {
+		if existing.Status == cairnline.AssignmentQueued {
+			return existing, nil
+		}
+		return cairnline.Assignment{}, errors.Join(cairnline.ErrConflict, errors.New("agent assignment progress cannot move back to ready"))
+	}
+	if assignmentTerminalStatusForAuthority(existing.Status) {
+		if existing.Status == status {
+			return existing, nil
+		}
+		return cairnline.Assignment{}, errors.Join(cairnline.ErrConflict, errors.New("finished assignment progress cannot change"))
+	}
+
+	executionRef := cairnlinebridge.ExecutionRef(desired.ExecutionRef)
+	contextSnapshotID := strings.TrimSpace(desired.ExecutionRef.ContextSnapshotID)
+	claimedBy := projectAssignmentStartClaimedBy(desired)
+	if existing.Status == cairnline.AssignmentQueued {
+		if assignmentTerminalStatusForAuthority(status) && executionRef.Empty() && contextSnapshotID == "" {
+			return service.CompleteAssignment(ctx, existing.ProjectID, existing.ID, status, executionRef)
+		}
+		claimed, err := service.ClaimAssignment(ctx, existing.ProjectID, existing.ID, claimedBy)
+		if err != nil {
+			return cairnline.Assignment{}, err
+		}
+		existing = claimed
+	}
+	if existing.Status == cairnline.AssignmentClaimed {
+		if strings.TrimSpace(existing.ClaimedBy) != strings.TrimSpace(claimedBy) {
+			return cairnline.Assignment{}, cairnline.ErrConflict
+		}
+		if !executionRef.Empty() || contextSnapshotID != "" {
+			prepared, err := service.PrepareAssignment(ctx, existing.ProjectID, existing.ID, cairnline.AssignmentPreparation{
+				ClaimedBy:         existing.ClaimedBy,
+				ExecutionRef:      executionRef,
+				ContextSnapshotID: contextSnapshotID,
+			})
+			if err != nil {
+				return cairnline.Assignment{}, err
+			}
+			existing = prepared
+		}
+	} else if contextSnapshotID != "" && contextSnapshotID != existing.ContextSnapshotID {
+		return cairnline.Assignment{}, cairnline.ErrConflict
+	}
+
+	switch status {
+	case cairnline.AssignmentRunning, cairnline.AssignmentAwaitingApproval, cairnline.AssignmentReview:
+		return service.UpdateAssignmentStatus(ctx, existing.ProjectID, existing.ID, status, executionRef)
+	case cairnline.AssignmentCompleted, cairnline.AssignmentFailed, cairnline.AssignmentCancelled:
+		return service.CompleteAssignment(ctx, existing.ProjectID, existing.ID, status, executionRef)
+	default:
+		return cairnline.Assignment{}, cairnline.ErrInvalid
+	}
+}
+
+func assignmentTerminalStatusForAuthority(status string) bool {
+	switch strings.TrimSpace(status) {
+	case cairnline.AssignmentCompleted, cairnline.AssignmentFailed, cairnline.AssignmentCancelled:
+		return true
+	default:
+		return false
+	}
+}
+
+func projectAssignmentUpdateIncludesCoordination(cmd projectworkapp.UpdateAssignmentCommand) bool {
+	return cmd.RoleID != nil ||
+		cmd.RootID != nil ||
+		cmd.DriverKind != nil
+}
+
+func projectAssignmentCoordinationChanged(existing, desired projectwork.Assignment) bool {
+	return strings.TrimSpace(existing.RoleID) != strings.TrimSpace(desired.RoleID) ||
+		strings.TrimSpace(existing.RootID) != strings.TrimSpace(desired.RootID) ||
+		strings.TrimSpace(existing.DriverKind) != strings.TrimSpace(desired.DriverKind)
+}
+
+func projectAssignmentUpdateIncludesLifecycle(cmd projectworkapp.UpdateAssignmentCommand) bool {
+	return cmd.ExecutionRef != nil ||
+		cmd.StartedAt != nil ||
+		cmd.CompletedAt != nil
+}
+
+func assignmentCoordinationMatches(a, b cairnline.AssignmentCoordination) bool {
+	if a.WorkItemID != b.WorkItemID || a.RoleID != b.RoleID || a.RootID != b.RootID ||
+		a.ExecutionMode != b.ExecutionMode || a.DesiredAgent.Kind != b.DesiredAgent.Kind ||
+		len(a.DesiredAgent.SkillIDs) != len(b.DesiredAgent.SkillIDs) {
+		return false
+	}
+	for index := range a.DesiredAgent.SkillIDs {
+		if a.DesiredAgent.SkillIDs[index] != b.DesiredAgent.SkillIDs[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func updateManualProjectAssignmentStatusWithCairnlineAuthority(
+	ctx context.Context,
+	service *cairnline.Service,
+	existing cairnline.Assignment,
+	requestedStatus string,
+) (cairnline.Assignment, error) {
+	requestedStatus = strings.TrimSpace(requestedStatus)
+	currentStatus := cairnlinebridge.AssignmentStatusFromCairnline(existing.Status)
+	if existing.Status == cairnline.AssignmentClaimed {
+		return cairnline.Assignment{}, errors.Join(cairnline.ErrConflict, errors.New("Human assignment is already being started; refresh before updating it"))
+	}
+	if requestedStatus == currentStatus {
+		return existing, nil
+	}
+	if existing.Status == cairnline.AssignmentCompleted || existing.Status == cairnline.AssignmentFailed || existing.Status == cairnline.AssignmentCancelled {
+		return cairnline.Assignment{}, errors.Join(cairnline.ErrConflict, errors.New("finished Human work cannot change status; create another assignment to continue"))
+	}
+	switch requestedStatus {
+	case projectwork.AssignmentStatusRunning:
+		if currentStatus != projectwork.AssignmentStatusAwaitingApproval {
+			return cairnline.Assignment{}, errors.Join(cairnline.ErrConflict, errors.New("start Human assignments through the assignment start action"))
+		}
+		return service.UpdateAssignmentStatus(ctx, existing.ProjectID, existing.ID, cairnline.AssignmentRunning, cairnline.ExecutionRef{})
+	case projectwork.AssignmentStatusAwaitingApproval:
+		if currentStatus != projectwork.AssignmentStatusRunning {
+			return cairnline.Assignment{}, errors.Join(cairnline.ErrConflict, errors.New("only active Human work can be sent for review"))
+		}
+		return service.UpdateAssignmentStatus(ctx, existing.ProjectID, existing.ID, cairnline.AssignmentReview, cairnline.ExecutionRef{})
+	case projectwork.AssignmentStatusCompleted, projectwork.AssignmentStatusFailed:
+		if currentStatus != projectwork.AssignmentStatusRunning && currentStatus != projectwork.AssignmentStatusAwaitingApproval {
+			return cairnline.Assignment{}, errors.Join(cairnline.ErrConflict, errors.New("start Human work before finishing it"))
+		}
+		return service.CompleteAssignment(ctx, existing.ProjectID, existing.ID, cairnlinebridge.AssignmentStatus(requestedStatus), cairnline.ExecutionRef{})
+	case projectwork.AssignmentStatusCancelled:
+		return service.CompleteAssignment(ctx, existing.ProjectID, existing.ID, cairnline.AssignmentCancelled, cairnline.ExecutionRef{})
+	default:
+		return cairnline.Assignment{}, errors.Join(cairnline.ErrInvalid, errors.New("unsupported Human assignment status"))
+	}
 }
 
 func (h *Handler) deleteProjectWorkAssignmentWithCairnlineAuthority(ctx context.Context, projectID, workItemID, assignmentID string) error {
@@ -133,6 +380,21 @@ func (h *Handler) deleteProjectWorkAssignmentWithCairnlineAuthority(ctx context.
 }
 
 func (h *Handler) seedProjectAssignmentDependenciesForCairnlineAuthority(ctx context.Context, service *cairnline.Service, project projects.Project, assignment projectwork.Assignment) (projectwork.AgentRoleProfile, error) {
+	if h.requiresEmbeddedCairnlineProjectReads() || h.projectCairnlineEmbeddedReplacementModeArmed() {
+		if _, err := service.GetWorkItem(ctx, assignment.ProjectID, assignment.WorkItemID); err != nil {
+			return projectwork.AgentRoleProfile{}, err
+		}
+		if rootID := strings.TrimSpace(assignment.RootID); rootID != "" {
+			if _, err := service.GetRoot(ctx, assignment.ProjectID, rootID); err != nil {
+				return projectwork.AgentRoleProfile{}, err
+			}
+		}
+		role, err := getCairnlineProjectRoleForAuthority(ctx, service, assignment.ProjectID, assignment.RoleID)
+		if err != nil {
+			return projectwork.AgentRoleProfile{}, err
+		}
+		return projectWorkRoleFromCairnline(role, projectwork.AgentRoleProfile{}), nil
+	}
 	if _, err := cairnlinebridge.UpsertProjectMetadata(ctx, service, project); err != nil {
 		return projectwork.AgentRoleProfile{}, err
 	}
@@ -251,19 +513,13 @@ func projectWorkAssignmentFromCairnlineAuthority(item cairnline.Assignment, nati
 }
 
 func overlayProjectAssignmentRuntimeShadow(item *projectwork.Assignment, shadow projectwork.Assignment) {
-	if item == nil {
+	if item == nil || strings.TrimSpace(item.DriverKind) == projectwork.AssignmentDriverManual {
 		return
 	}
 	if ref := projectwork.NormalizeAssignmentExecutionRef(shadow.ExecutionRef); !projectAssignmentExecutionRefEmpty(ref) {
 		item.ExecutionRef = ref
 	}
 	item.ContextPacket = append([]byte(nil), shadow.ContextPacket...)
-	if !shadow.StartedAt.IsZero() {
-		item.StartedAt = shadow.StartedAt
-	}
-	if !shadow.CompletedAt.IsZero() {
-		item.CompletedAt = shadow.CompletedAt
-	}
 }
 
 func projectAssignmentExecutionRefEmpty(ref projectwork.AssignmentExecutionRef) bool {
@@ -341,6 +597,14 @@ func (h *Handler) shadowProjectAssignmentRuntimeToHecate(ctx context.Context, op
 	if h == nil || h.projectRuntime == nil {
 		return
 	}
+	if assignment.DriverKind == projectwork.AssignmentDriverManual &&
+		projectAssignmentExecutionRefEmpty(projectwork.NormalizeAssignmentExecutionRef(assignment.ExecutionRef)) &&
+		len(assignment.ContextPacket) == 0 {
+		if err := h.projectRuntime.Delete(ctx, assignment.ProjectID, assignment.ID); err != nil && !errors.Is(err, projectruntime.ErrNotFound) {
+			h.logCairnlineMirrorError(ctx, operation, assignment.ProjectID, err)
+		}
+		return
+	}
 	if _, err := h.projectRuntime.Upsert(ctx, projectruntime.FromAssignment(assignment)); err != nil {
 		h.logCairnlineMirrorError(ctx, operation, assignment.ProjectID, err)
 	}
@@ -367,7 +631,7 @@ func validateProjectAssignmentForCairnlineAuthority(assignment projectwork.Assig
 
 func validProjectAssignmentDriverKindForCairnlineAuthority(kind string) bool {
 	switch kind {
-	case projectwork.AssignmentDriverHecateTask, projectwork.AssignmentDriverExternalAgent:
+	case projectwork.AssignmentDriverHecateTask, projectwork.AssignmentDriverExternalAgent, projectwork.AssignmentDriverManual:
 		return true
 	default:
 		return false

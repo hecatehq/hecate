@@ -35,7 +35,7 @@ func draftRequestParts(request string) draftRequest {
 
 func validDraftDriverKind(kind string) bool {
 	switch kind {
-	case projectwork.AssignmentDriverHecateTask, projectwork.AssignmentDriverExternalAgent:
+	case projectwork.AssignmentDriverHecateTask, projectwork.AssignmentDriverExternalAgent, projectwork.AssignmentDriverManual:
 		return true
 	default:
 		return false

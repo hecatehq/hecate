@@ -19,15 +19,15 @@ func (h *Handler) renderCairnlineProjectActivity(ctx context.Context, projectID 
 
 func (h *Handler) renderCairnlineProjectActivityFromService(ctx context.Context, service *cairnline.Service, snapshot cairnlinebridge.Snapshot) (ProjectActivityDataResponse, error) {
 	projectID := snapshot.Project.ID
+	assignments, err := h.cairnlineProjectAssignments(ctx, service, snapshot)
+	if err != nil {
+		return ProjectActivityDataResponse{}, err
+	}
 	activity, err := service.ProjectActivity(ctx, projectID)
 	if err != nil {
 		return ProjectActivityDataResponse{}, err
 	}
 	cairnlineWorkItems, err := service.ListWorkItems(ctx, projectID)
-	if err != nil {
-		return ProjectActivityDataResponse{}, err
-	}
-	cairnlineAssignments, err := service.ListAssignments(ctx, projectID)
 	if err != nil {
 		return ProjectActivityDataResponse{}, err
 	}
@@ -45,7 +45,6 @@ func (h *Handler) renderCairnlineProjectActivityFromService(ctx context.Context,
 	}
 
 	workItems := projectWorkItemsFromCairnlineWithNativeTimestamps(cairnlineWorkItems, snapshot.WorkItems)
-	assignments := projectWorkAssignmentsFromCairnline(cairnlineAssignments, snapshot.Assignments)
 	assignmentsByWorkItem := groupProjectWorkAssignmentsByWorkItem(assignments)
 	projectedWorkItems := make(map[string]ProjectWorkItemResponse, len(workItems))
 	projectedAssignments := make(map[string]ProjectWorkAssignmentResponse, len(assignments))

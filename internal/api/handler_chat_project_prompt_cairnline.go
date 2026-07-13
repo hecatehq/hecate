@@ -115,13 +115,12 @@ func (h *Handler) strictEmbeddedCairnlineProjectChatWorkSnapshot(ctx context.Con
 		filteredWorkItems = filteredWorkItems[:projectChatPromptWorkMaxItems]
 	}
 
-	assignments, err := view.service.ListAssignments(ctx, projectID)
+	assignments, err := h.cairnlineProjectAssignments(ctx, view.service, view.snapshot)
 	if err != nil {
 		assignments = nil
 	}
 	filteredAssignments := make([]projectwork.Assignment, 0, len(assignments))
-	for _, item := range assignments {
-		assignment := projectWorkAssignmentFromCairnline(item)
+	for _, assignment := range assignments {
 		if projectChatStatusAllowed(assignment.Status, projectChatPromptAssignmentStatuses) {
 			filteredAssignments = append(filteredAssignments, assignment)
 		}

@@ -1,6 +1,7 @@
 # Projects Cockpit UX
 
-> **Status:** Proposal with the overview-first and work-item execution slices implemented.
+> **Status:** Proposal with the overview-first, work-item execution, and
+> assignment-destination slices implemented.
 >
 > **Current source of truth:** [Projects](../../operator/projects.md),
 > [Projects design](../accepted/projects.md), and the Hecate
@@ -28,6 +29,9 @@ Concrete issues from the current UI and browser behavior:
   represents the current information hierarchy.
 - Browser tests cover setup, rootless work, assignment launch, evidence, and
   closeout, but not a default overview or narrow navigation.
+- Assignment forms exposed implementation-shaped role/driver language, and the
+  Hecate facade did not preserve Cairnline's `manual` destination for human
+  work.
 
 Existing strengths stay intact: rootless creation is first-class, setup and
 assistant changes remain reviewable, launch preflight is explicit, evidence is
@@ -83,9 +87,12 @@ flowchart TD
   F --> G["Overview"]
   G --> H["Take the recommended action"]
   H --> I["Create or open work"]
-  I --> J["Choose an execution destination"]
-  J --> K["Review launch context and approve start"]
-  K --> L["Track progress, approvals, failures, and evidence"]
+  I --> J["Choose who does the work"]
+  J --> K{"Destination"}
+  K -->|"Human"| KH["Start work directly"]
+  K -->|"Hecate Task or External Agent"| KA["Review launch context and approve start"]
+  KH --> L["Track progress, approvals, failures, and evidence"]
+  KA --> L
   L --> M["Request review or create handoff"]
   M --> N["Resolve follow-up"]
   N --> O["Explicitly close work"]
@@ -109,10 +116,13 @@ flowchart TD
    runtime detail, then add shareable project/work navigation and broader
    accessibility coverage.
 
-Slices 1 and 2 are implemented. Slice 1 rearranges existing server projections
-and action routing. Slice 2 reshapes each assignment into a state-driven story
-without adding project records, endpoints, local lifecycle state, or inferred
-execution events.
+Slices 1 through 3 are implemented. Slice 1 rearranges existing server
+projections and action routing. Slice 2 reshapes each assignment into a
+state-driven story. Slice 3 adds Human as a faithful facade label for
+Cairnline's `manual` execution mode, with direct Start work, Resume work, and
+Mark complete actions backed by Cairnline claim/status/completion transitions.
+None of the slices add local project lifecycle state or inferred execution
+events.
 
 ## Assignment Execution Story
 
@@ -123,6 +133,10 @@ flowchart LR
   C --> F["Finished · when recorded"]
   C --> A{"Best operator action"}
   A -->|"Queued"| L["Review launch"]
+  A -->|"Queued Human work"| H["Start work"]
+  A -->|"Running Human work"| HC["Mark complete"]
+  A -->|"Interrupted Human start"| HI["Finish starting"]
+  A -->|"Human work waiting for review"| HR["Record review · Resume is secondary"]
   A -->|"Running"| T["Open task or chat"]
   A -->|"Pending approval evidence"| P["Review in task"]
   A -->|"Review state only"| U["Review task"]
@@ -147,8 +161,12 @@ neutral review language unless a linked runtime reports a pending approval.
 The implemented slices were exercised in the running Hecate UI with deterministic
 fixtures for the Cairnline-backed Hecate facade at desktop and 390px widths.
 Empty, guided-setup, setup-unavailable, loading, active, blocked,
-approval-review, completed, evidence, and closeout states are covered by focused
-component and journey tests.
+approval-review, interrupted-start, completed, failed, cancelled, evidence, and
+closeout states are covered by focused component and journey tests. Failure and
+cancellation use an explicit second confirmation, including for keyboard
+submission. A prepared Human claim is shown as blocked rather than as a
+recoverable interrupted start, and queued progress changes are saved separately
+from destination edits.
 
 Regenerate the two Overview images from the deterministic browser journey with
 `HECATE_CAPTURE_PROJECTS_OVERVIEW=1 bunx playwright test e2e/projects.spec.ts -g "default ready-project home"` from `ui/`.
@@ -168,6 +186,15 @@ from `ui/`.
 
 ![Assignment execution at narrow width](../../screenshots/projects-work-execution-narrow.jpg)
 
+Regenerate the rootless Human assignment images from the deterministic browser
+journey with
+`HECATE_CAPTURE_PROJECTS_HUMAN=1 bunx playwright test e2e/projects.spec.ts -g "Projects Human assignment journey"`
+from `ui/`.
+
+![Human assignment at desktop width](../../screenshots/projects-human-assignment.jpg)
+
+![Human assignment at narrow width](../../screenshots/projects-human-assignment-narrow.jpg)
+
 ## Contract Stop Lines
 
 - Cairnline remains the sole portable coordination authority. The UI uses only
@@ -176,12 +203,20 @@ from `ui/`.
   metadata, and client activity are not alternate priority authorities.
 - Health remains a secondary inspector because a root can be optional for
   coordination even when health reports that launches need one.
-- Human/manual assignment is deferred: Cairnline supports `manual`, but the
-  current Hecate assignment facade exposes Hecate Task and External Agent.
+- Human is a product label for Cairnline's `manual` execution mode, not a
+  second identity or assignment store. V1 does not add named assignees or due
+  dates. A root remains optional, and direct progress actions use the
+  Cairnline-authoritative assignment lifecycle.
 - Cairnline `awaiting_review` is not yet distinct in Hecate's assignment view.
   The execution story therefore says review, not approval, unless Hecate has a
   positive pending-approval count. Review artifacts, handoffs, and closeout
   follow-up remain the honest review surfaces.
+- Failed and cancelled assignments are terminal closeout blockers in Cairnline,
+  which does not yet expose retry or supersession. This slice keeps that outcome
+  visible and does not offer a misleading local recovery action.
 - An execution timeline may show current Cairnline milestones and Hecate runtime
   events, but must not invent a portable transition history Cairnline does not
   store.
+- Task reconciliation advances only from a Task and latest Run whose project,
+  work-item, and assignment links match the portable row. Old resumed runs and
+  cross-assignment links are evidence, not lifecycle authority.

@@ -353,7 +353,7 @@ vi.mock("../../lib/api", async (importOriginal) => {
           driver_kind: "hecate_task",
           driver_source: "role_default",
           reason:
-            "Selected work item is owned by Software developer. Using hecate_task from the selected role default.",
+            "Selected work item is owned by Software developer. Using Hecate Task from the selected role default.",
         },
       },
     })),
@@ -942,7 +942,7 @@ function resetProjectWorkMocks() {
         driver_kind: "hecate_task",
         driver_source: "role_default",
         reason:
-          "Selected work item is owned by Software developer. Using hecate_task from the selected role default.",
+          "Selected work item is owned by Software developer. Using Hecate Task from the selected role default.",
       },
     },
   });
@@ -2396,11 +2396,11 @@ describe("ProjectsView cockpit", () => {
       });
     });
     expect(
-      await within(assistant).findByText("Auto selected Software developer via Hecate task"),
+      await within(assistant).findByText("Auto selected Software developer via Hecate Task"),
     ).toBeTruthy();
     expect(
       within(assistant).getByText(
-        "Selected work item is owned by Software developer. Using hecate_task from the selected role default.",
+        "Selected work item is owned by Software developer. Using Hecate Task from the selected role default.",
       ),
     ).toBeTruthy();
     expect(within(assistant).getByText("context")).toBeTruthy();
@@ -2460,7 +2460,7 @@ describe("ProjectsView cockpit", () => {
           driver_kind: "hecate_task",
           driver_source: "role_default",
           reason:
-            "Selected work item is owned by Software developer. Using hecate_task from the selected role default.",
+            "Selected work item is owned by Software developer. Using Hecate Task from the selected role default.",
         },
       },
     });
@@ -3920,6 +3920,192 @@ describe("ProjectsView cockpit", () => {
       ),
     );
     expect(onOpenChat.mock.calls[0]?.[0].draft).toContain("- Driver: external_agent");
+  });
+
+  it("starts and completes Human work without launch preflight", async () => {
+    resetProjectWorkMocks();
+    const manualQueued: ProjectAssignmentRecord = {
+      ...hecateAssignment,
+      driver_kind: "manual",
+      status: "queued",
+      root_id: undefined,
+      execution_ref: { kind: "none", status: "queued" },
+      execution: undefined,
+      started_at: undefined,
+      completed_at: undefined,
+    };
+    const manualRunning: ProjectAssignmentRecord = {
+      ...manualQueued,
+      status: "running",
+      execution_ref: { kind: "none", status: "running" },
+      started_at: "2026-07-13T10:00:00Z",
+    };
+    const manualCompleted: ProjectAssignmentRecord = {
+      ...manualRunning,
+      status: "completed",
+      execution_ref: { kind: "none", status: "completed" },
+      completed_at: "2026-07-13T10:30:00Z",
+    };
+    const manualReview: ProjectAssignmentRecord = {
+      ...manualRunning,
+      status: "awaiting_approval",
+      execution_ref: { kind: "none", status: "awaiting_approval" },
+    };
+    let authoritativeAssignment = manualQueued;
+    vi.mocked(getProjectWorkItems).mockImplementation(async () => ({
+      object: "project_work_items",
+      data: [{ ...workItem, assignments: [authoritativeAssignment] }],
+    }));
+    vi.mocked(getProjectAssignments).mockImplementation(async () => ({
+      object: "project_assignments",
+      data: [authoritativeAssignment],
+    }));
+    vi.mocked(startProjectAssignment).mockImplementation(async () => {
+      authoritativeAssignment = manualRunning;
+      return { object: "project_assignment", data: manualRunning };
+    });
+    vi.mocked(updateProjectAssignment).mockImplementation(
+      async (_projectID, _workItemID, _id, patch) => {
+        authoritativeAssignment =
+          patch.status === "awaiting_approval"
+            ? manualReview
+            : patch.status === "running"
+              ? manualRunning
+              : manualCompleted;
+        return { object: "project_assignment", data: authoritativeAssignment };
+      },
+    );
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(
+      withRuntimeConsole(<WorkProjects />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
+    );
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Open work item Build cockpit UI" }),
+    );
+    const detail = await screen.findByRole("region", { name: "Selected work item" });
+    await userEvent.click(within(detail).getByRole("button", { name: "Start work" }));
+
+    expect(getProjectAssignmentPreflight).not.toHaveBeenCalled();
+    expect(getProjectAssignmentLaunchReadiness).not.toHaveBeenCalled();
+    expect(startProjectAssignment).toHaveBeenCalledWith(
+      project.id,
+      workItem.id,
+      manualQueued.id,
+      "manual",
+    );
+    await waitFor(() =>
+      expect(within(detail).getByRole("button", { name: "Mark complete" })).toBeTruthy(),
+    );
+
+    await userEvent.click(within(detail).getByRole("button", { name: "Edit assignment asgn_1" }));
+    const editDialog = screen.getByRole("dialog", { name: "Edit assignment" });
+    await userEvent.selectOptions(within(editDialog).getByLabelText("Status"), "awaiting_approval");
+    await userEvent.click(within(editDialog).getByRole("button", { name: "Save assignment" }));
+    expect(updateProjectAssignment).toHaveBeenLastCalledWith(
+      project.id,
+      workItem.id,
+      manualQueued.id,
+      { status: "awaiting_approval" },
+    );
+    await waitFor(() =>
+      expect(within(detail).getByRole("button", { name: "Resume work" })).toBeTruthy(),
+    );
+    await userEvent.click(within(detail).getByRole("button", { name: "Resume work" }));
+    expect(updateProjectAssignment).toHaveBeenLastCalledWith(
+      project.id,
+      workItem.id,
+      manualQueued.id,
+      { status: "running" },
+    );
+    await waitFor(() =>
+      expect(within(detail).getByRole("button", { name: "Mark complete" })).toBeTruthy(),
+    );
+
+    await userEvent.click(within(detail).getByRole("button", { name: "Mark complete" }));
+
+    expect(updateProjectAssignment).toHaveBeenCalledWith(project.id, workItem.id, manualQueued.id, {
+      status: "completed",
+    });
+    await waitFor(() =>
+      expect(
+        within(detail).getByText(
+          "Human work is complete. Add evidence or choose the follow-through.",
+        ),
+      ).toBeTruthy(),
+    );
+  });
+
+  it("saves queued Human cancellation separately from destination edits", async () => {
+    resetProjectWorkMocks();
+    const manualQueued: ProjectAssignmentRecord = {
+      ...hecateAssignment,
+      driver_kind: "manual",
+      status: "queued",
+      execution_ref: { kind: "none", status: "queued" },
+      execution: undefined,
+      started_at: undefined,
+      completed_at: undefined,
+    };
+    const manualCancelled: ProjectAssignmentRecord = {
+      ...manualQueued,
+      status: "cancelled",
+      execution_ref: { kind: "none", status: "cancelled" },
+      completed_at: "2026-07-13T10:30:00Z",
+    };
+    let authoritativeAssignment = manualQueued;
+    vi.mocked(getProjectWorkItems).mockImplementation(async () => ({
+      object: "project_work_items",
+      data: [{ ...workItem, assignments: [authoritativeAssignment] }],
+    }));
+    vi.mocked(getProjectAssignments).mockImplementation(async () => ({
+      object: "project_assignments",
+      data: [authoritativeAssignment],
+    }));
+    vi.mocked(updateProjectAssignment).mockImplementation(async () => {
+      authoritativeAssignment = manualCancelled;
+      return { object: "project_assignment", data: manualCancelled };
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    render(
+      withRuntimeConsole(<WorkProjects />, {
+        state: createRuntimeConsoleFixture({
+          projects: [project],
+          activeProjectID: project.id,
+        }),
+        actions: createRuntimeConsoleActions(),
+      }),
+    );
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Open work item Build cockpit UI" }),
+    );
+    const detail = await screen.findByRole("region", { name: "Selected work item" });
+    await userEvent.click(within(detail).getByRole("button", { name: "Edit assignment asgn_1" }));
+    const editDialog = screen.getByRole("dialog", { name: "Edit assignment" });
+    await userEvent.selectOptions(within(editDialog).getByLabelText("Work done by"), "hecate_task");
+    await userEvent.selectOptions(within(editDialog).getByLabelText("Status"), "cancelled");
+
+    expect(within(editDialog).getByLabelText("Work done by")).toHaveValue("manual");
+    expect(within(editDialog).getByLabelText("Work done by")).toBeDisabled();
+    await userEvent.click(
+      within(editDialog).getByRole("checkbox", {
+        name: "I understand this closes the assignment",
+      }),
+    );
+    await userEvent.click(within(editDialog).getByRole("button", { name: "Save assignment" }));
+
+    expect(updateProjectAssignment).toHaveBeenCalledWith(project.id, workItem.id, manualQueued.id, {
+      status: "cancelled",
+    });
+    await waitFor(() => expect(within(detail).getAllByText("cancelled").length).toBeGreaterThan(0));
   });
 
   it("opens linked external-agent assignment chat sessions directly", async () => {
@@ -6509,11 +6695,11 @@ describe("ProjectsView cockpit", () => {
     render(withRuntimeConsole(<WorkProjects />, { state, actions: createRuntimeConsoleActions() }));
 
     await userEvent.click(await screen.findByRole("button", { name: "Add assignment" }));
-    const dialog = await screen.findByRole("dialog", { name: "Create queued assignment" });
-    fireEvent.change(screen.getByLabelText("Driver"), {
+    const dialog = await screen.findByRole("dialog", { name: "Add assignment" });
+    fireEvent.change(within(dialog).getByLabelText("Work done by"), {
       target: { value: "external_agent" },
     });
-    await userEvent.click(within(dialog).getByRole("button", { name: "Create queued assignment" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Add assignment" }));
 
     expect(createProjectAssignment).toHaveBeenCalledWith(project.id, workItem.id, {
       role_id: "software_developer",
@@ -7070,11 +7256,11 @@ describe("ProjectsView cockpit", () => {
     render(withRuntimeConsole(<WorkProjects />, { state, actions: createRuntimeConsoleActions() }));
 
     await userEvent.click(await screen.findByRole("button", { name: "Add assignment" }));
-    const dialog = await screen.findByRole("dialog", { name: "Create queued assignment" });
-    fireEvent.change(screen.getByLabelText("Root"), {
+    const dialog = await screen.findByRole("dialog", { name: "Add assignment" });
+    fireEvent.change(screen.getByLabelText("Workspace (optional)"), {
       target: { value: "root_feature" },
     });
-    await userEvent.click(within(dialog).getByRole("button", { name: "Create queued assignment" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Add assignment" }));
 
     expect(createProjectAssignment).toHaveBeenCalledWith(rootedProject.id, workItem.id, {
       role_id: "software_developer",
@@ -7550,11 +7736,11 @@ describe("ProjectsView cockpit", () => {
     render(withRuntimeConsole(<WorkProjects />, { state, actions: createRuntimeConsoleActions() }));
 
     await userEvent.click(await screen.findByRole("button", { name: "Add assignment" }));
-    const dialog = await screen.findByRole("dialog", { name: "Create queued assignment" });
-    fireEvent.change(screen.getByLabelText("Role"), {
+    const dialog = await screen.findByRole("dialog", { name: "Add assignment" });
+    fireEvent.change(within(dialog).getByLabelText("Responsibility"), {
       target: { value: "role_external" },
     });
-    await userEvent.click(within(dialog).getByRole("button", { name: "Create queued assignment" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Add assignment" }));
 
     expect(createProjectAssignment).toHaveBeenCalledWith(project.id, workItem.id, {
       role_id: "role_external",
@@ -7600,7 +7786,7 @@ describe("ProjectsView cockpit", () => {
     fireEvent.change(within(dialog).getByLabelText("Instructions"), {
       target: { value: "Use existing UI primitives." },
     });
-    fireEvent.change(within(dialog).getByLabelText("Default driver"), {
+    fireEvent.change(within(dialog).getByLabelText("Default destination"), {
       target: { value: "hecate_task" },
     });
     fireEvent.change(within(dialog).getByLabelText("Default preset"), {
@@ -7751,9 +7937,8 @@ describe("ProjectsView cockpit", () => {
     fireEvent.change(screen.getByLabelText("Status"), {
       target: { value: "running" },
     });
-    fireEvent.change(screen.getByLabelText("Driver"), {
-      target: { value: "external_agent" },
-    });
+    const dialog = screen.getByRole("dialog", { name: "Edit assignment" });
+    expect(within(dialog).getByLabelText("Work done by")).toBeDisabled();
     await userEvent.click(screen.getByRole("button", { name: "Save assignment" }));
 
     expect(updateProjectAssignment).toHaveBeenCalledWith(
@@ -7763,7 +7948,7 @@ describe("ProjectsView cockpit", () => {
       {
         role_id: "software_developer",
         root_id: "",
-        driver_kind: "external_agent",
+        driver_kind: "hecate_task",
         status: "running",
         execution_ref: {
           kind: "task_run",

@@ -19,6 +19,8 @@ type ActivityLinkedChat struct {
 
 type ActivityAssignmentInput struct {
 	Status        string
+	DriverKind    string
+	Started       bool
 	Execution     *AssignmentExecutionSummary
 	ExecutionRef  *AssignmentExecutionRef
 	LinkedChat    *ActivityLinkedChat
@@ -102,8 +104,12 @@ func ProjectActivityBlockingSignal(input ActivityAssignmentInput) string {
 }
 
 func ProjectActivityStatusSummary(input ActivityAssignmentInput, signal string) string {
+	manual := strings.TrimSpace(input.DriverKind) == projectwork.AssignmentDriverManual
 	switch strings.TrimSpace(signal) {
 	case "awaiting_approval":
+		if manual {
+			return "Human work needs review"
+		}
 		count := 0
 		if input.Execution != nil {
 			count = input.Execution.PendingApprovalCount
@@ -116,6 +122,9 @@ func ProjectActivityStatusSummary(input ActivityAssignmentInput, signal string) 
 		}
 		return "awaiting approval"
 	case "failed":
+		if manual {
+			return "Human work ended without completion"
+		}
 		if input.LinkedChat != nil && input.LinkedChat.LatestError != "" {
 			return input.LinkedChat.LatestError
 		}
@@ -127,18 +136,33 @@ func ProjectActivityStatusSummary(input ActivityAssignmentInput, signal string) 
 		}
 		return "failed run"
 	case "cancelled":
+		if manual {
+			return "Human work was cancelled"
+		}
 		if input.LinkedChat != nil {
 			return "linked chat cancelled"
 		}
 		return "cancelled"
 	case "not_started":
+		if manual {
+			return "Human work is ready"
+		}
 		return "not started"
 	case "running":
+		if manual {
+			if !input.Started {
+				return "Human work is still starting"
+			}
+			return "Human work is in progress"
+		}
 		if input.LinkedChat != nil {
 			return ProjectActivityLinkedChatSummary(input.LinkedChat)
 		}
 		return "running"
 	case "completed":
+		if manual && input.ArtifactCount == 0 {
+			return "Human work is complete"
+		}
 		if input.ArtifactCount > 0 {
 			return fmt.Sprintf("completed with %d artifact%s", input.ArtifactCount, pluralSuffix(input.ArtifactCount))
 		}

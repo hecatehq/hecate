@@ -3,7 +3,9 @@ package cairnlinebridge
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
+	"time"
 
 	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/projectwork"
@@ -101,6 +103,35 @@ func DeleteWorkItem(ctx context.Context, service *cairnline.Service, projectID, 
 	return service.DeleteWorkItem(ctx, projectID, id)
 }
 
+// CreateAssignment creates a new portable assignment and applies the requested
+// lifecycle state without treating an existing ID as an update. HTTP create
+// paths use this stricter contract so retrying a stale POST cannot mutate an
+// active coordination row.
+func CreateAssignment(ctx context.Context, service *cairnline.Service, assignment projectwork.Assignment, role projectwork.AgentRoleProfile) (cairnline.Assignment, error) {
+	if service == nil {
+		return cairnline.Assignment{}, errors.Join(ErrSourceNotConfigured, errors.New("cairnline service is required"))
+	}
+	item := Assignment(assignment, role)
+	if strings.TrimSpace(item.ID) == "" {
+		return cairnline.Assignment{}, errors.Join(cairnline.ErrInvalid, errors.New("assignment id is required"))
+	}
+	queued := item
+	queued.Status = cairnline.AssignmentQueued
+	queued.ClaimedBy = ""
+	queued.ExecutionRef = cairnline.ExecutionRef{}
+	queued.ContextSnapshotID = ""
+	queued.StartedAt = time.Time{}
+	queued.CompletedAt = time.Time{}
+	written, err := service.CreateAssignment(ctx, queued)
+	if err != nil {
+		return cairnline.Assignment{}, err
+	}
+	if err := syncAssignmentStatus(ctx, service, written, item); err != nil {
+		return cairnline.Assignment{}, err
+	}
+	return service.GetAssignment(ctx, item.ProjectID, item.ID)
+}
+
 // UpsertAssignment creates or updates a Cairnline assignment and then syncs
 // Hecate's assignment lifecycle metadata. Existing rows are first updated with
 // their current Cairnline status so metadata parity does not bypass claim
@@ -114,26 +145,50 @@ func UpsertAssignment(ctx context.Context, service *cairnline.Service, assignmen
 	if strings.TrimSpace(item.ID) == "" {
 		return cairnline.Assignment{}, errors.Join(cairnline.ErrInvalid, errors.New("assignment id is required"))
 	}
+	if item.Status != cairnline.AssignmentQueued {
+		item.ClaimedBy = claimedBy(item)
+	}
 	existing, err := service.GetAssignment(ctx, item.ProjectID, item.ID)
 	if err != nil {
 		if !errors.Is(err, cairnline.ErrNotFound) {
 			return cairnline.Assignment{}, err
 		}
-		if _, err := service.CreateAssignment(ctx, item); err != nil {
+		queued := item
+		queued.Status = cairnline.AssignmentQueued
+		queued.ClaimedBy = ""
+		queued.ExecutionRef = cairnline.ExecutionRef{}
+		queued.ContextSnapshotID = ""
+		queued.StartedAt = time.Time{}
+		queued.CompletedAt = time.Time{}
+		existing, err = service.CreateAssignment(ctx, queued)
+		if err != nil {
 			return cairnline.Assignment{}, err
 		}
 	} else {
-		metadata := item
-		metadata.Status = existing.Status
-		metadata.ClaimedBy = existing.ClaimedBy
-		if _, err := service.UpdateAssignment(ctx, metadata); err != nil {
-			return cairnline.Assignment{}, err
+		if !assignmentCoordinationEqual(existing.Coordination(), item.Coordination()) {
+			existing, err = service.UpdateQueuedAssignment(ctx, item.ProjectID, item.ID, cairnline.QueuedAssignmentUpdate{
+				Expected:          existing.Coordination(),
+				ExpectedUpdatedAt: existing.UpdatedAt,
+				Replacement:       item.Coordination(),
+			})
+			if err != nil {
+				return cairnline.Assignment{}, err
+			}
 		}
 	}
 	if err := syncAssignmentStatus(ctx, service, existing, item); err != nil {
 		return cairnline.Assignment{}, err
 	}
 	return service.GetAssignment(ctx, item.ProjectID, item.ID)
+}
+
+func assignmentCoordinationEqual(a, b cairnline.AssignmentCoordination) bool {
+	return a.WorkItemID == b.WorkItemID &&
+		a.RoleID == b.RoleID &&
+		a.RootID == b.RootID &&
+		a.ExecutionMode == b.ExecutionMode &&
+		a.DesiredAgent.Kind == b.DesiredAgent.Kind &&
+		slices.Equal(a.DesiredAgent.SkillIDs, b.DesiredAgent.SkillIDs)
 }
 
 func DeleteAssignment(ctx context.Context, service *cairnline.Service, projectID, id string) error {

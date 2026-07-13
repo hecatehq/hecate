@@ -526,8 +526,8 @@ func TestProjectJourneyAPI_CairnlineReplacementModeStartsExternalAgentWithoutAdv
 	}
 
 	mirrored := getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_replacement_external")
-	if mirrored.ExecutionRef.SessionID != ref.ChatSessionID || mirrored.ContextSnapshotID != ref.ContextSnapshotID {
-		t.Fatalf("mirrored Cairnline assignment = ref %+v context %q, want %q/%q", mirrored.ExecutionRef, mirrored.ContextSnapshotID, ref.ChatSessionID, ref.ContextSnapshotID)
+	if mirrored.ExecutionRef.SessionID != ref.ChatSessionID || mirrored.ContextSnapshotID != ref.ContextSnapshotID || mirrored.ClaimedBy != projectAssignmentStartClaimedByExternalAdapter {
+		t.Fatalf("mirrored Cairnline assignment = claimant %q ref %+v context %q, want external adapter claim and %q/%q", mirrored.ClaimedBy, mirrored.ExecutionRef, mirrored.ContextSnapshotID, ref.ChatSessionID, ref.ContextSnapshotID)
 	}
 	runtime, ok, err := handler.projectRuntime.Get(t.Context(), projectID, "asgn_replacement_external")
 	if err != nil || !ok {

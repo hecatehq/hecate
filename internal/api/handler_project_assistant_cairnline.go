@@ -106,7 +106,7 @@ func (h *Handler) cairnlineProjectAssistantContextSeedFromService(ctx context.Co
 	}
 
 	seed.work = projectwork.NewMemoryStore()
-	if err := seedCairnlineProjectAssistantWork(ctx, seed.work, service, projectID, snapshot); err != nil {
+	if err := h.seedCairnlineProjectAssistantWork(ctx, seed.work, service, projectID, snapshot); err != nil {
 		return seed, err
 	}
 
@@ -141,7 +141,7 @@ func projectAssistantWorkItemStatusFromCairnline(status string) string {
 	}
 }
 
-func seedCairnlineProjectAssistantWork(ctx context.Context, store *projectwork.MemoryStore, service *cairnline.Service, projectID string, snapshot cairnlinebridge.Snapshot) error {
+func (h *Handler) seedCairnlineProjectAssistantWork(ctx context.Context, store *projectwork.MemoryStore, service *cairnline.Service, projectID string, snapshot cairnlinebridge.Snapshot) error {
 	projectID = strings.TrimSpace(firstNonEmpty(snapshot.Project.ID, projectID))
 	roles, err := service.ListRoles(ctx, projectID)
 	if err != nil {
@@ -172,16 +172,11 @@ func seedCairnlineProjectAssistantWork(ctx context.Context, store *projectwork.M
 		}
 	}
 
-	assignments, err := service.ListAssignments(ctx, projectID)
+	assignments, err := h.cairnlineProjectAssignments(ctx, service, snapshot)
 	if err != nil {
 		return err
 	}
-	nativeAssignmentsByID := projectWorkAssignmentsByID(snapshot.Assignments)
-	for _, item := range assignments {
-		assignment := projectWorkAssignmentFromCairnline(item)
-		if native, ok := nativeAssignmentsByID[item.ID]; ok {
-			assignment = native
-		}
+	for _, assignment := range assignments {
 		if _, err := store.CreateAssignment(ctx, assignment); err != nil {
 			return err
 		}

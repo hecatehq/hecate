@@ -45,11 +45,14 @@ function renderStory(
     onCreateHandoff: vi.fn(),
     onCreateReviewArtifact: vi.fn(),
     onCreateReviewHandoff: vi.fn(),
+    onCompleteWork: vi.fn(),
     onDelete: vi.fn(),
     onEdit: vi.fn(),
     onOpenChat: vi.fn(),
     onOpenTask: vi.fn(),
     onReviewLaunch: vi.fn(),
+    onResumeWork: vi.fn(),
+    onStartWork: vi.fn(),
   };
   const result = render(
     <ProjectAssignmentExecutionStory
@@ -314,6 +317,208 @@ describe("ProjectAssignmentExecutionStory", () => {
     expect(screen.queryByRole("button", { name: "Open chat" })).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Review & prepare chat" }));
     expect(handlers.onReviewLaunch).toHaveBeenCalledTimes(1);
+  });
+
+  it("guides queued Human work without launch preflight or runtime requirements", async () => {
+    const { container, handlers } = renderStory(
+      assignment({ driver_kind: "manual", execution_ref: { kind: "none", status: "queued" } }),
+    );
+
+    expect(screen.getByText("Human")).toBeTruthy();
+    expect(screen.getByText("Ready")).toBeTruthy();
+    expect(screen.getAllByText("Ready for a person to begin.").length).toBeGreaterThan(0);
+    expect(screen.getByRole("list", { name: "Assignment progress" })).toBeTruthy();
+    expect(container.querySelectorAll(".btn-primary")).toHaveLength(1);
+    expect(screen.queryByText("Launch readiness")).toBeNull();
+    expect(screen.queryByText(/linked task or chat/i)).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Start work" }));
+
+    expect(handlers.onStartWork).toHaveBeenCalledTimes(1);
+    expect(handlers.onReviewLaunch).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("button", { name: "Create handoff from assignment assign_1" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Request review for assignment assign_1" }),
+    ).toBeTruthy();
+  });
+
+  it("makes completion the single primary action for active Human work", async () => {
+    const { container, handlers } = renderStory(
+      assignment({
+        driver_kind: "manual",
+        status: "running",
+        started_at: "2026-07-10T10:15:00Z",
+        execution_ref: { kind: "none", status: "running" },
+      }),
+    );
+
+    expect(screen.getAllByText("In progress").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Human work is in progress.").length).toBeGreaterThan(0);
+    expect(screen.getByRole("status")).toHaveAttribute("aria-live", "polite");
+    expect(container.querySelectorAll(".btn-primary")).toHaveLength(1);
+
+    await userEvent.click(screen.getByRole("button", { name: "Mark complete" }));
+
+    expect(handlers.onCompleteWork).toHaveBeenCalledTimes(1);
+    expect(handlers.onStartWork).not.toHaveBeenCalled();
+  });
+
+  it("recovers an interrupted Human start instead of offering completion", async () => {
+    const { handlers } = renderStory(
+      assignment({
+        driver_kind: "manual",
+        status: "running",
+        execution_ref: { kind: "none", status: "running" },
+      }),
+    );
+
+    expect(screen.getAllByText("Starting").length).toBeGreaterThan(0);
+    expect(
+      screen.getByText("Starting was interrupted before work began. Finish starting to continue."),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Mark complete" })).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Finish starting" }));
+    expect(handlers.onStartWork).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not offer recovery for a Human start prepared elsewhere", async () => {
+    const { container } = renderStory(
+      assignment({
+        driver_kind: "manual",
+        status: "running",
+        execution_ref: {
+          kind: "context_snapshot",
+          context_snapshot_id: "ctx_prepared_elsewhere",
+          status: "running",
+        },
+      }),
+    );
+
+    const blockedLabels = screen.getAllByText("Start blocked");
+    expect(blockedLabels.length).toBeGreaterThan(0);
+    expect(blockedLabels.find((item) => item.classList.contains("badge"))).toHaveClass(
+      "badge-amber",
+    );
+    expect(
+      screen.getByText(
+        "This start was prepared elsewhere. Resolve it with the owning operator or system.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Finish starting" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Mark complete" })).toBeNull();
+    expect(container.querySelectorAll(".btn-primary")).toHaveLength(0);
+
+    await userEvent.click(screen.getByText("Assignment details"));
+    expect(screen.getByRole("button", { name: "Edit assignment assign_1" })).toBeDisabled();
+  });
+
+  it("presents completed Human work as an evidence and follow-through state", () => {
+    renderStory(
+      assignment({
+        driver_kind: "manual",
+        status: "completed",
+        started_at: "2026-07-10T10:15:00Z",
+        completed_at: "2026-07-10T10:45:00Z",
+        execution_ref: { kind: "none", status: "completed" },
+      }),
+    );
+
+    expect(screen.getByText("Done")).toBeTruthy();
+    expect(
+      screen.getByText("Human work is complete. Add evidence or choose the follow-through."),
+    ).toBeTruthy();
+    expect(screen.getByText("Work marked complete.")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Record review for assignment assign_1" }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Edit assignment assign_1" })).toBeNull();
+  });
+
+  it("locks mutations while a Human start is pending but leaves inspection available", async () => {
+    renderStory(
+      assignment({
+        driver_kind: "manual",
+        status: "queued",
+        execution_ref: { kind: "none", status: "queued" },
+      }),
+      { starting: true },
+    );
+
+    expect(screen.getByRole("button", { name: "Starting…" })).toBeDisabled();
+    await userEvent.click(screen.getByText("Assignment details"));
+    expect(screen.getByRole("button", { name: "Edit assignment assign_1" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Delete assignment assign_1" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Inspect context" })).not.toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Create handoff from assignment assign_1" }),
+    ).toBeDisabled();
+  });
+
+  it("promotes a review request for completed Human work without runtime evidence", async () => {
+    const { container, handlers } = renderStory(
+      assignment({
+        driver_kind: "manual",
+        status: "completed",
+        completed_at: "2026-07-10T10:45:00Z",
+        execution_ref: { kind: "none", status: "completed" },
+      }),
+      { onCreateReviewArtifact: undefined },
+    );
+
+    expect(container.querySelectorAll(".btn-primary")).toHaveLength(1);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Request review for assignment assign_1" }),
+    );
+    expect(handlers.onCreateReviewHandoff).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets the operator resume Human work while keeping review recording available", async () => {
+    const { handlers } = renderStory(
+      assignment({
+        driver_kind: "manual",
+        status: "awaiting_approval",
+        execution_ref: { kind: "none", status: "awaiting_approval" },
+      }),
+    );
+
+    expect(screen.getAllByText("Needs review").length).toBeGreaterThan(0);
+    expect(screen.getByText("This work is waiting for review.")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Record review for assignment assign_1" }),
+    ).toBeTruthy();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Resume work on assignment assign_1" }),
+    );
+    expect(handlers.onResumeWork).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    [
+      "failed",
+      "failed",
+      "This work failed and blocks closeout. Review the evidence before deciding whether to replace this record.",
+    ],
+    [
+      "cancelled",
+      "cancelled",
+      "This work was cancelled and blocks closeout. Review the record before choosing the next step.",
+    ],
+  ])("explains the closeout impact of Human %s work", (status, label, summary) => {
+    const { container } = renderStory(
+      assignment({
+        driver_kind: "manual",
+        status,
+        execution_ref: { kind: "none", status },
+      }),
+    );
+
+    expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+    expect(screen.getByText(summary)).toBeTruthy();
+    expect(screen.queryByText(/linked task or chat/i)).toBeNull();
+    expect(container.querySelectorAll(".btn-primary")).toHaveLength(0);
   });
 
   it("never treats updated_at as execution history", () => {

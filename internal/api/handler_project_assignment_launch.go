@@ -147,6 +147,10 @@ func (h *Handler) HandleProjectWorkAssignmentPreflight(w http.ResponseWriter, r 
 			WriteError(w, http.StatusNotFound, errCodeNotFound, "assignment role not found")
 			return
 		}
+		if inputs.Assignment.DriverKind == projectwork.AssignmentDriverManual {
+			WriteError(w, http.StatusConflict, errCodeConflict, "Human assignments start directly from the work item and do not use launch preflight")
+			return
+		}
 		if projectWorkAssignmentIsTerminal(inputs.Assignment.Status) {
 			WriteError(w, http.StatusConflict, errCodeConflict, "terminal assignments cannot be started")
 			return
@@ -188,6 +192,10 @@ func (h *Handler) HandleProjectWorkAssignmentPreflight(w http.ResponseWriter, r 
 	}
 	if !ok {
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "assignment not found")
+		return
+	}
+	if assignment.DriverKind == projectwork.AssignmentDriverManual {
+		WriteError(w, http.StatusConflict, errCodeConflict, "Human assignments start directly from the work item and do not use launch preflight")
 		return
 	}
 	role, ok, err := h.loadProjectWorkRole(ctx, projectID, assignment.RoleID)
@@ -331,6 +339,8 @@ func (h *Handler) renderProjectAssignmentLaunchReadiness(ctx context.Context, pr
 				return ProjectAssignmentLaunchReadinessResponse{}, err
 			}
 		}
+	case projectwork.AssignmentDriverManual:
+		readiness.Blockers = append(readiness.Blockers, "Human assignments start directly from the work item and do not use launch readiness.")
 	default:
 		readiness.Blockers = append(readiness.Blockers, fmt.Sprintf("Assignment driver_kind %q is not supported.", driverKind))
 	}
@@ -365,7 +375,7 @@ type projectAssignmentLaunchInputs struct {
 	Assignment            projectwork.Assignment
 	Role                  projectwork.AgentRoleProfile
 	RoleOK                bool
-	CairnlineLaunchPacket cairnline.AssignmentLaunchPacket
+	CairnlineCoordination *cairnline.AssignmentCoordination
 }
 
 func (h *Handler) cairnlineProjectAssignmentLaunchInputs(ctx context.Context, projectID, workItemID, assignmentID string) (projectAssignmentLaunchInputs, error) {
@@ -409,13 +419,18 @@ func (h *Handler) cairnlineProjectAssignmentLaunchInputs(ctx context.Context, pr
 		if err != nil {
 			return projectAssignmentLaunchInputs{}, err
 		}
+		// Role skills are defaults for new assignments. This assignment's
+		// portable desired-agent skills are the immutable launch snapshot.
+		role.SkillIDs = append([]string(nil), launch.Assignment.DesiredAgent.SkillIDs...)
 	}
+	coordination := launch.Assignment.Coordination()
 	return projectAssignmentLaunchInputs{
-		Project:    project,
-		WorkItem:   workItem,
-		Assignment: assignment,
-		Role:       role,
-		RoleOK:     roleOK,
+		Project:               project,
+		WorkItem:              workItem,
+		Assignment:            assignment,
+		Role:                  role,
+		RoleOK:                roleOK,
+		CairnlineCoordination: &coordination,
 	}, nil
 }
 
@@ -679,12 +694,45 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		WriteJSON(w, http.StatusConflict, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
 		return
 	}
+	if assignment.DriverKind == projectwork.AssignmentDriverManual {
+		if !h.projectAssignmentStartUsesCairnlineAuthority() {
+			WriteError(w, http.StatusConflict, errCodeConflict, "Human assignments require Cairnline assignment authority")
+			return
+		}
+		started, startErr := h.startManualProjectAssignmentWithCairnlineAuthority(
+			ctx,
+			project,
+			assignment,
+			inputs.CairnlineCoordination,
+		)
+		if startErr != nil {
+			if errors.Is(startErr, projectworkapp.ErrAssignmentStartConflict) || errors.Is(startErr, cairnline.ErrConflict) {
+				projected, projectErr := h.renderProjectedProjectWorkAssignment(ctx, started)
+				if projectErr != nil {
+					WriteError(w, http.StatusInternalServerError, errCodeGatewayError, projectErr.Error())
+					return
+				}
+				WriteJSON(w, http.StatusConflict, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
+				return
+			}
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, startErr.Error())
+			return
+		}
+		projected, projectErr := h.renderProjectedProjectWorkAssignment(ctx, started)
+		if projectErr != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, projectErr.Error())
+			return
+		}
+		projected.ReadBackend = "cairnline"
+		WriteJSON(w, http.StatusOK, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
+		return
+	}
 	if assignment.DriverKind == projectwork.AssignmentDriverExternalAgent {
 		h.startProjectExternalAgentAssignment(w, r, inputs, strictEmbeddedRead, strictEmbeddedRuntime)
 		return
 	}
 	if assignment.DriverKind != projectwork.AssignmentDriverHecateTask {
-		WriteError(w, http.StatusConflict, errCodeConflict, fmt.Sprintf("assignment driver_kind %q is not supported; V1 supports %q and %q", assignment.DriverKind, projectwork.AssignmentDriverHecateTask, projectwork.AssignmentDriverExternalAgent))
+		WriteError(w, http.StatusConflict, errCodeConflict, fmt.Sprintf("assignment driver_kind %q is not supported", assignment.DriverKind))
 		return
 	}
 	if h.taskStore == nil {
@@ -725,7 +773,16 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 	}
 
 	if strictEmbeddedRuntime {
-		result, err := h.startStrictEmbeddedCairnlineTaskAssignment(ctx, project, workItem, assignment, role, plan, contextPacket)
+		result, err := h.startStrictEmbeddedCairnlineTaskAssignment(
+			ctx,
+			project,
+			workItem,
+			assignment,
+			role,
+			plan,
+			contextPacket,
+			inputs.CairnlineCoordination,
+		)
 		h.writeProjectTaskAssignmentStartResult(w, ctx, assignment, result, err, false)
 		return
 	}
@@ -740,7 +797,13 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 	}
 
 	startClaimedBy := projectAssignmentStartClaimedBy(assignment)
-	claimedAssignment, cairnlineStartClaimed, err := h.claimProjectAssignmentStartInCairnlineAuthority(ctx, project, assignment, startClaimedBy)
+	claimedAssignment, cairnlineStartClaimed, err := h.claimProjectAssignmentStartInCairnlineAuthority(
+		ctx,
+		project,
+		assignment,
+		startClaimedBy,
+		inputs.CairnlineCoordination,
+	)
 	if err != nil {
 		if errors.Is(err, projectworkapp.ErrAssignmentStartConflict) {
 			projected, projectErr := h.renderProjectedProjectWorkAssignment(ctx, claimedAssignment)
@@ -774,7 +837,7 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		},
 	})
 	if err != nil && cairnlineStartClaimed {
-		if result == nil || result.Assignment.ID == "" {
+		if result == nil || result.Task.ID == "" {
 			h.releaseProjectAssignmentStartInCairnlineAuthority(ctx, assignment, startClaimedBy)
 		}
 	}
@@ -794,7 +857,7 @@ func (h *Handler) writeProjectTaskAssignmentStartResult(w http.ResponseWriter, c
 		if result != nil && result.Assignment.ID != "" {
 			resultAssignment = result.Assignment
 			if mirrorStartResult && h.projectWork != nil {
-				h.mirrorProjectAssignmentStartResultToCairnline(ctx, result.Assignment)
+				h.mirrorProjectAssignmentStartResultToCairnline(ctx, result.Assignment, false)
 			}
 		}
 		var launchErr projectAssignmentPreflightError
@@ -832,7 +895,7 @@ func (h *Handler) writeProjectTaskAssignmentStartResult(w http.ResponseWriter, c
 		w.Header().Set("X-Span-Id", result.SpanID)
 	}
 	if mirrorStartResult && h.projectWork != nil {
-		h.mirrorProjectAssignmentStartResultToCairnline(ctx, result.Assignment)
+		h.mirrorProjectAssignmentStartResultToCairnline(ctx, result.Assignment, true)
 	}
 	projected, err := h.renderProjectedProjectWorkAssignment(ctx, result.Assignment)
 	if err != nil {
@@ -845,8 +908,17 @@ func (h *Handler) writeProjectTaskAssignmentStartResult(w http.ResponseWriter, c
 	WriteJSON(w, http.StatusOK, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
 }
 
-func (h *Handler) startStrictEmbeddedCairnlineTaskAssignment(ctx context.Context, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile, plan projectworkapp.TaskAssignmentLaunchPlan, contextPacket chat.ContextPacket) (*projectworkapp.StartTaskAssignmentResult, error) {
-	claimed, err := h.claimStrictEmbeddedCairnlineAssignment(ctx, assignment)
+func (h *Handler) startStrictEmbeddedCairnlineTaskAssignment(
+	ctx context.Context,
+	project projects.Project,
+	workItem projectwork.WorkItem,
+	assignment projectwork.Assignment,
+	role projectwork.AgentRoleProfile,
+	plan projectworkapp.TaskAssignmentLaunchPlan,
+	contextPacket chat.ContextPacket,
+	expectedCoordination *cairnline.AssignmentCoordination,
+) (*projectworkapp.StartTaskAssignmentResult, error) {
+	claimed, err := h.claimStrictEmbeddedCairnlineAssignment(ctx, assignment, expectedCoordination)
 	if err != nil {
 		return &projectworkapp.StartTaskAssignmentResult{Assignment: assignment}, err
 	}
@@ -855,7 +927,7 @@ func (h *Handler) startStrictEmbeddedCairnlineTaskAssignment(ctx context.Context
 	task := projectworkapp.NewAssignmentTask(taskID, project, workItem, assignment, role, plan, time.Now().UTC())
 	task, err = h.taskStore.CreateTask(ctx, task)
 	if err != nil {
-		return &projectworkapp.StartTaskAssignmentResult{Assignment: assignment}, errors.Join(err, h.releaseStrictEmbeddedCairnlineAssignmentClaim(context.Background(), assignment.ProjectID, assignment.ID))
+		return &projectworkapp.StartTaskAssignmentResult{Assignment: assignment}, errors.Join(err, h.releaseStrictEmbeddedCairnlineAssignmentClaim(context.Background(), assignment))
 	}
 	contextPacket.Refs.TaskID = task.ID
 	result, err := h.taskRunner.StartTaskWithRunInitializer(ctx, task, newOpaqueTaskResourceID, func(run *types.TaskRun) {
@@ -908,12 +980,26 @@ func (h *Handler) startStrictEmbeddedCairnlineTaskAssignment(ctx context.Context
 	}, nil
 }
 
-func (h *Handler) claimStrictEmbeddedCairnlineAssignment(ctx context.Context, assignment projectwork.Assignment) (projectwork.Assignment, error) {
+func (h *Handler) claimStrictEmbeddedCairnlineAssignment(
+	ctx context.Context,
+	assignment projectwork.Assignment,
+	expectedCoordination *cairnline.AssignmentCoordination,
+) (projectwork.Assignment, error) {
 	var claimed cairnline.Assignment
 	err := h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
-		item, err := service.ClaimAssignment(ctx, assignment.ProjectID, assignment.ID, "hecate")
+		claimedBy := projectAssignmentStartClaimedBy(assignment)
+		item, err := service.ClaimAssignment(ctx, assignment.ProjectID, assignment.ID, claimedBy)
 		if err != nil {
 			return err
+		}
+		if !projectAssignmentClaimMatchesStart(
+			item,
+			projectAssignmentExpectedStartCoordination(assignment, item, expectedCoordination),
+		) {
+			if _, releaseErr := service.ReleaseAssignment(ctx, assignment.ProjectID, assignment.ID, claimedBy); releaseErr != nil && !errors.Is(releaseErr, cairnline.ErrConflict) {
+				return releaseErr
+			}
+			return projectworkapp.ErrAssignmentStartConflict
 		}
 		claimed = item
 		return nil
@@ -932,9 +1018,10 @@ func (h *Handler) claimStrictEmbeddedCairnlineAssignment(ctx context.Context, as
 	return out, nil
 }
 
-func (h *Handler) releaseStrictEmbeddedCairnlineAssignmentClaim(ctx context.Context, projectID, assignmentID string) error {
+func (h *Handler) releaseStrictEmbeddedCairnlineAssignmentClaim(ctx context.Context, assignment projectwork.Assignment) error {
+	claimedBy := projectAssignmentStartClaimedBy(assignment)
 	return h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
-		_, err := service.ReleaseAssignment(ctx, projectID, assignmentID, "hecate")
+		_, err := service.ReleaseAssignment(ctx, assignment.ProjectID, assignment.ID, claimedBy)
 		if errors.Is(err, cairnline.ErrConflict) || errors.Is(err, cairnline.ErrNotFound) {
 			return nil
 		}
@@ -964,12 +1051,36 @@ func (h *Handler) writeStrictEmbeddedCairnlineAssignmentRuntime(ctx context.Cont
 	if err != nil {
 		return assignment, err
 	}
-	existing.Status = cairnlinebridge.AssignmentStatus(assignment.Status)
-	existing.ExecutionRef = cairnlinebridge.ExecutionRef(assignment.ExecutionRef)
-	existing.ContextSnapshotID = strings.TrimSpace(assignment.ExecutionRef.ContextSnapshotID)
-	existing.StartedAt = assignment.StartedAt
-	existing.CompletedAt = assignment.CompletedAt
-	written, err := service.UpdateAssignment(ctx, existing)
+	executionRef := cairnlinebridge.ExecutionRef(assignment.ExecutionRef)
+	contextSnapshotID := strings.TrimSpace(assignment.ExecutionRef.ContextSnapshotID)
+	if existing.Status == cairnline.AssignmentClaimed && (!executionRef.Empty() || contextSnapshotID != "") {
+		existing, err = service.PrepareAssignment(ctx, assignment.ProjectID, assignment.ID, cairnline.AssignmentPreparation{
+			ClaimedBy:         existing.ClaimedBy,
+			ExecutionRef:      executionRef,
+			ContextSnapshotID: contextSnapshotID,
+		})
+		if err != nil {
+			return assignment, err
+		}
+	} else if contextSnapshotID != "" && contextSnapshotID != existing.ContextSnapshotID {
+		return assignment, cairnline.ErrConflict
+	}
+	status := cairnlinebridge.AssignmentStatus(assignment.Status)
+	// A newly prepared Hecate task still reports queued until its runner begins.
+	// Cairnline's claim already records dispatch, so persist the successful start
+	// as running instead of attempting an invalid claimed -> queued transition.
+	if status == cairnline.AssignmentQueued && existing.Status == cairnline.AssignmentClaimed {
+		status = cairnline.AssignmentRunning
+	}
+	var written cairnline.Assignment
+	switch status {
+	case cairnline.AssignmentRunning, cairnline.AssignmentAwaitingApproval, cairnline.AssignmentReview:
+		written, err = service.UpdateAssignmentStatus(ctx, assignment.ProjectID, assignment.ID, status, executionRef)
+	case cairnline.AssignmentCompleted, cairnline.AssignmentFailed, cairnline.AssignmentCancelled:
+		written, err = service.CompleteAssignment(ctx, assignment.ProjectID, assignment.ID, status, executionRef)
+	default:
+		return assignment, cairnline.ErrInvalid
+	}
 	if err != nil {
 		return assignment, err
 	}
@@ -978,6 +1089,13 @@ func (h *Handler) writeStrictEmbeddedCairnlineAssignmentRuntime(ctx context.Cont
 
 func (h *Handler) projectAssignmentStartInputs(ctx context.Context, projectID, workItemID, assignmentID string, strictEmbeddedRead bool) (projectAssignmentLaunchInputs, error) {
 	if strictEmbeddedRead {
+		baseInputs, err := h.cairnlineProjectAssignmentStartBaseInputs(ctx, projectID, workItemID, assignmentID)
+		if err != nil {
+			return projectAssignmentLaunchInputs{}, err
+		}
+		if baseInputs.Assignment.DriverKind == projectwork.AssignmentDriverManual {
+			return baseInputs, nil
+		}
 		inputs, err := h.cairnlineProjectAssignmentLaunchInputs(ctx, projectID, workItemID, assignmentID)
 		if err != nil {
 			return projectAssignmentLaunchInputs{}, err
@@ -1021,6 +1139,41 @@ func (h *Handler) projectAssignmentStartInputs(ctx context.Context, projectID, w
 		Assignment: assignment,
 		Role:       role,
 		RoleOK:     true,
+	}, nil
+}
+
+func (h *Handler) cairnlineProjectAssignmentStartBaseInputs(ctx context.Context, projectID, workItemID, assignmentID string) (projectAssignmentLaunchInputs, error) {
+	view, err := h.cairnlineProjectWorkView(ctx, projectID)
+	if errors.Is(err, projects.ErrNotFound) {
+		return projectAssignmentLaunchInputs{}, newProjectAssignmentPreflightError(http.StatusNotFound, errCodeNotFound, "project not found")
+	}
+	if err != nil {
+		return projectAssignmentLaunchInputs{}, err
+	}
+	defer view.Close()
+	workItem, err := view.service.GetWorkItem(ctx, view.snapshot.Project.ID, workItemID)
+	if errors.Is(err, cairnline.ErrNotFound) {
+		return projectAssignmentLaunchInputs{}, newProjectAssignmentPreflightError(http.StatusNotFound, errCodeNotFound, "work item not found")
+	}
+	if err != nil {
+		return projectAssignmentLaunchInputs{}, err
+	}
+	assignment, err := view.service.GetAssignment(ctx, view.snapshot.Project.ID, assignmentID)
+	if errors.Is(err, cairnline.ErrNotFound) {
+		return projectAssignmentLaunchInputs{}, newProjectAssignmentPreflightError(http.StatusNotFound, errCodeNotFound, "assignment not found")
+	}
+	if err != nil {
+		return projectAssignmentLaunchInputs{}, err
+	}
+	if strings.TrimSpace(assignment.WorkItemID) != strings.TrimSpace(workItemID) {
+		return projectAssignmentLaunchInputs{}, newProjectAssignmentPreflightError(http.StatusNotFound, errCodeNotFound, "assignment not found")
+	}
+	coordination := assignment.Coordination()
+	return projectAssignmentLaunchInputs{
+		Project:               view.snapshot.Project,
+		WorkItem:              projectWorkItemFromCairnline(workItem),
+		Assignment:            projectWorkAssignmentFromCairnline(assignment),
+		CairnlineCoordination: &coordination,
 	}, nil
 }
 
@@ -1123,12 +1276,25 @@ func (h *Handler) startProjectExternalAgentAssignment(w http.ResponseWriter, r *
 	))
 	packetBytes := chatcontext.Marshal(contextPacket)
 	if strictEmbeddedRuntime {
-		result, err := h.startStrictEmbeddedCairnlineExternalAgentAssignment(ctx, assignment, session, contextPacket.ID, packetBytes)
+		result, err := h.startStrictEmbeddedCairnlineExternalAgentAssignment(
+			ctx,
+			assignment,
+			session,
+			contextPacket.ID,
+			packetBytes,
+			inputs.CairnlineCoordination,
+		)
 		h.writeProjectExternalAgentAssignmentStartResult(w, ctx, assignment, plan.Adapter.Name, result, err, false)
 		return
 	}
 	startClaimedBy := projectAssignmentStartClaimedBy(assignment)
-	claimedAssignment, cairnlineStartClaimed, err := h.claimProjectAssignmentStartInCairnlineAuthority(ctx, project, assignment, startClaimedBy)
+	claimedAssignment, cairnlineStartClaimed, err := h.claimProjectAssignmentStartInCairnlineAuthority(
+		ctx,
+		project,
+		assignment,
+		startClaimedBy,
+		inputs.CairnlineCoordination,
+	)
 	if err != nil {
 		if errors.Is(err, projectworkapp.ErrAssignmentStartConflict) {
 			projected, projectErr := h.renderProjectedProjectWorkAssignment(ctx, claimedAssignment)
@@ -1150,14 +1316,25 @@ func (h *Handler) startProjectExternalAgentAssignment(w http.ResponseWriter, r *
 		ContextPacket:     packetBytes,
 	})
 	if err != nil && cairnlineStartClaimed {
-		if result == nil || result.Assignment.ID == "" {
+		linkedSessionID := ""
+		if result != nil {
+			linkedSessionID = strings.TrimSpace(projectwork.NormalizeAssignmentExecutionRef(result.Assignment.ExecutionRef).ChatSessionID)
+		}
+		if linkedSessionID != strings.TrimSpace(session.ID) {
 			h.releaseProjectAssignmentStartInCairnlineAuthority(ctx, assignment, startClaimedBy)
 		}
 	}
 	h.writeProjectExternalAgentAssignmentStartResult(w, ctx, assignment, plan.Adapter.Name, result, err, true)
 }
 
-func (h *Handler) startStrictEmbeddedCairnlineExternalAgentAssignment(ctx context.Context, assignment projectwork.Assignment, session chat.Session, contextSnapshotID string, packetBytes []byte) (*projectworkapp.StartExternalAgentAssignmentResult, error) {
+func (h *Handler) startStrictEmbeddedCairnlineExternalAgentAssignment(
+	ctx context.Context,
+	assignment projectwork.Assignment,
+	session chat.Session,
+	contextSnapshotID string,
+	packetBytes []byte,
+	expectedCoordination *cairnline.AssignmentCoordination,
+) (*projectworkapp.StartExternalAgentAssignmentResult, error) {
 	if strings.TrimSpace(assignment.ExecutionRef.ChatSessionID) != "" ||
 		projectWorkAssignmentIsTerminal(assignment.Status) ||
 		assignment.DriverKind != projectwork.AssignmentDriverExternalAgent {
@@ -1199,7 +1376,7 @@ func (h *Handler) startStrictEmbeddedCairnlineExternalAgentAssignment(ctx contex
 		return &projectworkapp.StartExternalAgentAssignmentResult{Session: session}, err
 	}
 
-	claimed, err := h.claimStrictEmbeddedCairnlineAssignment(ctx, assignment)
+	claimed, err := h.claimStrictEmbeddedCairnlineAssignment(ctx, assignment, expectedCoordination)
 	if err != nil {
 		h.cleanupStrictEmbeddedExternalAgentSession(session.ID)
 		return &projectworkapp.StartExternalAgentAssignmentResult{Assignment: claimed, Session: session}, err
@@ -1220,7 +1397,7 @@ func (h *Handler) startStrictEmbeddedCairnlineExternalAgentAssignment(ctx contex
 	running, err = h.persistStrictEmbeddedCairnlineAssignmentRuntime(ctx, running)
 	if err != nil {
 		h.cleanupStrictEmbeddedExternalAgentSession(session.ID)
-		err = errors.Join(err, h.releaseStrictEmbeddedCairnlineAssignmentClaim(context.Background(), assignment.ProjectID, assignment.ID))
+		err = errors.Join(err, h.releaseStrictEmbeddedCairnlineAssignmentClaim(context.Background(), assignment))
 		return &projectworkapp.StartExternalAgentAssignmentResult{Assignment: assignment, Session: session}, err
 	}
 	return &projectworkapp.StartExternalAgentAssignmentResult{Assignment: running, Session: session}, nil
@@ -1256,7 +1433,7 @@ func (h *Handler) writeProjectExternalAgentAssignmentStartResult(w http.Response
 		if result != nil && result.Assignment.ID != "" {
 			resultAssignment = result.Assignment
 			if mirrorStartResult && h.projectWork != nil {
-				h.mirrorProjectAssignmentStartResultToCairnline(ctx, result.Assignment)
+				h.mirrorProjectAssignmentStartResultToCairnline(ctx, result.Assignment, false)
 			}
 		}
 		if errors.Is(err, projectworkapp.ErrAssignmentStartConflict) {
@@ -1275,7 +1452,7 @@ func (h *Handler) writeProjectExternalAgentAssignmentStartResult(w http.Response
 		return
 	}
 	if mirrorStartResult && h.projectWork != nil {
-		h.mirrorProjectAssignmentStartResultToCairnline(ctx, result.Assignment)
+		h.mirrorProjectAssignmentStartResultToCairnline(ctx, result.Assignment, true)
 	}
 	projected, err := h.renderProjectedProjectWorkAssignment(ctx, result.Assignment)
 	if err != nil {
@@ -1288,9 +1465,14 @@ func (h *Handler) writeProjectExternalAgentAssignmentStartResult(w http.Response
 	WriteJSON(w, http.StatusOK, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
 }
 
-func (h *Handler) mirrorProjectAssignmentStartResultToCairnline(ctx context.Context, assignment projectwork.Assignment) {
+func (h *Handler) mirrorProjectAssignmentStartResultToCairnline(ctx context.Context, assignment projectwork.Assignment, dispatched bool) {
 	if strings.TrimSpace(assignment.ID) == "" {
 		return
+	}
+	if dispatched && strings.TrimSpace(assignment.Status) == projectwork.AssignmentStatusQueued {
+		// Hecate task records remain queued while their runner is prepared, but a
+		// successful assignment start has already dispatched portable work.
+		assignment.Status = projectwork.AssignmentStatusRunning
 	}
 	h.recordCairnlineMirrorResult(ctx, cairnlineMirrorFamilyAssignments, "project_assignment_start_result", assignment.ProjectID, h.writeProjectAssignmentToCairnline(ctx, assignment))
 }

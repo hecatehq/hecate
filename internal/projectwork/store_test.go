@@ -421,6 +421,30 @@ func TestStoreConformance_ProjectWorkLifecycle(t *testing.T) {
 	}
 }
 
+func TestManualDriverValidation(t *testing.T) {
+	if !validAssignmentDriverKind(AssignmentDriverManual) {
+		t.Fatal("manual assignment driver should be valid")
+	}
+	if err := validateRole(AgentRoleProfile{
+		ID:                "operator",
+		ProjectID:         "proj_manual",
+		Name:              "Operator",
+		DefaultDriverKind: AssignmentDriverManual,
+	}); err != nil {
+		t.Fatalf("validateRole(manual): %v", err)
+	}
+	if err := validateAssignment(Assignment{
+		ID:         "asgn_manual",
+		ProjectID:  "proj_manual",
+		WorkItemID: "work_manual",
+		RoleID:     "operator",
+		DriverKind: AssignmentDriverManual,
+		Status:     AssignmentStatusQueued,
+	}); err != nil {
+		t.Fatalf("validateAssignment(manual): %v", err)
+	}
+}
+
 func TestStoreConformance_ProjectCleanup(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {

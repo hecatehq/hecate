@@ -255,6 +255,7 @@ function renderDetail(overrides: Partial<ProjectWorkItemDetailProps> = {}) {
     onDeleteHandoff: vi.fn(),
     onDeleteWorkItem: vi.fn(),
     onCloseWorkItem: vi.fn(),
+    onSetAssignmentStatus: vi.fn(),
     onEditAssignment: vi.fn(),
     onEditHandoff: vi.fn(),
     onEditWorkItem: vi.fn(),
@@ -413,15 +414,31 @@ describe("ProjectWorkItemDetail", () => {
   });
 
   it("does not offer follow-up assignments for closed handoffs", () => {
+    const dismissedTarget = assignment({ id: "assign_dismissed", driver_kind: "manual" });
+    const supersededTarget = assignment({ id: "assign_superseded" });
     renderDetail({
-      assignments: [],
+      assignments: [dismissedTarget, supersededTarget],
       handoffs: [
-        handoff({ id: "handoff_dismissed", status: "dismissed" }),
-        handoff({ id: "handoff_superseded", status: "superseded" }),
+        handoff({
+          id: "handoff_dismissed",
+          title: "Dismissed follow-up",
+          status: "dismissed",
+          target_assignment_id: dismissedTarget.id,
+        }),
+        handoff({
+          id: "handoff_superseded",
+          title: "Superseded follow-up",
+          status: "superseded",
+          target_assignment_id: supersededTarget.id,
+        }),
       ],
     });
 
     expect(screen.queryByRole("button", { name: "Create follow-up assignment" })).toBeNull();
+    const dismissed = screen.getByRole("group", { name: "Dismissed follow-up handoff" });
+    const superseded = screen.getByRole("group", { name: "Superseded follow-up handoff" });
+    expect(within(dismissed).queryByRole("button", { name: "Start work" })).toBeNull();
+    expect(within(superseded).queryByRole("button", { name: "Start from handoff" })).toBeNull();
   });
 
   it("treats null closeout lists as empty", () => {

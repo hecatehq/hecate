@@ -71,6 +71,28 @@ describe("projectWorkForms", () => {
     });
   });
 
+  it("omits empty execution refs when editing Human assignments", () => {
+    expect(
+      assignmentUpdatePayloadFromForm({
+        id: "assign_human",
+        roleID: "researcher",
+        driverKind: "manual",
+        rootID: "",
+        status: "queued",
+        taskID: "",
+        runID: "",
+        chatSessionID: "",
+        messageID: "",
+        contextSnapshotID: "",
+      }),
+    ).toEqual({
+      role_id: "researcher",
+      root_id: "",
+      driver_kind: "manual",
+      status: "queued",
+    });
+  });
+
   it("builds handoff payloads with split reference lists and defaults", () => {
     expect(
       handoffPayloadFromForm({

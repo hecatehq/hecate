@@ -53,6 +53,25 @@ function renderAssistantPanel(
 }
 
 describe("ProjectAssistantPanel", () => {
+  it("offers Human as an assignment destination", async () => {
+    const user = userEvent.setup();
+    const handlers = renderAssistantPanel();
+
+    const destination = screen.getByLabelText("Work done by");
+    await user.selectOptions(destination, "manual");
+
+    expect(destination).toHaveValue("manual");
+    expect(destination).toHaveAccessibleDescription(
+      "Track work completed by a person outside Hecate.",
+    );
+    expect(screen.getByRole("option", { name: "Human" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Draft proposal" }));
+    expect(handlers.onPropose).toHaveBeenCalledWith(
+      expect.objectContaining({ driverKind: "manual" }),
+    );
+  });
+
   it("shows setup-ready actions after project setup has begun", async () => {
     const user = userEvent.setup();
     const handlers = renderAssistantPanel({

@@ -13,6 +13,7 @@ import (
 const (
 	AssignmentDriverHecateTask    = "hecate_task"
 	AssignmentDriverExternalAgent = "external_agent"
+	AssignmentDriverManual        = "manual"
 
 	AssignmentExecutionKindTaskRun         = "task_run"
 	AssignmentExecutionKindChatSession     = "chat_session"
@@ -1054,7 +1055,7 @@ func validateAssignment(item Assignment) error {
 
 func validAssignmentDriverKind(kind string) bool {
 	switch kind {
-	case AssignmentDriverHecateTask, AssignmentDriverExternalAgent:
+	case AssignmentDriverHecateTask, AssignmentDriverExternalAgent, AssignmentDriverManual:
 		return true
 	default:
 		return false

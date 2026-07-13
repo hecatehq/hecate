@@ -26,6 +26,8 @@ import (
 	"github.com/hecatehq/hecate/internal/projectwork"
 )
 
+const AssignmentClaimedByOperator = "hecate_operator"
+
 type Snapshot struct {
 	Project            projects.Project
 	Skills             []projectskills.Skill
@@ -66,11 +68,7 @@ func seedProjectScopedSnapshot(ctx context.Context, service *cairnline.Service, 
 	}
 	for _, assignment := range snapshot.Assignments {
 		role := rolesByID[assignment.RoleID]
-		item := Assignment(assignment, role)
-		if _, err := service.CreateAssignment(ctx, item); err != nil {
-			return err
-		}
-		if err := syncAssignmentStatus(ctx, service, cairnline.Assignment{}, item); err != nil {
+		if _, err := CreateAssignment(ctx, service, assignment, role); err != nil {
 			return err
 		}
 	}
@@ -401,6 +399,8 @@ func ExecutionMode(driverKind string) string {
 		return cairnline.ExecutionOrchestrated
 	case projectwork.AssignmentDriverExternalAgent:
 		return cairnline.ExecutionExternalAdapter
+	case projectwork.AssignmentDriverManual:
+		return cairnline.ExecutionManual
 	default:
 		return cairnline.ExecutionMCPPull
 	}
@@ -522,37 +522,103 @@ func HandoffStatus(status string) string {
 }
 
 func DesiredAgentKind(driverKind string) string {
-	if strings.TrimSpace(driverKind) == projectwork.AssignmentDriverHecateTask {
+	switch strings.TrimSpace(driverKind) {
+	case projectwork.AssignmentDriverHecateTask:
 		return "hecate"
+	case projectwork.AssignmentDriverManual:
+		return "human"
+	default:
+		return cairnline.DesiredAgentAny
 	}
-	return cairnline.DesiredAgentAny
 }
 
 func syncAssignmentStatus(ctx context.Context, service *cairnline.Service, existing, assignment cairnline.Assignment) error {
-	switch assignment.Status {
-	case cairnline.AssignmentQueued:
-		if existing.Status == cairnline.AssignmentClaimed {
-			_, err := service.ReleaseAssignment(ctx, assignment.ProjectID, assignment.ID, existing.ClaimedBy)
+	if existing.ID == "" {
+		return nil
+	}
+	desiredStatus := strings.TrimSpace(assignment.Status)
+	if desiredStatus == "" {
+		desiredStatus = cairnline.AssignmentQueued
+	}
+	if existing.Status == desiredStatus && assignmentTerminalStatus(desiredStatus) {
+		return nil
+	}
+	if desiredStatus == cairnline.AssignmentQueued {
+		switch existing.Status {
+		case cairnline.AssignmentQueued:
+			return nil
+		case cairnline.AssignmentClaimed:
+			// A successfully dispatched Hecate task can remain locally queued
+			// while its runner is prepared. Releasing is rollback, not generic
+			// reconciliation, and must stay explicit in the start handlers.
+			return nil
+		default:
+			return cairnline.ErrConflict
+		}
+	}
+	if assignmentTerminalStatus(existing.Status) {
+		return cairnline.ErrConflict
+	}
+	if existing.Status == cairnline.AssignmentQueued && assignmentTerminalStatus(desiredStatus) && assignment.ExecutionRef.Empty() && strings.TrimSpace(assignment.ContextSnapshotID) == "" {
+		_, err := service.CompleteAssignment(ctx, assignment.ProjectID, assignment.ID, desiredStatus, assignment.ExecutionRef)
+		return err
+	}
+	if existing.Status == cairnline.AssignmentQueued {
+		var err error
+		existing, err = service.ClaimAssignment(ctx, assignment.ProjectID, assignment.ID, claimedBy(assignment))
+		if err != nil {
 			return err
 		}
-		return nil
+	}
+	if existing.Status == cairnline.AssignmentClaimed {
+		if existing.ClaimedBy != claimedBy(assignment) {
+			return cairnline.ErrConflict
+		}
+		if !assignment.ExecutionRef.Empty() || strings.TrimSpace(assignment.ContextSnapshotID) != "" {
+			prepared, err := service.PrepareAssignment(ctx, assignment.ProjectID, assignment.ID, cairnline.AssignmentPreparation{
+				ClaimedBy:         existing.ClaimedBy,
+				ExecutionRef:      assignment.ExecutionRef,
+				ContextSnapshotID: assignment.ContextSnapshotID,
+			})
+			if err != nil {
+				return err
+			}
+			existing = prepared
+		}
+	} else if strings.TrimSpace(assignment.ContextSnapshotID) != "" && assignment.ContextSnapshotID != existing.ContextSnapshotID {
+		return cairnline.ErrConflict
+	}
+	switch desiredStatus {
 	case cairnline.AssignmentRunning, cairnline.AssignmentAwaitingApproval, cairnline.AssignmentReview:
-		assignment.ClaimedBy = claimedBy(assignment)
-		_, err := service.UpdateAssignment(ctx, assignment)
+		_, err := service.UpdateAssignmentStatus(ctx, assignment.ProjectID, assignment.ID, desiredStatus, assignment.ExecutionRef)
 		return err
 	case cairnline.AssignmentCompleted, cairnline.AssignmentFailed, cairnline.AssignmentCancelled:
-		_, err := service.UpdateAssignment(ctx, assignment)
+		_, err := service.CompleteAssignment(ctx, assignment.ProjectID, assignment.ID, desiredStatus, assignment.ExecutionRef)
 		return err
 	default:
-		return nil
+		return cairnline.ErrInvalid
+	}
+}
+
+func assignmentTerminalStatus(status string) bool {
+	switch strings.TrimSpace(status) {
+	case cairnline.AssignmentCompleted, cairnline.AssignmentFailed, cairnline.AssignmentCancelled:
+		return true
+	default:
+		return false
 	}
 }
 
 func claimedBy(assignment cairnline.Assignment) string {
-	if assignment.DesiredAgent.Kind == "hecate" {
-		return "hecate"
+	if assignment.ExecutionMode == cairnline.ExecutionManual {
+		return AssignmentClaimedByOperator
 	}
-	return "external_adapter"
+	switch assignment.DesiredAgent.Kind {
+	case "hecate":
+		return "hecate"
+	default:
+		return "external_adapter"
+	}
 }
 
 // ExecutionRef maps Hecate's assignment execution ref onto Cairnline's

@@ -1411,8 +1411,8 @@ func TestProjectWorkAPI_CairnlineAssignmentAuthorityWritesCairnlineAndShadowsHec
 		t.Fatalf("created execution_ref = %+v, want Hecate ref shadowed through authority path", created.Data.ExecutionRef)
 	}
 	mirrored := getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_authority")
-	if mirrored.ExecutionMode != cairnline.ExecutionOrchestrated || mirrored.Status != cairnline.AssignmentQueued || mirrored.WorkItemID != "work_authority" || mirrored.RootID != "root_main" || mirrored.ContextSnapshotID != "ctx_authority" {
-		t.Fatalf("mirrored assignment = %+v, want Cairnline-authoritative queued orchestrated record", mirrored)
+	if mirrored.ExecutionMode != cairnline.ExecutionOrchestrated || mirrored.Status != cairnline.AssignmentQueued || mirrored.WorkItemID != "work_authority" || mirrored.RootID != "root_main" || mirrored.ContextSnapshotID != "" || !mirrored.ExecutionRef.Empty() {
+		t.Fatalf("mirrored assignment = %+v, want pristine Cairnline-authoritative queued coordination", mirrored)
 	}
 	shadow := getStoredProjectWorkAssignmentForTest(t, handler, projectID, "work_authority", "asgn_authority")
 	if shadow.DriverKind != projectwork.AssignmentDriverHecateTask || shadow.Status != projectwork.AssignmentStatusQueued || shadow.ExecutionRef.ContextSnapshotID != "ctx_authority" {
@@ -1431,32 +1431,46 @@ func TestProjectWorkAPI_CairnlineAssignmentAuthorityWritesCairnlineAndShadowsHec
 		t.Fatalf("seed assignment runtime overlay: %v", err)
 	}
 
-	updated := mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusOK, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/assignments/asgn_authority", projectJourneyJSON(t, map[string]any{
+	lockedDestination := mustRequestJSONStatus[projectWorkErrorResponse](client, http.StatusConflict, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/assignments/asgn_authority", projectJourneyJSON(t, map[string]any{
 		"driver_kind": projectwork.AssignmentDriverExternalAgent,
 		"status":      projectwork.AssignmentStatusCompleted,
+	}))
+	if !strings.Contains(lockedDestination.Error.Message, "destination separately") {
+		t.Fatalf("combined destination response = %+v, want destination/progress conflict", lockedDestination.Error)
+	}
+	mirrored = getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_authority")
+	if mirrored.ExecutionMode != cairnline.ExecutionOrchestrated || mirrored.Status != cairnline.AssignmentQueued || mirrored.ContextSnapshotID != "" || !mirrored.ExecutionRef.Empty() {
+		t.Fatalf("assignment after rejected retarget = %+v, want original pristine queued coordination", mirrored)
+	}
+
+	updated := mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusOK, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/assignments/asgn_authority", projectJourneyJSON(t, map[string]any{
+		"status": projectwork.AssignmentStatusCompleted,
 		"execution_ref": map[string]any{
-			"kind":            "external_agent",
-			"chat_session_id": "chat_authority",
-			"message_id":      "msg_authority",
-			"status":          "completed",
+			"kind":    "hecate_task",
+			"task_id": "task_authority",
+			"run_id":  "run_authority",
+			"status":  "completed",
 		},
 	}))
-	if updated.Data.ReadBackend != "cairnline" || updated.Data.DriverKind != projectwork.AssignmentDriverExternalAgent || updated.Data.Status != projectwork.AssignmentStatusCompleted {
-		t.Fatalf("updated assignment = %+v, want Cairnline response with external completed status", updated.Data)
+	if updated.Data.ReadBackend != "cairnline" || updated.Data.DriverKind != projectwork.AssignmentDriverHecateTask || updated.Data.Status != projectwork.AssignmentStatusCompleted {
+		t.Fatalf("updated assignment = %+v, want Cairnline response with completed Hecate Task status", updated.Data)
 	}
-	if updated.Data.ExecutionRef == nil || updated.Data.ExecutionRef.ChatSessionID != "chat_authority" || updated.Data.ExecutionRef.MessageID != "msg_authority" {
+	if updated.Data.ExecutionRef == nil || updated.Data.ExecutionRef.TaskID != "task_authority" || updated.Data.ExecutionRef.RunID != "run_authority" {
 		t.Fatalf("updated execution_ref = %+v, want native execution ref preserved", updated.Data.ExecutionRef)
 	}
 	mirrored = getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_authority")
-	if mirrored.ExecutionMode != cairnline.ExecutionExternalAdapter || mirrored.Status != cairnline.AssignmentCompleted || mirrored.ExecutionRef.SessionID != "chat_authority" {
-		t.Fatalf("updated mirrored assignment = %+v, want Cairnline-authoritative external completion", mirrored)
+	if mirrored.ExecutionMode != cairnline.ExecutionOrchestrated || mirrored.Status != cairnline.AssignmentCompleted || mirrored.ExecutionRef.TaskID != "task_authority" || mirrored.ExecutionRef.RunID != "run_authority" {
+		t.Fatalf("updated mirrored assignment = %+v, want Cairnline-authoritative task completion", mirrored)
 	}
 	shadow = getStoredProjectWorkAssignmentForTest(t, handler, projectID, "work_authority", "asgn_authority")
-	if shadow.DriverKind != projectwork.AssignmentDriverExternalAgent || shadow.Status != projectwork.AssignmentStatusCompleted || shadow.ExecutionRef.ChatSessionID != "chat_authority" {
+	if shadow.DriverKind != projectwork.AssignmentDriverHecateTask || shadow.Status != projectwork.AssignmentStatusCompleted || shadow.ExecutionRef.TaskID != "task_authority" || shadow.ExecutionRef.RunID != "run_authority" {
 		t.Fatalf("updated Hecate shadow assignment = %+v, want compatibility shadow update", shadow)
 	}
-	if string(shadow.ContextPacket) != string(contextPacket) || !shadow.StartedAt.Equal(startedAt) || !shadow.CompletedAt.Equal(completedAt) {
-		t.Fatalf("updated Hecate shadow runtime fields = packet %s started %v completed %v, want preserved packet/timestamps", string(shadow.ContextPacket), shadow.StartedAt, shadow.CompletedAt)
+	if string(shadow.ContextPacket) != string(contextPacket) || shadow.StartedAt.IsZero() || shadow.CompletedAt.IsZero() || shadow.CompletedAt.Before(shadow.StartedAt) {
+		t.Fatalf("updated Hecate shadow runtime fields = packet %s started %v completed %v, want preserved packet with Cairnline lifecycle timestamps", string(shadow.ContextPacket), shadow.StartedAt, shadow.CompletedAt)
+	}
+	if shadow.StartedAt.Equal(startedAt) || shadow.CompletedAt.Equal(completedAt) {
+		t.Fatalf("updated Hecate shadow timestamps = %v/%v, want Cairnline authority instead of stale runtime %v/%v", shadow.StartedAt, shadow.CompletedAt, startedAt, completedAt)
 	}
 
 	client.mustRequestStatus(http.StatusNoContent, http.MethodDelete, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/assignments/asgn_authority", "")
@@ -1732,6 +1746,460 @@ func TestProjectWorkAPI_CairnlineAssignmentAuthorityWritesCairnlineOnlyProject(t
 	}
 }
 
+func TestProjectWorkAPI_ManualAssignmentLifecycleUsesCairnlineAuthority(t *testing.T) {
+	t.Parallel()
+	const projectID = "proj_manual_assignment_lifecycle"
+	handler, server := newProjectWorkCairnlineAssignmentAuthorityTestServer(t)
+	client := newAPITestClient(t, server)
+	seedCairnlineOnlyProjectWorkGraphForTest(t, handler, cairnline.Project{
+		ID:   projectID,
+		Name: "Rootless research project",
+	}, []cairnline.Role{{
+		ID:                   "researcher",
+		ProjectID:            projectID,
+		Name:                 "Researcher",
+		DefaultExecutionMode: cairnline.ExecutionManual,
+	}}, []cairnline.WorkItem{{
+		ID:        "work_manual",
+		ProjectID: projectID,
+		Title:     "Interview operators",
+		Status:    cairnline.WorkStatusReady,
+		Priority:  cairnline.PriorityNormal,
+	}}, nil)
+	handler.config.Projects.CairnlineReadSource = "embedded"
+	handler.projects = nil
+
+	created := mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_manual/assignments", projectJourneyJSON(t, map[string]any{
+		"id":          "asgn_manual",
+		"role_id":     "researcher",
+		"driver_kind": projectwork.AssignmentDriverManual,
+	}))
+	if created.Data.DriverKind != projectwork.AssignmentDriverManual || created.Data.RootID != "" || created.Data.Status != projectwork.AssignmentStatusQueued || created.Data.ExecutionRef != nil {
+		t.Fatalf("created manual assignment = %+v, want queued rootless assignment without execution ref", created.Data)
+	}
+	portable := getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_manual")
+	if portable.ExecutionMode != cairnline.ExecutionManual || portable.DesiredAgent.Kind != "human" || portable.RootID != "" {
+		t.Fatalf("portable manual assignment = %+v, want manual human assignment without root", portable)
+	}
+	if runtime, ok, err := handler.projectRuntime.Get(t.Context(), projectID, "asgn_manual"); err != nil || ok {
+		t.Fatalf("manual runtime after create = %+v ok=%v err=%v, want no local lifecycle overlay", runtime, ok, err)
+	}
+	for save := 1; save <= 2; save++ {
+		edited := mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusOK, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/work-items/work_manual/assignments/asgn_manual", projectJourneyJSON(t, map[string]any{
+			"role_id":     "researcher",
+			"root_id":     "",
+			"driver_kind": projectwork.AssignmentDriverManual,
+			"status":      projectwork.AssignmentStatusQueued,
+		}))
+		if edited.Data.Status != projectwork.AssignmentStatusQueued || edited.Data.ExecutionRef != nil {
+			t.Fatalf("queued Human edit %d = %+v, want editable queued assignment without runtime ref", save, edited.Data)
+		}
+		portable = getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_manual")
+		if portable.Status != cairnline.AssignmentQueued || portable.ClaimedBy != "" || !portable.ExecutionRef.Empty() {
+			t.Fatalf("portable Human edit %d = %+v, want claim-safe queued metadata", save, portable)
+		}
+	}
+
+	invalidExplicitStart := mustRequestJSONStatus[projectWorkErrorResponse](client, http.StatusBadRequest, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_manual/assignments", projectJourneyJSON(t, map[string]any{
+		"id":          "asgn_manual_invalid_explicit",
+		"role_id":     "researcher",
+		"driver_kind": projectwork.AssignmentDriverManual,
+		"status":      projectwork.AssignmentStatusRunning,
+	}))
+	if !strings.Contains(invalidExplicitStart.Error.Message, "ready to start") {
+		t.Fatalf("explicit Human running create = %+v, want queued-only validation", invalidExplicitStart.Error)
+	}
+	invalidDefaultCompletion := mustRequestJSONStatus[projectWorkErrorResponse](client, http.StatusBadRequest, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_manual/assignments", projectJourneyJSON(t, map[string]any{
+		"id":           "asgn_manual_invalid_default",
+		"role_id":      "researcher",
+		"status":       projectwork.AssignmentStatusCompleted,
+		"completed_at": "2026-07-13T12:00:00Z",
+	}))
+	if !strings.Contains(invalidDefaultCompletion.Error.Message, "ready to start") {
+		t.Fatalf("role-default Human completed create = %+v, want queued-only validation", invalidDefaultCompletion.Error)
+	}
+	mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_manual/assignments", projectJourneyJSON(t, map[string]any{
+		"id":          "asgn_manual_cancel_before_start",
+		"role_id":     "researcher",
+		"driver_kind": projectwork.AssignmentDriverManual,
+	}))
+	cancelledBeforeStart := mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusOK, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/work-items/work_manual/assignments/asgn_manual_cancel_before_start", projectJourneyJSON(t, map[string]any{
+		"status": projectwork.AssignmentStatusCancelled,
+	}))
+	if cancelledBeforeStart.Data.StartedAt != "" || cancelledBeforeStart.Data.CompletedAt == "" {
+		t.Fatalf("never-started Human cancellation = %+v, want completion stamp without start stamp", cancelledBeforeStart.Data)
+	}
+	cancelledPortable := getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_manual_cancel_before_start")
+	if cancelledPortable.Status != cairnline.AssignmentCancelled || !cancelledPortable.StartedAt.IsZero() || cancelledPortable.CompletedAt.IsZero() {
+		t.Fatalf("portable never-started Human cancellation = %+v, want truthful timestamps", cancelledPortable)
+	}
+
+	mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_manual/assignments", projectJourneyJSON(t, map[string]any{
+		"id":          "asgn_manual_patch",
+		"role_id":     "researcher",
+		"driver_kind": projectwork.AssignmentDriverManual,
+	}))
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
+		_, err := service.ClaimAssignment(t.Context(), projectID, "asgn_manual_patch", "other_host")
+		return err
+	}); err != nil {
+		t.Fatalf("claim competing manual assignment: %v", err)
+	}
+	patchClaimedDetails := mustRequestJSONStatus[projectWorkErrorResponse](client, http.StatusConflict, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/work-items/work_manual/assignments/asgn_manual_patch", projectJourneyJSON(t, map[string]any{
+		"role_id":     "researcher",
+		"root_id":     "",
+		"driver_kind": projectwork.AssignmentDriverManual,
+		"status":      projectwork.AssignmentStatusRunning,
+	}))
+	if !strings.Contains(patchClaimedDetails.Error.Message, "already being started") {
+		t.Fatalf("claimed Human metadata response = %+v, want claim conflict", patchClaimedDetails.Error)
+	}
+	patchedPortable := getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_manual_patch")
+	if patchedPortable.Status != cairnline.AssignmentClaimed || patchedPortable.ClaimedBy != "other_host" {
+		t.Fatalf("claimed portable assignment after metadata PATCH = %+v, want competing claim preserved", patchedPortable)
+	}
+	patchClaimed := mustRequestJSONStatus[projectWorkErrorResponse](client, http.StatusConflict, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/work-items/work_manual/assignments/asgn_manual_patch", projectJourneyJSON(t, map[string]any{
+		"status": projectwork.AssignmentStatusRunning,
+	}))
+	if !strings.Contains(patchClaimed.Error.Message, "already being started") {
+		t.Fatalf("claimed Human PATCH response = %+v, want claim conflict", patchClaimed.Error)
+	}
+	patchedPortable = getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_manual_patch")
+	if patchedPortable.Status != cairnline.AssignmentClaimed || patchedPortable.ClaimedBy != "other_host" {
+		t.Fatalf("claimed portable assignment = %+v, want competing claim preserved", patchedPortable)
+	}
+
+	for _, assignmentID := range []string{"asgn_task_combined", "asgn_task_active"} {
+		mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_manual/assignments", projectJourneyJSON(t, map[string]any{
+			"id":          assignmentID,
+			"role_id":     "researcher",
+			"driver_kind": projectwork.AssignmentDriverHecateTask,
+		}))
+	}
+	combinedRetarget := mustRequestJSONStatus[projectWorkErrorResponse](client, http.StatusConflict, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/work-items/work_manual/assignments/asgn_task_combined", projectJourneyJSON(t, map[string]any{
+		"driver_kind": projectwork.AssignmentDriverManual,
+		"status":      projectwork.AssignmentStatusRunning,
+	}))
+	if !strings.Contains(combinedRetarget.Error.Message, "destination separately") {
+		t.Fatalf("combined Human retarget response = %+v, want separate destination/progress guidance", combinedRetarget.Error)
+	}
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
+		if _, err := service.ClaimAssignment(t.Context(), projectID, "asgn_task_active", "hecate"); err != nil {
+			return err
+		}
+		_, err := service.UpdateAssignmentStatus(t.Context(), projectID, "asgn_task_active", cairnline.AssignmentRunning, cairnline.ExecutionRef{})
+		return err
+	}); err != nil {
+		t.Fatalf("start active Hecate Task assignment: %v", err)
+	}
+	activeRetarget := mustRequestJSONStatus[projectWorkErrorResponse](client, http.StatusConflict, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/work-items/work_manual/assignments/asgn_task_active", projectJourneyJSON(t, map[string]any{
+		"driver_kind": projectwork.AssignmentDriverManual,
+	}))
+	if !strings.Contains(activeRetarget.Error.Message, "destination cannot change") {
+		t.Fatalf("active Hecate Task retarget response = %+v, want symmetric destination lock", activeRetarget.Error)
+	}
+	activePortable := getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_task_active")
+	if activePortable.ExecutionMode != cairnline.ExecutionOrchestrated || activePortable.Status != cairnline.AssignmentRunning || activePortable.ClaimedBy != "hecate" {
+		t.Fatalf("active assignment after rejected Human retarget = %+v, want runtime ownership preserved", activePortable)
+	}
+
+	preflight := mustRequestJSONStatus[projectWorkErrorResponse](client, http.StatusConflict, http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_manual/assignments/asgn_manual/preflight", "")
+	if !strings.Contains(preflight.Error.Message, "do not use launch preflight") {
+		t.Fatalf("manual preflight error = %+v, want direct-work guidance", preflight.Error)
+	}
+
+	for _, assignmentID := range []string{"asgn_manual_interrupted", "asgn_manual_prepared"} {
+		mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_manual/assignments", projectJourneyJSON(t, map[string]any{
+			"id":          assignmentID,
+			"role_id":     "researcher",
+			"driver_kind": projectwork.AssignmentDriverManual,
+		}))
+	}
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
+		if _, err := service.ClaimAssignment(t.Context(), projectID, "asgn_manual_interrupted", projectAssignmentStartClaimedByOperator); err != nil {
+			return err
+		}
+		if _, err := service.ClaimAssignment(t.Context(), projectID, "asgn_manual_prepared", projectAssignmentStartClaimedByOperator); err != nil {
+			return err
+		}
+		_, err := service.PrepareAssignment(t.Context(), projectID, "asgn_manual_prepared", cairnline.AssignmentPreparation{
+			ClaimedBy:         projectAssignmentStartClaimedByOperator,
+			ContextSnapshotID: "ctx_manual_prepared_elsewhere",
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("seed interrupted Human starts: %v", err)
+	}
+	interrupted := mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusOK, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_manual/assignments/asgn_manual_interrupted/start", projectJourneyJSON(t, map[string]any{
+		"driver_kind": projectwork.AssignmentDriverManual,
+	}))
+	if interrupted.Data.Status != projectwork.AssignmentStatusRunning || interrupted.Data.StartedAt == "" {
+		t.Fatalf("interrupted Human start = %+v, want same-operator recovery", interrupted.Data)
+	}
+	mustRequestJSONStatus[projectWorkErrorResponse](client, http.StatusConflict, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_manual/assignments/asgn_manual_prepared/start", projectJourneyJSON(t, map[string]any{
+		"driver_kind": projectwork.AssignmentDriverManual,
+	}))
+	preparedPortable := getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_manual_prepared")
+	if preparedPortable.Status != cairnline.AssignmentClaimed || preparedPortable.ClaimedBy != projectAssignmentStartClaimedByOperator || preparedPortable.ContextSnapshotID != "ctx_manual_prepared_elsewhere" {
+		t.Fatalf("prepared Human assignment after rejected recovery = %+v, want prepared claim preserved", preparedPortable)
+	}
+	for _, outcome := range []string{projectwork.AssignmentStatusFailed, projectwork.AssignmentStatusCancelled} {
+		assignmentID := "asgn_manual_" + outcome
+		mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_manual/assignments", projectJourneyJSON(t, map[string]any{
+			"id":          assignmentID,
+			"role_id":     "researcher",
+			"driver_kind": projectwork.AssignmentDriverManual,
+		}))
+		mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusOK, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_manual/assignments/"+assignmentID+"/start", projectJourneyJSON(t, map[string]any{
+			"driver_kind": projectwork.AssignmentDriverManual,
+		}))
+		terminal := mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusOK, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/work-items/work_manual/assignments/"+assignmentID, projectJourneyJSON(t, map[string]any{
+			"status": outcome,
+		}))
+		if terminal.Data.Status != outcome || terminal.Data.StartedAt == "" || terminal.Data.CompletedAt == "" {
+			t.Fatalf("active Human %s response = %+v, want start and terminal stamps", outcome, terminal.Data)
+		}
+		terminalPortable := getMirroredCairnlineAssignmentForTest(t, handler, projectID, assignmentID)
+		if terminalPortable.Status != cairnlinebridge.AssignmentStatus(outcome) || terminalPortable.StartedAt.IsZero() || terminalPortable.CompletedAt.IsZero() {
+			t.Fatalf("portable active Human %s = %+v, want terminal lifecycle", outcome, terminalPortable)
+		}
+	}
+
+	started := mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusOK, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_manual/assignments/asgn_manual/start", projectJourneyJSON(t, map[string]any{
+		"driver_kind": projectwork.AssignmentDriverManual,
+	}))
+	if started.Data.Status != projectwork.AssignmentStatusRunning || started.Data.StartedAt == "" || started.Data.ExecutionRef != nil {
+		t.Fatalf("started manual assignment = %+v, want running assignment with authority timestamp and no execution ref", started.Data)
+	}
+	portable = getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_manual")
+	if portable.Status != cairnline.AssignmentRunning || portable.ClaimedBy != projectAssignmentStartClaimedByOperator || portable.StartedAt.IsZero() || !portable.ExecutionRef.Empty() {
+		t.Fatalf("started portable assignment = %+v, want operator claim and Cairnline start timestamp", portable)
+	}
+	if runtime, ok, err := handler.projectRuntime.Get(t.Context(), projectID, "asgn_manual"); err != nil || ok {
+		t.Fatalf("manual runtime after start = %+v ok=%v err=%v, want no local lifecycle overlay", runtime, ok, err)
+	}
+	duplicateCreate := mustRequestJSONStatus[projectWorkErrorResponse](client, http.StatusConflict, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_manual/assignments", projectJourneyJSON(t, map[string]any{
+		"id":          "asgn_manual",
+		"role_id":     "researcher",
+		"driver_kind": projectwork.AssignmentDriverHecateTask,
+	}))
+	if duplicateCreate.Error.Type != "conflict" {
+		t.Fatalf("duplicate Human create = %+v, want conflict", duplicateCreate.Error)
+	}
+	portable = getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_manual")
+	if portable.ExecutionMode != cairnline.ExecutionManual || portable.Status != cairnline.AssignmentRunning || portable.ClaimedBy != projectAssignmentStartClaimedByOperator || !portable.ExecutionRef.Empty() {
+		t.Fatalf("portable assignment after duplicate POST = %+v, want active Human assignment unchanged", portable)
+	}
+
+	metadataWhileActive := mustRequestJSONStatus[projectWorkErrorResponse](client, http.StatusConflict, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/work-items/work_manual/assignments/asgn_manual", projectJourneyJSON(t, map[string]any{
+		"root_id": "",
+	}))
+	if !strings.Contains(metadataWhileActive.Error.Message, "details cannot change") {
+		t.Fatalf("active Human metadata response = %+v, want details lock", metadataWhileActive.Error)
+	}
+	retargetWhileActive := mustRequestJSONStatus[projectWorkErrorResponse](client, http.StatusConflict, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/work-items/work_manual/assignments/asgn_manual", projectJourneyJSON(t, map[string]any{
+		"driver_kind": projectwork.AssignmentDriverHecateTask,
+	}))
+	if !strings.Contains(retargetWhileActive.Error.Message, "details cannot change") {
+		t.Fatalf("active Human destination response = %+v, want destination lock", retargetWhileActive.Error)
+	}
+
+	awaitingReview := mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusOK, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/work-items/work_manual/assignments/asgn_manual", projectJourneyJSON(t, map[string]any{
+		"status": projectwork.AssignmentStatusAwaitingApproval,
+	}))
+	if awaitingReview.Data.Status != projectwork.AssignmentStatusAwaitingApproval {
+		t.Fatalf("Human review state = %+v, want awaiting approval", awaitingReview.Data)
+	}
+	resumed := mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusOK, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/work-items/work_manual/assignments/asgn_manual", projectJourneyJSON(t, map[string]any{
+		"status": projectwork.AssignmentStatusRunning,
+	}))
+	if resumed.Data.Status != projectwork.AssignmentStatusRunning || resumed.Data.StartedAt != started.Data.StartedAt {
+		t.Fatalf("resumed Human assignment = %+v, want original running lifecycle", resumed.Data)
+	}
+	portable = getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_manual")
+	if portable.ClaimedBy != projectAssignmentStartClaimedByOperator {
+		t.Fatalf("resumed portable claimant = %q, want operator claimant", portable.ClaimedBy)
+	}
+
+	completed := mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusOK, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/work-items/work_manual/assignments/asgn_manual", projectJourneyJSON(t, map[string]any{
+		"status": projectwork.AssignmentStatusCompleted,
+	}))
+	if completed.Data.Status != projectwork.AssignmentStatusCompleted || completed.Data.StartedAt == "" || completed.Data.CompletedAt == "" || completed.Data.ExecutionRef != nil {
+		t.Fatalf("completed manual assignment = %+v, want authority timestamps and no execution ref", completed.Data)
+	}
+	portable = getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_manual")
+	if portable.Status != cairnline.AssignmentCompleted || portable.ClaimedBy != projectAssignmentStartClaimedByOperator || portable.CompletedAt.IsZero() || portable.CompletedAt.Before(portable.StartedAt) || !portable.ExecutionRef.Empty() {
+		t.Fatalf("completed portable assignment = %+v, want Cairnline-owned completion lifecycle", portable)
+	}
+	if runtime, ok, err := handler.projectRuntime.Get(t.Context(), projectID, "asgn_manual"); err != nil || ok {
+		t.Fatalf("manual runtime after completion = %+v ok=%v err=%v, want no local lifecycle overlay", runtime, ok, err)
+	}
+	completedAgain := mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusOK, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/work-items/work_manual/assignments/asgn_manual", projectJourneyJSON(t, map[string]any{
+		"status": projectwork.AssignmentStatusCompleted,
+	}))
+	if completedAgain.Data.Status != projectwork.AssignmentStatusCompleted || completedAgain.Data.CompletedAt != completed.Data.CompletedAt {
+		t.Fatalf("unchanged completed manual assignment = %+v, want idempotent terminal state", completedAgain.Data)
+	}
+	conflictingTerminal := mustRequestJSONStatus[projectWorkErrorResponse](client, http.StatusConflict, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/work-items/work_manual/assignments/asgn_manual", projectJourneyJSON(t, map[string]any{
+		"status": projectwork.AssignmentStatusFailed,
+	}))
+	if !strings.Contains(conflictingTerminal.Error.Message, "finished Human work") {
+		t.Fatalf("second Human terminal transition = %+v, want terminal conflict", conflictingTerminal.Error)
+	}
+	portable = getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_manual")
+	if portable.Status != cairnline.AssignmentCompleted || portable.ClaimedBy != projectAssignmentStartClaimedByOperator {
+		t.Fatalf("portable assignment after conflicting completion = %+v, want first terminal state preserved", portable)
+	}
+
+	mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_manual/assignments", projectJourneyJSON(t, map[string]any{
+		"id":      "asgn_manual_portable_direct",
+		"role_id": "researcher",
+	}))
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
+		if _, err := service.ClaimAssignment(t.Context(), projectID, "asgn_manual_portable_direct", projectAssignmentStartClaimedByOperator); err != nil {
+			return err
+		}
+		if _, err := service.UpdateAssignmentStatus(t.Context(), projectID, "asgn_manual_portable_direct", cairnline.AssignmentRunning, cairnline.ExecutionRef{}); err != nil {
+			return err
+		}
+		_, err := service.CompleteAssignment(t.Context(), projectID, "asgn_manual_portable_direct", cairnline.AssignmentCompleted, cairnline.ExecutionRef{})
+		return err
+	}); err != nil {
+		t.Fatalf("complete Human assignment directly through Cairnline: %v", err)
+	}
+	staleStartedAt := time.Date(2026, 7, 12, 8, 0, 0, 0, time.UTC)
+	if _, err := handler.projectWork.CreateRole(t.Context(), projectwork.AgentRoleProfile{
+		ID:        "researcher",
+		ProjectID: projectID,
+		Name:      "Researcher",
+	}); err != nil {
+		t.Fatalf("seed stale native Human role: %v", err)
+	}
+	if _, err := handler.projectWork.CreateWorkItem(t.Context(), projectwork.WorkItem{
+		ID:        "work_manual",
+		ProjectID: projectID,
+		Title:     "Interview operators",
+		Status:    projectwork.WorkItemStatusReady,
+	}); err != nil {
+		t.Fatalf("seed stale native Human work item: %v", err)
+	}
+	if _, err := handler.projectWork.CreateAssignment(t.Context(), projectwork.Assignment{
+		ID:         "asgn_manual_portable_direct",
+		ProjectID:  projectID,
+		WorkItemID: "work_manual",
+		RoleID:     "researcher",
+		DriverKind: projectwork.AssignmentDriverHecateTask,
+		Status:     projectwork.AssignmentStatusFailed,
+		ExecutionRef: projectwork.AssignmentExecutionRef{
+			Kind:   projectwork.AssignmentExecutionKindTaskRun,
+			TaskID: "task_stale",
+			RunID:  "run_stale",
+			Status: projectwork.AssignmentStatusFailed,
+		},
+		StartedAt:   staleStartedAt,
+		CompletedAt: staleStartedAt.Add(time.Minute),
+	}); err != nil {
+		t.Fatalf("seed stale native Human shadow: %v", err)
+	}
+	if _, err := handler.projectRuntime.Upsert(t.Context(), projectruntime.AssignmentRuntime{
+		ProjectID:    projectID,
+		AssignmentID: "asgn_manual_portable_direct",
+		ExecutionRef: projectwork.AssignmentExecutionRef{
+			Kind:   projectwork.AssignmentExecutionKindTaskRun,
+			TaskID: "task_runtime_stale",
+			RunID:  "run_runtime_stale",
+			Status: projectwork.AssignmentStatusFailed,
+		},
+		StartedAt:   staleStartedAt,
+		CompletedAt: staleStartedAt.Add(time.Minute),
+	}); err != nil {
+		t.Fatalf("seed stale Human runtime overlay: %v", err)
+	}
+	listed := mustRequestJSONStatus[ProjectWorkAssignmentsResponse](client, http.StatusOK, http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_manual/assignments", "")
+	var direct ProjectWorkAssignmentResponse
+	for _, assignment := range listed.Data {
+		if assignment.ID == "asgn_manual_portable_direct" {
+			direct = assignment
+			break
+		}
+	}
+	if direct.ID == "" || direct.DriverKind != projectwork.AssignmentDriverManual || direct.Status != projectwork.AssignmentStatusCompleted || direct.StartedAt == "" || direct.CompletedAt == "" || direct.ExecutionRef != nil {
+		t.Fatalf("direct portable Human assignment = %+v, want Cairnline timestamps preserved on Hecate read", direct)
+	}
+	if direct.StartedAt == formatOptionalTime(staleStartedAt) || direct.CompletedAt == formatOptionalTime(staleStartedAt.Add(time.Minute)) {
+		t.Fatalf("direct portable Human timestamps = %s/%s, want stale native/runtime timestamps ignored", direct.StartedAt, direct.CompletedAt)
+	}
+}
+
+func TestProjectWorkAPI_HumanAssignmentMutationsRequireCairnlineAuthority(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	client := newAPITestClient(t, server)
+	const projectID = "proj_manual_authority_guard"
+	if _, err := handler.projects.Create(t.Context(), projects.Project{ID: projectID, Name: "Human authority guard"}); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	for _, role := range []projectwork.AgentRoleProfile{
+		{ID: "role_manual_default", ProjectID: projectID, Name: "Human owner", DefaultDriverKind: projectwork.AssignmentDriverManual},
+		{ID: "role_task_default", ProjectID: projectID, Name: "Task owner", DefaultDriverKind: projectwork.AssignmentDriverHecateTask},
+	} {
+		if _, err := handler.projectWork.CreateRole(t.Context(), role); err != nil {
+			t.Fatalf("CreateRole(%s): %v", role.ID, err)
+		}
+	}
+	if _, err := handler.projectWork.CreateWorkItem(t.Context(), projectwork.WorkItem{
+		ID:          "work_manual_guard",
+		ProjectID:   projectID,
+		Title:       "Guard Human coordination",
+		Status:      projectwork.WorkItemStatusReady,
+		OwnerRoleID: "role_manual_default",
+	}); err != nil {
+		t.Fatalf("CreateWorkItem: %v", err)
+	}
+
+	for name, body := range map[string]string{
+		"explicit": `{"id":"asgn_manual_explicit","role_id":"role_task_default","driver_kind":"manual"}`,
+		"default":  `{"id":"asgn_manual_default","role_id":"role_manual_default"}`,
+	} {
+		errorResponse := mustRequestJSONStatus[projectWorkErrorResponse](client, http.StatusConflict, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_manual_guard/assignments", body)
+		if !strings.Contains(errorResponse.Error.Message, "require Cairnline assignment authority") {
+			t.Fatalf("%s Human create error = %+v, want authority guidance", name, errorResponse.Error)
+		}
+	}
+
+	created := mustRequestJSONStatus[ProjectWorkAssignmentEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_manual_guard/assignments", `{"id":"asgn_task_guard","role_id":"role_task_default","driver_kind":"hecate_task"}`)
+	if created.Data.DriverKind != projectwork.AssignmentDriverHecateTask {
+		t.Fatalf("created task assignment = %+v", created.Data)
+	}
+	retarget := mustRequestJSONStatus[projectWorkErrorResponse](client, http.StatusConflict, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/work-items/work_manual_guard/assignments/asgn_task_guard", `{"driver_kind":"manual"}`)
+	if !strings.Contains(retarget.Error.Message, "require Cairnline assignment authority") {
+		t.Fatalf("Human retarget error = %+v, want authority guidance", retarget.Error)
+	}
+	stored := getStoredProjectWorkAssignmentForTest(t, handler, projectID, "work_manual_guard", "asgn_task_guard")
+	if stored.DriverKind != projectwork.AssignmentDriverHecateTask {
+		t.Fatalf("stored assignment after rejected Human retarget = %+v", stored)
+	}
+
+	if _, err := handler.projectWork.CreateAssignment(t.Context(), projectwork.Assignment{
+		ID:         "asgn_manual_seeded",
+		ProjectID:  projectID,
+		WorkItemID: "work_manual_guard",
+		RoleID:     "role_manual_default",
+		DriverKind: projectwork.AssignmentDriverManual,
+		Status:     projectwork.AssignmentStatusQueued,
+	}); err != nil {
+		t.Fatalf("seed manual assignment: %v", err)
+	}
+	startError := mustRequestJSONStatus[projectWorkErrorResponse](client, http.StatusConflict, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_manual_guard/assignments/asgn_manual_seeded/start", `{}`)
+	if !strings.Contains(startError.Error.Message, "require Cairnline assignment authority") {
+		t.Fatalf("Human start error = %+v, want authority guidance", startError.Error)
+	}
+	stored = getStoredProjectWorkAssignmentForTest(t, handler, projectID, "work_manual_guard", "asgn_manual_seeded")
+	if stored.Status != projectwork.AssignmentStatusQueued || !stored.StartedAt.IsZero() {
+		t.Fatalf("seeded Human assignment after rejected start = %+v, want unchanged", stored)
+	}
+}
+
 func TestProjectWorkAPI_CairnlineCollaborationAuthorityWritesCairnlineOnlyProject(t *testing.T) {
 	t.Parallel()
 	const projectID = "proj_collaboration_authority_cairnline_only"
@@ -1902,8 +2370,8 @@ func TestProjectWorkAPI_MirrorsRoleAndWorkItemMutationsToCairnlineWhenConfigured
 	if mirroredAssignment.Status != cairnline.AssignmentQueued || mirroredAssignment.RoleID != "role_release" || mirroredAssignment.WorkItemID != "work_release" {
 		t.Fatalf("mirrored assignment = %+v, want queued release assignment metadata", mirroredAssignment)
 	}
-	if mirroredAssignment.ExecutionMode != cairnline.ExecutionExternalAdapter || mirroredAssignment.DesiredAgent.Kind != cairnline.DesiredAgentAny || mirroredAssignment.ContextSnapshotID != "ctx_release" {
-		t.Fatalf("mirrored assignment execution = %+v, want external adapter context snapshot", mirroredAssignment)
+	if mirroredAssignment.ExecutionMode != cairnline.ExecutionExternalAdapter || mirroredAssignment.DesiredAgent.Kind != cairnline.DesiredAgentAny || mirroredAssignment.ContextSnapshotID != "" || !mirroredAssignment.ExecutionRef.Empty() {
+		t.Fatalf("mirrored assignment execution = %+v, want pristine external adapter coordination", mirroredAssignment)
 	}
 	if len(mirroredAssignment.DesiredAgent.SkillIDs) != 2 || !containsString(mirroredAssignment.DesiredAgent.SkillIDs, "release") || !containsString(mirroredAssignment.DesiredAgent.SkillIDs, "qa") {
 		t.Fatalf("mirrored assignment desired skills = %+v, want role skill ids", mirroredAssignment.DesiredAgent.SkillIDs)
@@ -3120,8 +3588,8 @@ func TestProjectWorkAPI_StartAssignmentMirrorsResultToCairnline(t *testing.T) {
 
 	stored := getStoredProjectWorkAssignmentForTest(t, handler, "proj_start", "work_start", "asgn_start")
 	mirrored := getMirroredCairnlineAssignmentForTest(t, handler, "proj_start", "asgn_start")
-	if mirrored.Status != cairnlinebridge.AssignmentStatus(stored.Status) || mirrored.ExecutionMode != cairnline.ExecutionOrchestrated {
-		t.Fatalf("mirrored assignment status/mode = %q/%q, want %q/orchestrated", mirrored.Status, mirrored.ExecutionMode, cairnlinebridge.AssignmentStatus(stored.Status))
+	if mirrored.Status != cairnline.AssignmentRunning || mirrored.ExecutionMode != cairnline.ExecutionOrchestrated {
+		t.Fatalf("mirrored assignment status/mode = %q/%q, want running/orchestrated after dispatch", mirrored.Status, mirrored.ExecutionMode)
 	}
 	if mirrored.ExecutionRef.RunID != stored.ExecutionRef.RunID || mirrored.ExecutionRef.TaskID != stored.ExecutionRef.TaskID || mirrored.ContextSnapshotID != stored.ExecutionRef.ContextSnapshotID {
 		t.Fatalf("mirrored assignment execution = ref %+v context %q, want %q/%q/%q", mirrored.ExecutionRef, mirrored.ContextSnapshotID, stored.ExecutionRef.TaskID, stored.ExecutionRef.RunID, stored.ExecutionRef.ContextSnapshotID)
@@ -6040,7 +6508,7 @@ func TestProjectWorkAPI_StartAssignmentClearsClaimWhenTaskCreateFails(t *testing
 	}
 }
 
-func TestProjectWorkAPI_StartAssignmentReleasesMirroredCairnlineClaimWhenTaskCreateFails(t *testing.T) {
+func TestProjectWorkAPI_StartAssignmentPreservesUnownedMirroredCairnlineClaimWhenTaskCreateFails(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectWorkCairnlineMirrorTestServer(t)
 	handler.taskStore = failingCreateTaskStore{Store: handler.taskStore}
@@ -6073,8 +6541,8 @@ func TestProjectWorkAPI_StartAssignmentReleasesMirroredCairnlineClaimWhenTaskCre
 		t.Fatalf("task create failure status = %d body=%s, want 500", rec.Code, rec.Body.String())
 	}
 	mirrored := getMirroredCairnlineAssignmentForTest(t, handler, "proj_start", "asgn_start")
-	if mirrored.Status != cairnline.AssignmentQueued || mirrored.ClaimedBy != "" || !mirrored.ExecutionRef.Empty() || mirrored.ContextSnapshotID != "" || !mirrored.StartedAt.IsZero() || !mirrored.CompletedAt.IsZero() {
-		t.Fatalf("mirrored assignment = %+v, want released queued claim for retry", mirrored)
+	if mirrored.Status != cairnline.AssignmentClaimed || mirrored.ClaimedBy != "hecate" || !mirrored.ExecutionRef.Empty() || mirrored.ContextSnapshotID != "" || !mirrored.StartedAt.IsZero() || !mirrored.CompletedAt.IsZero() {
+		t.Fatalf("mirrored assignment = %+v, want pre-existing non-authoritative claim preserved", mirrored)
 	}
 }
 
@@ -6533,6 +7001,178 @@ func TestProjectWorkAPI_ProjectActivityStrictEmbeddedReadModelReadsWithoutHecate
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_missing/activity", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("missing project activity status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+}
+
+func TestProjectWorkAPI_StrictEmbeddedReadsReconcileTaskRunLifecycleIntoCairnline(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineReplacementIdentityAuthorityTestServer(t)
+	const projectID = "proj_task_reconcile"
+	base := time.Date(2026, 7, 13, 14, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name             string
+		runStatus        string
+		portableStatus   string
+		pendingApprovals int
+	}{
+		{name: "approval", runStatus: "awaiting_approval", portableStatus: cairnline.AssignmentAwaitingApproval, pendingApprovals: 1},
+		{name: "completed", runStatus: "completed", portableStatus: cairnline.AssignmentCompleted},
+		{name: "failed", runStatus: "failed", portableStatus: cairnline.AssignmentFailed},
+		{name: "cancelled", runStatus: "cancelled", portableStatus: cairnline.AssignmentCancelled},
+	}
+
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
+		if _, err := service.CreateProject(t.Context(), cairnline.Project{ID: projectID, Name: "Task lifecycle reconciliation"}); err != nil {
+			return err
+		}
+		if _, err := service.CreateRole(t.Context(), cairnline.Role{
+			ID:                   "role_task_reconcile",
+			ProjectID:            projectID,
+			Name:                 "Task operator",
+			DefaultExecutionMode: cairnline.ExecutionMCPPull,
+		}); err != nil {
+			return err
+		}
+		for index, tc := range cases {
+			workItemID := "work_task_" + tc.name
+			assignmentID := "asgn_task_" + tc.name
+			taskID := "task_task_" + tc.name
+			runID := "run_task_" + tc.name
+			if _, err := service.CreateWorkItem(t.Context(), cairnline.WorkItem{
+				ID:          workItemID,
+				ProjectID:   projectID,
+				Title:       "Task " + tc.name,
+				Status:      cairnline.WorkStatusReady,
+				Priority:    cairnline.PriorityNormal,
+				OwnerRoleID: "role_task_reconcile",
+			}); err != nil {
+				return err
+			}
+			if _, err := service.CreateAssignment(t.Context(), cairnline.Assignment{
+				ID:            assignmentID,
+				ProjectID:     projectID,
+				WorkItemID:    workItemID,
+				RoleID:        "role_task_reconcile",
+				ExecutionMode: cairnline.ExecutionMCPPull,
+				DesiredAgent:  cairnline.DesiredAgent{Kind: "hecate"},
+			}); err != nil {
+				return err
+			}
+			if _, err := service.ClaimAssignment(t.Context(), projectID, assignmentID, projectAssignmentStartClaimedByHecate); err != nil {
+				return err
+			}
+			ref := cairnline.ExecutionRef{Kind: projectwork.AssignmentExecutionKindTaskRun, TaskID: taskID, RunID: runID}
+			if _, err := service.PrepareAssignment(t.Context(), projectID, assignmentID, cairnline.AssignmentPreparation{
+				ClaimedBy:         projectAssignmentStartClaimedByHecate,
+				ExecutionRef:      ref,
+				ContextSnapshotID: "ctx_task_" + tc.name,
+			}); err != nil {
+				return err
+			}
+			if _, err := service.UpdateAssignmentStatus(t.Context(), projectID, assignmentID, cairnline.AssignmentRunning, ref); err != nil {
+				return err
+			}
+
+			startedAt := base.Add(time.Duration(index) * time.Minute)
+			finishedAt := time.Time{}
+			if types.IsTerminalTaskRunStatus(tc.runStatus) {
+				finishedAt = startedAt.Add(30 * time.Second)
+			}
+			if _, err := handler.taskStore.CreateTask(t.Context(), types.Task{
+				ID:           taskID,
+				ProjectID:    projectID,
+				WorkItemID:   workItemID,
+				AssignmentID: assignmentID,
+				Title:        tc.name,
+				Status:       tc.runStatus,
+				LatestRunID:  runID,
+				CreatedAt:    startedAt,
+				UpdatedAt:    projectworkapp.FirstNonZeroTime(finishedAt, startedAt),
+			}); err != nil {
+				return err
+			}
+			if _, err := handler.taskStore.CreateRun(t.Context(), types.TaskRun{
+				ID:            runID,
+				TaskID:        taskID,
+				ProjectID:     projectID,
+				WorkItemID:    workItemID,
+				AssignmentID:  assignmentID,
+				Status:        tc.runStatus,
+				StartedAt:     startedAt,
+				FinishedAt:    finishedAt,
+				TraceID:       "trace_task_" + tc.name,
+				ApprovalCount: tc.pendingApprovals,
+			}); err != nil {
+				return err
+			}
+			if tc.pendingApprovals > 0 {
+				if _, err := handler.taskStore.CreateApproval(t.Context(), types.TaskApproval{
+					ID:        "ap_task_" + tc.name,
+					TaskID:    taskID,
+					RunID:     runID,
+					Kind:      "agent_loop_tool_call",
+					Status:    "pending",
+					CreatedAt: startedAt,
+				}); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("seed strict task reconciliation: %v", err)
+	}
+
+	client := newAPITestClient(t, server)
+	activity := mustRequestJSONStatus[ProjectActivityEnvelope](client, http.StatusOK, http.MethodGet, "/hecate/v1/projects/"+projectID+"/activity", "")
+	if activity.Data.Summary.AssignmentCount != len(cases) || activity.Data.Summary.BlockedCount != 3 || activity.Data.Summary.CompletedCount != 1 {
+		t.Fatalf("activity summary = %+v, want reconciled approval and terminal buckets", activity.Data.Summary)
+	}
+	approvalItem := findProjectActivityItemForTest(t, activity.Data.Buckets.Blocked, "asgn_task_approval")
+	if approvalItem.Status != projectwork.AssignmentStatusAwaitingApproval || approvalItem.BlockingSignal != "awaiting_approval" {
+		t.Fatalf("approval activity item = %+v, want portable awaiting approval", approvalItem)
+	}
+
+	for _, tc := range cases {
+		portable := getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_task_"+tc.name)
+		if portable.Status != tc.portableStatus {
+			t.Fatalf("portable %s status = %q, want %q", tc.name, portable.Status, tc.portableStatus)
+		}
+		if portable.ExecutionRef.PendingApprovals != tc.pendingApprovals || portable.ExecutionRef.TraceID != "trace_task_"+tc.name {
+			t.Fatalf("portable %s execution ref = %+v, want approval count %d and trace", tc.name, portable.ExecutionRef, tc.pendingApprovals)
+		}
+		if portable.StartedAt.IsZero() {
+			t.Fatalf("portable %s started_at is zero after reconciliation", tc.name)
+		}
+		if types.IsTerminalTaskRunStatus(tc.runStatus) && portable.CompletedAt.IsZero() {
+			t.Fatalf("portable %s completed_at is zero after terminal reconciliation", tc.name)
+		}
+	}
+
+	// Cairnline's first terminal outcome remains final even if a stale host
+	// execution is later rewritten to a different terminal status.
+	completedTask, _, err := handler.taskStore.GetTask(t.Context(), "task_task_completed")
+	if err != nil {
+		t.Fatalf("GetTask(completed): %v", err)
+	}
+	completedTask.Status = "failed"
+	completedTask.UpdatedAt = base.Add(time.Hour)
+	if _, err := handler.taskStore.UpdateTask(t.Context(), completedTask); err != nil {
+		t.Fatalf("UpdateTask(completed->failed): %v", err)
+	}
+	completedRun, _, err := handler.taskStore.GetRun(t.Context(), "task_task_completed", "run_task_completed")
+	if err != nil {
+		t.Fatalf("GetRun(completed): %v", err)
+	}
+	completedRun.Status = "failed"
+	completedRun.LastError = "late stale failure"
+	completedRun.FinishedAt = base.Add(time.Hour)
+	if _, err := handler.taskStore.UpdateRun(t.Context(), completedRun); err != nil {
+		t.Fatalf("UpdateRun(completed->failed): %v", err)
+	}
+	mustRequestJSONStatus[ProjectHealthEnvelope](client, http.StatusOK, http.MethodGet, "/hecate/v1/projects/"+projectID+"/health", "")
+	if portable := getMirroredCairnlineAssignmentForTest(t, handler, projectID, "asgn_task_completed"); portable.Status != cairnline.AssignmentCompleted {
+		t.Fatalf("portable completed assignment changed after stale host terminal: %+v", portable)
 	}
 }
 

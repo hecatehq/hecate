@@ -208,12 +208,11 @@ func (h *Handler) renderCairnlineProjectWorkItemsFromService(ctx context.Context
 	if err != nil {
 		return nil, err
 	}
-	cairnlineAssignments, err := service.ListAssignments(ctx, snapshot.Project.ID)
+	assignments, err := h.cairnlineProjectAssignments(ctx, service, snapshot)
 	if err != nil {
 		return nil, err
 	}
 	workItems := projectWorkItemsFromCairnlineWithNativeTimestamps(items, snapshot.WorkItems)
-	assignments := projectWorkAssignmentsFromCairnline(cairnlineAssignments, snapshot.Assignments)
 	assignmentsByWorkItem := groupProjectWorkAssignmentsByWorkItem(assignments)
 	data := make([]ProjectWorkItemResponse, 0, len(items))
 	for _, item := range workItems {
@@ -238,12 +237,11 @@ func (h *Handler) renderCairnlineProjectWorkItem(ctx context.Context, projectID,
 	if err != nil {
 		return ProjectWorkItemResponse{}, err
 	}
-	cairnlineAssignments, err := view.service.ListAssignments(ctx, view.snapshot.Project.ID)
+	assignments, err := h.cairnlineProjectAssignments(ctx, view.service, view.snapshot)
 	if err != nil {
 		return ProjectWorkItemResponse{}, err
 	}
 	workItems := projectWorkItemsFromCairnlineWithNativeTimestamps(items, view.snapshot.WorkItems)
-	assignments := projectWorkAssignmentsFromCairnline(cairnlineAssignments, view.snapshot.Assignments)
 	assignmentsByWorkItem := groupProjectWorkAssignmentsByWorkItem(assignments)
 	for _, item := range workItems {
 		if item.ID != workItemID {
@@ -388,12 +386,11 @@ func (h *Handler) renderCairnlineProjectWorkAssignmentsFromService(ctx context.C
 		}
 		return nil, err
 	}
-	items, err := service.ListAssignments(ctx, snapshot.Project.ID)
+	assignments, err := h.cairnlineProjectAssignments(ctx, service, snapshot)
 	if err != nil {
 		return nil, err
 	}
-	assignments := projectWorkAssignmentsFromCairnline(items, snapshot.Assignments)
-	data := make([]ProjectWorkAssignmentResponse, 0, len(items))
+	data := make([]ProjectWorkAssignmentResponse, 0, len(assignments))
 	for _, assignment := range assignments {
 		if strings.TrimSpace(assignment.WorkItemID) != workItemID {
 			continue
@@ -437,11 +434,11 @@ func (h *Handler) cairnlineProjectWorkItemReadiness(ctx context.Context, service
 	if err != nil {
 		return projectwork.WorkItemReadiness{}, err
 	}
-	cairnlineAssignments, err := service.ListAssignments(ctx, snapshot.Project.ID)
+	assignments, err := h.cairnlineProjectAssignments(ctx, service, snapshot)
 	if err != nil {
 		return projectwork.WorkItemReadiness{}, err
 	}
-	assignments := filterProjectWorkAssignments(projectWorkAssignmentsFromCairnline(cairnlineAssignments, snapshot.Assignments), workItemID)
+	assignments = filterProjectWorkAssignments(assignments, workItemID)
 	assignments, err = h.applyRuntimeForCairnlineReadiness(ctx, assignments)
 	if err != nil {
 		return projectwork.WorkItemReadiness{}, err
@@ -691,6 +688,8 @@ func projectWorkAssignmentDriverFromCairnline(mode string) string {
 	switch strings.TrimSpace(mode) {
 	case cairnline.ExecutionExternalAdapter:
 		return projectwork.AssignmentDriverExternalAgent
+	case cairnline.ExecutionManual:
+		return projectwork.AssignmentDriverManual
 	default:
 		return projectwork.AssignmentDriverHecateTask
 	}

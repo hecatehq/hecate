@@ -71,6 +71,9 @@ func (app *Application) ApplyAssignmentsExecutionProjection(ctx context.Context,
 }
 
 func (app *Application) ApplyAssignmentExecutionProjection(ctx context.Context, assignment projectwork.Assignment) (projectwork.Assignment, error) {
+	if strings.TrimSpace(assignment.DriverKind) == projectwork.AssignmentDriverManual {
+		return assignment, nil
+	}
 	projection, err := ProjectAssignmentExecution(ctx, app.taskStore, assignment)
 	if err != nil {
 		return projectwork.Assignment{}, err

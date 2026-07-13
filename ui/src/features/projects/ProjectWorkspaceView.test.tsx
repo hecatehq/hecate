@@ -272,6 +272,7 @@ function renderWorkspace(overrides: Partial<ProjectWorkspaceViewProps> = {}) {
     onCreateAssignmentFromHandoff: vi.fn(),
     onCreateWork: vi.fn(),
     onCloseWorkItem: vi.fn(),
+    onSetAssignmentStatus: vi.fn(),
     onDeleteAssignment: vi.fn(),
     onDeleteHandoff: vi.fn(),
     onDeleteMemory: vi.fn(),

@@ -10,7 +10,7 @@ export const presetRoleTitleStyle: CSSProperties = {
 };
 
 export const presetRoleSubtleTextStyle: CSSProperties = {
-  color: "var(--t3)",
+  color: "var(--t2)",
   fontSize: 12,
   lineHeight: 1.4,
 };

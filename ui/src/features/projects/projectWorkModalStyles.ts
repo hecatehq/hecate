@@ -13,7 +13,7 @@ export const projectWorkFieldLabelStyle: CSSProperties = {
 };
 
 export const projectWorkSubtleTextStyle: CSSProperties = {
-  color: "var(--t3)",
+  color: "var(--t2)",
   fontSize: 12,
   lineHeight: 1.4,
 };
