@@ -3663,7 +3663,8 @@ describe("ProjectsView cockpit", () => {
 
     const detail = screen.getByRole("region", { name: "Selected work item" });
     expect(within(detail).getAllByText("2 approval pending").length).toBeGreaterThan(0);
-    const evidence = within(detail).getByRole("group", { name: "Execution evidence" });
+    await userEvent.click(within(detail).getByText("Execution details"));
+    const evidence = within(detail).getByRole("region", { name: "Execution evidence" });
     expect(within(evidence).getByText("Task")).toBeTruthy();
     expect(within(evidence).getByText("task_1")).toBeTruthy();
     expect(within(evidence).getByText("Run")).toBeTruthy();
@@ -3673,7 +3674,7 @@ describe("ProjectsView cockpit", () => {
     expect(within(evidence).getByText("Provider / model")).toBeTruthy();
     expect(within(evidence).getByText("ollama / qwen2.5-coder")).toBeTruthy();
 
-    await userEvent.click(within(detail).getByRole("button", { name: "Open task" }));
+    await userEvent.click(within(detail).getByRole("button", { name: "Review in task" }));
     expect(onOpenTask).toHaveBeenCalledWith("task_1", "run_1");
 
     await userEvent.click(
@@ -3699,7 +3700,7 @@ describe("ProjectsView cockpit", () => {
     expect(within(dialog).getByText("Project skills")).toBeTruthy();
     expect(within(dialog).getByText("Expose project work and native starts.")).toBeTruthy();
 
-    await userEvent.click(within(detail).getByRole("button", { name: "Open chat" }));
+    await userEvent.click(within(detail).getByRole("button", { name: "Start related chat" }));
     expect(onOpenChat).toHaveBeenCalledWith(
       expect.objectContaining({
         projectID: project.id,
@@ -3783,7 +3784,9 @@ describe("ProjectsView cockpit", () => {
       await screen.findByRole("button", { name: "Open work item Build cockpit UI" }),
     );
     const detail = await screen.findByRole("region", { name: "Selected work item" });
-    const prepareButton = within(detail).getByRole("button", { name: "Prepare chat" });
+    const prepareButton = within(detail).getByRole("button", {
+      name: "Review & prepare chat",
+    });
     await userEvent.click(prepareButton);
 
     expect(getProjectAssignmentPreflight).toHaveBeenCalledWith(
@@ -3881,6 +3884,92 @@ describe("ProjectsView cockpit", () => {
       }),
     );
     expect(onOpenChat.mock.calls[0]?.[0].draft).toContain("- Driver: external_agent");
+  });
+
+  it("opens a current activity-linked chat instead of drafting a new one", async () => {
+    resetProjectWorkMocks();
+    const onOpenChat = vi.fn();
+    const activityOnlyAssignment: ProjectAssignmentRecord = {
+      ...hecateAssignment,
+      status: "running",
+      execution_ref: { kind: "none", status: "running" },
+      execution: {
+        status: "running",
+        provider: "ollama",
+        model: "qwen2.5-coder",
+      },
+    };
+    vi.mocked(getProjectActivity).mockResolvedValue({
+      object: "project_activity",
+      data: {
+        project_id: project.id,
+        summary: {
+          work_item_count: 1,
+          assignment_count: 1,
+          active_count: 1,
+          blocked_count: 0,
+          completed_count: 0,
+          recent_count: 1,
+        },
+        buckets: {
+          active: [
+            {
+              id: activityOnlyAssignment.id,
+              project_id: project.id,
+              work_item: {
+                id: workItem.id,
+                title: workItem.title,
+                status: "running",
+                priority: workItem.priority,
+              },
+              assignment: activityOnlyAssignment,
+              role,
+              status: "running",
+              blocking_signal: "running",
+              status_summary: "linked chat running",
+              linked_chat_id: "chat_activity_1",
+              artifact_summary: { count: 0 },
+              handoff_summary: { count: 0 },
+              updated_at: activityOnlyAssignment.updated_at,
+            },
+          ],
+          blocked: [],
+          completed: [],
+          recent: [],
+        },
+        recent: [],
+      },
+    });
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [{ ...workItem, assignments: [activityOnlyAssignment] }],
+    });
+    vi.mocked(getProjectAssignments).mockResolvedValue({
+      object: "project_assignments",
+      data: [activityOnlyAssignment],
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(
+      withRuntimeConsole(<WorkProjects onOpenChat={onOpenChat} />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
+    );
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Open work item Build cockpit UI" }),
+    );
+    await userEvent.click(await screen.findByRole("button", { name: "Open chat" }));
+
+    expect(onOpenChat).toHaveBeenCalledWith({
+      projectID: project.id,
+      chatSessionID: "chat_activity_1",
+    });
+    expect(onOpenChat.mock.calls[0]?.[0].draft).toBeUndefined();
   });
 
   it("prefills handoffs from linked external-agent assignment context", async () => {
@@ -5466,7 +5555,7 @@ describe("ProjectsView cockpit", () => {
     await userEvent.click(within(health).getByRole("button", { name: "View blocked" }));
     await waitFor(() => {
       expect(screen.getByRole("tab", { name: /Work/ })).toHaveAttribute("aria-selected", "true");
-      expect(screen.getByText("linked run missing")).toBeTruthy();
+      expect(screen.getAllByText(/linked runtime record is missing/i).length).toBeGreaterThan(0);
     });
   });
 
@@ -5644,7 +5733,7 @@ describe("ProjectsView cockpit", () => {
     expect(within(timeline).queryByText("not started")).toBeNull();
     await openProjectWorkspaceTab(/^Work/);
 
-    await userEvent.click(await screen.findByRole("button", { name: "Start" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Review & start" }));
     const preflight = await screen.findByRole("dialog", {
       name: "Assignment asgn_not_started launch preflight",
     });
@@ -5660,7 +5749,7 @@ describe("ProjectsView cockpit", () => {
     );
   });
 
-  it("opens chat from an assignment using the projected model", async () => {
+  it("starts a related chat from an assignment using the projected model", async () => {
     resetProjectWorkMocks();
     window.localStorage.setItem("hecate.project", project.id);
     const onOpenChat = vi.fn();
@@ -5675,7 +5764,8 @@ describe("ProjectsView cockpit", () => {
       }),
     );
 
-    await userEvent.click(await screen.findByRole("button", { name: "Open chat" }));
+    await userEvent.click(await screen.findByText("Execution details"));
+    await userEvent.click(screen.getByRole("button", { name: "Start related chat" }));
 
     expect(onOpenChat).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -5739,7 +5829,8 @@ describe("ProjectsView cockpit", () => {
       }),
     );
 
-    await userEvent.click(await screen.findByRole("button", { name: "Open chat" }));
+    await userEvent.click(await screen.findByText("Execution details"));
+    await userEvent.click(screen.getByRole("button", { name: "Start related chat" }));
 
     const request = onOpenChat.mock.calls[0]?.[0];
     expect(request.draft).toContain(
@@ -5751,7 +5842,7 @@ describe("ProjectsView cockpit", () => {
     expect(request.draft).toContain("- Instructions: Keep changes reviewable.\n  Call out risks.");
   });
 
-  it("opens chat from an assignment using role defaults when no run is linked", async () => {
+  it("starts a related chat using role defaults when no run is linked", async () => {
     resetProjectWorkMocks();
     const unstartedAssignment: ProjectAssignmentRecord = {
       ...hecateAssignment,
@@ -5781,7 +5872,8 @@ describe("ProjectsView cockpit", () => {
       }),
     );
 
-    await userEvent.click(await screen.findByRole("button", { name: "Open chat" }));
+    await userEvent.click(await screen.findByText("Execution details"));
+    await userEvent.click(screen.getByRole("button", { name: "Start related chat" }));
 
     expect(onOpenChat).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -7974,7 +8066,7 @@ describe("ProjectsView cockpit", () => {
     const user = userEvent.setup();
     render(withRuntimeConsole(<WorkProjects />, { state, actions: createRuntimeConsoleActions() }));
 
-    await user.click(await screen.findByRole("button", { name: "Start" }));
+    await user.click(await screen.findByRole("button", { name: "Review & start" }));
     const preflight = await screen.findByRole("dialog", {
       name: "Assignment asgn_1 launch preflight",
     });
@@ -8004,7 +8096,7 @@ describe("ProjectsView cockpit", () => {
 
     await waitFor(() => {
       expect(startProjectAssignment).toHaveBeenCalledTimes(1);
-      expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Review & start" })).toBeNull();
       expect(getProjectWorkItem).toHaveBeenCalledTimes(4);
     });
   });
@@ -8033,7 +8125,7 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<WorkProjects />, { state, actions: createRuntimeConsoleActions() }));
 
-    await userEvent.click(await screen.findByRole("button", { name: "Start" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Review & start" }));
     const preflight = await screen.findByRole("dialog", {
       name: "Assignment asgn_1 launch preflight",
     });
@@ -8131,7 +8223,7 @@ describe("ProjectsView cockpit", () => {
       }),
     );
 
-    await userEvent.click(await screen.findByRole("button", { name: "Start" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Review & start" }));
     expect(getProjectAssignmentLaunchReadiness).toHaveBeenCalledWith(
       project.id,
       workItem.id,
@@ -8165,6 +8257,11 @@ describe("ProjectsView cockpit", () => {
           status: "completed",
           started_at: undefined,
           completed_at: "2026-06-02T12:00:00Z",
+          execution_ref: {
+            ...hecateAssignment.execution_ref,
+            kind: "task_run",
+            status: "completed",
+          },
           execution: {
             ...hecateAssignment.execution,
             status: "completed",
@@ -8180,8 +8277,8 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<WorkProjects />, { state, actions: createRuntimeConsoleActions() }));
 
-    expect(await screen.findByText(/^Finished /)).toBeTruthy();
-    expect(screen.queryByText(/^Started\s*$/)).toBeNull();
+    expect(await screen.findByText("Finished", { exact: true })).toBeTruthy();
+    expect(screen.queryByText("Started", { exact: true })).toBeNull();
   });
 
   it("exposes chat preparation for queued external-agent assignments", async () => {
@@ -8217,7 +8314,7 @@ describe("ProjectsView cockpit", () => {
       await screen.findByRole("button", { name: "Open work item Build cockpit UI" }),
     );
     const detail = await screen.findByRole("region", { name: "Selected work item" });
-    expect(within(detail).getByRole("button", { name: "Prepare chat" })).toBeTruthy();
-    expect(screen.queryByText("Chat not prepared")).toBeNull();
+    expect(within(detail).getByRole("button", { name: "Review & prepare chat" })).toBeTruthy();
+    expect(screen.queryByText(/No prepared External Agent chat is linked/)).toBeNull();
   });
 });

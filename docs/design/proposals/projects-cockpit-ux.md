@@ -1,6 +1,6 @@
 # Projects Cockpit UX
 
-> **Status:** Proposal with the overview-first slice implemented.
+> **Status:** Proposal with the overview-first and work-item execution slices implemented.
 >
 > **Current source of truth:** [Projects](../../operator/projects.md),
 > [Projects design](../accepted/projects.md), and the Hecate
@@ -56,7 +56,7 @@ flowchart LR
   N --> W["Work"]
   S --> W
   W --> D["Selected work item"]
-  D --> X["Assignments and execution evidence"]
+  D --> X["Assignment execution stories"]
   D --> R["Review · handoff · closeout"]
   V --> T["Timeline"]
   V --> M["Memory"]
@@ -109,13 +109,42 @@ flowchart TD
    runtime detail, then add shareable project/work navigation and broader
    accessibility coverage.
 
-Slice 1 has the highest usability gain and lowest contract risk because it only
-rearranges existing server projections and action routing. It adds no project
-records, local lifecycle state, endpoint, or client-side action ordering.
+Slices 1 and 2 are implemented. Slice 1 rearranges existing server projections
+and action routing. Slice 2 reshapes each assignment into a state-driven story
+without adding project records, endpoints, local lifecycle state, or inferred
+execution events.
+
+## Assignment Execution Story
+
+```mermaid
+flowchart LR
+  Q["Assigned"] --> S["Started · when recorded"]
+  S --> C["Current server/runtime state"]
+  C --> F["Finished · when recorded"]
+  C --> A{"Best operator action"}
+  A -->|"Queued"| L["Review launch"]
+  A -->|"Running"| T["Open task or chat"]
+  A -->|"Pending approval evidence"| P["Review in task"]
+  A -->|"Review state only"| U["Review task"]
+  A -->|"Failed"| I["Inspect execution"]
+  A -->|"Completed"| R["Request or record review"]
+  C --> D["Execution details · disclosed"]
+  D --> E["IDs · provider/model · root · context · evidence"]
+```
+
+The execution rail uses only recorded `created_at`, `started_at`, and
+`completed_at`/runtime `finished_at` timestamps. It presents the current status
+as a snapshot when no transition time exists and never treats `updated_at` as
+execution history. Pending approvals, failures, missing runtime links, and an
+unprepared External Agent chat remain visible outside the disclosure. Blocked
+closeout guidance follows the assignments it describes; ready and completed
+closeout stays promoted near the work brief. Because the current Hecate facade
+also maps Cairnline's `awaiting_review` to `awaiting_approval`, the cockpit uses
+neutral review language unless a linked runtime reports a pending approval.
 
 ## Verified Screen States
 
-The implemented slice was exercised in the running Hecate UI with deterministic
+The implemented slices were exercised in the running Hecate UI with deterministic
 fixtures for the Cairnline-backed Hecate facade at desktop and 390px widths.
 Empty, guided-setup, setup-unavailable, loading, active, blocked,
 approval-review, completed, evidence, and closeout states are covered by focused
@@ -130,6 +159,15 @@ documentation capture script continues to own `projects.png`.
 
 ![Projects overview at narrow width](../../screenshots/projects-overview-narrow.jpg)
 
+Regenerate the assignment execution images from the deterministic full Projects
+journey with
+`HECATE_CAPTURE_PROJECTS_EXECUTION=1 bunx playwright test e2e/projects.spec.ts -g "Projects journey"`
+from `ui/`.
+
+![Assignment execution at desktop width](../../screenshots/projects-work-execution.jpg)
+
+![Assignment execution at narrow width](../../screenshots/projects-work-execution-narrow.jpg)
+
 ## Contract Stop Lines
 
 - Cairnline remains the sole portable coordination authority. The UI uses only
@@ -141,8 +179,9 @@ documentation capture script continues to own `projects.png`.
 - Human/manual assignment is deferred: Cairnline supports `manual`, but the
   current Hecate assignment facade exposes Hecate Task and External Agent.
 - Cairnline `awaiting_review` is not yet distinct in Hecate's assignment view.
-  Review artifacts, handoffs, and closeout follow-up remain the honest review
-  surfaces.
+  The execution story therefore says review, not approval, unless Hecate has a
+  positive pending-approval count. Review artifacts, handoffs, and closeout
+  follow-up remain the honest review surfaces.
 - An execution timeline may show current Cairnline milestones and Hecate runtime
   events, but must not invent a portable transition history Cairnline does not
   store.

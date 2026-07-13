@@ -20,15 +20,15 @@ import type {
   ProjectWorkRoleRecord,
 } from "../../types/project";
 import { ContextInspectorModalTrigger, ContextInspectorPanel } from "../shared/ContextInspector";
-import { Badge, CopyableID, Icon, Icons, InlineError, Modal } from "../shared/ui";
+import { Badge, Icon, Icons, InlineError, Modal } from "../shared/ui";
 import {
-  toProjectActivityItemViewModel,
+  projectActivityMatchesAssignmentVersion,
+  toProjectActivityAssignmentExecutionViewModel,
   toProjectAssignmentEvidenceViewModel,
   toProjectAssignmentExecutionViewModel,
   type ProjectAssignmentEvidenceViewModel,
 } from "./projectAssignmentViewModels";
 import {
-  assignmentStatusLabel,
   formatProjectRowRelativeTime,
   handoffStatusLabel,
   projectErrorMessage,
@@ -43,6 +43,7 @@ import {
   reviewVerdictLabel,
 } from "./projectWorkForms";
 import { firstNonEmpty, isLinkableProjectLocator, shortID } from "./projectUtils";
+import { ProjectAssignmentExecutionStory } from "./ProjectAssignmentExecutionStory";
 
 export type ProjectAssignmentChatLaunchRequest = {
   projectID: string;
@@ -234,6 +235,7 @@ export function ProjectWorkItemDetail({
   const reviewFollowUps = closeout.review_follow_ups ?? [];
   const suggestedAssignmentRole = assignmentRoleForWorkItem(workItem, roleByID);
   const canAddWorkRecords = !emptyWorkItem && workItem.status !== "done";
+  const closeoutProminent = closeout.status === "ready" || closeout.status === "done";
   return (
     <div style={workItemDetailStyle}>
       <article style={workItemCardStyle} aria-label={`${workItem.title} work item`}>
@@ -314,13 +316,13 @@ export function ProjectWorkItemDetail({
             onManageRoles={onManageRoles}
             role={suggestedAssignmentRole}
           />
-        ) : (
+        ) : closeoutProminent ? (
           <WorkItemCloseoutPanel
             closeout={closeout}
             pending={closingWorkItemID === workItem.id}
             onClose={() => onCloseWorkItem(workItem)}
           />
-        )}
+        ) : null}
         {canAddWorkRecords && (
           <WorkItemAddActions
             onAddAssignment={onAddAssignment}
@@ -349,7 +351,13 @@ export function ProjectWorkItemDetail({
             ) : (
               <div style={{ display: "grid", gap: 10 }}>
                 {safeAssignments.map((assignment) => {
-                  const activityItem = activityByAssignmentID.get(assignment.id);
+                  const projectedActivityItem = activityByAssignmentID.get(assignment.id);
+                  const activityItem = projectActivityMatchesAssignmentVersion(
+                    assignment,
+                    projectedActivityItem,
+                  )
+                    ? projectedActivityItem
+                    : undefined;
                   const reviewRole = reviewerRoleForAssignment(workItem, assignment, roleByID);
                   const reviewAuthorRole = reviewAuthorRoleForAssignment(
                     workItem,
@@ -373,8 +381,14 @@ export function ProjectWorkItemDetail({
                       onOpenChat={
                         project
                           ? () => {
-                              const executionRef =
+                              const assignmentExecution =
                                 toProjectAssignmentExecutionViewModel(assignment);
+                              const activityExecution = activityItem
+                                ? toProjectActivityAssignmentExecutionViewModel(activityItem)
+                                : null;
+                              const executionRef = assignmentExecution.hasAnyLink
+                                ? assignmentExecution
+                                : (activityExecution ?? assignmentExecution);
                               const chatRequest = buildProjectAssignmentChatLaunchRequest({
                                 project,
                                 workItem,
@@ -412,6 +426,7 @@ export function ProjectWorkItemDetail({
                           : undefined
                       }
                       project={project}
+                      promoteCompletionAction={!closeoutProminent}
                       repairActions={{
                         onManagePresets,
                         onManageRoles,
@@ -462,6 +477,13 @@ export function ProjectWorkItemDetail({
               </div>
             )}
           </section>
+        )}
+        {!emptyWorkItem && !closeoutProminent && (
+          <WorkItemCloseoutPanel
+            closeout={closeout}
+            pending={closingWorkItemID === workItem.id}
+            onClose={() => onCloseWorkItem(workItem)}
+          />
         )}
         {(!emptyWorkItem || safeArtifacts.length > 0) && (
           <section style={workItemCardSectionStyle}>
@@ -814,7 +836,7 @@ function WorkItemCloseoutPanel({
         </span>
         {closeout.status !== "done" && (
           <button
-            className="btn btn-primary btn-sm"
+            className={closeout.ready ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"}
             type="button"
             onClick={onClose}
             disabled={!closeout.ready || pending}
@@ -945,6 +967,7 @@ function AssignmentRow({
   onOpenTask,
   onStart,
   project,
+  promoteCompletionAction,
   repairActions,
   role,
   starting,
@@ -967,6 +990,7 @@ function AssignmentRow({
   onOpenTask?: (taskID: string, runID?: string) => void;
   onStart: () => void;
   project: ProjectRecord | null;
+  promoteCompletionAction: boolean;
   repairActions?: AssignmentLaunchRepairActions;
   role?: ProjectWorkRoleRecord;
   starting: boolean;
@@ -978,26 +1002,12 @@ function AssignmentRow({
   const [readinessPreview, setReadinessPreview] = useState<AssignmentLaunchReadinessPreviewState>({
     status: "idle",
   });
-  const execution = assignment.execution;
   const assignmentExecution = toProjectAssignmentExecutionViewModel(assignment);
-  const activityView = activityItem ? toProjectActivityItemViewModel(activityItem) : null;
-  const evidence = toProjectAssignmentEvidenceViewModel(assignment, activityItem);
-  const executionRef = assignmentExecution.hasAnyLink
-    ? assignmentExecution
-    : (activityView?.execution ?? assignmentExecution);
-  const taskID = executionRef.taskID;
-  const runID = executionRef.runID;
-  const chatSessionID = executionRef.chatSessionID;
-  const linkedChat = activityItem?.linked_chat;
   const projectedStatus = assignmentExecution.status;
   const startable =
     (assignment.driver_kind === "hecate_task" || assignment.driver_kind === "external_agent") &&
     projectedStatus === "queued";
   const external = assignment.driver_kind === "external_agent";
-  const startActionLabel = external ? "Prepare chat" : "Start";
-  const startingLabel = external ? "Preparing…" : "Starting…";
-  const startedAt = activityView?.startedAt || execution?.started_at || assignment.started_at;
-  const finishedAt = activityView?.finishedAt || execution?.finished_at || assignment.completed_at;
 
   const loadReadinessPreview = useCallback(async () => {
     if (!loadReadiness) return;
@@ -1049,194 +1059,43 @@ function AssignmentRow({
   ]);
 
   return (
-    <div style={assignmentStyle}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <Badge status={projectedStatus} label={assignmentStatusLabel(projectedStatus)} />
-        <span className="badge badge-muted">{assignment.driver_kind}</span>
-        <div style={{ ...titleStyle, flex: 1, minWidth: 0 }}>
-          {role?.name ?? assignment.role_id}
-        </div>
-        <button
-          className="btn btn-ghost btn-sm"
-          type="button"
-          aria-label={`Edit assignment ${assignment.id}`}
-          onClick={onEdit}
-          title="Edit"
-        >
-          <Icon d={Icons.edit} size={12} />
-        </button>
-        <button
-          className="btn btn-ghost btn-sm"
-          type="button"
-          aria-label={`Delete assignment ${assignment.id}`}
-          onClick={onDelete}
-          title="Delete"
-          style={{ color: "var(--red)" }}
-        >
-          <Icon d={Icons.trash} size={12} />
-        </button>
-        {startable && (
-          <button
-            className="btn btn-primary btn-sm"
-            type="button"
-            onClick={() => void openPreflight()}
-            disabled={starting}
-            title={
-              external
-                ? "Review launch context before preparing a linked External Agent chat."
-                : "Review launch context before starting this assignment."
-            }
-          >
-            <Icon d={external ? Icons.chat : Icons.send} size={12} />
-            {starting ? startingLabel : startActionLabel}
-          </button>
-        )}
-        {external && !startable && !executionRef.chatSessionID && (
-          <span
-            style={subtleTextStyle}
-            title="Prepare this assignment to create a supervised External Agent chat session."
-          >
-            Chat not prepared
-          </span>
-        )}
-      </div>
-      <div
-        style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8, alignItems: "center" }}
-      >
-        {taskID && (
-          <button
-            className="btn btn-ghost btn-sm"
-            type="button"
-            onClick={() => onOpenTask?.(taskID, runID)}
-            disabled={!onOpenTask}
-          >
-            <Icon d={Icons.tasks} size={12} />
-            Open task
-          </button>
-        )}
-        <ContextInspectorModalTrigger
-          buttonLabel="Inspect context"
-          buttonTitle="Inspect the best available stored context snapshot for this assignment."
-          loadPacket={loadContext}
-          modalTitle={`Assignment ${assignment.id} context`}
-          resourceKey={assignment.id}
-          unavailableDetail="This assignment does not have a stored context packet yet. Unstarted assignments, legacy rows, and older linked runs can legitimately return no snapshot."
-        />
-        <button
-          className="btn btn-ghost btn-sm"
-          type="button"
-          onClick={onOpenChat}
-          disabled={!onOpenChat || (!chatSessionID && !chatModel)}
-          title={
-            chatSessionID
-              ? external
-                ? "Open the prepared External Agent chat. The first prompt is sent from Chats."
-                : "Open linked External Agent chat"
-              : chatModel
-                ? `Open chat with ${chatModel}`
-                : "Set project defaults before opening chat."
-          }
-        >
-          <Icon d={Icons.chat} size={12} />
-          Open chat
-        </button>
-        {taskID && <CopyableID text={taskID} compact />}
-        {runID && <CopyableID text={runID} compact />}
-        {chatSessionID && <CopyableID text={chatSessionID} compact />}
-        {linkedChat && (
-          <span
-            className={linkedChat.missing ? "badge badge-amber" : "badge badge-muted"}
-            title={linkedChatStatusTitle(linkedChat)}
-          >
-            {linkedChat.missing
-              ? "linked chat missing"
-              : `chat ${linkedChat.latest_status || linkedChat.status || "active"}`}
-          </span>
-        )}
-        {executionRef.pendingApprovalCount ? (
-          <span className="badge badge-amber">
-            {executionRef.pendingApprovalCount} approval pending
-          </span>
-        ) : null}
-        {typeof execution?.step_count === "number" && (
-          <span className="badge badge-muted">{execution.step_count} steps</span>
-        )}
-        {typeof execution?.artifact_count === "number" && (
-          <span className="badge badge-muted">{execution.artifact_count} artifacts</span>
-        )}
-        {execution?.provider || execution?.model ? (
-          <span className="badge badge-muted">
-            {[execution.provider, execution.model].filter(Boolean).join(" / ")}
-          </span>
-        ) : null}
-        {assignment.root_id && project && (
-          <span className="badge badge-muted" title={projectRootTitle(project, assignment.root_id)}>
-            root {projectRootDisplayLabel(project, assignment.root_id)}
-          </span>
-        )}
-        {executionRef.missing && <span className="badge badge-amber">linked run missing</span>}
-        {executionRef.hasAnyLink && (
-          <button
-            aria-label={`Create handoff from assignment ${assignment.id}`}
-            className="btn btn-ghost btn-sm"
-            type="button"
-            onClick={onCreateHandoff}
-          >
-            <Icon d={Icons.plus} size={12} />
-            Handoff
-          </button>
-        )}
-        {executionRef.hasAnyLink && onCreateReviewHandoff && (
-          <button
-            aria-label={`Request review for assignment ${assignment.id}`}
-            className="btn btn-ghost btn-sm"
-            type="button"
-            onClick={onCreateReviewHandoff}
-          >
-            <Icon d={Icons.check} size={12} />
-            Request review
-          </button>
-        )}
-        {onCreateReviewArtifact && (
-          <button
-            aria-label={`Record review for assignment ${assignment.id}`}
-            className="btn btn-ghost btn-sm"
-            type="button"
-            onClick={onCreateReviewArtifact}
-          >
-            <Icon d={Icons.check} size={12} />
-            Record review
-          </button>
-        )}
-      </div>
-      {startable && loadReadiness && (
-        <AssignmentLaunchReadinessPreview
-          onCheck={() => void loadReadinessPreview()}
-          state={readinessPreview}
-        />
-      )}
-      {evidence.hasEvidence && <ProjectAssignmentEvidence evidence={evidence} />}
-      {activityView?.statusSummary &&
-        activityView.statusSummary !== projectedStatus &&
-        activityView.statusSummary !== "linked run missing" && (
-          <div style={{ ...subtleTextStyle, marginTop: 8 }}>{activityView.statusSummary}</div>
-        )}
-      {(startedAt || finishedAt) && (
-        <div style={{ ...metaLineStyle, marginTop: 8 }}>
-          {startedAt && <span>Started {formatAbsoluteTime(startedAt)}</span>}
-          {finishedAt && <span>Finished {formatAbsoluteTime(finishedAt)}</span>}
-        </div>
-      )}
-      {execution?.last_error && (
-        <div style={{ marginTop: 8 }}>
-          <InlineError message={execution.last_error} />
-        </div>
-      )}
-      {error && (
-        <div style={{ marginTop: 8 }}>
-          <InlineError message={error} />
-        </div>
-      )}
+    <>
+      <ProjectAssignmentExecutionStory
+        activityItem={activityItem}
+        assignment={assignment}
+        chatModel={chatModel}
+        contextControl={
+          <ContextInspectorModalTrigger
+            buttonLabel="Inspect context"
+            buttonTitle="Inspect the best available stored context snapshot for this assignment."
+            loadPacket={loadContext}
+            modalTitle={`Assignment ${assignment.id} context`}
+            resourceKey={assignment.id}
+            unavailableDetail="This assignment does not have a stored context packet yet. Unstarted assignments, legacy rows, and older linked runs can legitimately return no snapshot."
+          />
+        }
+        error={error}
+        onCreateHandoff={onCreateHandoff}
+        onCreateReviewArtifact={onCreateReviewArtifact}
+        onCreateReviewHandoff={onCreateReviewHandoff}
+        onDelete={onDelete}
+        onEdit={onEdit}
+        onOpenChat={onOpenChat}
+        onOpenTask={onOpenTask}
+        onReviewLaunch={() => void openPreflight()}
+        project={project}
+        promoteCompletionAction={promoteCompletionAction}
+        readinessControl={
+          startable && loadReadiness ? (
+            <AssignmentLaunchReadinessPreview
+              onCheck={() => void loadReadinessPreview()}
+              state={readinessPreview}
+            />
+          ) : undefined
+        }
+        role={role}
+        starting={starting}
+      />
       {preflightOpen && (
         <AssignmentLaunchPreflightModal
           assignmentID={assignment.id}
@@ -1253,7 +1112,7 @@ function AssignmentRow({
           state={preflightState}
         />
       )}
-    </div>
+    </>
   );
 }
 
@@ -1815,18 +1674,6 @@ function EmptyBlock({ title, detail }: { title: string; detail: string }) {
   );
 }
 
-function linkedChatStatusTitle(linkedChat: NonNullable<ProjectActivityItemRecord["linked_chat"]>) {
-  return [
-    linkedChat.title,
-    linkedChat.agent_id,
-    linkedChat.status ? `session ${linkedChat.status}` : "",
-    linkedChat.latest_status ? `latest ${linkedChat.latest_status}` : "",
-    linkedChat.latest_error,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-}
-
 function handoffSourceRefs(handoff: ProjectHandoffRecord): string[] {
   const refs = [
     ["assignment", handoff.source_assignment_id],
@@ -2376,13 +2223,6 @@ const workItemSectionHeaderStyle: CSSProperties = {
   gap: 8,
   marginBottom: 10,
   minWidth: 0,
-};
-
-const assignmentStyle: CSSProperties = {
-  border: "1px solid var(--border)",
-  background: "var(--bg2)",
-  borderRadius: "var(--radius-sm)",
-  padding: 10,
 };
 
 const launchReadinessPreviewStyle: CSSProperties = {

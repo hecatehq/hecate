@@ -87,7 +87,38 @@ test("Projects journey: setup, first work, assignment, evidence, closeout", asyn
   await expect(preflight.getByText("Launch readiness", { exact: true })).toBeVisible();
   await preflight.getByRole("button", { name: "Start assignment" }).click();
 
-  await expect(page.getByText("awaiting_approval", { exact: true })).toBeVisible();
+  const executionStory = page.getByRole("article", { name: /assignment execution/i });
+  await expect(executionStory).toBeVisible();
+  await expect(
+    executionStory.locator("header").getByText("approval", { exact: true }),
+  ).toBeVisible();
+  await expect(executionStory.getByRole("button", { name: "Review in task" })).toBeVisible();
+  await expect(executionStory.getByText("Assigned", { exact: true })).toBeVisible();
+  await expect(executionStory.getByText("Started", { exact: true })).toBeVisible();
+  await expect(executionStory.getByText("1 approval needs operator review.")).toBeVisible();
+  await executionStory.scrollIntoViewIfNeeded();
+  if (process.env.HECATE_CAPTURE_PROJECTS_EXECUTION === "1") {
+    await page.screenshot({
+      path: "../docs/screenshots/projects-work-execution.jpg",
+      type: "jpeg",
+      quality: 90,
+    });
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await executionStory.scrollIntoViewIfNeeded();
+  await expect(executionStory.getByRole("button", { name: "Review in task" })).toBeVisible();
+  await expect(executionStory.getByText("Execution details", { exact: true })).toBeVisible();
+  expect(
+    await executionStory.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+  ).toBe(true);
+  if (process.env.HECATE_CAPTURE_PROJECTS_EXECUTION === "1") {
+    await page.screenshot({
+      path: "../docs/screenshots/projects-work-execution-narrow.jpg",
+      type: "jpeg",
+      quality: 90,
+    });
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
   await page.getByRole("tab", { name: "Overview" }).click();
   await expect(page.getByText("Review pending approval: Verify launch checklist")).toBeVisible();
   await page.getByRole("button", { name: /Open approval/ }).click();
@@ -95,7 +126,7 @@ test("Projects journey: setup, first work, assignment, evidence, closeout", asyn
 
   completeProjectJourneyAssignment(state);
   await page.getByRole("button", { name: "Refresh project work" }).click();
-  await expect(page.getByText("completed", { exact: true })).toBeVisible();
+  await expect(executionStory.locator("header").getByText("done", { exact: true })).toBeVisible();
   await page.getByRole("tab", { name: "Overview" }).click();
   await expect(page.getByText("Record completion evidence: Verify launch checklist")).toBeVisible();
   await page.getByRole("button", { name: /Open work/ }).click();
@@ -891,6 +922,7 @@ async function handleWorkItemRoute(
           task_id: "task_launch",
           run_id: "run_launch",
           status: "awaiting_approval",
+          pending_approval_count: 1,
           trace_id: "trace_launch",
         },
         execution: {
