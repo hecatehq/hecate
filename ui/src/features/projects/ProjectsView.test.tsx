@@ -10530,6 +10530,30 @@ describe("ProjectsView navigation destinations", () => {
     expectNoProjectSubresourceCalls(project.id);
   });
 
+  it("makes retry the primary action when a routed project catalog cannot load", async () => {
+    await act(async () => {
+      render(
+        <ProjectsView navigation={{ projectID: project.id, view: "overview", workItemID: null }} />,
+        {
+          wrapper: directWrapper({
+            projects: [],
+            loaded: false,
+            error: "Projects are unavailable.",
+          }),
+        },
+      );
+    });
+
+    expect(screen.getByText("Project unavailable")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Hecate could not verify this project yet. Retry loading projects to keep the link intact.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Retry" })).toHaveClass("btn-primary");
+    expect(screen.getByRole("button", { name: "Add" })).toHaveClass("btn-ghost");
+  });
+
   it("keeps the Work queue visible for a missing routed work item without fetching another detail", async () => {
     resetProjectWorkMocks();
     vi.mocked(getProjectWorkItems).mockResolvedValue({
@@ -10692,10 +10716,78 @@ describe("ProjectsView navigation destinations", () => {
       expect(screen.getByRole("tab", { name: /Memory/ })).toHaveAttribute("aria-selected", "true");
       expect(settingsButton).toHaveFocus();
     });
-    const restoredViewAnnouncement = await screen.findByText("Memory view opened.");
+    const restoredViewAnnouncement = await screen.findByText("Memory opened for Hecate.");
     const restoredViewStatus = restoredViewAnnouncement.closest('[role="status"]');
     expect(restoredViewStatus).not.toBeNull();
     expect(restoredViewStatus).toHaveAttribute("aria-live", "polite");
+    expect(onNavigate).not.toHaveBeenCalled();
+  });
+
+  it("announces exact same-view work-item history changes", async () => {
+    resetProjectWorkMocks();
+    const secondWorkItem: ProjectWorkItemRecord = {
+      ...workItem,
+      id: "work_2",
+      title: "Document navigation behavior",
+      brief: "Keep same-view history changes understandable.",
+      assignments: [],
+    };
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [{ ...workItem, assignments: [] }, secondWorkItem],
+    });
+    vi.mocked(getProjectWorkItem).mockImplementation(async (_projectID, workItemID) => ({
+      object: "project_work_item",
+      data: workItemID === secondWorkItem.id ? secondWorkItem : workItem,
+    }));
+    vi.mocked(getProjectWorkItemReadiness).mockImplementation(async (_projectID, workItemID) => ({
+      object: "project_work_item_readiness",
+      data: workItemReadiness({ work_item_id: workItemID }),
+    }));
+    vi.mocked(getProjectAssignments).mockResolvedValue({
+      object: "project_assignments",
+      data: [],
+    });
+    const onNavigate = vi.fn();
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    const actions = createRuntimeConsoleActions();
+    const route = (workItemID: string) =>
+      withRuntimeConsole(
+        <ProjectsView
+          navigation={{ projectID: project.id, view: "work", workItemID }}
+          onNavigate={onNavigate}
+        />,
+        { state, actions },
+      );
+    const rendered = render(route(workItem.id));
+
+    await screen.findByRole("article", { name: "Build cockpit UI work item" });
+    const settingsButton = screen.getByRole("button", { name: "Project settings" });
+    settingsButton.focus();
+    onNavigate.mockClear();
+
+    rendered.rerender(route(secondWorkItem.id));
+    expect(await screen.findByText("Work item opened: Document navigation behavior")).toBeTruthy();
+    expect(
+      await screen.findByRole("article", { name: "Document navigation behavior work item" }),
+    ).toBeTruthy();
+
+    rendered.rerender(route(workItem.id));
+    expect(await screen.findByText("Work item opened: Build cockpit UI")).toBeTruthy();
+    expect(await screen.findByRole("article", { name: "Build cockpit UI work item" })).toBeTruthy();
+    expect(settingsButton).toHaveFocus();
+
+    const workTab = screen.getByRole("tab", { name: /Work/ });
+    workTab.focus();
+    rendered.rerender(route(secondWorkItem.id));
+    expect(await screen.findByText("Work item opened: Document navigation behavior")).toBeTruthy();
+    expect(
+      await screen.findByRole("article", { name: "Document navigation behavior work item" }),
+    ).toBeTruthy();
+    expect(workTab).toHaveFocus();
     expect(onNavigate).not.toHaveBeenCalled();
   });
 

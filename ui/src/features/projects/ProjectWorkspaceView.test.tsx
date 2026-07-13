@@ -488,6 +488,9 @@ describe("ProjectWorkspaceView", () => {
       "href",
       "/projects?project=proj_1",
     );
+    expect(screen.getByRole("tab", { name: "Overview" })).toHaveStyle({
+      textDecoration: "none",
+    });
     expect(screen.getByRole("tab", { name: "Overview" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tab", { name: /Work/ })).toHaveAttribute(
       "href",

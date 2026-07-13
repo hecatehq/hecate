@@ -1659,6 +1659,7 @@ const projectWorkspaceTabButtonStyle: CSSProperties = {
   justifyContent: "center",
   minHeight: 32,
   minWidth: 0,
+  textDecoration: "none",
   whiteSpace: "nowrap",
 };
 
