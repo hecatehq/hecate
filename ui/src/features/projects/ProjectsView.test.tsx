@@ -2213,8 +2213,10 @@ describe("ProjectsView index", () => {
     const dialog = await screen.findByRole("dialog", { name: "Create project" });
     await user.type(within(dialog).getByLabelText("Name"), "Research notebook");
     const form = within(dialog).getByLabelText("Name").closest("form") as HTMLFormElement;
-    fireEvent.submit(form);
-    fireEvent.submit(form);
+    await act(async () => {
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
 
     expect(actions.createProject).toHaveBeenCalledTimes(1);
     expect(within(dialog).getByRole("button", { name: "Close" })).toBeDisabled();
@@ -2266,8 +2268,11 @@ describe("ProjectsView index", () => {
 
     await user.click(screen.getByRole("button", { name: "Add" }));
     await user.type(screen.getByLabelText("Name"), "Late project");
-    fireEvent.submit(screen.getByLabelText("Name").closest("form") as HTMLFormElement);
-    fireEvent.click(screen.getByRole("button", { name: "Leave Projects" }));
+    const form = screen.getByLabelText("Name").closest("form") as HTMLFormElement;
+    await act(async () => {
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      screen.getByRole("button", { name: "Leave Projects" }).click();
+    });
     expect(screen.getByRole("main", { name: "Chats workspace" })).toBeTruthy();
 
     await act(async () => {
