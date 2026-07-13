@@ -19,6 +19,7 @@ export type ProjectAssignmentExecutionStoryProps = {
   assignment: ProjectAssignmentRecord;
   chatModel: string;
   contextControl: ReactNode;
+  elementID?: string;
   error: string;
   onCreateHandoff: () => void;
   onCreateReviewArtifact?: () => void;
@@ -32,7 +33,9 @@ export type ProjectAssignmentExecutionStoryProps = {
   onResumeWork: () => void;
   onStartWork: () => void;
   project: ProjectRecord | null;
+  primaryEmphasis?: boolean;
   promoteCompletionAction?: boolean;
+  readOnly?: boolean;
   readinessControl?: ReactNode;
   role?: ProjectWorkRoleRecord;
   starting: boolean;
@@ -68,6 +71,7 @@ export function ProjectAssignmentExecutionStory({
   assignment,
   chatModel,
   contextControl,
+  elementID,
   error,
   onCreateHandoff,
   onCreateReviewArtifact,
@@ -81,7 +85,9 @@ export function ProjectAssignmentExecutionStory({
   onResumeWork,
   onStartWork,
   project,
+  primaryEmphasis = true,
   promoteCompletionAction = true,
+  readOnly = false,
   readinessControl,
   role,
   starting,
@@ -181,7 +187,10 @@ export function ProjectAssignmentExecutionStory({
   return (
     <article
       aria-label={`${role?.name ?? assignment.role_id} assignment execution ${assignment.id}`}
+      className="project-work-focus-target"
+      id={elementID}
       style={storyStyle}
+      tabIndex={-1}
     >
       <header style={storyHeaderStyle}>
         <div style={storyIdentityStyle}>
@@ -205,10 +214,10 @@ export function ProjectAssignmentExecutionStory({
             {statusSummary}
           </p>
         </div>
-        {primaryAction && (
+        {!readOnly && primaryAction && (
           <button
             aria-label={primaryAction.ariaLabel}
-            className="btn btn-primary btn-sm"
+            className={`btn ${primaryEmphasis ? "btn-primary" : "btn-ghost"} btn-sm`}
             type="button"
             onClick={primaryAction.onClick}
             disabled={primaryAction.disabled}
@@ -280,7 +289,7 @@ export function ProjectAssignmentExecutionStory({
         </summary>
         <div style={detailsBodyStyle}>
           <div style={detailsActionsStyle}>
-            {canOpenTask && primaryKey !== "open-task" && (
+            {canOpenTask && (readOnly || primaryKey !== "open-task") && (
               <button
                 className="btn btn-ghost btn-sm"
                 type="button"
@@ -290,13 +299,13 @@ export function ProjectAssignmentExecutionStory({
                 Open task
               </button>
             )}
-            {canOpenChat && primaryKey !== "open-chat" && (
+            {canOpenChat && (readOnly || primaryKey !== "open-chat") && (
               <button className="btn btn-ghost btn-sm" type="button" onClick={onOpenChat}>
                 <Icon d={Icons.chat} size={12} />
                 Open chat
               </button>
             )}
-            {canStartRelatedChat && (
+            {!readOnly && canStartRelatedChat && (
               <button
                 className="btn btn-ghost btn-sm"
                 disabled={starting}
@@ -308,7 +317,7 @@ export function ProjectAssignmentExecutionStory({
               </button>
             )}
             {contextControl}
-            {!manualTerminal && (
+            {!readOnly && !manualTerminal && (
               <button
                 className="btn btn-ghost btn-sm"
                 type="button"
@@ -320,17 +329,19 @@ export function ProjectAssignmentExecutionStory({
                 Edit
               </button>
             )}
-            <button
-              className="btn btn-ghost btn-sm"
-              type="button"
-              aria-label={`Delete assignment ${assignment.id}`}
-              disabled={starting}
-              onClick={onDelete}
-              style={{ color: "var(--red)" }}
-            >
-              <Icon d={Icons.trash} size={12} />
-              Delete
-            </button>
+            {!readOnly && (
+              <button
+                className="btn btn-ghost btn-sm"
+                type="button"
+                aria-label={`Delete assignment ${assignment.id}`}
+                disabled={starting}
+                onClick={onDelete}
+                style={{ color: "var(--red)" }}
+              >
+                <Icon d={Icons.trash} size={12} />
+                Delete
+              </button>
+            )}
           </div>
           <div style={detailsMetadataStyle}>
             {execution.taskID && <CopyableID text={execution.taskID} compact />}
@@ -367,7 +378,7 @@ export function ProjectAssignmentExecutionStory({
         </div>
       </details>
 
-      {followThroughActions.length > 0 && (
+      {!readOnly && followThroughActions.length > 0 && (
         <div aria-label="Follow through" role="group" style={followThroughStyle}>
           <span style={followThroughLabelStyle}>Follow through</span>
           {followThroughActions.map((action) => (

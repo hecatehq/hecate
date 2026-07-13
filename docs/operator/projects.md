@@ -42,8 +42,10 @@ For each work item:
 2. Choose who does the work: **Human**, **Hecate Task**, or **External Agent**.
 3. Start Human work directly, or inspect launch readiness and context before
    starting an execution-backed assignment.
-4. Record evidence, reviews, and handoffs as the work moves between roles.
-5. Close the work item only after assignments and review follow-up are clear.
+4. Use the selected work item's **Next action** to record evidence, resolve a
+   review, decide a handoff, or return to the assignment that needs attention.
+5. Review closeout and mark the work done only after the readiness checks are
+   clear.
 
 Assignments keep their own execution records. Projects coordinate the work, but
 Tasks, Chats, and External Agents remain the execution surfaces.
@@ -116,13 +118,32 @@ that includes enabled sources.
 
 Use the top Project Operations action for the single most useful operator step,
 then jump to blocked, active, recent, or memory-review work from the activity
-summary before drilling into the full Work queue. Review follow-up and closeout operations
-open selected-work detail. Closeout readiness is the server contract shared by
-Project Operations and selected-work detail; the operator still creates
-follow-up paths or marks work done explicitly from that surface.
+summary before drilling into the full Work queue. Review follow-up and closeout
+operations open selected-work detail and focus the named assignment, review, or
+handoff when the server provides that target in the typed action. If that exact
+record disappeared before detail loaded, Hecate focuses the selected work item,
+announces the stale record, and offers **Refresh work** instead of falling back
+to a different assignment or artifact. The recovery remains in place while a
+refresh is running or fails, and only clears when the exact record appears or a
+loaded operations brief no longer requests it. The selected work item's **Next
+action** keeps the exact operation chosen from Overview; when that operation is
+resolved and disappears from a loaded brief, the rail advances to the next
+server-ordered operation for the item. Direct work selection starts with that
+same server order. The client does not derive another priority from blocker
+text or section order.
+Routine queue creation and Project Assistant drafting remain secondary while
+that guided action is available.
+
+Closeout readiness is the server contract shared by Project Operations and
+selected-work detail. Its structured assignment, review, and open-handoff
+references let the UI open the right follow-through without guessing from
+display copy. The operator still records evidence, applies a follow-up
+proposal, decides a handoff, or closes work explicitly from the existing
+surface. If no project operation currently promotes that work item, its
+closeout checks remain visible without inventing another primary action.
+
 Assignment launch readiness is also server-backed. Before `Start assignment`,
-`Prepare chat`, or `Start from handoff` for Hecate Task and External Agent work,
-the detail view loads
+or `Prepare chat` for Hecate Task and External Agent work, the detail view loads
 `GET /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments/{assignment_id}/launch-readiness`
 and uses its typed `ready`/`blockers` fields as the launch gate. The separate
 preflight context packet remains inspectable evidence for the operator; it is
@@ -190,7 +211,46 @@ work item role and context, but the operator still reviews and applies the
 proposal before execution records are created.
 
 After a work item has activity, use its Add strip to attach more assignments,
-evidence, or handoffs without scanning each section header for separate actions.
+evidence, or handoffs without scanning each section header for separate
+actions. A next action for missing evidence opens the same evidence form with
+the relevant assignment already selected. The routine path asks for the title,
+link, external reference, assignment, and summary; source classification,
+provider, and trust details remain under **Advanced source details**.
+Assignment choices use project role names and plain status labels. While an
+evidence, review, or handoff record is being saved, its dialog cannot be
+dismissed or submitted again. After reconciliation, keyboard focus moves to
+the saved artifact or surviving handoff instead of falling out of the cockpit.
+
+Recording a review now requires the operator to choose a verdict and write the
+outcome for the named source assignment before saving. The form separately
+identifies the **Review assignment** that is authoring the result. A result that needs follow-up
+returns to the normal reviewable Project Assistant proposal flow; it does not
+create or start work automatically.
+
+Creating a handoff starts with its title, summary, recommended next action,
+source assignment, and target role. Existing target links, execution references,
+linked evidence or memory, context references, and provenance stay available
+under **Advanced links and provenance**. A pending handoff must still be
+accepted, dismissed, superseded, or linked to follow-up work by the operator.
+Opening a linked assignment moves focus to its assignment story; the handoff
+does not provide a second launch control. Every handoff create, edit, status
+decision, or deletion reloads closeout readiness so the next action reflects
+the authoritative handoff state immediately. Routine artifact and handoff rows
+use product labels such as **Evidence**, **Document**, and **Operator reviewed**;
+assignment choices use role display names, while storage vocabulary remains in
+advanced forms and API documentation.
+
+When readiness reports that closeout is ready, **Review closeout** opens a
+confirmation summarizing completed assignments, unresolved review follow-ups,
+and open handoffs. **Mark work done** records the explicit closeout decision; it
+does not delete assignments, linked Tasks or Chats, reviews, evidence, or
+handoffs. A server conflict leaves the work open, shows the failure in the
+confirmation, and automatically reloads its readiness checks. The manual
+**Refresh** action remains available. Once closeout is recorded, the work item
+becomes a read-only record: operators can still inspect and refresh its history,
+but edit, add, launch, handoff, review, and deletion controls are no longer
+offered. Persisted `done` or `cancelled` status keeps that read-only posture even
+when a later readiness refresh is temporarily unavailable.
 
 ## V1 Stop Line
 

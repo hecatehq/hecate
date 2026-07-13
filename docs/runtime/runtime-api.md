@@ -2514,13 +2514,14 @@ and falls back to stored links, with `kind` set to `task_run`, `chat_session`,
 or `context_snapshot`. The richer `execution` summary remains for detail views;
 raw top-level assignment link fields are not part of the alpha contract.
 
-Work-item list and detail responses apply the same conservative rollup over
-projected assignment statuses: any active linked assignment (`queued`,
-`running`, or `awaiting_approval`) makes the work item `running`; all
-assignments `completed` makes it `done`; all assignments `cancelled` makes it
-`cancelled`; any failed assignment, or any cancelled assignment mixed with a
-non-cancelled assignment, makes it `blocked`. Otherwise the stored work-item
-status is returned.
+Work-item list and detail responses apply a conservative operational projection
+over assignment statuses without fabricating work-item closure. A `running` or
+`awaiting_approval` assignment, or a queued assignment with a present linked
+execution, makes open work appear `running`. A failed or cancelled assignment
+makes open work appear `blocked`. Completed assignments leave the stored
+work-item status unchanged, because evidence, review follow-up, or handoff work
+may still remain. Stored `done` and `cancelled` statuses are terminal and are
+never overwritten by assignment projection.
 
 The Projects UI also exposes an operator closeout action for selected work
 items. The read-only
@@ -2529,11 +2530,16 @@ the shared closeout authority for Project Operations, selected-work detail, and
 `PATCH` requests that set `status="done"`: it derives blockers from
 assignments, completion evidence, handoffs, and review follow-up without
 mutating project state. The guided action still uses the normal work-item
-`PATCH` path only after the operator clicks Mark done. Hecate does not
+`PATCH` path only after the operator reviews closeout and confirms **Mark work
+done**. Hecate does not
 auto-mutate stored work-item status from review verdicts, handoffs, or
 assignment rollups without an explicit operator update. Updates that do not mark
 the work item done continue to use the normal edit flow while closeout blockers
-remain.
+remain. A readiness response with `status="done"` therefore reflects a persisted
+operator closeout decision, not a client inference from completed assignments.
+The Projects UI also treats stored work-item `done` and `cancelled` status as a
+terminal read-only signal if readiness cannot be refreshed; a transient read
+failure must not make terminal work mutable again.
 
 #### `GET /hecate/v1/projects/{id}/activity`
 
@@ -2884,7 +2890,17 @@ Each item has a `kind` that explains why it appears and an `action` that is the
 typed client routing contract. Clients should dispatch on `action.type`, not on
 `kind` or `target.surface`. `target` remains descriptive context for existing
 Hecate surfaces (`project_settings`, `work`, or `memory`) and for summaries
-copied from the existing project APIs.
+copied from the existing project APIs. For `open_work_item`, `action` may carry
+`assignment_id`, `artifact_id`, or `handoff_id` so the client can open the work
+item and focus the exact assignment, review artifact, or handoff. `target` may
+mirror those fields for display compatibility, but it is never an alternate
+routing source. Clients should fail closed and request a refresh if a populated
+descriptive target disagrees with the typed action. These identifiers are
+routing targets, not permission to mutate the record.
+When several operations target one work item, clients may pin the exact item
+the operator selected. Once a later, successfully loaded brief removes that
+item, clients should continue with the next operation in server order rather
+than preserving a local priority or a dead selection.
 
 Known action types are:
 
@@ -2904,6 +2920,27 @@ Actions do not directly mutate project state. `open_assignment_preflight` opens
 the existing assignment launch preflight before any start. `draft_project_proposal`
 uses `action.request` and the normal Project Assistant draft/propose/apply flow,
 where the operator reviews the typed proposal before any durable mutation.
+
+For example, a review follow-up operation preserves its artifact target in both
+places used by current clients:
+
+```json
+{
+  "kind": "review_follow_up",
+  "target": {
+    "surface": "work",
+    "project_id": "proj_...",
+    "work_item_id": "work_...",
+    "artifact_id": "artifact_..."
+  },
+  "action": {
+    "type": "open_work_item",
+    "project_id": "proj_...",
+    "work_item_id": "work_...",
+    "artifact_id": "artifact_..."
+  }
+}
+```
 
 ```json
 {
@@ -3222,6 +3259,7 @@ review follow-up, missing completion evidence, or closeout-ready items.
         "review_risk": "medium"
       }
     ],
+    "open_handoff_ids": ["handoff_..."],
     "missing_evidence_assignment_ids": ["asgn_..."]
   }
 }
@@ -3231,7 +3269,11 @@ review follow-up, missing completion evidence, or closeout-ready items.
 follow-up path. Clients should use this server field for closeout notices and
 Project Assistant draft shortcuts instead of deriving readiness from raw
 artifact fields. `review_follow_up_artifact_ids` may also be present for compact
-artifact-id consumers.
+artifact-id consumers. `open_handoff_ids` lists pending handoff records that
+still require an operator decision. Clients should use these structured IDs,
+together with `missing_evidence_assignment_ids`, to focus follow-through
+controls; blocker strings remain display copy and must not be parsed as routing
+or business logic.
 
 #### `PATCH /hecate/v1/projects/{id}/work-items/{work_item_id}`
 
@@ -3241,7 +3283,10 @@ When `status` is set to `done`, the server validates the same closeout readiness
 contract returned by
 `GET /hecate/v1/projects/{id}/work-items/{work_item_id}/readiness`. If blockers
 remain, the update returns `409 conflict` with a `readiness` object in the error
-body. Other work-item edits are not blocked by closeout readiness.
+body. Other work-item edits are not blocked by closeout readiness. A successful
+`status="done"` update is the authoritative closeout transition; clients should
+render completed work read-only while preserving its assignments, reviews,
+evidence, handoffs, and runtime links for inspection.
 
 #### `DELETE /hecate/v1/projects/{id}/work-items/{work_item_id}`
 
@@ -3414,8 +3459,8 @@ preset's tools, writes, network, approval, memory, and context-source posture.
 An incompatible preset surface is a launch blocker. For native Hecate tasks,
 the displayed write/network values are also the values that will be
 snapshotted into the created task's sandbox policy. `ready=false` is the UI
-gate for `Start assignment`, `Prepare chat`, and `Start from handoff`;
-operators must still confirm the separate start mutation after reviewing preflight.
+gate for **Start assignment** and **Prepare chat**; operators must still confirm
+the separate start mutation after reviewing preflight.
 
 #### `GET /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments/{assignment_id}/preflight`
 
@@ -3448,9 +3493,10 @@ Hecate-task launch and preflight still require Hecate-owned provider/model
 defaults from the project runtime overlay; Cairnline desired-agent and skill
 hints are not interpreted as provider/model configuration.
 
-The Projects cockpit uses this endpoint before `Start assignment`, `Prepare
-chat`, and `Start from handoff` so the operator can review the effective launch
-context before dispatch. The UI disables confirmation when
+The Projects cockpit uses this endpoint before **Start assignment** and
+**Prepare chat** so the operator can review the effective launch context before
+dispatch. A handoff can focus its linked assignment, but it does not provide a
+second launch control. The UI disables confirmation when
 `/launch-readiness` reports blockers and offers repair actions for Project
 Settings, Roles, Agent Presets, and Connections. Project-local actions repair
 defaults that feed assignment resolution; Connections remains the

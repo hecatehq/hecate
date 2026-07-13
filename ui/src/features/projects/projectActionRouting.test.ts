@@ -49,6 +49,11 @@ describe("projectActionRouting", () => {
     expect(
       routeProjectOperationAction(
         operationItem({
+          target: {
+            surface: "work",
+            project_id: "proj_1",
+            work_item_id: "work_2",
+          },
           action: {
             type: "draft_project_proposal",
             project_id: "proj_1",
@@ -66,12 +71,16 @@ describe("projectActionRouting", () => {
 
     expect(
       routeProjectOperationAction(
-        operationItem({ action: { type: "open_memory_review", project_id: "proj_1" } }),
+        operationItem({
+          target: { surface: "memory", project_id: "proj_1" },
+          action: { type: "open_memory_review", project_id: "proj_1" },
+        }),
         "proj_1",
       ),
     ).toEqual({ kind: "open_memory_review" });
 
     const candidateOperation = operationItem({
+      target: { surface: "memory", project_id: "proj_1" },
       action: {
         type: "review_memory_candidate",
         project_id: "proj_1",
@@ -88,6 +97,83 @@ describe("projectActionRouting", () => {
     ).toEqual({ kind: "review_memory_candidate", candidateID: "cand_1" });
   });
 
+  it("preserves exact structured work targets from operation actions", () => {
+    const item = operationItem({
+      kind: "review_follow_up",
+      target: {
+        surface: "work",
+        project_id: "proj_1",
+        work_item_id: "work_2",
+      },
+      action: {
+        type: "open_work_item",
+        project_id: "proj_1",
+        work_item_id: "work_2",
+        assignment_id: "assign_2",
+        artifact_id: "artifact_2",
+        handoff_id: "handoff_2",
+        activity_bucket: "blocked",
+      },
+    });
+
+    expect(routeProjectOperationAction(item, "proj_1")).toEqual({
+      kind: "open_work_item",
+      artifactID: "artifact_2",
+      assignmentID: "assign_2",
+      bucket: "blocked",
+      handoffID: "handoff_2",
+      operationKind: "review_follow_up",
+      workItemID: "work_2",
+    });
+  });
+
+  it("rejects descriptive operation targets that disagree with the action", () => {
+    expect(
+      routeProjectOperationAction(
+        operationItem({
+          target: {
+            surface: "work",
+            project_id: "proj_1",
+            work_item_id: "work_1",
+            assignment_id: "assign_descriptive",
+          },
+          action: {
+            type: "open_work_item",
+            project_id: "proj_1",
+            work_item_id: "work_1",
+            assignment_id: "assign_authoritative",
+          },
+        }),
+        "proj_1",
+      ),
+    ).toEqual({
+      kind: "error",
+      message: "Project operation target changed. Refresh project work and try again.",
+    });
+
+    expect(
+      routeProjectOperationAction(
+        operationItem({
+          target: {
+            surface: "work",
+            project_id: "proj_1",
+            work_item_id: "work_1",
+            artifact_id: "artifact_descriptive",
+          },
+          action: {
+            type: "open_work_item",
+            project_id: "proj_1",
+            work_item_id: "work_1",
+          },
+        }),
+        "proj_1",
+      ),
+    ).toEqual({
+      kind: "error",
+      message: "Project operation target changed. Refresh project work and try again.",
+    });
+  });
+
   it("rejects stale or incomplete server operations", () => {
     expect(
       routeProjectOperationAction(
@@ -102,6 +188,7 @@ describe("projectActionRouting", () => {
     expect(
       routeProjectOperationAction(
         operationItem({
+          target: { surface: "work", project_id: "proj_1" },
           action: { type: "draft_project_proposal", project_id: "proj_1", request: " " },
         }),
         "proj_1",
@@ -114,6 +201,7 @@ describe("projectActionRouting", () => {
     expect(
       routeProjectOperationAction(
         operationItem({
+          target: { surface: "work", project_id: "proj_1" },
           action: { type: "open_assignment_preflight", project_id: "proj_1" },
         }),
         "proj_1",

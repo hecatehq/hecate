@@ -357,7 +357,7 @@ export function reviewHandoffFormFromAssignment(
 export function reviewArtifactFormFromAssignment(
   assignment: ProjectAssignmentRecord,
   role: ProjectWorkRoleRecord | null,
-  workItem: ProjectWorkItemRecord,
+  _workItem: ProjectWorkItemRecord,
   handoffs: ProjectHandoffRecord[] = [],
 ): ReviewArtifactForm {
   const roleName = role?.name || assignment.role_id;
@@ -368,7 +368,7 @@ export function reviewArtifactFormFromAssignment(
     title: `${roleName} review`,
     verdict: "approved",
     risk: "unknown",
-    summary: `Review outcome for "${workItem.title || workItem.id}".`,
+    summary: "",
     verification: "",
     followUp: "",
   };

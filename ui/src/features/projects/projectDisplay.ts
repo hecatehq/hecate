@@ -1,7 +1,11 @@
 import { ApiError } from "../../lib/api";
 import { projectRootOptionLabel } from "./projectSettings";
 import { shortID } from "./projectUtils";
-import type { ProjectDeleteRecord, ProjectRecord } from "../../types/project";
+import type {
+  ProjectDeleteRecord,
+  ProjectRecord,
+  ProjectWorkRoleRecord,
+} from "../../types/project";
 
 export function formatProjectRowRelativeTime(iso: string): string {
   const parsed = Date.parse(iso);
@@ -41,6 +45,18 @@ export function assignmentStatusLabel(status: string | undefined): string {
   if (status === "awaiting_approval") return "approval";
   if (status === "completed") return "done";
   return status.replaceAll("_", " ");
+}
+
+export function projectRoleLabel(
+  roleID: string | undefined,
+  roles: ProjectWorkRoleRecord[],
+): string {
+  const normalizedRoleID = roleID?.trim() || "";
+  const roleName = roles.find((role) => role.id === normalizedRoleID)?.name.trim();
+  if (roleName) return roleName;
+  if (!normalizedRoleID) return "Unassigned";
+  const words = normalizedRoleID.replaceAll("_", " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
 export function handoffStatusLabel(status: string): string {

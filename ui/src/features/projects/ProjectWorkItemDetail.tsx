@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 
 import {
   getProjectAssignmentContext,
@@ -13,6 +13,7 @@ import type {
   ProjectAssignmentLaunchReadinessRecord,
   ProjectCollaborationArtifactRecord,
   ProjectHandoffRecord,
+  ProjectOperationsBriefItem,
   ProjectRecord,
   ProjectWorkItemReadinessRecord,
   ProjectWorkItemReviewFollowUpRecord,
@@ -42,6 +43,10 @@ import {
 } from "./projectWorkForms";
 import { firstNonEmpty, isLinkableProjectLocator, shortID } from "./projectUtils";
 import { ProjectAssignmentExecutionStory } from "./ProjectAssignmentExecutionStory";
+import {
+  ProjectWorkItemFollowThrough,
+  projectWorkItemOperationTargetAvailable,
+} from "./ProjectWorkItemFollowThrough";
 
 export type ProjectAssignmentChatLaunchRequest = {
   projectID: string;
@@ -80,6 +85,14 @@ type AssignmentLaunchRepairActions = {
   onOpenProjectSettings?: () => void;
 };
 
+export type ProjectWorkItemFocusTarget = {
+  artifactID?: string;
+  assignmentID?: string;
+  handoffID?: string;
+  operationKind?: string;
+  workItemID: string;
+};
+
 export type ProjectWorkItemDetailProps = {
   activityByAssignmentID: Map<string, ProjectActivityItemRecord>;
   assignments: ProjectAssignmentRecord[];
@@ -91,11 +104,13 @@ export type ProjectWorkItemDetailProps = {
   assignmentErrors: Record<string, string>;
   detailError: string;
   draftingDefaultAssignment: boolean;
+  assistantProposalOpen: boolean;
   preparingAssignmentID: string;
   loading: boolean;
+  focusTarget?: ProjectWorkItemFocusTarget | null;
   onAddAssignment: () => void;
   onAddHandoff: () => void;
-  onAddEvidenceLink: () => void;
+  onAddEvidenceLink: (assignmentID?: string) => void;
   onAddHandoffFromAssignment: (
     assignment: ProjectAssignmentRecord,
     activityItem?: ProjectActivityItemRecord,
@@ -126,11 +141,13 @@ export type ProjectWorkItemDetailProps = {
   onOpenSettings: () => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
   onOpenWorkItem: (workItemID: string) => void;
-  onRefresh: () => void;
+  onRefresh: () => void | boolean | Promise<void | boolean>;
+  onFocusTargetHandled?: () => void;
   onStartAssignment: (assignment: ProjectAssignmentRecord) => void;
-  onStartHandoff: (handoff: ProjectHandoffRecord) => void;
   onSetHandoffStatus: (handoff: ProjectHandoffRecord, status: string) => void;
   project: ProjectRecord | null;
+  operation?: ProjectOperationsBriefItem | null;
+  primaryAssignmentID?: string;
   roleByID: Map<string, ProjectWorkRoleRecord>;
   closingWorkItemID: string;
   closeoutReadiness: ProjectWorkItemReadinessRecord | null;
@@ -149,8 +166,10 @@ export function ProjectWorkItemDetail({
   assignmentErrors,
   detailError,
   draftingDefaultAssignment,
+  assistantProposalOpen,
   preparingAssignmentID,
   loading,
+  focusTarget = null,
   onAddAssignment,
   onAddEvidenceLink,
   onAddHandoff,
@@ -178,19 +197,150 @@ export function ProjectWorkItemDetail({
   onOpenTask,
   onOpenWorkItem,
   onRefresh,
+  onFocusTargetHandled,
   onStartAssignment,
-  onStartHandoff,
   onSetHandoffStatus,
   project,
+  operation = null,
+  primaryAssignmentID = "",
   roleByID,
   closingWorkItemID,
   closeoutReadiness,
   startingAssignmentIDs,
   workItem,
 }: ProjectWorkItemDetailProps) {
+  const [closeoutConfirmOpen, setCloseoutConfirmOpen] = useState(false);
+  const [focusNotice, setFocusNotice] = useState("");
+  const [refreshingFocusTarget, setRefreshingFocusTarget] = useState(false);
+  const [staleFocusTarget, setStaleFocusTarget] = useState<ProjectWorkItemFocusTarget | null>(null);
+  const [staleRefreshCompleted, setStaleRefreshCompleted] = useState(false);
+  const restoreCloseoutFocusRef = useRef(false);
+  useEffect(() => {
+    setCloseoutConfirmOpen(false);
+    setFocusNotice("");
+    setRefreshingFocusTarget(false);
+    setStaleFocusTarget(null);
+    setStaleRefreshCompleted(false);
+  }, [workItem?.id]);
+  useEffect(() => {
+    if (
+      closeoutReadiness?.status === "done" ||
+      workItem?.status === "done" ||
+      workItem?.status === "cancelled"
+    ) {
+      if (closeoutConfirmOpen) {
+        restoreCloseoutFocusRef.current = true;
+        setCloseoutConfirmOpen(false);
+      }
+    }
+  }, [closeoutConfirmOpen, closeoutReadiness?.status, workItem?.status]);
+  useEffect(() => {
+    if (closeoutConfirmOpen || !restoreCloseoutFocusRef.current) return;
+    restoreCloseoutFocusRef.current = false;
+    focusElementByID("project-work-follow-through");
+  }, [closeoutConfirmOpen]);
   const safeAssignments = Array.isArray(assignments) ? assignments : [];
   const safeArtifacts = Array.isArray(artifacts) ? artifacts : [];
   const safeHandoffs = Array.isArray(handoffs) ? handoffs : [];
+  useEffect(() => {
+    if (!workItem || focusTarget?.workItemID !== workItem.id) return;
+    let focused = false;
+    let exactTargetRequested = false;
+    if (focusTarget.artifactID) {
+      exactTargetRequested = true;
+      if (safeArtifacts.some((artifact) => artifact.id === focusTarget.artifactID)) {
+        focused = focusWorkItemRecord("artifact", focusTarget.artifactID);
+      }
+    } else if (focusTarget.handoffID) {
+      exactTargetRequested = true;
+      if (safeHandoffs.some((handoff) => handoff.id === focusTarget.handoffID)) {
+        focused = focusWorkItemRecord("handoff", focusTarget.handoffID);
+      }
+    } else if (focusTarget.assignmentID) {
+      exactTargetRequested = true;
+      if (safeAssignments.some((assignment) => assignment.id === focusTarget.assignmentID)) {
+        focused = focusWorkItemRecord("assignment", focusTarget.assignmentID);
+      }
+    } else if (focusTarget.operationKind === "close_work_item") {
+      exactTargetRequested = true;
+      focused = focusElementByID("project-work-closeout");
+    } else {
+      focused = focusElementByID(workItemElementID(workItem.id));
+    }
+    if (focused) {
+      setFocusNotice("");
+      setStaleFocusTarget(null);
+      onFocusTargetHandled?.();
+      return;
+    }
+    if (loading) return;
+    focusElementByID(workItemElementID(workItem.id));
+    setFocusNotice(
+      exactTargetRequested
+        ? "The requested record is no longer available. Showing the selected work item instead."
+        : "",
+    );
+    setStaleFocusTarget(exactTargetRequested ? focusTarget : null);
+    onFocusTargetHandled?.();
+  }, [
+    focusTarget,
+    loading,
+    onFocusTargetHandled,
+    safeArtifacts,
+    safeAssignments,
+    safeHandoffs,
+    workItem,
+  ]);
+  useEffect(() => {
+    if (!workItem || !staleFocusTarget || !staleRefreshCompleted || loading) return;
+    const exactTargetAvailable = workItemFocusTargetAvailable(staleFocusTarget, {
+      artifacts: safeArtifacts,
+      assignments: safeAssignments,
+      handoffs: safeHandoffs,
+    });
+    const operationStillRequestsTarget = projectOperationRequestsFocusTarget(
+      operation,
+      staleFocusTarget,
+    );
+    if (exactTargetAvailable || !operationStillRequestsTarget) {
+      setFocusNotice("");
+      setStaleFocusTarget(null);
+      if (exactTargetAvailable) {
+        focusWorkItemTarget(staleFocusTarget);
+      } else {
+        focusElementByID(workItemElementID(workItem.id));
+      }
+    }
+    setRefreshingFocusTarget(false);
+    setStaleRefreshCompleted(false);
+  }, [
+    loading,
+    operation,
+    safeArtifacts,
+    safeAssignments,
+    safeHandoffs,
+    staleFocusTarget,
+    staleRefreshCompleted,
+    workItem,
+  ]);
+  function refreshStaleFocusTarget() {
+    if (refreshingFocusTarget) return;
+    setRefreshingFocusTarget(true);
+    setStaleRefreshCompleted(false);
+    void (async () => {
+      try {
+        const refreshed = await onRefresh();
+        if (refreshed !== false) {
+          setStaleRefreshCompleted(true);
+        } else {
+          setRefreshingFocusTarget(false);
+        }
+      } catch {
+        // The parent owns the visible load error; keep recovery available here.
+        setRefreshingFocusTarget(false);
+      }
+    })();
+  }
   if (!workItem) {
     if (loading) {
       return (
@@ -211,7 +361,11 @@ export function ProjectWorkItemDetail({
           />
           <InlineError message={detailError} />
           <div style={{ display: "flex", justifyContent: "center" }}>
-            <button className="btn btn-primary btn-sm" type="button" onClick={onRefresh}>
+            <button
+              className="btn btn-primary btn-sm"
+              type="button"
+              onClick={() => void onRefresh()}
+            >
               <Icon d={Icons.refresh} size={13} />
               Retry
             </button>
@@ -227,18 +381,27 @@ export function ProjectWorkItemDetail({
     );
   }
   const closeout = closeoutReadiness ?? unavailableCloseoutReadiness(workItem, loading);
+  const workClosed =
+    closeout.status === "done" || workItem.status === "done" || workItem.status === "cancelled";
   const emptyWorkItem =
     safeAssignments.length === 0 &&
     safeArtifacts.length === 0 &&
     safeHandoffs.length === 0 &&
-    workItem.status !== "done";
+    !workClosed;
   const reviewFollowUps = closeout.review_follow_ups ?? [];
   const suggestedAssignmentRole = assignmentRoleForWorkItem(workItem, roleByID);
-  const canAddWorkRecords = !emptyWorkItem && workItem.status !== "done";
-  const closeoutProminent = closeout.status === "ready" || closeout.status === "done";
+  const canAddWorkRecords = !emptyWorkItem && !workClosed;
+  const closeoutProminent =
+    closeout.status === "done" || (!workClosed && closeout.status === "ready");
   return (
     <div style={workItemDetailStyle}>
-      <article style={workItemCardStyle} aria-label={`${workItem.title} work item`}>
+      <article
+        aria-label={`${workItem.title} work item`}
+        className="project-work-focus-target"
+        id={workItemElementID(workItem.id)}
+        style={workItemCardStyle}
+        tabIndex={-1}
+      >
         <div style={workItemDetailHeaderStyle}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <h2 style={workItemTitleStyle}>{workItem.title}</h2>
@@ -261,30 +424,53 @@ export function ProjectWorkItemDetail({
             </div>
           </div>
           <div style={workItemHeaderActionsStyle}>
+            {!workClosed && (
+              <>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  type="button"
+                  onClick={() => onEditWorkItem(workItem)}
+                >
+                  <Icon d={Icons.edit} size={13} />
+                  Edit
+                </button>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  type="button"
+                  onClick={() => onDeleteWorkItem(workItem)}
+                  style={{ color: "var(--red)" }}
+                >
+                  <Icon d={Icons.trash} size={13} />
+                  Delete
+                </button>
+              </>
+            )}
             <button
               className="btn btn-ghost btn-sm"
               type="button"
-              onClick={() => onEditWorkItem(workItem)}
+              disabled={Boolean(focusNotice) && refreshingFocusTarget}
+              onClick={focusNotice ? refreshStaleFocusTarget : () => void onRefresh()}
             >
-              <Icon d={Icons.edit} size={13} />
-              Edit
-            </button>
-            <button
-              className="btn btn-ghost btn-sm"
-              type="button"
-              onClick={() => onDeleteWorkItem(workItem)}
-              style={{ color: "var(--red)" }}
-            >
-              <Icon d={Icons.trash} size={13} />
-              Delete
-            </button>
-            <button className="btn btn-ghost btn-sm" type="button" onClick={onRefresh}>
               <Icon d={Icons.refresh} size={13} />
-              Refresh
+              {focusNotice && refreshingFocusTarget ? "Refreshing…" : "Refresh"}
             </button>
           </div>
         </div>
         {detailError && <InlineError message={detailError} />}
+        {focusNotice && (
+          <div aria-live="polite" role="status" style={workItemFocusNoticeStyle}>
+            <span style={{ flex: "1 1 240px" }}>{focusNotice}</span>
+            <button
+              className="btn btn-primary btn-sm"
+              type="button"
+              disabled={refreshingFocusTarget}
+              onClick={refreshStaleFocusTarget}
+            >
+              <Icon d={Icons.refresh} size={12} />
+              {refreshingFocusTarget ? "Refreshing work…" : "Refresh work"}
+            </button>
+          </div>
+        )}
         <section style={workItemBriefSectionStyle}>
           <div style={sectionLabelStyle}>Brief</div>
           <p style={workItemBriefTextStyle}>{workItem.brief || "No brief recorded."}</p>
@@ -297,7 +483,7 @@ export function ProjectWorkItemDetail({
               </span>
             )}
           </div>
-          {!emptyWorkItem && (
+          {!emptyWorkItem && !workClosed && (
             <ReviewerSetupNotice
               onEditWorkItem={() => onEditWorkItem(workItem)}
               onManageRoles={onManageRoles}
@@ -306,9 +492,33 @@ export function ProjectWorkItemDetail({
             />
           )}
         </section>
+        {!primaryAssignmentID && (!emptyWorkItem || Boolean(operation) || Boolean(focusNotice)) && (
+          <ProjectWorkItemFollowThrough
+            closeout={closeout}
+            operation={focusNotice ? null : operation}
+            targetAvailable={projectWorkItemOperationTargetAvailable(operation ?? null, {
+              artifacts: safeArtifacts,
+              assignments: safeAssignments,
+              handoffs: safeHandoffs,
+            })}
+            pending={
+              closingWorkItemID === workItem.id ||
+              Boolean(artifactActionID) ||
+              Boolean(handoffActionID)
+            }
+            workItem={workItem}
+            onFocusAssignment={(assignmentID) => focusWorkItemRecord("assignment", assignmentID)}
+            onPlanReviewFollowUp={onCreateAssignmentFromReviewArtifact}
+            onRecordEvidence={onAddEvidenceLink}
+            onRefresh={() => void onRefresh()}
+            onReviewCloseout={() => setCloseoutConfirmOpen(true)}
+            onReviewHandoff={(handoffID) => focusWorkItemRecord("handoff", handoffID)}
+          />
+        )}
         {emptyWorkItem ? (
           <WorkItemStartPanel
             drafting={draftingDefaultAssignment}
+            primaryEmphasis={!assistantProposalOpen && !operation && !focusNotice}
             onAddAssignment={onAddAssignment}
             onAddEvidenceLink={onAddEvidenceLink}
             onAddHandoff={onAddHandoff}
@@ -320,7 +530,7 @@ export function ProjectWorkItemDetail({
           <WorkItemCloseoutPanel
             closeout={closeout}
             pending={closingWorkItemID === workItem.id}
-            onClose={() => onCloseWorkItem(workItem)}
+            onReview={() => setCloseoutConfirmOpen(true)}
           />
         ) : null}
         {canAddWorkRecords && (
@@ -330,7 +540,7 @@ export function ProjectWorkItemDetail({
             onAddHandoff={onAddHandoff}
           />
         )}
-        {reviewFollowUps.length > 0 && (
+        {!workClosed && reviewFollowUps.length > 0 && (
           <ReviewFollowUpNotice
             followUp={reviewFollowUps[0]}
             count={reviewFollowUps.length}
@@ -361,6 +571,7 @@ export function ProjectWorkItemDetail({
                   return (
                     <AssignmentRow
                       key={assignment.id}
+                      elementID={workItemAssignmentElementID(assignment.id)}
                       assignment={assignment}
                       chatModel={
                         assignment.execution?.model ||
@@ -416,6 +627,7 @@ export function ProjectWorkItemDetail({
                       }
                       project={project}
                       promoteCompletionAction={!closeoutProminent}
+                      primaryEmphasis={assignment.id === primaryAssignmentID}
                       repairActions={{
                         onManagePresets,
                         onManageRoles,
@@ -423,6 +635,7 @@ export function ProjectWorkItemDetail({
                         onOpenProjectSettings: onOpenSettings,
                       }}
                       role={roleByID.get(assignment.role_id)}
+                      readOnly={workClosed}
                       starting={startingAssignmentIDs.has(assignment.id)}
                       loadContext={
                         project
@@ -467,11 +680,11 @@ export function ProjectWorkItemDetail({
             )}
           </section>
         )}
-        {!emptyWorkItem && !closeoutProminent && (
+        {!emptyWorkItem && !workClosed && !closeoutProminent && (
           <WorkItemCloseoutPanel
             closeout={closeout}
             pending={closingWorkItemID === workItem.id}
-            onClose={() => onCloseWorkItem(workItem)}
+            onReview={() => setCloseoutConfirmOpen(true)}
           />
         )}
         {(!emptyWorkItem || safeArtifacts.length > 0) && (
@@ -487,33 +700,51 @@ export function ProjectWorkItemDetail({
                 {safeArtifacts.map((artifact) => {
                   const artifactActionPending = artifactActionID === artifact.id;
                   return (
-                    <div key={artifact.id} style={artifactStyle}>
-                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                        <span className="badge badge-muted">{artifact.kind}</span>
-                        {artifact.kind === "review" && artifact.review_verdict && (
+                    <div
+                      aria-label={`${artifact.title || artifact.id} ${projectRecordLabel(artifact.kind)} artifact`}
+                      className="project-work-focus-target"
+                      id={workItemArtifactElementID(artifact.id)}
+                      key={artifact.id}
+                      role="group"
+                      style={artifactStyle}
+                      tabIndex={-1}
+                    >
+                      <div style={artifactHeaderStyle}>
+                        <div style={artifactIdentityStyle}>
                           <span className="badge badge-muted">
-                            {reviewVerdictLabel(reviewVerdictFromValue(artifact.review_verdict))}
+                            {projectRecordLabel(artifact.kind)}
                           </span>
-                        )}
-                        {artifact.kind === "review" && artifact.review_risk && (
-                          <span className="badge badge-muted">
-                            risk {reviewRiskLabel(reviewRiskFromValue(artifact.review_risk))}
-                          </span>
-                        )}
-                        {artifact.kind === "review" && artifact.review_follow_up_required && (
-                          <span className="badge badge-amber">follow-up required</span>
-                        )}
-                        {artifact.kind === "evidence_link" && artifact.evidence_source_kind && (
-                          <span className="badge badge-muted">{artifact.evidence_source_kind}</span>
-                        )}
-                        {artifact.kind === "evidence_link" && artifact.evidence_trust_label && (
-                          <span className="badge badge-muted">{artifact.evidence_trust_label}</span>
-                        )}
-                        <span style={{ ...titleStyle, flex: 1, minWidth: 0 }}>
-                          {artifact.title || artifact.id}
-                        </span>
-                        {artifact.kind === "review" && (
-                          <>
+                          {artifact.kind === "review" && artifact.review_verdict && (
+                            <span className="badge badge-muted">
+                              {reviewVerdictLabel(reviewVerdictFromValue(artifact.review_verdict))}
+                            </span>
+                          )}
+                          {artifact.kind === "review" && artifact.review_risk && (
+                            <span className="badge badge-muted">
+                              risk {reviewRiskLabel(reviewRiskFromValue(artifact.review_risk))}
+                            </span>
+                          )}
+                          {artifact.kind === "review" && artifact.review_follow_up_required && (
+                            <span className="badge badge-amber">follow-up required</span>
+                          )}
+                          {artifact.kind === "evidence_link" && artifact.evidence_source_kind && (
+                            <span className="badge badge-muted">
+                              {projectRecordLabel(artifact.evidence_source_kind)}
+                            </span>
+                          )}
+                          {artifact.kind === "evidence_link" && artifact.evidence_trust_label && (
+                            <span className="badge badge-muted">
+                              {projectRecordLabel(artifact.evidence_trust_label)}
+                            </span>
+                          )}
+                          <span style={artifactTitleStyle}>{artifact.title || artifact.id}</span>
+                        </div>
+                        {!workClosed && artifact.kind === "review" && (
+                          <div
+                            aria-label={`Actions for review artifact ${artifact.title || artifact.id}`}
+                            role="group"
+                            style={artifactActionsStyle}
+                          >
                             <button
                               aria-label={`Create follow-up from review artifact ${artifact.id}`}
                               className="btn btn-ghost btn-sm"
@@ -535,11 +766,16 @@ export function ProjectWorkItemDetail({
                               <Icon d={Icons.tasks} size={12} />
                               Draft
                             </button>
-                          </>
+                          </div>
                         )}
                       </div>
                       <div
-                        style={{ marginTop: 6, fontSize: 12, color: "var(--t2)", lineHeight: 1.45 }}
+                        style={{
+                          marginTop: 6,
+                          fontSize: 12,
+                          color: "var(--t2)",
+                          lineHeight: 1.45,
+                        }}
                       >
                         {artifact.body}
                       </div>
@@ -576,6 +812,7 @@ export function ProjectWorkItemDetail({
                       key={handoff.id}
                       actionPending={handoffActionID === handoff.id}
                       assignment={targetAssignment}
+                      elementID={workItemHandoffElementID(handoff.id)}
                       handoff={handoff}
                       onCreateAssignment={() => onCreateAssignmentFromHandoff(handoff)}
                       onDelete={() => onDeleteHandoff(handoff)}
@@ -583,41 +820,15 @@ export function ProjectWorkItemDetail({
                       onOpenTargetWorkItem={
                         targetsOtherWork ? () => onOpenWorkItem(targetWorkItemID) : undefined
                       }
+                      onOpenAssignment={
+                        targetAssignment
+                          ? () => focusWorkItemRecord("assignment", targetAssignment.id)
+                          : undefined
+                      }
                       onSetStatus={(status) => onSetHandoffStatus(handoff, status)}
-                      onStart={() => onStartHandoff(handoff)}
-                      repairActions={{
-                        onManagePresets,
-                        onManageRoles,
-                        onOpenConnections,
-                        onOpenProjectSettings: onOpenSettings,
-                      }}
+                      readOnly={workClosed}
                       role={
                         handoff.target_role_id ? roleByID.get(handoff.target_role_id) : undefined
-                      }
-                      starting={startingAssignmentIDs.has(handoff.target_assignment_id || "")}
-                      loadPreflight={
-                        project && targetAssignment
-                          ? async () =>
-                              (
-                                await getProjectAssignmentPreflight(
-                                  project.id,
-                                  targetAssignment.work_item_id,
-                                  targetAssignment.id,
-                                )
-                              ).data
-                          : null
-                      }
-                      loadReadiness={
-                        project && targetAssignment
-                          ? async () =>
-                              (
-                                await getProjectAssignmentLaunchReadiness(
-                                  project.id,
-                                  targetAssignment.work_item_id,
-                                  targetAssignment.id,
-                                )
-                              ).data
-                          : null
                       }
                     />
                   );
@@ -627,12 +838,23 @@ export function ProjectWorkItemDetail({
           </section>
         )}
       </article>
+      {closeoutConfirmOpen && (
+        <WorkItemCloseoutConfirmModal
+          closeout={closeout}
+          error={detailError}
+          onClose={() => setCloseoutConfirmOpen(false)}
+          onConfirm={() => onCloseWorkItem(workItem)}
+          pending={closingWorkItemID === workItem.id}
+          workItem={workItem}
+        />
+      )}
     </div>
   );
 }
 
 function WorkItemStartPanel({
   drafting,
+  primaryEmphasis,
   onAddAssignment,
   onAddEvidenceLink,
   onAddHandoff,
@@ -641,6 +863,7 @@ function WorkItemStartPanel({
   role,
 }: {
   drafting: boolean;
+  primaryEmphasis: boolean;
   onAddAssignment: () => void;
   onAddEvidenceLink: () => void;
   onAddHandoff: () => void;
@@ -664,7 +887,7 @@ function WorkItemStartPanel({
       <div style={startPanelActionsStyle}>
         {role ? (
           <button
-            className="btn btn-primary btn-sm"
+            className={`btn ${primaryEmphasis ? "btn-primary" : "btn-ghost"} btn-sm`}
             type="button"
             onClick={onDraftDefaultAssignment}
             disabled={drafting}
@@ -673,7 +896,11 @@ function WorkItemStartPanel({
             {drafting ? "Preparing..." : "Prepare next step"}
           </button>
         ) : (
-          <button className="btn btn-primary btn-sm" type="button" onClick={onManageRoles}>
+          <button
+            className={`btn ${primaryEmphasis ? "btn-primary" : "btn-ghost"} btn-sm`}
+            type="button"
+            onClick={onManageRoles}
+          >
             <Icon d={Icons.user} size={13} />
             Manage roles
           </button>
@@ -802,13 +1029,107 @@ function unavailableCloseoutReadiness(
   };
 }
 
+function workItemAssignmentElementID(assignmentID: string): string {
+  return `project-work-assignment-${encodeURIComponent(assignmentID)}`;
+}
+
+function workItemElementID(workItemID: string): string {
+  return `project-work-item-${encodeURIComponent(workItemID)}`;
+}
+
+function workItemArtifactElementID(artifactID: string): string {
+  return `project-work-artifact-${encodeURIComponent(artifactID)}`;
+}
+
+function workItemHandoffElementID(handoffID: string): string {
+  return `project-work-handoff-${encodeURIComponent(handoffID)}`;
+}
+
+function focusWorkItemRecord(kind: "assignment" | "artifact" | "handoff", id: string): boolean {
+  const elementID =
+    kind === "assignment"
+      ? workItemAssignmentElementID(id)
+      : kind === "artifact"
+        ? workItemArtifactElementID(id)
+        : workItemHandoffElementID(id);
+  return focusElementByID(elementID);
+}
+
+function workItemFocusTargetAvailable(
+  target: ProjectWorkItemFocusTarget,
+  records: {
+    artifacts: ProjectCollaborationArtifactRecord[];
+    assignments: ProjectAssignmentRecord[];
+    handoffs: ProjectHandoffRecord[];
+  },
+): boolean {
+  if (target.artifactID) {
+    return records.artifacts.some((artifact) => artifact.id === target.artifactID);
+  }
+  if (target.handoffID) {
+    return records.handoffs.some((handoff) => handoff.id === target.handoffID);
+  }
+  if (target.assignmentID) {
+    return records.assignments.some((assignment) => assignment.id === target.assignmentID);
+  }
+  if (target.operationKind === "close_work_item") {
+    return Boolean(document.getElementById("project-work-closeout"));
+  }
+  return true;
+}
+
+export function projectOperationRequestsFocusTarget(
+  operation: ProjectOperationsBriefItem | null | undefined,
+  target: ProjectWorkItemFocusTarget,
+): boolean {
+  if (operation?.action?.type !== "open_work_item") return false;
+  if (operation.action.work_item_id !== target.workItemID) return false;
+  if (target.artifactID) return operation.action.artifact_id === target.artifactID;
+  if (target.handoffID) return operation.action.handoff_id === target.handoffID;
+  if (target.assignmentID) return operation.action.assignment_id === target.assignmentID;
+  return target.operationKind === "close_work_item" && operation.kind === target.operationKind;
+}
+
+function focusWorkItemTarget(target: ProjectWorkItemFocusTarget): boolean {
+  if (target.artifactID) return focusWorkItemRecord("artifact", target.artifactID);
+  if (target.handoffID) return focusWorkItemRecord("handoff", target.handoffID);
+  if (target.assignmentID) return focusWorkItemRecord("assignment", target.assignmentID);
+  if (target.operationKind === "close_work_item") {
+    return focusElementByID("project-work-closeout");
+  }
+  return focusElementByID(workItemElementID(target.workItemID));
+}
+
+function focusElementByID(elementID: string): boolean {
+  const element = document.getElementById(elementID);
+  if (!element) return false;
+  element.scrollIntoView?.({ behavior: "auto", block: "center" });
+  element.focus({ preventScroll: true });
+  return true;
+}
+
+function projectRecordLabel(value: string | undefined): string {
+  const normalized = value?.trim().toLowerCase() || "";
+  const knownLabels: Record<string, string> = {
+    evidence_link: "Evidence",
+    operator: "Operator",
+    operator_provided: "Operator provided",
+    operator_reviewed: "Operator reviewed",
+    review: "Review",
+    source_document: "Document",
+  };
+  if (knownLabels[normalized]) return knownLabels[normalized];
+  const words = normalized.replaceAll("_", " ");
+  return words ? `${words.charAt(0).toUpperCase()}${words.slice(1)}` : "Record";
+}
+
 function WorkItemCloseoutPanel({
   closeout,
-  onClose,
+  onReview,
   pending,
 }: {
   closeout: ProjectWorkItemReadinessRecord;
-  onClose: () => void;
+  onReview: () => void;
   pending: boolean;
 }) {
   const status =
@@ -816,43 +1137,149 @@ function WorkItemCloseoutPanel({
   const blockers = Array.isArray(closeout.blockers) ? closeout.blockers : [];
   const warnings = Array.isArray(closeout.warnings) ? closeout.warnings : [];
   return (
-    <section style={workItemCardSectionStyle} aria-label="Work closeout">
+    <section
+      aria-label="Work closeout"
+      className="project-work-focus-target"
+      id="project-work-closeout"
+      style={workItemCardSectionStyle}
+      tabIndex={-1}
+    >
       <div style={workItemSectionHeaderStyle}>
         <div style={sectionLabelStyle}>Closeout</div>
         <Badge status={status} label={closeout.status === "done" ? "done" : closeout.status} />
         <span className="badge badge-muted">
           {closeout.completed_assignments}/{closeout.assignment_count} assignments complete
         </span>
-        {closeout.status !== "done" && (
+        {closeout.status === "ready" && (
           <button
-            className={closeout.ready ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"}
+            className="btn btn-ghost btn-sm"
             type="button"
-            onClick={onClose}
-            disabled={!closeout.ready || pending}
+            onClick={onReview}
+            disabled={pending}
             style={{ marginLeft: "auto" }}
           >
             <Icon d={Icons.check} size={12} />
-            {pending ? "Marking..." : "Mark done"}
+            {pending ? "Marking…" : "Review closeout"}
           </button>
         )}
       </div>
       <div style={titleStyle}>{closeout.title}</div>
       <div style={{ ...subtleTextStyle, marginTop: 4 }}>{closeout.detail}</div>
-      {blockers.length > 0 && (
-        <ul style={closeoutListStyle}>
-          {blockers.map((blocker) => (
-            <li key={blocker}>{blocker}</li>
-          ))}
-        </ul>
-      )}
-      {warnings.length > 0 && (
-        <div style={{ ...subtleTextStyle, marginTop: 8 }}>
-          {warnings.map((warning) => (
-            <div key={warning}>{warning}</div>
-          ))}
-        </div>
+      {(blockers.length > 0 || warnings.length > 0) && (
+        <details style={closeoutDetailsStyle}>
+          <summary style={manualAddSummaryStyle}>
+            {blockers.length > 0
+              ? `${blockers.length} closeout ${blockers.length === 1 ? "blocker" : "blockers"}`
+              : `${warnings.length} ${warnings.length === 1 ? "note" : "notes"}`}
+          </summary>
+          {blockers.length > 0 && (
+            <ul style={closeoutListStyle}>
+              {blockers.map((blocker) => (
+                <li key={blocker}>{blocker}</li>
+              ))}
+            </ul>
+          )}
+          {warnings.length > 0 && (
+            <div style={{ ...subtleTextStyle, marginTop: 8 }}>
+              {warnings.map((warning) => (
+                <div key={warning}>{warning}</div>
+              ))}
+            </div>
+          )}
+        </details>
       )}
     </section>
+  );
+}
+
+function WorkItemCloseoutConfirmModal({
+  closeout,
+  error,
+  onClose,
+  onConfirm,
+  pending,
+  workItem,
+}: {
+  closeout: ProjectWorkItemReadinessRecord;
+  error: string;
+  onClose: () => void;
+  onConfirm: () => void;
+  pending: boolean;
+  workItem: ProjectWorkItemRecord;
+}) {
+  const blockers = Array.isArray(closeout.blockers) ? closeout.blockers : [];
+  return (
+    <Modal
+      title="Review closeout"
+      dismissible={!pending}
+      onClose={onClose}
+      width={520}
+      footer={
+        <div
+          style={{
+            display: "grid",
+            gap: 8,
+            gridTemplateColumns: "auto minmax(0, 1fr)",
+          }}
+        >
+          <button className="btn btn-ghost" type="button" disabled={pending} onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            className="btn btn-primary"
+            type="button"
+            disabled={pending || !closeout.ready}
+            onClick={onConfirm}
+            style={{ justifyContent: "center" }}
+          >
+            <Icon d={Icons.check} size={13} />
+            {pending ? "Marking work done…" : "Mark work done"}
+          </button>
+        </div>
+      }
+    >
+      <div style={{ display: "grid", gap: 14 }}>
+        {error && <InlineError message={error} />}
+        <div>
+          <div className="kicker">Work item</div>
+          <div style={{ ...titleStyle, marginTop: 5 }}>{workItem.title}</div>
+        </div>
+        <div className="project-closeout-summary" style={closeoutConfirmationSummaryStyle}>
+          <div>
+            <strong>{closeout.completed_assignments}</strong>
+            <span>Assignments complete</span>
+          </div>
+          <div>
+            <strong>{closeout.review_follow_up_count}</strong>
+            <span>Review follow-ups</span>
+          </div>
+          <div>
+            <strong>{(closeout.open_handoff_ids ?? []).length}</strong>
+            <span>Open handoffs</span>
+          </div>
+        </div>
+        {!closeout.ready && (
+          <section aria-label="Updated closeout readiness" style={closeoutBlockedNoticeStyle}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <Badge status="blocked" label="blocked" />
+              <strong style={{ ...titleStyle, fontSize: 12 }}>{closeout.title}</strong>
+            </div>
+            <p style={{ ...subtleTextStyle, margin: "7px 0 0" }}>{closeout.detail}</p>
+            {blockers.length > 0 && (
+              <ul style={closeoutListStyle}>
+                {blockers.map((blocker) => (
+                  <li key={blocker}>{blocker}</li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
+        <p style={{ ...subtleTextStyle, margin: 0 }}>
+          Marking done records the operator’s closeout decision. It does not delete assignments,
+          linked tasks or chats, reviews, evidence, or handoffs.
+        </p>
+      </div>
+    </Modal>
   );
 }
 
@@ -873,7 +1300,7 @@ function ReviewFollowUpNotice({
         <span className="badge badge-amber">follow-up required</span>
         {count > 1 && <span className="badge badge-muted">{count} reviews</span>}
         <button
-          className="btn btn-primary btn-sm"
+          className="btn btn-ghost btn-sm"
           type="button"
           onClick={onCreateAssignment}
           disabled={pending}
@@ -941,6 +1368,7 @@ function AssignmentRow({
   assignment,
   autoOpenPreflight,
   chatModel,
+  elementID,
   error,
   loadContext,
   loadPreflight,
@@ -957,7 +1385,9 @@ function AssignmentRow({
   onResume,
   onStart,
   project,
+  primaryEmphasis,
   promoteCompletionAction,
+  readOnly,
   repairActions,
   role,
   starting,
@@ -965,6 +1395,7 @@ function AssignmentRow({
   assignment: ProjectAssignmentRecord;
   autoOpenPreflight?: boolean;
   chatModel: string;
+  elementID?: string;
   error: string;
   loadContext?: (() => Promise<ContextPacketRecord>) | null;
   loadPreflight?: (() => Promise<ContextPacketRecord>) | null;
@@ -981,7 +1412,9 @@ function AssignmentRow({
   onResume: () => void;
   onStart: () => void;
   project: ProjectRecord | null;
+  primaryEmphasis?: boolean;
   promoteCompletionAction: boolean;
+  readOnly?: boolean;
   repairActions?: AssignmentLaunchRepairActions;
   role?: ProjectWorkRoleRecord;
   starting: boolean;
@@ -1034,7 +1467,7 @@ function AssignmentRow({
   }, [loadPreflight, loadReadiness, onStart]);
 
   useEffect(() => {
-    if (!autoOpenPreflight) return;
+    if (!autoOpenPreflight || readOnly) return;
     onAutoOpenPreflightHandled?.(assignment.id);
     if (!startable) return;
     if (!loadPreflight || !loadReadiness) return;
@@ -1046,6 +1479,7 @@ function AssignmentRow({
     loadReadiness,
     onAutoOpenPreflightHandled,
     openPreflight,
+    readOnly,
     startable,
   ]);
 
@@ -1054,6 +1488,7 @@ function AssignmentRow({
       <ProjectAssignmentExecutionStory
         assignment={assignment}
         chatModel={chatModel}
+        elementID={elementID}
         contextControl={
           <ContextInspectorModalTrigger
             buttonLabel="Inspect context"
@@ -1077,7 +1512,9 @@ function AssignmentRow({
         onResumeWork={onResume}
         onStartWork={onStart}
         project={project}
+        primaryEmphasis={primaryEmphasis}
         promoteCompletionAction={promoteCompletionAction}
+        readOnly={readOnly}
         readinessControl={
           startable && loadReadiness ? (
             <AssignmentLaunchReadinessPreview
@@ -1332,9 +1769,21 @@ function AssignmentLaunchReadinessNotice({
       label: "Open project settings",
       onClick: repairActions?.onOpenProjectSettings,
     },
-    { key: "roles", label: "Manage roles", onClick: repairActions?.onManageRoles },
-    { key: "profiles", label: "Agent presets", onClick: repairActions?.onManagePresets },
-    { key: "connections", label: "Open Connections", onClick: repairActions?.onOpenConnections },
+    {
+      key: "roles",
+      label: "Manage roles",
+      onClick: repairActions?.onManageRoles,
+    },
+    {
+      key: "profiles",
+      label: "Agent presets",
+      onClick: repairActions?.onManagePresets,
+    },
+    {
+      key: "connections",
+      label: "Open Connections",
+      onClick: repairActions?.onOpenConnections,
+    },
   ].filter((action) => action.onClick);
   return (
     <div
@@ -1397,214 +1846,181 @@ function AssignmentLaunchReadinessNotice({
 function ProjectHandoffRow({
   actionPending,
   assignment,
+  elementID,
   handoff,
-  loadPreflight,
-  loadReadiness,
   onCreateAssignment,
   onDelete,
   onEdit,
+  onOpenAssignment,
   onOpenTargetWorkItem,
   onSetStatus,
-  onStart,
-  repairActions,
+  readOnly,
   role,
-  starting,
 }: {
   actionPending: boolean;
   assignment?: ProjectAssignmentRecord;
+  elementID?: string;
   handoff: ProjectHandoffRecord;
-  loadPreflight?: (() => Promise<ContextPacketRecord>) | null;
-  loadReadiness?: (() => Promise<ProjectAssignmentLaunchReadinessRecord>) | null;
   onCreateAssignment: () => void;
   onDelete: () => void;
   onEdit: () => void;
+  onOpenAssignment?: () => void;
   onOpenTargetWorkItem?: () => void;
   onSetStatus: (status: string) => void;
-  onStart: () => void;
-  repairActions?: AssignmentLaunchRepairActions;
+  readOnly?: boolean;
   role?: ProjectWorkRoleRecord;
-  starting: boolean;
 }) {
-  const [preflightOpen, setPreflightOpen] = useState(false);
-  const [preflightState, setPreflightState] = useState<AssignmentPreflightState>({
-    status: "idle",
-  });
   const handoffClosed = handoff.status === "dismissed" || handoff.status === "superseded";
-  const executionRef = assignment ? toProjectAssignmentExecutionViewModel(assignment) : null;
   const targetEvidence = assignment ? toProjectAssignmentEvidenceViewModel(assignment) : null;
-  const startable =
-    !handoffClosed &&
-    (assignment?.driver_kind === "manual" ||
-      assignment?.driver_kind === "hecate_task" ||
-      assignment?.driver_kind === "external_agent") &&
-    executionRef?.status === "queued";
-  const external = assignment?.driver_kind === "external_agent";
-  const manual = assignment?.driver_kind === "manual";
-  const interactionPending = actionPending || starting;
+  const interactionPending = actionPending;
   const hasLinkedAssignment = Boolean(handoff.target_assignment_id);
   const canCreateAssignment = !handoffClosed && !hasLinkedAssignment && !assignment;
   const sourceRefs = handoffSourceRefs(handoff);
 
-  async function openPreflight() {
-    if (!loadPreflight || !loadReadiness) {
-      onStart();
-      return;
-    }
-    setPreflightOpen(true);
-    setPreflightState({ status: "loading" });
-    try {
-      const [readiness, packet] = await Promise.all([loadReadiness(), loadPreflight()]);
-      setPreflightState({ status: "ready", packet, readiness });
-    } catch (error) {
-      setPreflightState({
-        status: "error",
-        detail: projectErrorMessage(error, "Failed to load assignment launch checks."),
-      });
-    }
-  }
-
   return (
-    <>
-      <div aria-label={`${handoff.title} handoff`} role="group" style={artifactStyle}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <Badge status={handoff.status} label={handoffStatusLabel(handoff.status)} />
-          <div style={{ ...titleStyle, flex: 1, minWidth: 0 }}>{handoff.title}</div>
-          <button
-            className="btn btn-ghost btn-sm"
-            type="button"
-            disabled={interactionPending}
-            onClick={onEdit}
-          >
-            <Icon d={Icons.edit} size={12} />
-            Edit
-          </button>
-          <button
-            className="btn btn-ghost btn-sm"
-            type="button"
-            onClick={onDelete}
-            disabled={interactionPending}
-            style={{ color: "var(--red)" }}
-          >
-            <Icon d={Icons.trash} size={12} />
-            Delete
-          </button>
-        </div>
-        <div style={{ marginTop: 7, fontSize: 12, color: "var(--t2)", lineHeight: 1.45 }}>
-          {handoff.summary}
-        </div>
-        <div style={{ marginTop: 7, fontSize: 12, color: "var(--t1)", lineHeight: 1.45 }}>
-          Next: {handoff.recommended_next_action}
-        </div>
-        <div style={{ ...metaLineStyle, marginTop: 8 }}>
-          {role && <span>target {role.name}</span>}
-          {handoff.target_assignment_id && (
-            <span>assignment {shortID(handoff.target_assignment_id)}</span>
-          )}
-          <span>{handoff.provenance_kind}</span>
-          <span>{handoff.trust_label}</span>
-          {handoff.updated_at && <span>Updated {formatAbsoluteTime(handoff.updated_at)}</span>}
-        </div>
-        {sourceRefs.length > 0 && <HandoffSourceEvidence refs={sourceRefs} />}
-        {targetEvidence?.hasEvidence && (
-          <ProjectAssignmentEvidence evidence={targetEvidence} title="Target evidence" compact />
+    <div
+      aria-label={`${handoff.title} handoff`}
+      className="project-work-focus-target"
+      id={elementID}
+      role="group"
+      style={artifactStyle}
+      tabIndex={-1}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: 8,
+          minWidth: 0,
+        }}
+      >
+        <Badge status={handoff.status} label={handoffStatusLabel(handoff.status)} />
+        <div style={{ ...titleStyle, flex: 1, minWidth: 0 }}>{handoff.title}</div>
+        {!readOnly && (
+          <>
+            <button
+              className="btn btn-ghost btn-sm"
+              type="button"
+              disabled={interactionPending}
+              onClick={onEdit}
+            >
+              <Icon d={Icons.edit} size={12} />
+              Edit
+            </button>
+            <button
+              className="btn btn-ghost btn-sm"
+              type="button"
+              onClick={onDelete}
+              disabled={interactionPending}
+              style={{ color: "var(--red)" }}
+            >
+              <Icon d={Icons.trash} size={12} />
+              Delete
+            </button>
+          </>
         )}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 9 }}>
-          {handoff.status === "pending" && (
-            <>
-              <button
-                className="btn btn-ghost btn-sm"
-                type="button"
-                onClick={() => onSetStatus("accepted")}
-                disabled={interactionPending}
-              >
-                <Icon d={Icons.check} size={12} />
-                Accept
-              </button>
-              <button
-                className="btn btn-ghost btn-sm"
-                type="button"
-                onClick={() => onSetStatus("dismissed")}
-                disabled={interactionPending}
-              >
-                Dismiss
-              </button>
-            </>
-          )}
-          {handoff.status !== "superseded" && (
-            <button
-              className="btn btn-ghost btn-sm"
-              type="button"
-              onClick={() => onSetStatus("superseded")}
-              disabled={interactionPending}
-            >
-              Supersede
-            </button>
-          )}
-          {canCreateAssignment && (
-            <button
-              className="btn btn-ghost btn-sm"
-              type="button"
-              onClick={onCreateAssignment}
-              disabled={interactionPending}
-            >
-              <Icon d={Icons.plus} size={12} />
-              Create follow-up assignment
-            </button>
-          )}
-          {!assignment && hasLinkedAssignment && onOpenTargetWorkItem && (
-            <button
-              className="btn btn-primary btn-sm"
-              type="button"
-              disabled={interactionPending}
-              onClick={onOpenTargetWorkItem}
-              title="Open the work item that owns the linked assignment."
-            >
-              Open target work
-            </button>
-          )}
-          {assignment && !handoffClosed && (
-            <button
-              className="btn btn-primary btn-sm"
-              type="button"
-              onClick={() => (manual ? onStart() : void openPreflight())}
-              disabled={!startable || interactionPending}
-              title={
-                startable
-                  ? manual
-                    ? "Start this Human assignment."
-                    : "Review launch context before starting the linked assignment."
-                  : "Linked assignment is not queued."
-              }
-            >
-              <Icon d={external ? Icons.chat : Icons.send} size={12} />
-              {starting
-                ? external
-                  ? "Preparing..."
-                  : "Starting..."
-                : manual
-                  ? "Start work"
-                  : "Start from handoff"}
-            </button>
-          )}
-        </div>
       </div>
-      {preflightOpen && assignment && !manual && (
-        <AssignmentLaunchPreflightModal
-          assignmentID={assignment.id}
-          confirmLabel={external ? "Prepare chat" : "Start assignment"}
-          loadingLabel={external ? "Preparing..." : "Starting..."}
-          onClose={() => setPreflightOpen(false)}
-          onConfirm={() => {
-            setPreflightOpen(false);
-            onStart();
-          }}
-          onReload={() => void openPreflight()}
-          pending={starting}
-          repairActions={repairActions}
-          state={preflightState}
-        />
+      <div
+        style={{
+          marginTop: 7,
+          fontSize: 12,
+          color: "var(--t2)",
+          lineHeight: 1.45,
+        }}
+      >
+        {handoff.summary}
+      </div>
+      <div
+        style={{
+          marginTop: 7,
+          fontSize: 12,
+          color: "var(--t1)",
+          lineHeight: 1.45,
+        }}
+      >
+        Next: {handoff.recommended_next_action}
+      </div>
+      <div style={{ ...metaLineStyle, marginTop: 8 }}>
+        {role && <span>Target {role.name}</span>}
+        {handoff.target_assignment_id && (
+          <span>Assignment {shortID(handoff.target_assignment_id)}</span>
+        )}
+        <span>Source {projectRecordLabel(handoff.provenance_kind)}</span>
+        <span>{projectRecordLabel(handoff.trust_label)}</span>
+        {handoff.updated_at && <span>Updated {formatAbsoluteTime(handoff.updated_at)}</span>}
+      </div>
+      {sourceRefs.length > 0 && <HandoffSourceEvidence refs={sourceRefs} />}
+      {targetEvidence?.hasEvidence && (
+        <ProjectAssignmentEvidence evidence={targetEvidence} title="Target evidence" compact />
       )}
-    </>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 9 }}>
+        {!readOnly && handoff.status === "pending" && (
+          <>
+            <button
+              className="btn btn-ghost btn-sm"
+              type="button"
+              onClick={() => onSetStatus("accepted")}
+              disabled={interactionPending}
+            >
+              <Icon d={Icons.check} size={12} />
+              Accept
+            </button>
+            <button
+              className="btn btn-ghost btn-sm"
+              type="button"
+              onClick={() => onSetStatus("dismissed")}
+              disabled={interactionPending}
+            >
+              Dismiss
+            </button>
+          </>
+        )}
+        {!readOnly && handoff.status !== "superseded" && (
+          <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            onClick={() => onSetStatus("superseded")}
+            disabled={interactionPending}
+          >
+            Supersede
+          </button>
+        )}
+        {!readOnly && canCreateAssignment && (
+          <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            onClick={onCreateAssignment}
+            disabled={interactionPending}
+          >
+            <Icon d={Icons.plus} size={12} />
+            Create follow-up assignment
+          </button>
+        )}
+        {!assignment && hasLinkedAssignment && onOpenTargetWorkItem && (
+          <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            disabled={interactionPending}
+            onClick={onOpenTargetWorkItem}
+            title="Open the work item that owns the linked assignment."
+          >
+            Open target work
+          </button>
+        )}
+        {assignment && onOpenAssignment && (
+          <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            onClick={onOpenAssignment}
+            disabled={interactionPending}
+          >
+            <Icon d={Icons.chevR} size={12} />
+            Open linked assignment
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -1641,7 +2057,15 @@ function ProjectAssignmentEvidence({
       {evidence.warnings.length > 0 && (
         <div style={assignmentEvidenceWarningsStyle}>
           {evidence.warnings.map((warning) => (
-            <span key={warning} className="badge badge-amber">
+            <span
+              key={warning}
+              className="badge badge-amber"
+              style={{
+                maxWidth: "100%",
+                overflowWrap: "anywhere",
+                whiteSpace: "normal",
+              }}
+            >
               {warning}
             </span>
           ))}
@@ -1669,10 +2093,23 @@ function HandoffSourceEvidence({ refs }: { refs: string[] }) {
 function EmptyBlock({ title, detail }: { title: string; detail: string }) {
   return (
     <div
-      style={{ padding: 24, textAlign: "center", display: "grid", gap: 8, placeItems: "center" }}
+      style={{
+        padding: 24,
+        textAlign: "center",
+        display: "grid",
+        gap: 8,
+        placeItems: "center",
+      }}
     >
       <div style={{ color: "var(--t0)", fontSize: 14, fontWeight: 600 }}>{title}</div>
-      <div style={{ color: "var(--t2)", fontSize: 12, lineHeight: 1.5, maxWidth: 320 }}>
+      <div
+        style={{
+          color: "var(--t2)",
+          fontSize: 12,
+          lineHeight: 1.5,
+          maxWidth: 320,
+        }}
+      >
         {detail}
       </div>
     </div>
@@ -1863,8 +2300,14 @@ function assignmentLaunchPostureRows(
   readiness: ProjectAssignmentLaunchReadinessRecord,
 ): Array<{ label: string; value: string }> {
   const rows = [
-    { label: "Driver", value: assignmentLaunchDriverLabel(readiness.driver_kind) },
-    { label: "Workspace", value: firstNonEmpty(readiness.workspace, "No workspace resolved") },
+    {
+      label: "Driver",
+      value: assignmentLaunchDriverLabel(readiness.driver_kind),
+    },
+    {
+      label: "Workspace",
+      value: firstNonEmpty(readiness.workspace, "No workspace resolved"),
+    },
   ];
   const root = labelWithID(readiness.root_path, readiness.root_id ?? "");
   if (root) rows.push({ label: "Root", value: root });
@@ -2046,6 +2489,21 @@ const workItemCardStyle: CSSProperties = {
   padding: "14px 14px 12px",
 };
 
+const workItemFocusNoticeStyle: CSSProperties = {
+  alignItems: "center",
+  background: "color-mix(in srgb, var(--teal) 7%, var(--bg1))",
+  border: "1px solid color-mix(in srgb, var(--teal) 24%, var(--border))",
+  borderRadius: "var(--radius-sm)",
+  color: "var(--t1)",
+  display: "flex",
+  flexWrap: "wrap",
+  fontSize: 12,
+  gap: 8,
+  lineHeight: 1.45,
+  marginTop: 10,
+  padding: "8px 10px",
+};
+
 const workItemDetailHeaderStyle: CSSProperties = {
   alignItems: "flex-start",
   display: "grid",
@@ -2201,6 +2659,25 @@ const closeoutListStyle: CSSProperties = {
   paddingLeft: 18,
 };
 
+const closeoutDetailsStyle: CSSProperties = {
+  borderTop: "1px solid var(--border)",
+  marginTop: 10,
+  paddingTop: 9,
+};
+
+const closeoutConfirmationSummaryStyle: CSSProperties = {
+  display: "grid",
+  gap: 8,
+  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+};
+
+const closeoutBlockedNoticeStyle: CSSProperties = {
+  background: "rgba(245, 158, 11, 0.08)",
+  border: "1px solid rgba(245, 158, 11, 0.35)",
+  borderRadius: "var(--radius-sm)",
+  padding: 10,
+};
+
 const reviewFollowUpNoticeStyle: CSSProperties = {
   background: "rgba(245, 158, 11, 0.08)",
   border: "1px solid rgba(245, 158, 11, 0.35)",
@@ -2345,5 +2822,45 @@ const assignmentEvidenceWarningsStyle: CSSProperties = {
 
 const artifactStyle: CSSProperties = {
   borderTop: "1px solid var(--border)",
+  boxSizing: "border-box",
+  maxWidth: "100%",
+  minWidth: 0,
+  overflowWrap: "anywhere",
   paddingTop: 8,
+  width: "100%",
+};
+
+const artifactHeaderStyle: CSSProperties = {
+  alignItems: "flex-start",
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 8,
+  minWidth: 0,
+};
+
+const artifactIdentityStyle: CSSProperties = {
+  alignItems: "center",
+  display: "flex",
+  flex: "1 1 220px",
+  flexWrap: "wrap",
+  gap: 6,
+  minWidth: 0,
+};
+
+const artifactTitleStyle: CSSProperties = {
+  ...titleStyle,
+  flex: "1 1 150px",
+  minWidth: 0,
+  overflow: "visible",
+  overflowWrap: "anywhere",
+  textOverflow: "clip",
+  whiteSpace: "normal",
+};
+
+const artifactActionsStyle: CSSProperties = {
+  display: "flex",
+  flex: "0 1 auto",
+  flexWrap: "wrap",
+  gap: 6,
+  maxWidth: "100%",
 };

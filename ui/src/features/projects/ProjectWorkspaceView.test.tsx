@@ -20,7 +20,9 @@ import {
 } from "./ProjectWorkspaceView";
 
 vi.mock("./ProjectAssistantPanel", () => ({
-  ProjectAssistantPanel: () => <div>Assistant panel</div>,
+  ProjectAssistantPanel: ({ primaryEmphasis }: { primaryEmphasis: boolean }) => (
+    <div data-primary={String(primaryEmphasis)}>Assistant panel</div>
+  ),
 }));
 
 function project(overrides: Partial<ProjectRecord> = {}): ProjectRecord {
@@ -214,7 +216,11 @@ function setupReadiness(overrides: Partial<ProjectSetupReadiness> = {}): Project
         label: "Project purpose",
         detail: "Add a short purpose.",
         status: "todo",
-        action: { type: "open_project_settings", project_id: "proj_1", label: "Add purpose" },
+        action: {
+          type: "open_project_settings",
+          project_id: "proj_1",
+          label: "Add purpose",
+        },
       },
       {
         id: "workspace_source",
@@ -228,28 +234,44 @@ function setupReadiness(overrides: Partial<ProjectSetupReadiness> = {}): Project
         label: "Provider and model",
         detail: "Not set",
         status: "todo",
-        action: { type: "open_project_settings", project_id: "proj_1", label: "Set defaults" },
+        action: {
+          type: "open_project_settings",
+          project_id: "proj_1",
+          label: "Set defaults",
+        },
       },
       {
         id: "sources_memory",
         label: "Sources and memory",
         detail: "Attach a workspace when files matter, or add sources later.",
         status: "todo",
-        action: { type: "bootstrap_project", project_id: "proj_1", label: "Set up project" },
+        action: {
+          type: "bootstrap_project",
+          project_id: "proj_1",
+          label: "Set up project",
+        },
       },
       {
         id: "roles",
         label: "Roles",
         detail: "Set up project can suggest roles from skills.",
         status: "todo",
-        action: { type: "bootstrap_project", project_id: "proj_1", label: "Set up project" },
+        action: {
+          type: "bootstrap_project",
+          project_id: "proj_1",
+          label: "Set up project",
+        },
       },
       {
         id: "first_work_item",
         label: "First work item",
         detail: "Create the first reviewable task after setup.",
         status: "todo",
-        action: { type: "create_work_item", project_id: "proj_1", label: "Create work" },
+        action: {
+          type: "create_work_item",
+          project_id: "proj_1",
+          label: "Create work",
+        },
       },
     ],
     ...overrides,
@@ -383,18 +405,28 @@ describe("ProjectWorkspaceView", () => {
     expect(screen.getByText("Optional; attach files when this project needs them.")).toBeTruthy();
     expect(screen.getByText("optional")).toBeTruthy();
 
-    const onboarding = screen.getByRole("region", { name: "Project onboarding" });
+    const onboarding = screen.getByRole("region", {
+      name: "Project onboarding",
+    });
     await userEvent.click(
-      within(onboarding).getByRole("button", { name: "Add purpose: Project purpose" }),
+      within(onboarding).getByRole("button", {
+        name: "Add purpose: Project purpose",
+      }),
     );
     await userEvent.click(
-      within(onboarding).getByRole("button", { name: "Set defaults: Provider and model" }),
+      within(onboarding).getByRole("button", {
+        name: "Set defaults: Provider and model",
+      }),
     );
     expect(screen.queryByRole("button", { name: "Review setup" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Set up" })).toBeNull();
-    const firstWorkCheck = screen.getByRole("group", { name: "First work item" });
+    const firstWorkCheck = screen.getByRole("group", {
+      name: "First work item",
+    });
     await userEvent.click(
-      within(firstWorkCheck).getByRole("button", { name: "Create work: First work item" }),
+      within(firstWorkCheck).getByRole("button", {
+        name: "Create work: First work item",
+      }),
     );
     await userEvent.click(within(onboarding).getByRole("button", { name: "Set up project" }));
     await userEvent.click(screen.getByRole("button", { name: "Project settings" }));
@@ -453,6 +485,21 @@ describe("ProjectWorkspaceView", () => {
     expect(screen.getByRole("region", { name: "Work coordination" })).toBeTruthy();
     expect(screen.queryByRole("region", { name: "Project overview" })).toBeNull();
   });
+
+  it.each(["done", "cancelled"] as const)(
+    "removes proposal controls from persisted %s work",
+    (status) => {
+      const item = workItem({ status });
+      renderWorkspace({
+        selectedWorkItem: item,
+        selectedWorkItemID: item.id,
+        workItems: [item],
+        workspaceTab: "work",
+      });
+
+      expect(screen.queryByText("Assistant panel")).toBeNull();
+    },
+  );
 
   it("links tab panels and supports roving keyboard navigation", async () => {
     const { handlers } = renderWorkspace();
@@ -514,11 +561,458 @@ describe("ProjectWorkspaceView", () => {
       },
     });
 
-    const operations = screen.getByRole("region", { name: "Project operations" });
+    const operations = screen.getByRole("region", {
+      name: "Project operations",
+    });
     expect(within(operations).getByRole("status")).toHaveAttribute("aria-busy", "false");
     expect(within(operations).getByText("Review queued assignment: Build cockpit UI")).toBeTruthy();
     await userEvent.click(within(operations).getByRole("button", { name: /Review start/ }));
     expect(handlers.onOperationAction).toHaveBeenCalledWith(operationItem);
+  });
+
+  it("promotes only the server-targeted assignment launch after direct work selection", () => {
+    const item = workItem();
+    const target = assignment({ id: "assign_target" });
+    const decoy = assignment({ id: "assign_decoy" });
+    const operationItem: ProjectOperationsBriefItem = {
+      id: `start_queued_assignment:proj_1:${target.id}`,
+      kind: "start_queued_assignment",
+      priority: "high",
+      title: "Review queued assignment",
+      detail: "Open launch checks before starting this assignment.",
+      action_label: "Review start",
+      target: {
+        surface: "work",
+        project_id: "proj_1",
+        work_item_id: item.id,
+        assignment_id: target.id,
+      },
+      action: {
+        type: "open_assignment_preflight",
+        project_id: "proj_1",
+        work_item_id: item.id,
+        assignment_id: target.id,
+      },
+    };
+
+    renderWorkspace({
+      assignments: [decoy, target],
+      hasWorkItemDetail: true,
+      operationsBrief: {
+        project_id: "proj_1",
+        generated_at: "2026-07-13T12:00:00Z",
+        summary: {
+          item_count: 1,
+          high_count: 1,
+          medium_count: 0,
+          low_count: 0,
+          pending_memory_candidate_count: 0,
+          pending_handoff_count: 0,
+        },
+        items: [operationItem],
+      },
+      operationsBriefLoadState: "loaded",
+      roleByID: new Map([["developer", role()]]),
+      roles: [role()],
+      selectedWorkItem: item,
+      selectedWorkItemID: item.id,
+      selectedWorkItemReadiness: {
+        project_id: "proj_1",
+        work_item_id: item.id,
+        ready: false,
+        status: "blocked",
+        title: "Assignment is waiting",
+        detail: "Review launch checks before starting.",
+        blockers: ["A queued assignment has not started"],
+        warnings: [],
+        assignment_count: 2,
+        completed_assignments: 0,
+        review_follow_up_count: 0,
+      },
+      workItems: [item],
+      workLoadState: "loaded",
+      workspaceTab: "work",
+    });
+
+    const targetStory = screen.getByRole("article", {
+      name: `Developer assignment execution ${target.id}`,
+    });
+    const decoyStory = screen.getByRole("article", {
+      name: `Developer assignment execution ${decoy.id}`,
+    });
+    expect(within(targetStory).getByRole("button", { name: "Review & start" })).toHaveClass(
+      "btn-primary",
+    );
+    expect(within(decoyStory).getByRole("button", { name: "Review & start" })).toHaveClass(
+      "btn-ghost",
+    );
+    expect(screen.getByText("Assistant panel")).toHaveAttribute("data-primary", "false");
+    expect(screen.queryByRole("region", { name: "Next work item action" })).toBeNull();
+  });
+
+  it.each([
+    [
+      "effective status changed",
+      assignment({
+        id: "assign_stale",
+        status: "queued",
+        execution_ref: { kind: "task_run", status: "running" },
+      }),
+    ],
+    [
+      "destination changed",
+      assignment({
+        id: "assign_stale",
+        driver_kind: "manual",
+        execution_ref: { kind: "none", status: "queued" },
+      }),
+    ],
+  ])("fails closed when a preflight target's %s", (_label, staleAssignment) => {
+    const item = workItem();
+    const operationItem: ProjectOperationsBriefItem = {
+      id: `start_queued_assignment:proj_1:${staleAssignment.id}`,
+      kind: "start_queued_assignment",
+      priority: "high",
+      title: "Review queued assignment",
+      detail: "Open launch checks before starting this assignment.",
+      action_label: "Review start",
+      target: {
+        surface: "work",
+        project_id: "proj_1",
+        work_item_id: item.id,
+        assignment_id: staleAssignment.id,
+      },
+      action: {
+        type: "open_assignment_preflight",
+        project_id: "proj_1",
+        work_item_id: item.id,
+        assignment_id: staleAssignment.id,
+      },
+    };
+
+    renderWorkspace({
+      assignments: [staleAssignment],
+      hasWorkItemDetail: true,
+      operationsBrief: {
+        project_id: "proj_1",
+        generated_at: "2026-07-13T12:00:00Z",
+        summary: {
+          item_count: 1,
+          high_count: 1,
+          medium_count: 0,
+          low_count: 0,
+          pending_memory_candidate_count: 0,
+          pending_handoff_count: 0,
+        },
+        items: [operationItem],
+      },
+      operationsBriefLoadState: "loaded",
+      roleByID: new Map([["developer", role()]]),
+      roles: [role()],
+      selectedWorkItem: item,
+      selectedWorkItemID: item.id,
+      selectedWorkItemReadiness: {
+        project_id: "proj_1",
+        work_item_id: item.id,
+        ready: false,
+        status: "blocked",
+        title: "Assignment is waiting",
+        detail: "Refresh changed assignment state.",
+        blockers: ["Assignment state changed"],
+        warnings: [],
+        assignment_count: 1,
+        completed_assignments: 0,
+        review_follow_up_count: 0,
+      },
+      workItems: [item],
+      workLoadState: "loaded",
+      workspaceTab: "work",
+    });
+
+    const followThrough = screen.getByRole("region", { name: "Next work item action" });
+    expect(within(followThrough).getByText("Next action unavailable")).toBeTruthy();
+    expect(within(followThrough).getByRole("button", { name: "Refresh work" })).toHaveClass(
+      "btn-primary",
+    );
+    expect(screen.getByText("Assistant panel")).toHaveAttribute("data-primary", "false");
+    for (const routineAction of screen.queryAllByRole("button", { name: "Start work" })) {
+      expect(routineAction).toHaveClass("btn-ghost");
+    }
+  });
+
+  it("matches the selected work operation from the authoritative action only", () => {
+    const item = workItem();
+    renderWorkspace({
+      assignments: [assignment()],
+      hasWorkItemDetail: true,
+      operationsBrief: {
+        project_id: "proj_1",
+        generated_at: "2026-06-13T00:00:00Z",
+        summary: {
+          item_count: 1,
+          high_count: 1,
+          medium_count: 0,
+          low_count: 0,
+          pending_memory_candidate_count: 0,
+          pending_handoff_count: 0,
+        },
+        items: [
+          {
+            id: "mismatched:work_1",
+            kind: "record_completion_evidence",
+            priority: "high",
+            title: "Descriptive target for the selected work item",
+            detail: "The action points elsewhere.",
+            action_label: "Open work",
+            target: {
+              surface: "work",
+              project_id: "proj_1",
+              work_item_id: "work_1",
+              assignment_id: "assign_1",
+            },
+            action: {
+              type: "open_work_item",
+              project_id: "proj_1",
+              work_item_id: "work_2",
+              assignment_id: "assign_1",
+            },
+          },
+        ],
+      },
+      roleByID: new Map([["developer", role()]]),
+      roles: [role()],
+      selectedWorkItem: item,
+      selectedWorkItemID: item.id,
+      workItems: [item],
+      workLoadState: "loaded",
+      workspaceTab: "work",
+    });
+
+    const followThrough = screen.getByRole("region", {
+      name: "Next work item action",
+    });
+    expect(within(followThrough).getByText("Review closeout checks")).toBeTruthy();
+    expect(
+      within(followThrough).queryByText("Descriptive target for the selected work item"),
+    ).toBeNull();
+  });
+
+  it("advances to the next server operation when the selected operation is resolved", () => {
+    const item = workItem({ status: "review" });
+    const targetAssignment = assignment({
+      id: "assign_target",
+      status: "completed",
+    });
+    const evidenceOperation: ProjectOperationsBriefItem = {
+      id: "record_completion_evidence:proj_1:assign_target",
+      kind: "record_completion_evidence",
+      priority: "high",
+      title: "Record evidence for the selected assignment",
+      detail: "Leave a reviewable source before closeout.",
+      action_label: "Open work",
+      target: {
+        surface: "work",
+        project_id: "proj_1",
+        work_item_id: item.id,
+        assignment_id: targetAssignment.id,
+      },
+      action: {
+        type: "open_work_item",
+        project_id: "proj_1",
+        work_item_id: item.id,
+        assignment_id: targetAssignment.id,
+      },
+    };
+    const closeoutOperation: ProjectOperationsBriefItem = {
+      id: "close_work_item:proj_1:work_1",
+      kind: "close_work_item",
+      priority: "low",
+      title: "Review closeout for Extract workspace",
+      detail: "The server reports that closeout checks are clear.",
+      action_label: "Open work",
+      target: { surface: "work", project_id: "proj_1", work_item_id: item.id },
+      action: {
+        type: "open_work_item",
+        project_id: "proj_1",
+        work_item_id: item.id,
+      },
+    };
+    const brief = (items: ProjectOperationsBriefItem[]) => ({
+      project_id: "proj_1",
+      generated_at: "2026-07-13T12:00:00Z",
+      summary: {
+        item_count: items.length,
+        high_count: items.filter((operation) => operation.priority === "high").length,
+        medium_count: 0,
+        low_count: items.filter((operation) => operation.priority === "low").length,
+        pending_memory_candidate_count: 0,
+        pending_handoff_count: 0,
+      },
+      items,
+    });
+    const view = renderWorkspace({
+      assignments: [targetAssignment],
+      hasWorkItemDetail: true,
+      operationsBrief: brief([evidenceOperation]),
+      operationsBriefLoadState: "loaded",
+      roleByID: new Map([["developer", role()]]),
+      roles: [role()],
+      selectedWorkItem: item,
+      selectedWorkItemID: item.id,
+      selectedWorkItemOperationID: evidenceOperation.id,
+      selectedWorkItemReadiness: {
+        project_id: "proj_1",
+        work_item_id: item.id,
+        ready: false,
+        status: "blocked",
+        title: "Closeout is blocked",
+        detail: "Record completion evidence.",
+        blockers: ["Evidence is missing"],
+        warnings: [],
+        assignment_count: 1,
+        completed_assignments: 1,
+        review_follow_up_count: 0,
+        missing_evidence_assignment_ids: [targetAssignment.id],
+      },
+      workItems: [item],
+      workLoadState: "loaded",
+      workspaceTab: "work",
+    });
+
+    let followThrough = screen.getByRole("region", {
+      name: "Next work item action",
+    });
+    expect(within(followThrough).getByText(evidenceOperation.title)).toBeTruthy();
+    expect(within(followThrough).getByRole("button", { name: "Record evidence" })).toBeTruthy();
+
+    view.rerender(
+      <ProjectWorkspaceView
+        {...view.props}
+        operationsBrief={brief([closeoutOperation])}
+        selectedWorkItemReadiness={{
+          project_id: "proj_1",
+          work_item_id: item.id,
+          ready: true,
+          status: "ready",
+          title: "Ready to mark done",
+          detail: "Closeout checks are clear.",
+          blockers: [],
+          warnings: [],
+          assignment_count: 1,
+          completed_assignments: 1,
+          review_follow_up_count: 0,
+        }}
+      />,
+    );
+
+    followThrough = screen.getByRole("region", {
+      name: "Next work item action",
+    });
+    expect(within(followThrough).getByText(closeoutOperation.title)).toBeTruthy();
+    expect(within(followThrough).getByRole("button", { name: "Review closeout" })).toBeTruthy();
+  });
+
+  it("fails closed for a direct operation whose typed record is not loaded", () => {
+    const item = workItem({ status: "review" });
+    const missingAssignmentID = "assign_missing";
+    const missingTargetOperation: ProjectOperationsBriefItem = {
+      id: `record_completion_evidence:proj_1:${missingAssignmentID}`,
+      kind: "record_completion_evidence",
+      priority: "high",
+      title: "Record evidence for missing assignment",
+      detail: "The operation target is not in loaded work detail.",
+      action_label: "Open work",
+      target: {
+        surface: "work",
+        project_id: "proj_1",
+        work_item_id: item.id,
+        assignment_id: missingAssignmentID,
+      },
+      action: {
+        type: "open_work_item",
+        project_id: "proj_1",
+        work_item_id: item.id,
+        assignment_id: missingAssignmentID,
+      },
+    };
+    renderWorkspace({
+      assignments: [],
+      artifacts: [],
+      handoffs: [],
+      hasWorkItemDetail: true,
+      operationsBrief: {
+        project_id: "proj_1",
+        generated_at: "2026-07-13T12:00:00Z",
+        summary: {
+          item_count: 1,
+          high_count: 1,
+          medium_count: 0,
+          low_count: 0,
+          pending_memory_candidate_count: 0,
+          pending_handoff_count: 0,
+        },
+        items: [missingTargetOperation],
+      },
+      operationsBriefLoadState: "loaded",
+      roleByID: new Map([["developer", role()]]),
+      roles: [role()],
+      selectedWorkItem: item,
+      selectedWorkItemID: item.id,
+      selectedWorkItemReadiness: {
+        project_id: "proj_1",
+        work_item_id: item.id,
+        ready: false,
+        status: "blocked",
+        title: "Closeout is blocked",
+        detail: "Evidence is missing.",
+        blockers: ["Evidence is missing"],
+        warnings: [],
+        assignment_count: 1,
+        completed_assignments: 1,
+        review_follow_up_count: 0,
+        missing_evidence_assignment_ids: [missingAssignmentID],
+      },
+      workItems: [item],
+      workLoadState: "loaded",
+      workspaceTab: "work",
+    });
+
+    const followThrough = screen.getByRole("region", { name: "Next work item action" });
+    expect(within(followThrough).getByText("Next action unavailable")).toBeTruthy();
+    expect(within(followThrough).getByRole("button", { name: "Refresh work" })).toHaveClass(
+      "btn-primary",
+    );
+    expect(screen.getByRole("button", { name: "Prepare next step" })).toHaveClass("btn-ghost");
+    expect(screen.queryByRole("button", { name: "Record evidence" })).toBeNull();
+  });
+
+  it("hides proposal controls when authoritative readiness says work is done", () => {
+    const item = workItem({ status: "review" });
+    renderWorkspace({
+      assignments: [assignment({ status: "completed" })],
+      hasWorkItemDetail: true,
+      selectedWorkItem: item,
+      selectedWorkItemID: item.id,
+      selectedWorkItemReadiness: {
+        project_id: "proj_1",
+        work_item_id: item.id,
+        ready: false,
+        status: "done",
+        title: "Work item is done",
+        detail: "The operator closed this work item.",
+        blockers: [],
+        warnings: [],
+        assignment_count: 1,
+        completed_assignments: 1,
+        review_follow_up_count: 0,
+      },
+      workItems: [item],
+      workLoadState: "loaded",
+      workspaceTab: "work",
+    });
+
+    expect(screen.queryByText("Assistant panel")).toBeNull();
+    expect(screen.getByText("Work closed")).toBeTruthy();
   });
 
   it("renders explicit overview loading state", () => {
@@ -562,7 +1056,9 @@ describe("ProjectWorkspaceView", () => {
   it("holds the guided shell while project setup is still loading", () => {
     renderWorkspace({ projectSetupPending: true, workLoadState: "loading" });
 
-    const loading = screen.getByRole("region", { name: "Project setup loading" });
+    const loading = screen.getByRole("region", {
+      name: "Project setup loading",
+    });
     expect(loading).toHaveAttribute("aria-busy", "true");
     expect(within(loading).getByRole("status")).toHaveTextContent("Loading project…");
     expect(within(loading).getByText("Loading project…")).toBeTruthy();
@@ -575,7 +1071,9 @@ describe("ProjectWorkspaceView", () => {
       projectSetupError: "Failed to load project setup status.",
     });
 
-    const unavailable = screen.getByRole("region", { name: "Project setup unavailable" });
+    const unavailable = screen.getByRole("region", {
+      name: "Project setup unavailable",
+    });
     expect(within(unavailable).getByRole("alert")).toHaveTextContent(
       "Failed to load project setup status.",
     );
@@ -638,7 +1136,9 @@ describe("ProjectWorkspaceView", () => {
       workLoadState: "error",
     });
 
-    const summary = screen.getByRole("region", { name: "Project activity summary" });
+    const summary = screen.getByRole("region", {
+      name: "Project activity summary",
+    });
     expect(within(summary).getByText("2 work items")).toBeTruthy();
     expect(within(summary).getByText("Project activity reports current work.")).toBeTruthy();
     expect(within(summary).queryByText("No project work yet")).toBeNull();
@@ -680,7 +1180,11 @@ describe("ProjectWorkspaceView", () => {
       "aria-pressed",
       "true",
     );
-    expect(within(filters).queryByRole("button", { name: "Show blocked assignments" })).toBeNull();
+    expect(
+      within(filters).queryByRole("button", {
+        name: "Show blocked assignments",
+      }),
+    ).toBeNull();
     let status = within(filters).getByRole("status");
     expect(status).toHaveAttribute("aria-live", "polite");
     expect(status).toHaveAttribute("aria-atomic", "true");
@@ -708,7 +1212,11 @@ describe("ProjectWorkspaceView", () => {
     expect(status).toHaveTextContent(
       "Assignment activity unavailable. Refresh project work to try again.",
     );
-    expect(within(filters).queryByRole("button", { name: "Show blocked assignments" })).toBeNull();
+    expect(
+      within(filters).queryByRole("button", {
+        name: "Show blocked assignments",
+      }),
+    ).toBeNull();
     expect(screen.queryByText("No activity is recorded for this project yet.")).toBeNull();
     expect(screen.queryByText("No blocked assignments for this project.")).toBeNull();
 
@@ -774,7 +1282,9 @@ describe("ProjectWorkspaceView", () => {
       },
     });
 
-    const operations = screen.getByRole("region", { name: "Project operations" });
+    const operations = screen.getByRole("region", {
+      name: "Project operations",
+    });
     expect(
       within(operations).getByText(
         "Showing 4 of 9 operations; 5 lower-priority operations are hidden (1 capped by the server).",
@@ -790,7 +1300,9 @@ describe("ProjectWorkspaceView", () => {
       workItems: [item],
     });
 
-    const resume = screen.getByRole("region", { name: "Project activity summary" });
+    const resume = screen.getByRole("region", {
+      name: "Project activity summary",
+    });
     expect(
       within(resume).getByText("Assignments: 0 active · 1 blocked · 0 completed"),
     ).toBeTruthy();
@@ -853,7 +1365,9 @@ describe("ProjectWorkspaceView", () => {
       }),
     });
 
-    let resume = screen.getByRole("region", { name: "Project activity summary" });
+    let resume = screen.getByRole("region", {
+      name: "Project activity summary",
+    });
     expect(
       within(resume).getByText("Assignments: 1 active · 0 blocked · 0 completed"),
     ).toBeTruthy();
@@ -923,7 +1437,9 @@ describe("ProjectWorkspaceView", () => {
       workItems: [workItem()],
     });
 
-    const summary = screen.getByRole("region", { name: "Project activity summary" });
+    const summary = screen.getByRole("region", {
+      name: "Project activity summary",
+    });
     expect(
       within(summary).getByText("Assignments: 0 active · 0 blocked · 1 completed"),
     ).toBeTruthy();
@@ -997,7 +1513,10 @@ describe("ProjectWorkspaceView", () => {
   it("summarizes assignment statuses for work item rows", () => {
     expect(
       summarizeAssignments([
-        assignment({ status: "queued", execution_ref: { kind: "task_run", status: "queued" } }),
+        assignment({
+          status: "queued",
+          execution_ref: { kind: "task_run", status: "queued" },
+        }),
         assignment({
           id: "assign_2",
           status: "completed",

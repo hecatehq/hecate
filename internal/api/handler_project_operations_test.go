@@ -126,7 +126,7 @@ func TestProjectOperationsBrief_ReadOnlyProjectOperations(t *testing.T) {
 		t.Fatalf("approval item = %+v, want blocked assignment target", approval)
 	}
 	handoff := findProjectOperationsItemForTest(t, response.Data.Items, "review_pending_handoff")
-	if handoff.Handoff == nil || handoff.Handoff.ID != "handoff_review" || handoff.Target.HandoffID != "handoff_review" || handoff.Action.Type != projectOperationsActionOpenWorkItem {
+	if handoff.Handoff == nil || handoff.Handoff.ID != "handoff_review" || handoff.Target.HandoffID != "handoff_review" || handoff.Action.Type != projectOperationsActionOpenWorkItem || handoff.Action.HandoffID != "handoff_review" || handoff.Action.AssignmentID != handoff.Target.AssignmentID {
 		t.Fatalf("handoff item = %+v, want rendered handoff target", handoff)
 	}
 	memoryItem := findProjectOperationsItemForTest(t, response.Data.Items, "review_memory_candidates")
@@ -148,6 +148,26 @@ func TestProjectOperationsBrief_ReadOnlyProjectOperations(t *testing.T) {
 	}
 	if len(afterAssignments) != len(beforeAssignments) || len(afterCandidates) != len(beforeCandidates) {
 		t.Fatalf("operations brief mutated project state: assignments %d->%d candidates %d->%d", len(beforeAssignments), len(afterAssignments), len(beforeCandidates), len(afterCandidates))
+	}
+}
+
+func TestGenericCairnlineOperationItemPreservesTypedFocusTargets(t *testing.T) {
+	t.Parallel()
+
+	review := genericCairnlineOperationItem("proj_ops", cairnline.ProjectOperationItem{
+		WorkItemID: "work_review",
+		ArtifactID: "artifact_review",
+	}, "review_follow_up", projectOperationsPriorityMedium, "Open review")
+	if review.Target.ArtifactID != "artifact_review" || review.Target.HandoffID != "" || review.Action.ArtifactID != "artifact_review" || review.Action.HandoffID != "" {
+		t.Fatalf("review item = %+v, want typed artifact target", review)
+	}
+
+	handoff := genericCairnlineOperationItem("proj_ops", cairnline.ProjectOperationItem{
+		WorkItemID: "work_handoff",
+		ArtifactID: "handoff_review",
+	}, "review_pending_handoff", projectOperationsPriorityMedium, "Open handoff")
+	if handoff.Target.HandoffID != "handoff_review" || handoff.Target.ArtifactID != "" || handoff.Action.HandoffID != "handoff_review" || handoff.Action.ArtifactID != "" {
+		t.Fatalf("handoff item = %+v, want Cairnline handoff compatibility target", handoff)
 	}
 }
 
@@ -750,19 +770,19 @@ func TestProjectOperationsBrief_SelectedWorkFollowThrough(t *testing.T) {
 	assertProjectOperationsItemsHaveActions(t, response.Data.Items)
 
 	review := findProjectOperationsItemForTest(t, response.Data.Items, "review_follow_up")
-	if review.Target.WorkItemID != "work_review_followup" || review.Action.Type != projectOperationsActionOpenWorkItem || review.Metadata["artifact_id"] != "artifact_review_followup" {
+	if review.Target.WorkItemID != "work_review_followup" || review.Target.ArtifactID != "artifact_review_followup" || review.Action.Type != projectOperationsActionOpenWorkItem || review.Action.ArtifactID != "artifact_review_followup" || review.Metadata["artifact_id"] != "artifact_review_followup" {
 		t.Fatalf("review follow-up item = %+v, want review follow-up work target", review)
 	}
 	reviewEvidence := findProjectOperationsItemForWorkItemForTest(t, response.Data.Items, "record_completion_evidence", "work_review_followup")
-	if reviewEvidence.Target.AssignmentID != "asgn_review_followup" || reviewEvidence.Action.Type != projectOperationsActionOpenWorkItem {
+	if reviewEvidence.Target.AssignmentID != "asgn_review_followup" || reviewEvidence.Action.Type != projectOperationsActionOpenWorkItem || reviewEvidence.Action.AssignmentID != "asgn_review_followup" {
 		t.Fatalf("review evidence item = %+v, want review artifact not to satisfy evidence", reviewEvidence)
 	}
 	evidence := findProjectOperationsItemForWorkItemForTest(t, response.Data.Items, "record_completion_evidence", "work_missing_evidence")
-	if evidence.Target.WorkItemID != "work_missing_evidence" || evidence.Target.AssignmentID != "asgn_missing_evidence" || evidence.Action.Type != projectOperationsActionOpenWorkItem {
+	if evidence.Target.WorkItemID != "work_missing_evidence" || evidence.Target.AssignmentID != "asgn_missing_evidence" || evidence.Action.Type != projectOperationsActionOpenWorkItem || evidence.Action.AssignmentID != "asgn_missing_evidence" {
 		t.Fatalf("evidence item = %+v, want missing-evidence work target", evidence)
 	}
 	closeout := findProjectOperationsItemForTest(t, response.Data.Items, "close_work_item")
-	if closeout.Target.WorkItemID != "work_close" || closeout.Status != "ready" || closeout.Action.Type != projectOperationsActionOpenWorkItem || closeout.Metadata["assignment_count"] != "1" {
+	if closeout.Target.WorkItemID != "work_close" || closeout.Status != "ready" || closeout.Action.Type != projectOperationsActionOpenWorkItem || closeout.Action.WorkItemID != "work_close" || closeout.Metadata["assignment_count"] != "1" {
 		t.Fatalf("closeout item = %+v, want ready closeout work target", closeout)
 	}
 	requireProjectOperationsItemAbsentForTest(t, response.Data.Items, "prepare_first_assignment")
@@ -794,6 +814,18 @@ func TestProjectWorkItemReadiness_ReadOnlyCloseoutContract(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("CreateAssignment: %v", err)
 	}
+	if _, err := handler.projectWork.CreateHandoff(t.Context(), projectwork.Handoff{
+		ID:                    "handoff_readiness",
+		ProjectID:             "proj_readiness",
+		WorkItemID:            "work_readiness",
+		SourceAssignmentID:    "asgn_complete",
+		Title:                 "Closeout decision",
+		Summary:               "Review before closeout.",
+		RecommendedNextAction: "Accept or dismiss the handoff.",
+		Status:                projectwork.HandoffStatusPending,
+	}); err != nil {
+		t.Fatalf("CreateHandoff: %v", err)
+	}
 
 	beforeAssignments, err := handler.projectWork.ListAssignments(t.Context(), projectwork.AssignmentFilter{ProjectID: "proj_readiness", WorkItemID: "work_readiness"})
 	if err != nil {
@@ -818,6 +850,9 @@ func TestProjectWorkItemReadiness_ReadOnlyCloseoutContract(t *testing.T) {
 	}
 	if response.Data.Ready || response.Data.Status != "blocked" || len(response.Data.MissingEvidenceAssignmentIDs) != 1 || response.Data.MissingEvidenceAssignmentIDs[0] != "asgn_complete" {
 		t.Fatalf("readiness = %+v, want missing evidence blocker", response.Data)
+	}
+	if len(response.Data.OpenHandoffIDs) != 1 || response.Data.OpenHandoffIDs[0] != "handoff_readiness" {
+		t.Fatalf("open handoff ids = %+v, want handoff_readiness", response.Data.OpenHandoffIDs)
 	}
 
 	afterAssignments, err := handler.projectWork.ListAssignments(t.Context(), projectwork.AssignmentFilter{ProjectID: "proj_readiness", WorkItemID: "work_readiness"})
@@ -844,6 +879,11 @@ func TestProjectWorkItemReadiness_ReadOnlyCloseoutContract(t *testing.T) {
 		EvidenceTrustLabel: "operator_reviewed",
 	}); err != nil {
 		t.Fatalf("CreateArtifact(evidence): %v", err)
+	}
+	if _, err := handler.projectWork.UpdateHandoff(t.Context(), "proj_readiness", "work_readiness", "handoff_readiness", func(item *projectwork.Handoff) {
+		item.Status = projectwork.HandoffStatusAccepted
+	}); err != nil {
+		t.Fatalf("UpdateHandoff(accepted): %v", err)
 	}
 
 	rec = httptest.NewRecorder()

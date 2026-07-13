@@ -25,6 +25,7 @@ type WorkItemReadiness struct {
 	ReviewFollowUpArtifactIDs    []string
 	ReviewFollowUps              []ReviewFollowUpReadiness
 	MissingEvidenceAssignmentIDs []string
+	OpenHandoffIDs               []string
 }
 
 type ReviewFollowUpReadiness struct {
@@ -93,6 +94,7 @@ func EvaluateWorkItemReadiness(workItem WorkItem, assignments []Assignment, arti
 	for _, handoff := range handoffs {
 		if handoff.Status == HandoffStatusPending {
 			pendingHandoffs++
+			readiness.OpenHandoffIDs = append(readiness.OpenHandoffIDs, handoff.ID)
 		}
 	}
 	if activeAssignments > 0 {

@@ -148,7 +148,9 @@ describe("BrandAvatar", () => {
     const { container } = render(<BrandAvatar brand="hecate" fallback="Hecate" />);
     expect(container.querySelector("img")?.getAttribute("src")).toContain("hecate-mark");
     expect(container.querySelector("img")?.getAttribute("aria-hidden")).toBe("true");
-    expect(container.querySelector("img")).toHaveStyle({ filter: "var(--mono-icon-filter)" });
+    expect(container.querySelector("img")).toHaveStyle({
+      filter: "var(--mono-icon-filter)",
+    });
   });
 
   it("uses the Meta icon for llama.cpp providers", () => {
@@ -162,7 +164,9 @@ describe("BrandAvatar", () => {
     const { container } = render(<BrandAvatar brand="openai" title="OpenAI" />);
     expect(screen.getByLabelText("OpenAI")).toBeTruthy();
     expect(container.querySelector("path")?.getAttribute("fill")).toBe("currentColor");
-    expect(container.querySelector("svg")).toHaveStyle({ color: "var(--mono-icon)" });
+    expect(container.querySelector("svg")).toHaveStyle({
+      color: "var(--mono-icon)",
+    });
   });
 
   it("uses the Vercel icon for Vercel AI Gateway", () => {
@@ -200,7 +204,9 @@ describe("CopyableID", () => {
     });
     render(<CopyableID text="run_full_identifier_123" compact />);
     expect(screen.getByText("run_full_i…er_123")).toBeTruthy();
-    const button = screen.getByRole("button", { name: /copy run_full_identifier_123/i });
+    const button = screen.getByRole("button", {
+      name: /copy run_full_identifier_123/i,
+    });
     fireEvent.click(button);
     expect(writeText).toHaveBeenCalledWith("run_full_identifier_123");
     await waitFor(() => expect(button).toHaveStyle({ color: "var(--green)" }));
@@ -218,7 +224,9 @@ describe("CopyableID", () => {
       configurable: true,
     });
     render(<CopyableID text="run_full_identifier_123" compact />);
-    const button = screen.getByRole("button", { name: /copy run_full_identifier_123/i });
+    const button = screen.getByRole("button", {
+      name: /copy run_full_identifier_123/i,
+    });
     expect(button).toHaveStyle({ color: "var(--teal)" });
     fireEvent.click(button);
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("run_full_identifier_123"));
@@ -231,7 +239,9 @@ describe("CopyableID", () => {
       configurable: true,
     });
     render(<CopyableID text="run_full_identifier_123" compact />);
-    const button = screen.getByRole("button", { name: /copy run_full_identifier_123/i });
+    const button = screen.getByRole("button", {
+      name: /copy run_full_identifier_123/i,
+    });
     expect(() => fireEvent.click(button)).not.toThrow();
     expect(button).toHaveStyle({ color: "var(--teal)" });
   });
@@ -298,6 +308,54 @@ describe("Modal", () => {
     expect(ok).toHaveFocus();
   });
 
+  it("skips controls inside closed disclosures when trapping focus", async () => {
+    const user = userEvent.setup();
+    render(
+      <Modal title="Evidence modal" footer={<button disabled>Save</button>} onClose={() => {}}>
+        <input aria-label="Title" />
+        <details>
+          <summary>Advanced details</summary>
+          <input aria-label="Hidden provider" />
+        </details>
+        <textarea aria-label="Summary" />
+      </Modal>,
+    );
+    const close = screen.getByRole("button", { name: "Close" });
+    const title = screen.getByLabelText("Title");
+    const disclosure = screen.getByText("Advanced details");
+    const summary = screen.getByLabelText("Summary");
+
+    await waitFor(() => expect(close).toHaveFocus());
+    await user.tab({ shift: true });
+    expect(summary).toHaveFocus();
+    close.focus();
+    await user.tab();
+    expect(title).toHaveFocus();
+    await user.tab();
+    expect(disclosure).toHaveFocus();
+    await user.tab();
+    expect(summary).toHaveFocus();
+
+    (disclosure.parentElement as HTMLDetailsElement).open = true;
+    disclosure.focus();
+    await user.tab();
+    expect(screen.getByLabelText("Hidden provider")).toHaveFocus();
+  });
+
+  it("blocks every dismiss path while dismissal is disabled", async () => {
+    const onClose = vi.fn();
+    render(
+      <Modal title="Pending decision" dismissible={false} footer={<span />} onClose={onClose}>
+        <div>Recording the decision.</div>
+      </Modal>,
+    );
+    const dialog = screen.getByRole("dialog", { name: "Pending decision" });
+    expect(screen.getByRole("button", { name: "Close" })).toBeDisabled();
+    await userEvent.keyboard("{Escape}");
+    fireEvent.click(dialog.parentElement as HTMLElement);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it("restores focus to the previously focused element on close", async () => {
     const user = userEvent.setup();
 
@@ -308,7 +366,10 @@ describe("Modal", () => {
           <button onClick={() => setOpen(true)}>Open modal</button>
           {open && (
             <Modal title="Test modal" footer={<button>OK</button>} onClose={() => setOpen(false)}>
-              <div>body content</div>
+              <label>
+                Modal field
+                <input autoFocus />
+              </label>
             </Modal>
           )}
         </>
@@ -318,7 +379,7 @@ describe("Modal", () => {
     render(<Harness />);
     const opener = screen.getByRole("button", { name: "Open modal" });
     await user.click(opener);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Close" })).toHaveFocus());
+    await waitFor(() => expect(screen.getByLabelText("Modal field")).toHaveFocus());
     await user.click(screen.getByRole("button", { name: "Close" }));
     await waitFor(() => expect(opener).toHaveFocus());
   });
@@ -416,7 +477,11 @@ describe("ModelPicker", () => {
     {
       id: "claude-sonnet-4-6",
       owned_by: "anthropic",
-      metadata: { provider: "anthropic", provider_kind: "cloud", default: false },
+      metadata: {
+        provider: "anthropic",
+        provider_kind: "cloud",
+        default: false,
+      },
     },
   ];
 
@@ -461,12 +526,20 @@ describe("ModelPicker", () => {
       {
         id: "accounts/fireworks/models/deepseek-v3p1",
         owned_by: "fireworks",
-        metadata: { provider: "fireworks", provider_kind: "cloud", default: true },
+        metadata: {
+          provider: "fireworks",
+          provider_kind: "cloud",
+          default: true,
+        },
       },
       {
         id: "accounts/fireworks/models/llama-v3p1",
         owned_by: "fireworks",
-        metadata: { provider: "fireworks", provider_kind: "cloud", default: false },
+        metadata: {
+          provider: "fireworks",
+          provider_kind: "cloud",
+          default: false,
+        },
       },
     ];
     render(
@@ -496,7 +569,11 @@ describe("ModelPicker", () => {
       {
         id: "accounts/fireworks/models/deepseek-v3p1",
         owned_by: "fireworks-prod",
-        metadata: { provider: "fireworks-prod", provider_kind: "cloud", default: true },
+        metadata: {
+          provider: "fireworks-prod",
+          provider_kind: "cloud",
+          default: true,
+        },
       },
     ];
     render(
@@ -634,7 +711,12 @@ describe("ModelPicker", () => {
 describe("ProviderPicker", () => {
   const options = [
     { id: "openai", name: "OpenAI", configured: true, kind: "cloud" as const },
-    { id: "anthropic", name: "Anthropic", configured: false, kind: "cloud" as const },
+    {
+      id: "anthropic",
+      name: "Anthropic",
+      configured: false,
+      kind: "cloud" as const,
+    },
     { id: "ollama", name: "Ollama", configured: true, kind: "local" as const },
   ];
 

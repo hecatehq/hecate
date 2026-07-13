@@ -8,6 +8,7 @@ import type {
   ProjectContextSourcePayload,
   ProjectContextSourceRecord,
   ProjectHealth,
+  ProjectHandoffRecord,
   ProjectMemoryCandidateRecord,
   ProjectOperationsBriefItem,
   ProjectRecord,
@@ -131,19 +132,26 @@ test("Projects journey: setup, first work, assignment, evidence, closeout", asyn
   await expect(page.getByText("Record completion evidence: Verify launch checklist")).toBeVisible();
   await page.getByRole("button", { name: /Open work/ }).click();
   await page.getByRole("button", { name: "Add evidence" }).click();
-  await page
-    .getByRole("dialog", { name: "Record evidence" })
-    .getByLabel("Title")
-    .fill("Launch checklist");
-  await page.getByLabel("URL").fill("https://example.test/checklist");
-  await page.getByLabel("Summary").fill("Operator confirmed the launch checklist evidence.");
-  await page.getByRole("button", { name: "Record evidence" }).click();
+  const evidenceDialog = page.getByRole("dialog", { name: "Record evidence" });
+  await evidenceDialog.getByLabel("Title").fill("Launch checklist");
+  await evidenceDialog.getByLabel("URL").fill("https://example.test/checklist");
+  await evidenceDialog
+    .getByLabel("Summary")
+    .fill("Operator confirmed the launch checklist evidence.");
+  await evidenceDialog.getByRole("button", { name: "Record evidence" }).click();
 
   await expect(page.getByText("Launch checklist", { exact: true })).toBeVisible();
   await page.getByRole("tab", { name: "Overview" }).click();
   await expect(page.getByText("Close out work item: Verify launch checklist")).toBeVisible();
   await page.getByRole("button", { name: /Open closeout/ }).click();
-  await page.getByRole("button", { name: "Mark done" }).click();
+  await page
+    .getByRole("region", { name: "Next work item action" })
+    .getByRole("button", { name: "Review closeout" })
+    .click();
+  await page
+    .getByRole("dialog", { name: "Review closeout" })
+    .getByRole("button", { name: "Mark work done" })
+    .click();
   await expect(page.getByRole("article", { name: /Verify launch checklist/ })).toContainText(
     "done",
   );
@@ -202,7 +210,11 @@ test("Projects rootless journey: plan work without setup or workspace", async ({
   await page.getByRole("button", { name: "Record evidence" }).click();
 
   await expect(page.getByText("Interview source notes", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Mark done" }).click();
+  await page.getByRole("button", { name: "Review closeout" }).click();
+  await page
+    .getByRole("dialog", { name: "Review closeout" })
+    .getByRole("button", { name: "Mark work done" })
+    .click();
   await expect(page.getByRole("article", { name: /Summarize interview themes/ })).toContainText(
     "done",
   );
@@ -420,6 +432,408 @@ test("Projects Human assignment journey: rootless work without launch preflight"
   expect(state.assignments[0]?.execution_ref).toBeUndefined();
 });
 
+test("Projects follow-through journey: review, handoff, evidence, and durable closeout", async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(new Date(NOW));
+  const state = await mockProjectJourneyAPIs(page);
+  state.projects = [
+    {
+      id: "proj_follow_through",
+      name: "Editorial release",
+      description: "Coordinate a reviewed release with explicit evidence and closeout.",
+      roots: [],
+      context_sources: [],
+      created_at: NOW,
+      updated_at: NOW,
+    },
+  ];
+  state.roles = [
+    {
+      id: "role_editor",
+      project_id: "proj_follow_through",
+      name: "Editor",
+      description: "Prepare the release narrative.",
+      default_driver_kind: "manual",
+      skill_ids: [],
+      built_in: false,
+      created_at: NOW,
+      updated_at: NOW,
+    },
+    {
+      id: "role_reviewer",
+      project_id: "proj_follow_through",
+      name: "Reviewer",
+      description: "Review the release narrative before closeout.",
+      default_driver_kind: "manual",
+      skill_ids: [],
+      built_in: false,
+      created_at: NOW,
+      updated_at: NOW,
+    },
+  ];
+  state.workItems = [
+    {
+      id: "work_decoy",
+      project_id: "proj_follow_through",
+      title: "Unrelated planning note",
+      status: "done",
+      priority: "low",
+      created_at: NOW,
+      updated_at: NOW,
+    },
+    {
+      id: "work_follow_through",
+      project_id: "proj_follow_through",
+      title: "Ship editorial release",
+      brief: "Complete review, preserve evidence, resolve the handoff, and close deliberately.",
+      status: "ready",
+      priority: "high",
+      owner_role_id: "role_editor",
+      reviewer_role_ids: ["role_reviewer"],
+      created_at: NOW,
+      updated_at: NOW,
+    },
+  ];
+  state.assignments = [
+    {
+      id: "assign_decoy",
+      project_id: "proj_follow_through",
+      work_item_id: "work_decoy",
+      role_id: "role_editor",
+      driver_kind: "manual",
+      status: "completed",
+      created_at: NOW,
+      updated_at: NOW,
+    },
+    {
+      id: "assign_follow_reviewer",
+      project_id: "proj_follow_through",
+      work_item_id: "work_follow_through",
+      role_id: "role_reviewer",
+      driver_kind: "manual",
+      status: "completed",
+      started_at: NOW,
+      completed_at: NOW,
+      created_at: NOW,
+      updated_at: NOW,
+    },
+    {
+      id: "assign_follow_editor",
+      project_id: "proj_follow_through",
+      work_item_id: "work_follow_through",
+      role_id: "role_editor",
+      driver_kind: "manual",
+      status: "completed",
+      started_at: NOW,
+      completed_at: NOW,
+      created_at: NOW,
+      updated_at: NOW,
+    },
+  ];
+  state.artifacts = [
+    {
+      id: "artifact_decoy",
+      project_id: "proj_follow_through",
+      work_item_id: "work_decoy",
+      assignment_id: "assign_decoy",
+      kind: "evidence_link",
+      title: "Unrelated evidence",
+      body: "This belongs to another work item.",
+      created_at: NOW,
+      updated_at: NOW,
+    },
+    {
+      id: "artifact_reviewer_evidence",
+      project_id: "proj_follow_through",
+      work_item_id: "work_follow_through",
+      assignment_id: "assign_follow_reviewer",
+      kind: "evidence_link",
+      title: "Reviewer notes",
+      body: "Reviewer notes are preserved for closeout.",
+      evidence_source_kind: "document",
+      evidence_url: "https://example.test/reviewer-notes",
+      evidence_trust_label: "operator_provided",
+      created_at: NOW,
+      updated_at: NOW,
+    },
+  ];
+  state.handoffs = [
+    {
+      id: "handoff_same_work_decoy",
+      project_id: "proj_follow_through",
+      work_item_id: "work_follow_through",
+      title: "Prior editorial handoff",
+      summary: "This accepted handoff belongs to the selected work item.",
+      recommended_next_action: "Keep the pending editorial sign-off in focus.",
+      status: "accepted",
+      provenance_kind: "operator",
+      trust_label: "operator_provided",
+      created_at: NOW,
+      updated_at: NOW,
+      status_changed_at: NOW,
+    },
+    {
+      id: "handoff_decoy",
+      project_id: "proj_follow_through",
+      work_item_id: "work_decoy",
+      title: "Unrelated handoff",
+      summary: "This belongs to another work item.",
+      recommended_next_action: "Ignore in the selected-work journey.",
+      status: "accepted",
+      provenance_kind: "operator",
+      trust_label: "operator_provided",
+      created_at: NOW,
+      updated_at: NOW,
+      status_changed_at: NOW,
+    },
+    {
+      id: "handoff_editorial_review",
+      project_id: "proj_follow_through",
+      work_item_id: "work_follow_through",
+      source_assignment_id: "assign_follow_editor",
+      target_assignment_id: "assign_follow_reviewer",
+      target_role_id: "role_reviewer",
+      title: "Editorial sign-off",
+      summary: "The reviewer has the release narrative and supporting notes.",
+      recommended_next_action: "Accept the completed review handoff before closeout.",
+      status: "pending",
+      provenance_kind: "operator",
+      trust_label: "operator_provided",
+      created_at: NOW,
+      updated_at: NOW,
+      status_changed_at: NOW,
+    },
+  ];
+
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.workspace", "projects");
+    window.localStorage.setItem("hecate.project", "proj_follow_through");
+  });
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+
+  const operations = page.getByRole("region", { name: "Project operations" });
+  await expect(
+    operations.getByText("Review pending handoff: Editorial sign-off", { exact: true }),
+  ).toBeVisible();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await operations.getByRole("button", { name: /Open handoff/ }).click();
+  await expect(page.getByRole("tab", { name: /Work/ })).toHaveAttribute("aria-selected", "true");
+  const detail = page.getByRole("region", { name: "Selected work item" });
+  const handoffRow = detail.getByRole("group", { name: "Editorial sign-off handoff" });
+  const sameWorkHandoffDecoy = detail.getByRole("group", {
+    name: "Prior editorial handoff handoff",
+  });
+  await expect(handoffRow).toBeFocused();
+  await expect(sameWorkHandoffDecoy).toBeVisible();
+  await expect(sameWorkHandoffDecoy).not.toBeFocused();
+  await expect(handoffRow).toBeInViewport();
+  await expect(detail.getByText("Unrelated evidence", { exact: true })).toHaveCount(0);
+  await expect(detail.getByText("Unrelated handoff", { exact: true })).toHaveCount(0);
+  const handoffLayout = await handoffRow.evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+  }));
+  expect(handoffLayout.scrollWidth).toBeLessThanOrEqual(handoffLayout.clientWidth + 1);
+  const detailLayout = await detail.evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+  }));
+  expect(detailLayout.scrollWidth).toBeLessThanOrEqual(detailLayout.clientWidth + 1);
+  if (process.env.HECATE_CAPTURE_PROJECTS_FOLLOW_THROUGH === "1") {
+    await page.screenshot({
+      path: "../docs/screenshots/projects-follow-through-narrow.jpg",
+      type: "jpeg",
+      quality: 90,
+    });
+  }
+
+  const acceptRequestPromise = page.waitForRequest((request) => {
+    return (
+      request.method() === "POST" &&
+      new URL(request.url()).pathname ===
+        "/hecate/v1/projects/proj_follow_through/work-items/work_follow_through/handoffs/handoff_editorial_review/status"
+    );
+  });
+  await handoffRow.getByRole("button", { name: "Accept" }).click();
+  const acceptRequest = await acceptRequestPromise;
+  expect(acceptRequest.postDataJSON()).toEqual({ status: "accepted" });
+  await expect(handoffRow.getByText("Accepted", { exact: true })).toBeVisible();
+  await expect(handoffRow).toBeFocused();
+  expect(state.handoffs.find((handoff) => handoff.id === "handoff_editorial_review")?.status).toBe(
+    "accepted",
+  );
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+  const reviewerStory = detail.getByRole("article", {
+    name: "Reviewer assignment execution assign_follow_reviewer",
+  });
+  await reviewerStory
+    .getByRole("button", { name: "Record review for assignment assign_follow_reviewer" })
+    .click();
+  const reviewDialog = page.getByRole("dialog", { name: "Record review" });
+  const reviewContext = reviewDialog.getByRole("region", { name: "Review context" });
+  await expect(reviewContext.getByText(/Reviewing Editor assignment/)).toBeVisible();
+  await expect(reviewContext.getByText(/Review assignment Reviewer/)).toBeVisible();
+  await expect(reviewDialog.getByLabel("Review assignment")).toHaveValue("assign_follow_reviewer");
+  await expect(reviewDialog.getByRole("button", { name: "Save review" })).toBeDisabled();
+  await reviewDialog.getByLabel("Verdict").selectOption("approved");
+  await reviewDialog
+    .getByLabel("Summary")
+    .fill("The release narrative is approved and the reviewer notes are preserved.");
+  const reviewRequestPromise = page.waitForRequest((request) => {
+    return (
+      request.method() === "POST" &&
+      new URL(request.url()).pathname ===
+        "/hecate/v1/projects/proj_follow_through/work-items/work_follow_through/artifacts"
+    );
+  });
+  await reviewDialog.getByRole("button", { name: "Save review" }).click();
+  const reviewRequest = await reviewRequestPromise;
+  expect(reviewRequest.postDataJSON()).toEqual(
+    expect.objectContaining({
+      assignment_id: "assign_follow_reviewer",
+      reviewed_assignment_id: "assign_follow_editor",
+      review_follow_up_required: false,
+      review_verdict: "approved",
+    }),
+  );
+  await expect(detail.getByText("Reviewer review", { exact: true })).toBeVisible();
+  await expect(
+    detail.getByRole("group", { name: "Reviewer review Review artifact" }),
+  ).toBeFocused();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const reviewArtifact = detail.getByRole("group", {
+    name: "Reviewer review Review artifact",
+  });
+  await reviewArtifact.scrollIntoViewIfNeeded();
+  await expect(reviewArtifact).toBeInViewport();
+  const reviewArtifactLayout = await reviewArtifact.evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+  }));
+  expect(reviewArtifactLayout.scrollWidth).toBeLessThanOrEqual(
+    reviewArtifactLayout.clientWidth + 1,
+  );
+  const narrowReviewDetailLayout = await detail.evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+  }));
+  expect(narrowReviewDetailLayout.scrollWidth).toBeLessThanOrEqual(
+    narrowReviewDetailLayout.clientWidth + 1,
+  );
+  await page.setViewportSize({ width: 1280, height: 720 });
+
+  await page.getByRole("tab", { name: "Overview" }).click();
+  await expect(
+    operations.getByText("Record completion evidence: Ship editorial release", { exact: true }),
+  ).toBeVisible();
+  await operations.getByRole("button", { name: /Open work/ }).click();
+  const editorStory = detail.getByRole("article", {
+    name: "Editor assignment execution assign_follow_editor",
+  });
+  await expect(editorStory).toBeFocused();
+  await expect(editorStory).toBeInViewport();
+
+  const nextAction = detail.getByRole("region", { name: "Next work item action" });
+  await nextAction.getByRole("button", { name: "Record evidence" }).click();
+  const evidenceDialog = page.getByRole("dialog", { name: "Record evidence" });
+  await expect(evidenceDialog.getByLabel("Assignment")).toHaveValue("assign_follow_editor");
+  await evidenceDialog.getByLabel("Title").fill("Published release narrative");
+  await evidenceDialog.getByLabel("URL").fill("https://example.test/editorial-release");
+  await evidenceDialog
+    .getByLabel("Summary")
+    .fill("The approved release narrative is published and ready for closeout.");
+  const evidenceRequestPromise = page.waitForRequest((request) => {
+    return (
+      request.method() === "POST" &&
+      new URL(request.url()).pathname ===
+        "/hecate/v1/projects/proj_follow_through/work-items/work_follow_through/artifacts"
+    );
+  });
+  await evidenceDialog.getByRole("button", { name: "Record evidence" }).click();
+  const evidenceRequest = await evidenceRequestPromise;
+  expect(evidenceRequest.postDataJSON()).toEqual(
+    expect.objectContaining({
+      assignment_id: "assign_follow_editor",
+      kind: "evidence_link",
+      title: "Published release narrative",
+    }),
+  );
+  const recordedEvidence = detail.getByRole("group", {
+    name: "Published release narrative Evidence artifact",
+  });
+  await expect(recordedEvidence).toBeFocused();
+  await expect(
+    nextAction.getByText("Close out work item: Ship editorial release", { exact: true }),
+  ).toBeVisible();
+  await expect(nextAction.getByRole("button", { name: "Review closeout" })).toBeEnabled();
+
+  await page
+    .getByRole("region", { name: "Work queue" })
+    .getByRole("button", { name: "Open work item Unrelated planning note" })
+    .click();
+  await expect(detail.getByRole("heading", { name: "Unrelated planning note" })).toBeVisible();
+  await page.getByRole("tab", { name: "Overview" }).click();
+  await expect(
+    operations.getByText("Close out work item: Ship editorial release", { exact: true }),
+  ).toBeVisible();
+  await operations.getByRole("button", { name: /Open closeout/ }).click();
+  await expect(
+    detail.getByRole("heading", { name: "Ship editorial release", exact: true }),
+  ).toBeVisible();
+  const closeout = detail.getByRole("region", { name: "Work closeout" });
+  await expect(closeout).toBeFocused();
+  await expect(closeout).toBeInViewport();
+  await nextAction.getByRole("button", { name: "Review closeout" }).click();
+  const closeoutDialog = page.getByRole("dialog", { name: "Review closeout" });
+  await expect(closeoutDialog).toContainText(/2\s*Assignments complete/);
+  await expect(closeoutDialog).toContainText(/0\s*Review follow-ups/);
+  await expect(closeoutDialog).toContainText(/0\s*Open handoffs/);
+  await expect(
+    closeoutDialog.getByText(/does not delete assignments, linked tasks or chats, reviews/i),
+  ).toBeVisible();
+  if (process.env.HECATE_CAPTURE_PROJECTS_FOLLOW_THROUGH === "1") {
+    await page.screenshot({
+      path: "../docs/screenshots/projects-follow-through.jpg",
+      type: "jpeg",
+      quality: 90,
+    });
+  }
+
+  const closeoutRequestPromise = page.waitForRequest((request) => {
+    return (
+      request.method() === "PATCH" &&
+      new URL(request.url()).pathname ===
+        "/hecate/v1/projects/proj_follow_through/work-items/work_follow_through"
+    );
+  });
+  await closeoutDialog.getByRole("button", { name: "Mark work done" }).click();
+  const closeoutRequest = await closeoutRequestPromise;
+  expect(closeoutRequest.postDataJSON()).toEqual({ status: "done" });
+  await expect(nextAction.getByText("Work closed", { exact: true })).toBeVisible();
+  await expect(nextAction).toBeFocused();
+  expect(state.workItems.find((item) => item.id === "work_follow_through")?.status).toBe("done");
+
+  await page.reload();
+  await page.getByRole("tab", { name: /Work/ }).click();
+  await page
+    .getByRole("region", { name: "Work queue" })
+    .getByRole("button", { name: "Open work item Ship editorial release" })
+    .click();
+  await expect(detail.getByRole("heading", { name: "Ship editorial release" })).toBeVisible();
+  await expect(nextAction.getByText("Work closed", { exact: true })).toBeVisible();
+  await expect(detail.getByRole("region", { name: "Add to work item" })).toHaveCount(0);
+  await expect(detail.getByRole("button", { name: "Edit", exact: true })).toHaveCount(0);
+  await expect(detail.getByRole("button", { name: "Accept", exact: true })).toHaveCount(0);
+  await expect(detail.getByRole("button", { name: /Record review for assignment/ })).toHaveCount(0);
+  await expect(nextAction.getByRole("button")).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Project Assistant" })).toHaveCount(0);
+});
+
 test("Projects overview is the default ready-project home at desktop and narrow widths", async ({
   page,
 }) => {
@@ -625,6 +1039,7 @@ async function mockProjectJourneyAPIs(page: Page) {
     workItems: [] as ProjectWorkItemRecord[],
     assignments: [] as ProjectAssignmentRecord[],
     artifacts: [] as ProjectCollaborationArtifactRecord[],
+    handoffs: [] as ProjectHandoffRecord[],
     projectPatchBodies: [] as Record<string, unknown>[],
     rootMutationCalls: [] as Array<{
       method: string;
@@ -668,6 +1083,9 @@ async function mockProjectJourneyAPIs(page: Page) {
   await page.route(/\/hecate\/v1\/project-assistant\/(?:draft|context|apply)$/, async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
+    if (request.method() !== "POST") {
+      failUnexpectedProjectJourneyRequest(route);
+    }
     if (path.endsWith("/context")) {
       await route.fulfill(
         ok({
@@ -726,7 +1144,7 @@ async function mockProjectJourneyAPIs(page: Page) {
       );
       return;
     }
-    await route.fallback();
+    failUnexpectedProjectJourneyRequest(route);
   });
 
   await page.route(/\/hecate\/v1\/projects(?:\/.*)?(?:\?.*)?$/, async (route) => {
@@ -762,12 +1180,12 @@ async function mockProjectJourneyAPIs(page: Page) {
         await route.fulfill(ok({ object: "project", data: project }, 201));
         return;
       }
+      failUnexpectedProjectJourneyRequest(route);
     }
 
     const projectID = parts[0] || "";
     if (!projectID || projectID !== state.projects[0]?.id) {
-      await route.fulfill(ok({ object: "projects", data: state.projects }));
-      return;
+      failUnexpectedProjectJourneyRequest(route);
     }
 
     const resource = parts[1];
@@ -778,35 +1196,45 @@ async function mockProjectJourneyAPIs(page: Page) {
       await route.fulfill(ok({ object: "project", data: state.projects[0] }));
       return;
     }
+    if (!resource) {
+      failUnexpectedProjectJourneyRequest(route);
+    }
     if (resource === "roots") {
       await handleProjectRootRoute(route, state, parts, method, ok);
       return;
     }
-    if (resource === "context-sources" && parts[2] !== "discover") {
-      await handleProjectContextSourceRoute(route, state, parts, method, ok);
-      return;
-    }
-    if (resource === "context-sources" && parts[2] === "discover" && method === "POST") {
-      state.sources = [
-        {
-          id: "ctx_agents",
-          kind: "workspace_instruction",
-          title: "AGENTS.md",
-          path: "AGENTS.md",
-          enabled: true,
-          format: "agents_md",
-          scope: "workspace",
-          trust_label: "workspace_guidance",
-          created_at: NOW,
+    if (resource === "context-sources") {
+      if (parts[2] !== "discover") {
+        await handleProjectContextSourceRoute(route, state, parts, method, ok);
+        return;
+      }
+      if (parts.length === 3 && method === "POST") {
+        state.sources = [
+          {
+            id: "ctx_agents",
+            kind: "workspace_instruction",
+            title: "AGENTS.md",
+            path: "AGENTS.md",
+            enabled: true,
+            format: "agents_md",
+            scope: "workspace",
+            trust_label: "workspace_guidance",
+            created_at: NOW,
+            updated_at: NOW,
+          },
+        ];
+        state.projects[0] = {
+          ...state.projects[0],
+          context_sources: state.sources,
           updated_at: NOW,
-        },
-      ];
-      state.projects[0] = { ...state.projects[0], context_sources: state.sources, updated_at: NOW };
-      await route.fulfill(ok({ object: "project", data: state.projects[0] }));
-      return;
+        };
+        await route.fulfill(ok({ object: "project", data: state.projects[0] }));
+        return;
+      }
+      failUnexpectedProjectJourneyRequest(route);
     }
     if (resource === "skills") {
-      if (parts[2] === "discover" && method === "POST") {
+      if (parts.length === 3 && parts[2] === "discover" && method === "POST") {
         state.skills = [
           {
             id: "implementation",
@@ -824,14 +1252,19 @@ async function mockProjectJourneyAPIs(page: Page) {
             updated_at: NOW,
           },
         ];
+        await route.fulfill(ok({ object: "project_skills", data: state.skills }));
+        return;
       }
-      await route.fulfill(ok({ object: "project_skills", data: state.skills }));
-      return;
+      if (parts.length === 2 && method === "GET") {
+        await route.fulfill(ok({ object: "project_skills", data: state.skills }));
+        return;
+      }
+      failUnexpectedProjectJourneyRequest(route);
     }
     if (resource === "memory") {
       if (parts[2] === "candidates") {
         const candidateID = parts[3] || "";
-        if (candidateID && parts[4] === "reject" && method === "POST") {
+        if (candidateID && parts.length === 5 && parts[4] === "reject" && method === "POST") {
           const candidate = state.memoryCandidates.find((item) => item.id === candidateID);
           if (!candidate) {
             await route.fulfill(ok({ object: "project_memory_candidate", data: null }, 404));
@@ -844,33 +1277,44 @@ async function mockProjectJourneyAPIs(page: Page) {
           await route.fulfill(ok({ object: "project_memory_candidate", data: rejected }));
           return;
         }
-        await route.fulfill(
-          ok({ object: "project_memory_candidates", data: state.memoryCandidates }),
-        );
+        if (!candidateID && parts.length === 3 && method === "GET") {
+          await route.fulfill(
+            ok({ object: "project_memory_candidates", data: state.memoryCandidates }),
+          );
+          return;
+        }
+        failUnexpectedProjectJourneyRequest(route);
+      }
+      if (parts.length === 2 && method === "GET") {
+        await route.fulfill(ok({ object: "project_memory", data: [] }));
         return;
       }
-      await route.fulfill(ok({ object: "project_memory", data: [] }));
-      return;
+      failUnexpectedProjectJourneyRequest(route);
     }
-    if (resource === "roles") {
+    if (resource === "roles" && parts.length === 2 && method === "GET") {
       await route.fulfill(ok({ object: "project_roles", data: state.roles }));
       return;
     }
-    if (resource === "activity") {
+    if (resource === "activity" && parts.length === 2 && method === "GET") {
       await route.fulfill(ok({ object: "project_activity", data: projectActivity(state) }));
       return;
     }
-    if (resource === "health") {
+    if (resource === "health" && parts.length === 2 && method === "GET") {
       await route.fulfill(ok({ object: "project_health", data: projectHealth(state, projectID) }));
       return;
     }
-    if (resource === "setup-readiness") {
+    if (resource === "setup-readiness" && parts.length === 2 && method === "GET") {
       await route.fulfill(
         ok({ object: "project_setup_readiness", data: projectSetupReadiness(state, projectID) }),
       );
       return;
     }
-    if (resource === "operations" && parts[2] === "brief") {
+    if (
+      resource === "operations" &&
+      parts.length === 3 &&
+      parts[2] === "brief" &&
+      method === "GET"
+    ) {
       await route.fulfill(
         ok({ object: "project_operations_brief", data: projectOperationsBrief(state, projectID) }),
       );
@@ -881,7 +1325,7 @@ async function mockProjectJourneyAPIs(page: Page) {
       return;
     }
 
-    await route.fulfill(ok({ object: "project", data: state.projects[0] }));
+    failUnexpectedProjectJourneyRequest(route);
   });
 
   return state;
@@ -947,7 +1391,7 @@ async function handleProjectRootRoute(
     await route.fulfill(ok({ object: "project", data: project }));
     return;
   }
-  await route.fallback();
+  failUnexpectedProjectJourneyRequest(route);
 }
 
 async function handleProjectContextSourceRoute(
@@ -1020,7 +1464,7 @@ async function handleProjectContextSourceRoute(
     await route.fulfill(ok({ object: "project", data: project }));
     return;
   }
-  await route.fallback();
+  failUnexpectedProjectJourneyRequest(route);
 }
 
 async function handleWorkItemRoute(
@@ -1062,6 +1506,7 @@ async function handleWorkItemRoute(
       await route.fulfill(ok({ object: "project_work_item", data: item }, 201));
       return;
     }
+    failUnexpectedProjectJourneyRequest(route);
   }
 
   const item = state.workItems.find((candidate) => candidate.id === workItemID);
@@ -1081,16 +1526,20 @@ async function handleWorkItemRoute(
       await route.fulfill(ok({ object: "project_work_item", data: item }));
       return;
     }
+    failUnexpectedProjectJourneyRequest(route);
   }
 
-  if (subresource === "readiness" && method === "GET") {
-    await route.fulfill(
-      ok({
-        object: "project_work_item_readiness",
-        data: projectWorkItemReadiness(state, item),
-      }),
-    );
-    return;
+  if (subresource === "readiness") {
+    if (parts.length === 4 && method === "GET") {
+      await route.fulfill(
+        ok({
+          object: "project_work_item_readiness",
+          data: projectWorkItemReadiness(state, item),
+        }),
+      );
+      return;
+    }
+    failUnexpectedProjectJourneyRequest(route);
   }
 
   if (subresource === "assignments") {
@@ -1117,11 +1566,25 @@ async function handleWorkItemRoute(
         await route.fulfill(ok({ object: "project_assignment", data: assignment }, 201));
         return;
       }
-      await route.fulfill(ok({ object: "project_assignments", data: state.assignments }));
+      if (method === "GET") {
+        await route.fulfill(
+          ok({
+            object: "project_assignments",
+            data: state.assignments.filter((candidate) => candidate.work_item_id === workItemID),
+          }),
+        );
+        return;
+      }
+      failUnexpectedProjectJourneyRequest(route);
+    }
+    const assignment = state.assignments.find(
+      (candidate) => candidate.id === assignmentID && candidate.work_item_id === workItemID,
+    );
+    if (!assignment) {
+      await route.fulfill(ok({ object: "project_assignment", data: null }, 404));
       return;
     }
-    const assignment = state.assignments.find((candidate) => candidate.id === assignmentID);
-    if (!parts[5] && method === "PATCH" && assignment) {
+    if (parts.length === 5 && method === "PATCH") {
       const patch = JSON.parse(request.postData() || "{}") as Partial<ProjectAssignmentRecord>;
       Object.assign(assignment, patch, {
         updated_at: NOW,
@@ -1139,7 +1602,7 @@ async function handleWorkItemRoute(
       await route.fulfill(ok({ object: "project_assignment", data: assignment }));
       return;
     }
-    if (parts[5] === "launch-readiness" && method === "GET") {
+    if (parts.length === 6 && parts[5] === "launch-readiness" && method === "GET") {
       await route.fulfill(
         ok({
           object: "project_assignment_launch_readiness",
@@ -1148,7 +1611,7 @@ async function handleWorkItemRoute(
       );
       return;
     }
-    if (parts[5] === "preflight") {
+    if (parts.length === 6 && parts[5] === "preflight" && method === "GET") {
       await route.fulfill(
         ok({
           object: "context_packet",
@@ -1157,7 +1620,7 @@ async function handleWorkItemRoute(
       );
       return;
     }
-    if (parts[5] === "start" && method === "POST" && assignment) {
+    if (parts.length === 6 && parts[5] === "start" && method === "POST") {
       if (assignment.driver_kind === "manual") {
         delete assignment.execution_ref;
         Object.assign(assignment, {
@@ -1193,46 +1656,94 @@ async function handleWorkItemRoute(
       await route.fulfill(ok({ object: "project_assignment", data: assignment }));
       return;
     }
-    await route.fulfill(ok({ object: "project_assignment", data: assignment ?? null }));
-    return;
+    failUnexpectedProjectJourneyRequest(route);
   }
 
   if (subresource === "artifacts") {
-    if (method === "GET") {
-      await route.fulfill(ok({ object: "project_collaboration_artifacts", data: state.artifacts }));
+    if (parts.length === 4 && method === "GET") {
+      await route.fulfill(
+        ok({
+          object: "project_collaboration_artifacts",
+          data: state.artifacts.filter((artifact) => artifact.work_item_id === workItemID),
+        }),
+      );
       return;
     }
-    if (method === "POST") {
+    if (parts.length === 4 && method === "POST") {
       const body = JSON.parse(
         request.postData() || "{}",
       ) as Partial<ProjectCollaborationArtifactRecord>;
       const artifact: ProjectCollaborationArtifactRecord = {
-        id: "artifact_launch",
+        id:
+          state.artifacts.length === 0
+            ? "artifact_launch"
+            : `artifact_${state.artifacts.length + 1}`,
         project_id: projectID,
         work_item_id: workItemID,
         assignment_id: body.assignment_id,
         kind: body.kind || "evidence_link",
         title: body.title || "Launch checklist",
         body: body.body || "Operator confirmed the launch checklist evidence.",
+        author_role_id: body.author_role_id,
         evidence_source_kind: body.evidence_source_kind,
         evidence_url: body.evidence_url,
+        evidence_external_id: body.evidence_external_id,
         evidence_provider: body.evidence_provider,
         evidence_trust_label: body.evidence_trust_label,
+        reviewed_assignment_id: body.reviewed_assignment_id,
+        review_verdict: body.review_verdict,
+        review_risk: body.review_risk,
+        review_follow_up_required: body.review_follow_up_required,
         created_at: NOW,
         updated_at: NOW,
       };
-      state.artifacts = [artifact];
+      state.artifacts = [...state.artifacts, artifact];
       await route.fulfill(ok({ object: "project_collaboration_artifact", data: artifact }, 201));
       return;
     }
+    failUnexpectedProjectJourneyRequest(route);
   }
 
   if (subresource === "handoffs") {
-    await route.fulfill(ok({ object: "project_handoffs", data: [] }));
-    return;
+    const handoffID = parts[4] || "";
+    if (!handoffID && parts.length === 4 && method === "GET") {
+      await route.fulfill(
+        ok({
+          object: "project_handoffs",
+          data: state.handoffs.filter((handoff) => handoff.work_item_id === workItemID),
+        }),
+      );
+      return;
+    }
+    const handoff = state.handoffs.find(
+      (candidate) => candidate.id === handoffID && candidate.work_item_id === workItemID,
+    );
+    if (handoff && parts.length === 6 && parts[5] === "status" && method === "POST") {
+      const body = JSON.parse(request.postData() || "{}") as { status?: string };
+      Object.assign(handoff, {
+        status: body.status || handoff.status,
+        status_changed_at: NOW,
+        updated_at: NOW,
+      });
+      await route.fulfill(ok({ object: "project_handoff", data: handoff }));
+      return;
+    }
+    if (!handoff && handoffID) {
+      await route.fulfill(ok({ object: "project_handoff", data: null }, 404));
+      return;
+    }
+    failUnexpectedProjectJourneyRequest(route);
   }
 
-  await route.fallback();
+  failUnexpectedProjectJourneyRequest(route);
+}
+
+function failUnexpectedProjectJourneyRequest(route: Route): never {
+  const request = route.request();
+  const url = new URL(request.url());
+  throw new Error(
+    `Unexpected staged Projects request: ${request.method()} ${url.pathname}${url.search}`,
+  );
 }
 
 type ProjectJourneyState = Awaited<ReturnType<typeof mockProjectJourneyAPIs>>;
@@ -1424,9 +1935,14 @@ function projectWorkItemReadiness(state: ProjectJourneyState, workItem: ProjectW
     (assignment) => assignment.work_item_id === workItem.id,
   );
   const artifacts = state.artifacts.filter((artifact) => artifact.work_item_id === workItem.id);
+  const handoffs = state.handoffs.filter((handoff) => handoff.work_item_id === workItem.id);
   const completedAssignments = assignments.filter(
     (assignment) => (assignment.execution_ref?.status || assignment.status) === "completed",
   );
+  const reviewFollowUps = artifacts.filter(
+    (artifact) => artifact.kind === "review" && artifact.review_follow_up_required,
+  );
+  const openHandoffs = handoffs.filter((handoff) => handoff.status === "pending");
   const blockers: string[] = [];
   const warnings: string[] = [];
   if (workItem.status === "done") {
@@ -1470,6 +1986,16 @@ function projectWorkItemReadiness(state: ProjectJourneyState, workItem: ProjectW
       } missing evidence`,
     );
   }
+  if (openHandoffs.length > 0) {
+    blockers.push(
+      `${openHandoffs.length} handoff${openHandoffs.length === 1 ? " is" : "s are"} pending`,
+    );
+  }
+  if (reviewFollowUps.length > 0) {
+    blockers.push(
+      `${reviewFollowUps.length} review follow-up${reviewFollowUps.length === 1 ? " needs" : "s need"} a path`,
+    );
+  }
   if (assignments.length === 0) {
     warnings.push("No assignments are linked to this work item; closeout is manual.");
   }
@@ -1488,71 +2014,84 @@ function projectWorkItemReadiness(state: ProjectJourneyState, workItem: ProjectW
     warnings,
     assignment_count: assignments.length,
     completed_assignments: completedAssignments.length,
-    review_follow_up_count: 0,
+    review_follow_up_count: reviewFollowUps.length,
+    review_follow_up_artifact_ids: reviewFollowUps.map((artifact) => artifact.id),
+    review_follow_ups: reviewFollowUps.map((artifact) => ({
+      artifact_id: artifact.id,
+      title: artifact.title || artifact.id,
+      status: "needs_path",
+      reviewed_assignment_id: artifact.reviewed_assignment_id,
+      review_verdict: artifact.review_verdict,
+      review_risk: artifact.review_risk,
+    })),
     missing_evidence_assignment_ids: missingEvidenceAssignments.map((assignment) => assignment.id),
+    open_handoff_ids: openHandoffs.map((handoff) => handoff.id),
   };
 }
 
 function projectActivity(state: ProjectJourneyState): ProjectActivityData {
-  const assignment = state.assignments[0];
-  const role = state.roles[0];
-  const workItem = state.workItems[0];
-  const status = assignment?.execution_ref?.status || assignment?.status || "";
-  const completed = status === "completed";
-  const blocked = ["queued", "awaiting_approval", "failed", "cancelled"].includes(status);
-  const active = Boolean(assignment) && !completed && !blocked;
-  const item =
-    assignment && role && workItem
-      ? [
-          {
-            id: assignment.id,
-            project_id: state.projects[0].id,
-            work_item: {
-              id: workItem.id,
-              title: workItem.title,
-              status: workItem.status,
-              priority: workItem.priority,
-            },
-            assignment,
-            role,
-            status: assignment.status,
-            blocking_signal: completed
-              ? "completed"
-              : status === "queued"
-                ? "not_started"
-                : status || "stale_unknown",
-            status_summary: completed ? "completed" : status || "unknown",
-            linked_task_id: assignment.execution_ref?.task_id,
-            linked_run_id: assignment.execution_ref?.run_id,
-            artifact_summary: {
-              count: state.artifacts.length,
-              latest_kind: state.artifacts[0]?.kind,
-              latest_title: state.artifacts[0]?.title,
-              latest_at: state.artifacts[0]?.updated_at,
-            },
-            handoff_summary: { count: 0 },
-            recent_artifacts: state.artifacts,
-            updated_at: assignment.updated_at,
-          },
-        ]
-      : [];
+  const items: ProjectActivityData["recent"] = [];
+  for (const assignment of state.assignments) {
+    const role = state.roles.find((candidate) => candidate.id === assignment.role_id);
+    const workItem = state.workItems.find((candidate) => candidate.id === assignment.work_item_id);
+    if (!role || !workItem) continue;
+    const status = assignment.execution_ref?.status || assignment.status || "";
+    const completed = status === "completed";
+    const artifacts = state.artifacts.filter((artifact) => artifact.work_item_id === workItem.id);
+    const handoffs = state.handoffs.filter((handoff) => handoff.work_item_id === workItem.id);
+    items.push({
+      id: assignment.id,
+      project_id: state.projects[0]?.id || "proj_launch",
+      work_item: {
+        id: workItem.id,
+        title: workItem.title,
+        status: workItem.status,
+        priority: workItem.priority,
+      },
+      assignment,
+      role,
+      status: assignment.status,
+      blocking_signal: completed
+        ? "completed"
+        : status === "queued"
+          ? "not_started"
+          : status || "stale_unknown",
+      status_summary: completed ? "completed" : status || "unknown",
+      linked_task_id: assignment.execution_ref?.task_id,
+      linked_run_id: assignment.execution_ref?.run_id,
+      artifact_summary: {
+        count: artifacts.length,
+        latest_kind: artifacts[0]?.kind,
+        latest_title: artifacts[0]?.title,
+        latest_at: artifacts[0]?.updated_at,
+      },
+      handoff_summary: { count: handoffs.length },
+      recent_artifacts: artifacts,
+      updated_at: assignment.updated_at,
+    });
+  }
+  const completed = items.filter((item) => item.blocking_signal === "completed");
+  const blocked = items.filter((item) =>
+    ["not_started", "awaiting_approval", "failed", "cancelled"].includes(item.blocking_signal),
+  );
+  const active = items.filter((item) => !completed.includes(item) && !blocked.includes(item));
   return {
     project_id: state.projects[0]?.id || "proj_launch",
     summary: {
       work_item_count: state.workItems.length,
       assignment_count: state.assignments.length,
-      active_count: active ? 1 : 0,
-      blocked_count: blocked ? 1 : 0,
-      completed_count: completed ? 1 : 0,
-      recent_count: item.length,
+      active_count: active.length,
+      blocked_count: blocked.length,
+      completed_count: completed.length,
+      recent_count: items.length,
     },
     buckets: {
-      active: active ? item : [],
-      blocked: blocked ? item : [],
-      completed: completed ? item : [],
-      recent: item,
+      active,
+      blocked,
+      completed,
+      recent: items,
     },
-    recent: item,
+    recent: items,
   };
 }
 
@@ -1711,12 +2250,87 @@ function projectSetupReadiness(
 }
 
 function projectOperationsBrief(state: ProjectJourneyState, projectID: string) {
+  if (state.workItems.length === 0) {
+    return projectOperationsBriefForScope(state, projectID);
+  }
+
+  const itemsByID = new Map<string, ProjectOperationsBriefItem>();
+  for (const workItem of state.workItems) {
+    const assignments = state.assignments.filter(
+      (assignment) => assignment.work_item_id === workItem.id,
+    );
+    const assignmentScopes: Array<ProjectAssignmentRecord | null> =
+      assignments.length > 0 ? assignments : [null];
+    for (const assignment of assignmentScopes) {
+      const scopedState: ProjectJourneyState = {
+        ...state,
+        workItems: [workItem],
+        assignments: assignment ? [assignment] : [],
+        artifacts: state.artifacts.filter((artifact) => artifact.work_item_id === workItem.id),
+        handoffs: state.handoffs.filter((handoff) => handoff.work_item_id === workItem.id),
+        memoryCandidates: [],
+      };
+      const scoped = projectOperationsBriefForScope(scopedState, projectID);
+      const readiness = projectWorkItemReadiness(state, workItem);
+      for (const item of scoped.items) {
+        if (item.kind === "close_work_item" && !readiness.ready) continue;
+        itemsByID.set(item.id, item);
+      }
+    }
+  }
+
+  const memoryItems = projectOperationsBriefForScope(
+    {
+      ...state,
+      workItems: [],
+      assignments: [],
+      artifacts: [],
+      handoffs: [],
+    },
+    projectID,
+  ).items.filter((item) => item.kind === "review_memory_candidates");
+  for (const item of memoryItems) itemsByID.set(item.id, item);
+
+  let items = [...itemsByID.values()];
+  if (items.some((item) => item.kind !== "open_latest_work")) {
+    items = items.filter((item) => item.kind !== "open_latest_work");
+  } else {
+    items = items.slice(0, 1);
+  }
+  sortProjectOperationItems(items);
+
+  const pendingMemoryCandidateCount = state.memoryCandidates.filter(
+    (candidate) => candidate.status === "pending",
+  ).length;
+  return {
+    project_id: projectID,
+    generated_at: NOW,
+    summary: {
+      item_count: items.length,
+      medium_count: items.filter((item) => item.priority === "medium").length,
+      high_count: items.filter((item) => item.priority === "high").length,
+      low_count: items.filter((item) => item.priority === "low").length,
+      pending_memory_candidate_count: pendingMemoryCandidateCount,
+      pending_handoff_count: state.handoffs.filter((handoff) => handoff.status === "pending")
+        .length,
+    },
+    items,
+  };
+}
+
+function projectOperationsBriefForScope(state: ProjectJourneyState, projectID: string) {
   const workItem = state.workItems[0];
   const assignment = state.assignments.find((candidate) => candidate.work_item_id === workItem?.id);
+  const artifacts = state.artifacts.filter((artifact) => artifact.work_item_id === workItem?.id);
+  const pendingHandoff = state.handoffs.find(
+    (handoff) => handoff.work_item_id === workItem?.id && handoff.status === "pending",
+  );
+  const reviewFollowUp = artifacts.find(
+    (artifact) => artifact.kind === "review" && artifact.review_follow_up_required,
+  );
   const assignmentStatus = assignment?.execution_ref?.status || assignment?.status || "";
-  const hasEvidence = state.artifacts.some(
+  const hasEvidence = artifacts.some(
     (artifact) =>
-      artifact.work_item_id === workItem?.id &&
       artifact.kind === "evidence_link" &&
       (!artifact.assignment_id || artifact.assignment_id === assignment?.id),
   );
@@ -1738,7 +2352,66 @@ function projectOperationsBrief(state: ProjectJourneyState, projectID: string) {
         },
       },
     ];
-  } else if (workItem.status !== "done" && !assignment) {
+  } else if (workItem.status === "done") {
+    // Cairnline only adds latest work when no higher-value operation exists.
+  } else if (pendingHandoff) {
+    const assignmentID =
+      pendingHandoff.target_assignment_id || pendingHandoff.source_assignment_id || undefined;
+    items = [
+      {
+        id: `review_pending_handoff:${projectID}:${pendingHandoff.id}`,
+        kind: "review_pending_handoff",
+        priority: "medium",
+        status: pendingHandoff.status,
+        title: `Review pending handoff: ${pendingHandoff.title}`,
+        detail:
+          pendingHandoff.recommended_next_action ||
+          pendingHandoff.summary ||
+          "Review the handoff and decide the next assignment.",
+        action_label: "Open handoff",
+        target: {
+          surface: "work",
+          project_id: projectID,
+          work_item_id: workItem.id,
+          assignment_id: assignmentID,
+          handoff_id: pendingHandoff.id,
+        },
+        action: {
+          type: "open_work_item",
+          project_id: projectID,
+          work_item_id: workItem.id,
+          assignment_id: assignmentID,
+          handoff_id: pendingHandoff.id,
+        },
+        handoff: pendingHandoff,
+      },
+    ];
+  } else if (reviewFollowUp) {
+    items = [
+      {
+        id: `review_follow_up:${projectID}:${reviewFollowUp.id}`,
+        kind: "review_follow_up",
+        priority: "medium",
+        status: "awaiting_approval",
+        title: `Review follow-up: ${workItem.title}`,
+        detail: `Review artifact ${reviewFollowUp.title || reviewFollowUp.id} needs a follow-up path before closeout.`,
+        action_label: "Open review",
+        target: {
+          surface: "work",
+          project_id: projectID,
+          work_item_id: workItem.id,
+          artifact_id: reviewFollowUp.id,
+        },
+        action: {
+          type: "open_work_item",
+          project_id: projectID,
+          work_item_id: workItem.id,
+          artifact_id: reviewFollowUp.id,
+        },
+        metadata: { artifact_id: reviewFollowUp.id },
+      },
+    ];
+  } else if (!assignment) {
     items = [
       {
         id: `prepare_first_assignment:${projectID}:${workItem.id}`,
@@ -1757,8 +2430,6 @@ function projectOperationsBrief(state: ProjectJourneyState, projectID: string) {
         },
       },
     ];
-  } else if (workItem?.status === "done") {
-    // Cairnline only adds latest work when no higher-value operation exists.
   } else if (workItem && assignment && assignmentStatus === "queued") {
     const humanAssignment = assignment.driver_kind === "manual";
     items = [
@@ -1834,6 +2505,7 @@ function projectOperationsBrief(state: ProjectJourneyState, projectID: string) {
           type: "open_work_item",
           project_id: projectID,
           work_item_id: workItem.id,
+          assignment_id: assignment.id,
           activity_bucket: "blocked",
         },
       },
@@ -1863,6 +2535,7 @@ function projectOperationsBrief(state: ProjectJourneyState, projectID: string) {
           type: "open_work_item",
           project_id: projectID,
           work_item_id: workItem.id,
+          assignment_id: assignment.id,
           activity_bucket: "active",
         },
       },
@@ -1888,6 +2561,7 @@ function projectOperationsBrief(state: ProjectJourneyState, projectID: string) {
           type: "open_work_item",
           project_id: projectID,
           work_item_id: workItem.id,
+          assignment_id: assignment.id,
           activity_bucket: "completed",
         },
       },
@@ -1947,6 +2621,8 @@ function projectOperationsBrief(state: ProjectJourneyState, projectID: string) {
     review_failed_assignment: 10,
     start_queued_assignment: 30,
     review_cancelled_assignment: 50,
+    review_pending_handoff: 60,
+    review_follow_up: 65,
     prepare_first_assignment: 70,
     create_first_work_item: 80,
     review_memory_candidates: 90,
@@ -1970,8 +2646,37 @@ function projectOperationsBrief(state: ProjectJourneyState, projectID: string) {
       high_count: items.filter((item) => item.priority === "high").length,
       low_count: items.filter((item) => item.priority === "low").length,
       pending_memory_candidate_count: pendingMemoryCandidateCount,
-      pending_handoff_count: 0,
+      pending_handoff_count: state.handoffs.filter(
+        (handoff) => handoff.work_item_id === workItem?.id && handoff.status === "pending",
+      ).length,
     },
     items,
   };
+}
+
+function sortProjectOperationItems(items: ProjectOperationsBriefItem[]) {
+  const priorityRank = { high: 0, medium: 1, low: 2 } as const;
+  const kindRank: Record<string, number> = {
+    approve_assignment: 0,
+    review_failed_assignment: 10,
+    start_queued_assignment: 30,
+    review_cancelled_assignment: 50,
+    review_pending_handoff: 60,
+    review_follow_up: 65,
+    prepare_first_assignment: 70,
+    create_first_work_item: 80,
+    review_memory_candidates: 90,
+    inspect_active_assignment: 100,
+    record_completion_evidence: 110,
+    close_work_item: 120,
+    open_latest_work: 130,
+  };
+  items.sort((left, right) => {
+    const leftPriority = priorityRank[left.priority as keyof typeof priorityRank] ?? 3;
+    const rightPriority = priorityRank[right.priority as keyof typeof priorityRank] ?? 3;
+    const byPriority = leftPriority - rightPriority;
+    if (byPriority !== 0) return byPriority;
+    const byKind = (kindRank[left.kind] ?? 1_000) - (kindRank[right.kind] ?? 1_000);
+    return byKind !== 0 ? byKind : left.id.localeCompare(right.id);
+  });
 }

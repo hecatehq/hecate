@@ -716,6 +716,7 @@ func renderCairnlineProjectWorkItemReadiness(readiness cairnline.WorkItemCloseou
 		ReviewFollowUpArtifactIDs:    append([]string(nil), readiness.ReviewFollowUpArtifactIDs...),
 		ReviewFollowUps:              renderCairnlineProjectWorkItemReviewFollowUps(readiness.ReviewFollowUps),
 		MissingEvidenceAssignmentIDs: append([]string(nil), readiness.MissingEvidenceAssignmentIDs...),
+		OpenHandoffIDs:               append([]string(nil), readiness.OpenHandoffIDs...),
 	}
 }
 

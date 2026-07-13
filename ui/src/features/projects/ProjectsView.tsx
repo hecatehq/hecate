@@ -79,6 +79,7 @@ import { ProjectReviewArtifactModal } from "./ProjectReviewArtifactModal";
 import {
   buildProjectAssignmentChatLaunchRequest,
   type ProjectAssignmentChatLaunchRequest,
+  type ProjectWorkItemFocusTarget,
 } from "./ProjectWorkItemDetail";
 import {
   ProjectEmptyBlock,
@@ -277,6 +278,10 @@ export function ProjectsView({
     useState<ProjectWorkspaceTab | null>(null);
   const [roles, setRoles] = useState<ProjectWorkRoleRecord[]>([]);
   const [selectedWorkItemID, setSelectedWorkItemID] = useState("");
+  const [workItemFocusTarget, setWorkItemFocusTarget] = useState<ProjectWorkItemFocusTarget | null>(
+    null,
+  );
+  const [selectedWorkItemOperationID, setSelectedWorkItemOperationID] = useState("");
   const [selectedWorkItem, setSelectedWorkItem] = useState<ProjectWorkItemRecord | null>(null);
   const [selectedWorkItemReadiness, setSelectedWorkItemReadiness] =
     useState<ProjectWorkItemReadinessRecord | null>(null);
@@ -290,6 +295,7 @@ export function ProjectsView({
   const [handoffActionID, setHandoffActionID] = useState("");
   const [artifactActionID, setArtifactActionID] = useState("");
   const [evidenceLinkModalOpen, setEvidenceLinkModalOpen] = useState(false);
+  const [evidenceLinkAssignmentID, setEvidenceLinkAssignmentID] = useState("");
   const [evidenceLinkPending, setEvidenceLinkPending] = useState(false);
   const [evidenceLinkError, setEvidenceLinkError] = useState("");
   const [reviewArtifactDraft, setReviewArtifactDraft] = useState<ReviewArtifactForm | null>(null);
@@ -402,6 +408,7 @@ export function ProjectsView({
     setHandoffActionID("");
     setArtifactActionID("");
     setEvidenceLinkModalOpen(false);
+    setEvidenceLinkAssignmentID("");
     setEvidenceLinkPending(false);
     setEvidenceLinkError("");
     setReviewArtifactDraft(null);
@@ -464,6 +471,8 @@ export function ProjectsView({
     setDeleteWorkPending(false);
     setClosingWorkItemID("");
     setSelectedWorkItemID("");
+    setWorkItemFocusTarget(null);
+    setSelectedWorkItemOperationID("");
     setDetailTarget(null);
     setNewAssignmentModalOpen(false);
     setNewAssignmentPending(false);
@@ -480,6 +489,7 @@ export function ProjectsView({
     setHandoffActionID("");
     setArtifactActionID("");
     setEvidenceLinkModalOpen(false);
+    setEvidenceLinkAssignmentID("");
     setEvidenceLinkPending(false);
     setEvidenceLinkError("");
     setReviewArtifactDraft(null);
@@ -511,7 +521,7 @@ export function ProjectsView({
   }, []);
 
   const refreshProjectOverview = useCallback(async (projectID: string) => {
-    if (!projectID || selectedProjectIDRef.current !== projectID) return;
+    if (!projectID || selectedProjectIDRef.current !== projectID) return false;
     const generation = ++overviewProjectionGenerationRef.current;
     const isStale = () =>
       generation !== overviewProjectionGenerationRef.current ||
@@ -531,6 +541,7 @@ export function ProjectsView({
     setOperationsBrief(null);
     setOperationsBriefLoadState("loading");
     setOperationsBriefError("");
+    let operationsLoaded = false;
     const activityLoad = getProjectActivity(projectID)
       .then((payload) => {
         if (isStale()) return;
@@ -577,6 +588,7 @@ export function ProjectsView({
         if (isStale()) return;
         setOperationsBrief(payload.data ?? null);
         setOperationsBriefLoadState("loaded");
+        operationsLoaded = true;
       })
       .catch((error) => {
         if (isStale()) return;
@@ -585,6 +597,7 @@ export function ProjectsView({
         setOperationsBriefLoadState("error");
       });
     await Promise.allSettled([activityLoad, healthLoad, readinessLoad, operationsLoad]);
+    return operationsLoaded && !isStale();
   }, []);
 
   const loadAgentPresets = useCallback(async (cancelled?: () => boolean) => {
@@ -664,7 +677,7 @@ export function ProjectsView({
   }, [providerPresets, providersAndModels.state.providers, settings.state.config?.providers]);
 
   const loadWorkForProject = useCallback(
-    async (projectID: string, preferredWorkItemID = "") => {
+    async (projectID: string, preferredWorkItemID = "", awaitOverview = false) => {
       if (selectedProjectIDRef.current !== projectID) return "";
       const generation = ++workLoadGenerationRef.current;
       const workSelectionGeneration = workItemSelectionGenerationRef.current;
@@ -694,7 +707,11 @@ export function ProjectsView({
         return "";
       }
       setWorkLoadState("loading");
-      void refreshProjectOverview(projectID);
+      const overviewRefresh = refreshProjectOverview(projectID);
+      const finishWorkLoad = async (workItemID: string) => {
+        if (awaitOverview && !(await overviewRefresh)) return "";
+        return workItemID;
+      };
       try {
         let workDataError = "";
         const rolesLoad = getProjectWorkRoles(projectID).catch((error) => {
@@ -730,7 +747,7 @@ export function ProjectsView({
         ) {
           setWorkLoadState("loaded");
           setLoadedProjectID(projectID);
-          return selectedWorkItemIDRef.current;
+          return finishWorkLoad(selectedWorkItemIDRef.current);
         }
         const nextSelectedID = nextItems.some((item) => item.id === preferredWorkItemID)
           ? preferredWorkItemID
@@ -738,7 +755,7 @@ export function ProjectsView({
         setSelectedWorkItemID(nextSelectedID);
         setWorkLoadState("loaded");
         setLoadedProjectID(projectID);
-        return nextSelectedID;
+        return finishWorkLoad(nextSelectedID);
       } catch (error) {
         if (isStale()) return "";
         setWorkLoadState("error");
@@ -814,7 +831,7 @@ export function ProjectsView({
   }, []);
 
   const loadWorkItemDetail = useCallback(async (projectID: string, workItemID: string) => {
-    if (selectedProjectIDRef.current !== projectID) return;
+    if (selectedProjectIDRef.current !== projectID) return false;
     const generation = ++detailLoadGenerationRef.current;
     const isStale = () =>
       generation !== detailLoadGenerationRef.current ||
@@ -830,7 +847,7 @@ export function ProjectsView({
       setArtifacts([]);
       setHandoffs([]);
       setDetailLoadState("idle");
-      return;
+      return false;
     }
     setDetailTarget({ projectID, workItemID });
     setSelectedWorkItemReadiness(null);
@@ -843,7 +860,7 @@ export function ProjectsView({
         getProjectHandoffs(projectID, workItemID),
         getProjectWorkItemReadiness(projectID, workItemID),
       ]);
-      if (isStale()) return;
+      if (isStale()) return false;
       setSelectedWorkItem(itemRes.data);
       setSelectedWorkItemReadiness(readinessRes.data);
       setAssignments(assignmentRes.data ?? []);
@@ -855,11 +872,13 @@ export function ProjectsView({
         [workItemID]: summarizeAssignments(assignmentRes.data ?? []),
       }));
       setDetailLoadState("loaded");
+      return true;
     } catch (error) {
-      if (isStale()) return;
+      if (isStale()) return false;
       setSelectedWorkItemReadiness(null);
       setDetailLoadState("error");
       setDetailError(errorMessage(error, "Failed to load work item detail."));
+      return false;
     }
   }, []);
 
@@ -879,7 +898,9 @@ export function ProjectsView({
     onSkillsError: setSkillsError,
     refreshProjects: projects.actions.loadProjects,
     loadWorkForProject,
-    loadWorkItemDetail,
+    loadWorkItemDetail: async (projectID, workItemID) => {
+      await loadWorkItemDetail(projectID, workItemID);
+    },
     loadProjectMemory,
   });
 
@@ -1458,6 +1479,7 @@ export function ProjectsView({
           completedCount: 0,
         },
       }));
+      setSelectedWorkItemOperationID("");
       setSelectedWorkItemID(payload.data.id);
       setWorkspaceTab("work");
       setNewWorkModalOpen(false);
@@ -1520,7 +1542,9 @@ export function ProjectsView({
     setClosingWorkItemID(item.id);
     setDetailError("");
     try {
-      const payload = await updateProjectWorkItem(projectID, item.id, { status: "done" });
+      const payload = await updateProjectWorkItem(projectID, item.id, {
+        status: "done",
+      });
       if (!isCurrent()) return;
       setWorkItems((current) => upsertWorkItem(current, payload.data));
       if (selectedWorkItemID === item.id) {
@@ -1531,7 +1555,12 @@ export function ProjectsView({
       await loadWorkItemDetail(projectID, item.id);
     } catch (error) {
       if (!isCurrent()) return;
-      setDetailError(errorMessage(error, "Failed to mark work item done."));
+      const message = errorMessage(error, "Failed to mark work item done.");
+      if (error instanceof ApiError && error.status === 409) {
+        await loadWorkForProject(projectID, item.id);
+        if (isCurrent()) await loadWorkItemDetail(projectID, item.id);
+      }
+      if (isCurrent()) setDetailError(message);
     } finally {
       if (isCurrent()) setClosingWorkItemID("");
     }
@@ -1635,13 +1664,15 @@ export function ProjectsView({
 
   function handleOperationsBriefAction(item: ProjectOperationsBriefItem) {
     const candidateID = item.action?.candidate_id;
-    handleProjectActionRoute(
-      routeProjectOperationAction(item, selectedProjectID, {
-        hasMemoryCandidate: Boolean(
-          candidateID && memoryCandidates.some((candidate) => candidate.id === candidateID),
-        ),
-      }),
-    );
+    const route = routeProjectOperationAction(item, selectedProjectID, {
+      hasMemoryCandidate: Boolean(
+        candidateID && memoryCandidates.some((candidate) => candidate.id === candidateID),
+      ),
+    });
+    if (route.kind === "open_work_item") {
+      setSelectedWorkItemOperationID(item.id);
+    }
+    handleProjectActionRoute(route);
   }
 
   function handleSetupReadinessAction(action: ProjectSetupReadiness["primary_action"]) {
@@ -1656,6 +1687,7 @@ export function ProjectsView({
       case "draft_project_proposal":
         navigateWorkspaceTab("work");
         if (route.workItemID) {
+          setSelectedWorkItemOperationID("");
           setSelectedWorkItemID(route.workItemID);
         }
         void assistant.propose(
@@ -1692,6 +1724,7 @@ export function ProjectsView({
           setWorkError("Assignment preflight is missing a work item target.");
           return;
         }
+        setSelectedWorkItemOperationID("");
         selectProjectWorkRoute(route);
         setPreparingAssignmentTarget({
           assignmentID: route.assignmentID,
@@ -1701,9 +1734,17 @@ export function ProjectsView({
         return;
       }
       case "open_work_item":
+        setWorkItemFocusTarget({
+          artifactID: route.artifactID,
+          assignmentID: route.assignmentID,
+          handoffID: route.handoffID,
+          operationKind: route.operationKind,
+          workItemID: route.workItemID,
+        });
         selectProjectWorkRoute(route);
         return;
       case "open_activity_bucket":
+        setSelectedWorkItemOperationID("");
         setActivityBucket(route.bucket);
         navigateWorkspaceTab("work");
         return;
@@ -1738,13 +1779,25 @@ export function ProjectsView({
   function selectProjectWorkRoute(
     route: Extract<ProjectActionRoute, { kind: "open_assignment_preflight" | "open_work_item" }>,
   ) {
-    navigateWorkspaceTab("work");
+    if (route.kind === "open_assignment_preflight") {
+      navigateWorkspaceTab("work");
+    } else {
+      setWorkspaceTab("work");
+      setWorkspaceTabFocusTarget(null);
+    }
     if (route.bucket) {
       setActivityBucket(route.bucket);
     }
     if (route.workItemID) {
       setSelectedWorkItemID(route.workItemID);
     }
+  }
+
+  function handleSelectWorkItem(workItemID: string) {
+    setWorkItemFocusTarget(null);
+    setSelectedWorkItemOperationID("");
+    navigateWorkspaceTab("work");
+    setSelectedWorkItemID(workItemID);
   }
 
   async function handleUpdateAssignment(form: EditAssignmentForm) {
@@ -1841,7 +1894,12 @@ export function ProjectsView({
       setHandoffs((current) => upsertHandoff(current, res.data));
       setEditingHandoff(null);
       setNewHandoffDraft(null);
+      await loadWorkItemDetail(projectID, workItemID);
+      if (!isCurrent()) return;
       await loadWorkForProject(projectID, workItemID);
+      if (isCurrent()) {
+        setWorkItemFocusTarget({ handoffID: res.data.id, workItemID });
+      }
     } catch (error) {
       if (!isCurrent()) return;
       setHandoffError(errorMessage(error, "Failed to save handoff."));
@@ -1875,6 +1933,9 @@ export function ProjectsView({
       await loadWorkItemDetail(projectID, workItemID);
       if (!isCurrent()) return;
       await loadWorkForProject(projectID, workItemID);
+      if (isCurrent()) {
+        setWorkItemFocusTarget({ artifactID: res.data.id, workItemID });
+      }
     } catch (error) {
       if (!isCurrent()) return;
       setReviewArtifactError(errorMessage(error, "Failed to save review artifact."));
@@ -1906,9 +1967,13 @@ export function ProjectsView({
       if (!isCurrent()) return;
       setArtifacts((current) => upsertArtifact(current, res.data));
       setEvidenceLinkModalOpen(false);
+      setEvidenceLinkAssignmentID("");
       await loadWorkItemDetail(projectID, workItemID);
       if (!isCurrent()) return;
       await loadWorkForProject(projectID, workItemID);
+      if (isCurrent()) {
+        setWorkItemFocusTarget({ artifactID: res.data.id, workItemID });
+      }
     } catch (error) {
       if (!isCurrent()) return;
       setEvidenceLinkError(errorMessage(error, "Failed to record evidence."));
@@ -1936,7 +2001,12 @@ export function ProjectsView({
       const res = await updateProjectHandoffStatus(projectID, workItemID, handoff.id, status);
       if (!isCurrent()) return;
       setHandoffs((current) => upsertHandoff(current, res.data));
+      await loadWorkItemDetail(projectID, workItemID);
+      if (!isCurrent()) return;
       await loadWorkForProject(projectID, workItemID);
+      if (isCurrent()) {
+        setWorkItemFocusTarget({ handoffID: res.data.id, workItemID });
+      }
     } catch (error) {
       if (!isCurrent()) return;
       setHandoffError(errorMessage(error, "Failed to update handoff status."));
@@ -1964,6 +2034,8 @@ export function ProjectsView({
       await deleteProjectHandoff(projectID, workItemID, handoff.id);
       if (!isCurrent()) return;
       setHandoffs((current) => current.filter((item) => item.id !== handoff.id));
+      await loadWorkItemDetail(projectID, workItemID);
+      if (!isCurrent()) return;
       await loadWorkForProject(projectID, workItemID);
     } catch (error) {
       if (!isCurrent()) return;
@@ -2054,23 +2126,19 @@ export function ProjectsView({
     }
   }
 
-  async function handleStartHandoff(handoff: ProjectHandoffRecord) {
-    if (!selectedProjectID || !selectedWorkItemID) return;
-    const workItemID = selectedWorkItemID;
-    const assignment = assignments.find((item) => item.id === handoff.target_assignment_id);
-    if (!assignment) {
-      setHandoffError("Handoff has no loaded target assignment to start.");
-      return;
-    }
-    await handleStartAssignment(assignment, workItemID);
-  }
-
   async function refreshSelectedWorkItem() {
-    if (!selectedProjectID) return;
-    const refreshedWorkItemID = await loadWorkForProject(selectedProjectID, selectedWorkItemID);
+    if (!selectedProjectID) return false;
+    const refreshedWorkItemID = await loadWorkForProject(
+      selectedProjectID,
+      selectedWorkItemID,
+      true,
+    );
     if (refreshedWorkItemID) {
-      await loadWorkItemDetail(selectedProjectID, refreshedWorkItemID);
+      const detailRefreshed = await loadWorkItemDetail(selectedProjectID, refreshedWorkItemID);
+      if (!detailRefreshed) return false;
+      return true;
     }
+    return false;
   }
 
   async function handleStartAssignment(
@@ -2322,7 +2390,7 @@ export function ProjectsView({
           </div>
           <div style={topbarActionsStyle}>
             <button
-              className="btn btn-primary btn-sm"
+              className={`btn ${selectedProject ? "btn-ghost" : "btn-primary"} btn-sm`}
               type="button"
               onClick={() => {
                 setCreateProjectError("");
@@ -2407,6 +2475,7 @@ export function ProjectsView({
           onAttentionSkills={() => navigateWorkspaceTab("skills")}
           onAttentionTask={onOpenTask}
           onAttentionWorkItem={(workItemID) => {
+            setSelectedWorkItemOperationID("");
             navigateWorkspaceTab("work");
             setSelectedWorkItemID(workItemID);
           }}
@@ -2455,8 +2524,9 @@ export function ProjectsView({
               setNewAssignmentError("");
               setNewAssignmentModalOpen(true);
             }}
-            onAddEvidenceLink={() => {
+            onAddEvidenceLink={(assignmentID = "") => {
               setEvidenceLinkError("");
+              setEvidenceLinkAssignmentID(assignmentID);
               setEvidenceLinkModalOpen(true);
             }}
             onAddHandoff={() => {
@@ -2584,13 +2654,12 @@ export function ProjectsView({
             }}
             onRefreshWorkItem={refreshSelectedWorkItem}
             onRejectCandidate={handleRejectCandidate}
-            onSelectWorkItem={setSelectedWorkItemID}
+            onSelectWorkItem={handleSelectWorkItem}
             onSetHandoffStatus={(handoff, status) => void handleSetHandoffStatus(handoff, status)}
             onSetAssignmentStatus={(assignment, status) =>
               void handleSetAssignmentStatus(assignment, status as EditAssignmentForm["status"])
             }
             onStartAssignment={handleStartAssignment}
-            onStartHandoff={(handoff) => void handleStartHandoff(handoff)}
             onSetupReadinessAction={handleSetupReadinessAction}
             onUpdateProjectSkill={(skill, patch) => void handleUpdateProjectSkill(skill, patch)}
             onNavigateWorkspaceTab={navigateWorkspaceTab}
@@ -2612,6 +2681,7 @@ export function ProjectsView({
             roleByID={roleByID}
             roles={roles}
             selectedWorkItem={currentSelectedWorkItem}
+            selectedWorkItemOperationID={selectedWorkItemOperationID}
             selectedWorkItemReadiness={currentSelectedWorkItemReadiness}
             selectedWorkItemID={selectedWorkItemID}
             skillsError={skillsError}
@@ -2622,6 +2692,8 @@ export function ProjectsView({
             workItemSummaries={workItemSummaries}
             workItems={workItems}
             workLoadState={workLoadState}
+            workItemFocusTarget={workItemFocusTarget}
+            onWorkItemFocusTargetHandled={() => setWorkItemFocusTarget(null)}
             workspaceTab={workspaceTab}
           />
 
@@ -2826,11 +2898,15 @@ export function ProjectsView({
 
         {evidenceLinkModalOpen && currentSelectedWorkItem && (
           <ProjectEvidenceLinkModal
+            key={evidenceLinkAssignmentID || "work-item"}
             assignments={currentAssignments}
             error={evidenceLinkError}
+            initialAssignmentID={evidenceLinkAssignmentID}
             pending={evidenceLinkPending}
+            roles={roles}
             onClose={() => {
               setEvidenceLinkModalOpen(false);
+              setEvidenceLinkAssignmentID("");
               setEvidenceLinkError("");
             }}
             onSave={handleSaveEvidenceLink}
@@ -3029,7 +3105,12 @@ function ProjectIndexRow({
             >
               {project.name}
             </div>
-            <div style={{ ...projectIndexActionsStyle, opacity: actionsVisible ? 1 : 0 }}>
+            <div
+              style={{
+                ...projectIndexActionsStyle,
+                opacity: actionsVisible ? 1 : 0,
+              }}
+            >
               <button
                 className="btn btn-ghost btn-sm"
                 type="button"
@@ -3052,7 +3133,10 @@ function ProjectIndexRow({
                   event.stopPropagation();
                   onDelete();
                 }}
-                style={{ ...projectIndexActionButtonStyle, color: "var(--red)" }}
+                style={{
+                  ...projectIndexActionButtonStyle,
+                  color: "var(--red)",
+                }}
               >
                 <Icon d={Icons.trash} size={10} />
               </button>

@@ -21,6 +21,7 @@ type ProjectActionResponse struct {
 	ProjectID      string `json:"project_id"`
 	WorkItemID     string `json:"work_item_id,omitempty"`
 	AssignmentID   string `json:"assignment_id,omitempty"`
+	ArtifactID     string `json:"artifact_id,omitempty"`
 	HandoffID      string `json:"handoff_id,omitempty"`
 	ActivityBucket string `json:"activity_bucket,omitempty"`
 	TaskID         string `json:"task_id,omitempty"`

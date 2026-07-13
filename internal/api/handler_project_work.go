@@ -1358,11 +1358,9 @@ func pluralSuffix(count int) string {
 }
 
 func projectWorkItemStatusFromAssignments(storedStatus string, assignments []ProjectWorkAssignmentResponse) string {
-	if len(assignments) == 0 {
+	if len(assignments) == 0 || projectwork.WorkItemClosed(storedStatus) {
 		return storedStatus
 	}
-	allCompleted := true
-	allCancelled := true
 	hasFailedOrCancelled := false
 	for _, assignment := range assignments {
 		switch assignment.Status {
@@ -1372,32 +1370,14 @@ func projectWorkItemStatusFromAssignments(storedStatus string, assignments []Pro
 			if assignment.Execution != nil && !assignment.Execution.Missing && (assignment.Execution.RunID != "" || assignment.Execution.TaskID != "") {
 				return projectwork.WorkItemStatusRunning
 			}
-			allCompleted = false
-			allCancelled = false
-		case projectwork.AssignmentStatusCompleted:
-			allCancelled = false
-		case projectwork.AssignmentStatusFailed:
-			allCompleted = false
-			allCancelled = false
+		case projectwork.AssignmentStatusFailed, projectwork.AssignmentStatusCancelled:
 			hasFailedOrCancelled = true
-		case projectwork.AssignmentStatusCancelled:
-			allCompleted = false
-			hasFailedOrCancelled = true
-		default:
-			allCompleted = false
-			allCancelled = false
 		}
 	}
-	switch {
-	case allCompleted:
-		return projectwork.WorkItemStatusDone
-	case allCancelled:
-		return projectwork.WorkItemStatusCancelled
-	case hasFailedOrCancelled:
+	if hasFailedOrCancelled {
 		return projectwork.WorkItemStatusBlocked
-	default:
-		return storedStatus
 	}
+	return storedStatus
 }
 
 func renderProjectWorkRole(item projectwork.AgentRoleProfile) ProjectWorkRoleResponse {

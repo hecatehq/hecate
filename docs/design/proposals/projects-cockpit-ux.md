@@ -1,7 +1,7 @@
 # Projects Cockpit UX
 
-> **Status:** Proposal with the overview-first, work-item execution, and
-> assignment-destination slices implemented.
+> **Status:** Proposal with the overview-first, work-item execution,
+> assignment-destination, and follow-through slices implemented.
 >
 > **Current source of truth:** [Projects](../../operator/projects.md),
 > [Projects design](../accepted/projects.md), and the Hecate
@@ -32,6 +32,15 @@ Concrete issues from the current UI and browser behavior:
 - Assignment forms exposed implementation-shaped role/driver language, and the
   Hecate facade did not preserve Cairnline's `manual` destination for human
   work.
+- Completed assignments could make a work item look done before the operator
+  resolved evidence, review follow-up, or an open handoff.
+- Review, handoff, evidence, and closeout controls were spread across several
+  sections, so a selected work item could present several equally prominent
+  actions.
+- Overview could open the right work item but discard the exact assignment,
+  review, or handoff target. That forced another scan, especially at 390px.
+- Review and handoff forms exposed advanced record details in the routine path,
+  and closeout could be committed without a final confirmation.
 
 Existing strengths stay intact: rootless creation is first-class, setup and
 assistant changes remain reviewable, launch preflight is explicit, evidence is
@@ -60,19 +69,24 @@ flowchart LR
   N --> W["Work"]
   S --> W
   W --> D["Selected work item"]
-  D --> X["Assignment execution stories"]
-  D --> R["Review · handoff · closeout"]
+  D --> F["Single follow-through action"]
+  F --> X["Assignment execution stories"]
+  F --> R["Evidence · review · handoff · closeout"]
+  R --> C["Explicit closeout confirmation"]
+  C --> Q["Read-only completed record"]
   V --> T["Timeline"]
   V --> M["Memory"]
   V --> K["Skills"]
   V --> I["Settings inspectors"]
 ```
 
-Overview uses `setup-readiness`, the first ordered `operations` item, and
-activity counts already loaded through Hecate. Work continues to own the queue,
-selected work item, Project Assistant, assignments, evidence, handoffs, review,
-and closeout. Timeline, Memory, Skills, Roles, Agent Presets, roots, sources, and
-runtime detail stay supporting surfaces.
+Overview uses setup readiness, the first ordered operation, and activity counts
+already loaded through Hecate. Work continues to own the queue, selected work
+item, Project Assistant, assignments, evidence, handoffs, review, and closeout.
+Within selected work, the first server-ordered operation for that item becomes
+its one follow-through action and routes to the exact record. Timeline, Memory,
+Skills, Roles, Agent Presets, roots, sources, and runtime detail stay supporting
+surfaces.
 
 ## Operator Journey
 
@@ -93,10 +107,17 @@ flowchart TD
   K -->|"Hecate Task or External Agent"| KA["Review launch context and approve start"]
   KH --> L["Track progress, approvals, failures, and evidence"]
   KA --> L
-  L --> M["Request review or create handoff"]
-  M --> N["Resolve follow-up"]
-  N --> O["Explicitly close work"]
-  O --> G
+  L --> M["Follow the selected work item's next action"]
+  M --> N{"What is needed?"}
+  N -->|"Evidence"| NE["Record evidence for the named assignment"]
+  N -->|"Review"| NR["Record verdict or plan follow-up"]
+  N -->|"Handoff"| NH["Accept, dismiss, or link follow-up work"]
+  N -->|"Ready"| O["Review and confirm closeout"]
+  NE --> M
+  NR --> M
+  NH --> M
+  O --> P["Inspect the completed record"]
+  P --> G
 ```
 
 ## Reviewable Slices
@@ -116,13 +137,48 @@ flowchart TD
    runtime detail, then add shareable project/work navigation and broader
    accessibility coverage.
 
-Slices 1 through 3 are implemented. Slice 1 rearranges existing server
+Slices 1 through 4 are implemented. Slice 1 rearranges existing server
 projections and action routing. Slice 2 reshapes each assignment into a
 state-driven story. Slice 3 adds Human as a faithful facade label for
 Cairnline's `manual` execution mode, with direct Start work, Resume work, and
 Mark complete actions backed by Cairnline claim/status/completion transitions.
+Slice 4 adds one server-directed follow-through action to selected work, exact
+assignment/review/handoff focus, progressive evidence and handoff forms, an
+explicit closeout confirmation, and a read-only completed state. It also keeps
+work-item closure explicit: completed assignments no longer make an open work
+item appear closed.
 None of the slices add local project lifecycle state or inferred execution
 events.
+
+## Work-Item Follow-Through Rail
+
+```mermaid
+flowchart TD
+  A["Select work item"] --> B["Use its first server-ordered operation"]
+  B --> C{"Typed target"}
+  C -->|"Assignment"| D["Focus assignment and its current action"]
+  C -->|"Missing evidence"| E["Open evidence form for that assignment"]
+  C -->|"Review artifact"| F["Draft a reviewable follow-up"]
+  C -->|"Open handoff"| G["Focus handoff for an operator decision"]
+  C -->|"Ready for closeout"| H["Open closeout confirmation"]
+  D --> K["Refresh authoritative operations"]
+  E --> K
+  F --> K
+  G --> K
+  K --> B
+  H --> I["Operator marks work done"]
+  I --> J["Read-only completed record"]
+```
+
+The rail never parses blocker copy or invents urgency. It uses the operation's
+typed assignment, review artifact, or handoff identifier and checks that target
+against the structured closeout readiness response. The same identifiers carry
+Overview navigation into selected work, where focus lands on the intended
+record. If no server operation promotes the selected item, its closeout checks
+remain available without creating another primary action.
+At narrow widths the rail stacks its action below the explanation, routine
+forms collapse to one column, and focused records scroll into view with a
+visible keyboard-focus target.
 
 ## Assignment Execution Story
 
@@ -168,6 +224,21 @@ submission. A prepared Human claim is shown as blocked rather than as a
 recoverable interrupted start, and queued progress changes are saved separately
 from destination edits.
 
+The deterministic follow-through journey verifies exact assignment, handoff,
+review-artifact, and closeout focus against same-work decoys; narrow-width
+containment before test-driven scrolling; explicit closeout; and the durable
+read-only completed state. Focus requests for records that disappeared fail
+closed to the selected work item with an announced refresh action. Unexpected
+fixture routes fail the journey instead of receiving generic success data.
+
+![Work-item closeout confirmation at desktop width](../../screenshots/projects-follow-through.jpg)
+
+![Focused handoff at narrow width](../../screenshots/projects-follow-through-narrow.jpg)
+
+Regenerate these images with
+`HECATE_CAPTURE_PROJECTS_FOLLOW_THROUGH=1 bunx playwright test e2e/projects.spec.ts -g "Projects follow-through journey"`
+from `ui/`.
+
 Regenerate the two Overview images from the deterministic browser journey with
 `HECATE_CAPTURE_PROJECTS_OVERVIEW=1 bunx playwright test e2e/projects.spec.ts -g "default ready-project home"` from `ui/`.
 This targeted journey is the canonical generator for these two JPGs; the general
@@ -201,6 +272,20 @@ from `ui/`.
   Hecate's facade and never reconstructs portable state.
 - Operations route through the server-provided `action.type`; `kind`, target
   metadata, and client activity are not alternate priority authorities.
+- Selected-work follow-through preserves the exact server operation the
+  operator chose, including when several operations target the same work item;
+  after that operation disappears from a loaded authoritative brief, the rail
+  advances in server order. Direct work selection also starts in server order.
+  It may validate and focus a typed assignment, review artifact, or handoff
+  target, but it must not rank local blockers or parse display copy into
+  actions. A missing exact target remains guarded across pending or failed
+  refreshes until the record appears or the loaded brief removes the target.
+- Closeout readiness exposes `missing_evidence_assignment_ids`,
+  `review_follow_up_artifact_ids`, and `open_handoff_ids` for exact routing.
+  Cairnline remains the authority for those records and their readiness; Hecate
+  does not reconstruct them from rendered blocker text.
+- A completed assignment is not a completed work item. Only the explicit
+  operator closeout transition produces the read-only `done` state.
 - Health remains a secondary inspector because a root can be optional for
   coordination even when health reports that launches need one.
 - Human is a product label for Cairnline's `manual` execution mode, not a

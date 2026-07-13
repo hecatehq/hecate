@@ -61,7 +61,12 @@ surface that owns it:
 - `ProjectWorkspaceView.tsx` — selected-project shell, onboarding, workspace
   tabs, work inbox, and empty blocks.
 - `ProjectWorkItemDetail.tsx` — work item detail, assignment rows,
-  handoff-linked starts, launch preflight, and chat-draft request shaping.
+  review/handoff/evidence sections, launch preflight, closeout confirmation,
+  exact-record focus, and chat-draft request shaping.
+- `ProjectWorkItemFollowThrough.tsx` — the selected work item's single next
+  action. Preserve the first server-ordered operation and validate its typed
+  assignment/artifact/handoff target against server readiness; never parse
+  blocker copy or derive another client-side priority order.
 - `ProjectTimelinePanel.tsx` — timeline and decision-log rows.
 - `ProjectHealthPanel.tsx` — attention and health popovers.
 - `ProjectMemoryPanel.tsx` / `ProjectSkillsPanel.tsx` — memory/context review

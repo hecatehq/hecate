@@ -30,7 +30,13 @@ import { ProjectTimelinePanel } from "./ProjectTimelinePanel";
 import {
   ProjectWorkItemDetail,
   type ProjectAssignmentChatLaunchRequest,
+  type ProjectWorkItemFocusTarget,
 } from "./ProjectWorkItemDetail";
+import {
+  projectWorkItemFollowThroughIntent,
+  projectWorkItemOperationTargetAvailable,
+} from "./ProjectWorkItemFollowThrough";
+import { projectOperationHasActionTargetMismatch } from "./projectActionRouting";
 import { toProjectAssignmentExecutionViewModel } from "./projectAssignmentViewModels";
 import { formatProjectRowRelativeTime, workStatusLabel } from "./projectDisplay";
 import { projectActivityWorkItemToWorkItem } from "./projectInsights";
@@ -67,13 +73,14 @@ export type ProjectWorkspaceViewProps = {
   handoffError: string;
   handoffs: ProjectHandoffRecord[];
   hasWorkItemDetail: boolean;
+  workItemFocusTarget?: ProjectWorkItemFocusTarget | null;
   memoryCandidates: ProjectMemoryCandidateRecord[];
   memoryEntries: ProjectMemoryRecord[];
   memoryError: string;
   memoryLoadState: LoadState;
   onActivityBucketChange: (bucket: ProjectActivityBucketKey) => void;
   onAddAssignment: () => void;
-  onAddEvidenceLink: () => void;
+  onAddEvidenceLink: (assignmentID?: string) => void;
   onAddHandoff: () => void;
   onAddHandoffFromAssignment: (
     assignment: ProjectAssignmentRecord,
@@ -118,12 +125,12 @@ export type ProjectWorkspaceViewProps = {
   onPromoteCandidate: (candidate: ProjectMemoryCandidateRecord) => void;
   onRefreshMemory: () => void;
   onRefreshProjectSkills: () => void;
-  onRefreshWorkItem: () => void;
+  onRefreshWorkItem: () => void | boolean | Promise<void | boolean>;
+  onWorkItemFocusTargetHandled?: () => void;
   onRejectCandidate: (candidate: ProjectMemoryCandidateRecord) => void | Promise<void>;
   onSelectWorkItem: (workItemID: string) => void;
   onSetHandoffStatus: (handoff: ProjectHandoffRecord, status: string) => void;
   onStartAssignment: (assignment: ProjectAssignmentRecord) => void;
-  onStartHandoff: (handoff: ProjectHandoffRecord) => void;
   onSetupReadinessAction: (action: ProjectSetupReadinessAction) => void;
   onUpdateProjectSkill: (skill: ProjectSkillRecord, patch: UpdateProjectSkillPayload) => void;
   onWorkspaceTabChange: (tab: ProjectWorkspaceTab) => void;
@@ -144,6 +151,7 @@ export type ProjectWorkspaceViewProps = {
   roleByID: Map<string, ProjectWorkRoleRecord>;
   roles: ProjectWorkRoleRecord[];
   selectedWorkItem: ProjectWorkItemRecord | null;
+  selectedWorkItemOperationID?: string;
   selectedWorkItemReadiness: ProjectWorkItemReadinessRecord | null;
   selectedWorkItemID: string;
   closingWorkItemID: string;
@@ -177,6 +185,7 @@ export function ProjectWorkspaceView({
   handoffError,
   handoffs,
   hasWorkItemDetail,
+  workItemFocusTarget = null,
   memoryCandidates,
   memoryEntries,
   memoryError,
@@ -222,11 +231,11 @@ export function ProjectWorkspaceView({
   onRefreshMemory,
   onRefreshProjectSkills,
   onRefreshWorkItem,
+  onWorkItemFocusTargetHandled,
   onRejectCandidate,
   onSelectWorkItem,
   onSetHandoffStatus,
   onStartAssignment,
-  onStartHandoff,
   onSetupReadinessAction,
   onUpdateProjectSkill,
   onWorkspaceTabChange,
@@ -247,6 +256,7 @@ export function ProjectWorkspaceView({
   roleByID,
   roles,
   selectedWorkItem,
+  selectedWorkItemOperationID = "",
   selectedWorkItemReadiness,
   selectedWorkItemID,
   closingWorkItemID,
@@ -268,6 +278,71 @@ export function ProjectWorkspaceView({
       !selectedWorkItem &&
       (Boolean(assistant.proposal) || Boolean(assistant.applyResult)));
   const projectWorkItemCount = workItems.length || activity?.summary.work_item_count || 0;
+  const operationItems = Array.isArray(operationsBrief?.items) ? operationsBrief.items : [];
+  const firstSelectedWorkItemOperation =
+    operationItems.find(
+      (item) =>
+        (item.action?.type === "open_work_item" ||
+          item.action?.type === "open_assignment_preflight") &&
+        item.action.work_item_id === selectedWorkItemID,
+    ) ?? null;
+  const selectedWorkItemOperation = selectedWorkItemOperationID
+    ? (operationItems.find(
+        (item) =>
+          item.id === selectedWorkItemOperationID &&
+          item.action?.type === "open_work_item" &&
+          item.action.work_item_id === selectedWorkItemID,
+      ) ?? (operationsBriefLoadState === "loaded" ? firstSelectedWorkItemOperation : null))
+    : firstSelectedWorkItemOperation;
+  const visibleSelectedWorkItemOperation =
+    assistant.proposal || !selectedWorkItemReadiness ? null : selectedWorkItemOperation;
+  const selectedOperationTargetAvailable = projectWorkItemOperationTargetAvailable(
+    visibleSelectedWorkItemOperation,
+    {
+      artifacts,
+      assignments,
+      handoffs,
+    },
+  );
+  const selectedAssignmentPreflightID =
+    visibleSelectedWorkItemOperation?.action?.type === "open_assignment_preflight" &&
+    !projectOperationHasActionTargetMismatch(visibleSelectedWorkItemOperation) &&
+    selectedOperationTargetAvailable
+      ? visibleSelectedWorkItemOperation.action.assignment_id?.trim() || ""
+      : "";
+  const selectedWorkItemFollowThroughOperation =
+    visibleSelectedWorkItemOperation?.action?.type === "open_work_item" ||
+    (visibleSelectedWorkItemOperation?.action?.type === "open_assignment_preflight" &&
+      !selectedAssignmentPreflightID)
+      ? visibleSelectedWorkItemOperation
+      : null;
+  const selectedWorkItemClosed =
+    selectedWorkItemReadiness?.status === "done" ||
+    selectedWorkItem?.status === "done" ||
+    selectedWorkItem?.status === "cancelled";
+  const selectedWorkItemNeedsFirstStep = Boolean(
+    selectedWorkItem &&
+    !selectedWorkItemClosed &&
+    assignments.length === 0 &&
+    artifacts.length === 0 &&
+    handoffs.length === 0,
+  );
+  const followThroughOwnsPrimary = Boolean(
+    selectedWorkItem &&
+    selectedWorkItemReadiness &&
+    projectWorkItemFollowThroughIntent(
+      selectedWorkItemReadiness,
+      selectedWorkItemFollowThroughOperation,
+      selectedWorkItem,
+      selectedOperationTargetAvailable,
+    ),
+  );
+  const routineActionsAreSecondary =
+    followThroughOwnsPrimary ||
+    Boolean(visibleSelectedWorkItemOperation) ||
+    selectedWorkItemReadiness?.status === "ready" ||
+    selectedWorkItemNeedsFirstStep ||
+    Boolean(assistant.proposal);
 
   return (
     <section style={detailStyle} aria-label="Project workspace content">
@@ -378,43 +453,46 @@ export function ProjectWorkspaceView({
                   role="tabpanel"
                 >
                   <section aria-label="Work coordination" style={projectTabPanelStyle}>
-                    <ProjectAssistantPanel
-                      applyResult={assistant.applyResult}
-                      bootstrapPending={assistant.bootstrapPending}
-                      chatDraftSource={assistant.chatDraftSource}
-                      context={assistant.context}
-                      contextError={assistant.contextError}
-                      contextStatus={assistant.contextStatus}
-                      error={assistant.error}
-                      onApply={() => void assistant.apply()}
-                      onBootstrap={() => void assistant.bootstrap()}
-                      onCreateWork={onCreateWork}
-                      onInspectContext={(form) => void assistant.inspectContext(form)}
-                      onDismiss={assistant.dismiss}
-                      onManageRoles={onManageRoles}
-                      onOpenWork={() => onWorkspaceTabChange("work")}
-                      onOpenSourceChat={
-                        assistant.chatDraftSource?.sourceSessionID && onOpenChat
-                          ? () =>
-                              onOpenChat({
-                                projectID: project.id,
-                                chatSessionID: assistant.chatDraftSource?.sourceSessionID,
-                              })
-                          : undefined
-                      }
-                      onPropose={(form) => void assistant.propose(form)}
-                      onReviewMemory={() => onWorkspaceTabChange("memory")}
-                      project={project}
-                      proposal={assistant.proposal}
-                      roles={roles}
-                      memoryCandidateCount={memoryCandidates.length}
-                      roleCount={roles.length}
-                      setupFirst={projectSetupAssistantMode}
-                      setupStarted={projectSetupStarted}
-                      status={assistant.status}
-                      workItem={selectedWorkItem}
-                      workItemCount={workItems.length}
-                    />
+                    {!selectedWorkItemClosed && (
+                      <ProjectAssistantPanel
+                        applyResult={assistant.applyResult}
+                        bootstrapPending={assistant.bootstrapPending}
+                        chatDraftSource={assistant.chatDraftSource}
+                        context={assistant.context}
+                        contextError={assistant.contextError}
+                        contextStatus={assistant.contextStatus}
+                        error={assistant.error}
+                        onApply={() => void assistant.apply()}
+                        onBootstrap={() => void assistant.bootstrap()}
+                        onCreateWork={onCreateWork}
+                        onInspectContext={(form) => void assistant.inspectContext(form)}
+                        onDismiss={assistant.dismiss}
+                        onManageRoles={onManageRoles}
+                        onOpenWork={() => onWorkspaceTabChange("work")}
+                        onOpenSourceChat={
+                          assistant.chatDraftSource?.sourceSessionID && onOpenChat
+                            ? () =>
+                                onOpenChat({
+                                  projectID: project.id,
+                                  chatSessionID: assistant.chatDraftSource?.sourceSessionID,
+                                })
+                            : undefined
+                        }
+                        onPropose={(form) => void assistant.propose(form)}
+                        onReviewMemory={() => onWorkspaceTabChange("memory")}
+                        project={project}
+                        proposal={assistant.proposal}
+                        primaryEmphasis={!routineActionsAreSecondary}
+                        roles={roles}
+                        memoryCandidateCount={memoryCandidates.length}
+                        roleCount={roles.length}
+                        setupFirst={projectSetupAssistantMode}
+                        setupStarted={projectSetupStarted}
+                        status={assistant.status}
+                        workItem={selectedWorkItem}
+                        workItemCount={workItems.length}
+                      />
+                    )}
                     <section aria-label="Work activity" style={workActivityPanelStyle}>
                       <SectionHeader
                         title="Work Queue"
@@ -425,7 +503,7 @@ export function ProjectWorkspaceView({
                         }
                         actions={
                           <button
-                            className="btn btn-primary btn-sm"
+                            className="btn btn-ghost btn-sm"
                             type="button"
                             onClick={onCreateWork}
                           >
@@ -462,6 +540,7 @@ export function ProjectWorkspaceView({
                       <section aria-label="Selected work item" style={workDetailColumnStyle}>
                         {hasWorkItemDetail ? (
                           <ProjectWorkItemDetail
+                            assistantProposalOpen={Boolean(assistant.proposal)}
                             assignments={assignments}
                             artifacts={artifacts}
                             artifactActionID={artifactActionID}
@@ -472,9 +551,11 @@ export function ProjectWorkspaceView({
                             detailError={detailError}
                             draftingDefaultAssignment={draftingDefaultAssignment}
                             preparingAssignmentID={preparingAssignmentID}
+                            focusTarget={workItemFocusTarget}
                             loading={detailLoadState === "loading"}
                             onOpenTask={onOpenTask}
                             onRefresh={onRefreshWorkItem}
+                            onFocusTargetHandled={onWorkItemFocusTargetHandled}
                             onCreateAssignmentFromHandoff={onCreateAssignmentFromHandoff}
                             activityByAssignmentID={activityByAssignmentID}
                             onDeleteHandoff={onDeleteHandoff}
@@ -491,13 +572,14 @@ export function ProjectWorkspaceView({
                             onOpenConnections={onOpenConnections}
                             onOpenSettings={onOpenSettings}
                             onStartAssignment={onStartAssignment}
-                            onStartHandoff={onStartHandoff}
                             onSetHandoffStatus={onSetHandoffStatus}
                             onOpenWorkItem={onSelectWorkItem}
                             project={project}
+                            primaryAssignmentID={selectedAssignmentPreflightID}
                             roleByID={roleByID}
                             closingWorkItemID={closingWorkItemID}
                             closeoutReadiness={selectedWorkItemReadiness}
+                            operation={selectedWorkItemFollowThroughOperation}
                             startingAssignmentIDs={startingAssignmentIDs}
                             workItem={selectedWorkItem}
                             onAddAssignment={onAddAssignment}
@@ -650,12 +732,20 @@ function WorkItemRow({
         cursor: "pointer",
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          marginBottom: 6,
+        }}
+      >
         <Badge status={item.status} label={workStatusLabel(item.status)} />
         <span className="badge badge-muted">{item.priority}</span>
         {summary && summary.assignmentCount > 0 && (
           <span className="badge badge-muted">
-            {summary.assignmentCount} assignment{summary.assignmentCount === 1 ? "" : "s"}
+            {summary.assignmentCount} assignment
+            {summary.assignmentCount === 1 ? "" : "s"}
           </span>
         )}
       </div>
@@ -1036,7 +1126,11 @@ function ProjectWorkspaceTabs({
     { id: "overview", label: "Overview", count: 0 },
     { id: "work", label: "Work", count: workItemCount },
     { id: "timeline", label: "Timeline", count: 0 },
-    { id: "memory", label: "Memory", count: memoryEntryCount + memoryCandidateCount },
+    {
+      id: "memory",
+      label: "Memory",
+      count: memoryEntryCount + memoryCandidateCount,
+    },
     { id: "skills", label: "Skills", count: projectSkillCount },
   ];
 
@@ -1204,14 +1298,34 @@ function ProjectActivityBucketTabs({
   const activityUnavailable = activityLoadState === "error" && !activity;
   const activityReady = !activityPending && !activityUnavailable;
   const selectedBucket = activityReady ? bucket : "all";
-  const tabs: Array<{ id: ProjectActivityBucketKey; label: string; count?: number }> = [
+  const tabs: Array<{
+    id: ProjectActivityBucketKey;
+    label: string;
+    count?: number;
+  }> = [
     { id: "all", label: "All", count: workItemCount },
     ...(activityReady
       ? [
-          { id: "blocked" as const, label: "Blocked", count: counts?.blocked_count ?? 0 },
-          { id: "active" as const, label: "Active", count: counts?.active_count ?? 0 },
-          { id: "completed" as const, label: "Completed", count: counts?.completed_count ?? 0 },
-          { id: "recent" as const, label: "Recent", count: counts?.recent_count ?? 0 },
+          {
+            id: "blocked" as const,
+            label: "Blocked",
+            count: counts?.blocked_count ?? 0,
+          },
+          {
+            id: "active" as const,
+            label: "Active",
+            count: counts?.active_count ?? 0,
+          },
+          {
+            id: "completed" as const,
+            label: "Completed",
+            count: counts?.completed_count ?? 0,
+          },
+          {
+            id: "recent" as const,
+            label: "Recent",
+            count: counts?.recent_count ?? 0,
+          },
         ]
       : []),
   ];
@@ -1280,10 +1394,23 @@ function latestProjectWorkItem(items: ProjectWorkItemRecord[]): ProjectWorkItemR
 export function ProjectEmptyBlock({ title, detail }: { title: string; detail: string }) {
   return (
     <div
-      style={{ padding: 24, textAlign: "center", display: "grid", gap: 8, placeItems: "center" }}
+      style={{
+        padding: 24,
+        textAlign: "center",
+        display: "grid",
+        gap: 8,
+        placeItems: "center",
+      }}
     >
       <div style={{ color: "var(--t0)", fontSize: 14, fontWeight: 600 }}>{title}</div>
-      <div style={{ color: "var(--t2)", fontSize: 12, lineHeight: 1.5, maxWidth: 320 }}>
+      <div
+        style={{
+          color: "var(--t2)",
+          fontSize: 12,
+          lineHeight: 1.5,
+          maxWidth: 320,
+        }}
+      >
         {detail}
       </div>
     </div>

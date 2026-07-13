@@ -258,12 +258,22 @@ func handoffOperationItem(projectID string, handoff projectwork.Handoff) Project
 }
 
 func genericCairnlineOperationItem(projectID string, item cairnline.ProjectOperationItem, kind, priority, actionLabel string) ProjectOperationsBriefItemResponse {
+	artifactID := item.ArtifactID
+	handoffID := ""
+	if kind == "review_pending_handoff" {
+		handoffID = artifactID
+		artifactID = ""
+	}
 	target := ProjectOperationsBriefTargetResponse{
 		Surface:      "work",
 		ProjectID:    projectID,
 		WorkItemID:   item.WorkItemID,
 		AssignmentID: item.AssignmentID,
+		ArtifactID:   artifactID,
+		HandoffID:    handoffID,
 	}
+	action := projectOperationsOpenWorkItemAction(target.ProjectID, target.WorkItemID, target.AssignmentID, target.HandoffID, "")
+	action.ArtifactID = target.ArtifactID
 	return ProjectOperationsBriefItemResponse{
 		ID:          projectOperationsItemID(kind, projectID, firstNonEmpty(item.AssignmentID, item.ArtifactID, item.MemoryCandidateID, item.WorkItemID)),
 		Kind:        kind,
@@ -273,7 +283,7 @@ func genericCairnlineOperationItem(projectID string, item cairnline.ProjectOpera
 		ActionLabel: actionLabel,
 		Status:      item.Status,
 		Target:      target,
-		Action:      projectOperationsOpenWorkItemAction(target.ProjectID, target.WorkItemID, target.AssignmentID, "", ""),
+		Action:      action,
 		UpdatedAt:   formatOptionalTime(item.UpdatedAt),
 	}
 }
