@@ -20,6 +20,7 @@ const ACTIVE_PROJECT_STORAGE_KEY = "hecate.project";
 export type ProjectsState = {
   projects: ProjectRecord[];
   loading: boolean;
+  loaded: boolean;
   error: string;
 };
 
@@ -47,11 +48,13 @@ type ProjectsContextValue = {
 type Action =
   | { type: "projects/set"; next: SetStateAction<ProjectRecord[]> }
   | { type: "loading/set"; value: boolean }
+  | { type: "loaded/set"; value: boolean }
   | { type: "error/set"; value: string };
 
 const initialState: ProjectsState = {
   projects: [],
   loading: false,
+  loaded: false,
   error: "",
 };
 
@@ -65,6 +68,8 @@ function reducer(state: ProjectsState, action: Action): ProjectsState {
       return { ...state, projects: resolve(state.projects, action.next) };
     case "loading/set":
       return state.loading === action.value ? state : { ...state, loading: action.value };
+    case "loaded/set":
+      return state.loaded === action.value ? state : { ...state, loaded: action.value };
     case "error/set":
       return state.error === action.value ? state : { ...state, error: action.value };
     default:
@@ -104,7 +109,7 @@ export function ProjectsProvider({
   const setLoading = useCallback((value: boolean) => dispatch({ type: "loading/set", value }), []);
   const setError = useCallback((value: string) => dispatch({ type: "error/set", value }), []);
   const setActiveProjectID = useCallback(
-    (id: string) => setActiveProjectIDState(id.trim()),
+    (id: string) => setActiveProjectIDState(opaqueRecordID(id)),
     [setActiveProjectIDState],
   );
 
@@ -114,6 +119,7 @@ export function ProjectsProvider({
       const payload = await getProjectsRequest();
       const items = payload.data ?? [];
       dispatch({ type: "projects/set", next: items });
+      dispatch({ type: "loaded/set", value: true });
       dispatch({ type: "error/set", value: "" });
       if (activeProjectID && !items.some((item) => item.id === activeProjectID)) {
         setActiveProjectIDState("");
@@ -130,7 +136,7 @@ export function ProjectsProvider({
 
   const selectProject = useCallback(
     async (id: string) => {
-      const nextID = id.trim();
+      const nextID = opaqueRecordID(id);
       setActiveProjectIDState(nextID);
       dispatch({ type: "error/set", value: "" });
       if (!nextID) return;
@@ -175,7 +181,7 @@ export function ProjectsProvider({
   );
 
   const renameProject = useCallback(async (id: string, name: string) => {
-    const projectID = id.trim();
+    const projectID = opaqueRecordID(id);
     const nextName = name.trim();
     if (!projectID || !nextName) return;
     dispatch({ type: "error/set", value: "" });
@@ -192,7 +198,7 @@ export function ProjectsProvider({
 
   const deleteProject = useCallback(
     async (id: string): Promise<ProjectDeleteRecord | null> => {
-      const projectID = id.trim();
+      const projectID = opaqueRecordID(id);
       if (!projectID) return null;
       dispatch({ type: "error/set", value: "" });
       try {
@@ -252,6 +258,10 @@ export function ProjectsProvider({
   );
 
   return <ProjectsContext.Provider value={value}>{children}</ProjectsContext.Provider>;
+}
+
+function opaqueRecordID(value: string): string {
+  return value.trim() ? value : "";
 }
 
 export function useProjects(): ProjectsContextValue {

@@ -60,13 +60,29 @@ describe("ProjectsProvider", () => {
     vi.mocked(getProjects).mockResolvedValue({ object: "projects", data: [project] });
     const { result } = renderHook(() => useProjects(), { wrapper });
 
+    expect(result.current.state.loaded).toBe(false);
+
     await act(async () => {
       await result.current.actions.loadProjects();
     });
 
     expect(result.current.state.projects).toEqual([project]);
+    expect(result.current.state.loaded).toBe(true);
     expect(result.current.activeProjectID).toBe("");
     expect(window.localStorage.getItem("hecate.project")).toBeNull();
+  });
+
+  it("keeps the catalog unresolved when its initial load fails", async () => {
+    vi.mocked(getProjects).mockRejectedValue(new Error("catalog unavailable"));
+    const { result } = renderHook(() => useProjects(), { wrapper });
+
+    await act(async () => {
+      await result.current.actions.loadProjects();
+    });
+
+    expect(result.current.state.loaded).toBe(false);
+    expect(result.current.state.projects).toEqual([]);
+    expect(result.current.state.error).toBe("catalog unavailable");
   });
 
   it("clears a stale persisted project id after loading current projects", async () => {
@@ -115,6 +131,27 @@ describe("ProjectsProvider", () => {
     await waitFor(() => {
       expect(window.localStorage.getItem("hecate.project")).toBe(project.id);
     });
+  });
+
+  it("preserves an opaque project id when selecting it", async () => {
+    const opaqueProject = { ...project, id: " project/+ % λ " };
+    vi.mocked(updateProject).mockResolvedValue({ object: "project", data: opaqueProject });
+    const { result } = renderHook(() => useProjects(), {
+      wrapper: ({ children }) => (
+        <ProjectsProvider initialState={{ projects: [opaqueProject], loaded: true }}>
+          {children}
+        </ProjectsProvider>
+      ),
+    });
+
+    await act(async () => {
+      await result.current.actions.selectProject(opaqueProject.id);
+    });
+
+    expect(updateProject).toHaveBeenCalledWith(opaqueProject.id, {
+      last_opened_at: expect.any(String) as string,
+    });
+    expect(result.current.activeProjectID).toBe(opaqueProject.id);
   });
 
   it("creates a rootless project and selects it", async () => {

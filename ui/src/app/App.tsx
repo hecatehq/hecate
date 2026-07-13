@@ -1,6 +1,21 @@
-import { startTransition, useEffect, useLayoutEffect } from "react";
+import {
+  startTransition,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { ConsoleShell, getAvailableWorkspaces, WORKSPACE_IDS, type WorkspaceID } from "./AppShell";
+import {
+  navigationURLsEqual,
+  parseNavigationURL,
+  projectNavigationURL,
+  workspaceNavigationURL,
+  type ProjectNavigationDestination,
+} from "./navigation";
 import { ApprovalsProvider } from "./state/approvals";
 import { ChatProvider } from "./state/chat";
 import { ProvidersAndModelsProvider } from "./state/providersAndModels";
@@ -57,18 +72,67 @@ function AppConsole() {
     parseWorkspaceID,
     "chats",
   );
+  const preferredWorkspaceRef = useRef(preferredWorkspace);
+  preferredWorkspaceRef.current = preferredWorkspace;
+  const [navigationURL, setNavigationURL] = useState(readBrowserNavigationURL);
+  const parsedNavigation = useMemo(() => parseNavigationURL(navigationURL), [navigationURL]);
 
   const workspaces = getAvailableWorkspaces();
-  const activeWorkspace: WorkspaceID = workspaces.some((w) => w.id === preferredWorkspace)
-    ? preferredWorkspace
+  const requestedWorkspace = parsedNavigation.workspace ?? preferredWorkspace;
+  const activeWorkspace: WorkspaceID = workspaces.some((w) => w.id === requestedWorkspace)
+    ? requestedWorkspace
     : "overview";
 
+  const commitNavigation = useCallback(
+    (nextURL: string, mode: "push" | "replace" = "push") => {
+      const currentURL = readBrowserNavigationURL();
+      if (navigationURLsEqual(currentURL, nextURL)) return;
+      if (mode === "replace") {
+        window.history.replaceState(null, "", nextURL);
+      } else {
+        window.history.pushState(null, "", nextURL);
+      }
+      const parsed = parseNavigationURL(nextURL);
+      if (parsed.workspace) setPreferredWorkspace(parsed.workspace);
+      startTransition(() => setNavigationURL(readBrowserNavigationURL()));
+    },
+    [setPreferredWorkspace],
+  );
+
   function handleSelectWorkspace(id: WorkspaceID) {
+    if (id === activeWorkspace) return;
     // Workspace views are lazy chunks. Mark navigation as a transition
     // so React keeps the current view visible while the next chunk is
     // fetched instead of flashing the Suspense fallback for a frame.
-    startTransition(() => setPreferredWorkspace(id));
+    commitNavigation(workspaceNavigationURL(window.location, id));
   }
+
+  const handleProjectNavigation = useCallback(
+    (destination: ProjectNavigationDestination, mode: "push" | "replace" = "push") => {
+      commitNavigation(projectNavigationURL(window.location, destination), mode);
+    },
+    [commitNavigation],
+  );
+
+  useEffect(() => {
+    const syncFromBrowser = () => {
+      const currentURL = readBrowserNavigationURL();
+      const parsed = parseNavigationURL(currentURL);
+      const workspace = parsed.workspace ?? preferredWorkspaceRef.current;
+      const canonicalURL = parsed.workspace
+        ? parsed.canonicalURL
+        : workspaceNavigationURL(currentURL, workspace);
+      if (!navigationURLsEqual(currentURL, canonicalURL)) {
+        window.history.replaceState(null, "", canonicalURL);
+      }
+      setPreferredWorkspace(workspace);
+      startTransition(() => setNavigationURL(readBrowserNavigationURL()));
+    };
+
+    syncFromBrowser();
+    window.addEventListener("popstate", syncFromBrowser);
+    return () => window.removeEventListener("popstate", syncFromBrowser);
+  }, [setPreferredWorkspace]);
 
   useEffect(() => {
     return installTauriEditShortcutFallback();
@@ -86,8 +150,19 @@ function AppConsole() {
   }, []);
 
   return (
-    <ConsoleShell activeWorkspace={activeWorkspace} onSelectWorkspace={handleSelectWorkspace} />
+    <ConsoleShell
+      activeWorkspace={activeWorkspace}
+      onProjectNavigate={handleProjectNavigation}
+      onSelectWorkspace={handleSelectWorkspace}
+      projectNavigation={
+        parsedNavigation.workspace === "projects" ? parsedNavigation.project : null
+      }
+    />
   );
+}
+
+function readBrowserNavigationURL(): string {
+  return `${window.location.pathname}${window.location.search}${window.location.hash}`;
 }
 
 export function installTauriDocumentMarkers(): () => void {

@@ -9,6 +9,7 @@ import { useChatTarget } from "./state/derived";
 import { useChatActions } from "./state/coordinators/chat";
 import { useWiredSettingsActions } from "./state/coordinators/wired";
 import { deriveSessionState } from "./runtimeConsoleDashboard";
+import type { ProjectNavigationDestination, ProjectNavigationState } from "./navigation";
 import type { ChatUsageRecord } from "../types/chat";
 import { UpdateBanner } from "../features/shared/UpdateBanner";
 import { usePersistedState } from "../lib/persistedState";
@@ -226,10 +227,17 @@ function runtimeVersionLabel(version: string | undefined): string {
 
 export function ConsoleShell({
   activeWorkspace,
+  onProjectNavigate,
   onSelectWorkspace,
+  projectNavigation,
 }: {
   activeWorkspace: WorkspaceID;
+  onProjectNavigate?: (
+    destination: ProjectNavigationDestination,
+    mode?: "push" | "replace",
+  ) => void;
   onSelectWorkspace: (workspace: WorkspaceID) => void;
+  projectNavigation?: ProjectNavigationState | null;
 }) {
   const runtime = useRuntime();
   // No auth: render the full console immediately. The brief
@@ -239,7 +247,12 @@ export function ConsoleShell({
     return <AuthLoadingShell />;
   }
   return (
-    <AuthenticatedShell activeWorkspace={activeWorkspace} onSelectWorkspace={onSelectWorkspace} />
+    <AuthenticatedShell
+      activeWorkspace={activeWorkspace}
+      onProjectNavigate={onProjectNavigate}
+      onSelectWorkspace={onSelectWorkspace}
+      projectNavigation={projectNavigation}
+    />
   );
 }
 
@@ -286,10 +299,17 @@ function AuthLoadingShell() {
 
 function AuthenticatedShell({
   activeWorkspace,
+  onProjectNavigate,
   onSelectWorkspace,
+  projectNavigation,
 }: {
   activeWorkspace: WorkspaceID;
+  onProjectNavigate?: (
+    destination: ProjectNavigationDestination,
+    mode?: "push" | "replace",
+  ) => void;
   onSelectWorkspace: (workspace: WorkspaceID) => void;
+  projectNavigation?: ProjectNavigationState | null;
 }) {
   const runtime = useRuntime();
   const chat = useChat();
@@ -449,9 +469,11 @@ function AuthenticatedShell({
               )}
               {activeWorkspace === "projects" && (
                 <ProjectsView
+                  navigation={projectNavigation}
                   onOpenChat={openChatFromProject}
                   onOpenConnections={() => onSelectWorkspace("connections")}
                   onOpenTask={openTaskFromProject}
+                  onNavigate={onProjectNavigate}
                 />
               )}
               {activeWorkspace === "connections" && <ProvidersView />}

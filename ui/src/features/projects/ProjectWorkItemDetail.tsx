@@ -402,7 +402,7 @@ export function ProjectWorkItemDetail({
         style={workItemCardStyle}
         tabIndex={-1}
       >
-        <div style={workItemDetailHeaderStyle}>
+        <div className="project-work-item-detail-header" style={workItemDetailHeaderStyle}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <h2 style={workItemTitleStyle}>{workItem.title}</h2>
             <div style={workItemMetaStyle}>
@@ -423,7 +423,7 @@ export function ProjectWorkItemDetail({
               )}
             </div>
           </div>
-          <div style={workItemHeaderActionsStyle}>
+          <div className="project-work-item-header-actions" style={workItemHeaderActionsStyle}>
             {!workClosed && (
               <>
                 <button

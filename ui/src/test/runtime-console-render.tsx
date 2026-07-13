@@ -120,6 +120,10 @@ function chatInitialState(fixture: RuntimeConsoleFixtureState) {
 function projectsInitialState(fixture: RuntimeConsoleFixtureState) {
   return {
     projects: fixture.projects,
+    // A fixture snapshot represents an already-resolved catalog. Route
+    // tests rely on this to distinguish a missing project from the brief
+    // empty state before the first catalog request finishes.
+    loaded: true,
   };
 }
 

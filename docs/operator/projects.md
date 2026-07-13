@@ -34,6 +34,50 @@ creation opens with a draft title, brief, and owner role for operator review.
 
 Project names and concrete root paths are unique in the Projects coordination store.
 
+## Open, Copy, And Return To Project Work
+
+Hecate uses stable browser paths for its workspaces: `/chats`, `/projects`,
+`/tasks`, `/connections`, `/observability`, `/usage`, and `/settings`. Switching
+workspaces updates the address and removes project-only details from any
+non-Projects path.
+
+Projects addresses become more specific as you move into the cockpit:
+
+| Destination      | Address                                                        |
+| ---------------- | -------------------------------------------------------------- |
+| Projects         | `/projects`                                                    |
+| Project Overview | `/projects?project=<project_id>`                               |
+| Work queue       | `/projects?project=<project_id>&view=work`                     |
+| Exact work item  | `/projects?project=<project_id>&view=work&work=<work_item_id>` |
+| Timeline         | `/projects?project=<project_id>&view=timeline`                 |
+| Memory           | `/projects?project=<project_id>&view=memory`                   |
+| Skills           | `/projects?project=<project_id>&view=skills`                   |
+
+Overview is the default, so it does not add `view=overview`. If Work has no
+item in the address, Hecate selects a valid current or first item and replaces
+the address with its exact identifier. The project named in the address takes
+priority over the project or workspace you last opened.
+
+In a browser, open the project, view, and work item you want, then copy the
+address from the browser. Reload restores that destination. Back and Forward
+return through workspace, project, tab, and work-item choices without creating
+duplicate project records. A shared link works only for someone connected to
+the same Hecate runtime and Cairnline project store; it is not a portable export
+and does not grant permission to launch or change work.
+
+Hecate keeps an exact link in place while it checks the project catalog. If the
+project does not exist in this runtime, the cockpit shows **Project not found**
+and does not open another project. If the project exists but the work item does
+not, Work remains open with a notice and the valid queue; choose another item
+explicitly. New projects that still need onboarding always open the guided
+Overview, even if an old link names Work, Memory, Timeline, or Skills.
+
+The Tauri desktop app uses the same paths inside its webview, but V1 does not
+show an address bar, provide a native **Copy link** action, or register an
+operating-system deep link. Copy/share entry is therefore a browser workflow;
+use Hecate's browser address on the target runtime when a restorable link is
+needed.
+
 ## Work Flow
 
 For each work item:

@@ -857,6 +857,7 @@ test("Projects overview is the default ready-project home at desktop and narrow 
   await page.getByLabel("Brief").fill("Check the launch narrative and record evidence.");
   await page.getByRole("button", { name: "Create work item" }).click();
   await expect(page.getByRole("tab", { name: /Work/ })).toHaveAttribute("aria-selected", "true");
+  await page.getByRole("tab", { name: "Overview" }).click();
 
   await page.reload();
   await expect(page.getByRole("region", { name: "Project overview" })).toBeVisible();
@@ -877,6 +878,7 @@ test("Projects overview is the default ready-project home at desktop and narrow 
   await page.getByRole("button", { name: "View work" }).click();
   await expect(page.getByRole("tab", { name: /Work/ })).toBeFocused();
   await expect(page.getByRole("article", { name: /Review launch narrative/ })).toBeVisible();
+  await page.getByRole("tab", { name: "Overview" }).click();
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
@@ -921,6 +923,104 @@ test("Projects overview is the default ready-project home at desktop and narrow 
       quality: 90,
     });
   }
+});
+
+test("Projects links restore exact work across reload, history, and narrow widths", async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(new Date(NOW));
+  const state = await mockProjectJourneyAPIs(page);
+  const { project, secondWorkItem } = seedNavigationProject(state);
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.workspace", "chats");
+    window.localStorage.setItem("hecate.project", "remembered_elsewhere");
+  });
+
+  const workURL = `/projects?project=${project.id}&view=work&work=${secondWorkItem.id}`;
+  await page.goto(workURL);
+  await expect(page.getByRole("heading", { name: secondWorkItem.title })).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`${workURL.replaceAll("?", "\\?")}$`));
+  await expect(page.getByRole("heading", { name: "First queued item" })).toHaveCount(0);
+
+  await page.getByRole("tab", { name: /Memory/ }).click();
+  await expect(page).toHaveURL(new RegExp(`/projects\\?project=${project.id}&view=memory$`));
+  await expect(page.getByRole("region", { name: "Project memory" })).toBeVisible();
+
+  await page.goBack();
+  await expect(page.getByRole("heading", { name: secondWorkItem.title })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("heading", { name: secondWorkItem.title })).toBeVisible();
+
+  await page.getByRole("button", { name: "Chats" }).click();
+  await expect(page).toHaveURL(/\/chats$/);
+  await page.goBack();
+  await expect(page.getByRole("heading", { name: secondWorkItem.title })).toBeVisible();
+
+  if (process.env.HECATE_CAPTURE_PROJECTS_NAVIGATION === "1") {
+    await page.screenshot({
+      path: "../docs/screenshots/projects-navigation-work.jpg",
+      type: "jpeg",
+      quality: 90,
+    });
+  }
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  const narrowSelectedHeading = page.getByRole("heading", { name: secondWorkItem.title });
+  await expect(narrowSelectedHeading).toBeVisible();
+  expect(
+    await page
+      .locator(".projects-cockpit-shell")
+      .evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+  ).toBe(true);
+  await narrowSelectedHeading.scrollIntoViewIfNeeded();
+  await expect(narrowSelectedHeading).toBeInViewport();
+  if (process.env.HECATE_CAPTURE_PROJECTS_NAVIGATION === "1") {
+    await page.screenshot({
+      path: "../docs/screenshots/projects-navigation-work-narrow.jpg",
+      type: "jpeg",
+      quality: 90,
+    });
+  }
+});
+
+test("Projects links fail closed for missing projects and work items", async ({ page }) => {
+  const state = await mockProjectJourneyAPIs(page);
+  const { firstWorkItem, project, secondWorkItem } = seedNavigationProject(state);
+  const projectRequests: string[] = [];
+  page.on("request", (request) => {
+    const pathname = new URL(request.url()).pathname;
+    if (pathname.startsWith("/hecate/v1/projects/")) projectRequests.push(pathname);
+  });
+  await page.addInitScript((projectID) => {
+    window.localStorage.setItem("hecate.workspace", "chats");
+    window.localStorage.setItem("hecate.project", projectID);
+  }, project.id);
+
+  await page.goto("/projects?project=missing_project");
+  await expect(page.getByText("Project not found", { exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/projects\?project=missing_project$/);
+  expect(projectRequests.some((path) => path.includes("/missing_project/"))).toBe(false);
+
+  projectRequests.length = 0;
+  await page.goto(`/projects?project=${project.id}&view=work&work=missing_work`);
+  await expect(
+    page.getByRole("status").filter({ hasText: "Work item not found in this project" }),
+  ).toBeVisible();
+  await expect(page.getByRole("region", { name: "Work queue" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: `Open work item ${firstWorkItem.title}` }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: `Open work item ${secondWorkItem.title}` }),
+  ).toBeVisible();
+  await expect(page).toHaveURL(
+    new RegExp(`/projects\\?project=${project.id}&view=work&work=missing_work$`),
+  );
+  expect(projectRequests.some((path) => path.includes("/work-items/missing_work"))).toBe(false);
+  expect(projectRequests.some((path) => path.includes(`/work-items/${firstWorkItem.id}`))).toBe(
+    false,
+  );
 });
 
 test("Projects supporting surfaces stay read-first at desktop and narrow widths", async ({
@@ -2005,6 +2105,51 @@ function failUnexpectedProjectJourneyRequest(route: Route): never {
 }
 
 type ProjectJourneyState = Awaited<ReturnType<typeof mockProjectJourneyAPIs>>;
+
+function seedNavigationProject(state: ProjectJourneyState) {
+  const project: ProjectRecord = {
+    id: "proj_navigation",
+    name: "Navigation operations",
+    description: "Coordinate shareable project work.",
+    roots: [],
+    context_sources: [],
+    default_provider: "anthropic",
+    default_model: "claude-sonnet-4-6",
+    created_at: NOW,
+    updated_at: NOW,
+  };
+  const role: ProjectWorkRoleRecord = {
+    id: "navigation_operator",
+    project_id: project.id,
+    name: "Navigation operator",
+    description: "Verifies project routing behavior.",
+    default_driver_kind: "human",
+    created_at: NOW,
+    updated_at: NOW,
+  };
+  const firstWorkItem: ProjectWorkItemRecord = {
+    id: "work_first",
+    project_id: project.id,
+    title: "First queued item",
+    brief: "This item must not replace an explicit link target.",
+    status: "ready",
+    priority: "normal",
+    owner_role_id: role.id,
+    created_at: NOW,
+    updated_at: NOW,
+  };
+  const secondWorkItem: ProjectWorkItemRecord = {
+    ...firstWorkItem,
+    id: "work_second",
+    title: "Linked review target",
+    brief: "Restore this exact work item from its project link.",
+    priority: "high",
+  };
+  state.projects = [project];
+  state.roles = [role];
+  state.workItems = [firstWorkItem, secondWorkItem];
+  return { firstWorkItem, project, secondWorkItem };
+}
 
 function applySetup(state: ProjectJourneyState) {
   state.projects[0] = {

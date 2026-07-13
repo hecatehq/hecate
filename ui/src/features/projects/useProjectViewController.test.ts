@@ -152,6 +152,25 @@ describe("useProjectSelectionController", () => {
     expect(onProjectChange).toHaveBeenCalledTimes(1);
   });
 
+  it("preserves an explicit missing route instead of selecting another project", () => {
+    const selectProject = vi.fn();
+    const onProjectChange = vi.fn();
+    const projects = [project("proj_a")];
+    const { result } = renderHook(() =>
+      useProjectSelectionController({
+        activeProjectID: "missing / project",
+        onProjectChange,
+        preserveMissingActiveProject: true,
+        projects,
+        selectProject,
+      }),
+    );
+
+    expect(result.current.selectedProjectID).toBe("missing / project");
+    expect(result.current.selectedProject).toBeNull();
+    expect(selectProject).not.toHaveBeenCalled();
+  });
+
   it("resets project-scoped interactions when clearing or replacing a selection", () => {
     const selectProject = vi.fn();
     const onProjectChange = vi.fn();
