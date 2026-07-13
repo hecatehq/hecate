@@ -96,6 +96,19 @@ export function toProjectActivityAssignmentExecutionViewModel(
   });
 }
 
+export function projectActivityMatchesAssignmentVersion(
+  assignment: ProjectAssignmentRecord,
+  activityItem?: ProjectActivityItemRecord,
+): boolean {
+  if (!activityItem) return false;
+  return (
+    activityItem.assignment.id === assignment.id &&
+    activityItem.assignment.project_id === assignment.project_id &&
+    activityItem.assignment.work_item_id === assignment.work_item_id &&
+    activityItem.assignment.updated_at === assignment.updated_at
+  );
+}
+
 export function toProjectActivityItemViewModel(
   item: ProjectActivityItemRecord,
 ): ProjectActivityItemViewModel {

@@ -114,6 +114,28 @@ and uses its typed `ready`/`blockers` fields as the launch gate. The separate
 preflight context packet remains inspectable evidence for the operator; it is
 not parsed by the client as the readiness authority.
 
+Each assignment is presented as an execution story. The leading action follows
+the current assignment state: **Review & start** or **Review & prepare chat**
+while queued, **Open task/chat** while running, **Review in task** for pending
+approval, **Inspect task/chat** after failure or cancellation, and a review
+action after completion when the work item has a suitable reviewer role. The
+Assigned, Started, current, and Finished milestones use timestamps actually
+recorded by Cairnline or the linked Hecate runtime. If no start or finish time
+exists, Projects says so instead of using the assignment's general update time
+as execution history.
+
+Hecate currently receives Cairnline's review-waiting and approval-waiting states
+through the same assignment status. Projects says **Review task** and uses
+neutral review copy unless the linked runtime reports at least one pending
+approval. A task/chat action means a real execution link exists; **Start related
+chat** is a separate supporting action that creates a new draft.
+
+Pending approvals, errors, missing runtime links, and missing prepared External
+Agent chats stay visible. Open **Execution details** for task/run/chat IDs,
+provider/model, root, readiness, Context Inspector, and canonical evidence.
+These are supporting facts; Tasks, Chats, and External Agents remain the
+execution authorities.
+
 Preset surface is part of readiness: a native Hecate Task assignment accepts
 presets for `hecate_task` or `any`, while an External Agent assignment accepts
 `external_agent` or `any`. A mismatch blocks launch instead of treating the

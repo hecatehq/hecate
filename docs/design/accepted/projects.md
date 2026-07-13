@@ -340,11 +340,14 @@ The Projects UI should stay lightweight but operational:
 - Treat the selected work item as one card. The work title, brief,
   assignments, collaboration artifacts, and handoffs are one work coordination
   object with internal sections, not separate dashboard panels.
-- Show assignment execution evidence close to the assignment row using
-  canonical `execution_ref` and activity linked ids: task, run, chat, message,
-  context snapshot, trace, provider/model, counts, and missing/stale warnings.
-  Keep this as compact provenance; the full Context Inspector remains the
-  place to inspect the persisted packet sections the agent actually saw.
+- Present each assignment as a readable execution story with one state-driven
+  primary action. Show Assigned, recorded Started, current status, and recorded
+  Finished milestones without treating `updated_at` as transition history.
+  Keep approvals, failures, and missing links visible; place canonical
+  `execution_ref`, activity-linked task/run/chat/message/context/trace IDs,
+  provider/model, counts, root, readiness, and Context Inspector behind native
+  disclosure. The full Context Inspector remains the place to inspect the
+  persisted packet sections the agent actually saw.
 - Show handoff source evidence separately from target assignment evidence.
   Source assignment/run/chat/message/context refs explain provenance; target
   assignment refs explain the follow-up work. Accepting or linking a handoff
@@ -412,6 +415,8 @@ Cairnline coordination state. The current flow supports:
 - project roles and Hecate Agent Preset defaults;
 - work items, assignments, launch preflight, Hecate task launch, and External
   Agent launch;
+- state-driven assignment execution stories with truthful recorded milestones
+  and progressively disclosed runtime evidence;
 - context inspection, evidence, reviews, handoffs, closeout readiness, and
   project activity;
 - accepted project memory and operator-reviewed memory candidates;

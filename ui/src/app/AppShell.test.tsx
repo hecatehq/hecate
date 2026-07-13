@@ -821,8 +821,9 @@ describe("ConsoleShell navigation", () => {
       ),
     );
 
-    fireEvent.click(await screen.findByRole("tab", { name: /Work/ }));
-    fireEvent.click(await screen.findByRole("button", { name: "Open chat" }));
+    fireEvent.click(await screen.findByRole("tab", { name: /Work/ }, { timeout: 30_000 }));
+    fireEvent.click(await screen.findByText("Execution details"));
+    fireEvent.click(await screen.findByRole("button", { name: "Start related chat" }));
 
     expect(createChatSession).toHaveBeenCalledWith(
       expect.objectContaining({

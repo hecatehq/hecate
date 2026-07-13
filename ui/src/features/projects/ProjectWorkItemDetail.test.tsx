@@ -442,16 +442,35 @@ describe("ProjectWorkItemDetail", () => {
     expect(screen.getByText("1 assignment is still active")).toBeTruthy();
   });
 
+  it("keeps blocked closeout after the assignment execution story", () => {
+    renderDetail({
+      closeoutReadiness: closeoutReadiness({
+        ready: false,
+        status: "blocked",
+        title: "Closeout is blocked",
+        blockers: ["1 assignment is still active"],
+        completed_assignments: 0,
+      }),
+    });
+
+    const executionStory = screen.getByRole("article", {
+      name: "Developer assignment execution assign_1",
+    });
+    const closeout = screen.getByRole("region", { name: "Work closeout" });
+    expect(executionStory.compareDocumentPosition(closeout)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
   it("renders assignment runtime links and delegates row actions", async () => {
     const { handlers, assignment: assign } = renderDetail();
 
     expect(screen.getByRole("article", { name: "Decompose project UI work item" })).toBeTruthy();
     expect(screen.getByText("Developer")).toBeTruthy();
+    await userEvent.click(screen.getByText("Execution details"));
     expect(screen.getByText("2 steps")).toBeTruthy();
-    expect(screen.getByText("1 artifacts")).toBeTruthy();
+    expect(screen.getByText("1 artifact")).toBeTruthy();
 
     await userEvent.click(screen.getByRole("button", { name: "Open task" }));
-    await userEvent.click(screen.getByRole("button", { name: "Open chat" }));
+    await userEvent.click(screen.getByRole("button", { name: "Start related chat" }));
     await userEvent.click(
       screen.getByRole("button", { name: "Create handoff from assignment assign_1" }),
     );
@@ -605,17 +624,36 @@ describe("ProjectWorkItemDetail", () => {
 
     expect(screen.getByText("Closeout is blocked")).toBeTruthy();
     expect(screen.getByText("1 assignment is still active")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Mark done" })).toBeDisabled();
+    const markDone = screen.getByRole("button", { name: "Mark done" });
+    expect(markDone).toBeDisabled();
+    expect(markDone).toHaveClass("btn-ghost");
+    expect(markDone).not.toHaveClass("btn-primary");
   });
 
   it("delegates mark-done when closeout is ready", async () => {
     const item = workItem();
+    const developer = role();
+    const reviewer = role({ id: "architect", name: "Architect reviewer" });
     const { handlers } = renderDetail({
-      assignments: [assignment({ status: "completed", execution_ref: { kind: "none" } })],
+      assignments: [
+        assignment({
+          status: "completed",
+          execution_ref: { kind: "task_run", task_id: "task_done", status: "completed" },
+        }),
+      ],
+      roleByID: new Map([
+        [developer.id, developer],
+        [reviewer.id, reviewer],
+      ]),
       workItem: item,
     });
 
     expect(screen.getByText("Ready to mark done")).toBeTruthy();
+    const work = screen.getByRole("article", { name: "Decompose project UI work item" });
+    expect(work.querySelectorAll(".btn-primary")).toHaveLength(1);
+    expect(
+      screen.getByRole("button", { name: "Request review for assignment assign_1" }),
+    ).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "Mark done" }));
 
     expect(handlers.onCloseWorkItem).toHaveBeenCalledWith(item);
@@ -661,7 +699,7 @@ describe("ProjectWorkItemDetail", () => {
   it("loads launch preflight before starting an assignment", async () => {
     const { handlers } = renderDetail();
 
-    await userEvent.click(screen.getByRole("button", { name: "Start" }));
+    await userEvent.click(screen.getByRole("button", { name: "Review & start" }));
     expect(getProjectAssignmentLaunchReadinessMock).toHaveBeenCalledWith(
       "proj_1",
       "work_1",
@@ -690,6 +728,7 @@ describe("ProjectWorkItemDetail", () => {
   it("shows server-backed launch readiness inline before opening preflight", async () => {
     renderDetail();
 
+    await userEvent.click(screen.getByText("Execution details"));
     const readiness = screen.getByRole("region", { name: "Assignment launch readiness" });
     expect(within(readiness).getByText("not checked")).toBeTruthy();
 
@@ -730,6 +769,7 @@ describe("ProjectWorkItemDetail", () => {
     });
     renderDetail();
 
+    await userEvent.click(screen.getByText("Execution details"));
     const readiness = screen.getByRole("region", { name: "Assignment launch readiness" });
     await userEvent.click(within(readiness).getByRole("button", { name: "Check readiness" }));
 
@@ -756,7 +796,7 @@ describe("ProjectWorkItemDetail", () => {
       assignments: [assignment({ driver_kind: "external_agent", execution_ref: { kind: "none" } })],
     });
 
-    await userEvent.click(screen.getByRole("button", { name: "Prepare chat" }));
+    await userEvent.click(screen.getByRole("button", { name: "Review & prepare chat" }));
     const preflight = await screen.findByRole("dialog", {
       name: "Assignment assign_1 launch preflight",
     });
@@ -822,7 +862,7 @@ describe("ProjectWorkItemDetail", () => {
     });
     const { handlers } = renderDetail();
 
-    await userEvent.click(screen.getByRole("button", { name: "Start" }));
+    await userEvent.click(screen.getByRole("button", { name: "Review & start" }));
     const preflight = await screen.findByRole("dialog", {
       name: "Assignment assign_1 launch preflight",
     });
