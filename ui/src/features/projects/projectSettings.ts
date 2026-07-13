@@ -30,6 +30,7 @@ export type CreateWorktreeForm = {
   setDefault: boolean;
 };
 
+const persistedRootFormKeyPrefix = "persisted-root:";
 const unsavedRootFormKeyPrefix = "unsaved-root:";
 
 export function createProjectPayloadFromForm(form: CreateProjectForm): CreateProjectPayload {
@@ -53,12 +54,14 @@ export function createProjectPayloadFromForm(form: CreateProjectForm): CreatePro
 }
 
 export function projectDefaultsFormFromProject(project: ProjectRecord): ProjectDefaultsForm {
+  const defaultRoot =
+    project.roots.find((root) => root.id === project.default_root_id) ?? project.roots[0];
   return {
     provider: project.default_provider ?? "",
     model: project.default_model ?? "",
     defaultAgentPreset: project.default_agent_profile ?? "",
     workspaceMode: project.default_workspace_mode ?? "",
-    defaultRootID: project.default_root_id || project.roots[0]?.id || "",
+    defaultRootID: defaultRoot ? projectRootFormKey(defaultRoot) : "",
     roots: project.roots.map(projectRootPayloadFromRecord),
   };
 }
@@ -90,7 +93,10 @@ export function projectRootPayloadsEqual(
 }
 
 export function projectRootFormKey(root: ProjectRootPayload | ProjectRootRecord) {
-  return root.id?.trim() || `${unsavedRootFormKeyPrefix}${root.path.trim()}`;
+  const rootID = root.id?.trim();
+  return rootID
+    ? `${persistedRootFormKeyPrefix}${rootID}`
+    : `${unsavedRootFormKeyPrefix}${root.path.trim()}`;
 }
 
 export function isUnsavedProjectRootFormKey(value: string) {

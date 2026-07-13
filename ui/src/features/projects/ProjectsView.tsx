@@ -242,7 +242,6 @@ export function ProjectsView({
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const settingsReturnFocusRef = useRef<HTMLElement | null>(null);
   const settingsReturnFocusOriginRef = useRef("");
-  const settingsFocusRestoreGenerationRef = useRef(0);
   const { rightPanelWidth, setRightPanelWidth } = useStoredRightPanelWidth();
   const [defaultsPending, setDefaultsPending] = useState(false);
   const [defaultsError, setDefaultsError] = useState("");
@@ -464,7 +463,6 @@ export function ProjectsView({
   function openProjectSettings(origin?: "header" | "onboarding") {
     setDefaultsError("");
     if (!settingsPanelOpen) {
-      settingsFocusRestoreGenerationRef.current += 1;
       const activeElement =
         document.activeElement instanceof HTMLElement ? document.activeElement : null;
       settingsReturnFocusRef.current = activeElement;
@@ -475,39 +473,46 @@ export function ProjectsView({
   }
 
   function closeProjectSettings() {
+    setSettingsPanelOpen(false);
+  }
+
+  useEffect(() => {
+    if (settingsPanelOpen) return;
     const returnFocus = settingsReturnFocusRef.current;
     const returnFocusOrigin = settingsReturnFocusOriginRef.current;
-    const restoreGeneration = ++settingsFocusRestoreGenerationRef.current;
-    setSettingsPanelOpen(false);
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
-        if (restoreGeneration !== settingsFocusRestoreGenerationRef.current) return;
-        const replacement = returnFocusOrigin
-          ? (Array.from(
-              document.querySelectorAll<HTMLElement>("[data-project-settings-origin]"),
-            ).find((element) => element.dataset.projectSettingsOrigin === returnFocusOrigin) ??
-            null)
-          : null;
-        const target =
-          replacement?.isConnected &&
-          !(replacement instanceof HTMLButtonElement && replacement.disabled)
-            ? replacement
-            : returnFocus?.isConnected &&
-                !(returnFocus instanceof HTMLButtonElement && returnFocus.disabled)
-              ? returnFocus
-              : settingsButtonRef.current;
-        target?.focus();
-        settingsReturnFocusRef.current = null;
-        settingsReturnFocusOriginRef.current = "";
-      });
-    });
-  }
+    if (!returnFocus && !returnFocusOrigin) return;
+
+    const replacement = returnFocusOrigin
+      ? (Array.from(document.querySelectorAll<HTMLElement>("[data-project-settings-origin]")).find(
+          (element) => element.dataset.projectSettingsOrigin === returnFocusOrigin,
+        ) ?? null)
+      : null;
+    const available = (element: HTMLElement | null) =>
+      Boolean(element?.isConnected && !(element instanceof HTMLButtonElement && element.disabled));
+    const target = available(replacement)
+      ? replacement
+      : available(returnFocus)
+        ? returnFocus
+        : null;
+    if (target) {
+      target.focus();
+      settingsReturnFocusRef.current = null;
+      settingsReturnFocusOriginRef.current = "";
+      return;
+    }
+
+    if (returnFocusOrigin === "onboarding" && projectSetupReadinessLoadState === "loading") {
+      return;
+    }
+    settingsButtonRef.current?.focus();
+    settingsReturnFocusRef.current = null;
+    settingsReturnFocusOriginRef.current = "";
+  }, [projectSetupReadinessLoadState, selectedProject, settingsPanelOpen]);
 
   function resetProjectScopedInteractions() {
     setWorkspaceTab(initialWorkspaceTab);
     setWorkspaceTabFocusTarget(null);
     setSettingsPanelOpen(false);
-    settingsFocusRestoreGenerationRef.current += 1;
     settingsReturnFocusRef.current = null;
     settingsReturnFocusOriginRef.current = "";
     setDefaultsPending(false);
